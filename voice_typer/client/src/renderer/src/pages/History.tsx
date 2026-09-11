@@ -16,13 +16,13 @@ import { SortSelect } from "@/components/common/SortSelect";
 import ActivityList from "@/components/dashboard/ActivityList";
 import { EmptyState } from "@/components/feedback/EmptyState";
 import { Spinner } from "@/components/feedback/Spinner";
-import { ListPageSkeleton } from "@/components/feedback/skeletons";
 import { Button } from "@/components/ui/button";
 import { useGlobalSearch } from "@/hooks/useGlobalSearch";
 import { useLatestRef } from "@/hooks/useLatestRef";
 import { useNavigation } from "@/hooks/useNavigation";
 import { usePython } from "@/hooks/usePython";
 import { getLocale, t } from "@/i18n/i18n";
+import { HistorySkeleton } from "./history/components/HistorySkeleton";
 import {
 	HISTORY_PAGE_SIZE,
 	useHistoryCache,
@@ -46,7 +46,7 @@ import {
 // lives in `useHistoryExport`, and the client-side sort lives in
 // `historySort.ts`. This file is the thin view component.
 
-// Soft display cap — the flat list renders at most this many rows so a
+// Soft display cap, the flat list renders at most this many rows so a
 // very long history can't mount thousands of DOM rows at once. Once the
 // user has revealed this many rows AND the backend still reports more,
 // the "Load More" button is replaced by the cap notice pointing at
@@ -79,14 +79,14 @@ export default function HistoryPage() {
 	// placeholder. `stats` is replaced by useHistoryCache on every rows
 	// reload (load + background event refresh), so the count refetches
 	// with the list; a failure keeps the previous value and the footer
-	// degrades to the "…" placeholder below — never to "N+".
+	// degrades to the "…" placeholder below, never to "N+".
 	//
 	// `call` is mirrored into a ref (the useDashboardData pattern) so
-	// the effect is keyed on `stats` alone — a fresh `call` identity
+	// the effect is keyed on `stats` alone, a fresh `call` identity
 	// under test mocks would otherwise re-fire it every render.
 	const historyCountCallRef = useLatestRef(call);
 	const [historyCount, setHistoryCount] = useState<number | null>(null);
-	// biome-ignore lint/correctness/useExhaustiveDependencies: stats is a deliberate CHANGE TRIGGER (its identity is replaced on every rows reload), not a value the effect reads — the refetch key for the footer count
+	// biome-ignore lint/correctness/useExhaustiveDependencies: stats is a deliberate CHANGE TRIGGER (its identity is replaced on every rows reload), not a value the effect reads, the refetch key for the footer count
 	useEffect(() => {
 		let cancelled = false;
 		historyCountCallRef
@@ -111,7 +111,7 @@ export default function HistoryPage() {
 	// fetch into `records`; this state controls how many of them the
 	// list actually renders. It starts at one page and every "Load More"
 	// click BOTH fetches the next page (loadMore) and widens the window
-	// by one page — without the widening, appended rows would be sliced
+	// by one page, without the widening, appended rows would be sliced
 	// off by the render cap below and the click would look like a
 	// dead-zone no-op. Reset to one page whenever a fresh load runs.
 	const [visibleCount, setVisibleCount] = useState(HISTORY_PAGE_SIZE);
@@ -132,7 +132,7 @@ export default function HistoryPage() {
 		[load],
 	);
 
-	// Background-event refresh pipeline — the 500ms-debounced
+	// Background-event refresh pipeline, the 500ms-debounced
 	// transcription_final / history_changed handler, the hidden-window
 	// stale flag, the visibilitychange one-shot refresh, and the manual
 	// refresh wrapper (see useHistoryEventRefresh).
@@ -145,7 +145,7 @@ export default function HistoryPage() {
 		runLoad();
 	}, [runLoad]);
 
-	// Debounced reload driven by the GLOBAL search store — a 200ms-
+	// Debounced reload driven by the GLOBAL search store, a 200ms-
 	// delayed fresh load whenever the query (or the favorites filter)
 	// changes, with the first-render guard (see useHistorySearchReload).
 	useHistorySearchReload({ searchQuery, favoritesOnly, runLoad });
@@ -156,13 +156,13 @@ export default function HistoryPage() {
 		runLoad(searchQuery, next);
 	}, [favoritesOnly, runLoad, searchQuery]);
 
-	// Per-row record actions — delete-with-undo, favorite toggle, and
+	// Per-row record actions, delete-with-undo, favorite toggle, and
 	// the lazy full-text fetch for expandable rows (see
 	// useHistoryRecordActions).
 	const { handleDelete, handleToggleFavorite, handleFetchFullText } =
 		useHistoryRecordActions({ call, records, load, setRecords });
 
-	// Clear-all flow — the filter-aware short-circuit guards, the
+	// Clear-all flow, the filter-aware short-circuit guards, the
 	// confirmation-dialog state, and the destructive apply (see
 	// useHistoryClearAll).
 	const {
@@ -194,7 +194,7 @@ export default function HistoryPage() {
 		favoritesOnly,
 	});
 
-	// Sorted view of the loaded records — applied client-side so the
+	// Sorted view of the loaded records, applied client-side so the
 	// user can re-order the displayed list (and the export) without an
 	// extra backend round-trip.
 	const sortedRecords = useMemo(
@@ -203,7 +203,7 @@ export default function HistoryPage() {
 	);
 
 	// Date-grouped sections are only meaningful when the list reads
-	// chronologically — grouping an alphabetical sort would interleave
+	// chronologically, grouping an alphabetical sort would interleave
 	// date headers between A→Z entries and break the reading order.
 	const groupByDate = sortOrder === "newest" || sortOrder === "oldest";
 
@@ -230,7 +230,7 @@ export default function HistoryPage() {
 					}
 				/>
 
-				{/* Action buttons — shared filter/sort visual pattern with
+				{/* Action buttons, shared filter/sort visual pattern with
                                     Vocabulary/Templates (SortSelect + muted controls,
                                     w-full flex-wrap so row wraps cleanly on narrow
                                     viewports). */}
@@ -308,7 +308,7 @@ export default function HistoryPage() {
 					</div>
 
 					{loading && records.length === 0 ? (
-						<ListPageSkeleton />
+						<HistorySkeleton />
 					) : loadError && records.length === 0 ? (
 						//distinguish "backend failed to load" from
 						// "history is genuinely empty".
@@ -391,7 +391,7 @@ export default function HistoryPage() {
 									{t("history.showingCap", {
 										shown: String(HISTORY_DISPLAY_CAP),
 										// While the count loads (or if the count fetch
-										// fails) render the ellipsis placeholder — the
+										// fails) render the ellipsis placeholder, the
 										// point of the line (list is capped, use search)
 										// stays readable without a broken "N+" value.
 										total: historyCount !== null ? String(historyCount) : "…",
@@ -431,7 +431,7 @@ export default function HistoryPage() {
 			</div>
 
 			{/* ConfirmDialog for Clear All. variant="destructive" is
-                            explicit to match the Vocabulary Clear-All dialog — the
+                            explicit to match the Vocabulary Clear-All dialog, the
                             confirm button carries the destructive treatment for an
                             irreversible, privacy-adjacent wipe. */}
 			<ConfirmDialog

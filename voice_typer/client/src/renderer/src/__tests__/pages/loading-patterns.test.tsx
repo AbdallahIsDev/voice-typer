@@ -9,10 +9,12 @@
  *      AND uses it as the accessible name (overriding the generic
  *      ``a11y.loading`` fallback). ``Spinner`` is reserved for INLINE
  *      action-progress indicators (e.g. the History "Load More" button)
- *      — page-content loading uses skeletons.
+ *     , page-content loading uses skeletons.
  *   2. The 5 first-load-only pages (History / Microphone / Templates /
  *      Vocabulary / Models) mount into a page-shaped Skeleton
- *      composition (``components/feedback/skeletons.tsx``): an
+ *      composition (``pages/<page>/components/*Skeleton.tsx``, built
+ *      from the shared primitives in
+ *      ``components/feedback/skeletons.tsx``): an
  *      ``<output aria-busy="true">`` region whose accessible name is
  *      the generic ``a11y.loading`` key (verified behaviorally by
  *      mounting each page in its first-load state, not by scanning
@@ -22,7 +24,7 @@
  *      remaining keys are retained in the catalogues (unused by pages
  *      since the skeleton migration) so locales stay complete.
  *
- * Tests run on LINUX (sandbox). No backend / IPC required — the page
+ * Tests run on LINUX (sandbox). No backend / IPC required, the page
  * mounts are driven by the shared stable-mocks harness with a
  * never-resolving ``call`` so the first-load state persists for the
  * assertion.
@@ -53,7 +55,7 @@ vi.mock("@/i18n/i18n", async (importOriginal) => {
 
 // Shared stable-mocks preamble (see helpers/stableMocks.tsx): the
 // assertable singletons + one vi.mock line per module. Every data page
-// below mounts through these — identical to the per-page suites.
+// below mounts through these, identical to the per-page suites.
 import {
 	hugeiconsCoreMock,
 	hugeiconsReactMock,
@@ -95,7 +97,7 @@ const LOADING_KEYS = [
 	"vocabulary.loading",
 	"history.loading",
 ] as const;
-// `models.loading` was REMOVED from the catalogue — the Models page
+// `models.loading` was REMOVED from the catalogue, the Models page
 // renders a page-shaped ModelsSkeleton (no Spinner label), so the key
 // was dead surface (deleted across all 8 locales with the dead-key
 // cleanup).
@@ -143,14 +145,14 @@ describe("Spinner labeled variant", () => {
 		render(<Spinner />);
 		const img = document.querySelector('span[role="img"]');
 		expect(img).not.toBeNull();
-		// a11y.loading is the i18n key — the stub returns [t]<key>.
+		// a11y.loading is the i18n key, the stub returns [t]<key>.
 		expect(img?.getAttribute("aria-label")).toBe("[t]a11y.loading");
 		// No visible label text without an explicit label prop.
 		expect(screen.queryByText("[t]a11y.loading")).toBeNull();
 	});
 
 	it("renders a plain aria-hidden <div> (no label) when decorative=true", () => {
-		// `decorative` ignores `label` — the parent already supplies
+		// `decorative` ignores `label`, the parent already supplies
 		// the accessible name, so an additional visible label would be
 		// redundant.
 		render(<Spinner label="[t]should-be-ignored" decorative />);
@@ -215,7 +217,7 @@ describe("first-load-only pages mount into a page-shaped Skeleton", () => {
 			render(<Page />);
 
 			// The skeleton's accessible name is the generic loading
-			// message and it carries aria-busy — the single loading
+			// message and it carries aria-busy, the single loading
 			// contract shared by every page composition.
 			const status = screen.getByRole("status", {
 				name: "[t]a11y.loading",

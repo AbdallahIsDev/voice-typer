@@ -8,7 +8,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ConfirmDialog from "@/components/common/ConfirmDialog";
 import PageHeading from "@/components/common/PageHeading";
 import { EmptyState } from "@/components/feedback/EmptyState";
-import { SettingsPageSkeleton } from "@/components/feedback/skeletons";
 import { HelpOverlay } from "@/components/help/HelpOverlay";
 import { configHotkeyLabels } from "@/components/hotkey/hotkey-format";
 // amber banner shown when the OS has not granted the
@@ -44,6 +43,7 @@ import { useTheme } from "@/hooks/useTheme";
 import { t } from "@/i18n/i18n";
 import type { VoiceTyperConfig } from "@/types/config";
 import type { Page } from "@/types/ipc";
+import { SettingsPageSkeleton } from "./settings/components/SettingsPageSkeleton";
 import { useSettingsDeepLinks } from "./settings/hooks/useSettingsDeepLinks";
 import { useSettingsReset } from "./settings/hooks/useSettingsReset";
 import { useSettingsSearch } from "./settings/hooks/useSettingsSearch";
@@ -51,7 +51,7 @@ import { useSettingsSurfaceScroll } from "./settings/hooks/useSettingsSurfaceScr
 
 /**
  * Back affordance for a Settings section page: a compact ghost row that
- * returns to the Settings hub. Deliberately NOT a PageHeading — every
+ * returns to the Settings hub. Deliberately NOT a PageHeading, every
  * section component renders its own `<SettingsSection title>` card
  * header, so a page-level heading would duplicate the title right
  * below it. Top-level (not inline in the page component) so React can
@@ -66,7 +66,7 @@ function SectionBackButton({ onBack }: { onBack: () => void }) {
 			className="inline-flex items-center gap-2 rounded-md px-2 py-1 text-sm text-(--text-muted) transition-colors duration-150 hover:bg-foreground/5 hover:text-(--text-primary) focus-visible:ring-3 focus-visible:ring-ring focus-visible:outline-none"
 			onClick={onBack}
 		>
-			{/* Left-pointing chevron — mirrored in RTL by the shared
+			{/* Left-pointing chevron, mirrored in RTL by the shared
                             directional-icon rule (index.css) so it always points
                             "back". */}
 			<HugeiconsIcon
@@ -82,7 +82,7 @@ function SectionBackButton({ onBack }: { onBack: () => void }) {
 
 interface SettingsPageProps {
 	/**
-	 * The active Settings surface: `"settings"` (the hub — one card of
+	 * The active Settings surface: `"settings"` (the hub, one card of
 	 * section rows) or one of the section pages (a focused page rendering
 	 * only that domain's cards). The nav store is the source of truth;
 	 * App.tsx's route switch passes the literal. Defaults to the hub.
@@ -96,7 +96,7 @@ interface SettingsPageProps {
 // only its own domain's cards, so the user edits one concern at a time
 // instead of scrolling a stack of unrelated sections.
 //
-// The per-page SearchField + sticky header are gone — the search query
+// The per-page SearchField + sticky header are gone, the search query
 // lives in the global `useGlobalSearch` store (title-bar
 // GlobalSearchBar). On the hub a query FILTERS the section rows (and
 // lists the matched row labels under each row); on a section page the
@@ -127,12 +127,12 @@ export default function SettingsPage({ page = "settings" }: SettingsPageProps) {
 	//obtain `navigate` directly from the navigation hook
 	// instead of receiving it as an `onNavigate` prop from App.tsx.
 	// (The consent + search deep-link channels are consumed inside
-	// useSettingsDeepLinks — this page only navigates.)
+	// useSettingsDeepLinks, this page only navigates.)
 	const { navigate } = useNavigation();
 	const { showSnack } = useSnackbar();
 	// Local help-overlay state for the Troubleshooting "Keyboard
 	// Shortcuts" button. The app-level instance lives in App.tsx
-	// (`useHelpOverlayShortcut`), which this page can't reach — a second
+	// (`useHelpOverlayShortcut`), which this page can't reach, a second
 	// mount of the SAME shared component keeps the mechanism reused
 	// without a global event bus. The `?`-shortcut's dialog guard
 	// (`[role="dialog"][data-state="open"]`) prevents the two instances
@@ -158,7 +158,7 @@ export default function SettingsPage({ page = "settings" }: SettingsPageProps) {
 	// effect reads it, so the hook call order here is load-bearing.
 	const scrollPositionsRef = useRef<Record<string, number>>({});
 
-	// Deep-link machinery — consent + cross-page search targets
+	// Deep-link machinery, consent + cross-page search targets
 	// (consume → scroll-to-row → highlight ring, with the shared
 	// one-shot guard, ring-lifetime timer, and max-lifetime safety
 	// net). See useSettingsDeepLinks; must be called BEFORE
@@ -180,14 +180,14 @@ export default function SettingsPage({ page = "settings" }: SettingsPageProps) {
 	// Restore the active surface's saved scroll offset on hub ↔ section
 	// transitions (see useSettingsSurfaceScroll).
 	useSettingsSurfaceScroll({ page, scrollPositionsRef });
-	// Reset-to-defaults flow — confirm-dialog state + the guarded
+	// Reset-to-defaults flow, confirm-dialog state + the guarded
 	// defaults fetch/apply (see useSettingsReset).
 	const { showResetDialog, setShowResetDialog, resetToDefaults } =
 		useSettingsReset({ config, call, updateConfig, showSnack });
 
 	// Always re-fetch on mount, even when the module-level cache is
 	// populated. Pre-fix, the `if (!config)` guard short-circuited the
-	// fetch whenever `_cachedConfig` was non-null — so a user who
+	// fetch whenever `_cachedConfig` was non-null, so a user who
 	// changed `audio_preset` (or any audio filter) on the Microphone
 	// page, or `model_size` / `asr_backend` on the Models page, would
 	// see the STALE cached value when they navigated to Settings. The
@@ -203,7 +203,7 @@ export default function SettingsPage({ page = "settings" }: SettingsPageProps) {
 		void loadConfig();
 	}, [loadConfig]);
 
-	// Live config sync — merge external `config_changed` pushes (e.g.
+	// Live config sync, merge external `config_changed` pushes (e.g.
 	// Ctrl+MouseWheel zoom, sidebar ThemeSwitch) into local state.
 	usePythonEvent(
 		"config_changed",
@@ -240,10 +240,10 @@ export default function SettingsPage({ page = "settings" }: SettingsPageProps) {
 		[config?.hotkey, config?.repaste_hotkey],
 	);
 
-	// Filter predicate — wrapped in useCallback with
+	// Filter predicate, wrapped in useCallback with
 	// [settingsFilter] deps so memoized section children don't re-render
 	// unless the query actually changes. This is a PURE predicate (no
-	// render-phase side effect) — `hasAnyVisibleRow` is derived above via
+	// render-phase side effect), `hasAnyVisibleRow` is derived above via
 	// useMemo from the same label set. NOTE: declared BEFORE the
 	// `if (!config)` early return so React's Rules of Hooks are
 	// satisfied (useCallback is a hook and must be called unconditionally
@@ -272,7 +272,7 @@ export default function SettingsPage({ page = "settings" }: SettingsPageProps) {
 		[config, updateConfig, updateConfigDebounced, _filter_settings],
 	);
 
-	// Which section page's cards render — a single data-driven switch so
+	// Which section page's cards render, a single data-driven switch so
 	// the hub/section split stays declarative. Top-level (not inline in
 	// JSX) so no component types are re-created during render.
 	const renderSectionCards = (active: SettingsSectionPage) => {
@@ -303,7 +303,7 @@ export default function SettingsPage({ page = "settings" }: SettingsPageProps) {
 							onThemeChange={handleThemeChangeLocal}
 						/>
 						{/* Linux-only (returns null elsewhere): the frameless
-                                                    title bar's window-button layout — follow the desktop's
+                                                    title bar's window-button layout, follow the desktop's
                                                     button-layout or pick a custom side/visibility. */}
 						<LinuxWindowButtonsSettingsSection {...sectionProps} />
 					</>
@@ -357,7 +357,7 @@ export default function SettingsPage({ page = "settings" }: SettingsPageProps) {
 	}
 
 	// The empty banner only applies on section pages when the query
-	// matched NOTHING anywhere — if other section pages have matches, the
+	// matched NOTHING anywhere, if other section pages have matches, the
 	// cross-section results section below replaces it (a bare "no
 	// settings match" would be misleading copy when other pages do
 	// match).
@@ -380,7 +380,7 @@ export default function SettingsPage({ page = "settings" }: SettingsPageProps) {
 						<SectionBackButton onBack={() => navigate("settings")} />
 					)
 				)}
-				{/* amber keyboard-permission banner — placed immediately under
+				{/* amber keyboard-permission banner, placed immediately under
                                     the page heading (hub) / back button (section pages) so the
                                     user sees the "click to fix" prompt before the settings
                                     content. Renders null when permission is granted / not
@@ -388,7 +388,7 @@ export default function SettingsPage({ page = "settings" }: SettingsPageProps) {
                                     banner doesn't apply (Windows). */}
 				<KeyboardPermissionBanner />
 
-				{/* Save-failure banner — the REAL save-status surface.
+				{/* Save-failure banner, the REAL save-status surface.
                                     useSettingsConfig auto-saves silently (no success
                                     indicator, by design), but a failed write must not be
                                     invisible: the hook's per-flush `error` carries the
@@ -407,12 +407,12 @@ export default function SettingsPage({ page = "settings" }: SettingsPageProps) {
 					</div>
 				)}
 
-				{/* Empty-state banner (section pages only — the hub renders
+				{/* Empty-state banner (section pages only, the hub renders
                                     its own inside SettingsHub) via the shared EmptyState
                                     component (variant="info") so the visual treatment
                                     matches Dashboard / Models / Vocabulary. Reuses the
                                     existing searchNoMatch / noResultsMessage /
-                                    a11y.clearSearch i18n keys — `searchNoMatch` preserves
+                                    a11y.clearSearch i18n keys, `searchNoMatch` preserves
                                     the "{query}" interpolation so screen readers +
                                     sighted users see what they searched for;
                                     `noResultsMessage` adds the actionable hint; the action
@@ -490,7 +490,7 @@ export default function SettingsPage({ page = "settings" }: SettingsPageProps) {
 			</div>
 
 			{/* Reset-confirm + page-level help overlay serve the Advanced
-                            page's Troubleshooting section only — gated so the hub and
+                            page's Troubleshooting section only, gated so the hub and
                             other section pages don't mount them. The hooks backing them
                             (showResetDialog / helpOpen) stay at the top of the component
                             per the Rules of Hooks. */}

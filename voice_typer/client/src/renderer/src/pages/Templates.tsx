@@ -1,13 +1,13 @@
-// Templates page — thin shell.
+// Templates page, thin shell.
 //
 // Split from the former monolithic ``pages/Templates.tsx`` (1069 lines)
 // into:
-//   - ``./templates/lib/``        — pure helpers (types, storage, transform, sanitize)
-//   - ``./templates/hooks/``      — state + handlers (useTemplates, useTemplateDialog, useTemplateImportExport)
-//   - ``./templates/components/`` — presentational (TemplateListRow, TemplateDialog)
+//   - ``./templates/lib/``       , pure helpers (types, storage, transform, sanitize)
+//   - ``./templates/hooks/``     , state + handlers (useTemplates, useTemplateDialog, useTemplateImportExport)
+//   - ``./templates/components/``, presentational (TemplateListRow, TemplateDialog)
 //
 // The Toolbar / BulkBar / ListHeader render through the SHARED
-// collection-page family (components/common/Collection*.tsx) — the page
+// collection-page family (components/common/Collection*.tsx), the page
 // injects its i18n keys + drift-decision props (the replacement for the
 // former per-page TemplateToolbar / TemplateBulkBar / TemplateListHeader
 // mirrors, which were byte-identical except for those keys).
@@ -15,7 +15,7 @@
 // This file owns ONLY the page layout (loading / load-error / empty /
 // list / dialog wiring). All state + business logic lives in the hooks;
 // all rendering lives in the components. Behaviour is preserved
-// byte-for-byte — this is a pure structural refactor.
+// byte-for-byte, this is a pure structural refactor.
 import { AlertCircleIcon, File02Icon } from "@hugeicons/core-free-icons";
 import { useCallback, useEffect, useRef, useState } from "react";
 
@@ -25,13 +25,12 @@ import { CollectionToolbar } from "@/components/common/CollectionToolbar";
 import ConfirmDialog from "@/components/common/ConfirmDialog";
 import PageHeading from "@/components/common/PageHeading";
 import { EmptyState } from "@/components/feedback/EmptyState";
-import { ListPageSkeleton } from "@/components/feedback/skeletons";
 import { usePython } from "@/hooks/usePython";
 import { useSnackbar } from "@/hooks/useSnackbar";
 import { t } from "@/i18n/i18n";
-
 import { TemplateDialog } from "./templates/components/TemplateDialog";
 import { TemplateListRow } from "./templates/components/TemplateListRow";
+import { TemplatesSkeleton } from "./templates/components/TemplatesSkeleton";
 import { useTemplateDialog } from "./templates/hooks/useTemplateDialog";
 import { useTemplateImportExport } from "./templates/hooks/useTemplateImportExport";
 import { useTemplateSelection } from "./templates/hooks/useTemplateSelection";
@@ -77,7 +76,7 @@ export default function TemplatesPage() {
 		useTemplateImportExport({ call, loadRows, templatesRef });
 
 	// Bulk selection + bulk delete (mirrors the Vocabulary page's
-	// useVocabularySelection — same floating-bulk-bar UI).
+	// useVocabularySelection, same floating-bulk-bar UI).
 	const selection = useTemplateSelection({
 		templates,
 		setTemplates,
@@ -89,7 +88,7 @@ export default function TemplatesPage() {
 		showSnack,
 	});
 
-	// Soft display cap — the flat list renders at most this many rows
+	// Soft display cap, the flat list renders at most this many rows
 	// until the user clicks "Show more".  Keeps very large template
 	// collections from mounting thousands of DOM rows.
 	const DISPLAY_CAP = 200;
@@ -110,7 +109,7 @@ export default function TemplatesPage() {
 		openEditDialogRef.current(row);
 	}, []);
 
-	//: "Clear All" wipes every template — gated by a confirmation
+	//: "Clear All" wipes every template, gated by a confirmation
 	// dialog (an irreversible, privacy-adjacent action). Clears via the
 	// existing persistence path (save an empty list), then reloads so
 	// the UI reflects the backend.
@@ -128,7 +127,7 @@ export default function TemplatesPage() {
 	}, [call, loadRows, showSnack]);
 
 	if (loading) {
-		return <ListPageSkeleton />;
+		return <TemplatesSkeleton />;
 	}
 
 	//distinguish "no templates exist" (valid empty array from
@@ -136,7 +135,7 @@ export default function TemplatesPage() {
 	// malformed data). When the load genuinely failed AND we have no
 	// templates to show (including from localStorage fallback), surface
 	// a retry EmptyState instead of the "create your first template"
-	// empty state — the latter is misleading when the real issue is a
+	// empty state, the latter is misleading when the real issue is a
 	// backend connectivity problem.
 	if (loadError && templates.length === 0) {
 		return (
@@ -161,16 +160,16 @@ export default function TemplatesPage() {
 		<>
 			<div className="relative mx-auto flex min-h-full w-full max-w-4xl flex-col gap-6 px-16 pt-28 pb-6">
 				{/* Heading, then the toolbar on its OWN full-width row BELOW
-                                    it (not inside PageHeading's children slot) — mirrors
+                                    it (not inside PageHeading's children slot), mirrors
                                     the Vocabulary page layout exactly. */}
 				<PageHeading
 					title={t("templates.title")}
 					description={t("templates.description")}
 				/>
 				<div className="flex flex-col gap-4">
-					{/* Shared collection toolbar shell — the page injects
+					{/* Shared collection toolbar shell, the page injects
                                                 every label key + the drift-decision values (Add is
-                                                never disabled — the dialog owns its own save
+                                                never disabled, the dialog owns its own save
                                                 gating; JSON-only import accept because the
                                                 templates parser reads JSON only). The hidden file
                                                 input for Import renders inside the shell and
@@ -207,7 +206,7 @@ export default function TemplatesPage() {
 								onAction={openAddDialog}
 							/>
 						) : filteredSortedTemplates.length === 0 ? (
-							//search returned no matches — use the dedicated
+							//search returned no matches, use the dedicated
 							// templates.noResults / templates.noResultsDescription
 							// keys instead of borrowing history.noResultsDescription
 							// (cross-module coupling) and the misleading
@@ -220,7 +219,7 @@ export default function TemplatesPage() {
 						) : (
 							<>
 								<div className="overflow-clip rounded-xl border border-border/5 bg-(--bg-subtle)">
-									{/* Shared column-header shell — keys + the
+									{/* Shared column-header shell, keys + the
                                                                                 page-unique testid are injected.
                                                                                 visibleIds is capped at displayCount to
                                                                                 mirror the rows actually mounted. */}
@@ -266,7 +265,7 @@ export default function TemplatesPage() {
 					</div>
 				</div>
 
-				{/* Floating bulk bar — appears when templates are
+				{/* Floating bulk bar, appears when templates are
                                     selected; rendered through the shared shell (keys +
                                     the page-unique testid are injected). Direct child
                                     of the page column (sticky bottom-4) so it stays
@@ -288,7 +287,7 @@ export default function TemplatesPage() {
 				)}
 			</div>
 
-			{/* Add/Edit Dialog — migrated to shared Modal (F-3) */}
+			{/* Add/Edit Dialog, migrated to shared Modal (F-3) */}
 			<TemplateDialog
 				open={showDialog}
 				editingTemplate={editingTemplate}
@@ -303,7 +302,7 @@ export default function TemplatesPage() {
 				onInsertVariable={insertVariable}
 			/>
 
-			{/* Clear All — confirmation gated (mirrors Vocabulary). */}
+			{/* Clear All, confirmation gated (mirrors Vocabulary). */}
 			<ConfirmDialog
 				open={showClearAllConfirm}
 				title={t("templates.clearAllTitle")}

@@ -1,5 +1,5 @@
 /**
- * ModelsPage — thin composition root for the ASR Models page.
+ * ModelsPage, thin composition root for the ASR Models page.
  *
  * Previously a 1448-line monolith. After the split:
  *  • `useModelLifecycle` owns all state + IPC actions.
@@ -15,11 +15,11 @@
  * renders the ConfirmDialog for model deletion.
  *
  * (UI/UX overhaul 2026-08-20):
- *  • point 1 — the "Last updated / refresh" indicator was REMOVED.
- *  • point 2 — the tab switcher is no longer sticky; it sits in the
+ *  • point 1, the "Last updated / refresh" indicator was REMOVED.
+ *  • point 2, the tab switcher is no longer sticky; it sits in the
  *    page flow below the title/description and scrolls with content.
- *  • point 3 — "Import Model" renders only on the Local Models tab.
- *  • point 4 — downloads route through
+ *  • point 3, "Import Model" renders only on the Local Models tab.
+ *  • point 4, downloads route through
  *    `lifecycle.handleDownloadModel`, the just-in-time HuggingFace
  *    consent gate (shared point-of-use consent dialog via
  *    `openConsentGate`; Allow persists the consent and continues the
@@ -37,7 +37,6 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import ConfirmDialog from "@/components/common/ConfirmDialog";
 import PageHeading from "@/components/common/PageHeading";
 import { EmptyState } from "@/components/feedback/EmptyState";
-import { ModelsSkeleton } from "@/components/feedback/skeletons";
 import { CloudProvidersPanel } from "@/components/models/CloudProvidersPanel";
 import { LocalModelsPanel } from "@/components/models/LocalModelsPanel";
 import { Button } from "@/components/ui/button";
@@ -50,11 +49,12 @@ import { useModelLifecycle } from "@/hooks/useModelLifecycle";
 import { t } from "@/i18n/i18n";
 import { getActiveFamilyId, groupModelsByFamily } from "@/lib/utils/models";
 import { tabPageIndicatorClassName } from "./_tabBarStyles";
+import { ModelsSkeleton } from "./models/components/ModelsSkeleton";
 
 export default function ModelsPage() {
 	const lifecycle = useModelLifecycle();
 	// Persist the active tab (Local / Cloud) across page
-	// navigation via sessionStorage — a user who picked the Cloud
+	// navigation via sessionStorage, a user who picked the Cloud
 	// tab to configure an API key expects to still be on it when
 	// they navigate away and back.
 	const [activeTab, setActiveTab] = useFilterState<"local" | "cloud">(
@@ -73,7 +73,7 @@ export default function ModelsPage() {
 	// Stable identity so the memo'd CloudProvidersPanel skips
 	// re-renders driven by unrelated Models-page state (e.g. a
 	// local-model download tick). Depends only on the useState-stable
-	// `setApiKeys` — all other panel handlers come from
+	// `setApiKeys`, all other panel handlers come from
 	// useCallback-stable hook actions already.
 	const handleApiKeyChange = useCallback(
 		(provider: string, value: string) =>
@@ -95,12 +95,12 @@ export default function ModelsPage() {
 	const initialAccordionValue = useMemo(() => {
 		const activeFamilyId = getActiveFamilyId(lifecycle.config);
 		return activeFamilyId ? [activeFamilyId] : [];
-		// Intentionally only depends on config — once the accordion has
+		// Intentionally only depends on config, once the accordion has
 		// been opened, user interactions take over (the controlled value
 		// below owns the open/close from then on).
 	}, [lifecycle.config]);
 
-	// Controlled accordion state — lives HERE, not inside
+	// Controlled accordion state, lives HERE, not inside
 	// LocalModelsPanel, so the open families survive the local↔cloud tab
 	// switch (the panel unmounts on switch; panel-internal state would
 	// reset). Falls back to initialAccordionValue (expand the active
@@ -110,11 +110,11 @@ export default function ModelsPage() {
 	);
 	const effectiveAccordionValue = userAccordionValue ?? initialAccordionValue;
 
-	// Dismissible "no model selected" banner — compact, sticky, independent
+	// Dismissible "no model selected" banner, compact, sticky, independent
 	// of the main content flow. Replaces the former centered EmptyState which
 	// consumed ~120px vertical space (py-16 + icon). Uses the precise C-UI-2
 	// copy "No speech model is selected. Select a model below." (key
-	// models.noModelBanner) — precise per C-UI-2, actionable on the Models
+	// models.noModelBanner), precise per C-UI-2, actionable on the Models
 	// page itself (vs "Open Models" which would be redundant here).
 	// Dismiss is session-scoped via sessionStorage (cleared when a model is
 	// selected), matching VocabDuplicateBanner's per-session pattern.
@@ -152,11 +152,11 @@ export default function ModelsPage() {
 	// Show a full-page spinner until the first `get_config` resolves.
 	// Replaces the original `if (!_cachedConfig && !config)` check.
 	// When the initial load FAILED, render the load-failure EmptyState
-	// (variant="error" + Retry) instead — without it, a rejected
+	// (variant="error" + Retry) instead, without it, a rejected
 	// `get_config` left the page spinning forever with no recovery
 	// path. Mirrors the History page's established error EmptyState.
 	// Revisit case: `config` is non-null (SWR seed) while `loadError`
-	// reports the revalidation failure — the stale seed still renders
+	// reports the revalidation failure, the stale seed still renders
 	// (better than a blank page) but the failure is surfaced via the
 	// banner below so it is never silently silent.
 	if (!lifecycle.config) {
@@ -182,7 +182,7 @@ export default function ModelsPage() {
 		<>
 			{/*
                                 (UI/UX overhaul 2026-08-20):
-                                • points 1+2 — the sticky top-of-viewport tab bar was
+                                • points 1+2, the sticky top-of-viewport tab bar was
                                   REMOVED; the SegmentedControl now sits in the page flow
                                   below the title/description (where the "Last updated"
                                   indicator used to sit) and scrolls with the content.
@@ -190,7 +190,7 @@ export default function ModelsPage() {
                                   entirely (model availability/install state doesn't
                                   change moment-to-moment; a manual refresh serves no
                                   purpose here).
-                                • point 3 — the "Import Model" button only renders on the
+                                • point 3, the "Import Model" button only renders on the
                                   Local Models tab (importing a local model file has no
                                   meaning on the Cloud Models tab).
                         */}
@@ -255,7 +255,7 @@ export default function ModelsPage() {
 					</div>
 				)}
 
-				{/* Compact dismissible "no model" banner — replaces the former
+				{/* Compact dismissible "no model" banner, replaces the former
                                     centered EmptyState (py-16) that pushed model cards below the
                                     fold. Uses the shared design-system tokens
                                     (rounded-xl border-border/10 bg-(--bg-subtle)
@@ -311,7 +311,7 @@ export default function ModelsPage() {
 						</div>
 					)}
 
-					{/* Tab switcher — in the page flow (not sticky), below the
+					{/* Tab switcher, in the page flow (not sticky), below the
 					    page title/description and above the model list. */}
 					<div className="pb-4">
 						<SegmentedControl
@@ -325,7 +325,7 @@ export default function ModelsPage() {
 							//(2026-08-21): the outer tab container now carries the
 							// SAME card/surface border treatment as the model
 							// cards below it (`rounded-xl border border-border/5
-							// bg-(--bg-subtle)` — the app-wide page-card token),
+							// bg-(--bg-subtle)`, the app-wide page-card token),
 							// so the segmented control reads as one card among
 							// the model cards instead of a borderless strip.
 							// The active segment uses the matching
@@ -398,14 +398,14 @@ export default function ModelsPage() {
 			</div>
 
 			{/*
-			 * (rationale): model delete is intentionally confirm-only — NO undo
+			 * (rationale): model delete is intentionally confirm-only, NO undo
 			 * toast is wired here, unlike History / Templates / Vocabulary which all use
 			 * `showUndoableToast` for a 6-second undo window.
 			 *
 			 * This is a deliberate decision, not an oversight:
 			 *   • Soft-delete (move model dir to trash for 6s)
 			 *     would hold 1.5–3 GB on disk for the whole undo
-			 *     window — defeating the user's intent to free space.
+			 *     window, defeating the user's intent to free space.
 			 *   • Re-download-as-undo would silently re-fetch a
 			 *     multi-GB file the user just deleted, hitting
 			 *     their network quota without consent.

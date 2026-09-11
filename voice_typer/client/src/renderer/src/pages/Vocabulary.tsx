@@ -1,13 +1,13 @@
-// Vocabulary page — thin shell.
+// Vocabulary page, thin shell.
 //
 // Split from the former monolithic ``pages/Vocabulary.tsx`` (1053 lines)
 // into:
-//   - ``./vocabulary/lib/``        — pure helpers (categories, transform, sort, importExport)
-//   - ``./vocabulary/hooks/``      — state + handlers (useVocabulary, useVocabularyEdit, useVocabularyImportExport, useVocabularyQuickAdd, useVocabularySelection)
-//   - ``./vocabulary/components/`` — presentational (VocabListRow, VocabInlineForm, VocabDuplicateBanner)
+//   - ``./vocabulary/lib/``       , pure helpers (categories, transform, sort, importExport)
+//   - ``./vocabulary/hooks/``     , state + handlers (useVocabulary, useVocabularyEdit, useVocabularyImportExport, useVocabularyQuickAdd, useVocabularySelection)
+//   - ``./vocabulary/components/``, presentational (VocabListRow, VocabInlineForm, VocabDuplicateBanner)
 //
 // The Toolbar / BulkBar / ListHeader render through the SHARED
-// collection-page family (components/common/Collection*.tsx) — the
+// collection-page family (components/common/Collection*.tsx), the
 // page injects its i18n keys + drift-decision props (the replacement
 // for the former per-page VocabToolbar / VocabBulkBar /
 // VocabListHeader mirrors, which were byte-identical except for those
@@ -19,12 +19,12 @@
 //
 // Add and Edit use the SAME inline-row pattern (VocabInlineForm): Add
 // renders the row above the table, Edit replaces the edited row in
-// place — the old edit modal was removed so there is one consistent
+// place, the old edit modal was removed so there is one consistent
 // create/modify flow.
 //
 // The page is a flat two-column correction list: wrong word/phrase on
 // the left, corrected on the right. Categories are part of the
-// persisted data layer only — they are never surfaced in the UI.
+// persisted data layer only, they are never surfaced in the UI.
 
 import {
 	AlertCircleIcon,
@@ -38,7 +38,6 @@ import { CollectionToolbar } from "@/components/common/CollectionToolbar";
 import ConfirmDialog from "@/components/common/ConfirmDialog";
 import PageHeading from "@/components/common/PageHeading";
 import { EmptyState } from "@/components/feedback/EmptyState";
-import { ListPageSkeleton } from "@/components/feedback/skeletons";
 import { useGlobalSearch } from "@/hooks/useGlobalSearch";
 import { usePython } from "@/hooks/usePython";
 import { useSnackbar } from "@/hooks/useSnackbar";
@@ -46,6 +45,7 @@ import { t, useT } from "@/i18n/i18n";
 import { VocabDuplicateBanner } from "./vocabulary/components/VocabDuplicateBanner";
 import { VocabInlineForm } from "./vocabulary/components/VocabInlineForm";
 import { VocabListRow } from "./vocabulary/components/VocabListRow";
+import { VocabularySkeleton } from "./vocabulary/components/VocabularySkeleton";
 import { usageKey, useVocabulary } from "./vocabulary/hooks/useVocabulary";
 import { useVocabularyEdit } from "./vocabulary/hooks/useVocabularyEdit";
 import { useVocabularyImportExport } from "./vocabulary/hooks/useVocabularyImportExport";
@@ -65,13 +65,13 @@ export default function VocabularyPage() {
 	const { call } = usePython();
 	const { showSnack } = useSnackbar();
 
-	//: soft display cap — the flat list renders at most this many rows
+	//: soft display cap, the flat list renders at most this many rows
 	// until the user clicks "Show more". Keeps very large vocabularies
 	// (thousands of entries) from mounting thousands of DOM rows.
 	const DISPLAY_CAP = 200;
 	const [displayCount, setDisplayCount] = useState(DISPLAY_CAP);
 
-	//: "Clear All" is gated by a confirmation dialog — granting it
+	//: "Clear All" is gated by a confirmation dialog, granting it
 	// wipes every entry (an irreversible privacy-adjacent action).
 	const [showClearConfirm, setShowClearConfirm] = useState(false);
 
@@ -80,7 +80,7 @@ export default function VocabularyPage() {
 		try {
 			await persistVocabulary([]);
 			setEntries([]);
-			// The list is now empty — any leftover selection (ids of
+			// The list is now empty, any leftover selection (ids of
 			// rows that no longer exist) must be cleared too, otherwise
 			// the floating bulk bar stays visible showing a stale
 			// "N selected" count over an empty list.
@@ -127,7 +127,7 @@ export default function VocabularyPage() {
 		setVocabEntryCount(entries.length);
 	}, [entries.length, setVocabEntryCount]);
 
-	// Inline edit row — same VocabInlineForm treatment as Add, rendered
+	// Inline edit row, same VocabInlineForm treatment as Add, rendered
 	// in place of the row being edited (no modal; the list stays in
 	// view). Save splices the entry in place preserving its _id.
 	const {
@@ -147,7 +147,7 @@ export default function VocabularyPage() {
 		showSnack,
 	});
 
-	// Inline quick-add row (replaces the disconnected Add modal — the
+	// Inline quick-add row (replaces the disconnected Add modal, the
 	// list stays visible while adding).
 	const quickAdd = useVocabularyQuickAdd({
 		entries,
@@ -182,7 +182,7 @@ export default function VocabularyPage() {
 		openEditRef.current(entry);
 	}, []);
 
-	// Per-entry "Test this entry" — runs the entry's wrong phrase
+	// Per-entry "Test this entry", runs the entry's wrong phrase
 	// through the LIVE server engine (no client mirror): the result is
 	// the authoritative answer. One test at a time; clicking another
 	// row's button replaces it. ``entryTestIdRef`` guards the async
@@ -266,7 +266,7 @@ export default function VocabularyPage() {
 	}, [clearSearch]);
 
 	if (loading) {
-		return <ListPageSkeleton />;
+		return <VocabularySkeleton />;
 	}
 
 	if (loadError && entries.length === 0) {
@@ -293,13 +293,13 @@ export default function VocabularyPage() {
 			{/* The page column is centered (max-w-4xl mx-auto) in the main
                             content area, so anything sticky/centered inside it (the
                             floating bulk bar) stays centered relative to the CONTENT
-                            in both sidebar states — the column recenters when the
+                            in both sidebar states, the column recenters when the
                             sidebar expands/collapses. */}
 			<div className="relative mx-auto flex min-h-full w-full max-w-4xl flex-col gap-6 px-16 pt-28 pb-6">
 				{/* Heading, then the toolbar on its OWN full-width row BELOW
                                     it (not inside PageHeading's children slot).
                                     PageHeading wraps children in a content-sized,
-                                    shrink-0 flex wrapper — inside it, the toolbar's
+                                    shrink-0 flex wrapper, inside it, the toolbar's
                                     `justify-between` had zero free space to distribute
                                     (the wrapper hugs the buttons), so Add Word never
                                     reached the far right across three prior attempts.
@@ -311,7 +311,7 @@ export default function VocabularyPage() {
 					description={t("vocabulary.description")}
 				/>
 				<div className="flex flex-col gap-4">
-					{/* Shared collection toolbar shell — the page injects
+					{/* Shared collection toolbar shell, the page injects
                                                 every label key + the two drift-decision values
                                                 (Add disabled while saving; JSON+CSV import
                                                 accept because the Vocabulary parser reads CSV).
@@ -383,7 +383,7 @@ export default function VocabularyPage() {
 						) : (
 							<>
 								<div className="overflow-clip rounded-xl border border-border/5 bg-(--bg-subtle)">
-									{/* Shared column-header shell — keys + the
+									{/* Shared column-header shell, keys + the
                                                                                 page-unique testid are injected. */}
 									<CollectionListHeader
 										testId="vocab-list-header"
@@ -398,7 +398,7 @@ export default function VocabularyPage() {
 									<div className="divide-y divide-border/5">
 										{filteredSorted.slice(0, displayCount).map((entry) =>
 											isEditing && editingEntry?._id === entry._id ? (
-												// In-place edit row — same inline treatment as
+												// In-place edit row, same inline treatment as
 												// Add (no modal). Pencil icon + no bottom
 												// border (the list's divide-y owns the
 												// separators).
@@ -450,13 +450,13 @@ export default function VocabularyPage() {
 					</div>
 				</div>
 
-				{/* Floating bulk bar — appears when rows are selected;
+				{/* Floating bulk bar, appears when rows are selected;
                                     rendered through the shared shell (keys + the
                                     page-unique testid are injected). It is a DIRECT
                                     child of the page column with ``sticky bottom-4``
                                     (no absolute wrapper): sticky pins it near the viewport
                                     bottom while the column (taller than the viewport when
-                                    the list is long) stays in view — true floating, it does
+                                    the list is long) stays in view, true floating, it does
                                     NOT scroll away. ``mx-auto w-fit`` centers it on the
                                     column, which is itself centered (max-w-4xl mx-auto) in
                                     the main content area, so the bar stays centered relative
@@ -481,7 +481,7 @@ export default function VocabularyPage() {
 
 			{/* Backdrop click = Cancel (dismiss without data change),
                             matching standard modal behavior. Escape still closes via
-                            the same onCancel path. Opt-in per dialog — the
+                            the same onCancel path. Opt-in per dialog, the
                             ConfirmDialog default keeps the strict AlertDialog
                             contract (explicit acknowledge only). */}
 			<ConfirmDialog

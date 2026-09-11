@@ -1,4 +1,4 @@
-// Microphone page — thin composition root.
+// Microphone page, thin composition root.
 //
 //Formerly a 1193-line monolith (). Split into a
 // ``pages/microphone/`` package: this file wires the three hooks
@@ -16,7 +16,6 @@ import { useCallback, useRef, useState } from "react";
 import PageHeading from "@/components/common/PageHeading";
 import { EmptyState } from "@/components/feedback/EmptyState";
 import { OfflinePackPreparingBanner } from "@/components/feedback/OfflinePackPreparingBanner";
-import { MicrophoneSkeleton } from "@/components/feedback/skeletons";
 import { useOfflinePackDownload } from "@/hooks/useOfflinePackDownload";
 import { t } from "@/i18n/i18n";
 import { VOICE_BIOMETRIC_CONSENT_FIELD } from "@/lib/consent";
@@ -25,6 +24,7 @@ import { useDeviceLostStore } from "@/stores/deviceLostStore";
 import { ActiveMicrophoneCard } from "./microphone/components/ActiveMicrophoneCard";
 import { AvailableMicrophonesList } from "./microphone/components/AvailableMicrophonesList";
 import { MicrophonePermissionBanner } from "./microphone/components/MicrophonePermissionBanner";
+import { MicrophoneSkeleton } from "./microphone/components/MicrophoneSkeleton";
 import { useMicrophoneData } from "./microphone/hooks/useMicrophoneData";
 import { useMicrophonePermission } from "./microphone/hooks/useMicrophonePermission";
 import { useMicrophoneTest } from "./microphone/hooks/useMicrophoneTest";
@@ -60,7 +60,7 @@ export default function MicrophonePage() {
 
 	const { micPermission } = useMicrophonePermission();
 
-	// Device-lost state — written ONCE by the App-level
+	// Device-lost state, written ONCE by the App-level
 	// ``useDeviceLostToast`` subscriber (single event → single mechanism:
 	// the toast notification IS the user-facing device-lost signal; there
 	// is deliberately NO persistent in-page banner for it). While a loss
@@ -72,10 +72,10 @@ export default function MicrophonePage() {
 	const lostSource = useDeviceLostStore((s) => s.lostSource);
 	const clearLost = useDeviceLostStore((s) => s.clearLost);
 
-	// Runtime-pack readiness — drives the "Preparing offline engine…"
+	// Runtime-pack readiness, drives the "Preparing offline engine…"
 	// banner below. The mic test itself uses RMS only and works without
 	// the pack (§4.9: "RMS meter works; VAD 'smartness' degrades
-	// silently"), so the banner is purely informational — it does NOT
+	// silently"), so the banner is purely informational, it does NOT
 	// block the test.
 	const { status: packStatus, isReady: packReady } = useOfflinePackDownload();
 	// Tracks whether the user has attempted an action that would
@@ -118,7 +118,7 @@ export default function MicrophonePage() {
 		levelMonitorPaused: lostSource !== null,
 	});
 
-	// GDPR Art. 9 gate — mirrors Home.tsx handleToggle: the backend
+	// GDPR Art. 9 gate, mirrors Home.tsx handleToggle: the backend
 	// refuses mic-test starts while ``voice_biometric_consent`` is off,
 	// but its refusal only surfaces as a post-hoc error path. Gate
 	// client-side at ACTION time so pressing Start Test opens the unified
@@ -145,7 +145,7 @@ export default function MicrophonePage() {
 
 	// Wrap selectMicrophone so the first invocation flips `hasAttempted`
 	// to true. Selecting a microphone WHILE a device-lost flag is active
-	// clears that flag first — otherwise the stale banner + frozen meter
+	// clears that flag first, otherwise the stale banner + frozen meter
 	// linger over a now-working device. If the picked mic is still gone
 	// the backend re-emits ``device_lost`` and the banner returns. A data
 	// refresh follows so the device list reflects the switch immediately.
@@ -228,10 +228,10 @@ export default function MicrophonePage() {
 			<div className="flex flex-col gap-6">
 				<MicrophonePermissionBanner micPermission={micPermission} />
 
-				{/* Runtime-pack readiness banner — §4.8 / §4.9. Visible only
+				{/* Runtime-pack readiness banner, §4.8 / §4.9. Visible only
 				when the pack isn't ready AND the user has actually
 				started a test or picked a microphone. The mic test
-				itself works without the pack (RMS only — §4.9), so
+				itself works without the pack (RMS only, §4.9), so
 				this banner is purely informational; it does NOT block
 				the Start Test button. */}
 				<OfflinePackPreparingBanner
