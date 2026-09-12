@@ -272,21 +272,23 @@ const ActivityListRow = memo(function ActivityListRow({
 						</p>
 					</div>
 					{/* Bottom-center masked reveal (collapsed expandable rows
-					    only). A full-width overlay sits on the last visible
-					    line and fades the clipped text out at both edges
-					    (transparent → card background → transparent) with
-					    the "Show more" control centered on the solid
-					    middle, no separate button row, no extra vertical
-					    space. The wrapper is pointer-events-none so text
-					    selection and clicks pass through everywhere except
-					    the real <button> itself (which stops propagation:
-					    it lives inside the toggle block and must not
-					    double-toggle). Class names bg-gradient-to-r /
-					    pointer-events-none / pointer-events-auto are
-					    pinned by ActivityList.grouped.test.tsx, keep
-					    them. */}
+					    only). A full-width overlay covers the ENTIRE last
+					    visible line edge to edge (not just the middle) and
+					    fades it bottom-up (transparent top → solid card
+					    background at the bottom) with the "Show more"
+					    control centered on the solid part, no separate
+					    button row, no extra vertical space. The top
+					    padding extends the fade zone so the mask blends
+					    into the line above instead of cutting it. The
+					    wrapper is pointer-events-none so text selection
+					    and clicks pass through everywhere except the real
+					    <button> itself (which stops propagation: it lives
+					    inside the toggle block and must not double-toggle).
+					    Class names bg-gradient-to-t / pointer-events-none /
+					    pointer-events-auto are pinned by
+					    ActivityList.grouped.test.tsx, keep them. */}
 					{expandable && !expanded && (
-						<div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-center justify-center bg-gradient-to-r from-transparent via-(--bg-subtle) to-transparent">
+						<div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-center justify-center bg-gradient-to-t from-(--bg-subtle) to-transparent pt-3">
 							<button
 								type="button"
 								aria-expanded={expanded}
