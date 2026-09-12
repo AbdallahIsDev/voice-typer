@@ -233,7 +233,14 @@ const ActivityListRow = memo(function ActivityListRow({
 						} ${loadingText ? "opacity-60" : ""}`}
 					>
 						<p
-							className="text-sm text-(--text-primary) leading-snug overflow-hidden text-ellipsis"
+							// The bottom fade lives on the text itself and
+							// ONLY while it is actually clamped (collapsed
+							// expandable rows): single-line and expanded
+							// text must render unmasked. Solid for the top
+							// 60%, fading out over the last line.
+							className={`text-sm text-(--text-primary) leading-snug overflow-hidden text-ellipsis ${
+								expandable && !expanded ? "mask-b-from-60% mask-b-to-100%" : ""
+							}`}
 							style={
 								expanded
 									? undefined
@@ -271,25 +278,20 @@ const ActivityListRow = memo(function ActivityListRow({
 							)}
 						</p>
 					</div>
-					{/* Bottom-center masked reveal (collapsed expandable rows
-					    only). A full-width overlay covers the ENTIRE last
-					    visible line edge to edge (not just the middle) and
-					    fades it bottom-up (solid card background for the
-					    bottom 60%, transparent at the top via the 60%
-					    gradient stop) with the "Show more"
-					    control centered on the solid part, no separate
-					    button row, no extra vertical space. The top
-					    padding extends the fade zone so the mask blends
-					    into the line above instead of cutting it. The
-					    wrapper is pointer-events-none so text selection
-					    and clicks pass through everywhere except the real
+					{/* Bottom-center reveal control (collapsed expandable
+					    rows only). The fade itself lives on the <p> via
+					    mask-b (see above), so this wrapper is only a
+					    positioning shell for the centered "Show more"
+					    button: no separate button row, no extra vertical
+					    space. pointer-events-none so text selection and
+					    clicks pass through everywhere except the real
 					    <button> itself (which stops propagation: it lives
 					    inside the toggle block and must not double-toggle).
-					    Class names bg-gradient-to-t / pointer-events-none /
+					    Class names pointer-events-none /
 					    pointer-events-auto are pinned by
 					    ActivityList.grouped.test.tsx, keep them. */}
 					{expandable && !expanded && (
-						<div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-center justify-center bg-gradient-to-t from-(--bg-subtle) via-(--bg-subtle) via-60% to-transparent pt-3">
+						<div className="pointer-events-none absolute h-full inset-x-0 bottom-0 flex items-end justify-center">
 							<button
 								type="button"
 								aria-expanded={expanded}

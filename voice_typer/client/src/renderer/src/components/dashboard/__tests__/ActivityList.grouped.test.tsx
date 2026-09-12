@@ -462,14 +462,15 @@ describe("ActivityList inline masked reveal", () => {
 		// not a decorative span with a click handler.
 		expect(moreBtn.tagName).toBe("BUTTON");
 		expect(moreBtn.getAttribute("aria-expanded")).toBe("false");
-		// Sits inside the full-width fade overlay that masks the
-		// entire last line edge to edge (bottom-up fade) with the
-		// button centered, not as a separate row below the text.
+		// Sits inside the full-width bottom-center shell, not as a
+		// separate row below the text. The fade itself is a mask on
+		// the clamped paragraph: solid for the top 60%, fading out
+		// over the last line.
 		const overlay = moreBtn.parentElement;
 		expect(overlay?.className).toContain("absolute");
-		expect(overlay?.className).toContain("bg-gradient-to-t");
-		// Solid for the bottom 60%, fading out toward the top.
-		expect(overlay?.className).toContain("via-60%");
+		const para = container.querySelector("p");
+		expect(para?.className).toContain("mask-b-from-60%");
+		expect(para?.className).toContain("mask-b-to-100%");
 		expect(overlay?.className).toContain("pointer-events-none");
 		expect(moreBtn.className).toContain("pointer-events-auto");
 		expect(container.querySelector("button.self-start")).toBeNull();
@@ -549,6 +550,11 @@ describe("ActivityList inline masked reveal", () => {
 		const lessBtn = screen.getByRole("button", { name: t("home.showLess") });
 		// Inline at the end of the expanded paragraph, same muted to
 		// primary hover treatment, no separate row, overlay gone.
+		// Expanded text renders unmasked.
+		expect(
+			screen.getByTestId("activity-row-text-toggle").querySelector("p")
+				?.className,
+		).not.toContain("mask-b-");
 		expect(lessBtn.parentElement?.tagName).toBe("P");
 		expect(lessBtn.className).toContain("hover:text-(--text-primary)");
 		expect(
@@ -568,7 +574,7 @@ describe("ActivityList inline masked reveal", () => {
 		).toBeTruthy();
 	});
 
-	it("inert rows render no overlay and no inline controls", () => {
+	it("inert rows render no overlay, no inline controls, and no mask", () => {
 		const { container } = render(
 			<ActivityList
 				items={[rec(15, localIso(0, 12), { text: "hello world" })]}
@@ -576,6 +582,9 @@ describe("ActivityList inline masked reveal", () => {
 			/>,
 		);
 		expect(container.querySelector(".absolute")).toBeNull();
+		// Single-line text must not carry the bottom fade: the mask
+		// applies only while text is actually clamped.
+		expect(container.querySelector("p")?.className).not.toContain("mask-b-");
 		expect(
 			screen.queryByRole("button", { name: t("home.showMore") }),
 		).toBeNull();
