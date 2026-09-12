@@ -431,7 +431,7 @@ describe("ActivityList inline masked reveal", () => {
 		resetStableMocks();
 	});
 
-	it("collapsed expandable row shows the masked inline Show more over the truncated line end", () => {
+	it("collapsed expandable row shows the masked Show more bottom-centered over the truncated lines", () => {
 		const { container } = render(
 			<ActivityList
 				items={[truncatedRec(11, localIso(0, 12))]}
@@ -445,8 +445,8 @@ describe("ActivityList inline masked reveal", () => {
 		// not a decorative span with a click handler.
 		expect(moreBtn.tagName).toBe("BUTTON");
 		expect(moreBtn.getAttribute("aria-expanded")).toBe("false");
-		// Sits inside the fade overlay anchored to the truncated line
-		// end, not as a separate row below the text.
+		// Sits inside the full-width fade overlay anchored to the
+		// bottom center, not as a separate row below the text.
 		const overlay = moreBtn.parentElement;
 		expect(overlay?.className).toContain("absolute");
 		expect(overlay?.className).toContain("bg-gradient-to-r");

@@ -271,24 +271,22 @@ const ActivityListRow = memo(function ActivityListRow({
 							)}
 						</p>
 					</div>
-					{/* Inline masked reveal over the truncated end of the
-					    last visible line (collapsed expandable rows only).
-					    A small inline-end-anchored overlay fades the clipped
-					    text out (transparent → card background) with the
-					    "Show more" control sitting on the solid end of the
-					    fade, inline with the text line, no separate button
-					    row, no extra vertical space. The fade runway is
-					    deliberately long (ps-16): a short fade glues the
-					    button onto half-faded glyphs ("andtheShow more").
-					    The wrapper is pointer-events-none so text selection
-					    and clicks pass through everywhere except the real
-					    <button> itself (which stops propagation: it lives
-					    inside the toggle block and must not double-toggle).
-					    Class names bg-gradient-to-r / pointer-events-none /
-					    pointer-events-auto are pinned by
-					    ActivityList.grouped.test.tsx, keep them. */}
+					{/* Bottom-center masked reveal (collapsed expandable rows
+					    only). A full-width overlay sits on the last visible
+					    line and fades the clipped text out at both edges
+					    (transparent → card background → transparent) with
+					    the "Show more" control centered on the solid
+					    middle, no separate button row, no extra vertical
+					    space. The wrapper is pointer-events-none so text
+					    selection and clicks pass through everywhere except
+					    the real <button> itself (which stops propagation:
+					    it lives inside the toggle block and must not
+					    double-toggle). Class names bg-gradient-to-r /
+					    pointer-events-none / pointer-events-auto are
+					    pinned by ActivityList.grouped.test.tsx, keep
+					    them. */}
 					{expandable && !expanded && (
-						<div className="pointer-events-none absolute inset-e-0 bottom-0 flex items-center bg-gradient-to-r from-transparent to-(--bg-subtle) ps-16 rtl:bg-gradient-to-l">
+						<div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-center justify-center bg-gradient-to-r from-transparent via-(--bg-subtle) to-transparent">
 							<button
 								type="button"
 								aria-expanded={expanded}
