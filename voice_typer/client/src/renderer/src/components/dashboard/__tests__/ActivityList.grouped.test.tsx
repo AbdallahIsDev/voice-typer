@@ -166,6 +166,23 @@ describe("ActivityList date grouping", () => {
 		expect(screen.queryByText(t("home.recentActivity"))).toBeNull();
 	});
 
+	it("list root opts into automatic text wrapping for every message underneath", () => {
+		// The root holds all history messages (flat card, date-grouped
+		// cards, and the empty state alike), so [text-wrap:auto] lives
+		// here once and inherits everywhere instead of per-row.
+		for (const props of [
+			{ items: [rec(1, localIso(0, 12))] },
+			{ items: [rec(1, localIso(0, 12))], groupByDate: true },
+			{ items: [] as HistoryRecord[] },
+		]) {
+			const { container, unmount } = render(<ActivityList {...props} />);
+			const root = container.firstElementChild;
+			expect(root).not.toBeNull();
+			expect(root?.className).toContain("[text-wrap:auto]");
+			unmount();
+		}
+	});
+
 	it("list root carries NO margin utilities, vertical rhythm comes from the parent gap", () => {
 		// Regression guard for the doubled-spacing bug: the root used
 		// to carry mt-4, which stacked with the page container's gap

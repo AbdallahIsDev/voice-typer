@@ -453,7 +453,7 @@ function ActivityListInner({
 			// No top margin here (or below): vertical rhythm comes from
 			// the PARENT's gap, a margin on this root would stack with
 			// it and double the space above the card.
-			<div className="flex w-full flex-col gap-2">
+			<div className="flex w-full flex-col gap-2 [text-wrap:auto]">
 				{!hideHeader && (
 					<div className="flex items-center justify-between w-full">
 						<span className="text-[12px] font-semibold text-(--text-primary)">
@@ -485,7 +485,10 @@ function ActivityListInner({
 	const groups = groupByDate ? groupRecordsByDate(items) : null;
 
 	return (
-		<div className="flex w-full flex-col gap-2">
+		// [text-wrap:auto]: the list root opts every message underneath
+		// into automatic wrapping (browser-chosen break strategy), so
+		// long unbroken strings wrap instead of overflowing the card.
+		<div className="flex w-full flex-col gap-2 [text-wrap:auto]">
 			{!hideHeader && (
 				<div className="flex items-center justify-between w-full">
 					<span className="text-[12px] font-semibold text-(--text-primary)">
