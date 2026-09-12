@@ -392,11 +392,12 @@ describe("ActivityList click-to-expand rows", () => {
 		).toBe("false");
 	});
 
-	it("rows vertically CENTER the action column (items-center, not items-start)", () => {
-		// Multi-line rows used to pin the Copy/Favorite/Delete cluster
-		// to the top, leaving dead space underneath on 2–3 line rows.
-		// Centering distributes the cluster within the row's actual
-		// height, with no overlap of the text itself.
+	it("rows stack full-width text above a meta row with metadata start and actions end", () => {
+		// The Copy/Favorite/Delete cluster used to float vertically
+		// centered beside wrapped text. Rows are now two stacked
+		// blocks: transcript full width on top, then a meta row that
+		// spreads the timestamp/word count (inline-start) and the
+		// action cluster (far inline-end) with justify-between.
 		const { container } = render(
 			<ActivityList
 				items={[rec(1, localIso(0, 12), { text: "multi ".repeat(40).trim() })]}
@@ -404,10 +405,23 @@ describe("ActivityList click-to-expand rows", () => {
 				onToggleFavorite={vi.fn()}
 			/>,
 		);
-		const row = container.querySelector("p")?.closest("div.gap-3");
-		expect(row).not.toBeNull();
-		expect(row?.className).toContain("items-center");
-		expect(row?.className).not.toContain("items-start");
+		const copyBtn = screen.getByRole("button", {
+			name: t("history.copyText"),
+		});
+		// Cluster lives in the spread meta row, as its last child.
+		const metaRow = copyBtn.closest("div.justify-between");
+		expect(metaRow).not.toBeNull();
+		expect(metaRow?.lastElementChild?.contains(copyBtn)).toBe(true);
+		// Metadata shares that row, ahead of the cluster.
+		const firstChild = metaRow?.children[0];
+		expect(firstChild?.tagName).toBe("SPAN");
+		expect(firstChild?.textContent).toContain("·");
+		// The transcript block sits above the meta row inside a
+		// stacked (flex-col) root, full width.
+		const root = metaRow?.parentElement;
+		expect(root?.className).toContain("flex-col");
+		expect(root?.firstElementChild?.querySelector("p")).not.toBeNull();
+		expect(container.querySelector("p")?.closest("div.gap-3")).toBeNull();
 	});
 });
 

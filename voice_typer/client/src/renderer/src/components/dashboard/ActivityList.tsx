@@ -194,14 +194,14 @@ const ActivityListRow = memo(function ActivityListRow({
 	);
 
 	return (
-		// Row layout: the action cluster is vertically CENTERED against
-		// the full row height (items-center), not top-pinned. Entry text
-		// wraps to 1–3 lines, so top alignment leaves dead space under
-		// the icons on taller rows; centering distributes the cluster
-		// within whatever height the row ends up being, with no overlap
-		// of the text itself.
-		<div className="flex items-center gap-3 px-4 py-2">
-			<div className="flex min-w-0 flex-1 flex-col gap-1">
+		// Row layout: two stacked blocks. The transcript takes the FULL
+		// width on top; below it a meta row spreads the timestamp/word
+		// count (inline-start) and the action cluster (inline-end) with
+		// justify-between, so the buttons always sit at the far end
+		// (mirrored automatically in RTL) instead of floating
+		// vertically centered beside wrapped text.
+		<div className="flex flex-col gap-1 px-4 py-2">
+			<div className="min-w-0">
 				{/* Positioning context for the collapsed fade overlay. */}
 				<div className="relative min-w-0">
 					{/* The text block doubles as the expand/collapse control
@@ -273,18 +273,22 @@ const ActivityListRow = memo(function ActivityListRow({
 					</div>
 					{/* Inline masked reveal over the truncated end of the
 					    last visible line (collapsed expandable rows only).
-					    A small right-anchored overlay fades the clipped
+					    A small inline-end-anchored overlay fades the clipped
 					    text out (transparent → card background) with the
 					    "Show more" control sitting on the solid end of the
 					    fade, inline with the text line, no separate button
-					    row, no extra vertical space, no horizontal padding
-					    stolen from the text. The wrapper is
-					    pointer-events-none so text selection and clicks
-					    pass through everywhere except the real <button>
-					    itself (which stops propagation: it lives inside the
-					    toggle block and must not double-toggle). */}
+					    row, no extra vertical space. The fade runway is
+					    deliberately long (ps-16): a short fade glues the
+					    button onto half-faded glyphs ("andtheShow more").
+					    The wrapper is pointer-events-none so text selection
+					    and clicks pass through everywhere except the real
+					    <button> itself (which stops propagation: it lives
+					    inside the toggle block and must not double-toggle).
+					    Class names bg-gradient-to-r / pointer-events-none /
+					    pointer-events-auto are pinned by
+					    ActivityList.grouped.test.tsx, keep them. */}
 					{expandable && !expanded && (
-						<div className="pointer-events-none absolute end-0 bottom-0 flex items-center bg-gradient-to-r from-transparent to-(--bg-subtle) ps-10 rtl:bg-gradient-to-l">
+						<div className="pointer-events-none absolute inset-e-0 bottom-0 flex items-center bg-gradient-to-r from-transparent to-(--bg-subtle) ps-16 rtl:bg-gradient-to-l">
 							<button
 								type="button"
 								aria-expanded={expanded}
@@ -301,7 +305,13 @@ const ActivityListRow = memo(function ActivityListRow({
 						</div>
 					)}
 				</div>
-				<span className="text-xs text-(--text-muted) block">
+			</div>
+			{/* Meta row: message info at the inline-start, every action
+			    at the far inline-end. justify-between (not ms-auto on
+			    the cluster) keeps the two ends pinned even when the
+			    metadata is short. */}
+			<div className="flex items-center justify-between gap-2">
+				<span className="text-xs text-(--text-muted) block min-w-0 truncate">
 					{grouped
 						? formatRecordTime(item.timestamp)
 						: formatTimestamp(item.timestamp)}
@@ -314,75 +324,75 @@ const ActivityListRow = memo(function ActivityListRow({
 						</>
 					)}
 				</span>
-			</div>
-			<div className="flex items-center gap-1">
-				{/* Action order: Copy first (copying a past transcription is
+				<div className="flex shrink-0 items-center gap-1">
+					{/* Action order: Copy first (copying a past transcription is
 				    the primary reason a user opens History), then
 				    Star/Favorite, then Delete LAST, destructive actions
 				    never lead the group. Copy always receives the DISPLAYED
 				    text, so an expanded row copies the full transcript. */}
-				<Button
-					variant="ghost"
-					size="icon-xs"
-					onClick={() => onCopy({ ...item, text: displayedText })}
-					className="shrink-0 text-(--text-muted) hover:text-(--text-primary)"
-					title={t("history.copyText")}
-					aria-label={t("history.copyText")}
-				>
-					{copied ? (
-						<HugeiconsIcon
-							icon={Tick02Icon}
-							strokeWidth={2.5}
-							className="h-4 w-4"
-						/>
-					) : (
-						<HugeiconsIcon
-							icon={Copy01Icon}
-							strokeWidth={2.5}
-							className="h-4 w-4"
-						/>
+					<Button
+						variant="ghost"
+						size="icon-xs"
+						onClick={() => onCopy({ ...item, text: displayedText })}
+						className="shrink-0 text-(--text-muted) hover:text-(--text-primary)"
+						title={t("history.copyText")}
+						aria-label={t("history.copyText")}
+					>
+						{copied ? (
+							<HugeiconsIcon
+								icon={Tick02Icon}
+								strokeWidth={2.5}
+								className="h-4 w-4"
+							/>
+						) : (
+							<HugeiconsIcon
+								icon={Copy01Icon}
+								strokeWidth={2.5}
+								className="h-4 w-4"
+							/>
+						)}
+					</Button>
+					{onToggleFavorite && (
+						<Button
+							variant="ghost"
+							size="icon-xs"
+							onClick={() => onToggleFavorite(item.id)}
+							className="shrink-0 text-(--text-muted) hover:text-warning"
+							title={
+								item.favorite
+									? t("activityList.removeFromFavorites")
+									: t("activityList.addToFavorites")
+							}
+							aria-label={
+								item.favorite
+									? t("activityList.removeFromFavorites")
+									: t("activityList.addToFavorites")
+							}
+						>
+							<HugeiconsIcon
+								icon={StarIcon}
+								strokeWidth={2.5}
+								className={`h-4 w-4 ${item.favorite ? "text-warning" : ""}`}
+							/>
+						</Button>
 					)}
-				</Button>
-				{onToggleFavorite && (
-					<Button
-						variant="ghost"
-						size="icon-xs"
-						onClick={() => onToggleFavorite(item.id)}
-						className="shrink-0 text-(--text-muted) hover:text-warning"
-						title={
-							item.favorite
-								? t("activityList.removeFromFavorites")
-								: t("activityList.addToFavorites")
-						}
-						aria-label={
-							item.favorite
-								? t("activityList.removeFromFavorites")
-								: t("activityList.addToFavorites")
-						}
-					>
-						<HugeiconsIcon
-							icon={StarIcon}
-							strokeWidth={2.5}
-							className={`h-4 w-4 ${item.favorite ? "text-warning" : ""}`}
-						/>
-					</Button>
-				)}
-				{onDelete && (
-					<Button
-						variant="ghost"
-						size="icon-xs"
-						onClick={() => onDelete(item.id)}
-						className="shrink-0 text-(--text-muted) hover:text-destructive"
-						title={t("common.delete")}
-						aria-label={t("history.deleteEntry")}
-					>
-						<HugeiconsIcon
-							icon={Delete01Icon}
-							strokeWidth={2.5}
-							className="h-4 w-4"
-						/>
-					</Button>
-				)}
+					{onDelete && (
+						<Button
+							variant="ghost"
+							size="icon-xs"
+							onClick={() => onDelete(item.id)}
+							className="shrink-0 text-(--text-muted) hover:text-destructive"
+							title={t("common.delete")}
+							aria-label={t("history.deleteEntry")}
+						>
+							<HugeiconsIcon
+								icon={Delete01Icon}
+								strokeWidth={2.5}
+								className="h-4 w-4"
+							/>
+						</Button>
+					)}
+				</div>
 			</div>
 		</div>
 	);
@@ -442,7 +452,7 @@ function ActivityListInner({
 			// No top margin here (or below): vertical rhythm comes from
 			// the PARENT's gap, a margin on this root would stack with
 			// it and double the space above the card.
-			<div className="flex w-full flex-col gap-2.5">
+			<div className="flex w-full flex-col gap-2">
 				{!hideHeader && (
 					<div className="flex items-center justify-between w-full">
 						<span className="text-[12px] font-semibold text-(--text-primary)">
@@ -474,7 +484,7 @@ function ActivityListInner({
 	const groups = groupByDate ? groupRecordsByDate(items) : null;
 
 	return (
-		<div className="flex w-full flex-col gap-2.5">
+		<div className="flex w-full flex-col gap-2">
 			{!hideHeader && (
 				<div className="flex items-center justify-between w-full">
 					<span className="text-[12px] font-semibold text-(--text-primary)">
