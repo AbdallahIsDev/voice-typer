@@ -274,8 +274,9 @@ const ActivityListRow = memo(function ActivityListRow({
 					{/* Bottom-center masked reveal (collapsed expandable rows
 					    only). A full-width overlay covers the ENTIRE last
 					    visible line edge to edge (not just the middle) and
-					    fades it bottom-up (transparent top → solid card
-					    background at the bottom) with the "Show more"
+					    fades it bottom-up (solid card background for the
+					    bottom 60%, transparent at the top via the 60%
+					    gradient stop) with the "Show more"
 					    control centered on the solid part, no separate
 					    button row, no extra vertical space. The top
 					    padding extends the fade zone so the mask blends
@@ -288,7 +289,7 @@ const ActivityListRow = memo(function ActivityListRow({
 					    pointer-events-auto are pinned by
 					    ActivityList.grouped.test.tsx, keep them. */}
 					{expandable && !expanded && (
-						<div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-center justify-center bg-gradient-to-t from-(--bg-subtle) to-transparent pt-3">
+						<div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-center justify-center bg-gradient-to-t from-(--bg-subtle) via-(--bg-subtle) via-60% to-transparent pt-3">
 							<button
 								type="button"
 								aria-expanded={expanded}

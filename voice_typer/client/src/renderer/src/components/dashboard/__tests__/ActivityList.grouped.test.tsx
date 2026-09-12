@@ -451,6 +451,8 @@ describe("ActivityList inline masked reveal", () => {
 		const overlay = moreBtn.parentElement;
 		expect(overlay?.className).toContain("absolute");
 		expect(overlay?.className).toContain("bg-gradient-to-t");
+		// Solid for the bottom 60%, fading out toward the top.
+		expect(overlay?.className).toContain("via-60%");
 		expect(overlay?.className).toContain("pointer-events-none");
 		expect(moreBtn.className).toContain("pointer-events-auto");
 		expect(container.querySelector("button.self-start")).toBeNull();
