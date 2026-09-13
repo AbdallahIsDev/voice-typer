@@ -7,12 +7,14 @@
  *   • `useModelConfig`    , config + models + catalog state, the
  *                            `config_changed` subscription, and the
  *                            load / refresh / update actions.
- *   • `useModelDownload`  , download-progress state machine, the
- *                            `download_progress` subscription, and the
- *                            download / pause / cancel actions.
  *   • `useModelSelection` , `selectingModel` / `deleteModelTarget`
  *                            state + the select / request-delete /
  *                            confirm-delete actions.
+ *   • `useModelDownload`  , download-progress state machine, the
+ *                            `download_progress` subscription, and the
+ *                            download / pause / cancel actions. Wired
+ *                            to `selectModel` so a successful download
+ *                            auto-selects the model.
  *   • `useCloudProviders` , cloud-provider API keys + test results +
  *                            the save-key / set-consent / test-
  *                            connection actions (also owns the 3
@@ -91,26 +93,14 @@ export function useModelLifecycle() {
 		...configRest
 	} = configHook;
 
-	// 2. Download-progress state machine + the `download_progress`
-	//    subscription + the download / pause / cancel actions. Needs
-	//    `setModels` (to mark the just-downloaded model as
-	//    `downloaded: true`) and `loadConfig`
-	//    (post-download reconcile, the backend does not auto-activate,
-	//    so config/status truth is re-fetched instead of guessed).
-	const download = useModelDownload({
-		call,
-		showSnack,
-		setModels,
-		reconcileAfterDownload: configRest.loadConfig,
-	});
-
-	// 3. Model-selection + deletion state + actions. Needs `setModels`
+	// 2. Model-selection + deletion state + actions. Needs `setModels`
 	//    (optimistic active-model flip + post-delete state clear),
 	//    `refreshModelStatus` (post-select reconciliation), and
 	//    `updateConfig` (persist the new active model). `setConfig`
 	//    mirrors the committed selection into config state immediately
 	//    so the no-model banner flips without waiting for the
-	//    `config_changed` echo.
+	//    `config_changed` echo. Created BEFORE the download sub-hook:
+	//    the download's auto-select needs `selectModel`.
 	const selection = useModelSelection({
 		call,
 		showSnack,
@@ -118,6 +108,30 @@ export function useModelLifecycle() {
 		refreshModelStatus,
 		updateConfig,
 		setConfig,
+	});
+
+	// Auto-select the just-downloaded model (stable reference so the
+	// download sub-hook's `downloadModel` keeps a stable identity for
+	// the memo'd row components).
+	const handleDownloaded = useCallback(
+		(model: ModelInfo) => void selection.selectModel(model),
+		[selection.selectModel],
+	);
+
+	// 3. Download-progress state machine + the `download_progress`
+	//    subscription + the download / pause / cancel actions. Needs
+	//    `setModels` (to mark the just-downloaded model as
+	//    `downloaded: true`) and `loadConfig`
+	//    (post-download reconcile, the backend does not auto-activate,
+	//    so config/status truth is re-fetched instead of guessed).
+	//    `onDownloaded` auto-selects the model on success (the hook
+	//    passes it with `downloaded: true` applied).
+	const download = useModelDownload({
+		call,
+		showSnack,
+		setModels,
+		reconcileAfterDownload: configRest.loadConfig,
+		onDownloaded: handleDownloaded,
 	});
 
 	// 4. Cloud-provider API keys + test results + consent actions.

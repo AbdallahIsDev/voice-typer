@@ -4,12 +4,6 @@
  * Each describe block pins one finding so a future regression points at
  * the exact contract that broke:
  *
- *   - The transcription preview text is wrapped in an
- *     `<output aria-live="polite">` region so screen readers announce
- *     freshly arrived transcriptions.
- *   - The LastTranscriptionPreview container carries
- *     `aria-live="polite"` so the card remains accessible when rendered
- *     outside Home's `<output>` wrapper.
  *   - The MicToggleButton exposes `aria-pressed` so screen readers
  *     announce the toggle state ("pressed" / "not pressed") rather than
  *     just the label.
@@ -21,7 +15,6 @@
  *     "Preparing offline engine…" message, and red error text.
  *   - A live MM:SS recording timer is rendered above the mic button
  *     while recording.
- *   - LAST_TEXT_AUTO_CLEAR_MS is bumped to 30_000 in constants.ts.
  *   - No task-ID / session-prefix comments remain in the owned files.
  */
 import {
@@ -72,93 +65,6 @@ async function renderHome() {
 	const { default: Home } = await import("@/pages/Home");
 	return render(<TooltipProvider>{<Home />}</TooltipProvider>);
 }
-
-//transcription text wrapped in <output aria-live="polite"> ──
-
-describe("QV-9: lastText is rendered inside an <output aria-live='polite'> region", () => {
-	beforeEach(() => {
-		// Reset the shared singletons (mockCall, mockPythonEvent, mockNavigate, …).
-		resetStableMocks();
-		localStorage.clear();
-		vi.resetModules();
-		// Keep the backend calls pending so initial-load effects don't
-		// race with the assertion.
-		mockCall.mockImplementation(() => new Promise(() => {}));
-	});
-
-	afterEach(() => {
-		cleanup();
-	});
-
-	it("uses an <output> element (semantic live region) with aria-live='polite'", async () => {
-		await renderHome();
-
-		// Find the transcription_final handler captured by the mock and
-		// invoke it with a fake result so lastText populates.
-		const transcriptionFinalCall = mockPythonEvent.mock.calls.find(
-			(c) => c[0] === "transcription_final",
-		);
-		expect(transcriptionFinalCall).toBeDefined();
-		const handler = transcriptionFinalCall?.[1] as (data: {
-			text?: string;
-		}) => unknown;
-
-		await act(async () => {
-			handler({ text: "hello world" });
-		});
-
-		// The transcription text must be rendered.
-		const textEl = screen.getByText("hello world");
-		// There must be at least one ancestor with aria-live="polite".
-		const liveRegion = textEl.closest('[aria-live="polite"]');
-		expect(liveRegion).not.toBeNull();
-		expect(liveRegion?.getAttribute("aria-live")).toBe("polite");
-		// The Home page wraps the preview in an <output> element (the
-		// semantic HTML5 live region). Walk up to confirm an <output>
-		// ancestor exists with aria-live="polite", the
-		// LastTranscriptionPreview container itself no longer carries
-		// aria-live (the ancestor <output> is the single live region
-		// so the same text isn't announced twice by screen readers),
-		// so the closest aria-live ancestor should be the <output>.
-		let node: Element | null = textEl.parentElement;
-		let outputAncestor: Element | null = null;
-		while (node) {
-			if (
-				node.tagName.toLowerCase() === "output" &&
-				node.getAttribute("aria-live") === "polite"
-			) {
-				outputAncestor = node;
-				break;
-			}
-			node = node.parentElement;
-		}
-		expect(outputAncestor).not.toBeNull();
-	});
-});
-
-//LastTranscriptionPreview container relies on the ancestor <output> ──
-
-describe("QV-96: LastTranscriptionPreview container does NOT carry its own aria-live (ancestor <output> provides it)", () => {
-	it("renders the outer container with no aria-live attribute", async () => {
-		const { LastTranscriptionPreview } = await import(
-			"@/pages/home/components/LastTranscriptionPreview"
-		);
-		const { container } = render(
-			<LastTranscriptionPreview
-				text="sample text"
-				onUndo={() => {}}
-				onRepaste={() => {}}
-			/>,
-		);
-		// The outermost element must NOT carry aria-live, the
-		// ancestor `<output aria-live="polite">` wrapper in Home.tsx
-		// is the single live region. A second aria-live here would
-		// cause screen readers to announce the same text twice.
-		const outer = container.firstElementChild;
-		expect(outer).not.toBeNull();
-		expect(outer?.hasAttribute("aria-live")).toBe(false);
-	});
-});
 
 //MicToggleButton exposes aria-pressed ──
 
@@ -597,15 +503,6 @@ describe("Home keeps exactly ONE live region across pill / timer / dynamic line"
 	});
 });
 
-//(b): LAST_TEXT_AUTO_CLEAR_MS bumped to 30_000 ──
-
-describe("QV-49(b): LAST_TEXT_AUTO_CLEAR_MS is 30000ms", () => {
-	it("exports the bumped value (30s) so the preview stays visible long enough to act on", async () => {
-		const mod = await import("@/pages/home/lib/constants");
-		expect(mod.LAST_TEXT_AUTO_CLEAR_MS).toBe(30_000);
-	});
-});
-
 // Status pill dot colors are theme CSS variables ──
 //
 // The pill previously hardcoded a hex palette (#787878 / #2ECC71 / …),
@@ -657,7 +554,6 @@ describe("QV-25: owned files contain no task-ID / session-prefix comments", () =
 	const OWNED_FILES = [
 		"src/renderer/src/pages/Home.tsx",
 		"src/renderer/src/pages/home/components/RecordingStatusPill.tsx",
-		"src/renderer/src/pages/home/components/LastTranscriptionPreview.tsx",
 		"src/renderer/src/pages/home/components/MicToggleButton.tsx",
 		"src/renderer/src/pages/home/lib/constants.ts",
 		"src/renderer/src/pages/home/lib/status.ts",

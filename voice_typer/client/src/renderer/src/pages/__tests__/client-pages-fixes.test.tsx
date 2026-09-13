@@ -425,7 +425,6 @@ describe("S5-CR-104: History Clear All button uses shared muted→solid-destruct
 		const files = [
 			"src/renderer/src/pages/History.tsx",
 			"src/renderer/src/components/common/CollectionToolbar.tsx",
-			"src/renderer/src/pages/home/components/LastTranscriptionPreview.tsx",
 		];
 		for (const file of files) {
 			const src = fs.readFileSync(file, "utf8");
@@ -455,7 +454,6 @@ describe("EC-12: Home.tsx extraction (subcomponents moved to ./home/)", () => {
 		expect(src).toContain("./home/lib/status");
 		expect(src).toContain("./home/components/MicToggleButton");
 		expect(src).toContain("./home/components/RecordingStatusPill");
-		expect(src).toContain("./home/components/LastTranscriptionPreview");
 		expect(src).toContain("./home/hooks/useFirstRecordingCelebration");
 	});
 
@@ -472,7 +470,7 @@ describe("EC-12: Home.tsx extraction (subcomponents moved to ./home/)", () => {
 		expect(uses.length).toBeGreaterThanOrEqual(3);
 	});
 
-	it("Home.tsx no longer inlines RecordingStatusPill / MicToggleButton / LastTranscriptionPreview / RecordingErrorCard", async () => {
+	it("Home.tsx no longer inlines RecordingStatusPill / MicToggleButton / RecordingErrorCard", async () => {
 		const fs = await import("node:fs");
 		const src = fs.readFileSync("src/renderer/src/pages/Home.tsx", "utf8");
 		// Strip comments before checking, the extraction leaves a
@@ -483,7 +481,6 @@ describe("EC-12: Home.tsx extraction (subcomponents moved to ./home/)", () => {
 		// The inline function declarations must be gone.
 		expect(stripped).not.toMatch(/function RecordingStatusPill\b/);
 		expect(stripped).not.toMatch(/function MicToggleButton\b/);
-		expect(stripped).not.toMatch(/function LastTranscriptionPreview\b/);
 		expect(stripped).not.toMatch(/function RecordingErrorCard\b/);
 		// The module-level cache helpers must be gone (they live in
 		// ./home/lib/cache now).
@@ -504,7 +501,6 @@ describe("EC-12: Home.tsx extraction (subcomponents moved to ./home/)", () => {
 		expect(src).toContain("STATS_CACHE_KEY");
 		expect(src).toContain("FIRST_RECORD_CELEBRATED_KEY");
 		expect(src).toContain("FORCE_CANCEL_DELAY_MS");
-		expect(src).toContain("LAST_TEXT_AUTO_CLEAR_MS");
 		expect(src).toContain("STATUS_COLORS");
 	});
 

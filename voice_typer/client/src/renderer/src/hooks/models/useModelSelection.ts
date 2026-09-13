@@ -188,7 +188,13 @@ export function useModelSelection({
 					"success",
 				);
 			} else {
-				showSnack(result.error || t("models.snack.deleteFailed"), "error");
+				// Prefer the backend's reason (it names the cause:
+				// dictation in flight, unload failure, ...), the
+				// generic key is the last resort.
+				showSnack(
+					result.message || result.error || t("models.snack.deleteFailed"),
+					"error",
+				);
 			}
 		} catch (err) {
 			showSnack(

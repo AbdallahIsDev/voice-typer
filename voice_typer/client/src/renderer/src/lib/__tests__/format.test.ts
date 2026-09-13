@@ -126,20 +126,17 @@ describe("formatBytes", () => {
 });
 
 describe("formatDuration", () => {
-	it("returns '0m' for 0 seconds (en fallback)", () => {
-		// 0 is a special case, the function returns "0m" via the
-		// ``analytics.durationZero`` key (missing → fallback to
-		// ``"0" + minuteGlyph``). With the mocked ``t()``,
-		// ``minuteGlyph`` is "m", so the result is "0m".
-		expect(formatDuration(0)).toBe("0m");
+	it("returns '0' for 0 seconds", () => {
+		// 0 is a special case: bare "0", no unit suffix.
+		expect(formatDuration(0)).toBe("0");
 	});
 
-	it("returns '0m' for negative / non-finite values", () => {
+	it("returns '0' for negative / non-finite values", () => {
 		// Defensive: negative durations (which would arise from a
-		// clock-skew bug in the backend) and NaN should fall into
-		// the same "zero" branch as 0.
-		expect(formatDuration(-5)).toBe("0m");
-		expect(formatDuration(Number.NaN)).toBe("0m");
+		// clock-skew bug in the backend) and NaN fall into
+		// the same zero branch as 0.
+		expect(formatDuration(-5)).toBe("0");
+		expect(formatDuration(Number.NaN)).toBe("0");
 	});
 
 	it("rounds up sub-minute values to '1m'", () => {

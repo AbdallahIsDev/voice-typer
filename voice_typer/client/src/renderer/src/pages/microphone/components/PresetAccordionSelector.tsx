@@ -2,15 +2,18 @@
 // page only.
 //
 // Collapsed, the header shows the section label + a general help
-// InfoTooltip + the CURRENT selection; expanding reveals a RadioGroup
-// of the five presets (the preset VALUES and their label/description
-// keys come from the shared registry `lib/utils/audioPresets.ts` —
-// single source of truth for the preset set, shared with the Settings
-// → Audio Select; the canonical preset → filter mapping lives in
-// `voice_typer/server/audio_presets.py`). Each option's description
-// lives in a per-row InfoTooltip instead of being permanently visible
-//, keeps the accordion compact and kills the duplicated header
-// paragraph.
+// InfoTooltip + the CURRENT selection; expanding reveals a master
+// enable-Switch first, then (while enabled) a RadioGroup of the four
+// real presets (the preset VALUES and their label/description keys come
+// from the shared registry `lib/utils/audioPresets.ts` — single source
+// of truth for the preset set, shared with the Settings → Audio rows;
+// the canonical preset → filter mapping lives in
+// `voice_typer/server/audio_presets.py`). "off" lives ONLY behind the
+// Switch (same mechanism as the Settings surface): flipping it off
+// stashes the current preset, flipping it on restores it. Each
+// option's description lives in a per-row InfoTooltip instead of being
+// permanently visible, keeps the accordion compact and kills the
+// duplicated header paragraph.
 //
 // Selecting a radio applies the preset immediately (ADR 0007: backend
 // maps preset → filter chain). When the Custom preset is active, the
@@ -23,7 +26,7 @@
 
 import { ArrowDown01Icon, FilterIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { AudioFilterChain } from "@/components/audio/AudioFilterChain";
 import { SelectableRow } from "@/components/common/SelectableRow";
 import { InfoTooltip } from "@/components/feedback/InfoTooltip";
@@ -34,6 +37,7 @@ import {
 	AccordionTrigger,
 } from "@/components/ui/accordion";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Switch } from "@/components/ui/switch";
 import { t } from "@/i18n/i18n";
 import { cn } from "@/lib/utils";
 import {
@@ -85,9 +89,35 @@ export function PresetAccordionSelector({
 	onConfigChange,
 }: PresetAccordionSelectorProps) {
 	const presetOptions = useMemo(() => getPresetOptions(), []);
-	const current = presetOptions.find((o) => o.value === preset);
+	// "off" is not a radio option (disabling is the enable-Switch's
+	// job); the header chip still needs a display label for it.
+	const selectableOptions = presetOptions.filter((o) => o.value !== "off");
+	const current =
+		preset === "off"
+			? {
+					value: "off" as AudioPreset,
+					label: t("settings.audioEnhancement.presetOff"),
+					description: "",
+				}
+			: presetOptions.find((o) => o.value === preset);
+	const enabled = preset !== "off";
 	const isCustom = preset === "custom";
 	const panelId = "mic-preset-custom-panel";
+
+	// Remembers the last non-"off" preset so flipping the Switch back
+	// on restores the user's choice instead of resetting to "auto".
+	const lastNonOffPresetRef = useRef<AudioPreset>(
+		preset === "off" ? "auto" : preset,
+	);
+	useEffect(() => {
+		if (preset !== "off") {
+			lastNonOffPresetRef.current = preset;
+		}
+	}, [preset]);
+
+	const handleEnabledChange = (checked: boolean) => {
+		onPresetChange(checked ? lastNonOffPresetRef.current : "off");
+	};
 
 	return (
 		<Accordion
@@ -162,34 +192,52 @@ export function PresetAccordionSelector({
                                 roving-tabindex/reading order) and push it to the visual far
                                 end via ms-auto, aligning its inset with the header chevron. */}
 				<AccordionContent className="flex flex-col gap-2">
-					<div className="border-t border-border/5 pt-4">
-						<RadioGroup
-							value={preset}
-							onValueChange={(v) => onPresetChange(v as AudioPreset)}
-							className="gap-1 px-4"
-							data-testid="mic-preset-radio-group"
-						>
-							{presetOptions.map((option) => (
-								// The a11y pair (nested RadioGroupItem is the accessible
-								// control; row click is pointer-only convenience) + the
-								// skip-nested-button click gating (the radio AND the row's
-								// InfoTooltip trigger are <button>s, clicking either must
-								// never change the preset as a side effect) live in the
-								// shared SelectableRow wrapper.
-								<SelectableRow
-									key={option.value}
-									className={cn(
-										"flex items-center gap-3 rounded-lg p-2 min-h-9 cursor-pointer transition-colors hover:bg-foreground/5",
-										option.value === preset && "bg-foreground/5",
-									)}
-									data-testid={`mic-preset-option-${option.value}`}
-									ignoreClicksFrom={["button"]}
-									onRowSelect={() => {
-										if (preset === option.value) return;
-										onPresetChange(option.value);
-									}}
-								>
-									{/* Explicit aria-label keeps the radio's accessible
+					{/* Master enable-Switch (first row): "off" lives ONLY
+                                        here, never among the radios below. The radios
+                                        (and the Custom panel) render only while enabled. */}
+					<div className="flex items-center gap-3 px-4">
+						<span className="text-sm font-medium text-(--text-primary)">
+							{t("settings.audioEnhancement.microphoneQuality")}
+						</span>
+						<Switch
+							checked={enabled}
+							onCheckedChange={handleEnabledChange}
+							aria-label={t(
+								"settings.audioEnhancement.microphoneQualityEnableAria",
+							)}
+							data-testid="mic-quality-switch"
+							className="ms-auto"
+						/>
+					</div>
+					{enabled && (
+						<div className="border-t border-border/5 pt-4">
+							<RadioGroup
+								value={preset}
+								onValueChange={(v) => onPresetChange(v as AudioPreset)}
+								className="gap-1 px-4"
+								data-testid="mic-preset-radio-group"
+							>
+								{selectableOptions.map((option) => (
+									// The a11y pair (nested RadioGroupItem is the accessible
+									// control; row click is pointer-only convenience) + the
+									// skip-nested-button click gating (the radio AND the row's
+									// InfoTooltip trigger are <button>s, clicking either must
+									// never change the preset as a side effect) live in the
+									// shared SelectableRow wrapper.
+									<SelectableRow
+										key={option.value}
+										className={cn(
+											"flex items-center gap-3 rounded-lg p-2 min-h-9 cursor-pointer transition-colors hover:bg-foreground/5",
+											option.value === preset && "bg-foreground/5",
+										)}
+										data-testid={`mic-preset-option-${option.value}`}
+										ignoreClicksFrom={["button"]}
+										onRowSelect={() => {
+											if (preset === option.value) return;
+											onPresetChange(option.value);
+										}}
+									>
+										{/* Explicit aria-label keeps the radio's accessible
                                                                     name to the preset LABEL, an implicit-label
                                                                     fallback would concatenate the whole row text.
                                                                     The radio stays FIRST in DOM (Radix roving
@@ -198,31 +246,32 @@ export function PresetAccordionSelector({
                                                                     moved to the visual far end via order-last +
                                                                     ms-auto, aligning its inset with the header "+"
                                                                     glyph. */}
-									<RadioGroupItem
-										value={option.value}
-										aria-label={option.label}
-										className="order-last ms-auto"
-									/>
-									{/* Title + its own info trigger form the left
+										<RadioGroupItem
+											value={option.value}
+											aria-label={option.label}
+											className="order-last ms-auto"
+										/>
+										{/* Title + its own info trigger form the left
                                                                     content group; the info icon sits immediately
                                                                     after the title (Settings pattern), never at the
                                                                     far end and never inside the radio's hit area.
                                                                     The inline span's stopPropagation (owned by
                                                                     InfoTooltip) keeps clicks/keys off the row
                                                                     handler. */}
-									<span className="flex items-center gap-2 min-w-0">
-										<span className="text-sm font-medium text-(--text-primary) truncate">
-											{option.label}
+										<span className="flex items-center gap-2 min-w-0">
+											<span className="text-sm font-medium text-(--text-primary) truncate">
+												{option.label}
+											</span>
+											<InfoTooltip
+												text={option.description}
+												contextLabel={option.label}
+											/>
 										</span>
-										<InfoTooltip
-											text={option.description}
-											contextLabel={option.label}
-										/>
-									</span>
-								</SelectableRow>
-							))}
-						</RadioGroup>
-					</div>
+									</SelectableRow>
+								))}
+							</RadioGroup>
+						</div>
+					)}
 
 					{isCustom && (
 						<>

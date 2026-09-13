@@ -132,11 +132,13 @@ describe("Home page", () => {
 		expect(mockNavigate).toHaveBeenCalledWith("history");
 	});
 
-	// ── BG-6 (PVT-047): transcription result must be in an aria-live region ──
+	// ── BG-6 (PVT-047, retired with the preview card 2026-09-13): the
+	// transcription_preview card is gone; transcription_final must NOT
+	// render raw text on Home (transcriptions live in History).
 
-	it("BG-6: renders transcription text inside an aria-live='polite' region", async () => {
+	it("BG-6: transcription_final does not render preview text on Home", async () => {
 		// Pre-populate the stats cache so the page renders without the
-		// stats spinner; we don't need real stats for this a11y test.
+		// stats spinner; we don't need real stats for this test.
 		const stats = { count: 0, chars: 0, word_count: 0, duration: 0 };
 		localStorage.setItem("vt_home_stats_cache", JSON.stringify(stats));
 		mockCall.mockImplementation(() => new Promise(() => {}));
@@ -158,12 +160,8 @@ describe("Home page", () => {
 			handler({ text: "hello world" });
 		});
 
-		// The transcribed text must be rendered inside an ancestor that
-		// carries aria-live="polite" so screen readers announce it.
-		const textEl = screen.getByText("hello world");
-		const liveRegion = textEl.closest('[aria-live="polite"]');
-		expect(liveRegion).not.toBeNull();
-		expect(liveRegion?.getAttribute("aria-live")).toBe("polite");
+		// No preview card: the raw text must NOT appear on the page.
+		expect(screen.queryByText("hello world")).toBeNull();
 	});
 
 	// ── BG-7: ActivityList empty-state must render when recent is empty AND !initialLoading ──

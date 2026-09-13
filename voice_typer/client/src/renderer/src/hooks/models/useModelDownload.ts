@@ -79,6 +79,12 @@ interface UseModelDownloadArgs {
 	 * does not auto-activate a downloaded model, so the renderer must
 	 * not invent an Active state locally). */
 	reconcileAfterDownload: () => Promise<void>;
+	/** Fired once per successful download (after the reconcile) so the
+	 * composer can auto-select the just-downloaded model. The model is
+	 * passed with `downloaded: true` applied (the click-time object
+	 * still has `downloaded: false`, which `selectModel` would refuse).
+	 * Optional so direct mounts / tests can omit it. */
+	onDownloaded?: (model: ModelInfo) => void;
 }
 
 export interface UseModelDownloadResult {
@@ -169,6 +175,7 @@ export function useModelDownload({
 	showSnack,
 	setModels,
 	reconcileAfterDownload,
+	onDownloaded,
 }: UseModelDownloadArgs): UseModelDownloadResult {
 	// Consolidated download-progress state, previously 9 separate
 	// useState calls. Each `download_progress` event now produces ONE
@@ -455,6 +462,13 @@ export function useModelDownload({
 					// get_model_status so `downloaded` / `isActive` match
 					// what the backend will actually use (MDL-9 contract).
 					await reconcileAfterDownload();
+					// Auto-select the just-downloaded model (user request:
+					// a download ends with the model active, not sitting
+					// unselected). `selectModel` persists the activation
+					// itself; the click-time object is spread with
+					// `downloaded: true` because `selectModel` refuses
+					// not-downloaded models up front.
+					onDownloaded?.({ ...model, downloaded: true });
 				} else if (result.cancelled) {
 					// User-initiated cancel: the cancel path
 					// (handleCancelDownload) already surfaced the
@@ -520,7 +534,14 @@ export function useModelDownload({
 			// so the bar stays mounted. The success branch clears it
 			// explicitly.
 		},
-		[call, resetProgress, showSnack, setModels, reconcileAfterDownload],
+		[
+			call,
+			resetProgress,
+			showSnack,
+			setModels,
+			reconcileAfterDownload,
+			onDownloaded,
+		],
 	);
 
 	//Action: retryDownload ───────────────────
@@ -551,12 +572,31 @@ export function useModelDownload({
 		// cleared it) during the failed IPC's await would otherwise be
 		// inverted by the catch-path re-flip.
 		const wasPaused = state.isPaused;
-		setState((prev) => ({ ...prev, isPaused: !prev.isPaused }));
+		setState((prev) => ({
+			...prev,
+			isPaused: !prev.isPaused,
+			// Pause: the pre-click speed/ETA go stale the instant the
+			// user clicks (the backend only clears them on its
+			// transition push, up to ~1s later). Clear optimistically
+			// so a "Paused" label never sits above live-looking
+			// numbers; the next regular push repopulates them on
+			// resume (or on revert below).
+			...(wasPaused ? {} : { speedBps: null, etaSeconds: null }),
+		}));
 		try {
 			if (wasPaused) {
 				await call("resume_model_download");
 			} else {
-				await call("pause_model_download");
+				const result = await call<{ paused?: boolean }>("pause_model_download");
+				if (result?.paused === false) {
+					// The backend has no live download to pause (idle
+					// / already exited). Revert the optimistic flip:
+					// without this the label sticks at "Paused" while
+					// regular pushes (no `paused` field) keep the
+					// numbers moving underneath it.
+					setState((prev) => ({ ...prev, isPaused: wasPaused }));
+					showSnack(t("models.snack.pauseNoop"), "info");
+				}
 			}
 		} catch (err) {
 			setState((prev) => ({ ...prev, isPaused: wasPaused }));

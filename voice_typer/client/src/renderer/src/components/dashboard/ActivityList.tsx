@@ -230,16 +230,21 @@ const ActivityListRow = memo(function ActivityListRow({
 							expandable
 								? "cursor-pointer focus-visible:ring-3 focus-visible:ring-ring focus-visible:outline-hidden"
 								: ""
-						} ${loadingText ? "opacity-60" : ""}`}
+							// Reserve room for the floating bottom-center
+							// button once expanded: without it a long last
+							// line runs underneath the button. Collapsed
+							// text needs no reserve (the button sits on
+							// the masked fade).
+						} ${expanded ? "pb-7" : ""} ${loadingText ? "opacity-60" : ""}`}
 					>
 						<p
 							// The bottom fade lives on the text itself and
 							// ONLY while it is actually clamped (collapsed
 							// expandable rows): single-line and expanded
-							// text must render unmasked. Solid for the top
-							// 60%, fading out over the last line.
+							// text must render unmasked. Full-height fade
+							// (0% to 100%).
 							className={`text-sm text-(--text-primary) leading-snug overflow-hidden text-ellipsis ${
-								expandable && !expanded ? "mask-b-from-60% mask-b-to-100%" : ""
+								expandable && !expanded ? "mask-b-from-0% mask-b-to-100%" : ""
 							}`}
 							style={
 								expanded
@@ -252,61 +257,39 @@ const ActivityListRow = memo(function ActivityListRow({
 							}
 						>
 							{displayedText}
-							{/* Inline collapse affordance at the end of the
-							    expanded text, same treatment as the "Show
-							    more" reveal (muted inline text, no separate
-							    row, no extra vertical space). Nested inside
-							    the toggle block, so it stops propagation to
-							    avoid double-toggling. */}
-							{expandable && expanded && (
-								<>
-									{" "}
-									<button
-										type="button"
-										aria-expanded={expanded}
-										aria-label={t("home.showLess")}
-										onClick={(e) => {
-											e.stopPropagation();
-											void toggleExpanded();
-										}}
-										onKeyDown={(e) => e.stopPropagation()}
-										className="cursor-pointer whitespace-nowrap text-sm leading-snug text-(--text-muted) transition-colors hover:text-(--text-primary) focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden rounded-sm"
-									>
-										{t("home.showLess")}
-									</button>
-								</>
-							)}
 						</p>
-					</div>
-					{/* Bottom-center reveal control (collapsed expandable
-					    rows only). The fade itself lives on the <p> via
-					    mask-b (see above), so this wrapper is only a
-					    positioning shell for the centered "Show more"
-					    button: no separate button row, no extra vertical
-					    space. pointer-events-none so text selection and
-					    clicks pass through everywhere except the real
-					    <button> itself (which stops propagation: it lives
-					    inside the toggle block and must not double-toggle).
-					    Class names pointer-events-none /
-					    pointer-events-auto are pinned by
-					    ActivityList.grouped.test.tsx, keep them. */}
-					{expandable && !expanded && (
-						<div className="pointer-events-none absolute h-full inset-x-0 bottom-0 flex items-end justify-center">
+						{/* Single reveal control for expandable rows (ONE
+						    button, always in the same spot). The fade
+						    itself lives on the <p> via mask-b (see
+						    above); this <button> is positioned absolute
+						    on its own, centered along the bottom edge of
+						    the text block (left-1/2 + -translate-x-1/2
+						    centers in both LTR and RTL), no wrapper
+						    element, no separate button row, no extra
+						    vertical space. Expanding only flips its label
+						    (Show more ↔ Show less), the position never
+						    moves. Nested inside the toggle block, so it
+						    stops propagation to avoid double-toggling. */}
+						{expandable && (
 							<button
 								type="button"
 								aria-expanded={expanded}
-								aria-label={t("home.showMore")}
+								aria-label={expanded ? t("home.showLess") : t("home.showMore")}
 								onClick={(e) => {
 									e.stopPropagation();
 									void toggleExpanded();
 								}}
 								onKeyDown={(e) => e.stopPropagation()}
-								className="pointer-events-auto cursor-pointer whitespace-nowrap text-sm leading-snug text-(--text-muted) transition-colors hover:text-(--text-primary) focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden rounded-sm"
+								className="absolute bottom-0 left-1/2 -translate-x-1/2 cursor-pointer whitespace-nowrap text-sm leading-snug text-(--text-muted) transition-colors hover:text-(--text-primary) focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden rounded-sm"
 							>
-								{loadingText ? t("history.loading") : t("home.showMore")}
+								{loadingText
+									? t("history.loading")
+									: expanded
+										? t("home.showLess")
+										: t("home.showMore")}
 							</button>
-						</div>
-					)}
+						)}
+					</div>
 				</div>
 			</div>
 			{/* Meta row: message info at the inline-start, every action

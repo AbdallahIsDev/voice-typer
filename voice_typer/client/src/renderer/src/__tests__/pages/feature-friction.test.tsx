@@ -681,7 +681,7 @@ describe("dead preset dropdown stays deleted (one shared preset-data source)", (
 			"utf8",
 		);
 		expect(settingsSrc).toMatch(
-			/import \{ AUDIO_PRESET_OPTIONS \} from "@\/lib\/utils\/audioPresets"/,
+			/import \{[^}]*\bAUDIO_PRESET_OPTIONS\b[^}]*\} from "@\/lib\/utils\/audioPresets"/,
 		);
 		expect(micPageSrc).toMatch(
 			/import \{\n\tAUDIO_PRESET_OPTIONS,\n\ttype AudioPreset,\n\} from "@\/lib\/utils\/audioPresets"/,

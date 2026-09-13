@@ -208,7 +208,6 @@ describe("Home subcomponents are memoized extracted components", () => {
 	const MEMO_COMPONENTS = [
 		{ name: "RecordingStatusPill" },
 		{ name: "MicToggleButton" },
-		{ name: "LastTranscriptionPreview" },
 		{ name: "RecordingTimer" },
 	] as const;
 

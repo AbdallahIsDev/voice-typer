@@ -9,11 +9,11 @@
  *           descriptive `aria-label`; bars are non-interactive `<div>`s
  *           (no `<button>`); bar opacity bumped from `/60` to `/80` for
  *           WCAG 1.4.11 contrast.
- *   -   Dashboard.tsx + StatCards.tsx both consume the shared
+ *   -  Dashboard.tsx + StatCards.tsx both consume the shared
  *           `formatDuration` from `lib/format.ts`; in-component copies
  *           dropped. The shared helper resolves `h` / `m` glyphs through
  *           `t()` (analytics.durationHours / durationMinutes /
- *           durationHoursMinutes / durationZero).
+ *           durationHoursMinutes; zero renders bare `"0"`).
  *   -  Dashboard "Share stats" button visibility is gated on
  *           `canShareStats({todayCount, totalCount})` (not
  *           `data.todayCount > 0`) so users with historical
@@ -187,8 +187,7 @@ describe("BG-9: formatDuration shared via lib/format.ts + i18n keys", () => {
 
 	it("lib/format.ts formatDuration resolves glyphs through t() (no hardcoded 'h'/'m' suffixes)", () => {
 		// The new implementation calls t("analytics.durationHours"|"durationMinutes"|
-		// "durationHoursMinutes"|"durationZero"). Assert each key is referenced.
-		expect(FORMAT_SRC).toContain("analytics.durationZero");
+		// "durationHoursMinutes"). Assert each key is referenced.
 		expect(FORMAT_SRC).toContain("analytics.durationMinutes");
 		expect(FORMAT_SRC).toContain("analytics.durationHours");
 		expect(FORMAT_SRC).toContain("analytics.durationHoursMinutes");
@@ -202,11 +201,11 @@ describe("BG-9: formatDuration shared via lib/format.ts + i18n keys", () => {
 		expect(FORMAT_SRC).not.toMatch(/const\s+secondLabel\s*=\s*"s"/);
 	});
 
-	it("en.json defines the four new duration i18n keys", () => {
+	it("en.json defines the three duration i18n keys (zero renders bare '0', no key)", () => {
 		expect(EN_JSON.analytics.durationHours).toBe("{h}h");
 		expect(EN_JSON.analytics.durationMinutes).toBe("{m}m");
 		expect(EN_JSON.analytics.durationHoursMinutes).toBe("{h}h {m}m");
-		expect(EN_JSON.analytics.durationZero).toBe("0m");
+		expect(EN_JSON.analytics.durationZero).toBeUndefined();
 	});
 
 	it("en.json defines analytics.activityChartAria (BG-8)", () => {
@@ -217,14 +216,14 @@ describe("BG-9: formatDuration shared via lib/format.ts + i18n keys", () => {
 
 	// ── Behavioral tests for the shared formatDuration ──────────────
 
-	it("formatDuration(0) returns '0m' (durationZero key)", () => {
+	it("formatDuration(0) returns '0' (no unit suffix)", () => {
 		setLocale("en");
-		expect(formatDuration(0)).toBe("0m");
+		expect(formatDuration(0)).toBe("0");
 	});
 
-	it("formatDuration(negative) returns '0m' (durationZero key)", () => {
+	it("formatDuration(negative) returns '0'", () => {
 		setLocale("en");
-		expect(formatDuration(-5)).toBe("0m");
+		expect(formatDuration(-5)).toBe("0");
 	});
 
 	it("formatDuration(sub-minute) rounds up to '1m' (matches StatCards legacy)", () => {

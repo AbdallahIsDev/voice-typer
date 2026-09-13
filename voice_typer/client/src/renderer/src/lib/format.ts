@@ -57,11 +57,12 @@
  *     removed).
  *   - ``formatDuration`` now resolves the ``h`` / ``m`` glyphs through
  *     ``t()`` (``analytics.durationHours`` / ``durationMinutes`` /
- *     ``durationHoursMinutes`` / ``durationZero``). When those keys are
+ *     ``durationHoursMinutes``). When those keys are
  *     missing from the active locale, it falls back to the existing
  *     ``format.duration.hourShort`` / ``minuteShort`` keys (which ship
  *     in all 8 locale files) so the function never returns a raw
- *     translation key to the user. Sub-minute values round up to 1m
+ *     translation key to the user. Zero renders as a bare ``"0"``
+ *     (no unit suffix). Sub-minute values round up to 1m
  *     (matches the legacy StatCards behaviour); seconds are dropped
  *     (matches the Dashboard / StatCards snapshot contracts).
  */
@@ -334,9 +335,8 @@ export function formatBytes(
  * ``t()`` so non-English locales can localize them.
  *
  * Translation-key strategy (with graceful fallback):
- *   1. Try ``analytics.durationZero`` / ``durationMinutes`` /
- *      ``durationHours`` / ``durationHoursMinutes`` (the  contract
- *      keys expected by ``Dashboard.test.tsx``). When present, these
+ *   1. Try ``analytics.durationMinutes`` / ``durationHours`` /
+ *      ``durationHoursMinutes``. When present, these
  *      give the locale full control over the format string (e.g.
  *      Arabic could render "٥د" via ``{m}m`` + Arabic-Indic digits).
  *   2. When those keys are MISSING (``t()`` returns the raw key), fall
@@ -345,7 +345,8 @@ export function formatBytes(
  *      guarantees the function never returns a raw key to the user.
  *
  * Behavioural changes vs the previous implementation:
- *   - ``formatDuration(0)`` returns ``"0m"`` (was ``"0s"``).
+ *   - ``formatDuration(0)`` returns ``"0"`` (was ``"0m"``): a zero
+ *     duration carries no unit.
  *   - ``formatDuration(5)`` returns ``"1m"`` (was ``"5s"``), sub-
  *     minute values round UP to 1m, matching the legacy StatCards
  *     storybook snapshot.
@@ -354,7 +355,7 @@ export function formatBytes(
  *     displayed hours+minutes; surfacing seconds was a UX regression.
  *
  * Examples (en):
- *   - ``formatDuration(0)``    → ``"0m"``
+ *   - ``formatDuration(0)``    → ``"0"``
  *   - ``formatDuration(5)``    → ``"1m"``  (rounds up)
  *   - ``formatDuration(120)``  → ``"2m"``
  *   - ``formatDuration(3600)`` → ``"1h"``
@@ -363,12 +364,9 @@ export function formatBytes(
  */
 export function formatDuration(seconds: number): string {
 	if (!Number.isFinite(seconds) || seconds <= 0) {
-		const zeroKey = t("analytics.durationZero");
-		if (zeroKey !== "analytics.durationZero") {
-			return zeroKey;
-		}
-		// Fallback: build "0" + minute glyph from format.duration.*.
-		return `0${t("format.duration.minuteShort")}`;
+		// Zero (and defensive negative/NaN) renders as a bare "0":
+		// a zero duration carries no unit.
+		return "0";
 	}
 	// Sub-minute values round up to 1m (matches legacy StatCards
 	// snapshot; the previous implementation returned "5s" / "45s"

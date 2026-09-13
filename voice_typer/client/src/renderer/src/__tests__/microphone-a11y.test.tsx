@@ -534,7 +534,7 @@ describe("PresetAccordionSelector memoizes getPresetOptions() to a single call p
 		expect(callsAfterRerender).toBe(1);
 	});
 
-	it("shows the current selection in the collapsed header and applies a radio pick immediately", () => {
+	it("shows the current selection in the collapsed header and toggles via the enable-Switch", () => {
 		const handlePresetChange = vi.fn();
 		const { rerender } = render(
 			<PresetAccordionSelector
@@ -551,12 +551,15 @@ describe("PresetAccordionSelector memoizes getPresetOptions() to a single call p
 		expect(screen.getByText("Microphone Quality")).toBeTruthy();
 		expect(screen.getByTestId("mic-preset-current").textContent).toBe("Studio");
 
-		// Expand, then pick another preset via its radio.
+		// Expand, then flip the enable-Switch off: "off" lives ONLY
+		// behind the Switch, there is no OFF radio anymore.
 		fireEvent.click(screen.getByRole("button", { expanded: false }));
-		fireEvent.click(screen.getByRole("radio", { name: "OFF" }));
+		expect(screen.queryByTestId("mic-preset-radio-group")).toBeTruthy();
+		fireEvent.click(screen.getByTestId("mic-quality-switch"));
 		expect(handlePresetChange).toHaveBeenCalledWith("off");
 
-		// After the prop flips, the collapsed label follows.
+		// After the prop flips, the collapsed label follows and the
+		// radios unmount (revealed only while enabled).
 		rerender(
 			<PresetAccordionSelector
 				preset="off"
@@ -568,6 +571,11 @@ describe("PresetAccordionSelector memoizes getPresetOptions() to a single call p
 			/>,
 		);
 		expect(screen.getByTestId("mic-preset-current").textContent).toBe("OFF");
+		expect(screen.queryByTestId("mic-preset-radio-group")).toBeNull();
+
+		// Flipping the Switch back on restores the stashed preset.
+		fireEvent.click(screen.getByTestId("mic-quality-switch"));
+		expect(handlePresetChange).toHaveBeenCalledWith("studio");
 	});
 
 	it("reveals the Custom-filters disclosure only under the custom preset", () => {
@@ -673,14 +681,14 @@ describe("PresetAccordionSelector descriptions live behind InfoTooltip triggers"
 
 		fireEvent.click(screen.getByRole("button", { expanded: false }));
 
-		// 5 option triggers (role=button) + the header trigger, which is
+		// 4 option triggers (role=button) + the header trigger, which is
 		// the INLINE span variant (it lives inside the AccordionTrigger
 		// button, where a nested button would be invalid DOM), asserted
 		// via its aria-label, not a role.
 		const infoTriggers = screen.getAllByRole("button", {
 			name: /^More info about/,
 		});
-		expect(infoTriggers.length).toBe(5);
+		expect(infoTriggers.length).toBe(4);
 		const headerTrigger = screen.getByLabelText(
 			"More info about Microphone Quality",
 		);
@@ -689,7 +697,7 @@ describe("PresetAccordionSelector descriptions live behind InfoTooltip triggers"
 		expect(screen.getByLabelText("More info about Studio")).toBeTruthy();
 	});
 
-	it("clicking an info trigger never changes the preset, while a plain row click still selects", () => {
+	it("toggling the enable-Switch never touches the radios, while a plain row click still selects", () => {
 		const handlePresetChange = vi.fn();
 		render(
 			<PresetAccordionSelector
@@ -701,8 +709,11 @@ describe("PresetAccordionSelector descriptions live behind InfoTooltip triggers"
 
 		fireEvent.click(screen.getByRole("button", { expanded: false }));
 
-		fireEvent.click(screen.getByLabelText("More info about OFF"));
-		expect(handlePresetChange).not.toHaveBeenCalled();
+		// The Switch flips enablement only: on → "off" (stashing
+		// "auto"), it never selects a radio preset.
+		fireEvent.click(screen.getByTestId("mic-quality-switch"));
+		expect(handlePresetChange).toHaveBeenCalledTimes(1);
+		expect(handlePresetChange).toHaveBeenCalledWith("off");
 
 		// Clicking the row body (not the radio control itself) selects.
 		fireEvent.click(screen.getByTestId("mic-preset-option-studio"));

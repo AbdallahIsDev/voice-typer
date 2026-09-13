@@ -93,6 +93,7 @@ function makeHookArgs(
 		call?: typeof callMock;
 		setModels?: React.Dispatch<React.SetStateAction<ModelInfo[]>>;
 		reconcileAfterDownload?: () => Promise<void>;
+		onDownloaded?: (model: ModelInfo) => void;
 	} = {},
 ) {
 	const setModels =
@@ -110,6 +111,7 @@ function makeHookArgs(
 		setModels,
 		reconcileAfterDownload:
 			overrides.reconcileAfterDownload ?? vi.fn().mockResolvedValue(undefined),
+		onDownloaded: overrides.onDownloaded,
 	};
 }
 
@@ -610,6 +612,111 @@ describe("useModelDownload, handleCancelDownload(modelName) (queued-model cancel
 		);
 		// The active transfer's state survives a queued-cancel IPC failure.
 		expect(result.current.downloadingModel).toBe("tiny");
+	});
+});
+
+describe("useModelDownload, handleTogglePause", () => {
+	it("pause clears stale speed/ETA optimistically and keeps Paused on ack", async () => {
+		callMock.mockResolvedValue({ paused: true });
+		const args = makeHookArgs();
+		const { result } = renderHook(() => useModelDownload(args));
+		const handler = getDownloadProgressHandler();
+
+		// Seed live speed/ETA as a running download would.
+		act(() => {
+			handler?.({ speed_bytes_per_sec: 9.8, eta_seconds: 4 });
+		});
+		expect(result.current.speedBps).toBe(9.8);
+
+		await act(async () => {
+			await result.current.handleTogglePause();
+		});
+
+		expect(callMock).toHaveBeenCalledWith("pause_model_download");
+		expect(result.current.isPaused).toBe(true);
+		// Stale numbers cleared at click time, not up to ~1s later
+		// when the backend transition push lands.
+		expect(result.current.speedBps).toBeNull();
+		expect(result.current.etaSeconds).toBeNull();
+	});
+
+	it("pause reverts the optimistic flip + notifies when the backend has no live download", async () => {
+		callMock.mockResolvedValue({ paused: false });
+		const args = makeHookArgs();
+		const { result } = renderHook(() => useModelDownload(args));
+
+		await act(async () => {
+			await result.current.handleTogglePause();
+		});
+
+		// Without the revert the label sticks at "Paused" while
+		// regular pushes (which carry no `paused` field) keep the
+		// numbers moving underneath it.
+		expect(result.current.isPaused).toBe(false);
+		expect(args.showSnack).toHaveBeenCalledWith(
+			"models.snack.pauseNoop",
+			"info",
+		);
+	});
+
+	it("pause failure reverts to the pre-click state", async () => {
+		callMock.mockRejectedValue(new Error("pause IPC failed"));
+		const args = makeHookArgs();
+		const { result } = renderHook(() => useModelDownload(args));
+
+		await act(async () => {
+			await result.current.handleTogglePause();
+		});
+
+		expect(result.current.isPaused).toBe(false);
+		expect(args.showSnack).toHaveBeenCalledWith(
+			expect.stringContaining("pause IPC failed"),
+			"error",
+		);
+	});
+});
+
+describe("useModelDownload, onDownloaded auto-select", () => {
+	it("fires onDownloaded with downloaded:true after a successful download", async () => {
+		callMock.mockResolvedValue({ success: true, message: "ok" });
+		const onDownloaded = vi.fn();
+		const args = makeHookArgs({ onDownloaded });
+		const { result } = renderHook(() => useModelDownload(args));
+
+		await act(async () => {
+			await result.current.downloadModel(makeModel({ name: "tiny" }));
+		});
+
+		// The click-time model has downloaded:false (which selectModel
+		// would refuse), so the hook re-stamps it.
+		expect(onDownloaded).toHaveBeenCalledTimes(1);
+		expect(onDownloaded).toHaveBeenCalledWith(
+			expect.objectContaining({ name: "tiny", downloaded: true }),
+		);
+	});
+
+	it("does NOT fire onDownloaded on failure, queued, or cancelled outcomes", async () => {
+		const onDownloaded = vi.fn();
+		// Failure.
+		callMock.mockResolvedValueOnce({ success: false, error: "nope" });
+		// Queued.
+		callMock.mockResolvedValueOnce({ success: false, queued: true });
+		// Cancelled.
+		callMock.mockResolvedValueOnce({ success: false, cancelled: true });
+		const args = makeHookArgs({ onDownloaded });
+		const { result } = renderHook(() => useModelDownload(args));
+
+		await act(async () => {
+			await result.current.downloadModel(makeModel({ name: "tiny" }));
+		});
+		await act(async () => {
+			await result.current.downloadModel(makeModel({ name: "base" }));
+		});
+		await act(async () => {
+			await result.current.downloadModel(makeModel({ name: "small" }));
+		});
+
+		expect(onDownloaded).not.toHaveBeenCalled();
 	});
 });
 

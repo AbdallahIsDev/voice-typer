@@ -14,8 +14,9 @@
  * Additional coverage ():
  * - MDL-3: cancel produces no duplicate snackbar from `downloadModel`
  * - MDL-5: cloud provider API key inputs have unique HTML ids
- * - MDL-9: download success does not auto-activate the model in the
- *   renderer; config/status are re-fetched to reconcile
+ * - MDL-9: download success auto-selects the model in the renderer
+ *   (user request, supersedes no-auto-activate); config/status are
+ *   still re-fetched to reconcile before the activation persists
  * - Select buttons remain ENABLED while any download is in progress
  *   (only the Download / Download-Deps buttons are gated on
  *   `anyDownloading`, the earlier "Select disabled" claim was wrong)
@@ -808,7 +809,7 @@ describe("ModelsPage, MDL-5: cloud provider API key inputs have unique HTML ids"
 	});
 });
 
-describe("ModelsPage, MDL-9: download does not auto-activate in the renderer", () => {
+describe("ModelsPage, MDL-9: download auto-selects the model in the renderer", () => {
 	afterEach(() => {
 		cleanup();
 		vi.clearAllMocks();
@@ -860,9 +861,11 @@ describe("ModelsPage, MDL-9: download does not auto-activate in the renderer", (
 		});
 	});
 
-	it("does NOT mark the downloaded model as active when get_config still reports the previous active model", async () => {
+	it("auto-selects the downloaded model after success (set_config persists the activation)", async () => {
 		// small.en is active per MOCK_CONFIG. After downloading
-		// tiny.en, the renderer must NOT auto-activate tiny.en.
+		// large-v3-turbo, the renderer auto-selects it (user
+		// request: a download ends with the model active). This
+		// supersedes the old MDL-9 no-auto-activate contract.
 		mockCall.mockImplementation((type: string) => {
 			if (type === "get_config") return Promise.resolve(MOCK_CONFIG);
 			if (type === "get_model_status") return Promise.resolve({});
@@ -884,29 +887,26 @@ describe("ModelsPage, MDL-9: download does not auto-activate in the renderer", (
 		});
 		fireEvent.click(downloadButton);
 
-		// After download success, the "Active" button (with the
-		// Tick02Icon and the "Active" label) should NOT be shown
-		// for tiny.en, small.en is still the active model.
 		await waitFor(() => {
 			expect(mockCall).toHaveBeenCalledWith("download_model", {
 				model: "large-v3-turbo",
 			});
 		});
-		// Give the reconciliation get_config call time to resolve.
-		await new Promise((r) => setTimeout(r, 0));
-
-		// The Select button for tiny.en should now be visible
-		// (tiny.en is downloaded but not active).
-		const selectButton = screen.queryByRole("button", {
-			name: t("models.card.selectAria").replace("{name}", "large-v3-turbo"),
+		// Auto-select persists via set_config with the new size.
+		await waitFor(() => {
+			expect(mockCall).toHaveBeenCalledWith(
+				"set_config",
+				expect.objectContaining({ model_size: "large-v3-turbo" }),
+			);
 		});
-		expect(selectButton).not.toBeNull();
-		// The Active button (with aria-label "Active: tiny.en")
-		// should NOT exist.
-		const activeButton = screen.queryByRole("button", {
-			name: t("models.card.activeAria").replace("{name}", "large-v3-turbo"),
+		// The Active badge flips to the just-downloaded model.
+		await waitFor(() => {
+			expect(
+				screen.queryByRole("button", {
+					name: t("models.card.activeAria").replace("{name}", "large-v3-turbo"),
+				}),
+			).not.toBeNull();
 		});
-		expect(activeButton).toBeNull();
 	});
 });
 

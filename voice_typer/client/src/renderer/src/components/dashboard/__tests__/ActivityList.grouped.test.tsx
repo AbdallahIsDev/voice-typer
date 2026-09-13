@@ -448,7 +448,7 @@ describe("ActivityList inline masked reveal", () => {
 		resetStableMocks();
 	});
 
-	it("collapsed expandable row shows the masked Show more bottom-centered over the fully masked last line", () => {
+	it("collapsed expandable row shows Show more floating bottom-center over the masked last line", () => {
 		const { container } = render(
 			<ActivityList
 				items={[truncatedRec(11, localIso(0, 12))]}
@@ -462,17 +462,28 @@ describe("ActivityList inline masked reveal", () => {
 		// not a decorative span with a click handler.
 		expect(moreBtn.tagName).toBe("BUTTON");
 		expect(moreBtn.getAttribute("aria-expanded")).toBe("false");
-		// Sits inside the full-width bottom-center shell, not as a
-		// separate row below the text. The fade itself is a mask on
-		// the clamped paragraph: solid for the top 60%, fading out
-		// over the last line.
-		const overlay = moreBtn.parentElement;
-		expect(overlay?.className).toContain("absolute");
+		// The button floats on its own (no wrapper element),
+		// absolute bottom-center of the text block, not as a
+		// separate row below the text. The fade itself is a mask
+		// on the clamped paragraph: full-height fade (0% to 100%).
+		// out over the last line.
+		expect(moreBtn.tagName).toBe("BUTTON");
+		expect(moreBtn.className).toContain("absolute");
+		expect(moreBtn.className).toContain("bottom-0");
+		expect(moreBtn.className).toContain("left-1/2");
+		// Direct child of the toggle block: no overlay wrapper
+		// sits in between.
+		expect(moreBtn.parentElement?.getAttribute("data-testid")).toBe(
+			"activity-row-text-toggle",
+		);
 		const para = container.querySelector("p");
-		expect(para?.className).toContain("mask-b-from-60%");
+		expect(para?.className).toContain("mask-b-from-0%");
 		expect(para?.className).toContain("mask-b-to-100%");
-		expect(overlay?.className).toContain("pointer-events-none");
-		expect(moreBtn.className).toContain("pointer-events-auto");
+		// Collapsed text needs no reserve: the button sits on the
+		// masked fade, not on readable text.
+		expect(
+			screen.getByTestId("activity-row-text-toggle").className,
+		).not.toContain("pb-7");
 		expect(container.querySelector("button.self-start")).toBeNull();
 		// No hover wash behind the text block itself.
 		const toggle = screen.getByTestId("activity-row-text-toggle");
@@ -532,7 +543,7 @@ describe("ActivityList inline masked reveal", () => {
 		expect(fetchFullText).toHaveBeenCalledTimes(1);
 	});
 
-	it("expanded row shows inline Show less at the end of the text and no overlay", async () => {
+	it("expanded row keeps the same floating button, relabeled to Show less", async () => {
 		render(
 			<ActivityList
 				items={[truncatedRec(14, localIso(0, 12))]}
@@ -548,14 +559,23 @@ describe("ActivityList inline masked reveal", () => {
 			).toBe("true");
 		});
 		const lessBtn = screen.getByRole("button", { name: t("home.showLess") });
-		// Inline at the end of the expanded paragraph, same muted to
-		// primary hover treatment, no separate row, overlay gone.
-		// Expanded text renders unmasked.
+		// SAME button, same spot: still absolute bottom-center inside
+		// the toggle block, only the label flipped. No inline button
+		// inside the paragraph. Expanded text renders unmasked.
+		expect(lessBtn.className).toContain("absolute");
+		expect(lessBtn.className).toContain("bottom-0");
+		expect(lessBtn.parentElement?.getAttribute("data-testid")).toBe(
+			"activity-row-text-toggle",
+		);
 		expect(
 			screen.getByTestId("activity-row-text-toggle").querySelector("p")
 				?.className,
 		).not.toContain("mask-b-");
-		expect(lessBtn.parentElement?.tagName).toBe("P");
+		// Expanded text reserves room below its last line so a long
+		// final line never runs underneath the floating button.
+		expect(screen.getByTestId("activity-row-text-toggle").className).toContain(
+			"pb-7",
+		);
 		expect(lessBtn.className).toContain("hover:text-(--text-primary)");
 		expect(
 			screen.queryByRole("button", { name: t("home.showMore") }),
@@ -574,7 +594,7 @@ describe("ActivityList inline masked reveal", () => {
 		).toBeTruthy();
 	});
 
-	it("inert rows render no overlay, no inline controls, and no mask", () => {
+	it("inert rows render no floating control, no inline controls, and no mask", () => {
 		const { container } = render(
 			<ActivityList
 				items={[rec(15, localIso(0, 12), { text: "hello world" })]}

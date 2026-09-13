@@ -667,10 +667,8 @@ describe("NEW-UX-012: Accessibility ARIA patterns", () => {
 	// The behavioral replacement below mounts the real Home page with
 	// a mocked `usePythonEvent` that captures the `transcription_final`
 	// handler, dispatches a synthetic event through it, and asserts the
-	// rendered DOM contains an aria-live region whose textContent
-	// includes the transcribed text.  This is the user-facing behavior
-	// a screen-reader user relies on: when a transcription completes,
-	// the new text is announced.
+	// transcribed text is NOT rendered (the preview card was removed
+	// 2026-09-13; transcriptions live in History, Home shows no text).
 	//
 	//Flipped from `it.fails` to `it` during the shared icon-mock
 	// migration (helpers/hugeicons-mock.ts): the test was marked
@@ -680,9 +678,8 @@ describe("NEW-UX-012: Accessibility ARIA patterns", () => {
 	// `vi.importActual` crashed at module load and the test failed for
 	// the wrong reason.  With the canonical mock providing every icon,
 	// Home renders and this behavioral assertion passes on its own
-	// merits, Home wraps `lastText` in an aria-live region (see the
-	// source-pattern test below, which is a regular `it`).
-	describe("BG-R19 #7: behavioral Home aria-live region for transcription_final", () => {
+	// merits.
+	describe("BG-R19 #7: behavioral Home transcription_final renders no preview text", () => {
 		let capturedTranscriptionFinalHandler:
 			| ((data?: Record<string, unknown>) => unknown)
 			| null = null;
@@ -716,7 +713,7 @@ describe("NEW-UX-012: Accessibility ARIA patterns", () => {
 			mockUsePythonEvent.mockReset();
 		});
 
-		it("Home renders a live region containing the transcribed text after transcription_final", async () => {
+		it("Home renders no preview text after transcription_final", async () => {
 			// vi.importActual bypasses the @/pages/Home stub
 			// registered for the App test above, loading the
 			// REAL Home component.  Home's transitive imports
@@ -735,27 +732,15 @@ describe("NEW-UX-012: Accessibility ARIA patterns", () => {
 
 			// Dispatch a synthetic transcription_final event
 			// through the captured handler.  Home's handler
-			// should call setLastText(data.text), which
-			// triggers a re-render that exposes the transcribed
-			// text inside an aria-live region.
+			// celebrates first runs + refreshes stats; it must NOT
+			// render the transcribed text anywhere (no preview).
 			const transcribedText = "Hello world from voice typer.";
 			act(() => {
 				capturedTranscriptionFinalHandler?.({ text: transcribedText });
 			});
 
-			// Assert: at least one aria-live region exists in
-			// the DOM (Home should wrap lastText in one so AT
-			// users hear the transcription).
-			const liveRegions = document.querySelectorAll("[aria-live]");
-			expect(liveRegions.length).toBeGreaterThanOrEqual(1);
-
-			// Assert: at least one aria-live region's
-			// textContent includes the transcribed text.  This
-			// is the behavior a screen-reader user relies on.
-			const matchingRegion = Array.from(liveRegions).find((el) =>
-				el.textContent?.includes(transcribedText),
-			);
-			expect(matchingRegion).toBeTruthy();
+			// Assert: the transcribed text appears nowhere in the DOM.
+			expect(document.body.textContent).not.toContain(transcribedText);
 		});
 	});
 
@@ -948,44 +933,17 @@ describe("NEW-UX-012: Dialog accessibility", () => {
 	});
 });
 
-// Home.tsx renders the most recent transcription
-// result (`lastText`) inside a `<p>` element so sighted users see what
-// was just pasted, but the surrounding container has no `aria-live`
-// attribute, so screen-reader users get NO announcement when a
-// transcription completes (they only hear the App-level status pill
-// flip from "Recording" to "Ready", which doesn't include the text).
-//
-// This test asserts that `lastText` is rendered inside an element (or
-// an ancestor) that carries an `aria-live` attribute.  It's a
-// source-pattern test rather than a behavioral mount because mounting
-// Home requires the full Python bridge + connection store wiring (out
-// of scope for the a11y test file, see Home.test.tsx for that).
-//
-// NOTE: this is a regular `it` regression spec, Home.tsx wraps the
-// `{lastText}` `<p>` inside an `aria-live="polite"` container (the
-// production fix landed), so any refactor that drops the live region
-// around `{lastText}` fails the suite.
-describe("PVT-047: Home transcription result is in a live region", () => {
-	it("Home.tsx wraps the `{lastText}` element in an aria-live region", () => {
+// Home.tsx renders NO transcription preview (removed 2026-09-13):
+// transcriptions live in History; Home shows the mic button, status
+// line, and stats only. This test asserts `{lastText}` is fully gone
+// from Home.tsx so the card cannot silently come back.
+describe("PVT-047: Home renders no transcription preview text", () => {
+	it("Home.tsx contains no `{lastText}` reference", () => {
 		const homePath = path.resolve(__dirname, "..", "pages", "Home.tsx");
 		const src = fs.readFileSync(homePath, "utf-8");
 
-		// Locate the `{lastText}` JSX expression and capture a
-		// ~300-char window around it so we can inspect the
-		// surrounding markup without parsing the full TSX file.
-		const idx = src.indexOf("{lastText}");
-		expect(idx).toBeGreaterThan(-1);
-
-		const start = Math.max(0, idx - 300);
-		const end = Math.min(src.length, idx + 300);
-		const window = src.slice(start, end);
-
-		// The window MUST contain an `aria-live` attribute on an
-		// ancestor element (the existing `<output aria-live="polite">`
-		// status pill is 100+ lines away and so won't appear in this
-		// window, only a NEW live region wrapping the lastText
-		// block will satisfy this assertion).
-		expect(window).toMatch(/aria-live\s*=/);
+		expect(src.indexOf("{lastText}")).toBe(-1);
+		expect(src).not.toMatch(/LastTranscriptionPreview/);
 	});
 });
 

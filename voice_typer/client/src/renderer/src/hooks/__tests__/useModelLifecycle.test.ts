@@ -7,9 +7,10 @@
  *   1. `useModelConfig`     → config + models + catalog + apiKeys + 4
  *                              internal helpers (refreshModelStatus,
  *                              updateConfig, setConfig, setModels)
- *   2. `useModelDownload`   → receives setModels + reconcileAfterDownload
- *   3. `useModelSelection`  → receives setModels + refreshModelStatus +
+ *   2. `useModelSelection`  → receives setModels + refreshModelStatus +
  *                              updateConfig
+ *   3. `useModelDownload`   → receives setModels + reconcileAfterDownload
+ *                              + onDownloaded (auto-select wiring)
  *   4. `useCloudProviders`  → receives setConfig + config + apiKeys +
  *                              updateConfig + call
  *   5. `useModelFolder`     → receives loadConfig
@@ -22,9 +23,9 @@
  *
  * Coverage:
  *   1. Lifecycle ordering: sub-hooks are invoked in the order
- *      useModelConfig → useModelDownload → useModelSelection →
- *      useCloudProviders → useModelFolder (so each subsequent hook can
- *      receive helpers destructured from the prior one's return).
+ *      useModelConfig → useModelSelection → useModelDownload →
+ *      useCloudProviders → useModelFolder (selection before download:
+ *      the download's auto-select needs `selectModel`).
  *   2. Cancel-mid-download wiring: `useModelDownload` receives
  *      `setModels` AS THE SAME REFERENCE returned by
  *      `useModelConfig`. When the download sub-hook's
@@ -218,17 +219,18 @@ describe("useModelLifecycle, facade composition ", () => {
 	});
 
 	describe("lifecycle ordering", () => {
-		it("sub-hooks are invoked in the correct order (config → download → selection → cloud → folder)", () => {
+		it("sub-hooks are invoked in the correct order (config → selection → download → cloud → folder)", () => {
 			renderHook(() => useModelLifecycle());
 
 			// Order matters because each subsequent sub-hook
 			// receives helpers destructured from the prior one's
-			// return (e.g. useModelDownload needs setModels +
-			// refreshModelStatus from useModelConfig).
+			// return (e.g. useModelDownload needs setModels from
+			// useModelConfig and selectModel from useModelSelection
+			// for the download auto-select).
 			expect(callOrder).toEqual([
 				"useModelConfig",
-				"useModelDownload",
 				"useModelSelection",
+				"useModelDownload",
 				"useCloudProviders",
 				"useModelFolder",
 			]);
@@ -317,17 +319,30 @@ describe("useModelLifecycle, facade composition ", () => {
 	});
 
 	describe("download sub-hook args wiring", () => {
-		it("useModelDownload receives `setModels` so downloadModel can mark the just-downloaded model active", () => {
+		it("useModelDownload receives `setModels` so downloadModel can mark the just-downloaded model downloaded", () => {
 			// On success, downloadModel calls
 			// `setModels(prev => prev.map(m => m.name === model.name
-			//   ? { ...m, downloaded: true, isActive: !anyActive }
-			//   : m))`, the post-install "activation" path.
+			//   ? { ...m, downloaded: true, isActive: false }
+			//   : m))`, activation itself happens via the
+			// `onDownloaded` → `selectModel` path below (the backend
+			// does not auto-activate, so no optimistic isActive).
 			// Verifying setModels is forwarded pins this wiring.
 			renderHook(() => useModelLifecycle());
 			const dlArgs = useModelDownloadArgs.value as {
 				setModels?: unknown;
 			};
 			expect(dlArgs.setModels).toBe(configHookReturn.setModels);
+		});
+
+		it("useModelDownload receives `onDownloaded` wired to useModelSelection's selectModel (auto-select)", () => {
+			renderHook(() => useModelLifecycle());
+			const dlArgs = useModelDownloadArgs.value as {
+				onDownloaded?: (model: unknown) => void;
+			};
+			expect(typeof dlArgs.onDownloaded).toBe("function");
+			const model = { name: "tiny", downloaded: true };
+			dlArgs.onDownloaded?.(model);
+			expect(selectionHookReturn.selectModel).toHaveBeenCalledWith(model);
 		});
 	});
 

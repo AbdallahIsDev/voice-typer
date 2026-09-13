@@ -364,7 +364,10 @@ export const ModelCardActions = memo(function ModelCardActions({
 				aria-label={selectAriaLabel(model, isSelectingThis)}
 			>
 				<HugeiconsIcon
-					icon={Tick02Icon}
+					// In-flight presentation (mirrors the Download
+					// button): a LOADING spinner glyph replaces the
+					// tick, spinning the tick itself read as broken.
+					icon={isSelectingThis ? Loading03Icon : Tick02Icon}
 					strokeWidth={2}
 					className={cn("h-4 w-4", isSelectingThis && "animate-spin")}
 				/>

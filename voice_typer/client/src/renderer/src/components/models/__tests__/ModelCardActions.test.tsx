@@ -280,6 +280,31 @@ describe("ModelCardActions, aria-busy + aria-label swap on async buttons", () =>
 		const selectBtn = screen.getByRole("button", { name: /Selecting…/i });
 		expect(selectBtn).toHaveAttribute("aria-busy", "true");
 		expect(selectBtn).toBeDisabled();
+		// In-flight presentation (mirrors the Download button): the
+		// tick swaps to a LOADING spinner, spinning the tick itself
+		// read as broken.
+		expect(selectBtn.querySelector('[data-testid="hugeicon"]')).toHaveAttribute(
+			"data-name",
+			"Loading03Icon",
+		);
+	});
+
+	it("Select button at rest keeps the tick glyph (no spinner)", () => {
+		render(
+			<ModelCardActions
+				model={{ ...baseModel, downloaded: true }}
+				isSelectingThis={false}
+				isDownloadingThis={false}
+				onSelect={noop}
+				onDownload={noop}
+				onDelete={noop}
+			/>,
+		);
+		const selectBtn = screen.getByRole("button", { name: /Select tiny/i });
+		expect(selectBtn.querySelector('[data-testid="hugeicon"]')).toHaveAttribute(
+			"data-name",
+			"Tick02Icon",
+		);
 	});
 });
 

@@ -407,6 +407,33 @@ describe("useModelSelection, requestDeleteModel + confirmDelete", () => {
 		expect(result.current.deleteModelTarget).toBeNull();
 	});
 
+	it("confirmDelete surfaces the backend reason when delete_model reports failure", async () => {
+		// The backend names the cause (dictation in flight, unload
+		// failure, ...); the toast must carry it, not the generic
+		// "Delete failed".
+		callMock.mockResolvedValue({
+			success: false,
+			message: "Stop the current dictation before deleting the active model.",
+		});
+		const args = makeHookArgs();
+		const { result } = renderHook(() => useModelSelection(args));
+
+		const target = makeModel({ name: "tiny" });
+		act(() => {
+			result.current.requestDeleteModel(target);
+		});
+
+		await act(async () => {
+			await result.current.confirmDelete();
+		});
+
+		expect(args.showSnack).toHaveBeenCalledWith(
+			"Stop the current dictation before deleting the active model.",
+			"error",
+		);
+		expect(result.current.deleteModelTarget).toBeNull();
+	});
+
 	it("confirmDelete surfaces error snack when delete_model IPC throws", async () => {
 		callMock.mockRejectedValue(new Error("fs permission denied"));
 		const args = makeHookArgs();

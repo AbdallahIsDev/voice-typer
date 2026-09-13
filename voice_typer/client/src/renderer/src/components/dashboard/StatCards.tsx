@@ -25,9 +25,9 @@ export function formatCompactNumber(n: number): string {
 // drifted). Both copies are now replaced by the shared
 // ``formatDuration`` in ``lib/format.ts``, which resolves the
 // ``h`` / ``m`` glyphs through ``t()`` (``analytics.durationHours`` /
-// ``durationMinutes`` / ``durationHoursMinutes`` / ``durationZero``)
-// so non-English locales see translated suffixes once F1 translates
-// the new keys.
+// ``durationMinutes`` / ``durationHoursMinutes``; zero renders bare
+// ``"0"``) so non-English locales see translated suffixes once F1
+// translates the new keys.
 
 // Card labels are i18n-driven. We look up the translation key at
 // render time so the active locale is always reflected, the previous

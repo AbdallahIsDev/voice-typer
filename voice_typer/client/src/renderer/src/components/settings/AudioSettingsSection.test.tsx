@@ -1,26 +1,31 @@
 /**
- * Tests for `AudioSettingsSection` covering the cross-link banner to
- * the Microphone page.
+ * Tests for `AudioSettingsSection` covering the "Test microphone"
+ * cross-link row and the Microphone Quality enable-Switch.
  *
  * Background: the `audio_preset` config field is mutated from two
  * unrelated UI surfaces, (1) this Settings section's "Microphone
- * Quality" Select + custom filter chain, and (2) the Microphone page's
+ * Quality" switch-only row + revealed "Quality preset" picker row (no
+ * "off" option) + custom filter chain, and (2) the Microphone page's
  * `PresetAccordionSelector` (with its own test-record A/B workflow). The
- * two surfaces use different presentation patterns (a Select here vs
- * the accordion+RadioGroup there), and live on different pages with no
- * cross-link. Users who
+ * two surfaces use different presentation patterns, and live on
+ * different pages with no cross-link. Users who
  * discover the Audio Enhancement controls on the Microphone page may
  * not realise the same setting is also configurable under Settings →
  * Audio.
  *
- * The fix adds a banner at the top of the Audio Enhancement section
- * that says "These settings are also editable on the Microphone page"
- * (with a "Go to Microphone" button) so the user knows the duplicate
- * surface exists. Combined with the  cache-invalidation fix
- * (Settings always re-fetches on mount), edits made on either side
+ * The fix adds a "Test microphone" row at the bottom of the Audio
+ * Enhancement card (with a "Go to Microphone" button) so the user knows
+ * the duplicate surface exists. Combined with the cache-invalidation
+ * fix (Settings always re-fetches on mount), edits made on either side
  * are visible on the other.
+ *
+ * The Microphone Quality row carries ONLY the enable-Switch: "off"
+ * lives behind it, and enabling reveals the preset picker row below
+ * (Auto / Studio / Noisy Room / Advanced). Turning the Switch off
+ * stashes the current preset; turning it on restores it.
  */
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // Shared stable-mocks preamble (see helpers/stableMocks.tsx): the
@@ -43,6 +48,21 @@ vi.mock("@/hooks/useNavigation", () => ({
 }));
 vi.mock("@hugeicons/react", () => hugeiconsReactMock());
 vi.mock("@hugeicons/core-free-icons", () => hugeiconsCoreMock());
+
+// Radix Select's pointerDown handler calls
+// `target.hasPointerCapture(pointerId)` which jsdom doesn't implement.
+// Stub the methods Radix touches so opening the preset Select doesn't
+// crash inside its event handlers.
+if (
+	typeof Element !== "undefined" &&
+	typeof Element.prototype.hasPointerCapture !== "function"
+) {
+	Element.prototype.hasPointerCapture = function hasPointerCapture() {
+		return false;
+	};
+	Element.prototype.setPointerCapture = function setPointerCapture() {};
+	Element.prototype.releasePointerCapture = function releasePointerCapture() {};
+}
 
 // Stub InfoTooltip to avoid the Radix Tooltip provider requirement
 //(the  fix removed per-caller TooltipProviders; tests that mount
@@ -175,7 +195,7 @@ function makeConfig(
 
 const alwaysVisible = () => true;
 
-describe("AudioSettingsSection, cross-link banner to Microphone page", () => {
+describe("AudioSettingsSection, 'Test microphone' cross-link row", () => {
 	beforeEach(() => {
 		resetStableMocks();
 		vi.clearAllMocks();
@@ -186,8 +206,8 @@ describe("AudioSettingsSection, cross-link banner to Microphone page", () => {
 		cleanup();
 	});
 
-	it("renders the cross-link banner with the expected text", () => {
-		render(
+	it("renders the cross-link row with the simplified text", () => {
+		const { container } = render(
 			<AudioSettingsSection
 				config={makeConfig()}
 				updateConfig={() => {}}
@@ -196,12 +216,13 @@ describe("AudioSettingsSection, cross-link banner to Microphone page", () => {
 			/>,
 		);
 
-		// The banner text must mention the Microphone page so the
-		// user knows the same audio preset + filter chain is also
-		// editable there. Use a partial-match assertion so the
-		// exact wording can be tweaked without breaking the test.
-		const banner = screen.getByText(/Microphone page/i);
-		expect(banner).toBeTruthy();
+		// The row label names the action; the info lives behind the
+		// row's (mocked) info tooltip and mentions the Microphone page.
+		expect(screen.getByText("Test microphone")).toBeTruthy();
+		const tips = Array.from(
+			container.querySelectorAll('[data-testid="info-tooltip"]'),
+		).map((el) => el.getAttribute("data-text") ?? "");
+		expect(tips.some((text) => /Microphone page/i.test(text))).toBe(true);
 	});
 
 	it("renders a 'Go to Microphone' button", () => {
@@ -259,13 +280,10 @@ describe("AudioSettingsSection, cross-link banner to Microphone page", () => {
 		expect(mockNavigate).not.toHaveBeenCalled();
 	});
 
-	it("renders the banner BEFORE the SettingsSection card (banner is a sibling, not a row)", () => {
-		// The banner must NOT be inside the bordered card that
-		// contains the SettingRow rows, it should be a sibling
-		// above the card so it reads as a section-level notice
-		// rather than a settings row. We assert the banner's
-		// parent is NOT the same div that contains the SettingRow
-		// rows (the bordered card).
+	it("renders the cross-link as a row INSIDE the card (no banner)", () => {
+		// The old banner was a sibling above the bordered card; the
+		// merged row must live inside the card's divide-y container
+		// with the other SettingRow rows.
 		const { container } = render(
 			<AudioSettingsSection
 				config={makeConfig()}
@@ -275,12 +293,127 @@ describe("AudioSettingsSection, cross-link banner to Microphone page", () => {
 			/>,
 		);
 
-		// The banner has role="note" (set in the source).
-		const banner = container.querySelector('[role="note"]');
-		expect(banner).toBeTruthy();
-		// The banner must contain the cross-link text + the button.
-		expect(banner?.textContent).toMatch(/Microphone page/i);
-		expect(banner?.querySelector("button")).toBeTruthy();
+		// No banner anymore.
+		expect(container.querySelector('[role="note"]')).toBeNull();
+		// The button sits inside the card's row container.
+		const button = screen.getByRole("button", {
+			name: /Go to Microphone/i,
+		});
+		const card = container.querySelector(".divide-y");
+		expect(card).toBeTruthy();
+		expect(card?.contains(button)).toBe(true);
+	});
+});
+
+describe("AudioSettingsSection, Microphone Quality enable-Switch", () => {
+	beforeEach(() => {
+		resetStableMocks();
+		vi.clearAllMocks();
+		cleanup();
+	});
+
+	afterEach(() => {
+		cleanup();
+	});
+
+	function renderSection(
+		configOverrides: Partial<VoiceTyperConfig> = {},
+		updateConfig = vi.fn(),
+	) {
+		const utils = render(
+			<AudioSettingsSection
+				config={makeConfig(configOverrides)}
+				updateConfig={updateConfig}
+				updateConfigDebounced={() => {}}
+				isVisible={alwaysVisible}
+			/>,
+		);
+		return { updateConfig, ...utils };
+	}
+
+	function qualitySwitch() {
+		return screen.getByTestId("microphone-quality-switch");
+	}
+
+	it("renders Microphone Quality first, preset picker second", () => {
+		const { container } = renderSection();
+		const labels = Array.from(
+			container.querySelectorAll("[data-settings-row-label]"),
+		).map((el) => el.getAttribute("data-settings-row-label"));
+		expect(labels.length).toBeGreaterThan(1);
+		expect(labels[0]).toBe("Microphone Quality");
+		expect(labels[1]).toBe("Quality preset");
+	});
+
+	it("switch is on for a real preset, off for 'off'", () => {
+		renderSection({ audio_preset: "studio" });
+		expect(qualitySwitch().getAttribute("aria-checked")).toBe("true");
+
+		cleanup();
+		renderSection({ audio_preset: "off" });
+		expect(qualitySwitch().getAttribute("aria-checked")).toBe("false");
+	});
+
+	it("turning the switch off persists 'off'", () => {
+		const { updateConfig } = renderSection({ audio_preset: "studio" });
+		fireEvent.click(qualitySwitch());
+		expect(updateConfig).toHaveBeenCalledWith({ audio_preset: "off" });
+	});
+
+	it("turning the switch on restores the previous preset (not 'auto')", () => {
+		const { updateConfig, rerender } = renderSection({
+			audio_preset: "studio",
+		});
+		// External change to "off" (e.g. from the Microphone page),
+		// then flip the Switch back on.
+		rerender(
+			<AudioSettingsSection
+				config={makeConfig({ audio_preset: "off" })}
+				updateConfig={updateConfig}
+				updateConfigDebounced={() => {}}
+				isVisible={alwaysVisible}
+			/>,
+		);
+		fireEvent.click(qualitySwitch());
+		expect(updateConfig).toHaveBeenCalledWith({ audio_preset: "studio" });
+	});
+
+	it("preset Select offers no 'OFF' option (disabling is the Switch's job)", async () => {
+		const user = userEvent.setup();
+		renderSection({ audio_preset: "auto" });
+		await user.click(screen.getByRole("combobox"));
+		const options = screen.getAllByRole("option").map((o) => o.textContent);
+		expect(options).toContain("Auto");
+		expect(options).toContain("Studio");
+		expect(options).toContain("Noisy Room");
+		expect(options).toContain("Advanced");
+		expect(options).not.toContain("OFF");
+	});
+
+	it("preset picker row is revealed only while the Switch is on", () => {
+		const { rerender } = renderSection({ audio_preset: "auto" });
+		expect(screen.queryByRole("combobox")).toBeTruthy();
+
+		// Flip the preset off externally (e.g. from the Microphone
+		// page): the picker row unmounts, the switch-only row stays.
+		rerender(
+			<AudioSettingsSection
+				config={makeConfig({ audio_preset: "off" })}
+				updateConfig={() => {}}
+				updateConfigDebounced={() => {}}
+				isVisible={alwaysVisible}
+			/>,
+		);
+		expect(screen.queryByRole("combobox")).toBeNull();
+		expect(screen.getByTestId("microphone-quality-switch")).toBeTruthy();
+	});
+
+	it("picking a preset persists it", async () => {
+		const user = userEvent.setup();
+		const { updateConfig } = renderSection({ audio_preset: "auto" });
+		await user.click(screen.getByRole("combobox"));
+		await user.click(screen.getByRole("option", { name: "Studio" }));
+		expect(updateConfig).toHaveBeenCalledWith({ audio_preset: "studio" });
 	});
 });
 
