@@ -12,7 +12,6 @@ import logging
 
 from voice_typer.server._electron_build import (
     _launcher_child_env,
-    _log_sensitive_env_keys,
     _spawn_flags,
 )
 from voice_typer.server.autostart._spawn import _spawn_login_child
@@ -64,11 +63,10 @@ def _focus_running_app() -> bool:
         # (the child's output is redirected to the electron/tauri log files).
         env = _launcher_child_env()
         env["VT_FOCUS_ONLY"] = "1"
-        # same-app restart, full env intentionally
-        # inherited (see _launch_electron_built for rationale). Only
-        # sensitive KEY NAMES are logged for audit; values are never
-        # printed.
-        _log_sensitive_env_keys(env, context="autostart")
+        # Audit note: the sensitive-env audit line is emitted once by
+        # ``_spawn_login_child`` (the single choke point for all login
+        # spawns), so this call site must NOT pre-log it (that doubled
+        # the identical [ENV] line on every spawn).
         sk: dict = {}
         sk.update(_pkg._tauri_log_files())
         sk.update(_spawn_flags(hidden=False))  # focus probe is intentionally foreground
@@ -105,7 +103,8 @@ def _focus_running_app() -> bool:
     # (the child's output is redirected to the electron/tauri log files).
     env = _launcher_child_env()
     env["VT_FOCUS_ONLY"] = "1"
-    _log_sensitive_env_keys(env, context="autostart")
+    # Same single-choke-point note as above: ``_spawn_login_child``
+    # emits the one [ENV] audit line.
     child = _spawn_login_child(
         [exe, "."],
         env=env,

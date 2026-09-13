@@ -260,8 +260,11 @@ def check_offline_pack_on_launch(app: AppProtocol, shutdown_event: threading.Eve
        the "missing" state) and run ``check_offline_pack_update`` with
        ``trigger_download=True``: the silent re-download. The download
        is consent-gated (``offline_pack_consent``); when consent is off
-       the check returns ``consent_required=True`` and nothing is
-       downloaded (C-DATA-1).
+       the check returns ``consent_required=True`` WITHOUT touching
+       the network (no remote-manifest phone-home, C-DATA-1), and the
+       remote fetch uses the short launch timeout
+       (``LAUNCH_MANIFEST_TIMEOUT_S``) so a stalled logon network
+       can't pin the thread.
 
     Best-effort: never raises. All failures are caught and logged so a
     broken pack-root scan can never abort startup.
@@ -317,7 +320,16 @@ def check_offline_pack_on_launch(app: AppProtocol, shutdown_event: threading.Eve
         log.info("[PACK] offline pack missing at launch, consent-gated re-download check")
 
         try:
-            result = update_check.check_offline_pack_update(config, event_bus, trigger_download=True)
+            result = update_check.check_offline_pack_update(
+                config,
+                event_bus,
+                trigger_download=True,
+                # Launch path: bound the remote fetch tightly. This runs
+                # on a fire-and-forget daemon thread, but a stalled
+                # logon network (captive portal, no route yet) must not
+                # pin the thread for the full 30 s interactive default.
+                manifest_timeout=update_check.LAUNCH_MANIFEST_TIMEOUT_S,
+            )
             return {
                 "checked": True,
                 "installed_version": None,

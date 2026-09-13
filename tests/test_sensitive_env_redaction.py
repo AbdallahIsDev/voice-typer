@@ -127,30 +127,67 @@ class TestSensitiveEnvRedaction:
             "electron_launcher.py must call _log_sensitive_env_keys after env = dict(os.environ)"
         )
 
-    def test_autostart_launcher_calls_log_helper_in_all_spawn_paths(self):
-        """``autostart_launcher`` has THREE spawn paths (the autostart
-        electron spawn, the focus-running-app lean electron spawn, and
-        the npm-run-dev fallback). All three must call the helper.
+    def test_autostart_login_spawns_emit_single_audit_line(self, monkeypatch, caplog):
+        """Every autostart login spawn emits exactly ONE [ENV] audit line.
+
+        ``autostart._spawn._spawn_login_child`` is the single choke
+        point for the sensitive-env audit line; the leaf spawn paths
+        (built Electron, npm run dev, Tauri host, both focus probes)
+        must NOT pre-log it. Pre-fix each leaf logged the identical
+        line before delegating, so every spawn produced the line
+        twice.
         """
-        # The spawn paths live in the autostart subpackage since the
-        # launcher was split into an entry facade + leaf modules; scan
-        # the facade AND every leaf so the guard covers all of them.
-        from voice_typer.server import autostart_launcher
+        import logging
+        import subprocess
+
+        from voice_typer.server.autostart import _spawn as spawn_mod
+
+        class _FakeProc:
+            pid = 4321
+
+        monkeypatch.setattr(subprocess, "Popen", lambda cmd, **kwargs: _FakeProc())
+        # The [ENV] line is emitted by the ``voice_typer.server._electron_build``
+        # logger (where the helper lives), not the launcher logger: both
+        # loggers need INFO or the record is filtered before capture.
+        with (
+            caplog.at_level(logging.INFO, logger="voice_typer.server.autostart_launcher"),
+            caplog.at_level(logging.INFO, logger="voice_typer.server._electron_build"),
+        ):
+            spawn_mod._spawn_login_child(
+                ["C:/bin/app.exe"],
+                env={"OPENAI_API_KEY": "sk-never-log", "PATH": "/usr/bin"},
+                spawn_kwargs={},
+                describe="single-line probe",
+            )
+        env_records = [r for r in caplog.records if "[ENV]" in r.getMessage()]
+        assert len(env_records) == 1, (
+            f"expected exactly one [ENV] audit line per spawn, got {len(env_records)}: "
+            f"{[r.getMessage() for r in env_records]!r}"
+        )
+
+    def test_autostart_leaf_spawns_delegate_audit_to_shared_helper(self):
+        """Leaf spawn modules route through ``_spawn_login_child``.
+
+        The audit line lives in the shared helper; the leaves must
+        delegate to it (not duplicate the call, not bypass it).
+        """
+        import inspect
+
         from voice_typer.server.autostart import (
+            _spawn as spawn_mod,
             electron_spawn,
             focus,
             tauri_spawn,
         )
 
-        source = "\n".join(inspect.getsource(m) for m in (autostart_launcher, electron_spawn, focus, tauri_spawn))
-        occurrences = source.count("_log_sensitive_env_keys")
-        # One occurrence per spawn path (3 Electron/Tauri spawn paths,
-        # plus the Tauri host + focus-probe spawns) + the re-export
-        # imports. We require at least 3 (one per original spawn path)
-        # to be robust to future import-style changes.
-        assert occurrences >= 3, (
-            f"the autostart launcher (facade + autostart/ package) must call "
-            f"_log_sensitive_env_keys in "
-            f"all 3 spawn paths; found {occurrences} references "
-            f"(expected >= 3)"
+        assert "_log_sensitive_env_keys" in inspect.getsource(spawn_mod), (
+            "autostart/_spawn.py must emit the [ENV] audit line"
         )
+        for module in (electron_spawn, focus, tauri_spawn):
+            assert "_spawn_login_child" in inspect.getsource(module), (
+                f"{module.__name__} must route spawns through _spawn_login_child"
+            )
+            assert "_log_sensitive_env_keys" not in inspect.getsource(module), (
+                f"{module.__name__} must NOT call _log_sensitive_env_keys directly "
+                f"(the shared helper emits the single audit line; a direct call doubles it)"
+            )

@@ -20,7 +20,6 @@ from pathlib import Path
 
 from voice_typer.server._electron_build import (
     _launcher_child_env,
-    _log_sensitive_env_keys,
     _spawn_flags,
 )
 from voice_typer.server.autostart._spawn import _spawn_login_child
@@ -366,10 +365,8 @@ def _spawn_tauri_host(binary: str, hidden: bool = False) -> subprocess.Popen | N
     env = _launcher_child_env()
     if hidden:
         env["VT_START_HIDDEN"] = "1"
-    # same-app restart, full env intentionally inherited
-    # (see _launch_electron_built for rationale). Only sensitive KEY
-    # NAMES are logged for audit; values are never printed.
-    _log_sensitive_env_keys(env, context="autostart")
+    # The [ENV] audit line is emitted once by ``_spawn_login_child``
+    # (single choke point); no pre-log here to avoid the doubled line.
     sk: dict = {}
     sk.update(_pkg._tauri_log_files())
     sk.update(_spawn_flags(hidden=hidden))

@@ -341,45 +341,50 @@ class TestPongHandler:
 
 
 class TestNativeLogPath:
-    """``_compute_native_log_path`` resolves a per-session
-    diagnostic log path under ``~/.voice-typer/logs/``."""
+    """``_compute_native_log_path`` resolves a stable per-backend
+    diagnostic log path under ``<config_dir>/logs/``."""
 
-    def test_log_path_resolved(self, monkeypatch, tmp_path):
-        """The log path is ``~/.voice-typer/logs/native-<backend>-<pid>.log``."""
-        # Stub Path.home() to a tmp dir so we don't pollute the test
-        # runner's actual home directory.
-        monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
+    def test_log_path_resolved(self, monkeypatch, tmp_path, request):
+        """The log path is ``<config_dir>/logs/native-<backend>.log`` (no PID)."""
+        # Point the canonical config dir at tmp so the test never
+        # touches the real user profile.
+        from voice_typer.server.config_internals import paths as _paths_mod
+        from voice_typer.server.native_hotkeys import _spawn as _spawn_mod
+
+        monkeypatch.setenv("VOICE_TYPER_CONFIG_DIR", str(tmp_path))
+        _paths_mod._reset_config_dir_cache()
+        request.addfinalizer(_paths_mod._reset_config_dir_cache)
+        monkeypatch.setattr(_spawn_mod, "_legacy_home_logs_dir", lambda: None)
         b = _make_linux_backend(monkeypatch, "<caps_lock>")
         path = b._compute_native_log_path()
         assert path is not None
-        assert path.parent == tmp_path / ".voice-typer" / "logs"
-        assert path.name.startswith("native-linux-")
-        assert path.name.endswith(".log")
+        assert path.parent == tmp_path / "logs"
+        assert path.name == "native-linux.log"
         # The log dir should have been created.
         assert path.parent.is_dir()
 
-    def test_log_path_memoised(self, monkeypatch, tmp_path):
+    def test_log_path_memoised(self, monkeypatch, tmp_path, request):
         """Repeated calls return the same path (memoised)."""
-        monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
+        from voice_typer.server.config_internals import paths as _paths_mod
+        from voice_typer.server.native_hotkeys import _spawn as _spawn_mod
+
+        monkeypatch.setenv("VOICE_TYPER_CONFIG_DIR", str(tmp_path))
+        _paths_mod._reset_config_dir_cache()
+        request.addfinalizer(_paths_mod._reset_config_dir_cache)
+        monkeypatch.setattr(_spawn_mod, "_legacy_home_logs_dir", lambda: None)
         b = _make_linux_backend(monkeypatch, "<caps_lock>")
         p1 = b._compute_native_log_path()
         p2 = b._compute_native_log_path()
         assert p1 == p2
 
     def test_log_path_none_when_home_unavailable(self, monkeypatch):
-        """If Path.home() raises, the log path is None (no crash)."""
-        from pathlib import Path
+        """If no logs dir resolves, the log path is None (no crash)."""
+        from voice_typer.server.native_hotkeys import _spawn as _spawn_mod
 
-        def _raise():
-            raise RuntimeError("no home")
-
-        monkeypatch.setattr(Path, "home", classmethod(lambda cls: _raise()))
+        monkeypatch.setattr(_spawn_mod, "_resolve_canonical_logs_dir", lambda: None)
+        monkeypatch.setattr(_spawn_mod, "_legacy_home_logs_dir", lambda: None)
         b = _make_linux_backend(monkeypatch, "<caps_lock>")
         # _compute_native_log_path is called from _spawn_process, but
         # we can call it directly here.
         path = b._compute_native_log_path()
         assert path is None
-
-
-# Need Path import for the TestNativeLogPath tests.
-from pathlib import Path  # noqa: E402

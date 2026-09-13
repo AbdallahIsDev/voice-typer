@@ -96,6 +96,24 @@ from voice_typer.server.startup_sequence._phases_late import (
 log = logging.getLogger(__name__)
 
 
+def _anchor_startup_t0() -> float:
+    """Monotonic anchor for the total-startup duration (C-LOG-2).
+
+    Anchored at BACKEND SPAWN (not at ``run()`` entry): the
+    interpreter + import + onefile-extraction gap before the first log
+    line is real user-perceived latency, and anchoring at ``run()``
+    under-reports it (a 5s-visible boot printed "3.0s"). Falls back to
+    right-now when the host never stamped the spawn marker
+    (standalone runs, tests).
+    """
+    from voice_typer.server import startup_timeline as _timeline
+
+    spawned = _timeline.backend_spawn_monotonic()
+    if spawned is not None:
+        return spawned
+    return time.perf_counter()
+
+
 class StartupSequence(EarlyPhases, LatePhases):
     """Orchestrates the multi-phase background startup of VoiceTyperApp.
 
@@ -138,7 +156,7 @@ class StartupSequence(EarlyPhases, LatePhases):
         # "Startup complete" line emitted by ``_phase_8_finalize_and_signal``
         # (model load runs on a background thread and is measured
         # separately).
-        self._t0 = time.perf_counter()
+        self._t0 = _anchor_startup_t0()
         for phase in (
             self._phase_1_init_and_vad_preload,
             self._phase_2_crash_diagnostics,

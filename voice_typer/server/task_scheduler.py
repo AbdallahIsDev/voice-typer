@@ -17,7 +17,8 @@ that the autostart path (``server_platform/autostart.py`` /
 
 - :data:`_APP_AUTOSTART_DELAY_SECONDS`: delay the autostart launcher
   waits before spawning Electron, so the just-launched app doesn't
-  contend with the still-warming worker.
+  contend with the logon I/O storm (prewarm warms from inside the
+  worker now, so the delay stays small).
 - :func:`is_supported`: True on Windows when ``schtasks.exe`` is
   present (gates the autostart_windows code paths).
 - :func:`_schtasks` / :func:`_schtasks_elevated`, run
@@ -40,12 +41,17 @@ from voice_typer.server.platform_utils import is_windows
 log = logging.getLogger(__name__)
 
 # STARTUP-2: delay the app's autostart_launcher waits before spawning
-# Electron, giving the worker a head start on warming the OS file
-# cache (the worker calls ``warm_imports_for_worker`` once before
-# accepting the first transcription request). Coded as a CLI flag so
-# platform.py can pass it without depending on this module's
+# Electron, so the just-launched app doesn't contend with the logon I/O
+# storm (Explorer, AV scan, other autostart entries faulting pages at
+# once). Kept small on purpose: prewarm is a worker startup phase now
+# (it warms the OS file cache from INSIDE the backend process after it
+# spawns), so a long pre-launch sleep only delays the worker itself.
+# The launcher additionally clamps legacy large delays (see
+# ``_LAUNCHER_DELAY_CAP_S`` in ``autostart_launcher``) so entries
+# registered with the old 15 s value don't stall logon. Coded as a CLI
+# flag so platform.py can pass it without depending on this module's
 # internals.
-_APP_AUTOSTART_DELAY_SECONDS = 15
+_APP_AUTOSTART_DELAY_SECONDS = 3
 
 
 # ─── schtasks wrappers ──────────────────────────────────────────────────

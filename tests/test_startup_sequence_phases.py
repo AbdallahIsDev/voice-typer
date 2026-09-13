@@ -264,6 +264,170 @@ class TestPhasesCallableIndependently:
         assert result.success is True
 
 
+class TestStartupT0Anchoring:
+    """The "Startup complete" duration must cover the whole backend
+    boot, not just the phase runner (a 5s-visible boot printed "3.0s"
+    because ``_t0`` was stamped at ``run()`` entry, hiding the
+    interpreter + import + onefile-extraction gap)."""
+
+    def test_anchor_uses_spawn_epoch_when_stamped(self, monkeypatch):
+        """With the host's spawn marker present, the anchor is the
+        spawn moment on this process's monotonic clock."""
+        import time
+
+        from voice_typer.server import startup_sequence as ss_mod, startup_timeline as _timeline
+
+        now_wall, now_mono = time.time(), time.monotonic()
+        monkeypatch.setenv(_timeline.SPAWN_EPOCH_ENV, str(int(now_wall * 1000) - 4000))
+        monkeypatch.setattr(time, "time", lambda: now_wall)
+        monkeypatch.setattr(time, "monotonic", lambda: now_mono)
+
+        assert ss_mod._anchor_startup_t0() == pytest.approx(now_mono - 4.0, abs=0.05)
+
+    def test_anchor_falls_back_to_now_without_marker(self, monkeypatch):
+        """Standalone runs (no marker) anchor at call time, the old
+        behavior, so the duration still measures the phase run."""
+        import time
+
+        from voice_typer.server import startup_sequence as ss_mod, startup_timeline as _timeline
+
+        monkeypatch.delenv(_timeline.SPAWN_EPOCH_ENV, raising=False)
+        before = time.perf_counter()
+        assert before <= ss_mod._anchor_startup_t0() <= time.perf_counter()
+
+
+class TestPhase8CompletionMessage:
+    """The parenthetical on the "Startup complete" line must describe
+    actual model state (the static "still loading" lied on machines
+    with no model selected)."""
+
+    def _run_phase_8(self, app_for_phases, monkeypatch, caplog):
+        from voice_typer.server import startup_sequence as ss_mod
+
+        monkeypatch.delenv("VOICE_TYPER_RESTART", raising=False)
+        app_for_phases.config.bubble_behavior = "hidden"
+        app_for_phases.config.bubble_show_on_startup = False
+        seq = ss_mod.StartupSequence(app_for_phases)
+        seq._t0 = 0.0
+        with caplog.at_level("INFO", logger="voice_typer.server.startup_sequence"):
+            result = seq._phase_8_finalize_and_signal()
+        assert result.success is True
+        lines = [r.getMessage() for r in caplog.records if "Startup complete" in r.getMessage()]
+        assert lines, "phase 8 must emit the Startup complete line"
+        return lines[-1]
+
+    def test_no_model_selected_message(self, app_for_phases, monkeypatch, caplog):
+        """No configured model: the line must say so, never claim a
+        background load is running."""
+        from unittest.mock import MagicMock
+
+        from voice_typer.server.model_registry import NO_MODEL_SIZE
+
+        app_for_phases.config.model_size = NO_MODEL_SIZE
+        app_for_phases.models = MagicMock()
+        app_for_phases.models._model_load_thread = None
+
+        line = self._run_phase_8(app_for_phases, monkeypatch, caplog)
+        assert "no speech model selected" in line
+        assert "still loading" not in line
+
+    def test_still_loading_message_while_loader_alive(self, app_for_phases, monkeypatch, caplog):
+        """Configured model + live loader thread: the classic line."""
+        from unittest.mock import MagicMock
+
+        app_for_phases.config.model_size = "tiny"
+        app_for_phases.models = MagicMock()
+        app_for_phases.models._model_load_thread.is_alive.return_value = True
+
+        line = self._run_phase_8(app_for_phases, monkeypatch, caplog)
+        assert "still loading" in line
+
+    def test_settled_message_when_configured_and_idle(self, app_for_phases, monkeypatch, caplog):
+        """Configured model + no live loader: plain line, no stale
+        "still loading" claim (load already settled either way)."""
+        from unittest.mock import MagicMock
+
+        app_for_phases.config.model_size = "tiny"
+        app_for_phases.models = MagicMock()
+        app_for_phases.models._model_load_thread = None
+
+        line = self._run_phase_8(app_for_phases, monkeypatch, caplog)
+        assert "still loading" not in line
+        assert "no speech model selected" not in line
+
+
+class TestPhase8TerminalTrayReconcile:
+    """No-model boots must not leave the tray in boot
+    LOADING/"Starting..." forever when the refusal's own tray update
+    is lost (its failure is swallowed by design)."""
+
+    def _phase_8(self, app_for_phases, monkeypatch):
+        from voice_typer.server import startup_sequence as ss_mod
+
+        monkeypatch.delenv("VOICE_TYPER_RESTART", raising=False)
+        app_for_phases.config.bubble_behavior = "hidden"
+        app_for_phases.config.bubble_show_on_startup = False
+        seq = ss_mod.StartupSequence(app_for_phases)
+        seq._t0 = 0.0
+        return seq._phase_8_finalize_and_signal()
+
+    def test_reconcile_heals_stuck_starting(self, app_for_phases, monkeypatch):
+        """Tray still LOADING/"Starting..." + no model + no loader:
+        phase 8 asserts ERROR/no-model (the exact refusal verdict)."""
+        from unittest.mock import MagicMock
+
+        from voice_typer.server.model_registry import NO_MODEL_SIZE
+        from voice_typer.server.tray_types import AppState
+
+        app_for_phases.config.model_size = NO_MODEL_SIZE
+        app_for_phases.models = MagicMock()
+        app_for_phases.models._model_load_thread = None
+        app_for_phases.tray._state = AppState.LOADING
+        app_for_phases.tray._message = "Starting..."
+
+        assert self._phase_8(app_for_phases, monkeypatch).success is True
+        assert app_for_phases.tray._state == AppState.ERROR
+        assert "No model selected" in app_for_phases.tray._message
+
+    def test_reconcile_noop_when_refusal_landed(self, app_for_phases, monkeypatch):
+        """Tray already ERROR/no-model: the reconcile must not clobber
+        or duplicate it (same verdict the refusal path uses)."""
+        from unittest.mock import MagicMock
+
+        from voice_typer.server import i18n
+        from voice_typer.server.model_registry import NO_MODEL_SIZE
+        from voice_typer.server.tray_types import AppState
+
+        app_for_phases.config.model_size = NO_MODEL_SIZE
+        app_for_phases.models = MagicMock()
+        app_for_phases.models._model_load_thread = None
+        reason = i18n.t("state.model_manager.no_model_selected")
+        app_for_phases.tray._state = AppState.ERROR
+        app_for_phases.tray._message = reason
+
+        assert self._phase_8(app_for_phases, monkeypatch).success is True
+        assert app_for_phases.tray._state == AppState.ERROR
+        assert app_for_phases.tray._message == reason
+
+    def test_reconcile_skipped_while_loading(self, app_for_phases, monkeypatch):
+        """A live loader owns the tray state, phase 8 must not touch
+        it even with no model currently configured."""
+        from unittest.mock import MagicMock
+
+        from voice_typer.server.model_registry import NO_MODEL_SIZE
+        from voice_typer.server.tray_types import AppState
+
+        app_for_phases.config.model_size = NO_MODEL_SIZE
+        app_for_phases.models = MagicMock()
+        app_for_phases.models._model_load_thread.is_alive.return_value = True
+        app_for_phases.tray._state = AppState.LOADING
+        app_for_phases.tray._message = "Starting..."
+
+        assert self._phase_8(app_for_phases, monkeypatch).success is True
+        assert app_for_phases.tray._state == AppState.LOADING
+        assert app_for_phases.tray._message == "Starting..."
+
+
 class TestShutdownShortCircuits:
     """RACE-020 invariant: a ``success=False`` StageResult from any
     phase short-circuits ``run``, no subsequent phase may execute.

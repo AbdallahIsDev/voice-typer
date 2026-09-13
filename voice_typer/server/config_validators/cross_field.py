@@ -141,6 +141,17 @@ def _check_cross_field_cloud_config(
     (when ``cloud_engines.CloudEngine.transcribe`` raises
     ``CloudConfigError``).
 
+    Consent flags are deliberately NOT key-gated here: a
+    ``cloud_*_consent=True`` with an empty ``cloud_api_key`` is a valid
+    resting state, not an inconsistency. Consent is permission, not
+    activation — the onboarding "agree to all" flow and the Settings
+    Privacy toggles legitimately grant all three provider consents
+    while the user transcribes locally (no cloud engine is ever
+    constructed for them). The missing key is refused gracefully at
+    use time (``transcribe`` raises ``CloudConfigError``,
+    ``test_connection`` reports "API key not configured"), so
+    load-time warnings for this state are pure false positives.
+
     The check fires ONLY when BOTH related fields are present in
     ``field_values``: for the IPC ``set_config`` path, the renderer
     may push only ONE of the two paired fields (e.g. just
@@ -192,15 +203,12 @@ def _check_cross_field_cloud_config(
         if polish_val is True and consent_val is not True:
             errors.append("llm_polish_consent must be True when llm_polish is True")
 
-    # Any cloud_*_consent=True requires cloud_api_key (when both the
-    # consent flag and the key are in the update).
-    if has_key:
-        key_val = field_values.get("cloud_api_key")
-        key_set = isinstance(key_val, str) and key_val.strip() != ""
-        if not key_set:
-            for consent_field in _CLOUD_CONSENT_FIELD_NAMES:
-                if consent_field in field_values and field_values.get(consent_field) is True:
-                    errors.append(f"cloud_api_key is required when {consent_field} is True")
+    # NOTE: no ``cloud_*_consent`` → ``cloud_api_key`` check. Consent
+    # without a key is valid resting state (see docstring): the user
+    # may grant permission via onboarding / Settings Privacy yet
+    # transcribe locally. The ``_CLOUD_CONSENT_FIELD_NAMES`` tuple is
+    # kept as the canonical field list for callers that collect cloud
+    # fields (see ``entry_points``), it just no longer produces errors.
 
     return errors
 

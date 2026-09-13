@@ -38,6 +38,10 @@ def _spawn_login_child(
     failure. Parent copies of log-file handles are ALWAYS closed
     (the child inherited them), on success and on ``Popen``-raise
     alike.
+
+    This helper is the SINGLE choke point for the [ENV] sensitive-key
+    audit line: it logs once per spawn. Callers must NOT pre-log the
+    same line (that doubled the identical entry on every spawn).
     """
     _log_sensitive_env_keys(env, context="autostart")
     try:

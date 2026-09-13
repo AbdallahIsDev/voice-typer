@@ -186,6 +186,17 @@ __all__ = [
 IPC_HOST = "127.0.0.1"
 IPC_PORT = _paths.IPC_PORT
 
+# Upper bound on the ``--delay`` pre-launch sleep. Entries registered
+# before the worker-phase prewarm cutover still carry ``--delay 15``
+# (baked into the Run key / Task Scheduler XML / .bat at registration
+# time); the standalone prewarm task that sleep used to serve no longer
+# exists, so honoring the full legacy value would be pure logon latency.
+# New registrations use ``_APP_AUTOSTART_DELAY_SECONDS`` (3 s); this cap
+# lets already-registered entries pick up the improvement without
+# requiring an autostart re-registration. Explicitly small delays pass
+# through untouched.
+_LAUNCHER_DELAY_CAP_S = 5.0
+
 # The OS invokes this file as a BARE SCRIPT (``pythonw.exe
 # autostart_launcher.py`` at logon), so ``__name__`` is ``"__main__"`` here
 # , ``logging.getLogger(__name__)`` would create a logger hanging off the
@@ -300,17 +311,28 @@ def launch() -> int:
         delay_seconds,
     )
 
-    # STARTUP-2: sleep before doing anything so prewarm (which fires at
-    # logon+0s with low I/O priority) has a head start on warming the
-    # OS file cache. The app's cold imports of torch/transformers then
-    # hit RAM instead of disk. Skipped when focusing an existing instance,
-    # when delay is 0, or when there is nothing meaningful to warm.
-    if delay_seconds > 0 and _prewarm_would_help():
+    # STARTUP-2: sleep before doing anything so the logon I/O storm
+    # settles before the app's cold imports contend for disk. The sleep
+    # is skipped when focusing an existing instance, when delay is 0,
+    # or when there is nothing meaningful to warm. Legacy large delays
+    # (registered when a standalone prewarm task still fired at logon)
+    # are clamped to ``_LAUNCHER_DELAY_CAP_S``: that task is gone
+    # (prewarm is a worker phase now), so the full legacy value would
+    # be pure startup latency.
+    effective_delay = min(delay_seconds, _LAUNCHER_DELAY_CAP_S) if delay_seconds > 0 else 0.0
+    if effective_delay < delay_seconds:
         log.info(
-            "[AUTOSTART] delaying %.1fs before launch to let prewarm warm the cache",
+            "[AUTOSTART] clamping legacy %.1fs prewarm delay to %.1fs "
+            "(standalone prewarm task no longer exists; prewarm runs in the worker)",
             delay_seconds,
+            effective_delay,
         )
-        time.sleep(delay_seconds)
+    if effective_delay > 0 and _prewarm_would_help():
+        log.info(
+            "[AUTOSTART] delaying %.1fs before launch to let the logon I/O storm settle",
+            effective_delay,
+        )
+        time.sleep(effective_delay)
     elif delay_seconds > 0:
         # No installed model (or an unreadable config), prewarm has no
         # weights to page into the OS cache, so the fixed delay would be

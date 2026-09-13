@@ -13,7 +13,6 @@ import subprocess
 
 from voice_typer.server._electron_build import (
     _launcher_child_env,
-    _log_sensitive_env_keys,
     _spawn_flags,
 )
 from voice_typer.server.autostart._spawn import _spawn_login_child
@@ -57,10 +56,8 @@ def _launch_electron_built(exe: str, hidden: bool = False) -> subprocess.Popen |
     env = _launcher_child_env()
     if hidden:
         env["VT_START_HIDDEN"] = "1"
-    # surface (without values) any sensitive env keys the
-    # child will inherit, so a future leak in a downstream log is
-    # auditable. Only KEY NAMES are logged, values are never printed.
-    _log_sensitive_env_keys(env, context="autostart")
+    # The [ENV] audit line is emitted once by ``_spawn_login_child``;
+    # this call site must NOT pre-log it (that doubled the line).
     # Unified cleanup shape (BP-130): parent handle close happens in
     # the helper's finally: including the Popen-raise path, which the
     # previous inline copy missed (handle leak).
@@ -133,7 +130,8 @@ def _spawn_npm_run_dev(hidden: bool = False) -> subprocess.Popen | None:
     env = _launcher_child_env()
     if hidden:
         env["VT_START_HIDDEN"] = "1"
-    _log_sensitive_env_keys(env, context="autostart")
+    # Single-choke-point note: ``_spawn_login_child`` emits the [ENV]
+    # audit line, no pre-log here.
 
     try:
         # S-7: prefer list form over shell=True.

@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 import logging
 import os
+import re
 import subprocess
 import threading
 import time
@@ -14,6 +15,94 @@ from typing import TYPE_CHECKING
 from voice_typer.server import native_hotkeys as _native_hotkeys_pkg
 
 log = logging.getLogger(__name__)
+
+# Legacy per-PID diagnostic files (``native-<backend>-<pid>.log``): one file
+# per app launch, accumulated unbounded (only the 7-day age sweep removed
+# them). The stable name is ``native-<backend>.log`` (no PID); anything
+# matching this pattern is a legacy orphan safe to delete.
+_LEGACY_PID_LOG_RE = re.compile(r"^native-.+-(\d+)\.log$")
+
+
+def _resolve_canonical_logs_dir() -> Path | None:
+    """Return the canonical ``<config_dir>/logs`` dir, or ``None``.
+
+    Uses the single source of truth (``paths._config_dir`` +
+    ``log.get_logs_dir``) so native diagnostics live beside every other
+    log, including ``VOICE_TYPER_CONFIG_DIR`` overrides and the
+    Windows ``%APPDATA%`` location for new installs. Local imports avoid
+    a module-load cycle (``native_hotkeys`` is imported early).
+    """
+    try:
+        from voice_typer.server.config_internals import paths as _paths_mod
+        from voice_typer.server.log import get_logs_dir
+
+        return get_logs_dir(_paths_mod._config_dir())
+    except Exception:
+        return None
+
+
+def _legacy_home_logs_dir() -> Path | None:
+    """Return the pre-canonical ``~/.voice-typer/logs`` dir, or ``None``."""
+    try:
+        home = Path.home()
+    except (RuntimeError, OSError):
+        return None
+    if not str(home) or str(home) == ".":
+        return None
+    return home / ".voice-typer" / "logs"
+
+
+def _sweep_legacy_per_pid_logs(keep: Path | None = None) -> None:
+    """Delete legacy ``native-<backend>-<pid>.log`` orphans (best-effort).
+
+    Sweeps both the canonical logs dir and the legacy home logs dir (old
+    builds hardcoded the legacy path, so new-install machines may hold
+    orphans in a dir the canonical sweep never visits). Never deletes
+    ``keep`` (the stable per-backend file). Never raises.
+    """
+    try:
+        dirs: list[Path] = []
+        if keep is not None:
+            dirs.append(keep.parent)
+        else:
+            canonical = _resolve_canonical_logs_dir()
+            if canonical is not None:
+                dirs.append(canonical)
+        legacy = _legacy_home_logs_dir()
+        if legacy is not None and all(d != legacy for d in dirs):
+            dirs.append(legacy)
+        seen: set[Path] = set()
+        for d in dirs:
+            try:
+                resolved = d.resolve()
+            except OSError:
+                resolved = d
+            if resolved in seen:
+                continue
+            seen.add(resolved)
+            try:
+                if not d.is_dir():
+                    continue
+            except OSError:
+                continue
+            try:
+                candidates = list(d.glob("native-*-*.log"))
+            except OSError:
+                continue
+            for f in candidates:
+                try:
+                    if keep is not None and f == keep:
+                        continue
+                    if not f.is_file():
+                        continue
+                    if not _LEGACY_PID_LOG_RE.match(f.name):
+                        continue
+                    f.unlink()
+                    log.debug("[NATIVE-HOTKEY] removed legacy per-PID log %s", f.name)
+                except OSError:
+                    continue
+    except Exception as exc:  # deliberate broad catch: cleanup must never block the spawn
+        log.debug("[NATIVE-HOTKEY] legacy native-log sweep failed: %s", exc)
 
 
 class _SpawnMixin:
@@ -346,40 +435,44 @@ class _SpawnMixin:
             self._watchdog_thread.start()
 
     def _compute_native_log_path(self) -> Path | None:
-        """Resolve the per-session diagnostic log path passed to the
-        native binary via ``--log-file <path>``.
+        """Resolve the diagnostic log path passed to the native binary
+        via ``--log-file <path>``.
 
-        The path is ``~/.voice-typer/logs/native-<backend>-<pid>.log``
-        where ``<backend>`` is ``self.platform_name.lower()`` and
-        ``<pid>`` is the current process's PID. The directory is created
+        The path is ``<config_dir>/logs/native-<backend>.log`` (stable,
+        no PID) where ``<backend>`` is ``self.platform_name.lower()``
+        and ``<config_dir>`` is the canonical config dir
+        (``paths._config_dir``, honors ``VOICE_TYPER_CONFIG_DIR`` and
+        the Windows ``%APPDATA%`` location). The directory is created
         on first call (parents=True, exist_ok=True). The file itself is
         NOT created here, the native binary opens it with fopen("a").
 
-        Returns ``None`` if the path can't be resolved (e.g. ``HOME``
-        unset on POSIX, or ``USERPROFILE`` unset on Windows). In that
-        case the binary is spawned without ``--log-file`` and its
+        A stable name bounds storage to ONE file per backend: the binary
+        appends a few lines per launch, and the existing session-start
+        sweep (7-day age / 25 MB size) caps it. The previous per-PID
+        name (``native-<backend>-<pid>.log``) created one 1 KB file per
+        launch; legacy orphans are deleted best-effort here (both the
+        canonical and the legacy home logs dirs).
+
+        Returns ``None`` if the path can't be resolved. In that case
+        the binary is spawned without ``--log-file`` and its
         diagnostics go to stderr only (which the Python parent merges
         into stdout via STDERR=STDOUT).
 
         Memoised in ``self._native_log_path`` so the same path is reused
-        across respawns (the binary appends, so all respawns of one
-        backend land in the same file).
+        across respawns and restarts (the binary appends).
         """
         if self._native_log_path is not None:
             return self._native_log_path
-        # Resolve the user's home directory. On POSIX this is ``$HOME``;
-        # on Windows it's ``%USERPROFILE%`` (which ``Path.home`` reads
-        # via ``os.path.expanduser``). Fall back to None on failure so
-        # we don't crash the spawn just because logging can't be set up.
-        try:
-            home = Path.home()
-        except (RuntimeError, OSError):
+        # Canonical location first (single source of truth for all logs).
+        # Falls back to the legacy home dir only when the canonical
+        # resolution fails (read-only config, sandbox, etc.). Returns
+        # None when neither resolves so the spawn proceeds without
+        # --log-file.
+        log_dir = _resolve_canonical_logs_dir()
+        if log_dir is None:
+            log_dir = _legacy_home_logs_dir()
+        if log_dir is None:
             return None
-        if not str(home) or str(home) == ".":
-            # ``Path.home()`` returns ``.`` when ``HOME`` is unset on
-            # some POSIX systems, treat that as "no home available".
-            return None
-        log_dir = home / ".voice-typer" / "logs"
         try:
             log_dir.mkdir(parents=True, exist_ok=True)
         except OSError:
@@ -388,6 +481,10 @@ class _SpawnMixin:
             # to the parent's merged stdout pipe.
             return None
         backend = (self.platform_name or "native").lower()
-        path = log_dir / f"native-{backend}-{os.getpid()}.log"
+        path = log_dir / f"native-{backend}.log"
+        try:
+            _sweep_legacy_per_pid_logs(keep=path)
+        except Exception as exc:  # deliberate broad catch: cleanup must never block the spawn
+            log.debug("[NATIVE-HOTKEY] legacy native-log sweep failed: %s", exc)
         self._native_log_path = path
         return path

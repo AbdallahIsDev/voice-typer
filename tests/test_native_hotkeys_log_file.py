@@ -3,12 +3,14 @@
 All three native key-listener binaries (linux / windows / macos) parse a
 ``--log-file <path>`` flag and append timestamped diagnostic lines (init
 steps, permission checks, device opens, hook installation) to that file.
-``_SpawnMixin._spawn_process`` resolves the per-session log path via
-``_compute_native_log_path`` (memoised, ``~/.voice-typer/logs/
-native-<backend>-<pid>.log``) and appends ``["--log-file", path]`` to the
-spawn command. The wiring is error-tolerant: when the path cannot be
+``_SpawnMixin._spawn_process`` resolves the stable per-backend log path
+via ``_compute_native_log_path`` (memoised, ``<config_dir>/logs/
+native-<backend>.log``, no PID) and appends ``["--log-file", path]`` to
+the spawn command. The wiring is error-tolerant: when the path cannot be
 resolved (no home, read-only home) (or its computation raises) the
 binary is spawned WITHOUT the flag rather than failing the spawn.
+Legacy per-PID files (``native-<backend>-<pid>.log``, one per launch
+under the old naming) are swept best-effort on first resolve.
 
 These tests pin:
   1. the spawn command includes ``--log-file <resolved path>`` after the
@@ -16,12 +18,12 @@ These tests pin:
   2. the flag is omitted when the log path is unresolvable;
   3. an unexpected exception in the path computation does NOT break the
      spawn (spawn proceeds without the flag);
-  4. the memoised path is reused across respawns (same flag value).
+  4. the memoised path is reused across respawns (same flag value);
+  5. the stable name carries no PID and legacy per-PID orphans are swept.
 """
 
 from __future__ import annotations
 
-import os
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -82,14 +84,21 @@ def _spawn_and_capture_cmd(backend: LinuxEvdevHotkey) -> list[str]:
 
 
 class TestSpawnCommandIncludesLogFile:
-    def test_cmd_has_log_file_flag_after_hotkey_spec(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    def test_cmd_has_log_file_flag_after_hotkey_spec(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, request
+    ) -> None:
         _setup_linux(monkeypatch)
         fake_bin = _fake_binary(tmp_path)
         _patch_binary_path(monkeypatch, fake_bin)
         _patch_verify_ok(monkeypatch)
-        # Redirect home to the test's tmp dir so the test never touches
-        # the real user home.
-        monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
+        # Hermetic config dir: the stable log lands under tmp logs.
+        from voice_typer.server.config_internals import paths as _paths_mod
+        from voice_typer.server.native_hotkeys import _spawn as _spawn_mod
+
+        monkeypatch.setenv("VOICE_TYPER_CONFIG_DIR", str(tmp_path))
+        _paths_mod._reset_config_dir_cache()
+        request.addfinalizer(_paths_mod._reset_config_dir_cache)
+        monkeypatch.setattr(_spawn_mod, "_legacy_home_logs_dir", lambda: None)
 
         b = LinuxEvdevHotkey("<caps_lock>")
         try:
@@ -98,7 +107,7 @@ class TestSpawnCommandIncludesLogFile:
             with __import__("contextlib").suppress(Exception):
                 b.stop()
 
-        expected_log = tmp_path / ".voice-typer" / "logs" / f"native-linux-{os.getpid()}.log"
+        expected_log = tmp_path / "logs" / "native-linux.log"
         assert cmd[:2] == [str(fake_bin), "<caps_lock>"]
         assert cmd[2:] == ["--log-file", str(expected_log)], (
             f"spawn command must append --log-file with the resolved path; got {cmd!r}"
@@ -114,10 +123,10 @@ class TestSpawnCommandIncludesLogFile:
         _patch_binary_path(monkeypatch, fake_bin)
         _patch_verify_ok(monkeypatch)
 
-        def _no_home() -> Path:
-            raise RuntimeError("home directory could not be resolved")
+        from voice_typer.server.native_hotkeys import _spawn as _spawn_mod
 
-        monkeypatch.setattr(Path, "home", classmethod(lambda cls: _no_home()))
+        monkeypatch.setattr(_spawn_mod, "_resolve_canonical_logs_dir", lambda: None)
+        monkeypatch.setattr(_spawn_mod, "_legacy_home_logs_dir", lambda: None)
 
         b = LinuxEvdevHotkey("<caps_lock>")
         try:
@@ -157,7 +166,9 @@ class TestSpawnCommandIncludesLogFile:
             f"spawn must still happen (without --log-file) when the log-path computation raises; got {cmd!r}"
         )
 
-    def test_memoised_path_reused_across_respawns(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    def test_memoised_path_reused_across_respawns(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, request
+    ) -> None:
         """The watchdog respawns via ``stop()`` + ``start()`` →
         ``_spawn_process()``; the memoised path keeps every respawn of
         one backend appending to the same log file."""
@@ -165,7 +176,13 @@ class TestSpawnCommandIncludesLogFile:
         fake_bin = _fake_binary(tmp_path)
         _patch_binary_path(monkeypatch, fake_bin)
         _patch_verify_ok(monkeypatch)
-        monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
+        from voice_typer.server.config_internals import paths as _paths_mod
+        from voice_typer.server.native_hotkeys import _spawn as _spawn_mod
+
+        monkeypatch.setenv("VOICE_TYPER_CONFIG_DIR", str(tmp_path))
+        _paths_mod._reset_config_dir_cache()
+        request.addfinalizer(_paths_mod._reset_config_dir_cache)
+        monkeypatch.setattr(_spawn_mod, "_legacy_home_logs_dir", lambda: None)
 
         popen_cmds: list[list[str]] = []
         b = LinuxEvdevHotkey("<caps_lock>")
@@ -186,3 +203,85 @@ class TestSpawnCommandIncludesLogFile:
 
         assert len(popen_cmds) == 2
         assert popen_cmds[0][2:] == popen_cmds[1][2:] == ["--log-file", str(b._native_log_path)]
+
+
+class TestStableNameAndLegacySweep:
+    def test_stable_name_has_no_pid(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, request) -> None:
+        """The stable name is ``native-<backend>.log`` with no PID suffix,
+        so restarts reuse one file instead of accumulating one per launch."""
+        _setup_linux(monkeypatch)
+        from voice_typer.server.config_internals import paths as _paths_mod
+        from voice_typer.server.native_hotkeys import _spawn as _spawn_mod
+
+        monkeypatch.setenv("VOICE_TYPER_CONFIG_DIR", str(tmp_path))
+        _paths_mod._reset_config_dir_cache()
+        request.addfinalizer(_paths_mod._reset_config_dir_cache)
+        monkeypatch.setattr(_spawn_mod, "_legacy_home_logs_dir", lambda: None)
+
+        b = LinuxEvdevHotkey("<caps_lock>")
+        try:
+            path = b._compute_native_log_path()
+        finally:
+            with __import__("contextlib").suppress(Exception):
+                b.stop()
+        assert path is not None
+        assert path.name == "native-linux.log"
+
+    def test_legacy_per_pid_orphans_swept(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, request) -> None:
+        """Legacy ``native-<backend>-<pid>.log`` files in the canonical
+        logs dir are deleted on first resolve; the stable file survives."""
+        _setup_linux(monkeypatch)
+        from voice_typer.server.config_internals import paths as _paths_mod
+        from voice_typer.server.native_hotkeys import _spawn as _spawn_mod
+
+        monkeypatch.setenv("VOICE_TYPER_CONFIG_DIR", str(tmp_path))
+        _paths_mod._reset_config_dir_cache()
+        request.addfinalizer(_paths_mod._reset_config_dir_cache)
+        monkeypatch.setattr(_spawn_mod, "_legacy_home_logs_dir", lambda: None)
+
+        logs_dir = tmp_path / "logs"
+        logs_dir.mkdir(parents=True, exist_ok=True)
+        orphans = [
+            logs_dir / "native-windows-2124.log",
+            logs_dir / "native-linux-2980.log",
+            logs_dir / "native-macos-8176.log",
+        ]
+        for o in orphans:
+            o.write_text("legacy orphan", encoding="utf-8")
+        stable = logs_dir / "native-linux.log"
+        stable.write_text("current", encoding="utf-8")
+
+        b = LinuxEvdevHotkey("<caps_lock>")
+        try:
+            path = b._compute_native_log_path()
+        finally:
+            with __import__("contextlib").suppress(Exception):
+                b.stop()
+
+        assert path == stable
+        for o in orphans:
+            assert not o.exists(), f"legacy orphan {o.name} must be swept"
+        assert stable.exists()
+        assert stable.read_text(encoding="utf-8") == "current"
+
+    def test_sweep_ignores_non_legacy_files(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        """The sweep only deletes per-PID matches; unrelated logs survive."""
+        from voice_typer.server.native_hotkeys import _spawn as _spawn_mod
+
+        logs_dir = tmp_path / "logs"
+        logs_dir.mkdir(parents=True, exist_ok=True)
+        keepers = [logs_dir / "voice-typer.log", logs_dir / "native-linux.log"]
+        for k in keepers:
+            k.write_text("keep", encoding="utf-8")
+        legacy = logs_dir / "native-windows-17068.log"
+        legacy.write_text("orphan", encoding="utf-8")
+        near_miss = logs_dir / "native-windows-beta.log"
+        near_miss.write_text("keep", encoding="utf-8")
+
+        monkeypatch.setattr(_spawn_mod, "_resolve_canonical_logs_dir", lambda: logs_dir)
+        monkeypatch.setattr(_spawn_mod, "_legacy_home_logs_dir", lambda: None)
+        _spawn_mod._sweep_legacy_per_pid_logs(keep=logs_dir / "native-linux.log")
+
+        assert not legacy.exists()
+        for k in keepers + [near_miss]:
+            assert k.exists()

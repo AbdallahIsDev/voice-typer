@@ -81,6 +81,80 @@ _KEY_PATTERNS = [
     re.compile(r"(?<![/\\])\b[A-Za-z0-9_\-]{20,}\b(?![/\\])"),
 ]
 
+# Labeled-value shield patterns (see ``redact_api_keys``): exact
+# ``sha256=`` label + exactly 64 hex chars (file digests for the
+# integrity-audit copy-paste flow); ``thread=`` label + a short
+# identifier-shaped token (code-defined thread names in lifecycle
+# tracing, e.g. ``ThreadPoolExecutor-0_0``).
+#
+# ``{64}`` with a trailing hex lookahead (not ``{64,}``): a longer
+# hex run must NOT partially match (a 65-hex secret would otherwise
+# leak its first 64 chars), it falls through to the generic catch-all
+# and redacts. Symmetrically the thread value must NOT be exactly 64
+# hex chars (fail closed: a hash-shaped value stays redacted even
+# behind the ``thread=`` label).
+_HASH_LABEL_RE = re.compile(r"sha256=[0-9a-fA-F]{64}(?![0-9a-fA-F])")
+_THREAD_LABEL_RE = re.compile(r"thread=(?![0-9a-fA-F]{64}(?![0-9a-fA-F]))([A-Za-z0-9_.\-]{1,64})(?![A-Za-z0-9_.\-])")
+
+
+# Caches for the public-vocabulary sets (see
+# ``_public_config_field_names`` / ``_public_ipc_command_names``):
+# resolved once, first redaction call wins. A ``None`` cache would
+# retry a failed import on every call; resolve to (possibly empty)
+# frozenset exactly once instead, redaction must stay fail-closed AND
+# allocation-free on the hot path.
+_PUBLIC_CONFIG_FIELD_NAMES_CACHE: frozenset[str] | None = None
+_PUBLIC_IPC_COMMAND_NAMES_CACHE: frozenset[str] | None = None
+
+
+def _public_ipc_command_names() -> frozenset[str]:
+    """IPC command NAMES as a set (public protocol vocabulary).
+
+    Command names are parity-tested across the server registry, the
+    TS allowlist, and the docs: logging ``[IPC]
+    pause_model_download called`` must not render as ``[IPC] ***
+    called``. Only the catch-all consults this set (a bare 20+ char
+    command token); payload VALUES still redact. Resolved lazily and
+    cached; unimportable registry resolves to empty (fail closed).
+    """
+    global _PUBLIC_IPC_COMMAND_NAMES_CACHE
+    cached = _PUBLIC_IPC_COMMAND_NAMES_CACHE
+    if cached is None:
+        try:
+            from voice_typer.server.ipc.registry import _COMMAND_REGISTRY
+
+            cached = frozenset(_COMMAND_REGISTRY)
+        except Exception:
+            cached = frozenset()
+        _PUBLIC_IPC_COMMAND_NAMES_CACHE = cached
+    return cached
+
+
+def _public_config_field_names() -> frozenset[str]:
+    """Config field NAMES as a set (public identifiers, not secrets).
+
+    Field names are schema, docs, and IPC-allowlist vocabulary: logging
+    ``voice_biometric_consent is False`` must not render as ``*** is
+    False``. Only the catch-all consults this set (a bare 24-char
+    field name); secret-bearing ``key=value`` forms and the
+    Bearer/Token/sk-/gsk_ prefix patterns still fire on VALUES.
+    Resolved lazily (import at call time, never at module import: this
+    module loads before config in the logging path) and cached; an
+    unimportable config resolves to empty (fail closed).
+    """
+    global _PUBLIC_CONFIG_FIELD_NAMES_CACHE
+    cached = _PUBLIC_CONFIG_FIELD_NAMES_CACHE
+    if cached is None:
+        try:
+            from voice_typer.server.config import Config
+
+            cached = frozenset(Config.__dataclass_fields__)
+        except Exception:
+            cached = frozenset()
+        _PUBLIC_CONFIG_FIELD_NAMES_CACHE = cached
+    return cached
+
+
 # ── Public env-var name whitelist ────────────────────────────────────────
 #
 # Env-var NAMES are public (documented in docs, ADRs, source code, and
@@ -423,6 +497,26 @@ def redact_api_keys(text: str, *, replacement: str = "***") -> str:
         # No prefix group, redact the whole match.
         return replacement
 
+    # Labeled-value shields (see ``_HASH_LABEL_RE`` /
+    # ``_THREAD_LABEL_RE``): some log lines carry non-secret values
+    # that LOOK secret-shaped (64-hex file digests labeled ``sha256=``
+    # for the integrity-audit copy-paste flow; code-defined thread
+    # names labeled ``thread=`` in lifecycle tracing). Redacting them
+    # destroys the diagnostic while protecting nothing, so they are
+    # parked under inert placeholders for the pattern passes below
+    # and restored after. Both exemptions are label-anchored AND
+    # shape-bounded with fail-closed edges (overlong hex still
+    # redacts). Placeholders (``KEPTnnnnX``) are short bare tokens
+    # matching no pattern (no 20+ run, no secret keyword, no prefix).
+    shields: list[str] = []
+
+    def _shield(m: re.Match[str]) -> str:
+        shields.append(m.group(0))
+        return f"KEPT{len(shields) - 1:04d}X"
+
+    text = _HASH_LABEL_RE.sub(_shield, text)
+    text = _THREAD_LABEL_RE.sub(_shield, text)
+
     # Generic 20+ char alphanumeric pattern (last entry in
     # ``_KEY_PATTERNS``): skip redaction for tokens that are PUBLIC
     # env-var NAMES. Env-var names are documented in docs / ADRs /
@@ -443,11 +537,24 @@ def redact_api_keys(text: str, *, replacement: str = "***") -> str:
         token = m.group()
         if token in _PUBLIC_ENV_VAR_NAMES:
             return token
+        # Config field NAMES are public schema vocabulary (same
+        # rationale as env-var names above): ``voice_biometric_consent
+        # is False`` must not render as ``*** is False``. IPC command
+        # NAMES are public protocol vocabulary for the same reason:
+        # ``[IPC] pause_model_download called`` must not render as
+        # ``[IPC] *** called``. Values are unaffected (a separate
+        # token after ``=`` / whitespace / quotes).
+        if token in _public_config_field_names():
+            return token
+        if token in _public_ipc_command_names():
+            return token
         return replacement
 
     for pat in _KEY_PATTERNS[:-1]:
         text = pat.sub(_sub, text)
     text = generic_pat.sub(_generic_sub, text)
+    for i, original in enumerate(shields):
+        text = text.replace(f"KEPT{i:04d}X", original, 1)
     return text
 
 

@@ -999,11 +999,14 @@ class TestCrossFieldCloudConfig:
         )
         assert any("llm_polish_consent" in e and "True" in e for e in errors), errors
 
-    def test_cloud_consent_without_key_raises(self) -> None:
-        """Setting any ``cloud_*_consent`` flag to True while
-        ``cloud_api_key`` is empty in the same update is rejected —
-        the cloud engine will refuse to send audio at transcribe time
-        (``CloudConfigError``).
+    def test_cloud_consent_without_key_is_valid_resting_state(self) -> None:
+        """Granting a ``cloud_*_consent`` flag while ``cloud_api_key``
+        is empty is VALID: consent is permission, not activation. The
+        onboarding agree-to-all flow and the Settings Privacy toggles
+        legitimately leave all three consents True for users who
+        transcribe locally; the missing key is refused gracefully at
+        use time (``CloudConfigError`` / "API key not configured"),
+        so neither the IPC path nor the load-time path may error here.
         """
         _, errors = validate_config_update(
             {
@@ -1011,7 +1014,7 @@ class TestCrossFieldCloudConfig:
                 "cloud_api_key": "",
             }
         )
-        assert any("cloud_api_key" in e and "required" in e for e in errors), errors
+        assert not any("cloud_api_key" in e and "required" in e for e in errors), errors
 
     def test_cloud_config_valid_when_all_fields_set(self) -> None:
         """When all cloud/LLM fields are set consistently in the same

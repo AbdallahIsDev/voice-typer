@@ -50,6 +50,7 @@ import logging.handlers
 import os
 import re
 import sys
+import threading
 import time
 import uuid
 from pathlib import Path
@@ -277,6 +278,20 @@ def _sweep_stale_logs(config_dir: Path) -> None:
 
 _session_id: str = ""
 """8-char hex session ID, generated once per :func:`setup_logging` call."""
+
+
+_emit_reentrancy = threading.local()
+"""Re-entrancy guard for :meth:`_SecureTruncatingFileHandler.emit`.
+
+Set to ``True`` while one ``emit`` holds (or is attempting) the
+inter-process emit lock. A nested ``emit`` on the same thread (logging
+from inside the emit path, e.g. a lock helper emitting a diagnostic)
+writes fail-open WITHOUT acquiring the lock: re-acquiring the same
+byte-range lock from the same process deadlocks on Windows
+(``msvcrt.locking`` byte locks conflict even intra-process) and is a
+no-op at best on POSIX. The flag is thread-local so concurrent
+threads still serialize through the lock file.
+"""
 
 
 def _json_logging_enabled() -> bool:
@@ -1166,7 +1181,7 @@ class _SecureTruncatingFileHandler(logging.handlers.RotatingFileHandler):
     """``RotatingFileHandler`` subclass that truncates IN PLACE (single-file
     policy) and is inter-process safe AND re-locks perms.
 
-    Combines two concerns:
+    Combines three concerns:
     1. Single-file policy: ``doRollover`` TRUNCATES the active file in
        place (empties it) when it exceeds ``maxBytes``, a numbered
        backup (``.1``, ``.2``, ...) is NEVER created. The file on disk
@@ -1176,11 +1191,21 @@ class _SecureTruncatingFileHandler(logging.handlers.RotatingFileHandler):
        race on truncation.
     3. Post-truncation ``os.chmod(self.baseFilename, 0o600)`` on POSIX so
        the active log file is never world-readable.
+    4. Inter-process EMIT safety: ``emit`` holds the same lock file
+       across the rollover-check + write so two processes sharing one
+       log file (the autostart launcher and the backend it spawns both
+       write ``voice-typer.log`` during the launch overlap) cannot
+       interleave bytes mid-line. On Windows the C runtime emulates
+       append mode with seek-then-write, so concurrent writers can
+       overwrite each other's bytes and leave fragments (a bare tail
+       such as ``dinator`` with no timestamp template). The emit lock
+       is acquired NON-BLOCKING and never logs: when contended (or when
+       re-entered from inside the emit path) the record is still
+       written, fail-open, matching the pre-lock behavior.
 
-    The lock is held only for the brief truncate window, NOT for
-    every ``emit()`` call.  After acquiring the lock the handler
-    re-checks whether truncation is still needed, another process may
-    have truncated while we waited.
+    The lock is held only for one record's check + write, NOT across
+    records. Rotation re-checks under the lock (another process may
+    have truncated while we waited).
     """
 
     def __init__(self, filename, *args, **kwargs):
@@ -1191,14 +1216,62 @@ class _SecureTruncatingFileHandler(logging.handlers.RotatingFileHandler):
         _quiet_handler_error(self, record)
 
     def emit(self, record: logging.LogRecord) -> None:  # noqa: D401
-        """Write the record, never losing it to a rotation failure.
+        """Write the record under the inter-process emit lock, never losing it.
 
-        Mirrors the stock ``RotatingFileHandler.emit`` (rotate-then-
-        write) but wraps the rollover in a try/except: if the inter-
-        process rotation lock is contended or the truncate fails, we
-        still append the record (the file is simply over-cap) and
-        surface ONE concise stderr line instead of dropping the record
-        and printing the stock ``--- Logging error ---`` block.
+        The emit lock (the same ``<log>.lock`` file the rotation path
+        uses) is held across the rollover-check + write so concurrent
+        processes sharing this file cannot interleave bytes mid-line.
+        The lock is acquired NON-BLOCKING and SILENTLY (no logging on
+        failure: emitting a diagnostic here would recurse into this
+        very method): when the lock is contended, or when re-entered
+        from inside the emit path (see :data:`_emit_reentrancy`), the
+        record is written fail-open without the lock, exactly the
+        pre-lock behavior, and a rotation failure still appends the
+        record with ONE concise stderr line instead of the stock
+        ``--- Logging error ---`` block.
+        """
+        if getattr(_emit_reentrancy, "active", False):
+            self._emit_fail_open(record)
+            return
+        lock_fd = self._try_acquire_emit_lock()
+        _emit_reentrancy.active = True
+        try:
+            try:
+                if self.shouldRollover(record):
+                    if lock_fd is not None:
+                        # Lock already held: truncate inline without
+                        # re-acquiring (a second acquire on a new fd
+                        # would self-conflict on Windows). Re-check
+                        # first, another process may have truncated
+                        # while we acquired.
+                        if self._rotation_needed():
+                            self._truncate_locked()
+                    else:
+                        try:
+                            self.doRollover()
+                        except Exception as exc:  # noqa: BLE001, rotation is best-effort
+                            _stderr_line(
+                                f"[LOG-SETUP] log rotation failed ({type(exc).__name__}), appending without rotating"
+                            )
+            except Exception:
+                # ``shouldRollover`` itself failed (e.g. broken stream) —
+                # still try to write the record.
+                pass
+            logging.FileHandler.emit(self, record)
+        except RecursionError:
+            raise
+        except Exception:
+            self.handleError(record)
+        finally:
+            self._release_rotation_lock(lock_fd)
+            _emit_reentrancy.active = False
+
+    def _emit_fail_open(self, record: logging.LogRecord) -> None:
+        """Write *record* without the emit lock (re-entrant path).
+
+        Reached only when ``emit`` recurses on the same thread (see
+        :data:`_emit_reentrancy`). Rotation failures still append the
+        record with the single concise stderr line.
         """
         try:
             try:
@@ -1210,14 +1283,57 @@ class _SecureTruncatingFileHandler(logging.handlers.RotatingFileHandler):
                             f"[LOG-SETUP] log rotation failed ({type(exc).__name__}), appending without rotating"
                         )
             except Exception:
-                # ``shouldRollover`` itself failed (e.g. broken stream) —
-                # still try to write the record.
                 pass
             logging.FileHandler.emit(self, record)
         except RecursionError:
             raise
         except Exception:
             self.handleError(record)
+
+    def _try_acquire_emit_lock(self):
+        """Non-blocking silent acquire of the inter-process emit lock.
+
+        Same lock file as the rotation path (``<log>.lock``), but unlike
+        :meth:`_acquire_rotation_lock` this NEVER blocks (Windows
+        ``LK_LOCK`` would stall every log line ~10s under contention)
+        and NEVER logs (a diagnostic here would recurse into
+        :meth:`emit`). Returns the lock fd on success, ``None`` when
+        contended or on any error: the caller writes fail-open.
+        """
+        if getattr(_emit_reentrancy, "active", False):
+            return None
+        fd = None
+        try:
+            if os.name == "posix":
+                import fcntl
+
+                fd = os.open(self._rotation_lock_path, os.O_CREAT | os.O_RDWR, 0o600)
+                try:
+                    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except OSError:
+                    with contextlib.suppress(OSError):
+                        os.close(fd)
+                    return None
+                return fd
+            if os.name == "nt":
+                import msvcrt
+
+                fd = os.open(self._rotation_lock_path, os.O_CREAT | os.O_RDWR, 0o600)
+                with contextlib.suppress(OSError):
+                    os.write(fd, b"\0")
+                    os.lseek(fd, 0, os.SEEK_SET)
+                try:
+                    msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+                except OSError:
+                    with contextlib.suppress(OSError):
+                        os.close(fd)
+                    return None
+                return fd
+        except Exception:
+            if isinstance(fd, int):
+                with contextlib.suppress(OSError):
+                    os.close(fd)
+        return None
 
     def _acquire_rotation_lock(self):
         """Open the lock file and acquire an inter-process lock on it."""
@@ -1321,6 +1437,54 @@ class _SecureTruncatingFileHandler(logging.handlers.RotatingFileHandler):
         except OSError:
             return True
 
+    def _truncate_locked(self) -> None:
+        """Truncate the active log file in place; caller must hold the lock.
+
+        The inter-process lock file is already acquired by the caller
+        (either :meth:`doRollover` or :meth:`emit`), so this performs
+        only the truncate + post-truncate chmod. Extracted so
+        :meth:`emit` can rotate inline without a second (self-deadlocking
+        on Windows) lock acquisition.
+        """
+        # Truncate in place. ``seek(0)`` first so the file position
+        # is at the start; ``truncate(0)`` empties it. The next
+        # ``emit`` appends from position 0. The file keeps its
+        # identity (same path/inode), so the inter-process lock file
+        # (``<name>.lock``) and any open handles stay valid.
+        #
+        # ``stream`` is ``TextIOWrapper | None`` per typeshed (None
+        # when the file failed to open, e.g. disk full / perms). A
+        # None stream cannot be truncated, skip the truncate (the
+        # base ``FileHandler.emit`` raises ``RuntimeError`` on a
+        # None stream, surfaced as ONE concise stderr line by
+        # ``handleError``) rather than crashing inside the
+        # inter-process rotation lock.
+        if self.stream is not None:
+            self.stream.seek(0)
+            self.stream.truncate(0)
+        # Belt-and-suspenders: chmod INSIDE the lock so even if a
+        # caller bypassed the umask (or a future refactor swapped
+        # the open mode), the file is still re-locked to 0o600
+        # before any other process can observe it.
+        #
+        # Logged (not silently suppressed) so an operator can see
+        # when the chmod fails: e.g. on NFS with root-squash, on a
+        # read-only filesystem, or under a SELinux policy that
+        # denies chmod. Log only the exception class name (not
+        # ``str(exc)``, which can include the log file path →
+        # home-directory leak).
+        if os.name == "posix":
+            try:
+                os.chmod(self.baseFilename, 0o600)
+            except OSError as exc:
+                log.warning(
+                    "[LOG-SETUP] post-truncate chmod to 0o600 failed "
+                    "(%s), log file may be world-readable; investigate "
+                    "filesystem perms (NFS root-squash, read-only mount, "
+                    "SELinux policy)",
+                    type(exc).__name__,
+                )
+
     def doRollover(self) -> None:  # noqa: D401, N802
         # Single-file policy: when the active log exceeds ``maxBytes``,
         # TRUNCATE it in place (empty the file) and keep writing to the
@@ -1339,44 +1503,7 @@ class _SecureTruncatingFileHandler(logging.handlers.RotatingFileHandler):
         try:
             if not self._rotation_needed():
                 return
-            # Truncate in place. ``seek(0)`` first so the file position
-            # is at the start; ``truncate(0)`` empties it. The next
-            # ``emit`` appends from position 0. The file keeps its
-            # identity (same path/inode), so the inter-process lock file
-            # (``<name>.lock``) and any open handles stay valid.
-            #
-            # ``stream`` is ``TextIOWrapper | None`` per typeshed (None
-            # when the file failed to open, e.g. disk full / perms). A
-            # None stream cannot be truncated, skip the truncate (the
-            # base ``FileHandler.emit`` raises ``RuntimeError`` on a
-            # None stream, surfaced as ONE concise stderr line by
-            # ``handleError``) rather than crashing inside the
-            # inter-process rotation lock.
-            if self.stream is not None:
-                self.stream.seek(0)
-                self.stream.truncate(0)
-            # Belt-and-suspenders: chmod INSIDE the lock so even if a
-            # caller bypassed the umask (or a future refactor swapped
-            # the open mode), the file is still re-locked to 0o600
-            # before any other process can observe it.
-            #
-            # Logged (not silently suppressed) so an operator can see
-            # when the chmod fails: e.g. on NFS with root-squash, on a
-            # read-only filesystem, or under a SELinux policy that
-            # denies chmod. Log only the exception class name (not
-            # ``str(exc)``, which can include the log file path →
-            # home-directory leak).
-            if os.name == "posix":
-                try:
-                    os.chmod(self.baseFilename, 0o600)
-                except OSError as exc:
-                    log.warning(
-                        "[LOG-SETUP] post-truncate chmod to 0o600 failed "
-                        "(%s), log file may be world-readable; investigate "
-                        "filesystem perms (NFS root-squash, read-only mount, "
-                        "SELinux policy)",
-                        type(exc).__name__,
-                    )
+            self._truncate_locked()
         finally:
             self._release_rotation_lock(lock_fd)
 

@@ -90,6 +90,18 @@ _CONFIG_QUARANTINE_SUFFIX_SEQ: "itertools.count" = itertools.count()
 _unknown_key_warnings: set[tuple[str, frozenset[str]]] = set()
 _unknown_key_warnings_lock = threading.Lock()
 
+#: Dedupe set for the ``validate_config`` WARNING lines, keyed by the
+#: error string itself. Same rationale as :data:`_unknown_key_warnings`:
+#: ``Config.load()`` runs several times per boot, and without dedupe a
+#: single stale value logs the identical line on every load (three
+#: consent flags × three loads = nine lines for one resting state).
+#: ``last_load_warnings`` still receives every error on every load (the
+#: UI reads the current load's list), only the log emission is once
+#: per process. Guarded by a lock: the prewarm thread can load
+#: concurrently with the main startup thread.
+_validate_config_warnings: set[str] = set()
+_validate_config_warnings_lock = threading.Lock()
+
 #: Legacy enum VALUES remapped to their live successors BEFORE validation
 #: on every load. Unlike ``_reset_invalid_enum_fields`` (which drops an
 #: out-of-enum value back to the dataclass DEFAULT), a remap preserves
@@ -557,7 +569,10 @@ def _load_config(cls) -> "Config":
 
             full_config_errors = validate_config(instance)
             if full_config_errors:
-                for _err in full_config_errors:
+                with _validate_config_warnings_lock:
+                    unseen = [e for e in full_config_errors if e not in _validate_config_warnings]
+                    _validate_config_warnings.update(full_config_errors)
+                for _err in unseen:
                     log.warning("[CONFIG] validate_config: %s", _err)
                 instance.last_load_warnings.extend(f"validate_config: {_err}" for _err in full_config_errors)
         except Exception:

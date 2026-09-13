@@ -199,6 +199,33 @@ class TestRedactApiKeys:
         assert len(token) == 20
         assert redact_api_keys(token, replacement="[redacted]") == "[redacted]"
 
+    def test_labeled_sha256_hash_survives(self):
+        """``sha256=<64 hex>`` (model-integrity audit log) is NOT a
+        secret: the log tells operators to copy these hashes into
+        ``model_hashes.json``, redacting them defeats the line. The
+        exemption needs the exact label + exactly 64 hex chars."""
+        h = "a" * 64
+        s = f"config.json: sha256={h}"
+        assert redact_api_keys(s) == s
+        assert redact_api_keys(s, replacement="[redacted]") == s
+        # End to end through the log path (flag patterns run first).
+        assert redact_secret(s) == s
+
+    def test_bare_64hex_still_redacted(self):
+        """Same 64 hex chars WITHOUT the label still redact (fail
+        closed, the label is the trust signal)."""
+        h = "b" * 64
+        assert redact_api_keys(f"token {h}") == "token ***"
+        assert "***" in redact_api_keys(h)
+
+    def test_sha256_wrong_length_still_redacted(self):
+        """63- or 65-hex after ``sha256=`` is not a valid digest: a
+        partial match must not leak (65-hex would otherwise expose
+        its first 64 chars)."""
+        assert "***" in redact_api_keys(f"sha256={'c' * 63}x")
+        out = redact_api_keys(f"sha256={'d' * 65}")
+        assert "d" * 20 not in out
+
     def test_no_match_returns_input_unchanged(self):
         """When no pattern matches, the input is returned verbatim.
 
@@ -355,6 +382,97 @@ class TestPublicEnvVarNamesNotRedacted:
         for line, name in cases:
             out = redact_secret(line)
             assert name in out, f"env var name {name!r} was redacted from log line; input={line!r}; output={out!r}"
+
+
+class TestPublicConfigFieldNamesNotRedacted:
+    """Config field NAMES are public schema vocabulary (documented in
+    the schema, IPC allowlist, and Settings UI) and must NOT be
+    redacted. Only secret VALUES are redacted. Redacting the name
+    destroys operability (``voice_biometric_consent is False``
+    rendered as ``*** is False``). Mirrors the env-var-name
+    whitelist contract above; the set is derived live from the
+    schema so new long field names are covered without edits."""
+
+    def test_long_schema_fields_survive_redact_secret(self):
+        """Every schema field long enough to trip the catch-all
+        survives ``redact_secret`` (bare and inside the real log
+        line that reported this bug)."""
+        from voice_typer.server.config import Config
+
+        long_fields = sorted(name for name in Config.__dataclass_fields__ if len(name) >= 20)
+        assert "voice_biometric_consent" in long_fields
+        for name in long_fields:
+            assert redact_secret(name) == name, f"config field name {name!r} was redacted; got {redact_secret(name)!r}"
+        line = (
+            "[DICTATION] Refusing to start recording - voice_biometric_consent "
+            "is False. User must enable it in Settings > Privacy."
+        )
+        assert redact_secret(line) == line
+
+    def test_unlisted_snake_token_still_redacted(self):
+        """Fail-closed direction: a long snake_case token that is NOT
+        a schema field must still redact (the exemption is the live
+        schema set, not the snake_case shape)."""
+        token = "not_a_real_config_field_xyz"
+        assert len(token) >= 20
+        assert redact_secret(token) == "***"
+        assert redact_api_keys(token) == "***"
+
+    def test_secret_valued_field_still_redacts_value(self):
+        """Exempting the NAME never exempts the VALUE: ``*_api_key``
+        values still redact via the catch-all."""
+        out = redact_secret("openai_api_key=" + "a" * 40)
+        assert "openai_api_key=" in out
+        assert "a" * 20 not in out
+
+
+class TestPublicIpcCommandNamesNotRedacted:
+    """IPC command NAMES are public protocol vocabulary
+    (parity-tested server registry / TS allowlist / docs) and must
+    NOT be redacted. Only payload VALUES redact. Redacting the name
+    destroys operability (``[IPC] pause_model_download called``
+    rendered as ``[IPC] *** called``). Derived live from the
+    registry so new long commands are covered without edits."""
+
+    def test_long_command_names_survive_redact_secret(self):
+        from voice_typer.server.ipc.registry import _COMMAND_REGISTRY
+
+        long_cmds = sorted(k for k in _COMMAND_REGISTRY if len(k) >= 20)
+        assert "pause_model_download" in long_cmds
+        for name in long_cmds:
+            assert redact_secret(name) == name, f"IPC command name {name!r} was redacted; got {redact_secret(name)!r}"
+        # The exact reported line shape.
+        line = "[IPC] pause_model_download called"
+        assert redact_secret(line) == line
+
+    def test_command_like_noncommand_still_redacted(self):
+        """Fail-closed: a long token that is NOT a registered command
+        still redacts."""
+        token = "delete_model_extraTurbo"
+        assert len(token) >= 20
+        assert redact_secret(token) == "***"
+
+
+class TestThreadLabelShield:
+    """``thread=<name>`` lifecycle tracing (hotkey/dispatch threads)
+    carries code-defined thread names, never secrets. The labeled
+    shield preserves them; hash-shaped or overlong values still
+    redact (fail closed)."""
+
+    def test_thread_name_survives(self):
+        line = (
+            "[HOTKEY FIRED] toggle_dictation called (recording=False, "
+            "busy=True, model_loaded=True, thread=ThreadPoolExecutor-0_0, cycle=)"
+        )
+        assert redact_secret(line) == line
+
+    def test_thread_hash_shaped_value_still_redacted(self):
+        out = redact_secret("thread=" + "e" * 64)
+        assert "e" * 20 not in out
+
+    def test_thread_overlong_value_still_redacted(self):
+        out = redact_secret("thread=" + "f" * 70)
+        assert "f" * 20 not in out
 
 
 class TestRedactUrl:

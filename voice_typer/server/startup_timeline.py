@@ -14,7 +14,8 @@ the backend's environment:
 :func:`log_launch_timeline` turns those markers into a single INFO line
 at the backend's first log moment, e.g.::
 
-    [STARTUP] Launch timeline: host boot 1.8s, backend init 6.2s
+    [STARTUP] Launch timeline: host boot 1.8s (host start to first log),
+    backend init 6.2s (backend spawn to first log)
 
 so the previously-invisible gap between the host spawning the backend
 and the backend's first log line is attributed on every hosted launch —
@@ -52,16 +53,34 @@ def log_launch_timeline(logger: logging.Logger) -> None:
     parts: list[str] = []
     boot = _epoch_delta_s(BOOT_EPOCH_ENV, now_s)
     if boot is not None:
-        parts.append(f"host boot{format_duration(boot)}")
+        parts.append(f"host boot{format_duration(boot)} (host start to backend first log)")
     spawn = _epoch_delta_s(SPAWN_EPOCH_ENV, now_s)
     if spawn is not None:
-        parts.append(f"backend init{format_duration(spawn)}")
+        parts.append(f"backend init{format_duration(spawn)} (backend spawn to first log)")
     if parts:
         logger.info("[STARTUP] Launch timeline: %s", ", ".join(parts))
+
+
+def backend_spawn_monotonic() -> float | None:
+    """Monotonic-clock value of the backend-spawn epoch marker.
+
+    Converts the ``VOICE_TYPER_SPAWN_EPOCH_MS`` wall-clock marker (stamped
+    by the host immediately before spawning us) onto this process's
+    monotonic clock, so durations measured with ``time.perf_counter()``
+    can be anchored at process spawn instead of at an arbitrary later
+    point. Returns ``None`` when the marker is absent or garbage
+    (standalone ``python -m`` runs, tests), callers fall back to
+    anchoring at their own start.
+    """
+    delta = _epoch_delta_s(SPAWN_EPOCH_ENV, time.time())
+    if delta is None:
+        return None
+    return time.monotonic() - delta
 
 
 __all__ = [
     "BOOT_EPOCH_ENV",
     "SPAWN_EPOCH_ENV",
+    "backend_spawn_monotonic",
     "log_launch_timeline",
 ]

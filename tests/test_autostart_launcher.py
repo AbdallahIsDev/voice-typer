@@ -291,6 +291,69 @@ class TestLaunchPortClosedPath:
         assert captured_env.get("VT_START_HIDDEN") is None
 
 
+class TestLegacyDelayClamp:
+    """Legacy ``--delay`` values are clamped to a short cap.
+
+    Entries registered before the worker-phase prewarm cutover still
+    carry ``--delay 15``; the standalone prewarm task that sleep served
+    is gone, so honoring the full legacy value would be pure logon
+    latency. Small delays pass through untouched.
+    """
+
+    def _run_launch_with_delay(self, monkeypatch, delay_arg):
+        monkeypatch.setattr(
+            "voice_typer.server.autostart_launcher._is_port_open",
+            lambda h, p: False,
+        )
+        monkeypatch.setattr(
+            "voice_typer.server.backend_pid._backend_pid_file",
+            lambda: Path("/nonexistent.pid"),
+        )
+        monkeypatch.setattr(
+            "voice_typer.server.autostart_launcher._setup_logging",
+            lambda: None,
+        )
+        monkeypatch.setattr(
+            "voice_typer.server.autostart_launcher._prewarm_would_help",
+            lambda: True,
+        )
+        monkeypatch.setattr(
+            "voice_typer.server.autostart_launcher._is_tauri_mode",
+            lambda: False,
+        )
+        monkeypatch.setattr(
+            "voice_typer.server.autostart_launcher._client_dir_exists",
+            lambda: True,
+        )
+        monkeypatch.setattr(
+            "voice_typer.server.autostart_launcher._ensure_built_and_launch",
+            lambda hidden=False: True,
+        )
+        monkeypatch.setattr(
+            "voice_typer.server.autostart_launcher._wait_for_ipc_ready",
+            lambda *args, **kwargs: None,
+        )
+        sleeps: list[float] = []
+        monkeypatch.setattr(time, "sleep", lambda s: sleeps.append(s))
+        monkeypatch.setattr(sys, "argv", ["autostart_launcher.py", "--hidden", "--delay", delay_arg])
+        assert launch() == 0
+        return sleeps
+
+    def test_legacy_15s_delay_is_clamped(self, monkeypatch):
+        """``--delay 15`` sleeps at most the cap, not the full 15 s."""
+        import voice_typer.server.autostart_launcher as launcher_mod
+
+        sleeps = self._run_launch_with_delay(monkeypatch, "15")
+        assert len(sleeps) == 1
+        assert sleeps[0] == launcher_mod._LAUNCHER_DELAY_CAP_S
+        assert sleeps[0] < 15.0
+
+    def test_small_delay_passes_through(self, monkeypatch):
+        """``--delay 2`` sleeps the full 2 s (under the cap)."""
+        sleeps = self._run_launch_with_delay(monkeypatch, "2")
+        assert sleeps == [2.0]
+
+
 class TestLauncherOutcomeLogging:
     """main() logs a single greppable outcome line for every autostart attempt.
 

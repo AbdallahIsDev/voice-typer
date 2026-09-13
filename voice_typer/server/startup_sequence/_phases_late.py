@@ -12,7 +12,9 @@ verbatim from the former ``startup_sequence.py`` monolith:
 
 Owns the module-level Wayland-warning state holder (``_MODULE_STATE``).
 Behavior and log lines unchanged (C-LOG-1 / C-LOG-2, the
-``Startup complete`` duration suffix is emitted here verbatim).
+``Startup complete`` duration suffix is emitted here verbatim, the
+parenthetical now reflects actual model state, and phase 8 ends with
+a terminal tray reconcile for the no-model hole).
 """
 
 from __future__ import annotations
@@ -607,9 +609,12 @@ class LatePhases:
         shows the waveform bubble at startup and pushes the
         bubble-relevant config to the sandboxed bubble renderer.
 
-        Emits the canonical ``[STARTUP] Startup complete (model still
-        loading in background)`` log line with the C-LOG-2 duration
-        suffix (anchored at ``self._t0`` set in :meth:`run`).
+        Emits the canonical ``[STARTUP] Startup complete ...`` log line
+        with the C-LOG-2 duration suffix (anchored at ``self._t0`` set
+        in :meth:`run`, i.e. at backend spawn). The parenthetical is
+        honest about model state: no configured model, still loading,
+        or settled. Ends with a terminal tray reconcile for the
+        no-model hole (see below).
         """
         app = self._app
         # After restart: auto-open the Electron window so it appears fresh
@@ -641,10 +646,50 @@ class LatePhases:
             except Exception as e:
                 log.debug("[STARTUP] Failed to push bubble config: %s", e)
 
+        # Honest completion line: the old static "(model still loading
+        # in background)" lied on machines with NO model selected (the
+        # refusal path already reported "No model selected", nothing is
+        # loading). Three-way on actual state; the C-LOG-2 suffix is
+        # unchanged in every branch.
+        from voice_typer.server.i18n import t as _t
+
+        model_size = getattr(getattr(app, "config", None), "model_size", "") or ""
+        load_thread = getattr(getattr(app, "models", None), "_model_load_thread", None)
+        loading = bool(getattr(load_thread, "is_alive", lambda: False)())
+        if not model_size:
+            complete_msg = "[STARTUP] Startup complete (no speech model selected)%s"
+        elif loading:
+            complete_msg = "[STARTUP] Startup complete (model still loading in background)%s"
+        else:
+            complete_msg = "[STARTUP] Startup complete%s"
         log.info(
-            "[STARTUP] Startup complete (model still loading in background)%s",
+            complete_msg,
             format_duration(time.perf_counter() - self._t0),
         )
+
+        # Terminal tray reconcile (no-model hole): with no speech model
+        # configured AND no load in flight, nothing will ever move the
+        # tray out of boot LOADING/"Starting..." again. The background
+        # refusal normally sets ERROR/no-model itself, but that update
+        # is best-effort (its failure is swallowed), a lost update
+        # leaves "Starting..." stuck forever. Assert the truthful
+        # terminal state here, with the EXACT (state, message) the
+        # refusal path uses, so when the refusal landed this is a
+        # no-op via set_state dedup. Never breaks startup (guarded),
+        # never fires while shutting down.
+        if not model_size and not loading and not getattr(app, "_shutting_down", False):
+            try:
+                from voice_typer.server.tray_types import AppState as _AppState
+
+                app.tray.set_state(
+                    _AppState.ERROR,
+                    _t("state.model_manager.no_model_selected"),
+                )
+            except Exception:
+                log.debug(
+                    "[STARTUP] terminal tray reconcile failed (non-fatal)",
+                    exc_info=True,
+                )
 
         # Post-ready maintenance: the stale backup/``.tmp`` sweeps run on
         # a fire-and-forget daemon thread AFTER the ready line above —

@@ -26,6 +26,8 @@ Free functions:
   ciphertext backfill / decrypt-aware re-index.
 - :func:`encryption_status`: report the resolved at-rest-encryption
   state (``"active"`` / ``"disabled"`` / ``"key-unavailable"``).
+  The startup log line spells out what each state means for the
+  user's history rows (see :data:`_ENCRYPTION_STATUS_MEANINGS`).
 - :func:`_has_encrypted_rows` / :func:`_has_plaintext_rows`, row-flag
   probes used by :func:`_init_encryption`.
 - :func:`_enqueue_backfill_step` / :func:`_encrypt_backfill_step` —
@@ -69,6 +71,17 @@ log = logging.getLogger(__name__)
 #: enqueue.  Tests that need a fresh encryption session for the same
 #: path can call :func:`_reset_encryption_initialized_paths`.
 _initialized_db_paths: set[str] = set()
+
+#: Plain-language meanings for each at-rest-encryption status, appended
+#: to the ``[HISTORY] at-rest encryption status`` startup line so the
+#: bare token (``active`` / ``key-unavailable`` / ``disabled``) is never
+#: the whole story. Single source of truth for the suffix text.
+_ENCRYPTION_STATUS_MEANINGS: dict[str, str] = {
+    "active": "new history rows are encrypted",
+    "key-unavailable": "encrypted rows exist but no key is available;"
+    " reads show a placeholder, new writes stay plaintext",
+    "disabled": "no key and no encrypted rows; history is stored as plaintext",
+}
 
 
 def _reset_encryption_initialized_paths() -> None:
@@ -128,8 +141,9 @@ def _init_encryption(db: HistoryDB, conn: sqlite3.Connection) -> None:
         db._encryption_status = _text_crypto.encryption_status(dek, has_encrypted)
         if is_first_init:
             log.info(
-                "[HISTORY] at-rest encryption status: %s",
+                "[HISTORY] at-rest encryption status: %s (%s)",
                 db._encryption_status,
+                _ENCRYPTION_STATUS_MEANINGS.get(db._encryption_status, "unrecognized status"),
             )
         else:
             log.debug(
