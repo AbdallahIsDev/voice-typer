@@ -37,10 +37,6 @@
 	"home": {
 		"showMore": "Afficher plus",
 		"showLess": "Afficher moins",
-		"copy": "Copier",
-		"copyAria": "Copier la transcription dans le presse-papiers",
-		"discard": "Abandonner",
-		"discardAria": "Abandonner cette transcription de l'aperçu",
 		"ready": "PRÊT",
 		"recording": "ENREGISTREMENT",
 		"transcribing": "TRANSCRIPTION",
@@ -60,15 +56,9 @@
 		"loadingTodayStatsAria": "Chargement des statistiques du jour",
 		"loadingRecentAria": "Chargement de l'activité récente",
 		"downloadingModel": "Téléchargement du modèle…",
-		"undo": "Annuler",
-		"undoAria": "Annuler la dernière transcription",
-		"repaste": "Recoller",
-		"repasteAria": "Recoller la dernière transcription",
 		"forceCancel": "Forcer l'annulation",
 		"forceCancelHint": "Trop long ? Forcer l'annulation de la transcription",
 		"forceCancelFailed": "Impossible d'annuler de force la transcription",
-		"undoFailed": "Impossible d'annuler la dernière transcription",
-		"repasteFailed": "Impossible de recoller la dernière transcription",
 		"errorTitle": "Erreur d'enregistrement",
 		"retry": "Réessayer",
 		"pasteFailedMessage": "Transcription terminée, mais le presse-papiers n'était pas disponible. Votre texte a été sauvegardé dans le fichier de récupération après incident afin de ne pas être perdu.",
@@ -76,10 +66,7 @@
 		"retryStartDictation": "Démarrer la dictée",
 		"timerLabel": "Durée d'enregistrement",
 		"timerAria": "Durée d'enregistrement : {duration}",
-		"transcribingHint": "Transcription… veuillez patienter",
-		"lowConfidenceWarning": "Cette transcription peut être imprécise (confiance faible). Refaites la dictée si elle semble incorrecte.",
-		"redictate": "Refaire la dictée",
-		"redictateAria": "Enregistrer à nouveau"
+		"transcribingHint": "Transcription… veuillez patienter"
 	},
 	"settings": {
 		"apiUrlInvalid": "Saisissez une URL http(s) valide",
@@ -361,6 +348,7 @@
 			"microphoneQualityInfo": "Les préréglages configurent toute la chaîne de filtres pour des scénarios courants. Choisissez 'Personnalisé' pour un contrôle avancé des filtres individuels.",
 			"microphoneQualityInfoSearch": "Les préréglages configurent toute la chaîne de filtres.",
 			"microphoneQualityAria": "Préréglage de qualité du microphone",
+			"qualityPreset": "Préréglage de qualité",
 			"presetAuto": "Auto",
 			"presetStudio": "Studio",
 			"presetNoisyRoom": "Pièce bruyante",
@@ -469,8 +457,10 @@
 			"notchFrequencyInfo": "Fréquence centrale du notch. 50 Hz pour le secteur Europe/Asie, 60 Hz pour le secteur Amérique du Nord.",
 			"notchFrequencyInfoSearch": "Fréquence centrale du notch.",
 			"notchFrequencyAria": "Fréquence du notch",
-			"crossLinkBanner": "Ces paramètres sont également modifiables sur la page Microphone (avec un flux de travail d'enregistrement de test A/B).",
-			"goToMicrophone": "Aller au Microphone"
+			"goToMicrophone": "Aller au Microphone",
+			"testMicrophone": "Tester le microphone",
+			"testMicrophoneInfo": "Enregistrez un échantillon et comparez les préréglages sur la page Microphone.",
+			"microphoneQualityEnableAria": "Activer le filtrage de qualité du microphone"
 		},
 		"aiEnhancement": {
 			"title": "Amélioration IA",
@@ -757,6 +747,7 @@
 			"consentRevoked": "Consentement révoqué pour {provider}: l'audio NE sera PAS envoyé.",
 			"resumeFailed": "Échec de la reprise : {error}",
 			"pauseFailed": "Échec de la pause : {error}",
+			"pauseNoop": "Aucun téléchargement actif à mettre en pause.",
 			"cancelled": "Téléchargement annulé. Les fichiers partiels seront réutilisés lors d'une nouvelle tentative.",
 			"cancelFailed": "Échec de l'annulation : {error}",
 			"queuedCancelled": "{name} a été retiré de la file d'attente des téléchargements.",
@@ -1326,7 +1317,6 @@
 			"chars": "Caractères",
 			"duration": "Durée"
 		},
-		"durationZero": "0m",
 		"durationMinutes": "{m}m",
 		"durationHours": "{h}h",
 		"durationHoursMinutes": "{h}h {m}m",
@@ -2001,7 +1991,7 @@
 			"start_failed_with_reason": "Impossible de démarrer l'enregistrement.\n{reason}",
 			"mic_unplugged": "Le microphone a été débranché. Enregistrement arrêté.",
 			"still_running": "La transcription est toujours en cours.\nLes enregistrements longs ou le repli CPU peuvent prendre plus de temps.",
-			"xrun_title": "{app}: Problèmes audio",
+			"xrun_title": "{app} | Problèmes audio",
 			"xrun_body": "{count} sous-débordements du tampon audio détectés. Fermez d'autres applications audio ou réduisez la charge du processeur."
 		},
 		"model_manager": {

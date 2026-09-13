@@ -58,10 +58,6 @@
 	"home": {
 		"showMore": "Show more",
 		"showLess": "Show less",
-		"copy": "Copy",
-		"copyAria": "Copy transcription to clipboard",
-		"discard": "Discard",
-		"discardAria": "Discard this transcription from the preview",
 		"ready": "READY",
 		"recording": "RECORDING",
 		"transcribing": "TRANSCRIBING",
@@ -81,15 +77,9 @@
 		"loadingTodayStatsAria": "Loading today's stats",
 		"loadingRecentAria": "Loading recent activity",
 		"downloadingModel": "Downloading model…",
-		"undo": "Undo",
-		"undoAria": "Undo last transcription (Ctrl+Z)",
-		"repaste": "Re-paste",
-		"repasteAria": "Re-paste last transcription (Ctrl+Alt+V)",
 		"forceCancel": "Force cancel requested",
 		"forceCancelHint": "Taking too long? Force cancel transcription",
 		"forceCancelFailed": "Couldn't force-cancel the transcription",
-		"undoFailed": "Couldn't undo the last transcription",
-		"repasteFailed": "Couldn't re-paste the last transcription",
 		"errorTitle": "Recording error",
 		"retry": "Retry",
 		"pasteFailedMessage": "Transcription complete, but the clipboard was unavailable. Your text was saved to the crash-recovery file so it is not lost.",
@@ -97,10 +87,7 @@
 		"retryStartDictation": "Start dictation",
 		"timerLabel": "Recording duration",
 		"timerAria": "Recording duration: {duration}",
-		"transcribingHint": "Transcribing… please wait",
-		"lowConfidenceWarning": "This transcription may be inaccurate (low confidence). Re-dictate if it looks wrong.",
-		"redictate": "Re-dictate",
-		"redictateAria": "Record again"
+		"transcribingHint": "Transcribing… please wait"
 	},
 	"dashboard": {
 		"cards": {
@@ -430,7 +417,6 @@
 			"chars": "Characters",
 			"duration": "Duration"
 		},
-		"durationZero": "0m",
 		"durationMinutes": "{m}m",
 		"durationHours": "{h}h",
 		"durationHoursMinutes": "{h}h {m}m",
@@ -875,6 +861,7 @@
 			"microphoneQualityInfo": "Presets configure the entire filter chain for common scenarios. Choose 'Custom' for advanced control of individual filters.",
 			"microphoneQualityInfoSearch": "Presets configure the entire filter chain.",
 			"microphoneQualityAria": "Microphone Quality Preset",
+			"qualityPreset": "Quality preset",
 			"presetAuto": "Auto",
 			"presetStudio": "Studio",
 			"presetNoisyRoom": "Noisy Room",
@@ -983,8 +970,10 @@
 			"notchFrequencyInfo": "Center frequency of the notch. 50Hz for Europe/Asia mains, 60Hz for North America mains.",
 			"notchFrequencyInfoSearch": "Center frequency of the notch.",
 			"notchFrequencyAria": "Notch Frequency",
-			"crossLinkBanner": "These settings are also editable on the Microphone page (with a test-record A/B workflow).",
-			"goToMicrophone": "Go to Microphone"
+			"goToMicrophone": "Go to Microphone",
+			"testMicrophone": "Test microphone",
+			"testMicrophoneInfo": "Record a sample and compare presets on the Microphone page.",
+			"microphoneQualityEnableAria": "Enable microphone quality filtering"
 		},
 		"aiEnhancement": {
 			"title": "AI Enhancement",
@@ -1229,6 +1218,7 @@
 			"consentRevoked": "Consent revoked for {provider}: audio will NOT be sent.",
 			"resumeFailed": "Failed to resume: {error}",
 			"pauseFailed": "Failed to pause: {error}",
+			"pauseNoop": "No active download to pause.",
 			"cancelled": "Download cancelled. Partial files will be reused on retry.",
 			"cancelFailed": "Failed to cancel: {error}",
 			"queuedCancelled": "{name} removed from the download queue.",
@@ -2000,7 +1990,7 @@
 			"mic_permission_revoked": "Microphone permission was revoked. Recording stopped. Re-grant microphone access in your OS privacy settings to resume.",
 			"silence_auto_stop": "Recording stopped: no audio detected for an extended period.",
 			"still_running": "Transcription is still running.\nLong recordings or CPU fallback can take extra time.",
-			"xrun_title": "{app}: Audio Issues",
+			"xrun_title": "{app} | Audio Issues",
 			"xrun_body": "Detected {count} audio buffer underruns. Try closing other audio apps or reducing CPU load.",
 			"load_failed": "Could not load the speech model.\n{error}\n\nThe app will keep running. Press {hotkey} to retry loading."
 		},

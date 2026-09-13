@@ -58,10 +58,6 @@
 	"home": {
 		"showMore": "عرض المزيد",
 		"showLess": "عرض أقل",
-		"copy": "نسخ",
-		"copyAria": "نسخ النسخة المنسوخة إلى الحافظة",
-		"discard": "تجاهل",
-		"discardAria": "تجاهل هذه النسخة من المعاينة",
 		"ready": "جاهز",
 		"recording": "تسجيل",
 		"transcribing": "كتابة",
@@ -81,15 +77,9 @@
 		"loadingTodayStatsAria": "جارٍ تحميل إحصائيات اليوم",
 		"loadingRecentAria": "جارٍ تحميل النشاط الأخير",
 		"downloadingModel": "جارٍ تنزيل النموذج…",
-		"undo": "تراجع",
-		"undoAria": "التراجع عن آخر تدوين",
-		"repaste": "إعادة اللصق",
-		"repasteAria": "إعادة لصق آخر تدوين",
 		"forceCancel": "إلغاء إجباري",
 		"forceCancelHint": "يستغرق الوقت طويلاً؟ فرض إلغاء التسجيل",
 		"forceCancelFailed": "تعذر إلغاء الإملاء قسريًا",
-		"undoFailed": "تعذر التراجع عن آخر إملاء",
-		"repasteFailed": "تعذرت إعادة لصق آخر إملاء",
 		"errorTitle": "خطأ في التسجيل",
 		"retry": "إعادة المحاولة",
 		"pasteFailedMessage": "اكتمل التدوين، لكن الحافظة لم تكن متاحة. تم حفظ نصك في ملف استرداد الأعطال حتى لا يفقد.",
@@ -97,10 +87,7 @@
 		"retryStartDictation": "بدء الإملاء",
 		"timerLabel": "مدة التسجيل",
 		"timerAria": "مدة التسجيل: {duration}",
-		"transcribingHint": "جارٍ التحويل إلى نص… الرجاء الانتظار",
-		"lowConfidenceWarning": "قد يكون هذا النسخ غير دقيق (ثقة منخفضة). أعد الإملاء إذا بدا خاطئًا.",
-		"redictate": "إعادة الإملاء",
-		"redictateAria": "التسجيل مرة أخرى"
+		"transcribingHint": "جارٍ التحويل إلى نص… الرجاء الانتظار"
 	},
 	"common": {
 		"cancel": "إلغاء",
@@ -423,7 +410,6 @@
 			"chars": "أحرف",
 			"duration": "المدة"
 		},
-		"durationZero": "0m",
 		"durationMinutes": "{m}m",
 		"durationHours": "{h}h",
 		"durationHoursMinutes": "{h}h {m}m",
@@ -852,6 +838,7 @@
 			"microphoneQualityInfo": "تُهيئ الإعدادات المسبقة سلسلة الفلاتر بالكامل للسيناريوهات الشائعة. اختر 'مخصص' للتحكم المتقدم في الفلاتر الفردية.",
 			"microphoneQualityInfoSearch": "تُهيئ الإعدادات المسبقة سلسلة الفلاتر بالكامل.",
 			"microphoneQualityAria": "إعداد جودة الميكروفون المسبق",
+			"qualityPreset": "إعداد الجودة المسبق",
 			"presetAuto": "تلقائي",
 			"presetStudio": "استوديو",
 			"presetNoisyRoom": "غرفة صاخبة",
@@ -960,8 +947,10 @@
 			"notchFrequencyInfo": "تردد مركز الشق. 50Hz لأوروبا/آسيا، 60Hz لأمريكا الشمالية.",
 			"notchFrequencyInfoSearch": "تردد مركز الشق.",
 			"notchFrequencyAria": "تردد الشق",
-			"crossLinkBanner": "يمكن أيضًا تعديل هذه الإعدادات من صفحة الميكروفون (مع سير عمل اختبار تسجيل A/B).",
-			"goToMicrophone": "الانتقال إلى الميكروفون"
+			"goToMicrophone": "الانتقال إلى الميكروفون",
+			"testMicrophone": "اختبار الميكروفون",
+			"testMicrophoneInfo": "سجّل عينة وقارن الإعدادات المسبقة في صفحة الميكروفون.",
+			"microphoneQualityEnableAria": "تفعيل ترشيح جودة الميكروفون"
 		},
 		"aiEnhancement": {
 			"title": "تحسين بالذكاء الاصطناعي",
@@ -1219,6 +1208,7 @@
 			"consentRevoked": "تم إلغاء الموافقة لـ {provider}: لن يتم إرسال الصوت.",
 			"resumeFailed": "فشل الاستئناف: {error}",
 			"pauseFailed": "فشل الإيقاف المؤقت: {error}",
+			"pauseNoop": "لا يوجد تنزيل نشط لإيقافه مؤقتًا.",
 			"cancelled": "تم إلغاء التحميل. ستتم إعادة استخدام الملفات الجزئية عند إعادة المحاولة.",
 			"cancelFailed": "فشل الإلغاء: {error}",
 			"queuedCancelled": "تمت إزالة {name} من قائمة انتظار التنزيلات.",
@@ -2001,7 +1991,7 @@
 			"start_failed_with_reason": "تعذّر بدء التسجيل.\n{reason}",
 			"mic_unplugged": "تم فصل الميكروفون. تم إيقاف التسجيل.",
 			"still_running": "لا يزال التعرف على الكلام قيد التنفيذ.\nقد تستغرق التسجيلات الطويلة أو وضع المعالجة على وحدة المعالجة المركزية وقتًا إضافيًا.",
-			"xrun_title": "{app}: مشكلات صوتية",
+			"xrun_title": "{app} | مشكلات صوتية",
 			"xrun_body": "تم رصد {count} حالة تجاوز سعة مخزن الصوت المؤقت. جرّب إغلاق تطبيقات الصوت الأخرى أو تقليل حمل المعالج."
 		},
 		"model_manager": {

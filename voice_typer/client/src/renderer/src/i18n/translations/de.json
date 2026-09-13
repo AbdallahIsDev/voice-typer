@@ -58,10 +58,6 @@
 	"home": {
 		"showMore": "Mehr anzeigen",
 		"showLess": "Weniger anzeigen",
-		"copy": "Kopieren",
-		"copyAria": "Transkript in die Zwischenablage kopieren",
-		"discard": "Verwerfen",
-		"discardAria": "Dieses Transkript aus der Vorschau verwerfen",
 		"ready": "BEREIT",
 		"recording": "AUFNAHME",
 		"transcribing": "TRANSKRIBITION",
@@ -81,15 +77,9 @@
 		"loadingTodayStatsAria": "Statistiken von heute werden geladen",
 		"loadingRecentAria": "Letzte Aktivitäten werden geladen",
 		"downloadingModel": "Modell wird heruntergeladen…",
-		"undo": "Rückgängig",
-		"undoAria": "Letzte Transkription rückgängig machen",
-		"repaste": "Erneut einfügen",
-		"repasteAria": "Letzte Transkription erneut einfügen",
 		"forceCancel": "Abbruch erzwingen",
 		"forceCancelHint": "Dauert zu lange? Transkription abbrechen erzwingen",
 		"forceCancelFailed": "Transkription konnte nicht zwangsweise abgebrochen werden",
-		"undoFailed": "Letzte Transkription konnte nicht rückgängig gemacht werden",
-		"repasteFailed": "Letzte Transkription konnte nicht erneut eingefügt werden",
 		"errorTitle": "Aufnahmefehler",
 		"retry": "Wiederholen",
 		"pasteFailedMessage": "Transkription abgeschlossen, aber die Zwischenablage war nicht verfügbar. Ihr Text wurde in der Crash-Wiederherstellungsdatei gespeichert, sodass er nicht verloren geht.",
@@ -97,10 +87,7 @@
 		"retryStartDictation": "Diktat starten",
 		"timerLabel": "Aufnahmedauer",
 		"timerAria": "Aufnahmedauer: {duration}",
-		"transcribingHint": "Wird transkribiert… bitte warten",
-		"lowConfidenceWarning": "Diese Transkription könnte ungenau sein (geringe Konfidenz). Diktieren Sie erneut, wenn sie falsch aussieht.",
-		"redictate": "Erneut diktieren",
-		"redictateAria": "Erneut aufnehmen"
+		"transcribingHint": "Wird transkribiert… bitte warten"
 	},
 	"common": {
 		"cancel": "Abbrechen",
@@ -423,7 +410,6 @@
 			"chars": "Zeichen",
 			"duration": "Dauer"
 		},
-		"durationZero": "0m",
 		"durationMinutes": "{m}m",
 		"durationHours": "{h}h",
 		"durationHoursMinutes": "{h}h {m}m",
@@ -852,6 +838,7 @@
 			"microphoneQualityInfo": "Voreinstellungen konfigurieren die gesamte Filterkette für gängige Szenarien. Wählen Sie 'Benutzerdefiniert' für erweiterte Kontrolle einzelner Filter.",
 			"microphoneQualityInfoSearch": "Voreinstellungen konfigurieren die gesamte Filterkette.",
 			"microphoneQualityAria": "Mikrofonqualität-Voreinstellung",
+			"qualityPreset": "Qualitätsvoreinstellung",
 			"presetAuto": "Auto",
 			"presetStudio": "Studio",
 			"presetNoisyRoom": "Lauter Raum",
@@ -960,8 +947,10 @@
 			"notchFrequencyInfo": "Mittenfrequenz der Kerbe. 50 Hz für Europa/Asien Netz, 60 Hz für Nordamerika Netz.",
 			"notchFrequencyInfoSearch": "Mittenfrequenz der Kerbe.",
 			"notchFrequencyAria": "Kerbfrequenz",
-			"crossLinkBanner": "Diese Einstellungen lassen sich auch auf der Mikrofon-Seite bearbeiten (mit einem A/B-Testaufnahme-Workflow).",
-			"goToMicrophone": "Zum Mikrofon"
+			"goToMicrophone": "Zum Mikrofon",
+			"testMicrophone": "Mikrofon testen",
+			"testMicrophoneInfo": "Nehmen Sie auf der Mikrofon-Seite eine Probe auf und vergleichen Sie Voreinstellungen.",
+			"microphoneQualityEnableAria": "Mikrofonqualitätsfilter aktivieren"
 		},
 		"aiEnhancement": {
 			"title": "KI-Verbesserung",
@@ -1219,6 +1208,7 @@
 			"consentRevoked": "Zustimmung für {provider} widerrufen: Audio wird NICHT gesendet.",
 			"resumeFailed": "Fortsetzen fehlgeschlagen: {error}",
 			"pauseFailed": "Pausieren fehlgeschlagen: {error}",
+			"pauseNoop": "Kein aktiver Download zum Pausieren.",
 			"cancelled": "Download abgebrochen. Teilweise heruntergeladene Dateien werden beim erneuten Versuch wiederverwendet.",
 			"cancelFailed": "Abbrechen fehlgeschlagen: {error}",
 			"queuedCancelled": "{name} wurde aus der Download-Warteschlange entfernt.",
@@ -2001,7 +1991,7 @@
 			"start_failed_with_reason": "Aufnahme konnte nicht gestartet werden.\n{reason}",
 			"mic_unplugged": "Mikrofon wurde ausgesteckt. Aufnahme gestoppt.",
 			"still_running": "Die Transkription läuft noch.\nLange Aufnahmen oder CPU-Fallback können zusätzliche Zeit benötigen.",
-			"xrun_title": "{app}: Audioprobleme",
+			"xrun_title": "{app} | Audioprobleme",
 			"xrun_body": "{count} Audio-Pufferunterläufe erkannt. Schließen Sie andere Audio-Apps oder reduzieren Sie die CPU-Last."
 		},
 		"model_manager": {

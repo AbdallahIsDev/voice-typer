@@ -149,7 +149,7 @@ _INITIAL_LABELS: dict[str, str] = {
     "notify.settings_controller.mic_changed": "Microphone: {label}",
     # ── startup_tasks.py notifications ──────────────────────────────────
     "notify.startup_tasks.accessibility_granted": ("Accessibility permission granted. Hotkeys are now active."),
-    "notify.startup_tasks.accessibility_revoked_title": "{app}, Accessibility Revoked",
+    "notify.startup_tasks.accessibility_revoked_title": "{app} | Accessibility Revoked",
     "notify.startup_tasks.accessibility_revoked_body": (
         "Global hotkeys have been disabled. "
         "Open System Settings \u2192 Privacy & Security \u2192 Accessibility to re-grant."
@@ -194,20 +194,20 @@ _INITIAL_LABELS: dict[str, str] = {
         "Onboarding setup kept failing. The app will start with default settings. Open Settings to configure manually."
     ),
     "notify.startup_sequence.onboarding_failed_transient": ("Onboarding setup failed; will retry on next start."),
-    "notify.startup_sequence.corrections_error_title": "{app}, Corrections Error",
+    "notify.startup_sequence.corrections_error_title": "{app} | Corrections Error",
     "notify.startup_sequence.corrections_error_body": (
         "{error}\nCorrections will use built-in defaults. Fix the file and restart."
     ),
     "notify.startup_sequence.crash_recovery_body": (
         "Recovered {count} transcriptions from last session. Open History to view."
     ),
-    "notify.startup_sequence.wayland_hotkeys_title": "{app}, Wayland Hotkeys",
+    "notify.startup_sequence.wayland_hotkeys_title": "{app} | Wayland Hotkeys",
     "notify.startup_sequence.wayland_hotkeys_body": (
         "Global hotkeys may not work on Wayland. "
         "Install 'wtype' or 'ydotool' for hotkey support, "
         "or use the tray menu's Start Dictation option."
     ),
-    "notify.startup_sequence.accessibility_title": "{app}, Accessibility Permission",
+    "notify.startup_sequence.accessibility_title": "{app} | Accessibility Permission",
     "notify.startup_sequence.accessibility_body": (
         "Global hotkeys require Accessibility permission. "
         "Open System Settings \u2192 Privacy & Security \u2192 Accessibility "
@@ -267,7 +267,7 @@ _INITIAL_LABELS: dict[str, str] = {
     ),
     "notify.recording_controller.silence_auto_stop": ("Recording stopped: no audio detected for an extended period."),
     "notify.recording_controller.max_duration_auto_stop": ("Recording stopped: maximum recording duration reached."),
-    "notify.recording_controller.xrun_title": "{app}, Audio Issues",
+    "notify.recording_controller.xrun_title": "{app} | Audio Issues",
     "notify.recording_controller.xrun_body": (
         "Detected {count} audio buffer underruns. Try closing other audio apps or reducing CPU load."
     ),

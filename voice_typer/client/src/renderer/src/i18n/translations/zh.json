@@ -58,10 +58,6 @@
 	"home": {
 		"showMore": "展开更多",
 		"showLess": "收起",
-		"copy": "复制",
-		"copyAria": "将转写内容复制到剪贴板",
-		"discard": "丢弃",
-		"discardAria": "从预览中丢弃这条转写",
 		"ready": "就绪",
 		"recording": "录音中",
 		"transcribing": "转写中",
@@ -81,15 +77,9 @@
 		"loadingTodayStatsAria": "正在加载今日统计",
 		"loadingRecentAria": "正在加载最近活动",
 		"downloadingModel": "正在下载模型…",
-		"undo": "撤销",
-		"undoAria": "撤销上一次转写",
-		"repaste": "重新粘贴",
-		"repasteAria": "重新粘贴上一次转写",
 		"forceCancel": "强制取消",
 		"forceCancelHint": "太久了？强制取消转录",
 		"forceCancelFailed": "无法强制取消转写",
-		"undoFailed": "无法撤销上次转写",
-		"repasteFailed": "无法重新粘贴上次转写",
 		"errorTitle": "录制错误",
 		"retry": "重试",
 		"pasteFailedMessage": "转写已完成，但剪贴板不可用。您的文本已保存到崩溃恢复文件中，因此不会丢失。",
@@ -97,10 +87,7 @@
 		"retryStartDictation": "重新开始听写",
 		"timerAria": "录音计时器：{duration}",
 		"timerLabel": "计时器",
-		"transcribingHint": "正在转录...",
-		"lowConfidenceWarning": "这条转写可能不准确（置信度低）。如看起来有误，请重新听写。",
-		"redictate": "重新听写",
-		"redictateAria": "重新录音"
+		"transcribingHint": "正在转录..."
 	},
 	"common": {
 		"cancel": "取消",
@@ -423,7 +410,6 @@
 			"chars": "字符",
 			"duration": "时长"
 		},
-		"durationZero": "0m",
 		"durationMinutes": "{m}m",
 		"durationHours": "{h}h",
 		"durationHoursMinutes": "{h}h {m}m",
@@ -846,6 +832,7 @@
 			"microphoneQualityInfo": "预设为常见场景配置整个滤波器链。选择「自定义」以单独控制各滤波器。",
 			"microphoneQualityInfoSearch": "预设配置整个滤波器链。",
 			"microphoneQualityAria": "麦克风质量预设",
+			"qualityPreset": "质量预设",
 			"presetAuto": "自动",
 			"presetStudio": "录音棚",
 			"presetNoisyRoom": "嘈杂房间",
@@ -954,8 +941,10 @@
 			"notchFrequencyInfo": "陷波滤波器的中心频率。欧洲/亚洲市电为 50Hz，北美市电为 60Hz。",
 			"notchFrequencyInfoSearch": "陷波滤波器的中心频率。",
 			"notchFrequencyAria": "陷波频率",
-			"crossLinkBanner": "这些设置也可以在“麦克风”页面编辑（带有测试录音 A/B 工作流）。",
-			"goToMicrophone": "前往麦克风"
+			"goToMicrophone": "前往麦克风",
+			"testMicrophone": "测试麦克风",
+			"testMicrophoneInfo": "在麦克风页面录制样本并比较预设。",
+			"microphoneQualityEnableAria": "启用麦克风质量过滤"
 		},
 		"aiEnhancement": {
 			"title": "AI 增强",
@@ -1219,6 +1208,7 @@
 			"consentRevoked": "已撤销对 {provider} 的许可: 音频将不会被发送。",
 			"resumeFailed": "恢复失败：{error}",
 			"pauseFailed": "暂停失败：{error}",
+			"pauseNoop": "没有正在进行的下载可暂停。",
 			"cancelled": "下载已取消。部分文件将在重试时被复用。",
 			"cancelFailed": "取消失败：{error}",
 			"queuedCancelled": "{name} 已从下载队列中移除。",
@@ -2001,7 +1991,7 @@
 			"start_failed_with_reason": "无法开始录音。\n{reason}",
 			"mic_unplugged": "麦克风已被拔出。录音已停止。",
 			"still_running": "转写仍在进行中。\n较长的录音或 CPU 后备模式可能需要更多时间。",
-			"xrun_title": "{app}: 音频问题",
+			"xrun_title": "{app} | 音频问题",
 			"xrun_body": "检测到 {count} 次音频缓冲区欠载。请尝试关闭其他音频应用或降低 CPU 负载。"
 		},
 		"model_manager": {

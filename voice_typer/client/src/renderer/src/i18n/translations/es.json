@@ -58,10 +58,6 @@
 	"home": {
 		"showMore": "Mostrar más",
 		"showLess": "Mostrar menos",
-		"copy": "Copiar",
-		"copyAria": "Copiar la transcripción al portapapeles",
-		"discard": "Descartar",
-		"discardAria": "Descartar esta transcripción de la vista previa",
 		"ready": "LISTO",
 		"recording": "GRABANDO",
 		"transcribing": "TRANSCRIBIENDO",
@@ -81,15 +77,9 @@
 		"loadingTodayStatsAria": "Cargando estadísticas de hoy",
 		"loadingRecentAria": "Cargando actividad reciente",
 		"downloadingModel": "Descargando modelo…",
-		"undo": "Deshacer",
-		"undoAria": "Deshacer la última transcripción (Ctrl+Z)",
-		"repaste": "Re-pegar",
-		"repasteAria": "Re-pegar la última transcripción (Ctrl+Alt+V)",
 		"forceCancel": "Cancelación forzada solicitada",
 		"forceCancelHint": "¿Tarda demasiado? Forzar cancelación de transcripción",
 		"forceCancelFailed": "No se pudo forzar la cancelación de la transcripción",
-		"undoFailed": "No se pudo deshacer la última transcripción",
-		"repasteFailed": "No se pudo repegar la última transcripción",
 		"errorTitle": "Error de grabación",
 		"retry": "Reintentar",
 		"pasteFailedMessage": "Transcripción completada, pero el portapapeles no estaba disponible. Su texto se guardó en el archivo de recuperación de fallos para que no se pierda.",
@@ -97,10 +87,7 @@
 		"retryStartDictation": "Iniciar dictado",
 		"timerLabel": "Duración de la grabación",
 		"timerAria": "Duración de la grabación: {duration}",
-		"transcribingHint": "Transcribiendo… espere por favor",
-		"lowConfidenceWarning": "Esta transcripción puede ser imprecisa (confianza baja). Vuelve a dictar si parece incorrecta.",
-		"redictate": "Volver a dictar",
-		"redictateAria": "Grabar de nuevo"
+		"transcribingHint": "Transcribiendo… espere por favor"
 	},
 	"common": {
 		"cancel": "Cancelar",
@@ -423,7 +410,6 @@
 			"chars": "Caracteres",
 			"duration": "Duración"
 		},
-		"durationZero": "0m",
 		"durationMinutes": "{m}m",
 		"durationHours": "{h}h",
 		"durationHoursMinutes": "{h}h {m}m",
@@ -853,6 +839,7 @@
 			"microphoneQualityInfo": "Los preajustes configuran toda la cadena de filtros para escenarios comunes. Elige 'Personalizado' para control avanzado de filtros individuales.",
 			"microphoneQualityInfoSearch": "Los preajustes configuran toda la cadena de filtros.",
 			"microphoneQualityAria": "Preajuste de calidad del micrófono",
+			"qualityPreset": "Preajuste de calidad",
 			"presetAuto": "Auto",
 			"presetStudio": "Estudio",
 			"presetNoisyRoom": "Habitación ruidosa",
@@ -961,8 +948,10 @@
 			"notchFrequencyInfo": "Frecuencia central del notch. 50 Hz para red de Europa/Asia, 60 Hz para red de América del Norte.",
 			"notchFrequencyInfoSearch": "Frecuencia central del notch.",
 			"notchFrequencyAria": "Frecuencia de notch",
-			"crossLinkBanner": "Estos ajustes también se pueden editar en la página de Micrófono (con un flujo de trabajo de grabación de prueba A/B).",
-			"goToMicrophone": "Ir a Micrófono"
+			"goToMicrophone": "Ir a Micrófono",
+			"testMicrophone": "Probar micrófono",
+			"testMicrophoneInfo": "Graba una muestra y compara los preajustes en la página Micrófono.",
+			"microphoneQualityEnableAria": "Activar el filtrado de calidad del micrófono"
 		},
 		"aiEnhancement": {
 			"title": "Mejora con IA",
@@ -1219,6 +1208,7 @@
 			"consentRevoked": "Consentimiento revocado para {provider}: el audio NO se enviará.",
 			"resumeFailed": "Error al reanudar: {error}",
 			"pauseFailed": "Error al pausar: {error}",
+			"pauseNoop": "No hay ninguna descarga activa para pausar.",
 			"cancelled": "Descarga cancelada. Los archivos parciales se reutilizarán al reintentar.",
 			"cancelFailed": "Error al cancelar: {error}",
 			"queuedCancelled": "{name} se ha eliminado de la cola de descargas.",
@@ -2001,7 +1991,7 @@
 			"start_failed_with_reason": "No se pudo iniciar la grabación.\n{reason}",
 			"mic_unplugged": "El micrófono se desconectó. Grabación detenida.",
 			"still_running": "La transcripción sigue en curso.\nLas grabaciones largas o el respaldo de CPU pueden tardar más.",
-			"xrun_title": "{app}: Problemas de audio",
+			"xrun_title": "{app} | Problemas de audio",
 			"xrun_body": "Se detectaron {count} subdesbordamientos del búfer de audio. Cierre otras aplicaciones de audio o reduzca la carga de la CPU."
 		},
 		"model_manager": {
