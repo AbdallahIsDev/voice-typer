@@ -30,13 +30,6 @@ export const FIRST_RECORD_CELEBRATED_KEY = "vt_first_recording_celebrated";
 export const FORCE_CANCEL_DELAY_MS = 5_000;
 
 /**
- * The last-transcription preview card auto-clears after this many
- * milliseconds of idle so the previous transcription isn't exposed on a
- * shared/locked screen.
- */
-export const LAST_TEXT_AUTO_CLEAR_MS = 30_000;
-
-/**
  * Status-key → CSS color mapping for the Home status pill dot,
  * aligned with `voice_typer/server/tray_icon.py` color-blind-safe
  * palette so the pill matches the tray icon semantics. The key is the

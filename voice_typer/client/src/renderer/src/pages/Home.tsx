@@ -7,16 +7,12 @@
 //   - `./home/lib/status.ts`      , normalizeHotkey, statusLabelFor, statusKeyFor
 //   - `./home/lib/cache.ts`       , loadCachedRecent/Stats, persistRecent/Stats
 //   - `./home/hooks/useFirstRecordingCelebration.ts`, first-run celebration
-//   - `./home/hooks/useLastTranscriptionPreview.ts` , last-transcription card
-//       state (text + quality + auto-clear timer), undo/repaste/discard, and
-//       the `recording_started` reset
 //   - `./home/hooks/useForceCancel.ts`, "Force cancel" state machine
 //       (status_change transitions + reveal delay + store sync + cancel IPC)
 //   - `./home/hooks/useDownloadProgressEvent.ts`, download-progress bar
 //   - `./home/hooks/useDictationToggle.ts`, consent-gated dictation toggle
 //   - `./home/components/MicToggleButton.tsx`        , mic toggle button
 //   - `./home/components/RecordingStatusPill.tsx`    , status pill
-//   - `./home/components/LastTranscriptionPreview.tsx`, last transcription card
 //
 // Status is kept minimal: the coloured status pill + a live MM:SS
 // timer appear above the mic button, and a single dynamic line below
@@ -31,10 +27,8 @@
 //
 // Wiring note: the `usePythonEvent` subscriptions stay in this
 // composition root (the source-guard regression tests grep Home.tsx for
-// them) and delegate their business logic to the hooks above, except
-// `recording_started` (owned by useLastTranscriptionPreview) and
-// `download_progress` (owned by useDownloadProgressEvent), whose
-// subscriptions live inside their hooks.
+// them), except `download_progress` (owned by
+// useDownloadProgressEvent), whose subscription lives inside its hook.
 //
 // contract: `debouncedRefreshFromEvent` is declared via
 // `useCallback` and passed to BOTH the `transcription_final` and
@@ -67,7 +61,6 @@ import { HOTKEY_DEFAULT } from "@/pages/onboarding/lib/constants";
 import { useAppStore } from "@/stores/appStore";
 import type { VoiceTyperConfig } from "@/types/config";
 import type { HistoryRecord, TodayStats } from "@/types/ipc";
-import { LastTranscriptionPreview } from "./home/components/LastTranscriptionPreview";
 import { MicToggleButton } from "./home/components/MicToggleButton";
 import { RecordingLevelBar } from "./home/components/RecordingLevelBar";
 import { RecordingStatusPill } from "./home/components/RecordingStatusPill";
@@ -76,7 +69,6 @@ import { useDictationToggle } from "./home/hooks/useDictationToggle";
 import { useDownloadProgressEvent } from "./home/hooks/useDownloadProgressEvent";
 import { useFirstRecordingCelebration } from "./home/hooks/useFirstRecordingCelebration";
 import { useForceCancel } from "./home/hooks/useForceCancel";
-import { useLastTranscriptionPreview } from "./home/hooks/useLastTranscriptionPreview";
 import {
 	loadCachedRecent,
 	loadCachedStats,
@@ -142,14 +134,6 @@ export default function Home() {
 	// `cfg` (the gate reads `voice_biometric_consent`), so the
 	// wiring sits after the config state above.
 	const downloadPct = useDownloadProgressEvent(recordingState);
-	const {
-		lastText,
-		lastQuality,
-		applyTranscriptionFinal,
-		handleUndo,
-		handleRepaste,
-		handleDiscard,
-	} = useLastTranscriptionPreview(call, celebrateFirstRecording);
 	const forceCancel = useForceCancel(call);
 	const { handleToggle, toggling, hasAttemptedDictation } = useDictationToggle(
 		call,
@@ -411,22 +395,21 @@ export default function Home() {
 		};
 	});
 
-	// transcription_final: the text/quality half (preview state +
-	// auto-clear timer + first-run celebration) is owned by
-	// useLastTranscriptionPreview; the refresh half stays here so
+	// transcription_final: celebrate the first accepted transcription
+	// here (non-empty text only); the data refresh half stays below so
 	// the shared `debouncedRefreshFromEvent` identity contract is
 	// preserved (the source-guard tests grep this root for it).
 	usePythonEvent("transcription_final", (data): (() => void) | undefined => {
-		applyTranscriptionFinal(data);
+		if (typeof data?.text === "string" && data.text.trim()) {
+			celebrateFirstRecording();
+		}
 		debouncedRefreshFromEvent();
 		return undefined;
 	});
 
 	usePythonEvent("history_changed", debouncedRefreshFromEvent);
 
-	// Clean up the pending refresh timer on unmount. (The preview
-	// auto-clear timer's unmount cleanup lives inside
-	// useLastTranscriptionPreview.)
+	// Clean up the pending refresh timer on unmount.
 	useEffect(() => {
 		return () => {
 			if (refreshTimer.current) clearTimeout(refreshTimer.current);
@@ -636,31 +619,6 @@ export default function Home() {
 					</>
 				)}
 			</output>
-
-			{lastText && (
-				<output
-					aria-live="polite"
-					// the transcription preview text is wrapped in the
-					// semantic HTML5 live region element (<output>) so screen
-					// readers announce freshly arrived transcriptions.
-					className="block"
-				>
-					<LastTranscriptionPreview
-						text={lastText}
-						onUndo={handleUndo}
-						onRepaste={handleRepaste}
-						onDiscard={handleDiscard}
-						quality={lastQuality}
-						onRedictate={
-							isRecording || micDisabled
-								? undefined
-								: () => {
-										void handleToggle();
-									}
-						}
-					/>
-				</output>
-			)}
 
 			{stats && (
 				<div className="flex w-full flex-col gap-3">
