@@ -126,6 +126,15 @@ def _probe_gpu_memory_via_nvidia_smi() -> tuple[float | None, float | None]:
         return (total_mb, free_mb)
 
     try:
+        # Windows: hide the console window for this ~10-30ms probe.
+        # Without CREATE_NO_WINDOW, spawning the console-mode
+        # ``nvidia-smi.exe`` flashes a visible terminal on every call
+        # that reaches this fallback. Guarded by ``os.name`` so POSIX
+        # passes nothing (the constant does not exist there); the
+        # getattr fallback covers stubbed ``subprocess`` modules.
+        hide_window_kwargs: dict = (
+            {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)} if os.name == "nt" else {}
+        )
         result = subprocess.run(
             [
                 "nvidia-smi",
@@ -136,6 +145,7 @@ def _probe_gpu_memory_via_nvidia_smi() -> tuple[float | None, float | None]:
             text=True,
             timeout=10,
             check=False,
+            **hide_window_kwargs,
         )
         if result.returncode != 0:
             return (None, None)
@@ -258,11 +268,38 @@ def check_resources(*, logger: logging.Logger | None = None) -> None:
         drives_to_check.append(pathlib.Path.home())
 
     seen_drives: set[str] = set()
+
+    def _drive_key(path: pathlib.Path) -> str:
+        """Collapse multiple dirs on one drive to a single key.
+
+        ``config_dir``, ``home``, and ``HF_HOME`` usually live on the
+        same drive (observed 3x identical 9.3 GB lines). Resolved paths
+        differ per dir, so key by drive identity instead: Windows drive
+        anchor (``C:\\``) or POSIX ``st_dev``, falling back to anchor.
+        """
+        try:
+            anchor = str(getattr(path, "anchor", "") or "").upper()
+            # Windows anchor is the drive (``C:\\``); POSIX anchor
+            # is ``/`` for every path, so prefer st_dev there.
+            if anchor and os.name == "nt":
+                return anchor
+            with contextlib.suppress(Exception):
+                return f"dev:{os.stat(path).st_dev}"
+            return anchor or str(path.drive).upper() if hasattr(path, "drive") else anchor
+        except Exception:
+            return str(path)
+
     for path in drives_to_check:
         try:
             drive_info = os.statvfs(path) if hasattr(os, "statvfs") else None
         except Exception:
             continue
+        # One line per physical drive: config/home/cache on the same
+        # drive previously logged the identical free-GB value 3x.
+        drive_key = _drive_key(pathlib.Path(path))
+        if drive_key in seen_drives:
+            continue
+        seen_drives.add(drive_key)
         if drive_info is None:
             # Windows: use shutil.disk_usage
             try:
@@ -270,12 +307,6 @@ def check_resources(*, logger: logging.Logger | None = None) -> None:
 
                 usage = shutil.disk_usage(path)
                 free_gb = usage.free / (1024**3)
-                # Deduplicate by mount point (same drive may appear
-                # via multiple paths like home dir + config dir)
-                drive_key = str(path.resolve())
-                if drive_key in seen_drives:
-                    continue
-                seen_drives.add(drive_key)
                 _log.info(
                     "[RESOURCE] Disk free on %s: %.1f GB",
                     path,

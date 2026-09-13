@@ -428,7 +428,10 @@ class VolumeDucker(SmartDuckMonitorMixin):
                 #  (fix): null-check _backend before calling
                 if self._smart_duck_enabled and self._backend is not None and not self._backend.is_speaker_active():
                     self._actually_ducked = False
-                    log.info("[VOLUME] No audio output, duck skipped (smart duck, monitor started)")
+                    # DEBUG: the actual volume change (if any) is logged
+                    # by the retroactive-duck path; this skip line fired
+                    # on every quiet-room dictation (noise).
+                    log.debug("[VOLUME] No audio output, duck skipped (smart duck, monitor started)")
                     self._start_smart_duck_monitor(level, fade_ms, per_session)
                     return True
 

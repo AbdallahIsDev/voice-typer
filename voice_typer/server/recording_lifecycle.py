@@ -265,10 +265,13 @@ class RecordingLifecycle:
 
         active = app.models.active_transcriber()
         model_loaded = active is not None and active.is_loaded
+        # ``_busy_event`` is inverted (SET == idle); log the natural
+        # ``busy`` reading so busy=True actually means transcribing.
+        busy = not app._busy_event.is_set()
         log.info(
             "[HOTKEY FIRED] toggle_dictation called (recording=%s, busy=%s, model_loaded=%s, thread=%s, cycle=%s)",
             app.recorder.recording,
-            app._busy_event.is_set(),
+            busy,
             model_loaded,
             threading.current_thread().name,
             app._cycle_id,

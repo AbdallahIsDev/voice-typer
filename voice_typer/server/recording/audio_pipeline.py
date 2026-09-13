@@ -101,6 +101,16 @@ def _ensure_sp_signal() -> Any | None:
     return _sp_signal
 
 
+# Near-silence bypass threshold (linear peak amplitude, ~-54 dBFS).
+# Chunks quieter than this skip the filter chain (RNNoise inference +
+# IIR stages dominate worker CPU at native rates) and are stored as
+# digital zeros. The gate/suppressor would attenuate such chunks to
+# ~zero output anyway, so silence stats, VAD SILENCE state, and the
+# transcriber see equivalent audio while the worker stays ahead of the
+# 32 ms callback cadence. Well below quiet speech (peaks typically
+# >0.01), well above a muted/idle MME noise floor.
+_NEAR_SILENCE_BYPASS_PEAK = 0.002
+
 # XRUN rolling window parameters
 _XRUN_WINDOW_MAXLEN = 10  # keep last 10 xrun timestamps
 _XRUN_ALERT_THRESHOLD = 5  # alert if N xruns in the window
@@ -384,6 +394,27 @@ class AudioPipeline:
         """
         recorder = self._recorder
         indata_mono = ensure_mono(recorder, indata)
+        # Near-silence fast path: skip the filter chain for chunks that
+        # are already ~digital silence. Applies only when no sample-rate
+        # conversion would have run (no processor, or the chain is
+        # retuned to the device's native rate), so the bypass output
+        # carries exactly the rate tag the normal path below would set
+        # and the buffer never mixes rates. Filter-state staleness
+        # across bypassed chunks is benign (IIR/RNNoise states recover
+        # within their attack times on speech onset; silence in would
+        # have produced ~silence out).
+        if indata_mono.size:
+            try:
+                _flat = indata_mono.reshape(-1)
+                _bypass_peak = max(float(_flat.max()), -float(_flat.min()))
+            except Exception:
+                _bypass_peak = float("inf")
+            if _bypass_peak < _NEAR_SILENCE_BYPASS_PEAK:
+                _proc = recorder._audio_processor
+                _proc_sr = getattr(_proc, "_sample_rate", None) if _proc is not None else None
+                if _proc is None or _proc_sr == recorder._effective_sr:
+                    self._buffer_sr = recorder._effective_sr
+                    return np.zeros_like(indata_mono)
         if recorder._audio_processor is not None:
             # CRIT-6: pass the stream's native rate so the processor can
             # resample to the chain's construction rate (16 kHz) before

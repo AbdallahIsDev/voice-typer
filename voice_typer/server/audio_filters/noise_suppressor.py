@@ -13,6 +13,24 @@ from voice_typer.server.audio_filters.base import AudioFilter, _get_lfilter  # n
 
 log = logging.getLogger(__name__)
 
+# Once-per-process latch for backend-ready INFO lines. Each fresh
+# ``AudioProcessor`` construction AND each rate-change rebuild re-inits
+# the suppressor, so without this the same
+# ``[NOISE-SUPPRESS] ... backend ready`` line repeats per build
+# (observed x2 in the same second). The first init per backend logs
+# INFO; repeats log DEBUG so rebuilds stay traceable without noise.
+_backend_ready_logged: set[str] = set()
+
+
+def _log_backend_ready_once(key: str, msg: str, *args: object) -> None:
+    """Log a backend-ready line once at INFO, repeats at DEBUG."""
+    if key in _backend_ready_logged:
+        log.debug(msg + " (repeat, already logged)", *args)
+        return
+    _backend_ready_logged.add(key)
+    log.info(msg, *args)
+
+
 # RNNoise requires 48kHz, 480-sample frames (10ms at 48kHz).
 _RNNOISE_FRAME_SIZE: int = 480
 
@@ -311,7 +329,7 @@ class NoiseSuppressor(AudioFilter):
 
             self._backend = RNNoise(sample_rate=RNNOISE_SAMPLE_RATE)
             if not self._quiet:
-                log.info("[NOISE-SUPPRESS] RNNoise backend ready")
+                _log_backend_ready_once("rnnoise", "[NOISE-SUPPRESS] RNNoise backend ready")
         except ImportError:
             if not self._quiet:
                 log.warning(
@@ -391,7 +409,7 @@ class NoiseSuppressor(AudioFilter):
                 self._degraded_reason = gtcrn_reason
         else:
             if not self._quiet:
-                log.info("[NOISE-SUPPRESS] GTCRN backend ready (bundled ONNX streaming model)")
+                _log_backend_ready_once("gtcrn", "[NOISE-SUPPRESS] GTCRN backend ready (bundled ONNX streaming model)")
 
     def process(self, audio: np.ndarray, sample_rate: int) -> np.ndarray | None:
         if self._method == "none" or self._backend is None or audio.size == 0:

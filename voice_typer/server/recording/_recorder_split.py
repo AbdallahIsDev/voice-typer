@@ -1068,12 +1068,24 @@ def start_recording(recorder: Recorder) -> None:
         # which then surfaced as a stale selection after restart.
         # Re-selection happens either by explicit user action or via the
         # renderer's hot-swap fallback (set_config microphone:null).
-        log.info(
-            "[RECORDING] Selected microphone [%s] failed; using device [%s] "
-            "for this session (saved selection unchanged)",
-            device,
-            selected_device,
-        )
+        #
+        # ``None`` is the canonical System Default representation: the
+        # primary candidates resolve it to the concrete OS default, so a
+        # None-to-int resolution without the all-devices fallback is a
+        # normal resolution, not a failure. Log it at DEBUG only.
+        if device is None and not used_fallback:
+            log.debug(
+                "[RECORDING] System Default resolved to device [%s] for this session",
+                selected_device,
+            )
+        else:
+            _label = "System Default" if device is None else device
+            log.info(
+                "[RECORDING] Selected microphone [%s] unavailable; using device [%s] "
+                "for this session (saved selection unchanged)",
+                _label,
+                selected_device,
+            )
 
     recorder._recording_event.set()
 

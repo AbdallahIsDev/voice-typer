@@ -371,12 +371,19 @@ def _send_ctrl_v_win32(
         ``pynput._util.win32`` (a private submodule) which made the
         paste path fragile against pynput internal refactors.
 
-        Returns ``True`` if the full Ctrl+V sequence was delivered
-        (SendInput returned 4) OR the ``fallback`` was invoked
-        (best-effort, assumed success since pynput raises on failure).
-        Returns ``False`` on partial success (SendInput returned 1..3)
-        so the caller can surface a warning without risking a
-        double-paste.
+        Returns ``True`` only when the full Ctrl+V sequence was
+        delivered (SendInput returned 4). Returns ``False`` on partial
+        success (SendInput returned 1..3) AND on total failure
+        (SendInput returned 0), so the caller can surface a warning
+        without risking a double-paste. Total failure still invokes
+        ``fallback`` first (best effort, may help non-UIPI transient
+        failures), but the delivery is unverifiable: the fallback uses
+        the same SendInput API, so under UIPI (the dominant production
+        cause) it is equally blocked yet reports nothing. The old
+        contract returned True here ("best-effort success"), which made
+        paste() log "Sent paste keystroke" while nothing was delivered;
+        the restore daemon then wiped the clipboard and the dictation
+        was silently lost.
 
         Parameters
         ----------
@@ -472,15 +479,19 @@ def _send_ctrl_v_win32(
                 _cb.log.debug("[CLIPBOARD] failed to synthesize KEYUP cleanup", exc_info=True)
             return False  # paste did not complete cleanly; do not proceed
 
-        # result == 0: complete failure, safe to fall back to pynput
-        # (no events were delivered, so no double-paste risk).
-        _cb.log.info("[CLIPBOARD] SendInput returned 0, falling back to pynput Controller")
-        # fallback to pynput Controller as last resort.
-        # Note: pynput.keyboard.Controller is also subject to UIPI,
-        # so this may also fail silently.
+        # result == 0: TOTAL failure, zero events delivered. Still
+        # invoke the pynput fallback (harmless single attempt; may help
+        # non-UIPI transient failures), but return False: delivery is
+        # unverifiable and under UIPI the fallback is equally blocked
+        # while reporting nothing. Returning True here caused silent
+        # dictation loss (success log + restore wiped the clipboard).
+        _cb.log.warning(
+            "[CLIPBOARD] SendInput returned 0 (no events delivered, UIPI may be blocking); "
+            "attempting pynput fallback, delivery unverified",
+        )
         if fallback is not None:
             fallback()
-        return True  # pynput fallback invoked, best-effort success
+        return False
 
     # SendInput returned 4, full Ctrl+V sequence delivered.
     return True
@@ -509,11 +520,10 @@ def _send_shift_insert_win32(
     ``SendInput`` call). Used for terminal-emulator paste targets on
     Windows when pynput (``self._keyboard``) is unavailable.
 
-    Returns ``True`` when ``SendInput`` reports all 4 events delivered
-    OR the pynput fallback was invoked (best-effort). Returns ``False``
-    on partial success (1..3 events) so the caller can surface a
-    warning without risking a double-paste, same contract as
-    :func:`_send_ctrl_v_win32`.
+    Returns ``True`` only on full success (4 events). Returns ``False``
+    on partial success (1..3 events) AND on total failure (0 events,
+    fallback attempted but delivery unverified — same contract as
+    :func:`_send_ctrl_v_win32`).
 
     Parameters
     ----------
@@ -592,11 +602,16 @@ def _send_shift_insert_win32(
                 _cb.log.debug("[CLIPBOARD] failed to synthesize Shift+Insert KEYUP cleanup", exc_info=True)
             return False
 
-        # result == 0: complete failure, safe to fall back to pynput.
-        _cb.log.info("[CLIPBOARD] SendInput(Shift+Insert) returned 0, falling back to pynput Controller")
+        # result == 0: TOTAL failure (same contract as the Ctrl+V
+        # helper above: fallback attempted, delivery unverified → False
+        # so the caller keeps the text instead of restoring over it).
+        _cb.log.warning(
+            "[CLIPBOARD] SendInput(Shift+Insert) returned 0 (no events delivered, UIPI may be blocking); "
+            "attempting pynput fallback, delivery unverified",
+        )
         if fallback is not None:
             fallback()
-        return True
+        return False
 
     return True
 

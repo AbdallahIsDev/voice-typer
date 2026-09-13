@@ -135,6 +135,17 @@ class DevicePrewarm:
                 self._recorder._devices._refresh_device_list()
             except Exception:
                 log.debug("[RECORDING] device cache pre-warm failed", exc_info=True)
+            # Warm the canonical enumeration's TTL cache as well: the
+            # start() path resolves the System Default through
+            # ``list_microphones`` (canonical WASAPI default), and a
+            # cold cache there would put a 50-200 ms PortAudio query on
+            # the hotkey critical path. Best-effort, same as above.
+            try:
+                from voice_typer.server.server_platform.microphone_list import list_microphones
+
+                list_microphones()
+            except Exception:
+                log.debug("[RECORDING] canonical mic-list pre-warm failed", exc_info=True)
             # Phase 2: briefly open + start + stop + close an InputStream
             # against the configured mic. This is the actual "warm"
             # operation, the device-list cache only avoids query RPCs,

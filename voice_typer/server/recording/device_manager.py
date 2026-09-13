@@ -246,9 +246,30 @@ class DeviceManager:
             return self._device_list_cache
 
         try:
+            # Source parity with ``microphone_list.list_microphones``:
+            # placeholder endpoints ("Input ()", empty names) and
+            # non-microphone devices are filtered at enumeration so the
+            # recorder's candidate set matches the canonical UI list.
+            # Function-level import: ``server_platform``'s package init
+            # pulls autostart/volume machinery that must not join the
+            # recording import chain at module top.
+            try:
+                from voice_typer.server.server_platform.remote_session import (
+                    _is_invalid_device_name,
+                    _is_non_mic_device,
+                )
+
+                _device_name_filters = (_is_non_mic_device, _is_invalid_device_name)
+            except Exception:
+                log.debug("[RECORDING] device-name filters unavailable, skipping", exc_info=True)
+                _device_name_filters = ()
             devices = []
             for i, dev in enumerate(sd.query_devices()):
                 if dev.get("max_input_channels", 0) <= 0:
+                    continue
+                raw_name = dev.get("name", "")
+                _filter_name = raw_name.strip() if isinstance(raw_name, str) else ""
+                if any(_f(_filter_name) for _f in _device_name_filters):
                     continue
                 devices.append(
                     {
@@ -1209,6 +1230,32 @@ class DeviceManager:
     def _same_physical_microphone_candidates(self, device: Any) -> list[Any]:
         """Return equivalent input device IDs to try if the selected one fails."""
         candidates = [device]
+        if device is None:
+            # Null means System Default (fresh-install default): resolve it
+            # through the canonical enumeration so the recorder opens the
+            # same WASAPI default the UI lists, not PortAudio's raw
+            # MME-biased ``device=None`` default. Opening the raw default
+            # delivered silence on one host API while the canonical view
+            # listed the live WASAPI endpoint, and the MME stream's
+            # native-rate chunks then piled into the ring buffer behind
+            # the native-rate filter chain. Falls back to ``[None]`` when
+            # the canonical lookup fails (no default flag / query error)
+            # so behavior is never worse than before.
+            try:
+                from voice_typer.server.server_platform.microphone_list import list_microphones
+
+                for mic in list_microphones():
+                    if mic.get("default"):
+                        try:
+                            return [int(mic["index"])]
+                        except (KeyError, TypeError, ValueError):
+                            break
+            except Exception:
+                log.debug(
+                    "[RECORDING] canonical default lookup failed, using OS default",
+                    exc_info=True,
+                )
+            return candidates
         if not isinstance(device, int):
             return candidates
 
@@ -1258,8 +1305,13 @@ class DeviceManager:
         host when multiple devices share the same name.
 
         Windows:
-          - MME = 0 (most compatible, lowest latency on legacy hardware)
-          - WASAPI = 1 (modern, lower latency on Win 10+)
+          - WASAPI = 0 (canonical per-platform host API: matches the
+            OS Settings "Input" page, full untruncated names, lower
+            latency on Win 10+; same ranking as
+            ``microphone_list._preferred_host_api_substring``)
+          - MME = 1 (legacy compat fallback; truncates names at 31
+            chars and carries its own PortAudio default-device view,
+            which diverges from the canonical WASAPI default)
           - WDM-KS = 2 (kernel streaming, rare)
           - DirectSound = 3 (legacy, higher latency)
 
@@ -1276,9 +1328,9 @@ class DeviceManager:
         """
         lower = host_name.lower()
         # Windows hosts
-        if lower == "mme":
-            return 0
         if "wasapi" in lower:
+            return 0
+        if lower == "mme":
             return 1
         if "wdm-ks" in lower:
             return 2

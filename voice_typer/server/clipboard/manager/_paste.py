@@ -65,23 +65,52 @@ class PasteMixin:
         disabled, rate-limited, or blocked by the safety check.
 
         Orchestrator: the original 542-LOC ``paste()``
-        was split into 16 focused helpers (``_register_pending_restore``,
-        ``_spawn_restore_daemon``, ``_check_pynput_available``,
-        ``_check_rate_limit``, ``_check_paste_enabled``,
-        ``_recheck_seq_mismatch``, ``_compute_paste_delay``,
-        ``_check_target_safety``, ``_check_ime_composition``,
-        ``_post_delay_recheck``, ``_capture_target_handle``,
-        ``_log_rich_editor``, ``_recheck_toctou``, ``_recheck_macos_toctou``,
-        ``_dispatch_keystroke``, ``_finalize_paste``). Each helper has an
+        was split into focused helpers (``_register_pending_restore``,
+        ``_attempt_paste_dispatch``, ``_settle_pending_restore`` plus
+        the gate/dispatch helpers below). Each helper has an
         explicit error contract, ``(ok, reason)`` tuple or bool, so the
         orchestrator decides whether to short-circuit. No silent
         failures (E13): every short-circuit logs a reason.
         """
-        # Schedule restore FIRST, failure to send the keystroke must not
-        # prevent the paired restore (DP1/DP2: borrow always paired w/ restore).
+        # Register the restore entry first (so the cap-overflow
+        # force-restore path still bounds memory), but spawn the
+        # daemon only AFTER dispatch (see _settle_pending_restore):
+        # the delay must count from the keystroke, not from entry.
+        # Spawning first let a slow safety path (cold UIA init) push
+        # dispatch past the 150ms delay, so the restore wiped the
+        # clipboard BEFORE Ctrl+V landed (silent no-paste + "Sent"
+        # log). Pairing (DP1/DP2) is preserved by the finally: every
+        # path either spawns the daemon (dispatch OK) or rolls the
+        # entry back, keeping the dictated text for manual paste
+        # (ADR-0020 §6.3 recovery: never lose dictation on block).
         entry = self._register_pending_restore(snapshot, restore_delay, pasted_text)
-        if entry is not None:
-            self._spawn_restore_daemon(entry[1], entry[2], entry[3], entry)
+        dispatched_ok = False
+        try:
+            dispatched_ok = self._attempt_paste_dispatch(snapshot, pasted_text, pasted_seq, force)
+            return dispatched_ok
+        except Exception as e:
+            _cb.log.warning("[CLIPBOARD] Auto-paste failed (clipboard still has the text): %s", e)
+            return False
+        finally:
+            self._settle_pending_restore(entry, dispatched_ok)
+
+    def _attempt_paste_dispatch(
+        self,
+        snapshot: ClipboardSnapshot | None,
+        pasted_text: str | None,
+        pasted_seq: int | None,
+        force: bool,
+    ) -> bool:
+        """Run the gate chain + keystroke dispatch. Returns True iff delivered.
+
+        Extracted verbatim from the pre-split ``paste()`` body (gate
+        order unchanged: pynput → rate-limit → paste_enabled →
+        seq-mismatch → paste-delay → stuck-mods → safety → IME →
+        post-delay recheck → capture → dispatch → finalize) so the
+        orchestrator can schedule the restore daemon AFTER dispatch
+        (see :meth:`paste`). Raises only from ``_dispatch_keystroke``;
+        the orchestrator's try/except converts that to False.
+        """
         # Early-return gates (original order: pynput → rate-limit → paste_enabled).
         if not self._check_pynput_available():
             return False
@@ -98,22 +127,41 @@ class PasteMixin:
             return False
         if not self._check_ime_composition():
             return False
-        # Dispatch + finalize (try/except mirrors original: clipboard still has the text).
-        try:
-            if not self._post_delay_recheck(paste_delay):
-                return False
-            safe_hwnd, safe_macos_pid = self._capture_target_handle()
-            process_name = self._detect_focused_process()
-            is_terminal = self._is_terminal_process(process_name)
-            self._log_rich_editor(process_name)
-            if not self._dispatch_keystroke(is_terminal, safe_hwnd, safe_macos_pid, pasted_text):
-                return False
-            return self._finalize_paste(is_terminal, process_name, snapshot)
-        except Exception as e:
-            _cb.log.warning("[CLIPBOARD] Auto-paste failed (clipboard still has the text): %s", e)
+        # Dispatch + finalize (clipboard still has the text on failure).
+        if not self._post_delay_recheck(paste_delay):
             return False
+        safe_hwnd, safe_macos_pid = self._capture_target_handle()
+        process_name = self._detect_focused_process()
+        is_terminal = self._is_terminal_process(process_name)
+        self._log_rich_editor(process_name)
+        if not self._dispatch_keystroke(is_terminal, safe_hwnd, safe_macos_pid, pasted_text):
+            return False
+        return self._finalize_paste(is_terminal, process_name, snapshot)
 
-    # ─── paste() helpers ─────────────────────────────────────────────────
+    def _settle_pending_restore(
+        self,
+        pending_entry: Any,
+        dispatched_ok: bool,
+    ) -> None:
+        """Spawn the restore daemon (dispatch OK) or roll back (failure).
+
+        Called from ``paste()``'s finally, so it runs on every path.
+        On success the daemon is spawned with the entry's delay, now
+        correctly counted from AFTER the keystroke. On failure the
+        entry is removed from ``_pending_restores`` (rollback, no
+        restore): no keystroke was verifiably delivered, so restoring
+        would wipe the dictated text the user can still paste manually.
+        """
+        if pending_entry is None:
+            return
+        if dispatched_ok:
+            _cm, snapshot, expected, delay = pending_entry
+            self._spawn_restore_daemon(snapshot, expected, delay, pending_entry)
+            return
+        with _pending_restores_lock, contextlib.suppress(ValueError):
+            _pending_restores.remove(pending_entry)
+        _cb.log.info("[CLIPBOARD] Paste not delivered, keeping dictated text in clipboard for manual paste")
+
     #
     # Each helper has an explicit error contract: returns a result tuple
     # ``(ok, reason)`` or a bool, OR raises an exception (only

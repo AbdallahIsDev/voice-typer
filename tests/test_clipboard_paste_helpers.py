@@ -6,8 +6,13 @@ or bool returns). These tests exercise each helper in isolation with
 mocked dependencies, plus three integration guarantees:
 
 1. **Ordering**: ``_register_pending_restore`` is called BEFORE
-   ``_dispatch_keystroke`` (the restore is scheduled FIRST so a
-   dispatch failure never orphans the borrow, ADR-0010).
+   ``_dispatch_keystroke``, and the restore daemon is spawned AFTER
+   dispatch returns (the delay counts from the keystroke, not from
+   entry — scheduling first let a slow safety path push dispatch
+   past the delay so the restore wiped the clipboard before Ctrl+V
+   landed). On dispatch failure the entry is rolled back (no
+   restore): the dictated text stays in the clipboard for manual
+   paste instead of being silently wiped.
 2. **Short-circuit**: a ``_check_target_safety`` failure short-circuits
    ``_dispatch_keystroke`` (no keystroke sent into an unsafe target).
 3. **Windows TOCTOU**: ``_recheck_toctou`` aborts the dispatch when
@@ -1042,6 +1047,8 @@ class TestPasteOrchestratorStructure:
         for name in (
             "_register_pending_restore",
             "_spawn_restore_daemon",
+            "_attempt_paste_dispatch",
+            "_settle_pending_restore",
             "_check_pynput_available",
             "_check_rate_limit",
             "_check_paste_enabled",
@@ -1062,3 +1069,93 @@ class TestPasteOrchestratorStructure:
             assert "except: pass" not in src, f"{name} contains 'except: pass' (E13 violation)"
             # 'except Exception: pass' (single-line) is also forbidden.
             assert "except Exception: pass" not in src, f"{name} contains 'except Exception: pass' (E13 violation)"
+
+
+# ===========================================================================
+# Restore-after-dispatch: daemon spawns post-keystroke; failure rolls back
+# ===========================================================================
+
+
+class TestRestoreAfterDispatch:
+    """Restore daemon spawns AFTER dispatch; failure keeps text (no restore)."""
+
+    def _run_paste(self, cm, snap, safe=True, dispatch=True):
+        """Drive paste() with platform + gate mocks; return (result, spawn_mock)."""
+        import contextlib
+
+        stack = contextlib.ExitStack()
+        stack.enter_context(patch.object(clip_mod, "_Controller", object()))
+        stack.enter_context(patch.object(clip_mod, "is_windows", return_value=False))
+        stack.enter_context(patch.object(clip_mod, "is_macos", return_value=False))
+        stack.enter_context(patch.object(clip_mod, "is_linux", return_value=True))
+        stack.enter_context(patch.object(clip_mod, "_is_wayland_paste_session", return_value=False))
+        stack.enter_context(patch.object(clip_mod, "_have_wtype", return_value=False))
+        stack.enter_context(patch.object(cm, "_is_safe_paste_target", return_value=safe))
+        stack.enter_context(patch.object(cm, "_detect_focused_process", return_value="notepad"))
+        stack.enter_context(patch.object(cm, "_is_terminal_process", return_value=False))
+        stack.enter_context(patch.object(cm, "_capture_target_handle", return_value=(0, None)))
+        stack.enter_context(patch.object(cm, "_log_rich_editor"))
+        stack.enter_context(patch.object(cm, "_post_delay_recheck", return_value=True))
+        stack.enter_context(patch.object(cm, "_finalize_paste", return_value=True))
+        dispatch_mock = stack.enter_context(patch.object(cm, "_dispatch_keystroke", return_value=dispatch))
+        spawn_mock = stack.enter_context(patch.object(cm, "_spawn_restore_daemon"))
+        with stack:
+            result = cm.paste(snapshot=snap, pasted_text="text")
+        return result, dispatch_mock, spawn_mock
+
+    def test_spawn_after_dispatch_success(self):
+        """Success: register → dispatch → spawn (spawn strictly after dispatch)."""
+        import contextlib
+
+        cm = make_clipboard_manager()
+        snap = make_clipboard_snapshot()
+        order: list[str] = []
+
+        def track_dispatch(*args, **kwargs):
+            order.append("dispatch")
+            return True
+
+        def track_spawn(*args, **kwargs):
+            order.append("spawn")
+            return None
+
+        stack = contextlib.ExitStack()
+        stack.enter_context(patch.object(clip_mod, "_Controller", object()))
+        stack.enter_context(patch.object(clip_mod, "is_windows", return_value=False))
+        stack.enter_context(patch.object(clip_mod, "is_macos", return_value=False))
+        stack.enter_context(patch.object(clip_mod, "is_linux", return_value=True))
+        stack.enter_context(patch.object(clip_mod, "_is_wayland_paste_session", return_value=False))
+        stack.enter_context(patch.object(clip_mod, "_have_wtype", return_value=False))
+        stack.enter_context(patch.object(cm, "_is_safe_paste_target", return_value=True))
+        stack.enter_context(patch.object(cm, "_detect_focused_process", return_value="notepad"))
+        stack.enter_context(patch.object(cm, "_is_terminal_process", return_value=False))
+        stack.enter_context(patch.object(cm, "_capture_target_handle", return_value=(0, None)))
+        stack.enter_context(patch.object(cm, "_log_rich_editor"))
+        stack.enter_context(patch.object(cm, "_post_delay_recheck", return_value=True))
+        stack.enter_context(patch.object(cm, "_finalize_paste", return_value=True))
+        stack.enter_context(patch.object(cm, "_dispatch_keystroke", side_effect=track_dispatch))
+        spawn_mock = stack.enter_context(patch.object(cm, "_spawn_restore_daemon", side_effect=track_spawn))
+        with stack:
+            result = cm.paste(snapshot=snap, pasted_text="text")
+        assert result is True
+        assert order == ["dispatch", "spawn"]
+        spawn_mock.assert_called_once()
+
+    def test_dispatch_failure_rolls_back_no_spawn(self):
+        """Dispatch False → no daemon, entry rolled back, paste False (text kept)."""
+        cm = make_clipboard_manager()
+        snap = make_clipboard_snapshot()
+        result, _, spawn_mock = self._run_paste(cm, snap, dispatch=False)
+        assert result is False
+        spawn_mock.assert_not_called()
+        assert list(clip_mod._pending_restores) == []
+
+    def test_gate_failure_rolls_back_no_spawn(self):
+        """Safety-gate abort → no dispatch, no daemon, entry rolled back."""
+        cm = make_clipboard_manager()
+        snap = make_clipboard_snapshot()
+        result, dispatch_mock, spawn_mock = self._run_paste(cm, snap, safe=False)
+        assert result is False
+        dispatch_mock.assert_not_called()
+        spawn_mock.assert_not_called()
+        assert list(clip_mod._pending_restores) == []

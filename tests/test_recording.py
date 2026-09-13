@@ -1458,8 +1458,8 @@ class TestRec6FallbackHostRank:
 
         config = MagicMock(sample_rate=16000, microphone=None)
         r = Recorder(config)
-        assert r._devices._fallback_host_rank("MME") == 0
-        assert r._devices._fallback_host_rank("Windows WASAPI") == 1
+        assert r._devices._fallback_host_rank("Windows WASAPI") == 0
+        assert r._devices._fallback_host_rank("MME") == 1
         assert r._devices._fallback_host_rank("WDM-KS") == 2
         assert r._devices._fallback_host_rank("Windows DirectSound") == 3
 

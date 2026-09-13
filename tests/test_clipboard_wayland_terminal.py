@@ -199,11 +199,11 @@ class TestSendShiftInsertWin32:
         assert result is False, f"must return False on partial success; got {result!r}"
 
     def test_returns_true_on_zero_with_fallback(self, fake_win32_shift_insert):
-        """SendInput returning 0 → fallback invoked, returns True."""
+        """SendInput returning 0 → fallback invoked, returns False (delivery unverified)."""
         fake_win32_shift_insert["user32"].SendInput.return_value = 0
         fallback = MagicMock()
         result = clip_mod._send_shift_insert_win32(fallback=fallback)
-        assert result is True
+        assert result is False
         fallback.assert_called_once()
 
     def test_clipboard_manager_method_delegates_to_package(self, fake_win32_shift_insert):

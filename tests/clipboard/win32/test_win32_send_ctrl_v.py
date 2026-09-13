@@ -193,20 +193,21 @@ class TestSendCtrlVWin32:
         assert args[0] == 4
 
     def test_logs_warning_on_sendinput_zero_and_falls_back_to_pynput(self, fake_win32):
-        """SendInput returning 0 → log info, fall back to pynput."""
+        """SendInput returning 0 → log warning, fall back to pynput, return False."""
         cm = self._make_cm()
         mock_user32 = fake_win32["user32"]
         mock_user32.SendInput.return_value = 0
         with patch.object(clip_mod, "_Key") as mock_key:
             mock_key.ctrl = "ctrl_key"
             with patch.object(clip_mod, "log") as mock_log:
-                cm._send_ctrl_v_win32()
+                result = cm._send_ctrl_v_win32()
+        assert result is False
         # pynput fallback called via _safe_key_press.
         cm._keyboard.press.assert_any_call("ctrl_key")
         cm._keyboard.press.assert_any_call("v")
-        # Info log emitted.
-        info_calls = [c for c in mock_log.info.call_args_list if "falling back to pynput" in str(c)]
-        assert len(info_calls) >= 1
+        # Warning log emitted.
+        warn_calls = [c for c in mock_log.warning.call_args_list if "pynput fallback" in str(c)]
+        assert len(warn_calls) >= 1
 
     def test_logs_warning_on_partial_sendinput_success(self, fake_win32):
         """SendInput returning 1..3 → log error, synthesize KEYUP, no fallback."""

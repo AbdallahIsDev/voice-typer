@@ -122,14 +122,40 @@ class _TranscribeStepMixin:
         to a sibling helper module, the body was self-contained with no
         instance-state dependencies). Preserves the throttle state on
         ``self._last_resources_check_ts`` for backward compat with tests.
+
+        A fresh ``DictationPipeline`` is constructed per dictation cycle
+        (see ``recording_lifecycle``), so instance-only state resets to
+        ``0.0`` every time and the 60s throttle never fires (every cycle
+        logs the full probe, even seconds apart). The last-check
+        timestamp is therefore shared on the owning app object
+        (``_shared_resources_check_ts``) so consecutive cycles within
+        the interval skip the probe. Instance state is still updated
+        for backward compat; apps without the shared slot (tests using
+        ``__new__``) fall back to instance-only throttling.
         """
         from voice_typer.server.resource_probe import check_resources_throttled
 
-        self._last_resources_check_ts = check_resources_throttled(
-            self._last_resources_check_ts,
-            self._resources_check_interval,
+        interval = getattr(self, "_resources_check_interval", 60.0)
+        if not isinstance(interval, (int, float)):
+            interval = 60.0
+        instance_ts = getattr(self, "_last_resources_check_ts", 0.0)
+        if not isinstance(instance_ts, (int, float)):
+            instance_ts = 0.0
+        app = getattr(self, "_app", None)
+        shared_ts = getattr(app, "_shared_resources_check_ts", None) if app is not None else None
+        last = float(shared_ts) if isinstance(shared_ts, (int, float)) else float(instance_ts)
+
+        new_ts = check_resources_throttled(
+            last,
+            float(interval),
             logger=log,
         )
+        self._last_resources_check_ts = new_ts
+        try:
+            if app is not None:
+                app._shared_resources_check_ts = new_ts
+        except Exception:
+            pass
 
     def _check_resources(self) -> None:
         """Pre-flight health check before transcription.
@@ -231,7 +257,47 @@ class _TranscribeStepMixin:
                 # Annotated so the batch-branch Any return (from the
                 # Any-typed engine ``transcribe_with_fallback``) cannot
                 # leak through to this function's ``str`` return.
+                # Copy before finalize: the session zeroes ``full_audio``
+                # in place, a streaming-empty batch retry below needs
+                # intact samples.
+                try:
+                    import numpy as _np
+
+                    _audio_backup = self._audio.copy() if isinstance(self._audio, _np.ndarray) else self._audio
+                except Exception:
+                    _audio_backup = None
                 text: str = session.finalize(self._audio)
+                if not text and active is not None and backend_was_loaded and _audio_backup is not None:
+                    try:
+                        _audio_len = len(_audio_backup)
+                    except Exception:
+                        _audio_len = 0
+                    _audio_captured = self._recorded_rms >= 0.005
+                    if _audio_len > 0 and _audio_captured:
+                        log.info(
+                            "[STREAMING] Empty streaming result on high-energy audio "
+                            "(rms=%.4f), retrying batch transcription (cycle=%s)",
+                            self._recorded_rms,
+                            self._cycle_id,
+                        )
+                        try:
+                            _retry_local = None
+                            if isinstance(active, CloudEngine):
+                                _retry_local = _lookup_local_whisper(self._app)
+                            _registry = self._app.models.registry
+                            with _registry.busy_context(_registry.active_name):
+                                text = active.transcribe_with_fallback(
+                                    _audio_backup,
+                                    audio_stats=self._audio_stats,
+                                    local_engine=_retry_local,
+                                )
+                            self._quality_summary = getattr(active, "last_quality_summary", None)
+                        except Exception:
+                            log.debug(
+                                "[STREAMING] Batch retry after empty streaming result failed",
+                                exc_info=True,
+                            )
+                            text = ""
             else:
                 # When ``active_transcriber()`` returned None AND
                 # there is no streaming session to finalize, the batch
@@ -376,7 +442,7 @@ class _TranscribeStepMixin:
             log.warning(
                 "[TRANSCRIBE] Empty transcription result (cycle=%s, "
                 "duration=%.2fs, recorded_rms=%.4f, audio_stats=[%s], "
-                "backend=%s, backend_is_loaded=%s, path=%s), see _handle_empty_transcription",
+                "backend=%s, backend_is_loaded=%s, path=%s), check empty transcription handler guidance",
                 self._cycle_id,
                 self._duration,
                 self._recorded_rms,

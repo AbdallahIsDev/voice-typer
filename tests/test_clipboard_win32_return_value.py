@@ -140,19 +140,23 @@ class TestSendCtrlVWin32ReturnValue:
         )
 
     def test_returns_true_on_zero_with_fallback(self, fake_win32_for_return_value):
-        """S2-SendInput returning 0 → fallback invoked, return True.
+        """S2-SendInput returning 0 → fallback invoked, return False.
 
-        The function returns True (best-effort success) when the pynput
-        fallback is invoked. This path must not return None.
+        Total failure is unverifiable: the pynput fallback uses the
+        same SendInput API, so under UIPI it is equally blocked while
+        reporting nothing. Returning True here caused silent dictation
+        loss (success log + restore wiped the clipboard). The fallback
+        is still invoked (best effort), but the result is False so the
+        caller keeps the text and surfaces paste_failed.
         """
         cm = self._make_cm()
         fake_win32_for_return_value["user32"].SendInput.return_value = 0
         with patch.object(clip_mod, "_Key") as mock_key:
             mock_key.ctrl = "ctrl_key"
             result = cm._send_ctrl_v_win32()
-        assert result is True, (
-            "S2- regression: _send_ctrl_v_win32() must return True when "
-            "the pynput fallback is invoked (SendInput returned 0); got "
+        assert result is False, (
+            "S2- regression: _send_ctrl_v_win32() must return False when "
+            "SendInput returns 0 (delivery unverified even with fallback); got "
             f"{result!r}."
         )
 

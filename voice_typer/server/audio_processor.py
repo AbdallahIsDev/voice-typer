@@ -275,7 +275,11 @@ class AudioProcessor:
         # warmup benefit.
         self._prewarm_chain()
         if not quiet:
-            log.info(
+            # Single choke-point is ``build_chain``'s ``[AUDIO-CHAIN]``
+            # INFO line above (same filter list, latency, degraded).
+            # This wrapper line emitted the same event a second time
+            # per build, keep it at DEBUG so rebuilds stay traceable.
+            log.debug(
                 "[AUDIO-PROC] chain built: %s (latency=%.1fms, degraded=%s)",
                 self._chain.filter_names or "none",
                 self._chain.total_latency_ms,
@@ -347,7 +351,9 @@ class AudioProcessor:
         # lock-consistent snapshot); ``swap`` copies the list again, so
         # this is identical to handing it the private list directly.
         self._chain.swap(new_chain.filters)
-        log.info(
+        # ``build_chain`` above already emitted the single
+        # ``[AUDIO-CHAIN] Built chain`` INFO for this rebuild.
+        log.debug(
             "[AUDIO-PROC] chain rebuilt: %s (degraded=%s)",
             self._chain.filter_names or "none",
             self._chain.is_degraded,
@@ -406,7 +412,9 @@ class AudioProcessor:
         self._resample_degraded = False
         self._resample_degraded_reason = ""
         self._resample_warned_pairs.clear()
-        log.info(
+        # Same single-choke-point rule as ``rebuild_from_config``:
+        # ``build_chain`` emitted the INFO, keep the wrapper at DEBUG.
+        log.debug(
             "[AUDIO-PROC] chain rebuilt on rate change: %s (sr=%d, degraded=%s)",
             self._chain.filter_names or "none",
             new_sr,
