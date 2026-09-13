@@ -120,7 +120,7 @@ def _trigger_last_resort(mm: ModelManager) -> MagicMock:
     backend = _make_unloaded_backend()
     mm._registry.register("whisper", backend)
     result = mm._registry.get_active()
-    assert result is backend, "get_active() must return the last-resort backend"
+    assert result is None, "get_active() must return None fail-loud when only unloaded remains"
     return backend
 
 

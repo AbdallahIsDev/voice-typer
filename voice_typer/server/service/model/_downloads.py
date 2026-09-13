@@ -614,8 +614,10 @@ class DownloadsMixin:
         extracted from the original ``is_whisper_family`` branch
         of the monolithic ``download_model``.  Handles the
         HuggingFace consent gate, the  pause/resume state
-        machine (via :func:`poll_download_progress`), and the
-        per-download cancellation plumbing ( / SERVICE-1).
+        machine (via :func:`poll_download_progress` in Phase A and
+        :func:`make_segmented_progress_tracker` in Phase B, with the
+        shared pause/abort events kept alive across the handoff),
+        and the per-download cancellation plumbing ( / SERVICE-1).
 
         Takes explicit args (``model_name``, ``model_meta``) so it can
         be unit-tested in isolation. Returns a :data:`DownloadOutcome`
@@ -840,16 +842,23 @@ class DownloadsMixin:
                     #  SERVICE-1: remove our per-download Event
                     # from the dict so a sibling download_model
                     # call's cancel signal can't reach us after
-                    # we've already exited the polling loop. Also
-                    # clear the pause flag so a subsequent download
-                    # starts unpaused. Both are idempotent, the
-                    # post-try/except cleanup below and the outer
-                    # ``download_model`` except handler may call
-                    # them again, which is a harmless no-op.
+                    # we've already exited the polling loop. The
+                    # shared pause/abort events are intentionally
+                    # NOT cleared here: Phase B (segmented fast
+                    # lane) runs next on this same call and its
+                    # gate + progress tracker need the live
+                    # events (a pause issued during Phase A must
+                    # still hold in Phase B, and pause/cancel
+                    # issued during Phase B must find a live
+                    # download). True-end cleanup clears them:
+                    # the early returns below, the outer
+                    # ``download_model`` except handler, and the
+                    # success-path cleanup after Phase B (all
+                    # idempotent).
                     self._unregister_download(download_id)
-                    clear_download_pause_state()
                 # if cancelled, return early.
                 if poll_outcome == "cancelled":
+                    clear_download_pause_state()
                     return {
                         "success": False,
                         "model": model_name,
@@ -873,6 +882,7 @@ class DownloadsMixin:
                             "[SERVICE] Download of '%s' aborted via transfer gate",
                             model_name,
                         )
+                        clear_download_pause_state()
                         return {
                             "success": False,
                             "model": model_name,
@@ -890,10 +900,11 @@ class DownloadsMixin:
                 # ModelDownloadAborted → mapped below).
                 if seg_plan:
                     try:
-                        import time as _phase_time
-
+                        from voice_typer.server.asr_setup import (
+                            is_download_paused as _seg_is_paused,
+                        )
                         from voice_typer.server.service._download_helpers import (
-                            push_progress as _phase_push,
+                            make_segmented_progress_tracker as _make_seg_tracker,
                         )
 
                         try:
@@ -912,30 +923,21 @@ class DownloadsMixin:
                         except Exception:
                             _proxies = None
 
-                        _seg_last_push = [0.0]
-                        _seg_lock = threading.Lock()
                         _big_total = sum(p.size for p in seg_plan)
-
-                        def _on_seg_progress(done: int, _total: int) -> None:
-                            # `done` is already cumulative across files
-                            # (the phase runner aggregates). Throttled to
-                            # ~4 Hz; same 10–95 scale the poll loop uses
-                            # so the bar reads continuously.
-                            now = _phase_time.monotonic()
-                            with _seg_lock:
-                                if now - _seg_last_push[0] < 0.25 and done < _big_total:
-                                    return
-                                _seg_last_push[0] = now
-                            _pct = min(95, int(10 + (done / max(1, _big_total)) * 85))
-                            _mb = done // (1024 * 1024)
-                            _phase_push(
-                                event_bus,
-                                model_name,
-                                _pct,
-                                f"Downloading {model_name}: {_mb} MB / ~{target_mb} MB",
-                                downloaded_bytes=done,
-                                total_bytes=target_bytes,
-                            )
+                        # Pause-aware progress tracker (owns the
+                        # pause/resume transition pushes + live
+                        # speed/ETA now that the poll loop has exited;
+                        # the shared pause/abort events stay alive
+                        # across the handoff so the gate keeps
+                        # working inside the engine).
+                        _on_seg_progress = _make_seg_tracker(
+                            event_bus=event_bus,
+                            model_name=model_name,
+                            target_mb=target_mb,
+                            target_bytes=target_bytes,
+                            phase_total_bytes=_big_total,
+                            is_paused_fn=_seg_is_paused,
+                        )
 
                         segdl.run_segmented_phase(
                             model_name=model_name,
@@ -953,6 +955,7 @@ class DownloadsMixin:
                             "[SERVICE] Download of '%s' aborted via transfer gate",
                             model_name,
                         )
+                        clear_download_pause_state()
                         return {
                             "success": False,
                             "model": model_name,

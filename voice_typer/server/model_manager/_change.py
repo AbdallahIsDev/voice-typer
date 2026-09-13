@@ -126,6 +126,24 @@ class ChangeMixin:
         # Determine new backend (mirrors _change_model_setattr_phase
         # logic) so the ack dict carries the pending backend.
         new_backend = _backend_for_model_size(model_size)
+        # No-op guard: re-selecting the already-LOADED model (tray menu
+        # click on the checked row, onboarding re-apply) must not
+        # unload + fully reload the engine (~19s of CUDA re-init for
+        # zero state change). Skipped only when the size matches AND
+        # the engine is actually loaded: a same-size request with no
+        # loaded engine is a legitimate retry and proceeds down the
+        # normal path (mirrors the set_active_backend fast-path noop,
+        # which also returns "ready").
+        if model_size and model_size == old_model_size and self._is_model_loaded(model_size):
+            log.info(
+                "[MODEL] change_model(%s): already the loaded model, skipping reload",
+                model_size,
+            )
+            return {
+                "status": "ready",
+                "previous": {"backend": old_backend, "model_size": old_model_size},
+                "pending": {"backend": new_backend, "model_size": model_size},
+            }
         # spawn background daemon thread for the full cycle.
         self._change_model_background(model_size)
         return {
@@ -133,6 +151,19 @@ class ChangeMixin:
             "previous": {"backend": old_backend, "model_size": old_model_size},
             "pending": {"backend": new_backend, "model_size": model_size},
         }
+
+    def _is_model_loaded(self, model_size: str) -> bool:
+        """True when the engine for ``model_size`` is registered AND loaded.
+
+        Used by the ``change_model`` no-op guard. Any registry access
+        failure answers False (fail open: the normal unload/load cycle
+        runs, never skip on uncertain state).
+        """
+        try:
+            engine = self._registry.get(_backend_for_model_size(model_size))
+        except Exception:
+            return False
+        return engine is not None and bool(getattr(engine, "is_loaded", False))
 
     def _change_model_background(self, model_size: str) -> None:
         """Spawn a daemon thread to run ``_change_model_blocking``.
@@ -327,6 +358,29 @@ class ChangeMixin:
             self._parakeet_engine = None
         elif old_backend == "qwen":
             self._qwen_engine = None
+
+    def unload_backend_for_delete(self, backend: str) -> None:
+        """Unload + unregister ``backend`` ahead of deleting its files.
+
+        Called by the service ACTIVE-DELETE path (``delete_model`` on
+        the configured model): the OS holds file locks on loaded
+        weights, so the engine must go first. Mirrors
+        :meth:`_change_model_unload_phase` (deliberate-unload mark so
+        the last-resort notification stays silent, registry unload +
+        unregister, load-attempt reset, legacy engine fields) but needs
+        no caller-held locks: it takes ``_model_change_lock`` itself so
+        a concurrent model change serializes instead of interleaving.
+        Raises on failure, the caller turns it into the delete error.
+        """
+        with self._model_change_lock:
+            self._mark_deliberately_unloaded(backend)
+            self._registry.unload(backend)
+            self._registry.unregister(backend)
+            self._model_load_attempted = False
+            if backend == "parakeet":
+                self._parakeet_engine = None
+            elif backend == "qwen":
+                self._qwen_engine = None
 
     def _change_model_load_phase(self, new_backend: str, model_size: str) -> str | None:
         """Phase 2: construct + load the new engine.

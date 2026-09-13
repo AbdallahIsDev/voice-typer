@@ -42,6 +42,23 @@ from voice_typer.server.asr_errors import (
 log = logging.getLogger("voice_typer.server.transcription")
 
 
+def _resolve_whisper_repo_id(model_size: str) -> str:
+    """Resolve HF repo for a whisper ``model_size`` via MODEL_REGISTRY.
+
+    Turbo lives under mobiuslabsgmbh (faster-whisper _MODELS), not Systran,
+    so the naive f-string breaks it. Registry is source of truth.
+    """
+    try:
+        from voice_typer.server.model_registry import get_model_metadata
+
+        meta = get_model_metadata(model_size)
+        if meta is not None and meta.repo_id:
+            return meta.repo_id
+    except Exception:
+        pass
+    return f"Systran/faster-whisper-{model_size}"
+
+
 def probe_cache(
     engine,
     snapshot_download_fn,
@@ -123,7 +140,7 @@ def require_model_downloaded(engine, model_size: str, progress_callback=None) ->
     try:
         from huggingface_hub import snapshot_download
 
-        repo_id = f"Systran/faster-whisper-{model_size}"
+        repo_id = _resolve_whisper_repo_id(model_size)
 
         # Use pinned revision from the MODEL_HASHES manifest.
         from voice_typer.server.security import MODEL_HASHES
@@ -184,7 +201,7 @@ def whisper_size_cached(engine, model_size: str) -> bool:
     try:
         from huggingface_hub import snapshot_download
 
-        repo_id = f"Systran/faster-whisper-{model_size}"
+        repo_id = _resolve_whisper_repo_id(model_size)
 
         from voice_typer.server.security import MODEL_HASHES
 

@@ -381,7 +381,8 @@ def build_models_submenu_data(
     candidates = [
         ("tiny", "whisper", "Systran/faster-whisper-tiny"),
         ("large-v3", "whisper", "Systran/faster-whisper-large-v3"),
-        ("large-v3-turbo", "whisper", "Systran/faster-whisper-large-v3-turbo"),
+        # Turbo lives under mobiuslabsgmbh (faster-whisper _MODELS), not Systran.
+        ("large-v3-turbo", "whisper", "mobiuslabsgmbh/faster-whisper-large-v3-turbo"),
         ("parakeet", "parakeet", "nvidia/parakeet-tdt-0.6b-v3"),
         ("qwen", "qwen", None),
     ]

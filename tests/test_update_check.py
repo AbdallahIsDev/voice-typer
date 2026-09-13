@@ -420,8 +420,10 @@ class TestCheckOfflinePackUpdate:
         monkeypatch.setattr(update_check, "_local_offline_pack_version", lambda root=None: None)
         manifest = _make_manifest("1.2.3")
         body = json.dumps(manifest)
+        http_called: list[str] = []
 
         def fake_http_get(url, *, max_bytes=MAX_MANIFEST_BYTES):
+            http_called.append(url)
             return body
 
         result = check_offline_pack_update(
@@ -436,6 +438,10 @@ class TestCheckOfflinePackUpdate:
         assert result["download_triggered"] is False
         assert "error" in result
         assert result["reason"] == "consent_required"
+        # Consent gate fires BEFORE any network: the remote fetch itself
+        # phones home to GitHub Releases, so it must not run when the
+        # download it would trigger is forbidden anyway (C-DATA-1).
+        assert http_called == [], f"consent-off check must not fetch: {http_called}"
 
         # The consent_required event should have been published.
         consent_events = [e for e in fake_event_bus.events if e["type"] == "consent_required"]
@@ -444,6 +450,75 @@ class TestCheckOfflinePackUpdate:
         )
         assert consent_events[0]["data"]["provider"] == "github"
         assert consent_events[0]["data"]["scope"] == "offline_pack"
+
+    def test_consent_off_with_local_pack_still_checks_remote(
+        self,
+        fake_manifest_url: str,
+        fake_event_bus,
+        fake_config_no_consent,
+        monkeypatch,
+    ):
+        """Consent off BUT a local pack is installed → remote check still runs.
+
+        The pre-fetch consent skip applies only when a download could
+        actually trigger (no local pack). With a local pack present the
+        flow must stay fetch-then-compare so an up-to-date install
+        still reports ``success=True`` instead of a spurious
+        ``consent_required``.
+        """
+        monkeypatch.setattr(update_check, "_local_offline_pack_version", lambda root=None: "1.2.3")
+        manifest = _make_manifest("1.2.3")
+        body = json.dumps(manifest)
+        http_called: list[str] = []
+
+        def fake_http_get(url, *, max_bytes=MAX_MANIFEST_BYTES):
+            http_called.append(url)
+            return body
+
+        result = check_offline_pack_update(
+            fake_config_no_consent,
+            fake_event_bus.bus,  # type: ignore[arg-type]
+            http_get=fake_http_get,
+            manifest_url=fake_manifest_url,
+        )
+
+        assert http_called != []
+        assert result["success"] is True
+        assert result["update_available"] is False
+        assert result.get("consent_required") is not True
+
+    def test_manifest_timeout_reaches_default_transport(
+        self,
+        fake_manifest_url: str,
+        fake_event_bus,
+        fake_config_with_consent,
+        monkeypatch,
+    ):
+        """``manifest_timeout`` is plumbed to the default HTTP transport."""
+        monkeypatch.setattr(update_check, "_local_offline_pack_version", lambda root=None: None)
+        captured: dict[str, float] = {}
+
+        def fake_default_transport(url, *, max_bytes=MAX_MANIFEST_BYTES, timeout: float = 30.0):
+            captured["timeout"] = timeout
+            return json.dumps(_make_manifest("9.9.9"))
+
+        monkeypatch.setattr(update_check, "_http_get_manifest", fake_default_transport)
+        monkeypatch.setattr(update_check, "_trigger_background_download", lambda **kwargs: True)
+
+        result = check_offline_pack_update(
+            fake_config_with_consent,
+            fake_event_bus.bus,  # type: ignore[arg-type]
+            manifest_url=fake_manifest_url,
+            manifest_timeout=7.5,
+        )
+
+        assert captured.get("timeout") == 7.5
+        assert result["remote_version"] == "9.9.9"
+
+    def test_launch_timeout_constant_is_short(self):
+        """The launch-time fetch budget stays well under the interactive default."""
+        assert update_check.LAUNCH_MANIFEST_TIMEOUT_S <= 10.0
+        assert update_check.LAUNCH_MANIFEST_TIMEOUT_S > 0
 
     def test_fetch_failure_returns_error(
         self,

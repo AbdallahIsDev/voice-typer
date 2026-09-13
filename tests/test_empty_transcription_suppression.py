@@ -311,9 +311,9 @@ class TestAsrRegistryUnloadedBackendDiagnostic:
         with caplog.at_level(logging.WARNING, logger="voice_typer.server.asr_registry"):
             result = registry.get_active()
 
-        assert result is unloaded_backend, "Last-resort path must still return the unloaded backend"
-        unload_warnings = [r for r in caplog.records if "returning unloaded backend" in r.getMessage()]
-        assert unload_warnings, "get_active() must log a warning when returning an unloaded backend"
+        assert result is None, "Fail-loud: last-resort unloaded returns None, never serves unloaded"
+        unload_warnings = [r for r in caplog.records if "no loaded backend available" in r.getMessage()]
+        assert unload_warnings, "get_active() must log a warning when no loaded backend is available"
 
     def test_loaded_backend_no_warning(self, caplog):
         """When the active backend IS loaded, no warning fires."""
@@ -331,8 +331,8 @@ class TestAsrRegistryUnloadedBackendDiagnostic:
             result = registry.get_active()
 
         assert result is loaded_backend
-        unload_warnings = [r for r in caplog.records if "returning unloaded backend" in r.getMessage()]
-        assert not unload_warnings, "Loaded backend must NOT trigger the unloaded-backend warning"
+        unload_warnings = [r for r in caplog.records if "no loaded backend available" in r.getMessage()]
+        assert not unload_warnings, "Loaded backend must NOT trigger the no-loaded-backend warning"
 
 
 # ─── ESC-cancelled cycles must not surface "No speech detected" ────

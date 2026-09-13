@@ -152,6 +152,29 @@ def _load_model_hashes() -> dict[str, dict[str, Any]]:
                 "tokenizer.json": "6d8cbd7cd0d8d5815e478dac67b85a26bbe77c1f5e0c6d76d1ce2abc0e5f21ca",
             },
         },
+        # Live multilingual tiny (MODEL_REGISTRY "tiny"). Hashes verified
+        # 2026-09-13 against the local HF cache (revision d90ca5fe).
+        "Systran/faster-whisper-tiny": {
+            "revision": "d90ca5fe260221311c53c58e660288d3deb8d356",
+            "files": {
+                "config.json": "a73a28cdfe1c43ccc7202fa333d1f89c202477271407ae9a7f19afa52039cac8",
+                "model.bin": "dcb76c6586fc06cbdac6dd21f14cfd129cc4cdd9dce19bf4ffa62e59cbe6e6d1",
+                "tokenizer.json": "fb7b63191e9bb045082c79fd742a3106a12c99513ab30df4a0d47fa6cb6fd0ab",
+                "vocabulary.txt": "34ce3fe1c5041027b3f8d42912270993f986dbc4bb34cf27f951e34a1e453913",
+            },
+        },
+        # Turbo: faster-whisper 1.2.1 _MODELS maps "large-v3-turbo"/"turbo"
+        # to mobiuslabsgmbh, NOT Systran (Systran/...-turbo 404s).
+        "mobiuslabsgmbh/faster-whisper-large-v3-turbo": {
+            "revision": "0a363e9161cbc7ed1431c9597a8ceaf0c4f78fcf",
+            "files": {
+                "config.json": "b0253ea6c0d3bea6b1e19e91a02acfd3b53f4467362efcb5a3e6b16c9b3a9b7e",
+                "model.bin": "e76620f83d5f5b69efd3d87e3dc180c1bd21df9fbebacfd4335e5e1efcc018da",
+                "preprocessor_config.json": "7ccc62c6f2765af1f3b46c00c9b5894426835a05021c8b9c01eecb6dfb542711",
+                "tokenizer.json": "297b13372ac43916285644fb9687add3cc62ee2a1adb60da3dc25cc94c1871fd",
+                "vocabulary.json": "c69260f2ab26d659b7c398f9a2b2b48ed0df16c3b47d7326782fd9cba71690c1",
+            },
+        },
         # add the ``qwen`` entry to the hardcoded fallback so
         # a missing/corrupt ``model_hashes.json`` doesn't soft-pass
         # Qwen. ``revision: "local"`` + empty ``files`` triggers the

@@ -793,6 +793,7 @@ class TranscriptionEngine:
         self,
         audio: np.ndarray,
         audio_stats: tuple[float, float, float] | None = None,
+        local_engine: Any = None,
     ) -> str:
         """Transcribe with automatic CPU fallback on GPU runtime errors.
 
@@ -804,6 +805,11 @@ class TranscriptionEngine:
          ``audio_stats`` is an optional pre-computed
          ``(rms, peak, silence_pct)`` tuple from ``Recorder.stop()``.
          When provided, the engine skips its own stats computation.
+
+         ``local_engine`` is accepted (and ignored) for signature parity
+         with the cloud engine so shared call sites (streaming finalize,
+         dictation batch path) can pass it unconditionally: this engine
+         already IS the local backend, there is nothing to fall back to.
         """
         return _transcribe_with_fallback_impl(self, audio, audio_stats=audio_stats)
 

@@ -479,6 +479,54 @@ class TestChangeModelAckShape:
         assert ack["pending"]["model_size"] == "base.en"
 
 
+class TestChangeModelNoop:
+    """Re-selecting the already-LOADED model must not unload + fully
+    reload the engine (~19s of CUDA re-init for zero state change:
+    tray click on the checked row, onboarding re-apply)."""
+
+    def test_same_loaded_model_returns_ready_without_spawn(self):
+        mm, app = _make_mm_with_mock_registry()
+        mm.cancel_idle_unload_timer = MagicMock()
+        mm._change_model_background = MagicMock()
+        # Fixture: config tiny + mock engine truthy-loaded.
+        engine = mm._registry.get("whisper")
+        engine.is_loaded = True
+
+        ack = mm.change_model("tiny")
+
+        assert ack["status"] == "ready"
+        assert ack["previous"] == {"backend": "whisper", "model_size": "tiny"}
+        assert ack["pending"] == {"backend": "whisper", "model_size": "tiny"}
+        mm._change_model_background.assert_not_called()
+
+    def test_same_size_but_unloaded_proceeds(self):
+        """Same size with NO loaded engine is a legitimate retry (e.g.
+        re-select after a failed load), it must take the normal path."""
+        mm, app = _make_mm_with_mock_registry()
+        mm.cancel_idle_unload_timer = MagicMock()
+        mm._change_model_background = MagicMock()
+        mm._registry.get.return_value = None
+
+        ack = mm.change_model("tiny")
+
+        assert ack["status"] == "loading"
+        mm._change_model_background.assert_called_once_with("tiny")
+
+    def test_different_size_proceeds_despite_loaded_engine(self):
+        """A different size on the same backend still reloads (fresh
+        engine needs the new size kwarg), the guard is size-scoped."""
+        mm, app = _make_mm_with_mock_registry()
+        mm.cancel_idle_unload_timer = MagicMock()
+        mm._change_model_background = MagicMock()
+        engine = mm._registry.get("whisper")
+        engine.is_loaded = True
+
+        ack = mm.change_model("base.en")
+
+        assert ack["status"] == "loading"
+        mm._change_model_background.assert_called_once_with("base.en")
+
+
 class TestLRUEviction:
     """``_evict_lru_model`` must unload the oldest backend when more than
     ``_MAX_LOADED_MODELS`` are loaded. Previously this path was only

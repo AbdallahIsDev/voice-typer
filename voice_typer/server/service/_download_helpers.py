@@ -33,7 +33,9 @@ Public surface:
 from __future__ import annotations
 
 import logging
+import threading
 import time
+from collections.abc import Callable
 from typing import NotRequired, TypedDict
 
 log = logging.getLogger(__name__)
@@ -424,8 +426,112 @@ def poll_download_progress(
     return ("cancelled" if cancelled else "complete", last_total_bytes_seen)
 
 
+def make_segmented_progress_tracker(
+    *,
+    event_bus,
+    model_name: str,
+    target_mb: int,
+    target_bytes: int,
+    phase_total_bytes: int,
+    is_paused_fn: Callable[[], bool],
+) -> Callable[[int, int], None]:
+    """Build the Phase-B (segmented fast lane) progress callback.
+
+    The Phase-B engine runs AFTER :func:`poll_download_progress` has
+    exited, so its pushes are the single source of truth for the bar —
+    but the shared pause/abort events stay alive across the handoff
+    (see ``_download_whisper_family``), which means pause/resume can
+    land mid-phase.  The returned closure keeps the renderer honest:
+
+    * pause/resume transitions push ``paused: True`` / ``resumed:
+      True`` (the same transition contract the poll loop owns in
+      Phase A), so ``isPaused`` can never stick stale while bytes move.
+    * while paused only the transition push goes out (no regular
+      pushes, mirroring the poll loop's silence).
+    * regular pushes carry live speed/ETA computed from ``done``
+      deltas (the phase has no poll loop to compute them).
+    * throttled to ~4 Hz on the same 10–95 scale the poll loop uses
+      so the bar reads continuously across the handoff.
+
+    ``done`` is cumulative across the phase's files (the phase runner
+    aggregates); ``phase_total_bytes`` is their sum.  Speed/ETA are
+    measured against the phase totals (time left in Phase B), while
+    ``total_bytes`` still reports the whole-download target so the
+    ``X MB / ~Y MB`` status line keeps its denominator.
+    """
+    lock = threading.Lock()
+    last_push_at = [0.0]
+    last_done = [0]
+    last_push_time = [time.monotonic()]
+    last_paused = [bool(is_paused_fn())]
+
+    def on_progress(done: int, _total: int) -> None:
+        paused = bool(is_paused_fn())
+        if paused != last_paused[0]:
+            last_paused[0] = paused
+            pct = min(95, int(10 + (done / max(1, phase_total_bytes)) * 85))
+            if paused:
+                push_progress(
+                    event_bus,
+                    model_name,
+                    pct,
+                    f"Download of {model_name} paused",
+                    downloaded_bytes=done,
+                    total_bytes=target_bytes,
+                    paused=True,
+                )
+            else:
+                push_progress(
+                    event_bus,
+                    model_name,
+                    pct,
+                    f"Download of {model_name} resumed",
+                    downloaded_bytes=done,
+                    total_bytes=target_bytes,
+                    resumed=True,
+                )
+                # Fresh speed baseline so the first post-resume push
+                # does not report a huge spike measured across the
+                # whole pause interval.
+                last_done[0] = done
+                last_push_time[0] = time.monotonic()
+            return
+        if paused:
+            return
+        now = time.monotonic()
+        with lock:
+            if now - last_push_at[0] < 0.25 and done < phase_total_bytes:
+                return
+            last_push_at[0] = now
+        elapsed = now - last_push_time[0]
+        delta_bytes = done - last_done[0]
+        speed_bps: float | None = None
+        eta_s: float | None = None
+        if elapsed > 0 and delta_bytes >= 0:
+            speed_bps = delta_bytes / elapsed
+            if speed_bps > 0:
+                eta_s = max(0.0, (phase_total_bytes - done) / speed_bps)
+        last_done[0] = done
+        last_push_time[0] = now
+        pct = min(95, int(10 + (done / max(1, phase_total_bytes)) * 85))
+        mb = done // (1024 * 1024)
+        push_progress(
+            event_bus,
+            model_name,
+            pct,
+            f"Downloading {model_name}: {mb} MB / ~{target_mb} MB",
+            downloaded_bytes=done,
+            total_bytes=target_bytes,
+            speed_bytes_per_sec=speed_bps,
+            eta_seconds=eta_s,
+        )
+
+    return on_progress
+
+
 __all__ = [
     "DownloadOutcome",
+    "make_segmented_progress_tracker",
     "push_progress",
     "notify",
     "poll_download_progress",

@@ -108,13 +108,28 @@ def resolve_device_once(engine) -> None:
     CUDA DLL loading only happens when the model is actually about to
     load, not during construction.  This saves ~20s on startup when the
     user hasn't pressed F2 yet.
+
+    Logs the probe wall time (C-LOG-2 suffix): cold-boot
+    ``import ctranslate2`` + CUDA enumeration dominates whisper
+    time-to-ready, and without this line that cost is invisible (it
+    lands in the gap between "[STARTUP] Startup complete" and
+    "[MODEL] Using CUDA device").
     """
     if engine._requested_device is None:
         return
+    import time
+
+    from voice_typer.server.duration import format_duration
+
+    _t0 = time.perf_counter()
     device = engine._requested_device
     engine._requested_device = None
     engine._device, engine._compute_type = engine._resolve_device(device)
     engine._apply_auto_beam_size()
+    log.info(
+        "[MODEL] Device probe (ctranslate2 import + CUDA enum)%s",
+        format_duration(time.perf_counter() - _t0),
+    )
 
 
 # Hard ceiling on the CTranslate2 intra-op thread budget. Without a

@@ -184,7 +184,7 @@ class TestLaunchCheck:
         )
         calls: list[dict] = []
 
-        def fake_check(config, event_bus, *, trigger_download=True):
+        def fake_check(config, event_bus, *, trigger_download=True, manifest_timeout=30.0):
             calls.append({"config": config, "trigger_download": trigger_download})
             return {"success": True, "download_triggered": True}
 
@@ -205,7 +205,7 @@ class TestLaunchCheck:
         monkeypatch.setattr(offline_pack, "_publish_event", lambda bus, etype, payload: published.append(etype))
         calls: list[bool] = []
 
-        def fake_check(config, event_bus, *, trigger_download=True):
+        def fake_check(config, event_bus, *, trigger_download=True, manifest_timeout=30.0):
             calls.append(trigger_download)
             return {"success": False, "consent_required": True}
 
@@ -242,10 +242,14 @@ class TestLaunchCheck:
 
         monkeypatch.setattr(update_check, "_local_offline_pack_version", boom)
         monkeypatch.setattr(offline_pack, "_publish_event", lambda bus, etype, payload: None)
+
+        def fake_scan_failed(config, event_bus, *, trigger_download=True, manifest_timeout=30.0):
+            return {"success": False, "error": "scan failed"}
+
         monkeypatch.setattr(
             update_check,
             "check_offline_pack_update",
-            lambda config, event_bus, *, trigger_download=True: {"success": False, "error": "scan failed"},
+            fake_scan_failed,
         )
         result = startup_tasks.check_offline_pack_on_launch(SimpleNamespace(config=None))
         # The launch check itself succeeded (checked=True); the re-download
@@ -254,12 +258,32 @@ class TestLaunchCheck:
         assert result["installed_version"] is None
         assert result["update_check"]["success"] is False
 
+    def test_launch_check_uses_short_manifest_timeout(self, monkeypatch):
+        """Launch path bounds the remote fetch with ``LAUNCH_MANIFEST_TIMEOUT_S``.
+
+        The check runs on a fire-and-forget daemon thread at logon; a
+        stalled logon network must not pin it for the 30 s interactive
+        default.
+        """
+        monkeypatch.setattr(update_check, "_local_offline_pack_version", lambda: None)
+        monkeypatch.setattr(offline_pack, "_publish_event", lambda bus, etype, payload: None)
+        captured: dict = {}
+
+        def fake_check(config, event_bus, *, trigger_download=True, manifest_timeout=30.0):
+            captured["manifest_timeout"] = manifest_timeout
+            return {"success": False, "reason": "fetch_failed"}
+
+        monkeypatch.setattr(update_check, "check_offline_pack_update", fake_check)
+        result = startup_tasks.check_offline_pack_on_launch(SimpleNamespace(config=None))
+        assert captured.get("manifest_timeout") == update_check.LAUNCH_MANIFEST_TIMEOUT_S
+        assert result["checked"] is True
+
     def test_outer_guard_never_raises(self, monkeypatch):
         """Unexpected error in the re-download check → best-effort dict, no raise."""
         monkeypatch.setattr(update_check, "_local_offline_pack_version", lambda: None)
         monkeypatch.setattr(offline_pack, "_publish_event", lambda bus, etype, payload: None)
 
-        def boom(config, event_bus, *, trigger_download=True):
+        def boom(config, event_bus, *, trigger_download=True, manifest_timeout=30.0):
             raise RuntimeError("unexpected")
 
         monkeypatch.setattr(update_check, "check_offline_pack_update", boom)

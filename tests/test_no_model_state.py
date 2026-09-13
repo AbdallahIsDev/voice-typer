@@ -146,3 +146,157 @@ class TestModelManagerNoModelRefusal:
 
         assert captured, "load refusal must have run"
         assert "No model selected" in captured[0], f"refusal message must say 'No model selected', got: {captured[0]}"
+
+
+class TestNoModelTrayTerminalState:
+    """The refusal must land on the VISIBLE tooltip, not just the log.
+
+    Regression: with no model selected the tray froze at boot
+    LOADING/"Starting..." forever, even though the refusal ran. The
+    chain below (real notify + real tray + real tooltip formatter +
+    a live icon stand-in exercising the real icon-render path) proves
+    the error reaches the visible title.
+    """
+
+    def _booted_tray(self, monkeypatch):
+        """Real TrayIcon left in the post-``app.start()`` state."""
+        from unittest.mock import MagicMock
+
+        from voice_typer.server import i18n
+        from voice_typer.server.app_construction import (
+            _register_startup_i18n_fallbacks,
+        )
+        from voice_typer.server.config import Config
+        from voice_typer.server.tray import TrayIcon
+        from voice_typer.server.tray_types import AppState
+
+        _register_startup_i18n_fallbacks()
+        cfg = Config()
+        cfg.model_size = NO_MODEL_SIZE
+        cfg.asr_backend = "whisper"
+        cfg.hotkey = "<f9>"
+        tray = TrayIcon(controller=MagicMock(), config=cfg)
+        tray.set_state(AppState.LOADING, i18n.t("state.app.starting"))
+        assert tray._message == "Starting..."
+        return tray, cfg
+
+    def test_refusal_moves_tray_from_starting_to_error(self, monkeypatch):
+        """End to end (minus threads): refusal updates tray state."""
+        from voice_typer.server.model_manager import ModelManager
+        from voice_typer.server.tray_types import AppState
+
+        tray, cfg = self._booted_tray(monkeypatch)
+
+        class _App:
+            def __init__(self, config, tray):
+                self.config = config
+                self.tray = tray
+                self._shutting_down = False
+
+        class _Recorder(ModelManager):
+            def __init__(self, app):
+                self._app = app
+                self._pending_dictation = False
+
+            def _model_downloaded_precheck(self) -> bool:
+                return False
+
+        _Recorder(_App(cfg, tray)).load_background()
+
+        assert tray._state == AppState.ERROR, f"expected ERROR, got {tray._state}"
+        assert "No model selected" in tray._message, f"tray message must carry the refusal, got: {tray._message!r}"
+
+    def test_refusal_reaches_visible_tooltip_with_live_icon(self, monkeypatch):
+        """Same chain with a LIVE icon: the real icon-render path
+        (``_apply_state`` + ``_make_icon(ERROR)``) must deliver the
+        error to the visible title, not just the internal state."""
+        from voice_typer.server.model_manager import ModelManager
+        from voice_typer.server.tray_publish import compute_tooltip
+        from voice_typer.server.tray_types import AppState
+
+        tray, cfg = self._booted_tray(monkeypatch)
+
+        class _LiveIcon:
+            def __init__(self):
+                self.titles: list[str] = []
+                self._title = ""
+
+            @property
+            def title(self) -> str:
+                return self._title
+
+            @title.setter
+            def title(self, value: str) -> None:
+                self._title = value
+                self.titles.append(value)
+
+        tray._icon = _LiveIcon()
+        # Apply the queued boot state the way run()'s drain does
+        # (``_apply_state`` directly, bypassing ``set_state`` dedup),
+        # so the icon shows "Starting..." exactly like production at
+        # refusal time.
+        tray._apply_state(AppState.LOADING, "Starting...")
+        assert tray._icon.titles, "LOADING apply must write the icon title"
+        assert tray._icon.titles[-1] == "Voice Typer: Starting... (F9)"
+
+        class _App:
+            def __init__(self, config, tray):
+                self.config = config
+                self.tray = tray
+                self._shutting_down = False
+
+        class _Recorder(ModelManager):
+            def __init__(self, app):
+                self._app = app
+                self._pending_dictation = False
+
+            def _model_downloaded_precheck(self) -> bool:
+                return False
+
+        _Recorder(_App(cfg, tray)).load_background()
+
+        assert tray._state == AppState.ERROR
+        assert "No model selected" in tray._icon.titles[-1], (
+            f"visible tooltip must carry the refusal, got: {tray._icon.titles[-1]!r}"
+        )
+        # And the formatter agrees with the applied title.
+        assert compute_tooltip(tray, tray._state, tray._message) == tray._icon.titles[-1]
+
+    def test_refusal_tray_failure_is_warning_not_silent(self, monkeypatch, caplog):
+        """If the tray update inside the refusal raises, it must WARN
+        (diagnosable at INFO level), the previous DEBUG-only line left
+        stuck tooltips invisible in production logs."""
+        from unittest.mock import MagicMock
+
+        from voice_typer.server.config import Config
+        from voice_typer.server.model_manager import ModelManager
+        from voice_typer.server.tray_types import AppState
+
+        cfg = Config()
+        cfg.model_size = NO_MODEL_SIZE
+        cfg.asr_backend = "whisper"
+        tray = MagicMock()
+        tray.set_state.side_effect = RuntimeError("tray exploded")
+
+        class _App:
+            def __init__(self, config, tray):
+                self.config = config
+                self.tray = tray
+                self._shutting_down = False
+
+        class _Recorder(ModelManager):
+            def __init__(self, app):
+                self._app = app
+                self._pending_dictation = False
+
+            def _model_downloaded_precheck(self) -> bool:
+                return False
+
+        with caplog.at_level("WARNING", logger="voice_typer.server.model_manager"):
+            _Recorder(_App(cfg, tray)).load_background()
+
+        assert any("tray update for load refusal failed" in r.getMessage() for r in caplog.records), (
+            "refusal tray failure must WARN"
+        )
+        # State must be attempted as ERROR even though the write raised.
+        assert tray.set_state.call_args[0][0] == AppState.ERROR

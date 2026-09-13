@@ -239,6 +239,7 @@ class TranscribeMixin:
         self,
         audio: np.ndarray,
         audio_stats: tuple[float, float, float] | None = None,
+        local_engine: object = None,
     ) -> str:
         """Transcribe with GPU→CPU fallback on CUDA errors.
 
@@ -251,6 +252,10 @@ class TranscribeMixin:
         Emits the ``parakeet_cpu_fallback`` event (one-time per loaded
         session) so the tray can show "(CPU fallback)" status. The
         ``notification`` event surfaces a user-facing toast.
+
+        ``local_engine`` is accepted (and ignored) for signature parity
+        with the cloud engine so shared call sites can pass it
+        unconditionally: this engine already IS a local backend.
 
         Raises:
             TranscriptionBackendError: if both the GPU path and the CPU

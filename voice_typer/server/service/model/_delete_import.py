@@ -80,6 +80,7 @@ class DeleteImportMixin:
             repo_id = None
 
         if not repo_id:
+            log.warning("[SERVICE] delete_model: unknown model '%s'", model_name)
             return {"success": False, "message": f"Unknown model: {model_name}"}
 
         # Compute whether ``model_name`` is the configured active model.
@@ -103,15 +104,19 @@ class DeleteImportMixin:
             # with a clear message ( STALE-ACTIVE).
             if is_active:
                 return self._clear_stale_active_model(model_name)
+            log.info(
+                "[SERVICE] delete_model: '%s' is not downloaded, nothing to delete",
+                model_name,
+            )
             return {"success": False, "message": f"Model '{model_name}' is not downloaded."}
 
-        # Don't allow deleting the active model WHILE it's on disk —
-        # deleting an in-use model would break the running ASR backend.
+        # ACTIVE-DELETE: the configured model CAN be deleted. Unload the
+        # running engine first (the OS holds file locks on loaded
+        # weights), reassign the selection, then remove the files. The
+        # old refuse-and-switch guard dead-ended single-model users
+        # (the renderer already allows requesting it).
         if is_active:
-            return {
-                "success": False,
-                "message": "Cannot delete the active model. Switch to another model first.",
-            }
+            return self._delete_active_model(model_name, repo_id, model_dir, current_backend)
 
         try:
             shutil.rmtree(model_dir)
@@ -155,9 +160,42 @@ class DeleteImportMixin:
         delete still returns success, the files are already gone, and the
         status-cache invalidation alone guarantees the next UI poll reflects
         truth (``downloaded: false``).
+
+        Selection mechanics shared with :meth:`_delete_active_model`
+        via :meth:`_reassign_selection_away_from`, this wrapper only
+        shapes the stale-specific logs/messages.
+        """
+        updates, replacement = self._reassign_selection_away_from(model_name, context="stale")
+        if updates:
+            if updates.get("model_size") == NO_MODEL_SIZE:
+                message = f"Model '{model_name}' was not on disk, no model selected. Pick a model on the Models page."
+            else:
+                message = f"Model '{model_name}' was not on disk, switched to '{updates['model_size']}'."
+        else:
+            message = f"Model '{model_name}' was not on disk, nothing to delete."
+        log.info("[SERVICE] delete_model: %s", message)
+        return {"success": True, "message": message}
+
+    def _reassign_selection_away_from(
+        self, exclude_name: str, context: str
+    ) -> tuple[dict[str, str], ModelMetadata | None]:
+        """Move the active selection off ``exclude_name`` (shared core).
+
+        Picks the first downloaded fallback (excluding ``exclude_name``),
+        applies it via the canonical ``apply_config`` path (lock +
+        validate + setattr + save), publishes ``config_changed`` so the
+        renderer reapplies active state immediately, and invalidates the
+        model-status cache. With no fallback on disk the config enters
+        the genuine "no model selected" state (``model_size=""``).
+
+        Best-effort like the stale path always was: an ``apply_config``
+        failure is logged and yields ``({}, replacement)`` (the picked
+        fallback, if any, is still returned so callers can name it).
+        Never raises for config errors. ``context`` (``"stale"`` /
+        ``"active-delete"``) tags the log lines.
         """
         updates: dict[str, str] = {}
-        replacement = self._pick_downloaded_fallback_model(model_name)
+        replacement = self._pick_downloaded_fallback_model(exclude_name)
         if replacement is not None:
             # ``_pick_downloaded_fallback_model`` never returns a distil
             # variant (frontend active-keying mismatch), so the only
@@ -168,13 +206,10 @@ class DeleteImportMixin:
                 updates = {"asr_backend": replacement.backend, "model_size": replacement.name}
         else:
             # NO downloaded model exists to fall back to, enter the
-            # genuine "no model selected" state (``model_size=""``)
-            # instead of leaving the config pointing at a phantom
-            # model. ``NO_MODEL_SIZE`` is allowlisted for the IPC
+            # genuine "no model selected" state (``model_size=""``).
+            # ``NO_MODEL_SIZE`` is allowlisted for the IPC
             # ``set_config`` path and preserved by load-time coercion,
-            # so this writes cleanly and survives restarts. The app
-            # reports "No model selected" (tray tooltip, Models page)
-            # until the user picks a model.
+            # so this writes cleanly and survives restarts.
             updates = {"model_size": NO_MODEL_SIZE}
         try:
             # canonical config-mutation path (SEC-002 allowlisted keys,
@@ -185,27 +220,27 @@ class DeleteImportMixin:
             self._config_applier.apply_config(updates)
             if replacement is not None:
                 log.info(
-                    "[SERVICE] delete_model: stale active model '%s' cleared, switched to '%s'",
-                    model_name,
+                    "[SERVICE] delete_model: %s model '%s' cleared, switched to '%s'",
+                    context,
+                    exclude_name,
                     replacement.name,
                 )
             else:
                 log.info(
-                    "[SERVICE] delete_model: stale active model '%s' cleared, "
+                    "[SERVICE] delete_model: %s model '%s' cleared, "
                     "no other model is downloaded, entering 'no model selected' state",
-                    model_name,
+                    context,
+                    exclude_name,
                 )
         except Exception as exc:
-            # Never turn a successful delete into a failure. The files
-            # are gone; the config-clear is best-effort (the status-cache
-            # invalidation below still un-sticks the phantom state on the
-            # next poll). ``apply_config`` rolls the in-memory config back
-            # to the pre-setattr values on ``save_strict`` failure, so
-            # ``updates`` is reset, the message + ``config_changed``
-            # push below must not claim the switch happened.
+            # Best-effort: ``apply_config`` rolls the in-memory config
+            # back to the pre-setattr values on ``save_strict`` failure,
+            # so ``updates`` is reset and callers must not claim the
+            # switch happened.
             log.warning(
-                "[SERVICE] delete_model: cleared stale selection for '%s' but failed to persist config %s: %s",
-                model_name,
+                "[SERVICE] delete_model: cleared %s selection for '%s' but failed to persist config %s: %s",
+                context,
+                exclude_name,
                 updates,
                 exc,
             )
@@ -218,15 +253,95 @@ class DeleteImportMixin:
             except Exception:
                 log.debug("[SERVICE] delete_model: config_changed push failed", exc_info=True)
         self._invalidate_model_status_cache()
-        if updates:
-            if updates.get("model_size") == NO_MODEL_SIZE:
-                message = f"Model '{model_name}' was not on disk, no model selected. Pick a model on the Models page."
+        if updates.get("model_size") == NO_MODEL_SIZE:
+            # Landing in the genuine no-model state with no engine
+            # loaded: say so on the tray NOW (same verdict the boot
+            # refusal uses). Otherwise the tray keeps advertising the
+            # previous ready state and the next hotkey press fails
+            # with a confusing refusal naming a model nobody selected.
+            try:
+                from voice_typer.server.i18n import t as _t
+                from voice_typer.server.tray_types import AppState as _AppState
+
+                self._app.tray.set_state(
+                    _AppState.ERROR,
+                    _t("state.model_manager.no_model_selected"),
+                )
+            except Exception:
+                log.debug(
+                    "[SERVICE] delete_model: no-model tray update failed (non-fatal)",
+                    exc_info=True,
+                )
+        return updates, replacement
+
+    def _delete_active_model(self, model_name: str, repo_id: str, model_dir, current_backend: str) -> dict[str, object]:
+        """Delete the CONFIGURED model (ACTIVE-DELETE).
+
+        Unloads the running engine first (the OS holds file locks on
+        loaded weights), reassigns the selection via
+        :meth:`_reassign_selection_away_from`, then removes the files
+        with the same hard-delete path as inactive models.
+
+        Refused only while a dictation is in flight (cannot unload
+        mid-recording). Every outcome is logged (the old silent
+        refusal is what made failures undiagnosable).
+        """
+        import shutil
+
+        recorder = getattr(self._app, "recorder", None)
+        busy_event = getattr(self._app, "_busy_event", None)
+        in_flight = getattr(recorder, "recording", False) is True
+        if not in_flight and busy_event is not None:
+            try:
+                in_flight = not bool(busy_event.is_set())
+            except Exception:
+                in_flight = False
+        if in_flight:
+            log.info(
+                "[SERVICE] delete_model: refusing active delete of '%s' while dictation is in flight",
+                model_name,
+            )
+            return {
+                "success": False,
+                "message": "Stop the current dictation before deleting the active model.",
+            }
+        try:
+            self._app.models.unload_backend_for_delete(current_backend)
+        except Exception as exc:
+            log.warning(
+                "[SERVICE] delete_model: unload of active '%s' failed: %s",
+                model_name,
+                exc,
+            )
+            return {
+                "success": False,
+                "message": f"Could not unload '{model_name}' for deletion. Try again after stopping any dictation.",
+            }
+        updates, replacement = self._reassign_selection_away_from(model_name, context="active-delete")
+        try:
+            shutil.rmtree(model_dir)
+            log.info(
+                "[SERVICE] Model '%s' deleted (repo=%s)",
+                model_name,
+                repo_id,
+            )
+            self._invalidate_tray_model_cache("delete_model")
+            self._invalidate_model_status_cache()
+            if updates:
+                if updates.get("model_size") == NO_MODEL_SIZE:
+                    message = f"Deleted model '{model_name}', no model selected. Pick a model on the Models page."
+                else:
+                    message = f"Deleted model '{model_name}', switched to '{updates['model_size']}'."
             else:
-                message = f"Model '{model_name}' was not on disk, switched to '{updates['model_size']}'."
-        else:
-            message = f"Model '{model_name}' was not on disk, nothing to delete."
-        log.info("[SERVICE] delete_model: %s", message)
-        return {"success": True, "message": message}
+                # Selection switch did not persist (logged above), the
+                # files are still gone: report the deletion, not a
+                # switch that rolled back.
+                message = f"Deleted model '{model_name}'."
+            log.info("[SERVICE] delete_model: %s", message)
+            return {"success": True, "message": message}
+        except Exception as exc:
+            log.warning("[SERVICE] delete_model failed: %s", exc)
+            return {"success": False, "message": redact_secret(redact_url(str(exc)))}
 
     def _pick_downloaded_fallback_model(self, exclude_name: str) -> ModelMetadata | None:
         """Return metadata for the first downloaded model other than ``exclude_name``.

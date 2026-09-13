@@ -551,6 +551,7 @@ class QwenEngine:
         self,
         audio: np.ndarray,
         audio_stats: "tuple[float, float, float] | None" = None,
+        local_engine: Any = None,
     ) -> str:
         """Transcribe, delegating to :meth:`transcribe`.
 
@@ -560,6 +561,10 @@ class QwenEngine:
         are the documented fast path), so there is no device to fall
         back FROM, any exception propagates to the caller's friendly
         error path, mirroring the old non-CUDA re-raise branch.
+
+        ``local_engine`` is accepted (and ignored) for signature parity
+        with the cloud engine so shared call sites can pass it
+        unconditionally: this engine already IS a local backend.
         """
         return self.transcribe(audio, audio_stats=audio_stats)
 

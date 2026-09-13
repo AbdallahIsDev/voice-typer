@@ -297,7 +297,16 @@ def _configure_nvidia_dll_paths():
      Setting ``CUDA_VISIBLE_DEVICES=""`` here, before those imports run
     , makes them skip the GPU probe entirely (~3s vs ~22s cold) and
      keeps model loading on CPU directly.
+
+     Also defaults ``CUDA_MODULE_LOADING=LAZY`` (NVIDIA CUDA 11.7+,
+     default-on since 12.3 on Windows): defers CUDA kernel loading from
+     context init to first use, cutting cold device-enumeration time on
+     older drivers. No-op on drivers where lazy is already default.
+     ``setdefault`` so an explicit user env value always wins.
     """
+    import os
+
+    os.environ.setdefault("CUDA_MODULE_LOADING", "LAZY")
     from voice_typer.server import transcription as _t
 
     _t._nvidia_dll_paths.configure()

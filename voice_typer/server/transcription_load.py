@@ -48,7 +48,10 @@ class TranscriberProtocol(Protocol):
     def transcribe(self, audio: np.ndarray, audio_stats: tuple[float, float, float] | None = None) -> str: ...
 
     def transcribe_with_fallback(
-        self, audio: np.ndarray, audio_stats: tuple[float, float, float] | None = None
+        self,
+        audio: np.ndarray,
+        audio_stats: tuple[float, float, float] | None = None,
+        local_engine=None,
     ) -> str: ...
 
     def unload(self) -> None: ...

@@ -472,11 +472,96 @@ class TestDeleteStaleActiveModel:
             f"downloaded fallback exists, got model_size={app.config.model_size!r}"
         )
         assert app.config.asr_backend == "whisper"
+        # Tray must show the no-model error immediately (not keep
+        # advertising the previous ready state into the next hotkey).
+        from unittest.mock import ANY
 
-    def test_active_on_disk_still_refused(self, tmp_config_dir):
-        """The original guard is preserved: an active model that IS on
-        disk cannot be deleted (deleting it would break the running ASR
-        backend)."""
+        from voice_typer.server.tray_types import AppState
+
+        app.tray.set_state.assert_called_once_with(AppState.ERROR, ANY)
+        assert "No model selected" in app.tray.set_state.call_args[0][1]
+
+    def test_active_on_disk_deletes_and_switches(self, tmp_config_dir, monkeypatch):
+        """ACTIVE-DELETE: the configured model CAN be deleted. The
+        engine is unloaded first, the selection moves to the
+        downloaded fallback, then the files go (user decision: the
+        old refuse-and-switch guard dead-ended single-model users,
+        the renderer already allows requesting it)."""
+        from voice_typer.server.model_registry import get_model_metadata
+        from voice_typer.server.service import VoiceTyperService
+
+        cache_dir = self._make_cache_dir(tmp_config_dir)
+        tiny_meta = get_model_metadata("tiny")
+        assert tiny_meta is not None
+        tiny_dir = cache_dir / f"models--{tiny_meta.repo_id.replace('/', '--')}"
+        tiny_dir.mkdir(parents=True)
+        (tiny_dir / "config.json").write_text("{}")
+        fallback_meta = get_model_metadata("large-v3-turbo")
+        assert fallback_meta is not None
+        fallback_dir = cache_dir / f"models--{fallback_meta.repo_id.replace('/', '--')}"
+        fallback_dir.mkdir(parents=True)
+        # Probe stub: repo dir present → downloaded (mirrors the
+        # stale-active tests pinning selection, not probe mechanics).
+        monkeypatch.setattr(
+            "voice_typer.server.transcription_download.is_model_snapshot_complete",
+            lambda repo_id: (cache_dir / f"models--{repo_id.replace('/', '--')}").is_dir(),
+        )
+
+        app = self._make_app(model_size="tiny")
+        service = VoiceTyperService(app)
+
+        result = service.delete_model("tiny")
+        assert result["success"] is True, f"active delete must succeed, got: {result}"
+        assert "switched to" in result["message"], f"must report the switch, got: {result}"
+        # Engine was unloaded before the files went.
+        app.models.unload_backend_for_delete.assert_called_once_with("whisper")
+        # Files gone, selection moved, cache invalidated.
+        assert not tiny_dir.exists()
+        assert fallback_dir.exists()
+        assert app.config.model_size == "large-v3-turbo"
+        assert service._model_status_cache is None
+        # A fallback EXISTS: no forced no-model error on the tray (the
+        # next dictation loads it on demand).
+        for call in app.tray.set_state.call_args_list:
+            assert "No model selected" not in str(call)
+
+    def test_active_on_disk_no_fallback_enters_no_model_state(self, tmp_config_dir, monkeypatch):
+        """ACTIVE-DELETE with nothing else downloaded: files go and
+        the config enters the genuine "no model selected" state."""
+        from voice_typer.server.model_registry import NO_MODEL_SIZE, get_model_metadata
+        from voice_typer.server.service import VoiceTyperService
+
+        cache_dir = self._make_cache_dir(tmp_config_dir)
+        tiny_meta = get_model_metadata("tiny")
+        assert tiny_meta is not None
+        tiny_dir = cache_dir / f"models--{tiny_meta.repo_id.replace('/', '--')}"
+        tiny_dir.mkdir(parents=True)
+        (tiny_dir / "config.json").write_text("{}")
+        monkeypatch.setattr(
+            "voice_typer.server.transcription_download.is_model_snapshot_complete",
+            lambda repo_id: (cache_dir / f"models--{repo_id.replace('/', '--')}").is_dir(),
+        )
+
+        app = self._make_app(model_size="tiny")
+        service = VoiceTyperService(app)
+
+        result = service.delete_model("tiny")
+        assert result["success"] is True, f"active delete must succeed, got: {result}"
+        assert "no model selected" in result["message"], f"got: {result}"
+        assert not tiny_dir.exists()
+        assert app.config.model_size == NO_MODEL_SIZE
+        # Tray shows the no-model error immediately.
+        from unittest.mock import ANY
+
+        from voice_typer.server.tray_types import AppState
+
+        app.tray.set_state.assert_called_once_with(AppState.ERROR, ANY)
+        assert "No model selected" in app.tray.set_state.call_args[0][1]
+
+    def test_active_delete_refused_while_recording(self, tmp_config_dir):
+        """Unloading mid-dictation would corrupt the recording: an
+        active delete during a flight dictation is refused (with a
+        logged reason), files untouched."""
         from voice_typer.server.model_registry import get_model_metadata
         from voice_typer.server.service import VoiceTyperService
 
@@ -487,12 +572,10 @@ class TestDeleteStaleActiveModel:
         tiny_dir.mkdir(parents=True)
 
         app = self._make_app(model_size="tiny")
+        app.recorder.recording = True
         service = VoiceTyperService(app)
 
         result = service.delete_model("tiny")
         assert result["success"] is False
-        assert "Cannot delete the active model" in result["message"], (
-            f"active model on disk must still be refused, got: {result}"
-        )
-        # Files untouched.
+        assert "Stop the current dictation" in result["message"], f"got: {result}"
         assert tiny_dir.exists()

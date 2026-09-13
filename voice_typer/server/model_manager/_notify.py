@@ -64,9 +64,15 @@ class LastResortNotifyMixin:
                 ),
             )
         except Exception:
-            # A tray failure must never break the load-refusal path.
-            log.debug(
-                "[MODEL] tray notification for load refusal failed (non-fatal)",
+            # A tray failure must never break the load-refusal path,
+            # but it must stay VISIBLE: without this line a failed
+            # tray update leaves the previous tooltip ("Starting...",
+            # "Loading model...") stuck forever with only the refusal
+            # above as evidence. WARNING (not DEBUG) so the stuck
+            # state is diagnosable from an INFO-level log.
+            log.warning(
+                "[MODEL] tray update for load refusal failed (non-fatal, tray may show stale state): %s",
+                reason,
                 exc_info=True,
             )
         return reason
@@ -238,8 +244,8 @@ class LastResortNotifyMixin:
         return last is not None and now - last < self._LAST_RESORT_NOTIFY_COOLDOWN_SECS
 
     def _on_last_resort_unloaded(self, backend_name: str) -> None:
-        """Show a tray notification when ``get_active()`` falls through
-        to an unloaded last-resort backend.
+        """Show a tray notification when ``get_active()`` finds no loaded
+        backend (fail-loud None, transcription not attempted).
 
         Wired as the production ``on_last_resort`` subscriber in
         ``__init__`` (the subscriber set existed but was never wired —

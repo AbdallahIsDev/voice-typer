@@ -248,8 +248,8 @@ class TestLargeV3TurboHasCorrectMetadata:
         assert meta.speed_rating == "fast", f"expected speed_rating='fast', got {meta.speed_rating!r}"
         assert meta.accuracy_rating == "high", f"expected accuracy_rating='high', got {meta.accuracy_rating!r}"
         assert meta.is_distilled is False, "turbo is NOT a distilled variant"
-        assert meta.repo_id == "Systran/faster-whisper-large-v3-turbo", (
-            f"expected Systran/faster-whisper-large-v3-turbo, got {meta.repo_id}"
+        assert meta.repo_id == "mobiuslabsgmbh/faster-whisper-large-v3-turbo", (
+            f"expected mobiuslabsgmbh/faster-whisper-large-v3-turbo, got {meta.repo_id}"
         )
 
     def test_turbo_size_matches_model_size_mb(self):

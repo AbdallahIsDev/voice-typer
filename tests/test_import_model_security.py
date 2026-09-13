@@ -492,7 +492,7 @@ class TestImportModelSymlinkRejection:
         (clean_dir / "config.json").write_text('{"model_type": "tiny"}')
 
         # Poisoned model, should be rejected
-        poison_dir = _make_model_cache_dir(src_dir, "Systran/faster-whisper-large-v3-turbo")
+        poison_dir = _make_model_cache_dir(src_dir, "mobiuslabsgmbh/faster-whisper-large-v3-turbo")
         secret = tmp_path / "secret"
         secret.write_text("secret")
         link = poison_dir / "leaked"

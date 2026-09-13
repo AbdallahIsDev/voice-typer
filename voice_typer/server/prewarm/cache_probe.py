@@ -711,15 +711,25 @@ def _active_model_cache_dirs() -> list[Path]:
             # not an HF repo, we don't prewarm it here.
             pass
         else:
-            # Whisper backend: warm the configured model_size
+            # Whisper backend (ctranslate2 + faster-whisper): warm the
+            # configured model_size. Resolve via MODEL_REGISTRY: turbo lives
+            # under mobiuslabsgmbh, not Systran.
             if active_model_size and active_model_size not in ("parakeet", "qwen"):
-                target_repo_ids.add(f"Systran/faster-whisper-{active_model_size}")
+                try:
+                    from voice_typer.server.model_registry import get_model_metadata as _get_meta
+
+                    _meta = _get_meta(active_model_size)
+                    target_repo_ids.add(
+                        _meta.repo_id if _meta and _meta.repo_id else f"Systran/faster-whisper-{active_model_size}"
+                    )
+                except Exception:
+                    target_repo_ids.add(f"Systran/faster-whisper-{active_model_size}")
 
         # Always include the declared Whisper fallback (tiny) so the
         # AsrBackendRegistry's fallback path is warm too, UNLESS the
         # active backend is whisper with model_size=tiny (already covered).
         if not (active_backend == "whisper" and active_model_size == _WHISPER_FALLBACK_MODEL_SIZE):
-            target_repo_ids.add(f"Systran/faster-whisper-{_WHISPER_FALLBACK_MODEL_SIZE}")
+            target_repo_ids.add("Systran/faster-whisper-tiny")
 
         # Map repo IDs to cache dir paths and filter to existing ones.
         for repo_id in target_repo_ids:

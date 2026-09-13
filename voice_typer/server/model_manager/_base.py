@@ -62,12 +62,12 @@ class ModelManagerCore:
         self._sync_load_in_progress: bool = False
 
         # Wire the production last-resort subscriber: when
-        # ``registry.get_active()`` falls through to an unloaded backend
-        # (transcription would silently return empty), show a tray
-        # notification pointing the user at the Models page. Pre-fix the
-        # ``on_last_resort`` subscriber set existed but NO production
-        # subscriber was ever wired, the documented tray notification
-        # was dead code and the user got zero feedback.
+        # ``registry.get_active()`` finds no loaded backend (fail-loud
+        # None), show a tray notification pointing the user at the
+        # Models page. Pre-fix the ``on_last_resort`` subscriber set
+        # existed but NO production subscriber was ever wired, the
+        # documented tray notification was dead code and the user got
+        # zero feedback.
         self._registry.add_last_resort_subscriber(self._on_last_resort_unloaded)
 
         # Gate the event_bus publish (the renderer-toast surface) with

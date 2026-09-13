@@ -193,7 +193,9 @@ MODEL_REGISTRY: dict[str, ModelMetadata] = {
         supported_languages=None,
         description="Turbo model, near-large-v3 accuracy at 8x speed. Recommended for most users.",
         network_behavior="downloads-on-first-use-consent-gated",
-        repo_id="Systran/faster-whisper-large-v3-turbo",
+        # faster-whisper 1.2.1 _MODELS maps "large-v3-turbo"/"turbo" to
+        # mobiuslabsgmbh, NOT Systran (Systran/...-turbo does not exist).
+        repo_id="mobiuslabsgmbh/faster-whisper-large-v3-turbo",
         speed_rating="fast",
         accuracy_rating="high",
         # WER 2.1% on LibriSpeech test-clean, published benchmark
