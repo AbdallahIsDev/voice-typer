@@ -80,21 +80,29 @@ class AsrBackendRegistry(RegistryCore):
 
         OI-15: the circuit-breaker disabled gate is enforced BEFORE
         attempting to load. Pre-fix, ``load_active`` skipped the
-        ``_is_disabled`` check: ``get_active``'s last-resort branch
-        returns an unloaded backend even when that backend is in
-        ``_disabled_backends``, and ``load_active`` would then attempt
-        (and usually fail) the load, silently re-attempting the exact
+        ``_is_disabled`` check and would silently re-attempt the exact
         failure mode the breaker exists to prevent.
+
+        Resolution is BY NAME (``self.get``), deliberately NOT via
+        ``get_active()``: ``get_active`` is the transcription-time
+        readiness selector (fail-loud None when only unloaded remains),
+        while ``load_active``'s whole job is loading an UNLOADED
+        backend (cold boot, model switch, reload-after-idle-unload).
+        Routing the loader through the readiness filter bricked every
+        load path (``get_active`` returned None, so ``load_active``
+        returned "no active backend to load" without ever calling
+        ``backend.load()``). Name-based resolution also loads the
+        CONFIGURED backend rather than a whisper fallback.
         """
         _cb = progress_callback or (lambda msg: None)
-        # OI-15: the _is_disabled gate must come BEFORE get_active().
+        # OI-15: the _is_disabled gate must come BEFORE backend resolution.
         if self._is_disabled(self.active_name):
             log.warning(
                 "[ASR_REGISTRY] active backend %s is disabled, refusing to load (OI-15)",
                 self.active_name,
             )
             return None
-        backend = self.get_active()
+        backend = self.get(self.active_name)
         if backend is None:
             log.warning("[ASR_REGISTRY] no active backend to load")
             return None

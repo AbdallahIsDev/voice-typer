@@ -46,8 +46,8 @@ These tests verify:
   - The latch resets on recovery so a re-fallback re-notifies.
   - The event_bus event is published with the correct payload.
   - A subscriber that raises does NOT block the others (defence in depth).
-  - The return value of get_active() is unchanged (still returns the
-    last-resort backend, preserves the existing return contract).
+  - The return value of get_active() is fail-loud (returns None when
+    only an unloaded backend remains, never silently serves unloaded).
   - The add/remove subscriber API and the backward-compatible property
     setter both work.
   - The WARNING log fires ONCE per transition; repeats are DEBUG.
@@ -122,8 +122,8 @@ class TestLastResortNotificationFires:
 
         result = registry.get_active()
 
-        # Return contract preserved ( fix is ADDITIVE):
-        assert result is primary, "get_active() must still return the last-resort backend (return contract unchanged)."
+        # Fail-loud: unloaded last-resort returns None (never serve unloaded).
+        assert result is None, "get_active() must return None when only an unloaded backend remains (fail-loud)."
         # The notification must fire:
         assert notifications == ["parakeet"], (
             "on_last_resort subscriber must fire with the "
@@ -186,7 +186,7 @@ class TestLastResortNotificationFires:
         registry.add_last_resort_subscriber(lambda name: notifications.append(name))
 
         result = registry.get_active()
-        assert result is whisper
+        assert result is None, "fail-loud: unloaded last-resort returns None"
         assert notifications == ["qwen"], (
             "subscriber must receive the configured backend "
             "name (matches the WARNING log), not the actual returned "
@@ -439,7 +439,7 @@ class TestLastResortSubscriberDefenceInDepth:
         with caplog.at_level("WARNING"):
             result = registry.get_active()
 
-        assert result is not None, "return contract preserved"
+        assert result is None, "fail-loud: unloaded last-resort returns None even when a subscriber raises"
         assert notifications == ["parakeet"], (
             f"a buggy subscriber must NOT block the others, the good subscriber must still fire. Got {notifications!r}."
         )
@@ -453,9 +453,9 @@ class TestLastResortSubscriberDefenceInDepth:
 
     def test_event_bus_publish_exception_does_not_break_get_active(self, monkeypatch):
         """If ``event_bus.publish`` raises, ``get_active`` must still
-        return the last-resort backend (return contract preserved) and
-        the per-registry subscriber must still have fired (defence in
-        depth, the two notification paths are independent)."""
+        return None fail-loud and the per-registry subscriber must still
+        have fired (defence in depth, the two notification paths are
+        independent)."""
         registry, _ = _make_registry_with_only_unloaded_primary()
 
         def boom_publish(_msg: dict) -> bool:
@@ -469,9 +469,7 @@ class TestLastResortSubscriberDefenceInDepth:
         # Must not raise.
         result = registry.get_active()
 
-        assert result is not None, (
-            "get_active() must still return the last-resort backend even if event_bus.publish raises."
-        )
+        assert result is None, "get_active() must return None fail-loud even if event_bus.publish raises."
         assert notifications == ["parakeet"], (
             "per-registry subscriber must fire INDEPENDENTLY of "
             "the event_bus publish (the two paths are wrapped in separate "
@@ -505,8 +503,8 @@ class TestLastResortEventGate:
         registry.set_last_resort_event_gate(lambda name: True)
         result = registry.get_active()
 
-        # Return contract preserved (the fix is additive).
-        assert result is not None, "get_active() must still return the last-resort backend"
+        # Fail-loud preserved (the gate only suppresses the alert fan-out).
+        assert result is None, "get_active() must return None fail-loud when only unloaded remains"
         assert notifications == [], f"a suppressing gate must skip the subscriber fan-out, got {notifications!r}"
         assert not any(e.get("type") == "asr_last_resort_unloaded" for e in published), (
             f"a suppressing gate must skip the event_bus publish. Got {published!r}."
@@ -629,7 +627,7 @@ class TestLastResortEventGate:
         with caplog.at_level("WARNING"):
             result = registry.get_active()
 
-        assert result is not None, "return contract preserved"
+        assert result is None, "fail-loud preserved"
         assert notifications == ["parakeet"], "a raising gate must fail open, subscribers must still fire"
         assert any(e.get("type") == "asr_last_resort_unloaded" for e in published), (
             "a raising gate must fail open, the event_bus publish must still fire"
@@ -816,7 +814,7 @@ class TestBackendDisabledEventGate:
 
         result = registry.get_active()
 
-        assert result is not None, "get_active() must still return the last-resort backend"
+        assert result is None, "fail-loud: get_active() returns None when only unloaded remains"
         assert notifications == ["parakeet"], (
             "the backend-disabled gate must NOT suppress the last-resort "
             f"subscriber fan-out (scope boundary). Got {notifications!r}."
@@ -884,30 +882,26 @@ class TestLastResortSubscriberApi:
 
 
 class TestLastResortReturnContractPreserved:
-    """the fix is ADDITIVE, it adds a notification, it must
-    NOT change ``get_active()``'s return value (callers that check
-    ``is_loaded`` rely on the existing return contract)."""
+    """the notification is ADDITIVE and the fail-loud return (None when
+    only unloaded remains) is preserved, callers take their not-ready
+    path instead of transcribing empty on an unloaded engine."""
 
-    def test_get_active_still_returns_last_resort_backend_when_unloaded(self):
-        """The last-resort branch must still return the unloaded backend
-        (the existing return contract), the notification is fired IN
-        ADDITION, not instead."""
+    def test_get_active_returns_none_when_last_resort_unloaded(self):
+        """The last-resort branch returns None fail-loud (never serves
+        unloaded), the notification fires IN ADDITION."""
         registry, primary = _make_registry_with_only_unloaded_primary()
 
-        # Add a subscriber (the  fix):
+        # Add a subscriber (the fix):
         registry.add_last_resort_subscriber(lambda name: None)
 
         result = registry.get_active()
 
-        assert result is primary, (
-            "get_active() must still return the last-resort "
-            "backend (return contract unchanged). Pre-fix behavior: "
-            "callers like active_transcriber() rely on the backend "
-            "reference even when is_loaded=False so they can call "
-            "backend.transcribe_with_fallback(...) (which silently "
-            "returns empty)."
+        assert result is None, (
+            "get_active() must return None when only an unloaded backend "
+            "remains (fail-loud). Callers take their not-ready path "
+            "(toggle re-triggers load, pipeline raises BackendNotLoadedError)."
         )
-        assert not primary.is_loaded, "Sanity: the returned backend IS unloaded (the trigger condition)."
+        assert not primary.is_loaded, "Sanity: the unloaded backend IS unloaded (the trigger condition)."
 
     def test_get_active_still_returns_none_when_no_backends_registered(self):
         """If no backends are registered at all, ``get_active`` returns
@@ -944,7 +938,7 @@ class TestLastResortWarningLogOncePerTransition:
 
     @staticmethod
     def _records(caplog) -> list:
-        return [r for r in caplog.records if "unloaded backend" in r.getMessage()]
+        return [r for r in caplog.records if "last-resort" in r.getMessage()]
 
     def test_warning_fires_once_for_repeated_calls(self, caplog):
         """10 consecutive ``get_active()`` calls while the backend is

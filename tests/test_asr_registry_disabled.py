@@ -278,17 +278,28 @@ class TestLoadActiveDisabledGateSource:
         )
 
     def test_load_active_gate_before_get_active(self):
-        """The ``_is_disabled`` gate must come BEFORE ``get_active`` —
-        otherwise a successful ``get_active`` + ``backend.load`` would
-        run before the gate fires, defeating the purpose."""
+        """The ``_is_disabled`` gate must come BEFORE backend resolution —
+        otherwise a successful resolution + ``backend.load`` would run
+        before the gate fires, defeating the purpose. Resolution is by
+        NAME (``self.get(``): ``load_active`` must NOT route through
+        ``get_active()`` — that is the transcription-time readiness
+        selector (fail-loud None when only unloaded remains), and using
+        it here bricked every load path (cold boot, model switch,
+        reload-after-idle-unload returned None without calling
+        ``backend.load()``)."""
         src = inspect.getsource(AsrBackendRegistry.load_active)
         gate_idx = src.find("_is_disabled")
-        get_active_idx = src.find("self.get_active()")
-        assert gate_idx != -1 and get_active_idx != -1, (
-            "OI-15: load_active must contain both _is_disabled and self.get_active(), one is missing."
+        resolve_idx = src.find("self.get(")
+        assert gate_idx != -1 and resolve_idx != -1, (
+            "OI-15: load_active must contain both _is_disabled and self.get(, one is missing."
         )
-        assert gate_idx < get_active_idx, (
-            "OI-15: the _is_disabled gate must come BEFORE self.get_active() "
-            "in load_active. If get_active runs first, a successful "
-            "backend.load() would execute before the gate fires."
+        assert "self.get_active()" not in src, (
+            "load_active must resolve the backend by name (self.get), not "
+            "via the get_active() readiness filter (fail-loud None for "
+            "unloaded backends would brick every load path)."
+        )
+        assert gate_idx < resolve_idx, (
+            "OI-15: the _is_disabled gate must come BEFORE backend "
+            "resolution in load_active. If resolution runs first, a "
+            "successful backend.load() would execute before the gate fires."
         )

@@ -153,12 +153,9 @@ class RegistryCore:
         return getattr(backend, "is_loaded", True)
 
     def get_active(self) -> AsrBackend | None:
-        """Return the active backend for ``config.asr_backend``: the ready
-        configured backend, else whisper, else the first registered
-        backend (last resort, an unloaded one triggers a one-shot
-        ``on_last_resort`` tray notification, latch reset when a ready
-        backend returns, and an ``asr_last_resort_unloaded`` event on
-        ``event_bus``).
+        """Return the ready configured backend, else whisper, else None
+        fail-loud when only unloaded remains (one-shot notification +
+        event still fire, latch resets on recovery).
         """
         name = getattr(self._config, "asr_backend", "whisper")
         notify_last_resort = False
@@ -179,16 +176,16 @@ class RegistryCore:
                 for b in list(self._backends.values()):
                     if b is not None:
                         if not self._is_ready(b):
-                            # One-shot latch: WARNING once per
-                            # last-resort transition, DEBUG repeats
-                            # (15s get_status probe would flood log).
+                            # Fail-loud: None so callers take not-ready
+                            # path (toggle reloads, pipeline raises).
+                            # Latch: WARNING once, DEBUG repeats.
                             first = self._breaker.should_notify_last_resort()
                             if first:
                                 notify_last_resort = True
                                 log.warning(
-                                    "[ASR_REGISTRY] returning unloaded backend %s "
-                                    "(is_loaded=False) as last-resort active, "
-                                    "transcription may return empty silently",
+                                    "[ASR_REGISTRY] no loaded backend available "
+                                    "(last-resort %s is_loaded=False), "
+                                    "returning None, transcription not attempted",
                                     name,
                                 )
                             else:
@@ -196,6 +193,7 @@ class RegistryCore:
                                     "[ASR_REGISTRY] unloaded backend %s last-resort (repeat)",
                                     name,
                                 )
+                            return None
                         return b
             return None
         finally:
@@ -383,7 +381,8 @@ class RegistryCore:
         backend (default: the active one); all other args/kwargs are
         forwarded unchanged. Returns the transcript (possibly empty); if
         the named backend is not registered, logs a warning and returns
-        "" (``get_active``'s silent-empty contract).
+        "" (fail-loud at the selection layer: ``get_active`` returns
+        None when no loaded backend remains).
         """
         target = name if name is not None else self.active_name
         with self._lock:
