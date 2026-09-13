@@ -21,7 +21,9 @@ __all__ = ["patch_config_dir_refs", "FakeConfig"]
 def patch_config_dir_refs(monkeypatch, path: Path) -> None:
     """Redirect every ``_config_dir`` binding to *path* for one test.
 
-    Patches all three known bindings:
+    Patches all six known bindings (every module-load-time
+    ``from ... import _config_dir`` in ``voice_typer/`` plus the two
+    lazy-resolver attributes):
 
     - ``voice_typer.server.config._config_dir``, the canonical accessor;
       app.py routes its internal calls through ``_resolve_config_dir()``
@@ -33,7 +35,22 @@ def patch_config_dir_refs(monkeypatch, path: Path) -> None:
     - ``voice_typer.server._paths._config_dir``, the lazy resolver's
       memoized callable (once a previous test has triggered resolution,
       this attribute pins the REAL function and silently ignores the
-      canonical-name patch).
+      canonical-name patch);
+    - ``voice_typer.server.config_internals.paths._config_dir``, the
+      lru_cached implementation itself. Long-lived ``from ... import``
+      bindings taken at module load (e.g. ``logging_setup``,
+      ``startup_sequence._phases_early``) and call sites importing
+      from this module directly (e.g.
+      ``level_monitor.test_recording``) bypass the three patches
+      above; without this patch those paths resolve (and WRITE) to
+      the real user profile;
+    - ``voice_typer.server.startup_sequence._phases_early._config_dir``
+      and ``voice_typer.server.logging_setup._config_dir``, the two
+      remaining module-load-time ``from config import _config_dir``
+      bindings (verified by scanning ``voice_typer/`` for top-level
+      imports; every other call site imports at call time inside the
+      function body and therefore observes the patched canonical
+      attribute).
 
     Works with both ``monkeypatch`` fixtures and manual
     ``pytest.MonkeyPatch`` instances.
@@ -43,6 +60,15 @@ def patch_config_dir_refs(monkeypatch, path: Path) -> None:
     import voice_typer.server._paths as _paths_mod
 
     monkeypatch.setattr(_paths_mod, "_config_dir", lambda: path)
+    import voice_typer.server.config_internals.paths as _paths_impl_mod
+
+    monkeypatch.setattr(_paths_impl_mod, "_config_dir", lambda: path)
+    import voice_typer.server.logging_setup as _logging_setup_mod
+
+    monkeypatch.setattr(_logging_setup_mod, "_config_dir", lambda: path)
+    import voice_typer.server.startup_sequence._phases_early as _phases_early_mod
+
+    monkeypatch.setattr(_phases_early_mod, "_config_dir", lambda: path)
 
 
 class FakeConfig:

@@ -231,6 +231,13 @@ def pytest_configure(config):
         "markers",
         "slow: marks tests as slow (deselect with '-m \"not slow\"')",
     )
+    config.addinivalue_line(
+        "markers",
+        "real_config_dir: opt out of the per-test user-config-dir "
+        "isolation (use the real _config_dir resolution). Only for "
+        "tests that assert the resolver's own behavior (caching, "
+        "platform paths, env overrides).",
+    )
 
     # Register + load a project-wide hypothesis profile with
     # ``deadline=None``. See the docstring above for the full rationale.
@@ -1215,6 +1222,56 @@ def tmp_config_dir(tmp_path, monkeypatch):
 
     patch_config_dir_refs(monkeypatch, tmp_path)
     return tmp_path
+
+
+@pytest.fixture(autouse=True)
+def _isolate_user_config_dir(tmp_path, monkeypatch, request):
+    """Redirect EVERY test's config dir to a per-test tmp dir.
+
+    Regression guard for real-user ``config.json`` corruption: tests
+    that build a real ``Config`` and call ``save()`` without requesting
+    the ``tmp_config_dir`` fixture (e.g. the onboarding-apply suite
+    with hotkey ``<f9>`` / mic ``mic-42``) wrote straight into the
+    developer's live profile (``~/.voice-typer/config.json``),
+    permanently overwriting their hotkey, microphone, and consents.
+    No test may touch the real profile: this fixture extends the
+    ``tmp_config_dir`` redirection to the whole suite.
+
+    Mechanism (all reverted automatically after each test):
+    1. ``VOICE_TYPER_CONFIG_DIR`` env var → ``tmp_path`` (backstop for
+       any binding this fixture doesn't patch, e.g. module-load-time
+       ``from ... import _config_dir`` references and subprocess env
+       inheritance). Best-effort: SEC-005 validation may reject
+       paths outside ``Path.home()`` (Linux ``/tmp``), the setattr
+       patches below are the primary isolation.
+    2. :func:`tests.fixtures.config_helpers.patch_config_dir_refs`
+       (``config`` + ``app`` + ``_paths`` + ``config_internals.paths``
+       bindings).
+    3. ``_reset_config_dir_cache()`` before AND after (the real
+       ``_config_dir`` is ``lru_cache``d per worker process; a stale
+       entry would otherwise leak one test's resolution into the
+       next). The original function object is captured BEFORE
+       patching so teardown resets the real cache even though the
+       module attr is a lambda at that point.
+
+    Opt-out: ``@pytest.mark.real_config_dir`` (registered in
+    ``pytest_configure`` above) skips isolation for tests that assert
+    the resolver's own behavior (``test_config_dir_cache.py`` and
+    friends). Those tests only resolve paths, they never write.
+    """
+    if request.node.get_closest_marker("real_config_dir"):
+        yield
+        return
+    from voice_typer.server.config_internals import paths as _paths_impl
+
+    _real_config_dir = _paths_impl._config_dir
+    monkeypatch.setenv("VOICE_TYPER_CONFIG_DIR", str(tmp_path))
+    from tests.fixtures.config_helpers import patch_config_dir_refs
+
+    patch_config_dir_refs(monkeypatch, tmp_path)
+    _real_config_dir.cache_clear()
+    yield
+    _real_config_dir.cache_clear()
 
 
 @pytest.fixture

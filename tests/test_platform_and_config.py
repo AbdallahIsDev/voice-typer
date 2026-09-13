@@ -397,7 +397,13 @@ class TestConsoleHandlerPythonw:
 
 
 class TestConfigDirIsPlatformAware:
-    """_config_dir() uses platform-aware paths."""
+    """_config_dir() uses platform-aware paths.
+
+    Opted out of per-test config-dir isolation: these tests inspect
+    the REAL resolver's source. They never write.
+    """
+
+    pytestmark = pytest.mark.real_config_dir
 
     def test_config_dir_checks_platform(self):
         from voice_typer.server.config import _config_dir

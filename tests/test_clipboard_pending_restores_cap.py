@@ -172,6 +172,11 @@ class TestPendingRestoresCapForceRestore:
             patch.object(clip_mod, "_is_elevated_target", return_value=False),
             patch.object(clip_mod, "_paste_from_clipboard", return_value="new"),
             patch.object(sys.modules["threading"], "Thread") as mock_thread_cls,
+            # Isolate the cap-overflow logic from keystroke dispatch:
+            # paste() now rolls the entry back when dispatch fails, so
+            # drive a successful dispatch here (the daemon Thread is
+            # stubbed, the entry stays for the assertions below).
+            patch.object(cm, "_dispatch_keystroke", return_value=True),
         ):
             mock_time.monotonic = MagicMock(return_value=100.0)
             mock_time.sleep = MagicMock()
@@ -236,6 +241,11 @@ class TestPendingRestoresCapForceRestore:
             patch.object(clip_mod, "_is_elevated_target", return_value=False),
             patch.object(clip_mod, "_paste_from_clipboard", return_value="new"),
             patch.object(sys.modules["threading"], "Thread") as mock_thread_cls,
+            # Isolate the cap-overflow logic from keystroke dispatch:
+            # paste() now rolls the entry back when dispatch fails, so
+            # drive a successful dispatch here (the daemon Thread is
+            # stubbed, the entry stays for the assertions below).
+            patch.object(cm, "_dispatch_keystroke", return_value=True),
         ):
             mock_time.monotonic = MagicMock(return_value=100.0)
             mock_time.sleep = MagicMock()
@@ -288,6 +298,11 @@ class TestPendingRestoresCapForceRestore:
             patch.object(clip_mod, "_is_elevated_target", return_value=False),
             patch.object(clip_mod, "_paste_from_clipboard", return_value="new"),
             patch.object(sys.modules["threading"], "Thread") as mock_thread_cls,
+            # Isolate the cap-overflow logic from keystroke dispatch:
+            # paste() now rolls the entry back when dispatch fails, so
+            # drive a successful dispatch here (the daemon Thread is
+            # stubbed, the entry stays for the assertions below).
+            patch.object(cm, "_dispatch_keystroke", return_value=True),
         ):
             mock_time.monotonic = MagicMock(return_value=100.0)
             mock_time.sleep = MagicMock()

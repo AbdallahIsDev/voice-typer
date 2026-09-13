@@ -432,6 +432,7 @@ class TestWindowsPathMigrationCoverage:
         (legacy_dir / "config.json").write_text('{"test": true}')
         assert not target.exists()
 
+    @pytest.mark.real_config_dir  # inspects the REAL resolver's source; never writes
     def test_config_dir_uses_platform_paths(self):
         """_config_dir must check VOICE_TYPER_CONFIG_DIR env var first,
         then fall back to platform-specific paths.

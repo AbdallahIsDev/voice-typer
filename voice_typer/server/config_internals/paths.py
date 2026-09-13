@@ -508,7 +508,13 @@ def _reset_config_dir_cache() -> None:
         Mirrors :func:`voice_typer.server.credential_store._reset_keyring_cache`
     so the two caches share the same reset convention ().
     """
-    _config_dir.cache_clear()
+    # ``_config_dir`` may currently be patched by tests (the per-test
+    # config-dir isolation replaces it with a plain lambda, which has
+    # no ``cache_clear``). There is no live cache to clear in that
+    # state; the real cache is reset by the fixture teardown via its
+    # saved reference to the original function.
+    with contextlib.suppress(AttributeError):
+        _config_dir.cache_clear()
 
 
 def _migrate_from_legacy():

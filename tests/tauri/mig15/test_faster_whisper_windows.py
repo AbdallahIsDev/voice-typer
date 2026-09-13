@@ -237,6 +237,7 @@ def test_build_script_handles_ct2_libs_plural_guarded():
 
 
 # ─── Tests: model path resolves to %APPDATA%\voice-typer\models ──────────────
+@pytest.mark.real_config_dir  # asserts the REAL resolver (APPDATA branch); resolves paths only, never writes
 def test_model_path_resolves_to_appdata_on_windows(monkeypatch, tmp_path):
     """The model download path MUST resolve to
     ``%APPDATA%\\voice-typer\\models`` on Windows.

@@ -55,7 +55,7 @@ def app_for_onboarding(tmp_path, monkeypatch):
     from voice_typer.server import config as _config_mod
     from voice_typer.server.startup_sequence import _phases_early as _startup_early
 
-    _config_mod._config_dir.cache_clear()
+    _config_mod._reset_config_dir_cache()
     monkeypatch.setattr(_config_mod, "_config_dir", lambda: tmp_path)
     monkeypatch.setattr(_startup_early, "_config_dir", lambda: tmp_path)
 

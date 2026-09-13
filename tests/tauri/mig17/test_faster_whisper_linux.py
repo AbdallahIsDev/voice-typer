@@ -314,6 +314,7 @@ def test_build_script_includes_ct2_libs_plural_layout_guarded():
 
 
 # ─── Tests: model path resolves to ~/.local/share/voice-typer/models ──────────
+@pytest.mark.real_config_dir  # asserts the REAL resolver (XDG branch); resolves paths only, never writes
 def test_model_path_resolves_to_xdg_data_home_on_linux(monkeypatch, tmp_path):
     """The model download path MUST resolve to
     ``~/.local/share/voice-typer/models`` on Linux.

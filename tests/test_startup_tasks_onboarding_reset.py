@@ -35,7 +35,7 @@ def _patch_config_dir(tmp_path: Path, monkeypatch) -> None:
     """
     from voice_typer.server import config as _config_mod
 
-    _config_mod._config_dir.cache_clear()
+    _config_mod._reset_config_dir_cache()
     monkeypatch.setattr(_config_mod, "_config_dir", lambda: tmp_path)
 
 

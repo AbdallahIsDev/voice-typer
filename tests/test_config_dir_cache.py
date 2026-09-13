@@ -43,6 +43,12 @@ from pathlib import Path
 import pytest
 from voice_typer.server import config
 
+# Opt out of the suite-wide per-test config-dir isolation: every test
+# in this file asserts the REAL ``_config_dir`` resolver's own
+# behavior (lru_cache API, staleness, env re-resolution). The tests
+# only resolve paths, they never write, so the real profile is safe.
+pytestmark = pytest.mark.real_config_dir
+
 
 @pytest.fixture(autouse=True)
 def _reset_cache_around_each_test():

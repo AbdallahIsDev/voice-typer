@@ -273,6 +273,7 @@ def test_build_script_includes_ct2_libs_plural_layout_guarded():
 
 
 # ─── Tests: model path resolves to ~/Library/Application Support/voice-typer/models ──
+@pytest.mark.real_config_dir  # asserts the REAL resolver (macOS branch); resolves paths only, never writes
 def test_model_path_resolves_to_library_application_support_on_macos(monkeypatch):
     """The model download path MUST resolve to
     ``~/Library/Application Support/voice-typer/models`` on macOS.
