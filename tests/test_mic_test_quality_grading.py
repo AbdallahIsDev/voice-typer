@@ -323,6 +323,51 @@ class TestTranscriptionExceptionMarker:
         assert result["transcription_reason"] == "transcription_failed"
         assert "transcription" not in result
 
+    def test_engine_failure_marks_transcription_unavailable(self, monkeypatch, tmp_path):
+        """A throwing engine (inner except path) must set the same honest
+        marker as the setup-failure path instead of omitting the line."""
+        import wave
+        from types import SimpleNamespace
+        from typing import Any, cast
+
+        import numpy as np
+        from voice_typer.server import level_monitor
+        from voice_typer.server.service.microphone_test import MicrophoneTestMixin
+
+        good = tmp_path / "test-filtered.wav"
+        with wave.open(str(good), "wb") as wf:
+            wf.setnchannels(1)
+            wf.setsampwidth(2)
+            wf.setframerate(16000)
+            wf.writeframes((np.zeros(1600, dtype=np.float32) * 32767).astype(np.int16).tobytes())
+        monkeypatch.setattr(
+            level_monitor,
+            "stop_test_recording",
+            lambda: {
+                "success": True,
+                "audio_file": {"path": str(good), "bytes": good.stat().st_size},
+            },
+        )
+
+        class _BoomEngine:
+            is_loaded = True
+
+            def transcribe(self, _audio):
+                raise RuntimeError("engine exploded")
+
+        mixin = MicrophoneTestMixin()
+        mixin._app = cast(
+            Any,
+            SimpleNamespace(models=SimpleNamespace(active_transcriber=lambda: _BoomEngine())),
+        )
+
+        result = mixin.microphone_test_stop()
+
+        assert result["success"] is True
+        assert result["transcription_unavailable"] is True
+        assert result["transcription_reason"] == "transcription_failed"
+        assert "transcription" not in result
+
 
 class TestWordingAlignment:
     def test_handler_docstring_caps_test_at_30s(self):

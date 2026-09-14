@@ -202,6 +202,11 @@ class MicrophoneTestMixin(ServiceMixinBase):
                                 log.debug("[SERVICE] Test transcription: no speech detected")
                         except Exception as tx_err:
                             log.debug("[SERVICE] Test transcription failed: %s", tx_err)
+                            # Engine threw mid-transcription: the recording
+                            # is non-transcribable, say so explicitly
+                            # (same honesty contract as the outer except).
+                            result.setdefault("transcription_unavailable", True)
+                            result["transcription_reason"] = "transcription_failed"
                     else:
                         log.debug("[SERVICE] Active engine not loaded, skipping transcription")
                         # Phase 2d degradation matrix (§8.10): the mic

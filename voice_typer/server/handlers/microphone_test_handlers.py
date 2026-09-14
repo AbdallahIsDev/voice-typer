@@ -25,8 +25,9 @@ class MicrophoneTestHandlersMixin(HandlerBase):
 
     ``_handle_microphone_test_start`` enforces
         ``voice_biometric_consent`` BEFORE capturing any test audio. The mic
-        test records up to 30s of audio and returns base64-encoded WAV over
-        IPC, the same privacy contract as dictation
+        test records up to 30s of audio and returns file refs plus chunked
+        reads over IPC (never inline base64), the same privacy contract
+        as dictation
         (``recording_controller.py:248-263``). Without this gate, a
         renderer-side bug or compromised renderer could trigger a test
         recording and exfiltrate up to 30s of biometric voice data without
@@ -58,7 +59,8 @@ class MicrophoneTestHandlersMixin(HandlerBase):
         def body(d: dict) -> dict:
             # enforce voice_biometric_consent BEFORE
             # capturing any test audio. The mic test returns up to 30s
-            # of base64-encoded WAV over IPC, same privacy contract
+            # of audio via file refs + chunked reads (never inline
+            # base64), same privacy contract
             # as dictation (recording_controller.py:248-263). We raise
             # ConsentRequiredError rather than building the envelope
             # inline so the existing _respond_with_error path maps it
