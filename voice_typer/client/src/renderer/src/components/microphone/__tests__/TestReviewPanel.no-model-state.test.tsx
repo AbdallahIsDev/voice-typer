@@ -86,7 +86,7 @@ function renderNoModelPanel() {
 			quality={qualityData}
 			transcription={null}
 			transcriptionUnavailable={true}
-			testAudioBase64="data:audio/wav;base64,AAAA"
+			testAudioBase64="AAAA"
 			rawAudioBase64={null}
 			playing={false}
 			playingOriginal={false}
@@ -136,7 +136,7 @@ describe("TestReviewPanel no-model state renders translated text (never a raw ke
 				quality={{ ...qualityData, estimated_transcription_quality: 72 }}
 				transcription="hello world"
 				transcriptionUnavailable={false}
-				testAudioBase64="data:audio/wav;base64,AAAA"
+				testAudioBase64="AAAA"
 				rawAudioBase64={null}
 				playing={false}
 				playingOriginal={false}

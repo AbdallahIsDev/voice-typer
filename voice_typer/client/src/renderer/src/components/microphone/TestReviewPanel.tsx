@@ -171,7 +171,6 @@ export function TestReviewPanel({
 			    no tint. Spacing is parent gap only (C-UI-10). */}
 			{/* Header */}
 			<div className="flex items-center justify-between">
-				{" "}
 				<div>
 					<p className="text-sm font-semibold text-(--text-primary)">
 						{t("microphoneTest.title")}
@@ -258,7 +257,7 @@ export function TestReviewPanel({
 										: quality.estimated_transcription_quality >= 50
 											? "text-warning"
 											: "text-destructive"
-								} }`}
+								}`}
 							>
 								{quality.estimated_transcription_quality}%
 							</span>
@@ -274,12 +273,19 @@ export function TestReviewPanel({
 
 					{/* Detected issues */}
 					{quality.detected_issues.length > 0 && (
-						<div className="flex flex-col gap-1 text-xs text-(--text-muted)">
+						<div
+							className="flex flex-col gap-1 text-xs text-(--text-muted)"
+							aria-live="polite"
+							aria-atomic="true"
+						>
 							<output
 								className="font-medium text-warning"
 								// BG-71: detected issues are a status
 								// update, <output> (role=status)
 								// announces them without stealing focus.
+								// The rows below sit inside this polite
+								// atomic region so SR hears the issue
+								// text, not just the heading.
 							>
 								{t("microphoneTest.detectedIssues")}
 							</output>
