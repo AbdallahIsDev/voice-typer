@@ -1062,7 +1062,7 @@
 		"startTestFailed": "Impossible de démarrer le test du microphone",
 		"recorded": "{seconds}s enregistrés",
 		"noAudio": "Aucun audio détecté.",
-		"tryDefaultMic": " Essayez le microphone par défaut.",
+		"tryDefaultMic": "Essayez le microphone par défaut.",
 		"testFailed": "Échec du test",
 		"stopTestFailed": "Impossible d'arrêter le test du microphone",
 		"playbackFailed": "Impossible de lire l'enregistrement de test.",

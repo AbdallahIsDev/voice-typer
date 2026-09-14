@@ -204,7 +204,7 @@ export function ActiveMicrophoneCard({
                                     would duplicate the value AND spam AT at up to 30 Hz
                                     (the ``mic_level`` push rate). */}
 				<span
-					className="text-xs text-(--text-muted) ml-auto"
+					className="text-xs text-(--text-muted) ms-auto"
 					aria-hidden={true}
 				>
 					{testRunning

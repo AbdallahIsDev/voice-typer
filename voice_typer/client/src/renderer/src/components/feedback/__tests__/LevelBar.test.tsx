@@ -14,11 +14,7 @@
 import { cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import {
-	FILL_CLIPPING_LEVEL,
-	getFillColorTier,
-	LevelBar,
-} from "@/components/feedback/LevelBar";
+import { LevelBar } from "@/components/feedback/LevelBar";
 
 vi.mock("@/i18n/i18n", () => ({
 	t: (key: string) => key,
@@ -129,22 +125,18 @@ describe("LevelBar, compositor-friendly scaleX fill", () => {
 		expect(cls).not.toContain("duration-75");
 	});
 
-	it("colours the fill primary below clipping, destructive red above 90%", () => {
-		// Below the clipping onset → primary (token, not hardcoded).
-		// Note 0.85 announces "loud" but still paints blue, paint
-		// bands intentionally differ from announcement bands.
-		for (const lvl of [0.2, 0.6, 0.85, 0.9]) {
+	it("keeps the fill solid primary at every level, never destructive", () => {
+		// Fill is solid primary; clipping is signaled via the warning
+		// glyph + aria tier text, not fill colour. Note 0.85 announces
+		// "loud" but still paints primary, paint intentionally does
+		// not track announcement bands.
+		for (const lvl of [0.2, 0.6, 0.85, 0.9, 0.95, 1]) {
 			render(<LevelBar level={lvl} playing={false} />);
 			const cls = getFill().className;
 			expect(cls).toContain("bg-primary");
 			expect(cls).not.toContain("bg-destructive");
 			cleanup();
 		}
-		// Above 90% → destructive token.
-		render(<LevelBar level={0.95} playing={false} />);
-		const cls = getFill().className;
-		expect(cls).toContain("bg-destructive");
-		expect(cls).not.toContain("bg-primary");
 	});
 
 	it("never sets an inline backgroundColor on the fill", () => {
@@ -205,14 +197,15 @@ describe("LevelBar, neutral borderless track", () => {
 	});
 });
 
-describe("LevelBar, getFillColorTier thresholds", () => {
-	it("maps 0.9 and below to normal, above 0.9 to clipping", () => {
-		expect(getFillColorTier(0)).toBe("normal");
-		expect(getFillColorTier(0.6)).toBe("normal");
-		expect(getFillColorTier(0.85)).toBe("normal");
-		expect(getFillColorTier(FILL_CLIPPING_LEVEL)).toBe("normal");
-		expect(getFillColorTier(0.91)).toBe("clipping");
-		expect(getFillColorTier(1)).toBe("clipping");
+describe("LevelBar, solid primary fill at every level", () => {
+	it("paints bg-primary from silence through clipping", () => {
+		for (const lvl of [0, 0.6, 0.85, 0.9, 0.91, 1]) {
+			render(<LevelBar level={lvl} playing={false} />);
+			const fill = getProgressbar().firstElementChild as HTMLElement;
+			expect(fill.className).toContain("bg-primary");
+			expect(fill.className).not.toContain("bg-destructive");
+			cleanup();
+		}
 	});
 });
 

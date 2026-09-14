@@ -160,7 +160,7 @@
 		"startTestFailed": "Failed to start microphone test",
 		"recorded": "{seconds}s recorded",
 		"noAudio": "No audio detected.",
-		"tryDefaultMic": " Try the default microphone.",
+		"tryDefaultMic": "Try the default microphone.",
 		"testFailed": "Test failed",
 		"stopTestFailed": "Failed to stop microphone test",
 		"playbackFailed": "Could not play the test recording.",

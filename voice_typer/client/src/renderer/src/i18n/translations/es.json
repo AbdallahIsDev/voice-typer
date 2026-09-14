@@ -153,7 +153,7 @@
 		"startTestFailed": "No se pudo iniciar la prueba de micrófono",
 		"recorded": "{seconds}s grabados",
 		"noAudio": "No se detectó audio.",
-		"tryDefaultMic": " Prueba el micrófono predeterminado.",
+		"tryDefaultMic": "Prueba el micrófono predeterminado.",
 		"testFailed": "Prueba fallida",
 		"stopTestFailed": "No se pudo detener la prueba de micrófono",
 		"playbackFailed": "No se pudo reproducir la grabación de prueba.",

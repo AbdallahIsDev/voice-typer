@@ -32,42 +32,19 @@ interface LevelBarProps {
 //                 LiveQualityFeedback.volumeVeryLow when no voice).
 //   - "low"     ⇒ faint signal, user should speak up.
 //
-// The FILL colour tracks a three-way band (normal / warning /
-// clipping, see ``getFillColorTier`` below) with a smooth
-// background-color crossfade, so the bar reads as a full-width meter
-// with no reserved icon slot stealing track width.
+// The FILL stays solid primary at every level; clipping is signaled
+// only via the warning glyph + tier word in aria-valuetext, never by
+// recoloring the fill, so the bar reads as a full-width meter with no
+// reserved icon slot stealing track width.
 
 export type VolumeTier = "silent" | "low" | "good" | "loud";
 
-// ── Fill colour tiers ─────────────────────────────────────────────────
+// ── Fill appearance ─────────────────────────────────────────────────
 //
-// The fill's BACKGROUND colour is binary, normal (primary blue) below
-// the clipping onset, destructive red at/above it, so the bar reads
-// as a true full-width meter with no reserved icon slot stealing track
-// width. This is deliberately a SEPARATE concept from the qualitative
-// ``VolumeTier`` above (silent/low/good/loud), which continues to
-// drive the aria-valuetext announcement unchanged (so e.g. level 0.75
-// still announces "loud" while painting blue, the announcement bands
-// and the paint bands intentionally differ).
-
-/** RMS level above which the fill turns destructive red. */
-export const FILL_CLIPPING_LEVEL = 0.9;
-
-/** Visual fill colour band. See the block comment above. */
-export type FillColorTier = "normal" | "clipping";
-
-export function getFillColorTier(level: number): FillColorTier {
-	if (level > FILL_CLIPPING_LEVEL) return "clipping";
-	return "normal";
-}
-
-/** Token-backed fill classes, ``bg-destructive`` resolves via the
- *  shared ``--destructive`` theme token. No hardcoded colour values
- *  anywhere. */
-const FILL_COLOR_CLASS: Record<FillColorTier, string> = {
-	normal: "bg-primary",
-	clipping: "bg-destructive",
-};
+// The fill is always solid primary. Clipping is communicated via
+// aria-valuetext + the warning glyph, never via fill colour (a
+// separate paint band would desync from the announcement bands, e.g.
+// level 0.75 announces "loud" while painting the same blue).
 
 export function getVolumeTier(level: number, peak: number): VolumeTier {
 	// Clipping, peak above 0.9 OR RMS above 0.7.  Either is a strong
@@ -88,8 +65,6 @@ export function LevelBar({ level, playing }: LevelBarProps) {
 	// so the centralised helper still classifies the clipping tier
 	// correctly.
 	const tier = getVolumeTier(level, level);
-	// Visual colour band, derived from the numeric level only.
-	const colorTier = getFillColorTier(level);
 	// aria-valuetext gives SR users a qualitative reading (e.g.
 	// "70 percent, loud") instead of just the raw number from
 	// aria-valuenow. The tier word comes from the centralised
@@ -134,16 +109,11 @@ export function LevelBar({ level, playing }: LevelBarProps) {
 					// the rendered result is identical to the width-based bar.
 					// Opacity rides along in the transition list because the
 					// frozen ("playing") state fades the fill too. The fill
-					// colour tracks ``colorTier`` (primary blue below 90%,
-					// destructive red above); background-color crossfades on
-					// its own quicker duration (120ms, fast enough to feel
-					// snappy, slow enough to read as a fade rather than a
-					// snap) than the transform/opacity smoothing (75ms) —
-					// the arbitrary-property list maps 1:1 onto the
-					// transition-property list order, so keep the two lists
-					// in lockstep when editing.
+					// is always solid primary; the arbitrary-property list
+					// maps 1:1 onto the transition-property list order, so
+					// keep the two lists in lockstep when editing.
 					"h-full w-full origin-left transition-[transform,opacity,background-color] duration-[75ms,75ms,120ms]",
-					FILL_COLOR_CLASS[colorTier],
+					"bg-primary",
 					playing && "opacity-30",
 				)}
 				style={

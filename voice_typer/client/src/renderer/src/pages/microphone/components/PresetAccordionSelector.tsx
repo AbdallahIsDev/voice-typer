@@ -141,7 +141,7 @@ export function PresetAccordionSelector({
 					// instance (user decision for this selector) and replaced by
 					// the dedicated rotating chevron below, the primitive itself
 					// is untouched, so every other accordion keeps its "+".
-					className="items-center gap-3 px-4 py-2.5 hover:bg-foreground/5 hover:no-underline focus-visible:ring-ring/30 **:data-[slot=accordion-trigger-icon]:hidden **:data-[slot=accordion-trigger-icon]:text-(--text-muted)"
+					className="items-center gap-3 px-4 py-2.5 hover:bg-foreground/5 hover:no-underline focus-visible:ring-ring **:data-[slot=accordion-trigger-icon]:hidden **:data-[slot=accordion-trigger-icon]:text-(--text-muted)"
 				>
 					<span className="flex items-center gap-2 min-w-0">
 						<span className="text-xs font-semibold uppercase tracking-wide text-(--text-muted)">

@@ -395,7 +395,7 @@ export function useMicrophoneTestSession({
 				let msg = t("microphone.noAudio");
 				const activeMicId = config?.microphone ?? null;
 				if (activeMicId !== null) {
-					msg += t("microphone.tryDefaultMic");
+					msg = `${msg} ${t("microphone.tryDefaultMic")}`;
 				}
 				showSnack(msg, "warning");
 			} else {

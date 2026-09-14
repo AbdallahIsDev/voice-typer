@@ -403,7 +403,7 @@ describe("XA-5-8, TestReviewPanel renders per-issue recommendations", () => {
 
 	const basePanelProps = {
 		durationMs: 5000,
-		testAudioBase64: "data:audio/wav;base64,AAAA",
+		testAudioBase64: "AAAA",
 		rawAudioBase64: null,
 		playing: false,
 		playingOriginal: false,
