@@ -44,6 +44,8 @@ export interface ActiveMicrophoneCardProps {
 	 *  fails and spams error snacks. */
 	canTest: boolean;
 	testRunning: boolean;
+	/** True while the start-test IPC is in flight (Start disabled, no recording UI yet). */
+	testStarting?: boolean;
 	testElapsed: number;
 	testDurationMs: number;
 	level: number;
@@ -81,6 +83,7 @@ export function ActiveMicrophoneCard({
 	isSystemDefault,
 	canTest,
 	testRunning,
+	testStarting = false,
 	testElapsed,
 	testDurationMs,
 	level,
@@ -159,7 +162,7 @@ export function ActiveMicrophoneCard({
 						variant="default"
 						size="sm"
 						className="gap-2"
-						disabled={playing || !canTest}
+						disabled={playing || !canTest || testStarting}
 						onClick={onStartTest}
 					>
 						<HugeiconsIcon
@@ -217,17 +220,6 @@ export function ActiveMicrophoneCard({
 								})
 							: t("microphone.monitoringOff")}
 				</span>
-				{!testRunning && testDurationMs > 0 && (
-					<span
-						className="text-xs text-(--text-muted)"
-						aria-live="polite"
-						aria-atomic="true"
-					>
-						{t("microphone.duration", {
-							seconds: (testDurationMs / 1000).toFixed(1),
-						})}
-					</span>
-				)}
 			</div>
 
 			{/* Filter invalidation notice */}

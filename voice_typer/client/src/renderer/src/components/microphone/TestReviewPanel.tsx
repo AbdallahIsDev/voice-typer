@@ -34,11 +34,12 @@ interface TestReviewPanelProps {
 	hasFiltersEnabled: boolean;
 	/**
 	 * Optional callback wired to ``handlePresetChange`` in the
-	 * parent. When provided, detected-noise issues render a one-click
-	 * "Apply Noisy Room preset" CTA alongside the recommendation text.
-	 * When absent, only the recommendation text is shown (still satisfies
-	 * the same spirit, every detected issue has an actionable
-	 * recommendation, even without the one-click apply).
+	 * parent. When provided, KNOWN detected-noise issues render a
+	 * one-click "Apply Noisy Room preset" CTA alongside the
+	 * recommendation text. When absent, only the recommendation text
+	 * is shown for known issues. Unknown future backend strings render
+	 * their translated-or-raw label with no recommendation and no CTA
+	 * (fallback contract, never a crash).
 	 */
 	onApplyPreset?: (preset: AudioPreset) => void;
 	/** Current preset so the CTA can disable when already applied. */
@@ -48,7 +49,7 @@ interface TestReviewPanelProps {
 /**
  * Fix 16: map backend `detected_issues` literal strings to i18n keys.
  *
- * The backend (`voice_typer/server/level_monitor.py`) emits a fixed set
+ * The backend (`voice_typer/server/level_monitor/test_recording.py`) emits a fixed set
  * of human-readable English strings for each detected issue. Without
  * this map, non-English users saw raw English issue text under the
  * "Detected Issues" heading. The map covers every backend-emitted
@@ -93,8 +94,10 @@ function translateDetectedIssue(raw: string): string {
  * Recommendations are deliberately concrete actions ("try the Noisy Room
  * preset", "speak closer to the microphone", "lower your input gain") —
  * the original panel surfaced the issue label alone, leaving the user
- * with no actionable next step. Every recommendation is a single
- * actionable sentence.
+ * with no actionable next step. Every KNOWN-issue recommendation is a
+ * single actionable sentence. Unknown future backend strings have no
+ * recommendation (``getIssueRecommendation`` returns null): the row
+ * renders the label only, with no recommendation text and no CTA.
  *
  * Lookup is keyed by the canonical i18n-issue-code KEY (the
  * ``microphoneTest.detectedIssueCodes.*`` suffix), NOT by the backend's
@@ -163,7 +166,12 @@ export function TestReviewPanel({
 	onApplyPreset,
 	currentPreset,
 }: TestReviewPanelProps) {
-	if (!testAudioBase64 && !rawAudioBase64) return null;
+	const hasVerdict =
+		durationMs > 0 ||
+		quality !== null ||
+		(transcription != null && transcription !== "") ||
+		transcriptionUnavailable === true;
+	if (!testAudioBase64 && !rawAudioBase64 && !hasVerdict) return null;
 
 	return (
 		<div className="mt-4 flex flex-col gap-4 rounded-xl border border-border/10 bg-(--bg-subtle) p-4">

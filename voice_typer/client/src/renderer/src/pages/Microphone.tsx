@@ -87,6 +87,7 @@ export default function MicrophonePage() {
 
 	const {
 		testRunning,
+		testStarting,
 		testElapsed,
 		testAudioBase64,
 		rawAudioBase64,
@@ -254,6 +255,7 @@ export default function MicrophonePage() {
 						isSystemDefault={isSystemDefault}
 						canTest={microphones.length > 0}
 						testRunning={testRunning}
+						testStarting={testStarting}
 						testElapsed={testElapsed}
 						testDurationMs={testDurationMs}
 						level={level}

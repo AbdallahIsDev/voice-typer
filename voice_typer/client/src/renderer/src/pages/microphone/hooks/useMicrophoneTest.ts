@@ -58,6 +58,8 @@ interface UseMicrophoneTestOptions {
 export interface UseMicrophoneTestResult {
 	// State
 	testRunning: boolean;
+	/** True while the start-test IPC is in flight (Start disabled, no recording UI yet). */
+	testStarting: boolean;
 	testElapsed: number;
 	testAudioBase64: string | null;
 	rawAudioBase64: string | null;
@@ -201,6 +203,7 @@ export function useMicrophoneTest({
 	return {
 		level: levelMonitor.level,
 		peak: levelMonitor.peak,
+		testStarting: session.testStarting,
 		// Expose live refs so consumers that need the latest
 		// value (e.g. for text labels rendered outside the rAF-written
 		// DOM) can read ``.current`` without waiting for a re-render.

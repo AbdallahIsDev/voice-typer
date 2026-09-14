@@ -194,3 +194,122 @@ describe("TestReviewPanel result-card redesign (declutter)", () => {
 		expect(panelText).not.toContain(enText("microphoneTest.clipping"));
 	});
 });
+
+describe("TestReviewPanel fetch-failure verdict fallback (playback missing, verdict kept)", () => {
+	afterEach(() => {
+		cleanup();
+	});
+
+	it("renders the verdict when both audio refs are null but quality/duration exist", () => {
+		render(
+			<TestReviewPanel
+				durationMs={5000}
+				quality={{ ...qualityData, estimated_transcription_quality: 64 }}
+				transcription="hello world"
+				transcriptionUnavailable={false}
+				testAudioBase64={null}
+				rawAudioBase64={null}
+				playing={false}
+				playingOriginal={false}
+				onPlayEnhanced={() => {}}
+				onPlayOriginal={() => {}}
+				onStop={() => {}}
+				onRetest={() => {}}
+				hasFiltersEnabled={false}
+			/>,
+		);
+
+		expect(screen.getByText(enText("microphoneTest.title"))).toBeTruthy();
+		expect(screen.getByText("64%")).toBeTruthy();
+		expect(screen.getByTestId("test-transcription").textContent).toBe(
+			"hello world",
+		);
+	});
+
+	it("renders no playback buttons when both audio refs are null", () => {
+		render(
+			<TestReviewPanel
+				durationMs={5000}
+				quality={{ ...qualityData, estimated_transcription_quality: 64 }}
+				transcription={null}
+				transcriptionUnavailable={false}
+				testAudioBase64={null}
+				rawAudioBase64={null}
+				playing={false}
+				playingOriginal={false}
+				onPlayEnhanced={() => {}}
+				onPlayOriginal={() => {}}
+				onStop={() => {}}
+				onRetest={() => {}}
+				hasFiltersEnabled={false}
+			/>,
+		);
+
+		expect(
+			screen.queryByText(enText("microphoneTest.playEnhanced")),
+		).toBeNull();
+		expect(
+			screen.queryByText(enText("microphoneTest.playOriginal")),
+		).toBeNull();
+		expect(
+			screen.queryByText(enText("microphoneTest.playRecording")),
+		).toBeNull();
+		expect(screen.getByText(enText("microphoneTest.retest"))).toBeTruthy();
+	});
+
+	it("still returns null when no audio and no verdict exist", () => {
+		const { container } = render(
+			<TestReviewPanel
+				durationMs={0}
+				quality={null}
+				transcription={null}
+				transcriptionUnavailable={false}
+				testAudioBase64={null}
+				rawAudioBase64={null}
+				playing={false}
+				playingOriginal={false}
+				onPlayEnhanced={() => {}}
+				onPlayOriginal={() => {}}
+				onStop={() => {}}
+				onRetest={() => {}}
+				hasFiltersEnabled={false}
+			/>,
+		);
+
+		expect(container.textContent).toBe("");
+	});
+});
+
+describe("TestReviewPanel unknown-issue fallback contract (no recommendation, no CTA, no crash)", () => {
+	afterEach(() => {
+		cleanup();
+	});
+
+	it("renders the raw label with no recommendation or CTA for an unmapped literal", () => {
+		const rawIssue = "Calibration drift detected in channel 2";
+		render(
+			<TestReviewPanel
+				durationMs={5000}
+				quality={{ ...qualityData, detected_issues: [rawIssue] }}
+				transcription={null}
+				transcriptionUnavailable={false}
+				testAudioBase64="AAAA"
+				rawAudioBase64={null}
+				playing={false}
+				playingOriginal={false}
+				onPlayEnhanced={() => {}}
+				onPlayOriginal={() => {}}
+				onStop={() => {}}
+				onRetest={() => {}}
+				hasFiltersEnabled={false}
+				onApplyPreset={() => {}}
+				currentPreset="auto"
+			/>,
+		);
+
+		expect(screen.getByTestId("detected-issue-row")).toBeTruthy();
+		expect(screen.getByText(rawIssue)).toBeTruthy();
+		expect(screen.queryByTestId("issue-recommendation")).toBeNull();
+		expect(screen.queryByTestId("issue-apply-preset")).toBeNull();
+	});
+});

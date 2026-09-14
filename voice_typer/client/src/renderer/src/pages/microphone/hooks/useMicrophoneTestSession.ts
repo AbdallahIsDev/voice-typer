@@ -224,6 +224,8 @@ interface UseMicrophoneTestSessionOptions {
 
 export interface UseMicrophoneTestSessionResult {
 	testRunning: boolean;
+	/** True while the start-test IPC is in flight (Start disabled, no recording UI yet). */
+	testStarting: boolean;
 	testElapsed: number;
 	testAudioBase64: string | null;
 	rawAudioBase64: string | null;
@@ -267,6 +269,11 @@ export function useMicrophoneTestSession({
 	void updateConfig;
 
 	const [testRunning, setTestRunning] = useState(false);
+	// Guard against double-start while the start IPC is in flight. This
+	// is UI-only (disables Start + ignores re-entry), it never drives
+	// the recording timer/level UI, which still starts only after the
+	// backend confirms success.
+	const [testStarting, setTestStarting] = useState(false);
 	const [testElapsed, setTestElapsed] = useState(0);
 	// Seed the per-test React state from the module-level
 	// cache so navigating away from the Microphone page and back
@@ -293,6 +300,7 @@ export function useMicrophoneTestSession({
 
 	const testTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 	const stoppingRef = useRef(false);
+	const startingRef = useRef(false);
 	// INTERNAL lifecycle flag owned by THIS hook (synchronous). The
 	// ``testRunningRef`` prop stays the cross-hook CONTRACT mirror for the
 	// level monitor, but the unmount cleanup must not depend on a prop-ref's
@@ -419,6 +427,9 @@ export function useMicrophoneTestSession({
 	}, [call, config, showSnack, t, setLevel]);
 
 	const startTest = useCallback(async () => {
+		if (startingRef.current) return;
+		startingRef.current = true;
+		setTestStarting(true);
 		setTestAudioBase64(null);
 		setRawAudioBase64(null);
 		setTestDurationMs(0);
@@ -605,6 +616,9 @@ export function useMicrophoneTestSession({
 				userFacingErrorMessage(err, t, t("microphone.startTestFailed")),
 				"error",
 			);
+		} finally {
+			startingRef.current = false;
+			setTestStarting(false);
 		}
 	}, [call, config, showSnack, t, stopPlayback, stopTest, setLevel, setPeak]);
 	// Keep the consent-retry ref pointed at the latest closure.
@@ -772,6 +786,7 @@ export function useMicrophoneTestSession({
 
 	return {
 		testRunning,
+		testStarting,
 		testElapsed,
 		testAudioBase64,
 		rawAudioBase64,
