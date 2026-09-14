@@ -93,7 +93,7 @@ in `ALLOWED_COMMANDS` (renderer-reachable); "—" means server-only.
 | Command | Handler | Allowlist | Notes |
 |---------|---------|-----------|-------|
 | `onboarding_apply` | `_handle_onboarding_apply` | ✓ |  |
-| `onboarding_check_permissions` | `_handle_onboarding_check_permissions` | ✓ | Backs the Onboarding wizard's Permissions step. |
+| `onboarding_check_permissions` | `_handle_onboarding_check_permissions` | ✓ | Probes the OS keyboard-monitoring permission state (macOS Accessibility / Linux input group). Consumed by the Dashboard/Settings `KeyboardPermissionBanner`; the wizard's dedicated Permissions step was removed (2026-09-14). |
 | `onboarding_get_hotkey_presets` | `_handle_onboarding_get_hotkey_presets` | ✓ |  |
 | `onboarding_get_microphones` | `_handle_onboarding_get_microphones` | ✓ |  |
 | `onboarding_get_model_options` | `_handle_onboarding_get_model_options` | ✓ |  |
@@ -105,7 +105,7 @@ in `ALLOWED_COMMANDS` (renderer-reachable); "—" means server-only.
 | `onboarding_set_microphone` | `_handle_onboarding_set_microphone` | ✓ |  |
 | `onboarding_set_model` | `_handle_onboarding_set_model` | ✓ |  |
 | `onboarding_set_backend` | `_handle_onboarding_set_backend` | ✓ | Persists the Model step's explicit local-vs-cloud backend choice. |
-| `onboarding_skip` | `_handle_onboarding_skip` | ✓ |  |
+| `onboarding_skip` | `_handle_onboarding_skip` | ✓ | Marks onboarding complete without persisting selections. The renderer no longer calls it (onboarding is mandatory since 2026-09-14); the backend route stays for backward compatibility. |
 | `onboarding_start` | `_handle_onboarding_start` | ✓ |  |
 
 ### Models (download, import, delete, status, prewarm, cloud test, trusted endpoints)
@@ -240,7 +240,7 @@ restored `get_prewarm_status` / `run_prewarm` (worker status file +
 in-process warm pass), not the old
 `sentinel` / `PID`-file probe.
 
-## Push events (61 typed)
+## Push events (60 typed)
 
 Push events flow server to renderer via `window.python.onEvent(callback)`.
 The `PythonPushEvent` union in `types/ipc/push_events.ts` is the canonical
@@ -286,7 +286,6 @@ list: events not in the union fall through to the `string` overload of
 | `reconnecting` | `ReconnectingEvent` | `{ reason: string }` |
 | `reconnected` | `ReconnectedEvent` | `{ reason: string }` |
 | `mic_level` | `MicLevelEvent` | `{ rms: number, peak: number, active: boolean }` Continuous level monitor stream for the Settings microphone level meter. |
-| `recording_level` | `RecordingLevelEvent` | `{ rms: number, peak: number }` ≤8 Hz main-window mirror of the recording level published by the bubble-level worker while recording; the typed `bubble_level` channel is consumed by the bubble window only, so Home's live recording indicator rides this generic-envelope event instead. |
 | `device_lost` | `DeviceLostEvent` | `{ source: string }` The active input device disappeared mid-monitoring; the level monitor auto-stops and the Microphone page surfaces a recovery banner + toast. |
 | `transcription_partial` | `TranscriptionPartialEvent` | `{ text: string, cycle_id: string, supported?: boolean }` Live partial text pushed ≤4 Hz by the hidden streaming session's coalescing broadcaster; mirrored onto the bubble channel as a `bubble_set_state` transcript so the pill paints words mid-recording. One-time `supported: false` payload signals engines without word-level transcription. |
 | `offline_pack_download_started` | `OfflinePackDownloadStartedEvent` | `{ version: string, url: string, total_bytes: number }` Runtime-pack download began; payload mirrors the model-download `download_progress` shape so a `useOfflinePackDownload` hook can reuse the `useModelDownload` UI pattern. |

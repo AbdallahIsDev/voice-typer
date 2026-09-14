@@ -56,6 +56,76 @@ These items are the highest-priority remaining work for the project. They block 
 **Implementation Difficulty:** 🟢 Easy
 **Severity:** 🟢 Low
 
+### ONB-1: Onboarding navigation header fixes (Back on step 1, duplicate header text)
+**Status:** ✅ Fixed (2026-09-14)
+**Description:** Onboarding header/nav has two defects reported with screenshot step 1 of 7.
+**Current Behavior:** Back button visible bottom-left on step 1 though nowhere to go back to. Top-right text above progress bar duplicates card title (e.g. "Step 1 of 7" left + "Welcome to Voice Typer" right while card title is same).
+**Expected Behavior:** Back hidden on step 1, appears from step 2 onward. Remove top-right text above progress bar entirely.
+**User Impact:** Confusing nav on entry; redundant title noise.
+**Related Files:** voice_typer/client/src/renderer/src/pages/Onboarding.tsx
+**Severity:** 🟡 Medium
+**Category:** UI/UX Onboarding
+
+### ONB-2: Onboarding steps restructuring (shorten flow)
+**Status:** ✅ Fixed (2026-09-14)
+**Description:** Onboarding too long (7 steps). User orders removals/reorder, essentials only.
+**Current Behavior:** Flow per screenshot step 1: 1. Choose microphone, 2. Grant keyboard-monitoring permission, 3. Select hotkey, 4. Privacy consents, 5. Pick transcription model, 6. Complete setup ("You are all set" summary repeating hotkey/backend/biometric). Step 1 lists all 6 items + App Language select + Back/Skip/Continue.
+**Expected Behavior:** Step 1 (Welcome & Language): keep welcome title/description + app language select (changeable later in settings). Remove "Choose your microphone" step entirely — default system microphone, adjust later in settings/microphone page. Remove "Keyboard monitoring permission" step — standard behavior, no explicit consent (unlike GDPR Voice Biometric). Move "Choose your hotkey" to directly after "Choose your model". Remove "You are all set" summary step entirely.
+**User Impact:** Shorter onboarding, less drop-off, less duplication.
+**Related Files:** voice_typer/server/onboarding.py, voice_typer/client/src/renderer/src/pages/onboarding/** (MicrophoneStep/PermissionsStep/DoneStep deleted, constants, wizard hook, tests, i18n 8 locales)
+**Severity:** 🔴 High
+**Category:** UI/UX Onboarding
+
+### ONB-3: Onboarding global layout and focus
+**Status:** ✅ Fixed (2026-09-14)
+**Description:** Onboarding must be mandatory and focused; layout/RTL defects.
+**Current Behavior:** "Skip" button present (allows bypass). First-run shows sidebar (or collapsed icons), distracting from onboarding. Parent card narrow. In RTL locales (e.g. Arabic) sidebar position flips/moves.
+**Expected Behavior:** Remove "Skip" completely — onboarding must be completed. On first open hide sidebar entirely (not collapsed to icons). Increase onboarding parent card width for breathing room. Sidebar position strictly locked left at all times, even in RTL.
+**User Impact:** Users skip setup -> broken state; focus loss; cramped UI; RTL layout shift.
+**Related Files:** voice_typer/client/src/renderer/src/pages/Onboarding.tsx, voice_typer/client/src/renderer/src/App.tsx, voice_typer/client/src/renderer/src/components/layout/TitleBar.tsx
+**Severity:** 🔴 High
+**Category:** UI/UX Onboarding
+
+### ONB-4: Privacy & Consent step refactor (layout + tooltips)
+**Status:** ✅ Fixed (2026-09-14)
+**Description:** Privacy step screenshot shows nested-box visual + long inline descriptions.
+**Current Behavior:** Inner card padding creates nested box inside container; consent items stacked with full descriptions inline (Voice biometric processing, HuggingFace downloads, OpenAI cloud, Groq cloud).
+**Expected Behavior:** Remove inner card padding so items span full container width separated by standard dividing borders (match Settings/Models pages). Move descriptions out of card view: question-mark icon next to each title shows description in hover tooltip.
+**User Impact:** Cleaner, consistent with design system; less vertical bloat.
+**Related Files:** voice_typer/client/src/renderer/src/pages/onboarding/components/ConsentStep.tsx
+**Severity:** 🟡 Medium
+**Category:** UI/UX Onboarding
+
+### ONB-5: Choose Your Model step rebuild (Models-page parity)
+**Status:** ✅ Fixed (2026-09-14)
+**Description:** Full UI rewrite ordered; screenshots show current cards/dropdown vs desired accordion.
+**Current Behavior:** Local model / Cloud API cards side-by-side. "Powered by OpenAI and Nvidia" label. Model picked via dropdown ("Multilingual, best for quick notes, ~75MB (Fastest)" + VRAM/multilingual tags). "Allow model downloads from huggingface.co" checkbox duplicated. Standalone blue "Download model" button + "Nothing downloads automatically..." text.
+**Expected Behavior:** Replace local/cloud cards with Segmented Control identical to Models page. Remove "Powered by OpenAI and NVIDIA" label (multi-provider). Replace dropdown with accordion structure from Models page (provider row expands; e.g. OpenAI/Qwen/Nvidia with + affordance; expanded model item shows VRAM/WER/tags + own download button on right, e.g. Whisper Tiny Active, Large V3 3GB, Large V3 Turbo 809MB). Remove HF checkbox (consent already in Privacy step). Remove standalone blue Download button + adjacent text (downloads now per-item).
+**User Impact:** Consistent model selection; removes duplicate consent/controls and stale branding.
+**Related Files:** voice_typer/client/src/renderer/src/pages/onboarding/components/ModelStep.tsx
+**Severity:** 🔴 High
+**Category:** UI/UX Onboarding
+
+### ERR-1: Fatal error boundary "Cannot read properties of undefined (reading 'length')"
+**Status:** ✅ Fixed (2026-09-14)
+**Description:** User-reported crash screenshot of full-app error boundary.
+**Current Behavior:** (was) App showed "Something went wrong..." + `Cannot read properties of undefined (reading 'length')` on Model step. Root cause verified in `logs/electron-renderer-errors.log`: `capitalizeFirst (models.ts:171)` ← `formatModelSpeed (models.ts:182)` ← `ModelStep.tsx:207` `formatModelSpeed(m.speed)`. The `get_model_catalog` qwen entry (ModelMetadata shape: `speed_rating`/`download_size_mb`, no `speed`/`size`) flowed through `mergeModelOptions` un-normalized as catalog-only, so `m.speed` was undefined.
+**Expected Behavior:** Wizard renders qwen family via normalized entry (speed Medium ← speed_rating, size Variable ← download_size_mb 0, vram 4GB, languages null); `formatModelSpeed`/`capitalizeFirst` never throw on undefined (return ""); ModelStep omits empty speed parenthetical.
+**User Impact:** Fatal UI block, forces reset/reload, possible data/config loss fear.
+**Related Files:** `voice_typer/client/src/renderer/src/pages/onboarding/hooks/useOnboardingWizard.ts`, `voice_typer/client/src/renderer/src/lib/utils/models.ts`, `voice_typer/client/src/renderer/src/pages/onboarding/components/ModelStep.tsx`
+**Severity:** 🔴 High
+**Category:** Stability/Crash
+
+### FIELD-1: Scoped clean-input style (bottom-border only, radius 0) + label removal
+**Status:** ❌ Not Fixed (documented 2026-09-14, doc-only session, no code touched)
+**Description:** User wants a clean input look (screenshot 2: `jane.smith@example.com` with no label, no fill, only bottom border) but the field component cannot support it today.
+**Current Behavior:** Fields render with label above + filled background + full borders (screenshot 1: Full Name / Email / Phone / Field Label + Option 1/2 segmented). `border-radius: 0` applies GLOBALLY to all field types, so segmented/cards/pills also lose their radius. Label presence/optionality unverified in code. Note: no `text`/`email`/`phone`/`select`/`segmented`/`cards`/`pills` field-type component found in this repo (`voice-typer` templates are trigger/expansion/matchMode only) — component location TBD, may live outside this workspace.
+**Expected Behavior:** Scope `radius 0` + bottom-border-only (no top/side borders, no background) STRICTLY to standard inputs: `text`, `email`, `phone number`, `number`, `url`, `textarea`, `select`, `multi-select`. Cards, segmented controls, pills, other components keep normal radius. Label: remove entirely if optional/no-op; if structurally required, visually hide it (keep a11y name) and let placeholder guide user (e.g. placeholder "Email"). No placeholder-text changes in this task.
+**User Impact:** Cannot achieve clean form design without breaking segmented/cards/pills radius.
+**Related Files:** TBD (field component with global border-radius; verify label required vs optional)
+**Severity:** 🟡 Medium
+**Category:** UI/UX Fields
+
 ## 🚫 E. Cannot Verify (needs real host)
 
 **19 findings require Windows / macOS / Linux desktop runtime**, they cannot be
