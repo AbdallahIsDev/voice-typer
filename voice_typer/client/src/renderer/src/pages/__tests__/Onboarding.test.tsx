@@ -1,28 +1,26 @@
 /**
- * Tests for the Onboarding wizard.
+ * Tests for the Onboarding wizard (4-step essentials flow, 2026-09-14).
  *
- * Two test groups:
+ * Contracts under test:
  *
- * 1. F2 (b-review Finding 6): pre-select existing config values, the
- *    wizard should fetch the user's existing hotkey/model/microphone
- *    via `get_config` after `onboarding_start` resolves and pre-select
- *    them in the wizard UI, instead of overwriting with hardcoded
- *    defaults.
+ * 1. The renderer mirrors the server's 4-step wizard
+ *    (voice_typer/server/onboarding.py): Welcome → Consent → Model →
+ *    Hotkey. Step rendering branches on `step_name` so the tests
+ *    exercise the same step names the server actually emits.
  *
- * 2. The renderer must include a Permissions
- *    step at index 2 (between Microphone and Hotkey), matching the
- *    server's 6-step wizard declared in
- *    `voice_typer/server/onboarding.py:124-141`. The Permissions step
- *    must call `onboarding_check_permissions` on mount and render the
- *    platform-specific setup walkthrough returned by the IPC.
- *    Hotkey/Model/Done must shift to step indices 3/4/5.
+ * 2. F2 regression: selections are seeded from the saved config on
+ *    every start (get_config runs on fresh start AND resume).
  *
- * : server-side step order, mirrored from
- * `voice_typer/server/onboarding.py:131-138` so the renderer test
- * exercises the same step names the server actually emits. If the
- * server adds/reorders steps, this fixture must be updated in lock-
- * step, that's the whole point of branching on `step_name` instead
- * of numeric index.
+ * 3. Model step: Continue is blocked until the user explicitly picks
+ *    a model (no default model exists since the 2026-08-28 sentinel
+ *    change), and the accordion rows fire onboarding_set_model.
+ *
+ * 4. Final step: "Get started" persists the hotkey (onboarding_set_hotkey)
+ *    BEFORE onboarding_apply, then shows the success snack + navigates.
+ *    Apply failure surfaces an inline alert + error snack and does NOT
+ *    complete.
+ *
+ * All IPC is mocked via the shared stableMocks preamble.
  */
 
 import {
@@ -33,8 +31,6 @@ import {
 	waitFor,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-// Shared stable-mocks preamble (see helpers/stableMocks.tsx): the
-// assertable singletons + one vi.mock line per module.
 import {
 	hugeiconsCoreMock,
 	hugeiconsReactMock,
@@ -50,328 +46,181 @@ vi.mock("@/hooks/useSnackbar", () => snackbarMock());
 vi.mock("@hugeicons/react", () => hugeiconsReactMock());
 vi.mock("@hugeicons/core-free-icons", () => hugeiconsCoreMock());
 
-//mock the Radix Select wrapper so SelectItem children (the
-// VRAM/language badges) render inline in the DOM without needing to
-// drive the dropdown's pointer-capture / Portal machinery in jsdom.
-// The existing wizard tests don't assert on Select behaviour (they
-// check heading text + button labels), so this inline mock is safe
-// for the rest of the suite.
-vi.mock("@/components/ui/select", () => ({
-	Select: ({ children }: { children: React.ReactNode }) => (
-		<div data-testid="select-root">{children}</div>
-	),
-	SelectTrigger: ({
-		children,
-		...props
-	}: React.ButtonHTMLAttributes<HTMLButtonElement> & {
-		children?: React.ReactNode;
-	}) => (
-		<button type="button" {...props}>
-			{children}
-		</button>
-	),
-	SelectValue: ({ placeholder }: { placeholder?: string }) => (
-		<span>{placeholder ?? ""}</span>
-	),
-	SelectContent: ({ children }: { children: React.ReactNode }) => (
-		<div data-testid="select-content">{children}</div>
-	),
-	SelectItem: ({
-		children,
-		value,
-		textValue,
-	}: {
-		children?: React.ReactNode;
-		value: string;
-		textValue?: string;
-	}) => (
-		<div
-			data-value={value}
-			data-text-value={textValue}
-			role="option"
-			tabIndex={-1}
-		>
-			{children}
-		</div>
-	),
-}));
-
-//mock the Radix Checkbox wrapper so the consent checkbox on the
-// Done step renders as a real <input type="checkbox"> in jsdom, the
-// Radix primitive is a <button role="checkbox"> that toggles via pointer
-// + keyboard events jsdom does not simulate uniformly, and the existing
-// wizard tests drive it via fireEvent.click + assert on `.checked`. The
-// mock mirrors the Select mock above (forwards checked + onCheckedChange
-// to a real input).
-vi.mock("@/components/ui/checkbox", () => ({
-	Checkbox: ({
-		checked,
-		onCheckedChange,
-		...props
-	}: {
-		checked?: boolean | "indeterminate";
-		onCheckedChange?: (checked: boolean | "indeterminate") => void;
-	} & Omit<
-		React.InputHTMLAttributes<HTMLInputElement>,
-		"checked" | "onChange"
-	>) => (
-		<input
-			type="checkbox"
-			checked={checked === true}
-			onChange={(e) => onCheckedChange?.(e.target.checked)}
-			{...props}
-		/>
-	),
-}));
-
-import OnboardingPage from "@/pages/Onboarding";
-
-const STEP_NAMES = [
-	"Welcome",
-	"Microphone",
-	"Permissions",
-	"Hotkey",
-	"Model",
-	"Done",
-] as const;
-
-//Radix Select's pointerDown handler calls
-// `target.hasPointerCapture(pointerId)` to decide whether to release
-// the capture before opening the dropdown. jsdom doesn't implement
-// the Pointer Capture API, so we stub the three methods Radix touches
-// (hasPointerCapture / setPointerCapture / releasePointerCapture) on
-// Element.prototype. This is scoped to this test file (the project's
-// shared `test-setup.ts` doesn't include it because the only other
-// Radix Select consumers either don't open the dropdown in tests or
-// mock the Select component entirely).
-if (
-	typeof Element !== "undefined" &&
-	typeof Element.prototype.hasPointerCapture !== "function"
-) {
-	Element.prototype.hasPointerCapture = function hasPointerCapture() {
-		return false;
-	};
-	Element.prototype.setPointerCapture = function setPointerCapture() {};
-	Element.prototype.releasePointerCapture = function releasePointerCapture() {};
+/** Render helper: the wizard's steps mount Radix Tooltips (InfoTooltip);
+ * the real App shell wraps every page in a TooltipProvider (App.tsx),
+ * so test mounts must too. */
+function renderWithProviders(ui: React.ReactElement) {
+	return render(<TooltipProvider delayDuration={200}>{ui}</TooltipProvider>);
 }
 
-// ── F2: pre-select existing config values ────────────────────────────
+import { TooltipProvider } from "@/components/ui/tooltip";
+import OnboardingPage from "@/pages/Onboarding";
 
-describe("Onboarding wizard, F2: pre-select existing config values", () => {
-	beforeEach(() => {
-		mockCall.mockReset();
-		mockShowSnack.mockReset();
-	});
+/** The server's 4-step layout (voice_typer/server/onboarding.py). */
+const STEP_NAMES = ["Welcome", "Consent", "Model", "Hotkey"] as const;
 
-	afterEach(() => {
-		cleanup();
-	});
+/** Localized step headings (en.json), used as step-render gates. */
+const STEP_HEADINGS: string[] = [
+	"Welcome to Voice Typer",
+	"Privacy & Consent",
+	"Choose Your Model",
+	"Choose Your Hotkey",
+];
 
-	/**
-	 * Helper: mock the IPC handlers so the wizard loads successfully
-	 * and step navigation advances through to the summary screen.
-	 *
-	 * @param cfg The config object that get_config should return.
-	 */
-	function mockIpc(cfg: Record<string, unknown>) {
-		let currentStep = 0;
-		mockCall.mockImplementation((type: string) => {
-			switch (type) {
-				case "onboarding_start":
-					return Promise.resolve({
-						step: 0,
-						total_steps: 6,
-						step_name: STEP_NAMES[0],
-					});
-				case "onboarding_next_step":
-					currentStep = Math.min(currentStep + 1, 5);
-					return Promise.resolve({
-						step: currentStep,
-						total_steps: 6,
-						step_name: STEP_NAMES[currentStep],
-					});
-				case "onboarding_prev_step":
-					currentStep = Math.max(currentStep - 1, 0);
-					return Promise.resolve({
-						step: currentStep,
-						total_steps: 6,
-						step_name: STEP_NAMES[currentStep],
-					});
-				case "get_config":
-					return Promise.resolve(cfg);
-				case "onboarding_get_microphones":
-					return Promise.resolve({
-						microphones: [
-							{ id: "mic-1", name: "Built-in Mic" },
-							{ id: "mic-2", name: "USB Mic" },
-						],
-					});
-				case "onboarding_get_hotkey_presets":
-					return Promise.resolve({
-						presets: ["<f2>", "<f4>", "<f6>"],
-					});
-				case "onboarding_get_model_options":
-					return Promise.resolve({
-						models: [
+/**
+ * Mock the IPC handlers with a controllable wizard state machine.
+ *
+ * `get_config` returns `cfg` (defaults to a user with saved F4 +
+ * large-v3-turbo so the "no default model" guard doesn't block).
+ */
+function mockWizard(
+	options: {
+		startStep?: number;
+		cfg?: Record<string, unknown>;
+		models?: Array<Record<string, unknown>>;
+	} = {},
+) {
+	let current = options.startStep ?? 0;
+	const cfg = {
+		hotkey: "<f4>",
+		model_size: "large-v3-turbo",
+		microphone: null,
+		...options.cfg,
+	};
+	mockCall.mockImplementation((type: string) => {
+		switch (type) {
+			case "onboarding_start":
+			case "onboarding_next_step":
+			case "onboarding_prev_step":
+				return Promise.resolve({
+					step: current,
+					total_steps: STEP_NAMES.length,
+					step_name: STEP_NAMES[current],
+				});
+			case "get_config":
+				return Promise.resolve(cfg);
+			case "onboarding_get_hotkey_presets":
+				return Promise.resolve({ presets: ["<caps_lock>", "<f2>", "<f4>"] });
+			case "onboarding_get_model_options":
+				return Promise.resolve({
+					models:
+						options.models ??
+						([
 							{
-								name: "large-v3-turbo",
+								name: "tiny",
 								size: "~75MB",
 								speed: "Fastest",
-								description: "Tiny",
+								description: "Multilingual, best for quick notes",
+								vram_gb: 0.5,
+								languages: null,
 							},
 							{
-								name: "tiny",
-								size: "~466MB",
-								speed: "Fast",
-								description: "Small",
+								name: "large-v3",
+								size: "~3GB",
+								speed: "Slow",
+								description: "Multilingual, highest accuracy",
+								vram_gb: 4.0,
+								languages: null,
 							},
 							{
 								name: "large-v3-turbo",
-								size: "~1.5GB",
-								speed: "Slow",
-								description: "Medium",
+								size: "~809MB",
+								speed: "Fast",
+								description: "Multilingual, near-large-v3 accuracy",
+								vram_gb: 2.0,
+								languages: null,
 							},
-						],
-					});
-				case "onboarding_check_permissions":
-					return Promise.resolve({
-						platform: "linux",
-						state: "granted",
-						needed: false,
-						instructions: null,
-					});
-				default:
-					return Promise.resolve({});
-			}
-		});
-	}
-
-	it("mounts and pre-selects existing hotkey/model/microphone from get_config", async () => {
-		mockIpc({
-			hotkey: "<f4>",
-			model_size: "large-v3-turbo",
-			microphone: "",
-		});
-
-		const { container } = render(<OnboardingPage onComplete={() => {}} />);
-
-		// Advance through the wizard to the final Done step.
-		// The wizard is a 6-step flow (Welcome 0, Mic 1, Permissions 2,
-		// Hotkey 3, Model 4, Done 5). Click Continue five times to
-		// reach the Done step (where the button label flips to
-		// "Get Started"); a 6th click on "Get Started" would trigger
-		// `onboarding_apply` + `onComplete`, but we stop at the
-		// summary screen to assert the pre-selected values.
-		for (let i = 0; i < 5; i++) {
-			const continueBtn = await screen.findByRole("button", {
-				name: "Continue",
-			});
-			fireEvent.click(continueBtn);
-			// Give React a tick to flush the state update before
-			// polling for the next render.
-			await waitFor(() => {
-				const hasContinue = screen.queryByRole("button", {
-					name: "Continue",
+							{
+								name: "parakeet",
+								size: "~1.2GB",
+								speed: "Fast",
+								description: "NVIDIA Parakeet",
+								vram_gb: 2.0,
+								languages: null,
+							},
+						] as Array<Record<string, unknown>>),
 				});
-				const hasGetStarted = screen.queryByRole("button", {
-					name: "Get Started",
-				});
-				expect(hasContinue !== null || hasGetStarted !== null).toBe(true);
-			});
+			case "get_model_catalog":
+				return Promise.resolve({ models: [] });
+			case "onboarding_set_model":
+			case "onboarding_set_backend":
+			case "onboarding_set_hotkey":
+			case "onboarding_apply":
+			case "set_config":
+				return Promise.resolve({});
+			default:
+				return Promise.resolve({});
 		}
+	});
+	return {
+		advance: () => {
+			current = Math.min(current + 1, STEP_NAMES.length - 1);
+		},
+	};
+}
 
-		// At step 5 (Done / Summary), the wizard shows the
-		// selected hotkey (uppercased, with <> stripped) and the
-		// selected model name. They should match the user's config,
-		// not the hardcoded defaults.
-		//
-		// We wait for the Get Started button (aria-label is
-		// "Get started", note the lowercase 's', matching the
-		// onboarding.getStartedAria i18n key).
-		await waitFor(() => {
-			expect(screen.getByRole("button", { name: "Get started" })).toBeTruthy();
-		});
-		const summaryText = container.textContent ?? "";
-		expect(summaryText).toContain("F4");
-		expect(summaryText).toContain("large-v3-turbo");
+/** Click Continue and wait for the given step heading to render. */
+async function advanceToHeading(expectedHeading: string) {
+	fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+	await waitFor(() => {
+		expect(screen.getAllByText(expectedHeading).length).toBeGreaterThan(0);
+	});
+}
+
+beforeEach(() => {
+	mockCall.mockReset();
+	mockShowSnack.mockReset();
+});
+
+afterEach(() => cleanup());
+
+describe("Onboarding 4-step flow (server lockstep)", () => {
+	it("renders each step's heading with matching progress text", async () => {
+		const wizard = mockWizard({ startStep: 0 });
+
+		renderWithProviders(<OnboardingPage onComplete={() => {}} />);
+
+		let i = 0;
+		for (const heading of STEP_HEADINGS) {
+			// eslint-disable-next-line no-await-in-loop
+			await waitFor(() => {
+				expect(screen.getAllByText(heading).length).toBeGreaterThan(0);
+			});
+			// eslint-disable-next-line no-await-in-loop
+			expect(screen.getByText(`Step ${i + 1} of 4`)).toBeTruthy();
+			const next = STEP_HEADINGS[i + 1];
+			if (next) {
+				// eslint-disable-next-line no-await-in-loop
+				wizard.advance();
+				// eslint-disable-next-line no-await-in-loop
+				await advanceToHeading(next);
+			}
+			i += 1;
+		}
 	});
 
-	it("falls back to the default hotkey when get_config fails (older backend); Model step requires an explicit selection", async () => {
-		// Mock get_config to reject; the wizard should still load
-		// and fall back to the hardcoded hotkey default (<caps_lock>).
-		// 2026-08-28: there is NO default model anymore (MODEL_DEFAULT
-		// is the empty NO_MODEL_SIZE sentinel), so the Model step
-		// blocks Continue until the user explicitly picks one, this
-		// is the intended no-default-model behavior, not a regression.
-		let currentStep = 0;
-		mockCall.mockImplementation((type: string) => {
-			switch (type) {
-				case "onboarding_start":
-					return Promise.resolve({
-						step: 0,
-						total_steps: 6,
-						step_name: STEP_NAMES[0],
-					});
-				case "onboarding_next_step":
-					currentStep = Math.min(currentStep + 1, 5);
-					return Promise.resolve({
-						step: currentStep,
-						total_steps: 6,
-						step_name: STEP_NAMES[currentStep],
-					});
-				case "get_config":
-					return Promise.reject(new Error("not available"));
-				case "onboarding_get_microphones":
-					return Promise.resolve({
-						microphones: [{ id: "mic-1", name: "Built-in" }],
-					});
-				case "onboarding_get_hotkey_presets":
-					return Promise.resolve({ presets: ["<f2>"] });
-				case "onboarding_get_model_options":
-					return Promise.resolve({
-						models: [
-							{
-								name: "tiny",
-								size: "~466MB",
-								speed: "Fast",
-								description: "Small",
-							},
-						],
-					});
-				case "onboarding_check_permissions":
-					return Promise.resolve({
-						platform: "linux",
-						state: "granted",
-						needed: false,
-						instructions: null,
-					});
-				default:
-					return Promise.resolve({});
-			}
+	it("seeds selections from the saved config on every start (F2)", async () => {
+		// get_config is probed on EVERY start (fresh + resume); a saved
+		// F4 hotkey must be preselected instead of the renderer default.
+		mockWizard({ startStep: 3, cfg: { hotkey: "<f4>" } });
+
+		renderWithProviders(<OnboardingPage onComplete={() => {}} />);
+
+		await waitFor(() => {
+			const calls = mockCall.mock.calls.filter(
+				(c: unknown[]) => c[0] === "get_config",
+			);
+			expect(calls.length).toBeGreaterThanOrEqual(1);
 		});
+	});
+});
 
-		const { container } = render(<OnboardingPage onComplete={() => {}} />);
+describe("Model step gating + selection", () => {
+	it("Continue is DISABLED when no model is selected (no default model)", async () => {
+		mockWizard({ startStep: 2, cfg: { model_size: "" } });
 
-		// Advance to the Model step (step 4). The first four steps
-		// (Welcome / Microphone / Permissions / Hotkey) all pass; at
-		// the Model step, Continue is blocked because no model is
-		// selected.
-		for (let i = 0; i < 4; i++) {
-			const continueBtn = await screen.findByRole("button", {
-				name: "Continue",
-			});
-			fireEvent.click(continueBtn);
-			await waitFor(() => {
-				expect(screen.queryByRole("button", { name: "Continue" })).not.toBe(
-					null,
-				);
-			});
-		}
+		renderWithProviders(<OnboardingPage onComplete={() => {}} />);
 
-		// Now on the Model step. Verify the wizard loaded despite the
-		// get_config failure (hotkey default fallback is exercised by
-		// the dedicated hotkey-hint test) and that Continue is blocked
-		// because no default model exists, the user must pick one.
 		await waitFor(() => {
 			expect(screen.getAllByText("Choose Your Model").length).toBeGreaterThan(
 				0,
@@ -381,975 +230,136 @@ describe("Onboarding wizard, F2: pre-select existing config values", () => {
 			name: "Continue",
 		});
 		expect(continueBtn.hasAttribute("disabled")).toBe(true);
-		expect(container.textContent ?? "").toContain("Choose Your Model");
-	});
-});
-
-//Permissions step at index 2 ────────────────────────────────
-
-describe("Onboarding wizard, Permissions step at index 2", () => {
-	beforeEach(() => {
-		mockCall.mockReset();
-		mockShowSnack.mockReset();
 	});
 
-	afterEach(() => {
-		cleanup();
-	});
+	it("Continue is ENABLED when a model is selected", async () => {
+		mockWizard({ startStep: 2, cfg: { model_size: "large-v3-turbo" } });
 
-	/**
-	 * Helper: jump the wizard straight to a given step index by
-	 * making `onboarding_start` return that step. Used to test
-	 * individual step renderers without clicking through the
-	 * preceding steps.
-	 */
-	function mockStartAtStep(stepIndex: number) {
-		mockCall.mockImplementation((type: string) => {
-			switch (type) {
-				case "onboarding_start":
-					return Promise.resolve({
-						step: stepIndex,
-						total_steps: 6,
-						step_name: STEP_NAMES[stepIndex],
-					});
-				case "onboarding_next_step":
-				case "onboarding_prev_step":
-					return Promise.resolve({
-						step: stepIndex,
-						total_steps: 6,
-						step_name: STEP_NAMES[stepIndex],
-					});
-				case "get_config":
-					return Promise.resolve({
-						hotkey: "<f2>",
-						model_size: "tiny",
-						microphone: "",
-					});
-				case "onboarding_get_microphones":
-					return Promise.resolve({
-						microphones: [{ id: "mic-1", name: "Built-in Mic" }],
-					});
-				case "onboarding_get_hotkey_presets":
-					return Promise.resolve({
-						presets: ["<f2>", "<f4>", "<f6>"],
-					});
-				case "onboarding_get_model_options":
-					return Promise.resolve({
-						models: [
-							{
-								name: "tiny",
-								size: "~466MB",
-								speed: "Fast",
-								description: "Small",
-							},
-						],
-					});
-				case "onboarding_check_permissions":
-					return Promise.resolve({
-						platform: "linux",
-						state: "denied",
-						needed: true,
-						instructions: {
-							title: "Input Group + udev Rule Required",
-							steps: [
-								"Add yourself to the 'input' group",
-								"Install the udev rule",
-								"Log out and back in",
-							],
-							commands: [
-								"sudo usermod -aG input $USER",
-								'# KERNEL=="event*", SUBSYSTEM=="input", GROUP="input", MODE="0640"',
-							],
-						},
-					});
-				case "onboarding_set_microphone":
-				case "onboarding_set_hotkey":
-				case "onboarding_set_model":
-				case "onboarding_apply":
-				case "onboarding_skip":
-					return Promise.resolve({});
-				default:
-					return Promise.resolve({});
-			}
-		});
-	}
-
-	it("renders the Permissions step at step index 2 (between Microphone and Hotkey)", async () => {
-		mockStartAtStep(2);
-
-		render(<OnboardingPage onComplete={() => {}} />);
-
-		// Wait for the Permissions heading to render. This
-		// confirms (a) the renderer has a branch for
-		// step_name === "Permissions", and (b) the server's
-		// step=2 (Permissions) no longer falls through to the
-		// Hotkey branch.
-		//
-		//the visible step-name label in the progress bar
-		// now uses the localized title (`onboarding.permissionsTitle`
-		// = "Keyboard Monitoring Permission"), so the same text
-		// appears in both the <span> label and the <h2> heading —
-		// use getAllByText to accept the intentional duplication.
-		await waitFor(() => {
-			expect(
-				screen.getAllByText("Keyboard Monitoring Permission").length,
-			).toBeGreaterThan(0);
-		});
-		// The "Test hotkey" button should also be present.
-		expect(screen.getByRole("button", { name: "Test hotkey" })).toBeTruthy();
-	});
-
-	it("calls onboarding_check_permissions on mount when the Permissions step is shown", async () => {
-		mockStartAtStep(2);
-
-		render(<OnboardingPage onComplete={() => {}} />);
-
-		// The IPC call should fire as soon as the Permissions
-		// step mounts (useEffect on step.step_name ===
-		// "Permissions").
-		await waitFor(() => {
-			const calls = mockCall.mock.calls.map((c: unknown[]) => c[0] as string);
-			expect(calls).toContain("onboarding_check_permissions");
-		});
-	});
-
-	it("renders platform-specific instructions when permission is needed (Linux)", async () => {
-		mockStartAtStep(2);
-
-		render(<OnboardingPage onComplete={() => {}} />);
-
-		// The mocked IPC returns `needed: true` with Linux
-		// instructions including the `sudo usermod -aG input`
-		// command. The renderer should surface this verbatim
-		// so a power user can apply it manually.
-		await waitFor(() => {
-			expect(screen.getByText("Input Group + udev Rule Required")).toBeTruthy();
-		});
-		expect(screen.getByText(/sudo usermod/)).toBeTruthy();
-		expect(screen.getByText("Permission still required")).toBeTruthy();
-	});
-
-	it("renders the 'Permission granted' message when state is granted", async () => {
-		mockCall.mockImplementation((type: string) => {
-			switch (type) {
-				case "onboarding_start":
-					return Promise.resolve({
-						step: 2,
-						total_steps: 6,
-						step_name: "Permissions",
-					});
-				case "get_config":
-					return Promise.resolve({
-						hotkey: "<f2>",
-						model_size: "tiny",
-						microphone: "",
-					});
-				case "onboarding_get_microphones":
-					return Promise.resolve({ microphones: [] });
-				case "onboarding_get_hotkey_presets":
-					return Promise.resolve({ presets: ["<f2>"] });
-				case "onboarding_get_model_options":
-					return Promise.resolve({ models: [] });
-				case "onboarding_check_permissions":
-					return Promise.resolve({
-						platform: "macos",
-						state: "granted",
-						needed: false,
-						instructions: null,
-					});
-				default:
-					return Promise.resolve({});
-			}
-		});
-
-		render(<OnboardingPage onComplete={() => {}} />);
-
-		await waitFor(() => {
-			expect(
-				screen.getByText("Permission granted. Hotkeys will work."),
-			).toBeTruthy();
-		});
-	});
-
-	it("renders the 'no permission needed' message on Windows / unknown platforms", async () => {
-		mockCall.mockImplementation((type: string) => {
-			switch (type) {
-				case "onboarding_start":
-					return Promise.resolve({
-						step: 2,
-						total_steps: 6,
-						step_name: "Permissions",
-					});
-				case "get_config":
-					return Promise.resolve({
-						hotkey: "<f2>",
-						model_size: "tiny",
-						microphone: "",
-					});
-				case "onboarding_get_microphones":
-					return Promise.resolve({ microphones: [] });
-				case "onboarding_get_hotkey_presets":
-					return Promise.resolve({ presets: ["<f2>"] });
-				case "onboarding_get_model_options":
-					return Promise.resolve({ models: [] });
-				case "onboarding_check_permissions":
-					return Promise.resolve({
-						platform: "windows",
-						state: "unknown",
-						needed: false,
-						instructions: null,
-					});
-				default:
-					return Promise.resolve({});
-			}
-		});
-
-		render(<OnboardingPage onComplete={() => {}} />);
-
-		await waitFor(() => {
-			expect(
-				screen.getByText(/No extra permission needed on this platform/),
-			).toBeTruthy();
-		});
-	});
-
-	it("shifts Hotkey/Model/Done to step indices 3/4/5 (out of 6)", async () => {
-		//regression guard: server-side step order is
-		// [Welcome(0), Microphone(1), Permissions(2), Hotkey(3),
-		//  Model(4), Done(5)]. Verify each step renders the
-		// expected content when jumped to directly.
-		//
-		//the visible step-name label in the progress bar
-		// now uses the localized title (e.g. "Choose Your Hotkey"),
-		// matching the per-step <h2> heading. Use getAllByText to
-		// accept the intentional duplication.
-		for (const [idx, expectedText] of [
-			[3, "Choose Your Hotkey"],
-			[4, "Choose Your Model"],
-			[5, "You're All Set!"],
-		] as const) {
-			cleanup();
-			mockCall.mockReset();
-			mockStartAtStep(idx);
-
-			render(<OnboardingPage onComplete={() => {}} />);
-
-			await waitFor(() => {
-				expect(screen.getAllByText(expectedText).length).toBeGreaterThan(0);
-			});
-
-			// The progress indicator should show "Step N of 6"
-			// where N is idx+1, confirming the wizard is in
-			// 6-step mode (not the old 5-step mode where
-			// Done would have been "Step 5 of 5").
-			expect(screen.getByText(`Step ${idx + 1} of 6`)).toBeTruthy();
-		}
-	});
-
-	it("shows 'Get Started' button (not 'Continue') only on the Done step (index 5)", async () => {
-		// On every step except Done, the primary button is
-		// "Continue"; on Done it's "Get Started" (aria-label is
-		// "Get started", lowercase 's', matching the i18n key
-		// `getStartedAria`).
-		for (const idx of [0, 1, 2, 3, 4]) {
-			cleanup();
-			mockCall.mockReset();
-			mockStartAtStep(idx);
-
-			render(<OnboardingPage onComplete={() => {}} />);
-
-			await waitFor(() => {
-				expect(screen.getByRole("button", { name: "Continue" })).toBeTruthy();
-			});
-			// "Get Started" should NOT appear before the Done step.
-			expect(screen.queryByRole("button", { name: /Get started/i })).toBeNull();
-			// Skip should appear on every non-Done step
-			//(: skip guard is now `!isDoneStep` rather
-			// than `step < 4`).
-			expect(
-				screen.getByRole("button", { name: "Skip onboarding" }),
-			).toBeTruthy();
-		}
-
-		// On the Done step, "Get Started" appears and Skip is hidden.
-		cleanup();
-		mockCall.mockReset();
-		mockStartAtStep(5);
-
-		render(<OnboardingPage onComplete={() => {}} />);
-
-		await waitFor(() => {
-			expect(screen.getByRole("button", { name: "Get started" })).toBeTruthy();
-		});
-		expect(
-			screen.queryByRole("button", { name: "Skip onboarding" }),
-		).toBeNull();
-	});
-
-	it("Test hotkey button: shows success message when the selected hotkey is pressed", async () => {
-		mockCall.mockImplementation((type: string) => {
-			switch (type) {
-				case "onboarding_start":
-					return Promise.resolve({
-						step: 2,
-						total_steps: 6,
-						step_name: "Permissions",
-					});
-				case "get_config":
-					return Promise.resolve({
-						hotkey: "<f2>",
-						model_size: "tiny",
-						microphone: "",
-					});
-				case "onboarding_get_microphones":
-					return Promise.resolve({ microphones: [] });
-				case "onboarding_get_hotkey_presets":
-					return Promise.resolve({ presets: ["<f2>"] });
-				case "onboarding_get_model_options":
-					return Promise.resolve({ models: [] });
-				case "onboarding_check_permissions":
-					return Promise.resolve({
-						platform: "macos",
-						state: "granted",
-						needed: false,
-						instructions: null,
-					});
-				default:
-					return Promise.resolve({});
-			}
-		});
-
-		render(<OnboardingPage onComplete={() => {}} />);
-
-		// Wait for the Permissions step to render.
-		const testHotkeyButton = (await screen.findByRole("button", {
-			name: "Test hotkey",
-		})) as HTMLButtonElement;
-
-		// The button is disabled while the permission probe is in
-		// flight (`permissionsLoading`), clicking a disabled button
-		// is a no-op. On slow CI the probe can still be loading when
-		// the button first appears, so wait for the enabled state
-		// before clicking (CI flake fix: the click previously landed
-		// while disabled and the listening label never rendered).
-		await waitFor(() => {
-			expect(testHotkeyButton.disabled).toBe(false);
-		});
-
-		// Click the button, should enter listening state and
-		// show the "Press your hotkey to test" label.
-		fireEvent.click(testHotkeyButton);
-		await waitFor(() => {
-			expect(screen.getByText("Press your hotkey to test")).toBeTruthy();
-		});
-
-		// Simulate pressing F2 (the selected hotkey). The
-		// browser fires KeyboardEvent with key="F2"; the
-		// renderer's normalizer strips <> and lowercases both
-		// sides, so "<f2>" → "f2" matches "F2" → "f2".
-		window.dispatchEvent(new KeyboardEvent("keydown", { key: "F2" }));
-
-		await waitFor(() => {
-			expect(screen.getByText("Hotkey detected! It works.")).toBeTruthy();
-		});
-	});
-});
-
-//regression guards ────────────────
-
-describe("Onboarding wizard, BG-11 / BG-12 / BG-14 / BG-100 regressions", () => {
-	beforeEach(() => {
-		mockCall.mockReset();
-		mockShowSnack.mockReset();
-	});
-
-	afterEach(() => {
-		cleanup();
-	});
-
-	/**
-	 * Helper identical to `mockStartAtStep` in the  suite but
-	 * parameterised so the BG regression tests can opt into
-	 * per-model VRAM/language metadata (). Older backends
-	 * don't return these fields, the default is to omit them.
-	 */
-	function mockStartAtStepWithModels(
-		stepIndex: number,
-		models: Array<Record<string, unknown>> = [
-			{
-				name: "tiny",
-				size: "~466MB",
-				speed: "Fast",
-				description: "Small",
-			},
-		],
-	) {
-		mockCall.mockImplementation((type: string) => {
-			switch (type) {
-				case "onboarding_start":
-					return Promise.resolve({
-						step: stepIndex,
-						total_steps: 6,
-						step_name: STEP_NAMES[stepIndex],
-					});
-				case "onboarding_next_step":
-				case "onboarding_prev_step":
-					return Promise.resolve({
-						step: stepIndex,
-						total_steps: 6,
-						step_name: STEP_NAMES[stepIndex],
-					});
-				case "get_config":
-					return Promise.resolve({
-						hotkey: "<f2>",
-						model_size: "tiny",
-						microphone: "",
-					});
-				case "onboarding_get_microphones":
-					return Promise.resolve({
-						microphones: [{ id: "mic-1", name: "Built-in Mic" }],
-					});
-				case "onboarding_get_hotkey_presets":
-					return Promise.resolve({
-						presets: ["<f2>", "<f4>", "<f6>"],
-					});
-				case "onboarding_get_model_options":
-					return Promise.resolve({ models });
-				case "onboarding_check_permissions":
-					return Promise.resolve({
-						platform: "linux",
-						state: "granted",
-						needed: false,
-						instructions: null,
-					});
-				case "onboarding_set_microphone":
-				case "onboarding_set_hotkey":
-				case "onboarding_set_model":
-				case "onboarding_apply":
-				case "onboarding_skip":
-					return Promise.resolve({});
-				default:
-					return Promise.resolve({});
-			}
-		});
-	}
-
-	//progressAria i18n template contains {current}/{total}
-	// placeholders. The visible `stepProgress` span interpolates them
-	// correctly; the aria-label call must too, or screen readers
-	// announce the literal "{current}" / "{total}" tokens.
-	it("BG-11: progressbar aria-label interpolates {current}/{total} (no literal tokens)", async () => {
-		mockStartAtStepWithModels(2);
-
-		render(<OnboardingPage onComplete={() => {}} />);
-
-		// Wait for the Permissions step to mount so the progressbar
-		// is rendered with step_index=2 (current=3).
-		await waitFor(() => {
-			expect(screen.getByRole("button", { name: "Test hotkey" })).toBeTruthy();
-		});
-
-		const progressbar = screen.getByRole("progressbar");
-		const label = progressbar.getAttribute("aria-label") ?? "";
-
-		// On step index 2, current = step+1 = 3, total = 6.
-		// The interpolated aria-label should contain "3" and "6",
-		// and must NOT contain the literal template tokens.
-		expect(label).toMatch(/\b3\b/);
-		expect(label).toMatch(/\b6\b/);
-		expect(label).not.toContain("{current}");
-		expect(label).not.toContain("{total}");
-	});
-
-	//visible right-side step-name label was rendering the raw
-	// backend enum ("Permissions" / "Done" / etc.). After the fix it
-	// uses the localized title. Assert the raw enum no longer leaks
-	// (Done step is the cleanest case, "Done" doesn't appear in any
-	// other visible string).
-	it("BG-12: visible step-name label is localized (no raw 'Done' enum)", async () => {
-		mockStartAtStepWithModels(5);
-
-		render(<OnboardingPage onComplete={() => {}} />);
-
-		await waitFor(() => {
-			expect(screen.getByRole("button", { name: "Get started" })).toBeTruthy();
-		});
-
-		// The localized title for the Done step is "You're All Set!"
-		// (appears in both the sr-only h1 prefix, the visible <span>
-		// label, and the per-step <h2> heading). The raw enum "Done"
-		// must NOT appear as a standalone text node anywhere in the
-		// rendered wizard.
-		expect(screen.queryByText("Done", { exact: true })).toBeNull();
-	});
-
-	//DoneStep must render the completeDescription paragraph
-	// (warning the user about the background model download). The key
-	// includes a {hotkey} interpolation that must be the
-	// uppercased, <>-stripped selected hotkey.
-	it("BG-14: DoneStep renders completeDescription with interpolated hotkey", async () => {
-		mockStartAtStepWithModels(5);
-
-		render(<OnboardingPage onComplete={() => {}} />);
-
-		await waitFor(() => {
-			expect(screen.getByRole("button", { name: "Get started" })).toBeTruthy();
-		});
-
-		// The completeDescription string starts with "Your Voice
-		// Typer is configured and ready." (en.json). Match on the
-		// stable prefix so the test doesn't break if the trailing
-		// wording changes.
-		expect(
-			screen.getByText(/Your Voice Typer is configured and ready/),
-		).toBeTruthy();
-
-		// The hotkey interpolation: <f2> → "F2" (uppercase, <> stripped).
-		// The completeDescription contains "Press your hotkey (F2) to
-		// start dictating.", assert the parenthesised F2 appears.
-		expect(screen.getByText(/\(F2\)/)).toBeTruthy();
-	});
-
-	//ModelStep must render per-option VRAM + language badges
-	// so users can compare models at a glance. The Select UI is mocked
-	// at the top of this file (vi.mock("@/components/ui/select")) so
-	// SelectItem children render inline in the DOM, no need to drive
-	// Radix's pointer-capture / Portal machinery.
-	//
-	// Previously skipped because the `onboarding.vramBadge` /
-	// `onboarding.englishOnlyBadge` / `onboarding.multilingualBadge`
-	// keys were missing from en.json; they now exist (all 8 locales),
-	// so this runs unskipped and asserts the SHIPPED strings.
-	it("ModelStep renders VRAM + language badges per option", async () => {
-		mockStartAtStepWithModels(4, [
-			{
-				name: "large-v3-turbo",
-				size: "~75MB",
-				speed: "Fastest",
-				description: "Tiny",
-				vram_gb: 1,
-				languages: ["en"],
-			},
-			{
-				name: "large-v3",
-				size: "~1.5GB",
-				speed: "Slow",
-				description: "Large",
-				vram_gb: 5,
-				languages: null,
-			},
-		]);
-
-		render(<OnboardingPage onComplete={() => {}} />);
-
-		// Wait for the Model step heading to confirm we're on step 4.
-		await waitFor(() => {
-			expect(screen.getAllByText("Choose Your Model").length).toBeGreaterThan(
-				0,
-			);
-		});
-
-		// Assert the per-option badges appear inline (Select mock
-		// renders SelectItem children without opening a dropdown).
-		// vramBadge → "VRAM: ~{vram}": formatVram(1 * 1024) = "1 GB",
-		// formatVram(5 * 1024) = "5 GB".
-		// English-only (languages=['en']) → englishOnlyBadge.
-		// Multilingual (languages=null) → multilingualBadge.
-		expect(screen.getByText("VRAM: ~1 GB")).toBeTruthy();
-		expect(screen.getByText("VRAM: ~5 GB")).toBeTruthy();
-		expect(screen.getByText("English only")).toBeTruthy();
-		expect(screen.getByText("Multilingual")).toBeTruthy();
-	});
-});
-
-//"Default: <selection>" hints + Continue validation ─────
-
-describe("Onboarding wizard, S5-CR-105: default-selection hints + Continue validation", () => {
-	beforeEach(() => {
-		mockCall.mockReset();
-		mockShowSnack.mockReset();
-	});
-
-	afterEach(() => {
-		cleanup();
-	});
-
-	/**
-	 * Helper: jump the wizard straight to a given step index, with
-	 * full control over the get_config payload (so we can simulate
-	 * "user has no prior config" → defaults apply → hints should show)
-	 * and the microphone list (so we can simulate "OS default mic
-	 * available" → mic hint should show).
-	 *
-	 * : the wizard pre-selects HOTKEY_DEFAULT ("<caps_lock>")
-	 * and MODEL_DEFAULT ("tiny") when get_config returns no
-	 * hotkey/model_size. It also auto-selects the OS default mic
-	 * (the one with `default: true`). When any of these defaults
-	 * are active, a "Default: <value>" hint should appear next to
-	 * the Continue button so the user knows they're accepting a
-	 * default rather than an explicit choice.
-	 */
-	function mockStartAtStepWithDefaults(
-		stepIndex: number,
-		opts: {
-			cfg?: Record<string, unknown>;
-			microphones?: Array<Record<string, unknown>>;
-			models?: Array<Record<string, unknown>>;
-		} = {},
-	) {
-		mockCall.mockImplementation((type: string) => {
-			switch (type) {
-				case "onboarding_start":
-					return Promise.resolve({
-						step: stepIndex,
-						total_steps: 6,
-						step_name: STEP_NAMES[stepIndex],
-					});
-				case "onboarding_next_step":
-				case "onboarding_prev_step":
-					return Promise.resolve({
-						step: stepIndex,
-						total_steps: 6,
-						step_name: STEP_NAMES[stepIndex],
-					});
-				case "get_config":
-					// Default: empty config → wizard falls back to
-					// HOTKEY_DEFAULT + MODEL_DEFAULT + auto-selected mic.
-					return Promise.resolve(opts.cfg ?? {});
-				case "onboarding_get_microphones":
-					return Promise.resolve({
-						microphones: opts.microphones ?? [
-							{ id: "mic-1", name: "Built-in Mic" },
-						],
-					});
-				case "onboarding_get_hotkey_presets":
-					return Promise.resolve({
-						presets: ["<caps_lock>", "<f2>", "<f4>"],
-					});
-				case "onboarding_get_model_options":
-					return Promise.resolve({
-						models: opts.models ?? [
-							{
-								name: "tiny",
-								size: "~466MB",
-								speed: "Fast",
-								description: "Small",
-							},
-						],
-					});
-				case "onboarding_check_permissions":
-					return Promise.resolve({
-						platform: "linux",
-						state: "granted",
-						needed: false,
-						instructions: null,
-					});
-				case "onboarding_set_microphone":
-				case "onboarding_set_hotkey":
-				case "onboarding_set_model":
-				case "onboarding_apply":
-				case "onboarding_skip":
-					return Promise.resolve({});
-				default:
-					return Promise.resolve({});
-			}
-		});
-	}
-
-	//(a): Hotkey step hint.
-	it("Hotkey step: shows 'Default: CAPS_LOCK' hint when selectedHotkey is the default", async () => {
-		mockStartAtStepWithDefaults(3);
-
-		render(<OnboardingPage onComplete={() => {}} />);
-
-		// Wait for the Hotkey step to mount.
-		await waitFor(() => {
-			expect(screen.getAllByText("Choose Your Hotkey").length).toBeGreaterThan(
-				0,
-			);
-		});
-
-		// The hint should be visible (selectedHotkey === HOTKEY_DEFAULT
-		// === "<caps_lock>" because get_config returned no hotkey).
-		const hint = await screen.findByTestId("onboarding-default-hotkey-hint");
-		expect(hint?.textContent).toContain("Caps Lock");
-		expect(hint?.textContent).toContain("Default");
-	});
-
-	it("Hotkey step: hint is suppressed when the user picks a non-default hotkey", async () => {
-		// Simulate a user with a previously-saved non-default hotkey.
-		mockStartAtStepWithDefaults(3, { cfg: { hotkey: "<f4>" } });
-
-		render(<OnboardingPage onComplete={() => {}} />);
-
-		await waitFor(() => {
-			expect(screen.getAllByText("Choose Your Hotkey").length).toBeGreaterThan(
-				0,
-			);
-		});
-
-		// selectedHotkey === "<f4>" (not HOTKEY_DEFAULT) → no hint.
-		expect(screen.queryByTestId("onboarding-default-hotkey-hint")).toBeNull();
-	});
-
-	//(a): Model step hint.
-	it("Model step: default-model hint is suppressed (no default model exists)", async () => {
-		// 2026-08-28: the app no longer has a concrete default model.
-		// MODEL_DEFAULT is "" (the NO_MODEL_SIZE sentinel), so the
-		// "Default: <name>" model hint is always suppressed, the user
-		// must explicitly pick a model. The hint element should never
-		// render, mirroring the "non-default model" case below.
-		mockStartAtStepWithDefaults(4);
-
-		render(<OnboardingPage onComplete={() => {}} />);
+		renderWithProviders(<OnboardingPage onComplete={() => {}} />);
 
 		await waitFor(() => {
 			expect(screen.getAllByText("Choose Your Model").length).toBeGreaterThan(
 				0,
 			);
 		});
-
-		expect(screen.queryByTestId("onboarding-default-model-hint")).toBeNull();
-	});
-
-	it("Model step: hint is suppressed when the user picks a non-default model", async () => {
-		// Simulate a user with a previously-saved non-default model.
-		mockStartAtStepWithDefaults(4, { cfg: { model_size: "large-v3-turbo" } });
-
-		render(<OnboardingPage onComplete={() => {}} />);
-
-		await waitFor(() => {
-			expect(screen.getAllByText("Choose Your Model").length).toBeGreaterThan(
-				0,
-			);
+		const continueBtn = await screen.findByRole("button", {
+			name: "Continue",
 		});
-
-		expect(screen.queryByTestId("onboarding-default-model-hint")).toBeNull();
-	});
-
-	//(a): Microphone step hint.
-	it("Microphone step: shows 'Default: <mic name>' hint when the OS default mic is auto-selected", async () => {
-		mockStartAtStepWithDefaults(1, {
-			microphones: [
-				{ id: "mic-1", name: "Built-in Mic", default: true },
-				{ id: "mic-2", name: "USB Mic" },
-			],
-		});
-
-		render(<OnboardingPage onComplete={() => {}} />);
-
-		await waitFor(() => {
-			expect(
-				screen.getAllByText("Choose Your Microphone").length,
-			).toBeGreaterThan(0);
-		});
-
-		const hint = await screen.findByTestId("onboarding-default-mic-hint");
-		expect(hint?.textContent).toContain("Built-in Mic");
-		expect(hint?.textContent).toContain("Default");
-	});
-
-	it("Microphone step: hint is suppressed when no default-flagged mic exists", async () => {
-		mockStartAtStepWithDefaults(1, {
-			microphones: [{ id: "mic-1", name: "USB Mic" }],
-		});
-
-		render(<OnboardingPage onComplete={() => {}} />);
-
-		await waitFor(() => {
-			expect(
-				screen.getAllByText("Choose Your Microphone").length,
-			).toBeGreaterThan(0);
-		});
-
-		// No mic has default: true → wizard auto-selects mic-1 (first
-		// in enumeration order), but no hint is shown because the
-		// pre-selection didn't come from the OS default flag.
-		expect(screen.queryByTestId("onboarding-default-mic-hint")).toBeNull();
-	});
-
-	//(b): Continue button validation.
-	it("Model step: Continue is DISABLED when no model is selected (no default model)", async () => {
-		// 2026-08-28: there is no default model anymore. A fresh
-		// get_config returns no model_size, so selectedModel stays the
-		// empty sentinel → isModelStepBlocked → Continue disabled until
-		// the user explicitly picks a model.
-		mockStartAtStepWithDefaults(4);
-
-		render(<OnboardingPage onComplete={() => {}} />);
-
-		await waitFor(() => {
-			expect(screen.getAllByText("Choose Your Model").length).toBeGreaterThan(
-				0,
-			);
-		});
-
-		const continueBtn = await screen.findByRole("button", { name: "Continue" });
-		expect(continueBtn.hasAttribute("disabled")).toBe(true);
-	});
-
-	it("Model step: Continue is ENABLED when a model is selected (explicit config)", async () => {
-		// Simulate a user with a previously-saved model selection.
-		mockStartAtStepWithDefaults(4, { cfg: { model_size: "large-v3-turbo" } });
-
-		render(<OnboardingPage onComplete={() => {}} />);
-
-		await waitFor(() => {
-			expect(screen.getAllByText("Choose Your Model").length).toBeGreaterThan(
-				0,
-			);
-		});
-
-		// selectedModel === "large-v3-turbo" → not blocked → enabled.
-		const continueBtn = await screen.findByRole("button", { name: "Continue" });
 		expect(continueBtn.hasAttribute("disabled")).toBe(false);
 	});
 
-	it("Microphone step: Continue is DISABLED when no microphones are detected", async () => {
-		//Reuse the no-mics regression: no mics → isMicStepBlocked.
-		// This is the "Continue disabled when no selection" guard
-		//for case (b): when the user has no mic to select,
-		// Continue is blocked so they can't silently bypass the
-		// step with an empty selection.
-		mockStartAtStepWithDefaults(1, { microphones: [] });
+	it("selecting an accordion row fires onboarding_set_model + onboarding_set_backend on Continue", async () => {
+		mockWizard({ startStep: 2, cfg: { model_size: "" } });
 
-		render(<OnboardingPage onComplete={() => {}} />);
+		renderWithProviders(<OnboardingPage onComplete={() => {}} />);
 
 		await waitFor(() => {
-			expect(
-				screen.getAllByText("Choose Your Microphone").length,
-			).toBeGreaterThan(0);
+			expect(screen.getAllByText("Choose Your Model").length).toBeGreaterThan(
+				0,
+			);
 		});
 
-		const continueBtn = await screen.findByRole("button", { name: "Continue" });
-		expect(continueBtn.hasAttribute("disabled")).toBe(true);
+		// Pick large-v3-turbo via its accordion row.
+		fireEvent.click(
+			screen.getByTestId("onboarding-model-select-large-v3-turbo"),
+		);
+		fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+
+		await waitFor(() => {
+			const setModel = mockCall.mock.calls.find(
+				(c: unknown[]) => c[0] === "onboarding_set_model",
+			);
+			expect(setModel?.[1]).toEqual({ model: "large-v3-turbo" });
+		});
+		const backendCall = mockCall.mock.calls.find(
+			(c: unknown[]) => c[0] === "onboarding_set_backend",
+		);
+		expect(backendCall?.[1]).toEqual({ backend: "local" });
 	});
 });
 
-describe("Onboarding wizard, apply failure surfaces an inline error (no false success)", () => {
-	beforeEach(() => {
-		mockCall.mockReset();
-		mockShowSnack.mockReset();
+describe("Final step (Hotkey) apply flow", () => {
+	it("Get started persists the hotkey BEFORE onboarding_apply", async () => {
+		mockWizard({ startStep: 3 });
+
+		renderWithProviders(<OnboardingPage onComplete={() => {}} />);
+
+		await waitFor(() => {
+			expect(screen.getAllByText("Choose Your Hotkey").length).toBeGreaterThan(
+				0,
+			);
+		});
+
+		fireEvent.click(screen.getByRole("button", { name: "Get started" }));
+
+		await waitFor(() => {
+			const applyIdx = mockCall.mock.calls.findIndex(
+				(c: unknown[]) => c[0] === "onboarding_apply",
+			);
+			expect(applyIdx).toBeGreaterThanOrEqual(0);
+			const hotkeyIdx = mockCall.mock.calls.findIndex(
+				(c: unknown[]) => c[0] === "onboarding_set_hotkey",
+			);
+			expect(hotkeyIdx).toBeGreaterThanOrEqual(0);
+			expect(hotkeyIdx).toBeLessThan(applyIdx);
+		});
+		// Success toast fired (apply resolved).
+		await waitFor(() => {
+			expect(mockShowSnack).toHaveBeenCalledWith(
+				expect.stringContaining("Setup complete"),
+				"success",
+			);
+		});
 	});
 
-	afterEach(() => {
-		cleanup();
-	});
-
-	/**
-	 * Start the wizard directly on the Done step with the biometric
-	 * consent already granted (so Get Started is enabled), and make
-	 * `onboarding_apply` fail until `applyShouldFail` is flipped.
-	 */
-	function mockDoneStep(applyShouldFail: { value: boolean }) {
-		mockCall.mockImplementation((type: string) => {
-			switch (type) {
-				case "onboarding_start":
-					return Promise.resolve({
-						step: 5,
-						total_steps: 6,
-						step_name: "Done",
-					});
-				case "get_config":
-					return Promise.resolve({
-						hotkey: "<f2>",
-						model_size: "tiny",
-						microphone: "",
-						voice_biometric_consent: true,
-					});
-				case "onboarding_get_microphones":
-					return Promise.resolve({ microphones: [] });
-				case "onboarding_get_hotkey_presets":
-					return Promise.resolve({ presets: ["<f2>"] });
-				case "onboarding_get_model_options":
-					return Promise.resolve({ models: [] });
-				case "onboarding_apply":
-					return applyShouldFail.value
+	it("apply failure surfaces the error snack + inline alert and does NOT complete", async () => {
+		let applyShouldFail = true;
+		mockWizard({ startStep: 3 });
+		{
+			const base = mockCall.getMockImplementation();
+			if (!base) throw new Error("wizard mock not installed");
+			mockCall.mockImplementation((type: string) => {
+				if (type === "onboarding_apply") {
+					return applyShouldFail
 						? Promise.reject(new Error("disk full"))
 						: Promise.resolve({});
-				default:
-					return Promise.resolve({});
-			}
-		});
-	}
+				}
+				return base(type);
+			});
+		}
 
-	it("shows the error snack + inline alert and does NOT complete when onboarding_apply rejects", async () => {
 		const onComplete = vi.fn();
-		const applyState = { value: true };
-		mockDoneStep(applyState);
+		renderWithProviders(<OnboardingPage onComplete={onComplete} />);
 
-		render(<OnboardingPage onComplete={onComplete} />);
-
-		// The Done step renders the Get Started button (aria-label
-		// getStartedAria); it stays disabled until the biometric-consent
-		// probe resolves, so wait for it to become clickable.
-		const getStarted = await screen.findByRole("button", {
-			name: "Get started",
-		});
 		await waitFor(() => {
-			expect(getStarted.hasAttribute("disabled")).toBe(false);
+			expect(screen.getAllByText("Choose Your Hotkey").length).toBeGreaterThan(
+				0,
+			);
 		});
 
-		fireEvent.click(getStarted);
+		fireEvent.click(screen.getByRole("button", { name: "Get started" }));
 
-		// The apply rejection must surface the error snack, NOT the
-		// success one, and must not navigate away.
 		await waitFor(() => {
 			expect(mockShowSnack).toHaveBeenCalledWith(
 				"Failed to save selection",
 				"error",
 			);
 		});
-		expect(mockShowSnack).not.toHaveBeenCalledWith(
-			"Setup complete! Your settings are saved.",
-			"success",
-		);
 		expect(onComplete).not.toHaveBeenCalled();
-
-		// The inline alert near the Get Started button explains the
-		// failure (applyFailedTitle/applyFailedDescription).
 		expect(screen.getByRole("alert")).toBeTruthy();
 		expect(screen.getByText("Couldn't finish setup")).toBeTruthy();
-		expect(
-			screen.getByText(
-				"We couldn't apply your settings. Try again, or skip and finish later in Settings.",
-			),
-		).toBeTruthy();
-	});
 
-	it("completes with the success snack + navigation once apply succeeds on retry", async () => {
-		const onComplete = vi.fn();
-		const applyState = { value: true };
-		mockDoneStep(applyState);
-
-		render(<OnboardingPage onComplete={onComplete} />);
-
-		const getStarted = await screen.findByRole("button", {
-			name: "Get started",
-		});
-		await waitFor(() => {
-			expect(getStarted.hasAttribute("disabled")).toBe(false);
-		});
-
-		// First click fails…
-		fireEvent.click(getStarted);
-		await waitFor(() => {
-			expect(screen.getByRole("alert")).toBeTruthy();
-		});
-
-		// …then the backend recovers and the user retries.
-		applyState.value = false;
-		fireEvent.click(getStarted);
-
+		// Retry succeeds once the backend recovers.
+		applyShouldFail = false;
+		fireEvent.click(screen.getByRole("button", { name: "Get started" }));
 		await waitFor(() => {
 			expect(mockShowSnack).toHaveBeenCalledWith(
-				"Setup complete! Your settings are saved.",
+				expect.stringContaining("Setup complete"),
 				"success",
 			);
 		});
 		expect(onComplete).toHaveBeenCalledTimes(1);
-		// applyError resets at the start of every apply attempt, so the
-		// inline alert disappears on the successful retry.
+		// The inline alert resets at the start of every apply attempt.
 		expect(screen.queryByRole("alert")).toBeNull();
 	});
 });

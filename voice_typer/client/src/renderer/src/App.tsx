@@ -392,16 +392,27 @@ export default function App() {
 					onThemeChange={handleThemeChange}
 					linuxWindowButtons={linuxWindowButtons}
 					currentPage={currentPage}
-				/>
-
+				/>{" "}
 				<div className="flex min-h-0 flex-1">
-					<Sidebar
-						currentPage={currentPage}
-						onNavigate={navigate}
-						collapsed={sidebarCollapsed}
-					/>
+					{/* ONB-3: the first-run onboarding is a FOCUSED, mandatory
+						    flow — the sidebar is hidden ENTIRELY (not collapsed to
+						    the icon rail), and the content row is pinned dir="ltr"
+						    so the (hidden) sidebar column stays on the physical left
+						    even in RTL locales (Arabic): the wizard column cannot
+						    jump sides mid-setup. Every other page keeps the normal
+						    direction-aware layout. */}
+					{currentPage !== "onboarding" && (
+						<Sidebar
+							currentPage={currentPage}
+							onNavigate={navigate}
+							collapsed={sidebarCollapsed}
+						/>
+					)}
 
-					<div className="flex min-w-0 flex-1 flex-col">
+					<div
+						className="flex min-w-0 flex-1 flex-col"
+						dir={currentPage === "onboarding" ? "ltr" : undefined}
+					>
 						<main
 							id="main-content"
 							tabIndex={-1}
@@ -442,11 +453,9 @@ export default function App() {
 					</div>
 				</div>
 				<Toaster />
-
 				{/* Unified point-of-use consent dialog, mounted once;
                                     opened by any consent-gated flow via openConsentGate() */}
 				<ConsentGateDialog />
-
 				{/* Help overlay extracted to <HelpOverlay /> */}
 				<HelpOverlay
 					open={showHelpOverlay}
@@ -454,7 +463,6 @@ export default function App() {
 					dictationLabel={dictationLabel}
 					repasteLabel={repasteLabel}
 				/>
-
 				{/* Split the screen-reader live region
                                     into THREE regions (recording / connection-error /
                                     connection-recovery), see A11yLiveRegions. */}

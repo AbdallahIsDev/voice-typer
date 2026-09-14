@@ -257,9 +257,11 @@ afterEach(() => {
 
 describe("R7-F8: Onboarding init effect uses cancelled-flag guard", () => {
 	it("source contains cancelled flag + cleanup return", async () => {
+		// The init effect lives in the wizard hook since the 2026-09-14
+		// slimming (Onboarding.tsx is wiring-only now).
 		const fs = await import("node:fs");
 		const src = fs.readFileSync(
-			"src/renderer/src/pages/Onboarding.tsx",
+			"src/renderer/src/pages/onboarding/hooks/useOnboardingWizard.ts",
 			"utf8",
 		);
 		// R7-F8 contract: `let cancelled = false;` at the top of the

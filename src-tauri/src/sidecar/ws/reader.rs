@@ -216,13 +216,10 @@ pub(super) fn spawn_reader_task(
                                 // ONLY: NO generic `python-event` duplicate.
                                 // Its bubble-window consumer listens typed
                                 // (`onLevel` → tauri.event.listen("bubble_level"));
-                                // the MAIN renderer's live recording indicator
-                                // deliberately does NOT ride this 30 Hz channel —
-                                // it consumes the server's separate ≤8 Hz
-                                // `recording_level` event on the generic
-                                // envelope instead (see ALLOWED_EVENT_TYPES),
-                                // so this carve-out's PERF rationale holds
-                                // while both windows stay fed.
+                                // no main-window consumer rides this channel
+                                // (the former ≤8 Hz `recording_level` mirror
+                                // was removed with the Home level bar), so
+                                // this carve-out's PERF rationale holds.
                                 // moved (not cloned) into the emit, this
                                 // branch `continue`s right after, so the
                                 // payload has no further readers and the

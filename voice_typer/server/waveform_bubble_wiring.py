@@ -198,18 +198,6 @@ class WaveformBubbleWiring:
             latest. Older frames are dropped silently (they've been
             superseded by the newer level). This converts a slow-renderer
             ~128s freeze into a single publish of the most recent level.
-
-            The same latest-wins frame is ALSO mirrored at ≤8 Hz as a
-            ``recording_level`` event on the GENERIC event path: the
-            typed ``bubble_level`` channel is consumed by the bubble
-            window only (Electron routes it exclusively to the bubble
-            renderer; the Tauri host emits it typed-only by design), so
-            the main renderer's live recording indicator cannot ride it.
-            The mirror is throttled independently of the 60-125 Hz
-            bubble push (a level indicator has no use for more than a
-            few updates per second) and reuses the worker's PERF-3
-            latest-wins drain, so the extra publish is at most one
-            small frame per 120 ms while recording.
             """
             q = self._bubble_level_queue
             stop = self._bubble_level_worker_stop
@@ -218,7 +206,6 @@ class WaveformBubbleWiring:
             # started exclusively from the create-then-start path above,
             # so both are non-None by the time this worker runs.
             assert q is not None and stop is not None
-            last_mirror_ts = 0.0
             while not stop.is_set():
                 try:
                     item = q.get(timeout=0.5)
@@ -246,18 +233,6 @@ class WaveformBubbleWiring:
                     item = newer
                 event_bus.publish(item)
                 q.task_done()
-                mirror_now = time.monotonic()
-                if mirror_now - last_mirror_ts >= 0.12:  # ≤8 Hz main-window mirror
-                    last_mirror_ts = mirror_now
-                    event_bus.publish(
-                        {
-                            "type": "recording_level",
-                            "data": {
-                                "rms": item["data"]["rms"],
-                                "peak": item["data"]["peak"],
-                            },
-                        }
-                    )
 
         # __init__ pre-declares _bubble_level_worker (as None),
         # so the ``hasattr`` guard is a dead branch. Direct ``is None``

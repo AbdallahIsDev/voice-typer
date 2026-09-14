@@ -221,35 +221,21 @@ def test_zu_fix_21_arabic_plural_forms_present(locale_flats: dict[str, dict[str,
 def test_zu_fix_22_priority_translations_completed(locale_flats: dict[str, dict[str, str]]) -> None:
     """ZU-22 priority untranslated strings are now translated in zh and ru.
 
-    Specifically: onboarding.permissions* (21 keys), microphoneTest.detectedIssueCodes.*
-    (6 keys), hotkeyValidation.holding, microphone.loading, vocabulary.loading,
-    templates.loading. These were the priority items called out in the orchestrator
-    brief for the zh/ru locales.
+    Specifically: the onboarding test-hotkey keys (the dedicated
+    Permissions step was removed 2026-09-14; its 18 other keys were
+    deleted from every locale, so they can no longer appear here),
+    microphoneTest.detectedIssueCodes.* (6 keys), hotkeyValidation.holding,
+    microphone.loading, vocabulary.loading, templates.loading. These were
+    the priority items called out in the orchestrator brief for the zh/ru
+    locales.
     """
     en = locale_flats["en"]
     priority_keys = [
-        # onboarding.permissions* (21 keys)
-        "onboarding.permissionsTitle",
-        "onboarding.permissionsDescription",
-        "onboarding.permissionsLoading",
-        "onboarding.permissionsNeeded",
-        "onboarding.permissionsOk",
-        "onboarding.permissionsNoneNeeded",
+        # onboarding test-hotkey keys (Permissions step removed
+        # 2026-09-14; the HotkeyStep test button still uses these)
         "onboarding.permissionsTestLabel",
         "onboarding.permissionsTestSuccess",
-        "onboarding.permissionsTestFailure",
-        "onboarding.permissionsTestFailureBlocked",
         "onboarding.permissionsTestButton",
-        "onboarding.permissionsRefresh",
-        "onboarding.permissionsRefreshAria",
-        "onboarding.permissionsInstructionsMacosTitle",
-        "onboarding.permissionsInstructionsMacosStep1",
-        "onboarding.permissionsInstructionsMacosStep2",
-        "onboarding.permissionsInstructionsMacosStep3",
-        "onboarding.permissionsInstructionsLinuxTitle",
-        "onboarding.permissionsInstructionsLinuxStep1",
-        "onboarding.permissionsInstructionsLinuxStep2",
-        "onboarding.permissionsInstructionsLinuxStep3",
         # microphoneTest.detectedIssueCodes.* (6 keys)
         "microphoneTest.detectedIssueCodes.high_noise",
         "microphoneTest.detectedIssueCodes.moderate_noise",

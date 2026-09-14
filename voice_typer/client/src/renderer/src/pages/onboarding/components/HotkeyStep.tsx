@@ -13,13 +13,11 @@ import { t } from "@/i18n/i18n";
 import { HEADING_CLASS } from "../lib/constants";
 import type { PermissionsTestState } from "../lib/types";
 
-// HotkeyStepProps now accepts optional test-hotkey
-// props. The wizard previously only offered a "Test hotkey" button on
-// the Permissions step (step 3, with the default hotkey), so the user
-// picked a non-default hotkey on step 4 (Hotkey) with no inline way to
-// verify it works. Now HotkeyStep accepts the same onTestHotkey handler
-// + permissionsTest state the PermissionsStep uses, and renders an
-// inline test button + result message below the Select.
+// HotkeyStepProps accepts optional test-hotkey
+// props so the FINAL wizard step (Hotkey) offers an inline "Test
+// hotkey" button: the user can verify their freshly-picked hotkey
+// before finishing setup. Renders an inline test button + result
+// message below the Select.
 export interface HotkeyStepProps {
 	headingRef: Ref<HTMLHeadingElement>;
 	hotkeyPresets: string[];
@@ -28,10 +26,11 @@ export interface HotkeyStepProps {
 	/** Optional test-hotkey handler. When provided, renders a "Test
 	 * hotkey" button below the Select that calls this handler. The
 	 * parent (Onboarding.tsx) passes through the same handleTestHotkey
-	 * used by PermissionsStep. */
+	/** Optional test-hotkey handler. When provided, renders a "Test
+	 * hotkey" button below the Select that calls this handler. */
 	onTestHotkey?: () => void;
-	/** Optional test-hotkey status: the same PermissionsTestState
-	 * discriminated union used by PermissionsStep. When provided,
+	/** Optional test-hotkey status: the PermissionsTestState
+	 * discriminated union from usePermissionsProbe. When provided,
 	 * renders the corresponding localized message below the button. */
 	permissionsTest?: PermissionsTestState;
 }
@@ -67,10 +66,8 @@ export function HotkeyStep({
 					))}
 				</SelectContent>
 			</Select>
-			{/* : inline test-hotkey affordance.
-				Mirrors the test button + status text pattern from
-				PermissionsStep so the user can verify a newly-picked
-				hotkey without navigating back to the Permissions step. */}
+			{/* Inline test-hotkey affordance: lets the user verify a
+				newly-picked hotkey right here, before finishing setup. */}
 			{onTestHotkey && (
 				<div className="flex flex-col gap-2">
 					<Button

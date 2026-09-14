@@ -1,23 +1,36 @@
-"""First-run detection + 7-step onboarding wizard controller.
+"""First-run detection + 4-step onboarding wizard controller.
 
 Detects whether the app is running for the first time (no config.json
 exists) and guides the user through initial setup:
 
-Step 1: Welcome screen, brief explanation of what the app does
-Step 2: Microphone selection, dropdown of detected input devices
-Step 3: Permissions, macOS Accessibility / Linux input group + udev rule
-        ( / ). On Windows the step auto-passes (no permission
-        needed) but is still shown so the user knows hotkeys will work.
-Step 4: Hotkey selection. F2-F12 or custom combo
-Step 5: Consent, consolidated grant of every consent flag (voice
+Step 1: Welcome screen, brief explanation of what the app does + the
+        app-language picker (changeable later in Settings).
+Step 2: Consent, consolidated grant of every consent flag (voice
         biometric, HuggingFace model downloads, OpenAI / Groq /
         Deepgram cloud ASR, LLM polish) with an "Agree to All"
         convenience; the renderer persists each toggle immediately via
         the allowlisted set_config fields, so no backend-side
         collection is needed.
-Step 6: Model selection, tiny (default), large-v3, large-v3-turbo
-        (multilingual Whisper variants), plus Parakeet ( / )
-Step 7: Done, app starts loading the model
+Step 3: Model selection, local-vs-cloud backend choice + per-model
+        download, tiny (default), large-v3, large-v3-turbo
+        (multilingual Whisper variants), plus Parakeet
+Step 4: Hotkey selection, F2-F12 or custom combo. This is the LAST
+        step: its Continue button finalizes the wizard (applies every
+        selection + marks onboarding complete via ``apply_settings``
+        through the service layer's ``onboarding_apply``).
+
+Removed from the original 7-step flow (user decision 2026-09-14,
+"shorten the first-run flow to the essentials"):
+- Microphone step: the app uses the OS System Default microphone
+  until the user picks a device in Settings → Microphone (C-MIC-1,
+  ``config.microphone`` defaults to ``null``).
+- Permissions step: keyboard monitoring is standard app behavior, not
+  a consent gate; macOS Accessibility / Linux input-group setup is
+  surfaced by the Dashboard / Settings KeyboardPermissionBanner
+  (``onboarding_check_permissions`` IPC stays available for it).
+- Done summary step: the final step's Continue applies everything and
+  navigates home; a static "You are all set" recap duplicated the
+  user's own choices back at them.
 """
 
 import json
@@ -68,14 +81,20 @@ class OnboardingController:
         # apply_settings.
         self._progress_path = config_dir / ".onboarding_progress"
         self._current_step = 0
-        # bumped from 6 → 7 to add a consolidated Consent step
-        # between Hotkey (index 3) and Model (now index 5): the
-        # consent flags are persisted by the RENDERER via the
-        # allowlisted set_config fields the moment each toggle is
-        # flipped (same pattern as the Model step's cloud panel), so
-        # this controller only needs the step count + name, no
-        # backend-side consent collection.
-        self._total_steps = 7
+        # 4-step essentials flow (2026-09-14): Welcome → Consent →
+        # Model → Hotkey. Microphone (defaults to the OS System
+        # Default, adjustable in Settings → Microphone), the OS
+        # Permissions step (keyboard monitoring is standard app
+        # behavior, not a consent gate; the Dashboard / Settings
+        # KeyboardPermissionBanner covers macOS Accessibility /
+        # Linux input-group setup), and the Done summary step (the
+        # final Hotkey step's Continue applies + completes) were
+        # removed. The consent flags are persisted by the RENDERER
+        # via the allowlisted set_config fields the moment each
+        # toggle is flipped (same pattern as the Model step's cloud
+        # panel), so this controller only needs the step count +
+        # name, no backend-side consent collection.
+        self._total_steps = 4
 
         # Collected settings
         self.selected_microphone: str | None = None
@@ -132,14 +151,16 @@ class OnboardingController:
             data = json.loads(raw)
             if not isinstance(data, dict):
                 return
-            # Progress-schema version gate: v1 progress files were
-            # written by the 6-step wizard (Model at index 4, Done at
-            # 5); restoring a v1 ``current_step`` under the 7-step
-            # layout would resume the user at the WRONG step (e.g. old
-            # step 4 "Model" → new step 4 "Consent"). v2 files (7-step
-            # layout) restore normally; v1 files are ignored and the
-            # wizard starts fresh at Welcome.
-            if data.get("version") != 2:
+            # Progress-schema version gate: v1 files were written by
+            # the 6-step wizard, v2 files by the 7-step wizard. A
+            # stored ``current_step`` is only meaningful under the
+            # layout that wrote it: restoring a v1 step 4 (Model) or a
+            # v2 step 5 (Model) under the 4-step layout would resume
+            # the user at the WRONG step (4-step layout: 3 = Hotkey,
+            # 2 = Model). v3 files (4-step layout) restore normally;
+            # older files are ignored and the wizard starts fresh at
+            # Welcome.
+            if data.get("version") != 3:
                 log.info("[ONBOARDING] ignoring stale progress schema v%s", data.get("version"))
                 return
             # current_step, int in [0, total_steps)
@@ -186,8 +207,10 @@ class OnboardingController:
 
             payload = json.dumps(
                 {
-                    # v2: 7-step layout (Consent inserted at index 4).
-                    "version": 2,
+                    # v3: 4-step layout (Welcome, Consent, Model,
+                    # Hotkey). Old layouts resume at the wrong step;
+                    # their files are ignored in _load_progress.
+                    "version": 3,
                     "current_step": self._current_step,
                     "selected_microphone": self.selected_microphone,
                     "selected_hotkey": self.selected_hotkey,
@@ -390,17 +413,13 @@ class OnboardingController:
     @property
     def step_name(self) -> str:
         """Human-readable name of the current step."""
-        # Step order is now:
-        #   0 Welcome, 1 Microphone, 2 Permissions, 3 Hotkey,
-        #   4 Consent, 5 Model, 6 Done
+        # Step order is now (4-step essentials layout):
+        #   0 Welcome, 1 Consent, 2 Model, 3 Hotkey
         names = [
             "Welcome",
-            "Microphone",
-            "Permissions",
-            "Hotkey",
             "Consent",
             "Model",
-            "Done",
+            "Hotkey",
         ]
         if 0 <= self._current_step < len(names):
             return names[self._current_step]
@@ -843,7 +862,7 @@ class OnboardingController:
         # missing.
         self.mark_complete()
         log.info(
-            "[ONBOARDING] Settings applied: mic=%s, hotkey=%s, model=%s",
+            "[ONBOARDING] Settings applied: mic=%s | hotkey=%s | model=%s",
             self.selected_microphone,
             self.selected_hotkey,
             self.selected_model,

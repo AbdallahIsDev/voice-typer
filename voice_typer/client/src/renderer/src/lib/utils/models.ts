@@ -255,8 +255,12 @@ const SPEED_I18N_MAP: Record<string, string> = {
 	Variable: "models.speed.variable",
 };
 
-/** Capitalize the first letter of a word ("fast" → "Fast"). */
-function capitalizeFirst(value: string): string {
+/** Capitalize the first letter of a word ("fast" → "Fast"). Defensive:
+ *  backend catalog entries may omit the field (ERR-1: qwen catalog-only
+ *  merge produced `speed: undefined` → `undefined.length` crash in
+ *  ModelStep). Non-string input returns "" so render never throws. */
+function capitalizeFirst(value: string | null | undefined): string {
+	if (typeof value !== "string") return "";
 	return value.length > 0
 		? value.charAt(0).toUpperCase() + value.slice(1)
 		: value;
@@ -270,7 +274,8 @@ function capitalizeFirst(value: string): string {
  * line renders "Fast Speed" / "Medium Speed" / "Slow Speed" (point 5d
  * of the overhaul: one consistent capitalization rule).
  */
-export function formatModelSpeed(speed: string): string {
+export function formatModelSpeed(speed: string | null | undefined): string {
+	if (typeof speed !== "string" || speed.length === 0) return "";
 	const key = SPEED_I18N_MAP[speed] ?? SPEED_I18N_MAP[capitalizeFirst(speed)];
 	return key ? t(key) : capitalizeFirst(speed);
 }

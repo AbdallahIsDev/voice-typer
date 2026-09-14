@@ -70,7 +70,6 @@ const _PARITY = {
 	bubble_hide: true,
 	bubble_set_state: true,
 	bubble_level: true,
-	recording_level: true,
 	bubble_config: true,
 	show_window: true,
 	quit_app: true,

@@ -61,22 +61,18 @@ class TestOnboardingFirstRun:
 
 class TestOnboardingSteps:
     def test_initial_step(self, ctrl):
-        # total_steps bumped 5 → 6 (Permissions step added) and
-        # 6 → 7 (consolidated Consent step added before Model).
+        # 4-step essentials flow (2026-09-14): Welcome → Consent →
+        # Model → Hotkey (Microphone / Permissions / Done removed).
         assert ctrl.current_step == 0
-        assert ctrl.total_steps == 7
+        assert ctrl.total_steps == 4
 
     def test_step_names(self, ctrl):
-        # "Permissions" inserted between Microphone and Hotkey;
-        # "Consent" inserted between Hotkey and Model.
+        # 4-step layout: Welcome(0), Consent(1), Model(2), Hotkey(3).
         names = [
             "Welcome",
-            "Microphone",
-            "Permissions",
-            "Hotkey",
             "Consent",
             "Model",
-            "Done",
+            "Hotkey",
         ]
         for i, name in enumerate(names):
             ctrl._current_step = i
@@ -87,8 +83,8 @@ class TestOnboardingSteps:
         assert ctrl.current_step == 1
 
     def test_next_step_capped(self, ctrl):
-        ctrl._current_step = 6  # last step index (7 total)
-        assert ctrl.next_step() == 6  # Already at last step
+        ctrl._current_step = 3  # last step index (4 total)
+        assert ctrl.next_step() == 3  # Already at last step
 
     def test_prev_step(self, ctrl):
         ctrl._current_step = 2
@@ -110,12 +106,12 @@ class TestOnboardingSteps:
 
         Previously next_step() called mark_complete() when it reached
         the final step, which meant a user who walked through the
-        wizard and reached "Done" but never clicked Apply would be
-        treated as onboarded, losing their selections on next launch.
+        wizard and reached the last step but never clicked Apply would
+        be treated as onboarded, losing their selections on next launch.
         """
-        ctrl._current_step = 4  # second-to-last step
-        ctrl.next_step()  # advances to step 5 (Done)
-        assert ctrl.current_step == 5
+        ctrl._current_step = 2  # second-to-last step (Model)
+        ctrl.next_step()  # advances to step 3 (Hotkey, final)
+        assert ctrl.current_step == 3
         # Wizard is NOT complete, apply_settings or skip is required.
         assert ctrl.is_first_run() is True
 
@@ -213,42 +209,31 @@ class TestOnboardingWizard:
         ctrl = OnboardingController(config_dir=onboarding_dir)
         assert ctrl.is_first_run() is True, "Wizard should appear when onboarding_completed is False"
 
-        # 2) Wizard starts
+        # 2) Wizard starts (4-step essentials flow: Welcome → Consent
+        #    → Model → Hotkey; Microphone / Permissions / Done removed
+        #    2026-09-14).
         ctrl = OnboardingController(config_dir=onboarding_dir)
         assert ctrl.current_step == 0
-        # total_steps bumped 5 → 6 (Permissions step added) and
-        # 6 → 7 (consolidated Consent step added before Model).
-        assert ctrl.total_steps == 7
+        assert ctrl.total_steps == 4
 
-        # 3) Step 1: select microphone
-        ctrl.next_step()  # advance to step 1 (Microphone)
-        ctrl.set_microphone("mic-usb")
-        assert ctrl.selected_microphone == "mic-usb"
+        # 3) Step 2: grant consents (persisted by the renderer via
+        #    set_config; no backend-side collection).
+        ctrl.next_step()  # advance to step 1 (Consent)
+        assert ctrl.step_name == "Consent"
 
-        # 4) Step 2: Permissions (/), no user action required
-        #    in this unit test; the renderer probes via the
-        #    onboarding_check_permissions IPC and either shows the
-        #    platform walkthrough or auto-advances.
-        ctrl.next_step()
-        assert ctrl.step_name == "Permissions"
-
-        # 5) Step 3: select hotkey
-        ctrl.next_step()
-        ctrl.set_hotkey("<f4>")
-        assert ctrl.selected_hotkey == "<f4>"
-
-        # 6) Step 4: select model
+        # 4) Step 3: select model
         ctrl.next_step()
         ctrl.set_model("tiny")
         assert ctrl.selected_model == "tiny"
 
-        # 7) Step 5: apply settings (final step before Done)
+        # 5) Step 4: select hotkey (final step; its Continue applies)
         ctrl.next_step()
+        ctrl.set_hotkey("<f4>")
+        assert ctrl.selected_hotkey == "<f4>"
 
-        # 8) Apply settings to a mock config (mirrors service.onboarding_apply).
-        # apply_settings() now calls mark_complete() internally
-        #    after config.save() succeeds, so the explicit ctrl.mark_complete()
-        #    below is a redundant no-op (kept for clarity / backward compat).
+        # 6) Apply settings to a mock config (mirrors service.onboarding_apply).
+        # apply_settings() calls mark_complete() internally
+        #    after config.save() succeeds.
         from voice_typer.server.config import Config
 
         cfg = Config()
@@ -264,9 +249,11 @@ class TestOnboardingWizard:
         ctrl2 = OnboardingController(config_dir=onboarding_dir)
         assert ctrl2.is_first_run() is False, "Wizard should NOT reappear after apply_settings + mark_complete"
 
-        # 9) Verify the user's choices were persisted
+        # 9) Verify the user's choices were persisted. The Microphone
+        # step was removed (2026-09-14): ``config.microphone`` stays at
+        # the System Default (None), set later in Settings → Microphone.
         cfg2 = Config.load()
-        assert cfg2.microphone == "mic-usb"
+        assert cfg2.microphone is None
         assert cfg2.hotkey == "<f4>"
         assert cfg2.model_size == "tiny"
         assert cfg2.onboarding_completed is True
@@ -891,39 +878,28 @@ class TestModelOptionsVramAndLanguages:
                 )
 
 
-class TestPermissionsStep:
-    """onboarding wizard must include a platform-
-    conditional Permissions step between Microphone and Hotkey that
-    detects OS-level keyboard-monitoring permission state and shows
-    platform-specific setup instructions.
+class TestStepLayout:
+    """4-step essentials layout (2026-09-14).
 
-    - **Windows**: no permission needed (``needed=False``).
-    - **macOS**: Accessibility permission walkthrough (the fix).
-    - **Linux**: input group + udev rule walkthrough (the fix).
+    The Microphone step (System Default until changed in Settings →
+    Microphone), the OS-permissions step (keyboard monitoring is
+    standard behavior, not a consent gate) and the Done summary step
+    were removed; the final Hotkey step's Continue applies.
     """
 
-    def test_permissions_step_exists_between_mic_and_hotkey(self, ctrl):
-        """Step order: Welcome(0), Microphone(1), Permissions(2),
-        Hotkey(3), Consent(4), Model(5), Done(6)."""
-        ctrl._current_step = 1
-        assert ctrl.step_name == "Microphone"
-        ctrl.next_step()
-        assert ctrl.step_name == "Permissions"
-        ctrl.next_step()
-        assert ctrl.step_name == "Hotkey"
-
-    def test_consent_step_exists_between_hotkey_and_model(self, ctrl):
-        """The consolidated Consent step sits between Hotkey and Model."""
-        ctrl._current_step = 3
-        assert ctrl.step_name == "Hotkey"
+    def test_step_order_welcome_consent_model_hotkey(self, ctrl):
+        """Step order: Welcome(0), Consent(1), Model(2), Hotkey(3)."""
+        assert ctrl.step_name == "Welcome"
         ctrl.next_step()
         assert ctrl.step_name == "Consent"
         ctrl.next_step()
         assert ctrl.step_name == "Model"
+        ctrl.next_step()
+        assert ctrl.step_name == "Hotkey"
 
-    def test_total_steps_is_seven(self, ctrl):
-        """bumped from 6 → 7 to add the consolidated Consent step."""
-        assert ctrl.total_steps == 7
+    def test_total_steps_is_four(self, ctrl):
+        """7 → 4: essentials flow (2026-09-14)."""
+        assert ctrl.total_steps == 4
 
     def test_check_permissions_returns_dict_shape(self, ctrl):
         """``check_permissions`` returns a renderer-friendly dict with
@@ -986,38 +962,17 @@ class TestPermissionsStep:
         steps = instructions["steps_keys"] if "steps_keys" in instructions else instructions["steps"]
         assert isinstance(steps, list)
         assert len(steps) >= 1
-        # Resolve the i18n keys to their English values via en.json and
-        # check the macOS walkthrough mentions Accessibility.
-        import json
-        from pathlib import Path
-
-        en_path = (
-            Path(__file__).parent.parent
-            / "voice_typer"
-            / "client"
-            / "src"
-            / "renderer"
-            / "src"
-            / "i18n"
-            / "translations"
-            / "en.json"
-        )
-        en = json.loads(en_path.read_text(encoding="utf-8"))
-
-        def flat(d, p=""):
-            out = {}
-            for k, v in d.items():
-                key = f"{p}.{k}" if p else k
-                if isinstance(v, dict):
-                    out.update(flat(v, key))
-                else:
-                    out[key] = v
-            return out
-
-        en_flat = flat(en)
-        joined_parts = [en_flat.get(k, k) for k in steps]
-        joined = " ".join(joined_parts).lower()
-        assert "accessibility" in joined
+        # Resolve the i18n keys to their English values via en.json.
+        # The macOS walkthrough steps are DORMANT since the 2026-09-14
+        # Permissions-step removal: the payload's ``title_key`` /
+        # ``steps_keys`` shape is still the documented IPC contract
+        # (types/ipc/permissions.ts) but no consumer renders the keys
+        # today (KeyboardPermissionBanner reads only state/needed), so
+        # the en.json entries were pruned. The test pins the payload
+        # SHAPE (dotted i18n keys, 3 steps), not the English wording.
+        for k in steps:
+            assert isinstance(k, str) and k.startswith("onboarding."), f"expected a dotted i18n key, got {k!r}"
+        assert len(steps) == 3
 
     def test_check_permissions_macos_granted_no_instructions(self, ctrl, monkeypatch):
         """on macOS with Accessibility already granted, no

@@ -65,32 +65,32 @@ _INITIAL_LABELS: dict[str, str] = {
     "state.error": "error",
     "state.cancelling": "cancelling",
     # ── recording_controller set_state messages ─────────────────────────
-    "state.recording_controller.loading_queued": ("Loading model -- your dictation will start automatically\u2026"),
-    "state.recording_controller.starting_up": "Starting up -- please wait...",
+    "state.recording_controller.loading_queued": ("Loading model | your dictation will start automatically…"),
+    "state.recording_controller.starting_up": "Starting up | please wait...",
     "state.recording_controller.consent_required": "Voice biometric consent required",
-    "state.recording_controller.model_failed_retry": "Model failed to load -- press your hotkey to retry",
+    "state.recording_controller.model_failed_retry": "Model failed to load | press your hotkey to retry",
     "state.recording_controller.recording": "Recording...",
     "state.recording_controller.recording_failed": "Recording failed",
     "state.recording_controller.recording_failed_permission": (
-        "Recording failed -- microphone permission denied. Allow mic access in system settings."
+        "Recording failed | microphone permission denied. Allow mic access in system settings."
     ),
     "state.recording_controller.recording_failed_no_device": (
-        "Recording failed -- no microphone found. Connect a microphone and try again."
+        "Recording failed | no microphone found. Connect a microphone and try again."
     ),
     "state.recording_controller.stop_failed": "Stop failed",
-    "state.recording_controller.too_short": "Too short -- ignored",
+    "state.recording_controller.too_short": "Too short | ignored",
     "state.recording_controller.transcribing": "Transcribing...",
     "state.recording_controller.cancelling": "Cancelling...",
     "state.recording_controller.cancelled": "Cancelled",
-    "state.recording_controller.recovered": "Recovered -- transcription timed out",
+    "state.recording_controller.recovered": "Recovered | transcription timed out",
     "state.recording_controller.still_transcribing": "Still transcribing...",
     # ── model_manager set_state messages ────────────────────────────────
-    "state.model_manager.loading": "Loading model -- press your hotkey to queue...",
-    "state.model_manager.ready_whisper": "Ready -- {device_info}",
-    "state.model_manager.ready_other": "Ready -- {name} ASR",
-    "state.model_manager.load_failed_retry": "Model load failed -- press your hotkey to retry",
+    "state.model_manager.loading": "Loading model | press your hotkey to queue...",
+    "state.model_manager.ready_whisper": "Ready | {device_info}",
+    "state.model_manager.ready_other": "Ready | {name} ASR",
+    "state.model_manager.load_failed_retry": "Model load failed | press your hotkey to retry",
     "state.model_manager.backend_failed": "{backend} model failed to load",
-    "state.model_manager.model_failed": "Model failed: {error}",
+    "state.model_manager.model_failed": "Model failed | {error}",
     "state.model_manager.model_not_downloaded": ("No speech model is selected. Open Models to choose one."),
     # no_model_selected: genuine "no model selected" state
     # (``model_size == NO_MODEL_SIZE``), distinct from
@@ -110,20 +110,20 @@ _INITIAL_LABELS: dict[str, str] = {
     # The renderer pushes localized values for these keys via
     # ``set_tray_locale`` (``trayState.pipeline.*``) so the tooltip
     # follows the renderer locale like every other state message.
-    "state.dictation_pipeline.clipboard_unavailable": "Done -- clipboard unavailable",
+    "state.dictation_pipeline.clipboard_unavailable": "Done | clipboard unavailable",
     "state.dictation_pipeline.no_speech_detected": "No speech detected",
-    "state.dictation_pipeline.no_speech_check_mic": "No speech -- check microphone",
+    "state.dictation_pipeline.no_speech_check_mic": "No speech | check microphone",
     "state.dictation_pipeline.transcription_empty": "Transcription returned empty",
-    # paste_step "Done -- N chars (mode)" statuses, the character count
+    # paste_step "Done | N chars (mode)" statuses, the character count
     # is dynamic, so the templates use the ``{count}`` placeholder and
     # the renderer pushes localized versions via ``set_tray_locale``
     # (``trayState.pipeline.donePasted`` etc.; ``trayLabelsForLocale``
     # maps the keys 1:1). The English text here is byte-identical to
     # the former f-strings so tests that grep for the literal still
     # match, and ``i18n.t(key, count=N)`` formats it at call time.
-    "state.dictation_pipeline.done_pasted": "Done -- {count} chars (pasted)",
-    "state.dictation_pipeline.done_in_db": ("Done -- {count} chars (in DB, use repaste hotkey)"),
-    "state.dictation_pipeline.done_in_clipboard": ("Done -- {count} chars (in clipboard)"),
+    "state.dictation_pipeline.done_pasted": "Done | {count} chars (pasted)",
+    "state.dictation_pipeline.done_in_db": ("Done | {count} chars (in DB, use repaste hotkey)"),
+    "state.dictation_pipeline.done_in_clipboard": ("Done | {count} chars (in clipboard)"),
     # ── app.py notifications ────────────────────────────────────────────
     "notify.app.repaste_no_previous": "No previous transcription to re-paste.",
     "notify.app.repaste_copy_failed": (

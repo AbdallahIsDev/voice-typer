@@ -9,9 +9,10 @@ import { useLatestRef } from "@/hooks/useLatestRef";
 import { usePython, usePythonEvent } from "@/hooks/usePython";
 import { useSnackbar } from "@/hooks/useSnackbar";
 import { t } from "@/i18n/i18n";
+import { openConsentGate } from "@/lib/consentGate";
 import type { VoiceTyperConfig } from "@/types/config";
 import { HOTKEY_DEFAULT, MODEL_DEFAULT } from "../lib/constants";
-import type { MicrophoneOption, ModelOption, StepInfo } from "../lib/types";
+import type { ModelOption, StepInfo } from "../lib/types";
 
 // The six consent flags surfaced on the consolidated Consent step
 // (voice biometric, HuggingFace, OpenAI / Groq / Deepgram cloud ASR,
@@ -46,7 +47,7 @@ function cloudApiKeyField(provider: string): string {
 
 /** Extract the fulfilled value of a settled content-fetch result,
  *  re-throwing the rejection reason. The three content fetches
- *  (microphones / hotkey presets / model options) are fatal, a
+ *  (hotkey presets / model options / model catalog) are fatal, a
  *  rejection surfaces as ``initError`` via the init effect's outer
  *  catch, exactly like the pre-parallel sequential code. Only the
  *  ``get_config`` probe is non-fatal by design (its own inline
@@ -63,25 +64,17 @@ export interface UseOnboardingWizardResult {
 	step: StepInfo | null;
 	submitting: boolean;
 	applyError: boolean;
-	skipConfirmOpen: boolean;
-	setSkipConfirmOpen: (v: boolean) => void;
 	selectedHotkey: string;
 	setSelectedHotkey: (v: string) => void;
 	selectedModel: string;
 	setSelectedModel: (v: string) => void;
-	selectedMic: string;
-	setSelectedMic: (v: string) => void;
 	hotkeyPresets: string[];
 	modelOptions: ModelOption[];
-	microphones: MicrophoneOption[];
 	headingRef: RefObject<HTMLHeadingElement | null>;
 	retryInit: () => void;
-	refreshMics: () => void;
 	handleNext: () => Promise<void>;
 	handleApply: () => Promise<void>;
 	handlePrev: () => Promise<void>;
-	handleSkip: () => Promise<void>;
-	skipOnInitError: () => Promise<void>;
 	// Consent step: consolidated grant of every consent flag.
 	consents: Record<string, boolean>;
 	setConsentField: (field: string, value: boolean) => void;
@@ -89,12 +82,15 @@ export interface UseOnboardingWizardResult {
 	// Model step: local-vs-cloud choice + explicit download.
 	selectedBackend: BackendChoice;
 	setSelectedBackend: (v: BackendChoice) => void;
-	hfConsent: boolean;
-	setHfConsent: (v: boolean) => void;
 	downloadingModel: string | null;
 	downloadProgress: number;
 	downloadFailed: boolean;
-	handleDownload: () => Promise<void>;
+	/** Request a per-model download. Opens the point-of-use
+	 * HuggingFace consent gate when the consent isn't granted yet; the
+	 * gate's Allow continues the download. Returns immediately (the
+	 * transfer's lifecycle is observable via downloadingModel /
+	 * downloadProgress). */
+	handleDownload: (model: string) => void;
 	// Model step: cloud provider configuration (API key + consent).
 	cloudProvider: string;
 	setCloudProvider: (v: string) => void;
@@ -123,23 +119,18 @@ export function useOnboardingWizard(
 	const [retryCounter, setRetryCounter] = useState(0);
 	const [submitting, setSubmitting] = useState(false);
 	const [applyError, setApplyError] = useState(false);
-	const [skipConfirmOpen, setSkipConfirmOpen] = useState(false);
 
 	const [selectedHotkey, setSelectedHotkey] = useState(HOTKEY_DEFAULT);
 	const [selectedModel, setSelectedModel] = useState(MODEL_DEFAULT);
-	const [selectedMic, setSelectedMic] = useState("");
 	const [hotkeyPresets, setHotkeyPresets] = useState<string[]>([]);
 	const [modelOptions, setModelOptions] = useState<ModelOption[]>([]);
-	const [microphones, setMicrophones] = useState<MicrophoneOption[]>([]);
 
 	// Model step: the user chooses a local model (downloaded explicitly
-	//, the app NEVER auto-downloads) or a cloud transcription API.
+	// per model, the app NEVER auto-downloads) or a cloud transcription
+	// API.
 	const [selectedBackend, setSelectedBackend] =
 		useState<BackendChoice>("local");
-	// HuggingFace consent gates the EXPLICIT local-model download
-	// (service.download_model requires it). Persisted via set_config.
-	const [hfConsent, setHfConsent] = useState(false);
-	// Explicit in-wizard download progress.
+	// Explicit in-wizard download progress (per-model).
 	const [downloadingModel, setDownloadingModel] = useState<string | null>(null);
 	const [downloadProgress, setDownloadProgress] = useState(0);
 	const [downloadFailed, setDownloadFailed] = useState(false);
@@ -157,7 +148,7 @@ export function useOnboardingWizard(
 	const [consents, setConsents] = useState<Record<string, boolean>>({});
 
 	// Persist a single consent toggle immediately (mirrors the
-	// Done-step consent checkbox contract: optimistic set + revert on
+	// Settings Privacy page's rows: optimistic set + revert on
 	// persistence failure so the UI never claims a grant that wasn't
 	// saved).
 	const setConsentField = useCallback(
@@ -214,20 +205,15 @@ export function useOnboardingWizard(
 				// EVERY start, first-run AND resume. A previous
 				// version skipped the get_config override when
 				// ``step > 0`` (the "resume" heuristic), so a wizard
-				// opened mid-way (e.g. after "Re-run setup wizard", or
-				// a quit mid-onboarding) showed the renderer defaults
-				// instead of the user's saved hotkey/model/mic, and
-				// hitting Continue then pushed those defaults back to
-				// the backend, clobbering the restored selections.
+				// opened mid-way (e.g. after "Re-run setup wizard",
+				// or a quit mid-onboarding) showed the renderer
+				// defaults instead of the user's saved hotkey/model,
+				// and hitting Continue then pushed those defaults back
+				// to the backend, clobbering the restored selections.
 				// The saved config is the best available source of the
-				// user's intent: it reflects what was last applied (or
-				// a previous completed run). The backend's in-memory
-				// restored selections are not exposed by
-				// ``onboarding_start`` regardless of step, so there is
-				// no way for the renderer to prefer them. The default
-				// values (HOTKEY_DEFAULT / MODEL_DEFAULT / "") are still
-				// used when config.json has no saved value.
-				// Fetch the four content payloads in PARALLEL (the
+				// user's intent.
+				//
+				// The four payloads are fetched in PARALLEL (the
 				// Dashboard pattern, same as
 				// pages/dashboard/hooks/useDashboardData.ts):
 				// previously these were five SEQUENTIAL round-trips,
@@ -243,19 +229,13 @@ export function useOnboardingWizard(
 				// The batch settles via `Promise.allSettled`
 				// (not `Promise.all`) so the CONFIG PREFILL is
 				// applied on its own success even when a
-				// content fetch rejects, `Promise.all`
-				// discarded an already-fetched config the
-				// moment a sibling fetch failed, so the error
-				// screen lost the prefill state (the
-				// pre-parallel sequential code applied the
-				// prefill BEFORE a later fetch could fail; the
-				// parallel switch regressed that). The first
+				// content fetch rejects. The first
 				// content-fetch rejection still surfaces as
 				// `initError` exactly as before: each result
 				// is unwrapped in the original apply order
 				// below, re-throwing its reason into the outer
 				// catch.
-				const [cfgOutcome, micsOutcome, presetsOutcome, modelsOutcome] =
+				const [cfgOutcome, presetsOutcome, modelsOutcome, catalogOutcome] =
 					await Promise.allSettled([
 						callRef.current<VoiceTyperConfig>("get_config").catch((e) => {
 							console.warn(
@@ -264,34 +244,28 @@ export function useOnboardingWizard(
 							);
 							return null;
 						}),
-						callRef.current<{
-							microphones: MicrophoneOption[];
-						}>("onboarding_get_microphones"),
 						callRef.current<{ presets: string[] }>(
 							"onboarding_get_hotkey_presets",
 						),
 						callRef.current<{ models: ModelOption[] }>(
 							"onboarding_get_model_options",
 						),
+						callRef.current<{ models: ModelOption[] }>("get_model_catalog"),
 					]);
 				if (cancelled) return;
 				// `get_config` never rejects (its inline .catch
 				// resolves to `null`), the ternary only
 				// narrows the allSettled result type.
 				const cfg = cfgOutcome.status === "fulfilled" ? cfgOutcome.value : null;
-				// Apply in the ORIGINAL sequential order, the
-				// config prefill BEFORE the mic reconciliation so
-				// the reconciliation's "keep prev" check sees the
-				// config-restored selection.
+				// Apply the config prefill BEFORE the catalog merge so
+				// the merge can no-op when the saved selection is
+				// already present.
 				if (cfg) {
 					const cfgHotkey = cfg.hotkey ?? HOTKEY_DEFAULT;
 					if (cfgHotkey) setSelectedHotkey(cfgHotkey);
 					const cfgModel = cfg.model_size ?? MODEL_DEFAULT;
 					if (cfgModel) setSelectedModel(cfgModel);
-					setSelectedMic(cfg.microphone ?? "");
-					setHfConsent(cfg.huggingface_consent === true);
-					const cfgConsent = cfg.cloud_openai_consent === true;
-					setCloudConsent(cfgConsent);
+					setCloudConsent(cfg.cloud_openai_consent === true);
 					// Pre-fill the consolidated consent step from the
 					// saved config (re-run / already-granted users).
 					const savedConsents: Record<string, boolean> = {};
@@ -306,31 +280,24 @@ export function useOnboardingWizard(
 				// Unwrap each content result in the original
 				// apply order, re-throwing the first rejection
 				// reason so it surfaces as initError via the
-				// outer catch, a failure AFTER the prefill
+				// outer catch — a failure AFTER the prefill
 				// block no longer discards the prefill (state
 				// applied before the throw stays applied,
 				// exactly like the old sequential code).
-				const mics = unwrapContent(micsOutcome);
-				setMicrophones(mics.microphones || []);
-				if (mics.microphones?.length > 0) {
-					setSelectedMic((prev) => {
-						if (prev && mics.microphones.some((m) => m.id === prev)) {
-							return prev;
-						}
-						const defaultMic = mics.microphones.find((m) => m.default === true);
-						// noUncheckedIndexedAccess: `mics.microphones[0]` is
-						// `MicrophoneInfo | undefined`. The length guard above
-						// proves the array is non-empty, but TS still widens;
-						// fall back to the existing selection so the state
-						// never becomes undefined.
-						const fallback = mics.microphones[0];
-						return (defaultMic ?? fallback)?.id ?? prev;
-					});
-				}
 				const presets = unwrapContent(presetsOutcome);
 				setHotkeyPresets(presets.presets || []);
 				const models = unwrapContent(modelsOutcome);
-				setModelOptions(models.models || []);
+				// Merge the full rich-metadata catalog
+				// (``get_model_catalog`` →
+				// ``ModelHandlers._handle_get_model_catalog``) into the
+				// curated options list so the Model step's accordion can
+				// group by family like the Models page does. The
+				// curated list stays the fallback (older backends /
+				// a failed catalog fetch), no duplicate names.
+				const catalog = unwrapContent(catalogOutcome);
+				setModelOptions(
+					mergeModelOptions(models.models || [], catalog.models || []),
+				);
 			} catch (err) {
 				if (cancelled) return;
 				console.error(
@@ -353,38 +320,63 @@ export function useOnboardingWizard(
 		queueMicrotask(() => {
 			headingRef.current?.focus();
 		});
-	}, [step?.step_name, step]);
+	}, [step]);
 
-	// Explicit in-wizard model download. The app NEVER downloads
-	// automatically, the user clicks Download on the Model step (or the
-	// Models page). Progress arrives via the ``download_progress`` push
-	// event; the promise resolves when the download completes.
-	//
-	// The HuggingFace consent checkbox on the Model step is the user's
-	// explicit opt-in for this download, ``service.download_model``
-	// refuses to download without ``huggingface_consent``, so it is
-	// persisted here right before the download is started (and again on
-	// Continue via ``handleNext`` so the choice survives the wizard even
-	// if the user never downloads in-wizard).
-	const handleDownload = useCallback(async () => {
-		setDownloadFailed(false);
-		setDownloadingModel(selectedModel);
-		setDownloadProgress(0);
-		try {
-			if (hfConsent) {
-				await call("set_config", { huggingface_consent: true });
+	// Explicit in-wizard model download, PER MODEL. The app NEVER
+	// downloads automatically; the user clicks Download on a specific
+	// model item. HuggingFace consent is requested at the point of use
+	// via the shared consent gate (openConsentGate, C-MIC-3): the gate
+	// dialog's Allow persists ``huggingface_consent`` on the backend and
+	// continues the action. ``handleDownload`` guards the gate, mirrors
+	// the grant into the wizard's consent state (so the Privacy step
+	// shows the persisted grant), and re-enters ``startDownload`` —
+	// the split avoids the stale-closure re-gate loop a naive retry
+	// would hit (the callback's ``consents`` snapshot is still false).
+	const startDownload = useCallback(
+		async (model: string) => {
+			setDownloadFailed(false);
+			setDownloadingModel(model);
+			setDownloadProgress(0);
+			try {
+				await call("download_model", { model });
+			} catch (err) {
+				console.error(
+					"[renderer:useOnboardingWizard] model download failed:",
+					err,
+				);
+				setDownloadFailed(true);
+			} finally {
+				setDownloadingModel(null);
 			}
-			await call("download_model", { model: selectedModel });
-		} catch (err) {
-			console.error(
-				"[renderer:useOnboardingWizard] model download failed:",
-				err,
-			);
-			setDownloadFailed(true);
-		} finally {
-			setDownloadingModel(null);
-		}
-	}, [call, selectedModel, hfConsent]);
+		},
+		[call],
+	);
+
+	const handleDownload = useCallback(
+		(model: string) => {
+			if (!model || downloadingModel) return;
+			if (consents.huggingface_consent !== true) {
+				openConsentGate({
+					consentField: "huggingface_consent",
+					bodyKey: "consentDialog.field.huggingface_consent",
+					onAllow: () => {
+						// Mirror the gate's persisted grant into the wizard
+						// state (idempotent with the dialog's own set_config;
+						// keeps the Privacy step + this step in agreement),
+						// then continue the download the user asked for.
+						setConsents((prev) => ({
+							...prev,
+							huggingface_consent: true,
+						}));
+						void startDownload(model);
+					},
+				});
+				return;
+			}
+			void startDownload(model);
+		},
+		[consents.huggingface_consent, downloadingModel, startDownload],
+	);
 
 	usePythonEvent(
 		"download_progress",
@@ -397,58 +389,62 @@ export function useOnboardingWizard(
 		}, []),
 	);
 
+	// Persist the CURRENT step's selection to the backend controller
+	// before navigating or applying. Shared by handleNext (advance) and
+	// handleApply (finish on the final step) so the final step's
+	// apply can't save the controller's stale/restored selections.
+	const persistStepSelections = useCallback(async () => {
+		if (step?.step_name === "Hotkey") {
+			// The final step stores the hotkey in the backend controller
+			// BEFORE the apply: ``apply_settings`` writes
+			// ``ctrl.selected_hotkey`` into the config, so skipping
+			// this call would let the apply overwrite the user's
+			// saved hotkey with the controller default.
+			await call("onboarding_set_hotkey", { hotkey: selectedHotkey });
+		} else if (step?.step_name === "Consent") {
+			// The consent toggles persist IMMEDIATELY on toggle
+			// (setConsentField), so leaving the step has nothing new
+			// to save — re-persist anyway so a mid-wizard quit after
+			// toggling but before Continue still leaves the grants
+			// durable (idempotent; mirrors the Model-step pattern).
+			const toPersist: Record<string, unknown> = {};
+			for (const f of CONSENT_FIELDS) {
+				toPersist[f] = consents[f] ?? false;
+			}
+			await call("set_config", toPersist);
+		} else if (step?.step_name === "Model") {
+			await call("onboarding_set_model", { model: selectedModel });
+			// Persist the local-vs-cloud choice (Model step).
+			await call("onboarding_set_backend", { backend: selectedBackend });
+			if (selectedBackend === "cloud") {
+				// Persist the cloud provider API key + consent through
+				// the allowlisted set_config fields, mirroring the
+				// Models page cloud tab.
+				const updates: Record<string, unknown> = {
+					[cloudConsentField(cloudProvider)]: cloudConsent,
+				};
+				if (cloudApiKey.trim()) {
+					updates[cloudApiKeyField(cloudProvider)] = cloudApiKey.trim();
+				}
+				await call("set_config", updates);
+			}
+		}
+	}, [
+		call,
+		step?.step_name,
+		selectedHotkey,
+		selectedModel,
+		selectedBackend,
+		cloudProvider,
+		cloudApiKey,
+		cloudConsent,
+		consents,
+	]);
+
 	const handleNext = useCallback(async () => {
 		setSubmitting(true);
 		try {
-			if (step?.step_name === "Microphone") {
-				await call("onboarding_set_microphone", {
-					mic_id: selectedMic || null,
-				});
-			} else if (step?.step_name === "Hotkey") {
-				await call("onboarding_set_hotkey", { hotkey: selectedHotkey });
-			} else if (step?.step_name === "Consent") {
-				// The consent toggles persist IMMEDIATELY on toggle
-				// (setConsentField), so Continue has nothing new to save
-				//, re-persist anyway so a mid-wizard quit after toggling
-				// but before Continue still leaves the grants durable
-				// (idempotent; mirrors the Model-step pattern).
-				const toPersist: Record<string, unknown> = {};
-				for (const f of CONSENT_FIELDS) {
-					toPersist[f] = consents[f] ?? false;
-				}
-				await call("set_config", toPersist);
-			} else if (step?.step_name === "Model") {
-				await call("onboarding_set_model", { model: selectedModel });
-				// Persist the local-vs-cloud choice (Model step).
-				await call("onboarding_set_backend", { backend: selectedBackend });
-				if (selectedBackend === "local") {
-					// Persist the HuggingFace consent checkbox (the user's
-					// explicit opt-in for local model downloads) so it
-					// survives the wizard even when no download was
-					// started on this step. The user can still revoke it
-					// later in Settings → Privacy.
-					await call("set_config", { huggingface_consent: hfConsent });
-				} else if (selectedBackend === "cloud") {
-					// Persist the cloud provider API key + consent through
-					// the allowlisted set_config fields, mirroring the
-					// Models page cloud tab.
-					const updates: Record<string, unknown> = {
-						[cloudConsentField(cloudProvider)]: cloudConsent,
-					};
-					if (cloudApiKey.trim()) {
-						updates[cloudApiKeyField(cloudProvider)] = cloudApiKey.trim();
-					}
-					await call("set_config", updates);
-				}
-			}
-			// Note: the Done step does NOT call onboarding_apply via
-			// handleNext, the Done-step Continue button is wired to
-			// `handleApply` (see Onboarding.tsx's
-			// `onClick={isDoneStep ? handleApply : handleNext}`), so a
-			// DONE_STEP_NAME branch here would be unreachable dead code.
-			// Earlier versions kept a defensive `else if (step_name ===
-			// DONE_STEP_NAME) await call("onboarding_apply")` branch
-			// that could never fire; removed for clarity.
+			await persistStepSelections();
 			const newStep = await call<StepInfo>("onboarding_next_step");
 			setStep(newStep);
 		} catch (err) {
@@ -460,25 +456,18 @@ export function useOnboardingWizard(
 		} finally {
 			setSubmitting(false);
 		}
-	}, [
-		call,
-		step?.step_name,
-		selectedMic,
-		selectedHotkey,
-		selectedModel,
-		selectedBackend,
-		cloudProvider,
-		cloudApiKey,
-		cloudConsent,
-		hfConsent,
-		consents,
-		showSnack,
-	]);
+	}, [call, persistStepSelections, showSnack]);
 
 	const handleApply = useCallback(async () => {
 		setApplyError(false);
 		setSubmitting(true);
 		try {
+			// Persist the final step's selection (the hotkey) BEFORE the
+			// apply: ``apply_settings`` writes ``ctrl.selected_hotkey``
+			// into the config, so a user who changed the hotkey on the
+			// last step and clicked "Get started" would otherwise get
+			// the controller's restored/default value saved instead.
+			await persistStepSelections();
 			// Await the backend apply so success is only claimed when the
 			// settings actually persisted. The previous fire-and-forget
 			// form (`void call(...).catch(...)`) showed the success snack
@@ -486,10 +475,9 @@ export function useOnboardingWizard(
 			// silently skipping setup.
 			await call("onboarding_apply");
 			// Surface a success toast so the user gets explicit
-			// feedback that setup completed (the inline
-			// `<output>` spinner disappears as soon as
-			// `onComplete()` navigates away). The
-			// `setupCompleteSnack` key is localised across all 8
+			// feedback that setup completed (the inline spinner
+			// disappears as soon as `onComplete()` navigates away).
+			// The `setupCompleteSnack` key is localised across all 8
 			// locales; the toast persists briefly after navigation
 			// so the user sees it on the Home page.
 			showSnack(t("onboarding.setupCompleteSnack"), "success");
@@ -504,35 +492,7 @@ export function useOnboardingWizard(
 		} finally {
 			setSubmitting(false);
 		}
-	}, [call, onComplete, showSnack]);
-
-	const refreshMics = useCallback(() => {
-		call<{ microphones: MicrophoneOption[] }>("onboarding_get_microphones")
-			.then((mics) => {
-				const list = mics?.microphones ?? [];
-				setMicrophones(list);
-				if (list.length > 0) {
-					setSelectedMic((prev) => {
-						if (prev && list.some((m) => m.id === prev)) {
-							return prev;
-						}
-						const defaultMic = list.find((m) => m.default === true);
-						// See note on the parallel branch above; the length
-						// guard proves the array is non-empty, but TS still
-						// widens the read under `noUncheckedIndexedAccess`.
-						const fallback = list[0];
-						return (defaultMic ?? fallback)?.id ?? prev;
-					});
-				}
-			})
-			.catch((err) => {
-				console.error(
-					"[renderer:useOnboardingWizard] Failed to refresh microphones:",
-					err,
-				);
-				showSnack(t("onboarding.saveFailedSnack"), "error");
-			});
-	}, [call, showSnack]);
+	}, [call, onComplete, persistStepSelections, showSnack]);
 
 	const handlePrev = useCallback(async () => {
 		setSubmitting(true);
@@ -547,62 +507,28 @@ export function useOnboardingWizard(
 		}
 	}, [call, showSnack]);
 
-	const handleSkip = useCallback(async () => {
-		setSubmitting(true);
-		try {
-			await call("onboarding_skip");
-			showSnack(t("onboarding.skippedSnack"), "warning");
-			if (onComplete) onComplete();
-		} catch (err) {
-			console.error(
-				"[renderer:useOnboardingWizard] Failed to skip onboarding:",
-				err,
-			);
-			showSnack(t("onboarding.saveFailedSnack"), "error");
-		} finally {
-			setSubmitting(false);
-		}
-	}, [call, showSnack, onComplete]);
-
-	const skipOnInitError = useCallback(async () => {
-		try {
-			await call("onboarding_skip");
-			showSnack(t("onboarding.skippedSnack"), "warning");
-			if (onComplete) onComplete();
-		} catch {
-			if (onComplete) onComplete();
-		}
-	}, [call, showSnack, onComplete]);
-
 	return {
 		loading,
 		initError,
 		step,
 		submitting,
 		applyError,
-		skipConfirmOpen,
-		setSkipConfirmOpen,
 		selectedHotkey,
 		setSelectedHotkey,
 		selectedModel,
 		setSelectedModel,
-		selectedMic,
-		setSelectedMic,
 		hotkeyPresets,
 		modelOptions,
-		microphones,
 		headingRef,
 		retryInit,
-		refreshMics,
 		handleNext,
 		handleApply,
 		handlePrev,
-		handleSkip,
-		skipOnInitError,
+		consents,
+		setConsentField,
+		handleAgreeToAll,
 		selectedBackend,
 		setSelectedBackend,
-		hfConsent,
-		setHfConsent,
 		downloadingModel,
 		downloadProgress,
 		downloadFailed,
@@ -613,8 +539,96 @@ export function useOnboardingWizard(
 		setCloudApiKey,
 		cloudConsent,
 		setCloudConsent,
-		consents,
-		setConsentField,
-		handleAgreeToAll,
 	};
+}
+
+/** Raw catalog entry shape from `get_model_catalog` (ModelMetadata.to_dict):
+ *  carries `speed_rating` / `download_size_mb` / `supported_languages`,
+ *  NOT the ModelOption `speed` / `size` / `languages` fields. ERR-1: the
+ *  qwen catalog-only entry flowed through un-normalized, so ModelStep's
+ *  `formatModelSpeed(m.speed)` read `.length` of undefined and crashed
+ *  the whole wizard. */
+interface RawCatalogEntry {
+	name?: unknown;
+	size?: unknown;
+	speed?: unknown;
+	description?: unknown;
+	vram_gb?: unknown;
+	languages?: unknown;
+	speed_rating?: unknown;
+	download_size_mb?: unknown;
+	required_vram_mb?: unknown;
+	supported_languages?: unknown;
+}
+
+function formatCatalogSize(downloadSizeMb: unknown): string {
+	if (typeof downloadSizeMb !== "number" || downloadSizeMb <= 0)
+		return "Variable";
+	if (downloadSizeMb >= 1024) {
+		const gb = downloadSizeMb / 1024;
+		const rounded =
+			gb >= 10 ? Math.round(gb).toString() : gb.toFixed(1).replace(/\.0$/, "");
+		return `~${rounded}GB`;
+	}
+	return `~${downloadSizeMb}MB`;
+}
+
+function normalizeCatalogEntry(raw: RawCatalogEntry): ModelOption | null {
+	if (typeof raw.name !== "string" || raw.name.length === 0) return null;
+	const speed =
+		typeof raw.speed === "string" && raw.speed.length > 0
+			? raw.speed
+			: typeof raw.speed_rating === "string" && raw.speed_rating.length > 0
+				? raw.speed_rating.charAt(0).toUpperCase() + raw.speed_rating.slice(1)
+				: "Medium";
+	const size =
+		typeof raw.size === "string" && raw.size.length > 0
+			? raw.size
+			: formatCatalogSize(raw.download_size_mb);
+	const vramGb =
+		typeof raw.vram_gb === "number"
+			? raw.vram_gb
+			: typeof raw.required_vram_mb === "number"
+				? raw.required_vram_mb / 1024
+				: undefined;
+	const languages = Array.isArray(raw.languages)
+		? (raw.languages as string[])
+		: Array.isArray(raw.supported_languages)
+			? (raw.supported_languages as string[])
+			: raw.supported_languages === null || raw.languages === null
+				? null
+				: undefined;
+	return {
+		name: raw.name,
+		size,
+		speed,
+		description: typeof raw.description === "string" ? raw.description : "",
+		...(vramGb !== undefined ? { vram_gb: vramGb } : {}),
+		...(languages !== undefined ? { languages } : {}),
+	};
+}
+
+/** Merge the curated option list with the full rich-metadata catalog.
+ *  The curated list (``onboarding_get_model_options``) defines the
+ *  visible option set; the catalog only ENRICHES entries with fields
+ *  the curated list lacks (vram_gb / languages / speed overrides).
+ *  Catalog-only names are appended so a newly registered family
+ *  (e.g. Qwen) shows up without a curated-list change, and duplicate
+ *  names are dropped (catalog-first so rich metadata wins). Catalog
+ *  entries are NORMALIZED to ModelOption shape first (see
+ *  RawCatalogEntry): raw ModelMetadata dicts lack `speed`/`size`. */
+function mergeModelOptions(
+	curated: ModelOption[],
+	catalog: RawCatalogEntry[],
+): ModelOption[] {
+	const byName = new Map<string, ModelOption>();
+	for (const raw of catalog) {
+		const m = normalizeCatalogEntry(raw);
+		if (m) byName.set(m.name, m);
+	}
+	for (const m of curated) {
+		const existing = byName.get(m.name);
+		byName.set(m.name, existing ? { ...existing, ...m } : m);
+	}
+	return Array.from(byName.values());
 }

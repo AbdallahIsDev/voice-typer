@@ -39,18 +39,6 @@ export function WelcomeStep({ headingRef }: WelcomeStepProps) {
 			<p className="text-sm text-(--text-muted)">
 				{t("onboarding.welcomeDescription")}
 			</p>
-			<ul className="flex flex-col gap-2 text-sm text-(--text-secondary)">
-				{/* `as const` keeps n a numeric-literal union so the template
-				    key collapses to the six real catalog keys, a plain
-				    `number` would fall outside the compile-time
-				    translation-catalog contract on t(). */}
-				{([1, 2, 3, 4, 5, 6] as const).map((n) => (
-					<li key={n} className="flex items-center gap-2">
-						<span className="text-accent">{n}.</span>{" "}
-						{t(`onboarding.step${n}Item`)}
-					</li>
-				))}
-			</ul>
 			<div
 				className="flex flex-col gap-2"
 				data-testid="onboarding-language-picker"

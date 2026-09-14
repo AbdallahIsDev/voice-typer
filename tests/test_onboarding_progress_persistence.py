@@ -72,22 +72,21 @@ def test_next_step_writes_progress_marker(config_dir: Path) -> None:
 def test_new_controller_resumes_from_progress_marker(config_dir: Path) -> None:
     """Closing the app mid-wizard and reopening resumes at the saved step
     with the saved selections."""
-    # First instance: walk the wizard forward and pick selections.
+    # First instance: walk the wizard forward and pick selections
+    # (4-step essentials layout: Welcome → Consent → Model → Hotkey).
     ctrl1 = _new_controller(config_dir)
-    ctrl1.next_step()  # → Microphone
-    ctrl1.set_microphone("mic-99")
-    ctrl1.next_step()  # → Permissions
-    ctrl1.next_step()  # → Hotkey
+    ctrl1.next_step()  # → Consent (1)
     ctrl1.set_hotkey("<f5>")
-    ctrl1.next_step()  # → Consent
-    ctrl1.next_step()  # → Model
+    ctrl1.next_step()  # → Model (2)
     ctrl1.set_model("large-v3-turbo")
 
     # Simulate process restart: create a NEW controller in the same dir.
     ctrl2 = _new_controller(config_dir)
     # Resume state should match what ctrl1 left.
-    assert ctrl2.current_step == 5, f"Expected step 5 (Model), got {ctrl2.current_step}"
-    assert ctrl2.selected_microphone == "mic-99"
+    assert ctrl2.current_step == 2, f"Expected step 2 (Model), got {ctrl2.current_step}"
+    # The Microphone step was removed (2026-09-14): the controller no
+    # longer collects a mic, the config keeps the System Default.
+    assert ctrl2.selected_microphone is None
     assert ctrl2.selected_hotkey == "<f5>"
     assert ctrl2.selected_model == "large-v3-turbo"
 
@@ -190,9 +189,9 @@ def test_corrupt_progress_marker_is_ignored(config_dir: Path) -> None:
 
 def test_v1_progress_marker_is_ignored_after_step_insertion(config_dir: Path) -> None:
     """A v1 (6-step) progress marker is IGNORED after the Consent step
-    insertion, restoring its ``current_step`` under the 7-step layout
-    would resume the user at the wrong step (old step 4 "Model" → new
-    step 4 "Consent"). The wizard starts fresh at Welcome instead."""
+    insertion, restoring its ``current_step`` under a later layout
+    would resume the user at the wrong step. The wizard starts fresh
+    at Welcome instead."""
     progress_file = config_dir / ".onboarding_progress"
     progress_file.write_text(
         json.dumps(
@@ -215,9 +214,12 @@ def test_v1_progress_marker_is_ignored_after_step_insertion(config_dir: Path) ->
     assert ctrl.selected_model == DEFAULT_MODEL_SIZE
 
 
-def test_v2_progress_marker_restores_consent_step(config_dir: Path) -> None:
-    """A v2 (7-step) progress marker resumes normally, including the new
-    Consent step (index 4)."""
+def test_v2_progress_marker_is_ignored_after_essentials_slimdown(config_dir: Path) -> None:
+    """A v2 (7-step) progress marker is IGNORED under the 4-step
+    essentials layout (2026-09-14): restoring its ``current_step``
+    would resume at the wrong step (old step 4 "Consent" → new step 1
+    "Consent", old step 5 "Model" → new step 2). The wizard starts
+    fresh at Welcome instead."""
     progress_file = config_dir / ".onboarding_progress"
     progress_file.write_text(
         json.dumps(
@@ -234,7 +236,32 @@ def test_v2_progress_marker_restores_consent_step(config_dir: Path) -> None:
     )
 
     ctrl = _new_controller(config_dir)
-    assert ctrl.current_step == 4
+    # v2 marker ignored → fresh start at Welcome with defaults
+    # (selected_model is the canonical no-model sentinel).
+    assert ctrl.current_step == 0
+    assert ctrl.selected_model == DEFAULT_MODEL_SIZE
+
+
+def test_v3_progress_marker_restores_consent_step(config_dir: Path) -> None:
+    """A v3 (4-step) progress marker resumes normally, including the
+    Consent step (index 1)."""
+    progress_file = config_dir / ".onboarding_progress"
+    progress_file.write_text(
+        json.dumps(
+            {
+                "version": 3,
+                "current_step": 1,
+                "selected_microphone": None,
+                "selected_hotkey": "<caps_lock>",
+                "selected_model": "small.en",
+                "selected_backend": "local",
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    ctrl = _new_controller(config_dir)
+    assert ctrl.current_step == 1
     assert ctrl.step_name == "Consent"
 
 

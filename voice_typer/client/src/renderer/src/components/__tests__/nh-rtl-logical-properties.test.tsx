@@ -16,7 +16,8 @@
  * source text (no React render needed).
  *
  * Scope: every file the finding explicitly listed as needing the fix
- * (excluding ``PermissionsStep.tsx`` which Fix-D owns).
+ * (the PermissionsStep.tsx mentioned by earlier iterations was
+ * removed with the 2026-09-14 onboarding overhaul).
  */
 
 import { readFileSync } from "node:fs";

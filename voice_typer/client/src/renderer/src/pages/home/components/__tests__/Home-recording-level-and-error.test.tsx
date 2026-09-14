@@ -1,9 +1,7 @@
 /**
- * Home recording-level display + mic-button error state (page-level
- * wiring): while recordingState === "recording" the RecordingLevelBar
- * mounts (fed by `recording_level`), and the MicToggleButton receives
- * `error` when the store's recordingState is "error", otherwise
- * neither treatment renders.
+ * Home mic-button error state (page-level wiring): the MicToggleButton
+ * receives `error` when the store's recordingState is "error", otherwise
+ * the normal idle treatment renders.
  */
 import { act, cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -92,41 +90,6 @@ beforeEach(() => {
 afterEach(() => {
 	cleanup();
 	useAppStore.setState({ recordingState: "idle", lastError: null });
-});
-
-describe("Home recording level display", () => {
-	it("does not render the level bar while idle", async () => {
-		await renderHome();
-		expect(screen.queryByTestId("recording-level-bar")).toBeNull();
-	});
-
-	it("mounts the level bar while recording and streams recording_level into it", async () => {
-		await renderHome();
-		act(() => {
-			useAppStore.getState().setRecordingState("recording");
-		});
-		expect(screen.getByTestId("recording-level-bar")).toBeTruthy();
-		const barHandler = eventHandlers.recording_level;
-		if (!barHandler) throw new Error("recording_level handler not registered");
-		act(() => {
-			barHandler({ rms: 0.05, peak: 0.1 });
-		});
-		const bar = screen.getByTestId("recording-level-bar");
-		expect(
-			bar.querySelector('[role="progressbar"]')?.getAttribute("aria-valuenow"),
-		).toBe("40");
-	});
-
-	it("unmounts the level bar when recording stops", async () => {
-		await renderHome();
-		act(() => {
-			useAppStore.getState().setRecordingState("recording");
-		});
-		act(() => {
-			useAppStore.getState().setRecordingState("idle");
-		});
-		expect(screen.queryByTestId("recording-level-bar")).toBeNull();
-	});
 });
 
 describe("Home mic-button error state wiring", () => {

@@ -45,14 +45,6 @@ Events emitted via ``event_bus.publish`` (the modern path):
   Payload: ``{rms:float, peak:float}``.
 * ``bubble_set_state``: set the bubble's state machine.
   Payload: ``{state:str}``.
-* ``recording_level``: main-window mirror of the recording level,
-  published at ≤8 Hz by the bubble-level worker while recording.
-  Exists because the typed ``bubble_level`` channel is consumed
-  exclusively by the bubble window (Electron routes it to the bubble
-  renderer only; the Tauri host emits it typed-only by design), so
-  the main renderer's live recording indicator needs its own
-  low-rate event on the generic path. Payload: ``{rms:float,
-  peak:float}``.
 * ``transcription_final``: final transcription text (UI preview).
   Payload: ``{text:str (≤200 chr), quality?:{mean_logprob:float,
   min_logprob:float, no_speech_prob_max:float, segments:float}}``.
@@ -250,7 +242,7 @@ renderer consumes it, in the TS ``PythonPushEvent`` union):
   Payload: ``{"data": {"title": ..., "message": ...}}`` (nested under
   ``data``; consumers read the nested shape).
 
-Total: 50 events, the live count is ``len(EVENT_TYPES)`` and this
+Total: 49 events, the live count is ``len(EVENT_TYPES)`` and this
 sentence is kept in lockstep with it by
 ``tests/test_event_bus.py::TestCanonicalCatalogue
 ::test_catalogue_total_count_updated``. Update this docstring whenever
@@ -333,7 +325,6 @@ EVENT_TYPES: frozenset[str] = frozenset(
         "bubble_hide",
         "bubble_level",
         "bubble_set_state",
-        "recording_level",
         "bubble_config",
         "transcription_final",
         "transcription_partial",
@@ -664,8 +655,8 @@ _deferred_executor_lock = threading.Lock()
 # growth under backpressure. The counter tracks in-flight deferred
 # tasks; when it exceeds ``_DEFERRED_QUEUE_MAX`` new submissions are
 # dropped (with a rate-limited WARNING) so memory is bounded. Dropped
-# events are idempotent high-frequency UI updates (bubble_level,
-# recording_level), losing some under backpressure is preferable to
+# events are idempotent high-frequency UI updates (bubble_level),
+# losing some under backpressure is preferable to
 # OOM-killing the audio process.
 _DEFERRED_QUEUE_MAX = 256
 _deferred_in_flight: int = 0
@@ -1011,7 +1002,7 @@ def publish(event: dict, *, async_dispatch: bool = False) -> bool:
         # queuing them indefinitely. The drop is rate-limited so a
         # persistently-slow subscriber produces one WARNING per minute,
         # not 60/sec. Dropped events are idempotent high-frequency UI
-        # updates (bubble_level, recording_level); losing some under
+        # updates (bubble_level); losing some under
         # backpressure is preferable to unbounded memory growth.
         with _deferred_in_flight_lock:
             if _deferred_in_flight >= _DEFERRED_QUEUE_MAX:

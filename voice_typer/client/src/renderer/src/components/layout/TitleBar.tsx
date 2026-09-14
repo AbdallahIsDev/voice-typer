@@ -586,24 +586,30 @@ function TitleBarInner({
                             full 36px bar height; the 4px padding gives breathing room
                             top/bottom/left/right, and gap-1 separates the buttons. */}
 			<div className="flex items-center gap-1 p-1">
-				<HotkeyTooltip
-					label={t("a11y.toggleSidebar")}
-					keys={SHORTCUTS.toggleSidebar.keys}
-				>
-					<ToolbarButton
-						onClick={onToggleSidebar}
-						ariaLabel={t("a11y.toggleSidebarWithShortcut", {
-							shortcut: SHORTCUTS.toggleSidebar.keys,
-						})}
-						ariaKeyshortcuts={SHORTCUTS.toggleSidebar.ariaKeyshortcuts}
+				{/* ONB-3: the onboarding wizard is a focused, mandatory flow —
+				    the sidebar is hidden entirely for that page, so the toggle
+				    must not render (toggling would collapse a sidebar that
+				    isn't visible and desync the persisted rail state). */}
+				{currentPage !== "onboarding" && (
+					<HotkeyTooltip
+						label={t("a11y.toggleSidebar")}
+						keys={SHORTCUTS.toggleSidebar.keys}
 					>
-						<HugeiconsIcon
-							icon={PanelLeftIcon}
-							strokeWidth={2}
-							className="h-4 w-4"
-						/>
-					</ToolbarButton>
-				</HotkeyTooltip>
+						<ToolbarButton
+							onClick={onToggleSidebar}
+							ariaLabel={t("a11y.toggleSidebarWithShortcut", {
+								shortcut: SHORTCUTS.toggleSidebar.keys,
+							})}
+							ariaKeyshortcuts={SHORTCUTS.toggleSidebar.ariaKeyshortcuts}
+						>
+							<HugeiconsIcon
+								icon={PanelLeftIcon}
+								strokeWidth={2}
+								className="h-4 w-4"
+							/>
+						</ToolbarButton>
+					</HotkeyTooltip>
+				)}
 
 				{/* Back/Forward navigation */}
 				<NavChevronButton

@@ -1,17 +1,20 @@
-//shared constants extracted from Onboarding.tsx.
-
-export const DONE_STEP_NAME = "Done";
+// shared constants extracted from Onboarding.tsx.
 
 // Fix 14: localized step title for the sr-only <h1>.
+// 4-step essentials flow (2026-09-14): Welcome → Consent → Model →
+// Hotkey. The Microphone / Permissions / Done steps were removed; the
+// final Hotkey step's Continue acts as Finish (apply + complete).
 export const STEP_TITLE_KEY: Record<string, string> = {
 	Welcome: "onboarding.welcomeTitle",
-	Microphone: "onboarding.micTitle",
-	Permissions: "onboarding.permissionsTitle",
-	Hotkey: "onboarding.hotkeyTitle",
 	Consent: "onboarding.consentTitle",
 	Model: "onboarding.modelTitle",
-	Done: "onboarding.completeTitle",
+	Hotkey: "onboarding.hotkeyTitle",
 };
+
+// The final wizard step. Its primary button reads "Get started" and
+// its click runs the apply flow (onboarding_apply) instead of
+// advancing to a removed summary step.
+export const FINAL_STEP_NAME = "Hotkey";
 
 // Fix 17: renderer default must match `OnboardingController.selected_hotkey`
 // (`<caps_lock>`), previously `<f2>`, which silently overrode the backend.
@@ -32,6 +35,5 @@ export { MODEL_DEFAULT } from "@/lib/utils/models";
 
 // Fix 10: 5s → 10s, too short for users still reading the instructions.
 export const TEST_HOTKEY_TIMEOUT_MS = 10_000;
-
 export const HEADING_CLASS =
 	"text-lg font-semibold text-(--text-primary) outline-none";

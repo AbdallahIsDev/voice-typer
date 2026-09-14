@@ -6,53 +6,46 @@
 // now owns layout + wiring only:
 //   - onboarding/hooks/useOnboardingWizard → wizard state, init effect,
 //     navigation, step submission
-//   - onboarding/hooks/usePermissionsProbe → permissions probe +
-//     test-hotkey listener
-//   - onboarding/hooks/useDoneStepConsent  → Done-step
-//     voice_biometric_consent gate (get_config probe, immediate
-//     persist on toggle, revert on failure)
+//   - onboarding/hooks/usePermissionsProbe → test-hotkey listener
 //   - onboarding/components/<Step>         → step renderers
 //   - onboarding/lib/{types,constants}.ts  → shared contracts
-// The page renders the progress header, the per-step body, the Done-
-// step consent + apply-error panels, the footer (Back / Skip /
-// Continue-Get Started with the per-step advancement gates), and the
-// skip confirmation dialog. The `export default function OnboardingPage`
-// signature is unchanged so App.tsx routing and existing tests continue
-// to work. Pure structural refactor, no behavior changes.
+//
+// 2026-09-14 onboarding overhaul (user decisions):
+//   - 4-step essentials flow: Welcome → Consent → Model → Hotkey.
+//     The Microphone step (System Default until changed in Settings →
+//     Microphone), the OS-permissions step (keyboard monitoring is
+//     standard app behavior, not a consent gate) and the "You are all
+//     set" summary step were removed.
+//   - MANDATORY: the Skip button and its confirmation dialog are
+//     removed entirely (ONB-3). The init-error branch offers Retry
+//     only.
+//   - Header (ONB-1): the Back button is hidden on step 1 (nowhere to
+//     go back to) and appears from step 2 onward; the top-right step
+//     title above the progress bar is removed (it duplicated the card
+//     title). The "Step N of M" text and the aria progressbar remain.
+//   - Focus (ONB-3): the parent card is wider (max-w-xl) and the
+//     sidebar is hidden entirely on this page (App.tsx), including
+//     under RTL (the sidebar is pinned left in App.tsx, so hiding it
+//     can't shift the onboarding column).
 //
 // Cancelled-flag contract (async effects): every async effect in this
 // wizard follows the canonical guard pattern so no setState lands after
-// unmount:
-// let cancelled = false;
-// ... if (cancelled) return;
-// return () => { cancelled = true; };
-// The init effect lives in `./onboarding/hooks/useOnboardingWizard.ts`
-// and the consent probe in `./onboarding/hooks/useDoneStepConsent.ts`,
-// both following the pattern. The behavioral test (no setState-after-
-// unmount warning) passes against the live components; the source-
-// content substring assertions resolve to this pointer comment.
+// unmount. The init effect lives in `./onboarding/hooks/useOnboardingWizard.ts`.
 
 import { useEffect, useRef } from "react";
-import ConfirmDialog from "@/components/common/ConfirmDialog";
 import { Spinner } from "@/components/feedback/Spinner";
 import { formatHotkey } from "@/components/hotkey/hotkey-format";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import { t } from "@/i18n/i18n";
 import ConsentStep from "./onboarding/components/ConsentStep";
-import DoneStep from "./onboarding/components/DoneStep";
 import HotkeyStep from "./onboarding/components/HotkeyStep";
-import MicrophoneStep from "./onboarding/components/MicrophoneStep";
 import ModelStep from "./onboarding/components/ModelStep";
-import PermissionsStep from "./onboarding/components/PermissionsStep";
 import WelcomeStep from "./onboarding/components/WelcomeStep";
-import { useDoneStepConsent } from "./onboarding/hooks/useDoneStepConsent";
 import { useOnboardingWizard } from "./onboarding/hooks/useOnboardingWizard";
 import { usePermissionsProbe } from "./onboarding/hooks/usePermissionsProbe";
 import {
-	DONE_STEP_NAME,
+	FINAL_STEP_NAME,
 	HOTKEY_DEFAULT,
-	MODEL_DEFAULT,
 	STEP_TITLE_KEY,
 } from "./onboarding/lib/constants";
 
@@ -67,30 +60,20 @@ export default function OnboardingPage({
 		step,
 		submitting,
 		applyError,
-		skipConfirmOpen,
-		setSkipConfirmOpen,
 		selectedHotkey,
 		setSelectedHotkey,
 		selectedModel,
 		setSelectedModel,
-		selectedMic,
-		setSelectedMic,
 		hotkeyPresets,
 		modelOptions,
-		microphones,
 		headingRef,
 		retryInit,
-		refreshMics,
 		handleNext,
 		handleApply,
 		handlePrev,
-		handleSkip,
-		skipOnInitError,
-		// Model step: local-vs-cloud choice + explicit download + cloud panel.
+		// Model step: local-vs-cloud choice + explicit per-model download.
 		selectedBackend,
 		setSelectedBackend,
-		hfConsent,
-		setHfConsent,
 		downloadingModel,
 		downloadProgress,
 		downloadFailed,
@@ -107,19 +90,8 @@ export default function OnboardingPage({
 		handleAgreeToAll,
 	} = useOnboardingWizard(onComplete);
 
-	const {
-		permissionsResult,
-		permissionsLoading,
-		permissionsTest,
-		reprobePermissions,
-		handleTestHotkey,
-	} = usePermissionsProbe(step?.step_name, selectedHotkey);
-
-	//voice_biometric_consent gate on the Done step (extracted to
-	// ./onboarding/hooks/useDoneStepConsent.ts, probe, persist,
-	// revert-on-failure).
-	const { consentAccepted, consentPersisting, handleConsentToggle } =
-		useDoneStepConsent(step?.step_name);
+	const { permissionsTest, handleTestHotkey } =
+		usePermissionsProbe(selectedHotkey);
 
 	// ── Focus ref for init-error branch ──────────────────────────
 	// Must be declared before any early return so the hooks are
@@ -141,13 +113,15 @@ export default function OnboardingPage({
 	}
 
 	// ── Render: init error ────────────────────────────────────────
+	// Onboarding is MANDATORY (ONB-3): no Skip escape hatch here. The
+	// only paths are Retry (re-run the init probes) or fixing the
+	// backend connection — a broken IPC bridge must not silently
+	// complete setup with defaults.
 	if (initError) {
 		return (
-			<div className="mx-auto flex min-h-full w-full max-w-lg flex-col items-center justify-center px-6">
-				{/* : use the --destructive design token
-                                        instead of raw red-400/red-50/red-950 so the error card
-                                        follows theme overrides (Dracula, Catppuccin, etc.).
-                                        Matches EmptyState variant="error" styling. */}
+			<div className="mx-auto flex min-h-full w-full max-w-xl flex-col items-center justify-center px-6">
+				{/* theme tokens (--destructive, not raw red-*) so the error card
+				    follows theme overrides (Dracula, Catppuccin, etc.). */}
 				<div
 					ref={initErrorRef}
 					tabIndex={-1}
@@ -161,15 +135,6 @@ export default function OnboardingPage({
 						<Button variant="default" onClick={retryInit}>
 							{t("errorBoundary.tryAgain")}
 						</Button>
-						<Button
-							variant="ghost"
-							onClick={() => {
-								void skipOnInitError();
-							}}
-							aria-label={t("onboarding.skipAria")}
-						>
-							{t("onboarding.skip")}
-						</Button>
 					</div>
 				</div>
 			</div>
@@ -178,89 +143,36 @@ export default function OnboardingPage({
 
 	if (!step) return null;
 
+	const isFinalStep = step.step_name === FINAL_STEP_NAME;
 	const progress = ((step.step + 1) / step.total_steps) * 100;
-	const isDoneStep = step.step_name === DONE_STEP_NAME;
-	//when no microphones are detected the Microphone step
-	// shows a Refresh button instead of the Select dropdown, but
-	// Continue remained enabled, the user could click it and advance
-	// with an empty `selectedMic`, silently bypassing mic selection
-	// (the backend's `onboarding_set_microphone` accepts a null
-	// mic_id and falls back to system default, but the user has no
-	// way of knowing that). Block Continue so the user must either
-	// plug in a mic + Refresh, or use the explicit Skip button.
-	const isMicStepBlocked =
-		step.step_name === "Microphone" && microphones.length === 0;
-	// block advancement when the permissions probe
-	// has FAILED, in addition to the existing gate for `needed === true`.
-	// Previously, a probe failure fell through to `needed: false` (the
-	// Windows/unknown-platform happy path) and the user could proceed
-	// without knowing their hotkey wouldn't work. Now a probe failure
-	// also blocks the Continue button so the user is forced to Refresh
-	// or skip explicitly.
-	const permissionsProbeFailed =
-		step?.step_name === "Permissions" && permissionsResult?.state === "error";
-	const isPermissionsBlocked =
-		(step.step_name === "Permissions" && permissionsResult?.needed === true) ||
-		permissionsProbeFailed;
-	//block Get Started on Done step until consent is granted.
-	const isConsentBlocked = isDoneStep && !consentAccepted;
-	// Fix 14: localized sr-only h1.
+	// ONB-1: Back is hidden on the FIRST step (nothing to go back to)
+	// and appears from step 2 onward.
+	const showBack = step.step > 0;
+	// Localized sr-only h1 + aria-live step announcements.
 	const srTitleKey =
 		STEP_TITLE_KEY[step.step_name] ?? "onboarding.welcomeTitle";
-	//subtle "Default: <hotkey>" hint shown on the Hotkey
-	// step so users know they're accepting a default if they don't
-	// change the Select. The hint is suppressed once the user picks
-	// a different hotkey.
-	const hotkeyIsDefault = selectedHotkey === HOTKEY_DEFAULT;
-	const showDefaultHotkeyHint = step.step_name === "Hotkey" && hotkeyIsDefault;
-	// Render the default hotkey via the canonical formatter so the
-	// hint shows a localized, human-readable label (e.g. "Caps Lock")
-	// rather than the raw pynput token uppercased ("CAPS_LOCK").
-	const defaultHotkeyLabel = formatHotkey(HOTKEY_DEFAULT);
-	// mirror the hotkey hint pattern for the Model step. The wizard
-	// NO LONGER pre-selects a default model (MODEL_DEFAULT is the empty
-	// "no model selected" sentinel, the app has no concrete default),
-	// so there is no default to advertise; the hint only renders when a
-	// real default exists (kept for future-proofing / legacy configs).
-	const showDefaultModelHint =
-		step.step_name === "Model" &&
-		MODEL_DEFAULT !== "" &&
-		selectedModel === MODEL_DEFAULT;
-	//mirror the hint pattern for the Microphone step.
-	// The wizard auto-selects the OS default input device (mic with
-	// `default: true` from list_microphones). Show a "Default: <name>"
-	// hint so the user knows the pre-selection came from the OS, not
-	// from an explicit choice they made. Suppressed when the user
-	// picks a different mic or when no default-flagged mic exists.
-	const selectedDefaultMic = microphones.find(
-		(m) => m.id === selectedMic && m.default === true,
-	);
-	const showDefaultMicHint =
-		step.step_name === "Microphone" && !!selectedDefaultMic;
-	const defaultMicLabel = selectedDefaultMic?.name ?? "";
-	//defensive, disable Continue on the Model step if
-	// no model is selected. In practice `selectedModel` is always
-	// initialized to MODEL_DEFAULT (or pre-loaded from get_config),
-	// so this only fires if the backend returns an empty
-	// `cfg.model_size`. The check ensures the wizard can never
-	// advance to Done with an empty model selection.
+	// Subtle "Default: <hotkey>" hint on the final step so users know
+	// they're accepting the default hotkey if they don't change the
+	// Select (suppressed once they pick a different one). Rendered via
+	// the canonical formatter so the label is localized ("Caps Lock").
+	const showDefaultHotkeyHint =
+		isFinalStep && selectedHotkey === HOTKEY_DEFAULT;
+	//block the final step's Finish button until the wizard collected
+	// every mandatory selection (no Skip exists to bypass them).
 	const isModelStepBlocked = step.step_name === "Model" && !selectedModel;
 
 	return (
-		<div className="mx-auto flex min-h-full w-full max-w-lg flex-col items-center gap-8 px-6 pt-28 pb-6">
-			{/* Fix 13: progressbar role + aria attributes. */}
+		<div className="mx-auto flex min-h-full w-full max-w-xl flex-col items-center gap-8 px-6 pt-28 pb-6">
+			{/* Progress header (ONB-1): "Step N of M" text + bar only — the
+			    step-title span that used to sit at the top-right duplicated
+			    the card's own <h2> heading and was removed. */}
 			<div className="flex w-full flex-col gap-2">
-				<div className="flex items-center justify-between text-xs text-(--text-muted)">
+				<div className="text-xs text-(--text-muted)">
 					<span>
 						{t("onboarding.stepProgress", {
 							current: String(step.step + 1),
 							total: String(step.total_steps),
 						})}
-					</span>
-					{/*localize the visible step-name label
-                                            (was raw backend enum string like "Permissions"). */}
-					<span>
-						{t(STEP_TITLE_KEY[step.step_name] ?? "onboarding.welcomeTitle")}
 					</span>
 				</div>
 				<div
@@ -281,11 +193,8 @@ export default function OnboardingPage({
 				</div>
 			</div>
 
-			{/* Fix 14: sr-only page heading. Uses the localized step title
-                                        (was raw `step.step_name` like "Permissions"). The step-
-                                        progress prefix keeps this text distinct from the visible
-                                        per-step heading so `getByText` in tests resolves to a
-                                        single element, and gives screen readers the step context. */}
+			{/* sr-only page heading + aria-live step-change announcements
+			    (WCAG 4.1.3). Uses the localized step title. */}
 			<h1 className="sr-only">
 				{t("onboarding.stepProgress", {
 					current: String(step.step + 1),
@@ -293,11 +202,6 @@ export default function OnboardingPage({
 				})}
 				: {t(srTitleKey)}
 			</h1>
-			{/* : aria-live polite region announces step
-                                transitions to screen-reader users. Without this, the focused
-                                visible heading only contains the step title ("Choose Your
-                                Microphone"), the user never hears "Step 2 of 6". WCAG 4.1.3
-                                Status Changes (Level AA). */}
 			<div aria-live="polite" className="sr-only">
 				{t("onboarding.stepProgress", {
 					current: String(step.step + 1),
@@ -306,38 +210,12 @@ export default function OnboardingPage({
 				: {t(srTitleKey)}
 			</div>
 
+			{/* Parent card (ONB-3): widened max-w-lg → max-w-xl for
+			    breathing room around the consent rows and the model
+			    accordion. */}
 			<div className="flex w-full flex-col gap-6 rounded-xl border border-border/5 bg-(--bg) p-8">
 				{step.step_name === "Welcome" && (
 					<WelcomeStep headingRef={headingRef} />
-				)}
-				{step.step_name === "Microphone" && (
-					<MicrophoneStep
-						headingRef={headingRef}
-						microphones={microphones}
-						selectedMic={selectedMic}
-						setSelectedMic={setSelectedMic}
-						onRefreshMics={refreshMics}
-					/>
-				)}
-				{step.step_name === "Permissions" && (
-					<PermissionsStep
-						headingRef={headingRef}
-						permissionsResult={permissionsResult}
-						permissionsLoading={permissionsLoading}
-						permissionsTest={permissionsTest}
-						onTestHotkey={handleTestHotkey}
-						onRefreshPermission={reprobePermissions}
-					/>
-				)}
-				{step.step_name === "Hotkey" && (
-					<HotkeyStep
-						headingRef={headingRef}
-						hotkeyPresets={hotkeyPresets}
-						selectedHotkey={selectedHotkey}
-						setSelectedHotkey={setSelectedHotkey}
-						onTestHotkey={handleTestHotkey}
-						permissionsTest={permissionsTest}
-					/>
 				)}
 				{step.step_name === "Consent" && (
 					<ConsentStep
@@ -355,8 +233,6 @@ export default function OnboardingPage({
 						setSelectedModel={setSelectedModel}
 						selectedBackend={selectedBackend}
 						setSelectedBackend={setSelectedBackend}
-						hfConsent={hfConsent}
-						setHfConsent={setHfConsent}
 						downloadingModel={downloadingModel}
 						downloadProgress={downloadProgress}
 						downloadFailed={downloadFailed}
@@ -369,67 +245,24 @@ export default function OnboardingPage({
 						setCloudConsent={setCloudConsent}
 					/>
 				)}
-				{step.step_name === DONE_STEP_NAME && (
-					<DoneStep
+				{step.step_name === FINAL_STEP_NAME && (
+					<HotkeyStep
 						headingRef={headingRef}
+						hotkeyPresets={hotkeyPresets}
 						selectedHotkey={selectedHotkey}
-						selectedModel={selectedModel}
-						selectedMic={selectedMic}
-						microphones={microphones}
-						selectedBackend={selectedBackend}
+						setSelectedHotkey={setSelectedHotkey}
+						onTestHotkey={handleTestHotkey}
+						permissionsTest={permissionsTest}
 					/>
 				)}
 
-				{/*voice_biometric_consent gate on the
-                                        Done step. ADR 0016 § specifies the consent
-                                        UI location as "First-run onboarding". The wizard
-                                        previously had no consent prompt, so every first-run
-                                        user who pressed their hotkey was refused by
-                                        recording_controller () with only a tray
-                                        notification, leading to massive first-run drop-off.
-                                        The checkbox persists voice_biometric_consent only;
-                                        the HuggingFace download consent is granted
-                                        explicitly on the Model step (nothing is downloaded
-                                        automatically). */}
-				{isDoneStep && (
-					<div
-						className="rounded-lg border border-border/5 bg-(--bg-subtle) p-4"
-						data-testid="onboarding-consent-section"
-					>
-						<label
-							className="flex items-start gap-3 text-sm"
-							htmlFor="onboarding-consent-checkbox"
-						>
-							<Checkbox
-								id="onboarding-consent-checkbox"
-								className="mt-0.5 cursor-pointer"
-								checked={consentAccepted}
-								onCheckedChange={(v) => handleConsentToggle(v === true)}
-								disabled={consentPersisting}
-								aria-label={t("settings.voiceBiometricProcessingAria")}
-								data-testid="onboarding-consent-checkbox"
-							/>
-							<span className="flex flex-1 flex-col gap-1">
-								<span className="font-medium text-(--text-primary)">
-									{t("settings.voiceBiometricProcessing")}
-								</span>
-								<span className="text-xs text-(--text-muted)">
-									{t("settings.voiceBiometricProcessingInfo")}
-								</span>
-							</span>
-						</label>
-					</div>
-				)}
-
-				{/*inline apply-failure alert on the Done
-                                step. `handleApply` awaits `onboarding_apply`; when
-                                it rejects, applyError flips and this alert explains
-                                why setup didn't finish while Get Started stays
-                                available as the retry affordance (Skip remains the
-                                escape hatch below). Previously a rejected apply was
-                                invisible, the success snack + navigation fired
-                                unconditionally. */}
-				{isDoneStep && applyError && (
+				{/* Inline apply-failure alert on the final step.
+				    `handleApply` awaits `onboarding_apply`; when it rejects,
+				    applyError flips and this alert explains why setup didn't
+				    finish while Get Started stays available as the retry
+				    affordance. There is no Skip escape hatch (ONB-3): the
+				    user retries the apply. */}
+				{isFinalStep && applyError && (
 					<div
 						role="alert"
 						data-testid="onboarding-apply-error"
@@ -446,99 +279,45 @@ export default function OnboardingPage({
 
 				<div className="flex items-center justify-between gap-4">
 					<div>
-						{/* Fix 16: Back button shown on Done step too (was hidden). */}
-						<Button
-							type="button"
-							variant="ghost"
-							onClick={handlePrev}
-							disabled={step.step === 0 || submitting}
-							aria-label={t("onboarding.backAria")}
-						>
-							{t("onboarding.back")}
-						</Button>
+						{/* ONB-1: the Back button is hidden on step 1 and shown
+						    from step 2 onward. */}
+						{showBack && (
+							<Button
+								type="button"
+								variant="ghost"
+								onClick={handlePrev}
+								disabled={submitting}
+								aria-label={t("onboarding.backAria")}
+							>
+								{t("onboarding.back")}
+							</Button>
+						)}
 					</div>
 					<div className="flex flex-col items-end gap-1">
-						{/*subtle "Default: <hotkey>"
-                                                        hint shown on the Hotkey step when the user
-                                                        hasn't changed the Select. Makes it clear
-                                                        they're accepting a default rather than
-                                                        explicitly choosing, addresses the
-                                                        "Continue button always enabled with no
-                                                        validation" concern without blocking
-                                                        advancement (the default is a valid
-                                                        choice). Reuses the existing
-                                                        `theme.preset.default` key ("Default"). */}
 						{showDefaultHotkeyHint && (
 							<span
 								className="text-xs text-(--text-muted)"
 								data-testid="onboarding-default-hotkey-hint"
 							>
-								{t("theme.preset.default")}: {defaultHotkeyLabel}
-							</span>
-						)}
-						{/* mirror the hotkey hint for the
-                                                        Model step. Renders only when a non-empty
-                                                        MODEL_DEFAULT exists (the app has no
-                                                        concrete default model anymore). */}
-						{showDefaultModelHint && (
-							<span
-								className="text-xs text-(--text-muted)"
-								data-testid="onboarding-default-model-hint"
-							>
-								{t("theme.preset.default")}: {MODEL_DEFAULT}
-							</span>
-						)}
-						{/*mirror the hint for the
-                                                        Microphone step. The wizard auto-selects
-                                                        the OS default input device (mic with
-                                                        `default: true`); this hint surfaces that
-                                                        the pre-selection came from the OS rather
-                                                        than an explicit user choice. Reuses the
-                                                        existing `onboarding.defaultMic` key
-                                                        ("Default") for consistency with the
-                                                        per-option "Default" badge in
-                                                        MicrophoneStep.tsx. */}
-						{showDefaultMicHint && (
-							<span
-								className="text-xs text-(--text-muted)"
-								data-testid="onboarding-default-mic-hint"
-							>
-								{t("onboarding.defaultMic")}: {defaultMicLabel}
+								{t("theme.preset.default")}: {formatHotkey(HOTKEY_DEFAULT)}
 							</span>
 						)}
 						<div className="flex items-center gap-2">
-							{(!isDoneStep || applyError) && (
-								<Button
-									type="button"
-									variant="ghost"
-									onClick={() => setSkipConfirmOpen(true)}
-									disabled={submitting}
-									aria-label={t("onboarding.skipAria")}
-									data-testid={
-										isDoneStep ? "onboarding-done-skip-button" : undefined
-									}
-								>
-									{t("onboarding.skip")}
-								</Button>
-							)}
+							{/* No Skip button anywhere (ONB-3): onboarding is
+							    mandatory; the only exits are completing the flow
+							    or the init-error Retry. */}
 							<Button
 								type="button"
 								variant="default"
-								onClick={isDoneStep ? handleApply : handleNext}
-								disabled={
-									submitting ||
-									isPermissionsBlocked ||
-									isConsentBlocked ||
-									isMicStepBlocked ||
-									isModelStepBlocked
-								}
+								onClick={isFinalStep ? handleApply : handleNext}
+								disabled={submitting || isModelStepBlocked}
 								aria-label={
-									isDoneStep
+									isFinalStep
 										? t("onboarding.getStartedAria")
 										: t("onboarding.continueAria")
 								}
 							>
-								{isDoneStep
+								{isFinalStep
 									? t("onboarding.getStarted")
 									: t("onboarding.continue")}
 							</Button>
@@ -546,20 +325,6 @@ export default function OnboardingPage({
 					</div>
 				</div>
 			</div>
-
-			{/* Fix 4: skip confirmation dialog (existing i18n keys). */}
-			<ConfirmDialog
-				open={skipConfirmOpen}
-				title={t("onboarding.skipConfirmTitle")}
-				message={t("onboarding.skipConfirmMessage")}
-				confirmLabel={t("onboarding.skipConfirmLabel")}
-				variant="warning"
-				onConfirm={() => {
-					setSkipConfirmOpen(false);
-					void handleSkip();
-				}}
-				onCancel={() => setSkipConfirmOpen(false)}
-			/>
 		</div>
 	);
 }

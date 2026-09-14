@@ -138,12 +138,16 @@ const { mockCall, mockMarkUpdated } = vi.hoisted(() => ({
 mockCall.mockImplementation(async (cmd: string) => {
 	switch (cmd) {
 		case "onboarding_start":
-			return { step: 1, total_steps: 4, step_name: "microphone" };
+			// 4-step essentials flow (2026-09-14): Welcome → Consent →
+			// Model → Hotkey. The wizard renders the Welcome step.
+			return { step: 0, total_steps: 4, step_name: "Welcome" };
 		case "onboarding_get_microphones":
 			return { microphones: [] };
 		case "onboarding_get_hotkey_presets":
 			return { presets: [] };
 		case "onboarding_get_model_options":
+			return { models: [] };
+		case "get_model_catalog":
 			return { models: [] };
 		case "get_config":
 			return STUB_CONFIG;

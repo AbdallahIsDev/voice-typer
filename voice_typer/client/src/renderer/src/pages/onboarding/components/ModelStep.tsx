@@ -1,15 +1,23 @@
 import type { Ref } from "react";
+import { InfoTooltip } from "@/components/feedback/InfoTooltip";
 import { FamilyLogo } from "@/components/models/FamilyLogo";
+import {
+	DOWNLOAD_CONTENT_ALIGNMENT,
+	DOWNLOAD_SIZE_BUTTON_WIDTH,
+} from "@/components/models/ModelCardActions";
+import {
+	Accordion,
+	AccordionContent,
+	AccordionItem,
+	AccordionTrigger,
+} from "@/components/ui/accordion";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import {
-	Select,
-	SelectContent,
-	SelectItem,
-	SelectTrigger,
-	SelectValue,
-} from "@/components/ui/select";
+	SegmentedControl,
+	type SegmentedControlOption,
+} from "@/components/ui/segmented-control";
 import { t } from "@/i18n/i18n";
 import { formatVram } from "@/lib/format";
 import { formatModelSpeed } from "@/lib/utils/models";
@@ -17,29 +25,25 @@ import type { BackendChoice } from "../hooks/useOnboardingWizard";
 import { HEADING_CLASS } from "../lib/constants";
 import type { ModelOption } from "../lib/types";
 
-// The onboarding wizard only offers the curated MODEL_OPTIONS subset
-// (currently the multilingual Whisper variants + Parakeet), so the
-// brand strip is derived from the options actually present rather than
-// a static list, a future option (e.g. Qwen) shows up automatically.
-// Mirrors the Models page family grouping: whisper → OpenAI, parakeet →
-// NVIDIA, qwen → Qwen.
-function familyForModelName(name: string): string | null {
+// Family grouping for the onboarding accordion, mirrors the Models
+// page family headers: whisper → OpenAI, parakeet → NVIDIA, qwen →
+// Qwen. Local helper (the Models page's groupModelsByFamily consumes
+// the richer ModelInfo shape with disk state the wizard doesn't
+// fetch); a future family maps through the same two tables.
+function familyForModelName(name: string): string {
 	if (name === "qwen") return "qwen";
 	if (name === "parakeet") return "parakeet";
-	if (name === "tiny" || name === "large-v3" || name === "large-v3-turbo")
-		return "whisper";
-	return null;
+	return "whisper";
 }
 
-// Family display labels, brand names (proper nouns, kept literal like
-// the Models page family headers). The whisper family strip shows the
-// COMPANY name (OpenAI) next to the OpenAI logo, matching the Models
-// page group headers (UI/UX overhaul point 5a); each variant name
-// carries the "Whisper" family prefix.
-const FAMILY_STRIP_LABELS: Record<string, string> = {
+// Family display labels — brand names (proper nouns, kept literal like
+// the Models page family headers). No "Powered by …" strip: the
+// wizard is multi-provider and the family headers already carry the
+// brand logos (2026-09-14 Model-step rebuild).
+const FAMILY_LABELS: Record<string, string> = {
 	whisper: "OpenAI",
 	qwen: "Qwen",
-	parakeet: "Nvidia",
+	parakeet: "NVIDIA",
 };
 
 export interface ModelStepProps {
@@ -48,17 +52,19 @@ export interface ModelStepProps {
 	selectedModel: string;
 	setSelectedModel: (v: string) => void;
 	// Local-vs-cloud choice (Model step). The app NEVER auto-downloads a
-	// model, the user either picks a local model and clicks Download
-	// explicitly, or connects a cloud transcription API.
+	// model, the user either picks a local model and downloads it
+	// explicitly per item, or connects a cloud transcription API.
 	selectedBackend: BackendChoice;
 	setSelectedBackend: (v: BackendChoice) => void;
-	// Local branch: HuggingFace consent gates the explicit download.
-	hfConsent: boolean;
-	setHfConsent: (v: boolean) => void;
+	// Explicit per-model download state + handler. HuggingFace consent
+	// is requested at the point of use through the shared consent gate
+	// (openConsentGate), NOT a checkbox on this step (the consent is
+	// granted on the Privacy step / gate dialog; the wizard never
+	// duplicates it).
 	downloadingModel: string | null;
 	downloadProgress: number;
 	downloadFailed: boolean;
-	onDownload: () => Promise<void>;
+	onDownload: (model: string) => void;
 	// Cloud branch: provider + API key + consent (persisted on Continue).
 	cloudProvider: string;
 	setCloudProvider: (v: string) => void;
@@ -77,7 +83,7 @@ function providerLabel(provider: string): string {
 }
 
 /**
- * : derive the language-coverage badge key for a model option.
+ * Derive the language-coverage badge key for a model option.
  *
  * `languages` follows the same convention as
  * `ModelMetadata.supported_languages` in `lib/utils/models.ts`:
@@ -99,15 +105,13 @@ function languageBadgeKey(
 		: "onboarding.multilingualBadge";
 }
 
-/** Styling for the two backend-choice cards (radio group). */
-function backendCardClass(active: boolean): string {
-	return [
-		"flex flex-col items-start gap-1 rounded-lg border p-4 text-left",
-		"transition-colors duration-150",
-		active
-			? "border-accent bg-accent/5"
-			: "border-border/5 bg-(--bg-subtle) hover:border-accent/50",
-	].join(" ");
+/** Small info chip used for the VRAM / language badges on a model row. */
+function ModelBadge({ children }: { children: string }) {
+	return (
+		<span className="rounded-full bg-(--bg-subtle) px-1.5 py-0.5 text-[0.625rem] font-medium uppercase tracking-wide text-(--text-muted)">
+			{children}
+		</span>
+	);
 }
 
 export function ModelStep({
@@ -117,8 +121,6 @@ export function ModelStep({
 	setSelectedModel,
 	selectedBackend,
 	setSelectedBackend,
-	hfConsent,
-	setHfConsent,
 	downloadingModel,
 	downloadProgress,
 	downloadFailed,
@@ -132,17 +134,24 @@ export function ModelStep({
 }: ModelStepProps) {
 	const isDownloading = downloadingModel !== null;
 	const progressPct = Math.round(downloadProgress);
-	// Families present in the offered local models (whisper → OpenAI,
-	// parakeet → NVIDIA, qwen → Qwen), drives the brand strip above
-	// the picker. Derived from the options so a catalog change
-	// automatically updates the strip.
-	const localFamilies = Array.from(
-		new Set(
-			modelOptions
-				.map((m) => familyForModelName(m.name))
-				.filter((f): f is string => f !== null),
-		),
-	);
+
+	// Group the offered local models by family for the accordion.
+	// Families appear in first-seen order (whisper, qwen, parakeet).
+	const families: { id: string; models: ModelOption[] }[] = [];
+	for (const m of modelOptions) {
+		const id = familyForModelName(m.name);
+		let bucket = families.find((f) => f.id === id);
+		if (!bucket) {
+			bucket = { id, models: [] };
+			families.push(bucket);
+		}
+		bucket.models.push(m);
+	}
+
+	const backendOptions: SegmentedControlOption<BackendChoice>[] = [
+		{ value: "local", label: t("onboarding.backendLocalLabel") },
+		{ value: "cloud", label: t("onboarding.backendCloudLabel") },
+	];
 
 	return (
 		<>
@@ -153,152 +162,167 @@ export function ModelStep({
 				{t("onboarding.modelDescription")}
 			</p>
 
-			{/* Local vs cloud choice. This is the single place where the
-                            user decides how transcription will run, the app never
-                            downloads a model on its own. */}
-			<div
-				role="radiogroup"
-				aria-label={t("onboarding.backendAria")}
-				className="grid grid-cols-1 gap-3 sm:grid-cols-2"
-			>
-				{/* biome-ignore lint/a11y/useSemanticElements: custom-styled radio card, a native <input type="radio"> cannot render the card layout; role="radio" + aria-checked in a radiogroup is the correct ARIA pattern */}
-				<button
-					type="button"
-					role="radio"
-					aria-checked={selectedBackend === "local"}
-					onClick={() => setSelectedBackend("local")}
-					className={backendCardClass(selectedBackend === "local")}
-					data-testid="onboarding-backend-local"
-				>
-					<span className="text-sm font-medium text-(--text-primary)">
-						{t("onboarding.backendLocalLabel")}
-					</span>
-					<span className="text-xs text-(--text-muted)">
-						{t("onboarding.backendLocalDescription")}
-					</span>
-				</button>
-				{/* biome-ignore lint/a11y/useSemanticElements: custom-styled radio card, a native <input type="radio"> cannot render the card layout; role="radio" + aria-checked in a radiogroup is the correct ARIA pattern */}
-				<button
-					type="button"
-					role="radio"
-					aria-checked={selectedBackend === "cloud"}
-					onClick={() => setSelectedBackend("cloud")}
-					className={backendCardClass(selectedBackend === "cloud")}
-					data-testid="onboarding-backend-cloud"
-				>
-					<span className="text-sm font-medium text-(--text-primary)">
-						{t("onboarding.backendCloudLabel")}
-					</span>
-					<span className="text-xs text-(--text-muted)">
-						{t("onboarding.backendCloudDescription")}
-					</span>
-				</button>
-			</div>
+			{/* Local vs cloud choice — the SAME SegmentedControl the Models
+			    page uses for its Local/Cloud tabs (identical tokens:
+			    rounded-xl border border-border/10 bg-(--bg-subtle) container
+			    + bg-(--bg) bordered active segment, C-MODELS-1). This is the
+			    single place where the user decides how transcription runs;
+			    the app never downloads a model on its own. */}
+			<SegmentedControl
+				variant="tabs"
+				options={backendOptions}
+				value={selectedBackend}
+				onChange={setSelectedBackend}
+				ariaLabel={t("onboarding.backendAria")}
+				indicatorClassName="bg-(--bg) border border-border/10"
+				labelClassName="flex-1 text-center"
+				className="w-full rounded-xl border border-border/10 bg-(--bg-subtle)"
+				getTabId={(v) => `onboarding-backend-tab-${v}`}
+				getPanelId={(v) => `onboarding-backend-panel-${v}`}
+			/>
 
 			{selectedBackend === "local" ? (
-				<div className="flex flex-col gap-4">
-					{/* Brand strip, lets the user see which families the
-                                            local models come from BEFORE opening the picker.
-                                            Families are derived from the options list so the
-                                            strip stays accurate if the catalog changes. */}
-					{localFamilies.length > 0 && (
-						<div
-							className="flex items-center gap-3"
-							data-testid="onboarding-family-strip"
-						>
-							<span className="text-xs text-(--text-muted)">
-								{t("onboarding.familyStripLabel")}
-							</span>
-							<div className="flex items-center gap-4">
-								{localFamilies.map((family) => (
-									<span key={family} className="flex items-center gap-2">
-										<FamilyLogo family={family} />
-										<span className="text-xs font-medium text-(--text-secondary)">
-											{FAMILY_STRIP_LABELS[family] ?? family}
+				<div
+					role="tabpanel"
+					id="onboarding-backend-panel-local"
+					aria-labelledby="onboarding-backend-tab-local"
+					className="flex flex-col gap-3"
+				>
+					{/* Family accordion — the Models-page structure: one
+					    AccordionItem per provider family (persistent `+`
+					    affordance per C-MODELS-4), each model item shows its
+					    VRAM / language badges and carries its OWN download
+					    button on the right (the standalone blue Download
+					    button + duplicate HF consent checkbox were removed
+					    2026-09-14). Selecting a model = clicking its row. */}
+					<Accordion
+						type="multiple"
+						// The first family (whisper) starts expanded, matching the
+						// Models page's expand-the-active-family default.
+						defaultValue={families[0] ? [families[0].id] : []}
+						className="rounded-lg border border-border/10 bg-(--bg-subtle)"
+						data-testid="onboarding-model-accordion"
+					>
+						{families.map((family) => (
+							<AccordionItem key={family.id} value={family.id}>
+								<AccordionTrigger className="px-4 hover:no-underline">
+									<span className="flex items-center gap-2">
+										<FamilyLogo family={family.id} />
+										<span className="text-sm font-medium text-(--text-primary)">
+											{FAMILY_LABELS[family.id] ?? family.id}
 										</span>
 									</span>
-								))}
-							</div>
-						</div>
+								</AccordionTrigger>
+								<AccordionContent className="px-4 pb-2">
+									<div className="flex flex-col divide-y divide-border/5">
+										{family.models.map((m) => {
+											const langKey = languageBadgeKey(m.languages);
+											const isSelected = selectedModel === m.name;
+											const isDownloadingThis = downloadingModel === m.name;
+											return (
+												<div
+													key={m.name}
+													className="flex flex-wrap items-center justify-between gap-2 py-2.5"
+													data-testid={`onboarding-model-item-${m.name}`}
+												>
+													{/* Row-select button (toggle pattern): the
+													    name + badges are one selectable unit;
+													    the Download button is a SIBLING, never
+													    nested (invalid DOM inside a button).
+													    aria-pressed conveys the selection state
+													    (a native <input type=radio> cannot carry
+													    the badge layout inside the row). */}
+													<button
+														type="button"
+														aria-pressed={isSelected}
+														onClick={() => setSelectedModel(m.name)}
+														className="flex min-w-0 flex-1 flex-col items-start gap-1 rounded-md p-1 text-start outline-none focus-visible:ring-3 focus-visible:ring-ring"
+														aria-label={t("onboarding.modelSelectAria", {
+															name: m.name,
+														})}
+														data-testid={`onboarding-model-select-${m.name}`}
+													>
+														<span
+															className={`text-sm font-medium ${isSelected ? "text-accent" : "text-(--text-primary)"}`}
+														>
+															{m.name}
+															{isSelected ? " ✓" : ""}
+														</span>
+														<span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-(--text-muted)">
+															<span>
+																{m.description ?? ""}
+																{m.description && m.size ? ", " : ""}
+																{m.size ?? ""}
+																{(() => {
+																	const speedLabel = formatModelSpeed(m.speed);
+																	return speedLabel ? ` (${speedLabel})` : "";
+																})()}
+															</span>
+															{m.vram_gb != null && (
+																<ModelBadge>
+																	{t("onboarding.vramBadge", {
+																		vram: formatVram(m.vram_gb * 1024),
+																	})}
+																</ModelBadge>
+															)}
+															{langKey != null && (
+																<ModelBadge>{t(langKey)}</ModelBadge>
+															)}
+														</span>
+													</button>
+													<Button
+														type="button"
+														variant="outline"
+														size="sm"
+														// Same fixed-width, left-aligned, compact-icon
+														// tokens as the Models page download buttons
+														// (C-MODELS-2), imported (no duplication).
+														className={`gap-2 text-xs whitespace-nowrap ${DOWNLOAD_SIZE_BUTTON_WIDTH} ${DOWNLOAD_CONTENT_ALIGNMENT}`}
+														onClick={() => onDownload(m.name)}
+														disabled={isDownloading}
+														aria-busy={isDownloadingThis}
+														aria-label={t("onboarding.modelSizeDownloadAria", {
+															name: m.name,
+														})}
+														data-testid={`onboarding-download-button-${m.name}`}
+													>
+														{isDownloadingThis ? (
+															<>
+																<span
+																	className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent"
+																	role="presentation"
+																/>
+																{progressPct}%
+															</>
+														) : (
+															t("onboarding.downloadModel")
+														)}
+													</Button>
+												</div>
+											);
+										})}
+									</div>
+								</AccordionContent>
+							</AccordionItem>
+						))}
+					</Accordion>
+
+					{/* Inline download-failure hint. The per-item button is
+					    the retry affordance (click Download again); the old
+					    standalone blue Download button + its adjacent hint
+					    text are gone (downloads are per item now). */}
+					{downloadFailed && !isDownloading && (
+						<p
+							className="text-xs text-destructive"
+							data-testid="onboarding-download-error"
+						>
+							{t("onboarding.downloadFailedHint")}
+						</p>
 					)}
 
-					<Select value={selectedModel} onValueChange={setSelectedModel}>
-						<SelectTrigger
-							className="w-full"
-							aria-label={t("onboarding.modelSelectAria", {
-								name: selectedModel,
-							})}
-						>
-							<SelectValue
-								placeholder={t("onboarding.modelSelectAria", {
-									name: selectedModel,
-								})}
-							/>
-						</SelectTrigger>
-						<SelectContent>
-							{modelOptions.map((m) => {
-								const langKey = languageBadgeKey(m.languages);
-								return (
-									<SelectItem
-										key={m.name}
-										value={m.name}
-										textValue={`${m.description}, ${m.size} (${formatModelSpeed(m.speed)})`}
-									>
-										<span className="flex flex-wrap items-center gap-2">
-											<span>
-												{m.description}, {m.size} ({formatModelSpeed(m.speed)})
-											</span>
-											{/*per-option badge row showing VRAM
-                                                                                        requirement and language coverage. Both
-                                                                                        badges are optional, older backends don't
-                                                                                        return these fields. */}
-											{m.vram_gb != null && (
-												<span className="rounded-full bg-bg-subtle px-1.5 py-0.5 text-[0.625rem] font-medium uppercase tracking-wide text-(--text-muted)">
-													{t("onboarding.vramBadge", {
-														vram: formatVram(m.vram_gb * 1024),
-													})}
-												</span>
-											)}
-											{langKey != null && (
-												<span className="rounded-full bg-bg-subtle px-1.5 py-0.5 text-[0.625rem] font-medium uppercase tracking-wide text-(--text-muted)">
-													{t(langKey)}
-												</span>
-											)}
-										</span>
-									</SelectItem>
-								);
-							})}
-						</SelectContent>
-					</Select>
-
-					{/* HuggingFace consent, gates the EXPLICIT download. */}
-					<div className="rounded-lg border border-border/5 bg-(--bg-subtle) p-4">
-						<label
-							className="flex items-start gap-3 text-sm"
-							htmlFor="onboarding-hf-consent"
-						>
-							<Checkbox
-								id="onboarding-hf-consent"
-								className="mt-0.5 cursor-pointer"
-								checked={hfConsent}
-								onCheckedChange={(v) => setHfConsent(v === true)}
-								aria-label={t("onboarding.consentHuggingFace")}
-								data-testid="onboarding-hf-consent"
-							/>
-							<span className="flex flex-1 flex-col gap-1">
-								<span className="font-medium text-(--text-primary)">
-									{t("onboarding.consentHuggingFace")}
-								</span>
-								<span className="text-xs text-(--text-muted)">
-									{t("onboarding.consentHuggingFaceInfo")}
-								</span>
-							</span>
-						</label>
-					</div>
-
-					{/* Explicit download area, the ONLY way a model is
-                                            downloaded from this wizard. */}
-					{isDownloading ? (
+					{/* In-wizard download progress (kept from the previous
+					    flow, driven by download_progress push events). */}
+					{isDownloading && (
 						<div
 							role="progressbar"
 							aria-valuenow={progressPct}
@@ -327,46 +351,17 @@ export function ModelStep({
 								/>
 							</div>
 						</div>
-					) : downloadFailed ? (
-						<div
-							className="flex flex-col gap-2 rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-sm text-(--text-secondary)"
-							data-testid="onboarding-download-error"
-						>
-							<p className="text-(--text-secondary)">
-								{t("onboarding.downloadFailedHint")}
-							</p>
-							<Button
-								type="button"
-								variant="secondary"
-								size="sm"
-								onClick={() => void onDownload()}
-								aria-label={t("onboarding.downloadModelAria")}
-							>
-								{t("onboarding.downloadRetry")}
-							</Button>
-						</div>
-					) : (
-						<div className="flex items-center gap-3">
-							<Button
-								type="button"
-								variant="default"
-								onClick={() => void onDownload()}
-								disabled={!hfConsent}
-								aria-label={t("onboarding.downloadModelAria")}
-								data-testid="onboarding-download-button"
-							>
-								{t("onboarding.downloadModel")}
-							</Button>
-							<span className="text-xs text-(--text-muted)">
-								{t("onboarding.modelDownloadingHint")}
-							</span>
-						</div>
 					)}
 				</div>
 			) : (
-				<div className="flex flex-col gap-4">
+				<div
+					role="tabpanel"
+					id="onboarding-backend-panel-cloud"
+					aria-labelledby="onboarding-backend-tab-cloud"
+					className="flex flex-col gap-4"
+				>
 					{/* Cloud provider selection, mirrors the Models page
-                                            cloud tab (same config fields). */}
+					    cloud tab (same config fields). */}
 					<div className="flex flex-col gap-1">
 						<label
 							htmlFor="onboarding-cloud-provider"
@@ -374,22 +369,20 @@ export function ModelStep({
 						>
 							{t("onboarding.cloudProviderLabel")}
 						</label>
-						<Select value={cloudProvider} onValueChange={setCloudProvider}>
-							<SelectTrigger
-								id="onboarding-cloud-provider"
-								className="w-full"
-								aria-label={t("onboarding.cloudProviderLabel")}
-							>
-								<SelectValue placeholder={providerLabel(cloudProvider)} />
-							</SelectTrigger>
-							<SelectContent>
-								{CLOUD_PROVIDERS.map((p) => (
-									<SelectItem key={p} value={p} textValue={providerLabel(p)}>
-										{providerLabel(p)}
-									</SelectItem>
-								))}
-							</SelectContent>
-						</Select>
+						<select
+							id="onboarding-cloud-provider"
+							value={cloudProvider}
+							onChange={(e) => setCloudProvider(e.target.value)}
+							aria-label={t("onboarding.cloudProviderLabel")}
+							className="w-full rounded-md border border-border/5 bg-(--bg) px-3 py-2 text-sm text-(--text-primary)"
+							data-testid="onboarding-cloud-provider"
+						>
+							{CLOUD_PROVIDERS.map((p) => (
+								<option key={p} value={p}>
+									{providerLabel(p)}
+								</option>
+							))}
+						</select>
 					</div>
 
 					<div className="flex flex-col gap-1">
@@ -411,30 +404,29 @@ export function ModelStep({
 						/>
 					</div>
 
-					<div className="rounded-lg border border-border/5 bg-(--bg-subtle) p-4">
+					<div className="flex items-start gap-3">
+						<Checkbox
+							id="onboarding-cloud-consent"
+							className="mt-0.5 cursor-pointer"
+							checked={cloudConsent}
+							onCheckedChange={(v) => setCloudConsent(v === true)}
+							aria-label={t("models.cloud.consentAria", {
+								provider: providerLabel(cloudProvider),
+							})}
+							data-testid="onboarding-cloud-consent"
+						/>
 						<label
-							className="flex items-start gap-3 text-sm"
 							htmlFor="onboarding-cloud-consent"
+							className="flex min-w-0 flex-1 flex-col gap-1 text-sm"
 						>
-							<Checkbox
-								id="onboarding-cloud-consent"
-								className="mt-0.5 cursor-pointer"
-								checked={cloudConsent}
-								onCheckedChange={(v) => setCloudConsent(v === true)}
-								aria-label={t("models.cloud.consentAria", {
-									provider: providerLabel(cloudProvider),
-								})}
-								data-testid="onboarding-cloud-consent"
-							/>
-							<span className="flex flex-1 flex-col gap-1">
-								<span className="font-medium text-(--text-primary)">
-									{t("models.cloud.consentTitle")}
-								</span>
-								<span className="text-xs text-(--text-muted)">
-									{t("models.cloud.consentDescription", {
+							<span className="font-medium text-(--text-primary)">
+								{t("models.cloud.consentTitle")}
+								<InfoTooltip
+									text={t("models.cloud.consentDescription", {
 										provider: providerLabel(cloudProvider),
 									})}
-								</span>
+									contextLabel={t("models.cloud.consentTitle")}
+								/>
 							</span>
 						</label>
 					</div>

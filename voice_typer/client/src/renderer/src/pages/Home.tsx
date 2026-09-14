@@ -62,7 +62,6 @@ import { useAppStore } from "@/stores/appStore";
 import type { VoiceTyperConfig } from "@/types/config";
 import type { HistoryRecord, TodayStats } from "@/types/ipc";
 import { MicToggleButton } from "./home/components/MicToggleButton";
-import { RecordingLevelBar } from "./home/components/RecordingLevelBar";
 import { RecordingStatusPill } from "./home/components/RecordingStatusPill";
 import { RecordingTimer } from "./home/components/RecordingTimer";
 import { useDictationToggle } from "./home/hooks/useDictationToggle";
@@ -464,14 +463,16 @@ export default function Home() {
 	// screen readers announce the same explanation on focus.
 	//
 	// - `transcribing` → "Transcribing… please wait"
-	// - `loading` + no download percentage yet → "Downloading model…"
-	//   (once `downloadPct` arrives, the progressbar below takes over
-	//   and the inline hint is suppressed to avoid duplication).
+	// - `loading` + download percentage arriving → the progressbar
+	//   below takes over (inline hint suppressed to avoid duplication).
+	// - `loading` + no download percentage → "Loading model…": the
+	//   model is loading from disk, NOT downloading (a download always
+	//   pushes `download_progress`, which would have set `downloadPct`).
 	let inlineStatus: string | null = null;
 	if (recordingState === "transcribing") {
 		inlineStatus = t("home.transcribingHint");
 	} else if (recordingState === "loading" && downloadPct === null) {
-		inlineStatus = t("home.downloadingModel");
+		inlineStatus = t("home.loadingModel");
 	}
 	const micDisabled =
 		toggling ||
@@ -488,7 +489,7 @@ export default function Home() {
 	//   1. No model selected (the backend's `NO_MODEL_SIZE` sentinel,
 	//      `model_size === ""`) → red "No model selected…" error.
 	//   2. Recording error with a message → red error text.
-	//   3. Transcribing / downloading model → the inline status hint.
+	//   3. Transcribing / loading model → the inline status hint.
 	//   4. Offline engine still preparing (pack not ready AND the user
 	//      attempted dictation) → "Preparing offline engine…".
 	//   5. Otherwise → "Press <hotkey> or click to dictate".
@@ -569,7 +570,6 @@ export default function Home() {
 					isRecording={isRecording}
 				/>
 				<RecordingTimer isRecording={isRecording} />
-				{isRecording && <RecordingLevelBar />}
 			</div>
 
 			<MicToggleButton

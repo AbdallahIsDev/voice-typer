@@ -604,7 +604,12 @@ RW2_BACKFILLED_PENDING_TRANSLATION: set[str] = {
     "hotkeyPicker.secondsRemainingSuffix",
     "models.speed.variable",
     "nav.group.system",
-    "onboarding.modelOption",
+    # onboarding.modelOption / downloadRetry / summaryBackend /
+    # downloadEta / downloadModel REMOVED from this set: the first four
+    # keys were deleted with the 2026-09-14 onboarding overhaul
+    # (Done-step summary + old download flow), and downloadModel was
+    # properly translated in every non-English locale in the same
+    # pass. TestBackfillSetIsMinimal requires the set stay minimal.
     # 12 onboarding keys added by the Model-step rework (explicit
     # local-vs-cloud backend choice + in-wizard Download button + cloud
     # API panel). Backfilled with English values via
@@ -618,16 +623,6 @@ RW2_BACKFILLED_PENDING_TRANSLATION: set[str] = {
     # stay minimal.
     "onboarding.backendCloudLabel",
     "onboarding.cloudProviderLabel",
-    "onboarding.downloadModel",
-    "onboarding.downloadRetry",
-    "onboarding.summaryBackend",
-    # 123 keys backfilled with English-fallback values across all
-    # 7 non-English locales (dd139ae8 merged renderer changes that added
-    # ~213 keys to en.json; the locale files were only partially updated,
-    # breaking the key-parity + placeholder gates). Backfilled via
-    # scripts/add_i18n_keys.py --all. Remove each key from this set once
-    # it is properly translated in EVERY non-English locale.
-    "onboarding.downloadEta",
 }
 
 

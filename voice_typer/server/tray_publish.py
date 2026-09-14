@@ -59,12 +59,12 @@ _APP_STATE_TO_ICON_NAME: dict[AppState, str] = {
 
 
 def compute_tooltip(tray: TrayIcon, state: AppState, message: str) -> str:
-    """Compute the tray tooltip: ``<APP_NAME>, <msg|state> [(CPU fallback)]
+    """Compute the tray tooltip: ``<APP_NAME> | <msg|state> [(CPU fallback)]
     [(mm:ss)] [<model>] (<hotkey>)``. Shared by _apply_state +
     _publish_tray_state so pystray + Tauri stay in sync."""
     title = APP_NAME
     if message:
-        title += f": {message}"
+        title += f" | {message}"
     elif state != AppState.IDLE:
         # Localized AppState label (``state.recording`` etc.) so the
         # fallback suffix follows the renderer locale like the
@@ -73,7 +73,7 @@ def compute_tooltip(tray: TrayIcon, state: AppState, message: str) -> str:
         # (``trayLabelsForLocale`` maps them to ``trayState.*``).
         # English output is byte-identical (en registry value == the
         # raw enum value).
-        title += f": {_i18n_t('state.' + state.value)}"
+        title += f" | {_i18n_t('state.' + state.value)}"
     if tray._cpu_fallback_active:
         title += " (CPU fallback)"
     if state == AppState.RECORDING and tray._recording_started_at is not None:

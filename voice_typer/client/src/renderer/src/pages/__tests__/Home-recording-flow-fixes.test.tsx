@@ -597,7 +597,7 @@ describe("QV-25: owned files contain no task-ID / session-prefix comments", () =
 	);
 });
 
-// ── inline transcribing / downloading-model status hint ──
+// ── inline transcribing / loading-model status hint ──
 //
 // The mic button is disabled during `transcribing` and `loading`. Without
 // an inline textual hint the user has no visible explanation for why the
@@ -635,16 +635,19 @@ describe("Home renders an inline status hint while transcribing or loading", () 
 		expect(hint.getAttribute("aria-live")).toBe("polite");
 	});
 
-	it("renders t('home.downloadingModel') when recordingState is 'loading' and no downloadPct has arrived yet", async () => {
+	it("renders t('home.loadingModel') when recordingState is 'loading' and no downloadPct has arrived yet", async () => {
 		const { useAppStore } = await import("@/stores/appStore");
 		useAppStore.setState({ recordingState: "loading" });
 
 		await renderHome();
 
-		// en.json value for home.downloadingModel. The inline hint
-		// is suppressed once `downloadPct` arrives (the progressbar
-		// takes over), verified in a separate test below.
-		const hint = screen.getByText("Downloading model…");
+		// en.json value for home.loadingModel: a loading state with no
+		// download_progress stream means the model is loading from disk,
+		// NOT downloading (a real download always pushes progress, which
+		// sets downloadPct and swaps in the progressbar instead — the
+		// inline hint is suppressed then, verified in a separate test
+		// below).
+		const hint = screen.getByText("Loading model…");
 		expect(hint).toBeTruthy();
 		expect(hint.getAttribute("aria-live")).toBe("polite");
 	});

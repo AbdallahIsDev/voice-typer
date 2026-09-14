@@ -28,15 +28,23 @@ import {
 } from "@/__tests__/helpers/renderLoopGuard";
 
 const commands: GuardCommand[] = [
-	// Wizard starts on the Welcome step, no permission probe.
+	// Wizard starts on the Welcome step (4-step essentials flow,
+	// 2026-09-14), no permission probe.
 	{
 		name: "onboarding_start",
-		response: { step: 0, total_steps: 6, step_name: "Welcome" },
+		response: { step: 0, total_steps: 4, step_name: "Welcome" },
 	},
 	{ name: "get_config", response: makeConfig({}) },
-	{ name: "onboarding_get_microphones", response: { microphones: [] } },
+	// The Microphone step was removed (2026-09-14): the wizard must
+	// NOT probe microphones anymore (expected 0 pins the removal).
+	{
+		name: "onboarding_get_microphones",
+		response: { microphones: [] },
+		expected: 0,
+	},
 	{ name: "onboarding_get_hotkey_presets", response: { presets: ["F2"] } },
 	{ name: "onboarding_get_model_options", response: { models: [] } },
+	{ name: "get_model_catalog", response: { models: [] } },
 ];
 
 renderLoopGuard({

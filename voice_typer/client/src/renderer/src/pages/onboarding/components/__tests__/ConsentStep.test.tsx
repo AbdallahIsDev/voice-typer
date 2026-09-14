@@ -37,6 +37,8 @@ vi.mock("@/components/ui/switch", () => ({
 	),
 }));
 
+import { TooltipProvider } from "@/components/ui/tooltip";
+
 import ConsentStep from "../ConsentStep";
 
 // The six fields surfaced on the step (mirrors CONSENT_STEP_FIELDS in
@@ -64,13 +66,18 @@ function renderStep(
 		onAgreeToAll: vi.fn(),
 		...overrides,
 	};
+	// TooltipProvider: the rows' InfoTooltip triggers are Radix
+	// Tooltips; the real App shell wraps every page in one (App.tsx),
+	// so direct component mounts must too.
 	render(
-		<ConsentStep
-			headingRef={props.headingRef}
-			consents={props.consents}
-			onToggleConsent={props.onToggleConsent}
-			onAgreeToAll={props.onAgreeToAll}
-		/>,
+		<TooltipProvider delayDuration={200}>
+			<ConsentStep
+				headingRef={props.headingRef}
+				consents={props.consents}
+				onToggleConsent={props.onToggleConsent}
+				onAgreeToAll={props.onAgreeToAll}
+			/>
+		</TooltipProvider>,
 	);
 	return props;
 }
