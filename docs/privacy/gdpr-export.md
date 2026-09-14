@@ -38,7 +38,7 @@ Support/voice-typer` on macOS).
 | User config + consent flags | `config.json` | JSON | Includes `onboarding_completed`, `auto_punctuation`, `recording_mode`, hotkey prefs, theme, language. **Redact** `llm_api_key` / cloud-engine credentials. Included in export. |
 | User corrections | `voice-typer-corrections.json` | JSON | Custom misspelling/phrase corrections (`text_cleanup.py`). Included in export. |
 | Vocabulary / templates | `vocabulary.json`, `templates.json` | JSON | User-added entries. Included in export. |
-| Microphone-test recordings | `<config_dir>/mic-test-*.wav` | WAV | Only if the user ran the mic-test page and the files still exist. Included in export. |
+| Microphone-test recordings | `<config_dir>/mic-test-recordings/*.wav` | WAV | Only if the user ran the mic-test page and the files still exist. Included in export. |
 | Logs (Python main) | `voice-typer.log` | text | Already PIIRedactionFilter-redacted; include as-is. Included in export. |
 | Logs (Python main, rotated) | `voice-typer.log.1`..`voice-typer.log.5` | text | PI-4: rotated backups matched by `voice-typer.log.*` glob. Included in export. |
 | Crash dumps (Windows VEH) | `<config_dir>/crash_diagnostics.*.txt` | text | PI-5: written by `crash_handler.py:722` as `crash_diagnostics.<PID>.txt`. The old `crash-*.dmp` glob was fictional. Included in export. |

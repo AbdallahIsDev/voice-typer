@@ -45,7 +45,7 @@ def test_event_bus_count_matches_doc_and_code():
     assert "49-event bus" in doc, "ARCHITECTURE.md must describe the bus as '49-event bus' ."
     assert "24-event bus" not in doc, "Stale '24-event bus' must not appear in ARCHITECTURE.md ."
     # And the IPC-contract section's frozen-surface count must also say 40.
-    assert "69 commands / 49 events" in doc, "IPC contract section must say '69 commands / 49 events'."
+    assert "75 commands / 49 events" in doc, "IPC contract section must say '75 commands / 49 events'."
 
     from voice_typer.server.event_bus import EVENT_TYPES
 
