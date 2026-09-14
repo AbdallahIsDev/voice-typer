@@ -93,8 +93,11 @@ export function isPidVoiceTyper(pid: number): boolean {
 		} else if (process.platform === "darwin") {
 			cmdline = execSync(`ps -p ${pid} -o comm=`, { encoding: "utf-8" });
 		} else if (process.platform === "win32") {
+			// Hidden spawn: without windowsHide the tasklist probe flashes
+			// a conhost window during the startup stale-lock check.
 			cmdline = execSync(`tasklist /FI "PID eq ${pid}" /FO CSV /NH`, {
 				encoding: "utf-8",
+				windowsHide: true,
 			});
 		} else {
 			return true;

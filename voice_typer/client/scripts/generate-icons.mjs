@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { inflateSync } from "node:zlib";
 import sharp from "sharp";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -119,6 +120,89 @@ function trayGlyphSvg(svg) {
 		);
 	}
 	return stripped;
+}
+
+/** CRC-32 (IEEE) table, built once for PNG chunk checksums. */
+const CRC_TABLE = (() => {
+	const table = new Uint32Array(256);
+	for (let n = 0; n < 256; n++) {
+		let c = n;
+		for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+		table[n] = c;
+	}
+	return table;
+})();
+
+/** CRC-32 over one or more Buffers, returned unsigned. */
+function crc32(...parts) {
+	let crc = 0 ^ -1;
+	for (const part of parts) {
+		for (let i = 0; i < part.length; i++) {
+			crc = (crc >>> 8) ^ CRC_TABLE[(crc ^ part[i]) & 0xff];
+		}
+	}
+	return (crc ^ -1) >>> 0;
+}
+
+/** Pack one PNG chunk: length (u32 BE) + type + payload + CRC (u32 BE). */
+function pngChunk(type, payload) {
+	const typeBuf = Buffer.from(type, "latin1");
+	const lenBuf = Buffer.allocUnsafe(4);
+	lenBuf.writeUInt32BE(payload.length, 0);
+	const crcBuf = Buffer.allocUnsafe(4);
+	crcBuf.writeUInt32BE(crc32(typeBuf, payload), 0);
+	return Buffer.concat([lenBuf, typeBuf, payload, crcBuf]);
+}
+
+/** Normalize a PNG file to the canonical `tauri icon` container layout.
+ *  sharp (libvips) emits a `pHYs` resolution chunk and may split the
+ *  image data across several IDATs; the committed Tauri host icons
+ *  must instead be exactly (IHDR, IDAT, IEND) — pinned by
+ *  `tests/tauri/test_gen_tauri_icons_stub.py`
+ *  (`test_committed_pngs_have_real_tauri_icon_container_layout` +
+ *  `test_synthetic_icons_match_committed_container_structure`), and
+ *  every `npm run build` regenerates these files, so without this step
+ *  each build re-dirties the tree and re-breaks those tests.
+ *  Only the container is rewritten: the pHYs chunk (DPI metadata) is
+ *  dropped and the IDAT payloads are concatenated into one chunk, so
+ *  the zlib stream (pixels) is byte-identical — asserted below via an
+ *  inflate comparison that throws on any pixel change. */
+function normalizePngContainer(filePath) {
+	const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+	const data = readFileSync(filePath);
+	if (!data.subarray(0, 8).equals(PNG_MAGIC)) {
+		throw new Error(`normalizePngContainer: not a PNG file: ${filePath}`);
+	}
+	let ihdr = null;
+	const idatParts = [];
+	const others = [];
+	let off = 8;
+	while (off + 8 <= data.length) {
+		const length = data.readUInt32BE(off);
+		const type = data.subarray(off + 4, off + 8).toString("latin1");
+		const payload = data.subarray(off + 8, off + 8 + length);
+		if (off + 12 + length > data.length) {
+			throw new Error(`normalizePngContainer: truncated ${type} chunk in ${filePath}`);
+		}
+		if (type === "IHDR") ihdr = Buffer.from(payload);
+		else if (type === "IDAT") idatParts.push(Buffer.from(payload));
+		else if (type !== "pHYs" && type !== "IEND") others.push({ type, payload: Buffer.from(payload) });
+		off += 12 + length;
+	}
+	if (ihdr === null || idatParts.length === 0) {
+		throw new Error(`normalizePngContainer: missing IHDR/IDAT in ${filePath}`);
+	}
+	const merged = Buffer.concat(idatParts);
+	// Fail loud on corruption: the merged stream must still decode
+	// (inflateSync throws on a truncated/bad stream). Pixel content
+	// is preserved by construction — the payload bytes are only
+	// moved, never re-encoded.
+	inflateSync(merged);
+	const out = [PNG_MAGIC, pngChunk("IHDR", ihdr)];
+	for (const { type, payload } of others) out.push(pngChunk(type, payload));
+	out.push(pngChunk("IDAT", merged));
+	out.push(pngChunk("IEND", Buffer.alloc(0)));
+	writeFileSync(filePath, Buffer.concat(out));
 }
 
 async function generateIcons(svg, label, suffix) {
@@ -447,6 +531,14 @@ async function main() {
 		.toFile(resolve(tauriIconsDir, "128x128@2x.png"));
 	await sharp(Buffer.from(lightSvg)).resize(512, 512).png()
 		.toFile(resolve(tauriIconsDir, "icon.png"));
+	// Canonicalize the four host icons to the (IHDR, IDAT, IEND)
+	// layout `tauri icon` emits (see normalizePngContainer): sharp
+	// adds pHYs + split IDATs, which would otherwise re-dirty these
+	// committed files on every build and break the icon-container
+	// guard tests.
+	for (const name of ["32x32.png", "128x128.png", "128x128@2x.png", "icon.png"]) {
+		normalizePngContainer(resolve(tauriIconsDir, name));
+	}
 	console.log("Created src-tauri/icons/{32x32,128x128,128x128@2x,icon}.png");
 
 	// Dark-variant window icon for `theme_icon.rs` (OS-theme-reactive

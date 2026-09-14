@@ -160,3 +160,31 @@ describe("redactPii: known PythonCallErrorCode values survive the catch-all", ()
 		expect(redactPii("code backend_not_connectedX end")).toContain("***");
 	});
 });
+
+describe("redactPii: known ALLOWED_COMMANDS names survive the catch-all", () => {
+	it("preserves a long command name inside a python-call failed line", () => {
+		const input = `python-call failed {"cmd":"microphone_test_get_level","code":"command_failed","error":"Disallowed IPC command: microphone_test_get_level"}`;
+		const out = redactPii(input);
+		expect(out).toContain("microphone_test_get_level");
+		expect(out).not.toContain("***");
+	});
+
+	it("preserves a short command name (no catch-all match regardless)", () => {
+		const input = `python-call rejected {"cmd":"get_config","code":"backend_not_connected"}`;
+		const out = redactPii(input);
+		expect(out).toContain("get_config");
+		expect(out).not.toContain("***");
+	});
+
+	it("still redacts a real secret next to a preserved command", () => {
+		const pat = `ghp_${"a".repeat(36)}`;
+		const out = redactPii(`call microphone_test_get_level token ${pat} end`);
+		expect(out).toContain("microphone_test_get_level");
+		expect(out).not.toContain(pat);
+		expect(out).toContain("***");
+	});
+
+	it("still redacts a command with an extra char (exact-match, not pattern)", () => {
+		expect(redactPii("call microphone_test_get_levelX end")).toContain("***");
+	});
+});

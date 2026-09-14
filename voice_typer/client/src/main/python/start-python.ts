@@ -142,6 +142,11 @@ export function startPython() {
 	// IPC happens via TCP instead of pipe parsing.
 	const proc = spawn(exe, args, {
 		stdio: "inherit",
+		// Hidden spawn on Windows: without windowsHide a console-subsystem
+		// backend binary flashes a conhost window at every app start
+		// (including logon autostart). No effect on POSIX or on
+		// GUI-subsystem binaries (pythonw.exe).
+		windowsHide: true,
 		env: {
 			...process.env,
 			// KMP_DUPLICATE_LIB_OK avoids libiomp5 deadlock when process

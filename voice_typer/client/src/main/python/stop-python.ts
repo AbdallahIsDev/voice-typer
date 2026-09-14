@@ -147,7 +147,9 @@ function _treeKillWindows(pid: number, force: boolean): void {
 		args.unshift("/F");
 	}
 	try {
-		spawnSync("taskkill", args, { stdio: "ignore" });
+		// Hidden spawn: without windowsHide the taskkill tree-kill flashes
+		// a conhost window on the shutdown path.
+		spawnSync("taskkill", args, { stdio: "ignore", windowsHide: true });
 	} catch (e) {
 		/* best-effort, taskkill missing, PID already gone, or
 		 * spawnSync threw. The caller proceeds regardless; the

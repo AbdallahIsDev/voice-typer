@@ -11,6 +11,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { PYTHON_CALL_ERROR_CODES } from "../../shared/python-call-error-code";
+import { ALLOWED_COMMANDS } from "../allowed-commands";
 import { computeConfigDir } from "../config-dir";
 import { ANSI_ENABLED_FLAG, DIM, RESET } from "./colors";
 import {
@@ -247,6 +248,20 @@ const _URL_USERINFO = /([a-zA-Z][a-zA-Z0-9+.-]*:\/\/)[^\s:@/]+:[^\s@/]+@/g;
 const _CODE_SHIELDS: ReadonlyArray<readonly [string, string]> =
 	PYTHON_CALL_ERROR_CODES.map((code, i) => [code, `__PYCALLCODE${i}__`]);
 
+// Known renderer→Python IPC command names (the `ALLOWED_COMMANDS`
+// allowlist) shielded from the 20+ char catch-all below, same
+// mechanism as `_CODE_SHIELDS`: without this, long command names
+// (`microphone_test_get_level`, `force_cancel_transcription`, …)
+// render as `"cmd":"***"` in `electron-main.log`, hiding which call
+// failed. Exact whole-token match only — a real secret merely
+// containing a command name still redacts. Command names are public
+// protocol vocabulary (sent over IPC, documented), so exact-match
+// shielding leaks no secret. Placeholders stay short (<20 chars) so
+// no redaction pass matches them.
+const _COMMAND_SHIELDS: ReadonlyArray<readonly [string, string]> = [
+	...ALLOWED_COMMANDS,
+].map((cmd, i) => [cmd, `__PYCALLCMD${i}__`]);
+
 /**
  * PII / API-key / URL-credential redaction (TS port of Python's
  * `voice_typer.server.security.redact_pii`, which delegates the
@@ -285,7 +300,9 @@ const _CODE_SHIELDS: ReadonlyArray<readonly [string, string]> =
  * Known `PythonCallErrorCode` values (`backend_not_connected`, …)
  * survive the 20+ char catch-all via exact-match shielding (restored
  * verbatim after redaction) so `python-call rejected` lines stay
- * diagnosable in `electron-main.log`.
+ * diagnosable in `electron-main.log`. Known renderer→Python IPC
+ * command names (the `ALLOWED_COMMANDS` allowlist) are shielded the
+ * same way so `python-call failed {"cmd":"…"}` lines name the call.
  *
  * The SEC-9 flag / key=value patterns run BEFORE the
  * `_MIN_REDACT_LEN` short-string guard (the explicit keyword makes
@@ -303,11 +320,12 @@ export function redactPii(text: string): string {
 	// (specific enough to be safe on short inputs).
 	out = out.replace(_FLAG_VALUE_PATTERN, "$1***");
 	out = out.replace(_BARE_KEY_VALUE_PATTERN, "$1***");
-	// Shield known error codes before the secret passes so the
-	// catch-all cannot redact them. Codes are `[a-z_]`-only, safe
-	// to interpolate into the boundary regex without escaping.
+	// Shield known error codes AND known IPC command names before
+	// the secret passes so the catch-all cannot redact them. Both
+	// lists are `[a-z0-9_]`-only, safe to interpolate into the
+	// boundary regex without escaping.
 	const shielded: Array<readonly [string, string]> = [];
-	for (const [code, placeholder] of _CODE_SHIELDS) {
+	for (const [code, placeholder] of [..._CODE_SHIELDS, ..._COMMAND_SHIELDS]) {
 		if (out.includes(code)) {
 			const next = out.replace(new RegExp(`\\b${code}\\b`, "g"), placeholder);
 			if (next !== out) {
