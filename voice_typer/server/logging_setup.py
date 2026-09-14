@@ -158,7 +158,7 @@ def _emit_startup_banner() -> None:
     _banner_level = logging.WARNING if quiet else logging.INFO
     log.log(
         _banner_level,
-        "[STARTUP] logging initialized: file=%s, level=%s, json=%s, debug=%s, quiet=%s, session=%s",
+        "[STARTUP] logging initialized: file=%s | level=%s | json=%s | debug=%s | quiet=%s | session=%s",
         _log_file,
         logging.getLevelName(_root_level),
         _json_mode,

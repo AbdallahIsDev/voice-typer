@@ -160,7 +160,7 @@ def transcribe_unlocked(
     )
     duration = len(audio) / _WHISPER_SAMPLE_RATE
     log.info(
-        "[TRANSCRIBE] Input audio: samples=%d, duration=%.1fs, RMS=%.6f, peak=%.6f, silence_pct=%.1f%%",
+        "[TRANSCRIBE] Input audio: samples=%d, duration=%.1fs | RMS=%.6f, peak=%.6f, silence_pct=%.1f%%",
         len(audio),
         duration,
         rms,
@@ -300,8 +300,8 @@ def transcribe_unlocked(
                     )
 
     log.info(
-        "[TRANSCRIBE] VAD result: language=%s (prob=%.2f), "
-        "segments=%d, text_segments=%d, avg_logprob=%s, no_speech_prob=%s",
+        "[TRANSCRIBE] VAD result: language=%s (prob=%.2f) | "
+        "segments=%d, text_segments=%d | avg_logprob=%s, no_speech_prob=%s",
         info.language,
         info.language_probability,
         segment_count,
@@ -337,7 +337,7 @@ def transcribe_unlocked(
             log_transcriptions=log_transcriptions,
         )
         log.info(
-            "[TRANSCRIBE] Hallucination stats: duration=%.1fs, RMS=%.6f, peak=%.6f, silence=%.1f%%",
+            "[TRANSCRIBE] Hallucination stats: duration=%.1fs | RMS=%.6f, peak=%.6f, silence=%.1f%%",
             duration,
             rms,
             peak,

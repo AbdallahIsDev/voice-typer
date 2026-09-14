@@ -756,7 +756,7 @@ class VocabularyManager:
                     if would_be > MAX_CORRECTIONS_ENTRIES:
                         log.warning(
                             "[VOCAB] Category %s would exceed MAX_CORRECTIONS_ENTRIES "
-                            "(existing=%d, new=%d, cap=%d), dropping %d entries from import",
+                            "(existing=%d, new=%d, cap=%d) | dropping %d entries from import",
                             cat,
                             existing_len,
                             new_len,
@@ -794,7 +794,7 @@ class VocabularyManager:
                     if would_be > MAX_CORRECTIONS_ENTRIES:
                         log.warning(
                             "[VOCAB] Category %s would exceed MAX_CORRECTIONS_ENTRIES "
-                            "(existing=%d, new=%d, cap=%d), dropping %d entries from import",
+                            "(existing=%d, new=%d, cap=%d) | dropping %d entries from import",
                             cat,
                             existing_len,
                             new_len,

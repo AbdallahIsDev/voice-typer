@@ -308,10 +308,19 @@ def terminate_electron(pid: int) -> None:
         if is_windows():
             # taskkill /T /F kills the entire process tree.
             try:
+                # Hidden spawn: taskkill.exe is a console-subsystem
+                # binary, without CREATE_NO_WINDOW the shutdown kill
+                # flashes a conhost window. Flag value single-sourced
+                # via the shared server_platform.autostart helper (DRY).
+                from voice_typer.server.server_platform.autostart import (
+                    _windows_create_no_window_flags,
+                )
+
                 subprocess.run(
                     ["taskkill", "/T", "/F", "/PID", str(pid)],
                     capture_output=True,
                     timeout=5,
+                    creationflags=_windows_create_no_window_flags(),
                 )
                 return
             except subprocess.TimeoutExpired:

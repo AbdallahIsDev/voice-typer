@@ -203,7 +203,7 @@ def store_secret(provider: str, value: str, *, _caller_holds_config_lock: bool =
         # embeds the value in its error message.
         redacted_reason = _redact_sensitive(str(e))
         log.warning(
-            "[CREDENTIAL_STORE] keyring store failed for provider=%s (len=%d): %s, "
+            "[CREDENTIAL_STORE] keyring store failed for provider=%s (len=%d): %s | "
             "falling back to plaintext in config.json",
             provider,
             len(value),

@@ -472,10 +472,16 @@ class ThreadRegistry:
         if not entries:
             return
 
+        # Each name is labeled ``thread=<name>`` (not joined bare):
+        # the log redaction filter eats any bare 20+ char token, which
+        # turned long registry names (startup-desktop-shortcut, …)
+        # into ``***``. The ``thread=`` labeled-value shield in
+        # security/redaction.py preserves code-defined thread names
+        # while hash-shaped values still redact (fail closed).
         log.info(
             "[THREAD-REGISTRY] shutdown_all: signaling %d registered threads: %s",
             len(entries),
-            ", ".join(entry.name for entry in entries),
+            ", ".join(f"thread={entry.name}" for entry in entries),
         )
 
         # signal ALL stop_events first (no join).

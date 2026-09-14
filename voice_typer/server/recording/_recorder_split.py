@@ -1626,9 +1626,9 @@ def stop_recording(recorder: Recorder) -> np.ndarray:
     total_ms = (time.perf_counter() - stop_started) * 1000
     if len(audio) > 0:
         log.info(
-            "[RECORDING] Audio stopped: duration=%.1fs, sr=%d, samples=%d, "
+            "[RECORDING] Audio stopped: duration=%.1fs, sr=%d, samples=%d | "
             "RMS=%.6f, peak=%.6f, silence=%.1f%% | "
-            "stream=%.0fms concat=%.0fms resample=%.0fms total=%.0fms",
+            "stream=%.0fms, concat=%.0fms, resample=%.0fms, total=%.0fms",
             duration,
             effective_sr,
             len(audio),

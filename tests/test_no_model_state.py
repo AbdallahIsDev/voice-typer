@@ -237,7 +237,7 @@ class TestNoModelTrayTerminalState:
         # refusal time.
         tray._apply_state(AppState.LOADING, "Starting...")
         assert tray._icon.titles, "LOADING apply must write the icon title"
-        assert tray._icon.titles[-1] == "Voice Typer: Starting... (F9)"
+        assert tray._icon.titles[-1] == "Voice Typer | Starting... (F9)"
 
         class _App:
             def __init__(self, config, tray):

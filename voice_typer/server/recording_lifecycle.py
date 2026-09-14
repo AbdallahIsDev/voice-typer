@@ -269,7 +269,7 @@ class RecordingLifecycle:
         # ``busy`` reading so busy=True actually means transcribing.
         busy = not app._busy_event.is_set()
         log.info(
-            "[HOTKEY FIRED] toggle_dictation called (recording=%s, busy=%s, model_loaded=%s, thread=%s, cycle=%s)",
+            "[HOTKEY FIRED] toggle_dictation called (recording=%s, busy=%s, model_loaded=%s | thread=%s | cycle=%s)",
             app.recorder.recording,
             busy,
             model_loaded,
@@ -995,7 +995,7 @@ class RecordingLifecycle:
         # in-progress worker will complete the stop+transcribe cycle.
         if not app._busy_event.is_set():  # busy = True
             log.debug(
-                "[DICTATION] _stop_dictation: stop already in progress (busy=True), no-op (cycle=%s)",
+                "[DICTATION] _stop_dictation: stop already in progress (busy=True) | no-op (cycle=%s)",
                 app._cycle_id,
             )
             return
@@ -1237,7 +1237,7 @@ class RecordingLifecycle:
             except Exception:
                 log.debug("[AUDIO_QUALITY] finalize failed", exc_info=True)
         log.info(
-            "[DICTATION] Recording stopped%s of audio, recorded_rms=%.4f, busy=True (cycle=%s)",
+            "[DICTATION] Recording stopped%s of audio | recorded_rms=%.4f | busy=True (cycle=%s)",
             format_duration(duration),
             recorded_rms,
             cycle_id,

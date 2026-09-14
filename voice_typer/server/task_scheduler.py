@@ -67,11 +67,26 @@ def _schtasks(args: list[str], *, capture: bool = True) -> tuple[int, str]:
     """
     cmd = ["schtasks"] + args
     try:
+        # Hidden spawn on Windows: schtasks.exe is a console-subsystem
+        # binary, without CREATE_NO_WINDOW every autostart Query/Create
+        # (startup sync at logon + settings toggle) flashes a conhost
+        # window. Flag value single-sourced via the shared
+        # server_platform.autostart helper (DRY); omitted on POSIX
+        # where creationflags is not a valid subprocess.run kwarg.
+        run_kwargs: dict = {
+            "capture_output": capture,
+            "text": True,
+            "timeout": 30,
+        }
+        if is_windows():
+            from voice_typer.server.server_platform.autostart import (
+                _windows_create_no_window_flags,
+            )
+
+            run_kwargs["creationflags"] = _windows_create_no_window_flags()
         result = subprocess.run(
             cmd,
-            capture_output=capture,
-            text=True,
-            timeout=30,
+            **run_kwargs,
         )
         output = (result.stdout or "") + (result.stderr or "")
         return result.returncode, output

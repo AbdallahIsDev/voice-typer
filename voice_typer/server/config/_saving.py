@@ -122,12 +122,23 @@ def _enforce_windows_owner_only_acl(path: "Path | str") -> bool:
             "/grant:r",
             f"{username}:F",
         ]
+        # Hidden spawn on Windows: icacls.exe is a console-subsystem
+        # binary, without CREATE_NO_WINDOW every Config.save() flashes
+        # a conhost window. First save only (later saves hit the
+        # _windows_owner_only_acl_verified fast path above and skip
+        # the subprocess entirely). Flag value single-sourced via the
+        # shared server_platform.autostart helper (DRY).
+        from voice_typer.server.server_platform.autostart import (
+            _windows_create_no_window_flags,
+        )
+
         result = subprocess.run(
             cmd,
             capture_output=True,
             text=True,
             timeout=5,
             check=False,
+            creationflags=_windows_create_no_window_flags(),
         )
         if result.returncode != 0:
             log.warning(

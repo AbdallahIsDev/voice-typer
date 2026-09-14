@@ -338,11 +338,26 @@ def _create_lnk_shortcut(
         # privileges. The ``-Command`` form passes the script as a
         # single process argument, no on-disk artifact exists for an
         # attacker to swap.
+        #
+        # Hidden spawn on Windows: powershell.exe is a console-subsystem
+        # binary, without CREATE_NO_WINDOW shortcut creation (startup
+        # ensure + first logon) flashes a conhost window. Flag value
+        # single-sourced via the shared autostart helper (DRY); omitted
+        # on POSIX where creationflags is not a valid kwarg.
+        run_kwargs: dict = {
+            "check": True,
+            "capture_output": True,
+            "timeout": 30,
+        }
+        if _platform_flags.SYSTEM == "win32":
+            from voice_typer.server.server_platform.autostart import (
+                _windows_create_no_window_flags,
+            )
+
+            run_kwargs["creationflags"] = _windows_create_no_window_flags()
         subprocess.run(
             ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script],
-            check=True,
-            capture_output=True,
-            timeout=30,
+            **run_kwargs,
         )
         log.info("[STARTUP] .lnk created via PowerShell fallback: %s", lnk_path)
         return True
@@ -575,11 +590,23 @@ def _set_lnk_app_user_model_id(lnk_path: Path) -> bool:
         pass
     script = _build_aumid_powershell_script(lnk_path, _APP_USER_MODEL_ID)
     try:
+        # Hidden spawn on Windows: powershell.exe is a console-subsystem
+        # binary, without CREATE_NO_WINDOW the AUMID stamp (startup
+        # shortcut ensure) flashes a conhost window. Shared helper (DRY).
+        aumid_kwargs: dict = {
+            "check": True,
+            "capture_output": True,
+            "timeout": 60,
+        }
+        if _platform_flags.SYSTEM == "win32":
+            from voice_typer.server.server_platform.autostart import (
+                _windows_create_no_window_flags,
+            )
+
+            aumid_kwargs["creationflags"] = _windows_create_no_window_flags()
         subprocess.run(
             ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script],
-            check=True,
-            capture_output=True,
-            timeout=60,
+            **aumid_kwargs,
         )
         log.info(
             "[STARTUP] AppUserModelID %s stamped on %s",

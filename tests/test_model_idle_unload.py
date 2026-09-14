@@ -640,7 +640,7 @@ class TestReloadAfterIdleUnload:
         # load_active must have been called (reload).
         mock_registry.load_active.assert_called_once()
         # Tray must transition through LOADING ("Loading model...")
-        # then back to IDLE ("Ready -- ...").
+        # then back to IDLE ("Ready | ...").
         states = [c.args[0] if c.args else c.kwargs.get("state") for c in app.tray.set_state.call_args_list]
         msgs = [
             (c.args[1] if len(c.args) > 1 else c.kwargs.get("message", "")) for c in app.tray.set_state.call_args_list
@@ -650,7 +650,7 @@ class TestReloadAfterIdleUnload:
             f"TY-11: reload path must show 'Loading model...' message. Got: {msgs}"
         )
         assert any("Ready" in (m or "") for m in msgs), (
-            f"TY-11: reload path must end with 'Ready -- ...' message. Got: {msgs}"
+            f"TY-11: reload path must end with 'Ready | ...' message. Got: {msgs}"
         )
 
     def test_reload_after_idle_unload_rearms_deadline(self):

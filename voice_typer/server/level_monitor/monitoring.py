@@ -639,7 +639,7 @@ def start_monitoring(mic_id: str | None = None) -> dict:
             _ensure_level_worker_running()
 
             log.info(
-                "[LEVEL-MON] Monitoring started: mic=%s, sr=%d",
+                "[LEVEL-MON] Monitoring started: mic=%s | sr=%d",
                 mic_id or "default",
                 native_rate,
             )

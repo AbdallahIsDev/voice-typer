@@ -451,8 +451,8 @@ class TestStartupBanner:  # noqa: N801
     configuration took effect::
 
         log.info(
-            "[STARTUP] logging initialized: file=%s, level=%s, json=%s, "
-            "debug=%s, quiet=%s, session=%s",
+            "[STARTUP] logging initialized: file=%s | level=%s | json=%s | "
+            "debug=%s | quiet=%s | session=%s",
             log_file, root_level, json_mode, debug, quiet, session_id,
         )
 

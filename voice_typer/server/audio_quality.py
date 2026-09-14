@@ -276,7 +276,7 @@ class AudioQualityAnalyzer:
             report.warnings.append("Audio quality OK")
 
         log.info(
-            "[AUDIO_QUALITY] Report: rms=%.6f, peak=%.4f, clips=%d, issues=%s",
+            "[AUDIO_QUALITY] Report: rms=%.6f, peak=%.4f, clips=%d | issues=%s",
             rms,
             peak,
             self._clip_count,

@@ -172,7 +172,7 @@ class TestAllLoadPathsUseSharedRitual:
         for module in (_loading, _change):
             src = inspect.getsource(module)
             assert 'f"Ready' not in src, (
-                f"{module.__name__} still hardcodes an English 'Ready -- ' "
+                f"{module.__name__} still hardcodes an English 'Ready | ' "
                 f"f-string, tray messages must use the localized "
                 f"state.model_manager.ready_* keys"
             )

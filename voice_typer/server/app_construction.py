@@ -272,7 +272,7 @@ class AppConstruction:
         elif not _model_installed:
             _model_desc = f"{_model_desc} (not installed)"
         log.info(
-            "%s starting -- model=%s, hotkey=%s, mic=%s, sample_rate=%s",
+            "%s starting -- model=%s | hotkey=%s | mic=%s | sample_rate=%s",
             APP_NAME,
             _model_desc,
             self.config.hotkey,

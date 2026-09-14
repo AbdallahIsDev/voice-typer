@@ -555,7 +555,7 @@ class TestRecordingStartFailureReason:
 
         app.tray.set_state.assert_called_with(
             AppState.ERROR,
-            "Recording failed -- microphone permission denied. Allow mic access in system settings.",
+            "Recording failed | microphone permission denied. Allow mic access in system settings.",
         )
         # The OS notification must carry the same actionable reason.
         notify_msg = str(app.tray.notify.call_args.args[1])
@@ -577,7 +577,7 @@ class TestRecordingStartFailureReason:
 
         app.tray.set_state.assert_called_with(
             AppState.ERROR,
-            "Recording failed -- no microphone found. Connect a microphone and try again.",
+            "Recording failed | no microphone found. Connect a microphone and try again.",
         )
         # The OS notification must carry the same actionable reason.
         notify_msg = str(app.tray.notify.call_args.args[1])
@@ -621,16 +621,16 @@ class TestRecordingStartFailureReason:
 
         assert (
             _recording_start_failure_message(MicrophonePermissionDeniedError(state="denied"))
-            == "Recording failed -- microphone permission denied. Allow mic access in system settings."
+            == "Recording failed | microphone permission denied. Allow mic access in system settings."
         )
         assert (
             _recording_start_failure_message(RuntimeError("No input device could be opened"))
-            == "Recording failed -- no microphone found. Connect a microphone and try again."
+            == "Recording failed | no microphone found. Connect a microphone and try again."
         )
         # A message that merely CONTAINS the marker maps to no-device.
         assert (
             _recording_start_failure_message(RuntimeError("No input device could be opened (all candidates failed)"))
-            == "Recording failed -- no microphone found. Connect a microphone and try again."
+            == "Recording failed | no microphone found. Connect a microphone and try again."
         )
         # Raw/leaky text must stay generic.
         assert (

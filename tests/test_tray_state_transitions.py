@@ -414,13 +414,13 @@ class TestComputeTooltipTruncation:
         tray._state = AppState.IDLE
 
         # Build a message that produces a tooltip of EXACTLY 127 chars.
-        # The tooltip format is ``<APP_NAME>: <message> [<model>] (<hotkey>)``;
+        # The tooltip format is ``<APP_NAME> | <message> [<model>] (<hotkey>)``;
         # we tune the message length to land at the boundary.
         base = tray._compute_tooltip(AppState.IDLE, "")
         base_len = len(base)
-        # We need the message to add (127 - base_len - 2) chars (the ": "
-        # separator is 2 chars: colon, space).
-        delta = 127 - base_len - 2
+        # We need the message to add (127 - base_len - 3) chars (the " | "
+        # separator is 3 chars: space, pipe, space).
+        delta = 127 - base_len - 3
         if delta < 0:
             # base is already > 127 (e.g. very long model name); skip the
             # boundary test in that case, the long-tooltip test above
@@ -444,7 +444,7 @@ class TestComputeTooltipTruncation:
 
         base = tray._compute_tooltip(AppState.IDLE, "")
         base_len = len(base)
-        delta = 128 - base_len - 2
+        delta = 128 - base_len - 3
         if delta < 0:
             pytest.skip(
                 f"Base tooltip is already {base_len} chars, cannot construct a 128-char boundary case with this config."

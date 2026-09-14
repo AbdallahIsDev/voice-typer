@@ -276,7 +276,7 @@ class _TranscribeStepMixin:
                     if _audio_len > 0 and _audio_captured:
                         log.info(
                             "[STREAMING] Empty streaming result on high-energy audio "
-                            "(rms=%.4f), retrying batch transcription (cycle=%s)",
+                            "(rms=%.4f) | retrying batch transcription (cycle=%s)",
                             self._recorded_rms,
                             self._cycle_id,
                         )
@@ -440,8 +440,8 @@ class _TranscribeStepMixin:
                 else "<unavailable>"
             )
             log.warning(
-                "[TRANSCRIBE] Empty transcription result (cycle=%s, "
-                "duration=%.2fs, recorded_rms=%.4f, audio_stats=[%s], "
+                "[TRANSCRIBE] Empty transcription result (cycle=%s | "
+                "duration=%.2fs, recorded_rms=%.4f, audio_stats=[%s] | "
                 "backend=%s, backend_is_loaded=%s, path=%s), check empty transcription handler guidance",
                 self._cycle_id,
                 self._duration,

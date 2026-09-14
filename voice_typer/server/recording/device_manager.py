@@ -1397,7 +1397,7 @@ class DeviceManager:
                 "native_rate": native_rate,
             }
             log.debug(
-                "[RECORDING] Device query: name=%s, host_api=%s, native_rate=%d, target_rate=%d",
+                "[RECORDING] Device query: name=%s, host_api=%s | native_rate=%d, target_rate=%d",
                 dev_info.get("name", ""),
                 host_api_name,
                 native_rate,

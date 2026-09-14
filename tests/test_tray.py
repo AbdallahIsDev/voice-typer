@@ -1474,9 +1474,9 @@ class TestTrayStateMessagesLocalized:
         the tooltip is never a raw key before the first renderer push."""
         from voice_typer.server import i18n
 
-        assert i18n.t("state.dictation_pipeline.clipboard_unavailable") == ("Done -- clipboard unavailable")
+        assert i18n.t("state.dictation_pipeline.clipboard_unavailable") == ("Done | clipboard unavailable")
         assert i18n.t("state.dictation_pipeline.no_speech_detected") == ("No speech detected")
-        assert i18n.t("state.dictation_pipeline.no_speech_check_mic") == ("No speech -- check microphone")
+        assert i18n.t("state.dictation_pipeline.no_speech_check_mic") == ("No speech | check microphone")
         assert i18n.t("state.dictation_pipeline.transcription_empty") == ("Transcription returned empty")
 
     def test_pushed_state_messages_resolve_via_merge(self):
@@ -1511,7 +1511,7 @@ class TestTrayStateMessagesLocalized:
             # untranslated key falls back to English (the F2 reference
             # was removed 2026-08-16, the default hotkey is Caps Lock,
             # so the message is generic: "your hotkey")
-            assert i18n.t("state.model_manager.loading") == ("Loading model -- press your hotkey to queue...")
+            assert i18n.t("state.model_manager.loading") == ("Loading model | press your hotkey to queue...")
         finally:
             i18n.set_locale("en")
 

@@ -349,7 +349,7 @@ def start_test_recording(
             _state._test_auto_stop_timer.start()
 
             log.info(
-                "[LEVEL-MON] Test recording started: mic=%s, duration=%.1fs",
+                "[LEVEL-MON] Test recording started: mic=%s | duration=%.1fs",
                 _state._monitor_mic_id or "default",
                 _state._test_duration,
             )
@@ -404,7 +404,7 @@ def start_test_recording(
         _state._test_auto_stop_timer.start()
 
         log.info(
-            "[LEVEL-MON] Test recording started: mic=%s, duration=%.1fs",
+            "[LEVEL-MON] Test recording started: mic=%s | duration=%.1fs",
             _state._monitor_mic_id or "default",
             _state._test_duration,
         )

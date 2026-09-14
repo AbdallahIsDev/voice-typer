@@ -84,7 +84,7 @@ def _read_plaintext_fallback(provider: str) -> str | None:
     # ``isinstance(value, str)`` guard.
     if not isinstance(data, dict):
         log.warning(
-            "[CREDENTIAL_STORE] plaintext fallback: config.json root is not a dict (type=%s), skipping provider=%s",
+            "[CREDENTIAL_STORE] plaintext fallback: config.json root is not a dict (type=%s) | skipping provider=%s",
             type(data).__name__,
             provider,
         )

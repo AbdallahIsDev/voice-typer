@@ -86,7 +86,7 @@ class TestRetriesModelLoad:
         )
 
     def test_does_not_show_starting_up_message_on_retry(self):
-        """The misleading 'starting up -- please wait...' message must
+        """The misleading 'starting up' message must
         NOT be shown on the retry path (it implied passive waiting)."""
         ctrl, app = _make_controller_with_mock_app()
         ctrl.toggle()
@@ -95,7 +95,7 @@ class TestRetriesModelLoad:
         # The retry path may fall back to "starting up" if
         # start_background_load itself raises, but in the happy path
         # (MagicMock app), it should NOT appear.
-        assert "Starting up -- please wait..." not in messages, (
+        assert "Starting up | please wait..." not in messages, (
             f"FR-15: 'starting up' message should not appear on the retry happy-path; got messages: {messages}"
         )
 

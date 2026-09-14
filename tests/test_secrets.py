@@ -466,6 +466,27 @@ class TestThreadLabelShield:
         )
         assert redact_secret(line) == line
 
+    def test_dash_case_registry_names_survive_labeled(self):
+        """Long dash-case registry names (the shutdown_all line shape)
+        survive behind the ``thread=`` label; bare they would redact."""
+        names = (
+            "startup-desktop-shortcut",
+            "level-monitor-mic-level-worker",
+            "heartbeat-watchdog",
+            "bubble-level-pusher",
+        )
+        for name in names:
+            assert len(name) >= 18, f"test premise: {name!r} is long"
+        line = "[THREAD-REGISTRY] shutdown_all: signaling 4 registered threads: " + ", ".join(
+            f"thread={name}" for name in names
+        )
+        assert redact_secret(line) == line
+
+    def test_long_registry_name_bare_still_redacted(self):
+        """Fail-closed: the exemption is label-anchored, a bare long
+        thread-like token still redacts."""
+        assert redact_secret("startup-desktop-shortcut") == "***"
+
     def test_thread_hash_shaped_value_still_redacted(self):
         out = redact_secret("thread=" + "e" * 64)
         assert "e" * 20 not in out

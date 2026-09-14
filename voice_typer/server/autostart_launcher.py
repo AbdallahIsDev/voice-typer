@@ -394,7 +394,7 @@ def launch() -> int:
     tauri_mode = _is_tauri_mode()
     tauri_bin = _tauri_binary() if tauri_mode else None
     log.info(
-        "[AUTOSTART] launch decision: tauri_mode=%s, tauri_binary=%s, electron_binary=%s, force_dev=%s",
+        "[AUTOSTART] launch decision: tauri_mode=%s | tauri_binary=%s, electron_binary=%s | force_dev=%s",
         tauri_mode,
         tauri_bin or "(none)",
         _electron_binary() or "(none)",
