@@ -22,7 +22,7 @@ from dataclasses import dataclass, field
 # strings (PEP 563); otherwise the module-level def of ``analyze_chunk``
 # would resolve ``np.ndarray`` via the proxy and trigger the eager import
 # we are trying to avoid.
-from voice_typer.server._audio_constants import AUDIO_CLIPPING_THRESHOLD
+from voice_typer.server._audio_constants import AUDIO_CLIPPING_THRESHOLD, AUDIO_LOW_VOLUME_RMS
 from voice_typer.server._lazy_import import lazy_module
 
 np = lazy_module("numpy")
@@ -72,7 +72,7 @@ class AudioQualityAnalyzer:
 
     # Thresholds (configurable in future)
     CLIPPING_THRESHOLD = AUDIO_CLIPPING_THRESHOLD  # Peak above this = clipping
-    LOW_VOLUME_THRESHOLD = 0.005  # RMS below this = too quiet
+    LOW_VOLUME_THRESHOLD = AUDIO_LOW_VOLUME_RMS  # RMS below this = too quiet
     HIGH_NOISE_THRESHOLD = 0.5  # Noise ratio above this = too noisy
 
     # EMA smoothing factor for the per-chunk RMS accumulator.

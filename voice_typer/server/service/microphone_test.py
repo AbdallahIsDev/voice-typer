@@ -216,6 +216,11 @@ class MicrophoneTestMixin(ServiceMixinBase):
                         result["transcription_reason"] = "no_engine_loaded"
             except Exception as transcribe_err:
                 log.debug("[SERVICE] Test transcription setup failed: %s", transcribe_err)
+                # An exception here means the recording is non-transcribable
+                # (unreadable WAV, decode failure): say so explicitly so the
+                # UI renders N/A instead of silently omitting the line.
+                result.setdefault("transcription_unavailable", True)
+                result["transcription_reason"] = "transcription_failed"
 
         return result
 

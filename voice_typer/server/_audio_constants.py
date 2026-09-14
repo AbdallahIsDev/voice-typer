@@ -104,6 +104,21 @@ def scaled_audio_blocksize(native_rate: int) -> int:
 # means the same peak level on every audio path.
 AUDIO_CLIPPING_THRESHOLD: float = 0.99
 
+# Volume-level agreement between the dictation path and the mic-test path.
+# The same RMS amplitude must not be "low volume" on one path and "good"
+# on another, so both paths share these two boundaries:
+#
+# - ``AUDIO_LOW_VOLUME_RMS`` (0.005): below this the input is too quiet.
+#   Dictation: ``AudioQualityAnalyzer.LOW_VOLUME_THRESHOLD`` (live EMA +
+#   post-recording report). Mic test: the good/low ``volume_level``
+#   boundary in ``level_monitor/test_recording.py``.
+# - ``AUDIO_SILENCE_RMS`` (0.0005): below this the input is near-silence.
+#   Worker: the per-block silence counter gate in
+#   ``level_monitor/worker.py`` (feeds the mic-test ``silence_ratio``).
+#   Mic test: the low/very_low ``volume_level`` boundary.
+AUDIO_LOW_VOLUME_RMS: float = 0.005
+AUDIO_SILENCE_RMS: float = 0.0005
+
 # ``_teardown_stream`` busy-poll budget + interval. The
 # ``_is_in_audio_callback`` flag is SET while the PortAudio callback is
 # RUNNING and CLEARED on exit, the inverse of the typical

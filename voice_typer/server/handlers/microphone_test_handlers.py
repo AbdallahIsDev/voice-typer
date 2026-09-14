@@ -29,7 +29,7 @@ class MicrophoneTestHandlersMixin(HandlerBase):
         IPC, the same privacy contract as dictation
         (``recording_controller.py:248-263``). Without this gate, a
         renderer-side bug or compromised renderer could trigger a test
-        recording and exfiltrate up to 60s of biometric voice data without
+        recording and exfiltrate up to 30s of biometric voice data without
         the user's explicit consent. The handler raises
         :class:`ConsentRequiredError` which the existing
         :meth:`HandlerBase._respond_with_error` maps to the structured

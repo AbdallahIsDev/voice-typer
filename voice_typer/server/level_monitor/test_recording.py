@@ -33,6 +33,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+from voice_typer.server._audio_constants import AUDIO_LOW_VOLUME_RMS, AUDIO_SILENCE_RMS
 from voice_typer.server.duration import format_duration
 
 from ._state import _state
@@ -41,6 +42,36 @@ if TYPE_CHECKING:
     from typing import Any
 
 log = logging.getLogger("voice_typer.server.level_monitor")
+
+
+# ── Mic-test verdict thresholds ──────────────────────────────────────
+# Volume bands share the dictation path's boundaries (see
+# ``_audio_constants``) so the same RMS is never "low" on one path and
+# "good" on another: good at/above ``AUDIO_LOW_VOLUME_RMS``, very_low
+# below ``AUDIO_SILENCE_RMS`` (the worker's silence-block gate doubles
+# as the low/very_low boundary).
+MIC_TEST_GOOD_VOLUME_RMS = AUDIO_LOW_VOLUME_RMS
+MIC_TEST_VERY_LOW_VOLUME_RMS = AUDIO_SILENCE_RMS
+
+# Background-noise bands apply to the noise FLOOR (the quietest
+# per-chunk RMS, which approximates the room level), NOT to the overall
+# RMS: overall energy is speech-dominated, so grading noise off it
+# mislabels loud clean speech as "high background noise". The 0.05 high
+# boundary mirrors the dictation path's reasoning (``audio_quality``
+# only assesses noise when RMS < 0.05, louder input is
+# signal-dominated); each path keeps its own literal.
+_MIC_TEST_NOISE_LOW_RMS = 0.005
+_MIC_TEST_NOISE_HIGH_RMS = 0.05
+
+# Voice presence: a peak above this fraction of full scale in a block
+# suggests speech rather than background hiss.
+_MIC_TEST_VOICE_PEAK = 0.05
+# ... but one loud transient (click/pop) in an otherwise silent test
+# must not count as voice: require a non-trivial non-silent share of
+# the test (at least 5% of blocks) spanning at least 3 blocks (~100 ms,
+# below the duration of even a short spoken syllable).
+_MIC_TEST_VOICE_MAX_SILENCE_RATIO = 0.95
+_MIC_TEST_VOICE_MIN_NON_SILENT_BLOCKS = 3
 
 
 def _secure_clear_test_chunks(*deques: collections.deque) -> None:
@@ -130,11 +161,12 @@ def _purge_test_recordings() -> None:
     """
     try:
         d = _test_recordings_dir()
-        for f in d.glob("*.wav"):
-            try:
-                f.unlink()
-            except OSError:
-                log.debug("[LEVEL-MON] could not unlink leftover test WAV: %s", f)
+        for pattern in ("*.wav", "*.wav.tmp"):
+            for f in d.glob(pattern):
+                try:
+                    f.unlink()
+                except OSError:
+                    log.debug("[LEVEL-MON] could not unlink leftover test WAV: %s", f)
     except Exception:
         log.debug("[LEVEL-MON] test-recording purge failed", exc_info=True)
 
@@ -584,6 +616,41 @@ def stop_test_recording() -> dict:
     raw_abs = np.abs(raw_audio)
     raw_rms = float(np.sqrt(np.mean(np.square(raw_audio.astype(np.float32)))))
     raw_peak = float(raw_abs.max())
+    total_blocks = len(rms_hist) if rms_hist else 0
+    silence_ratio_value = round(silence_blocks / max(1, total_blocks), 4)
+    non_silent_blocks = total_blocks - silence_blocks
+    if total_blocks > 0:
+        # Voice requires a loud peak AND a non-trivial non-silent share:
+        # a single click in a silent test must not read as voice.
+        has_voice = (
+            raw_peak > _MIC_TEST_VOICE_PEAK
+            and silence_ratio_value < _MIC_TEST_VOICE_MAX_SILENCE_RATIO
+            and non_silent_blocks >= _MIC_TEST_VOICE_MIN_NON_SILENT_BLOCKS
+        )
+    else:
+        # No per-block history to assess the share from (e.g. chunks
+        # appended without worker metrics): fall back to the peak alone
+        # rather than fabricating a silence verdict from absent data.
+        has_voice = raw_peak > _MIC_TEST_VOICE_PEAK
+
+    # Background noise is graded on the noise FLOOR (quietest ~32 ms
+    # chunk ≈ room level during speech pauses), never on the overall
+    # RMS: overall energy follows the speaker, so loud clean speech
+    # used to report "high background noise". Falls back to the
+    # overall RMS only when no per-block history exists.
+    noise_floor = float(min(rms_hist)) if rms_hist else raw_rms
+    if noise_floor < _MIC_TEST_NOISE_LOW_RMS:
+        noise_level = "low"
+    elif noise_floor < _MIC_TEST_NOISE_HIGH_RMS:
+        noise_level = "moderate"
+    else:
+        noise_level = "high"
+    if has_voice and noise_level == "high":
+        # A sustained voice signal dominates the total energy: the
+        # floor estimate is unreliable here, and "high background
+        # noise" was a proven false positive on loud clean speech.
+        # Cap at moderate (possible room noise, signal dominant).
+        noise_level = "moderate"
 
     # annotate ``quality`` as ``dict[str, Any]`` so that
     # downstream assignments like ``quality["detected_issues"] = [...str]``
@@ -591,15 +658,19 @@ def stop_test_recording() -> dict:
     # infers the dict's value type from the literal (str | bool | int |
     # float) and then rejects the ``list[str]`` assignment below.
     quality: dict[str, Any] = {
-        "volume_level": "good" if raw_rms > 0.002 else ("low" if raw_rms > 0.0005 else "very_low"),
+        "volume_level": (
+            "good"
+            if raw_rms >= MIC_TEST_GOOD_VOLUME_RMS
+            else ("very_low" if raw_rms < MIC_TEST_VERY_LOW_VOLUME_RMS else "low")
+        ),
         "volume_rms": round(raw_rms, 6),
         "peak_level": round(raw_peak, 4),
-        "noise_level": "low" if raw_rms < 0.005 else ("moderate" if raw_rms < 0.02 else "high"),
-        "has_voice": raw_peak > 0.05,
+        "noise_level": noise_level,
+        "has_voice": has_voice,
         "has_clipping": clip_count > 0,
         "clipping_blocks": clip_count,
-        "total_blocks": len(rms_hist) if rms_hist else 0,
-        "silence_ratio": round(silence_blocks / max(1, len(rms_hist)), 4),
+        "total_blocks": total_blocks,
+        "silence_ratio": silence_ratio_value,
         "avg_rms": round(float(np.mean(rms_hist) if rms_hist else 0), 6),
         "peak_rms": round(float(np.max(rms_hist) if rms_hist else 0), 6),
     }
@@ -634,10 +705,10 @@ def stop_test_recording() -> dict:
         est_score -= 15
     if not quality["has_voice"]:
         est_score = 0
-    # Add some RMS-based score
-    if raw_rms < 0.0005:
-        est_score = max(0, est_score - 30)
-    elif raw_rms > 0.1:
+    # Inaudible input is already charged once via the very_low -40
+    # above: do NOT stack a second RMS-based penalty for the same
+    # condition. Only genuinely loud input takes an extra deduction.
+    if raw_rms > 0.1:
         est_score = max(0, est_score - 10)
     quality["estimated_transcription_quality"] = max(0, min(100, est_score))
 
@@ -699,8 +770,28 @@ def stop_test_recording() -> dict:
         wf.setframerate(sr)
         wf.writeframes(raw_int16.tobytes())
 
-    audio_file = _write_test_wav(buf, "filtered")
-    raw_audio_file = _write_test_wav(raw_buf, "raw")
+    # The test-chunk state was already cleared above, so a persist
+    # failure here must NOT raise: the audio would be unrecoverable and
+    # a retry would only report "No test running". Return success:False
+    # with the computed quality preserved so the verdict still renders.
+    try:
+        audio_file = _write_test_wav(buf, "filtered")
+        raw_audio_file = _write_test_wav(raw_buf, "raw")
+    except Exception as exc:
+        log.warning(
+            "[LEVEL-MON] Test persist failed:%s not recorded: %s",
+            format_duration(duration_ms / 1000),
+            exc,
+        )
+        return {
+            "success": False,
+            "audio_file": None,
+            "raw_audio_file": None,
+            "duration_ms": duration_ms,
+            "sample_rate": sr,
+            "message": f"Failed to persist test recording: {type(exc).__name__}",
+            "quality": quality,
+        }
 
     log.info(
         "[LEVEL-MON] Test stopped:%s recorded, wrote raw(before)=%d bytes + filtered(after)=%d bytes WAV to %s/",
@@ -816,9 +907,9 @@ def _do_auto_stop_test() -> None:
     # despite the test having run to completion. The chunks are
     # now cleared by ``stop_test_recording`` (after the
     # frontend retrieves) and by ``cancel_test_recording`` (the
-    # user-cancel path), so the bounded deque (``maxlen == 3s of
-    # audio at 16kHz``) caps the lingering memory at one test's
-    # worth, the intended fix.
+    # user-cancel path), so the bounded deque (``maxlen`` sized to
+    # duration × sample rate, see ``_reset_test_chunks``) caps the
+    # lingering memory at one test's worth, the intended fix.
 
 
 def _cancel_test_locked() -> bool:
@@ -847,7 +938,12 @@ def _cancel_test_locked() -> bool:
             timer.cancel()
             _state._test_auto_stop_timer = None
 
-        if not _state._test_mode and not _state._test_chunks and not _state._test_filtered_chunks:
+        if (
+            not _state._test_mode
+            and not _state._test_chunks
+            and not _state._test_raw_chunks
+            and not _state._test_filtered_chunks
+        ):
             return False
         was_active = _state._test_mode
         _state._test_mode = False

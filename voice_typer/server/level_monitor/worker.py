@@ -29,7 +29,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from voice_typer.server._audio_constants import AUDIO_CLIPPING_THRESHOLD
+from voice_typer.server._audio_constants import AUDIO_CLIPPING_THRESHOLD, AUDIO_SILENCE_RMS
 
 from ._state import _state
 
@@ -584,7 +584,7 @@ def _process_level_chunk(indata: np.ndarray, status: Any) -> None:
                 _state._test_filtered_chunks.append(filtered_chunk_for_test)
             if raw_peak_for_quality is not None:
                 _state._test_peak_history.append(raw_peak_for_quality)
-                if raw_rms_for_quality is not None and raw_rms_for_quality < 0.0005:
+                if raw_rms_for_quality is not None and raw_rms_for_quality < AUDIO_SILENCE_RMS:
                     _state._test_silence_blocks += 1
                 if raw_peak_for_quality >= AUDIO_CLIPPING_THRESHOLD:
                     _state._test_clip_count += 1
