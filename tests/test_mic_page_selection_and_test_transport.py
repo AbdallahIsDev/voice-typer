@@ -443,3 +443,171 @@ class TestHonestMetricsContract:
         assert result["transcription_reason"] == "no_engine_loaded"
         # Audio-derived verdict survives untouched.
         assert result["quality"]["has_voice"] is True
+
+
+class TestBookkeepingFailureClosesStartedStream:
+    """Started-stream leak: bookkeeping after ``stream.start()`` must close it.
+
+    ``start_monitoring`` opens the PortAudio stream first and then runs
+    fallible bookkeeping (worker spawn, processor rebuild). When that
+    bookkeeping throws, the already-started stream must be
+    ``stop()``/``close()``d instead of leaked.
+    """
+
+    def test_bookkeeping_failure_closes_started_stream(self, monitor_env, monkeypatch):
+        import voice_typer.server.level_monitor as lm
+        from voice_typer.server.level_monitor._state import _state
+
+        def _boom():
+            raise RuntimeError("worker spawn failed")
+
+        # Patch the OWNING submodule's attribute (call-time import
+        # contract): ``start_monitoring`` resolves this global from
+        # ``monitoring`` at call time.
+        monkeypatch.setattr(
+            "voice_typer.server.level_monitor.monitoring._ensure_mic_level_worker_running",
+            _boom,
+        )
+        result = lm.start_monitoring(mic_id=None)
+
+        assert result["success"] is False
+        assert _state._monitor_active is False
+        assert _state._monitor_stream is None
+        leaked = _FakeStream.last_instance
+        assert leaked is not None
+        assert leaked.stopped is True
+        assert leaked.closed is True
+
+
+class TestTinySliceGuard:
+    """Zero-length slice edge: 1-2 byte requests aligned down to 0 bytes.
+
+    The base64-join invariant clamps interior slices to multiples of 3,
+    so a 1-2 byte request used to return success with ``bytes_read=0``
+    and ``eof=False`` mid-file — a busy-loop hazard for fetchers that
+    advance by ``bytes_read``. The endpoint must always make progress.
+    """
+
+    def test_single_byte_requests_make_progress(self, tmp_path, monkeypatch):
+        from voice_typer.server.level_monitor import test_recording as tr
+
+        recordings = tmp_path / "recs"
+        recordings.mkdir()
+        wav_file = recordings / "test-filtered-tiny.wav"
+        payload = _tiny_wav_bytes(seconds=0.2)
+        assert len(payload) > 16
+        wav_file.write_bytes(payload)
+        monkeypatch.setattr(tr, "_test_recordings_dir", lambda: recordings)
+
+        res = tr.read_test_recording_slice(str(wav_file), 0, 1)
+        assert res["success"] is True
+        assert res["bytes_read"] > 0
+        assert res["eof"] is False
+
+        res2 = tr.read_test_recording_slice(str(wav_file), res["bytes_read"], 2)
+        assert res2["success"] is True
+        assert res2["bytes_read"] > 0
+
+    def test_small_file_round_trips_without_busy_loop(self, tmp_path, monkeypatch):
+        import base64
+
+        from voice_typer.server.level_monitor import test_recording as tr
+
+        recordings = tmp_path / "recs"
+        recordings.mkdir()
+        wav_file = recordings / "test-filtered-small.wav"
+        payload = bytes(range(256)) * 2  # 512 bytes
+        wav_file.write_bytes(payload)
+        monkeypatch.setattr(tr, "_test_recordings_dir", lambda: recordings)
+
+        seen = b""
+        offset = 0
+        for _ in range(10000):
+            res = tr.read_test_recording_slice(str(wav_file), offset, 2)
+            assert res["success"] is True
+            seen += base64.b64decode(res["data_b64"])
+            offset += res["bytes_read"]
+            if res["eof"]:
+                break
+        else:
+            pytest.fail("slice fetcher made no progress to EOF (busy loop)")
+        assert seen == payload
+
+    def test_short_tail_returns_exact_bytes_with_eof(self, tmp_path, monkeypatch):
+        import base64
+
+        from voice_typer.server.level_monitor import test_recording as tr
+
+        recordings = tmp_path / "recs"
+        recordings.mkdir()
+        wav_file = recordings / "test-filtered-tail.wav"
+        payload = _tiny_wav_bytes(seconds=0.2)
+        wav_file.write_bytes(payload)
+        monkeypatch.setattr(tr, "_test_recordings_dir", lambda: recordings)
+
+        res = tr.read_test_recording_slice(str(wav_file), len(payload) - 2, 2)
+        assert res["success"] is True
+        assert res["bytes_read"] == 2
+        assert res["eof"] is True
+        assert base64.b64decode(res["data_b64"]) == payload[-2:]
+
+
+class TestChunkCapacityConservativeBound:
+    """Chunk-deque capacity stays a conservative upper bound at any rate."""
+
+    def test_capacity_covers_scaled_block_rates(self):
+        from voice_typer.server._audio_constants import scaled_audio_blocksize
+        from voice_typer.server.level_monitor import test_recording as tr
+
+        state = tr._state
+        old_duration, old_sr = state._test_duration, state._monitor_sample_rate
+        old_chunks, old_raw, old_filtered = (
+            state._test_chunks,
+            state._test_raw_chunks,
+            state._test_filtered_chunks,
+        )
+        try:
+            state._test_duration = 30.0
+            state._monitor_sample_rate = 48000
+            tr._reset_test_chunks(locked=False)
+            cap = state._test_raw_chunks.maxlen
+            assert cap == int(30.0 * 48000 / 512) + 1
+            # At 48 kHz the stream emits ~32 ms (1536-sample) chunks, far
+            # fewer than the 512-sample math assumes — the bound must
+            # cover the scaled rate with room to spare.
+            needed = int(30.0 * 48000 / scaled_audio_blocksize(48000)) + 1
+            assert cap is not None and cap >= needed
+        finally:
+            state._test_duration = old_duration
+            state._monitor_sample_rate = old_sr
+            state._test_chunks = old_chunks
+            state._test_raw_chunks = old_raw
+            state._test_filtered_chunks = old_filtered
+
+
+class TestDurationLogSuffix:
+    """C-LOG-2: mic-test lifecycle lines carry a ``format_duration`` suffix."""
+
+    def test_start_and_stop_lines_use_duration_suffix(self, monitor_env, tmp_path, monkeypatch, caplog):
+        import logging
+
+        from voice_typer.server.duration import format_duration
+        from voice_typer.server.level_monitor import test_recording as tr
+
+        recordings = tmp_path / "recs"
+        recordings.mkdir()
+        monkeypatch.setattr(tr, "_test_recordings_dir", lambda: recordings)
+        with caplog.at_level(logging.INFO, logger="voice_typer.server.level_monitor"):
+            assert tr.start_test_recording(duration=5.0)["success"] is True
+            tr._state._test_raw_chunks.append(np.ones((512, 1), dtype=np.float32) * 0.25)
+            result = tr.stop_test_recording()
+
+        assert result["success"] is True
+        messages = [r.getMessage() for r in caplog.records]
+        assert any(f"duration{format_duration(5.0)}" in m for m in messages), (
+            f"start line must carry the duration suffix; got: {messages}"
+        )
+        expected_stop = format_duration(result["duration_ms"] / 1000).strip()
+        assert any("Test stopped:" in m and expected_stop in m for m in messages), (
+            f"stop line must carry the duration suffix; got: {messages}"
+        )

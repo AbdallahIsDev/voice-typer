@@ -98,7 +98,7 @@ class TestMicrophoneTestStart:
     def test_consent_missing_returns_consent_required_envelope(self, ipc_server, fake_service, fake_app):
         """XZ-PRIV-03: ``voice_biometric_consent=False`` → ``client.consent_required``.
 
-        The mic test records up to 60s of audio and returns base64 WAV
+        The mic test records up to 30s of audio and returns base64 WAV
         over IPC. Without consent gating, a renderer bug or compromised
         renderer could exfiltrate biometric voice data. The handler
         raises ``ConsentRequiredError`` BEFORE touching the service

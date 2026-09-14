@@ -96,6 +96,14 @@ def scaled_audio_blocksize(native_rate: int) -> int:
     return max(_AUDIO_BLOCKSIZE, int(rate * 0.032))
 
 
+# Digital-clipping peak threshold shared by the dictation quality analyzer
+# (``audio_quality.AudioQualityAnalyzer.CLIPPING_THRESHOLD``) and the
+# mic-test live clip counter (``level_monitor/worker.py``). A chunk whose
+# absolute peak reaches this fraction of full scale counts as clipped.
+# Single source of truth so the user-facing "clipping detected" verdict
+# means the same peak level on every audio path.
+AUDIO_CLIPPING_THRESHOLD: float = 0.99
+
 # ``_teardown_stream`` busy-poll budget + interval. The
 # ``_is_in_audio_callback`` flag is SET while the PortAudio callback is
 # RUNNING and CLEARED on exit, the inverse of the typical

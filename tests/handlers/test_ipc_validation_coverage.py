@@ -896,16 +896,16 @@ class TestRestoreHistoryPayloadCap:
 
 
 class TestDurationClampRange:
-    """DE-45: ``duration`` is clamped to ``[1.0, 60.0]``."""
+    """DE-45: ``duration`` is clamped to ``[1.0, 30.0]`` (backend cap)."""
 
-    def test_huge_numeric_duration_is_clamped_to_60(self, ipc_server, fake_service):
-        """``duration=1e300`` → clamped to 60.0 (DoS guard)."""
+    def test_huge_numeric_duration_is_clamped_to_30(self, ipc_server, fake_service):
+        """``duration=1e300`` → clamped to 30.0 (DoS guard)."""
         fake_service.microphone_test_start.return_value = {"ok": True}
         resp = ipc_server._handle_microphone_test_start({"duration": 1e300}, {})
         assert resp["type"] == "microphone_test_result"
         fake_service.microphone_test_start.assert_called_once_with(
             mic_id=None,
-            duration=60.0,
+            duration=30.0,
             filters=None,
         )
 
@@ -920,8 +920,8 @@ class TestDurationClampRange:
             filters=None,
         )
 
-    def test_huge_string_duration_is_clamped_to_60(self, ipc_server, fake_service):
-        """``duration="1e300"`` (string) → coerced + clamped to 60.0.
+    def test_huge_string_duration_is_clamped_to_30(self, ipc_server, fake_service):
+        """``duration="1e300"`` (string) → coerced + clamped to 30.0.
 
         The string-coercion path (documented for form-input
         compatibility) must apply the same clamp as the numeric path.
@@ -931,7 +931,7 @@ class TestDurationClampRange:
         assert resp["type"] == "microphone_test_result"
         fake_service.microphone_test_start.assert_called_once_with(
             mic_id=None,
-            duration=60.0,
+            duration=30.0,
             filters=None,
         )
 
@@ -984,6 +984,21 @@ class TestDurationClampRange:
         fake_service.microphone_test_start.assert_called_once_with(
             mic_id=None,
             duration=10.0,
+            filters=None,
+        )
+
+    def test_above_backend_cap_duration_is_clamped_to_30(self, ipc_server, fake_service):
+        """``duration=45`` → clamped to 30.0 (backend ``test_recording`` cap).
+
+        The handler previously clamped to 60s while the recording layer
+        silently truncated to 30s; the handler now clamps to the real cap.
+        """
+        fake_service.microphone_test_start.return_value = {"ok": True}
+        resp = ipc_server._handle_microphone_test_start({"duration": 45}, {})
+        assert resp["type"] == "microphone_test_result"
+        fake_service.microphone_test_start.assert_called_once_with(
+            mic_id=None,
+            duration=30.0,
             filters=None,
         )
 

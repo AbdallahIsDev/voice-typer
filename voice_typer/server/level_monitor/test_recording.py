@@ -33,6 +33,8 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+from voice_typer.server.duration import format_duration
+
 from ._state import _state
 
 if TYPE_CHECKING:
@@ -205,6 +207,23 @@ def read_test_recording_slice(path: str, offset: int, length: int) -> dict:
         # multiple of 3 so interior slices never carry padding.
         length -= length % 3
         offset = max(0, int(offset))
+        remaining = total - offset
+        if remaining <= 0:
+            return {
+                "success": True,
+                "data_b64": "",
+                "bytes_read": 0,
+                "total_bytes": total,
+                "eof": True,
+                "message": "ok",
+            }
+        if length == 0:
+            # Requests of 1-2 bytes align down to a 0-byte slice, which
+            # would report success with no progress and never reach EOF
+            # mid-file. Return the smallest progress-making slice: 3
+            # bytes (still padding-free) for interior reads, or the
+            # short tail itself when fewer than 3 bytes remain.
+            length = 3 if remaining >= 3 else remaining
         with open(resolved, "rb") as fh:
             fh.seek(offset)
             chunk = fh.read(length)
@@ -247,7 +266,12 @@ def _reset_test_chunks(locked: bool) -> None:
     calling this (``start_test_recording`` does exactly that).
     """
     sr = _state._monitor_sample_rate
-    # Chunks arrive at ``sr / 512`` per second (512-sample blocks @ sr).
+    # Capacity bound: chunks arrive at ``sr / blocksize`` per second where
+    # ``blocksize`` is the rate-scaled ``~32 ms`` block from
+    # ``scaled_audio_blocksize`` (512 @ 16 kHz, 1536 @ 48 kHz), or the
+    # host-API period when the stream fell back to ``blocksize=0``. Divide
+    # by the 512 floor so the bound stays conservative (an upper bound)
+    # at every native rate and under the host-chosen period.
     # +1 fudge so a duration that lands exactly on a block boundary
     # never drops the final chunk before stop_test_recording reads it.
     cap = int(_state._test_duration * sr / 512) + 1
@@ -349,9 +373,9 @@ def start_test_recording(
             _state._test_auto_stop_timer.start()
 
             log.info(
-                "[LEVEL-MON] Test recording started: mic=%s | duration=%.1fs",
+                "[LEVEL-MON] Test recording started: mic=%s | duration%s",
                 _state._monitor_mic_id or "default",
-                _state._test_duration,
+                format_duration(_state._test_duration),
             )
             return {
                 "success": True,
@@ -404,9 +428,9 @@ def start_test_recording(
         _state._test_auto_stop_timer.start()
 
         log.info(
-            "[LEVEL-MON] Test recording started: mic=%s | duration=%.1fs",
+            "[LEVEL-MON] Test recording started: mic=%s | duration%s",
             _state._monitor_mic_id or "default",
-            _state._test_duration,
+            format_duration(_state._test_duration),
         )
         return {
             "success": True,
@@ -679,8 +703,8 @@ def stop_test_recording() -> dict:
     raw_audio_file = _write_test_wav(raw_buf, "raw")
 
     log.info(
-        "[LEVEL-MON] Test stopped: %.1fs recorded, wrote raw(before)=%d bytes + filtered(after)=%d bytes WAV to %s/",
-        duration_ms / 1000,
+        "[LEVEL-MON] Test stopped:%s recorded, wrote raw(before)=%d bytes + filtered(after)=%d bytes WAV to %s/",
+        format_duration(duration_ms / 1000),
         len(raw_buf.getvalue()),
         len(buf.getvalue()),
         _TEST_RECORDINGS_DIRNAME,
@@ -692,7 +716,7 @@ def stop_test_recording() -> dict:
         "raw_audio_file": raw_audio_file,
         "duration_ms": duration_ms,
         "sample_rate": sr,
-        "message": f"Recorded {duration_ms / 1000:.1f}s of audio",
+        "message": f"Recorded{format_duration(duration_ms / 1000)} of audio",
         "quality": quality,
     }
 

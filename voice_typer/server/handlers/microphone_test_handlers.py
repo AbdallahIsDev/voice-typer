@@ -25,7 +25,7 @@ class MicrophoneTestHandlersMixin(HandlerBase):
 
     ``_handle_microphone_test_start`` enforces
         ``voice_biometric_consent`` BEFORE capturing any test audio. The mic
-        test records up to 60s of audio and returns base64-encoded WAV over
+        test records up to 30s of audio and returns base64-encoded WAV over
         IPC, the same privacy contract as dictation
         (``recording_controller.py:248-263``). Without this gate, a
         renderer-side bug or compromised renderer could trigger a test
@@ -40,7 +40,7 @@ class MicrophoneTestHandlersMixin(HandlerBase):
     def _handle_microphone_test_start(self, data: dict | None, resp: dict) -> dict | None:
         """Handle the ``microphone_test_start`` IPC command.
 
-        ``duration`` is validated with ``clamp_range: (1.0, 60.0)``.
+        ``duration`` is validated with ``clamp_range: (1.0, 30.0)``.
         The schema rule clamps int/float values; string values (e.g.
         ``"7.5"`` from a form input) pass through and are clamped
         after the ``float()`` coercion in the body. Note: ``0`` is
@@ -57,7 +57,7 @@ class MicrophoneTestHandlersMixin(HandlerBase):
 
         def body(d: dict) -> dict:
             # enforce voice_biometric_consent BEFORE
-            # capturing any test audio. The mic test returns up to 60s
+            # capturing any test audio. The mic test returns up to 30s
             # of base64-encoded WAV over IPC, same privacy contract
             # as dictation (recording_controller.py:248-263). We raise
             # ConsentRequiredError rather than building the envelope
@@ -110,7 +110,7 @@ class MicrophoneTestHandlersMixin(HandlerBase):
                         "type": (int, float, str),
                         "required": False,
                         "default": 10.0,
-                        "clamp_range": (1.0, 60.0),
+                        "clamp_range": (1.0, 30.0),
                     },
                 },
             )
@@ -124,9 +124,9 @@ class MicrophoneTestHandlersMixin(HandlerBase):
             # already clamped int/float values, but strings bypass it
             # (the helper only clamps int/float). A string like
             # ``"1e300"`` would coerce to ``inf`` here; the re-clamp
-            # brings it back to 60.0.
+            # brings it back to 30.0.
             duration = float(validated["duration"])
-            duration = max(1.0, min(duration, 60.0))
+            duration = max(1.0, min(duration, 30.0))
             result = self.service.microphone_test_start(mic_id=mic_id, duration=duration, filters=filters)
             return {"type": "microphone_test_result", "data": result}
 

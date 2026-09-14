@@ -518,7 +518,7 @@ class ServiceProtocol(Protocol):
     # ``_handle_microphone_test_start`` IPC handler validates
     # ``mic_id`` as ``str | None`` and ``duration`` as
     # ``int | float | str`` (with a ``float()`` coercion + clamp to
-    # ``[1.0, 60.0]``), so by the time the service method is called
+    # ``[1.0, 30.0]``), so by the time the service method is called
     # ``duration`` is always a ``float``. ``filters`` is validated as
     # ``list | None`` at the IPC layer but the impl signature is
     # ``dict | None`` (the impl casts internally); the Protocol

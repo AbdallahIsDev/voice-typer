@@ -59,6 +59,8 @@ def _reset_level_monitor_state():
     lm._monitor_peak = 0.0
     lm._monitor_mic_id = None
     lm._level_processor = None
+    lm._level_processor_config = None
+    lm._level_bar_filtered = False
     lm._dropped_level_chunks = 0
     lm._last_drop_log_time = 0.0
     lm._level_ring_buffer.clear()
@@ -95,6 +97,8 @@ def _wire_stream_with_kwargs_capture(monkeypatch):
         "finished_callback": None,
         "blocksize": None,
         "samplerate": None,
+        "channels": None,
+        "device": None,
         "stream_calls": [],
     }
 
@@ -104,6 +108,8 @@ def _wire_stream_with_kwargs_capture(monkeypatch):
             holder["finished_callback"] = kwargs.get("finished_callback")
             holder["blocksize"] = kwargs.get("blocksize")
             holder["samplerate"] = kwargs.get("samplerate")
+            holder["channels"] = kwargs.get("channels")
+            holder["device"] = kwargs.get("device")
 
         def start(self):
             holder["stream_calls"].append("start")
@@ -118,14 +124,14 @@ def _wire_stream_with_kwargs_capture(monkeypatch):
     return holder
 
 
-def _set_native_rate(monkeypatch, native_rate: int) -> None:
+def _set_native_rate(monkeypatch, native_rate: int, max_input_channels: int = 1) -> None:
     """Configure the mocked ``sd.query_devices`` to report ``native_rate``."""
     import sounddevice as sd
 
     sd.query_devices.return_value = {
         "name": "Mock Mic",
         "default_samplerate": native_rate,
-        "max_input_channels": 1,
+        "max_input_channels": max_input_channels,
         "hostapi": 0,
     }
 
@@ -651,3 +657,44 @@ class TestStopLevelWorkerStuckSlot:
         # Clean up the stub so the fixture's _stop_level_worker doesn't
         # try to join a MagicMock (which has no real join semantics).
         lm._level_worker_thread = None
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Shared clipping threshold (worker live counter == quality analyzer)
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class TestSharedClippingThreshold:
+    """The mic-test live clip counter and the dictation quality analyzer
+    share ONE peak threshold (``AUDIO_CLIPPING_THRESHOLD``) so the
+    user-facing "clipping detected" verdict means the same peak level
+    on every audio path."""
+
+    def test_analyzer_threshold_is_the_shared_constant(self):
+        from voice_typer.server._audio_constants import AUDIO_CLIPPING_THRESHOLD
+        from voice_typer.server.audio_quality import AudioQualityAnalyzer
+
+        assert AudioQualityAnalyzer.CLIPPING_THRESHOLD == AUDIO_CLIPPING_THRESHOLD
+
+    def test_near_full_scale_below_threshold_does_not_count(self):
+        """A 0.96 peak is loud but not clipped under the shared 0.99 line."""
+        import numpy as np
+        import voice_typer.server.level_monitor as lm
+        from voice_typer.server.level_monitor.worker import _process_level_chunk
+
+        lm._monitor_active = True
+        lm._test_mode = True
+        lm._level_processor = None
+        _process_level_chunk(np.full((512, 1), 0.96, dtype=np.float32), None)
+        assert lm._test_clip_count == 0
+
+    def test_full_scale_peak_counts_as_clipping(self):
+        import numpy as np
+        import voice_typer.server.level_monitor as lm
+        from voice_typer.server.level_monitor.worker import _process_level_chunk
+
+        lm._monitor_active = True
+        lm._test_mode = True
+        lm._level_processor = None
+        _process_level_chunk(np.ones((512, 1), dtype=np.float32), None)
+        assert lm._test_clip_count == 1

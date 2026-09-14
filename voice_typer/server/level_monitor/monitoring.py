@@ -662,6 +662,12 @@ def start_monitoring(mic_id: str | None = None) -> dict:
             config_snapshot = _state._level_processor_config
         except Exception as exc:
             log.warning("[LEVEL-MON] Failed to start monitoring: %s", exc)
+            # The stream already started above: close it before clearing
+            # state, otherwise a bookkeeping failure leaks an open
+            # PortAudio stream holding the device.
+            with contextlib.suppress(Exception):
+                stream.stop()
+                stream.close()
             _state._monitor_stream = None
             _state._monitor_active = False
             _state._monitor_mic_id = None
