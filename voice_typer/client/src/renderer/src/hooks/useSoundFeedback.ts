@@ -23,25 +23,26 @@
  * which is provided by Chromium on every platform, no platform-specific
  * audio libraries required, no asset files needed.
  *
- * : subscribes to ``transcription_final`` and plays the
- * ``complete`` cue so the user gets an audible confirmation that the
- * transcription is ready to paste. Previously the only signal was the
- * visual status pill changing color, which is easy to miss when the
- * user has looked away from the window.
+ * There is NO success/complete audio cue (C-SOUND-1). The only
+ * dictation lifecycle sounds are ``start`` (hotkey press to begin
+ * recording) and ``stop`` (hotkey press to end recording). Do not
+ * reintroduce a success chime on ``transcription_final``.
  *
  * ── Deaf-accessibility visual mirror ──────────────────────────────
  *
- * The four audio cues (``start`` / ``stop`` / ``complete`` / ``error``)
- * are useless to deaf / hard-of-hearing users, the original analysis
- * considered sighted+hearing users only. When the App passes an
- * ``onVisualCue`` callback, this hook ALSO invokes that callback per
- * cue type so the App can flash the status pill / title-bar / tray
- * icon with a distinct color pulse:
+ * The audio cues (``start`` / ``stop`` / ``error``) are useless to
+ * deaf / hard-of-hearing users, the original analysis considered
+ * sighted+hearing users only. When the App passes an ``onVisualCue``
+ * callback, this hook ALSO invokes that callback per cue type so the
+ * App can flash the status pill / title-bar / tray icon with a
+ * distinct color pulse:
  *
  *   - ``start``    → green pulse   (recording started)
  *   - ``stop``     → red pulse     (recording stopped)
  *   - ``complete`` → blue pulse    (transcription finalized, ready to paste)
  *   - ``error``    → orange pulse  (backend / transcription error)
+ *
+ * ``complete`` remains a VISUAL-only cue (no audio); see C-SOUND-1.
  *
  * The actual visual rendering is owned by ``App.tsx`` (it owns the
  * status-pill / title-bar / tray-icon state). This hook's job is only
@@ -105,12 +106,8 @@ export interface UseSoundFeedbackOptions {
  * audible alert when the backend reports a recording/transcription
  * failure. The error cue is a short low buzz (see ``sound-manager.ts``).
  *
- * : subscribes to ``transcription_final`` and plays the
- * ``complete`` cue (two-note rising chime). This fires once per
- * finalized transcription, the user hears an audible "done!" signal
- * even when the window is hidden to the tray or the user is looking
- * away. The subscription is mounted at the App root so it fires
- * regardless of which page is currently shown.
+ * ``transcription_final`` still fires the visual ``complete`` cue
+ * (deaf-accessibility mirror) but NEVER an audio cue — C-SOUND-1.
  */
 export function useSoundFeedback(options?: UseSoundFeedbackOptions): void {
 	// Capture the latest onVisualCue so the Python-event subscriptions
@@ -196,15 +193,10 @@ export function useSoundFeedback(options?: UseSoundFeedbackOptions): void {
 		return undefined;
 	});
 
-	//audible "transcription ready" cue. The
-	// transcription_final event fires once per finalized
-	// transcription (after the engine has produced the final text
-	// and the pipeline has pasted/committed it). The cue gives the
-	// user an audible confirmation that they can resume typing —
-	// particularly useful when the user has looked away from the
-	// window or the window is hidden to the tray.
+	// Visual-only mirror for deaf users (C-SOUND-1: no success
+	// audio). transcription_final still lights the blue pulse so
+	// hard-of-hearing users see that the text is ready to paste.
 	usePythonEvent("transcription_final", (): (() => void) | undefined => {
-		playSoundCue("complete");
 		onVisualCue?.("complete");
 		return undefined;
 	});

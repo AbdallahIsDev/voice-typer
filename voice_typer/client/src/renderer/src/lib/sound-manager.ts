@@ -324,8 +324,14 @@ function getAudioContext(): AudioContext | null {
 // Cue synthesis
 // ──────────────────────────────────────────────────────────────────────────
 
-/** The four cue types the sound manager can play. */
-type SoundCueKind = "start" | "stop" | "error" | "complete";
+/**
+ * The three cue types the sound manager can play.
+ *
+ * There is NO "complete"/success cue: start and stop are the only
+ * dictation lifecycle sounds (C-SOUND-1). Do not reintroduce a
+ * success/complete audio cue.
+ */
+type SoundCueKind = "start" | "stop" | "error";
 
 /**
  * One scheduled automation step for a cue. ``at`` is a seconds offset
@@ -429,47 +435,6 @@ const CUE_SPECS: Record<SoundCueKind, CueSpec> = {
 				method: "exponentialRampToValueAtTime",
 				value: 0.0001,
 				at: 0.24,
-			},
-		],
-	},
-	// "complete": two-note rising chime (A5 → D6, 880Hz → 1175Hz), a
-	// major-third interval that reads as a positive "done!" cadence
-	// (transcription finalized and ready to paste). Triangle wave for a
-	// softer, less mechanical timbre than the square-wave error buzz.
-	// Total 220ms: 100ms on the first note, 120ms on the second, with a
-	// 5ms attack and 10ms release on each.
-	complete: {
-		oscillatorType: "triangle",
-		duration: 0.22,
-		steps: [
-			{ param: "frequency", method: "setValueAtTime", value: 880, at: 0 },
-			{ param: "frequency", method: "setValueAtTime", value: 1175, at: 0.1 },
-			{ param: "gain", method: "setValueAtTime", value: 0.0001, at: 0 },
-			{
-				param: "gain",
-				method: "exponentialRampToValueAtTime",
-				value: 0.14,
-				at: 0.005,
-			},
-			{ param: "gain", method: "setValueAtTime", value: 0.14, at: 0.095 },
-			{
-				param: "gain",
-				method: "exponentialRampToValueAtTime",
-				value: 0.0001,
-				at: 0.1,
-			},
-			{
-				param: "gain",
-				method: "exponentialRampToValueAtTime",
-				value: 0.14,
-				at: 0.105,
-			},
-			{ param: "gain", method: "setValueAtTime", value: 0.14, at: 0.21 },
-			{
-				param: "gain",
-				method: "exponentialRampToValueAtTime",
-				value: 0.0001,
-				at: 0.22,
 			},
 		],
 	},
@@ -620,10 +585,7 @@ function playViaHtmlAudio(kind: SoundCueKind): boolean {
 		// third base64 WAV asset, the AudioContext square-wave path
 		// above is the primary error cue; this is only the fallback
 		// for environments where Web Audio is unavailable.
-		//"complete" kind reuses START_BEEP_WAV (rising
-		// pitch) as a positive-sounding fallback, the AudioContext
-		// two-note chime above is the primary complete cue.
-		if (kind === "start" || kind === "complete") {
+		if (kind === "start") {
 			audio.src = START_BEEP_WAV;
 		} else {
 			audio.src = STOP_BEEP_WAV;

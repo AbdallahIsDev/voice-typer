@@ -193,11 +193,18 @@ export const RecordingSettingsSection = memo(function RecordingSettingsSection({
 		updateConfigDebounced("sound_volume", clamped);
 	};
 
-	// Preview one existing cue at the configured volume. The manager
-	// gates on the enabled flag internally, so a disabled toggle means
-	// the preview is a no-op, matching the cues' real behavior.
-	const handleTestSound = () => {
-		playSoundCue("complete");
+	// Preview the recording START cue at the configured volume. The
+	// manager gates on the enabled flag internally, so a disabled
+	// toggle means the preview is a no-op, matching real behavior.
+	// C-SOUND-1: there is no success/complete audio cue; start and
+	// stop are the only dictation lifecycle sounds.
+	const handleTestStartSound = () => {
+		playSoundCue("start");
+	};
+
+	// Preview the recording STOP cue at the configured volume.
+	const handleTestStopSound = () => {
+		playSoundCue("stop");
 	};
 
 	// Keep the manager's volume mirror in sync with config pushes
@@ -250,7 +257,8 @@ export const RecordingSettingsSection = memo(function RecordingSettingsSection({
 	// the same string.
 	const soundVolumeLabel = t("settings.hotkeySection.soundVolume");
 	const soundVolumeInfoSearch = t("settings.hotkeySection.soundVolumeInfo");
-	const testSoundLabel = t("settings.hotkeySection.testSound");
+	const testStartSoundLabel = t("settings.hotkeySection.testStartSound");
+	const testStopSoundLabel = t("settings.hotkeySection.testStopSound");
 	const unsafePasteLabel = t("settings.hotkeySection.unsafePaste");
 	const unsafePasteInfoSearch = t(
 		"settings.hotkeySection.unsafePasteInfoSearch",
@@ -304,7 +312,8 @@ export const RecordingSettingsSection = memo(function RecordingSettingsSection({
 		{ label: warnPasswordLabel, info: warnPasswordInfoSearch },
 		{ label: soundFeedbackLabel, info: soundFeedbackInfoSearch },
 		{ label: soundVolumeLabel, info: soundVolumeInfoSearch },
-		{ label: testSoundLabel, info: soundVolumeInfoSearch },
+		{ label: testStartSoundLabel, info: soundVolumeInfoSearch },
+		{ label: testStopSoundLabel, info: soundVolumeInfoSearch },
 		{ label: silenceWarningLabel, info: silenceWarningInfoSearch },
 		{ label: maxRecordingTimeLabel, info: maxRecordingTimeInfoSearch },
 	];
@@ -524,7 +533,7 @@ export const RecordingSettingsSection = memo(function RecordingSettingsSection({
 					<GatedSettingRow
 						isVisible={isVisible}
 						sectionTitle={recordingTitle}
-						label={testSoundLabel}
+						label={testStartSoundLabel}
 						info={t("settings.hotkeySection.soundVolumeInfoSearch")}
 						searchInfo={soundVolumeInfoSearch}
 					>
@@ -532,17 +541,42 @@ export const RecordingSettingsSection = memo(function RecordingSettingsSection({
 							variant="outline"
 							size="sm"
 							className="gap-2"
-							onClick={handleTestSound}
+							onClick={handleTestStartSound}
 							disabled={!(config.sound_feedback_enabled ?? true)}
-							aria-label={t("settings.hotkeySection.testSoundAria")}
-							data-testid="test-sound-button"
+							aria-label={t("settings.hotkeySection.testStartSoundAria")}
+							data-testid="test-start-sound-button"
 						>
 							<HugeiconsIcon
 								icon={PlayIcon}
 								strokeWidth={2}
 								className="h-4 w-4"
 							/>
-							{testSoundLabel}
+							{testStartSoundLabel}
+						</Button>
+					</GatedSettingRow>
+
+					<GatedSettingRow
+						isVisible={isVisible}
+						sectionTitle={recordingTitle}
+						label={testStopSoundLabel}
+						info={t("settings.hotkeySection.soundVolumeInfoSearch")}
+						searchInfo={soundVolumeInfoSearch}
+					>
+						<Button
+							variant="outline"
+							size="sm"
+							className="gap-2"
+							onClick={handleTestStopSound}
+							disabled={!(config.sound_feedback_enabled ?? true)}
+							aria-label={t("settings.hotkeySection.testStopSoundAria")}
+							data-testid="test-stop-sound-button"
+						>
+							<HugeiconsIcon
+								icon={PlayIcon}
+								strokeWidth={2}
+								className="h-4 w-4"
+							/>
+							{testStopSoundLabel}
 						</Button>
 					</GatedSettingRow>
 

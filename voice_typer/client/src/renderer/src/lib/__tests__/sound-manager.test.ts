@@ -294,9 +294,10 @@ describe("SoundManager, Web Audio synthesis matches the cue table", () => {
 	const T = 7; // RecordingAudioContext.currentTime
 
 	// Parity fixtures: param automation calls with ABSOLUTE times —
-	// identical to the per-kind synthesis branch bodies.
+	// identical to the per-kind synthesis branch bodies. C-SOUND-1:
+	// only start/stop/error; no complete/success cue.
 	const expected: Record<
-		"start" | "stop" | "error" | "complete",
+		"start" | "stop" | "error",
 		{
 			type: OscillatorType;
 			duration: number;
@@ -356,39 +357,6 @@ describe("SoundManager, Web Audio synthesis matches the cue table", () => {
 				},
 			],
 		},
-		complete: {
-			type: "triangle",
-			duration: 0.22,
-			frequency: [
-				{ method: "setValueAtTime", value: 880, time: T },
-				{ method: "setValueAtTime", value: 1175, time: T + 0.1 },
-			],
-			gain: [
-				{ method: "setValueAtTime", value: 0.0001, time: T },
-				{
-					method: "exponentialRampToValueAtTime",
-					value: 0.14,
-					time: T + 0.005,
-				},
-				{ method: "setValueAtTime", value: 0.14, time: T + 0.095 },
-				{
-					method: "exponentialRampToValueAtTime",
-					value: 0.0001,
-					time: T + 0.1,
-				},
-				{
-					method: "exponentialRampToValueAtTime",
-					value: 0.14,
-					time: T + 0.105,
-				},
-				{ method: "setValueAtTime", value: 0.14, time: T + 0.21 },
-				{
-					method: "exponentialRampToValueAtTime",
-					value: 0.0001,
-					time: T + 0.22,
-				},
-			],
-		},
 	};
 
 	beforeEach(() => {
@@ -399,7 +367,7 @@ describe("SoundManager, Web Audio synthesis matches the cue table", () => {
 		vi.restoreAllMocks();
 	});
 
-	for (const kind of ["start", "stop", "error", "complete"] as const) {
+	for (const kind of ["start", "stop", "error"] as const) {
 		it(`schedules "${kind}" with the exact expected automation sequence`, async () => {
 			const {
 				playSoundCue,

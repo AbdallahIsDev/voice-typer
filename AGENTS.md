@@ -1291,6 +1291,17 @@ Applies to: All agents, all modes, all sub-agents.
 
 ---
 
+## Category: Sound Cues
+
+```
+C-SOUND-1
+Rule: Do NOT add a success / complete / "transcription finished" audio cue on `transcription_final` (or any other success path). The ONLY dictation lifecycle audio cues are `start` (fires when the user presses the hotkey to begin recording) and `stop` (fires when the user presses the hotkey again to end recording). `sound-manager.ts`'s `SoundCueKind` is `"start" | "stop" | "error"` — never reintroduce a `"complete"` audio kind, its CUE_SPECS entry, or a `playSoundCue("complete")` call. The Settings "Test Sound" controls preview only these lifecycle cues (two buttons: start and stop). `sound_volume` scales the start/stop cues. The visual `onVisualCue("complete")` deaf-accessibility mirror on `transcription_final` is allowed; audio is not.
+Rationale: User decision 2026-09-13. The success chime was distracting and redundant — the start and stop beeps already mark the recording lifecycle. A third sound on success added no information and interrupted focus after every dictation.
+Applies to: All agents, all modes, all sub-agents.
+```
+
+---
+
 ## Category: Homepage Status Pill & Description Synchronization
 
 ```

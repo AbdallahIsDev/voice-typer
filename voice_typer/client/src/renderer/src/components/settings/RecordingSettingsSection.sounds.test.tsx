@@ -112,7 +112,7 @@ describe("RecordingSettingsSection, sound volume slider + Test Sound", () => {
 		expect(slider.getAttribute("data-value")).toBe("100");
 	});
 
-	it("renders the Test Sound button with a stable testid", () => {
+	it("renders the Test Start Sound and Test Stop Sound buttons", () => {
 		render(
 			<RecordingSettingsSection
 				config={makeConfig({ sound_feedback_enabled: true })}
@@ -121,10 +121,11 @@ describe("RecordingSettingsSection, sound volume slider + Test Sound", () => {
 				isVisible={alwaysVisible}
 			/>,
 		);
-		expect(screen.getByTestId("test-sound-button")).toBeTruthy();
+		expect(screen.getByTestId("test-start-sound-button")).toBeTruthy();
+		expect(screen.getByTestId("test-stop-sound-button")).toBeTruthy();
 	});
 
-	it("Test Sound plays one existing cue at the configured volume", () => {
+	it("Test Start Sound plays the start cue", () => {
 		render(
 			<RecordingSettingsSection
 				config={makeConfig({
@@ -136,8 +137,21 @@ describe("RecordingSettingsSection, sound volume slider + Test Sound", () => {
 				isVisible={alwaysVisible}
 			/>,
 		);
-		fireEvent.click(screen.getByTestId("test-sound-button"));
-		expect(playSoundCue).toHaveBeenCalledWith("complete");
+		fireEvent.click(screen.getByTestId("test-start-sound-button"));
+		expect(playSoundCue).toHaveBeenCalledWith("start");
+	});
+
+	it("Test Stop Sound plays the stop cue", () => {
+		render(
+			<RecordingSettingsSection
+				config={makeConfig({ sound_feedback_enabled: true })}
+				updateConfig={noopUpdate}
+				updateConfigDebounced={noopUpdate}
+				isVisible={alwaysVisible}
+			/>,
+		);
+		fireEvent.click(screen.getByTestId("test-stop-sound-button"));
+		expect(playSoundCue).toHaveBeenCalledWith("stop");
 	});
 
 	it("slider change clamps, syncs the manager, and persists via debounced set_config", () => {
@@ -175,7 +189,7 @@ describe("RecordingSettingsSection, sound volume slider + Test Sound", () => {
 		expect(updateConfigDebounced).toHaveBeenCalledWith("sound_volume", 1);
 	});
 
-	it("slider and Test Sound are disabled while sound feedback is off", () => {
+	it("volume slider and both test-sound buttons are disabled while sound feedback is off", () => {
 		render(
 			<RecordingSettingsSection
 				config={makeConfig({ sound_feedback_enabled: false })}
@@ -187,8 +201,14 @@ describe("RecordingSettingsSection, sound volume slider + Test Sound", () => {
 		expect(
 			screen.getByTestId("range-slider").getAttribute("data-disabled"),
 		).toBe("true");
-		const btn = screen.getByTestId("test-sound-button") as HTMLButtonElement;
-		expect(btn.disabled).toBe(true);
+		const startBtn = screen.getByTestId(
+			"test-start-sound-button",
+		) as HTMLButtonElement;
+		expect(startBtn.disabled).toBe(true);
+		const stopBtn = screen.getByTestId(
+			"test-stop-sound-button",
+		) as HTMLButtonElement;
+		expect(stopBtn.disabled).toBe(true);
 	});
 
 	it("the sound-feedback toggle still syncs the manager (existing contract)", () => {

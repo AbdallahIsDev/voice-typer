@@ -126,6 +126,17 @@ describe("useSoundFeedback", () => {
 		expect(playSoundCue).toHaveBeenCalledWith("stop");
 	});
 
+	it("does NOT play an audio cue on transcription_final (C-SOUND-1: no success sound)", async () => {
+		const { playSoundCue } = await import("@/lib/sound-manager");
+		await renderWithHook();
+
+		act(() => {
+			for (const cb of capturedEventCallbacks)
+				cb({ type: "transcription_final" });
+		});
+		expect(playSoundCue).not.toHaveBeenCalled();
+	});
+
 	it("does NOT play a cue for unrelated events", async () => {
 		const { playSoundCue } = await import("@/lib/sound-manager");
 		await renderWithHook();
@@ -244,7 +255,8 @@ describe("useSoundFeedback, ZU-34 onVisualCue callback (deaf mirror)", () => {
 		expect(onVisualCue).toHaveBeenCalledWith("stop");
 	});
 
-	it("invokes onVisualCue('complete') on transcription_final", async () => {
+	it("invokes onVisualCue('complete') on transcription_final without playing audio (C-SOUND-1)", async () => {
+		const { playSoundCue } = await import("@/lib/sound-manager");
 		const onVisualCue = vi.fn();
 		await renderWithOnVisualCue(onVisualCue);
 
@@ -254,6 +266,7 @@ describe("useSoundFeedback, ZU-34 onVisualCue callback (deaf mirror)", () => {
 		});
 		expect(onVisualCue).toHaveBeenCalledTimes(1);
 		expect(onVisualCue).toHaveBeenCalledWith("complete");
+		expect(playSoundCue).not.toHaveBeenCalled();
 	});
 
 	it("invokes onVisualCue('error') on error event", async () => {
