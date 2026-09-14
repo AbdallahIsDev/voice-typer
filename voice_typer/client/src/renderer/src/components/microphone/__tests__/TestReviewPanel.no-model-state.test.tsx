@@ -158,3 +158,39 @@ describe("TestReviewPanel no-model state renders translated text (never a raw ke
 		).toBeNull();
 	});
 });
+
+describe("TestReviewPanel result-card redesign (declutter)", () => {
+	afterEach(() => {
+		cleanup();
+	});
+
+	it("uses the standard card surface, not the legacy primary tint", () => {
+		renderNoModelPanel();
+
+		// The card root is the standard design-system surface
+		// (rounded-xl + card border + subtle bg). The legacy
+		// primary-tinted surface (border-primary/20 bg-primary/5)
+		// must not return.
+		const card = screen
+			.getByText(enText("microphoneTest.title"))
+			.closest("div.mt-4");
+		expect(card).toBeTruthy();
+		expect(card?.className).toContain("rounded-xl");
+		expect(card?.className).toContain("bg-(--bg-subtle)");
+		expect(card?.className).not.toContain("bg-primary/5");
+		expect(card?.className).not.toContain("border-primary/20");
+	});
+
+	it("does not render the redundant per-metric grid", () => {
+		renderNoModelPanel();
+
+		// Every non-good metric state already surfaces as a detected
+		// issue with a recommendation, so the Volume / Noise /
+		// Clipping / Voice grid duplicated the issues list. Assert
+		// none of its labels render.
+		const panelText = document.body.textContent ?? "";
+		expect(panelText).not.toContain(enText("microphoneTest.volume"));
+		expect(panelText).not.toContain(enText("microphoneTest.backgroundNoise"));
+		expect(panelText).not.toContain(enText("microphoneTest.clipping"));
+	});
+});

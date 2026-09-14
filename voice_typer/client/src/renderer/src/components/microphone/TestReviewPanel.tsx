@@ -166,7 +166,9 @@ export function TestReviewPanel({
 	if (!testAudioBase64 && !rawAudioBase64) return null;
 
 	return (
-		<div className="mt-4 flex flex-col gap-3 rounded-lg border border-primary/20 bg-primary/5 p-4">
+		<div className="mt-4 flex flex-col gap-4 rounded-xl border border-border/10 bg-(--bg-subtle) p-4">
+			{/* Standard card surface (C-MIC-6): subtle bg + card border,
+			    no tint. Spacing is parent gap only (C-UI-10). */}
 			{/* Header */}
 			<div className="flex items-center justify-between">
 				{" "}
@@ -240,11 +242,10 @@ export function TestReviewPanel({
 							{t("microphoneTest.estimatedQuality")}
 						</span>
 						{/* HONEST-METRIC INVARIANT: without a loaded speech model the
-                                                transcription-quality estimate cannot be computed, showing a
-                                                numeric score would fabricate a result from absent data (the
-                                                old bug rendered a false "0%"). Render an explicit
-                                                not-applicable state instead; audio-derived metrics below stay
-                                                fully computed. */}
+                                                 transcription-quality estimate cannot be computed, showing a
+                                                 numeric score would fabricate a result from absent data (the
+                                                 old bug rendered a false "0%"). Render an explicit
+                                                 not-applicable state instead. */}
 						{transcriptionUnavailable ? (
 							<span className="text-sm font-bold text-(--text-muted)">
 								{t("microphoneTest.qualityFeedback.qualityNotApplicable")}
@@ -264,73 +265,12 @@ export function TestReviewPanel({
 						)}
 					</div>
 
-					{/* Detailed metrics */}
-					<div className="grid grid-cols-2 gap-2 text-xs">
-						<div>
-							<span className="text-(--text-muted)">
-								{t("microphoneTest.volume")}
-							</span>
-							<div className="flex items-center gap-2">
-								<span
-									className={`w-1.5 h-1.5 rounded-full ${
-										quality.volume_level === "good"
-											? "bg-success"
-											: "bg-warning"
-									}`}
-								/>
-								<span>
-									{quality.volume_level === "good"
-										? t("microphoneTest.good")
-										: quality.volume_level === "low"
-											? t("microphoneTest.low")
-											: t("microphoneTest.veryLow")}
-								</span>
-							</div>
-						</div>
-						<div>
-							<span className="text-(--text-muted)">
-								{t("microphoneTest.backgroundNoise")}
-							</span>
-							<div className="flex items-center gap-2">
-								<span
-									className={`w-1.5 h-1.5 rounded-full ${
-										quality.noise_level === "low"
-											? "bg-success"
-											: quality.noise_level === "moderate"
-												? "bg-warning"
-												: "bg-destructive"
-									}`}
-								/>
-								<span>
-									{quality.noise_level === "low"
-										? t("microphoneTest.lowNoise")
-										: quality.noise_level === "moderate"
-											? t("microphoneTest.moderateNoise")
-											: t("microphoneTest.highNoise")}
-								</span>
-							</div>
-						</div>
-						<div>
-							<span className="text-(--text-muted)">
-								{t("microphoneTest.clipping")}
-							</span>
-							<span className="ms-1">
-								{quality.has_clipping
-									? t("microphoneTest.clippingDetected")
-									: t("microphoneTest.clippingNone")}
-							</span>
-						</div>
-						<div>
-							<span className="text-(--text-muted)">
-								{t("microphoneTest.voice")}
-							</span>
-							<span className="ms-1">
-								{quality.has_voice
-									? t("microphoneTest.voiceDetected")
-									: t("microphoneTest.voiceNotDetected")}
-							</span>
-						</div>
-					</div>
+					{/* The per-metric grid (Volume / Noise / Clipping / Voice)
+					    was removed: every non-good metric state already
+					    surfaces as a detected issue below with an actionable
+					    recommendation, so the grid duplicated the issues list
+					    without adding information. The score row above + the
+					    issues list below are the complete verdict. */}
 
 					{/* Detected issues */}
 					{quality.detected_issues.length > 0 && (
@@ -370,7 +310,7 @@ export function TestReviewPanel({
                                                                                         active one (no-op CTA would be
                                                                                         misleading). */}
 										{recommendation && (
-											<div className="ms-3 flex flex-wrap items-center gap-2 rounded-md border-l-2 border-warning/40 bg-warning/5 px-2 py-1 text-(--text-muted)">
+											<div className="ms-4 flex flex-wrap items-center gap-2 text-(--text-muted)">
 												<span
 													className="text-[11px] leading-snug"
 													data-testid="issue-recommendation"
