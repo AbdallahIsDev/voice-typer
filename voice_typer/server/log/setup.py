@@ -1,0 +1,918 @@
+"""One-time logging setup, path helpers, migration, and retention sweep.
+
+Extracted from the original monolithic ``log/__init__.py``. Contains:
+
+- :data:`LOG_SUBDIR`, :func:`get_logs_dir`, :func:`get_log_file_path`
+- Legacy-log migration (``_maybe_migrate_legacy_logs``)
+- Session-start retention sweep (``_sweep_stale_logs``, Tiers 1+2)
+- Per-module level overrides (``_apply_per_module_log_levels``,
+  :func:`set_module_level`, :func:`get_module_levels`)
+- Third-party logger silencing (``_apply_third_party_logger_levels``)
+- :func:`setup_logging` — the one-time file + console configuration
+
+``setup_logging`` resolves :func:`_sweep_stale_logs` and
+:class:`~voice_typer.server.log.handlers._SecureTruncatingFileHandler`
+via the package object at call time so tests that
+``monkeypatch.setattr(voice_typer.server.log, ...)`` keep working after
+the split (C-ARCH-2 sibling-module late lookup).
+"""
+
+from __future__ import annotations
+
+import contextlib
+import logging
+import os
+import re
+import sys
+import time
+import uuid
+from pathlib import Path
+
+# Centralized log-retention constants.  Mirror the Rust-side
+# ``LOG_MAX_BYTES`` in ``src-tauri/src/util.rs``.
+# All Python logging handlers that write log files (the main
+# voice-typer.log, the prewarm.log, and the Electron-build log) MUST
+# import the size cap from here instead of inlining ``5 * 1024 * 1024``
+# so a future bump edits ONE file.  See
+# ``voice_typer/server/_log_constants.py`` for the three-tier rationale.
+#
+# Single-file policy: each log is a SINGLE file.  When it exceeds
+# ``LOG_MAX_BYTES`` (the Tier-3 mid-session hard ceiling) it is
+# truncated in place (emptied) and writing continues, numbered backups
+# (``.1``, ``.2``, ...) are NEVER created.  Tiers 1 (age) and 2 (size
+# fallback) run at session start via :func:`_sweep_stale_logs`.
+from voice_typer.server._log_constants import (
+    LOG_AGE_RETENTION_SECONDS,
+    LOG_MAX_BYTES,
+    LOG_SIZE_FALLBACK_BYTES,
+)
+from voice_typer.server.log import state as _state
+from voice_typer.server.log.formatters import (
+    _ColorFormatter,
+    _FileFormatter,
+    _JsonFormatter,
+)
+from voice_typer.server.log.handlers import (
+    _BubbleLevelExclusionFilter,
+    _FlushingStreamHandler,
+    _SessionFilter,
+)
+
+# Keep the historical logger name so ``caplog.at_level(...,
+# logger="voice_typer.server.log")`` still captures these diagnostics
+# after the module split.
+log = logging.getLogger("voice_typer.server.log")
+
+# All log files live under a ``logs/`` subdirectory of the config dir
+# (O1, the same directory the Rust host already uses for its rotating
+# ``voice-typer-rust.log`` and the host's stdout/stderr redirects).
+# ``get_logs_dir`` is the single source of truth so every writer (main
+# process, worker, crash buffer, startup-error diagnostic) agrees on
+# the location even if it ever changes.
+LOG_SUBDIR = "logs"
+
+# Legacy pre-O1 log files that once lived directly in the config dir.
+# ``_maybe_migrate_legacy_logs`` moves them into ``logs/`` on the first
+# launch of a version that writes to the new location.
+_LEGACY_LOG_NAMES: tuple[str, ...] = (
+    "voice-typer.log",
+    "prewarm.log",
+    "worker.log",
+    "startup-error.log",
+    "voice-typer-crash-buffer.log",
+)
+_LEGACY_LOG_GLOBS: tuple[str, ...] = (
+    "voice-typer.log.*",  # legacy main-process rotations
+    "prewarm.log.*",  # legacy prewarm rotations
+    "voice-typer-prewarm.log.*",  # legacy prewarm rotations (file no longer created)
+)
+
+
+def get_logs_dir(config_dir: Path) -> Path:
+    """Return the directory that holds all log files.
+
+    ``<config_dir>/logs``: shared by the Python processes (via
+    :func:`get_log_file_path`), the Rust host (``voice-typer-rust.log``,
+    see ``src-tauri/src/platform/logging.rs``), and the Electron /
+    Tauri stdout+stderr redirects. The directory may not exist yet —
+    :func:`setup_logging` creates it.
+    """
+    return Path(config_dir) / LOG_SUBDIR
+
+
+def _maybe_migrate_legacy_logs(config_dir: Path) -> None:
+    """Move pre-``logs/`` log files from the config-dir root into ``logs/``.
+
+    Before the O1 layout change every log file (``voice-typer.log``,
+    ``worker.log``, ``startup-error.log``, ``voice-typer-crash-buffer.log``
+    and their rotations) lived directly in ``config_dir``. This helper
+    moves any still-present legacy file into the canonical ``logs/``
+    subdirectory on the first launch of a version that writes there, so
+    a support engineer looking in ``logs/`` finds the full history.
+
+    Rules:
+    - Only moves when the destination does NOT exist (a fresh log
+      already written at the new location wins, never overwrite).
+    - NEVER moves the per-path inter-process rotation lock files
+      (``*.lock``), they are flock files tied to their exact path.
+    - Best-effort per file: a locked/read-only file (e.g. another
+      process still writing the old path) is skipped silently and a
+      later launch retries.
+
+    Called from :func:`setup_logging` after the ``logs/`` dir is
+    created and BEFORE the file handler is installed, so the first
+    record written by the new process lands in the migrated file.
+    """
+    try:
+        src_root = Path(config_dir)
+        dst_root = get_logs_dir(config_dir)
+        if not src_root.is_dir():
+            return
+        for name in _LEGACY_LOG_NAMES:
+            _maybe_move_legacy_log_file(src_root, dst_root, name)
+        for pattern in _LEGACY_LOG_GLOBS:
+            for src in src_root.glob(pattern):
+                if not src.is_file() or src.name.endswith(".lock"):
+                    continue
+                _maybe_move_legacy_log_file(src_root, dst_root, src.name)
+    except Exception as exc:  # noqa: BLE001, best-effort migration
+        log.debug("[LOG-SETUP] legacy log migration failed: %s", exc)
+
+
+def _maybe_move_legacy_log_file(src_root: Path, dst_root: Path, name: str) -> None:
+    """Move one legacy log file from ``src_root`` to ``dst_root`` if safe.
+
+    Best-effort, any error (locked file on Windows, read-only dir,
+    cross-device oddity) is swallowed; the file is simply left in
+    place and a later launch retries.
+    """
+    try:
+        src = src_root / name
+        dst = dst_root / name
+        if not src.is_file() or dst.exists():
+            return
+        dst_root.mkdir(parents=True, exist_ok=True)
+        os.replace(src, dst)
+        log.info("[LOG-SETUP] migrated legacy log file %s -> %s", src, dst)
+    except Exception as exc:  # noqa: BLE001, best-effort migration
+        log.debug("[LOG-SETUP] legacy log migration skipped %s: %s", name, exc)
+
+
+def _sweep_stale_logs(config_dir: Path) -> None:
+    """Delete stale log files at session start (Tiers 1 + 2).
+
+    Three-tier cleanup design: this function implements Tiers 1 and 2
+    (the session-start sweeps); Tier 3 (the mid-session hard ceiling)
+    lives in the ``_SecureTruncatingFileHandler`` rollover path:
+
+      * **Tier 1, age (primary):** any log file in ``logs/`` whose last
+        write is older than ``LOG_AGE_RETENTION_SECONDS`` (7 days) is
+        deleted. Bounds storage for low-traffic installs whose logs
+        would otherwise sit forever.
+
+      * **Tier 2, size fallback:** any log file larger than
+        ``LOG_SIZE_FALLBACK_BYTES`` (25 MB) is deleted even if freshly
+        written, covers a marathon session that pushed a log past the
+        fallback between startups. Checked ONLY here (session start),
+        never mid-session.
+
+    Runs at the TOP of :func:`setup_logging`: BEFORE the rotating file
+     handler opens ``voice-typer.log``, so the active file itself can be
+    deleted when stale/oversized and a fresh one is created for the new
+    session ("cleans everything up and starts fresh").
+
+    Scope: every regular file in ``logs/`` EXCEPT the inter-process
+    truncation lock files (``*.lock``), they must persist across setups
+    so the next process can acquire the flock. This covers Python-owned
+    logs (``voice-typer.log``, ``worker.log``, ``prewarm.log``,
+    ``startup-error.log``, ``voice-typer-crash-buffer.log``) AND the
+    host-owned logs (``electron-main.log``, ``electron-runtime.log``,
+    ``voice-typer-rust.log`` + rotations). Files locked by another live
+    process (e.g. the Electron host's logs in dev/Tauri mode, where the
+    host started first) fail the unlink, skipped silently; their owner
+    sweeps them at its own startup (mirrored in
+    ``client/src/main/logging/rotation.ts`` and
+    ``src-tauri/src/platform/logging.rs``).
+
+    Best-effort, any error is logged at DEBUG and swallowed so a single
+    unreadable file does not abort the sweep or ``setup_logging``.
+    Idempotent if called multiple times.
+    """
+    try:
+        root = get_logs_dir(config_dir)
+        if not root.is_dir():
+            return
+        now = time.time()
+        for f in root.iterdir():
+            # Skip directories and the inter-process truncation lock
+            # files (``*.log.lock``): see the docstring above.
+            if not f.is_file() or f.name.endswith(".lock"):
+                continue
+            try:
+                stat = f.stat()
+            except OSError:
+                continue
+            age = now - stat.st_mtime
+            oversized = stat.st_size > LOG_SIZE_FALLBACK_BYTES
+            if age <= LOG_AGE_RETENTION_SECONDS and not oversized:
+                continue
+            reason = f"age={age / 86400:.1f}d" if age > LOG_AGE_RETENTION_SECONDS else ""
+            if oversized:
+                size_mb = stat.st_size / (1024 * 1024)
+                reason = f"{reason}{'+' if reason else ''}size={size_mb:.1f}MB"
+            try:
+                f.unlink()
+                log.debug(
+                    "[LOG-SETUP] purged stale log %s (%s)",
+                    f.name,
+                    reason,
+                )
+            except OSError as exc:
+                # Locked by another live process (host-first launch
+                # order), its own startup sweep handles it.
+                log.debug(
+                    "[LOG-SETUP] failed to purge stale log %s: %s",
+                    f.name,
+                    exc,
+                )
+    except Exception as exc:  # noqa: BLE001, best-effort sweep
+        log.debug("[LOG-SETUP] stale-log sweep failed: %s", exc)
+
+
+def get_log_file_path(config_dir: Path | None = None, *, process_name: str = "main") -> Path:
+    """Return the absolute path to the log file for the given process.
+
+    used by agent 2-y for the in-app log viewer (``View Main
+    Log`` button alongside ``Open Log Folder``).  Centralising the
+    literal here means the viewer and ``setup_logging`` agree on the
+    filename even if it ever changes.
+
+    The ``process_name`` parameter routes each long-lived process to
+    its OWN file so concurrent writers never share a file descriptor
+    on the same file (which would race on the
+    :class:`_SecureTruncatingFileHandler`'s in-place truncation
+    rotation: see ``tests/test_log_multiprocess.py`` for
+    the failure mode).
+
+    Routing table:
+
+    - ``"main"`` (default) and any unrecognised value → ``voice-typer.log``
+    - ``"prewarm"`` → ``prewarm.log``
+    - ``"worker"`` → ``worker.log`` (the runtime-pack WebSocket worker
+      spawned by the Tauri host; without this case it would fall
+      through to ``voice-typer.log`` and race the slim-core sidecar's
+      rotation, the same race that motivated the ``prewarm`` case).
+
+    Parameters
+    ----------
+    config_dir:
+        Optional override (e.g. tests pointing at ``tmp_path``).  When
+        ``None``, the canonical config dir is resolved via
+        :func:`voice_typer.server._paths.config_dir` (lazy import to
+        avoid circular imports at module load time).
+    process_name:
+        ``"main"`` (default), ``"prewarm"``, or ``"worker"``. Controls
+        which log file is returned.  An unrecognised value falls back
+        to the main log path (defensive: see
+        ``test_get_log_file_path_unknown_process_name_falls_back_to_main``).
+
+    Returns
+    -------
+    Path
+        ``<config_dir>/logs/voice-typer.log`` / ``<config_dir>/logs/prewarm.log`` /
+        ``<config_dir>/logs/worker.log``.  The path may not yet exist on disk —
+        callers should check ``.exists()`` before opening.
+    """
+    if config_dir is None:
+        from voice_typer.server import _paths
+
+        config_dir = _paths.config_dir()
+    logs_dir = get_logs_dir(config_dir)
+    if process_name == "prewarm":
+        # Single-file policy: the prewarm process writes to ONE file —
+        # ``prewarm.log``.  There is no separate ``voice-typer-prewarm.log``.
+        return logs_dir / "prewarm.log"
+    if process_name == "worker":
+        # Single-file policy: the runtime-pack WebSocket worker
+        # (``voice_typer/worker/__main__.py``) writes to its OWN file
+        # so it never shares a file descriptor with the slim-core
+        # sidecar (``voice-typer.log``).  Concurrent writes by both
+        # processes to ``voice-typer.log`` would race on the
+        # ``_SecureTruncatingFileHandler``'s in-place truncation
+        # rotation (maxBytes=5 MiB, backupCount=0), exactly the race
+        # the ``prewarm`` case above was added to eliminate.  The
+        # worker calls ``setup_logging(config_dir, process_name="worker")``
+        # so this branch is exercised on every worker launch.
+        return logs_dir / "worker.log"
+    return logs_dir / "voice-typer.log"
+
+
+def _json_logging_enabled() -> bool:
+    """structured JSON logging is opt-in via ``VOICE_TYPER_LOG_JSON``.
+
+    Keeps the human-readable text format as the default so existing
+    operator workflows (grep, tail) are unaffected.
+    """
+    return os.environ.get("VOICE_TYPER_LOG_JSON", "").lower() in ("1", "true", "yes")
+
+
+# ── Per-module log levels ─────────────────────────────────────────────
+
+
+def _apply_per_module_log_levels() -> None:
+    """Apply per-module log level overrides from ``VOICE_TYPER_LOG_LEVEL_MODULES``.
+
+    Format::
+
+        VOICE_TYPER_LOG_LEVEL_MODULES="module.path=LEVEL,another.module=LEVEL"
+
+    where ``LEVEL`` is a ``logging`` level name (``DEBUG``, ``INFO``,
+    ``WARNING``, ``ERROR``, ``CRITICAL``).  Invalid entries are
+    skipped (best-effort) so a typo in one entry does not break
+    logging setup, but each skipped entry now logs a WARNING
+    so the operator can see *which* entry was ignored and why, a
+    silent skip was an operator trap (typo in the module path => no
+    DEBUG output => operator assumes the subsystem isn't logging when
+    in fact the override never applied).  Lets operators crank up
+    DEBUG on a single subsystem (e.g.
+    ``voice_typer.server.dictation_pipeline``) without enabling DEBUG
+    globally and flooding the rotating file with high-frequency events
+    from unrelated subsystems.
+
+    Successfully applied overrides are recorded in
+    :data:`_module_level_overrides` so :func:`get_module_levels` can
+    report the active per-module config .
+    """
+    raw = os.environ.get("VOICE_TYPER_LOG_LEVEL_MODULES", "")
+    if not raw:
+        return
+    # log to the voice_typer.server.log logger so the warning
+    # reaches the rotating file handler (setup_logging has already
+    # attached it by the time this runs).
+    setup_log = logging.getLogger("voice_typer.server.log")
+    for entry in raw.split(","):
+        entry = entry.strip()
+        if not entry:
+            continue
+        if "=" not in entry:
+            setup_log.warning(
+                "[LOG-SETUP] skipping invalid VOICE_TYPER_LOG_LEVEL_MODULES entry %r (reason: missing '=')",
+                entry,
+            )
+            continue
+        name, _, level_str = entry.partition("=")
+        name = name.strip()
+        level_str = level_str.strip().upper()
+        if not name or not level_str:
+            setup_log.warning(
+                "[LOG-SETUP] skipping invalid VOICE_TYPER_LOG_LEVEL_MODULES "
+                "entry %r (reason: empty module name or level)",
+                entry,
+            )
+            continue
+        level = getattr(logging, level_str, None)
+        if not isinstance(level, int):
+            setup_log.warning(
+                "[LOG-SETUP] skipping invalid VOICE_TYPER_LOG_LEVEL_MODULES "
+                "entry %r (reason: unknown level %r, expected DEBUG/INFO/WARNING/ERROR/CRITICAL)",
+                entry,
+                level_str,
+            )
+            continue
+        logging.getLogger(name).setLevel(level)
+        # record the override so get_module_levels can report it.
+        _state._module_level_overrides[name] = level_str
+        setup_log.info(
+            "[LOG-SETUP] set %s to %s",
+            name,
+            level_str,
+        )
+
+
+def set_module_level(name: str, level: str) -> None:
+    """Set a single logger's level at runtime .
+
+    Parameters
+    ----------
+    name:
+        Dotted logger name (e.g. ``"voice_typer.server.dictation_pipeline"``).
+    level:
+        Level name (``"DEBUG"``, ``"INFO"``, ``"WARNING"``, ``"ERROR"``,
+        ``"CRITICAL"``), case-insensitive.  Invalid names raise
+        :class:`ValueError`.
+
+    Notes
+    -----
+    Mirrors what :func:`_apply_per_module_log_levels` does for the
+    ``VOICE_TYPER_LOG_LEVEL_MODULES`` env var, but exposes a public
+    API so the renderer / a future CLI / a debug overlay can change
+    a subsystem's level without restarting the sidecar.  Emits an
+    INFO log line so the change is visible in the rotating file (audit
+    trail).  The override is recorded in :data:`_module_level_overrides`
+    and is queryable via :func:`get_module_levels`.
+    """
+    if not name or not isinstance(name, str):
+        raise ValueError(f"set_module_level: name must be a non-empty string, got {name!r}")
+    level_str = (level or "").strip().upper()
+    resolved = getattr(logging, level_str, None) if level_str else None
+    if not isinstance(resolved, int):
+        raise ValueError(
+            f"set_module_level: unknown level {level!r} for module {name!r} "
+            "(expected DEBUG/INFO/WARNING/ERROR/CRITICAL)"
+        )
+    logging.getLogger(name).setLevel(resolved)
+    _state._module_level_overrides[name] = level_str
+    logging.getLogger("voice_typer.server.log").info(
+        "[LOG-SETUP] set %s to %s (runtime override)",
+        name,
+        level_str,
+    )
+
+
+def get_module_levels() -> dict[str, str]:
+    """Return a snapshot of explicitly-set per-module level overrides .
+
+    Returns a fresh dict (mutating the return value does not affect
+    internal state).  Includes overrides applied by the
+    ``VOICE_TYPER_LOG_LEVEL_MODULES`` env var at startup AND by
+    subsequent :func:`set_module_level` calls.  Values are level
+    *names* (``"DEBUG"`` ...) so the dict is JSON-serialisable for IPC.
+    """
+    return dict(_state._module_level_overrides)
+
+
+def _ensure_last_resort_redacted(pii_filter: logging.Filter) -> None:
+    """Ensure the global ``lastResort`` handler carries ``PIIRedactionFilter``.
+
+    Third-party loggers (``keyring``, ``urllib3``, ``websockets``)
+    propagate to the root logger; when the root logger has no handlers
+    the ``lastResort`` ``_StderrHandler`` fires.  Without
+    ``PIIRedactionFilter`` attached, any secret those libraries log
+    (e.g. a buggy keyring backend logging the secret value) bypasses
+    the redaction pipeline and lands in stderr verbatim.  Attach the
+    filter idempotently so repeated ``setup_logging`` calls do not
+    double-attach.
+    """
+    last_resort = getattr(logging, "lastResort", None)
+    if last_resort is None:
+        return
+    # Idempotent: skip if a PIIRedactionFilter of the same class is
+    # already attached.
+    # use ``isinstance(f, type(pii_filter))`` instead of the
+    # string-based ``type(f).__name__ == "PIIRedactionFilter"`` check.
+    # The string check is brittle: a future subclass, rename, or
+    # monkeypatch (e.g. a test double named differently but inheriting
+    # from ``PIIRedactionFilter``) would silently bypass the idempotency
+    # guard and double-attach. The isinstance check is type-safe and
+    # survives subclassing.
+    if any(isinstance(f, type(pii_filter)) for f in last_resort.filters):
+        return
+    last_resort.addFilter(pii_filter)
+
+
+# Third-party loggers the app depends on (directly or transitively)
+# that are known to emit chatty DEBUG/INFO records (HTTP connection
+# logs, WebSocket lifecycle chatter, keyring backend noise, model-load
+# progress). Each is pinned to WARNING so external-library noise never
+# floods the rotating file while genuine WARNING+ diagnostics still
+# propagate to the app's handlers. Extra names are harmless —
+# ``logging.getLogger`` creates the logger on first access even when
+# the library is not installed (or is only a transitive dependency).
+_THIRD_PARTY_LOGGER_LEVELS: dict[str, int] = {
+    "urllib3": logging.WARNING,
+    "urllib3.connectionpool": logging.WARNING,
+    "requests": logging.WARNING,
+    "httpx": logging.WARNING,
+    "httpcore": logging.WARNING,
+    "websockets": logging.WARNING,
+    "keyring": logging.WARNING,
+    "sounddevice": logging.WARNING,
+    "PIL": logging.WARNING,
+    "numpy": logging.WARNING,
+    "torch": logging.WARNING,
+    "onnxruntime": logging.WARNING,
+    "faster_whisper": logging.WARNING,
+    "ctranslate2": logging.WARNING,
+    "huggingface_hub": logging.WARNING,
+    "transformers": logging.WARNING,
+    "pystray": logging.WARNING,
+    "asyncio": logging.WARNING,
+}
+
+
+def _apply_third_party_logger_levels() -> None:
+    """Pin every logger in :data:`_THIRD_PARTY_LOGGER_LEVELS` to WARNING.
+
+    Runs at the top level of :func:`setup_logging`. NOT nested under
+    the ``if sys.stderr is not None`` stream-handler block where the
+    old hardcoded ``transformers`` / ``torch`` / ``huggingface_hub``
+    silencing lived. pythonw.exe runs with ``sys.stderr is None``, so
+    the old placement silently skipped the silencing on the frozen-exe
+    path. Clears any handlers a library attached to its own logger and
+    re-enables propagation so records fall through to the app's
+    handlers at WARNING+.
+    """
+    for name, level in _THIRD_PARTY_LOGGER_LEVELS.items():
+        lib_logger = logging.getLogger(name)
+        lib_logger.setLevel(level)
+        lib_logger.handlers.clear()
+        lib_logger.propagate = True
+
+
+# ── One-time setup ────────────────────────────────────────────────────
+
+
+def setup_logging(
+    config_dir: Path,
+    *,
+    debug: bool = False,
+    quiet: bool = False,
+    port_mode: bool = False,
+    process_name: str = "main",
+) -> str:
+    """Configure Voice Typer logging, rotating file + optional coloured console.
+
+    Call this **once** at process startup, before any subsystem logs.
+    It is safe to call multiple times (subsequent calls are idempotent).
+
+    Parameters
+    ----------
+    config_dir:
+        Directory where the rotating log file will be created.
+    debug:
+        If ``True``, the stderr handler AND the rotating file handler
+        emit DEBUG-level messages .  When ``False`` both
+        handlers sit at INFO so production runs do not churn through
+        5 MiB x 5 of DEBUG noise.
+    quiet:
+        If ``True``, the file handler is set to WARNING level
+        (reduces telemetry noise for enterprise deployments).
+    port_mode:
+        Accepted for backwards compatibility. NO LONGER forces coloured
+        stderr output: ANSI colours are gated on
+        ``sys.stderr.isatty()`` so ``--port`` runs whose stderr is
+        redirected to a file (the Electron launcher's
+        ``electron-stderr.log``) stay plain and grep-friendly, while a
+        terminal ``--port`` run still gets colours (a terminal IS a
+        TTY, so the old ``or port_mode`` was redundant for the case it
+        was designed for).
+    process_name:
+        Routes the rotating file handler to a per-process file so
+        concurrent processes don't race on the same file.  ``"main"``
+        (default) → ``voice-typer.log``; ``"prewarm"`` → ``prewarm.log``;
+        ``"worker"`` → ``worker.log``.  The runtime-pack worker
+        (``voice_typer/worker/__main__.py``) passes ``"worker"`` so it
+        doesn't share a file descriptor with the slim-core sidecar
+        (both writing to ``voice-typer.log`` would race on the
+        ``_SecureTruncatingFileHandler``'s in-place truncation
+        rotation).  An unrecognised value falls back to
+        ``voice-typer.log``.
+
+    Returns
+    -------
+    The 8-character hex session ID for this process.
+    """
+    # C-ARCH-2: resolve patchable collaborators via the public package
+    # object at call time so ``monkeypatch.setattr(voice_typer.server
+    # .log, "_sweep_stale_logs" | "_SecureTruncatingFileHandler", ...)``
+    # remains effective after the package split.
+    import voice_typer.server.log as _log_pkg
+
+    # tighten the process umask to 0o077 while creating log
+    # files so they are world-unreadable on POSIX even if the parent dir
+    # perms are loose.  ``mkdir`` + ``RotatingFileHandler`` consult the
+    # umask when computing the on-disk mode, so 0o077 yields 0o700 dirs
+    # and 0o600 files.  Restored in ``finally`` so the umask change
+    # does not leak to subprocesses spawned after setup_logging returns.
+    _old_umask = os.umask(0o077)
+    try:
+        # ── 1. Redirect stdio for pythonw.exe ──────────────────────
+        if sys.stderr is None:
+            sys.stderr = open(os.devnull, "w", encoding="utf-8", errors="replace")  # noqa: SIM115, must outlive setup_logging()
+            _state._devnull_files.append(sys.stderr)
+        if sys.stdout is None:
+            sys.stdout = open(os.devnull, "w", encoding="utf-8", errors="replace")  # noqa: SIM115, must outlive setup_logging()
+            _state._devnull_files.append(sys.stdout)
+        if sys.stdin is None:
+            sys.stdin = open(os.devnull, encoding="utf-8")  # noqa: SIM115, must outlive setup_logging()
+            _state._devnull_files.append(sys.stdin)
+
+        # ── 2. Generate session ID ─────────────────────────────────────
+        # When spawned by the Rust Tauri host, accept the host's
+        # per-process session ID (passed via VOICE_TYPER_SESSION_ID) so
+        # the Rust + Python log streams share a join key. Validate it's
+        # 8-char lowercase hex (the same shape the host generates); a
+        # malformed/absent value falls back to generating our own.
+        _host_session_id = os.environ.get("VOICE_TYPER_SESSION_ID", "")
+        if _host_session_id and re.fullmatch(r"[0-9a-f]{8}", _host_session_id):
+            _session_id = _host_session_id
+        else:
+            _session_id = uuid.uuid4().hex[:8]
+        # Canonical store is the package attribute (tests snapshot/
+        # restore ``voice_typer.server.log._session_id``).
+        _log_pkg.__dict__["_session_id"] = _session_id
+
+        # ── 3. Rotating file handler  ────────────────────────
+        config_dir.mkdir(parents=True, exist_ok=True)
+        # lock down the config dir itself so co-located users
+        # cannot ``cat`` the log file even if the per-file chmod is missed
+        # (defence in depth, both this and the per-file chmod below are
+        # best-effort on Windows where POSIX perms do not apply).
+        if os.name == "posix":
+            with contextlib.suppress(OSError):
+                os.chmod(config_dir, 0o700)
+        # ── 3b. Logs subdirectory ────────────────────────────────
+        # All log files (main / prewarm / worker / crash buffer /
+        # startup-error) live under ``<config_dir>/logs/``, the same
+        # directory the Rust host already uses. Create it with the same
+        # 0o700 hardening as the config dir, then migrate any legacy
+        # pre-``logs/`` files from the config-dir root so the history
+        # is preserved in one place.
+        logs_dir = get_logs_dir(config_dir)
+        logs_dir.mkdir(parents=True, exist_ok=True)
+        if os.name == "posix":
+            with contextlib.suppress(OSError):
+                os.chmod(logs_dir, 0o700)
+        _maybe_migrate_legacy_logs(config_dir)
+        # ── 3c. Stale-log sweep (Tiers 1 + 2) ─────────────────────
+        # MUST run BEFORE the file handler below opens
+        # ``voice-typer.log``, on Windows an open handle blocks the
+        # unlink, so sweeping first lets the active file itself be
+        # deleted when stale/oversized and a fresh one created for
+        # this session. Best-effort; see ``_sweep_stale_logs``.
+        # Late package lookup keeps the monkeypatch seam.
+        _log_pkg._sweep_stale_logs(config_dir)
+        # Single-file policy: process_name routes each long-lived
+        # process to its OWN file so concurrent writers never share a
+        # file descriptor on the same file (the rotation race covered
+        # by ``tests/test_log_multiprocess.py``).
+        # ``"main"`` → ``voice-typer.log``; ``"prewarm"`` →
+        # ``prewarm.log``; ``"worker"`` → ``worker.log``; any other
+        # value falls back to ``voice-typer.log``.
+        log_file = get_log_file_path(config_dir, process_name=process_name)
+
+        # structured JSON logging is opt-in via VOICE_TYPER_LOG_JSON.
+        # When enabled, the file (and console, below) use _JsonFormatter so
+        # aggregation tools get one JSON object per line.  The PIIRedactionFilter
+        # still runs first (attached below), so JSON output is redacted exactly
+        # like the text output.  Human-readable text remains the default.
+        json_mode = _json_logging_enabled()
+        _file_formatter = _JsonFormatter() if json_mode else _FileFormatter()
+
+        # use ``errors='backslashreplace'`` so Unicode
+        # characters that can't be encoded in the system locale (cp1252
+        # on Windows, e.g. → → right arrow) are escaped as \\uXXXX
+        # instead of being silently replaced with the � replacement
+        # character.  Without this, valuable diagnostic symbols like
+        # arrows, em-dashes, and smart quotes become unreadable trash
+        # in the log file.
+        # Late package lookup keeps the monkeypatch seam
+        # (``tests/test_log_retention_sweep.py`` substitutes a spy subclass).
+        handler = _log_pkg._SecureTruncatingFileHandler(
+            log_file,
+            # Single-file policy: ZERO backups.  When the file exceeds
+            # the Tier-3 mid-session hard ceiling (``LOG_MAX_BYTES``,
+            # 40 MB) it is truncated IN PLACE (emptied) and writing
+            # continues to the same file, numbered backups
+            # (``voice-typer.log.1`` ...) are never created.  The
+            # ceiling is deliberately far above the Tier-2 size
+            # fallback (25 MB, session-start delete) so normal
+            # multi-day usage never truncates mid-session.
+            maxBytes=LOG_MAX_BYTES,
+            backupCount=0,
+            encoding="utf-8",
+            errors="backslashreplace",
+        )
+        # lock down the log file itself (0o600, only the
+        # owning user can read dictated-text previews, exception
+        # tracebacks, and hotkey registrations).  Best-effort on POSIX;
+        # silently no-op on Windows where the umask already enforced
+        # 0o600 at creation time via the ``os.umask(0o077)`` above.
+        # post-rotation re-chmod is handled by
+        # ``_SecureTruncatingFileHandler.doRollover`` so the privacy
+        # guarantee survives log rotation (which happens AFTER
+        # setup_logging returns and the umask is restored).
+        if os.name == "posix":
+            with contextlib.suppress(OSError):
+                os.chmod(log_file, 0o600)
+        # gate the file handler on the ``debug`` flag so
+        # production runs do not churn through 5 MiB × 5 of DEBUG noise.
+        # Root stays at DEBUG so child loggers can still emit DEBUG
+        # records when ``VOICE_TYPER_DEBUG=1`` is set, the handler
+        # filter is what actually drops them at INFO level.
+        # gate the file handler on ``debug`` AND ``quiet`` so
+        # the handler level matches the root logger level set below.
+        # Pre-fix ``quiet=True`` raised the root to WARNING but
+        # left the file handler at INFO, the handler still wanted INFO
+        # records but the root logger filtered them out before they
+        # reached any handler, so the effective file verbosity did not
+        # match the ``quiet`` contract. Now ``quiet=True`` lowers the
+        # file handler to WARNING too, matching the root logger.
+        handler.setLevel(logging.WARNING if quiet else (logging.DEBUG if debug else logging.INFO))
+        # ADR-0020 §11: keep high-frequency ``bubble_level`` events out of
+        # the rotating file log. They are ~60 Hz RMS/peak pushes (ADR-0020
+        # §9 coalesces to ≤30 Hz on the host) and carry no diagnostic
+        # value in the file, they only exist for the live waveform bubble.
+        # The console/stderr path is unchanged. The filter drops any record
+        # whose message mentions "bubble_level" (the exact marker used by
+        # IPCServer._send's high-frequency drop log and the bubble event
+        # type), so the file stays small and readable.
+        handler.addFilter(_BubbleLevelExclusionFilter())
+        handler.setFormatter(_file_formatter)
+
+        # PII / API-key redaction, imported lazily to avoid circular imports
+        # and to keep the security module's import order clean.
+        # The filter is attached
+        # to each HANDLER (file + stderr), NOT to the ``voice_typer`` root
+        # logger. Python's logging semantics: handler filters fire for
+        # EVERY record that reaches the handler (regardless of which
+        # logger it was logged to), so attaching at the handler level is
+        # sufficient AND avoids a redundant double-scan for records
+        # logged directly to ``voice_typer``. The SAME instance is
+        # attached to both sinks below, per-handler double invocation is
+        # neutralised by the idempotence guard at the top of
+        # ``PIIRedactionFilter.filter`` (an already-redacted record is
+        # accepted without re-running the scan), so no second attachment
+        # is removed. See the comment
+        # block below the handler-installation block for the full
+        # rationale.
+        from voice_typer.server.security import PIIRedactionFilter as _PIIRedactionFilter
+
+        _pii_filter = _PIIRedactionFilter()
+        handler.addFilter(_pii_filter)
+        # Attach ``_SessionFilter`` to the file handler
+        # too, not just the ``voice_typer`` logger, so the session_id is
+        # injected for records logged to *child* loggers (e.g.
+        # ``voice_typer.server.app``) which do NOT trigger the parent
+        # logger's filters per Python's logging semantics (``callHandlers``
+        # invokes handler filters, not ancestor-logger filters).  The
+        # filter is idempotent (``hasattr`` guard), so double-filtering a
+        # record that already hit the logger-level filter is harmless.
+        _session_filter = _SessionFilter()
+        handler.addFilter(_session_filter)
+
+        root = logging.getLogger("voice_typer")
+        # Avoid duplicate handlers if setup is called multiple times.
+        # dedup on the ``_SecureTruncatingFileHandler`` subclass
+        # (not the parent ``RotatingFileHandler``) so a future caller
+        # that installs a stock ``RotatingFileHandler`` (e.g. a test
+        # helper) is NOT mistaken for the secure handler, the secure
+        # handler is always re-installed in that case so the perms and
+        # inter-process lock guarantees are preserved.
+        #
+        # pre-fix, the dedup check SILENTLY DROPPED the new
+        # handler when one was already installed. A second
+        # ``setup_logging(config_dir, debug=False)`` call (after an
+        # initial ``debug=True``) constructed a new handler with the
+        # new WARNING level but then threw it away, the existing
+        # DEBUG-level handler stayed attached, so the operator's
+        # toggle had NO effect (despite the function returning a new
+        # ``session_id`` suggesting re-init succeeded). Post-fix, the
+        # existing handler's level + formatter are UPDATED IN PLACE
+        # to match the new configuration before the dedup check
+        # decides whether to add the new handler. Filters (PII /
+        # session / bubble) are not re-attached, they're already on
+        # the existing handler from the first call.
+        _new_file_level = handler.level
+        _new_file_formatter = handler.formatter
+        for _existing in root.handlers:
+            if isinstance(_existing, _log_pkg._SecureTruncatingFileHandler):
+                _existing.setLevel(_new_file_level)
+                if _new_file_formatter is not None:
+                    _existing.setFormatter(_new_file_formatter)
+        if not any(isinstance(h, _log_pkg._SecureTruncatingFileHandler) for h in root.handlers):
+            root.addHandler(handler)
+        # PII + session filters are attached to each HANDLER
+        # (file + stderr) above, NOT to the ``voice_typer`` root logger.
+        # Python's logging semantics: handler filters fire for EVERY
+        # record that reaches the handler (regardless of which logger
+        # it was logged to), so attaching them at the handler level is
+        # sufficient AND avoids a redundant double-scan for records
+        # logged directly to ``voice_typer`` (which would otherwise
+        # trigger the filter once at the logger level and again at the
+        # handler level). The previous dual attachment was intentional
+        # but the handler-only path covers child-logger records too --
+        # ``callHandlers`` walks ancestor loggers but invokes handler
+        # filters, not ancestor-LOGGER filters.
+
+        root.setLevel(logging.DEBUG)
+
+        # quiet mode for enterprise deployments
+        if quiet:
+            root.setLevel(logging.WARNING)
+
+        # Per-module log level overrides (env: VOICE_TYPER_LOG_LEVEL_MODULES).
+        # Applied AFTER root level set so they take precedence over the root
+        # default, operators can crank DEBUG on a single subsystem without
+        # enabling DEBUG globally.
+        _apply_per_module_log_levels()
+
+        # Silence noisy third-party loggers (urllib3 / websockets /
+        # keyring / torch / huggingface_hub / ...). Runs at the top
+        # level so it applies even when ``sys.stderr`` is None
+        # (pythonw.exe frozen-exe path), the previous placement
+        # nested this under the stream-handler block, silently
+        # skipping it on that path.
+        _apply_third_party_logger_levels()
+
+        # Ensure the global ``lastResort`` handler also
+        # carries PIIRedactionFilter so third-party loggers (keyring,
+        # urllib3, websockets) that bypass voice_typer's handlers do not
+        # leak secrets via the fallback stderr path.
+        _ensure_last_resort_redacted(_pii_filter)
+
+        # ── 4. Fix stderr encoding + flushing for Unicode ──────────────
+        # ``line_buffering=True`` flushes on every newline, so each log
+        # line reaches the OS immediately (no "cut logs / stale lines at
+        # exit").  NOTE: do NOT use ``write_through=True`` here, on a
+        # Windows console handle ``TextIOWrapper.write()`` internally
+        # flushes, and that internal flush raises ``ERROR_INVALID_FUNCTION``
+        # (WinError 1) even though the data was written.  That raise would
+        # surface as a spurious "console degraded" diagnostic on every
+        # launch.  ``line_buffering`` gives real-time output without the
+        # raise.  ``errors=`` keeps the Windows console from dying on
+        # non-encodable Unicode.
+        if sys.stderr is not None and hasattr(sys.stderr, "reconfigure"):
+            with contextlib.suppress(OSError):
+                sys.stderr.reconfigure(errors="backslashreplace", line_buffering=True)
+        if sys.stdout is not None and hasattr(sys.stdout, "reconfigure"):
+            with contextlib.suppress(OSError):
+                sys.stdout.reconfigure(errors="backslashreplace", line_buffering=True)
+
+        # ── 5. Stderr stream handler ─────────────────────────────────────
+        # always flush after each emit so terminal log lines appear
+        # in real-time.  The bare logging.StreamHandler only flushes on
+        # close (or when its internal buffer hits a high-water mark), so
+        # startup logs from a standalone VoiceTyper run could sit in the
+        # buffer for seconds before being flushed, making the app look
+        # like it's hanging silently.  _FlushingStreamHandler.emit() calls
+        # self.flush() after every record.
+        #
+        # ALWAYS attach a stderr stream handler (with PII filter,
+        # INFO level), not only when stderr is a TTY or --port mode is
+        # active.  Under Tauri sidecar, sys.stderr is a pipe (not a TTY)
+        # and --port is not in sys.argv, so the legacy ``do_color`` gate
+        # attached NO stream handler.  All INFO/DEBUG records went only
+        # to the RotatingFileHandler; if the config dir was read-only /
+        # disk full / perm wrong, the file write failed silently via
+        # ``handleError`` and the record was lost.  Python's
+        # ``lastResort`` only fires when NO handlers are configured —
+        # here the file handler IS configured (just failing), so
+        # lastResort never triggered, leaving ZERO log signal of the
+        # failure.  Attaching a stderr handler guarantees the record
+        # reaches *some* sink even when the file write fails.
+        # Colors follow the STREAM, not the launch mode. The legacy
+        # ``or port_mode`` forced ANSI escapes whenever ``--port`` was in
+        # argv, and the Electron TCP path (``python -m ipc_server
+        # --port N`` with stderr redirected to electron-stderr.log) IS
+        # such a run, so every backend line landed in the log file with
+        # raw escape codes. Colors now require a real TTY: redirected
+        # output (launcher log files, pipes, CI) stays plain while
+        # terminal runs keep the palette.
+        do_color = bool(sys.stderr is not None and sys.stderr.isatty())
+        if sys.stderr is not None:
+            stream = _FlushingStreamHandler()
+            stream.setLevel(logging.DEBUG if debug else logging.INFO)
+            if do_color:
+                # in JSON mode the console also emits structured
+                # records (no ANSI colouring. JSON consumers parse the
+                # line, not the rendering).  The PII filter still runs
+                # below, so console JSON output is redacted too.
+                stream.setFormatter(_JsonFormatter() if json_mode else _ColorFormatter())
+            else:
+                # Non-TTY (Tauri sidecar, piped stderr, log redirection):
+                # plain-text format (no ANSI escapes) so the lines stay
+                # readable when piped through ``less`` / ``grep`` / a
+                # log shipper.  JSON mode still uses _JsonFormatter for
+                # structured consumers.
+                stream.setFormatter(_JsonFormatter() if json_mode else _FileFormatter())
+            # attach the same PII / API-key redaction filter to the
+            # console handler so secrets don't leak to the terminal either.
+            stream.addFilter(_pii_filter)
+            # Same reasoning as the file handler, attach
+            # ``_SessionFilter`` to the stream handler too so console output
+            # also carries the session_id bracket for records from child
+            # loggers.
+            stream.addFilter(_SessionFilter())
+            # Avoid duplicate StreamHandlers if setup is called multiple times.
+            # Use _FlushingStreamHandler as the dedup key so legacy tests that
+            # check for "any StreamHandler" (isinstance check below) still pass.
+            #
+            # mirror the file-handler in-place update, if a
+            # ``_FlushingStreamHandler`` is already attached, update its
+            # level + formatter to match the new ``debug``/``quiet``/
+            # ``json_mode`` configuration instead of silently dropping
+            # the new handler (which left the old level in effect).
+            _new_stream_level = stream.level
+            _new_stream_formatter = stream.formatter
+            for _existing in root.handlers:
+                if isinstance(_existing, _FlushingStreamHandler):
+                    _existing.setLevel(_new_stream_level)
+                    if _new_stream_formatter is not None:
+                        _existing.setFormatter(_new_stream_formatter)
+            if not any(isinstance(h, _FlushingStreamHandler) for h in root.handlers):
+                root.addHandler(stream)
+
+        return _session_id
+    finally:
+        os.umask(_old_umask)

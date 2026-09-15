@@ -172,6 +172,32 @@ class _RecoveryIO:
                 # the prior failure behavior.
                 self._loaded = True
 
+    def _apply_owner_only_acl(self, path) -> None:
+        """Best-effort Windows owner-only ACL on a recovery file.
+
+        ``recovery.json`` (and its quarantine siblings) hold
+        transcription text (PII). On Windows they inherit the config
+        dir's DACL; a shared custom ``VOICE_TYPER_CONFIG_DIR`` would
+        leave them readable by other local users. Mirror the
+        ``config.json`` lockdown via
+        :func:`~voice_typer.server.config._enforce_windows_owner_only_acl`.
+
+        No-op on non-Windows (POSIX uses ``os.chmod(0o600)`` /
+        ``_secure_atomic_write``'s 0o600). Never raises: this is
+        defense-in-depth on an already-written file; a failure must
+        not break the save or quarantine path (especially during
+        interpreter shutdown, when the import machinery may be
+        partially dismantled).
+        """
+        if not _facade.is_windows():
+            return
+        try:
+            from voice_typer.server.config import _enforce_windows_owner_only_acl
+
+            _enforce_windows_owner_only_acl(path)
+        except Exception as exc:
+            log.debug("[RECOVERY] ACL enforcement skipped for %s: %s", path, exc)
+
     def _quarantine_corrupt(self) -> None:
         """Move the corrupt recovery file to ``<path>.corrupt.<ts>-<pid>-<ns>``.
 
@@ -223,6 +249,11 @@ class _RecoveryIO:
             ns = (time.time_ns() % 1_000_000 + next(_QUARANTINE_SUFFIX_SEQ)) % 1_000_000
             corrupt_path = self._path.with_name(f"{self._path.name}.corrupt.{ts}-{pid}-{ns}")
             os.replace(str(self._path), str(corrupt_path))
+            # Windows: the quarantine destination is a fresh path; on
+            # Windows os.replace preserves the source's DACL but a
+            # shared parent dir still leaves the file group/world-
+            # readable. Tighten after the move (POSIX keeps 0o600).
+            self._apply_owner_only_acl(corrupt_path)
             log.warning(
                 "[RECOVERY] Quarantined corrupt recovery file: %s -> %s",
                 self._path.name,
@@ -374,6 +405,11 @@ class _RecoveryIO:
                     # ``crash_recovery._secure_atomic_write`` visible,
                     # exactly as when this code lived in one module.
                     _facade._secure_atomic_write(self._path, snapshot, durability=durability)
+                    # Windows: recovery.json holds transcription text
+                    # (PII); tighten the ACL so a shared config dir
+                    # cannot expose it to other local users. Mirrors
+                    # the config.json lockdown in config/_saving.py.
+                    self._apply_owner_only_acl(self._path)
                     # When called from the atexit path
                     # (``set_final_save_done=True``), set the flag
                     # INSIDE ``_save_lock`` after the successful write
