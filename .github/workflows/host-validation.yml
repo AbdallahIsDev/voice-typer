@@ -71,7 +71,7 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Set up Python 3.12
         uses: actions/setup-python@v7
@@ -150,7 +150,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { Write-Error "pytest subset failed"; exit 1 }
 
       - name: Upload windows evidence
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: host-validation-windows
           path: host-validation/evidence/
@@ -162,7 +162,7 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Set up Python 3.12
         uses: actions/setup-python@v7
@@ -291,7 +291,7 @@ jobs:
           python3 -m pytest tests/test_clipboard_borrow_restore.py tests/test_clipboard_snapshot.py tests/tauri/test_macos_bundle_preflight.py tests/test_clipboard_macos_capture.py tests/test_sidecar_ws_ready_ordering.py -q --no-cov --tb=short 2>&1 | tee host-validation/evidence/macos-pytest.txt
 
       - name: Upload macos evidence
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: host-validation-macos
           path: host-validation/evidence/
@@ -303,7 +303,7 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Set up Python 3.12
         uses: actions/setup-python@v7
@@ -348,7 +348,7 @@ jobs:
           python3 -m pytest tests/test_clipboard_restore_args.py tests/test_clipboard_borrow_restore.py tests/test_sidecar_ws_ready_ordering.py tests/test_timeout_utils.py -q --no-cov --tb=short 2>&1 | tee host-validation/evidence/linux-pytest.txt
 
       - name: Upload linux evidence
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: host-validation-linux
           path: host-validation/evidence/
@@ -361,7 +361,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Download all evidence
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v8
         with:
           path: host-validation/all-evidence
 
