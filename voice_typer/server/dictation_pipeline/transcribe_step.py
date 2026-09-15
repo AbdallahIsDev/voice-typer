@@ -155,7 +155,7 @@ class _TranscribeStepMixin:
             if app is not None:
                 app._shared_resources_check_ts = new_ts
         except Exception:
-            pass
+            log.debug("[PIPELINE] failed to persist shared resources-check timestamp", exc_info=True)
 
     def _check_resources(self) -> None:
         """Pre-flight health check before transcription.
@@ -265,12 +265,14 @@ class _TranscribeStepMixin:
 
                     _audio_backup = self._audio.copy() if isinstance(self._audio, _np.ndarray) else self._audio
                 except Exception:
+                    log.debug("[STREAMING] audio backup before finalize failed", exc_info=True)
                     _audio_backup = None
                 text: str = session.finalize(self._audio)
                 if not text and active is not None and backend_was_loaded and _audio_backup is not None:
                     try:
                         _audio_len = len(_audio_backup)
                     except Exception:
+                        log.debug("[STREAMING] len(audio backup) failed", exc_info=True)
                         _audio_len = 0
                     _audio_captured = self._recorded_rms >= 0.005
                     if _audio_len > 0 and _audio_captured:

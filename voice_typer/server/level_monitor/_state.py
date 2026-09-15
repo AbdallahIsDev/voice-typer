@@ -245,8 +245,18 @@ class _State:
         # ``_level_worker_wake_event.set()`` so stop latency is
         # unaffected; the timeout only governs the "missed wakeup"
         # recovery interval (a rare edge case). 250 ms cuts idle
-        # wakeups 5× with no functional change.
+        # wakeups 5× with no functional change. Shared by BOTH the
+        # level worker and the mic_level publish worker so a lost
+        # stream doesn't leave a 1 Hz orphan wakeup behind.
         self._LEVEL_WORKER_BACKSTOP_TIMEOUT_SEC: float = 0.25
+
+        # Optional central ThreadRegistry for shutdown coordination.
+        # Installed via ``set_thread_registry`` (mirrors the buffer-clear
+        # worker pattern in ``recording/buffer.py``). When set, both
+        # worker threads register on spawn and unregister on stop so
+        # ``shutdown_all()`` can join them even if the level_monitor
+        # teardown step is skipped under a shutdown deadline.
+        self._thread_registry: Any | None = None
 
     def reset_for_tests(self) -> None:
         """Reset all mutable state to its post-``__init__`` defaults.

@@ -7,8 +7,8 @@ can import them without circular dependencies.
 
 Contents:
   * ``_EMPTY_SEGMENTS`` / ``_NO_TRANSCRIPT_CONFIDENCE``, module-level
-    sentinels consumed by the vocabulary-automation analyzer step
-    (see ``enhancement_steps._analyze_vocabulary``).
+    immutable sentinels consumed by the vocabulary-automation analyzer
+    step (see ``enhancement_steps._analyze_vocabulary``).
   * ``BackendNotLoadedError``: distinct error raised by
     ``transcribe_step._transcribe`` when the active ASR backend is
     not loaded at transcribe time. Subclass of ``RuntimeError`` so
@@ -45,13 +45,17 @@ from typing import Any
 # vocabulary-automation analyzer degrade-gracefully defaults
 # used when the transcription engine did not produce per-segment or
 # per-word confidence data (e.g. faster-whisper's avg_logprob
-# surface). These are module-level sentinels (NOT instance
-# attributes), the previous ``getattr(self, "_segments", None) or []``
+# surface). ``_EMPTY_SEGMENTS`` is an immutable empty tuple (E8/P3:
+# never a shared mutable empty-list sentinel). The analyzer only
+# reads/iterates the sequence; a tuple is equivalent at the call site
+# and cannot be mutated by a caller. These are module-level sentinels
+# (NOT instance attributes), the previous
+# ``getattr(self, "_segments", None) or []``
 # + ``getattr(self, "_confidence", 0.9)`` accidentally fabricated
 # a confident empty segment list, which made the analyzer treat
 # every word as high-confidence. Now the analyzer sees honest
 # empty data and degrades gracefully.
-_EMPTY_SEGMENTS: list = []
+_EMPTY_SEGMENTS: tuple = ()
 _NO_TRANSCRIPT_CONFIDENCE: float = 0.0
 
 log = logging.getLogger(__name__)

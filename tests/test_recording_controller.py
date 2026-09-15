@@ -230,9 +230,9 @@ class TestLifecycleLockSerialization:
         critical section, the other must block (not enter concurrently).
 
         We assert serialization directly: the first thread holds the
-        lock inside ``_stop_impl`` (blocked on a release-event), and we
-        verify a second ``stop()`` call cannot proceed until the first
-        releases.
+        lock inside ``RecordingLifecycle._stop_impl`` (blocked on a
+        release-event), and we verify a second ``stop()`` call cannot
+        proceed until the first releases.
         """
         import threading
         from unittest.mock import MagicMock
@@ -265,7 +265,7 @@ class TestLifecycleLockSerialization:
         enter_count = [0]
         enter_lock = threading.Lock()
 
-        def blocking_stop_impl():
+        def blocking_stop_impl(controller):
             with enter_lock:
                 enter_count[0] += 1
             entered_event.set()
@@ -274,7 +274,9 @@ class TestLifecycleLockSerialization:
             # mis-implemented (plain Lock with no acquisition, etc.).
             release_event.wait(timeout=2.0)
 
-        ctrl._stop_impl = blocking_stop_impl
+        # Patch the lifecycle's _stop_impl (the real owner after MO-7).
+        # Access ``_lifecycle`` first to trigger lazy construction.
+        ctrl._lifecycle._stop_impl = blocking_stop_impl
 
         # First stopper thread: enters _stop_impl, blocks holding lock.
         t1 = threading.Thread(target=ctrl.stop, name="stopper-1")

@@ -17,6 +17,8 @@ pattern already used in :mod:`voice_typer.server.recording`:
   ``toggle`` / ``_toggle_impl`` / ``start`` / ``_start_impl`` /
   ``stop`` / ``_stop_impl`` / ``_stop_and_transcribe_worker_entry`` /
   ``_run_stop_and_transcribe`` / ``cancel`` / ``_cancel_impl``.
+  The private ``_*_impl`` hop-back delegators were removed (MO-7):
+  lifecycle methods call their own impls directly.
 - :class:`voice_typer.server.transcription_watchdog.TranscriptionWatchdog`
  , ``_start_watchdog_thread`` / ``_watchdog_loop`` / ``_reset_watchdog``
   / ``_stop_watchdog_thread`` / ``_force_recover_from_stuck_transcription``
@@ -384,52 +386,30 @@ class RecordingController:
                 log.exception("[STREAMING] Failed to cancel streaming session")
 
     # ── Lifecycle (delegators → RecordingLifecycle) ────────────────────
+    #
+    # The public entry points (``toggle`` / ``start`` / ``stop`` /
+    # ``cancel``) are thin 1-line delegators to the lifecycle helper.
+    # The private ``_*_impl`` hop-back delegators were removed (MO-7):
+    # lifecycle methods now call their own impls directly
+    # (``lifecycle.toggle → lifecycle._toggle_impl``), no bounce through
+    # the controller. Tests that need to intercept the impls patch
+    # ``RecordingLifecycle`` methods on ``controller._lifecycle``.
 
     def toggle(self) -> None:
         """1-line delegator → :meth:`RecordingLifecycle.toggle`."""
         return self._lifecycle.toggle(self)
 
-    def _toggle_impl(self) -> None:
-        """1-line delegator → :meth:`RecordingLifecycle._toggle_impl`."""
-        return self._lifecycle._toggle_impl(self)
-
     def start(self) -> None:
         """1-line delegator → :meth:`RecordingLifecycle.start`."""
         return self._lifecycle.start(self)
-
-    def _start_impl(self) -> None:
-        """1-line delegator → :meth:`RecordingLifecycle._start_impl`."""
-        return self._lifecycle._start_impl(self)
 
     def stop(self) -> None:
         """1-line delegator → :meth:`RecordingLifecycle.stop`."""
         return self._lifecycle.stop(self)
 
-    def _stop_impl(self) -> None:
-        """1-line delegator → :meth:`RecordingLifecycle._stop_impl`."""
-        return self._lifecycle._stop_impl(self)
-
-    def _stop_and_transcribe_worker_entry(self, cycle_id: str) -> None:
-        """1-line delegator → :meth:`RecordingLifecycle._stop_and_transcribe_worker_entry`.
-
-        On ``recorder.stop()`` failure, the helper calls
-        ``app.tray.notify_safety(APP_NAME, i18n.t("notify.recording_controller.stop_failed"))``
-        so the critical-notification bypass behavior is
-        preserved verbatim.
-        """
-        return self._lifecycle._stop_and_transcribe_worker_entry(self, cycle_id)
-
-    def _run_stop_and_transcribe(self, audio, cycle_id: str) -> None:
-        """1-line delegator → :meth:`RecordingLifecycle._run_stop_and_transcribe`."""
-        return self._lifecycle._run_stop_and_transcribe(self, audio, cycle_id)
-
     def cancel(self) -> None:
         """1-line delegator → :meth:`RecordingLifecycle.cancel`."""
         return self._lifecycle.cancel(self)
-
-    def _cancel_impl(self) -> None:
-        """1-line delegator → :meth:`RecordingLifecycle._cancel_impl`."""
-        return self._lifecycle._cancel_impl(self)
 
     # ── Watchdog + cancelled-cycle registry (delegators → ──────────────
     # TranscriptionWatchdog) ────────────────────────────────────────────

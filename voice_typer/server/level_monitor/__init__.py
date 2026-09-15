@@ -145,10 +145,13 @@ from .test_recording import (  # noqa: E402
     update_test_filters,
 )
 from .worker import (  # noqa: E402
+    LEVEL_WORKER_NAME,
+    MIC_LEVEL_WORKER_NAME,
     _ensure_level_worker_running,  # noqa: F401
     _level_worker_loop,  # noqa: F401
     _process_level_chunk,  # noqa: F401
     _stop_level_worker,  # noqa: F401
+    set_thread_registry,
 )
 
 __all__ = [
@@ -166,6 +169,10 @@ __all__ = [
     "update_test_filters",
     "cancel_test_recording",
     "read_test_recording_slice",
+    # ThreadRegistry wiring (app construction / tests)
+    "set_thread_registry",
+    "LEVEL_WORKER_NAME",
+    "MIC_LEVEL_WORKER_NAME",
     # Re-exported module proxies / loggers (backward-compat)
     "log",
     "np",

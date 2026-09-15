@@ -201,7 +201,7 @@ class TestStartWiring:
         # observe the start-time call here).
         app.recorder._devices._mic_watcher.reset_mock()
 
-        ctrl._start_impl()
+        ctrl._lifecycle._start_impl(ctrl)
 
         app.recorder._devices._mic_watcher.set_active_mic_id.assert_called_once_with("7")
 
@@ -230,7 +230,7 @@ class TestStartWiring:
 
         app.recorder._devices._mic_watcher.set_active_mic_id.side_effect = _record_set_active
 
-        ctrl._start_impl()
+        ctrl._lifecycle._start_impl(ctrl)
 
         assert call_order[0] == "recorder.start", (
             "DJ-65: recorder.start() must be called BEFORE "
@@ -280,7 +280,7 @@ class TestStopUnwiring:
 
         dp_module.DictationPipeline = FakePipeline
         try:
-            ctrl._stop_impl()
+            ctrl._lifecycle._stop_impl(ctrl)
         finally:
             dp_module.DictationPipeline = original_pipeline
 
@@ -341,7 +341,7 @@ class TestStopUnwiring:
 
         dp_module.DictationPipeline = FakePipeline
         try:
-            ctrl._stop_impl()
+            ctrl._lifecycle._stop_impl(ctrl)
         finally:
             dp_module.DictationPipeline = original_pipeline
 
@@ -373,7 +373,7 @@ class TestCancelUnwiring:
         app.recorder.recording = True
         app.recorder._devices._mic_watcher.reset_mock()
 
-        ctrl._cancel_impl()
+        ctrl._lifecycle._cancel_impl(ctrl)
 
         app.recorder._devices._mic_watcher.set_active_mic_id.assert_called_once_with(None)
 

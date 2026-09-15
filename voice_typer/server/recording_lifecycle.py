@@ -18,15 +18,10 @@ method takes a back-reference to the owning ``RecordingController``
 
 The public lifecycle methods (``toggle`` / ``start`` / ``stop`` /
 ``cancel``) acquire ``controller._toggle_lock`` (an RLock) and then
-call the controller's ``_toggle_impl`` / ``_start_impl`` /
-``_stop_impl`` / ``_cancel_impl`` (which are themselves 1-line
-delegators back to this helper). The re-entrant hop
-``lifecycle.toggle → controller._toggle_impl → lifecycle._toggle_impl``
-preserves the existing test contract: tests that monkeypatch
-``ctrl._stop_impl`` / ``ctrl._toggle_impl`` (etc.) still see their
-mock invoked, because ``lifecycle.stop`` calls
-``controller._stop_impl()`` (the controller's method, possibly
-monkeypatched), not ``self._stop_impl()`` (the helper's method).
+call their own ``_toggle_impl`` / ``_start_impl`` / ``_stop_impl`` /
+``_cancel_impl`` directly. There is no hop back through the
+controller: production flow is
+``lifecycle.toggle → lifecycle._toggle_impl``.
 
 Originally lines 469–1500 of ``recording_controller.py``.
 """
@@ -199,19 +194,18 @@ class RecordingLifecycle:
           and act immediately instead of blocking for the whole join
           window (up to 2.0 s on the cold-model start path).
 
-        Re-entrancy: the hop ``toggle() -> controller._toggle_impl() ->
-        app._start_dictation() -> controller.start()`` re-enters this
-        method on the SAME thread while the outer ``toggle()`` entry still
-        holds the lock. The per-thread marker
-        (``self._public_entry_depth``) makes the inner entry skip its own
-        join, the outermost entry performs it after releasing the lock.
-        Pre-fix, ``_start_impl`` manually ``release()``d the lock around
-        the join; on the user-facing double-acquisition path the manual
-        release only dropped the RLock count 2 -> 1, so the thread still
-        OWNED the lock through the join and concurrent stop/cancel
-        blocked for up to 2.0 s. Centralising the join here removes the
-        manual release entirely (single acquisition, no recursion-count
-        arithmetic to get wrong).
+        Re-entrancy: the path ``toggle() -> _toggle_impl ->
+        app._start_dictation() -> start()`` re-enters this method on the
+        SAME thread while the outer ``toggle()`` entry still holds the
+        lock. The per-thread marker (``self._public_entry_depth``) makes
+        the inner entry skip its own join, the outermost entry performs
+        it after releasing the lock. Pre-fix, ``_start_impl`` manually
+        ``release()``d the lock around the join; on the user-facing
+        double-acquisition path the manual release only dropped the RLock
+        count 2 -> 1, so the thread still OWNED the lock through the join
+        and concurrent stop/cancel blocked for up to 2.0 s. Centralising
+        the join here removes the manual release entirely (single
+        acquisition, no recursion-count arithmetic to get wrong).
 
         A join is performed only for a worker spawned by THIS entry
         (identity compared against ``controller._start_worker_thread``
@@ -250,7 +244,7 @@ class RecordingLifecycle:
         lock is released so a concurrent ``stop()`` / ``cancel()"
         (auto-stop timer, ESC hotkey) never waits behind the join.
         """
-        self._run_public_entry(controller, controller._toggle_impl)
+        self._run_public_entry(controller, lambda: self._toggle_impl(controller))
 
     def _toggle_impl(self, controller) -> None:
         """Inner toggle implementation, called under _toggle_lock."""
@@ -378,63 +372,53 @@ class RecordingLifecycle:
         ``_run_public_entry`` detects that hop so the bounded worker join
         runs only at the outermost entry, outside the lock.
         """
-        self._run_public_entry(controller, controller._start_impl)
+        self._run_public_entry(controller, lambda: self._start_impl(controller))
 
-    def _start_impl(self, controller) -> None:
-        """Inner start implementation, called under _toggle_lock."""
-        app = controller._app
-        # Reset the published join timeout to the default BEFORE any of
-        # the steps below can raise: if an exception fires between
-        # ``worker.start()`` and the adaptive publish late in this method,
-        # the except path swallows it and returns normally, so
-        # ``_run_public_entry`` still performs the bounded join of the
-        # just-started worker: without this reset it would join with the
-        # PREVIOUS cycle's timeout (up to 2.0 s on the cold-model path),
-        # stalling this public entry.
-        controller._start_worker_join_timeout = _DEFAULT_START_JOIN_TIMEOUT_S
-        if app.recorder.recording:
-            log.info("[DICTATION] _start_dictation: already recording, no-op")
-            return
+    # ── Start-step helpers (extracted from ``_start_impl``) ────────────
 
-        # Enforce voice_biometric_consent before capturing any audio. The
-        # config field and Electron UI toggle existed previously, but the
-        # audio pipeline never checked the flag: meaning the consent was
-        # a UI decoration with zero enforcement. Now we refuse to start
-        # recording if the user has not explicitly consented to voice
-        # biometric processing.
-        #
-        # This is a GDPR Art. 9 requirement for processing biometric data
-        # (voice is biometric). The default is False, the user MUST opt
-        # in via the Settings UI before any recording happens.
+    def _gate_voice_biometric_consent(self, app) -> bool:
+        """Enforce voice_biometric_consent before capturing any audio.
+
+        Returns True when start may proceed, False when the caller must
+        return without recording (consent refused, or the consent check
+        itself failed and we fail CLOSED per GDPR Art. 9).
+
+        The config field and Electron UI toggle existed previously, but
+        the audio pipeline never checked the flag: meaning the consent
+        was a UI decoration with zero enforcement. The default is False,
+        the user MUST opt in via the Settings UI before any recording
+        happens.
+        """
         try:
-            if not getattr(app.config, "voice_biometric_consent", False):
-                log.warning(
-                    "[DICTATION] Refusing to start recording - voice_biometric_consent "
-                    "is False. User must enable it in Settings > Privacy."
-                )
-                try:
-                    app.tray.set_state(AppState.ERROR, i18n.t("state.recording_controller.consent_required"))
-                    # Prefer the CLICKABLE host toast (click → Settings
-                    # → exact Voice Biometric row); fall back to the
-                    # non-clickable pystray balloon when no host
-                    # transport is live.
-                    if not _notify_consent_gate(
+            if getattr(app.config, "voice_biometric_consent", False):
+                return True
+            log.warning(
+                "[DICTATION] Refusing to start recording - voice_biometric_consent "
+                "is False. User must enable it in Settings > Privacy."
+            )
+            try:
+                app.tray.set_state(AppState.ERROR, i18n.t("state.recording_controller.consent_required"))
+                # Prefer the CLICKABLE host toast (click → Settings
+                # → exact Voice Biometric row); fall back to the
+                # non-clickable pystray balloon when no host
+                # transport is live.
+                if not _notify_consent_gate(
+                    APP_NAME,
+                    i18n.t("notify.recording_controller.consent_required"),
+                ):
+                    app.tray.notify_safety(
                         APP_NAME,
                         i18n.t("notify.recording_controller.consent_required"),
-                    ):
-                        app.tray.notify_safety(
-                            APP_NAME,
-                            i18n.t("notify.recording_controller.consent_required"),
-                        )
-                except Exception:
-                    log.debug("[DICTATION] failed to notify about missing consent", exc_info=True)
-                # Publish the ``consent_required`` push event so the
-                # renderer surfaces the in-app consent prompt + Settings
-                # deep-link (the tray notification alone is invisible for
-                # renderer-triggered dictation, the IPC returned ``ack``
-                # with no feedback).
-                _publish_consent_required_event()
-                return
+                    )
+            except Exception:
+                log.debug("[DICTATION] failed to notify about missing consent", exc_info=True)
+            # Publish the ``consent_required`` push event so the
+            # renderer surfaces the in-app consent prompt + Settings
+            # deep-link (the tray notification alone is invisible for
+            # renderer-triggered dictation, the IPC returned ``ack``
+            # with no feedback).
+            _publish_consent_required_event()
+            return False
         except Exception:
             # GDPR Art. 9: if we cannot verify voice_biometric_consent
             # (e.g. corrupted config read), fail CLOSED, refuse to
@@ -468,6 +452,325 @@ class RecordingLifecycle:
             # , a corrupt-config fail-CLOSED refusal deserves the same
             # in-app feedback.
             _publish_consent_required_event()
+            return False
+
+    def _wire_recorder_start_callbacks(self, controller, app) -> None:
+        """Wire recorder callbacks + pre-start cleanup before open.
+
+        H12: silence detection callbacks, mic-permission-revoked, RMS
+        levels, audio-quality reset, and stopping the level_monitor's
+        PortAudio InputStream BEFORE opening the Recorder's stream.
+        Without the level-monitor guard, both streams run concurrently
+        (Linux/macOS doubles audio-path CPU; Windows MME device-conflict
+        fails the second open).
+        """
+        app.recorder.on_silence_warning = controller.on_silence_warning
+        app.recorder.on_silence_auto_stop = controller.on_silence_auto_stop
+        app.recorder.on_max_duration_auto_stop = controller.on_max_duration_auto_stop
+        # Wire the microphone-permission-revoked callback so the
+        # device_health_checker_loop can surface a distinct
+        # ``notify.recording_controller.mic_permission_revoked``
+        # notification (and IPC event) when the OS revokes mic
+        # access mid-recording, instead of falling through to the
+        # misleading "silence detected" auto-stop after 30-60 s of
+        # zero-filled buffers.
+        # ``getattr``-guarded so older Recorder test doubles that
+        # don't accept the attribute still work.
+        with contextlib.suppress(Exception):
+            app.recorder.on_microphone_permission_revoked = controller.on_microphone_permission_revoked
+
+        # Waveform bubble: feed RMS levels from the audio callback
+        app.recorder.on_rms_level = controller.on_recorder_rms
+
+        # Reset audio-quality analyzer accumulators so per-chunk
+        # statistics don't carry over from the previous session.
+        try:
+            app._audio_quality.reset()
+        except Exception:
+            log.debug("[AUDIO_QUALITY] reset on start failed", exc_info=True)
+
+        controller._stop_level_monitor_for_recorder_start()
+
+    def _notify_mic_watcher_of_active_device(self, app) -> None:
+        """Tell the mic watcher which mic_id we're recording from.
+
+        The OS-event-driven active-mic-lost check can then fire on the
+        next device-list change. Best-effort: a missing/None mic_watcher
+        (platform without OS watcher) is silently skipped.
+        """
+        with contextlib.suppress(Exception):
+            mic_watcher = getattr(getattr(app.recorder, "_devices", None), "_mic_watcher", None)
+            if mic_watcher is not None:
+                # The resolved device index (or None for default) is
+                # the active mic_id the watcher will look for.
+                resolved = getattr(app.recorder, "_effective_device", None)
+                if resolved is None:
+                    resolved = app.recorder._devices._resolve_device()
+                mic_watcher.set_active_mic_id(resolved)
+
+    def _claim_keyboard_ownership_for_recording(self, app) -> None:
+        """Mark the recording subsystem as the keyboard owner.
+
+        The ESC cancel hotkey will fire normally during a recording
+        (it's the only way to cancel). When recording stops, ownership
+        returns to "normal".
+        """
+        try:
+            keyboard_ownership().set_owner("recording", reason=f"recording started (cycle={app._cycle_id})")
+        except Exception:
+            log.debug(
+                "[DICTATION] failed to set keyboard ownership on start",
+                exc_info=True,
+            )
+
+    def _rearm_esc_cancel_if_enabled(self, app) -> None:
+        """ESC-CANCEL-WATCHDOG: re-arm a dead/stale ESC backend on start.
+
+        The ESC-to-cancel hotkey is the ONLY way to abort an in-progress
+        recording, so if its backend died (silent startup-registration
+        failure, native binary crash, or a multi-instance hook-chain
+        collapse) the user would be unable to cancel, exactly the
+        reported "Escape does nothing" symptom. Re-arm it on every
+        recording start so a dead/stale ESC backend can never leave the
+        user trapped in a recording.
+        """
+        try:
+            if getattr(app.config, "esc_cancel_enabled", False):
+                esc_backend = getattr(app.hotkeys, "_esc_backend", None)
+                if esc_backend is None or not esc_backend.is_alive():
+                    log.warning(
+                        "[DICTATION] ESC cancel backend missing/dead at recording start (backend=%r), re-registering",
+                        type(esc_backend).__name__ if esc_backend else "None",
+                    )
+                    app.hotkeys.register_esc()
+        except Exception:
+            log.warning(
+                "[DICTATION] failed to re-arm ESC cancel hotkey on start",
+                exc_info=True,
+            )
+
+    def _publish_recording_started_event(self) -> None:
+        """Emit ``recording_started`` push so the renderer can refresh UI.
+
+        Log push failures instead of silently swallowing them: a failed
+        push means the renderer never hears about ``recording_started``,
+        so the sound cue won't play and the user gets no audible
+        feedback. This must be visible.
+        """
+        try:
+            event_bus.publish({"type": "recording_started"})
+        except Exception:
+            log.warning(
+                "[SOUND] failed to push recording_started event",
+                exc_info=True,
+            )
+
+    def _spawn_dictation_start_worker(self, controller, app) -> None:
+        """Spawn the DictationStart daemon worker + publish adaptive join timeout.
+
+        Load / reload the active engine AFTER ``recorder.start()`` so
+        the recorder buffers audio while the model reloads (5-30s
+        on idle-unload). Pre-fix this ran before ``recorder.start()``
+        and the first 5-30s of speech was lost. The transcription
+        thread (started in ``_stop_impl``) transcribes the buffered
+        audio once the model is ready. If the model fails to load,
+        the worker discards the recorder and surfaces an error.
+
+        The model load + post-load steps (active_transcriber check,
+        fallback_to_whisper, _start_streaming_session_if_enabled)
+        run on a DAEMON WORKER THREAD so the F2 hotkey backend's
+        single dispatch thread is NOT blocked for 5-30s on the
+        idle-unload reload path. Pre-fix, the lock was released
+        for the duration of ``ensure_active_engine_loaded()`` so
+        concurrent stop/cancel could proceed, but the F2 thread
+        itself still blocked for 5-30s: meaning:
+          - The F2 hotkey backend's dispatch thread was occupied
+            and could not process a second F2 press (e.g. to stop
+            the recording the user just started).
+          - On hotkey backends with a single dispatch thread
+            (pynput), ALL hotkeys were blocked for 5-30s —
+            including ESC cancel.
+        The F2 thread now spawns the worker and returns after a
+        bounded ``join(timeout=0.1)``: fast enough for tests
+        with mocked models (the worker completes in <1ms), slow
+        enough to not block the dispatch thread in production
+        (5-30s idle-unload reload). The worker is a daemon so it
+        doesn't block process exit.
+
+        The worker runs WITHOUT ``_toggle_lock``: the public entry
+        (``toggle`` / ``start`` via ``_run_public_entry``) releases
+        the lock BEFORE the bounded join, so neither the worker NOR
+        the join holds it. The worker doesn't need the lock
+        because:
+        1. ``ensure_active_engine_loaded()`` has its own internal
+           lock (``_lazy_init_lock`` in ``ModelManager``).
+        2. The post-load re-check reads atomic state
+           (``recorder.recording``, ``_busy_event.is_set()``).
+        3. ``_start_streaming_session_if_enabled()`` uses
+           ``_streaming_session_lock`` for its own serialization.
+        The ``_busy_event`` is NOT cleared by ``_start_impl``
+        (``_stop_impl`` clears it), so a concurrent ``stop()``
+        that acquires the lock after the public entry releases it
+        would see ``busy_event.is_set() == True`` (not busy) and
+        proceed, the desired behavior (the user explicitly
+        stopped, so the buffered audio should be transcribed as
+        soon as the model finishes loading).
+
+        The worker signals ``_start_complete_event`` in its
+        finally block so tests that need to assert model-loaded
+        state can wait on the event.
+        """
+        start_complete_event = threading.Event()
+        # Publish on the controller so tests can wait on it
+        # (``controller._start_complete_event.wait(timeout=...)``).
+        # A fresh Event is created per ``_start_impl`` call; the
+        # previous event (if any) is replaced. The previous worker
+        # still holds a reference to the old event and signals it
+        # , the old event is garbage-collected after the worker
+        # finishes.
+        controller._start_complete_event = start_complete_event
+        worker = threading.Thread(
+            target=controller._lifecycle._start_dictation_worker_entry,
+            args=(controller, app._cycle_id, start_complete_event),
+            name="DictationStart",
+            daemon=True,
+        )
+        # Store on controller so tests / watchdog can inspect / join.
+        controller._start_worker_thread = worker
+        worker.start()
+        # Bounded wait for the worker to make progress. The timeout
+        # is ADAPTIVE based on whether the model was already loaded
+        # at ``_start_impl`` entry:
+        #
+        # * Model already loaded (common case): ``ensure_active_engine_loaded()``
+        #   is a no-op → the worker finishes in <1ms → a short 0.1s
+        #   timeout is plenty AND keeps the F2 dispatch thread
+        #   sub-100ms (the desired responsiveness goal).
+        # * Model NOT loaded (idle-unload reload / model-fail path):
+        #   ``ensure_active_engine_loaded()`` may reload the model
+        #   (5-30s in production) → a short timeout would always
+        #   expire. We use a longer 2.0s timeout so that tests
+        #   which exercise the model-fail path
+        #   (``test_start_dictation_fails_gracefully_if_model_still_unavailable``)
+        #   observe the discard/recording-reset side effects before
+        #   the assertion. In production, the 2.0s join expires and
+        #   the F2 thread returns while the worker continues —
+        #   still a ~15x improvement over the pre-fix 5-30s block.
+        #
+        # NOTE: the adaptive check runs AFTER ``worker.start()`` (same
+        # order as the pre-extraction body). The worker's own re-check
+        # after the load is the authoritative one.
+        _pre_load_active = app.models.active_transcriber()
+        _pre_load_model_loaded = _pre_load_active is not None and getattr(_pre_load_active, "is_loaded", False)
+        _join_timeout = _DEFAULT_START_JOIN_TIMEOUT_S if _pre_load_model_loaded else 2.0
+        # Publish the join timeout next to the worker thread so the
+        # PUBLIC entry (``toggle`` / ``start`` via ``_run_public_entry``)
+        # can perform the bounded join AFTER releasing ``_toggle_lock``.
+        # Pre-fix the join ran HERE behind a manual
+        # ``release()``/``acquire()`` pair, on the user-facing
+        # double-acquisition path (``toggle() -> start()``) the manual
+        # release only dropped the RLock count 2 -> 1, so the thread
+        # still owned the lock through the join and a concurrent
+        # ``stop()`` / ``cancel()`` (auto-stop timer, ESC hotkey)
+        # blocked for the whole join window (up to 2.0 s cold).
+        controller._start_worker_join_timeout = _join_timeout
+
+    def _teardown_failed_recorder_start(
+        self,
+        controller,
+        app,
+        *,
+        restart_level_monitor: bool,
+        discard_log_label: str,
+    ) -> None:
+        """Release the recorder/streaming state after a failed start.
+
+        Shared by the ``_start_impl`` except path and the DictationStart
+        worker except path. ``restart_level_monitor`` is True only on the
+        hotkey-thread start failure (the start path stopped the monitor
+        before ``recorder.start()``; without a restart the level bar
+        flatlines until the next toggle). The worker path leaves the
+        monitor alone (the hotkey-thread path already owns that).
+        """
+        controller._cancel_streaming_session()
+        # If ``recorder.start()`` succeeded but a later step raised, the
+        # PortAudio input stream is left open, call ``discard()``
+        # best-effort to release it so we don't leak the mic. Guarded so
+        # a second failure during teardown doesn't mask the original
+        # exception in the log.
+        try:
+            app.recorder.discard()
+        except Exception:
+            log.debug(
+                "[DICTATION] recorder.discard() during %s raised (best-effort cleanup)",
+                discard_log_label,
+                exc_info=True,
+            )
+        # Force-reset the recording flag so the next ``start()`` call
+        # doesn't no-op on a stale ``recording==True``. ``discard()``
+        # normally does this, but we set it explicitly here so the
+        # invariant holds even if ``discard()`` raised (the best-effort
+        # guard above) or if a subclass overrode ``discard()`` to skip
+        # the flag reset.
+        app.recorder.recording = False
+        if restart_level_monitor:
+            # Best-effort, mirroring the stop paths.
+            controller._maybe_restart_level_monitor_for_always_visible_bubble(app)
+
+    def _publish_start_failure_notification(self, app, exc: BaseException) -> None:
+        """Surface a start failure in tray / toast / push / idle-timer.
+
+        Shared by the ``_start_impl`` except path and the DictationStart
+        worker except path. Typed failures (permission denied / no input
+        device) map to a specific reason; raw exception text stays out of
+        the tray (paths, device names, hostnames).
+        """
+        _start_fail_msg = _recording_start_failure_message(exc)
+        app.tray.set_state(AppState.ERROR, _start_fail_msg)
+        # Notification mirrors the tooltip: for typed failures the
+        # reason IS the actionable message (permission / no device);
+        # for unknown failures keep the "check the log" guidance.
+        # Raw exception text never reaches the user (paths, device
+        # names, hostnames), the full traceback is logged by the caller.
+        if _start_fail_msg != i18n.t("state.recording_controller.recording_failed"):
+            app.tray.notify(
+                APP_NAME,
+                i18n.t("notify.recording_controller.start_failed_with_reason", reason=_start_fail_msg),
+            )
+        else:
+            app.tray.notify(
+                APP_NAME,
+                i18n.t("notify.recording_controller.start_failed"),
+            )
+        with contextlib.suppress(Exception):
+            event_bus.publish(
+                {"type": "error", "data": {"message": "Could not start recording", "kind": "recording_start"}}
+            )
+        app._schedule_timer(3.0, lambda: app.tray.set_state(AppState.IDLE))
+
+    def _start_impl(self, controller) -> None:
+        """Inner start implementation, called under _toggle_lock.
+
+        Ordered steps (helpers below keep this method reviewable):
+        join-timeout reset → already-recording no-op → consent gate →
+        timers/model prep → open recorder → publish UI/ownership →
+        spawn DictationStart worker → failure teardown on exception.
+        """
+        app = controller._app
+        # Reset the published join timeout to the default BEFORE any of
+        # the steps below can raise: if an exception fires between
+        # ``worker.start()`` and the adaptive publish late in this method,
+        # the except path swallows it and returns normally, so
+        # ``_run_public_entry`` still performs the bounded join of the
+        # just-started worker: without this reset it would join with the
+        # PREVIOUS cycle's timeout (up to 2.0 s on the cold-model path),
+        # stalling this public entry.
+        controller._start_worker_join_timeout = _DEFAULT_START_JOIN_TIMEOUT_S
+        if app.recorder.recording:
+            log.info("[DICTATION] _start_dictation: already recording, no-op")
+            return
+
+        if not self._gate_voice_biometric_consent(app):
             return
 
         # Cancel any stale pending timers from previous sessions
@@ -483,63 +786,21 @@ class RecordingLifecycle:
             log.exception("[DICTATION] Failed to apply pending model change; continuing")
 
         # ``ensure_active_engine_loaded()`` is deferred to AFTER
-        # ``recorder.start()`` (see below). Pre-fix, it ran BEFORE
-        # ``recorder.start()`` and blocked the F2 hotkey thread for 5-30s
-        # when the idle-unload timer had fired, the first 5-30s of speech
-        # was lost because audio was not being captured during the reload.
-        # Now the recorder buffers audio while the model reloads inline;
-        # the transcription thread (started in ``_stop_impl``)
-        # transcribes the buffered audio once the model is ready.
+        # ``recorder.start()`` (see ``_spawn_dictation_start_worker``).
+        # Pre-fix, it ran BEFORE ``recorder.start()`` and blocked the F2
+        # hotkey thread for 5-30s when the idle-unload timer had fired,
+        # the first 5-30s of speech was lost because audio was not being
+        # captured during the reload. Now the recorder buffers audio
+        # while the model reloads inline; the transcription thread
+        # (started in ``_stop_impl``) transcribes the buffered audio
+        # once the model is ready.
 
         log.info("[DICTATION] Starting recording... (cycle=%s)", app._cycle_id)
         try:
-            # H12: Wire silence detection callbacks
-            app.recorder.on_silence_warning = controller.on_silence_warning
-            app.recorder.on_silence_auto_stop = controller.on_silence_auto_stop
-            app.recorder.on_max_duration_auto_stop = controller.on_max_duration_auto_stop
-            # Wire the microphone-permission-revoked callback so the
-            # device_health_checker_loop can surface a distinct
-            # ``notify.recording_controller.mic_permission_revoked``
-            # notification (and IPC event) when the OS revokes mic
-            # access mid-recording, instead of falling through to the
-            # misleading "silence detected" auto-stop after 30-60 s of
-            # zero-filled buffers.
-            # ``getattr``-guarded so older Recorder test doubles that
-            # don't accept the attribute still work.
-            with contextlib.suppress(Exception):
-                app.recorder.on_microphone_permission_revoked = controller.on_microphone_permission_revoked
-
-            # Waveform bubble: feed RMS levels from the audio callback
-            app.recorder.on_rms_level = controller.on_recorder_rms
-
-            # Reset audio-quality analyzer accumulators so per-chunk
-            # statistics don't carry over from the previous session.
-            try:
-                app._audio_quality.reset()
-            except Exception:
-                log.debug("[AUDIO_QUALITY] reset on start failed", exc_info=True)
-
-            # Stop the level_monitor's PortAudio InputStream BEFORE
-            # opening the Recorder's stream. Without this guard, both
-            # streams run concurrently (Linux/macOS doubles audio-path
-            # CPU; Windows MME device-conflict fails the second open).
-            controller._stop_level_monitor_for_recorder_start()
+            self._wire_recorder_start_callbacks(controller, app)
 
             app.recorder.start()
-            # Tell the mic watcher which mic_id we're recording from so
-            # the OS-event-driven active-mic-lost check can fire on the
-            # next device-list change. Best-effort: a missing/None
-            # mic_watcher (platform without OS watcher) is silently
-            # skipped.
-            with contextlib.suppress(Exception):
-                mic_watcher = getattr(getattr(app.recorder, "_devices", None), "_mic_watcher", None)
-                if mic_watcher is not None:
-                    # The resolved device index (or None for default) is
-                    # the active mic_id the watcher will look for.
-                    resolved = getattr(app.recorder, "_effective_device", None)
-                    if resolved is None:
-                        resolved = app.recorder._devices._resolve_device()
-                    mic_watcher.set_active_mic_id(resolved)
+            self._notify_mic_watcher_of_active_device(app)
             app.tray.set_state(AppState.RECORDING, i18n.t("state.recording_controller.recording"))
             # Show the floating bubble once we know the stream is open
             app._waveform_bubble.show()
@@ -551,216 +812,19 @@ class RecordingLifecycle:
             # the hotkey dispatch thread (and ``_toggle_lock``) for the
             # 0.15-0.7 s of backend/subprocess work a duck costs.
             log.info("[DICTATION] Recording started OK (cycle=%s)", app._cycle_id)
-            # Mark the recording subsystem as the keyboard owner. The ESC
-            # cancel hotkey will fire normally during a recording (it's
-            # the only way to cancel). When recording stops, ownership
-            # returns to "normal".
-            try:
-                keyboard_ownership().set_owner("recording", reason=f"recording started (cycle={app._cycle_id})")
-            except Exception:
-                log.debug(
-                    "[DICTATION] failed to set keyboard ownership on start",
-                    exc_info=True,
-                )
-
-            # ESC-CANCEL-WATCHDOG: the ESC-to-cancel hotkey is the ONLY way
-            # to abort an in-progress recording, so if its backend died
-            # (silent startup-registration failure, native binary crash,
-            # or a multi-instance hook-chain collapse) the user would be
-            # unable to cancel, exactly the reported "Escape does
-            # nothing" symptom. Re-arm it on every recording start so a
-            # dead/stale ESC backend can never leave the user trapped in
-            # a recording.
-            try:
-                if getattr(app.config, "esc_cancel_enabled", False):
-                    esc_backend = getattr(app.hotkeys, "_esc_backend", None)
-                    if esc_backend is None or not esc_backend.is_alive():
-                        log.warning(
-                            "[DICTATION] ESC cancel backend missing/dead at "
-                            "recording start (backend=%r), re-registering",
-                            type(esc_backend).__name__ if esc_backend else "None",
-                        )
-                        app.hotkeys.register_esc()
-            except Exception:
-                log.warning(
-                    "[DICTATION] failed to re-arm ESC cancel hotkey on start",
-                    exc_info=True,
-                )
-            # Emit ``recording_started`` push event so the renderer can
-            # proactively refresh UI (Home/Dashboard/History). Log push
-            # failures instead of silently swallowing them, a failed
-            # push means the renderer never hears about
-            # ``recording_started``, so the sound cue won't play and the
-            # user gets no audible feedback. This must be visible.
-            try:
-                event_bus.publish({"type": "recording_started"})
-            except Exception:
-                log.warning(
-                    "[SOUND] failed to push recording_started event",
-                    exc_info=True,
-                )
-
-            # Load / reload the active engine AFTER ``recorder.start()`` so
-            # the recorder buffers audio while the model reloads (5-30s
-            # on idle-unload). Pre-fix this ran before ``recorder.start()``
-            # and the first 5-30s of speech was lost. The transcription
-            # thread (started in ``_stop_impl``) transcribes the buffered
-            # audio once the model is ready. If the model fails to load,
-            # we discard the recorder we just started and surface an error.
-            #
-            # The model load + post-load steps (active_transcriber check,
-            # fallback_to_whisper, _start_streaming_session_if_enabled)
-            # run on a DAEMON WORKER THREAD so the F2 hotkey backend's
-            # single dispatch thread is NOT blocked for 5-30s on the
-            # idle-unload reload path. Pre-fix, the lock was released
-            # for the duration of ``ensure_active_engine_loaded()`` so
-            # concurrent stop/cancel could proceed, but the F2 thread
-            # itself still blocked for 5-30s: meaning:
-            #   - The F2 hotkey backend's dispatch thread was occupied
-            #     and could not process a second F2 press (e.g. to stop
-            #     the recording the user just started).
-            #   - On hotkey backends with a single dispatch thread
-            #     (pynput), ALL hotkeys were blocked for 5-30s —
-            #     including ESC cancel.
-            # The F2 thread now spawns the worker and returns after a
-            # bounded ``join(timeout=0.1)``: fast enough for tests
-            # with mocked models (the worker completes in <1ms), slow
-            # enough to not block the dispatch thread in production
-            # (5-30s idle-unload reload). The worker is a daemon so it
-            # doesn't block process exit.
-            #
-            # The worker runs WITHOUT ``_toggle_lock``: the public entry
-            # (``toggle`` / ``start`` via ``_run_public_entry``) releases
-            # the lock BEFORE the bounded join, so neither the worker NOR
-            # the join holds it. The worker doesn't need the lock
-            # because:
-            # 1. ``ensure_active_engine_loaded()`` has its own internal
-            #    lock (``_lazy_init_lock`` in ``ModelManager``).
-            # 2. The post-load re-check reads atomic state
-            #    (``recorder.recording``, ``_busy_event.is_set()``).
-            # 3. ``_start_streaming_session_if_enabled()`` uses
-            #    ``_streaming_session_lock`` for its own serialization.
-            # The ``_busy_event`` is NOT cleared by ``_start_impl``
-            # (``_stop_impl`` clears it), so a concurrent ``stop()``
-            # that acquires the lock after the public entry releases it
-            # would see ``busy_event.is_set() == True`` (not busy) and
-            # proceed, the desired behavior (the user explicitly
-            # stopped, so the buffered audio should be transcribed as
-            # soon as the model finishes loading).
-            #
-            # The worker signals ``_start_complete_event`` in its
-            # finally block so tests that need to assert model-loaded
-            # state can wait on the event.
-            start_complete_event = threading.Event()
-            # Publish on the controller so tests can wait on it
-            # (``controller._start_complete_event.wait(timeout=...)``).
-            # A fresh Event is created per ``_start_impl`` call; the
-            # previous event (if any) is replaced. The previous worker
-            # still holds a reference to the old event and signals it
-            # , the old event is garbage-collected after the worker
-            # finishes.
-            controller._start_complete_event = start_complete_event
-            worker = threading.Thread(
-                target=controller._lifecycle._start_dictation_worker_entry,
-                args=(controller, app._cycle_id, start_complete_event),
-                name="DictationStart",
-                daemon=True,
-            )
-            # Store on controller so tests / watchdog can inspect / join.
-            controller._start_worker_thread = worker
-            worker.start()
-            # Bounded wait for the worker to make progress. The timeout
-            # is ADAPTIVE based on whether the model was already loaded
-            # at ``_start_impl`` entry:
-            #
-            # * Model already loaded (common case): ``ensure_active_engine_loaded()``
-            #   is a no-op → the worker finishes in <1ms → a short 0.1s
-            #   timeout is plenty AND keeps the F2 dispatch thread
-            #   sub-100ms (the desired responsiveness goal).
-            # * Model NOT loaded (idle-unload reload / model-fail path):
-            #   ``ensure_active_engine_loaded()`` may reload the model
-            #   (5-30s in production) → a short timeout would always
-            #   expire. We use a longer 2.0s timeout so that tests
-            #   which exercise the model-fail path
-            #   (``test_start_dictation_fails_gracefully_if_model_still_unavailable``)
-            #   observe the discard/recording-reset side effects before
-            #   the assertion. In production, the 2.0s join expires and
-            #   the F2 thread returns while the worker continues —
-            #   still a ~15x improvement over the pre-fix 5-30s block.
-            #
-            # The adaptive check reads ``active_transcriber()`` BEFORE
-            # spawning the worker (the F2 thread's last read of model
-            # state). The worker's own re-check after the load is the
-            # authoritative one.
-            _pre_load_active = app.models.active_transcriber()
-            _pre_load_model_loaded = _pre_load_active is not None and getattr(_pre_load_active, "is_loaded", False)
-            _join_timeout = _DEFAULT_START_JOIN_TIMEOUT_S if _pre_load_model_loaded else 2.0
-            # Publish the join timeout next to the worker thread so the
-            # PUBLIC entry (``toggle`` / ``start`` via ``_run_public_entry``)
-            # can perform the bounded join AFTER releasing ``_toggle_lock``.
-            # Pre-fix the join ran HERE behind a manual
-            # ``release()``/``acquire()`` pair, on the user-facing
-            # double-acquisition path (``toggle() -> start()``) the manual
-            # release only dropped the RLock count 2 -> 1, so the thread
-            # still owned the lock through the join and a concurrent
-            # ``stop()`` / ``cancel()`` (auto-stop timer, ESC hotkey)
-            # blocked for the whole join window (up to 2.0 s cold).
-            controller._start_worker_join_timeout = _join_timeout
+            self._claim_keyboard_ownership_for_recording(app)
+            self._rearm_esc_cancel_if_enabled(app)
+            self._publish_recording_started_event()
+            self._spawn_dictation_start_worker(controller, app)
         except Exception as e:
             log.exception("[DICTATION] Failed to start recording: %s", e)
-            controller._cancel_streaming_session()
-            # If ``recorder.start()`` succeeded but a later step
-            # (streaming session, tray state, bubble show, volume duck)
-            # raised, the PortAudio input stream is left open, call
-            # ``discard()`` best-effort to release it so we don't leak
-            # the mic. Guarded so a second failure during teardown
-            # doesn't mask the original exception in the log.
-            try:
-                app.recorder.discard()
-            except Exception:
-                log.debug(
-                    "[DICTATION] recorder.discard() during start-failure teardown raised (best-effort cleanup)",
-                    exc_info=True,
-                )
-            # Force-reset the recording flag so the next ``start()`` call
-            # doesn't no-op on a stale ``recording==True``. ``discard()``
-            # normally does this, but we set it explicitly here so the
-            # invariant holds even if ``discard()`` raised (the
-            # best-effort guard above) or if a subclass overrode
-            # ``discard()`` to skip the flag reset.
-            app.recorder.recording = False
-            # Restart the level monitor for the always-visible bubble:
-            # the start path stopped it before ``recorder.start()`` (see
-            # ``_stop_level_monitor_for_recorder_start`` above), and the
-            # stop / stop-failure paths already restart it, without this
-            # call the level bar flatlines after one failed start until
-            # the next toggle. Best-effort, mirroring the stop paths.
-            controller._maybe_restart_level_monitor_for_always_visible_bubble(app)
-            # Surface the backend's reason when the pipeline raised a
-            # typed error (permission denied / no input device); raw
-            # exception text stays out of the tray (paths, device names).
-            _start_fail_msg = _recording_start_failure_message(e)
-            app.tray.set_state(AppState.ERROR, _start_fail_msg)
-            # Notification mirrors the tooltip: for typed failures the
-            # reason IS the actionable message (permission / no device);
-            # for unknown failures keep the "check the log" guidance.
-            # Raw exception text never reaches the user (paths, device
-            # names, hostnames), the full traceback is logged above.
-            if _start_fail_msg != i18n.t("state.recording_controller.recording_failed"):
-                app.tray.notify(
-                    APP_NAME,
-                    i18n.t("notify.recording_controller.start_failed_with_reason", reason=_start_fail_msg),
-                )
-            else:
-                app.tray.notify(
-                    APP_NAME,
-                    i18n.t("notify.recording_controller.start_failed"),
-                )
-            with contextlib.suppress(Exception):
-                event_bus.publish(
-                    {"type": "error", "data": {"message": "Could not start recording", "kind": "recording_start"}}
-                )
-            app._schedule_timer(3.0, lambda: app.tray.set_state(AppState.IDLE))
+            self._teardown_failed_recorder_start(
+                controller,
+                app,
+                restart_level_monitor=True,
+                discard_log_label="start-failure teardown",
+            )
+            self._publish_start_failure_notification(app, e)
 
     # ── Start worker (model load + post-load) ────────────────────────
 
@@ -913,45 +977,19 @@ class RecordingLifecycle:
             controller._start_streaming_session_if_enabled()
         except Exception as e:
             log.exception("[DICTATION] Start worker failed: %s", e)
-            controller._cancel_streaming_session()
-            # If ``recorder.start()`` succeeded but a later step in the
-            # worker raised, the PortAudio input stream is left open —
-            # call ``discard()`` best-effort to release it.
-            try:
-                app.recorder.discard()
-            except Exception:
-                log.debug(
-                    "[DICTATION] recorder.discard() during start-worker teardown raised (best-effort)",
-                    exc_info=True,
-                )
-            app.recorder.recording = False
-            # Same typed-reason mapping as the ``_start_impl`` failure
-            # path, the worker can fail on recorder-start-upstream
+            # Same teardown + typed-reason mapping as the ``_start_impl``
+            # failure path. The worker can fail on recorder-start-upstream
             # errors too (permission / no device), and the tooltip must
-            # show why, not a bare "Recording failed".
-            _start_fail_msg = _recording_start_failure_message(e)
-            app.tray.set_state(AppState.ERROR, _start_fail_msg)
-            if _start_fail_msg != i18n.t("state.recording_controller.recording_failed"):
-                app.tray.notify(
-                    APP_NAME,
-                    i18n.t("notify.recording_controller.start_failed_with_reason", reason=_start_fail_msg),
-                )
-            else:
-                app.tray.notify(
-                    APP_NAME,
-                    i18n.t("notify.recording_controller.start_failed"),
-                )
-            with contextlib.suppress(Exception):
-                event_bus.publish(
-                    {
-                        "type": "error",
-                        "data": {
-                            "message": "Could not start recording",
-                            "kind": "recording_start",
-                        },
-                    }
-                )
-            app._schedule_timer(3.0, lambda: app.tray.set_state(AppState.IDLE))
+            # show why, not a bare "Recording failed". No level-monitor
+            # restart here: that ownership stays on the hotkey-thread
+            # start-failure path.
+            self._teardown_failed_recorder_start(
+                controller,
+                app,
+                restart_level_monitor=False,
+                discard_log_label="start-worker teardown",
+            )
+            self._publish_start_failure_notification(app, e)
         finally:
             complete_event.set()
 
@@ -966,7 +1004,7 @@ class RecordingLifecycle:
         controller.stop()`` to re-acquire without deadlocking.
         """
         with controller._toggle_lock:
-            controller._stop_impl()
+            self._stop_impl(controller)
 
     def _stop_impl(self, controller) -> None:
         """Inner stop implementation, called under _toggle_lock.
@@ -1085,8 +1123,8 @@ class RecordingLifecycle:
         # blocks, so there is no risk of holding it during model work.
         with controller._watchdog_lock:
             controller._transcription_thread = threading.Thread(
-                target=controller._stop_and_transcribe_worker_entry,
-                args=(_captured_cycle_id,),
+                target=self._stop_and_transcribe_worker_entry,
+                args=(controller, _captured_cycle_id),
                 name="Transcription",
                 daemon=True,
             )
@@ -1116,9 +1154,9 @@ class RecordingLifecycle:
         with full error recovery if ``recorder.stop()`` raises.
 
         On success, delegates the transcription body to
-        ``controller._run_stop_and_transcribe(audio, cycle_id)`` so the
-        transcription pipeline is unit-testable in isolation (pass a
-        fake ``audio`` sample directly).
+        ``self._run_stop_and_transcribe(controller, audio, cycle_id)``
+        so the transcription pipeline is unit-testable in isolation
+        (pass a fake ``audio`` sample directly).
 
         Rationale: this method runs on the daemon "Transcription" thread
         (NOT the hotkey thread), so the ~2.4s ``recorder.stop()`` block
@@ -1161,7 +1199,7 @@ class RecordingLifecycle:
             app._schedule_timer(3.0, lambda: app.tray.set_state(AppState.IDLE))
             return
 
-        controller._run_stop_and_transcribe(audio, cycle_id)
+        self._run_stop_and_transcribe(controller, audio, cycle_id)
 
     def _run_stop_and_transcribe(self, controller, audio, cycle_id: str) -> None:
         """Transcription pipeline body, extracted from the former nested
@@ -1190,8 +1228,9 @@ class RecordingLifecycle:
            bytes for the transcription duration.
         10. Run ``DictationPipeline.run(...)``.
 
-        Unit-testable: call ``controller._run_stop_and_transcribe(fake_audio,
-        cycle_id)`` directly with a mock ``app.recorder`` / ``app.tray``
+        Unit-testable: call
+        ``self._run_stop_and_transcribe(controller, fake_audio, cycle_id)``
+        directly with a mock ``app.recorder`` / ``app.tray``
         / ``app.config`` to exercise the transcription body without
         spinning up a real recorder or hotkey thread.
         """
@@ -1375,7 +1414,7 @@ class RecordingLifecycle:
         (none currently, but kept symmetric with start/stop).
         """
         with controller._toggle_lock:
-            controller._cancel_impl()
+            self._cancel_impl(controller)
 
     def _cancel_impl(self, controller) -> None:
         """Inner cancel implementation, called under _toggle_lock."""

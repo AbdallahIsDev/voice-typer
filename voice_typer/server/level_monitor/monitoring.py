@@ -138,9 +138,37 @@ def _mic_level_worker_loop() -> None:
     latest-only drop pattern) and publishes via ``event_bus.publish``.
     Runs on a dedicated thread so the level worker / PortAudio callback
     is never blocked on event_bus publish latency.
+
+    Backstop wait: 250 ms (``_LEVEL_WORKER_BACKSTOP_TIMEOUT_SEC``,
+    shared with the level worker). Previously 1.0 s, which produced a
+    1 Hz orphan wakeup if the stream went inactive without a clean
+    ``stop_monitoring`` (e.g. the finished-callback flipped
+    ``_monitor_active`` False). Matching the level worker's 250 ms
+    interval and adding an idle-exit (see below) eliminates that
+    residual wakeup.
+
+    Idle-exit: when ``_monitor_active`` is False AND the queue has
+    been empty for TWO consecutive backstop ticks, return so the
+    thread terminates. Two ticks (≈500 ms at the 250 ms backstop)
+    give a just-started worker a brief grace window so a back-to-back
+    ``_ensure_mic_level_worker_running`` pair (or a start that races
+    the first tick) doesn't immediately reap the thread, while still
+    eliminating the previous 1 Hz orphan wakeup for the lifetime of
+    monitoring. ``_ensure_mic_level_worker_running`` re-spawns on the
+    next ``start_monitoring``. Race-safety mirrors the level worker's
+    idle-exit: clear ``_mic_level_worker_thread`` BEFORE returning so
+    a concurrent start sees "no worker" and spawns fresh.
     """
+    from .worker import (
+        MIC_LEVEL_WORKER_NAME,
+        _unregister_from_thread_registry,
+    )
+
+    _consecutive_idle_ticks = 0
     while True:
-        _state._mic_level_worker_wake_event.wait(timeout=1.0)
+        _state._mic_level_worker_wake_event.wait(
+            timeout=_state._LEVEL_WORKER_BACKSTOP_TIMEOUT_SEC,
+        )
         _state._mic_level_worker_wake_event.clear()
         if _state._mic_level_worker_stop:
             return
@@ -150,6 +178,7 @@ def _mic_level_worker_loop() -> None:
             while _state._mic_level_queue:
                 latest = _state._mic_level_queue.popleft()
         if latest is not None:
+            _consecutive_idle_ticks = 0
             try:
                 from voice_typer.server import event_bus
 
@@ -165,6 +194,25 @@ def _mic_level_worker_loop() -> None:
                 )
             except Exception:
                 log.debug("[LEVEL-MON] Failed to publish mic_level event", exc_info=True)
+            continue
+        # Queue was empty. If the monitor stream is no longer active
+        # (finished-callback, idle-timeout, or a stop that raced us),
+        # no further pushes can arrive. Require two consecutive
+        # empty+inactive ticks before exiting so a freshly spawned
+        # worker isn't reaped before its first push (and a back-to-back
+        # ``_ensure_*`` pair stays idempotent). A payload that arrives
+        # after our drain but before we observe ``_monitor_active=False``
+        # is dropped — acceptable, the stream is already dead (same
+        # best-effort contract as the level worker's stop-drain).
+        if not _state._monitor_active:
+            _consecutive_idle_ticks += 1
+            if _consecutive_idle_ticks >= 2:
+                # Clear the slot BEFORE returning (race-safe restart).
+                _state._mic_level_worker_thread = None
+                _unregister_from_thread_registry(MIC_LEVEL_WORKER_NAME)
+                return
+        else:
+            _consecutive_idle_ticks = 0
 
 
 def _ensure_mic_level_worker_running() -> None:
@@ -173,15 +221,32 @@ def _ensure_mic_level_worker_running() -> None:
     Idempotent: if a worker from a previous ``start_monitoring`` call is
     still alive, reuse it. Called from ``start_monitoring``.
     """
+    from .worker import (
+        MIC_LEVEL_WORKER_NAME,
+        _register_with_thread_registry,
+    )
+
     if _state._mic_level_worker_thread is not None and _state._mic_level_worker_thread.is_alive():
         return
     _state._mic_level_worker_stop = False
     _state._mic_level_worker_thread = threading.Thread(
         target=_mic_level_worker_loop,
-        name="level-monitor-mic-level-worker",
+        name=MIC_LEVEL_WORKER_NAME,
         daemon=True,
     )
     _state._mic_level_worker_thread.start()
+    # Best-effort registration with the central ThreadRegistry so
+    # ``shutdown_all()`` can join this worker if the level_monitor
+    # teardown is skipped. Mirrors the level worker's registration.
+    _register_with_thread_registry(
+        MIC_LEVEL_WORKER_NAME,
+        _state._mic_level_worker_thread,
+        # The mic_level worker has no dedicated Event stop flag; the
+        # stop path flips the bool + sets the wake event. Pass the wake
+        # event so ``shutdown_all()`` at least wakes the worker (the
+        # bool is checked after the wait returns).
+        _state._mic_level_worker_wake_event,
+    )
 
 
 def _stop_mic_level_worker() -> None:
@@ -193,6 +258,12 @@ def _stop_mic_level_worker() -> None:
         with contextlib.suppress(Exception):
             t.join(timeout=1.0)
     _state._mic_level_worker_thread = None
+    from .worker import (
+        MIC_LEVEL_WORKER_NAME,
+        _unregister_from_thread_registry,
+    )
+
+    _unregister_from_thread_registry(MIC_LEVEL_WORKER_NAME)
 
 
 # ── Public API: monitoring ──────────────────────────────────────────

@@ -383,12 +383,18 @@ class DownloadsMixin:
         parked transfer thread at its next chunk boundary and the
         download continues (huggingface_hub re-requests with a Range
         header if the idle HTTP connection died during the pause).
+
+        Mirrors the pause path: the boolean from
+        :func:`asr_setup.set_download_paused` is forwarded so a no-op
+        resume (no live download) returns ``{"resumed": False}`` and
+        the renderer can revert its optimistic flip.
         """
         from voice_typer.server.asr_setup import set_download_paused
 
-        set_download_paused(False)
-        log.info("[SERVICE] Model download resume requested")
-        return {"resumed": True}
+        resumed = set_download_paused(False)
+        if resumed:
+            log.info("[SERVICE] Model download resume requested")
+        return {"resumed": resumed}
 
     def _require_huggingface_consent(self, model_name: str) -> DownloadOutcome | None:
         """Gate IPC-triggered HuggingFace downloads on explicit consent.

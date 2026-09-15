@@ -22,6 +22,7 @@ edge case). 250 ms cuts idle wakeups 5× with no functional change.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import threading
 import time
@@ -37,6 +38,75 @@ if TYPE_CHECKING:
     from typing import Any
 
 log = logging.getLogger("voice_typer.server.level_monitor")
+
+# How many ring-buffer chunks the level worker drains between
+# stop-event checks. Mirrors ``recording/capture.py``'s proven pattern:
+# without this, the drain loop burns up to ~3.2 s of solid CPU
+# (64 chunks × ~50 ms RNNoise each) before noticing a stop signal,
+# delaying ``_stop_level_worker``'s join past its 1.0 s timeout and
+# producing a misleading "did not exit within 1s" ERROR for a worker
+# that is simply draining. Checking every 4 chunks bounds the stop
+# latency to ~200 ms while keeping the per-iteration ``is_set()`` +
+# GIL-yield overhead negligible.
+_DRAIN_STOP_CHECK_INTERVAL = 4
+
+# Thread-registry names for the two long-lived daemons. Exported so
+# tests and app-level wiring can reference them without re-stringifying.
+LEVEL_WORKER_NAME = "level-monitor-worker"
+MIC_LEVEL_WORKER_NAME = "level-monitor-mic-level-worker"
+# Join timeouts used when registering with ThreadRegistry. Matches the
+# join timeout ``_stop_level_worker`` / ``_stop_mic_level_worker``
+# already use, so ``shutdown_all()`` waits the same amount of time.
+_WORKER_JOIN_TIMEOUT_S = 1.0
+
+
+def set_thread_registry(registry: Any | None) -> None:
+    """Install a central ThreadRegistry for shutdown coordination.
+
+    When called BEFORE either worker is started, the next
+    ``_ensure_level_worker_running`` / ``_ensure_mic_level_worker_running``
+    call will register the new worker.
+
+    When called AFTER a worker is already running, nothing retroactively
+    registers the live thread (mirrors the buffer-clear contract: the
+    setter is expected to run during app construction, before any
+    monitoring starts). Passing ``None`` clears the registry; subsequent
+    worker starts will not register.
+
+    Lives here (not in ``monitoring.py``) so both workers share one
+    registry pointer via ``_state._thread_registry`` and one public
+    setter. ``reset_for_tests`` wipes the pointer along with the rest of
+    the session state; tests that need a registry set it after reset.
+    """
+    _state._thread_registry = registry
+
+
+def _register_with_thread_registry(
+    name: str,
+    thread: threading.Thread,
+    stop_event: threading.Event,
+) -> None:
+    """Best-effort registration of a freshly started worker thread."""
+    registry = _state._thread_registry
+    if registry is None:
+        return
+    with contextlib.suppress(Exception):
+        registry.register(
+            name=name,
+            thread=thread,
+            stop_event=stop_event,
+            join_timeout=_WORKER_JOIN_TIMEOUT_S,
+        )
+
+
+def _unregister_from_thread_registry(name: str) -> None:
+    """Best-effort removal of a worker's registry entry after it exits."""
+    registry = _state._thread_registry
+    if registry is None:
+        return
+    with contextlib.suppress(Exception):
+        registry.unregister(name)
+
 
 # ─── : per-burst level-worker error counter ───────────────────────
 # ``_level_worker_loop`` catches ``Exception`` from ``_process_level_chunk``
@@ -150,10 +220,19 @@ def _ensure_level_worker_running() -> None:
     _state._level_ring_buffer.clear()
     _state._level_worker_thread = threading.Thread(
         target=_level_worker_loop,
-        name="level-monitor-worker",
+        name=LEVEL_WORKER_NAME,
         daemon=True,
     )
     _state._level_worker_thread.start()
+    # Register with the central ThreadRegistry (if one was set) so
+    # ``shutdown_all()`` can signal + join this worker even if the
+    # level_monitor teardown step is skipped under a shutdown deadline.
+    # Best-effort: a failing register() must not prevent monitoring.
+    _register_with_thread_registry(
+        LEVEL_WORKER_NAME,
+        _state._level_worker_thread,
+        _state._level_worker_stop_event,
+    )
 
 
 def _stop_level_worker() -> None:
@@ -208,6 +287,11 @@ def _stop_level_worker() -> None:
     # Clear the stop event so the next _ensure_level_worker_running call
     # can reuse the (now-stopped) thread slot for a fresh worker.
     _state._level_worker_stop_event.clear()
+    # Remove the registry entry so a subsequent spawn re-registers
+    # cleanly without the "Re-registering name" warning. Safe when the
+    # worker was never registered (unregister is a no-op for unknown
+    # names) and when no registry is installed.
+    _unregister_from_thread_registry(LEVEL_WORKER_NAME)
 
 
 def _level_worker_loop() -> None:
@@ -227,9 +311,12 @@ def _level_worker_loop() -> None:
     ``get_level()`` / ``stop_test_recording()`` read it from other
     threads.
 
-    Shutdown: exits when ``_level_worker_stop_event`` is set. Drains
-    any remaining chunks before exiting so a stop right after a
-    callback doesn't lose the last level update.
+    Shutdown: exits when ``_level_worker_stop_event`` is set. The
+    drain loop checks the stop event every
+    ``_DRAIN_STOP_CHECK_INTERVAL`` chunks so a stop during a long
+    catch-up drain is noticed within ~200 ms (mirrors
+    ``recording/capture.py``); remaining in-flight chunks are
+    sacrificed on stop (best-effort drain).
 
     the backstop ``wait()`` timeout was 50 ms (pre-refactor).
     Raised to 250 ms, the stop path already calls
@@ -260,6 +347,17 @@ def _level_worker_loop() -> None:
 
         # Drain all available chunks. Each chunk is processed by
         # _process_level_chunk which does the heavy lifting.
+        #
+        # Check the stop event every ``_DRAIN_STOP_CHECK_INTERVAL``
+        # chunks so a stop signal during a long catch-up drain (the ring
+        # buffer holds up to 64 chunks ≈ 2 s of audio, each chunk can
+        # take ~50 ms under RNNoise → up to 3.2 s of solid CPU) is
+        # noticed within ~200 ms instead of burning the full drain.
+        # On stop we bail out immediately (sacrificing in-flight chunks,
+        # the same accepted trade-off as the recording worker's
+        # best-effort drain). ``time.sleep(0)`` yields the GIL to reduce
+        # CPU burn on long drains. Mirrors ``recording/capture.py``.
+        _drain_count = 0
         while True:
             try:
                 chunk_data = _state._level_ring_buffer.popleft()
@@ -291,6 +389,18 @@ def _level_worker_loop() -> None:
                     "[LEVEL-MON] level worker thread error processing chunk",
                     exc_info=True,
                 )
+            _drain_count += 1
+            if _drain_count % _DRAIN_STOP_CHECK_INTERVAL == 0:
+                if _state._level_worker_stop_event.is_set():
+                    # Bail out of the drain early (sacrifice in-flight
+                    # chunks) but ``break`` rather than ``return`` so
+                    # the post-drain bookkeeping below still runs: the
+                    # dropped-chunks / error-throttle counters must be
+                    # folded into their cumulative totals even on a
+                    # stop, and the trailing ``if stop: return`` then
+                    # exits cleanly.
+                    break
+                time.sleep(0)  # yield GIL to reduce CPU burn
 
         # throttled log of dropped chunks. The counter is
         # incremented in the PortAudio callback (RT thread) when the
@@ -423,6 +533,10 @@ def _level_worker_loop() -> None:
             # (on fresh-worker spawn) eliminates any residual chunks
             # from the closed stream so the new worker starts clean.
             _state._level_worker_thread = None
+            # Natural exit: drop the registry entry so ``shutdown_all()``
+            # doesn't try to join a thread that already finished, and so
+            # the next spawn re-registers cleanly.
+            _unregister_from_thread_registry(LEVEL_WORKER_NAME)
             return
 
         if _state._level_worker_stop_event.is_set():

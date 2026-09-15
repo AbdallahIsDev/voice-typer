@@ -124,12 +124,12 @@ class _PasteStepMixin:
                     AppState.IDLE,
                     _i18n_t("state.dictation_pipeline.clipboard_unavailable"),
                 )
-                notice = (
-                    "Transcription complete, but the clipboard was unavailable.\n"
-                    "Your text was saved to the crash-recovery file so it is not lost."
-                )
+                notice = _i18n_t("notify.app.clipboard_unavailable_body")
                 if recovery_path:
-                    notice += f"\nRecovery file: {recovery_path}"
+                    notice += "\n" + _i18n_t(
+                        "notify.app.clipboard_unavailable_recovery_path",
+                        path=recovery_path,
+                    )
                 self._app.tray.notify(APP_NAME, notice)
                 # surface the paste failure as a renderer
                 # toast in ADDITION to the tray notification (keep both
@@ -142,6 +142,13 @@ class _PasteStepMixin:
                 # try/except so a broken event bus never aborts the
                 # clipboard-failure recovery path (existing tray notify
                 # + crash-recovery write must still complete).
+                #
+                # ``message`` is intentionally omitted: the renderer's
+                # ``usePasteFailedToast`` falls back to its own localized
+                # ``home.pasteFailedMessage`` when the payload has no
+                # message (C-I18N-1). The tray notify above keeps the
+                # long recovery-path body; the toast uses the renderer
+                # locale key.
                 try:
                     from voice_typer.server import event_bus
 
@@ -149,7 +156,6 @@ class _PasteStepMixin:
                         {
                             "type": "paste_failed",
                             "data": {
-                                "message": notice,
                                 "recovery_path": recovery_path,
                             },
                         }

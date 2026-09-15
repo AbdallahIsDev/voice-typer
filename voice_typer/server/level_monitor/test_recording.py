@@ -142,14 +142,48 @@ def _secure_clear_test_chunks(*deques: collections.deque) -> None:
 # disk: ``start_test_recording`` purges leftovers.
 _TEST_RECORDINGS_DIRNAME = "mic-test-recordings"
 
+# Mic-test WAV disk TTL: auto-delete a test's persisted WAVs this many
+# seconds after stop_test_recording persists them (voice-PII hygiene).
+MIC_TEST_RECORDING_TTL_SEC = 300
+
+# Live per-file expiry timers (threading.Timer, daemon like
+# _test_auto_stop_timer). Each entry owns exactly the uuid paths of one
+# persisted test; the fire callback discards its own handle from the set.
+_test_recording_expiry_timers: set[threading.Timer] = set()
+
 
 def _test_recordings_dir() -> Path:
-    """Return (and create) the mic-test recordings dir under the config dir."""
+    """Return (and create) the mic-test recordings dir under the config dir.
+
+    Opportunistic TTL sweep on every call (single choke point): backend
+    restarts/crashes self-heal stale files. Best-effort, never raises.
+    """
     from voice_typer.server.config_internals.paths import _config_dir
 
     d = Path(_config_dir()) / _TEST_RECORDINGS_DIRNAME
     d.mkdir(parents=True, exist_ok=True)
+    with contextlib.suppress(Exception):
+        _delete_expired_recordings()
     return d
+
+
+def _remove_recordings_dir_if_empty() -> None:
+    """Best-effort remove of the recordings dir when it holds no files.
+
+    User order: an empty mic-test-recordings folder must not linger on
+    disk. Plain ``rmdir`` (no list-then-delete) succeeds only when the
+    dir is truly empty, so a concurrent write racing us keeps the dir
+    via a suppressed OSError instead of a check-then-act hole. The next
+    mic test recreates it via ``_test_recordings_dir()`` (mkdir
+    parents+exist_ok on the start/write paths). Never raises.
+    """
+    try:
+        from voice_typer.server.config_internals.paths import _config_dir
+
+        with contextlib.suppress(OSError):
+            (Path(_config_dir()) / _TEST_RECORDINGS_DIRNAME).rmdir()
+    except Exception:
+        log.debug("[LEVEL-MON] recordings-dir remove failed", exc_info=True)
 
 
 def _purge_test_recordings() -> None:
@@ -167,8 +201,113 @@ def _purge_test_recordings() -> None:
                     f.unlink()
                 except OSError:
                     log.debug("[LEVEL-MON] could not unlink leftover test WAV: %s", f)
+        _remove_recordings_dir_if_empty()
     except Exception:
         log.debug("[LEVEL-MON] test-recording purge failed", exc_info=True)
+
+
+def _delete_test_recording_paths(paths) -> None:
+    """Best-effort unlink of exactly the given persisted WAV paths.
+
+    Exact uuid paths only (never a glob), so a later test's files can
+    never be collateral. Missing/locked files are fine. Never raises.
+    Logs paths/counts only, never audio content (GDPR voice PII).
+    """
+    try:
+        targets = [str(p) for p in (paths or []) if p]
+        if not targets:
+            return
+        deleted = 0
+        for p in targets:
+            try:
+                Path(p).unlink()
+                deleted += 1
+            except FileNotFoundError:
+                continue
+            except OSError:
+                log.debug("[LEVEL-MON] could not unlink expired test WAV: %s", p)
+        log.debug(
+            "[LEVEL-MON] expired mic-test WAV delete: %d/%d file(s) removed",
+            deleted,
+            len(targets),
+        )
+        _remove_recordings_dir_if_empty()
+    except Exception:
+        log.debug("[LEVEL-MON] expired mic-test WAV delete failed", exc_info=True)
+
+
+def _schedule_test_recording_expiry(paths, ttl_sec: float = MIC_TEST_RECORDING_TTL_SEC) -> threading.Timer | None:
+    """Schedule best-effort deletion of exactly *paths* after *ttl_sec*.
+
+    Mirrors the _test_auto_stop_timer daemon pattern. Never raises.
+    """
+    try:
+        targets = [str(p) for p in (paths or []) if p]
+        if not targets:
+            return None
+        timer: threading.Timer | None = None
+
+        def _fire() -> None:
+            try:
+                _delete_test_recording_paths(targets)
+            finally:
+                with contextlib.suppress(Exception):
+                    _test_recording_expiry_timers.discard(timer)
+
+        timer = threading.Timer(ttl_sec, _fire)
+        timer.daemon = True
+        _test_recording_expiry_timers.add(timer)
+        timer.start()
+        log.debug(
+            "[LEVEL-MON] scheduled mic-test WAV expiry in %ss for %d file(s)",
+            ttl_sec,
+            len(targets),
+        )
+        return timer
+    except Exception:
+        log.debug("[LEVEL-MON] failed to schedule mic-test WAV expiry", exc_info=True)
+        return None
+
+
+def _delete_expired_recordings(max_age_sec: float = MIC_TEST_RECORDING_TTL_SEC) -> int:
+    """Best-effort unlink of mic-test WAVs older than *max_age_sec* by mtime.
+
+    Sweeps *.wav / *.wav.tmp in the recordings dir; missing dir/files
+    are fine. Never raises. Logs counts only, never audio content.
+
+    Safety: disk files are only ever read by the renderer within seconds
+    of stop (playback uses in-memory base64 afterwards), so deleting
+    5-min-old files can never break playback.
+    """
+    try:
+        from voice_typer.server.config_internals.paths import _config_dir
+
+        d = Path(_config_dir()) / _TEST_RECORDINGS_DIRNAME
+        if not d.is_dir():
+            return 0
+        now = time.time()
+        deleted = 0
+        for pattern in ("*.wav", "*.wav.tmp"):
+            try:
+                files = list(d.glob(pattern))
+            except OSError:
+                continue
+            for f in files:
+                try:
+                    if now - f.stat().st_mtime > max_age_sec:
+                        f.unlink()
+                        deleted += 1
+                except FileNotFoundError:
+                    continue
+                except OSError:
+                    log.debug("[LEVEL-MON] could not unlink expired test WAV: %s", f)
+        if deleted:
+            log.debug("[LEVEL-MON] expired mic-test WAV sweep removed %d file(s)", deleted)
+        _remove_recordings_dir_if_empty()
+        return deleted
+    except Exception:
+        log.debug("[LEVEL-MON] expired mic-test WAV sweep failed", exc_info=True)
+        return 0
 
 
 def _write_test_wav(buf: io.BytesIO, kind: str) -> dict | None:
@@ -183,6 +322,10 @@ def _write_test_wav(buf: io.BytesIO, kind: str) -> dict | None:
     if not data:
         return None
     d = _test_recordings_dir()
+    # Re-ensure: the TTL sweep inside _test_recordings_dir() may have
+    # just removed the (now-empty) dir; mkdir is idempotent, the write
+    # below must never fail on a missing dir.
+    d.mkdir(parents=True, exist_ok=True)
     path = d / f"test-{kind}-{time.strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:8]}.wav"
     tmp = path.with_suffix(".wav.tmp")
     tmp.write_bytes(data)
@@ -792,6 +935,14 @@ def stop_test_recording() -> dict:
             "message": f"Failed to persist test recording: {type(exc).__name__}",
             "quality": quality,
         }
+
+    # Disk TTL: auto-delete exactly these uuid paths TTL seconds after
+    # the test (voice-PII hygiene). Exact paths only, never a glob, so a
+    # later test's files can never be collateral. Best-effort, never
+    # raises.
+    _schedule_test_recording_expiry(
+        [ref["path"] for ref in (audio_file, raw_audio_file) if isinstance(ref, dict) and ref.get("path")]
+    )
 
     log.info(
         "[LEVEL-MON] Test stopped:%s recorded, wrote raw(before)=%d bytes + filtered(after)=%d bytes WAV to %s/",

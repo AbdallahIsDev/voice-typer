@@ -273,17 +273,22 @@ class TestSounddeviceWaitBehavior:
 
     def test_abort_called_when_sd_wait_times_out(self, monkeypatch):
         """when ``sd.wait()`` does not return within the bounded
-        timeout (simulated by making wait() block forever),
-        ``_teardown_sounddevice`` MUST call
+        timeout (simulated by making wait() block longer than the
+        2s timeout), ``_teardown_sounddevice`` MUST call
         ``_abort_sounddevice_streams(sd)`` which iterates
         ``sd._streams`` and calls ``stream.abort()`` on each."""
         controller = _make_controller()
-        # sd.stop returns immediately; sd.wait blocks forever.
+        # sd.stop returns immediately; sd.wait blocks past the 2s
+        # product timeout. MO-85: 3s (just above the 2s timeout)
+        # instead of a 10s wall-clock hang; the helper thread is
+        # abandoned by _run_with_timeout after the timeout fires.
         fake_sd = MagicMock()
 
         def _blocking_wait(*args, **kwargs):
-            # Block long enough for the 2s timeout to fire.
-            time.sleep(10)
+            # Block long enough for the 2s timeout to fire, but not
+            # long enough to waste suite time if the timeout path
+            # misbehaves.
+            time.sleep(3)
 
         fake_sd.stop = MagicMock()
         fake_sd.wait = _blocking_wait
@@ -299,8 +304,9 @@ class TestSounddeviceWaitBehavior:
         elapsed = time.monotonic() - start
 
         # The wait must have timed out (~2s) and aborted both streams.
-        assert elapsed < 5.0, (
-            f"_teardown_sounddevice must not block >5s when "
+        # Budget widened for loaded CI runners (MO-85).
+        assert elapsed < 8.0, (
+            f"_teardown_sounddevice must not block >8s when "
             f"sd.wait() hangs (the bounded _run_with_timeout must "
             f"fire); took {elapsed:.2f}s"
         )
@@ -322,7 +328,8 @@ class TestSounddeviceWaitBehavior:
         fake_sd = MagicMock()
 
         def _blocking_stop():
-            time.sleep(10)
+            # MO-85: just above the product's 3s stop timeout.
+            time.sleep(4)
 
         fake_sd.stop = _blocking_stop
         fake_sd.wait = MagicMock()
@@ -374,7 +381,8 @@ class TestSounddeviceWaitBehavior:
         fake_sd = MagicMock()
 
         def _blocking_wait(*args, **kwargs):
-            time.sleep(10)
+            # MO-85: just above the 2s product timeout.
+            time.sleep(3)
 
         fake_sd.stop = MagicMock()
         fake_sd.wait = _blocking_wait

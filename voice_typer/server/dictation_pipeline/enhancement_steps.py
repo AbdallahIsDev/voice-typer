@@ -484,8 +484,9 @@ class _EnhancementStepsMixin:
             # every word as high-confidence. Replaced with explicit
             # module-level sentinels (no ``self.*`` reads, no
             # fabricated confidence). The analyzer's degrade-gracefully
-            # path now sees honest empty data.
-            segments: list = _EMPTY_SEGMENTS
+            # path now sees honest empty data. ``_EMPTY_SEGMENTS`` is an
+            # immutable empty tuple (E8), not a shared mutable list.
+            segments: tuple = _EMPTY_SEGMENTS
             confidence: float = _NO_TRANSCRIPT_CONFIDENCE
             suggestions = automation.analyze_transcription(
                 text,

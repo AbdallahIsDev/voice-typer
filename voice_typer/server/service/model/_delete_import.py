@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 
 from voice_typer.server._secrets import redact_secret, redact_url
+from voice_typer.server.i18n import t as _t
 from voice_typer.server.model_registry import NO_MODEL_SIZE, ModelMetadata
 from voice_typer.server.service._helpers import _find_symlink_in_tree
 
@@ -81,7 +82,11 @@ class DeleteImportMixin:
 
         if not repo_id:
             log.warning("[SERVICE] delete_model: unknown model '%s'", model_name)
-            return {"success": False, "message": f"Unknown model: {model_name}"}
+            return {
+                "success": False,
+                "reason": "unknown_model",
+                "message": _t("notify.model.delete.unknown_model", model=model_name),
+            }
 
         # Compute whether ``model_name`` is the configured active model.
         current_backend = getattr(self._app.config, "asr_backend", "whisper")
@@ -108,7 +113,11 @@ class DeleteImportMixin:
                 "[SERVICE] delete_model: '%s' is not downloaded, nothing to delete",
                 model_name,
             )
-            return {"success": False, "message": f"Model '{model_name}' is not downloaded."}
+            return {
+                "success": False,
+                "reason": "not_downloaded",
+                "message": _t("notify.model.delete.not_downloaded", model=model_name),
+            }
 
         # ACTIVE-DELETE: the configured model CAN be deleted. Unload the
         # running engine first (the OS holds file locks on loaded
@@ -132,9 +141,11 @@ class DeleteImportMixin:
             # get_model_status() poll to recompute instead of serving stale
             # (still-present) cache.
             self._invalidate_model_status_cache()
+            # Success: omit ``message`` so the renderer falls back to
+            # its localized ``models.snack.deleted`` (C-I18N-1).
             return {
                 "success": True,
-                "message": f"Deleted model '{model_name}' ({repo_id}).",
+                "reason": "deleted",
             }
         except Exception as exc:
             log.warning("[SERVICE] delete_model failed: %s", exc)
@@ -168,13 +179,29 @@ class DeleteImportMixin:
         updates, replacement = self._reassign_selection_away_from(model_name, context="stale")
         if updates:
             if updates.get("model_size") == NO_MODEL_SIZE:
-                message = f"Model '{model_name}' was not on disk, no model selected. Pick a model on the Models page."
+                message = _t(
+                    "notify.model.delete.stale_cleared_no_model",
+                    model=model_name,
+                )
+                reason = "stale_cleared_no_model"
             else:
-                message = f"Model '{model_name}' was not on disk, switched to '{updates['model_size']}'."
+                message = _t(
+                    "notify.model.delete.stale_cleared_switched",
+                    model=model_name,
+                    replacement=updates["model_size"],
+                )
+                reason = "stale_cleared_switched"
         else:
-            message = f"Model '{model_name}' was not on disk, nothing to delete."
+            message = _t(
+                "notify.model.delete.stale_nothing_to_delete",
+                model=model_name,
+            )
+            reason = "stale_nothing_to_delete"
         log.info("[SERVICE] delete_model: %s", message)
-        return {"success": True, "message": message}
+        # Stale-clear is a SUCCESS recovery path: omit ``message`` so
+        # the renderer shows ``models.snack.deleted``. Keep a structured
+        # ``reason`` for diagnostics/tests.
+        return {"success": True, "reason": reason}
 
     def _reassign_selection_away_from(
         self, exclude_name: str, context: str
@@ -303,7 +330,8 @@ class DeleteImportMixin:
             )
             return {
                 "success": False,
-                "message": "Stop the current dictation before deleting the active model.",
+                "reason": "dictation_in_flight",
+                "message": _t("notify.model.delete.active_refused_recording"),
             }
         try:
             self._app.models.unload_backend_for_delete(current_backend)
@@ -315,7 +343,8 @@ class DeleteImportMixin:
             )
             return {
                 "success": False,
-                "message": f"Could not unload '{model_name}' for deletion. Try again after stopping any dictation.",
+                "reason": "unload_failed",
+                "message": _t("notify.model.delete.unload_failed", model=model_name),
             }
         updates, replacement = self._reassign_selection_away_from(model_name, context="active-delete")
         try:
@@ -330,15 +359,20 @@ class DeleteImportMixin:
             if updates:
                 if updates.get("model_size") == NO_MODEL_SIZE:
                     message = f"Deleted model '{model_name}', no model selected. Pick a model on the Models page."
+                    reason = "deleted_no_model"
                 else:
                     message = f"Deleted model '{model_name}', switched to '{updates['model_size']}'."
+                    reason = "deleted_switched"
             else:
                 # Selection switch did not persist (logged above), the
                 # files are still gone: report the deletion, not a
                 # switch that rolled back.
                 message = f"Deleted model '{model_name}'."
+                reason = "deleted"
             log.info("[SERVICE] delete_model: %s", message)
-            return {"success": True, "message": message}
+            # Success: omit ``message`` so the renderer falls back to
+            # its localized ``models.snack.deleted`` (C-I18N-1).
+            return {"success": True, "reason": reason}
         except Exception as exc:
             log.warning("[SERVICE] delete_model failed: %s", exc)
             return {"success": False, "message": redact_secret(redact_url(str(exc)))}

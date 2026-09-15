@@ -399,9 +399,11 @@ class TestDeleteStaleActiveModel:
 
         result = service.delete_model("tiny")
         assert result["success"] is True, f"Expected success, got: {result}"
-        assert "tiny" in result["message"]
-        # The message reports the switch (truthful, apply_config committed).
-        assert "switched to" in result["message"], f"stale-clear success must report the switch, got: {result}"
+        # Success omits ``message`` so the renderer falls back to
+        # models.snack.deleted (C-I18N-1). Structured ``reason`` is
+        # the diagnostic contract.
+        assert not result.get("message"), f"success must omit message, got: {result}"
+        assert result.get("reason") == "stale_cleared_switched", f"got: {result}"
         # The stale selection was cleared: active model switched to the
         # downloaded fallback via apply_config.
         assert app.config.model_size == "large-v3-turbo", (
@@ -441,10 +443,9 @@ class TestDeleteStaleActiveModel:
 
         result = service.delete_model("tiny")
         assert result["success"] is True, f"delete must still succeed, got: {result}"
-        # The switch did NOT commit (rolled back), message must not claim it.
-        assert "switched to" not in result["message"], (
-            f"message must not claim a switch that rolled back, got: {result}"
-        )
+        # Success omits ``message``; reason must not claim a switch.
+        assert not result.get("message"), f"success must omit message, got: {result}"
+        assert result.get("reason") == "stale_nothing_to_delete", f"got: {result}"
         assert app.config.model_size == "tiny", (
             "apply_config rollback must leave the config pointing at the "
             "old (phantom) model after a save_strict failure"
@@ -465,8 +466,8 @@ class TestDeleteStaleActiveModel:
 
         result = service.delete_model("tiny")
         assert result["success"] is True, f"Expected success, got: {result}"
-        assert "no model selected" in result["message"], f"message must say no model is selected, got: {result}"
-        assert "switched to" not in result["message"], f"no fallback -> message must not claim a switch, got: {result}"
+        assert not result.get("message"), f"success must omit message, got: {result}"
+        assert result.get("reason") == "stale_cleared_no_model", f"got: {result}"
         assert app.config.model_size == NO_MODEL_SIZE, (
             "config must enter the 'no model selected' state when no "
             f"downloaded fallback exists, got model_size={app.config.model_size!r}"
@@ -512,7 +513,8 @@ class TestDeleteStaleActiveModel:
 
         result = service.delete_model("tiny")
         assert result["success"] is True, f"active delete must succeed, got: {result}"
-        assert "switched to" in result["message"], f"must report the switch, got: {result}"
+        assert not result.get("message"), f"success must omit message, got: {result}"
+        assert result.get("reason") == "deleted_switched", f"got: {result}"
         # Engine was unloaded before the files went.
         app.models.unload_backend_for_delete.assert_called_once_with("whisper")
         # Files gone, selection moved, cache invalidated.
@@ -547,7 +549,8 @@ class TestDeleteStaleActiveModel:
 
         result = service.delete_model("tiny")
         assert result["success"] is True, f"active delete must succeed, got: {result}"
-        assert "no model selected" in result["message"], f"got: {result}"
+        assert not result.get("message"), f"success must omit message, got: {result}"
+        assert result.get("reason") == "deleted_no_model", f"got: {result}"
         assert not tiny_dir.exists()
         assert app.config.model_size == NO_MODEL_SIZE
         # Tray shows the no-model error immediately.

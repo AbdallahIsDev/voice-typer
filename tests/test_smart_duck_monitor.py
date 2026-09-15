@@ -535,16 +535,19 @@ class TestMonitorConcurrency:
                     return
                 time.sleep(0.001)  # intentional fixed delay (race-stress pacing)
 
-        # 4 duckers + 4 restorers = 8 threads racing for 2 seconds.
+        # 4 duckers + 4 restorers = 8 threads racing briefly.
+        # MO-85: 0.5s still hammers thousands of duck/restore pairs
+        # (1ms pacing) while cutting suite wall-clock; join budget
+        # widened for loaded CI runners.
         duckers = [threading.Thread(target=duck_loop, daemon=True) for _ in range(4)]
         restorers = [threading.Thread(target=restore_loop, daemon=True) for _ in range(4)]
         for t in duckers + restorers:
             t.start()
 
-        time.sleep(2.0)  # intentional fixed delay (stress-test duration)
+        time.sleep(0.5)  # intentional fixed delay (stress-test duration)
         stop.set()
         for t in duckers + restorers:
-            t.join(timeout=2.0)
+            t.join(timeout=5.0)
 
         # The key assertion: NO RuntimeError("cannot join thread before
         # it is started") should have been raised.

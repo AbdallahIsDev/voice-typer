@@ -55,7 +55,11 @@ def _resolve_whisper_repo_id(model_size: str) -> str:
         if meta is not None and meta.repo_id:
             return meta.repo_id
     except Exception:
-        pass
+        log.debug(
+            "[MODEL] model_registry lookup failed for %s; falling back to Systran default",
+            model_size,
+            exc_info=True,
+        )
     return f"Systran/faster-whisper-{model_size}"
 
 
@@ -222,6 +226,7 @@ def whisper_size_cached(engine, model_size: str) -> bool:
         return True
     except Exception:
         # Cache miss (or local probe failure), never auto-download.
+        log.debug("[MODEL] whisper_size_cached probe miss for %s", model_size, exc_info=True)
         return False
 
 
@@ -284,4 +289,5 @@ def is_model_snapshot_complete(repo_id: str) -> bool:
     except Exception:
         # Incomplete snapshot (missing files), cache-schema mismatch, or
         # hf unavailable, the honest status answer is "not downloaded".
+        log.debug("[MODEL] is_model_snapshot_complete probe miss for %s", repo_id, exc_info=True)
         return False

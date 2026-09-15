@@ -16,6 +16,10 @@ overflow:
 - ``AudioPipeline.apply_filter_chain`` bypasses the chain for
   near-silence chunks when no resample would have run, so silent input
   costs microseconds instead of a full RNNoise + IIR pass per chunk.
+  Two arms: peak-only (``peak < _NEAR_SILENCE_BYPASS_PEAK``) and
+  quiet-ambient RMS (peak below the ambient ceiling AND
+  ``rms < AUDIO_SILENCE_RMS``) for HVAC/quiet-room noise whose peak
+  rides just above the hard floor.
 
 All audio is synthetic (numpy zeros / constants); no real PortAudio /
 sounddevice stream is touched.
@@ -28,8 +32,10 @@ from unittest.mock import MagicMock
 
 import numpy as np
 import pytest
+from voice_typer.server._audio_constants import AUDIO_SILENCE_RMS
 from voice_typer.server.recording.audio_pipeline import (
     _NEAR_SILENCE_BYPASS_PEAK,
+    _NEAR_SILENCE_BYPASS_PEAK_CEILING,
     AudioPipeline,
 )
 
@@ -112,6 +118,70 @@ class TestNearSilenceBypass:
         recorder._audio_processor.process_chunk.assert_not_called()
         assert out.shape == (1411,)
         assert not np.any(out)
+
+    def test_bypass_ceiling_is_sane(self):
+        """Ambient RMS arm sits strictly above the peak floor and at or
+        below the quiet-speech peak band (typ. peaks >0.01)."""
+        assert _NEAR_SILENCE_BYPASS_PEAK < _NEAR_SILENCE_BYPASS_PEAK_CEILING <= 0.01
+
+    def test_quiet_ambient_low_rms_skips_chain(self):
+        """Peak just above the hard floor, RMS at silence floor → bypass.
+
+        Simulates HVAC/quiet-room noise that the peak-only gate missed:
+        a couple of samples ride at peak 0.003 while the rest of the
+        32 ms chunk is digital silence, so RMS lands well below
+        ``AUDIO_SILENCE_RMS`` and the filter chain is pure cost.
+        """
+        chunk = np.zeros(512, dtype=np.float32)
+        chunk[:2] = 0.003
+        assert _NEAR_SILENCE_BYPASS_PEAK < 0.003 < _NEAR_SILENCE_BYPASS_PEAK_CEILING
+        assert float(np.sqrt(np.dot(chunk, chunk) / chunk.size)) < AUDIO_SILENCE_RMS
+        recorder, pipeline = _pipeline_stub(effective_sr=16000, processor=_chain_processor(16000))
+        out = pipeline.apply_filter_chain(chunk)
+        recorder._audio_processor.process_chunk.assert_not_called()
+        assert out.shape == (512,)
+        assert not np.any(out)
+        assert pipeline._buffer_sr == 16000
+
+    def test_quiet_speech_onset_runs_chain(self):
+        """Sustained quiet speech (peak in the ambient band, RMS above
+        the silence floor) must still pay the filter chain."""
+        speech = np.full(512, 0.004, dtype=np.float32)
+        assert _NEAR_SILENCE_BYPASS_PEAK < 0.004 < _NEAR_SILENCE_BYPASS_PEAK_CEILING
+        assert float(np.sqrt(np.dot(speech, speech) / speech.size)) > AUDIO_SILENCE_RMS
+        recorder, pipeline = _pipeline_stub(effective_sr=16000, processor=_chain_processor(16000))
+        out = pipeline.apply_filter_chain(speech)
+        recorder._audio_processor.process_chunk.assert_called_once()
+        assert np.array_equal(out, speech)
+
+    def test_peak_above_ceiling_low_rms_runs_chain(self):
+        """Speech-onset protection: a peak outside the ambient band
+        never takes the RMS arm, even when chunk RMS is silence-floor."""
+        chunk = np.zeros(4096, dtype=np.float32)
+        chunk[0] = 0.02
+        assert _NEAR_SILENCE_BYPASS_PEAK_CEILING < 0.02
+        assert float(np.sqrt(np.dot(chunk, chunk) / chunk.size)) < AUDIO_SILENCE_RMS
+        recorder, pipeline = _pipeline_stub(effective_sr=16000, processor=_chain_processor(16000))
+        pipeline.apply_filter_chain(chunk)
+        recorder._audio_processor.process_chunk.assert_called_once()
+
+    def test_rms_arm_deferred_while_chain_rate_differs(self):
+        """RMS-arm silence still runs a mistuned chain so the buffer
+        keeps the chain-rate tag (no mixed rates)."""
+        chunk = np.zeros(1411, dtype=np.float32)
+        chunk[:3] = 0.003
+        recorder, pipeline = _pipeline_stub(effective_sr=44100, processor=_chain_processor(16000))
+        pipeline.apply_filter_chain(chunk)
+        recorder._audio_processor.process_chunk.assert_called_once()
+
+    def test_rms_arm_without_processor(self):
+        """No processor → bypass still zeros and tags the native rate."""
+        chunk = np.zeros(512, dtype=np.float32)
+        chunk[:2] = 0.003
+        recorder, pipeline = _pipeline_stub(effective_sr=16000, processor=None)
+        out = pipeline.apply_filter_chain(chunk)
+        assert not np.any(out)
+        assert pipeline._buffer_sr == 16000
 
 
 @pytest.fixture()

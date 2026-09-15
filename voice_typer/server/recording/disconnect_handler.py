@@ -421,8 +421,18 @@ class DisconnectHandler:
             _original_index = _named_candidates[0] if _named_candidates else None
             _expected_name = ""
             if _original_index is not None:
-                try:
-                    _orig_info = sd.query_devices(_original_index)
+                # Prefer the device-list cache over a live
+                # ``sd.query_devices(index)`` RPC. The cache was just
+                # warmed by ``_same_physical_microphone_candidates``
+                # (which calls ``_refresh_device_list``), and the OS
+                # watcher already invalidated it on the hot-plug that
+                # triggered this recovery, so the cached entry is
+                # exactly the post-reconnect device set.
+                # ``_cached_device_info`` falls back to a live query on
+                # cache miss and returns ``None`` when both paths fail
+                # (equivalent to the pre-fix exception branch).
+                _orig_info = recorder._devices._cached_device_info(_original_index)
+                if _orig_info is not None:
                     _expected_name = str(_orig_info.get("name", "")).strip().lower()
                     if _expected_name:
                         # The original index is present and named —
@@ -438,7 +448,7 @@ class DisconnectHandler:
                             "[RECORDING] Restart: original device index %s has empty name, skipping",
                             _original_index,
                         )
-                except Exception:
+                else:
                     log.debug(
                         "[RECORDING] Restart: original device index %s is gone (BT not yet reconnected?)",
                         _original_index,
@@ -447,24 +457,26 @@ class DisconnectHandler:
             # reconnect (or had no name).
             if _restart_device is None:
                 for _cand in _named_candidates[1:]:
-                    try:
-                        _cand_info = sd.query_devices(_cand)
-                        # Name-match check: confirm the device at this
-                        # alternate index is the same physical device
-                        # (same name), guards against PortAudio
-                        # renumbering pointing the index at a different
-                        # device after hot-swap.
-                        _cand_name = str(_cand_info.get("name", "")).strip().lower()
-                        if _expected_name and _cand_name and _cand_name != _expected_name:
-                            continue
-                        _restart_device = _cand
-                        log.info(
-                            "[RECORDING] Restart: found same-named device at alternate index %s",
-                            _cand,
-                        )
-                        break
-                    except Exception:
+                    # Cache-first lookup (live-query fallback inside
+                    # ``_cached_device_info``); ``None`` means the
+                    # candidate is gone, skip it.
+                    _cand_info = recorder._devices._cached_device_info(_cand)
+                    if _cand_info is None:
                         continue
+                    # Name-match check: confirm the device at this
+                    # alternate index is the same physical device
+                    # (same name), guards against PortAudio
+                    # renumbering pointing the index at a different
+                    # device after hot-swap.
+                    _cand_name = str(_cand_info.get("name", "")).strip().lower()
+                    if _expected_name and _cand_name and _cand_name != _expected_name:
+                        continue
+                    _restart_device = _cand
+                    log.info(
+                        "[RECORDING] Restart: found same-named device at alternate index %s",
+                        _cand,
+                    )
+                    break
         if _restart_device is None:
             log.info("[RECORDING] Restart: no same-named device found, falling back to OS default")
 
@@ -483,18 +495,20 @@ class DisconnectHandler:
             # and ASR pipelines expect mono or stereo). If the device reports
             # 0 channels (broken driver), we fall back to 1 (mono).
             # See FORENSIC_REVIEW_COMPLETE.md → AUDIO-HOT.
-            try:
-                if _restart_device is None:
-                    default_dev = sd.query_devices(kind="input")
-                else:
-                    default_dev = sd.query_devices(_restart_device)
+            # Cache-first channel probe (``_cached_device_info`` falls
+            # back to a live ``sd.query_devices`` query on cache miss
+            # and returns ``None`` on total failure). ``device=None``
+            # resolves through ``sd.query_devices(kind="input")``
+            # inside the helper, same as the pre-fix live query.
+            default_dev = recorder._devices._cached_device_info(_restart_device)
+            if default_dev is not None:
                 max_ch = int(default_dev.get("max_input_channels", 1) or 1)
                 if max_ch < 1:
                     max_ch = 1
                 elif max_ch > 2:
                     max_ch = 2
                 channels = max_ch
-            except Exception:
+            else:
                 channels = 1
 
             stream = sd.InputStream(

@@ -77,20 +77,17 @@ log = logging.getLogger("voice_typer.server.recording")
 
 # when the mic device watcher fails to start (e.g. on macOS
 # where the OS-event hook isn't implemented, or on platforms where
-# /dev/snd inotify fails), fall back to a SHORTER device-list TTL for
-# a window after the failure so device hot-plug events are detected
-# sooner than the default 30s. Without this, a user who plugs in a
-# USB mic immediately after launch (a common pattern, start app,
-# realize mic is missing, plug it in) waits up to 30s for the device
-# list to refresh. The fast TTL is only active for
-# ``_DEVICE_LIST_FAST_TTL_WINDOW`` seconds after the watcher-start
-# failure; outside that window, the default 30s TTL applies (the
-# watcher is started exactly once in ``__init__`` and never retried,
-# so once we're past the failure window we revert to the conservative
-# fallback that matches the rest of the codebase's behavior on
-# watcher-less platforms).
+# /dev/snd inotify fails), keep the recorder's device-list cache at a
+# SHORT TTL for the WHOLE session so device hot-plug events are
+# detected at the same cadence as the canonical UI list
+# (``microphone_list._LIST_MICS_CACHE_TTL_S`` = 5 s). Without this, a
+# user who plugs in a USB mic mid-session sees the new device in the
+# UI dropdown within 5 s while the recorder's candidate set stays
+# stale for up to 30 s — the open then fails and looks like a recorder
+# bug rather than a cache skew. The watcher is started exactly once in
+# ``__init__`` and never retried, so once it is absent it stays absent
+# for the process lifetime.
 _DEVICE_LIST_FAST_TTL: float = 5.0
-_DEVICE_LIST_FAST_TTL_WINDOW: float = 60.0
 
 
 class DeviceManager:
@@ -152,12 +149,6 @@ class DeviceManager:
         self._device_list_cache: list[dict] | None = None
         self._device_list_cache_time: float = 0.0
         self._device_list_cache_ttl: float = 30.0  # seconds
-        # monotonic timestamp of the most recent mic-watcher-start
-        # failure. Set in the except branch of the MicrophoneDeviceWatcher
-        # startup try/except below; consulted by ``_refresh_device_list``
-        # to decide whether to use the fast TTL (5s) or the default
-        # (30s). Stays at 0.0 if the watcher started successfully.
-        self._mic_watcher_failed_at: float = 0.0
 
         # PERF-MIC-001: OS-event-driven cache invalidation. The watcher
         # runs in a daemon thread and calls ``_invalidate_device_cache``
@@ -173,6 +164,19 @@ class DeviceManager:
         # one-shot flag so the name-mismatch warning fires at
         # most once per DeviceManager instance.
         self._device_name_mismatch_warned: bool = False
+        # Last successful ``sd.query_devices(kind="input")`` result from
+        # the health-checker's default-input change probe. Stashed so
+        # the NEXT cycle's BT classification (via
+        # ``_build_device_info_for_retry_policy``) can reuse it instead
+        # of issuing a second identical PortAudio RPC. ``None`` until
+        # the first successful default-input probe (or when a concrete
+        # device is selected, in which case the device-list cache serves
+        # classification instead).
+        self._last_default_input_info: dict | None = None
+        # OS default-input index captured at stream-open (or lazily on
+        # the health-checker's first successful probe). ``None`` means
+        # no baseline yet.
+        self._stream_open_default_input_index: Any | None = None
         # Lazy host-API index → name cache. Populated on first
         # ``_host_api_name`` call (or via ``_refresh_device_list`` when
         # the cached device dicts already include ``hostapi``). Each
@@ -200,14 +204,11 @@ class DeviceManager:
             # Watcher is best-effort, the 30s TTL cache covers the
             # case where the watcher fails to start.
             log.warning(
-                "[RECORDING] mic device watcher failed to start, falling back to 30s TTL polling",
+                "[RECORDING] mic device watcher failed to start, "
+                "falling back to 5s TTL polling for the session",
                 exc_info=True,
             )
             self._mic_watcher = None
-            # record the failure timestamp so ``_refresh_device_list``
-            # can use a shorter TTL (5s) for the next 60s to catch hot-plug
-            # events more aggressively than the default 30s fallback.
-            self._mic_watcher_failed_at = time.monotonic()
 
     # ── AUDIO-MIC: device list caching ──────────────────────────────────
 
@@ -221,24 +222,20 @@ class DeviceManager:
                 PortAudio when the cache expires or when the current device
                 disappears.
 
-        if the mic device watcher failed to start recently
-                (within ``_DEVICE_LIST_FAST_TTL_WINDOW``), use a shorter TTL
-                of ``_DEVICE_LIST_FAST_TTL`` (5s) instead of the default 30s.
-                This catches hot-plug events more aggressively in the window
-                right after a watcher-start failure (a common user pattern:
-                launch app → realize mic is missing → plug it in). Outside
-                the failure window, the default 30s TTL applies.
+        if the mic device watcher is absent (failed to start, or was
+                shut down), use a shorter TTL of ``_DEVICE_LIST_FAST_TTL``
+                (5s) for the WHOLE session instead of the default 30s.
+                This matches the canonical UI list's 5s cadence
+                (``microphone_list._LIST_MICS_CACHE_TTL_S``) so a
+                watcher-less platform (macOS) never shows a mic in the
+                dropdown that the recorder cannot yet open.
         """
         now = time.monotonic()
-        # compute the effective TTL based on whether the mic
-        # watcher failed recently. ``_mic_watcher_failed_at`` is 0.0
-        # if the watcher started successfully (or hasn't tried yet),
-        # so the fast TTL only applies after an actual failure.
-        if (
-            self._mic_watcher is None
-            and self._mic_watcher_failed_at > 0.0
-            and now - self._mic_watcher_failed_at < _DEVICE_LIST_FAST_TTL_WINDOW
-        ):
+        # compute the effective TTL based on whether an OS-event
+        # watcher is active. When the watcher is absent there is no
+        # event-driven invalidation, so the poll cadence must match
+        # the canonical list (5s) for the whole session.
+        if self._mic_watcher is None:
             effective_ttl: float = _DEVICE_LIST_FAST_TTL
         else:
             effective_ttl = self._device_list_cache_ttl
@@ -246,31 +243,35 @@ class DeviceManager:
             return self._device_list_cache
 
         try:
-            # Source parity with ``microphone_list.list_microphones``:
-            # placeholder endpoints ("Input ()", empty names) and
-            # non-microphone devices are filtered at enumeration so the
-            # recorder's candidate set matches the canonical UI list.
-            # Function-level import: ``server_platform``'s package init
-            # pulls autostart/volume machinery that must not join the
+            # Shared PortAudio walk + filters with the canonical UI list
+            # (``microphone_list.iter_filtered_input_devices``), so a
+            # filter fix can only land in one place (E7). Function-level
+            # import: ``server_platform``'s package init pulls
+            # autostart/volume machinery that must not join the
             # recording import chain at module top.
+            _shared_walk = None
             try:
-                from voice_typer.server.server_platform.remote_session import (
-                    _is_invalid_device_name,
-                    _is_non_mic_device,
+                from voice_typer.server.server_platform.microphone_list import (
+                    iter_filtered_input_devices as _shared_walk,
                 )
-
-                _device_name_filters = (_is_non_mic_device, _is_invalid_device_name)
             except Exception:
-                log.debug("[RECORDING] device-name filters unavailable, skipping", exc_info=True)
-                _device_name_filters = ()
+                log.debug("[RECORDING] shared device walk unavailable, skipping name filters", exc_info=True)
+
+            if _shared_walk is not None:
+                filtered_inputs = _shared_walk(sd.query_devices())
+            else:
+                # Import-failure fallback: channel filter only (the
+                # pre-shared-walk behavior when the name filters were
+                # unavailable).
+                filtered_inputs = []
+                for i, dev in enumerate(sd.query_devices()):
+                    if isinstance(dev, dict) and dev.get("max_input_channels", 0) > 0:
+                        raw_name = dev.get("name", "")
+                        name = raw_name.strip() if isinstance(raw_name, str) else ""
+                        filtered_inputs.append((i, dev, name))
+
             devices = []
-            for i, dev in enumerate(sd.query_devices()):
-                if dev.get("max_input_channels", 0) <= 0:
-                    continue
-                raw_name = dev.get("name", "")
-                _filter_name = raw_name.strip() if isinstance(raw_name, str) else ""
-                if any(_f(_filter_name) for _f in _device_name_filters):
-                    continue
+            for i, dev, _name in filtered_inputs:
                 devices.append(
                     {
                         "index": i,
@@ -645,19 +646,28 @@ class DeviceManager:
          (default 5 s). Everything else gets ``_device_check_interval_s``
          (default 30 s). The BT classification is done via
          ``_get_max_retries_for_device`` (which checks the BT keywords +
-         8/16 kHz signature) on ``_build_device_info_for_retry_policy``
-        , a fresh ``sd.query_devices`` query per call.
+         8/16 kHz signature) on ``_build_device_info_for_retry_policy``,
+         which prefers the device-list cache / the previous cycle's
+         stashed default-input probe over a live PortAudio RPC.
 
-         The cost is one ``sd.query_devices`` per loop iteration. With
-         the default 30 s interval this is negligible; with the 5 s BT
-         interval it's 1 call per 5 s, acceptable.
+         Cost: at most one ``sd.query_devices`` per loop iteration on
+         the System Default path (the default-change probe, whose
+         result is stashed for the next cycle's classification); zero
+         on the concrete-device path when the device-list cache is warm.
 
          Best-effort: if the query fails or the device info is None,
          returns the default 30 s interval (can't tell if the device
          is BT).
         """
         try:
-            dev_info = self._build_device_info_for_retry_policy()
+            # ``allow_live_default_fallback=False``: on the System
+            # Default path, classification reads the previous cycle's
+            # stashed probe (or returns None on the first cycle) so the
+            # health-checker issues at most ONE PortAudio RPC per
+            # iteration — the default-change probe after the wait.
+            dev_info = self._build_device_info_for_retry_policy(
+                allow_live_default_fallback=False,
+            )
             if dev_info is not None and self._get_max_retries_for_device(dev_info) >= 6:
                 return self._device_check_interval_s_bt
         except Exception:
@@ -688,7 +698,7 @@ class DeviceManager:
         """
         self._stream_open_default_input_index = index
 
-    def _check_default_input_device_changed(self) -> None:
+    def _check_default_input_device_changed(self, current_info: dict | None = None) -> None:
         """Detect OS default input device change when ``config.microphone is None``.
 
         Queries ``sd.query_devices(kind="input")`` (which PortAudio
@@ -700,19 +710,28 @@ class DeviceManager:
         routes through ``_handle_device_disconnect`` so the stream is
         torn down + re-opened against the new OS default.
 
+        ``current_info``: optional pre-queried default-input dict. When
+        provided (the health-checker loop already issued the query for
+        this cycle), the live ``sd.query_devices`` RPC is skipped. On a
+        successful probe the result is stashed on
+        ``_last_default_input_info`` so the NEXT cycle's BT
+        classification can reuse it instead of issuing a second
+        identical RPC.
+
         Best-effort: any query failure is logged and skipped (the
         next iteration retries). HOTKEY-CRASH: double-checks the
         recording is still active before scheduling the handler.
         """
-        try:
-            current_info = sd.query_devices(kind="input")
-        except Exception:
-            log.debug(
-                "[RECORDING] sd.query_devices(kind='input') failed; "
-                "skipping default-input-device change check this cycle",
-                exc_info=True,
-            )
-            return
+        if current_info is None:
+            try:
+                current_info = sd.query_devices(kind="input")
+            except Exception:
+                log.debug(
+                    "[RECORDING] sd.query_devices(kind='input') failed; "
+                    "skipping default-input-device change check this cycle",
+                    exc_info=True,
+                )
+                return
         if not isinstance(current_info, dict):
             return
         try:
@@ -721,6 +740,11 @@ class DeviceManager:
             return
         if current_index is None:
             return
+        # Stash for the next cycle's BT classification so the health
+        # checker issues ONE PortAudio RPC per cycle on the System
+        # Default path (this probe) instead of two (this probe + a
+        # separate classify query).
+        self._last_default_input_info = current_info
         stream_open_index = self._stream_open_default_input_index
         # Lazily capture the baseline on the first successful query
         # (older callers may not have called
@@ -1113,11 +1137,31 @@ class DeviceManager:
                 )
         return saved_index
 
-    def _build_device_info_for_retry_policy(self) -> dict | None:
-        """query the current device info for BT retry classification.
+    def _build_device_info_for_retry_policy(
+        self,
+        *,
+        allow_live_default_fallback: bool = True,
+    ) -> dict | None:
+        """Return the current device info for BT retry classification.
 
-        Returns the ``sd.query_devices(current_device)`` dict, or ``None``
-        if the query raised. Used by ``_get_max_retries_for_device`` and
+        Prefers cached / stashed lookups over a live PortAudio RPC:
+
+        * Concrete device index → ``_cached_device_info`` (device-list
+          cache hit, live-query fallback on miss).
+        * System Default (``current is None``) → the health-checker's
+          last successful default-input probe
+          (``_last_default_input_info``).
+
+        ``allow_live_default_fallback`` (default True): when True and no
+        stash exists yet, falls through to a live
+        ``sd.query_devices(kind="input")`` query — correct for the
+        disconnect-retry path, which needs a classification NOW and is
+        not on a tight loop. When False (the health-checker's interval
+        classification), returns ``None`` instead so the SAME cycle's
+        default-change probe is the only PortAudio RPC; the probe
+        populates the stash for the next iteration.
+
+        Used by ``_get_max_retries_for_device`` and
         ``_get_retry_sleep_for_device`` so the disconnect handler can
         pick a BT-aware retry policy without each callsite duplicating
         the query-and-classify logic.
@@ -1125,8 +1169,19 @@ class DeviceManager:
         try:
             current = self._resolve_device()
             if current is None:
+                stashed = self._last_default_input_info
+                if stashed is not None:
+                    return stashed
+                if not allow_live_default_fallback:
+                    # Health-checker path: skip the live query. The
+                    # default-change probe later in the SAME cycle
+                    # issues the query and populates the stash. First
+                    # cycle classifies as non-BT (30 s interval); a
+                    # BT-classified default device tightens to 5 s from
+                    # the second cycle onward.
+                    return None
                 return sd.query_devices(kind="input")
-            return sd.query_devices(current)
+            return self._cached_device_info(current)
         except Exception:
             return None
 
@@ -1198,12 +1253,17 @@ class DeviceManager:
         resolve which physical device is the OS default, so we fall
         through to the live ``sd.query_devices(kind="input")`` query
         (preserves the pre-fix behavior for the OS-default path).
+
+        Returns ``None`` when the resolved value is not a ``dict``
+        (defensive: some test stubs / broken host-API layers return a
+        list or other shape; callers contract is dict-or-None).
         """
         if device is None:
             try:
-                return sd.query_devices(kind="input")
+                info = sd.query_devices(kind="input")
             except Exception:
                 return None
+            return info if isinstance(info, dict) else None
         cache = self._device_list_cache
         if cache is not None:
             for entry in cache:
@@ -1217,9 +1277,10 @@ class DeviceManager:
         # hot-plugged and the TTL hasn't expired yet) or when the
         # cache was never populated.
         try:
-            return sd.query_devices(device)
+            info = sd.query_devices(device)
         except Exception:
             return None
+        return info if isinstance(info, dict) else None
 
     def _device_index(self, fallback_index: int, device_info: dict) -> int:
         try:

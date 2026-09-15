@@ -111,16 +111,13 @@ def _make_controller_with_lifecycle(app: MagicMock) -> MagicMock:
 
 def _wire_public_entry_chain(app: MagicMock, controller: MagicMock) -> None:
     """Wire the mock controller/app so the PRODUCTION call chain runs:
-    ``lifecycle.toggle -> controller._toggle_impl -> app._start_dictation
-    -> lifecycle.start -> controller._start_impl``.
+    ``lifecycle.toggle -> app._start_dictation -> lifecycle.start``.
 
     The production controller exposes 1-line delegators with exactly these
     bodies; a MagicMock controller needs them wired by hand so the
     double-acquisition path (toggle -> start, RLock count 2) taken by every
     user-facing entry (F2 / IPC / tray) is exercised for real.
     """
-    controller._toggle_impl = lambda: controller._lifecycle._toggle_impl(controller)
-    controller._start_impl = lambda: controller._lifecycle._start_impl(controller)
     app._start_dictation = lambda: controller._lifecycle.start(controller)
     app._stop_dictation = lambda: controller._lifecycle.stop(controller)
     # ``_toggle_impl`` treats a live loader thread as "queue the dictation";
@@ -137,20 +134,22 @@ class TestFastF2ReturnDuringModelReload:
     idle-unload reload)."""
 
     def test_f2_returns_before_load_completes_when_model_reload_in_flight(self) -> None:
-        """When ``ensure_active_engine_loaded()`` takes 5s (simulated),
+        """When ``ensure_active_engine_loaded()`` takes ~3s (simulated),
         the F2 thread must return long before the load completes. The
         model load continues on the daemon worker thread."""
         app = _make_app_with_mock_recorder()
         controller = _make_controller_with_lifecycle(app)
 
-        # Simulate a 5s model reload (idle-unload path). The worker
-        # will block in ``ensure_active_engine_loaded()`` for 5s.
+        # Simulate a model reload (idle-unload path). The worker
+        # will block in ``ensure_active_engine_loaded()`` for ~3s.
+        # MO-85: 3s instead of 5s — still well above the F2 return
+        # budget (<2s) while cutting suite wall-clock.
         load_started = threading.Event()
         load_completed = threading.Event()
 
         def _slow_load():
             load_started.set()
-            time.sleep(5.0)
+            time.sleep(3.0)
             load_completed.set()
             return app.models.active_transcriber.return_value
 
@@ -179,11 +178,11 @@ class TestFastF2ReturnDuringModelReload:
 
         # The model load must have started (on the worker thread).
         assert load_started.is_set(), "ensure_active_engine_loaded() must have been called by the worker"
-        # The model load must NOT have completed yet (it takes 5s, the
+        # The model load must NOT have completed yet (it takes ~3s, the
         # F2 thread returned in <0.2s).
         assert not load_completed.is_set(), (
             "ensure_active_engine_loaded() should still be in progress "
-            "(5s sleep) when the F2 thread returns, the worker is async"
+            "(slow sleep) when the F2 thread returns, the worker is async"
         )
 
         # ``recorder.start()`` was called synchronously (before the
@@ -209,7 +208,9 @@ class TestFastF2ReturnDuringModelReload:
 
         def _slow_load():
             load_started.set()
-            time.sleep(2.0)
+            # MO-85: 0.5s is enough to keep the worker off the F2
+            # path without burning suite wall-clock.
+            time.sleep(0.5)
             return app.models.active_transcriber.return_value
 
         app.models.ensure_active_engine_loaded = MagicMock(side_effect=_slow_load)
@@ -256,7 +257,8 @@ class TestFastF2ReturnDuringModelReload:
 
         # Slow load so the worker is still alive when we check.
         def _slow_load():
-            time.sleep(2.0)
+            # MO-85: 0.5s keeps the worker busy without a 2s hang.
+            time.sleep(0.5)
             return app.models.active_transcriber.return_value
 
         app.models.ensure_active_engine_loaded = MagicMock(side_effect=_slow_load)

@@ -60,7 +60,11 @@ import threading
 import time
 from typing import Any
 
-from voice_typer.server._audio_constants import SILERO_VAD_SAMPLE_RATES, WHISPER_SAMPLE_RATE
+from voice_typer.server._audio_constants import (
+    AUDIO_SILENCE_RMS,
+    SILERO_VAD_SAMPLE_RATES,
+    WHISPER_SAMPLE_RATE,
+)
 from voice_typer.server._lazy_import import lazy_module
 from voice_typer.server.recording import resampling as _resampling_mod
 from voice_typer.server.recording.format import ensure_mono
@@ -101,15 +105,36 @@ def _ensure_sp_signal() -> Any | None:
     return _sp_signal
 
 
-# Near-silence bypass threshold (linear peak amplitude, ~-54 dBFS).
-# Chunks quieter than this skip the filter chain (RNNoise inference +
-# IIR stages dominate worker CPU at native rates) and are stored as
-# digital zeros. The gate/suppressor would attenuate such chunks to
-# ~zero output anyway, so silence stats, VAD SILENCE state, and the
-# transcriber see equivalent audio while the worker stays ahead of the
-# 32 ms callback cadence. Well below quiet speech (peaks typically
-# >0.01), well above a muted/idle MME noise floor.
+# Near-silence bypass thresholds (linear peak amplitude). Chunks that
+# qualify skip the filter chain (RNNoise inference + IIR stages dominate
+# worker CPU at native rates) and are stored as digital zeros. The
+# gate/suppressor would attenuate such chunks to ~zero output anyway,
+# so silence stats, VAD SILENCE state, and the transcriber see
+# equivalent audio while the worker stays ahead of the 32 ms callback
+# cadence. Filter-state staleness across bypassed chunks is benign
+# (IIR/RNNoise states recover within their attack times on speech
+# onset).
+#
+# Two arms, deliberately conservative (a pure ``peak OR rms`` widen
+# would zero very quiet speech-onset chunks whose RMS has not yet
+# ramped while their peak already reflects formant energy):
+#
+# 1. Peak-only: ``peak < _NEAR_SILENCE_BYPASS_PEAK`` (~-54 dBFS). Well
+#    below quiet speech (peaks typically >0.01), well above a muted /
+#    idle MME noise floor. Catches digital silence and true idle floor.
+# 2. Quiet-ambient RMS: peak is still inside the ambient band
+#    (``_NEAR_SILENCE_BYPASS_PEAK <= peak < _NEAR_SILENCE_BYPASS_PEAK_CEILING``,
+#    ~-54 to -40 dBFS) AND chunk RMS is at the shared silence floor
+#    (``AUDIO_SILENCE_RMS``). Catches HVAC / fan hum that peaks just
+#    above the hard floor — the case the peak-only gate missed — while
+#    the ceiling keeps speech-onset peaks (typ. >0.01) out of the RMS
+#    arm entirely. Residual bound: a chunk with peak in the ambient
+#    band AND crest factor high enough that RMS < 0.0005 (e.g. a
+#    one-sample click at 0.003, or a <1 ms speech spike buried in
+#    silence) is zeroed; sustained quiet speech at those peaks has RMS
+#    well above the floor and still runs the chain.
 _NEAR_SILENCE_BYPASS_PEAK = 0.002
+_NEAR_SILENCE_BYPASS_PEAK_CEILING = 0.01
 
 # XRUN rolling window parameters
 _XRUN_WINDOW_MAXLEN = 10  # keep last 10 xrun timestamps
@@ -404,12 +429,26 @@ class AudioPipeline:
         # within their attack times on speech onset; silence in would
         # have produced ~silence out).
         if indata_mono.size:
+            _should_bypass = False
             try:
                 _flat = indata_mono.reshape(-1)
                 _bypass_peak = max(float(_flat.max()), -float(_flat.min()))
             except Exception:
                 _bypass_peak = float("inf")
             if _bypass_peak < _NEAR_SILENCE_BYPASS_PEAK:
+                _should_bypass = True
+            elif _bypass_peak < _NEAR_SILENCE_BYPASS_PEAK_CEILING:
+                # Ambient band: only pay the RMS reduction when peak
+                # alone did not already decide (peak < floor) and is
+                # still below the speech-onset ceiling. np.dot RMS
+                # matches ``compute_rms_and_peak`` (no intermediate
+                # squared allocation).
+                try:
+                    _bypass_rms = float(np.sqrt(np.dot(_flat, _flat) / _flat.size))
+                except Exception:
+                    _bypass_rms = float("inf")
+                _should_bypass = _bypass_rms < AUDIO_SILENCE_RMS
+            if _should_bypass:
                 _proc = recorder._audio_processor
                 _proc_sr = getattr(_proc, "_sample_rate", None) if _proc is not None else None
                 if _proc is None or _proc_sr == recorder._effective_sr:

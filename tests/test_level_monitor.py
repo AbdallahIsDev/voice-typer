@@ -25,6 +25,8 @@ All ``sounddevice`` calls are mocked so the tests run on any platform
 
 from __future__ import annotations
 
+import contextlib
+import os
 import threading
 import time
 from unittest.mock import MagicMock
@@ -79,6 +81,15 @@ def _reset_level_monitor_state():
     if leaked_timer is not None:
         leaked_timer.cancel()
     lm._test_auto_stop_timer = None
+    # Cancel leaked TTL-expiry timers: stop_test_recording arms one daemon
+    # Timer per persisted test. A fire is harmless (exact missing paths),
+    # but the module set must not grow across tests.
+    from voice_typer.server.level_monitor import test_recording as _tr
+
+    for _t in list(_tr._test_recording_expiry_timers):
+        with contextlib.suppress(Exception):
+            _t.cancel()
+    _tr._test_recording_expiry_timers.clear()
     # Reset quality metrics.
     lm._test_peak_history.clear()
     lm._test_rms_history.clear()
@@ -1215,3 +1226,242 @@ class TestCancelTestRecordingLock:
 
         worker.join(timeout=2.0)
         cancel_thread.join(timeout=2.0)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# mic-test WAV 5-minute disk TTL
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class TestExpiredRecordingsSweep:
+    """``_delete_expired_recordings`` removes only WAVs older than the TTL."""
+
+    @staticmethod
+    def _point_config_dir(monkeypatch, tmp_path):
+        from voice_typer.server.config_internals import paths as _paths
+
+        monkeypatch.setattr(_paths, "_config_dir", lambda: tmp_path)
+
+    def test_ttl_constant_is_5_minutes(self):
+        from voice_typer.server.level_monitor import test_recording as _tr
+
+        assert _tr.MIC_TEST_RECORDING_TTL_SEC == 300
+
+    def test_sweep_deletes_only_expired_wavs(self, tmp_path, monkeypatch):
+        """Old .wav/.wav.tmp gone, fresh .wav kept, non-wav untouched."""
+        from voice_typer.server.level_monitor import test_recording as _tr
+
+        self._point_config_dir(monkeypatch, tmp_path)
+        d = tmp_path / _tr._TEST_RECORDINGS_DIRNAME
+        d.mkdir(parents=True, exist_ok=True)
+        old_wav = d / "test-raw-old.wav"
+        old_wav.write_bytes(b"RIFF-old")
+        old_tmp = d / "test-x.wav.tmp"
+        old_tmp.write_bytes(b"partial")
+        fresh_wav = d / "test-raw-fresh.wav"
+        fresh_wav.write_bytes(b"RIFF-fresh")
+        notes = d / "notes.txt"
+        notes.write_bytes(b"not audio")
+        now = time.time()
+        old = now - (_tr.MIC_TEST_RECORDING_TTL_SEC + 60)
+        os.utime(old_wav, (old, old))
+        os.utime(old_tmp, (old, old))
+        os.utime(fresh_wav, (now, now))
+        os.utime(notes, (old, old))
+
+        deleted = _tr._delete_expired_recordings()
+
+        assert deleted == 2
+        assert not old_wav.exists()
+        assert not old_tmp.exists()
+        assert fresh_wav.exists()
+        assert notes.exists()
+
+    def test_sweep_missing_dir_ok(self, tmp_path, monkeypatch):
+        """No recordings dir yet (fresh install): no raise, nothing deleted."""
+        from voice_typer.server.level_monitor import test_recording as _tr
+
+        self._point_config_dir(monkeypatch, tmp_path)
+        assert _tr._delete_expired_recordings() == 0
+
+
+class TestExpiryScheduling:
+    """Per-test TTL timers delete exactly the persisted uuid paths."""
+
+    @pytest.mark.parametrize("ttl", [0.05, 0.2])
+    def test_schedule_deletes_exact_paths_after_fire(self, tmp_path, ttl):
+        """Short test TTL (never a 300s sleep): both files gone, sibling kept."""
+        from voice_typer.server.level_monitor import test_recording as _tr
+
+        a = tmp_path / "test-filtered-abc123.wav"
+        b = tmp_path / "test-raw-def456.wav"
+        a.write_bytes(b"A" * 64)
+        b.write_bytes(b"B" * 64)
+        sibling = tmp_path / "test-raw-sibling.wav"
+        sibling.write_bytes(b"S" * 64)
+
+        timer = _tr._schedule_test_recording_expiry([str(a), str(b)], ttl_sec=ttl)
+
+        assert timer is not None
+        assert timer.daemon is True
+        assert wait_until(lambda: not a.exists() and not b.exists(), timeout=2.0)
+        assert sibling.exists()
+        # The fired handle discards itself from the module set.
+        assert wait_until(lambda: timer not in _tr._test_recording_expiry_timers, timeout=2.0)
+
+    def test_schedule_no_paths_no_timer(self):
+        from voice_typer.server.level_monitor import test_recording as _tr
+
+        assert _tr._schedule_test_recording_expiry([]) is None
+        assert _tr._schedule_test_recording_expiry(None) is None
+
+    def test_stop_arms_expiry_with_exact_paths(self, monkeypatch):
+        """``stop_test_recording`` schedules deletion of the two persisted paths."""
+        import voice_typer.server.level_monitor as lm
+        from voice_typer.server.level_monitor import test_recording as _tr
+
+        scheduled: list[list[str]] = []
+
+        def _capture(paths, ttl_sec=_tr.MIC_TEST_RECORDING_TTL_SEC):
+            scheduled.append(list(paths))
+            return None  # don't arm a real 300s timer in the suite
+
+        monkeypatch.setattr(_tr, "_schedule_test_recording_expiry", _capture)
+
+        holder = _wire_stream_with_callback_capture(monkeypatch)
+        lm._monitor_sample_rate = 16000
+        lm.start_test_recording(duration=5.0)
+        try:
+            for _ in range(3):
+                chunk = np.ones((512, 1), dtype=np.float32) * 0.5
+                holder["callback"](chunk, 512, None, None)
+
+            assert wait_until(lambda: len(lm._test_raw_chunks) >= 3, timeout=1.0)
+
+            result = lm.stop_test_recording()
+            assert result["success"] is True
+
+            from pathlib import Path as _Path
+
+            paths = {result["audio_file"]["path"], result["raw_audio_file"]["path"]}
+            assert len(scheduled) == 1
+            assert set(scheduled[0]) == paths
+            for p in paths:
+                assert _Path(p).is_file()
+        finally:
+            lm.stop_monitoring()
+
+
+class TestRecordingsDirRemoval:
+    """An emptied mic-test-recordings dir is removed; the next test recreates it."""
+
+    @staticmethod
+    def _point_config_dir(monkeypatch, tmp_path):
+        from voice_typer.server.config_internals import paths as _paths
+
+        monkeypatch.setattr(_paths, "_config_dir", lambda: tmp_path)
+
+    def _recordings_dir(self, tmp_path):
+        from voice_typer.server.level_monitor import test_recording as _tr
+
+        return tmp_path / _tr._TEST_RECORDINGS_DIRNAME
+
+    def test_sweep_removes_dir_when_emptied(self, tmp_path, monkeypatch):
+        from voice_typer.server.level_monitor import test_recording as _tr
+
+        self._point_config_dir(monkeypatch, tmp_path)
+        d = self._recordings_dir(tmp_path)
+        d.mkdir(parents=True, exist_ok=True)
+        old_wav = d / "test-raw-old.wav"
+        old_wav.write_bytes(b"RIFF-old")
+        old = time.time() - (_tr.MIC_TEST_RECORDING_TTL_SEC + 60)
+        os.utime(old_wav, (old, old))
+
+        assert _tr._delete_expired_recordings() == 1
+        assert not d.exists()
+
+    def test_sweep_keeps_dir_with_remaining_files(self, tmp_path, monkeypatch):
+        from voice_typer.server.level_monitor import test_recording as _tr
+
+        self._point_config_dir(monkeypatch, tmp_path)
+        d = self._recordings_dir(tmp_path)
+        d.mkdir(parents=True, exist_ok=True)
+        fresh = d / "test-raw-fresh.wav"
+        fresh.write_bytes(b"RIFF-fresh")
+
+        assert _tr._delete_expired_recordings() == 0
+        assert d.is_dir()
+        assert fresh.exists()
+
+    def test_remove_missing_dir_ok(self, tmp_path, monkeypatch):
+        from voice_typer.server.level_monitor import test_recording as _tr
+
+        self._point_config_dir(monkeypatch, tmp_path)
+        assert not self._recordings_dir(tmp_path).exists()
+        _tr._remove_recordings_dir_if_empty()
+
+    def test_delete_paths_removes_dir_when_emptied(self, tmp_path, monkeypatch):
+        from voice_typer.server.level_monitor import test_recording as _tr
+
+        self._point_config_dir(monkeypatch, tmp_path)
+        d = self._recordings_dir(tmp_path)
+        d.mkdir(parents=True, exist_ok=True)
+        a = d / "test-filtered-a.wav"
+        b = d / "test-raw-b.wav"
+        a.write_bytes(b"A" * 64)
+        b.write_bytes(b"B" * 64)
+
+        _tr._delete_test_recording_paths([str(a), str(b)])
+        assert not d.exists()
+
+    def test_delete_paths_keeps_dir_with_remaining_file(self, tmp_path, monkeypatch):
+        from voice_typer.server.level_monitor import test_recording as _tr
+
+        self._point_config_dir(monkeypatch, tmp_path)
+        d = self._recordings_dir(tmp_path)
+        d.mkdir(parents=True, exist_ok=True)
+        a = d / "test-filtered-a.wav"
+        b = d / "test-raw-b.wav"
+        a.write_bytes(b"A" * 64)
+        b.write_bytes(b"B" * 64)
+
+        _tr._delete_test_recording_paths([str(a)])
+        assert d.is_dir()
+        assert not a.exists()
+        assert b.exists()
+
+    def test_purge_removes_empty_dir(self, tmp_path, monkeypatch):
+        from voice_typer.server.level_monitor import test_recording as _tr
+
+        self._point_config_dir(monkeypatch, tmp_path)
+        d = self._recordings_dir(tmp_path)
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "test-raw-old.wav").write_bytes(b"RIFF-old")
+
+        _tr._purge_test_recordings()
+        assert not d.exists()
+
+    def test_write_recreates_removed_dir(self, tmp_path, monkeypatch):
+        """Next mic test recreates the folder: a write into a removed dir works."""
+        import io
+        import wave
+
+        from voice_typer.server.level_monitor import test_recording as _tr
+
+        self._point_config_dir(monkeypatch, tmp_path)
+        d = self._recordings_dir(tmp_path)
+        assert not d.exists()
+
+        buf = io.BytesIO()
+        with wave.open(buf, "wb") as wf:
+            wf.setnchannels(1)
+            wf.setsampwidth(2)
+            wf.setframerate(16000)
+            wf.writeframes(b"\x00\x00" * 160)
+
+        ref = _tr._write_test_wav(buf, "filtered")
+        assert ref is not None
+        assert d.is_dir()
+        from pathlib import Path as _Path
+
+        assert _Path(ref["path"]).is_file()

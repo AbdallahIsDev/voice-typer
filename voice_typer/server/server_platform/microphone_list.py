@@ -98,6 +98,54 @@ def _sd_dev_as_dict(dev: Any) -> dict[str, Any] | None:
     return None
 
 
+def iter_filtered_input_devices(
+    devices_raw: Any,
+) -> list[tuple[int, dict[str, Any], str]]:
+    """Walk a PortAudio device list, returning valid input devices.
+
+    Shared by the canonical UI list (:func:`_list_microphones_uncached`)
+    and the recorder's candidate cache
+    (``DeviceManager._refresh_device_list``) so the zero-channel /
+    non-microphone / placeholder-name filters can only drift in one
+    place (E7 / P2). Each adapter maps the raw entries into its own
+    public shape; this helper owns only the walk + filter predicates.
+
+    Returns a list of ``(enumerate_index, device_dict, stripped_name)``
+    triples:
+
+    - ``enumerate_index``: the position in ``devices_raw`` (the
+      recorder list keys its cache by this index).
+    - ``device_dict``: the raw PortAudio entry (callers pick the
+      fields their public shape needs).
+    - ``stripped_name``: the display name after whitespace strip —
+      the value the filters matched on, and the canonical list's
+      ``name`` field.
+
+    Entries that are not dicts, report ``max_input_channels <= 0``,
+    or fail the shared name filters
+    (:func:`remote_session._is_non_mic_device` /
+    :func:`remote_session._is_invalid_device_name`) are dropped.
+    """
+    result: list[tuple[int, dict[str, Any], str]] = []
+    for i, dev_raw in enumerate(devices_raw):
+        dev = _sd_dev_as_dict(dev_raw)
+        if dev is None:
+            continue
+        try:
+            max_ch_raw = dev.get("max_input_channels", 0)
+            max_ch = int(max_ch_raw) if max_ch_raw is not None else 0
+        except (TypeError, ValueError):
+            max_ch = 0
+        if max_ch <= 0:
+            continue
+        raw_name = dev.get("name", "")
+        name = raw_name.strip() if isinstance(raw_name, str) else ""
+        if _is_non_mic_device(name) or _is_invalid_device_name(name):
+            continue
+        result.append((i, dev, name))
+    return result
+
+
 # ─── Stable device identifiers ─────────────────────────────────────────
 #
 # PortAudio device indices are NOT stable across reboots / replugs /
@@ -318,20 +366,7 @@ def _list_microphones_uncached() -> list[dict]:
             log.debug("[PLATFORM] host API enumeration failed", exc_info=True)
         devices = []
         seen_ids: set[str] = set()
-        for i, dev_raw in enumerate(sd.query_devices()):
-            dev = _sd_dev_as_dict(dev_raw)
-            if dev is None:
-                continue
-            if dev["max_input_channels"] <= 0:
-                continue
-            raw_name = dev.get("name", "")
-            name = raw_name.strip() if isinstance(raw_name, str) else ""
-            if _is_non_mic_device(name):
-                continue
-            # Placeholder endpoints ("Input ()", empty/whitespace names)
-            # have no real device behind them, never offer them.
-            if _is_invalid_device_name(name):
-                continue
+        for i, dev, name in iter_filtered_input_devices(sd.query_devices()):
             host_api = host_api_names.get(dev.get("hostapi", 0), "")
             # Prefer the device's self-reported PortAudio index (the same
             # value ``sd.query_devices(kind='input')['index']`` carries,
@@ -357,7 +392,7 @@ def _list_microphones_uncached() -> list[dict]:
                     "index": portaudio_index,
                     "name": name,
                     "host_api": host_api,
-                    "channels": dev["max_input_channels"],
+                    "channels": dev.get("max_input_channels", 0),
                     "default": portaudio_index == default_index,
                     "is_bluetooth": is_bluetooth,
                 }
