@@ -19,6 +19,16 @@ from pathlib import Path
 
 import pytest
 
+
+@pytest.fixture(autouse=True)
+def _mock_recovery_owner_acl(monkeypatch):
+    """Never run real icacls during crash-recovery tests on Windows hosts."""
+    from unittest.mock import MagicMock
+
+    monkeypatch.setattr(
+        "voice_typer.server.config._enforce_windows_owner_only_acl",
+        MagicMock(return_value=True),
+    )
 # the previous Linux test-env shim that aliased
 # ``ctypes.WINFUNCTYPE = ctypes.CFUNCTYPE`` and inserted a ``MagicMock``
 # for ``voice_typer.server.crash_handler`` into ``sys.modules`` has been

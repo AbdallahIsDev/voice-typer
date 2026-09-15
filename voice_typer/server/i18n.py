@@ -161,6 +161,71 @@ _INITIAL_LABELS: dict[str, str] = {
         "Use the tray menu to toggle dictation, or pick a different hotkey in Settings."
     ),
     "notify.hotkey_dispatcher.save_failed": ("Failed to save hotkey to disk. Check disk space or permissions."),
+    "notify.hotkey_dispatcher.wayland_caps_lock": (
+        "On Wayland, Caps Lock cannot be suppressed, "
+        "your text will be capitalized. Bind Alt or a "
+        "function key instead, or remap Caps Lock via "
+        "your compositor's settings."
+    ),
+    "notify.hotkey_dispatcher.ptt_release_missed": (
+        "PTT release event missed, recording auto-stopped after 60s safety timeout."
+    ),
+    "notify.hotkey_dispatcher.esc_register_failed": (
+        "ESC cancel hotkey could not be registered. Another app may have claimed it."
+    ),
+    "notify.hotkey_dispatcher.repaste_register_failed": (
+        "Repaste hotkey could not be registered. Another app may have claimed it."
+    ),
+    "notify.hotkey_dispatcher.invalid_hotkey": (
+        "Hotkey {hotkey} is not valid: {validation_error}. Keeping the previous hotkey."
+    ),
+    "notify.hotkey_dispatcher.restore_failed": (
+        "Could not restore the previous hotkey {hotkey}. Open Settings to rebind a hotkey."
+    ),
+    # ── native_adapter.py tray notices ──────────────────────────────────
+    # Title/body pairs for the native→legacy fallback chain. Titles use
+    # the ``{app}`` interpolation pattern (same as startup_sequence /
+    # permissions); bodies carry the user-facing guidance.
+    "notify.native_adapter.warn_title": "{app}: Native hotkey warning",
+    "notify.native_adapter.fallback_title": "{app}: Compatibility mode",
+    "notify.native_adapter.fallback_body": (
+        "Hotkey is running in compatibility mode (reduced features). "
+        "Restart the app for full functionality."
+    ),
+    "notify.native_adapter.recovery_title": "{app}: Full mode restored",
+    "notify.native_adapter.recovery_body": "Hotkey is running in full mode.",
+    "notify.native_adapter.failure_title": "{app}: Hotkey error",
+    "notify.native_adapter.failure_body": "Hotkey is not working. Click to troubleshoot.",
+    # ── model delete notifications (IPC message field) ──────────────────
+    # Failure paths name a cause; success paths omit ``message`` so the
+    # renderer falls back to ``models.snack.deleted``.
+    "notify.model.delete.unknown_model": "Unknown model: {model}",
+    "notify.model.delete.not_downloaded": "Model '{model}' is not downloaded.",
+    "notify.model.delete.stale_cleared_no_model": (
+        "Model '{model}' was not on disk, no model selected. Pick a model on the Models page."
+    ),
+    "notify.model.delete.stale_cleared_switched": (
+        "Model '{model}' was not on disk, switched to '{replacement}'."
+    ),
+    "notify.model.delete.stale_nothing_to_delete": (
+        "Model '{model}' was not on disk, nothing to delete."
+    ),
+    "notify.model.delete.active_refused_recording": (
+        "Stop the current dictation before deleting the active model."
+    ),
+    "notify.model.delete.unload_failed": (
+        "Could not unload '{model}' for deletion. Try again after stopping any dictation."
+    ),
+    # ── clipboard-unavailable long body (paste_step tray notify) ────────
+    # Distinct from the short ``state.dictation_pipeline.clipboard_unavailable``
+    # tooltip status. The paste_failed IPC event deliberately omits
+    # ``message`` so the renderer's localized ``home.pasteFailedMessage``
+    # fallback fires (C-I18N-1).
+    "notify.app.clipboard_unavailable_body": (
+        "Transcription complete, but the clipboard was unavailable.\n"
+        "Your text was saved to the crash-recovery file so it is not lost."
+    ),
+    "notify.app.clipboard_unavailable_recovery_path": "Recovery file: {path}",
     # ── volume_controller.py notifications ──────────────────────────────
     "notify.volume_controller.crash_restored": ("System volume was restored after a crash (to {percent}%)."),
     # ── permissions.py notifications ────────────────────────────────────

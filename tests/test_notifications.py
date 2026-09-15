@@ -79,7 +79,10 @@ class TestCriticalNotificationsBypassToggle:
         assert "notify_safety(" in block
 
     def test_recording_stop_failure_uses_notify_safety(self):
-        rc_py = REPO_ROOT / "voice_typer" / "server" / "recording_controller.py"
+        # MO-7: the stop+transcribe worker body lives in
+        # ``recording_lifecycle.py`` (the controller delegator was
+        # removed). The critical-notification call site is there.
+        rc_py = REPO_ROOT / "voice_typer" / "server" / "recording_lifecycle.py"
         src = rc_py.read_text(encoding="utf-8")
         # Fix-B (i18n extraction): the English notification
         # string was moved from the call site to ``i18n.py`` under the

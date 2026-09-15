@@ -316,12 +316,29 @@ def terminate_electron(pid: int) -> None:
                     _windows_create_no_window_flags,
                 )
 
-                subprocess.run(
+                completed = subprocess.run(
                     ["taskkill", "/T", "/F", "/PID", str(pid)],
                     capture_output=True,
                     timeout=5,
                     creationflags=_windows_create_no_window_flags(),
                 )
+                if completed.returncode != 0:
+                    # Best-effort still: a non-zero returncode means the
+                    # tree survived (unknown PID, access denied on an
+                    # elevated child). Record the reason at debug so host
+                    # logs explain an outlived Electron tree; escalation
+                    # belongs to the shutdown teardown, not this launcher.
+                    raw_stderr = getattr(completed, "stderr", b"") or b""
+                    if isinstance(raw_stderr, bytes):
+                        stderr_text = raw_stderr.decode("utf-8", errors="replace")
+                    else:
+                        stderr_text = str(raw_stderr)
+                    log.debug(
+                        "[LAUNCHER] taskkill /T /F pid=%s returncode=%s stderr=%s",
+                        pid,
+                        completed.returncode,
+                        stderr_text.strip()[:200],
+                    )
                 return
             except subprocess.TimeoutExpired:
                 # Taskkill hung (e.g. a wedged process

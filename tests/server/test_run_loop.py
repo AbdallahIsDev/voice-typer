@@ -270,8 +270,13 @@ class TestStopUnblocksAcceptLoop:
         """The instance must store _tcp_server_socket (not just a local
         var) so stop() can close it.  This is a static check.
         """
-        init_src = inspect.getsource(IPCServer.__init__)
-        assert "_tcp_server_socket" in init_src, "IPCServer.__init__ must initialize _tcp_server_socket"
+        tcp_src = inspect.getsource(IPCServer._init_tcp_transport_state)
+        assert "_tcp_server_socket" in tcp_src, (
+            "IPCServer._init_tcp_transport_state must initialize _tcp_server_socket"
+        )
+        assert "_init_tcp_transport_state" in inspect.getsource(IPCServer.__init__), (
+            "IPCServer.__init__ must call _init_tcp_transport_state"
+        )
         accept_src = inspect.getsource(IPCServer._accept_tcp)
         assert "self._tcp_server_socket = server" in accept_src, "_accept_tcp must store the listening socket on self"
         stop_src = inspect.getsource(IPCServer.stop)

@@ -329,7 +329,7 @@ class VocabularyAutomation:
     def analyze_transcription(
         self,
         text: str,
-        segments: list,
+        segments: list | tuple,
         confidence: float,
     ) -> list[CorrectionSuggestion]:
         """Analyze ``text`` for low-confidence / unknown words.
@@ -339,13 +339,13 @@ class VocabularyAutomation:
         text : str
             The transcribed text.  Already cleaned up and enhanced
             by the time it reaches here.
-        segments : list
+        segments : list | tuple
             Segment-level metadata from the transcription engine.
             Each segment may be a dict with ``text`` / ``avg_logprob``
             keys, or an object with ``.text`` / ``.avg_logprob``
             attributes (faster-whisper's Segment namedtuple).  May
-            be empty, in that case we treat the whole text as one
-            segment with the given ``confidence``.
+            be empty (``()`` / ``[]``), in that case we treat the
+            whole text as one segment with the given ``confidence``.
         confidence : float
             The overall transcription confidence, in [0.0, 1.0].
             Used as the per-word confidence when ``segments`` is

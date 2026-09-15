@@ -71,7 +71,7 @@ from voice_typer.server.branding import APP_NAME  # noqa: F401
 # eagerly loads numpy via 7+ submodules): see
 # tests/test_recorder_lazy_import_and_vad_cache_gates.py, which pins that
 # "Recorder" is NOT in this module's __dict__.
-from voice_typer.server.config import Config, _config_dir  # noqa: F401
+from voice_typer.server.config import _config_dir  # noqa: F401
 from voice_typer.server.history_db import HistoryDB  # noqa: F401
 
 # Migrated test-seam re-exports (TranscriptionEngine, create_hotkey_backend,
@@ -148,6 +148,20 @@ class VoiceTyperApp(AppLazyHub, AppDictation, AppAdmin, AppRecordingInit, AppCon
     # source (comments stripped) by
     # tests/test_lock_order_contract.py::TestLockInventory.
 
+    # ─── State-blob ownership (one path per blob) ──────────────────
+    # Exactly one owner per blob; façade names are either
+    # *methods that delegate* or *properties that rebind into* the owner.
+    # Never a second independently-assignable instance.
+    #
+    # - pending timers list/lock/gen → TimerCoordinator (`self.timers`)
+    # - busy event + lock → BusynessCoordinator
+    # - cached microphone list → MicrophoneRegistry
+    # - config + mutation lock → Config (+ this class's RLock)
+    # - hotkey backends → HotkeyDispatcher (`self.hotkeys`)
+    # - model-load fields → ModelManager (`self.models`)
+    # - streaming session/thread → RecordingController
+    # - shutdown / electron / ESC → this class (`_init_state_flags`)
+
     def _init_hotkeys_and_locks(self) -> None:
         """Construct HotkeyDispatcher, busyness/mic coordinators, and the
         config-mutation lock (wired into Config)."""
@@ -221,18 +235,50 @@ class VoiceTyperApp(AppLazyHub, AppDictation, AppAdmin, AppRecordingInit, AppCon
         # polling callback doesn't fire mid-assignment.
         self._esc_cancel_paused: bool = False
         # Timer lifecycle lives on TimerCoordinator; the app keeps thin
-        # delegates (_schedule_timer / _cancel_pending_timers) so existing
-        # callers and monkeypatch sites keep working.
+        # delegates (_schedule_timer / _cancel_pending_timers) plus
+        # @property aliases for the coordinator's state (see below) so
+        # existing callers and monkeypatch sites keep working.
         from voice_typer.server.timer_coordinator import TimerCoordinator
 
         self.timers: TimerCoordinator = TimerCoordinator(self)
-        # Shadow declarations pointing at the coordinator's state so runtime
-        # stress tests reading app._pending_timers_lock directly keep working.
-        self._pending_timers: list[threading.Timer] = self.timers._pending_timers
         self._pending_timers_lock = self.timers._pending_timers_lock
-        self._timer_generation: int = self.timers._timer_generation
         self._cycle_counter = 0  # monotonic dictation-cycle counter
         self._cycle_id: str = ""  # human-readable cycle id for log correlation
+
+    # ─── Timer-state aliases ───────────────────────────────────────
+    #
+    # Ownership: ``TimerCoordinator`` (``self.timers``) owns
+    # ``_pending_timers`` / ``_pending_timers_lock`` /
+    # ``_timer_generation``. The façade names below resolve to the SAME
+    # objects; assignment (``app._pending_timers = []``) rebinds the
+    # coordinator's backing rather than creating a divergent second
+    # attribute.
+    #
+    # ``_pending_timers_lock`` is the one-time shared binding declared in
+    # ``_init_state_flags`` (not a property): ``threading.Lock`` is not
+    # rebindable into the coordinator without racing in-flight
+    # ``with self._pending_timers_lock:`` sections, and the lock is never
+    # replaced in production — only the list and generation are.
+
+    @property
+    def _pending_timers(self) -> list[threading.Timer]:
+        """Same list object ``TimerCoordinator`` mutates (never a copy)."""
+        return self.timers._pending_timers
+
+    @_pending_timers.setter
+    def _pending_timers(self, value: list[threading.Timer]) -> None:
+        """Rebind the coordinator's list so both paths stay one object."""
+        self.timers._pending_timers = value
+
+    @property
+    def _timer_generation(self) -> int:
+        """Same int ``TimerCoordinator`` bumps on cancel."""
+        return self.timers._timer_generation
+
+    @_timer_generation.setter
+    def _timer_generation(self, value: int) -> None:
+        """Rebind the coordinator's generation counter."""
+        self.timers._timer_generation = value
 
     def _schedule_timer(self, delay: float, func) -> threading.Thread:
         """Delegate to TimerCoordinator."""

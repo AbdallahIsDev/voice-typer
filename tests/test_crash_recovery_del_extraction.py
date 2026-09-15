@@ -68,6 +68,16 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+
+@pytest.fixture(autouse=True)
+def _mock_recovery_owner_acl(monkeypatch):
+    """Never run real icacls during crash-recovery tests on Windows hosts."""
+    from unittest.mock import MagicMock
+
+    monkeypatch.setattr(
+        "voice_typer.server.config._enforce_windows_owner_only_acl",
+        MagicMock(return_value=True),
+    )
 if TYPE_CHECKING:
     from pathlib import Path
 

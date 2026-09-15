@@ -21,6 +21,15 @@ import json
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def _mock_recovery_owner_acl(monkeypatch):
+    """Never run real icacls during crash-recovery tests on Windows hosts."""
+    from unittest.mock import MagicMock
+
+    monkeypatch.setattr(
+        "voice_typer.server.config._enforce_windows_owner_only_acl",
+        MagicMock(return_value=True),
+    )
 @pytest.fixture
 def recovery_dir(tmp_config_dir):
     """Point config to a temp directory (via the canonical tmp_config_dir fixture)."""

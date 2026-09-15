@@ -220,6 +220,18 @@ class AppConstruction:
         # shutdown methods then run as a safety net (they're idempotent).
         self._thread_registry = ThreadRegistry()
 
+        # Wire subsystems that own daemon workers created lazily (not
+        # during __init__) so those workers register on first start and
+        # are joined by shutdown_all(). Level-monitor workers (level
+        # drain + mic_level push) are the same pattern as the
+        # buffer-clear worker.
+        try:
+            from voice_typer.server import level_monitor
+
+            level_monitor.set_thread_registry(self._thread_registry)
+        except Exception:
+            log.debug("[INIT] level_monitor thread-registry wiring failed", exc_info=True)
+
         # Install Python-level excepthook for unhandled Python exceptions.
         #  wrapped in try/except so an excepthook-install
         # failure (e.g. a missing Win32 API on an unsupported build, or

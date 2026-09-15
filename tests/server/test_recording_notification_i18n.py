@@ -191,15 +191,30 @@ class TestWatchdogStillRunningUsesI18n:
 class TestStartFailureReasonUsesI18n:
     """Both start-failure branches (``_start_impl`` and the start
     worker) must resolve the typed-reason notification through the
-    ``start_failed_with_reason`` key, never the hardcoded f-string."""
+    ``start_failed_with_reason`` key, never the hardcoded f-string.
+
+    The key lives in the shared ``_publish_start_failure_notification``
+    step (extracted from both branches); both call sites must route
+    through it.
+    """
 
     def test_start_impl_uses_key(self) -> None:
-        src = inspect.getsource(RecordingLifecycle._start_impl)
+        src = inspect.getsource(
+            RecordingLifecycle._publish_start_failure_notification
+        )
         assert "notify.recording_controller.start_failed_with_reason" in src
+        caller = inspect.getsource(RecordingLifecycle._start_impl)
+        assert "_publish_start_failure_notification" in caller
 
     def test_start_worker_uses_key(self) -> None:
-        src = inspect.getsource(RecordingLifecycle._start_dictation_worker_entry)
+        src = inspect.getsource(
+            RecordingLifecycle._publish_start_failure_notification
+        )
         assert "notify.recording_controller.start_failed_with_reason" in src
+        caller = inspect.getsource(
+            RecordingLifecycle._start_dictation_worker_entry
+        )
+        assert "_publish_start_failure_notification" in caller
 
 
 # ── public force_recover surface ────────────────────────────────────────

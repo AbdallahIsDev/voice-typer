@@ -660,8 +660,12 @@ def _is_secure_input_enabled() -> bool:
                 {
                     "type": "paste_deferred",
                     "data": {
+                        # ``reason`` only. The renderer maps it to a
+                        # localized hint
+                        # (``degradation.pasteDeferredHintSecureInput``);
+                        # a free-text English ``message`` field was an
+                        # unused i18n footgun.
                         "reason": "secure_input",
-                        "message": "Paste target has secure input enabled, keystroke was dropped",
                     },
                 }
             )

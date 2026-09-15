@@ -28,6 +28,15 @@ from voice_typer.server.dictation_stages import CancellationGuard, _PipelineAbor
 from tests.fixtures.dictation_pipeline_helpers import make_test_app, new_pipeline
 
 
+@pytest.fixture(autouse=True)
+def _mock_recovery_owner_acl(monkeypatch):
+    """Never run real icacls during crash-recovery tests on Windows hosts."""
+    from unittest.mock import MagicMock
+
+    monkeypatch.setattr(
+        "voice_typer.server.config._enforce_windows_owner_only_acl",
+        MagicMock(return_value=True),
+    )
 class TestCycleIdThreading:
     """Production crash-recovery writes must carry the cycle id."""
 

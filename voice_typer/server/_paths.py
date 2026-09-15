@@ -29,6 +29,7 @@ this module also owns shared network + LLM default constants
 from __future__ import annotations
 
 import sys  # noqa: F401  # kept for test patches (tests monkeypatch `_paths.sys.platform`)
+from collections.abc import Callable
 from pathlib import Path
 
 from voice_typer.server.platform_utils import is_windows
@@ -103,10 +104,10 @@ IPC_TOKEN_ENV_VAR: str = "VOICE_TYPER_IPC_TOKEN"
 # lazy import is skipped (the resolver sees a non-None value and
 # returns it immediately), so tests don't pay the heavy-import cost
 # and don't touch the real filesystem.
-_config_dir = None  # type: ignore[assignment]
+_config_dir: Callable[[], Path] | None = None
 
 
-def _resolve_config_dir():
+def _resolve_config_dir() -> Callable[[], Path]:
     """Return the cached ``_config_dir`` callable, importing on first use.
 
     Resolves to :func:`voice_typer.server.config._config_dir` on the

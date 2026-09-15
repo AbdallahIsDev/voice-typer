@@ -2,8 +2,24 @@
 
 import json
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
+
+
+@pytest.fixture(autouse=True)
+def _mock_recovery_owner_acl(monkeypatch):
+    """Never run real icacls during crash-recovery tests on Windows hosts.
+
+    ``_save_sync`` / ``_quarantine_corrupt`` now apply the owner-only
+    ACL helper on Windows (PII hardening). Real ``icacls`` under the
+    CI/SYSTEM account can grant to the wrong principal and lock the
+    test process out of its own temp files.
+    """
+    monkeypatch.setattr(
+        "voice_typer.server.config._enforce_windows_owner_only_acl",
+        MagicMock(return_value=True),
+    )
 
 
 @pytest.fixture

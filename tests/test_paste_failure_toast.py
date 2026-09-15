@@ -173,13 +173,11 @@ class TestPasteFailurePublishesEvent:
         assert set(event.keys()) >= {"type", "data"}, f"Event must have 'type' and 'data' keys; got {set(event.keys())}"
         assert event["type"] == "paste_failed"
 
-        # data shape
+        # data shape. ``message`` is optional: the backend omits it so
+        # the renderer falls back to its localized
+        # ``home.pasteFailedMessage`` (C-I18N-1).
         data = event["data"]
         assert isinstance(data, dict), f"data must be a dict; got {type(data)}"
-        assert "message" in data, "data.message is required (renderer toast title)"
-        assert isinstance(data["message"], str), (
-            f"data.message must be a string (renderer toasts on it); got {type(data['message'])}"
-        )
         assert "recovery_path" in data, (
             "data.recovery_path is required (renderer uses it for the 'Copy path' action button)"
         )
@@ -189,10 +187,11 @@ class TestPasteFailurePublishesEvent:
             f"data.recovery_path must be str | None; got {type(data['recovery_path'])}"
         )
 
-    def test_message_mentions_clipboard_unavailable(self, monkeypatch):
-        """The user-facing message must mention 'clipboard' so the toast
-        is self-explanatory (the renderer toast title is the first line
-        of this message)."""
+    def test_message_omitted_so_renderer_localized_fallback_fires(self, monkeypatch):
+        """The backend must NOT send an English ``message`` — the
+        renderer's ``usePasteFailedToast`` uses ``payload.message ??``
+        so an omitted/null message lets ``home.pasteFailedMessage``
+        (already localized in all 8 locales) fire."""
         app = _TestApp()
         app.clipboard.copy.side_effect = ClipboardCopyError("clipboard locked")
         pipeline = _new_pipeline(app)
@@ -202,9 +201,10 @@ class TestPasteFailurePublishesEvent:
 
         events = [e for e in published if e.get("type") == "paste_failed"]
         assert events
-        msg = events[0]["data"]["message"]
-        assert "clipboard" in msg.lower(), (
-            f"Message should mention 'clipboard' so the toast is self-explanatory; got: {msg!r}"
+        data = events[0]["data"]
+        assert data.get("message") in (None, ""), (
+            f"paste_failed.message must be omitted so the renderer's "
+            f"localized home.pasteFailedMessage fallback fires; got: {data.get('message')!r}"
         )
 
 
@@ -283,15 +283,18 @@ class TestTrayNotificationStillFires:
         # Both must happen in the same _copy_and_paste invocation.
         assert app.tray.notify.called
         assert any(e.get("type") == "paste_failed" for e in published)
-        # The tray.notify message and the event payload message must
-        # match (single source of truth for the failure wording).
+        # The tray.notify body is the localized recovery notice; the
+        # event payload omits ``message`` so the renderer uses its own
+        # localized home.pasteFailedMessage (C-I18N-1).
         tray_call_args = app.tray.notify.call_args
         tray_message = tray_call_args.args[1] if tray_call_args.args else ""
-        event_message = next(e["data"]["message"] for e in published if e.get("type") == "paste_failed")
-        assert tray_message == event_message, (
-            "tray.notify message and paste_failed event payload message "
-            "must be identical (single source of truth for the failure "
-            f"wording). tray={tray_message!r}, event={event_message!r}"
+        event_data = next(e["data"] for e in published if e.get("type") == "paste_failed")
+        assert "clipboard" in tray_message.lower(), (
+            f"tray.notify body must mention clipboard; got: {tray_message!r}"
+        )
+        assert event_data.get("message") in (None, ""), (
+            "paste_failed.message must be omitted (renderer owns the "
+            f"localized toast text); got: {event_data.get('message')!r}"
         )
 
 
@@ -380,10 +383,10 @@ class TestPayloadMatchesRendererExpectations:
         assert events
         data = events[0]["data"]
 
-        # Renderer reads data.message as a string, must be present and
-        # non-empty so the toast title is not blank.
-        assert isinstance(data.get("message"), str)
-        assert data["message"], "message must be a non-empty string"
+        # Renderer reads data.message as optional (``payload.message ??``
+        # falls back to the localized home.pasteFailedMessage when the
+        # backend omits it). Pin the omitted-message contract.
+        assert data.get("message") in (None, "")
 
         # Renderer reads data.recovery_path as string | null. When it's
         # a string, the renderer shows the "Copy path" action button.

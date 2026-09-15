@@ -277,6 +277,76 @@ class TestWindowsTerminateProcessEscalation:
             "next launch's single-instance check)"
         )
 
+    def test_windows_close_handle_runs_when_terminate_process_raises(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """CloseHandle must run even when TerminateProcess raises.
+
+        The handle came from OpenProcess; leaking it on the raise path
+        would exhaust the process handle table across repeated shutdown
+        timeouts (e.g. an elevated Electron child that always denies
+        PROCESS_TERMINATE). The try/finally pins the close.
+        """
+        controller, app = _make_controller_with_app()
+        app._electron_pid = 99999
+
+        monkeypatch.setattr(
+            "voice_typer.server.shutdown.teardowns.electron.is_windows",
+            lambda: True,
+        )
+
+        fake_electron_launcher = MagicMock()
+        fake_electron_launcher.terminate_electron = MagicMock(return_value=None)
+        import sys as _sys
+
+        monkeypatch.setitem(
+            _sys.modules,
+            "voice_typer.server.electron_launcher",
+            fake_electron_launcher,
+        )
+        monkeypatch.setattr(
+            "voice_typer.server.electron_launcher",
+            fake_electron_launcher,
+            raising=False,
+        )
+
+        real_run_with_timeout = _sc._run_with_timeout
+
+        def _timeout_on_terminate(description, func, timeout=5.0):
+            if description == "electron_launcher.terminate_electron":
+                return _sc.TIMEOUT
+            return real_run_with_timeout(description, func, timeout=timeout)
+
+        monkeypatch.setattr(_sc, "_run_with_timeout", _timeout_on_terminate)
+
+        fake_kernel32 = MagicMock()
+        fake_kernel32.OpenProcess.return_value = 12345
+        fake_kernel32.TerminateProcess.side_effect = OSError("access denied")
+
+        fake_windll = MagicMock()
+        fake_windll.kernel32 = fake_kernel32
+
+        class _FakeWintypes:
+            DWORD = int
+            BOOL = int
+            HANDLE = int
+
+        fake_ctypes = MagicMock()
+        fake_ctypes.windll = fake_windll
+        fake_ctypes.wintypes = _FakeWintypes
+
+        monkeypatch.setitem(_sys.modules, "ctypes", fake_ctypes)
+        monkeypatch.setitem(_sys.modules, "ctypes.wintypes", _FakeWintypes)
+
+        # Must not raise: the helper swallows the escalation failure and
+        # still clears the PID below.
+        teardown_electron(controller)
+
+        fake_kernel32.TerminateProcess.assert_called_once()
+        fake_kernel32.CloseHandle.assert_called_once_with(12345)
+        assert app._electron_pid is None
+
 
 # ── POSIX SIGTERM → SIGKILL escalation ────────────────────────────────
 

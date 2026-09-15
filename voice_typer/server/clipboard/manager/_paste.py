@@ -449,8 +449,12 @@ class PasteMixin:
                     {
                         "type": "paste_deferred",
                         "data": {
+                            # ``reason`` only. The renderer maps it to a
+                            # localized hint
+                            # (``degradation.pasteDeferredHintIme``); a
+                            # free-text English ``message`` field was an
+                            # unused i18n footgun.
                             "reason": "ime_composition",
-                            "message": "Paste deferred. IME composition in progress",
                         },
                     }
                 )
