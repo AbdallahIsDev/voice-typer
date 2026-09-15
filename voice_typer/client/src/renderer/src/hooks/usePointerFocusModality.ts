@@ -40,7 +40,7 @@ export const POINTER_FOCUS_CLASSES = {
 	pointer: "focus:border-ring/60 focus-visible:ring-0",
 	/** Keyboard/AT focus: the clear full-opacity ring (WCAG 1.4.11 3:1). */
 	keyboard:
-		"focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring",
+		"focus-visible:border-ring focus-visible:ring-1focus-visible:ring-ring",
 } as const;
 
 /** The handler trio the consumer spreads onto its <input>/<textarea>. */

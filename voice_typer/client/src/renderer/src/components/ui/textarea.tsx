@@ -20,7 +20,7 @@ function Textarea({ className, ...props }: React.ComponentProps<"textarea">) {
 			data-slot="textarea"
 			{...pointerFocusProps}
 			className={cn(
-				"min-h-16 w-full rounded-xl border border-transparent bg-input/50 px-3 py-2 text-base transition-[color,box-shadow,background-color] outline-hidden placeholder:text-muted-foreground disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 md:text-sm dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40",
+				"min-h-16 w-full rounded-xl border border-transparent bg-input/50 px-3 py-2 text-base transition-[color,box-shadow,background-color] outline-hidden placeholder:text-muted-foreground disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-1 aria-invalid:ring-destructive/20 md:text-sm dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40",
 				pointerActive
 					? POINTER_FOCUS_CLASSES.pointer
 					: POINTER_FOCUS_CLASSES.keyboard,

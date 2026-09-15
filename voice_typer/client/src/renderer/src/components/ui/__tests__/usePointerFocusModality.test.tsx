@@ -12,7 +12,7 @@
  *      suppressed (`focus:border-ring/60 focus-visible:ring-0`) and
  *      the full-opacity keyboard ring classes are NOT applied.
  *   2. a Tab or Arrow keydown returns the field to keyboard modality →
- *      the full-opacity `focus-visible:ring-3 focus-visible:ring-ring`
+ *      the full-opacity `focus-visible:ring-1 focus-visible:ring-ring`
  *      classes return (WCAG 1.4.11 3:1, keyboard ring intact).
  *   3. blur resets the modality (a later keyboard focus is announced
  *      with the full ring even after a previous pointer interaction).
@@ -44,7 +44,7 @@ const POINTER_BRANCH = [
 /** The keyboard/AT branch: the full-opacity WCAG 1.4.11 ring. */
 const KEYBOARD_BRANCH = [
 	"focus-visible:border-ring",
-	"focus-visible:ring-3",
+	"focus-visible:ring-1",
 	"focus-visible:ring-ring",
 ] as const;
 

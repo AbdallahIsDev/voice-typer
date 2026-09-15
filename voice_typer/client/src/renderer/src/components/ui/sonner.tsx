@@ -88,13 +88,13 @@ const Toaster = ({ ...props }: ToasterProps) => {
 	return (
 		<Sonner
 			theme={theme}
-			//pin a canonical configuration so every toast
+			// Pin a canonical configuration so every toast
 			// looks the same regardless of where it was raised.
-			//   - richColors: sonner's semantic palette (green for
-			//     success, red for error, amber for warning, blue
-			//     for info) layered on top of our CSS-variable
-			//     tokens, gives toasts an at-a-glance type signal
-			//     without us hand-tinting each variant.
+			//   - Neutral popover surface: toasts render on the
+			//     popover tokens (see the --normal-* style vars
+			//     below); the per-type signal comes from the icon
+			//     color only (see the .toaster overrides in
+			//     index.css).
 			//   - closeButton: lets users dismiss a sticky toast
 			//     (errors stay 8s; some users want them gone now)
 			//     without waiting for the timer or hunting for the
@@ -107,7 +107,6 @@ const Toaster = ({ ...props }: ToasterProps) => {
 			//     The hook applies its own per-type durations
 			//     (success=3000, info=4000, warning=6000, error=8000)
 			//     which override this default.
-			richColors
 			closeButton
 			position={rtl ? "bottom-left" : "bottom-right"}
 			// Localized accessible names for the toast container and its

@@ -108,7 +108,7 @@ function DialogContent({
 						// the rest of the dark UI's icon buttons. ``size-9``
 						// matches the normalized icon-button size (all icon
 						// buttons are 36px app-wide).
-						"absolute inset-e-2 top-2 inline-flex size-9 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground focus-visible:outline-hidden focus-visible:ring-3 focus-visible:ring-ring [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+						"absolute inset-e-2 top-2 inline-flex size-9 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground focus-visible:outline-hidden focus-visible:ring-1focus-visible:ring-ring [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
 					)}
 				>
 					<HugeiconsIcon icon={Cancel01Icon} />

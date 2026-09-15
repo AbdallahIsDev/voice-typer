@@ -16,7 +16,7 @@
  *    (full opacity), not ``ring-ring/30`` (or any other alpha-prefixed
  *    variant that would re-introduce the same composite-contrast
  *    failure).
- * 2. The focus ring thickness (``ring-3``) and the ``focus-visible:``
+ * 2. The focus ring thickness (``ring-1``) and the ``focus-visible:``
  *    qualifier are preserved, we are only tightening the alpha, not
  *    re-architecting the focus indicator.
  *
@@ -26,6 +26,7 @@
  * full-opacity contract for them (WCAG 1.4.11 applies to every
  * interactive primitive, not just the text-input family).
  */
+
 import { cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -65,14 +66,13 @@ describe("focus ring WCAG 1.4.11 (3:1), full-opacity ring-ring", () => {
 			expect(cls).not.toMatch(/focus-visible:ring-ring\/\d+/);
 		});
 
-		it("preserves focus ring thickness (ring-3) and focus-visible qualifier", () => {
+		it("preserves focus ring thickness (ring-1) and focus-visible qualifier", () => {
 			const { container } = render(<Button variant="default">OK</Button>);
 			const cls = container.querySelector("button")?.className ?? "";
 			// Thickness was never the bug, the bug was the alpha. We
-			// pin the thickness so a future "fix" that drops ring-3
-			// to ring-2 (to "compensate" for full opacity) doesn't
+			// pin the thickness so a future "fix" that drops ring-1to ring-1 (to "compensate" for full opacity) doesn't
 			// silently regress the focus indicator visibility.
-			expect(cls).toMatch(/focus-visible:ring-3/);
+			expect(cls).toMatch(/focus-visible:ring-1/);
 			expect(cls).toMatch(/focus-visible:border-ring/);
 			expect(cls).toMatch(/focus-visible:ring-ring/);
 		});
@@ -116,10 +116,10 @@ describe("focus ring WCAG 1.4.11 (3:1), full-opacity ring-ring", () => {
 			expect(cls).not.toMatch(/focus-visible:ring-ring\/\d+/);
 		});
 
-		it("preserves focus ring thickness (ring-3)", () => {
+		it("preserves focus ring thickness (ring-1)", () => {
 			const { container } = render(<Input type="text" />);
 			const cls = container.querySelector("input")?.className ?? "";
-			expect(cls).toMatch(/focus-visible:ring-3/);
+			expect(cls).toMatch(/focus-visible:ring-1/);
 		});
 	});
 
@@ -134,10 +134,10 @@ describe("focus ring WCAG 1.4.11 (3:1), full-opacity ring-ring", () => {
 			expect(cls).not.toMatch(/focus-visible:ring-ring\/\d+/);
 		});
 
-		it("preserves focus ring thickness (ring-3)", () => {
+		it("preserves focus ring thickness (ring-1)", () => {
 			const { container } = render(<Textarea />);
 			const cls = container.querySelector("textarea")?.className ?? "";
-			expect(cls).toMatch(/focus-visible:ring-3/);
+			expect(cls).toMatch(/focus-visible:ring-1/);
 		});
 	});
 
@@ -158,7 +158,7 @@ describe("focus ring WCAG 1.4.11 (3:1), full-opacity ring-ring", () => {
 			expect(cls).not.toMatch(/focus-visible:ring-ring\/\d+/);
 		});
 
-		it("preserves focus ring thickness (ring-3)", () => {
+		it("preserves focus ring thickness (ring-1)", () => {
 			const { container } = render(
 				<Select>
 					<SelectTrigger>
@@ -169,7 +169,7 @@ describe("focus ring WCAG 1.4.11 (3:1), full-opacity ring-ring", () => {
 			const cls =
 				container.querySelector("[data-slot='select-trigger']")?.className ??
 				"";
-			expect(cls).toMatch(/focus-visible:ring-3/);
+			expect(cls).toMatch(/focus-visible:ring-1/);
 		});
 	});
 
@@ -184,11 +184,11 @@ describe("focus ring WCAG 1.4.11 (3:1), full-opacity ring-ring", () => {
 			expect(cls).not.toMatch(/focus-visible:ring-ring\/\d+/);
 		});
 
-		it("preserves focus ring thickness (ring-3) and border token", () => {
+		it("preserves focus ring thickness (ring-1) and border token", () => {
 			const { container } = render(<Checkbox aria-label="checkbox" />);
 			const cls =
 				container.querySelector("[data-slot='checkbox']")?.className ?? "";
-			expect(cls).toMatch(/focus-visible:ring-3/);
+			expect(cls).toMatch(/focus-visible:ring-1/);
 			expect(cls).toMatch(/focus-visible:border-ring/);
 		});
 	});
@@ -208,7 +208,7 @@ describe("focus ring WCAG 1.4.11 (3:1), full-opacity ring-ring", () => {
 			expect(cls).not.toMatch(/focus-visible:ring-ring\/\d+/);
 		});
 
-		it("preserves focus ring thickness (ring-3) and border token", () => {
+		it("preserves focus ring thickness (ring-1) and border token", () => {
 			const { container } = render(
 				<RadioGroup aria-label="options">
 					<RadioGroupItem value="a" aria-label="option a" />
@@ -217,7 +217,7 @@ describe("focus ring WCAG 1.4.11 (3:1), full-opacity ring-ring", () => {
 			const cls =
 				container.querySelector("[data-slot='radio-group-item']")?.className ??
 				"";
-			expect(cls).toMatch(/focus-visible:ring-3/);
+			expect(cls).toMatch(/focus-visible:ring-1/);
 			expect(cls).toMatch(/focus-visible:border-ring/);
 		});
 	});

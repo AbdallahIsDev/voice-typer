@@ -106,13 +106,47 @@ describe("Sonner Toaster, ZU-33 stacking configuration", () => {
 		expect(lastToasterProps?.expand).toBe(false);
 	});
 
-	it("preserves the canonical richColors / closeButton / duration configuration", () => {
+	it("uses the neutral popover surface: richColors absent, closeButton / duration intact", () => {
 		// Regression guard: the new visibleToasts / expand props must not
-		// clobber the existing canonical configuration.
+		// clobber the existing canonical configuration. richColors is
+		// intentionally gone (neutral popover surface + semantic icon
+		// color via the .toaster overrides in index.css); closeButton,
+		// duration, and everything below must stay pinned.
 		render(<Toaster />);
 		expect(lastToasterProps).not.toBeNull();
-		expect(lastToasterProps?.richColors).toBe(true);
+		expect(lastToasterProps).not.toHaveProperty("richColors");
 		expect(lastToasterProps?.closeButton).toBe(true);
 		expect(lastToasterProps?.duration).toBe(4000);
+	});
+
+	it("keeps the custom icons, popover style vars, position, and aria labels intact", () => {
+		render(<Toaster />);
+		expect(lastToasterProps).not.toBeNull();
+		// Custom Hugeicons per type (the semantic signal in neutral mode).
+		expect(Object.keys(lastToasterProps?.icons ?? {}).sort()).toEqual([
+			"error",
+			"info",
+			"loading",
+			"success",
+			"warning",
+		]);
+		// Neutral surface mapping consumed by sonner's --normal-* vars.
+		expect(lastToasterProps?.style).toMatchObject({
+			"--normal-bg": "var(--popover)",
+			"--normal-text": "var(--popover-foreground)",
+			"--normal-border": "var(--border)",
+			"--border-radius": "var(--radius)",
+		});
+		// Scoping class for the index.css .toaster overrides.
+		expect(lastToasterProps?.className).toBe("toaster group");
+		// Stacking + expansion config.
+		expect(lastToasterProps?.visibleToasts).toBe(6);
+		expect(lastToasterProps?.expand).toBe(false);
+		// Localized accessible names (locale reset to English in
+		// beforeEach; assert presence, not copy, to stay locale-proof).
+		expect(typeof lastToasterProps?.containerAriaLabel).toBe("string");
+		expect(typeof lastToasterProps?.toastOptions?.closeButtonAriaLabel).toBe(
+			"string",
+		);
 	});
 });

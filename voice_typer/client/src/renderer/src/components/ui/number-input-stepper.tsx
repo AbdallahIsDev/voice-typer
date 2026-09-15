@@ -237,7 +237,7 @@ function NumberInputStepper({
 					className={cn(
 						"flex h-1/2 items-center justify-center text-(--text-muted) transition-colors",
 						"hover:text-(--text-primary)",
-						"focus-visible:outline-hidden focus-visible:ring-3 focus-visible:ring-ring",
+						"focus-visible:outline-hidden focus-visible:ring-1focus-visible:ring-ring",
 						// Mirror the previous disabled visual treatment via
 						// aria-disabled (Tailwind 4 ships the ``aria-disabled:``
 						// variant out of the box).
@@ -266,7 +266,7 @@ function NumberInputStepper({
 					className={cn(
 						"flex h-1/2 items-center justify-center text-(--text-muted) transition-colors",
 						"hover:text-(--text-primary)",
-						"focus-visible:outline-hidden focus-visible:ring-3 focus-visible:ring-ring",
+						"focus-visible:outline-hidden focus-visible:ring-1focus-visible:ring-ring",
 						"aria-disabled:opacity-50 aria-disabled:cursor-not-allowed",
 					)}
 				>

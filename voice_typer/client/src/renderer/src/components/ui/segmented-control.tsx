@@ -448,7 +448,7 @@ export function SegmentedControl<T extends string>({
 								"relative z-10 cursor-pointer font-normal outline-hidden transition-colors duration-150",
 								"select-none whitespace-nowrap inline-flex items-center justify-center gap-1",
 								// A11Y-1: visible focus indicator for keyboard users.
-								"focus-visible:ring-3 focus-visible:ring-ring focus-visible:outline-hidden",
+								"focus-visible:ring-1focus-visible:ring-ring focus-visible:outline-hidden",
 								"rounded-none px-3 py-2 text-[0.8125rem] font-medium",
 								labelClassName,
 								active && "text-(--text-primary)",
@@ -482,7 +482,7 @@ export function SegmentedControl<T extends string>({
 							// users see which segmented-control option has focus (the inner
 							// <input type="radio" class="sr-only"> owns the focus, so we use
 							// has-[:focus-visible] to style the parent label).
-							"has-focus-visible:ring-3 has-focus-visible:ring-ring has-focus-visible:outline-hidden",
+							"has-focus-visible:ring-1has-focus-visible:ring-ring has-focus-visible:outline-hidden",
 							variant === "default" &&
 								(radius === "sm"
 									? "rounded-lg px-2.5 py-1 text-[0.6875rem] tracking-wider"

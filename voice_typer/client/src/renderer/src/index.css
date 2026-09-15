@@ -679,3 +679,79 @@
 		outline: 2px solid oklch(0.8 0 0);
 	}
 }
+
+/* ── Sonner toaster: neutral popover surface + semantic icon signal ── */
+/* The Toaster renders className "toaster group" on [data-sonner-toaster],
+   so .toaster scopes every rule below. Sonner appends its stylesheet to
+   <head> at runtime (after this file), so each selector keeps
+   [data-styled="true"] to stay strictly above sonner's specificity;
+   no !important is used anywhere. */
+.toaster
+	[data-sonner-toast][data-styled="true"][data-type="success"]
+	[data-icon] {
+	color: var(--success);
+}
+
+.toaster
+	[data-sonner-toast][data-styled="true"][data-type="warning"]
+	[data-icon] {
+	color: var(--warning);
+}
+
+.toaster [data-sonner-toast][data-styled="true"][data-type="info"] [data-icon] {
+	color: var(--info);
+}
+
+.toaster
+	[data-sonner-toast][data-styled="true"][data-type="error"]
+	[data-icon] {
+	color: var(--destructive);
+}
+
+.toaster
+	[data-sonner-toast][data-styled="true"][data-type="loading"]
+	[data-icon] {
+	color: var(--muted-foreground);
+}
+
+/* Sonner hardcodes the description to #3f3f3f (light) / hsl(0,0%,91%)
+   (dark), which breaks custom themes; follow the muted token instead. */
+.toaster [data-sonner-toast][data-styled="true"] [data-description] {
+	color: var(--muted-foreground);
+}
+
+/* Action button (Undo/Retry): primary surface, radius untouched. */
+.toaster [data-sonner-toast][data-styled="true"] [data-button] {
+	background: var(--primary);
+	color: var(--primary-foreground);
+}
+
+.toaster [data-sonner-toast][data-styled="true"] [data-button]:hover {
+	opacity: 0.9;
+}
+
+/* Cancel button: secondary surface. The .toaster[data-sonner-toaster]
+   chain (0,5,0) is deliberate: sonner's dark-theme cancel rule ties a
+   plain .toaster prefix at 0,4,0, and sonner's runtime-injected
+   stylesheet wins ties by source order. */
+.toaster[data-sonner-toaster]
+	[data-sonner-toast][data-styled="true"]
+	[data-cancel] {
+	color: var(--secondary-foreground);
+	background: var(--secondary);
+}
+
+.toaster [data-sonner-toast][data-styled="true"] [data-close-button] {
+	background: var(--popover);
+	border-color: var(--border);
+	color: var(--popover-foreground);
+}
+
+/* Full-opacity ring per C-FOCUS-2; sonner's rgba(0,0,0,.4)/.2 default
+   is near-invisible in dark themes. */
+.toaster [data-sonner-toast][data-styled="true"] [data-button]:focus-visible,
+.toaster
+	[data-sonner-toast][data-styled="true"]
+	[data-close-button]:focus-visible {
+	box-shadow: 0 0 0 2px var(--ring);
+}

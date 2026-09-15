@@ -7,7 +7,7 @@
 - `voice_typer/client/src/renderer/src/components/ui/__tests__/focus-ring-contrast.test.tsx` The executable contract
 - `voice_typer/client/src/renderer/src/components/common/SearchField.tsx` The pointer-modality suppression pattern
 - `voice_typer/client/src/renderer/src/components/common/Kbd.tsx` Tooltip-context contrast for keycaps
-- Consumer primitives: `Button`, `Input`, `SelectTrigger` (full-opacity ring + `ring-3`)
+- Consumer primitives: `Button`, `Input`, `SelectTrigger` (full-opacity ring + `ring-1`)
 
 ## Context
 
@@ -35,9 +35,7 @@ Three binding rules:
 2. **Full-opacity color, adequate thickness.** Interactive primitives keep
    `focus-visible:ring-ring` at **full opacity**: the theme files tune
    `--ring` for ≥3:1 contrast; an alpha modifier (`ring-ring/30`) discards
-   that tuning. Thickness is `ring-3` (the app standard), with `ring-2` as
-   the acceptable floor (WCAG 2.4.13's ≥2px area). Thickness may be tuned
-   down to 2px, never below; alpha may never be reduced.
+   that tuning. Thickness is `ring-1` (1px, the app standard per user decision 2026-09-15). WCAG 2.4.7 Focus Visible is met (indicator always visible at full opacity); the WCAG 2.4.13 2px minimum area is knowingly not met. Alpha may never be reduced.
 3. **Pointer-modality tracking for text inputs.** CSS alone cannot separate
    mouse from keyboard on text boxes, so click-ring suppression on text
    inputs is implemented by the shared `SearchField` pattern: `pointerdown`
@@ -85,5 +83,5 @@ Three binding rules:
 
 `focus-ring-contrast.test.tsx` pins the contract on the interactive
 primitives: full-opacity `focus-visible:ring-ring` (no alpha modifier),
-`ring-3` thickness, and the `focus-visible:` qualifier. Any "prettier" ring
+`ring-1` thickness, and the `focus-visible:` qualifier. Any "prettier" ring
 edit fails this suite.
