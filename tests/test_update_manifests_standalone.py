@@ -54,8 +54,7 @@ class TestUpdaterIsStandalone:
             "build_native_listener_macos.sh",
         ):
             assert "update_native_manifests" not in _read_script(name), (
-                f"{name} must not invoke the manifest updater "
-                "(standalone contract: run it explicitly after the build)"
+                f"{name} must not invoke the manifest updater (standalone contract: run it explicitly after the build)"
             )
 
     def test_docstring_states_standalone_contract(self) -> None:

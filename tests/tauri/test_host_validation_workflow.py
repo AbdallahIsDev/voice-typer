@@ -14,12 +14,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-WORKFLOW = (
-    Path(__file__).resolve().parent.parent.parent
-    / ".github"
-    / "workflows"
-    / "host-validation.yml"
-)
+WORKFLOW = Path(__file__).resolve().parent.parent.parent / ".github" / "workflows" / "host-validation.yml"
 
 
 def _workflow_text() -> str:

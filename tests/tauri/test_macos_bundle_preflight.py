@@ -52,9 +52,7 @@ class TestInfoPlistPartial:
             "LSMinimumSystemVersion",
         ):
             assert key in info, f"Info.plist missing {key}"
-            assert isinstance(info[key], str) and info[key].strip(), (
-                f"Info.plist {key} must be a non-empty string"
-            )
+            assert isinstance(info[key], str) and info[key].strip(), f"Info.plist {key} must be a non-empty string"
 
     def test_minimum_system_version(self) -> None:
         info = _info_plist()
@@ -75,9 +73,7 @@ class TestEntitlements:
 
     def test_no_notification_entitlement(self) -> None:
         ent = _entitlements()
-        assert not any("notification" in key for key in ent), (
-            "entitlements must not carry a notification entitlement"
-        )
+        assert not any("notification" in key for key in ent), "entitlements must not carry a notification entitlement"
 
 
 class TestTauriMacosConfigParity:
