@@ -84,6 +84,7 @@ IPC_PORT: int = 9876
 # update + this constant change.
 IPC_TOKEN_ENV_VAR: str = "VOICE_TYPER_IPC_TOKEN"
 
+
 # Lazy resolver for :func:`voice_typer.server.config._config_dir`.
 #
 # Previously this module eagerly did ``from voice_typer.server.config
@@ -101,10 +102,52 @@ IPC_TOKEN_ENV_VAR: str = "VOICE_TYPER_IPC_TOKEN"
 # directly (the existing ``monkeypatch.setattr(_paths, "_config_dir",
 # lambda: tmp_path)`` pattern in ``tests/test_paths.py`` and
 # ``tests/test_app_cleanup.py``). When the override is in place the
-# lazy import is skipped (the resolver sees a non-None value and
+# lazy import is skipped (the resolver sees a non-None override and
 # returns it immediately), so tests don't pay the heavy-import cost
 # and don't touch the real filesystem.
-_config_dir: Callable[[], Path] | None = None
+#
+# MO-12: previously this was a bare ``_config_dir: Callable[[], Path]
+# | None = None`` global rebound to the imported function on first use
+# (mutable ``None``-then-function seam with an ``is None`` check at every
+# call). It is now a small holder object: identity-stable across the
+# process lifetime, the cached callable and an explicit test override
+# live as fields, and rebounding the module attribute is no longer part
+# of the production path.
+class _ConfigDirResolver:
+    """Identity-stable holder for the lazy ``_config_dir`` callable.
+
+    The instance itself is callable (``_config_dir()`` keeps working),
+    so every existing call site and every existing
+    ``monkeypatch.setattr(_paths, "_config_dir", lambda: tmp_path)``
+    keeps working unchanged: the patched lambda simply replaces the
+    module attribute for the test duration, exactly as before.
+    """
+
+    __slots__ = ("_cached", "_override")
+
+    def __init__(self) -> None:
+        self._cached: Callable[[], Path] | None = None
+        self._override: Callable[[], Path] | None = None
+
+    def __call__(self) -> Path:
+        if self._override is not None:
+            return self._override()
+        if self._cached is None:
+            # Imported lazily to keep ``_paths`` cold-import cheap. The
+            # ``config`` package re-exports ``_config_dir`` from
+            # ``config_internals.paths`` (an lru_cached resolver), so the
+            # cached reference stays valid for the process lifetime.
+            from voice_typer.server.config import _config_dir as _real_config_dir
+
+            self._cached = _real_config_dir
+        return self._cached()
+
+    def override(self, fn: Callable[[], Path] | None) -> None:
+        """Pin (or clear) an explicit resolver, used by tests."""
+        self._override = fn
+
+
+_config_dir = _ConfigDirResolver()
 
 
 def _resolve_config_dir() -> Callable[[], Path]:
@@ -112,24 +155,34 @@ def _resolve_config_dir() -> Callable[[], Path]:
 
     Resolves to :func:`voice_typer.server.config._config_dir` on the
     first call (paying the one-time ~54ms ``config`` package import
-    cost) and caches the function reference on this module's
-    ``_config_dir`` attribute. Subsequent calls are a single attribute
+    cost) and caches the function reference inside the
+    :class:`_ConfigDirResolver`. Subsequent calls are a single attribute
     read + callable invocation.
 
     Test fixtures that monkeypatch ``_paths._config_dir`` to a custom
-    callable short-circuit this resolver (the patched value is not
-    ``None``), so the heavy ``config`` import never fires under test.
+    callable short-circuit this resolver (the module attribute is no
+    longer the shared resolver instance), so the heavy ``config``
+    import never fires under test. Fixtures may also call
+    ``_paths._config_dir.override(fn)`` to pin a resolver on the
+    shared instance without rebinding the module attribute.
     """
-    global _config_dir
-    if _config_dir is None:
-        # Imported lazily to keep ``_paths`` cold-import cheap. The
-        # ``config`` package re-exports ``_config_dir`` from
-        # ``config_internals.paths`` (it is the canonical public
-        # surface; the internal module is an implementation detail).
-        from voice_typer.server.config import _config_dir as _impl
-
-        _config_dir = _impl
-    return _config_dir
+    resolver = _config_dir
+    if isinstance(resolver, _ConfigDirResolver):
+        # An explicit test override short-circuits the lazy import
+        # (no ``config`` package load, no caching of the real fn).
+        if resolver._override is not None:
+            return resolver._override
+        # Touch the cache through the holder so ``_cached`` is populated
+        # exactly once; return the underlying callable for callers that
+        # want the raw function (e.g. identity comparisons in tests).
+        resolver()
+        cached = resolver._cached
+        assert cached is not None  # populated by the call above
+        return cached
+    # A test fixture rebound the module attribute to a plain callable
+    # (``monkeypatch.setattr(_paths, "_config_dir", lambda: tmp_path)``):
+    # use it directly, no import, no caching.
+    return resolver
 
 
 def config_dir() -> Path:

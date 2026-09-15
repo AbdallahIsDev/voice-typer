@@ -158,7 +158,7 @@ observations before marking anything done.
 
 ### MO-9: Residual silent `except Exception: pass/continue` sites (E13)
 
-**Status:** ✅ Fixed (MO session 2026-09-15, focused tests ON WINDOWS)
+**Status:** ✅ Fixed (2026-09-15: remaining sites narrowed + logged; focused tests ON WINDOWS)
 
 **Description:** A strict scan still finds production silent swallows (next statement `pass`/`continue`):
 - `voice_typer/server/transcription_download.py:57-58` (registry lookup failure falls through to naive Systran repo id)
@@ -170,6 +170,23 @@ observations before marking anything done.
 - `recording/disconnect_handler.py:466`, `resource_probe.py:295,325`
 
 Many historical `except Exception: pass` comments document *prior* fixes; these are remaining live sites.
+
+**Progress:** Done 2026-09-15. `transcription_download`, `transcribe_step`, and the `log` split were already
+`log.debug+exc_info` from the prior session. This session finished the rest:
+- `single_instance._startup_line`: `except Exception: pass` → `except (OSError, ValueError): pass`
+  (+ `sys.stderr is None`/closed guard). Nothing to log — logging is not configured yet at this call site.
+- `platform_utils._set_windows_process_metadata`: all three `except Exception: pass` →
+  narrowed `(OSError, AttributeError, ValueError, TypeError)` / `(ImportError, OSError, AttributeError)`
+  with `log.debug(..., exc_info=True)`.
+- `resource_probe`: config-dir fallback `except Exception` now `log.debug+exc_info`; both disk-loop
+  `except Exception: continue` narrowed to `except OSError` / `except (OSError, ValueError)` with
+  per-path `log.debug+exc_info`.
+- `disconnect_handler.py:466` verified as a false positive (`if _cand_info is None: continue`, not an
+  except-swallow). Crash-handler `contextlib.suppress` sites are deliberate never-crash hooks, out of scope.
+
+**Verification:** `test_paths_lazy_import + test_paths + test_resource_probe +
+test_dictation_pipeline_check_resources + test_broad_except_cleanup` — 65 passed.
+`test_single_instance(+posix,+chmod) + test_app_cleanup + test_platform_flag_guard` — 37 passed, 3 skipped.
 
 **User Impact:** Silent wrong defaults (e.g. turbo repo-id miss → wrong HF path), invisible secondary failures during shutdown/diagnostics, harder production diagnosis.
 
@@ -283,7 +300,7 @@ Related `ThemeSettingsSection.tsx` size is already WONT_FIX GQ-L47 (partial extr
 
 ### MO-12: `_paths._config_dir = None` mutable module global with `# type: ignore[assignment]` (E13/P1)
 
-**Status:** ✅ Fixed (MO session 2026-09-15, focused tests ON WINDOWS)
+**Status:** ✅ Fixed (2026-09-15: `_ConfigDirResolver` holder; focused tests ON WINDOWS)
 
 **Description:** `_paths.py:106` sets `_config_dir = None  # type: ignore[assignment]` then lazily rebinds the module global on first use (`:109-131`). Tests monkeypatch the same name. This is a documented cold-start optimization (~54ms config import deferral), but it uses a type ignore + mutable module state as the seam.
 
@@ -299,7 +316,17 @@ Related `ThemeSettingsSection.tsx` size is already WONT_FIX GQ-L47 (partial extr
 
 **My Recommendation:** ✅ Implement opportunistically when touching `_paths` — introduce a small `ConfigDirResolver` while keeping a compatibility property.
 
-**Progress:** None yet.
+**Progress:** Done 2026-09-15. `_config_dir` is now a `_ConfigDirResolver` holder object (identity-stable,
+no `type: ignore`, no `None` sentinel, no module-attribute rebinding in the production path). The cached
+callable + an explicit test-override slot live as holder fields; `_resolve_config_dir()` returns the
+override / cached callable. Full backward compat: every existing `monkeypatch.setattr(_paths, "_config_dir",
+lambda: tmp_path)` keeps working (rebound lambda short-circuits, no import), plus a new
+`_config_dir.override(fn)` pin that needs no rebinding. `tests/test_paths_lazy_import.py` updated to the
+holder contract (fresh-import unresolved holder, post-call `_cached` populated, holder identity stable
+across calls) + a new `test_resolver_override_pins_without_rebinding`.
+
+**Verification:** `test_paths_lazy_import + test_paths` — 18 passed (incl. the 2 updated + 1 new test);
+`test_app_cleanup` — 26 passed.
 
 **Related Files:**
 - `voice_typer/server/_paths.py:90-140`
@@ -505,51 +532,6 @@ Re-audited the four named test surfaces against the production handlers:
 Production handlers (`voice_typer/server/ipc/lifecycle.py:761-844`) are forwarder stubs by design until the slim-core→worker hop lands (documented in the handler docstring). The only untested edge is "payload validation when pack is present" — irrelevant while the handler acks without consuming the payload. **No residual coverage hole worth a finding.** Do not re-file MO-94.
 
 Files inspected for this verdict: `voice_typer/server/ipc/lifecycle.py:761-844`, `voice_typer/server/service/update_check.py`, `voice_typer/server/ipc/registry.py:394-418`, `voice_typer/server/ipc/rate_limiter.py:74-75`, the four test files above.
-
----
-
-### MO-100: `_EMPTY_SEGMENTS` is a mutable module-level empty-list sentinel (E8/P3)
-
-**Status:** ✅ Fixed (MO session 2026-09-15, focused tests ON WINDOWS)
-
-**Description:** `voice_typer/server/dictation_pipeline/helpers.py:54` defines:
-
-```python
-_EMPTY_SEGMENTS: list = []
-```
-
-It is re-exported (`dictation_pipeline/__init__.py:55,83`) and consumed at `enhancement_steps.py:488` as:
-
-```python
-segments: list = _EMPTY_SEGMENTS
-suggestions = automation.analyze_transcription(text, segments, confidence)
-```
-
-`analyze_transcription` currently only reads `segments` (`vocabulary_automation.py:329-388`, branch `if segments:`), so there is no *live* mutation today. The sentinel is nevertheless a mutable shared object: any future `segments.append(...)` (or a helper that sorts/extends in place) would corrupt the module-level sentinel for every subsequent dictation cycle — a classic E8/P3 footgun. The docstring even acknowledges the design tension (it replaced a prior `getattr(..., None) or []` that fabricated confidence) but chose a shared list over a tuple/factory.
-
-**User Impact:** None today (latent). If mutated, vocabulary-automation would permanently see a polluted "empty" segment list after the first bad write, silently changing auto-suggestion behavior for the rest of the process lifetime.
-
-**Root Cause:** Module-level mutable sentinel chosen for the "honest empty data" fix; no freeze/tuple/factory guard.
-
-**Gain vs Trade-off:** Gain: removes a shared-mutable-state hazard. Trade-off: none of substance — `_EMPTY_SEGMENTS: tuple = ()` or a `def _empty_segments() -> list: return []` factory is equivalent at the call site.
-
-**If We Do It:** Change to `tuple` (call site already only iterates/tests truthiness) or a factory returning a fresh list. Update the re-export and any tests that assert identity.
-
-**If We Don't:** Status quo: latent shared-mutable sentinel.
-
-**My Recommendation:** ✅ Implement — one-line change, eliminates a real class of future bug.
-
-**Progress:** `None yet.`
-
-**Related Files:**
-- `voice_typer/server/dictation_pipeline/helpers.py:45-55` (sentinel definition + rationale comment)
-- `voice_typer/server/dictation_pipeline/enhancement_steps.py:488-493` (consumer)
-- `voice_typer/server/vocabulary_automation.py:329-388` (read-only today)
-
-**Fix:** `_EMPTY_SEGMENTS: tuple = ()` (or a factory). Verify `analyze_transcription`'s `if segments:` branch still behaves identically.
-
-**Severity:** 🟢 Low
-**Category:** Engineering rules (E8/P3) / latent defect
 
 ---
 

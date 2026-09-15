@@ -110,8 +110,15 @@ def _set_windows_process_metadata(app_name: str) -> None:
             kernel32.SetConsoleTitleW.argtypes = [wintypes.LPCWSTR]
             kernel32.SetConsoleTitleW.restype = wintypes.BOOL
             kernel32.SetConsoleTitleW(app_name)
-        except Exception:
-            pass  # Best-effort, may fail under pythonw.exe (no console)
+        except (OSError, AttributeError, ValueError, TypeError):
+            # Best-effort, may fail under pythonw.exe (no console).
+            # Narrowed from ``except Exception: pass`` (MO-9): the ctypes
+            # call can only fail with OS/attribute/value errors — a
+            # programming bug must still surface.
+            log.debug(
+                "[PLATFORM] SetConsoleTitleW failed (non-fatal)",
+                exc_info=True,
+            )
 
         # 2. Set the AppUserModelID so Windows identifies this process
         #    as belonging to Voice Typer.  Must match the Electron side
@@ -127,11 +134,22 @@ def _set_windows_process_metadata(app_name: str) -> None:
             # of "abdallahisdev.VoiceTyper".  Matches the Electron side's
             # ``app.setAppUserModelId("VoiceTyper")`` in index.ts.
             shell32.SetCurrentProcessExplicitAppUserModelID(app_name.replace(" ", ""))
-        except Exception:
-            pass  # Best-effort, requires Windows 7+ with shell32
+        except (OSError, AttributeError, ValueError, TypeError):
+            # Best-effort, requires Windows 7+ with shell32.
+            # Narrowed from ``except Exception: pass`` (MO-9).
+            log.debug(
+                "[PLATFORM] SetCurrentProcessExplicitAppUserModelID failed (non-fatal)",
+                exc_info=True,
+            )
 
-    except Exception:
-        pass  # Best-effort, ctypes or kernel32/shell32 may not be available
+    except (ImportError, OSError, AttributeError):
+        # Best-effort, ctypes or kernel32/shell32 may not be available.
+        # Narrowed from ``except Exception: pass`` (MO-9): import/OS
+        # failures only — programming bugs must still surface.
+        log.debug(
+            "[PLATFORM] Windows process-metadata setup unavailable (non-fatal)",
+            exc_info=True,
+        )
 
 
 # Environment variable validation lives in ``app.py::_validate_env_vars``.

@@ -265,6 +265,12 @@ def check_resources(*, logger: logging.Logger | None = None) -> None:
         if hf_home:
             drives_to_check.append(pathlib.Path(hf_home))
     except Exception:
+        # Best-effort probe: fall back to home so the disk check still
+        # runs. Logged (MO-9) instead of a silent ``except: pass``.
+        _log.debug(
+            "[RESOURCE] config-dir probe failed, checking home drive only (non-fatal)",
+            exc_info=True,
+        )
         drives_to_check.append(pathlib.Path.home())
 
     seen_drives: set[str] = set()
@@ -292,7 +298,15 @@ def check_resources(*, logger: logging.Logger | None = None) -> None:
     for path in drives_to_check:
         try:
             drive_info = os.statvfs(path) if hasattr(os, "statvfs") else None
-        except Exception:
+        except OSError:
+            # Per-path best-effort: one unreadable drive must not abort
+            # the whole probe. Narrowed from ``except Exception: continue``
+            # (MO-9) — statvfs only raises OSError.
+            _log.debug(
+                "[RESOURCE] statvfs failed for %s (non-fatal)",
+                path,
+                exc_info=True,
+            )
             continue
         # One line per physical drive: config/home/cache on the same
         # drive previously logged the identical free-GB value 3x.
@@ -322,7 +336,15 @@ def check_resources(*, logger: logging.Logger | None = None) -> None:
                         path,
                         free_gb,
                     )
-            except Exception:
+            except (OSError, ValueError):
+                # Per-path best-effort: disk_usage can fail on a removed
+                # drive or bad path. Narrowed from ``except Exception:
+                # continue`` (MO-9) — only OS/value errors are expected.
+                _log.debug(
+                    "[RESOURCE] disk_usage failed for %s (non-fatal)",
+                    path,
+                    exc_info=True,
+                )
                 continue
         else:
             # POSIX: use statvfs

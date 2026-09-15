@@ -169,35 +169,32 @@ def test_importing_paths_does_not_eagerly_pull_in_config() -> None:
     )
 
 
-def test_paths_module_initial_config_dir_is_none() -> None:
-    """After a fresh import, ``_paths._config_dir`` is ``None`` (the
-    sentinel for "lazy resolver hasn't fired yet").
+def test_paths_module_initial_config_dir_is_unresolved() -> None:
+    """After a fresh import, ``_paths._config_dir`` is an unresolved holder.
 
     This pins the resolver's contract: the heavy ``config`` import
-    hasn't happened until the first helper call. If a regression
-    eagerly assigns ``_config_dir`` at module load (e.g. by
+    hasn't happened until the first helper call (MO-12: previously the
+    sentinel was a bare ``None`` global; now an identity-stable
+    :class:`_ConfigDirResolver` with no cached callable). If a
+    regression eagerly resolves ``_config_dir`` at module load (e.g. by
     re-introducing the top-level ``from voice_typer.server.config
     import _config_dir`` line), this assertion fails.
     """
     _purge_paths_and_config()
     _paths = importlib.import_module("voice_typer.server._paths")
-    # Debug: print state for diagnosis
-    import sys
+    resolver = _paths._config_dir
+    assert isinstance(resolver, _paths._ConfigDirResolver), (
+        " regression: _paths._config_dir should be a _ConfigDirResolver "
+        f"after a fresh import (MO-12 holder). Got: {resolver!r}."
+    )
+    assert resolver._cached is None and resolver._override is None, (
+        " regression: the resolver must be unresolved after a fresh "
+        "import (the lazy import hasn't fired yet). Got: "
+        f"cached={resolver._cached!r} override={resolver._override!r}."
+    )
 
-    print(f"\nDEBUG: _paths id={id(_paths)}, _config_dir={_paths._config_dir!r}")
-    print(
-        f"DEBUG: voice_typer.server._paths attr = {getattr(sys.modules.get('voice_typer.server'), '_paths', 'MISSING')}"
-    )
-    print(f"DEBUG: voice_typer.server._paths in sys.modules = {'voice_typer.server._paths' in sys.modules}")
-    if "voice_typer.server._paths" in sys.modules:
-        cached = sys.modules["voice_typer.server._paths"]
-        print(f"DEBUG: cached module id={id(cached)}, is _paths: {cached is _paths}")
-        print(f"DEBUG: cached._config_dir = {cached._config_dir!r}")
-    assert _paths._config_dir is None, (
-        " regression: _paths._config_dir should be None after a "
-        "fresh import (the lazy resolver hasn't fired yet). Got: "
-        f"{_paths._config_dir!r}."
-    )
+
+test_paths_module_initial_config_dir_is_none = test_paths_module_initial_config_dir_is_unresolved
 
 
 # ── 2. Cold-import time (python -X importtime) ─────────────────────────
@@ -256,7 +253,9 @@ def test_first_helper_call_triggers_lazy_import(tmp_path: Path) -> None:
     _purge_paths_and_config()
     _paths = importlib.import_module("voice_typer.server._paths")
     assert "voice_typer.server.config" not in sys.modules
-    assert _paths._config_dir is None
+    resolver = _paths._config_dir
+    assert isinstance(resolver, _paths._ConfigDirResolver)
+    assert resolver._cached is None and resolver._override is None
 
     # First call triggers the lazy import. We DON'T patch
     # ``_paths._config_dir`` here because we want to exercise the
@@ -274,8 +273,13 @@ def test_first_helper_call_triggers_lazy_import(tmp_path: Path) -> None:
         "may have been replaced with an inline implementation that "
         "doesn't cache the imported function."
     )
-    assert _paths._config_dir is not None, (
-        " regression: _paths._config_dir is still None after the "
+    assert isinstance(_paths._config_dir, _paths._ConfigDirResolver), (
+        " regression: _paths._config_dir must stay the shared holder "
+        "(MO-12: no module-attribute rebinding in the production path). "
+        f"Got: {_paths._config_dir!r}."
+    )
+    assert _paths._config_dir._cached is not None, (
+        " regression: the resolver cache is still empty after the "
         "first helper call, the lazy resolver didn't cache the "
         "imported function."
     )
@@ -283,10 +287,10 @@ def test_first_helper_call_triggers_lazy_import(tmp_path: Path) -> None:
     # Second call reuses the cached function (no re-import). We can't
     # directly assert "no re-import happened", but we can assert the
     # cached function reference is stable across calls.
-    cached_fn = _paths._config_dir
+    cached_fn = _paths._resolve_config_dir()
     _ = _paths.config_dir()
-    assert _paths._config_dir is cached_fn, (
-        " regression: _paths._config_dir changed between calls, "
+    assert _paths._config_dir._cached is cached_fn, (
+        " regression: the cached resolver changed between calls, "
         "the lazy resolver is re-importing on every call instead of "
         "caching."
     )
@@ -297,7 +301,7 @@ def test_helpers_return_paths_under_pinned_config_dir(tmp_path: Path, monkeypatc
     lambda: tmp_path)`` pattern short-circuits the lazy resolver.
 
     When the test fixture patches ``_paths._config_dir`` to a custom
-    callable, the lazy resolver sees a non-None value and returns it
+    callable, the lazy resolver sees a non-holder value and returns it
     immediately, the heavy ``config`` import never fires, and the
     helpers return paths under the pinned tmp_path.
 
@@ -322,6 +326,28 @@ def test_helpers_return_paths_under_pinned_config_dir(tmp_path: Path, monkeypatc
         " regression: the patched _paths._config_dir did NOT "
         "short-circuit the lazy resolver, voice_typer.server.config "
         "was imported even though the test fixture pinned the value. "
-        "The lazy resolver must check `if _config_dir is None` before "
-        "importing."
+        "The lazy resolver must use the rebound module attribute "
+        "instead of importing."
     )
+
+
+def test_resolver_override_pins_without_rebinding(
+    tmp_path: Path,
+) -> None:
+    """``_config_dir.override(fn)`` pins the resolver without rebinding.
+
+    MO-12: the holder keeps its identity while the override routes all
+    helpers to ``tmp_path`` — no module-attribute rebinding involved.
+    """
+    _purge_paths_and_config()
+    _paths = importlib.import_module("voice_typer.server._paths")
+    holder = _paths._config_dir
+    assert isinstance(holder, _paths._ConfigDirResolver)
+    holder.override(lambda: tmp_path)
+    try:
+        assert _paths._config_dir is holder
+        assert _paths.config_dir() == tmp_path
+        assert _paths.hf_cache_dir() == tmp_path / "huggingface"
+        assert "voice_typer.server.config" not in sys.modules
+    finally:
+        holder.override(None)

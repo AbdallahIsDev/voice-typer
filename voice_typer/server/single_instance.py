@@ -106,11 +106,17 @@ def _startup_line(level: str, msg: str) -> None:
     """
     try:
         stamp = time.strftime("%H:%M:%S")
+        if sys.stderr is None or sys.stderr.closed:
+            return
         if level == "WARN":
             print(f"{stamp}  WARN {msg}", file=sys.stderr, flush=True)
         else:
             print(f"{stamp}  {msg}", file=sys.stderr, flush=True)
-    except Exception:
+    except (OSError, ValueError):
+        # Best-effort only: stderr may be closed/devnull (pythonw.exe).
+        # Narrowed from ``except Exception: pass`` (MO-9): nothing to log
+        # here — logging is not configured yet, which is why this helper
+        # writes to stderr directly.
         pass
 
 
