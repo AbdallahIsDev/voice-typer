@@ -979,6 +979,19 @@ class TestSetEscCancelPaused:
         assert resp["data"] == {"paused": False}
         assert fake_app._esc_cancel_paused is False
 
+    def test_unexpected_exception_returns_generic_internal_error(self, ipc_server, monkeypatch):
+        """The wrap catch-all must emit the generic WS-path envelope
+        when the keyboard-ownership update raises."""
+        monkeypatch.setattr(
+            "voice_typer.server.handlers.system_handlers._validate_dict_payload",
+            lambda *_a, **_k: (_ for _ in ()).throw(RuntimeError("ownership exploded")),
+        )
+        resp = ipc_server._handle_set_esc_cancel_paused({"paused": True}, {})
+        assert resp["type"] == "error"
+        assert resp["data"]["code"] == "server.internal_error"
+        assert resp["data"]["message"] == "internal error"
+        assert "ownership exploded" not in resp["data"]["message"]
+
 
 class TestShowElectronNotification:
     """``_handle_show_electron_notification``, validates 4 fields and publishes."""
@@ -1086,3 +1099,18 @@ class TestShowElectronNotification:
         assert resp["type"] == "ack"
         # 24h in ms.
         assert captured[0]["data"]["duration_ms"] == 24 * 60 * 60 * 1000
+
+    def test_publish_failure_returns_generic_internal_error(self, ipc_server, monkeypatch):
+        """An unexpected exception inside the wrap body (e.g. a broken
+        event-bus subscriber on the happy path) must become the generic
+        ``server.internal_error`` envelope, not a leaky ``str(exc)``
+        message."""
+        monkeypatch.setattr(
+            "voice_typer.server.handlers.system_handlers.event_bus.publish",
+            lambda *_a, **_k: (_ for _ in ()).throw(RuntimeError("subscriber boom")),
+        )
+        resp = ipc_server._handle_show_electron_notification({"title": "Hi", "message": "x"}, {})
+        assert resp["type"] == "error"
+        assert resp["data"]["code"] == "server.internal_error"
+        assert resp["data"]["message"] == "internal error"
+        assert "subscriber boom" not in resp["data"]["message"]

@@ -84,14 +84,19 @@ def install_signal_handlers(controller: ShutdownController) -> None:
         ).start()
 
     def _signal_handler(signum, frame):
-        # Async-signal-safe: only record the signum and set the
-        # event. ``Event.set()`` is a thin wrapper around a
-        # non-blocking lock acquire in CPython and is safe to
-        # call from a signal handler. ``int`` assignment is
-        # atomic under the GIL. Everything else (logging,
-        # thread creation) is deferred to ``signal_watcher_loop``
-        # which runs in a normal thread context.
+        # Async-signal-safe: only record the signum, count the
+        # delivery, and set the event. ``Event.set()`` is a thin
+        # wrapper around a non-blocking lock acquire in CPython
+        # and is safe to call from a signal handler. ``int``
+        # assignment is atomic under the GIL. Everything else
+        # (logging, thread creation) is deferred to
+        # ``signal_watcher_loop`` which runs in a normal thread
+        # context.
         controller._shutdown_signum = signum
+        # Delivery counter for the watcher's second-signal
+        # force-exit. Read via ``getattr`` with a ``0`` default so
+        # controllers built without ``__init__`` keep working.
+        controller._signal_count = getattr(controller, "_signal_count", 0) + 1
         controller._shutdown_signal_event.set()
 
     # also register SIGHUP on POSIX so terminal close
@@ -297,6 +302,9 @@ def win32_console_handler(controller: ShutdownController, ctrl_type) -> bool:
     if ctrl_type == ctrl_close_event:
         log.info("[WIN32] Console window closing -- keeping process alive (tray app survives)")
         try:
+            # FreeConsole resets the process handler table to its initial
+            # state (Console-Docs). Intended here: no console remains, so
+            # no re-install follows; the tray process keeps running headless.
             app._kernel32.FreeConsole()
             # PERF-004: reuse the existing devnull object instead of
             # opening a new one on every ctrl_close_event (would hit
@@ -356,12 +364,6 @@ def win32_console_handler(controller: ShutdownController, ctrl_type) -> bool:
         return True
 
     return False
-
-
-# Late import, ``os`` is only referenced inside ``win32_console_handler``
-# for ``os.devnull``. Imported at module load to mirror the original
-# shutdown_controller.py imports (which imported ``os`` at module top
-# for the broader cleanup body).
 
 
 __all__ = [

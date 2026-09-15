@@ -94,51 +94,6 @@ _ARCH_SUFFIX_TO_LEGACY: dict[str, str] = {
 # to verify native binaries were not tampered with after install.
 _MANIFEST_PATH = Path(__file__).resolve().parent.parent / "native" / "binaries.json"
 
-# arch-suffixed binary names. Windows on ARM (aarch64) requires
-# a separate native binary build because the x86_64 MSVC toolchain
-# cannot emit ARM64 code. The lookup key for Windows combines the
-# platform (``win32``) with the architecture suffix returned by
-# :func:`_windows_arch_suffix` (``x86_64`` or ``aarch64``). Non-Windows
-# platforms do not have arch variants and use the bare ``sys.platform``
-# value as the key.
-_BINARY_NAMES_BY_PLATFORM_ARCH = {
-    "darwin": "macos-key-listener",
-    "linux": "linux-key-listener",
-    "win32-x86_64": "windows-key-listener-x86_64.exe",
-    "win32-aarch64": "windows-key-listener-aarch64.exe",
-}
-
-
-def _windows_arch_suffix() -> str:
-    """Return the Windows binary arch suffix for the current CPU.
-
-    Windows on ARM (aarch64) is now supported via a separate
-    binary build (``windows-key-listener-aarch64.exe``). The x86_64
-    build is renamed to ``windows-key-listener-x86_64.exe`` for
-    clarity (and so the binary name uniquely identifies the target
-    arch).
-
-    ``platform.machine()`` returns:
-
-      - ``'AMD64'`` on x86_64 Windows (Windows convention, the CPU
-        vendor string, not the architecture string).
-      - ``'ARM64'`` on aarch64 Windows.
-      - ``'x86_64'`` / ``'aarch64'`` on Linux/macOS hosts (POSIX
-        convention). On POSIX we don't actually need this function
-        (the Windows branch is only entered when ``sys.platform ==
-        'win32'``), but we normalize defensively anyway.
-
-    Returns the suffix used in the binary filename:
-
-      - ``'aarch64'`` for ARM64 hosts.
-      - ``'x86_64'`` for everything else (AMD64, x64, x86_64, etc.).
-    """
-    machine = platform.machine().upper()
-    if machine in ("ARM64", "AARCH64"):
-        return "aarch64"
-    # Default: AMD64, x86_64, x64, EM64T, etc., all map to x86_64 suffix.
-    return "x86_64"
-
 
 class _ArchAwareBinaryNameMap(dict):
     """Dict keyed by ``(platform, machine)`` with a legacy string-key shim.
@@ -311,12 +266,12 @@ def get_native_binary_path() -> Path | None:
 
     on Windows, the binary name is arch-suffixed
     (``windows-key-listener-x86_64.exe`` or
-    ``windows-key-listener-aarch64.exe``): see
-    :func:`_windows_arch_suffix`. The legacy non-suffixed
-    ``windows-key-listener.exe`` name in :data:`_BINARY_NAMES` is no
-    longer looked up here; existing installs should rebuild via
-    ``scripts/build/compile_native.ps1`` (which now emits the
-    arch-suffixed name).
+    ``windows-key-listener-aarch64.exe``), resolved via
+    :func:`_candidate_binary_names` for the current
+    ``platform.machine()``. The legacy non-suffixed
+    ``windows-key-listener.exe`` name (still emitted by
+    ``scripts/build/compile_native.ps1``) is tried as a fallback
+    at each lookup step.
 
     callers SHOULD follow this with a call to
     :func:`verify_native_binary_or_skip` to verify the SHA-256 of the

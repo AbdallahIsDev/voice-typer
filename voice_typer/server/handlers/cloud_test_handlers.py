@@ -55,7 +55,6 @@ from voice_typer.server.ipc.validation import (
     ErrorCodes,
     LegacyErrorCodes,
     ResponseEnvelope,
-    _validate_dict_payload,
 )
 
 # Secure opener installs _NoRedirectHandler + _HttpsOnlyHTTPHandler to
@@ -133,22 +132,16 @@ class CloudTestHandlersMixin(HandlerBase):
         on). The catch-all ``except Exception`` path uses the generic
         WS-path envelope via ``_respond_with_error`` (no ``str(exc)``
         leak).
+
+        Migrated to :meth:`HandlerBase._wrap` with ``pre_coerce=False``:
+        the HTTP probe and provider-key lookups live in ``body``; the
+        *schema* (provider default ``""``) is the helper's first
+        validation step. Network / HTTP failure results stay as
+        ``cloud_test_result`` envelopes (not error toasts).
         """
-        # TODO: not migrated to ``_wrap``: has side effects
-        # (HTTP request via ``_opener.open``, multiple ``log.info`` /
-        # ``log.warning`` calls, multiple early-return error envelopes
-        # with distinct shapes that don't fit ``_wrap``'s merge contract).
-        try:
-            validated, error = _validate_dict_payload(
-                data,
-                {
-                    "provider": {"type": str, "required": False, "default": ""},
-                },
-            )
-            if error:
-                return error
-            assert validated is not None  # narrowed by the error guard above
-            provider_raw = validated.get("provider", "")
+
+        def body(d: dict) -> dict:
+            provider_raw = d.get("provider", "")
             provider = provider_raw if isinstance(provider_raw, str) else ""
 
             if not provider:
@@ -193,13 +186,14 @@ class CloudTestHandlersMixin(HandlerBase):
                 # renderer can prompt the user to enter a key first
                 # (matches the renderer-side pre-check that existed
                 # before this handler was added).
-                resp["type"] = "cloud_test_result"
-                resp["data"] = {
-                    "ok": False,
-                    "status": 0,
-                    "message": "no_api_key",
+                return {
+                    "type": "cloud_test_result",
+                    "data": {
+                        "ok": False,
+                        "status": 0,
+                        "message": "no_api_key",
+                    },
                 }
-                return resp
 
             # Build the authenticated GET request. The ``Authorization``
             # header value is constructed here in Python, the renderer
@@ -233,18 +227,19 @@ class CloudTestHandlersMixin(HandlerBase):
                 # HTTPError is raised for non-2xx responses. The error
                 # carries the status code on ``http_err.code``.
                 status_code = int(getattr(http_err, "code", 0) or 0)
-                resp["type"] = "cloud_test_result"
-                resp["data"] = {
-                    "ok": False,
-                    "status": status_code,
-                    "message": _http_error_message(status_code),
-                }
                 log.info(
                     "[IPC] test_cloud_connection: provider=%s status=%s",
                     provider,
                     status_code,
                 )
-                return resp
+                return {
+                    "type": "cloud_test_result",
+                    "data": {
+                        "ok": False,
+                        "status": status_code,
+                        "message": _http_error_message(status_code),
+                    },
+                }
             except URLError as url_err:
                 # URLError covers DNS failures, connection refused,
                 # TLS errors, timeouts. Surface as status=0 so the
@@ -255,13 +250,14 @@ class CloudTestHandlersMixin(HandlerBase):
                     provider,
                     url_err.reason,
                 )
-                resp["type"] = "cloud_test_result"
-                resp["data"] = {
-                    "ok": False,
-                    "status": 0,
-                    "message": "network_error",
+                return {
+                    "type": "cloud_test_result",
+                    "data": {
+                        "ok": False,
+                        "status": 0,
+                        "message": "network_error",
+                    },
                 }
-                return resp
             except TimeoutError:
                 # ``urlopen`` raises ``TimeoutError`` (a builtin) when
                 # the ``timeout`` argument is exceeded. Map it to the
@@ -271,30 +267,39 @@ class CloudTestHandlersMixin(HandlerBase):
                     provider,
                     _TEST_TIMEOUT_SECONDS,
                 )
-                resp["type"] = "cloud_test_result"
-                resp["data"] = {
-                    "ok": False,
-                    "status": 0,
-                    "message": "network_error",
+                return {
+                    "type": "cloud_test_result",
+                    "data": {
+                        "ok": False,
+                        "status": 0,
+                        "message": "network_error",
+                    },
                 }
-                return resp
 
             # 2xx, the API key is valid and the provider is reachable.
-            resp["type"] = "cloud_test_result"
-            resp["data"] = {
-                "ok": True,
-                "status": status_code,
-                "message": "ok",
-            }
             log.info(
                 "[IPC] test_cloud_connection: provider=%s status=%s OK",
                 provider,
                 status_code,
             )
-        except Exception as exc:
-            # Catch-all: generic WS-path envelope (no ``str(exc)`` leak).
-            self._respond_with_error(resp, exc, "test_cloud_connection")
-        return resp
+            return {
+                "type": "cloud_test_result",
+                "data": {
+                    "ok": True,
+                    "status": status_code,
+                    "message": "ok",
+                },
+            }
+
+        return self._wrap(
+            cmd_name="test_cloud_connection",
+            resp_type="cloud_test_result",
+            data=data,
+            resp=resp,
+            body=body,
+            schema={"provider": {"type": str, "required": False, "default": ""}},
+            pre_coerce=False,
+        )
 
 
 def _http_error_message(status_code: int) -> str:

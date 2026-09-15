@@ -360,3 +360,93 @@ class TestLLMPolisherInvalidation:
         new_hotkey = "<f4>" if app.config.hotkey != "<f4>" else "<f5>"
         service.apply_config({"hotkey": new_hotkey})
         assert app._llm_polisher is sentinel
+
+
+class TestApplyConfigStepExtraction:
+    """``apply_config`` is an orchestrator over named private steps.
+
+    The extraction split the lock-scope body into helpers so each phase
+    is reviewable. The RACE-011 lock acquisition, the SEC-002
+    allowlist raise, and the DJ-29 ``set_keys`` dirty-check names stay
+    on the outer method (source guards in this file and in
+    ``tests/regressions/test_concurrency.py`` pin them there).
+    """
+
+    def test_sec002_raise_stays_on_outer_method(self):
+        """SEC-002 must still hard-fail inside ``apply_config`` itself.
+
+        A non-allowlisted key must never reach ``setattr``, and the
+        raise must live on the outer method so a future helper refactor
+        cannot bypass it by calling a step directly.
+        """
+        import ast
+        import inspect
+        import textwrap
+
+        from voice_typer.server.config_applier import ConfigApplier
+
+        src = textwrap.dedent(inspect.getsource(ConfigApplier.apply_config))
+        tree = ast.parse(src)
+
+        assert "IPC_CONFIG_ALLOWLIST" in src, (
+            "SEC-002 regression: apply_config no longer references "
+            "IPC_CONFIG_ALLOWLIST. The defense-in-depth check must stay "
+            "on the outer method so every caller path hits it."
+        )
+        assert "SEC-002" in src, (
+            "SEC-002 regression: apply_config no longer raises with the "
+            "SEC-002 marker in the message."
+        )
+        raise_nodes = [n for n in ast.walk(tree) if isinstance(n, ast.Raise)]
+        assert raise_nodes, (
+            "SEC-002 regression: apply_config contains no raise "
+            "statement; the unknown-key hard fail was removed."
+        )
+
+    def test_race011_lock_acquisition_stays_on_outer_method(self):
+        """RACE-011: the config-mutation lock must be acquired in
+        ``apply_config``, not delegated to a helper that a caller could
+        skip."""
+        import inspect
+        import textwrap
+
+        from voice_typer.server.config_applier import ConfigApplier
+
+        src = textwrap.dedent(inspect.getsource(ConfigApplier.apply_config))
+        assert "_config_mutation_lock" in src, (
+            "RACE-011 regression: apply_config no longer acquires "
+            "_config_mutation_lock. The lock scope must stay on the "
+            "outer method so the full read-modify-save sequence is "
+            "covered."
+        )
+
+    def test_step_helpers_exist(self):
+        """The named private steps the extraction introduced must exist
+        and be callable, so the orchestrator has real targets rather
+        than an inlined monolith."""
+        from voice_typer.server.config_applier import ConfigApplier
+
+        for name in (
+            "_empty_side_effect_status",
+            "_maybe_autoswitch_audio_preset",
+            "_setattr_updates",
+            "_maybe_invalidate_llm_polisher",
+            "_save_updates_strict",
+            "_route_secrets_post_save",
+            "_maybe_refresh_clipboard",
+            "_post_save_tray_cleanup",
+        ):
+            assert callable(getattr(ConfigApplier, name, None)), (
+                f"apply_config step helper {name} is missing; the "
+                "extraction must keep each phase as a named private "
+                "method."
+            )
+
+    def test_apply_config_still_applies_allowlisted_update(self, tmp_config_dir, monkeypatch):
+        """End-to-end smoke: the orchestrator still mutates Config and
+        persists via save_strict for an allowlisted key."""
+        service, app = _make_service_and_app(tmp_config_dir, monkeypatch)
+        new_hotkey = "<f4>" if app.config.hotkey != "<f4>" else "<f5>"
+        service.apply_config({"hotkey": new_hotkey})
+        assert app.config.hotkey == new_hotkey
+        app.config.save_strict.assert_called()

@@ -445,7 +445,10 @@ def _config_dir() -> Path:
         try:
             _validate_path_safety(custom_path, Path.home())
         except ValueError:
-            log.warning("[CONFIG] VOICE_TYPER_CONFIG_DIR path traversal detected: %s", custom)
+            # Redact the raw env value (matches env_validation.py). The
+            # path is user-supplied and may embed the OS username; the
+            # log file ships in support bundles.
+            log.warning("[CONFIG] VOICE_TYPER_CONFIG_DIR=<redacted> path traversal detected")
             # Fall through to default paths
         else:
             return custom_path
@@ -470,7 +473,8 @@ def _config_dir() -> Path:
             try:
                 _validate_path_safety(appdata_path, Path.home())
             except ValueError:
-                log.warning("[CONFIG] APPDATA path traversal detected: %s", appdata)
+                # Redact: APPDATA embeds the OS username (SEC / privacy).
+                log.warning("[CONFIG] APPDATA=<redacted> path traversal detected")
             else:
                 return appdata_path
     elif _is_macos():
@@ -484,7 +488,8 @@ def _config_dir() -> Path:
             try:
                 _validate_path_safety(xdg_path, Path.home())
             except ValueError:
-                log.warning("[CONFIG] XDG_DATA_HOME path traversal detected: %s", xdg)
+                # Redact: XDG_DATA_HOME may embed the OS username.
+                log.warning("[CONFIG] XDG_DATA_HOME=<redacted> path traversal detected")
             else:
                 return xdg_path
         return Path.home() / ".local" / "share" / APP_SLUG

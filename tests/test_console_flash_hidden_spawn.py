@@ -23,6 +23,8 @@ kwarg is passed at all (the kwarg is invalid there).
 
 from __future__ import annotations
 
+import os
+import signal
 import subprocess
 from unittest.mock import MagicMock
 
@@ -143,6 +145,58 @@ class TestTaskkillHidden:
 
         assert captured["cmd"][:3] == ["taskkill", "/T", "/F"]
         assert captured["kwargs"].get("creationflags") == CREATE_NO_WINDOW
+
+    def test_terminate_electron_swallows_taskkill_failure(self, monkeypatch):
+        """A non-zero taskkill exit (unknown PID, access denied) is
+        best-effort: logged at debug, never raised."""
+        from voice_typer.server import electron_launcher
+
+        monkeypatch.setattr(electron_launcher, "is_windows", lambda: True)
+
+        def _fake_run(cmd, **kwargs):
+            return _fake_completed(returncode=1, stderr=b"ERROR: The process 1234 not found.")
+
+        monkeypatch.setattr(subprocess, "run", _fake_run)
+
+        # Must not raise.
+        electron_launcher.terminate_electron(1234)
+
+    def test_terminate_electron_swallows_missing_taskkill_binary(self, monkeypatch):
+        """A missing taskkill.exe (FileNotFoundError) is best-effort too."""
+        from voice_typer.server import electron_launcher
+
+        monkeypatch.setattr(electron_launcher, "is_windows", lambda: True)
+
+        def _fake_run(cmd, **kwargs):
+            raise FileNotFoundError("taskkill not found")
+
+        monkeypatch.setattr(subprocess, "run", _fake_run)
+
+        # Must not raise.
+        electron_launcher.terminate_electron(1234)
+
+    def test_taskkill_timeout_falls_back_to_sigterm(self, monkeypatch):
+        """When taskkill hangs, the launcher warns and falls back to a
+        direct SIGTERM so the shutdown path still makes a best-effort kill."""
+        from voice_typer.server import electron_launcher
+
+        monkeypatch.setattr(electron_launcher, "is_windows", lambda: True)
+
+        def _fake_run(cmd, **kwargs):
+            raise subprocess.TimeoutExpired(cmd, 5)
+
+        monkeypatch.setattr(subprocess, "run", _fake_run)
+
+        kill_calls: list = []
+
+        def _fake_kill(pid, sig):
+            kill_calls.append((pid, sig))
+
+        monkeypatch.setattr(os, "kill", _fake_kill)
+
+        electron_launcher.terminate_electron(1234)
+
+        assert (1234, signal.SIGTERM) in kill_calls
 
 
 class TestDesktopShortcutPowershellHidden:

@@ -12,11 +12,13 @@ EXPLICIT and are NOT routed through ``_respond_with_error``, they are
 part of the documented IPC contract that the renderer switches on.
 """
 
+from typing import cast
+
 from voice_typer.server.handlers._base import HandlerBase
 from voice_typer.server.handlers._log import log
 from voice_typer.server.ipc.validation import (
+    ErrorCodes,
     _enforce_payload_size_cap,
-    _error_response,
     _validate_dict_payload,
 )
 from voice_typer.server.templates import (
@@ -75,15 +77,16 @@ class TemplatesHandlersMixin(HandlerBase):
         offending field name. Oversized values return the explicit
         ``client.invalid_field`` envelope (with the offending field
         name) so the renderer can highlight the bad row.
+
+        Migrated to :meth:`HandlerBase._wrap` with ``pre_coerce=False``:
+        the on-disk save side effect and the per-field length loop live
+        in ``body``. Schema validation stays inside ``body`` so the
+        ``invalid_payload`` WARNING log is preserved.
         """
-        # TODO: not migrated to ``_wrap``: has side effects
-        # (``self.service.save_templates`` writes to the on-disk JSON
-        # store + ``log.warning`` calls + per-field validation loop
-        # with ``_error_response`` + ``return resp`` early exits that
-        # don't fit ``_wrap``'s merge contract).
-        try:
+
+        def body(d: dict) -> dict:
             validated, error = _validate_dict_payload(
-                data,
+                d,
                 {
                     "templates": {"type": list, "required": True},
                     # 256 KB payload cap. ``_payload`` is a
@@ -96,25 +99,15 @@ class TemplatesHandlersMixin(HandlerBase):
                 },
             )
             if error:
-                resp["type"] = "error"
-                resp["data"] = error["data"]
-                # Narrow error["data"] to dict before indexing.
-                # ``_validate_dict_payload`` has no return-type annotation,
-                # so pyrefly infers its error return as
-                # ``dict[str, str | dict[str, str]]`` (unifying all the
-                # ``"type": "error", "data": {...}`` branches). At runtime
-                # ``error["data"]`` is always a dict, but the type system
-                # can't prove it, narrow with ``isinstance`` so the
-                # ``["code"]`` / ``["message"]`` indexing type-checks.
                 _err_data = error.get("data")
                 if isinstance(_err_data, dict) and _err_data.get("code") == "invalid_payload":
                     log.warning(
                         "[IPC] save_templates rejected: %s",
                         _err_data.get("message"),
                     )
-                return resp
+                return error
             assert validated is not None  # narrowed by the error guard above
-            templates = validated["templates"]
+            templates = cast(list, validated["templates"])
 
             # Per-field length caps. The templates module enforces the
             # SAME caps downstream (MAX_TRIGGER_LENGTH / MAX_OUTPUT_LENGTH)
@@ -133,11 +126,6 @@ class TemplatesHandlersMixin(HandlerBase):
                 for field_name, field_cap in _field_length_caps.items():
                     value = entry.get(field_name)
                     if isinstance(value, str) and len(value) > field_cap:
-                        _error_response(
-                            resp,
-                            (f"'{field_name}' value too long in templates[{idx}] ({len(value)} > {field_cap})"),
-                            code="client.invalid_field",
-                        )
                         # Log at WARNING so operators can see
                         # rejection rates (a spike suggests a renderer
                         # bug producing oversized templates).
@@ -148,12 +136,20 @@ class TemplatesHandlersMixin(HandlerBase):
                             len(value),
                             field_cap,
                         )
-                        return resp
+                        return self._error_response(
+                            resp,
+                            (f"'{field_name}' value too long in templates[{idx}] ({len(value)} > {field_cap})"),
+                            code=ErrorCodes.INVALID_FIELD,
+                        )
 
             self.service.save_templates(templates)
-            resp["type"] = "ack"
-            resp["data"] = {"saved": len(templates)}
-        except Exception as exc:
-            # generic WS-path envelope (no ``str(exc)`` leak).
-            self._respond_with_error(resp, exc, "save_templates")
-        return resp
+            return {"type": "ack", "data": {"saved": len(templates)}}
+
+        return self._wrap(
+            cmd_name="save_templates",
+            resp_type="ack",
+            data=data,
+            resp=resp,
+            body=body,
+            pre_coerce=False,
+        )

@@ -127,8 +127,15 @@ def teardown_electron(controller) -> None:
                             kernel32.OpenProcess.restype = wintypes.HANDLE
                             handle = kernel32.OpenProcess(process_terminate, False, launched_pid)
                             if handle:
-                                kernel32.TerminateProcess(handle, 1)
-                                kernel32.CloseHandle(handle)
+                                try:
+                                    kernel32.TerminateProcess(handle, 1)
+                                finally:
+                                    # Always release the handle, even when
+                                    # TerminateProcess raises (access denied
+                                    # on an elevated Electron child). Leaking
+                                    # it here would exhaust the process handle
+                                    # table across repeated shutdown timeouts.
+                                    kernel32.CloseHandle(handle)
                         except Exception:
                             log.debug(
                                 "[SHUTDOWN] Windows TerminateProcess fallback failed",
@@ -174,8 +181,14 @@ def teardown_electron(controller) -> None:
                         timeout=5.0,
                     )
                     if _term_result is TIMEOUT:
+                        import signal as _sig_kill_fallback
+
+                        # ``signal.SIGKILL`` is absent on Windows Python;
+                        # resolve it the same way as the tracked-PID branch
+                        # above so this fallback also runs under a Windows
+                        # host (where the value maps to process termination).
                         with contextlib.suppress(OSError, ProcessLookupError):
-                            os.kill(electron_pid, 9)  # SIGKILL
+                            os.kill(electron_pid, getattr(_sig_kill_fallback, "SIGKILL", 9))
     except Exception:
         log.debug("[SHUTDOWN] Electron subprocess termination failed", exc_info=True)
 

@@ -51,7 +51,6 @@ IPC contract that the renderer switches on. Only the catch-all
 
 from __future__ import annotations
 
-import os
 import traceback
 import typing
 from typing import Any
@@ -83,6 +82,7 @@ from voice_typer.server.recording.exceptions import (
     ResampleError,
     ResampleUnavailableError,
 )
+from voice_typer.server.security.redaction import _redact_home_path_in_text
 
 # The ``ErrorEnvelope`` TypedDict contract is kept in
 # :mod:`voice_typer.server.ipc.validation` (useful as documentation),
@@ -119,19 +119,18 @@ def _scrub_traceback(exc: BaseException) -> tuple[str, str]:
         ``(scrubbed_str, scrubbed_tb)`` where *scrubbed_str* is the
         redacted ``str(exc)`` and *scrubbed_tb* is the redacted
         formatted traceback.  Both have home-directory paths replaced
-        with ``~`` and known secret patterns (API keys, bearer tokens)
-        replaced via :func:`~voice_typer.server._secrets.redact_secret`.
+        with ``~`` (via
+        :func:`~voice_typer.server.security.redaction._redact_home_path_in_text`,
+        which handles embedded paths, case-insensitive Windows paths, and
+        the ``HOME``-override vs ``USERPROFILE`` dual-home case) and known
+        secret patterns (API keys, bearer tokens) replaced via
+        :func:`~voice_typer.server._secrets.redact_secret`.
     """
-    home = os.path.expanduser("~")
     exc_str = str(exc)
-    scrubbed_str = redact_secret(exc_str)
-    if home and home != "~":
-        scrubbed_str = scrubbed_str.replace(home, "~")
+    scrubbed_str = _redact_home_path_in_text(redact_secret(exc_str))
     tb_lines = traceback.format_exception(type(exc), exc, exc.__traceback__)
     tb_text = "".join(tb_lines)
-    scrubbed_tb = redact_secret(tb_text)
-    if home and home != "~":
-        scrubbed_tb = scrubbed_tb.replace(home, "~")
+    scrubbed_tb = _redact_home_path_in_text(redact_secret(tb_text))
     return scrubbed_str, scrubbed_tb
 
 
@@ -532,18 +531,13 @@ class HandlerBase(HandlerMixinBase):
         return resp
 
     # ── Template-method helper for handler consistency ────
-    # The 14 handler mixins are inconsistent in (a) try/except usage,
-    # (b) pre-coercion of ``data``, (c) error envelope shape. The
-    # mechanical fix would convert each of the 60+ ``_handle_<cmd>``
-    # methods to one-liners delegating to ``_wrap``. Deferred because:
-    #   - each handler has its own response ``type`` field
-    #   - many handlers have custom pre-coercion beyond ``None → {}``
-    #   - some handlers intentionally don't wrap in try/except
-    #   - tests assert on exact envelope shape per handler
-    # The SAFE incremental step: define ``_wrap`` so NEW handlers can
-    # opt in. Existing handlers continue to work as before. Migration
-    # pattern: ``return self._wrap(cmd_name=..., resp_type=..., data=data,
-    # resp=resp, body=lambda d: {'data': ...})``.
+    # ``_wrap`` is the sanctioned shape for every IPC handler,
+    # including side-effecting ones (subprocess, HTTP, tray/i18n
+    # mutation, event-bus publish). Side effects belong in ``body``;
+    # multiple early-return envelopes are expressed by returning
+    # ``{"type": ..., "data": ...}`` (or ``self._error_response(...)``)
+    # from ``body``. Do not reintroduce a parallel ad-hoc try/validate
+    # structure.
     def _wrap(
         self,
         *,
@@ -573,6 +567,34 @@ class HandlerBase(HandlerMixinBase):
         Pass ``pre_coerce=False`` for handlers whose non-dict ``data``
         must be passed through unchanged (e.g. those that produce
         ``client.invalid_payload`` for non-dict input).
+
+        Side-effect handlers
+        --------------------
+        Side effects (``subprocess``, HTTP probes, tray / i18n state
+        mutation, ``event_bus.publish``, service writes) are legitimate
+        ``body`` work. The helper's try/except covers them, so an
+        unexpected exception still becomes the generic
+        ``server.internal_error`` envelope.
+
+        Alternate response types / early exits
+        --------------------------------------
+        ``body`` may return any of:
+
+        * ``{"type": "<other>", "data": {...}}`` — overrides *resp_type*
+          (e.g. ``accessibility_status`` vs the default, or a
+          ``cloud_test_result`` error-shaped success).
+        * ``{"data": {...}}`` — keeps *resp_type*.
+        * ``self._error_response(resp, message, code=..., field=...)``
+          — stamps a per-command validation envelope (field-level
+          context the generic wrap cannot represent) and returns
+          ``resp``; the merge below is then a no-op.
+        * an error envelope from ``_validate_dict_payload`` when the
+          body runs multi-stage validation.
+
+        Multi-stage validation (pre-coerce / boolean-subclass exclusion
+        / content caps after the schema pass) stays inside ``body``;
+        pass *schema* to the helper only when the schema is the first
+        and only validation step.
         """
         resp["type"] = resp_type
         try:

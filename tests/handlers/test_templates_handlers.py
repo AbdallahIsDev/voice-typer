@@ -111,3 +111,13 @@ class TestSaveTemplates:
         assert resp["type"] == "ack"
         assert resp["data"] == {"saved": 1}
         fake_service.save_templates.assert_called_once_with(templates)
+
+    def test_service_raises_returns_generic_internal_error(self, ipc_server, fake_service):
+        """The wrap catch-all must emit the generic WS-path envelope
+        (no ``str(exc)`` leak) when the on-disk save fails."""
+        fake_service.save_templates.side_effect = RuntimeError("disk full: /home/user/templates.json")
+        resp = ipc_server._handle_save_templates({"templates": []}, {})
+        assert resp["type"] == "error"
+        assert resp["data"]["code"] == "server.internal_error"
+        assert resp["data"]["message"] == "internal error"
+        assert "disk full" not in resp["data"]["message"]

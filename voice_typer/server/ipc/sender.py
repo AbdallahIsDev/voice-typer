@@ -29,7 +29,9 @@ import contextlib
 import json
 import logging
 import select
+import socket
 from collections import deque
+from collections.abc import Callable
 from typing import TextIO
 
 from voice_typer.server.handlers._log import log
@@ -145,42 +147,37 @@ class _LazyInt:
 
     __slots__ = ("_fn",)
 
-    def __init__(self, fn) -> None:  # type: ignore[no-untyped-def]
+    def __init__(self, fn: Callable[[], int]) -> None:
         self._fn = fn
 
     def __int__(self) -> int:
         return int(self._fn())
 
 
-class _PendingBuffer(deque):
+class _PendingBuffer(deque[str]):
     """Bounded FIFO buffer for ``IPCServer._pending_tcp``.
 
     Replaces the previous ``list[str]`` to eliminate the O(N)
     ``del list[:n]`` cap-drop on every append while the client is
     disconnected. The ``maxlen`` argument auto-drops the OLDEST entries
-    on ``append``/``extend`` so the manual cap-drop logic in
-    ``OutputMixin._send`` becomes dead code (kept in source for
-    backward compat with the source-string checks in
-    ``tests/test_ipc_pending_tcp_remerge.py``).
+    on ``append``/``extend``, so the manual cap-drop logic in
+    ``OutputMixin._send`` is dead code for this type (kept only for
+    plain-``list`` fixtures that assign ``_pending_tcp`` directly).
 
     ``__radd__`` supports the existing re-merge patterns
     (``self._pending_tcp = _undrained + self._pending_tcp`` and
     ``self._pending_tcp = pending + self._pending_tcp``) so a ``list`` on
     the left of ``+`` returns a new ``_PendingBuffer`` with the merged
     contents, Python falls back to ``__radd__`` because ``list.__add__``
-    returns ``NotImplemented`` for a non-list right operand. This
-    preserves the exact source-string patterns the re-merge tests pin.
+    returns ``NotImplemented`` for a non-list right operand.
     Test fixtures that bypass ``__init__`` and assign a plain ``list``
     to ``_pending_tcp`` continue to work, ``list + list`` returns a
     ``list`` (no ``__radd__`` is invoked), matching the pre-fix
     behavior.
 
-    ``__delitem__`` is overridden to support the ``del d[:n]`` slice
-    deletion pattern used by the cap-drop logic (deque's default
-    ``__delitem__`` only accepts integer indices). With ``maxlen`` set,
-    this branch is dead code (the deque never exceeds ``maxlen``) but
-    the override keeps the source pattern safe if a future change
-    constructs the buffer without ``maxlen``.
+    ``__eq__`` exists so fixtures can assert ``_pending_tcp == []``
+    after a successful drain (``deque.__eq__`` returns
+    ``NotImplemented`` for non-deque operands).
     """
 
     def __init__(self, maxlen: int | None = None) -> None:
@@ -193,7 +190,7 @@ class _PendingBuffer(deque):
         # entries). If the total exceeds ``maxlen``, the OLDEST entries
         # (from ``other``) are dropped automatically by ``extend`` —
         # matching the manual ``del self._pending_tcp[:dropped]`` cap-drop
-        # semantics that the source-string re-merge tests pin.
+        # semantics.
         if isinstance(other, list):
             result: _PendingBuffer = _PendingBuffer(maxlen=self.maxlen)
             result.extend(other)
@@ -201,7 +198,7 @@ class _PendingBuffer(deque):
             return result
         return NotImplemented
 
-    def __eq__(self, other: object) -> bool:  # type: ignore[override]
+    def __eq__(self, other: object) -> bool:
         # ``deque.__eq__`` returns ``NotImplemented`` for non-deque
         # operands, which Python then treats as identity comparison, so
         # ``_PendingBuffer() == []`` would be ``False`` without this
@@ -215,23 +212,8 @@ class _PendingBuffer(deque):
             return list(self) == list(other)
         return NotImplemented
 
-    def __delitem__(self, key):  # type: ignore[override]
-        if isinstance(key, slice):
-            # deque's default ``__delitem__`` raises TypeError on slices.
-            # Support the ``del d[:n]`` (drop oldest n) and ``del d[-n:]``
-            # (drop newest n) patterns used by the cap-drop logic in
-            # ``_send``. Convert to list, delete, and rebuild, O(N) but
-            # dead code when ``maxlen`` is set (the deque never exceeds
-            # ``maxlen`` so the ``len > cap`` guard never trips).
-            items = list(self)
-            del items[key]
-            self.clear()
-            self.extend(items)
-        else:
-            super().__delitem__(key)
 
-
-def _await_socket_writable(conn) -> None:
+def _await_socket_writable(conn: socket.socket) -> None:
     """Block until *conn* is writable or the write timeout elapses.
 
     Replaces the per-write ``gettimeout`` / ``settimeout`` /

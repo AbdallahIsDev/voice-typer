@@ -1179,6 +1179,46 @@ class TestMultiSpecPooling:
         b.remove_extra_matcher("nonexistent")
         assert len(b._extra_matchers) == 1
 
+    def test_extra_matcher_add_remove_readd_no_leak(self, monkeypatch):
+        """Role teardown + re-register cycle must not leak matcher
+        objects: add → remove → re-add leaves exactly one entry for
+        the role, and the removed matcher's callback is gone with it."""
+        from voice_typer.server import native_hotkeys
+
+        monkeypatch.setattr(native_hotkeys, "is_linux", lambda: True)
+        monkeypatch.setattr(native_hotkeys, "is_macos", lambda: False)
+        monkeypatch.setattr(native_hotkeys, "is_windows", lambda: False)
+        monkeypatch.setattr(sys, "platform", "linux")
+        from voice_typer.server.native_hotkeys import LinuxEvdevHotkey
+
+        b = LinuxEvdevHotkey("<f2>")
+
+        def first_cb() -> str:
+            return "first"
+
+        b.add_extra_matcher("esc", "<esc>")
+        b.set_role_callback("esc", first_cb)
+        assert len(b._extra_matchers) == 1
+
+        b.remove_extra_matcher("esc")
+        assert b._extra_matchers == [], "remove must drop the matcher object entirely"
+        # Role is unknown after remove: set_role_callback must raise.
+        with pytest.raises(KeyError):
+            b.set_role_callback("esc", lambda: None)
+
+        def second_cb() -> str:
+            return "second"
+
+        b.add_extra_matcher("esc", "<f4>")
+        b.set_role_callback("esc", second_cb)
+        assert len(b._extra_matchers) == 1, "re-add after remove must not duplicate"
+        assert b._extra_matchers[0]["parsed"]["main_key"] == "F4"
+        assert b._extra_matchers[0]["callback"] is second_cb
+
+        # Repeated remove is still a no-op / stays empty.
+        b.remove_extra_matcher("esc")
+        assert b._extra_matchers == []
+
     def test_extra_matcher_fires_on_matching_event(self, monkeypatch):
         """When the event stream matches an extra matcher's spec, the
         extra matcher's callback fires, independently of the primary

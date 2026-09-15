@@ -40,16 +40,18 @@ Example::
         return error
 
 (IMPROVE-mode run, 2026-07-19): the schema now supports three
-optional rules that the previous inline checks in
-``save_vocabulary`` / ``show_electron_notification`` reimplemented
-ad-hoc:
+optional rules that the previous inline checks in live handlers
+(notably ``save_vocabulary``) reimplemented ad-hoc:
 
 - ``max_value_len`` (int): reject string values longer than N chars.
 - ``max_payload_bytes`` (int): reject the whole payload if its
   ``json.dumps`` size exceeds N bytes (DoS guard).
 - ``clamp_range`` (tuple ``(lo, hi)``): coerce a numeric value to
   ``max(lo, min(value, hi))`` instead of rejecting out-of-range
-  values (used by ``duration_ms`` in ``show_electron_notification``).
+  values (historical example: ``duration_ms`` on the retained
+  Rust-mirror ``_handle_show_electron_notification``; that command is
+  NOT registered in ``_COMMAND_REGISTRY`` — do not cite it as a live
+  IPC example).
 """
 
 # ``TypedDict`` is needed for the schema + error-envelope type
@@ -351,8 +353,9 @@ class FieldRule(TypedDict, total=False):
     # the field is populated with ``rules["default"]``. Pre-
     # a present ``None`` failed the ``type`` check (assuming the
     # declared type didn't include ``type(None)``), forcing callers
-    # like ``_handle_show_electron_notification`` to pre-coerce
-    # ``None`` to the default with 8 lines of inline code. Set
+    # to pre-coerce ``None`` to the default with 8 lines of inline
+    # code (historical example: the retained Rust-mirror
+    # ``_handle_show_electron_notification``). Set
     # ``none_to_default=False`` to restore the strict pre-
     # behavior (only ABSENT fields get the default).
     none_to_default: bool
@@ -524,12 +527,11 @@ def _validate_dict_payload(
             - ``max_value_len`` (int, optional): if the value is a string
               longer than N characters, return an ``client.invalid_field``
     error. : replaces the ad-hoc per-value length loops in
-              ``save_vocabulary`` and ``show_electron_notification``.
+              ``save_vocabulary``.
             - ``clamp_range`` (tuple ``(lo, hi)``, optional): if the
               value is a number, coerce it to ``max(lo, min(value, hi))``
-    before storing it in ``validated``.  : replaces the
-              inline ``max(0, min(int(duration_ms), 24*60*60*1000))`` in
-              ``show_electron_notification``.
+    before storing it in ``validated``.  : replaces inline
+              range-clamp coercions (e.g. duration fields).
             - ``max_payload_bytes`` (int, optional, DEPRECATED): if the
               WHOLE ``data`` dict serializes to more than N bytes, return
     an ``client.invalid_payload`` error. : replaces the
@@ -631,7 +633,8 @@ def _validate_dict_payload(
             # backward compat with the renderer's pre-coercion
             # behavior) AND a ``default`` is declared, treat ``None``
             # as ABSENT and substitute the default. This removes the
-            # 8-line pre-coercion workaround in
+            # 8-line pre-coercion workaround historically needed by
+            # handlers such as the retained Rust-mirror
             # ``_handle_show_electron_notification`` (which manually
             # converted ``{"title": null}`` to ``{"title": APP_NAME}``
             # before calling this helper). Opt out per-field with

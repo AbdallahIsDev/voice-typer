@@ -1,11 +1,10 @@
 """Pool tracking tests for ``HotkeyDispatcher._shared_backend_pool``.
 
-Verifies the MINIMAL per-spec backend pool introduced to lay the
-groundwork for the full pooling refactor (single native binary serving
-multiple ``(role, spec)`` pairs: see the module docstring TODO in
-``voice_typer/server/hotkey_dispatcher.py``).
+Verifies the MINIMAL per-spec backend pool and the role-based
+extra-matcher teardown (``remove_extra_matcher`` stepping stone;
+see the module docstring in ``voice_typer/server/hotkey_dispatcher.py``).
 
-Scope of the minimal pool:
+Scope:
   - ``_shared_backend_pool: dict[str, HotkeyBackend]`` tracks every
     live backend by its hotkey spec.
   - ``get_active_backend_count()`` returns the number of DISTINCT
@@ -20,6 +19,10 @@ Scope of the minimal pool:
     callback, so reusing a dictation backend would cause both
     callbacks to fire on the same keypress, that conflict is
     resolved by the full refactor's role-tagged wire events).
+  - Role teardown drops the pooled extra matcher from the still-alive
+    shared backend (``_remove_shared_extra_matcher``) without
+    restarting the shared subprocess, and re-enabling a role
+    re-adds it without leaking matcher entries.
   - ``stop_all`` clears the pool.
 
 The tests use a minimal mock app (no real ``VoiceTyperApp``) and mock
@@ -572,3 +575,175 @@ def test_restart_untracks_old_backend_before_stopping(dispatcher: HotkeyDispatch
     # NEW backend tracked.
     assert dispatcher._shared_backend_pool.get("<f3>") is new_backend
     assert dispatcher.get_active_backend_count() == 1
+
+
+# ─── Role-based extra-matcher teardown (remove_extra_matcher stepping stone) ─
+
+
+def _install_shared_native(dispatcher: HotkeyDispatcher) -> MagicMock:
+    """Install a mock shared dictation backend whose native supports
+    the pooling API. Returns the mock native (``add_extra_matcher`` /
+    ``remove_extra_matcher`` call recorder)."""
+    shared_native = MagicMock(name="shared_native")
+    dictation_backend = MagicMock(name="dictation")
+    dictation_backend.is_alive.return_value = True
+    dictation_backend._native = shared_native
+    dispatcher._shared_backend = dictation_backend
+    dispatcher._hotkey_backend = dictation_backend
+    return shared_native
+
+
+def test_register_repaste_empty_config_removes_pooled_extra_matcher(
+    dispatcher: HotkeyDispatcher, monkeypatch
+):
+    """Clearing ``repaste_hotkey`` (config_applier calls
+    ``register_repaste()`` with empty config) must remove the pooled
+    ``"repaste"`` extra matcher from the still-alive shared backend
+    and clear the stashed callback, otherwise the old combo keeps
+    firing after the setting is cleared."""
+    shared_native = _install_shared_native(dispatcher)
+    dispatcher._app.config.repaste_hotkey = "<ctrl>+<shift>+<v>"
+    repaste_backend = MagicMock(name="repaste")
+    repaste_backend.is_alive.return_value = True
+    monkeypatch.setattr(
+        "voice_typer.server.hotkey_dispatcher.create_hotkey_backend",
+        MagicMock(return_value=repaste_backend),
+    )
+
+    dispatcher.register_repaste()
+    shared_native.add_extra_matcher.assert_called_once_with("repaste", "<ctrl>+<shift>+<v>")
+    assert dispatcher._repaste_callback is not None
+
+    # Clear the setting and re-register (the config_applier path).
+    dispatcher._app.config.repaste_hotkey = ""
+    dispatcher.register_repaste()
+
+    assert dispatcher._repaste_backend is None
+    assert dispatcher._repaste_spec is None
+    assert dispatcher._repaste_callback is None
+    shared_native.remove_extra_matcher.assert_called_once_with("repaste")
+
+
+def test_register_repaste_rejected_spec_removes_pooled_extra_matcher(
+    dispatcher: HotkeyDispatcher, monkeypatch
+):
+    """When the configured repaste hotkey is rejected by the denylist,
+    ``register_repaste`` disables repaste and must also remove any
+    previously-pooled extra matcher (the old backend was already
+    stopped at the top of the method)."""
+    shared_native = _install_shared_native(dispatcher)
+    # First, a valid registration so a matcher is pooled.
+    dispatcher._app.config.repaste_hotkey = "<ctrl>+<shift>+<v>"
+    repaste_backend = MagicMock(name="repaste")
+    repaste_backend.is_alive.return_value = True
+    monkeypatch.setattr(
+        "voice_typer.server.hotkey_dispatcher.create_hotkey_backend",
+        MagicMock(return_value=repaste_backend),
+    )
+    dispatcher.register_repaste()
+    assert shared_native.add_extra_matcher.call_count == 1
+
+    # Re-register with a reserved combo → validation rejects.
+    dispatcher._app.config.repaste_hotkey = "<alt>+<f4>"
+    dispatcher.register_repaste()
+
+    assert dispatcher._app.config.repaste_hotkey == ""
+    assert dispatcher._repaste_backend is None
+    assert dispatcher._repaste_callback is None
+    shared_native.remove_extra_matcher.assert_called_once_with("repaste")
+
+
+def test_register_esc_pool_then_start_failure_removes_matcher(
+    dispatcher: HotkeyDispatcher, monkeypatch
+):
+    """If pooling succeeds but ``start()`` raises, the extra matcher
+    already installed on the shared backend must be removed (and the
+    stashed callback cleared) so a failed registration cannot keep
+    cancelling dictation."""
+    shared_native = _install_shared_native(dispatcher)
+    esc_backend = MagicMock(name="esc")
+    esc_backend.is_alive.return_value = True
+    esc_backend.start.side_effect = RuntimeError("start failed")
+    monkeypatch.setattr(
+        "voice_typer.server.hotkey_dispatcher.create_hotkey_backend",
+        MagicMock(return_value=esc_backend),
+    )
+
+    dispatcher.register_esc()  # must not raise (outer except swallows)
+
+    assert dispatcher._esc_backend is None
+    assert dispatcher._esc_spec is None
+    assert dispatcher._esc_callback is None
+    shared_native.add_extra_matcher.assert_called_once_with("esc", "<esc>")
+    shared_native.remove_extra_matcher.assert_called_once_with("esc")
+
+
+def test_register_repaste_pool_then_start_failure_removes_matcher(
+    dispatcher: HotkeyDispatcher, monkeypatch
+):
+    """Same pool-then-start failure contract for the repaste role."""
+    shared_native = _install_shared_native(dispatcher)
+    dispatcher._app.config.repaste_hotkey = "<ctrl>+<shift>+<v>"
+    repaste_backend = MagicMock(name="repaste")
+    repaste_backend.is_alive.return_value = True
+    repaste_backend.start.side_effect = RuntimeError("start failed")
+    monkeypatch.setattr(
+        "voice_typer.server.hotkey_dispatcher.create_hotkey_backend",
+        MagicMock(return_value=repaste_backend),
+    )
+
+    dispatcher.register_repaste()  # must not raise
+
+    assert dispatcher._repaste_backend is None
+    assert dispatcher._repaste_spec is None
+    assert dispatcher._repaste_callback is None
+    shared_native.add_extra_matcher.assert_called_once_with("repaste", "<ctrl>+<shift>+<v>")
+    shared_native.remove_extra_matcher.assert_called_once_with("repaste")
+
+
+def test_esc_reregister_after_unregister_re_adds_single_matcher(
+    dispatcher: HotkeyDispatcher, monkeypatch
+):
+    """Unregister then re-register ESC must re-pool exactly ONE
+    ``"esc"`` extra matcher (add is role-idempotent) and leave the
+    shared backend alive — no matcher leak across the cycle."""
+    shared_native = _install_shared_native(dispatcher)
+    esc_backend = MagicMock(name="esc")
+    esc_backend.is_alive.return_value = True
+    monkeypatch.setattr(
+        "voice_typer.server.hotkey_dispatcher.create_hotkey_backend",
+        MagicMock(return_value=esc_backend),
+    )
+
+    dispatcher.register_esc()
+    assert shared_native.add_extra_matcher.call_count == 1
+
+    dispatcher.unregister_esc()
+    assert shared_native.remove_extra_matcher.call_count == 1
+    assert dispatcher._esc_callback is None
+
+    dispatcher.register_esc()
+    # Re-add after remove: still exactly one role registration, not two.
+    assert shared_native.add_extra_matcher.call_count == 2
+    shared_native.add_extra_matcher.assert_called_with("esc", "<esc>")
+    assert shared_native.remove_extra_matcher.call_count == 1
+    assert dispatcher._esc_spec == "<esc>"
+    assert dispatcher._esc_callback is not None
+    # Shared dictation backend was never stopped by the aux cycle.
+    assert dispatcher._shared_backend is not None
+    dispatcher._shared_backend.stop.assert_not_called()
+
+
+def test_remove_shared_extra_matcher_noop_without_shared_native(dispatcher):
+    """``_remove_shared_extra_matcher`` is a no-op when pooling is
+    unavailable (legacy backend / no shared backend) — never raises."""
+    dispatcher._shared_backend = None
+    dispatcher._remove_shared_extra_matcher("esc")  # must not raise
+
+
+def test_remove_shared_extra_matcher_noop_for_unknown_role(dispatcher):
+    """Removing a role that was never pooled is safe (mirrors the
+    native ``remove_extra_matcher`` contract)."""
+    shared_native = _install_shared_native(dispatcher)
+    dispatcher._remove_shared_extra_matcher("never-registered")
+    shared_native.remove_extra_matcher.assert_called_once_with("never-registered")

@@ -12,12 +12,19 @@ is no Python-side export surface anymore: the former
 support bundle is produced solely by the CLI
 (``python scripts/diagnostics.py export``, which owns its own local
 implementation, redaction, log tail, model hashes).
-``_handle_check_accessibility`` and
-``_handle_show_electron_notification`` are also absent from
-``_COMMAND_REGISTRY`` and the renderer allowlist, but they are retained
-because tests in ``tests/regressions/``, ``tests/tauri/``, and
-``tests/test_notification_event_name.py`` invoke them directly as the
-reference shape the Rust host mirrors.
+
+``_handle_check_accessibility`` IS registered in
+``_COMMAND_REGISTRY`` (``check_accessibility``): Settings →
+Troubleshooting invokes it to surface the stale-grant ``tccutil``
+reset command. Do not treat it as dead.
+
+``_handle_show_electron_notification`` is intentionally NOT in
+``_COMMAND_REGISTRY`` or the renderer allowlist. It is retained as the
+Rust-mirror reference shape for the host toast/notification path
+(``src-tauri`` dialogs / tray notification). Tests in
+``tests/regressions/``, ``tests/tauri/``, and
+``tests/test_notification_event_name.py`` pin that contract by calling
+the handler directly. Prefer keep + comment over delete (MO-81).
 """
 
 import contextlib
@@ -32,7 +39,7 @@ from voice_typer.server.handlers._log import log
 from voice_typer.server.ipc.validation import (  # noqa: F401
     ErrorCodes,
     LegacyErrorCodes,
-    _error_response,
+    Schema,
     _validate_dict_payload,
 )
 from voice_typer.server.platform_utils import is_linux, is_macos
@@ -371,21 +378,17 @@ class SystemHandlersMixin(HandlerBase):
 
         this handler ignores its ``data`` payload (the
                 command takes no arguments), but for consistency with the
-                other handlers we now run an empty-schema validation so a
+                other handlers we run an empty-schema validation so a
                 non-dict payload is rejected with ``invalid_payload`` instead
                 of being silently accepted.
+
+        Migrated to :meth:`HandlerBase._wrap` with ``pre_coerce=False``
+        and an empty *schema*: ctypes LoadLibrary / macOS bundle-ID
+        resolution side effects live in ``body``, and non-dict payloads
+        still produce ``client.invalid_payload``.
         """
-        # TODO: not migrated to ``_wrap``: has side effects
-        # (ctypes LoadLibrary for AXIsProcessTrusted + macOS bundle-ID
-        # resolution + ``log.warning`` calls + non-standard structure:
-        # validation is OUTSIDE the try block, with multiple early
-        # ``return resp`` paths that don't fit ``_wrap``'s merge contract).
-        # empty-schema validation (consistency with siblings).
-        validated, error = _validate_dict_payload(data, {})
-        if error:
-            return error
-        assert validated is not None  # empty dict; handler ignores payload
-        try:
+
+        def body(d: dict) -> dict:
             import sys as _sys
 
             granted = True
@@ -418,14 +421,14 @@ class SystemHandlersMixin(HandlerBase):
                         "failed (%s); treating as not-granted (check_failed)",
                         exc,
                     )
-                    resp["type"] = "accessibility_status"
-                    resp["data"] = {
-                        "granted": False,
-                        "platform": "macos",
-                        "reason": "check_failed",
+                    return {
+                        "type": "accessibility_status",
+                        "data": {
+                            "granted": False,
+                            "platform": "macos",
+                            "reason": "check_failed",
+                        },
                     }
-                    return resp
-            resp["type"] = "accessibility_status"
             status_data: dict = {
                 "granted": granted,
                 "platform": platform_name,
@@ -462,11 +465,17 @@ class SystemHandlersMixin(HandlerBase):
                     status_data["reset_command"] = tccutil_reset_command_str("Accessibility", bundle_id)
                 else:
                     status_data["suggest_reset"] = False
-            resp["data"] = status_data
-        except Exception as exc:
-            # generic WS-path envelope (no ``str(exc)`` leak).
-            self._respond_with_error(resp, exc, "check_accessibility")
-        return resp
+            return {"type": "accessibility_status", "data": status_data}
+
+        return self._wrap(
+            cmd_name="check_accessibility",
+            resp_type="accessibility_status",
+            data=data,
+            resp=resp,
+            body=body,
+            schema={},
+            pre_coerce=False,
+        )
 
     def _handle_reset_macos_accessibility(self, data: object | None, resp: dict) -> dict | None:
         """Handle the ``reset_macos_accessibility`` IPC command.
@@ -494,25 +503,23 @@ class SystemHandlersMixin(HandlerBase):
         ``tccutil`` fails, a wrong bundle ID in a ``tccutil`` command
         is worse than no command, so ``command`` is omitted entirely
         when unresolved.
+
+        Migrated to :meth:`HandlerBase._wrap` with ``pre_coerce=False``
+        and an empty *schema*: tccutil / System Settings side effects
+        live in ``body``; non-dict payloads still produce
+        ``client.invalid_payload``.
         """
-        # TODO: not migrated to ``_wrap``: has side effects
-        # (``subprocess.run`` for ``tccutil reset`` + macOS bundle-ID
-        # resolution + ``_open_macos_accessibility_settings`` opens
-        # System Settings + non-standard structure: validation is
-        # OUTSIDE the try block with multiple early ``return resp``
-        # paths that don't fit ``_wrap``'s merge contract).
-        validated, error = _validate_dict_payload(data, {})
-        if error:
-            return error
-        try:
+
+        def body(d: dict) -> dict:
             if not is_macos():
-                resp["type"] = "ack"
-                resp["data"] = {
-                    "ok": False,
-                    "command": None,
-                    "error": "unsupported_platform",
+                return {
+                    "type": "ack",
+                    "data": {
+                        "ok": False,
+                        "command": None,
+                        "error": "unsupported_platform",
+                    },
                 }
-                return resp
 
             from voice_typer.server.permissions import _open_macos_accessibility_settings
             from voice_typer.server.server_platform.macos_bundle_id import (
@@ -523,13 +530,14 @@ class SystemHandlersMixin(HandlerBase):
 
             bundle_id = resolve_host_bundle_id()
             if not bundle_id:
-                resp["type"] = "ack"
-                resp["data"] = {
-                    "ok": False,
-                    "command": None,
-                    "error": "bundle_id_unresolved",
+                return {
+                    "type": "ack",
+                    "data": {
+                        "ok": False,
+                        "command": None,
+                        "error": "bundle_id_unresolved",
+                    },
                 }
-                return resp
 
             # TCC-002: both forms come from the single construction point
             # in macos_bundle_id (argv for subprocess, string for the
@@ -554,11 +562,20 @@ class SystemHandlersMixin(HandlerBase):
             # logs its own warning on failure).
             _open_macos_accessibility_settings()
 
-            resp["type"] = "ack"
-            resp["data"] = {"ok": ok, "command": command, "error": tcc_error}
-        except Exception as exc:
-            self._respond_with_error(resp, exc, "reset_macos_accessibility")
-        return resp
+            return {
+                "type": "ack",
+                "data": {"ok": ok, "command": command, "error": tcc_error},
+            }
+
+        return self._wrap(
+            cmd_name="reset_macos_accessibility",
+            resp_type="ack",
+            data=data,
+            resp=resp,
+            body=body,
+            schema={},
+            pre_coerce=False,
+        )
 
     def _handle_reset_linux_permissions(self, data: object | None, resp: dict) -> dict | None:
         """Handle the ``reset_linux_permissions`` IPC command.
@@ -600,27 +617,25 @@ class SystemHandlersMixin(HandlerBase):
         ``ok=False`` with ``error`` set when the platform isn't Linux,
         pkexec fails (incl. the user dismissing the dialog, exit 126),
         or no restart candidate succeeds.
+
+        Migrated to :meth:`HandlerBase._wrap` with ``pre_coerce=False``
+        and an empty *schema*: polkit subprocess side effects live in
+        ``body``; non-dict payloads still produce
+        ``client.invalid_payload``.
         """
-        # TODO: not migrated to ``_wrap``: has side effects
-        # (multiple ``subprocess.run`` calls for ``pkaction`` /
-        # ``pkexec systemctl restart polkit`` / ``pkcheck`` +
-        # ``_enumerate_polkit_actions`` and ``_polkit_check_authorization``
-        # helpers each spawn subprocesses + non-standard structure:
-        # validation is OUTSIDE the try block).
-        validated, error = _validate_dict_payload(data, {})
-        if error:
-            return error
-        try:
+
+        def body(d: dict) -> dict:
             if not is_linux():
-                resp["type"] = "ack"
-                resp["data"] = {
-                    "ok": False,
-                    "command": None,
-                    "error": "unsupported_platform",
-                    "actions": [],
-                    "checks": {},
+                return {
+                    "type": "ack",
+                    "data": {
+                        "ok": False,
+                        "command": None,
+                        "error": "unsupported_platform",
+                        "actions": [],
+                        "checks": {},
+                    },
                 }
-                return resp
 
             actions = _enumerate_polkit_actions()
             command, ok, error_str = _reset_polkit_authorization()
@@ -629,17 +644,26 @@ class SystemHandlersMixin(HandlerBase):
                 for action_id in actions:
                     checks[action_id] = _polkit_check_authorization(action_id)
 
-            resp["type"] = "ack"
-            resp["data"] = {
-                "ok": ok,
-                "command": command,
-                "error": error_str,
-                "actions": actions,
-                "checks": checks,
+            return {
+                "type": "ack",
+                "data": {
+                    "ok": ok,
+                    "command": command,
+                    "error": error_str,
+                    "actions": actions,
+                    "checks": checks,
+                },
             }
-        except Exception as exc:
-            self._respond_with_error(resp, exc, "reset_linux_permissions")
-        return resp
+
+        return self._wrap(
+            cmd_name="reset_linux_permissions",
+            resp_type="ack",
+            data=data,
+            resp=resp,
+            body=body,
+            schema={},
+            pre_coerce=False,
+        )
 
     def _handle_set_tray_locale(self, data: dict | None, resp: dict) -> dict | None:
         """Handle the ``set_tray_locale`` IPC command.
@@ -650,62 +674,56 @@ class SystemHandlersMixin(HandlerBase):
                 English) so the tray menu can localize into any of the 8
                 renderer locales, not just the server-hard-coded en/es. The tray
                 menu is rebuilt so the new labels take effect immediately.
+
+        Migrated to :meth:`HandlerBase._wrap` with ``pre_coerce=False``:
+        tray / server-i18n mutation side effects live in ``body``; the
+        locale/labels *schema* is the helper's first validation step,
+        and the per-label content caps stay in ``body``.
         """
-        # TODO: not migrated to ``_wrap``: has side effects
-        # (``register_tray_labels`` / ``set_tray_locale`` mutate global
-        # tray-i18n state + ``_server_i18n.merge_labels`` / ``set_locale``
-        # mutate server i18n state + ``tray.invalidate_menu_cache()``
-        # mutates tray state + per-field validation loop with
-        # ``_error_response`` + ``return resp`` early exits that don't
-        # fit ``_wrap``'s merge contract).
-        try:
+
+        tray_locale_schema: Schema = {
+            "locale": {
+                "type": str,
+                "required": False,
+                "default": "en",
+                # cap locale length (POSIX locale names
+                # are <=64 chars in practice; anything longer is
+                # either a bug or a hostile payload). Without
+                # this cap a multi-MB ``locale`` string would
+                # be stored verbatim in the tray-i18n module's
+                # locale dict and re-serialized into every tray
+                # menu rebuild.
+                "max_value_len": 64,
+                # whole-payload DoS cap. The
+                # ``labels`` dict can legitimately carry a full
+                # 8-locale label table (~16 keys x ~64 chars =
+                # ~1 KiB per locale x 8 = ~8 KiB); 64 KiB
+                # leaves generous headroom while rejecting a
+                # multi-MB blob.
+                "max_payload_bytes": 64 * 1024,
+            },
+            "labels": {
+                "type": dict,
+                "required": False,
+                "default": None,
+            },
+        }
+
+        def body(d: dict) -> dict:
             from voice_typer.server.tray import (
                 get_tray_locale,
                 register_tray_labels,
                 set_tray_locale,
             )
 
-            validated, error = _validate_dict_payload(
-                data,
-                {
-                    "locale": {
-                        "type": str,
-                        "required": False,
-                        "default": "en",
-                        # cap locale length (POSIX locale names
-                        # are <=64 chars in practice; anything longer is
-                        # either a bug or a hostile payload). Without
-                        # this cap a multi-MB ``locale`` string would
-                        # be stored verbatim in the tray-i18n module's
-                        # locale dict and re-serialized into every tray
-                        # menu rebuild.
-                        "max_value_len": 64,
-                        # whole-payload DoS cap. The
-                        # ``labels`` dict can legitimately carry a full
-                        # 8-locale label table (~16 keys x ~64 chars =
-                        # ~1 KiB per locale x 8 = ~8 KiB); 64 KiB
-                        # leaves generous headroom while rejecting a
-                        # multi-MB blob.
-                        "max_payload_bytes": 64 * 1024,
-                    },
-                    "labels": {
-                        "type": dict,
-                        "required": False,
-                        "default": None,
-                    },
-                },
-            )
-            if error:
-                return error
-            assert validated is not None  # narrowed by the error guard above
-            # The schema above enforces ``locale: str`` and ``labels:
-            # dict``: cast from the generic ``dict[str, object]``
-            # envelope so the tray-i18n helpers get their declared
-            # types. The label-key/value loop below still validates the
-            # dict's contents (defense-in-depth against a future schema
+            # ``_wrap`` already schema-validated ``locale`` / ``labels``.
+            # Cast from the generic ``dict[str, object]`` envelope so the
+            # tray-i18n helpers get their declared types. The
+            # label-key/value loop below still validates the dict's
+            # contents (defense-in-depth against a future schema
             # widening).
-            locale = cast(str, validated["locale"])
-            labels = cast(dict[str, str] | None, validated["labels"])
+            locale = cast(str, d["locale"])
+            labels = cast(dict[str, str] | None, d["labels"])
             # validate label dict contents. Keys must be
             # strings <=64 chars (tray label keys like "app_name",
             # "toggle_dictation" are all <=32 chars today); values must
@@ -714,33 +732,22 @@ class SystemHandlersMixin(HandlerBase):
             # translations). Reject with ``invalid_field`` so a hostile
             # caller cannot turn the tray-i18n locale dict into a
             # multi-MB memory sink.
-            #
-            # The error envelope is built via the shared
-            # ``_error_response`` helper (consistent with the rest of
-            # the IPC handler layer) and the ``field`` key is stamped
-            # afterward, ``_error_response`` does not currently
-            # accept a ``field`` kwarg, but routing the envelope
-            # through it keeps the ``code`` / ``legacy_code`` /
-            # ``message`` shape uniform across every error path in
-            # this handler.
             if labels is not None:
                 for k, v in labels.items():
                     if not isinstance(k, str) or len(k) > 64:
-                        _error_response(
+                        return self._error_response(
                             resp,
                             "label keys must be strings of <=64 chars",
                             code=ErrorCodes.INVALID_FIELD,
+                            field="labels",
                         )
-                        resp["data"]["field"] = "labels"
-                        return resp
                     if not isinstance(v, str) or len(v) > 1024:
-                        _error_response(
+                        return self._error_response(
                             resp,
                             "label values must be strings of <=1024 chars",
                             code=ErrorCodes.INVALID_FIELD,
+                            field="labels",
                         )
-                        resp["data"]["field"] = "labels"
-                        return resp
                 register_tray_labels(locale, labels)
             set_tray_locale(locale)
             # HU-17: switch the server-GLOBAL notification locale too.
@@ -768,12 +775,17 @@ class SystemHandlersMixin(HandlerBase):
             # Force a tray menu rebuild so the new labels show immediately.
             with contextlib.suppress(Exception):
                 self.app.tray.invalidate_menu_cache()
-            resp["type"] = "ack"
-            resp["data"] = {"locale": get_tray_locale()}
-        except Exception as exc:
-            # generic WS-path envelope (no ``str(exc)`` leak).
-            self._respond_with_error(resp, exc, "set_tray_locale")
-        return resp
+            return {"type": "ack", "data": {"locale": get_tray_locale()}}
+
+        return self._wrap(
+            cmd_name="set_tray_locale",
+            resp_type="ack",
+            data=data,
+            resp=resp,
+            body=body,
+            schema=tray_locale_schema,
+            pre_coerce=False,
+        )
 
     def _handle_set_esc_cancel_paused(self, data: dict | None, resp: dict) -> dict | None:
         """Handle the ``set_esc_cancel_paused`` IPC command.
@@ -792,14 +804,16 @@ class SystemHandlersMixin(HandlerBase):
 
                 The ``data`` dict should contain ``{"paused": true}`` or
                 ``{"paused": false}``.
+
+        Migrated to :meth:`HandlerBase._wrap` with ``pre_coerce=False``:
+        keyboard-ownership / app-state mutation side effects live in
+        ``body``. ``None`` is coerced to ``{}`` inside ``body`` (the
+        missing-paused → default-False contract); other non-dicts still
+        produce ``client.invalid_payload``.
         """
-        # TODO: not migrated to ``_wrap``: has side effects
-        # (``keyboard_ownership().set_owner`` mutates global ownership
-        # state + ``self.app._esc_cancel_paused = paused`` mutates app
-        # state + ``log.info`` call).
-        try:
-            if data is None:
-                data = {}
+
+        def body(d: dict) -> dict:
+            payload = {} if d is None else d
             # validate ``paused`` is a bool via the shared
             # ``_validate_dict_payload`` helper. ``required: False,
             # default: False`` preserves the existing
@@ -810,7 +824,7 @@ class SystemHandlersMixin(HandlerBase):
             # that the previous ``bool((data or {}).get("paused",
             # False))`` coercion would have silently accepted as True.
             validated, error = _validate_dict_payload(
-                data,
+                payload,
                 {
                     "paused": {
                         "type": bool,
@@ -836,15 +850,24 @@ class SystemHandlersMixin(HandlerBase):
                 "[IPC] ESC cancel %s (via frontend hotkey capture mode)",
                 "PAUSED" if paused else "RESUMED",
             )
-            resp["type"] = "ack"
-            resp["data"] = {"paused": paused}
-        except Exception as exc:
-            # generic WS-path envelope (no ``str(exc)`` leak).
-            self._respond_with_error(resp, exc, "set_esc_cancel_paused")
-        return resp
+            return {"type": "ack", "data": {"paused": paused}}
+
+        return self._wrap(
+            cmd_name="set_esc_cancel_paused",
+            resp_type="ack",
+            data=data,
+            resp=resp,
+            body=body,
+            pre_coerce=False,
+        )
 
     def _handle_show_electron_notification(self, data: dict | None, resp: dict) -> dict | None:
         """Handle the ``show_electron_notification`` IPC command.
+
+        NOT registered in ``_COMMAND_REGISTRY`` / renderer allowlist.
+        Retained as the Rust-mirror reference for the host toast /
+        notification path. Direct-call tests pin this contract; do not
+        delete without updating those suites and the Rust twin.
 
         Push a notification to the Electron UI for
                 persistent/critical messages that need longer display
@@ -906,14 +929,14 @@ class SystemHandlersMixin(HandlerBase):
                 match the OS notification API's practical limits on both
                 macOS (``UNNotificationContent.title`` / ``body``) and
                 Windows (``ToastNotification`` XML payload).
+
+        Migrated to :meth:`HandlerBase._wrap` with ``pre_coerce=False``:
+        multi-stage validation (bool-subclass exclusion, ``None`` →
+        default coercion, control-char rejection) and the
+        ``event_bus.publish`` side effect all live in ``body``.
         """
-        # TODO: not migrated to ``_wrap``: has side effects
-        # (``event_bus.publish`` broadcasts a notification event +
-        # multiple ``_error_response`` early returns with ``field`` kwargs
-        # stamped after the helper call (shape doesn't fit ``_wrap``'s
-        # merge contract) + pre-coercion of ``None`` values that ``_wrap``
-        # would handle differently).
-        try:
+
+        def body(d: dict) -> dict:
             # pre-check the bool subclass exclusion for
             # ``duration_ms`` BEFORE invoking the helper. ``bool`` is
             # a subclass of ``int`` in Python: without this guard,
@@ -922,33 +945,28 @@ class SystemHandlersMixin(HandlerBase):
             # coerced to ``duration_ms: 1`` by ``clamp_range``, silently
             # accepting a misbehaving caller who swapped the
             # ``critical`` and ``duration_ms`` fields.
-            if isinstance(data, dict) and isinstance(data.get("duration_ms"), bool):
-                # Route the envelope through the shared
-                # ``_error_response`` helper for shape consistency
-                # with the rest of the handler layer; ``field`` is
-                # stamped afterward because the helper does not yet
-                # accept a ``field`` kwarg.
-                _error_response(
+            if isinstance(d, dict) and isinstance(d.get("duration_ms"), bool):
+                return self._error_response(
                     resp,
                     "'duration_ms' must be a number (milliseconds)",
                     code=ErrorCodes.INVALID_FIELD,
+                    field="duration_ms",
                 )
-                resp["data"]["field"] = "duration_ms"
-                return resp
 
             # pre-coerce ``None`` values to their defaults so the
             # helper's ``default`` rule (which only fires for ABSENT
             # fields) doesn't reject ``{"title": null}`` as a type
             # error. The previous inline impl had the same coercion.
-            if isinstance(data, dict):
-                if data.get("title") is None:
-                    data = {**data, "title": APP_NAME}
-                if data.get("message") is None:
-                    data = {**data, "message": ""}
-                if data.get("duration_ms") is None:
-                    data = {**data, "duration_ms": 0}
-                if data.get("critical") is None:
-                    data = {**data, "critical": False}
+            payload = d
+            if isinstance(payload, dict):
+                if payload.get("title") is None:
+                    payload = {**payload, "title": APP_NAME}
+                if payload.get("message") is None:
+                    payload = {**payload, "message": ""}
+                if payload.get("duration_ms") is None:
+                    payload = {**payload, "duration_ms": 0}
+                if payload.get("critical") is None:
+                    payload = {**payload, "critical": False}
 
             # route the dict-type + per-field type checks +
             # ``duration_ms`` clamp through ``_validate_dict_payload``.
@@ -964,7 +982,7 @@ class SystemHandlersMixin(HandlerBase):
             # macOS (``UNNotificationContent.title`` / ``body``) and
             # Windows (``ToastNotification`` XML payload).
             validated, error = _validate_dict_payload(
-                data,
+                payload,
                 {
                     "title": {
                         "type": str,
@@ -1006,9 +1024,7 @@ class SystemHandlersMixin(HandlerBase):
                 # handler-specific ``"show_electron_notification
                 # requires data: object"``. The test was updated to
                 # assert on ``code`` instead of the message text.
-                resp["type"] = "error"
-                resp["data"] = error["data"]
-                return resp
+                return error
             assert validated is not None  # narrowed by the error guard above
             title = validated["title"]
             message = validated["message"]
@@ -1029,18 +1045,12 @@ class SystemHandlersMixin(HandlerBase):
             # body is common and harmless).
             for fname in ("title", "message"):
                 if _has_control_chars(validated.get(fname, "")):
-                    # Route the envelope through the shared
-                    # ``_error_response`` helper for shape
-                    # consistency with the rest of the handler layer;
-                    # ``field`` is stamped afterward because the
-                    # helper does not yet accept a ``field`` kwarg.
-                    _error_response(
+                    return self._error_response(
                         resp,
                         f"'{fname}' contains a control character",
                         code=ErrorCodes.INVALID_FIELD,
+                        field=fname,
                     )
-                    resp["data"]["field"] = fname
-                    return resp
 
             event_bus.publish(
                 {
@@ -1074,8 +1084,13 @@ class SystemHandlersMixin(HandlerBase):
                     },
                 }
             )
-            resp["type"] = "ack"
-        except Exception as exc:
-            # generic WS-path envelope (no ``str(exc)`` leak).
-            self._respond_with_error(resp, exc, "show_electron_notification")
-        return resp
+            return {"type": "ack"}
+
+        return self._wrap(
+            cmd_name="show_electron_notification",
+            resp_type="ack",
+            data=data,
+            resp=resp,
+            body=body,
+            pre_coerce=False,
+        )

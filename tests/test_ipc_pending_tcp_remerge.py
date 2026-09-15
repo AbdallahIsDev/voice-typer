@@ -28,12 +28,12 @@ The fix
   returning.
 
 These tests verify each path. Each test FAILS if the corresponding
-re-merge is removed.
+re-merge is removed. Source-string greps of ``_send`` were removed
+in favor of these behavioral assertions (MO-87/MO-92).
 """
 
 from __future__ import annotations
 
-import inspect
 import socket
 import threading
 from unittest.mock import MagicMock
@@ -49,23 +49,6 @@ class TestRemergeOnWriteFailure:
     ``TimeoutError`` / ``OSError``, the entire pending snapshot must be
     re-merged into ``_pending_tcp`` so the next reconnect's drain can
     pick it up."""
-
-    def test_send_source_remerges_on_write_failure(self):
-        """The source of ``_send`` must re-merge ``pending`` (or
-        ``_undrained``) back into ``_pending_tcp`` when the first
-        write fails."""
-        src = inspect.getsource(IPCServer._send)
-        # The re-merge must be present in the source. The exact
-        # expression uses ``_undrained`` (the local accumulator) so
-        # we look for the canonical re-merge form.
-        assert "_undrained = list(pending)" in src, (
-            "CR-79: _send must set _undrained = list(pending) when the "
-            "first write fails so the snapshot is not silently dropped."
-        )
-        assert "self._pending_tcp = _undrained + self._pending_tcp" in src, (
-            "CR-79: _send must re-merge _undrained back into "
-            "_pending_tcp (FIFO: undrained first, then concurrent appends)."
-        )
 
     def test_write_failure_remerges_pending(self):
         """When ``tcp_client.write(line)`` raises ``OSError``, the
@@ -137,19 +120,6 @@ class TestRemergeOnDrainCapOverflow:
     """CR-79: when the pending snapshot exceeds the drain cap (100),
     the older entries (those before the cap) must be re-merged into
     ``_pending_tcp`` so they survive for the next drain."""
-
-    def test_send_source_tracks_older_entries(self):
-        """The source must split ``pending`` into ``older`` and
-        ``recent`` and re-merge ``older`` if the drain succeeds for
-        ``recent``."""
-        src = inspect.getsource(IPCServer._send)
-        assert "older = list(pending[:-_drain_cap])" in src, (
-            "CR-79: _send must split the snapshot into older (entries "
-            "exceeding the drain cap) and recent (the last _drain_cap)."
-        )
-        assert "_undrained = older" in src, (
-            "CR-79: _send must re-merge `older` (entries that exceeded the drain cap) into _pending_tcp via _undrained."
-        )
 
     def test_older_entries_survive_drain_cap(self):
         """When ``len(pending) > _drain_cap`` (100), the first
@@ -226,17 +196,6 @@ class TestRemergeOnDrainFailureMidway:
     """CR-79: when the drain loop breaks on a write failure mid-way
     through ``recent``, the not-yet-written suffix must be re-merged."""
 
-    def test_send_source_tracks_drain_failure_index(self):
-        """The source must track the index where the drain failed and
-        re-merge the not-yet-written suffix."""
-        src = inspect.getsource(IPCServer._send)
-        assert "_drain_failed_at" in src, (
-            "CR-79: _send must track the drain-failure index so the not-yet-written suffix can be re-merged."
-        )
-        assert "_undrained = older + recent[_drain_failed_at:]" in src, (
-            "CR-79: _send must re-merge older + the unwritten suffix of recent when the drain fails mid-way."
-        )
-
     def test_drain_failure_remerges_unwritten_suffix(self):
         """When the drain loop fails on the 2nd entry of ``recent``,
         the remaining entries + any ``older`` entries must be
@@ -309,17 +268,6 @@ class TestRemergeOnShutdownShortCircuit:
     """CR-79: when the shutdown short-circuit closes the client without
     writing, the pending snapshot must be re-merged into
     ``_pending_tcp`` (not silently dropped)."""
-
-    def test_send_source_remerges_on_shutdown(self):
-        """The shutdown short-circuit branch must re-merge ``pending``
-        back into ``_pending_tcp``."""
-        src = inspect.getsource(IPCServer._send)
-        # The shutdown branch must reference both ``pending`` and
-        # ``_pending_tcp`` re-merge. The exact expression uses
-        # ``self._pending_tcp = pending + self._pending_tcp`` (FIFO).
-        assert "self._pending_tcp = pending + self._pending_tcp" in src, (
-            "CR-79: _send shutdown short-circuit branch must re-merge pending back into _pending_tcp (FIFO order)."
-        )
 
     def test_shutdown_short_circuit_remerges_pending(self):
         """When ``_cached_shutting_down is True`` and a non-allowlisted

@@ -139,7 +139,21 @@ class TestHandlerFilesUseHelper:
         for fpath, src in self._handler_files():
             if "except Exception as e:" not in src and "except Exception as exc:" not in src:
                 continue
-            if "_respond_with_error(resp" not in src and "_error_response(resp" not in src:
+            # ``_wrap`` routes unexpected exceptions through
+            # ``_respond_with_error``; the method form of
+            # ``_error_response`` (``self._error_response``) is the
+            # per-command validation path. Both are the sanctioned
+            # catch-all helpers. Files whose remaining ``except
+            # Exception`` blocks are the intentional ack-then-push
+            # pattern (restart_app / quit_app) still carry ``_wrap``
+            # or ``self._error_response`` on sibling handlers, so the
+            # file-level check continues to hold.
+            has_helper = (
+                "_respond_with_error" in src
+                or "_error_response" in src
+                or "self._wrap(" in src
+            )
+            if not has_helper:
                 no_helper_use.append(fpath.name)
         assert not no_helper_use, f"these handler files have an except block but don't use a helper: {no_helper_use}"
 

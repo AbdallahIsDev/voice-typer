@@ -122,29 +122,34 @@ class TestDispatchTableTyped:
         ``self`` (the typo-validation goal previously served by the
         dead ``_command_handlers`` cache).
 
-        We introspect the source of ``__init__`` and verify the
-        validation loop is present, the cache is gone, but the
-        typo-detection contract survives.
+        We introspect the source of ``_init_validate_command_registry``
+        (called from ``__init__``) and verify the validation loop is
+        present, the cache is gone, but the typo-detection contract
+        survives.
         """
-        src = inspect.getsource(IPCServer.__init__)
+        src = inspect.getsource(IPCServer._init_validate_command_registry)
+        assert "_init_validate_command_registry" in inspect.getsource(IPCServer.__init__), (
+            "GT-29 / DT-5: __init__ must call _init_validate_command_registry "
+            "so registry typos still surface at construction time."
+        )
         # The loop iterates over ``_COMMAND_REGISTRY`` entries and
         # resolves each via ``getattr(self, _method_name, None)``.
         assert "_COMMAND_REGISTRY.items()" in src, (
-            "GT-29 / DT-5: __init__ must iterate over "
-            "_COMMAND_REGISTRY.items() to validate every entry resolves "
+            "GT-29 / DT-5: _init_validate_command_registry must iterate "
+            "over _COMMAND_REGISTRY.items() to validate every entry resolves "
             "to a callable (replaces the deleted _command_handlers cache)."
         )
         assert "callable(" in src, (
-            "GT-29 / DT-5: __init__ must call callable() on each "
-            "resolved attribute to validate the registry at construction "
-            "time."
+            "GT-29 / DT-5: _init_validate_command_registry must call "
+            "callable() on each resolved attribute to validate the registry "
+            "at construction time."
         )
         # The dead ``_command_handlers`` cache must NOT be built.
         assert "self._command_handlers" not in src, (
-            "DT-5: __init__ must NOT build the dead _command_handlers "
-            "instance cache, _dispatch resolves handlers at dispatch "
-            "time via getattr(self, handler_name, None), so the cache "
-            "was never read. Only the typo-validation loop survives."
+            "DT-5: _init_validate_command_registry must NOT build the dead "
+            "_command_handlers instance cache, _dispatch resolves handlers "
+            "at dispatch time via getattr(self, handler_name, None), so the "
+            "cache was never read. Only the typo-validation loop survives."
         )
 
     def test_command_handlers_cache_not_set_after_init(self) -> None:
@@ -1195,36 +1200,22 @@ class TestCommandCostsContract:
         )
 
     def test_command_costs_does_not_list_unknown_commands(self):
-        """Sanity check: ``COMMAND_COSTS`` should not contain commands
-        that aren't in ``_COMMAND_REGISTRY``, that would indicate a
-        typo or a stale entry pointing at a removed command.
-
-        (2026-07-25): some commands were moved from the Python
-        ``_COMMAND_REGISTRY`` to the Tauri Rust host (``delete_all_personal_data``,
-        ``export_diagnostics``, ``export_gdpr_bundle``, ``test_llm_connection``,
-        ``get_vocabulary_suggestions``). Their entries are kept in
-        ``COMMAND_COSTS`` for back-compat with older Electron builds
-        that still bridge these calls, those entries are explicitly
-        whitelisted here.
-        """
-        # Commands moved to Tauri Rust host, kept in COMMAND_COSTS
-        # for back-compat with older Electron builds.
-        zr_45_moved_to_rust = {
-            "delete_all_personal_data",
-            "export_diagnostics",
-            "export_gdpr_bundle",
-            "test_llm_connection",
-            "get_vocabulary_suggestions",
-        }
+        """Sanity check: ``COMMAND_COSTS`` must not contain commands
+        that aren't in ``_COMMAND_REGISTRY``. Stale entries for
+        commands that moved to the Tauri Rust host (or were deferred)
+        were removed: they cannot be dispatched through the Python
+        path, and keeping them made cost-map audits unreliable.
+        Unknown commands intentionally fall through to
+        ``DEFAULT_COST`` (see ``test_unknown_command_uses_default_cost``
+        in ``tests/server/test_rate_limiter.py``)."""
         registered = set(IPCServer._COMMAND_REGISTRY.keys())
         listed = set(COMMAND_COSTS.keys())
-        stale = (listed - registered) - zr_45_moved_to_rust
+        stale = listed - registered
         assert not stale, (
             f"COMMAND_COSTS contains entries for commands NOT in "
-            f"_COMMAND_REGISTRY (and not in the moved-to-Rust "
-            f"whitelist): {sorted(stale)}. These are stale entries "
-            f"pointing at removed/renamed commands, remove them from "
-            f"COMMAND_COSTS."
+            f"_COMMAND_REGISTRY: {sorted(stale)}. These are stale "
+            f"entries pointing at removed/renamed commands, remove "
+            f"them from COMMAND_COSTS."
         )
 
     def test_all_costs_are_positive_integers(self):
@@ -1250,12 +1241,6 @@ class TestCommandCostsPreserved:
     def test_import_model_cost_20(self):
         assert COMMAND_COSTS["import_model"] == 20
 
-    def test_export_gdpr_bundle_cost_20(self):
-        assert COMMAND_COSTS["export_gdpr_bundle"] == 20
-
-    def test_delete_all_personal_data_cost_20(self):
-        assert COMMAND_COSTS["delete_all_personal_data"] == 20
-
     def test_heartbeat_cost_1(self):
         assert COMMAND_COSTS["heartbeat"] == 1
 
@@ -1277,9 +1262,7 @@ class TestCommandCostsNewlyListed:
             ("transcribe_offline", 10),
             ("run_prewarm", 10),
             ("restart_app", 10),
-            ("test_llm_connection", 10),
             ("resume_model_download", 10),
-            ("export_diagnostics", 10),
             ("clear_history", 10),
             # Moderate (cost >= 5).
             ("quit_app", 5),
@@ -1287,7 +1270,6 @@ class TestCommandCostsNewlyListed:
             ("onboarding_apply", 5),
             ("microphone_test_start", 5),
             # Light-moderate (cost >= 3).
-            ("get_vocabulary_suggestions", 3),
             ("level_monitor_start", 3),
             # Small file writes / single-row mutations (cost >= 2).
             ("save_vocabulary", 2),

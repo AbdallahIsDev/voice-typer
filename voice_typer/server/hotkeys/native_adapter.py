@@ -16,6 +16,7 @@ from collections.abc import Callable
 
 from voice_typer.server import hotkeys as _hotkeys_pkg
 from voice_typer.server.branding import APP_NAME
+from voice_typer.server.i18n import t as i18n_t
 from voice_typer.server.platform_utils import is_wayland_session
 
 from .base import HotkeyBackend, log
@@ -301,7 +302,17 @@ class _NativeBackendAdapter(HotkeyBackend):
         if tray is not None:
             try:
                 short = warn_message if len(warn_message) <= 160 else warn_message[:157] + "..."
-                tray.notify(f"{APP_NAME}: Native hotkey warning", short)
+                # ``app``/``appName``: server English fallback uses
+                # ``{app}``; renderer-pushed locale strings use
+                # ``{appName}`` (C-BRAND-1). Format accepts either.
+                tray.notify(
+                    i18n_t(
+                        "notify.native_adapter.warn_title",
+                        app=APP_NAME,
+                        appName=APP_NAME,
+                    ),
+                    short,
+                )
             except Exception:
                 log.debug("[HOTKEY] tray.notify failed for WARN")
 
@@ -630,9 +641,12 @@ class _NativeBackendAdapter(HotkeyBackend):
         if tray is not None:
             try:
                 tray.notify(
-                    f"{APP_NAME}: Compatibility mode",
-                    "Hotkey is running in compatibility mode (reduced features). "
-                    "Restart the app for full functionality.",
+                    i18n_t(
+                        "notify.native_adapter.fallback_title",
+                        app=APP_NAME,
+                        appName=APP_NAME,
+                    ),
+                    i18n_t("notify.native_adapter.fallback_body"),
                 )
             except Exception:
                 log.debug("[HOTKEY] tray.notify failed for fallback notification")
@@ -643,8 +657,12 @@ class _NativeBackendAdapter(HotkeyBackend):
         if tray is not None:
             try:
                 tray.notify(
-                    f"{APP_NAME}: Full mode restored",
-                    "Hotkey is running in full mode.",
+                    i18n_t(
+                        "notify.native_adapter.recovery_title",
+                        app=APP_NAME,
+                        appName=APP_NAME,
+                    ),
+                    i18n_t("notify.native_adapter.recovery_body"),
                 )
             except Exception:
                 log.debug("[HOTKEY] tray.notify failed for recovery notification")
@@ -655,8 +673,12 @@ class _NativeBackendAdapter(HotkeyBackend):
         if tray is not None:
             try:
                 tray.notify(
-                    f"{APP_NAME}: Hotkey error",
-                    "Hotkey is not working. Click to troubleshoot.",
+                    i18n_t(
+                        "notify.native_adapter.failure_title",
+                        app=APP_NAME,
+                        appName=APP_NAME,
+                    ),
+                    i18n_t("notify.native_adapter.failure_body"),
                 )
             except Exception:
                 log.debug("[HOTKEY] tray.notify failed for failure notification")

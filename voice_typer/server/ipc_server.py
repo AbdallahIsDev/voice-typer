@@ -424,82 +424,107 @@ class IPCServer(
         app: "AppProtocol",
         service: "VoiceTyperService | None" = None,
     ) -> None:
-        # dependency-injection seam.
-        #
-        # ``IPCServer(app)`` (no ``service``) is the backward-compatible
-        # path used by all existing call sites, production entry point
-        # and 20+ test files.  It constructs a real ``VoiceTyperService``
-        # over ``app`` exactly as before.
-        #
-        # ``IPCServer(app, service=fake)`` is the DI path used by tests
-        # that want to exercise the IPC dispatch layer in isolation
-        # from the service implementation.  The injected ``service`` is
-        # stored verbatim on ``self.service``; no ``VoiceTyperService``
-        # is constructed.  This lets a test substitute a ``MagicMock``
-        # (see ``tests/fixtures/ipc_test_helpers.py:make_fake_service``)
-        # and assert on the IPC layer's behavior without coupling to
-        # ``VoiceTyperService``'s internal app glue.
-        #
-        # ``app`` is now typed as ``AppProtocol`` (was ``Any``).
-        # ``AppProtocol`` is a ``@runtime_checkable`` structural type —
-        # a MagicMock satisfies it (the runtime check inspects attribute
-        # NAMES via ``getattr_static``, not types), and the static
-        # annotation does NOT force test files to import the protocol
-        # because the annotation is a forward ref resolved only under
-        # ``TYPE_CHECKING``. Existing test code that passes a MagicMock
-        # therefore keeps working unchanged.
+        # Ordered construction phases. Each private helper owns a
+        # coherent slice of instance state and preserves the historical
+        # assignment order (comments document why that order matters).
+        # Side effects stay last within their helper; no helper reaches
+        # into another's future attributes.
+        self._init_app_and_service(app, service)
+        self._init_core_locks()
+        self._init_tcp_transport_state()
+        self._init_lifecycle_events()
+        self._init_ready_and_rate_limit_state()
+        self._init_sidecar_ws_state()
+        self._init_dispatch_gates()
+        self._init_validate_command_registry()
+
+    def _init_app_and_service(
+        self,
+        app: "AppProtocol",
+        service: "VoiceTyperService | None",
+    ) -> None:
+        """Wire the DI seam: app + service boundary (+ optional cache
+        invalidator side effect).
+
+        ``IPCServer(app)`` (no ``service``) is the backward-compatible
+        path used by all existing call sites, production entry point
+        and 20+ test files.  It constructs a real ``VoiceTyperService``
+        over ``app`` exactly as before.
+
+        ``IPCServer(app, service=fake)`` is the DI path used by tests
+        that want to exercise the IPC dispatch layer in isolation
+        from the service implementation.  The injected ``service`` is
+        stored verbatim on ``self.service``; no ``VoiceTyperService``
+        is constructed.  This lets a test substitute a ``MagicMock``
+        (see ``tests/fixtures/ipc_test_helpers.py:make_fake_service``)
+        and assert on the IPC layer's behavior without coupling to
+        ``VoiceTyperService``'s internal app glue.
+
+        ``app`` is typed as ``AppProtocol`` (was ``Any``).
+        ``AppProtocol`` is a ``@runtime_checkable`` structural type —
+        a MagicMock satisfies it (the runtime check inspects attribute
+        NAMES via ``getattr_static``, not types), and the static
+        annotation does NOT force test files to import the protocol
+        because the annotation is a forward ref resolved only under
+        ``TYPE_CHECKING``. Existing test code that passes a MagicMock
+        therefore keeps working unchanged.
+        """
         self.app = app
         if service is not None:
             self.service = service
-        else:
-            # wire VoiceTyperService as the service boundary.
-            # IPC routes delegate through the service instead of calling
-            # self.app directly. This allows a second transport (CLI,
-            # gRPC) to reuse the same service layer without duplicating
-            # app glue.
-            from voice_typer.server.service import VoiceTyperService
+            return
 
-            self.service = VoiceTyperService(app)
+        # wire VoiceTyperService as the service boundary.
+        # IPC routes delegate through the service instead of calling
+        # self.app directly. This allows a second transport (CLI,
+        # gRPC) to reuse the same service layer without duplicating
+        # app glue.
+        from voice_typer.server.service import VoiceTyperService
 
-            # wire the service-layer mic cache invalidator so
-            # the OS device-change watcher (which already invalidates
-            # DeviceManager._device_list_cache via _invalidate_device_cache)
-            # ALSO invalidates the service-layer 5s-TTL cache
-            # (_microphones_cache_ts in MicrophoneTestMixin). Without
-            # this, after a USB/BT hot-plug event the Electron UI
-            # continues to show the stale microphone dropdown (including
-            # the unplugged device, missing the newly-plugged one) for
-            # up to 5s. Best-effort: guarded so a recorder-without-
-            # DeviceManager (tests) doesn't fail.
-            # STARTUP-9: the recorder may still be building on its
-            # background thread, so this wiring is deferred to a daemon
-            # thread instead of blocking IPC-server startup on
-            # ``app.recorder`` (the lazy property would wait for the
-            # whole multi-second build). The invalidator is a best-effort
-            # nicety, until it is wired, the DeviceManager's own cache
-            # invalidation (30s TTL fallback) still applies.
-            def _wire_service_cache_invalidator() -> None:
-                try:
-                    recorder_devices = getattr(app.recorder, "_devices", None)
-                    if recorder_devices is not None and hasattr(
-                        recorder_devices,
-                        "set_service_cache_invalidator",
-                    ):
-                        recorder_devices.set_service_cache_invalidator(
-                            lambda: self.service.refresh_microphones(force=True)
-                        )
-                except Exception:
-                    log.debug(
-                        "[IPC] failed to wire service-layer cache invalidator",
-                        exc_info=True,
+        self.service = VoiceTyperService(app)
+
+        # wire the service-layer mic cache invalidator so
+        # the OS device-change watcher (which already invalidates
+        # DeviceManager._device_list_cache via _invalidate_device_cache)
+        # ALSO invalidates the service-layer 5s-TTL cache
+        # (_microphones_cache_ts in MicrophoneTestMixin). Without
+        # this, after a USB/BT hot-plug event the Electron UI
+        # continues to show the stale microphone dropdown (including
+        # the unplugged device, missing the newly-plugged one) for
+        # up to 5s. Best-effort: guarded so a recorder-without-
+        # DeviceManager (tests) doesn't fail.
+        # STARTUP-9: the recorder may still be building on its
+        # background thread, so this wiring is deferred to a daemon
+        # thread instead of blocking IPC-server startup on
+        # ``app.recorder`` (the lazy property would wait for the
+        # whole multi-second build). The invalidator is a best-effort
+        # nicety, until it is wired, the DeviceManager's own cache
+        # invalidation (30s TTL fallback) still applies.
+        def _wire_service_cache_invalidator() -> None:
+            try:
+                recorder_devices = getattr(self.app.recorder, "_devices", None)
+                if recorder_devices is not None and hasattr(
+                    recorder_devices,
+                    "set_service_cache_invalidator",
+                ):
+                    recorder_devices.set_service_cache_invalidator(
+                        lambda: self.service.refresh_microphones(force=True)
                     )
+            except Exception:
+                log.debug(
+                    "[IPC] failed to wire service-layer cache invalidator",
+                    exc_info=True,
+                )
 
-            _wire_thread = threading.Thread(
-                target=_wire_service_cache_invalidator,
-                name="ipc-cache-invalidator-wiring",
-                daemon=True,
-            )
-            _wire_thread.start()
+        _wire_thread = threading.Thread(
+            target=_wire_service_cache_invalidator,
+            name="ipc-cache-invalidator-wiring",
+            daemon=True,
+        )
+        _wire_thread.start()
+
+    def _init_core_locks(self) -> None:
+        """Runtime flag + the two distinct serialization locks."""
         self._running = False
         # use RLock instead of Lock so _hook_tray_set_state
         # (which calls self.push() → self._send() → acquires _lock) can
@@ -513,6 +538,9 @@ class IPCServer(
         # ``self._lock`` so a slow client blocks other writers, not
         # other dispatchers' snapshots or the read path).
         self._tcp_write_lock = threading.Lock()
+
+    def _init_tcp_transport_state(self) -> None:
+        """TCP client/server slots, pending-push buffer, worker pools."""
         self._tcp_client: _TCPLineIO | None = None
         self._tcp_mode = False
         # Bounded FIFO buffer for push events queued while the TCP
@@ -523,8 +551,8 @@ class IPCServer(
         # ``_PendingBuffer`` (a ``deque`` subclass with ``maxlen``), the
         # cap is enforced automatically by ``append``/``extend`` (O(1)
         # popleft on overflow). The manual cap-drop logic in ``_send``
-        # is kept in source for backward compat with the source-string
-        # checks in ``tests/test_ipc_pending_tcp_remerge.py`` but is dead
+        # is kept only for plain-``list`` fixtures that assign
+        # ``_pending_tcp`` directly; for ``_PendingBuffer`` it is dead
         # code at runtime (the ``len > cap`` guard never trips because
         # ``maxlen`` already prevents growth).
         self._pending_tcp: _PendingBuffer = _PendingBuffer(maxlen=_TCP_PENDING_BUFFER_CAP)
@@ -559,6 +587,8 @@ class IPCServer(
         # our callable without affecting other active servers.
         self._push_fn: typing.Callable[[dict], None] | None = None
 
+    def _init_lifecycle_events(self) -> None:
+        """Heartbeat / stdin / relaunch / shutdown-completion events."""
         # heartbeat watchdog state.
         #
         # ``_last_heartbeat_at`` is ``None`` until Electron sends its
@@ -596,6 +626,8 @@ class IPCServer(
         # restart can't satisfy a fresh one.
         self._relaunch_ack_event = threading.Event()
 
+    def _init_ready_and_rate_limit_state(self) -> None:
+        """First-connection ready flag + per-instance rate limiter slot."""
         # per-instance flag (was module-level in sidecar_ws.py).
         # ``sidecar_ws._handle_connection`` reads/writes this attribute on the
         # ``IPCServer`` instance passed to ``sidecar_ws.run()`` so the ``ready``
@@ -621,34 +653,38 @@ class IPCServer(
         # as a silent slow-path regression.
         self._rate_limiter_instance: _RateLimiter | None = None
 
-        # Declare the 5 WS-pool attributes on the ``IPCServer`` class
-        # itself (were dynamically injected by the module-level
-        # ``_get_ws_dispatch_pool`` / ``_get_ws_connection_semaphore``
-        # helpers in ``sidecar_ws.py``, with ``# type: ignore[attr-defined]``
-        # silencing the missing-attribute diagnostic at every assignment
-        # / read site). Declaring them here means the type checker can
-        # verify both the ``setattr`` sites and the ``getattr`` fast paths
-        # in ``sidecar_ws.py``; 9 ``# type: ignore[attr-defined]``
-        # suppressions in ``sidecar_ws.py`` are removed as a result.
-        #
-        # The attributes are genuinely ``Optional``: they are ``None``
-        # until the WS dispatch path is first entered (a server running
-        # in TCP / standalone mode never touches them). The lazy-attach
-        # pattern is preserved: ``sidecar_ws._get_ws_dispatch_pool``
-        # (and siblings) still call ``getattr(server, "_ws_...", None)``
-        # first and only construct + assign on miss, but the assignment
-        # is now a plain ``server._ws_... = x`` with no type-ignore.
-        # NOTE: these five are PRE-CONSTRUCTED here (not left ``None``
-        # for lazy first-use): the WS dispatch factory
-        # (``sidecar_ws._make_dispatch``) previously created them on the
-        # first frame, but the creation logic is pure constructor work
-        # with no WS-loop dependency, doing it here removes a lazy-
-        # init branch from every dispatch and from the shutdown drain
-        # path. ``_ws_connection_semaphore`` stays ``None``: an
-        # ``asyncio.Semaphore`` binds to the loop it is first awaited on,
-        # and ``IPCServer.__init__`` runs OUTSIDE any loop, so it must
-        # remain lazily created by the WS connection path
-        # (``sidecar_ws_internals.connection._get_ws_connection_semaphore``).
+    def _init_sidecar_ws_state(self) -> None:
+        """WS dispatch pool, inflight accounting, graceful-shutdown slots.
+
+        The 5 WS-pool attributes live on ``IPCServer`` itself (were
+        dynamically injected by the module-level
+        ``_get_ws_dispatch_pool`` / ``_get_ws_connection_semaphore``
+        helpers in ``sidecar_ws.py``, with ``# type: ignore[attr-defined]``
+        silencing the missing-attribute diagnostic at every assignment
+        / read site). Declaring them here means the type checker can
+        verify both the ``setattr`` sites and the ``getattr`` fast paths
+        in ``sidecar_ws.py``; 9 ``# type: ignore[attr-defined]``
+        suppressions in ``sidecar_ws.py`` are removed as a result.
+
+        The attributes are genuinely ``Optional`` where marked: they
+        stay ``None`` until the WS dispatch path is first entered (a
+        server running in TCP / standalone mode never touches them).
+        The lazy-attach pattern is preserved: ``sidecar_ws._get_ws_dispatch_pool``
+        (and siblings) still call ``getattr(server, "_ws_...", None)``
+        first and only construct + assign on miss, but the assignment
+        is now a plain ``server._ws_... = x`` with no type-ignore.
+        NOTE: the pool / event / lock / count are PRE-CONSTRUCTED here
+        (not left ``None`` for lazy first-use): the WS dispatch factory
+        (``sidecar_ws._make_dispatch``) previously created them on the
+        first frame, but the creation logic is pure constructor work
+        with no WS-loop dependency, doing it here removes a lazy-
+        init branch from every dispatch and from the shutdown drain
+        path. ``_ws_connection_semaphore`` stays ``None``: an
+        ``asyncio.Semaphore`` binds to the loop it is first awaited on,
+        and ``IPCServer.__init__`` runs OUTSIDE any loop, so it must
+        remain lazily created by the WS connection path
+        (``sidecar_ws_internals.connection._get_ws_connection_semaphore``).
+        """
         self._ws_dispatch_pool: ThreadPoolExecutor = ThreadPoolExecutor(
             max_workers=4,
             thread_name_prefix="sidecar-ws-dispatch",
@@ -683,6 +719,8 @@ class IPCServer(
         self.ws_graceful_shutdown: typing.Callable[[], None] | None = None
         self._ws_stop_hook: typing.Callable[[], None] | None = None
 
+    def _init_dispatch_gates(self) -> None:
+        """Hot-path shutdown cache, dispatch lock, re-entrancy gate."""
         # Cached snapshot of ``self.app._shutting_down`` for the hot
         # ``_send`` path. Previously ``_send`` did
         # ``getattr(self.app, "_shutting_down", False) is True`` on every
@@ -736,20 +774,23 @@ class IPCServer(
         # no-op is atomic with the first's thread-spawn decision.
         self._shutdown_started: threading.Event = threading.Event()
 
-        # registry-typo validation at construction time. We resolve
-        # every ``_COMMAND_REGISTRY`` method-name string to its attribute on
-        # ``self`` via ``getattr`` and assert it's callable. A typo in the
-        # class-level registry now surfaces at IPCServer construction (every
-        # test that builds an IPCServer) instead of only when the buggy
-        # command is dispatched. The previous ``_command_handlers`` instance
-        # cache (built here and stored on ``self``) was dead code —
-        # ``_dispatch`` resolves the handler the same way at dispatch time
-        # via ``getattr(self, handler_name, None)`` so test-time
-        # monkey-patches are observed. The cache is no longer built; the
-        # class-level ``_COMMAND_REGISTRY: dict[str, str]`` remains the
-        # introspection source-of-truth (pinned by
-        # ``tests/tauri/mig19/test_phase4_validation.py`` and
-        # ``tests/test_ipc_shutdown_registry.py``).
+    def _init_validate_command_registry(self) -> None:
+        """Registry-typo validation at construction time.
+
+        We resolve every ``_COMMAND_REGISTRY`` method-name string to its
+        attribute on ``self`` via ``getattr`` and assert it's callable.
+        A typo in the class-level registry now surfaces at IPCServer
+        construction (every test that builds an IPCServer) instead of
+        only when the buggy command is dispatched. The previous
+        ``_command_handlers`` instance cache (built here and stored on
+        ``self``) was dead code — ``_dispatch`` resolves the handler the
+        same way at dispatch time via ``getattr(self, handler_name, None)``
+        so test-time monkey-patches are observed. The cache is no longer
+        built; the class-level ``_COMMAND_REGISTRY: dict[str, str]``
+        remains the introspection source-of-truth (pinned by
+        ``tests/tauri/mig19/test_phase4_validation.py`` and
+        ``tests/test_ipc_shutdown_registry.py``).
+        """
         for _cmd, _method_name in self._COMMAND_REGISTRY.items():
             _bound = getattr(self, _method_name, None)
             if not callable(_bound):

@@ -43,12 +43,25 @@ Stepping stones (no wire-protocol change required):
      matchers on the dictation backend (``_shared_backend``).
   2. (DONE, minimal) Track every created backend by spec in
      ``_shared_backend_pool`` so identical specs reuse a backend.
-  3. (TODO) Add a ``remove_extra_matcher(role)`` API to the native
-     adapter so roles can be torn down individually without stopping
-     the shared subprocess.
+  3. (DONE) Role-based extra-matcher teardown:
+     ``SubprocessHotkeyBackend.remove_extra_matcher(role)`` drops a
+     single pooled matcher from the shared subprocess without a
+     restart. The dispatcher wraps it as
+     :meth:`_remove_shared_extra_matcher` and calls it from every
+     disable / teardown path (``unregister_esc``, the ESC / repaste
+     disable branches in :meth:`register`, the empty-config branch of
+     :meth:`register_repaste`, and the pool-then-start failure paths)
+     so a disabled role stops firing while the shared backend stays
+     alive. Re-enabling a role re-adds the matcher via
+     :meth:`_pool_aux_into_shared` (no matcher leak: ``add`` is
+     idempotent on role, ``remove`` is a no-op for an unknown role).
   4. (TODO, wire protocol change) Extend the native binary to accept
      multiple ``(role, spec)`` pairs at startup and emit role-tagged
      events. Replace the extra-matcher shim with direct role dispatch.
+     This is the remaining cross-layer work: it touches the native
+     binary sources and requires host validation (C-TDEV). Until then
+     the macOS / Windows suppression limitation in the class docstring
+     stands.
 """
 
 from __future__ import annotations
@@ -63,6 +76,7 @@ from typing import Any
 from voice_typer.server.branding import APP_NAME
 from voice_typer.server.config import DEFAULT_HOTKEY
 from voice_typer.server.hotkeys import HotkeyBackend, create_hotkey_backend
+from voice_typer.server.i18n import t as i18n_t
 from voice_typer.server.keyboard_ownership import keyboard_ownership
 from voice_typer.server.tray_hotkey import format_hotkey_label
 
@@ -318,9 +332,7 @@ class HotkeyDispatcher:
             log.debug("Hotkey registration error", exc_info=True)
             app.tray.notify(
                 APP_NAME,
-                f"Hotkey {hotkey_str} could not be registered. "
-                "It may be in use by another app. "
-                "Use the tray menu to toggle dictation, or pick a different hotkey in Settings.",
+                i18n_t("notify.hotkey_dispatcher.register_failed", hotkey=hotkey_str),
             )
 
         # Feature: ESC to cancel -- register ESC hotkey when enabled
@@ -652,6 +664,12 @@ class HotkeyDispatcher:
             )
             return True
         except Exception:
+            # Partial install (e.g. add succeeded, set_role_callback
+            # raised): drop the role so a half-wired matcher cannot
+            # fire with a null/missing callback. No-op if nothing was
+            # installed.
+            with contextlib.suppress(Exception):
+                shared_native.remove_extra_matcher(role)
             log.debug(
                 "[HOTKEY] Failed to pool %s into shared backend, falling back to per-role subprocess",
                 role,
@@ -691,18 +709,25 @@ class HotkeyDispatcher:
 
     def _remove_shared_extra_matcher(self, role: str) -> None:
         """Remove the pooled extra matcher ``role`` from the shared
-        backend.
+        backend without stopping the shared subprocess.
 
-        Called from the DISABLE paths (:meth:`unregister_esc` and the
-        ESC / repaste teardown branches in :meth:`register`) where the
-        aux backend is stopped but the shared backend stays alive.
-        Without this, the role keeps firing its callback (e.g. ESC
-        keeps cancelling dictation after ``esc_cancel_enabled`` is
-        turned off via settings).
+        Called from every role-teardown path:
+        - :meth:`unregister_esc` (settings disable)
+        - the ESC / repaste disable branches in :meth:`register`
+        - the empty-config and validation-reject branches of
+          :meth:`register_repaste`
+        - the pool-then-start failure paths in :meth:`register_esc` /
+          :meth:`register_repaste`
+
+        The shared backend stays alive, only the role's matcher is
+        dropped. Without this, the role keeps firing its callback
+        (e.g. ESC keeps cancelling dictation after
+        ``esc_cancel_enabled`` is turned off via settings).
 
         No-op when the role was never pooled (legacy per-role
         subprocess model, or no shared backend) —
-         ``remove_extra_matcher`` is safe to call for an unknown role.
+        ``SubprocessHotkeyBackend.remove_extra_matcher`` is safe to
+        call for an unknown role.
         """
 
         shared_native = self._shared_native()
@@ -769,10 +794,7 @@ class HotkeyDispatcher:
             with contextlib.suppress(Exception):
                 self._app.tray.notify_safety(
                     APP_NAME,
-                    "On Wayland, Caps Lock cannot be suppressed, "
-                    "your text will be capitalized. Bind Alt or a "
-                    "function key instead, or remap Caps Lock via "
-                    "your compositor's settings.",
+                    i18n_t("notify.hotkey_dispatcher.wayland_caps_lock"),
                 )
         except Exception:
             log.debug("[HOTKEY] _maybe_warn_wayland_caps_lock failed", exc_info=True)
@@ -850,7 +872,7 @@ class HotkeyDispatcher:
             with contextlib.suppress(Exception):
                 self._app.tray.notify_safety(
                     APP_NAME,
-                    "PTT release event missed, recording auto-stopped after 60s safety timeout.",
+                    i18n_t("notify.hotkey_dispatcher.ptt_release_missed"),
                 )
         except Exception:
             log.exception("[HOTKEY] PTT safety timeout handler failed")
@@ -1010,7 +1032,18 @@ class HotkeyDispatcher:
             # shared backend is a legacy backend without extra-matchers
             # support), fall back to the per-role subprocess model.
             _esc_pooled = self._pool_aux_into_shared("esc", "<esc>", _esc_callback, self._esc_backend)
-            self._esc_backend.start(_esc_callback)
+            try:
+                self._esc_backend.start(_esc_callback)
+            except Exception:
+                # Pool-then-start failure: if the extra matcher was
+                # already installed on the still-alive shared backend,
+                # remove it (and the stashed callback) so a failed
+                # registration cannot keep cancelling dictation. No-op
+                # when pooling was unavailable.
+                if _esc_pooled:
+                    self._remove_shared_extra_matcher("esc")
+                    self._esc_callback = None
+                raise
             self._esc_spec = "<esc>"
             # Track in the per-spec pool AFTER start() succeeded so a
             # failed start does not leave a stale entry. See
@@ -1044,7 +1077,7 @@ class HotkeyDispatcher:
             with contextlib.suppress(Exception):
                 self._app.tray.notify_safety(
                     APP_NAME,
-                    "ESC cancel hotkey could not be registered. Another app may have claimed it.",
+                    i18n_t("notify.hotkey_dispatcher.esc_register_failed"),
                 )
 
     def _on_esc_release(self) -> None:
@@ -1131,93 +1164,125 @@ class HotkeyDispatcher:
             log.info("[HOTKEY] ESC cancel hotkey unregistered")
 
     def register_repaste(self) -> None:
-        """Register the repaste hotkey."""
+        """Register the repaste hotkey.
+
+        Teardown contract: stopping a previous repaste backend never
+        stops the shared dictation backend. When the new
+        ``repaste_hotkey`` is empty (config cleared / rejected), the
+        pooled extra matcher is removed from the shared backend so the
+        old combo stops firing. Replacing a live repaste with a new
+        spec re-uses the role-keyed ``add_extra_matcher`` path (no
+        remove needed).
+        """
         if self._repaste_backend:
             self._untrack_pooled_backend(self._repaste_backend)
             with contextlib.suppress(Exception):
                 self._repaste_backend.stop()
             self._repaste_backend = None
             self._repaste_spec = None
-        if self._app.config.repaste_hotkey:
-            # validate the configured repaste hotkey BEFORE
-            # attempting to register it. ``Config.load()`` bypasses the
-            # denylist, so a stale/hand-edited config could contain an
-            # OS-reserved shortcut (e.g. ``<win>+<l>``) or, after
-            # ``<caps_lock>+<v>`` (caps_lock is now correctly
-            # rejected by Stage 5 as a non-modifier key in a multi-
-            # non-modifier combo, instead of being silently accepted
-            # because it was incorrectly listed as a modifier). On
-            # rejection, DISABLE repaste (set ``repaste_hotkey=""``)
-            # rather than resetting to the default ``<caps_lock>``,
-            # which would conflict with the main dictation hotkey.
-            from voice_typer.server.config_validators import _validate_hotkey
+        if not self._app.config.repaste_hotkey:
+            # Empty config (cleared in Settings, or set_config wrote
+            # ""/None): drop the pooled extra matcher so the old combo
+            # stops firing while the shared dictation backend stays
+            # alive. Clear the stashed callback so a later shared-
+            # backend swap (``_repool_aux_into_shared``) cannot revive
+            # a disabled role. No-op when the role was never pooled.
+            self._remove_shared_extra_matcher("repaste")
+            self._repaste_callback = None
+            return
+        # validate the configured repaste hotkey BEFORE
+        # attempting to register it. ``Config.load()`` bypasses the
+        # denylist, so a stale/hand-edited config could contain an
+        # OS-reserved shortcut (e.g. ``<win>+<l>``) or, after
+        # ``<caps_lock>+<v>`` (caps_lock is now correctly
+        # rejected by Stage 5 as a non-modifier key in a multi-
+        # non-modifier combo, instead of being silently accepted
+        # because it was incorrectly listed as a modifier). On
+        # rejection, DISABLE repaste (set ``repaste_hotkey=""``)
+        # rather than resetting to the default ``<caps_lock>``,
+        # which would conflict with the main dictation hotkey.
+        from voice_typer.server.config_validators import _validate_hotkey
 
-            validation_error = _validate_hotkey(self._app.config.repaste_hotkey)
-            if validation_error is not None:
-                log.warning(
-                    "[HOTKEY] configured repaste_hotkey %r rejected (%s), "
-                    "disabling repaste (not resetting to <caps_lock> to avoid "
-                    "conflict with the main dictation hotkey)",
-                    self._app.config.repaste_hotkey,
-                    validation_error,
-                )
-                self._app.config.repaste_hotkey = ""
-                return
+        validation_error = _validate_hotkey(self._app.config.repaste_hotkey)
+        if validation_error is not None:
+            log.warning(
+                "[HOTKEY] configured repaste_hotkey %r rejected (%s), "
+                "disabling repaste (not resetting to <caps_lock> to avoid "
+                "conflict with the main dictation hotkey)",
+                self._app.config.repaste_hotkey,
+                validation_error,
+            )
+            self._app.config.repaste_hotkey = ""
+            # Same teardown as the empty-config branch: the previous
+            # backend (if any) was already stopped above, so the pooled
+            # matcher must not keep firing the rejected combo.
+            self._remove_shared_extra_matcher("repaste")
+            self._repaste_callback = None
+            return
+        try:
+            # pass role="repaste" so the WaylandHotkey backend
+            # (if selected on a Wayland session) binds a per-backend socket.
+            self._repaste_backend = create_hotkey_backend(self._app.config.repaste_hotkey, role="repaste")
+            # same WM_HOTKEY-preference flag as the ESC backend
+            # (see register_esc for the full rationale).
+            with contextlib.suppress(AttributeError, TypeError):
+                self._repaste_backend._prefer_message_loop_first = True
+            _repaste_cb = self._make_repaste_callback()
+            # Stash the callback so :meth:`_repool_aux_into_shared`
+            # can re-register it after a shared-backend swap.
+            self._repaste_callback = _repaste_cb
+            # Pool repaste into the shared backend (one subprocess
+            # for all three roles). See :meth:`register_esc` for
+            # the full rationale. Falls back to the per-role
+            # subprocess model when pooling is unavailable.
+            _repaste_pooled = self._pool_aux_into_shared(
+                "repaste",
+                self._app.config.repaste_hotkey,
+                _repaste_cb,
+                self._repaste_backend,
+            )
             try:
-                # pass role="repaste" so the WaylandHotkey backend
-                # (if selected on a Wayland session) binds a per-backend socket.
-                self._repaste_backend = create_hotkey_backend(self._app.config.repaste_hotkey, role="repaste")
-                # same WM_HOTKEY-preference flag as the ESC backend
-                # (see register_esc for the full rationale).
-                with contextlib.suppress(AttributeError, TypeError):
-                    self._repaste_backend._prefer_message_loop_first = True
-                _repaste_cb = self._make_repaste_callback()
-                # Stash the callback so :meth:`_repool_aux_into_shared`
-                # can re-register it after a shared-backend swap.
-                self._repaste_callback = _repaste_cb
-                # Pool repaste into the shared backend (one subprocess
-                # for all three roles). See :meth:`register_esc` for
-                # the full rationale. Falls back to the per-role
-                # subprocess model when pooling is unavailable.
-                _repaste_pooled = self._pool_aux_into_shared(
-                    "repaste",
-                    self._app.config.repaste_hotkey,
-                    _repaste_cb,
-                    self._repaste_backend,
-                )
                 self._repaste_backend.start(_repaste_cb)
-                self._repaste_spec = self._app.config.repaste_hotkey
-                # Track in the per-spec pool AFTER start() succeeded
-                # (see :meth:`_track_pooled_backend` for the rationale).
-                self._track_pooled_backend(self._app.config.repaste_hotkey, self._repaste_backend)
-                log.info(
-                    "[HOTKEY] Repaste registered: %s%s",
-                    format_hotkey_label(self._app.config.repaste_hotkey),
-                    " (pooled into shared backend)" if _repaste_pooled else "",
-                )
             except Exception:
-                # null the failed backend reference so a
-                # subsequent ``register()`` / ``register_repaste()``
-                # doesn't try to ``stop()`` a partially-started backend.
-                # ``stop()`` is safe to call on a partially-started
-                # backend, so call it before nulling to release any OS
-                # resources the partial start did acquire.
-                if self._repaste_backend is not None:
-                    self._untrack_pooled_backend(self._repaste_backend)
-                    with contextlib.suppress(Exception):
-                        self._repaste_backend.stop()
-                self._repaste_backend = None
-                self._repaste_spec = None
-                log.warning("[HOTKEY] Repaste hotkey registration failed")
-                # surface the failure to the user via the tray's
-                # safety channel. Mirrors the ESC path: a silent
-                # ``log.warning`` left the user with no way to know the
-                # repaste hotkey was unavailable.
+                # Pool-then-start failure: remove the matcher already
+                # installed on the still-alive shared backend so a
+                # failed registration cannot keep firing repaste.
+                if _repaste_pooled:
+                    self._remove_shared_extra_matcher("repaste")
+                    self._repaste_callback = None
+                raise
+            self._repaste_spec = self._app.config.repaste_hotkey
+            # Track in the per-spec pool AFTER start() succeeded
+            # (see :meth:`_track_pooled_backend` for the rationale).
+            self._track_pooled_backend(self._app.config.repaste_hotkey, self._repaste_backend)
+            log.info(
+                "[HOTKEY] Repaste registered: %s%s",
+                format_hotkey_label(self._app.config.repaste_hotkey),
+                " (pooled into shared backend)" if _repaste_pooled else "",
+            )
+        except Exception:
+            # null the failed backend reference so a
+            # subsequent ``register()`` / ``register_repaste()``
+            # doesn't try to ``stop()`` a partially-started backend.
+            # ``stop()`` is safe to call on a partially-started
+            # backend, so call it before nulling to release any OS
+            # resources the partial start did acquire.
+            if self._repaste_backend is not None:
+                self._untrack_pooled_backend(self._repaste_backend)
                 with contextlib.suppress(Exception):
-                    self._app.tray.notify_safety(
-                        APP_NAME,
-                        "Repaste hotkey could not be registered. Another app may have claimed it.",
-                    )
+                    self._repaste_backend.stop()
+            self._repaste_backend = None
+            self._repaste_spec = None
+            log.warning("[HOTKEY] Repaste hotkey registration failed")
+            # surface the failure to the user via the tray's
+            # safety channel. Mirrors the ESC path: a silent
+            # ``log.warning`` left the user with no way to know the
+            # repaste hotkey was unavailable.
+            with contextlib.suppress(Exception):
+                self._app.tray.notify_safety(
+                    APP_NAME,
+                    i18n_t("notify.hotkey_dispatcher.repaste_register_failed"),
+                )
 
     def restart(self, hotkey: str) -> None:
         """Re-register the global hotkey after settings change.
@@ -1257,7 +1322,11 @@ class HotkeyDispatcher:
             with contextlib.suppress(Exception):
                 app.tray.notify(
                     APP_NAME,
-                    f"Hotkey {hotkey} is not valid: {validation_error}. Keeping the previous hotkey.",
+                    i18n_t(
+                        "notify.hotkey_dispatcher.invalid_hotkey",
+                        hotkey=hotkey,
+                        validation_error=validation_error,
+                    ),
                 )
             return
         # capture the OLD hotkey spec BEFORE mutating
@@ -1271,7 +1340,7 @@ class HotkeyDispatcher:
             log.warning("[HOTKEY] config.save() returned False, hotkey change may not persist")
             app.tray.notify(
                 APP_NAME,
-                "Failed to save hotkey to disk. Check disk space or permissions.",
+                i18n_t("notify.hotkey_dispatcher.save_failed"),
             )
 
         # stop the OLD backend BEFORE calling register()
@@ -1319,9 +1388,7 @@ class HotkeyDispatcher:
             with contextlib.suppress(Exception):
                 app.tray.notify(
                     APP_NAME,
-                    f"Hotkey {hotkey} could not be registered. "
-                    "It may be in use by another app. "
-                    "Use the tray menu to toggle dictation, or pick a different hotkey in Settings.",
+                    i18n_t("notify.hotkey_dispatcher.register_failed", hotkey=hotkey),
                 )
 
         if register_ok:
@@ -1351,8 +1418,10 @@ class HotkeyDispatcher:
                     with contextlib.suppress(Exception):
                         app.tray.notify(
                             APP_NAME,
-                            f"Could not restore the previous hotkey {old_hotkey_str}. "
-                            "Open Settings to rebind a hotkey.",
+                            i18n_t(
+                                "notify.hotkey_dispatcher.restore_failed",
+                                hotkey=old_hotkey_str,
+                            ),
                         )
             else:
                 # No OLD backend to restore, register() failure leaves

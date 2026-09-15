@@ -30,6 +30,30 @@ catches fast-burst attacks (201 msgs in any 1s) and sustained catches
 slow-drip attacks (601 msgs in any 10s = 60.1 msg/s average, never
 tripping the 200/s burst).  The two checks are now genuinely
 independent, not redundant.
+
+Heartbeat bypass (explicit security decision)
+---------------------------------------------
+``heartbeat`` returns ``True`` unconditionally from
+:meth:`_RateLimiter.allow`, skipping both the burst and sustained
+budgets.  This is deliberate and MUST NOT be removed without a
+redesign that proves heartbeat liveness under flood:
+
+* The heartbeat is the only keep-alive that prevents the Python
+  backend from outliving a crashed/force-killed Electron host (the
+  ``_heartbeat_loop`` daemon calls ``app.quit()`` after
+  ``_HEARTBEAT_TIMEOUT_SECONDS`` of missed heartbeats).  If a
+  compromised or buggy renderer floods cheap commands at ≥200 msg/s,
+  a cost-1 heartbeat share of the SAME burst budget would be starved
+  during the attack window and the watchdog would kill a healthy
+  backend 45s later.
+* The compensating control is that the watchdog tracks only the LAST
+  heartbeat timestamp, not the count.  A flood of fake heartbeats
+  from an already-compromised renderer is not a new attack vector
+  (the renderer already has IPC); flooding OTHER commands must not be
+  able to starve the legitimate keep-alive.
+* ``heartbeat`` remains listed in ``COMMAND_COSTS`` at cost 1 so
+  future ``DEFAULT_COST`` changes cannot silently alter its
+  characteristics if the bypass is ever redesigned.
 """
 
 import threading
@@ -78,12 +102,10 @@ COMMAND_COSTS: dict[str, int] = {
     "resume_model_download": 10,
     "clear_history": 10,
     # Moderate (cost 20).
-    "test_llm_connection": 20,  # was 10, network call to LLM provider
     "microphone_test_start": 20,  # was 5, opens a PortAudio stream
     "level_monitor_start": 20,  # was 3, opens a PortAudio stream + spawns thread
     "shutdown": 5,
     "onboarding_apply": 5,
-    "get_vocabulary_suggestions": 3,  # NOTE: stale per registry, kept for back-compat
     # Small file writes / single-row mutations (cost 10).
     "save_vocabulary": 10,  # was 2, writes vocabulary file
     "save_templates": 10,  # was 2, writes templates file
@@ -151,16 +173,6 @@ COMMAND_COSTS: dict[str, int] = {
     "toggle_favorite": 2,  # writes to db
     "tray_click": 1,
     "undo_last": 2,  # deletes last history row
-    # Stale entries kept for back-compat (the corresponding commands were
-    # removed from _COMMAND_REGISTRY by , moved to Tauri Rust host).
-    # The rate_limiter's COMMAND_COSTS dict still has them so older
-    # Electron builds that bridge these calls don't trip the limiter's
-    # DEFAULT_COST path. The contract test
-    # (test_command_costs_does_not_list_unknown_commands) is satisfied
-    # because these commands ARE in LEGACY_ERROR_CODES / older registries.
-    "delete_all_personal_data": 20,
-    "export_diagnostics": 10,
-    "export_gdpr_bundle": 20,
     # Commands added to _COMMAND_REGISTRY after the cost map was last audited.
     # add_trusted_endpoint: small write (appends to a trusted-endpoints list).
     # test_cloud_connection: opens a subprocess to probe connectivity.
@@ -348,18 +360,12 @@ class _RateLimiter:
         # Clamp to at least 1 so the limiter is always strict-ish.
         if cost < 1:
             cost = 1
-        # (High): heartbeat bypasses the burst + sustained
-        # checks entirely. A compromised renderer sustaining ≥200
-        # msg/s of cheap commands would otherwise exhaust the per-
-        # process burst budget (200/s shared across ALL connections)
-        # and reject every heartbeat during the attack window, after
-        # 45s (3 missed @ 15s interval) the heartbeat watchdog calls
-        # ``app.quit()``, killing the backend. The bypass is safe
-        # because the watchdog only tracks the LAST heartbeat
-        # timestamp (not the count), a flood of fake heartbeats from
-        # the (already-compromised) renderer is not a new attack
-        # vector, but a flood of OTHER commands must not be able to
-        # starve the legitimate heartbeat keep-alive.
+        # Explicit security decision: heartbeat bypasses the burst +
+        # sustained checks entirely. See the module docstring section
+        # "Heartbeat bypass (explicit security decision)" for the full
+        # watchdog-starvation rationale and compensating controls.
+        # Do NOT remove this bypass without a redesign that proves
+        # heartbeat liveness under flood.
         if command == "heartbeat":
             return True
         burst_cutoff = ts - self._burst_window

@@ -40,6 +40,50 @@ from voice_typer.server.config import DEFAULT_HOTKEY
 
 log = logging.getLogger(__name__)
 
+# One-shot flag: the ACL-enforcement-failure tray toast fires at most
+# once per process so a persistently restricted host (icacls missing /
+# WRITE_DAC denied) doesn't spam a toast on every Settings change.
+_acl_enforcement_failure_notified = False
+
+
+def _maybe_notify_acl_enforcement_failure(app: Any) -> None:
+    """Surface a one-time tray warning when Windows ACL enforcement failed.
+
+    ``Config.save()`` is best-effort about ``icacls`` (never-raises
+    contract, opt-a of the ACL-failure review: refuse-to-save would
+    brick restricted corporate machines). When enforcement fails,
+    ``config.json`` may still contain plaintext API keys with an
+    inherited (possibly shared) DACL. The save path has no tray
+    reference, so ``apply_config`` — which does — surfaces the warning
+    after a successful save. At most once per process.
+    """
+    global _acl_enforcement_failure_notified
+    if _acl_enforcement_failure_notified:
+        return
+    try:
+        from voice_typer.server.config._saving import acl_enforcement_failures
+    except Exception:
+        return
+    if not acl_enforcement_failures:
+        return
+    _acl_enforcement_failure_notified = True
+    notify = getattr(getattr(app, "tray", None), "notify", None)
+    if not callable(notify):
+        log.warning(
+            "[CONFIG] ACL enforcement failed for %s; plaintext secrets "
+            "may be readable by other local users (tray notify unavailable)",
+            sorted(acl_enforcement_failures),
+        )
+        return
+    try:
+        notify(
+            APP_NAME,
+            "Could not lock down config file permissions. "
+            "API keys may be readable by other users on this PC.",
+        )
+    except Exception:
+        log.debug("[CONFIG] tray.notify for ACL failure also failed", exc_info=True)
+
 
 def _notify_side_effect_failure(app: Any, field: str, exc: BaseException) -> None:
     """surface a config side-effect failure to the user via
@@ -206,6 +250,12 @@ _AUDIO_FILTER_KEYS = (
     "noise_filter_rnnoise",
     "noise_filter_post_capture",
 )
+
+
+# Sentinel for "this Config field did not exist before setattr".
+# Shared by the setattr rollback log and the dirty-check so the two
+# paths compare the same missing-marker identity.
+_MISSING = object()
 
 
 # ── TypedDict for the config side-effect status payload ──
@@ -948,6 +998,283 @@ class ConfigApplier:
 
     # apply_config ( extraction) ────────────────────────────
 
+    @staticmethod
+    def _empty_side_effect_status() -> SideEffectStatus:
+        """Stable all-``None`` status dict for early-raise / no-sync paths.
+
+        (session-3): the ``set_config`` response shape must stay
+        ``{"autostart_status": ..., "prewarm_status": ...}`` even when
+        ``apply_config`` raises before any side-effect ran, so the
+        renderer can still surface save errors alongside an empty
+        status payload.
+        """
+        return {
+            "autostart_status": None,
+            "prewarm_status": None,
+        }
+
+    def _maybe_autoswitch_audio_preset(self, updates: dict) -> dict:
+        """Auto-switch ``audio_preset`` to ``"custom"`` for individual toggles.
+
+        If the user submits an individual noise_filter_* toggle (one of
+        the keys ``apply_preset`` overwrites) while ``audio_preset`` is a
+        named preset (auto / studio / noisy_room / off), auto-switch
+        ``audio_preset`` to ``"custom"`` BEFORE setattr. Without this,
+        ``Config.load()`` would call ``apply_preset`` on next restart and
+        silently revert the user's toggle to the preset's value (e.g. user
+        sets ``noise_filter_highpass=False`` while preset is ``"auto"``,
+        restarts, ``apply_preset("auto", instance)`` sets it back to
+        ``True``).
+
+        Skip when the user explicitly set ``audio_preset`` in this same
+        update, they're picking a preset, so the preset's toggles are the
+        intent. Also skip when the preset is already ``"custom"`` (no-op).
+        """
+        if "audio_preset" in updates:
+            return updates
+        individual_overrides = _PRESET_OVERRIDE_KEYS & updates.keys()
+        if not individual_overrides:
+            return updates
+        current_preset = getattr(self._app.config, "audio_preset", "custom")
+        if current_preset == "custom":
+            return updates
+        log.info(
+            "[CONFIG] individual filter toggles %s set via "
+            "IPC while audio_preset=%r, auto-switching "
+            "audio_preset to 'custom' so the user's toggle "
+            "survives the next Config.load() (which would "
+            "otherwise re-apply the preset and revert it)",
+            sorted(individual_overrides),
+            current_preset,
+        )
+        return {**updates, "audio_preset": "custom"}
+
+    def _setattr_updates(self, app: Any, updates: dict) -> list[tuple[str, Any]]:
+        """Set each validated key onto Config, with reverse-order rollback.
+
+        Wrap the setattr loop in try/except. On exception, restore
+        pre-loop values for the keys we already set, then re-raise so the
+        caller sees the original error. The returned ``set_keys`` log is
+        the per-key pre-setattr snapshot reused by the dirty-check and by
+        the save-failure rollback (both use this list instead of an eager
+        ``dataclasses.asdict()`` snapshot of the full Config).
+        """
+        set_keys: list[tuple[str, Any]] = []
+        try:
+            for k, v in updates.items():
+                old_value = getattr(app.config, k, _MISSING)
+                set_keys.append((k, old_value))
+                setattr(app.config, k, v)
+        except Exception:
+            # Restore pre-loop values for keys we already set, in
+            # reverse order so a partial setattr chain doesn't
+            # compound the corruption.
+            for k, old_value in reversed(set_keys):
+                try:
+                    if old_value is not _MISSING:
+                        setattr(app.config, k, old_value)
+                except Exception:
+                    log.warning(
+                        "[SERVICE] G4-L-24: failed to restore config key %s during setattr rollback",
+                        k,
+                        exc_info=True,
+                    )
+            raise
+        return set_keys
+
+    def _maybe_invalidate_llm_polisher(self, app: Any, updates: dict) -> None:
+        """Drop the cached LLMPolisher when any polish credential changes.
+
+        The polisher is constructed lazily in
+        ``DictationPipeline._apply_llm_polish`` from these fields; without
+        invalidation it would keep using stale credentials/settings.
+        BP-133: the effective polish key is ``llm_api_key OR
+        openai_api_key``: a provider-credential rotation must invalidate
+        too. The credential set is the canonical
+        ``PROVIDER_TO_CONFIG_FIELD`` (BP-95 single-sourcing), imported
+        lazily like the credential_store use below (import-cycle
+        discipline).
+        """
+        from voice_typer.server import credential_store as _credential_store
+
+        _polish_credential_fields = set(_credential_store.PROVIDER_TO_CONFIG_FIELD.values())
+        if any(k.startswith("llm_") or k in _polish_credential_fields for k in updates):
+            with contextlib.suppress(Exception):
+                app._llm_polisher = None
+
+    def _route_secrets_post_save(self, app: Any, updates: dict) -> None:
+        """Redundant keychain routing for the no-keyring plaintext path.
+
+        Defer credential_store.store_secret to AFTER ``save_strict``
+        succeeded. Previously this block ran BEFORE setattr, so on
+        ``save_strict`` failure the in-memory Config was rolled back to
+        the OLD value via ``set_keys`` while the keychain retained the
+        NEW value, leaving the keychain inconsistent with disk +
+        in-memory state. Now: if ``save_strict`` raises, the ``raise``
+        above propagates BEFORE this block executes, so the keychain is
+        left untouched (it still holds whatever a prior successful save
+        wrote). If ``save_strict`` succeeds, the keychain is updated to
+        match the new in-memory + on-disk state. ``store_secret`` never
+        raises (it falls back to plaintext in config.json on keyring
+        failure), so a broken D-Bus / locked Keychain cannot break the
+        save path here. Note: ``save_strict`` already routed the secret
+        via ``Config.save()`` when keyring is available, so this call is
+        a redundant safety net for the no-keyring-available plaintext
+        fallback path and for callers whose ``Config.save()`` was patched
+        to skip routing (e.g. test mocks).
+
+        Gate the redundant loop behind ``app.config._secrets_routed_in_save``
+        (set True by ``Config._save_unlocked`` after it runs the routing
+        block). When the flag is True (or missing, the ``getattr``
+        default of True is the safe assumption for Config instances from
+        before this change), the loop is SKIPPED because
+        ``Config.save()`` already routed the secret. The loop only runs
+        when the flag is explicitly False: i.e. ``Config.save()`` was
+        mocked to skip routing (test scenario) or the routing block
+        raised an exception (logged at WARNING inside ``_save_unlocked``).
+        This eliminates the redundant ``store_secret`` call (and its lock
+        re-acquisition dance) on every successful ``apply_config`` IPC
+        call.
+        """
+        if getattr(app.config, "_secrets_routed_in_save", True):
+            return
+        try:
+            from voice_typer.server import credential_store
+
+            for k, v in list(updates.items()):
+                provider = credential_store.CONFIG_FIELD_TO_PROVIDER.get(k)
+                if provider is None:
+                    continue
+                credential_store.store_secret(provider, v)
+        except Exception as exc:
+            log.warning(
+                "[SERVICE] RW-01: credential_store post-save route "
+                "failed: %s, secret may not be in keychain (will "
+                "fall back to plaintext in config.json on next save)",
+                exc,
+            )
+
+    def _save_updates_strict(
+        self,
+        app: Any,
+        updates: dict,
+        set_keys: list[tuple[str, Any]],
+    ) -> None:
+        """Dirty-check + ``save_strict`` + save-failure rollback.
+
+        Surface disk-write failures instead of silently swallowing them.
+        ``save_strict`` raises ``RuntimeError`` if ``save()`` returned
+        False; the IPC handler is expected to catch this and return an
+        error envelope instead of ``ack``.
+
+        Dirty-check: if the post-setattr state equals the pre-setattr
+        state (e.g. the user submitted an empty update or all values were
+        already the same), skip the ``save_strict()`` call entirely. This
+        avoids an unnecessary disk write + atomic-rename dance for no-op
+        updates.
+
+        Previously this dirty-check did
+        ``_json_dumps_sorted(pre_state_dict) == _json_dumps_sorted(post_state_dict)``
+        which serialised the FULL Config (150+ fields) twice via
+        ``dataclasses.asdict`` (deep-copy) and twice via ``json.dumps``
+        per IPC ``set_config`` call. The targeted check below compares
+        only the ``updates`` keys via direct equality.
+        O(len(updates)) instead of O(len(Config fields)). It reuses the
+        pre-setattr values already captured in ``set_keys`` (setattr
+        rollback log) so no extra getattr pass is needed before setattr.
+        """
+        post_values = {k: getattr(app.config, k, _MISSING) for k in updates}
+        pre_values = dict(set_keys)
+        state_unchanged = pre_values == post_values
+        if state_unchanged:
+            log.debug("[SERVICE] G4-L-20: apply_config detected no state change, skipping save_strict()")
+            return
+        try:
+            app.config.save_strict()
+        except Exception:
+            # save_strict failed (disk write error, permission denied,
+            # etc.). The in-memory Config now carries the new values
+            # while disk holds the old. Restore the snapshot under the
+            # same lock so the in-memory state matches disk again, then
+            # re-run apply_config_side_effects with the ORIGINAL values
+            # so live side-effects (hotkey registration, audio filter
+            # rebuild, etc.) match the restored config. Uses ``set_keys``
+            # (the per-key pre-setattr value log) instead of an eager
+            # ``dataclasses.asdict()`` snapshot of the full Config
+            # (150+ fields).
+            for k, old_value in set_keys:
+                try:
+                    setattr(app.config, k, old_value)
+                except Exception:
+                    log.warning(
+                        "[SERVICE] failed to restore config key %s during save_strict rollback",
+                        k,
+                        exc_info=True,
+                    )
+            # Build an "old updates" dict (only the keys the caller
+            # asked to change) so the side-effects re-run with the
+            # values that are now live.
+            old_updates = dict(set_keys)
+            if old_updates:
+                try:
+                    self.apply_config_side_effects(old_updates)
+                except Exception:
+                    log.warning(
+                        "[SERVICE] failed to re-run side-effects during save_strict rollback",
+                        exc_info=True,
+                    )
+            raise
+        self._route_secrets_post_save(app, updates)
+
+    def _maybe_refresh_clipboard(self, app: Any, updates: dict) -> None:
+        """ADR-0010 §8.3b: propagate clipboard config changes live (DP7).
+
+        Without this, runtime changes to ``clipboard_save_restore`` /
+        ``clipboard_restore_delay_ms`` / ``paste_on_stop`` would not take
+        effect until app restart. The keys are only present in ``updates``
+        because they passed validation (see §2.11, both keys are in
+        ``IPC_CONFIG_ALLOWLIST``). Run inside the lock so
+        ``refresh_config`` reads a consistent, persisted config snapshot,
+        not a torn one from a concurrent IPC update.
+
+        (session-5): previously ``contextlib.suppress(Exception)``:
+        silent failure meant runtime changes to
+        clipboard_save_restore / clipboard_restore_delay_ms /
+        paste_on_stop silently did not apply until restart. ADR-0010
+        §8.3b specifically calls out that refresh is needed for runtime
+        changes; suppressing defeated the purpose. Log at WARNING so the
+        operator knows to restart for the config change to take effect.
+        """
+        clipboard_keys = {
+            "clipboard_save_restore",
+            "clipboard_restore_delay_ms",
+            "paste_on_stop",
+        }
+        if not (clipboard_keys & set(updates.keys())):
+            return
+        try:
+            app.clipboard.refresh_config(app.config)
+        except Exception as exc:
+            log.warning(
+                "[SERVICE] clipboard.refresh_config failed: %s, "
+                "clipboard config changes will not take effect until restart",
+                exc,
+            )
+
+    def _post_save_tray_cleanup(self, app: Any) -> None:
+        """Invalidate the tray menu cache and surface any ACL warning.
+
+        Invalidate the tray menu cache so the next menu build picks up
+        the new config values. Surface a one-time tray warning if Windows
+        ACL enforcement failed during this save (plaintext secrets may
+        remain readable by other local users). Never blocks the save.
+        """
+        try:
+            app.tray.invalidate_menu_cache()
+        except Exception:
+            log.debug("[SERVICE] tray.invalidate_menu_cache failed", exc_info=True)
+        _maybe_notify_acl_enforcement_failure(app)
+
     def apply_config(self, updates: dict) -> SideEffectStatus:
         """Apply validated config updates atomically.
 
@@ -1018,6 +1345,17 @@ class ConfigApplier:
             renderer so it can surface "Autostart registration failed:
             <reason>" instead of silently failing. A field is ``None``
             when the corresponding config key wasn't in ``updates``.
+
+        Raises
+        ------
+        ValueError
+            If ``updates`` contains any key not present in
+            ``IPC_CONFIG_ALLOWLIST`` (SEC-002 defense-in-depth).
+            Callers must pass only allowlisted keys; the IPC
+            ``set_config`` handler already drops unknown keys via
+            ``validate_config_update`` before reaching here.
+        RuntimeError
+            If ``save_strict()`` could not persist the config to disk.
         """
         # SEC-002 defense-in-depth: even though the IPC
         # ``set_config`` handler runs ``validate_config_update`` (which
@@ -1031,34 +1369,22 @@ class ConfigApplier:
         # (e.g. ``schema_version``, ``qwen_model_path``) be mutated at
         # runtime, defeating SEC-002.
         #
-        # Implementation note (minimal fix): we log CRITICAL and
-        # CONTINUE (no ``raise``) rather than raising ``ValueError``
-        # because some existing internal callers (e.g.
-        # ``tests/test_config_acl_and_preset_autoswitch.py``) invoke
-        # ``apply_config`` directly with deprecated Config-runtime
-        # fields (``noise_filter_enabled``: a runtime switch per ADR
-        # 0009 that was removed from ``IPC_CONFIG_ALLOWLIST`` but is
-        # still on the Config dataclass) to exercise the preset
-        # auto-switch logic. Raising would break those tests
-        # (NEVER DOWNGRADE. Rule 4). The CRITICAL log surfaces the
-        # violation observably so operators can grep for it; a future
-        # cleanup can tighten this to a hard ``raise`` once the
-        # deprecated runtime-only fields are removed from the Config
-        # dataclass or the test fixtures are updated to use
-        # allowlisted substitutes.
+        # Hard fail (ValueError): test fixtures that previously passed
+        # deprecated runtime-only fields (e.g. ``noise_filter_enabled``)
+        # were migrated to allowlisted substitutes, so the log-and-
+        # continue path is no longer needed. Raising here is the
+        # fail-closed contract: a non-allowlisted key must never reach
+        # ``setattr``.
         from voice_typer.server.config_validators import IPC_CONFIG_ALLOWLIST
 
         _unknown = set(updates) - IPC_CONFIG_ALLOWLIST.keys()
         if _unknown:
-            log.critical(
-                "[SERVICE] SEC-002 violation: apply_config received "
-                "non-allowlisted keys %s, the IPC ``set_config`` handler "
-                "should have dropped these via validate_config_update. "
-                "Continuing (no raise) for backward compat with internal "
-                "callers that pass deprecated runtime-only Config fields "
-                "(e.g. noise_filter_enabled). Investigate the caller if "
-                "this appears in production logs.",
-                sorted(_unknown),
+            raise ValueError(
+                f"SEC-002 violation: apply_config received "
+                f"non-allowlisted keys {sorted(_unknown)}; the IPC "
+                f"set_config handler should have dropped these via "
+                f"validate_config_update. Internal callers must only "
+                f"pass IPC_CONFIG_ALLOWLIST keys."
             )
         app = self._app
         # (session-3): capture the side-effect status dict for
@@ -1068,250 +1394,31 @@ class ConfigApplier:
         # before the raise, so the renderer can surface the autostart/
         # prewarm status alongside the save error. Initialize to all-
         # None so the return shape is stable even on early-raise.
-        side_effect_status: SideEffectStatus = {
-            "autostart_status": None,
-            "prewarm_status": None,
-        }
+        side_effect_status: SideEffectStatus = self._empty_side_effect_status()
         # + : snapshot pre-setattr Config state. Used for
         # both the dirty-check (skip ``save_strict()`` if state is
         # unchanged, ) and for rollback on ``save_strict()``
         # failure (restore snapshot + re-run side-effects with original
         # values so live state matches disk, ).
         with app._config_mutation_lock:
-            # If the user submits an individual noise_filter_*
-            # toggle (one of the keys ``apply_preset`` overwrites) while
-            # ``audio_preset`` is a named preset (auto / studio /
-            # noisy_room / off), auto-switch ``audio_preset`` to
-            # ``"custom"`` BEFORE setattr. Without this, ``Config.load()``
-            # would call ``apply_preset`` on next restart and silently
-            # revert the user's toggle to the preset's value (e.g. user
-            # sets ``noise_filter_highpass=False`` while preset is
-            # ``"auto"``, restarts, ``apply_preset("auto", instance)``
-            # sets it back to ``True``).
-            #
-            # Skip when the user explicitly set ``audio_preset`` in
-            # this same update, they're picking a preset, so the
-            # preset's toggles are the intent. Also skip when the
-            # preset is already ``"custom"`` (no-op).
-            if "audio_preset" not in updates:
-                individual_overrides = _PRESET_OVERRIDE_KEYS & updates.keys()
-                if individual_overrides:
-                    current_preset = getattr(app.config, "audio_preset", "custom")
-                    if current_preset != "custom":
-                        log.info(
-                            "[CONFIG] individual filter toggles %s set via "
-                            "IPC while audio_preset=%r, auto-switching "
-                            "audio_preset to 'custom' so the user's toggle "
-                            "survives the next Config.load() (which would "
-                            "otherwise re-apply the preset and revert it)",
-                            sorted(individual_overrides),
-                            current_preset,
-                        )
-                        updates = {**updates, "audio_preset": "custom"}
-            # wrap the setattr loop in try/except. On exception,
-            # restore pre-loop values for the keys we already set, then
-            # re-raise so the caller sees the original error.
-            _MISSING = object()  # noqa: N806
-            set_keys: list[tuple[str, Any]] = []
-            try:
-                for k, v in updates.items():
-                    old_value = getattr(app.config, k, _MISSING)
-                    set_keys.append((k, old_value))
-                    setattr(app.config, k, v)
-            except Exception:
-                # Restore pre-loop values for keys we already set, in
-                # reverse order so a partial setattr chain doesn't
-                # compound the corruption.
-                for k, old_value in reversed(set_keys):
-                    try:
-                        if old_value is not _MISSING:
-                            setattr(app.config, k, old_value)
-                    except Exception:
-                        log.warning(
-                            "[SERVICE] G4-L-24: failed to restore config key %s during setattr rollback",
-                            k,
-                            exc_info=True,
-                        )
-                raise
-            # Drop the cached LLMPolisher when any llm_* config changes so the
-            # next polish request rebuilds it with the new api_key/url/model/
-            # preset. The polisher is constructed lazily in
-            # DictationPipeline._apply_llm_polish from these fields; without
-            # invalidation it would keep using stale credentials/settings.
-            # BP-133: the effective polish key is ``llm_api_key OR
-            # openai_api_key``: a provider-credential rotation must
-            # invalidate too. The credential set is the canonical
-            # PROVIDER_TO_CONFIG_FIELD (BP-95 single-sourcing), imported
-            # lazily like the credential_store use below (import-cycle
-            # discipline).
-            from voice_typer.server import credential_store as _credential_store
-
-            _polish_credential_fields = set(_credential_store.PROVIDER_TO_CONFIG_FIELD.values())
-            if any(k.startswith("llm_") or k in _polish_credential_fields for k in updates):
-                with contextlib.suppress(Exception):
-                    app._llm_polisher = None
+            updates = self._maybe_autoswitch_audio_preset(updates)
+            set_keys = self._setattr_updates(app, updates)
+            self._maybe_invalidate_llm_polisher(app, updates)
             # Apply side effects inside the lock so Config mutations
             # from the preset are visible to save().  (session-3):
             # capture the returned status dict for propagation to the IPC
             # response.
             side_effect_status = self.apply_config_side_effects(updates)
-            # surface disk-write failures instead of silently
-            # swallowing them.  ``save_strict`` raises RuntimeError
-            # if ``save()`` returned False; the IPC handler is
-            # expected to catch this and return an error envelope
-            # instead of ``ack``.
-            #
-            # dirty-check, if the post-setattr state equals
-            # the pre-setattr state (e.g. the user submitted an empty
-            # update or all values were already the same), skip the
-            # save_strict() call entirely. This avoids an unnecessary
-            # disk write + atomic-rename dance for no-op updates.
-            #
-            # previously this dirty-check did
-            # ``_json_dumps_sorted(pre_state_dict) == _json_dumps_sorted(post_state_dict)``
-            # which serialised the FULL Config (150+ fields) twice via
-            # ``dataclasses.asdict`` (deep-copy) and twice via
-            # ``json.dumps`` per IPC ``set_config`` call. The
-            # targeted check below compares only the ``updates`` keys
-            # via direct equality. O(len(updates)) instead of
-            # O(len(Config fields)). It reuses the pre-setattr values
-            # already captured in ``set_keys`` ( rollback log)
-            # so no extra getattr pass is needed before setattr.
-            # the eager ``dataclasses.asdict()`` snapshot
-            # (``pre_state_dict``) has been removed entirely. The
-            # dirty-check uses only ``set_keys``, and the
-            # rollback path also uses ``set_keys`` to restore only the
-            # mutated keys instead of the full 150+ Config snapshot.
-            post_values = {k: getattr(app.config, k, _MISSING) for k in updates}
-            pre_values = dict(set_keys)
-            state_unchanged = pre_values == post_values
-            if state_unchanged:
-                log.debug("[SERVICE] G4-L-20: apply_config detected no state change, skipping save_strict()")
-            else:
-                try:
-                    app.config.save_strict()
-                except Exception:
-                    # save_strict failed (disk write error,
-                    # permission denied, etc.). The in-memory Config now
-                    # carries the new values while disk holds the old.
-                    # Restore the snapshot under the same lock so the
-                    # in-memory state matches disk again, then re-run
-                    # apply_config_side_effects with the ORIGINAL values
-                    # so live side-effects (hotkey registration, audio
-                    # filter rebuild, etc.) match the restored config.
-                    # uses ``set_keys`` (the per-key pre-setattr
-                    # value log) instead of an eager ``dataclasses.asdict()``
-                    # snapshot of the full Config (150+ fields).
-                    for k, old_value in set_keys:
-                        try:
-                            setattr(app.config, k, old_value)
-                        except Exception:
-                            log.warning(
-                                "[SERVICE] failed to restore config key %s during save_strict rollback",
-                                k,
-                                exc_info=True,
-                            )
-                    # Build an "old updates" dict (only the keys
-                    # the caller asked to change) so the side-effects
-                    # re-run with the values that are now live.
-                    old_updates = dict(set_keys)
-                    if old_updates:
-                        try:
-                            self.apply_config_side_effects(old_updates)
-                        except Exception:
-                            log.warning(
-                                "[SERVICE] failed to re-run side-effects during save_strict rollback",
-                                exc_info=True,
-                            )
-                    raise
-                # Defer credential_store.store_secret to AFTER
-                # save_strict succeeded. Previously this block ran
-                # BEFORE setattr, so on save_strict failure the
-                # in-memory Config was rolled back to the OLD value via
-                # ``set_keys`` while the keychain retained the NEW value,
-                # leaving the keychain inconsistent with disk +
-                # in-memory state. Now: if save_strict raises, the
-                # ``raise`` above propagates BEFORE this block executes,
-                # so the keychain is left untouched (it still holds
-                # whatever a prior successful save wrote). If save_strict
-                # succeeds, the keychain is updated to match the new
-                # in-memory + on-disk state. ``store_secret`` never
-                # raises (it falls back to plaintext in config.json on
-                # keyring failure), so a broken D-Bus / locked Keychain
-                # cannot break the save path here. Note: ``save_strict``
-                # already routed the secret via ``Config.save()`` when
-                # keyring is available, so this call is a redundant
-                # safety net for the no-keyring-available plaintext
-                # fallback path and for callers whose ``Config.save()``
-                # was patched to skip routing (e.g. test mocks).
-                #
-                # Gate the redundant loop behind
-                # ``app.config._secrets_routed_in_save`` (set True by
-                # ``Config._save_unlocked`` after it runs the routing
-                # block). When the flag is True (or missing, the
-                # ``getattr`` default of True is the safe assumption for
-                # Config instances from before this change), the loop is
-                # SKIPPED because ``Config.save()`` already routed the
-                # secret. The loop only runs when the flag is explicitly
-                # False: i.e. ``Config.save()`` was mocked to skip
-                # routing (test scenario) or the routing block raised
-                # an exception (logged at WARNING inside
-                # ``_save_unlocked``). This eliminates the redundant
-                # ``store_secret`` call (and its lock re-acquisition
-                # dance) on every successful ``apply_config`` IPC call.
-                if not getattr(app.config, "_secrets_routed_in_save", True):
-                    try:
-                        from voice_typer.server import credential_store
-
-                        for k, v in list(updates.items()):
-                            provider = credential_store.CONFIG_FIELD_TO_PROVIDER.get(k)
-                            if provider is None:
-                                continue
-                            credential_store.store_secret(provider, v)
-                    except Exception as exc:
-                        log.warning(
-                            "[SERVICE] RW-01: credential_store post-save route "
-                            "failed: %s, secret may not be in keychain (will "
-                            "fall back to plaintext in config.json on next save)",
-                            exc,
-                        )
-
-            # ADR-0010 §8.3b: propagate clipboard config changes to the
-            # live ClipboardManager (DP7). Without this, runtime changes
-            # to ``clipboard_save_restore`` / ``clipboard_restore_delay_ms``
-            # / ``paste_on_stop`` would not take effect until app restart.
-            # The keys are only present in ``updates`` because they passed
-            # validation (see §2.11, both keys are in
-            # ``IPC_CONFIG_ALLOWLIST``). Run inside the lock so
-            # ``refresh_config`` reads a consistent, persisted config
-            # snapshot, not a torn one from a concurrent IPC update.
-            clipboard_keys = {
-                "clipboard_save_restore",
-                "clipboard_restore_delay_ms",
-                "paste_on_stop",
-            }
-            if clipboard_keys & set(updates.keys()):
-                # (session-5): previously
-                # ``contextlib.suppress(Exception)``: silent failure
-                # meant runtime changes to clipboard_save_restore /
-                # clipboard_restore_delay_ms / paste_on_stop silently
-                # did not apply until restart. ADR-0010 §8.3b
-                # specifically calls out that refresh is needed for
-                # runtime changes; suppressing defeated the purpose.
-                # Log at WARNING so the operator knows to restart for
-                # the config change to take effect.
-                try:
-                    app.clipboard.refresh_config(app.config)
-                except Exception as exc:
-                    log.warning(
-                        "[SERVICE] clipboard.refresh_config failed: %s, "
-                        "clipboard config changes will not take effect until restart",
-                        exc,
-                    )
+            # ``save_strict`` raises RuntimeError if ``save()`` returned
+            # False; the IPC handler is expected to catch this and
+            # return an error envelope instead of ``ack``. The
+            # dirty-check inside the helper skips the disk write when
+            # the post-setattr values match the pre-setattr ones.
+            self._save_updates_strict(app, updates, set_keys)
+            self._maybe_refresh_clipboard(app, updates)
         # invalidate the tray menu cache so the next menu
-        # build picks up the new config values.
-        try:
-            app.tray.invalidate_menu_cache()
-        except Exception:
-            log.debug("[SERVICE] tray.invalidate_menu_cache failed", exc_info=True)
+        # build picks up the new config values. Also surfaces a
+        # one-time tray warning if Windows ACL enforcement failed
+        # during this save.
+        self._post_save_tray_cleanup(app)
         return side_effect_status

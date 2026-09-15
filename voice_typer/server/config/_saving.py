@@ -40,6 +40,13 @@ if TYPE_CHECKING:  # pragma: no cover, typing-only, never imported at runtime
 
 log = logging.getLogger("voice_typer.server.config")
 
+# Paths whose owner-only ACL enforcement FAILED this process. Read by
+# ``config_applier.apply_config`` after a successful save so the user
+# can be notified (tray toast) that plaintext secrets may remain
+# readable by other local users. A path is added on icacls failure and
+# discarded on a later successful enforcement for the same path.
+acl_enforcement_failures: set[str] = set()
+
 
 def _enforce_windows_owner_only_acl(path: "Path | str") -> bool:
     """On Windows, restrict file/dir ACL to the current user only.
@@ -74,7 +81,11 @@ def _enforce_windows_owner_only_acl(path: "Path | str") -> bool:
     permission-restricted environment (e.g. ``icacls`` not on PATH,
     user lacks WRITE_DAC, etc.) doesn't break ``save()``. The log
     message is truncated to 200 chars to avoid log bloat from
-    multi-line ``icacls`` output.
+    multi-line ``icacls`` output. Failures are also recorded in
+    :data:`acl_enforcement_failures` so
+    :meth:`~voice_typer.server.config_applier.ConfigApplier.apply_config`
+    can surface a user-visible tray warning (plaintext secrets may
+    remain readable by other local users on a multi-user machine).
 
     No-op on non-Windows (POSIX uses ``os.chmod(path, 0o600)``
     elsewhere in the save path).
@@ -104,9 +115,11 @@ def _enforce_windows_owner_only_acl(path: "Path | str") -> bool:
     username = os.environ.get("USERNAME") or os.environ.get("USER")
     if not username:
         log.warning(
-            "[CONFIG] cannot enforce Windows ACL on %s: USERNAME env var is empty",
+            "[CONFIG] cannot enforce Windows ACL on %s: USERNAME env var is empty "
+            "(config files may be readable by other local users)",
             path,
         )
+        acl_enforcement_failures.add(str(path))
         return False
     try:
         # /inheritance:r. Remove all inherited ACEs
@@ -142,19 +155,26 @@ def _enforce_windows_owner_only_acl(path: "Path | str") -> bool:
         )
         if result.returncode != 0:
             log.warning(
-                "[CONFIG] icacls ACL enforcement failed on %s (rc=%d): %s",
+                "[CONFIG] icacls ACL enforcement failed on %s (rc=%d): %s "
+                "(plaintext secrets in this file may remain readable by "
+                "other local users on a multi-user machine)",
                 path,
                 result.returncode,
                 (result.stderr or "").strip()[:200],
             )
+            acl_enforcement_failures.add(str(path))
             return False
+        acl_enforcement_failures.discard(str(path))
         return True
     except (OSError, subprocess.SubprocessError) as e:
         log.warning(
-            "[CONFIG] icacls ACL enforcement error on %s: %s",
+            "[CONFIG] icacls ACL enforcement error on %s: %s "
+            "(plaintext secrets in this file may remain readable by "
+            "other local users on a multi-user machine)",
             path,
             e,
         )
+        acl_enforcement_failures.add(str(path))
         return False
 
 

@@ -135,22 +135,30 @@ class TestApplyPresetAutoSwitchToCustom:
 
     def test_non_preset_key_does_not_trigger_switch(self, tmp_config_dir, monkeypatch):
         """Setting a config key that ``apply_preset`` does NOT touch
-        (e.g. ``noise_filter_enabled``, which is not in
-        ``audio_presets.PRESETS``) must NOT trigger the auto-switch."""
+        (e.g. ``vad_filter_enabled``, which is not in
+        ``audio_presets.PRESETS``) must NOT trigger the auto-switch.
+
+        ``vad_filter_enabled`` is an allowlisted IPC field and is NOT
+        in ``_PRESET_OVERRIDE_KEYS``; the deprecated runtime-only
+        ``noise_filter_enabled`` was previously used here and is no
+        longer accepted by ``apply_config`` (SEC-002 defense-in-depth
+        now raises on non-allowlisted keys).
+        """
         service, app = _make_service_and_app(tmp_config_dir, monkeypatch)
         app.config.audio_preset = "auto"
 
-        # noise_filter_enabled is NOT in _PRESET_OVERRIDE_KEYS, it's
-        # not overwritten by apply_preset (it's only set when audio_preset
-        # changes via apply_config_side_effects, not by Config.load()).
-        service.apply_config({"noise_filter_enabled": False})
+        # vad_filter_enabled is NOT in _PRESET_OVERRIDE_KEYS, it's
+        # not overwritten by apply_preset (it's only set when
+        # audio_preset changes via apply_config_side_effects, not by
+        # Config.load()).
+        service.apply_config({"vad_filter_enabled": False})
 
         assert app.config.audio_preset == "auto", (
-            "noise_filter_enabled is not in the preset's "
+            "vad_filter_enabled is not in the preset's "
             "overwrite set (see audio_presets.PRESETS), so changing it "
             "must NOT auto-switch audio_preset to custom."
         )
-        assert app.config.noise_filter_enabled is False
+        assert app.config.vad_filter_enabled is False
 
     def test_multiple_individual_toggles_switch_to_custom(self, tmp_config_dir, monkeypatch):
         """Setting multiple individual toggles in one IPC call still
