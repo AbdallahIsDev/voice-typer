@@ -1211,6 +1211,10 @@
 			"deleted": "Deleted: {name}",
 			"deleteFailed": "Delete failed",
 			"deleteFailedError": "Delete failed: {error}",
+			"deleteUnknownModel": "Unknown model: {name}.",
+			"deleteNotDownloaded": "Model '{name}' is not downloaded.",
+			"deleteDictationInFlight": "Stop the current dictation before deleting the active model.",
+			"deleteUnloadFailed": "Could not unload '{name}' for deletion. Try again after stopping any dictation.",
 			"apiKeyEmpty": "Enter an API key first",
 			"apiKeyUnchanged": "API key unchanged",
 			"downloadAlreadyActive": "Another model download is already in progress (it may be paused). Resume or cancel it first.",
@@ -1222,6 +1226,7 @@
 			"resumeFailed": "Failed to resume: {error}",
 			"pauseFailed": "Failed to pause: {error}",
 			"pauseNoop": "No active download to pause.",
+			"resumeNoop": "No active download to resume.",
 			"cancelled": "Download cancelled. Partial files will be reused on retry.",
 			"cancelFailed": "Failed to cancel: {error}",
 			"queuedCancelled": "{name} removed from the download queue.",
@@ -1960,7 +1965,37 @@
 			"undo_nothing": "Nothing to undo.",
 			"undo_done": "Undid last transcription ({char_count} chars)",
 			"undo_no_pynput": "Undo not available (pynput missing)",
-			"undo_failed": "Could not undo the last transcription. See logs for details."
+			"undo_failed": "Could not undo the last transcription. See logs for details.",
+			"clipboard_unavailable_body": "Transcription complete, but the clipboard was unavailable.\nYour text was saved to the crash-recovery file so it is not lost.",
+			"clipboard_unavailable_recovery_path": "Recovery file: {path}"
+		},
+		"hotkey_dispatcher": {
+			"register_failed": "Hotkey {hotkey} could not be registered. It may be in use by another app. Use the tray menu to toggle dictation, or pick a different hotkey in Settings.",
+			"save_failed": "Failed to save hotkey to disk. Check disk space or permissions.",
+			"wayland_caps_lock": "On Wayland, Caps Lock cannot be suppressed, your text will be capitalized. Bind Alt or a function key instead, or remap Caps Lock via your compositor's settings.",
+			"ptt_release_missed": "PTT release event missed, recording auto-stopped after 60s safety timeout.",
+			"esc_register_failed": "ESC cancel hotkey could not be registered. Another app may have claimed it.",
+			"repaste_register_failed": "Repaste hotkey could not be registered. Another app may have claimed it.",
+			"invalid_hotkey": "Hotkey {hotkey} is not valid: {validation_error}. Keeping the previous hotkey.",
+			"restore_failed": "Could not restore the previous hotkey {hotkey}. Open Settings to rebind a hotkey."
+		},
+		"native_adapter": {
+			"warn_title": "{appName}: Native hotkey warning",
+			"fallback_title": "{appName}: Compatibility mode",
+			"fallback_body": "Hotkey is running in compatibility mode (reduced features). Restart the app for full functionality.",
+			"recovery_title": "{appName}: Full mode restored",
+			"recovery_body": "Hotkey is running in full mode.",
+			"failure_title": "{appName}: Hotkey error",
+			"failure_body": "Hotkey is not working. Click to troubleshoot."
+		},
+		"model": {
+			"delete.unknown_model": "Unknown model: {model}",
+			"delete.not_downloaded": "Model '{model}' is not downloaded.",
+			"delete.stale_cleared_no_model": "Model '{model}' was not on disk, no model selected. Pick a model on the Models page.",
+			"delete.stale_cleared_switched": "Model '{model}' was not on disk, switched to '{replacement}'.",
+			"delete.stale_nothing_to_delete": "Model '{model}' was not on disk, nothing to delete.",
+			"delete.active_refused_recording": "Stop the current dictation before deleting the active model.",
+			"delete.unload_failed": "Could not unload '{model}' for deletion. Try again after stopping any dictation."
 		},
 		"permissions": {
 			"macos_title": "{appName} needs permission",

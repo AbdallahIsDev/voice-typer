@@ -1204,6 +1204,10 @@
 			"deleted": "Gelöscht: {name}",
 			"deleteFailed": "Löschen fehlgeschlagen",
 			"deleteFailedError": "Löschen fehlgeschlagen: {error}",
+			"deleteUnknownModel": "Unbekanntes Modell: {name}.",
+			"deleteNotDownloaded": "Modell '{name}' ist nicht heruntergeladen.",
+			"deleteDictationInFlight": "Stoppen Sie die aktuelle Diktierung, bevor Sie das aktive Modell löschen.",
+			"deleteUnloadFailed": "Modell '{name}' konnte zum Löschen nicht entladen werden. Stoppen Sie laufende Diktierungen und versuchen Sie es erneut.",
 			"apiKeyEmpty": "Zuerst einen API-Schlüssel eingeben",
 			"apiKeyUnchanged": "API-Schlüssel unverändert",
 			"apiKeySaved": "{provider}-API-Schlüssel gespeichert",
@@ -1212,6 +1216,7 @@
 			"resumeFailed": "Fortsetzen fehlgeschlagen: {error}",
 			"pauseFailed": "Pausieren fehlgeschlagen: {error}",
 			"pauseNoop": "Kein aktiver Download zum Pausieren.",
+			"resumeNoop": "Kein aktiver Download zum Fortsetzen.",
 			"cancelled": "Download abgebrochen. Teilweise heruntergeladene Dateien werden beim erneuten Versuch wiederverwendet.",
 			"cancelFailed": "Abbrechen fehlgeschlagen: {error}",
 			"queuedCancelled": "{name} wurde aus der Download-Warteschlange entfernt.",
@@ -1510,7 +1515,7 @@
 		"englishOnlyBadge": "Nur Englisch",
 		"multilingualBadge": "Mehrsprachig",
 		"downloadProgressAria": "Fortschritt des Modell-Downloads: {percent}%",
-		"backendAria": "Transcription backend",
+		"backendAria": "Transkriptions-Backend",
 		"backendLocalLabel": "Local model",
 		"backendLocalDescription": "Laden Sie ein Modell auf Ihr Gerät herunter. Die Transkription läuft vollständig offline: Ihr Audio verlässt niemals Ihren Computer.",
 		"backendCloudLabel": "Cloud API",
@@ -1960,7 +1965,37 @@
 			"undo_nothing": "Nichts rückgängig zu machen.",
 			"undo_done": "Letzte Transkription rückgängig gemacht ({char_count} Zeichen)",
 			"undo_no_pynput": "Rückgängig nicht verfügbar (pynput fehlt)",
-			"undo_failed": "Die letzte Transkription konnte nicht rückgängig gemacht werden. Siehe Protokolle für Details."
+			"undo_failed": "Die letzte Transkription konnte nicht rückgängig gemacht werden. Siehe Protokolle für Details.",
+			"clipboard_unavailable_body": "Transkription abgeschlossen, aber die Zwischenablage war nicht verfügbar.\nIhr Text wurde in der Crash-Wiederherstellungsdatei gespeichert, sodass er nicht verloren geht.",
+			"clipboard_unavailable_recovery_path": "Wiederherstellungsdatei: {path}"
+		},
+		"hotkey_dispatcher": {
+			"register_failed": "Das Hotkey {hotkey} konnte nicht registriert werden. Möglicherweise wird es von einer anderen App verwendet. Verwenden Sie das Tray-Menü, um die Diktierung umzuschalten, oder wählen Sie in den Einstellungen einen anderen Hotkey.",
+			"save_failed": "Hotkey konnte nicht auf die Festplatte gespeichert werden. Prüfen Sie Speicherplatz oder Berechtigungen.",
+			"wayland_caps_lock": "Unter Wayland kann Caps Lock nicht unterdrückt werden, Ihr Text wird großgeschrieben. Binden Sie stattdessen Alt oder eine Funktionstaste, oder remappen Sie Caps Lock über die Einstellungen Ihres Compositors.",
+			"ptt_release_missed": "PTT-Loslass-Ereignis verpasst, die Aufnahme wurde nach 60-s-Sicherheitstimeout automatisch gestoppt.",
+			"esc_register_failed": "ESC-Abbruch-Hotkey konnte nicht registriert werden. Eine andere App hat ihn möglicherweise belegt.",
+			"repaste_register_failed": "Erneutes-Einfügen-Hotkey konnte nicht registriert werden. Eine andere App hat ihn möglicherweise belegt.",
+			"invalid_hotkey": "Hotkey {hotkey} ist ungültig: {validation_error}. Der vorherige Hotkey bleibt erhalten.",
+			"restore_failed": "Der vorherige Hotkey {hotkey} konnte nicht wiederhergestellt werden. Öffnen Sie die Einstellungen, um einen Hotkey neu zu binden."
+		},
+		"native_adapter": {
+			"warn_title": "{appName}: Native-Hotkey-Warnung",
+			"fallback_title": "{appName}: Kompatibilitätsmodus",
+			"fallback_body": "Der Hotkey läuft im Kompatibilitätsmodus (reduzierte Funktionen). Starten Sie die App neu, um die volle Funktionalität wiederherzustellen.",
+			"recovery_title": "{appName}: Vollmodus wiederhergestellt",
+			"recovery_body": "Der Hotkey läuft im Vollmodus.",
+			"failure_title": "{appName}: Hotkey-Fehler",
+			"failure_body": "Der Hotkey funktioniert nicht. Klicken Sie zur Fehlersuche."
+		},
+		"model": {
+			"delete.unknown_model": "Unbekanntes Modell: {model}.",
+			"delete.not_downloaded": "Modell '{model}' ist nicht heruntergeladen.",
+			"delete.stale_cleared_no_model": "Modell '{model}' wurde nicht auf dem Datenträger gefunden, kein Modell ausgewählt. Wählen Sie auf der Modelle-Seite ein Modell.",
+			"delete.stale_cleared_switched": "Modell '{model}' wurde nicht auf dem Datenträger gefunden, gewechselt zu '{replacement}'.",
+			"delete.stale_nothing_to_delete": "Modell '{model}' wurde nicht auf dem Datenträger gefunden, nichts zu löschen.",
+			"delete.active_refused_recording": "Stoppen Sie die aktuelle Diktierung, bevor Sie das aktive Modell löschen.",
+			"delete.unload_failed": "Modell '{model}' konnte zum Löschen nicht entladen werden. Versuchen Sie es nach dem Stoppen laufender Diktierungen erneut."
 		},
 		"permissions": {
 			"macos_title": "{appName} benötigt eine Berechtigung",

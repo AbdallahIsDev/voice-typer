@@ -174,6 +174,7 @@ export function useModelSelection({
 				success: boolean;
 				error?: string;
 				message?: string;
+				reason?: string;
 			}>("delete_model", { model: target.name });
 			if (result.success) {
 				setModels((prev) =>
@@ -188,11 +189,27 @@ export function useModelSelection({
 					"success",
 				);
 			} else {
-				// Prefer the backend's reason (it names the cause:
-				// dictation in flight, unload failure, ...), the
-				// generic key is the last resort.
+				// Structured failure reasons localize the snack
+				// (C-I18N-1): the backend English `message` is legacy
+				// fallback only, then the generic key. Unknown future
+				// reasons degrade to the generic snack, never raw English.
+				const reasonSnacks: Record<string, string> = {
+					unknown_model: t("models.snack.deleteUnknownModel", {
+						name: target.name,
+					}),
+					not_downloaded: t("models.snack.deleteNotDownloaded", {
+						name: target.name,
+					}),
+					dictation_in_flight: t("models.snack.deleteDictationInFlight"),
+					unload_failed: t("models.snack.deleteUnloadFailed", {
+						name: target.name,
+					}),
+				};
 				showSnack(
-					result.message || result.error || t("models.snack.deleteFailed"),
+					(result.reason && reasonSnacks[result.reason]) ||
+						result.message ||
+						result.error ||
+						t("models.snack.deleteFailed"),
 					"error",
 				);
 			}

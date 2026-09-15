@@ -275,7 +275,7 @@ function ProviderConfigForm({
 					<button
 						type="button"
 						onClick={() => setRevealKey((v) => !v)}
-						className="absolute inset-e-2 top-1/2 -translate-y-1/2 inline-flex size-6 items-center justify-center rounded-md text-(--text-muted) hover:text-(--text-primary) hover:bg-foreground/5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+						className="absolute inset-e-2 top-1/2 -translate-y-1/2 inline-flex size-6 items-center justify-center rounded-md text-(--text-muted) hover:text-(--text-primary) hover:bg-foreground/5 transition-colors focus-visible:outline-none focus-visible:ring-1focus-visible:ring-ring"
 						aria-label={
 							revealKey
 								? t("models.cloud.apiKeyHideAria", {

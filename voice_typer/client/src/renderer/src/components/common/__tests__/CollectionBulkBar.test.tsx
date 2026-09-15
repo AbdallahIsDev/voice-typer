@@ -162,11 +162,11 @@ describe("CollectionBulkBar, visual tokens (byte-identical extraction)", () => {
 		);
 	});
 
-	it("deselect-all keeps the focus-visible ring contract (C-FOCUS-2: full-opacity ring-3)", () => {
+	it("deselect-all keeps the focus-visible ring contract (C-FOCUS-2: full-opacity ring-1)", () => {
 		setupBulkBar();
 		const deselect = screen.getByRole("button", { name: "test.deselectAll" });
 		expect(deselect.className).toContain(
-			"focus-visible:ring-3 focus-visible:ring-ring focus-visible:outline-none",
+			"focus-visible:ring-1focus-visible:ring-ring focus-visible:outline-none",
 		);
 	});
 });

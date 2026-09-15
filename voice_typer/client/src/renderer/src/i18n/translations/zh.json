@@ -1204,6 +1204,10 @@
 			"deleted": "已删除：{name}",
 			"deleteFailed": "删除失败",
 			"deleteFailedError": "删除失败：{error}",
+			"deleteUnknownModel": "未知模型：{name}。",
+			"deleteNotDownloaded": "模型 {name} 尚未下载。",
+			"deleteDictationInFlight": "删除活动模型前请先停止当前听写。",
+			"deleteUnloadFailed": "无法卸载 {name} 以删除，请停止听写后重试。",
 			"apiKeyEmpty": "请先输入 API 密钥",
 			"apiKeyUnchanged": "API 密钥未更改",
 			"apiKeySaved": "{provider} API 密钥已保存",
@@ -1212,6 +1216,7 @@
 			"resumeFailed": "恢复失败：{error}",
 			"pauseFailed": "暂停失败：{error}",
 			"pauseNoop": "没有正在进行的下载可暂停。",
+			"resumeNoop": "没有正在进行的下载可恢复。",
 			"cancelled": "下载已取消。部分文件将在重试时被复用。",
 			"cancelFailed": "取消失败：{error}",
 			"queuedCancelled": "{name} 已从下载队列中移除。",
@@ -1510,7 +1515,7 @@
 		"englishOnlyBadge": "仅英语",
 		"multilingualBadge": "多语言",
 		"downloadProgressAria": "下载进度：{percent}%",
-		"backendAria": "Transcription backend",
+		"backendAria": "转录后端",
 		"backendLocalLabel": "Local model",
 		"backendLocalDescription": "将模型下载到您的设备。转录完全离线运行: 您的音频永远不会离开您的计算机。",
 		"backendCloudLabel": "Cloud API",
@@ -1960,7 +1965,37 @@
 			"undo_nothing": "没有可撤销的操作。",
 			"undo_done": "已撤销上次转录（{char_count} 个字符）",
 			"undo_no_pynput": "撤销不可用（缺少 pynput）",
-			"undo_failed": "无法撤销上次转录。详情请查看日志。"
+			"undo_failed": "无法撤销上次转录。详情请查看日志。",
+			"clipboard_unavailable_body": "转写已完成，但剪贴板不可用。\n您的文本已保存到崩溃恢复文件中，因此不会丢失。",
+			"clipboard_unavailable_recovery_path": "恢复文件：{path}"
+		},
+		"hotkey_dispatcher": {
+			"register_failed": "无法注册快捷键 {hotkey}。它可能正被其他应用占用。可使用托盘菜单切换听写，或在设置中选择其他快捷键。",
+			"save_failed": "无法将快捷键保存到磁盘。请检查磁盘空间或权限。",
+			"wayland_caps_lock": "在 Wayland 上无法屏蔽 Caps Lock，输入文本会变成大写。请改绑 Alt 或功能键，或通过合成器设置重新映射 Caps Lock。",
+			"ptt_release_missed": "未检测到 PTT 松开事件，录音已在 60 秒安全超时后自动停止。",
+			"esc_register_failed": "无法注册 ESC 取消快捷键。其他应用可能已占用该按键。",
+			"repaste_register_failed": "无法注册重新粘贴快捷键。其他应用可能已占用该按键。",
+			"invalid_hotkey": "快捷键 {hotkey} 无效：{validation_error}。将保留之前的快捷键。",
+			"restore_failed": "无法恢复之前的快捷键 {hotkey}。请打开设置重新绑定快捷键。"
+		},
+		"native_adapter": {
+			"warn_title": "{appName}：原生快捷键警告",
+			"fallback_title": "{appName}：兼容模式",
+			"fallback_body": "快捷键正在兼容模式下运行（功能受限）。请重启应用以恢复完整功能。",
+			"recovery_title": "{appName}：已恢复完整模式",
+			"recovery_body": "快捷键正在完整模式下运行。",
+			"failure_title": "{appName}：快捷键错误",
+			"failure_body": "快捷键无法工作。点击以排查问题。"
+		},
+		"model": {
+			"delete.unknown_model": "未知模型：{model}。",
+			"delete.not_downloaded": "模型 {model} 尚未下载。",
+			"delete.stale_cleared_no_model": "模型 {model} 不在磁盘上，未选择任何模型。请在模型页面选择一个模型。",
+			"delete.stale_cleared_switched": "模型 {model} 不在磁盘上，已切换为“{replacement}”。",
+			"delete.stale_nothing_to_delete": "模型 {model} 不在磁盘上，没有可删除的内容。",
+			"delete.active_refused_recording": "删除活动模型前请先停止当前听写。",
+			"delete.unload_failed": "无法卸载 {model} 以删除，请停止听写后重试。"
 		},
 		"permissions": {
 			"macos_title": "{appName} 需要权限",

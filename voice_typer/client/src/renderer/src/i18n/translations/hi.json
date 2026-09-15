@@ -1204,6 +1204,10 @@
 			"deleted": "हटाया गया: {name}",
 			"deleteFailed": "हटाना विफल",
 			"deleteFailedError": "हटाना विफल: {error}",
+			"deleteUnknownModel": "अज्ञात मॉडल: {name}।",
+			"deleteNotDownloaded": "मॉडल '{name}' डाउनलोड नहीं है।",
+			"deleteDictationInFlight": "सक्रिय मॉडल हटाने से पहले वर्तमान डिक्टेशन रोकें।",
+			"deleteUnloadFailed": "'{name}' को हटाने के लिए अनलोड नहीं किया जा सका। कोई भी डिक्टेशन रोककर पुनः प्रयास करें।",
 			"apiKeyEmpty": "पहले एक API कुंजी दर्ज करें",
 			"apiKeyUnchanged": "API कुंजी अपरिवर्तित है",
 			"apiKeySaved": "{provider} API कुंजी सहेजी गई",
@@ -1212,6 +1216,7 @@
 			"resumeFailed": "फिर से शुरू करने में विफल: {error}",
 			"pauseFailed": "रोकने में विफल: {error}",
 			"pauseNoop": "रोकने के लिए कोई सक्रिय डाउनलोड नहीं है।",
+			"resumeNoop": "फिर से शुरू करने के लिए कोई सक्रिय डाउनलोड नहीं है।",
 			"cancelled": "डाउनलोड रद्द। आंशिक फ़ाइलें पुनः प्रयास पर पुनः उपयोग होंगी।",
 			"cancelFailed": "रद्द करने में विफल: {error}",
 			"queuedCancelled": "{name} को डाउनलोड कतार से हटा दिया गया।",
@@ -1510,7 +1515,7 @@
 		"englishOnlyBadge": "केवल अंग्रेज़ी",
 		"multilingualBadge": "बहुभाषी",
 		"downloadProgressAria": "मॉडल डाउनलोड प्रगति: {percent}%",
-		"backendAria": "Transcription backend",
+		"backendAria": "ट्रांसक्रिप्शन बैकएंड",
 		"backendLocalLabel": "Local model",
 		"backendLocalDescription": "अपने डिवाइस पर एक मॉडल डाउनलोड करें। ट्रांसक्रिप्शन पूरी तरह ऑफ़लाइन चलता है: आपका ऑडियो कभी भी आपका कंप्यूटर नहीं छोड़ता।",
 		"backendCloudLabel": "Cloud API",
@@ -1960,7 +1965,37 @@
 			"undo_nothing": "पूर्ववत करने के लिए कुछ नहीं है।",
 			"undo_done": "अंतिम ट्रांसक्रिप्शन पूर्ववत किया गया ({char_count} अक्षर)",
 			"undo_no_pynput": "पूर्ववत उपलब्ध नहीं (pynput अनुपलब्ध)",
-			"undo_failed": "अंतिम ट्रांसक्रिप्शन पूर्ववत नहीं किया जा सका। विवरण के लिए लॉग देखें।"
+			"undo_failed": "अंतिम ट्रांसक्रिप्शन पूर्ववत नहीं किया जा सका। विवरण के लिए लॉग देखें।",
+			"clipboard_unavailable_body": "ट्रांसक्रिप्शन पूरा हुआ, लेकिन क्लिपबोर्ड उपलब्ध नहीं था।\nआपका टेक्स्ट क्रैश-रिकवरी फ़ाइल में सहेज लिया गया है ताकि वह खो न जाए।",
+			"clipboard_unavailable_recovery_path": "रिकवरी फ़ाइल: {path}"
+		},
+		"hotkey_dispatcher": {
+			"register_failed": "हॉटकी {hotkey} पंजीकृत नहीं की जा सकी। यह किसी अन्य ऐप द्वारा उपयोग में हो सकती है। डिक्टेशन टॉगल करने के लिए ट्रे मेनू का उपयोग करें, या सेटिंग्स में कोई अन्य हॉटकी चुनें।",
+			"save_failed": "हॉटकी डिस्क पर सहेजी नहीं जा सकी। डिस्क स्थान या अनुमतियाँ जाँचें।",
+			"wayland_caps_lock": "Wayland पर Caps Lock दबाया नहीं जा सकता, आपका टेक्स्ट कैपिटल होगा। इसके बजाय Alt या फ़ंक्शन की बाइंड करें, या अपने कंपोज़िटर सेटिंग्स से Caps Lock रीमैप करें।",
+			"ptt_release_missed": "PTT रिलीज़ इवेंट छूट गया, 60 सेकंड सेफ़्टी टाइमआउट के बाद रिकॉर्डिंग स्वतः रोक दी गई।",
+			"esc_register_failed": "ESC रद्द हॉटकी पंजीकृत नहीं की जा सकी। कोई अन्य ऐप इसे ले चुका हो सकता है।",
+			"repaste_register_failed": "रीपेस्ट हॉटकी पंजीकृत नहीं की जा सकी। कोई अन्य ऐप इसे ले चुका हो सकता है।",
+			"invalid_hotkey": "हॉटकी {hotkey} मान्य नहीं है: {validation_error}। पिछली हॉटकी रखी जा रही है।",
+			"restore_failed": "पिछली हॉटकी {hotkey} पुनर्स्थापित नहीं की जा सकी। हॉटकी बाइंड करने के लिए सेटिंग्स खोलें।"
+		},
+		"native_adapter": {
+			"warn_title": "{appName}: नेटिव हॉटकी चेतावनी",
+			"fallback_title": "{appName}: संगतता मोड",
+			"fallback_body": "हॉटकी संगतता मोड में चल रही है (कम सुविधाएँ)। पूर्ण कार्यक्षमता के लिए ऐप पुनः आरंभ करें।",
+			"recovery_title": "{appName}: पूर्ण मोड बहाल",
+			"recovery_body": "हॉटकी पूर्ण मोड में चल रही है।",
+			"failure_title": "{appName}: हॉटकी त्रुटि",
+			"failure_body": "हॉटकी काम नहीं कर रही है। समस्या निवारण के लिए क्लिक करें।"
+		},
+		"model": {
+			"delete.unknown_model": "अज्ञात मॉडल: {model}।",
+			"delete.not_downloaded": "मॉडल '{model}' डाउनलोड नहीं है।",
+			"delete.stale_cleared_no_model": "मॉडल '{model}' डिस्क पर नहीं था, कोई मॉडल चयनित नहीं। मॉडल पृष्ठ पर कोई मॉडल चुनें।",
+			"delete.stale_cleared_switched": "मॉडल '{model}' डिस्क पर नहीं था, '{replacement}' पर स्विच किया गया।",
+			"delete.stale_nothing_to_delete": "मॉडल '{model}' डिस्क पर नहीं था, हटाने के लिए कुछ नहीं।",
+			"delete.active_refused_recording": "सक्रिय मॉडल हटाने से पहले वर्तमान डिक्टेशन रोकें।",
+			"delete.unload_failed": "'{model}' को हटाने के लिए अनलोड नहीं किया जा सका। कोई भी डिक्टेशन रोककर पुनः प्रयास करें।"
 		},
 		"permissions": {
 			"macos_title": "{appName} को अनुमति चाहिए",

@@ -15,8 +15,7 @@ import {
 	t,
 	useT,
 } from "@/i18n/i18n";
-
-const HEADING_CLASS = "text-2xl font-bold text-(--text-primary) outline-none";
+import { HEADING_CLASS } from "../lib/constants";
 
 const LOCALE_OPTIONS = SUPPORTED_LOCALES.map((locale) => ({
 	value: locale,

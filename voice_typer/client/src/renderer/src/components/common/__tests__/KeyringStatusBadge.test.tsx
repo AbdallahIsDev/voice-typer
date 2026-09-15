@@ -201,10 +201,10 @@ describe("KeyringStatusBadge, BG-R11 (branching + cursor-default)", () => {
 		expect(innerProviders.length).toBe(0);
 	});
 
-	it("XA-3: trigger button uses the shared focusRing (ring-3, not the thinner ring-2/ring-ring/50)", () => {
-		// Previously the badge used `focus-visible:ring-2 focus-visible:ring-ring/50`
+	it("XA-3: trigger button uses the shared focusRing (ring-1, not the thinner ring-1/ring-ring/50)", () => {
+		// Previously the badge used `focus-visible:ring-1focus-visible:ring-ring/50`
 		// which was thinner AND more opaque than the design-system Button's
-		// `focus-visible:ring-3 focus-visible:ring-ring`. The mismatch meant
+		// `focus-visible:ring-1 focus-visible:ring-ring`. The mismatch meant
 		// the badge's focus indicator visually diverged from every other
 		// focusable element in the app. The fix routes through the shared
 		// `focusRing` constant so all interactive elements share one focus
@@ -214,10 +214,10 @@ describe("KeyringStatusBadge, BG-R11 (branching + cursor-default)", () => {
 		);
 		const btn = screen.getByRole("button");
 		const cls = btn.className;
-		expect(cls).toContain("focus-visible:ring-3");
+		expect(cls).toContain("focus-visible:ring-1");
 		expect(cls).toContain("focus-visible:ring-ring");
-		// The legacy thinner ring-2 indicator must be gone.
-		expect(cls).not.toMatch(/focus-visible:ring-2\b/);
+		// The legacy thinner ring-1 indicator must be gone.
+		expect(cls).not.toMatch(/focus-visible:ring-1\b/);
 		// The legacy /50 alpha modifier (which broke WCAG 1.4.11 composite
 		// contrast in some themes) must also be gone.
 		expect(cls).not.toMatch(/focus-visible:ring-ring\/50/);
@@ -227,9 +227,9 @@ describe("KeyringStatusBadge, BG-R11 (branching + cursor-default)", () => {
 		rerender(withProvider(<KeyringStatusBadge status={fallbackStatus} />));
 		const btn2 = screen.getByRole("button");
 		const cls2 = btn2.className;
-		expect(cls2).toContain("focus-visible:ring-3");
+		expect(cls2).toContain("focus-visible:ring-1");
 		expect(cls2).toContain("focus-visible:ring-ring");
-		expect(cls2).not.toMatch(/focus-visible:ring-2\b/);
+		expect(cls2).not.toMatch(/focus-visible:ring-1\b/);
 		expect(cls2).not.toMatch(/focus-visible:ring-ring\/50/);
 	});
 });

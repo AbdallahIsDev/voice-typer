@@ -54,7 +54,7 @@ export function VocabDuplicateBanner({
 				onClick={onDismiss}
 				aria-label={t("common.close")}
 				title={t("common.close")}
-				className="cursor-pointer rounded-lg p-1 text-(--text-muted) transition-colors hover:bg-foreground/10 hover:text-(--text-primary) focus-visible:ring-3 focus-visible:ring-ring focus-visible:outline-none"
+				className="cursor-pointer rounded-lg p-1 text-(--text-muted) transition-colors hover:bg-foreground/10 hover:text-(--text-primary) focus-visible:ring-1focus-visible:ring-ring focus-visible:outline-none"
 			>
 				<HugeiconsIcon
 					icon={Cancel01Icon}

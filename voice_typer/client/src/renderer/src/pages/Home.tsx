@@ -36,7 +36,6 @@
 // identity). The regression test greps Home.tsx source for this pattern, so
 // it stays here in the composition root rather than moving into a hook.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { LastUpdatedIndicator } from "@/components/common/LastUpdatedIndicator";
 import ActivityList from "@/components/dashboard/ActivityList";
 import { ShareStatsDialog } from "@/components/dashboard/ShareStatsDialog";
@@ -61,6 +60,7 @@ import { HOTKEY_DEFAULT } from "@/pages/onboarding/lib/constants";
 import { useAppStore } from "@/stores/appStore";
 import type { VoiceTyperConfig } from "@/types/config";
 import type { HistoryRecord, TodayStats } from "@/types/ipc";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MicToggleButton } from "./home/components/MicToggleButton";
 import { RecordingStatusPill } from "./home/components/RecordingStatusPill";
 import { RecordingTimer } from "./home/components/RecordingTimer";
@@ -446,11 +446,11 @@ export default function Home() {
 		() =>
 			stats && asrBackend
 				? computeShareStats(stats, asrBackend, {
-						// Pre-formatted display values ("Tiny", "GPU"), the
-						// share image renders them as-is.
-						model: cfg?.model_size ? formatModel(cfg.model_size) : "",
-						device: cfg?.device ? formatDevice(cfg.device) : "",
-					})
+					// Pre-formatted display values ("Tiny", "GPU"), the
+					// share image renders them as-is.
+					model: cfg?.model_size ? formatModel(cfg.model_size) : "",
+					device: cfg?.device ? formatDevice(cfg.device) : "",
+				})
 				: null,
 		[stats, asrBackend, cfg?.model_size, cfg?.device],
 	);
@@ -556,7 +556,7 @@ export default function Home() {
 				<button
 					type="button"
 					onClick={forceCancel.handleForceCancel}
-					className="text-xs text-warning hover:text-warning/80 hover:underline transition-colors"
+					className="rounded-sm text-xs text-warning hover:text-warning/80 hover:underline transition-colors focus-visible:ring-1focus-visible:ring-ring focus-visible:outline-none"
 					aria-label={t("home.forceCancelHint")}
 				>
 					{t("home.forceCancelHint")}
@@ -595,9 +595,8 @@ export default function Home() {
 			<output
 				aria-live="polite"
 				role={hint?.variant === "error" ? "alert" : undefined}
-				className={`flex items-center gap-2 text-[0.8125rem] animate-fade-in ${
-					hint?.variant === "error" ? "text-destructive" : "text-(--text-muted)"
-				}`}
+				className={`flex items-center gap-2 text-[0.8125rem] animate-fade-in ${hint?.variant === "error" ? "text-destructive" : "text-(--text-muted)"
+					}`}
 			>
 				{hint ? (
 					noModelSelected && hint.variant === "error" ? (

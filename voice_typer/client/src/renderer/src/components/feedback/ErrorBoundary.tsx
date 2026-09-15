@@ -40,6 +40,8 @@
 // preserved, ``console.error`` serializes ``errorInfo`` to a string
 // and loses the structured component-tree trace).
 
+import { Alert02Icon } from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
 import { Component, createRef, type ErrorInfo, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { t } from "@/i18n/i18n";
@@ -397,104 +399,116 @@ export class ErrorBoundary extends Component<
 
 			return (
 				<div
-					className="flex min-h-screen flex-col items-center justify-center gap-4 bg-(--bg-subtle) p-8 text-center"
+					className="flex min-h-screen items-center justify-center bg-(--bg-subtle) p-6"
 					role="alert"
 					aria-live="assertive"
 				>
-					<div className="flex flex-col gap-2">
-						<h1 className="text-2xl font-bold text-(--text-primary)">
+					<div className="flex w-full max-w-lg flex-col items-center gap-4 rounded-xl border border-border/10 bg-card px-6 py-8 text-center">
+						<div className="flex rounded-full bg-destructive/10 p-3">
+							<HugeiconsIcon
+								icon={Alert02Icon}
+								strokeWidth={2}
+								className="h-10 w-10 text-destructive"
+								aria-hidden="true"
+							/>
+						</div>
+						<h1 className="text-xl font-semibold text-(--text-primary)">
 							{t("errorBoundary.title")}
 						</h1>
 						<p className="text-sm text-(--text-muted)">
 							{t("errorBoundary.description")}
 						</p>
-					</div>
-					{/* user-friendly summary placed ABOVE the technical <pre>
-                                            so non-developer users see the recommended recovery path
-                                            before the raw error message. The raw stack trace below is
-                                            preserved for bug-report copy-paste but is no longer the
-                                            first thing the user reads. */}
-					<p className="max-w-4xl text-sm text-(--text-muted)">
-						{t("errorBoundary.configCrashHint")}
-					</p>
-					<pre className="max-w-4xl overflow-auto rounded-lg border border-border/5 bg-(--bg-subtle) p-4 text-start text-xs text-(--text-muted)">
-						{errorMessage}
-					</pre>
-					{/* sr-only hint wired to the Reset settings button via
+						{/* user-friendly summary placed ABOVE the technical <pre>
+                                                    so non-developer users see the recommended recovery path
+                                                    before the raw error message. The raw stack trace below is
+                                                    preserved for bug-report copy-paste but is no longer the
+                                                    first thing the user reads. */}
+						<p className="text-sm text-(--text-muted)">
+							{t("errorBoundary.configCrashHint")}
+						</p>
+						<pre className="w-full overflow-auto rounded-lg border border-border/10 bg-muted p-4 font-mono text-start text-xs text-muted-foreground">
+							{errorMessage}
+						</pre>
+						{/* sr-only hint wired to the Reset settings button via
                                             aria-describedby so screen-reader / keyboard users hear
                                             the rationale when the button receives focus. The `title`
                                             attribute alone is not reliably announced by all SRs. */}
-					<p id="error-boundary-reset-hint" className="sr-only">
-						{t("errorBoundary.resetSettingsHint")}
-					</p>
-					<div className="flex flex-wrap items-center justify-center gap-2">
-						{/* "Reset settings" is rendered FIRST and visually
+						<p id="error-boundary-reset-hint" className="sr-only">
+							{t("errorBoundary.resetSettingsHint")}
+						</p>
+						<div className="flex flex-wrap items-center justify-center gap-2">
+							{/* "Reset settings" is rendered FIRST and visually
                                                     highlighted as the recommended recovery action, most
                                                     render crashes stem from a bad config value, so this
                                                     affordance has the highest expected payoff. The
                                                     destructive tint + soft background visually separate
                                                     it from the secondary Try Again / Reload App actions. */}
-						<Button
-							type="button"
-							variant="destructive"
-							onClick={this.handleResetSettings}
-							disabled={this.state.resetting}
-							title={t("errorBoundary.resetSettingsHint")}
-							aria-describedby="error-boundary-reset-hint"
-							// Attach the focus-target ref so
-							// ``componentDidUpdate`` can move focus
-							// here when the boundary triggers. This
-							// is the recommended recovery action so
-							// it gets the initial focus.
-							ref={this.resetButtonRef}
-						>
-							{this.state.resetting
-								? t("errorBoundary.resetting")
-								: t("errorBoundary.resetSettings")}
-						</Button>
-						<Button
-							type="button"
-							variant="default"
-							onClick={this.handleReset}
-							// Disable after the first failed retry so the
-							// user cannot loop on "Try Again" against poisoned state.
-							// The hint routes them to "Reset settings" instead.
-							// Re-enabled when ``handleResetSettings`` clears the
-							// counter on a successful backend reset.
-							disabled={this.state.tryAgainCount >= 1}
-							title={
-								this.state.tryAgainCount >= 1
-									? t("errorBoundary.resetSettingsHint")
-									: undefined
-							}
-						>
-							{t("errorBoundary.tryAgain")}
-						</Button>
-						<Button type="button" variant="outline" onClick={this.handleReload}>
-							{t("errorBoundary.reloadApp")}
-						</Button>
-						<Button
-							type="button"
-							variant="outline"
-							onClick={this.handleCopyError}
-						>
-							{this.state.copied
-								? t("errorBoundary.copied")
-								: t("errorBoundary.copyError")}
-						</Button>
-						<Button
-							type="button"
-							variant="outline"
-							onClick={this.handleOpenLogs}
-						>
-							{t("errorBoundary.openLogs")}
-						</Button>
+							<Button
+								type="button"
+								variant="destructive"
+								onClick={this.handleResetSettings}
+								disabled={this.state.resetting}
+								title={t("errorBoundary.resetSettingsHint")}
+								aria-describedby="error-boundary-reset-hint"
+								// Attach the focus-target ref so
+								// ``componentDidUpdate`` can move focus
+								// here when the boundary triggers. This
+								// is the recommended recovery action so
+								// it gets the initial focus.
+								ref={this.resetButtonRef}
+							>
+								{this.state.resetting
+									? t("errorBoundary.resetting")
+									: t("errorBoundary.resetSettings")}
+							</Button>
+							<Button
+								type="button"
+								variant="default"
+								onClick={this.handleReset}
+								// Disable after the first failed retry so the
+								// user cannot loop on "Try Again" against poisoned state.
+								// The hint routes them to "Reset settings" instead.
+								// Re-enabled when ``handleResetSettings`` clears the
+								// counter on a successful backend reset.
+								disabled={this.state.tryAgainCount >= 1}
+								title={
+									this.state.tryAgainCount >= 1
+										? t("errorBoundary.resetSettingsHint")
+										: undefined
+								}
+							>
+								{t("errorBoundary.tryAgain")}
+							</Button>
+							<Button
+								type="button"
+								variant="outline"
+								onClick={this.handleReload}
+							>
+								{t("errorBoundary.reloadApp")}
+							</Button>
+							<Button
+								type="button"
+								variant="outline"
+								onClick={this.handleCopyError}
+							>
+								{this.state.copied
+									? t("errorBoundary.copied")
+									: t("errorBoundary.copyError")}
+							</Button>
+							<Button
+								type="button"
+								variant="outline"
+								onClick={this.handleOpenLogs}
+							>
+								{t("errorBoundary.openLogs")}
+							</Button>
+						</div>
+						{this.state.resetFailed && (
+							<p className="text-xs text-destructive">
+								{t("errorBoundary.resetFailedNotice")}
+							</p>
+						)}
 					</div>
-					{this.state.resetFailed && (
-						<p className="text-xs text-destructive">
-							{t("errorBoundary.resetFailedNotice")}
-						</p>
-					)}
 				</div>
 			);
 		}

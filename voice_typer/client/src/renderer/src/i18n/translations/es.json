@@ -1204,6 +1204,10 @@
 			"deleted": "Eliminado: {name}",
 			"deleteFailed": "Error al eliminar",
 			"deleteFailedError": "Error al eliminar: {error}",
+			"deleteUnknownModel": "Modelo desconocido: {name}.",
+			"deleteNotDownloaded": "El modelo '{name}' no está descargado.",
+			"deleteDictationInFlight": "Detén el dictado en curso antes de eliminar el modelo activo.",
+			"deleteUnloadFailed": "No se pudo liberar '{name}' para eliminarlo. Detén cualquier dictado e inténtalo de nuevo.",
 			"apiKeyEmpty": "Introduce una clave API primero",
 			"apiKeyUnchanged": "Clave API sin cambios",
 			"apiKeySaved": "Clave API de {provider} guardada",
@@ -1212,6 +1216,7 @@
 			"resumeFailed": "Error al reanudar: {error}",
 			"pauseFailed": "Error al pausar: {error}",
 			"pauseNoop": "No hay ninguna descarga activa para pausar.",
+			"resumeNoop": "No hay ninguna descarga activa para reanudar.",
 			"cancelled": "Descarga cancelada. Los archivos parciales se reutilizarán al reintentar.",
 			"cancelFailed": "Error al cancelar: {error}",
 			"queuedCancelled": "{name} se ha eliminado de la cola de descargas.",
@@ -1510,7 +1515,7 @@
 		"englishOnlyBadge": "Solo inglés",
 		"multilingualBadge": "Multilingüe",
 		"downloadProgressAria": "Progreso de descarga del modelo: {percent}%",
-		"backendAria": "Transcription backend",
+		"backendAria": "Backend de transcripción",
 		"backendLocalLabel": "Local model",
 		"backendLocalDescription": "Descarga un modelo en tu dispositivo. La transcripción se ejecuta completamente sin conexión: tu audio nunca abandona tu ordenador.",
 		"backendCloudLabel": "Cloud API",
@@ -1960,7 +1965,37 @@
 			"undo_nothing": "No hay nada que deshacer.",
 			"undo_done": "Se deshizo la última transcripción ({char_count} caracteres)",
 			"undo_no_pynput": "Deshacer no disponible (falta pynput)",
-			"undo_failed": "No se pudo deshacer la última transcripción. Consulte los registros para más detalles."
+			"undo_failed": "No se pudo deshacer la última transcripción. Consulte los registros para más detalles.",
+			"clipboard_unavailable_body": "Transcripción completada, pero el portapapeles no estaba disponible.\nSu texto se guardó en el archivo de recuperación de fallos para que no se pierda.",
+			"clipboard_unavailable_recovery_path": "Archivo de recuperación: {path}"
+		},
+		"hotkey_dispatcher": {
+			"register_failed": "No se pudo registrar el atajo {hotkey}. Puede que otra aplicación lo esté usando. Use el menú de la bandeja para alternar el dictado, o elija otro atajo en Configuración.",
+			"save_failed": "No se pudo guardar el atajo en el disco. Compruebe el espacio en disco o los permisos.",
+			"wayland_caps_lock": "En Wayland, Caps Lock no se puede suprimir y su texto quedará en mayúsculas. Asigne Alt o una tecla de función, o reasigne Caps Lock mediante la configuración de su compositor.",
+			"ptt_release_missed": "Se perdió el evento de liberación de PTT; la grabación se detuvo automáticamente tras el tiempo de espera de seguridad de 60 s.",
+			"esc_register_failed": "No se pudo registrar el atajo de cancelación ESC. Otra aplicación puede haberlo reclamado.",
+			"repaste_register_failed": "No se pudo registrar el atajo de re-pegado. Otra aplicación puede haberlo reclamado.",
+			"invalid_hotkey": "El atajo {hotkey} no es válido: {validation_error}. Se mantiene el atajo anterior.",
+			"restore_failed": "No se pudo restaurar el atajo anterior {hotkey}. Abra Configuración para reasignar un atajo."
+		},
+		"native_adapter": {
+			"warn_title": "{appName}: advertencia de atajo nativo",
+			"fallback_title": "{appName}: modo de compatibilidad",
+			"fallback_body": "El atajo funciona en modo de compatibilidad (funciones reducidas). Reinicie la aplicación para recuperar la funcionalidad completa.",
+			"recovery_title": "{appName}: modo completo restaurado",
+			"recovery_body": "El atajo funciona en modo completo.",
+			"failure_title": "{appName}: error de atajo",
+			"failure_body": "El atajo no funciona. Haga clic para solucionar el problema."
+		},
+		"model": {
+			"delete.unknown_model": "Modelo desconocido: {model}.",
+			"delete.not_downloaded": "El modelo '{model}' no está descargado.",
+			"delete.stale_cleared_no_model": "El modelo '{model}' no estaba en el disco, ningún modelo seleccionado. Elige un modelo en la página Modelos.",
+			"delete.stale_cleared_switched": "El modelo '{model}' no estaba en el disco, se cambió a '{replacement}'.",
+			"delete.stale_nothing_to_delete": "El modelo '{model}' no estaba en el disco, nada que eliminar.",
+			"delete.active_refused_recording": "Detén el dictado en curso antes de eliminar el modelo activo.",
+			"delete.unload_failed": "No se pudo liberar '{model}' para eliminarlo. Inténtalo de nuevo después de detener cualquier dictado."
 		},
 		"permissions": {
 			"macos_title": "{appName} necesita permiso",

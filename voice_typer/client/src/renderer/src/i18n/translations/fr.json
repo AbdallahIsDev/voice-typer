@@ -743,6 +743,10 @@
 			"deleted": "Supprimé : {name}",
 			"deleteFailed": "Échec de la suppression",
 			"deleteFailedError": "Échec de la suppression : {error}",
+			"deleteUnknownModel": "Modèle inconnu : {name}.",
+			"deleteNotDownloaded": "Le modèle '{name}' n'est pas téléchargé.",
+			"deleteDictationInFlight": "Arrêtez la dictée en cours avant de supprimer le modèle actif.",
+			"deleteUnloadFailed": "Impossible de décharger '{name}' pour la suppression. Arrêtez toute dictée puis réessayez.",
 			"apiKeyEmpty": "Saisissez d’abord une clé API",
 			"apiKeyUnchanged": "Clé API inchangée",
 			"apiKeySaved": "Clé API {provider} sauvegardée",
@@ -751,6 +755,7 @@
 			"resumeFailed": "Échec de la reprise : {error}",
 			"pauseFailed": "Échec de la pause : {error}",
 			"pauseNoop": "Aucun téléchargement actif à mettre en pause.",
+			"resumeNoop": "Aucun téléchargement actif à reprendre.",
 			"cancelled": "Téléchargement annulé. Les fichiers partiels seront réutilisés lors d'une nouvelle tentative.",
 			"cancelFailed": "Échec de l'annulation : {error}",
 			"queuedCancelled": "{name} a été retiré de la file d'attente des téléchargements.",
@@ -1657,7 +1662,7 @@
 		"englishOnlyBadge": "Anglais uniquement",
 		"multilingualBadge": "Multilingue",
 		"downloadProgressAria": "Progression du téléchargement du modèle : {percent}%",
-		"backendAria": "Transcription backend",
+		"backendAria": "Backend de transcription",
 		"backendLocalLabel": "Local model",
 		"backendLocalDescription": "Téléchargez un modèle sur votre appareil. La transcription s'exécute entièrement hors ligne: votre audio ne quitte jamais votre ordinateur.",
 		"backendCloudLabel": "Cloud API",
@@ -1960,7 +1965,37 @@
 			"undo_nothing": "Rien à annuler.",
 			"undo_done": "Dernière transcription annulée ({char_count} caractères)",
 			"undo_no_pynput": "Annulation indisponible (pynput manquant)",
-			"undo_failed": "Impossible d'annuler la dernière transcription. Consultez les journaux pour plus de détails."
+			"undo_failed": "Impossible d'annuler la dernière transcription. Consultez les journaux pour plus de détails.",
+			"clipboard_unavailable_body": "Transcription terminée, mais le presse-papiers n'était pas disponible.\nVotre texte a été sauvegardé dans le fichier de récupération après incident afin de ne pas être perdu.",
+			"clipboard_unavailable_recovery_path": "Fichier de récupération : {path}"
+		},
+		"hotkey_dispatcher": {
+			"register_failed": "Impossible d'enregistrer le raccourci {hotkey}. Il est peut-être utilisé par une autre application. Utilisez le menu de la barre d'état pour basculer la dictée, ou choisissez un autre raccourci dans les réglages.",
+			"save_failed": "Impossible d'enregistrer le raccourci sur le disque. Vérifiez l'espace disque ou les autorisations.",
+			"wayland_caps_lock": "Sous Wayland, Caps Lock ne peut pas être supprimé, votre texte sera en majuscules. Assignez plutôt Alt ou une touche de fonction, ou remappez Caps Lock via les réglages de votre compositeur.",
+			"ptt_release_missed": "Événement de relâchement PTT manqué, l'enregistrement s'est arrêté automatiquement après un délai de sécurité de 60 s.",
+			"esc_register_failed": "Impossible d'enregistrer le raccourci d'annulation ESC. Une autre application l'a peut-être réservé.",
+			"repaste_register_failed": "Impossible d'enregistrer le raccourci de recollement. Une autre application l'a peut-être réservé.",
+			"invalid_hotkey": "Le raccourci {hotkey} n'est pas valide : {validation_error}. Le raccourci précédent est conservé.",
+			"restore_failed": "Impossible de restaurer le raccourci précédent {hotkey}. Ouvrez les réglages pour en assigner un nouveau."
+		},
+		"native_adapter": {
+			"warn_title": "{appName} : avertissement de raccourci natif",
+			"fallback_title": "{appName} : mode de compatibilité",
+			"fallback_body": "Le raccourci fonctionne en mode de compatibilité (fonctionnalités réduites). Redémarrez l'application pour retrouver toutes les fonctionnalités.",
+			"recovery_title": "{appName} : mode complet restauré",
+			"recovery_body": "Le raccourci fonctionne en mode complet.",
+			"failure_title": "{appName} : erreur de raccourci",
+			"failure_body": "Le raccourci ne fonctionne pas. Cliquez pour diagnostiquer."
+		},
+		"model": {
+			"delete.unknown_model": "Modèle inconnu : {model}.",
+			"delete.not_downloaded": "Le modèle '{model}' n'est pas téléchargé.",
+			"delete.stale_cleared_no_model": "Le modèle '{model}' n'était pas sur le disque, aucun modèle sélectionné. Choisissez un modèle sur la page Modèles.",
+			"delete.stale_cleared_switched": "Le modèle '{model}' n'était pas sur le disque, bascule vers '{replacement}'.",
+			"delete.stale_nothing_to_delete": "Le modèle '{model}' n'était pas sur le disque, rien à supprimer.",
+			"delete.active_refused_recording": "Arrêtez la dictée en cours avant de supprimer le modèle actif.",
+			"delete.unload_failed": "Impossible de décharger '{model}' pour la suppression. Réessayez après avoir arrêté toute dictée."
 		},
 		"permissions": {
 			"macos_title": "{appName} nécessite une autorisation",

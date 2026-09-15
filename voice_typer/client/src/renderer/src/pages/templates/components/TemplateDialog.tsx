@@ -105,8 +105,8 @@ export function TemplateDialog({
 		editingTemplate === null
 			? trigger.trim() !== "" || expansion.trim() !== ""
 			: trigger !== editingTemplate.trigger ||
-				expansion !== editingTemplate.expansion ||
-				matchMode !== (editingTemplate.match_mode ?? "exact");
+			expansion !== editingTemplate.expansion ||
+			matchMode !== (editingTemplate.match_mode ?? "exact");
 
 	const handleCloseIntent = (): boolean => {
 		if (!hasEdits) return true;
@@ -203,7 +203,7 @@ export function TemplateDialog({
 								title={t("templates.insertVariable", { token })}
 								className={cn(
 									KBD_CHIP_CLASSES,
-									"cursor-pointer transition-colors hover:border-accent/40 hover:bg-accent/5 hover:text-accent focus-visible:ring-3 focus-visible:ring-ring focus-visible:outline-none",
+									"cursor-pointer transition-colors hover:border-accent/40 hover:bg-accent/5 hover:text-accent focus-visible:ring-1focus-visible:ring-ring focus-visible:outline-none",
 								)}
 							>
 								{token}

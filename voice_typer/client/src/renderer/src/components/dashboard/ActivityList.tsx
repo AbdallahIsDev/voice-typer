@@ -228,7 +228,7 @@ const ActivityListRow = memo(function ActivityListRow({
 						onKeyDown={expandable ? handleTextKeyDown : undefined}
 						className={`rounded-md transition-colors ${
 							expandable
-								? "cursor-pointer focus-visible:ring-3 focus-visible:ring-ring focus-visible:outline-hidden"
+								? "cursor-pointer focus-visible:ring-1focus-visible:ring-ring focus-visible:outline-hidden"
 								: ""
 							// Reserve room for the floating bottom-center
 							// button once expanded: without it a long last
@@ -280,7 +280,7 @@ const ActivityListRow = memo(function ActivityListRow({
 									void toggleExpanded();
 								}}
 								onKeyDown={(e) => e.stopPropagation()}
-								className="absolute bottom-0 left-1/2 -translate-x-1/2 cursor-pointer whitespace-nowrap text-sm leading-snug text-(--text-muted) transition-colors hover:text-(--text-primary) focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden rounded-sm"
+								className="absolute bottom-0 left-1/2 -translate-x-1/2 cursor-pointer whitespace-nowrap text-sm leading-snug text-(--text-muted) transition-colors hover:text-(--text-primary) focus-visible:ring-1focus-visible:ring-ring focus-visible:outline-hidden rounded-sm"
 							>
 								{loadingText
 									? t("history.loading")

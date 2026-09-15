@@ -426,7 +426,7 @@ export default function PrewarmAndUpdates({
                                                 category, see docs/auto-update-feature.md. A static
                                                 offline notice now directs the user to open the
                                                 GitHub releases page in their own browser. */}
-						<p className="text-sm text-(--text-muted) mr-auto">
+						<p className="text-sm text-(--text-muted) me-auto">
 							{t("about.offlineUpdatesMessage")}
 						</p>
 						{/* "View Changelog", an `<a href>` link the user

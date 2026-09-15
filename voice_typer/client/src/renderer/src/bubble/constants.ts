@@ -69,7 +69,7 @@ export const FADEOUT_DURATION_MS = 150;
  * mode (where `--muted` is already a dark surface), full-strength
  * `bg-muted` on hover would feel too aggressive in dark themes.
  *
- * `focus-visible:ring-2 focus-visible:ring-ring` ensures the buttons
+ * `focus-visible:ring-1focus-visible:ring-ring` ensures the buttons
  * have a visible focus indicator for keyboard / AT users navigating
  * via screen-reader cursor. Note: the bubble BrowserWindow is created
  * with `focusable: false` (see `main/windows/bubble-window.ts`), so
@@ -83,7 +83,7 @@ export const FADEOUT_DURATION_MS = 150;
  * flips to margin-right automatically.
  */
 export const BUBBLE_BUTTON_CLASS =
-	"no-drag ms-1 inline-flex h-6 w-6 items-center justify-center rounded-full text-(--text-muted) transition-colors hover:bg-(--surface-hover) hover:text-(--text-primary) focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0";
+	"no-drag ms-1 inline-flex h-6 w-6 items-center justify-center rounded-full text-(--text-muted) transition-colors hover:bg-(--surface-hover) hover:text-(--text-primary) focus-visible:outline-none focus-visible:ring-1focus-visible:ring-ring focus-visible:ring-offset-0";
 
 // ── Mode transition (single source of truth) ───────────────────
 

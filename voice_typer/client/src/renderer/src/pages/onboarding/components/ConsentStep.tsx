@@ -20,8 +20,7 @@ import { InfoTooltip } from "@/components/feedback/InfoTooltip";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { t, useT } from "@/i18n/i18n";
-
-const HEADING_CLASS = "text-2xl font-bold text-(--text-primary) outline-none";
+import { HEADING_CLASS } from "../lib/constants";
 
 /** The six consent fields surfaced on this step (Settings-row subset —
  *  `offline_pack_consent` has no Settings row and is granted at the

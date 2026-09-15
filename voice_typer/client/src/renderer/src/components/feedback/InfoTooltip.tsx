@@ -98,9 +98,9 @@ export function InfoTooltip({
 	// would confuse SRs); click + keydown propagation is stopped so
 	// activating the span never toggles the ancestor control.
 	//
-	// Use the shared focusRing (ring-3 / ring-ring/30) for parity
+	// Use the shared focusRing (ring-1 / ring-ring/30) for parity
 	// with the design-system Button instead of the bespoke
-	// ring-2 / ring-ring/50 (thinner + more opaque than the rest of the
+	// ring-1 / ring-ring/50 (thinner + more opaque than the rest of the
 	// app's focus rings).
 	const triggerProps =
 		triggerAs === "inline"

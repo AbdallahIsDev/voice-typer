@@ -1,3 +1,8 @@
+import ConfirmDialog from "@/components/common/ConfirmDialog";
+import PageHeading from "@/components/common/PageHeading";
+import { EmptyState } from "@/components/feedback/EmptyState";
+import { HelpOverlay } from "@/components/help/HelpOverlay";
+import { configHotkeyLabels } from "@/components/hotkey/hotkey-format";
 import {
 	AlertCircleIcon,
 	ArrowLeft01Icon,
@@ -5,11 +10,6 @@ import {
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import ConfirmDialog from "@/components/common/ConfirmDialog";
-import PageHeading from "@/components/common/PageHeading";
-import { EmptyState } from "@/components/feedback/EmptyState";
-import { HelpOverlay } from "@/components/help/HelpOverlay";
-import { configHotkeyLabels } from "@/components/hotkey/hotkey-format";
 // amber banner shown when the OS has not granted the
 // keyboard-monitoring (Accessibility / input-group) permission. Mirrors
 // the MicrophonePermissionBanner placement on the Microphone page.
@@ -63,7 +63,7 @@ function SectionBackButton({ onBack }: { onBack: () => void }) {
 			type="button"
 			data-testid="settings-back-to-hub"
 			aria-label={t("settings.hub.backToSettings")}
-			className="inline-flex items-center gap-2 rounded-md px-2 py-1 text-sm text-(--text-muted) transition-colors duration-150 hover:bg-foreground/5 hover:text-(--text-primary) focus-visible:ring-3 focus-visible:ring-ring focus-visible:outline-none"
+			className="inline-flex items-center gap-2 rounded-md px-2 py-1 text-sm text-(--text-muted) transition-colors duration-150 hover:bg-foreground/5 hover:text-(--text-primary) focus-visible:ring-1focus-visible:ring-ring focus-visible:outline-none"
 			onClick={onBack}
 		>
 			{/* Left-pointing chevron, mirrored in RTL by the shared
@@ -467,7 +467,7 @@ export default function SettingsPage({ page = "settings" }: SettingsPageProps) {
 														<button
 															key={`${group.sectionPage}-${label}`}
 															type="button"
-															className="rounded-md border border-border/10 bg-(--bg) px-2 py-1 text-xs text-(--text-primary) transition-colors hover:bg-foreground/5 focus-visible:ring-3 focus-visible:ring-ring focus-visible:outline-none"
+															className="rounded-md border border-border/10 bg-(--bg) px-2 py-1 text-xs text-(--text-primary) transition-colors hover:bg-foreground/5 focus-visible:ring-1focus-visible:ring-ring focus-visible:outline-none"
 															onClick={() =>
 																navigate(group.sectionPage, {
 																	settingsScrollTarget: { rowHint: label },

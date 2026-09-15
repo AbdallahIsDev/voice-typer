@@ -61,6 +61,7 @@ import type { MicrophoneDevice, VoiceTyperConfig } from "@/types/config";
 // ── Helpers ──────────────────────────────────────────────────────────
 import {
 	_resetMicrophoneTestCache,
+	MIC_TEST_RECORDING_TTL_MS,
 	MICROPHONE_TEST_DURATION_SEC,
 	useMicrophoneTestSession,
 } from "../useMicrophoneTestSession";
@@ -1076,5 +1077,245 @@ describe("useMicrophoneTestSession, timer lifecycle", () => {
 			.mocked(args.showSnack)
 			.mock.calls.filter(([, type]) => type === "error");
 		expect(errAfter.length).toBe(showSnackErr.length);
+	});
+});
+
+describe("useMicrophoneTestSession, silent 5-min UI expiry", () => {
+	beforeEach(() => {
+		callMock.mockReset();
+		_resetMicrophoneTestCache();
+		useConsentGateStore.setState({ request: null });
+	});
+
+	it("clears test state + module cache and stops playback 5 min after completion, silently", async () => {
+		vi.useFakeTimers();
+		try {
+			callMock.mockImplementation((cmd: string, data?: unknown) => {
+				if (cmd === "microphone_test_start")
+					return Promise.resolve({
+						success: true,
+						message: "ok",
+						duration: 10,
+						sample_rate: 16000,
+					});
+				if (cmd === "microphone_test_read_audio") {
+					const path = (data as { path?: string } | undefined)?.path ?? "";
+					return Promise.resolve({
+						success: true,
+						data_b64: path.includes("raw") ? "raw-1" : "clip-1",
+						bytes_read: 6,
+						total_bytes: 6,
+						eof: true,
+						message: "ok",
+					});
+				}
+				if (cmd === "microphone_test_stop")
+					return Promise.resolve({
+						success: true,
+						audio_file: { path: "mem://filtered/clip.wav", bytes: 6 },
+						raw_audio_file: { path: "mem://raw/raw.wav", bytes: 5 },
+						duration_ms: 5000,
+						quality: "good",
+						transcription: "hello world",
+					});
+				return Promise.resolve({ success: true });
+			});
+
+			const args = makeHookArgs();
+			const { result } = renderHook(() => useMicrophoneTestSession(args));
+
+			await act(async () => {
+				await result.current.startTest();
+			});
+			await act(async () => {
+				await result.current.stopTest();
+			});
+			expect(result.current.testAudioBase64).toBe("clip-1");
+			expect(result.current.rawAudioBase64).toBe("raw-1");
+			expect(result.current.testDurationMs).toBe(5000);
+			expect(result.current.testQuality).toBe("good");
+			expect(result.current.testTranscription).toBe("hello world");
+
+			const snackCallsBefore = args.showSnack.mock.calls.length;
+			const stopPlaybackCallsBefore = vi.mocked(args.stopPlayback).mock.calls
+				.length;
+
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(MIC_TEST_RECORDING_TTL_MS);
+			});
+
+			expect(result.current.testAudioBase64).toBeNull();
+			expect(result.current.rawAudioBase64).toBeNull();
+			expect(result.current.testDurationMs).toBe(0);
+			expect(result.current.testQuality).toBeNull();
+			expect(result.current.testTranscription).toBeNull();
+			expect(result.current.testTranscriptionUnavailable).toBe(false);
+			// Playback stopped so a playing data-URI player isn't stranded.
+			expect(vi.mocked(args.stopPlayback).mock.calls.length).toBe(
+				stopPlaybackCallsBefore + 1,
+			);
+			// Completely silent: no toast on expiry.
+			expect(args.showSnack.mock.calls.length).toBe(snackCallsBefore);
+
+			// Module cache cleared too: a fresh mount restores nothing.
+			const { result: result2 } = renderHook(() =>
+				useMicrophoneTestSession(makeHookArgs()),
+			);
+			expect(result2.current.testAudioBase64).toBeNull();
+			expect(result2.current.rawAudioBase64).toBeNull();
+			expect(result2.current.testDurationMs).toBe(0);
+			expect(result2.current.testQuality).toBeNull();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("starting a new test before expiry invalidates the old timer", async () => {
+		vi.useFakeTimers();
+		try {
+			let stopCount = 0;
+			callMock.mockImplementation((cmd: string, data?: unknown) => {
+				if (cmd === "microphone_test_start")
+					return Promise.resolve({
+						success: true,
+						message: "ok",
+						duration: 10,
+						sample_rate: 16000,
+					});
+				if (cmd === "microphone_test_read_audio") {
+					const path = (data as { path?: string } | undefined)?.path ?? "";
+					return Promise.resolve({
+						success: true,
+						data_b64: path.includes("clip2") ? "clip-2" : "clip-1",
+						bytes_read: 6,
+						total_bytes: 6,
+						eof: true,
+						message: "ok",
+					});
+				}
+				if (cmd === "microphone_test_stop") {
+					stopCount += 1;
+					const tag = stopCount === 1 ? "clip1" : "clip2";
+					return Promise.resolve({
+						success: true,
+						audio_file: { path: `mem://filtered/${tag}.wav`, bytes: 6 },
+						raw_audio_file: null,
+						duration_ms: 5000,
+						quality: "good",
+						transcription: `t${stopCount}`,
+					});
+				}
+				return Promise.resolve({ success: true });
+			});
+
+			const args = makeHookArgs();
+			const { result } = renderHook(() => useMicrophoneTestSession(args));
+
+			await act(async () => {
+				await result.current.startTest();
+			});
+			await act(async () => {
+				await result.current.stopTest();
+			});
+			expect(result.current.testAudioBase64).toBe("clip-1");
+
+			// 1 min later a new test supersedes the first recording.
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(60_000);
+			});
+			await act(async () => {
+				await result.current.startTest();
+			});
+			expect(result.current.testAudioBase64).toBeNull();
+			await act(async () => {
+				await result.current.stopTest();
+			});
+			expect(result.current.testAudioBase64).toBe("clip-2");
+			expect(result.current.testTranscription).toBe("t2");
+
+			// Reach the FIRST recording's expiry (t0+5min): the second
+			// test must survive it.
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(4 * 60_000);
+			});
+			expect(result.current.testAudioBase64).toBe("clip-2");
+			expect(result.current.testTranscription).toBe("t2");
+
+			// Reach the SECOND recording's expiry (t0+6min): now cleared.
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(60_000);
+			});
+			expect(result.current.testAudioBase64).toBeNull();
+			expect(result.current.testTranscription).toBeNull();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("unmount clears the pending expiry timer (cache survives)", async () => {
+		vi.useFakeTimers();
+		try {
+			callMock.mockImplementation((cmd: string) => {
+				if (cmd === "microphone_test_start")
+					return Promise.resolve({
+						success: true,
+						message: "ok",
+						duration: 10,
+						sample_rate: 16000,
+					});
+				if (cmd === "microphone_test_read_audio")
+					return Promise.resolve({
+						success: true,
+						data_b64: "clip-1",
+						bytes_read: 6,
+						total_bytes: 6,
+						eof: true,
+						message: "ok",
+					});
+				if (cmd === "microphone_test_stop")
+					return Promise.resolve({
+						success: true,
+						audio_file: { path: "mem://filtered/clip.wav", bytes: 6 },
+						raw_audio_file: null,
+						duration_ms: 5000,
+						quality: "good",
+					});
+				if (cmd === "microphone_test_cancel") return Promise.resolve({});
+				return Promise.resolve({ success: true });
+			});
+
+			const args = makeHookArgs();
+			const { result, unmount } = renderHook(() =>
+				useMicrophoneTestSession(args),
+			);
+
+			await act(async () => {
+				await result.current.startTest();
+			});
+			await act(async () => {
+				await result.current.stopTest();
+			});
+			expect(result.current.testAudioBase64).toBe("clip-1");
+			const stopPlaybackCallsBefore = vi.mocked(args.stopPlayback).mock.calls
+				.length;
+
+			unmount();
+			await act(async () => {
+				await vi.advanceTimersByTimeAsync(MIC_TEST_RECORDING_TTL_MS);
+			});
+
+			// Timer was cleared: no expiry playback-stop after unmount,
+			// and the module cache still restores on the next mount.
+			expect(vi.mocked(args.stopPlayback).mock.calls.length).toBe(
+				stopPlaybackCallsBefore,
+			);
+			const { result: result2 } = renderHook(() =>
+				useMicrophoneTestSession(makeHookArgs()),
+			);
+			expect(result2.current.testAudioBase64).toBe("clip-1");
+			expect(result2.current.testDurationMs).toBe(5000);
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 });

@@ -872,7 +872,7 @@ describe("TitleBar, XA-1 (focus-ring parity + sidebar-toggle hover)", () => {
 		expect(cls).toContain("hover:bg-foreground/5");
 	});
 
-	it("XA-1: all four TitleBar icon buttons use the shared focusRing (ring-3, not ring-2)", () => {
+	it("XA-1: all four TitleBar icon buttons use the shared focusRing (ring-1, not ring-1)", () => {
 		renderWithProviders(
 			<TitleBar
 				onToggleSidebar={() => {}}
@@ -888,19 +888,17 @@ describe("TitleBar, XA-1 (focus-ring parity + sidebar-toggle hover)", () => {
 		const help = screen.getByLabelText("Help Overlay");
 		for (const btn of [toggle, back, forward, help]) {
 			const cls = btn.className;
-			// Design-system Button uses ring-3; TitleBar previously used
-			// ring-2 (thinner). Migrate to ring-3 via the shared focusRing
-			// constant. The ring uses the full-opacity ring-ring token —
+			// Design-system Button uses ring-1; TitleBar matches it via the shared focusRing constant. The ring uses the full-opacity ring-ring token —
 			// not ring-ring/30 (see focus-ring-contrast.test.tsx: the 30%
 			// alpha ring failed WCAG 2.4.7 focus-visible contrast and was
 			// replaced repo-wide with the full-opacity token).
-			expect(cls).toContain("focus-visible:ring-3");
+			expect(cls).toContain("focus-visible:ring-1");
 			expect(cls).toContain("focus-visible:ring-ring");
-			expect(cls).not.toContain("focus-visible:ring-2");
+			expect(cls).not.toContain("focus-visible:ring-3");
 		}
 	});
 
-	it("XA-1: window-control TitleBarButtons use ring-3 focus ring (matches Button)", () => {
+	it("XA-1: window-control TitleBarButtons use ring-1focus ring (matches Button)", () => {
 		const bridge = makeBridge();
 		(window as unknown as { window_?: WindowBridge }).window_ = bridge;
 		renderWithProviders(
@@ -917,8 +915,8 @@ describe("TitleBar, XA-1 (focus-ring parity + sidebar-toggle hover)", () => {
 		const close = screen.getByLabelText("Close");
 		for (const btn of [minimize, maximize, close]) {
 			const cls = btn.className;
-			expect(cls).toContain("focus-visible:ring-3");
-			expect(cls).not.toContain("focus-visible:ring-2");
+			expect(cls).toContain("focus-visible:ring-1");
+			expect(cls).not.toContain("focus-visible:ring-3");
 		}
 	});
 });

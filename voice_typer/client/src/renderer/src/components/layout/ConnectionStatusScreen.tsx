@@ -8,14 +8,16 @@
  * `<div data-testid="connection-status" />`, hiding the regression
  * from CI.
  *
- * The component now renders a centered card that:
+ * The component now renders a centered calm app-theme card that:
  *   - Shows a localized title + description explaining the disconnect.
  *   - When `status === "connecting"`: shows a Spinner + the
  *     `connectingProgress` value (if any) as a progress bar.
  *   - When `status === "disconnected"`: shows the last error (if any)
- *     and a primary Retry button via EmptyState's action affordance.
- *   - Reuses the existing `<EmptyState variant="error">` + `<Spinner>`
- *     for visual consistency with other load-failure screens.
+ *     and a primary Retry button.
+ *   - Uses a LOCAL card (bg-card, subtle border) instead of the shared
+ *     `<EmptyState variant="error">`: that error variant paints a
+ *     full-card destructive wash + role="alert", which is out of scope
+ *     to change (other screens use it) and too alarming here.
  *
  * The retry button is auto-focused so keyboard users land on it
  * immediately after a disconnect, WCAG 2.4.3 Focus Order (Level A).
@@ -24,7 +26,6 @@
 import { AlertCircleIcon, RefreshIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useEffect } from "react";
-import { EmptyState } from "@/components/feedback/EmptyState";
 import { Spinner } from "@/components/feedback/Spinner";
 import { Button } from "@/components/ui/button";
 import { useT } from "@/i18n/i18n";
@@ -52,8 +53,8 @@ export function ConnectionStatusScreen({
 	// expected initial state).
 	useEffect(() => {
 		if (status === "disconnected") {
-			// EmptyState renders the action as a <Button>, find it via
-			// the data-testid we set on the container.
+			// The calm card renders the Retry action as a <Button>,
+			// find it via the data-testid we set on the container.
 			const btn = document.querySelector<HTMLButtonElement>(
 				'[data-testid="connection-status"] button',
 			);
@@ -94,19 +95,20 @@ export function ConnectionStatusScreen({
 			className="mx-auto flex min-h-full w-full max-w-lg flex-col items-center justify-center px-6 py-12"
 			data-testid="connection-status"
 		>
-			<EmptyState
-				variant="error"
-				icon={AlertCircleIcon}
-				title={title}
-				// The primary EmptyState action is scoped to the
-				// disconnected state only. During restarting the backend
-				// is auto-recovering, so the sole manual affordance is the
-				// dedicated "Force Retry" button below, showing both
-				// would render two same-handler retry buttons.
-				actionLabel={isDisconnected ? t("app.retryConnection") : undefined}
-				onAction={isDisconnected ? onRetry : undefined}
-				actionIcon={RefreshIcon}
-			>
+			<div className="flex w-full flex-col items-center gap-4 rounded-xl border border-border/10 bg-card px-6 py-10 text-center">
+				{/* Disconnected-only icon: AlertCircle in a destructive-tint
+				 * disc. Connecting/restarting render the Spinner output below
+				 * instead (no error icon). No full-card red wash. */}
+				{isDisconnected && (
+					<div className="flex items-center justify-center rounded-full bg-destructive/10 p-3">
+						<HugeiconsIcon
+							icon={AlertCircleIcon}
+							strokeWidth={2}
+							className="h-10 w-10 text-destructive"
+						/>
+					</div>
+				)}
+				<h2 className="text-lg font-semibold text-(--text-primary)">{title}</h2>
 				{/* The description doubles as THE polite live region for this
 				 * screen (role="status" ⇒ implicit aria-live="polite"). The
 				 * wrapper div is intentionally ROLELESS: a role="alert"
@@ -117,7 +119,7 @@ export function ConnectionStatusScreen({
 				 * once, calmly, while the progressbar below reports its own
 				 * value changes via aria-valuenow.
 				 */}
-				<p role="status" className="text-xs text-(--text-muted)">
+				<p role="status" className="text-sm text-(--text-muted)">
 					{description}
 				</p>
 				{(isConnecting || isRestarting) && (
@@ -186,7 +188,27 @@ export function ConnectionStatusScreen({
 						)}
 					</div>
 				)}
-			</EmptyState>
+				{/* Primary Retry action, disconnected state only. During
+				 * restarting the backend is auto-recovering, so the sole
+				 * manual affordance is the dedicated "Force Retry" button
+				 * above; showing both would render two same-handler retry
+				 * buttons. */}
+				{isDisconnected && (
+					<Button
+						type="button"
+						variant="default"
+						onClick={onRetry}
+						className="gap-2"
+					>
+						<HugeiconsIcon
+							icon={RefreshIcon}
+							strokeWidth={2}
+							className="h-4 w-4"
+						/>
+						{t("app.retryConnection")}
+					</Button>
+				)}
+			</div>
 		</div>
 	);
 }

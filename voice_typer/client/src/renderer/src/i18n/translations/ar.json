@@ -1204,6 +1204,10 @@
 			"deleted": "تم الحذف: {name}",
 			"deleteFailed": "فشل الحذف",
 			"deleteFailedError": "فشل الحذف: {error}",
+			"deleteUnknownModel": "نموذج غير معروف: {name}.",
+			"deleteNotDownloaded": "النموذج '{name}' غير منزّل.",
+			"deleteDictationInFlight": "أوقف الإملاء الحالي قبل حذف النموذج النشط.",
+			"deleteUnloadFailed": "تعذّر إلغاء تحميل '{name}' للحذف. أوقف أي إملاء ثم حاول مجددًا.",
 			"apiKeyEmpty": "أدخل مفتاح API أولاً",
 			"apiKeyUnchanged": "مفتاح API لم يتغير",
 			"apiKeySaved": "تم حفظ مفتاح API لـ {provider}",
@@ -1212,6 +1216,7 @@
 			"resumeFailed": "فشل الاستئناف: {error}",
 			"pauseFailed": "فشل الإيقاف المؤقت: {error}",
 			"pauseNoop": "لا يوجد تنزيل نشط لإيقافه مؤقتًا.",
+			"resumeNoop": "لا يوجد تنزيل نشط لاستئنافه.",
 			"cancelled": "تم إلغاء التحميل. ستتم إعادة استخدام الملفات الجزئية عند إعادة المحاولة.",
 			"cancelFailed": "فشل الإلغاء: {error}",
 			"queuedCancelled": "تمت إزالة {name} من قائمة انتظار التنزيلات.",
@@ -1960,7 +1965,37 @@
 			"undo_nothing": "لا يوجد شيء للتراجع عنه.",
 			"undo_done": "تم التراجع عن آخر نص ({char_count} حرفًا)",
 			"undo_no_pynput": "التراجع غير متاح (pynput غير موجود)",
-			"undo_failed": "تعذّر التراجع عن آخر نص. راجع السجلات للحصول على التفاصيل."
+			"undo_failed": "تعذّر التراجع عن آخر نص. راجع السجلات للحصول على التفاصيل.",
+			"clipboard_unavailable_body": "اكتمل التدوين، لكن الحافظة لم تكن متاحة.\nتم حفظ نصك في ملف استرداد الأعطال حتى لا يفقد.",
+			"clipboard_unavailable_recovery_path": "ملف الاسترداد: {path}"
+		},
+		"hotkey_dispatcher": {
+			"register_failed": "تعذّر تسجيل الاختصار {hotkey}. قد يكون مستخدمًا من تطبيق آخر. استخدم قائمة الشريط لتبديل الإملاء، أو اختر اختصارًا آخر في الإعدادات.",
+			"save_failed": "تعذّر حفظ الاختصار على القرص. تحقق من مساحة القرص أو الأذونات.",
+			"wayland_caps_lock": "على Wayland لا يمكن كبت Caps Lock، وسيظهر نصك بأحرف كبيرة. اربط Alt أو مفتاح وظيفي، أو أعد تعيين Caps Lock عبر إعدادات المُركِّب.",
+			"ptt_release_missed": "ضاع حدث تحرير PTT، وتوقف التسجيل تلقائيًا بعد مهلة أمان مدتها 60 ثانية.",
+			"esc_register_failed": "تعذّر تسجيل اختصار إلغاء ESC. ربما استحوذ عليه تطبيق آخر.",
+			"repaste_register_failed": "تعذّر تسجيل اختصار إعادة اللصق. ربما استحوذ عليه تطبيق آخر.",
+			"invalid_hotkey": "الاختصار {hotkey} غير صالح: {validation_error}. سيتم الاحتفاظ بالاختصار السابق.",
+			"restore_failed": "تعذّر استعادة الاختصار السابق {hotkey}. افتح الإعدادات لإعادة ربط اختصار."
+		},
+		"native_adapter": {
+			"warn_title": "{appName}: تحذير اختصار أصلي",
+			"fallback_title": "{appName}: وضع التوافق",
+			"fallback_body": "يعمل الاختصار في وضع التوافق (ميزات محدودة). أعد تشغيل التطبيق للحصول على الوظائف الكاملة.",
+			"recovery_title": "{appName}: تمت استعادة الوضع الكامل",
+			"recovery_body": "يعمل الاختصار في الوضع الكامل.",
+			"failure_title": "{appName}: خطأ في الاختصار",
+			"failure_body": "الاختصار لا يعمل. انقر لاستكشاف المشكلة وإصلاحها."
+		},
+		"model": {
+			"delete.unknown_model": "نموذج غير معروف: {model}.",
+			"delete.not_downloaded": "النموذج '{model}' غير منزّل.",
+			"delete.stale_cleared_no_model": "النموذج '{model}' غير موجود على القرص، ولم يتم تحديد أي نموذج. اختر نموذجًا من صفحة النماذج.",
+			"delete.stale_cleared_switched": "النموذج '{model}' غير موجود على القرص، تم التبديل إلى '{replacement}'.",
+			"delete.stale_nothing_to_delete": "النموذج '{model}' غير موجود على القرص، لا يوجد ما يُحذف.",
+			"delete.active_refused_recording": "أوقف الإملاء الحالي قبل حذف النموذج النشط.",
+			"delete.unload_failed": "تعذّر إلغاء تحميل '{model}' للحذف. حاول مجددًا بعد إيقاف أي إملاء."
 		},
 		"permissions": {
 			"macos_title": "{appName} يحتاج إلى إذن",

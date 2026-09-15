@@ -585,7 +585,16 @@ export function useModelDownload({
 		}));
 		try {
 			if (wasPaused) {
-				await call("resume_model_download");
+				const result = await call<{ resumed?: boolean }>(
+					"resume_model_download",
+				);
+				if (result?.resumed === false) {
+					// No live download to resume (idle / already
+					// finished / concurrent completion). Revert the
+					// optimistic flip — mirrors the pause no-op path.
+					setState((prev) => ({ ...prev, isPaused: wasPaused }));
+					showSnack(t("models.snack.resumeNoop"), "info");
+				}
 			} else {
 				const result = await call<{ paused?: boolean }>("pause_model_download");
 				if (result?.paused === false) {

@@ -47,9 +47,9 @@ export function KeyringStatusBadge({
 	// status text without a mouse interaction.
 	const buttonBaseClass = cn(
 		"inline-flex items-center appearance-none border-0 bg-transparent p-0 cursor-default",
-		// Use the shared focusRing (ring-3 / ring-ring, no alpha) so the
+		// Use the shared focusRing (ring-1 / ring-ring, no alpha) so the
 		// badge's focus indicator matches the design-system Button instead
-		// of the thinner ring-2 / ring-ring/50 that previously broke WCAG
+		// of the thinner ring-1 / ring-ring/50 that previously broke WCAG
 		// 1.4.11 composite-contrast in some themes.
 		focusRing,
 	);

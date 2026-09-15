@@ -1,3 +1,4 @@
+import { cn } from "@/lib/utils";
 import {
 	AlertCircleIcon,
 	Mic02Icon,
@@ -5,7 +6,6 @@ import {
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { memo } from "react";
-import { cn } from "@/lib/utils";
 
 /**
  * The large circular mic toggle button. Pulses while recording. A
@@ -91,15 +91,15 @@ export function MicToggleButton({
 				className={cn(
 					"press-scale relative z-10 flex h-21 w-21 items-center justify-center rounded-full",
 					"transition-all duration-200 ease-out",
-					"focus:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+					"focus:outline-none focus-visible:ring-1focus-visible:ring-ring",
 					"hover:scale-105",
 					isRecording
 						? "bg-foreground/15 hover:bg-foreground/25"
 						: showError
 							? // Error state: hollow destructive, a distinct
-								// "last attempt failed" treatment next to the
-								// solid glow of the healthy idle button.
-								"bg-destructive/15 ring-2 ring-inset ring-destructive hover:bg-destructive/25"
+							// "last attempt failed" treatment next to the
+							// solid glow of the healthy idle button.
+							"bg-destructive/15 ring-1 ring-inset ring-destructive hover:bg-destructive/25"
 							: "bg-destructive animate-glow-pulse hover:shadow-[0_8px_32px_rgba(255,51,51,0.5)]",
 				)}
 			>

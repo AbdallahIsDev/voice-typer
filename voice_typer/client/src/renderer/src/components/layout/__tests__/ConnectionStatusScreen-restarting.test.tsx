@@ -76,7 +76,7 @@ describe("ConnectionStatusScreen, roleless wrapper + restarting spinner + force-
 		// The wrapper is ROLELESS: an assertive alert/alertdialog region
 		// around the whole card re-announced every progressbar tick. The
 		// polite announcement contract now lives on the description node
-		// (role="status") inside EmptyState's error card.
+		// (role="status") inside the local calm card.
 		expect(root.getAttribute("role")).toBeNull();
 		//`aria-modal` is dropped entirely (no modal → no modal
 		// attribute). The previous `aria-modal="false"` was contradictory
@@ -185,5 +185,30 @@ describe("ConnectionStatusScreen, roleless wrapper + restarting spinner + force-
 			/>,
 		);
 		expect(screen.queryByTestId("connection-status-force-retry")).toBeNull();
+	});
+
+	it("connecting/restarting render the calm card with no error icon (Spinner output only)", () => {
+		render(
+			<ConnectionStatusScreen
+				status="connecting"
+				lastError={null}
+				onRetry={vi.fn()}
+				connectingProgress={null}
+			/>,
+		);
+		// Same local calm card as disconnected: bg-card surface, no
+		// destructive wash.
+		const card = document.querySelector(
+			'[data-testid="connection-status"] > div',
+		) as HTMLElement;
+		expect(card).toBeTruthy();
+		expect(card.className).toContain("bg-card");
+		expect(card.className).not.toContain("bg-destructive/5");
+		// No error-icon disc in the connecting state; the Spinner output
+		// is the loading affordance.
+		expect(card.className).not.toContain("border-destructive");
+		expect(
+			screen.getByRole("heading", { name: "app.startingBackend" }).tagName,
+		).toBe("H2");
 	});
 });

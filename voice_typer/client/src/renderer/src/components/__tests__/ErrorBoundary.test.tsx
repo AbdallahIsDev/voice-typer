@@ -133,4 +133,41 @@ describe("ErrorBoundary", () => {
 		// The default UI copy must NOT appear when a custom fallback is given.
 		expect(screen.queryByText("Something went wrong")).toBeNull();
 	});
+
+	it("renders the calm app-theme card (bg-card container, destructive icon disc, title hook)", () => {
+		shouldThrow = true;
+		const { container } = render(
+			<ErrorBoundary>
+				<Thrower message="calm-card-case" />
+			</ErrorBoundary>,
+		);
+		const alert = screen.getByRole("alert");
+		// Inner card: w-full max-w-lg rounded-xl border bg-card surface.
+		const card = Array.from(alert.querySelectorAll("div")).find((el) =>
+			el.className.includes("bg-card"),
+		) as HTMLElement | undefined;
+		expect(card).toBeTruthy();
+		expect(card?.className).toContain("max-w-lg");
+		expect(card?.className).toContain("rounded-xl");
+		expect(card?.className).toContain("border-border/10");
+		// Destructive icon disc: rounded-full bg-destructive/10 wrapper.
+		const disc = Array.from(alert.querySelectorAll("div")).find((el) =>
+			el.className.includes("bg-destructive/10"),
+		) as HTMLElement | undefined;
+		expect(disc).toBeTruthy();
+		expect(disc?.className).toContain("rounded-full");
+		// Icon inside the disc carries the destructive tint at h-10 w-10.
+		const icon = disc?.querySelector("svg");
+		expect(icon).toBeTruthy();
+		expect(icon?.getAttribute("class") ?? "").toContain("text-destructive");
+		expect(icon?.getAttribute("class") ?? "").toContain("h-10");
+		// Title stays an h1 with the calm styling hook.
+		const title = screen.getByRole("heading", { level: 1 });
+		expect(title.className).toContain("text-xl");
+		expect(title.className).toContain("font-semibold");
+		// Error <pre> uses the muted mono surface.
+		const pre = container.querySelector("pre");
+		expect(pre?.className).toContain("bg-muted");
+		expect(pre?.className).toContain("font-mono");
+	});
 });

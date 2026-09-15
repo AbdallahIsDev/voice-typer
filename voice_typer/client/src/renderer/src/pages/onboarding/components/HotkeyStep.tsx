@@ -24,9 +24,6 @@ export interface HotkeyStepProps {
 	selectedHotkey: string;
 	setSelectedHotkey: (v: string) => void;
 	/** Optional test-hotkey handler. When provided, renders a "Test
-	 * hotkey" button below the Select that calls this handler. The
-	 * parent (Onboarding.tsx) passes through the same handleTestHotkey
-	/** Optional test-hotkey handler. When provided, renders a "Test
 	 * hotkey" button below the Select that calls this handler. */
 	onTestHotkey?: () => void;
 	/** Optional test-hotkey status: the PermissionsTestState

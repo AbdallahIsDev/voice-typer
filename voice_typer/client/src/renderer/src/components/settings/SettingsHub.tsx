@@ -185,7 +185,7 @@ export function SettingsHub({ config, onNavigateSection }: SettingsHubProps) {
 							"transition-colors duration-150 hover:bg-foreground/5",
 							// Focus contract (C-FOCUS-2/5): full-opacity ring token,
 							// 3px, keyboard focus is always clearly visible.
-							"focus-visible:ring-3 focus-visible:ring-ring focus-visible:outline-none",
+							"focus-visible:ring-1focus-visible:ring-ring focus-visible:outline-none",
 						)}
 						onClick={() => onNavigateSection(row.def.page)}
 					>

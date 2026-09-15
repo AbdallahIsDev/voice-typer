@@ -67,6 +67,15 @@ import type {
  */
 export const MICROPHONE_TEST_DURATION_SEC = 10;
 
+/**
+ * Mic-test recording UI TTL, in milliseconds. 5 minutes after a mic
+ * test completes, the recording is cleared from the UI too (silent
+ * expiry). Keep in sync with the backend MIC_TEST_RECORDING_TTL_SEC
+ * (both 5 min, changed together) — disk side handled separately on
+ * the backend.
+ */
+export const MIC_TEST_RECORDING_TTL_MS = 5 * 60 * 1000;
+
 // Module-level cache for the last-test recording + quality
 // verdict, mirrors the ``_cachedMicrophones`` / ``_cachedConfig``
 // pattern in ``useMicrophoneData``. Persists across page navigations so
@@ -261,6 +270,10 @@ export function useMicrophoneTestSession({
 	// handing out a fresh `call` per render would re-fire it (OOM loop
 	// class). ``callRef.current`` is read at cleanup time instead.
 	const callRef = useLatestRef(call);
+	// stopPlayback mirror (same pattern): the silent 5-min expiry timeout
+	// must not capture the `stopPlayback` identity (would churn stopTest),
+	// `stopPlaybackRef.current` is read at fire time instead.
+	const stopPlaybackRef = useLatestRef(stopPlayback);
 	// ``updateConfig`` is part of the public session-hook signature
 	// for parity with the prior ``useMicrophoneTest`` API but is not
 	// used directly here, preset / config-change handlers live in
@@ -301,6 +314,13 @@ export function useMicrophoneTestSession({
 	const testTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 	const stoppingRef = useRef(false);
 	const startingRef = useRef(false);
+	// Silent 5-min UI expiry of the mic-test recording
+	// (MIC_TEST_RECORDING_TTL_MS). Generation-guarded: arming bumps
+	// `expiryGenRef` and captures it, firing only when still current so
+	// an older test's timer can never clear a newer test. Invalidate
+	// (gen++ + clearTimeout) at startTest / selectMicrophone / unmount.
+	const expiryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+	const expiryGenRef = useRef(0);
 	// INTERNAL lifecycle flag owned by THIS hook (synchronous). The
 	// ``testRunningRef`` prop stays the cross-hook CONTRACT mirror for the
 	// level monitor, but the unmount cleanup must not depend on a prop-ref's
@@ -319,6 +339,7 @@ export function useMicrophoneTestSession({
 		testRunningRef.current = testRunning;
 	}, [testRunning, testRunningRef]);
 
+	// biome-ignore lint/correctness/useExhaustiveDependencies: stopPlaybackRef/expiry refs are useLatestRef/useRef mirrors: reading .current in the expiry timeout is the hook's documented contract, .current must NOT become a dep
 	const stopTest = useCallback(async () => {
 		if (stoppingRef.current) return;
 		stoppingRef.current = true;
@@ -383,6 +404,30 @@ export function useMicrophoneTestSession({
 				}
 				_cachedTestTranscription = transcriptionText;
 				_cachedTestTranscriptionUnavailable = transcriptionUnavailable;
+				// Arm the silent 5-min UI expiry (covers both fetch-ok and
+				// fetch-failed-null above: the branch is entered whenever
+				// the recording itself completed). Generation-guarded so a
+				// newer test is never cleared by an older timer. Firing is
+				// completely silent (no toast): stops playback (don't strand
+				// a playing data-URI player), clears ALL test state + cache.
+				expiryGenRef.current += 1;
+				const expiryGen = expiryGenRef.current;
+				if (expiryTimerRef.current) {
+					clearTimeout(expiryTimerRef.current);
+					expiryTimerRef.current = null;
+				}
+				expiryTimerRef.current = setTimeout(() => {
+					if (expiryGenRef.current !== expiryGen) return;
+					expiryTimerRef.current = null;
+					stopPlaybackRef.current();
+					setTestAudioBase64(null);
+					setRawAudioBase64(null);
+					setTestDurationMs(0);
+					setTestQuality(null);
+					setTestTranscription(null);
+					setTestTranscriptionUnavailable(false);
+					_resetMicrophoneTestCache();
+				}, MIC_TEST_RECORDING_TTL_MS);
 				showSnack(
 					t("microphone.recorded", {
 						seconds: (result.duration_ms / 1000).toFixed(1),
@@ -427,6 +472,13 @@ export function useMicrophoneTestSession({
 	}, [call, config, showSnack, t, setLevel]);
 
 	const startTest = useCallback(async () => {
+		// Invalidate any pending silent-expiry timer: a newer test must
+		// never be cleared by an older test's timer.
+		expiryGenRef.current += 1;
+		if (expiryTimerRef.current) {
+			clearTimeout(expiryTimerRef.current);
+			expiryTimerRef.current = null;
+		}
 		if (startingRef.current) return;
 		startingRef.current = true;
 		setTestStarting(true);
@@ -664,6 +716,13 @@ export function useMicrophoneTestSession({
 			// mic switch, the cached recording was for the PREVIOUS
 			// mic and would be misleading A/B comparison material
 			// against the new mic. Mirrors the startTest invalidation.
+			// Also invalidate any pending silent-expiry timer so it can
+			// never clear a later test.
+			expiryGenRef.current += 1;
+			if (expiryTimerRef.current) {
+				clearTimeout(expiryTimerRef.current);
+				expiryTimerRef.current = null;
+			}
 			_cachedTestAudioBase64 = null;
 			_cachedRawAudioBase64 = null;
 			_cachedTestQuality = null;
@@ -753,6 +812,13 @@ export function useMicrophoneTestSession({
 	// biome-ignore lint/correctness/useExhaustiveDependencies: callRef is a useLatestRef mirror: reading .current in a stale closure is the hook's documented contract, .current must NOT become a dep
 	useEffect(() => {
 		return () => {
+			// Invalidate any pending silent-expiry timer so an unmounted
+			// test can never clear a later mount's recording.
+			expiryGenRef.current += 1;
+			if (expiryTimerRef.current) {
+				clearTimeout(expiryTimerRef.current);
+				expiryTimerRef.current = null;
+			}
 			if (testTimerRef.current) {
 				clearInterval(testTimerRef.current);
 				testTimerRef.current = null;

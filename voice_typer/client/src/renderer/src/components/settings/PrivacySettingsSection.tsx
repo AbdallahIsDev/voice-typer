@@ -240,7 +240,7 @@ function ConsentRow({
 			data-consent-field={field}
 			className={cn(
 				"rounded-lg transition-shadow duration-500",
-				highlighted && "ring-2 ring-primary bg-(--bg-subtle)",
+				highlighted && "ring-1ring-primary bg-(--bg-subtle)",
 			)}
 		>
 			{children}

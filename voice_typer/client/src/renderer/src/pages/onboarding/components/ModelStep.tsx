@@ -1,4 +1,3 @@
-import type { Ref } from "react";
 import { InfoTooltip } from "@/components/feedback/InfoTooltip";
 import { FamilyLogo } from "@/components/models/FamilyLogo";
 import {
@@ -21,6 +20,7 @@ import {
 import { t } from "@/i18n/i18n";
 import { formatVram } from "@/lib/format";
 import { formatModelSpeed } from "@/lib/utils/models";
+import type { Ref } from "react";
 import type { BackendChoice } from "../hooks/useOnboardingWizard";
 import { HEADING_CLASS } from "../lib/constants";
 import type { ModelOption } from "../lib/types";
@@ -236,7 +236,7 @@ export function ModelStep({
 														type="button"
 														aria-pressed={isSelected}
 														onClick={() => setSelectedModel(m.name)}
-														className="flex min-w-0 flex-1 flex-col items-start gap-1 rounded-md p-1 text-start outline-none focus-visible:ring-3 focus-visible:ring-ring"
+														className="flex min-w-0 flex-1 flex-col items-start gap-1 rounded-md p-1 text-start outline-none focus-visible:ring-1focus-visible:ring-ring"
 														aria-label={t("onboarding.modelSelectAria", {
 															name: m.name,
 														})}

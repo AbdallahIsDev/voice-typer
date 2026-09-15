@@ -304,7 +304,9 @@ export function useOnboardingWizard(
 					"[renderer:useOnboardingWizard] Failed to start onboarding:",
 					err,
 				);
-				setInitError(err instanceof Error ? err.message : "Unknown error");
+				setInitError(
+					err instanceof Error ? err.message : t("errorBoundary.unknownError"),
+				);
 			} finally {
 				if (!cancelled) setLoading(false);
 			}

@@ -109,16 +109,16 @@ describe("NH-1: ConnectionStatusScreen", () => {
 			/>,
 		);
 
-		// The disconnected branch renders an EmptyState error
-		// variant, the title is the lost-connection i18n key
-		// (mocked to return the key).
+		// The disconnected branch renders the local calm card (not the
+		// shared EmptyState error variant), the title is the
+		// lost-connection i18n key (mocked to return the key).
 		expect(
 			screen.getByRole("heading", { name: "app.lostConnection" }),
 		).toBeTruthy();
 		// The error message is rendered verbatim.
 		expect(screen.getByText("boom")).toBeTruthy();
-		// Two retry affordances: the EmptyState action button and
-		// the secondary ghost button below.
+		// Single retry affordance: the primary Retry button (the
+		// restarting-only force-retry button is not rendered here).
 		const retryButtons = screen.getAllByRole("button", {
 			name: "app.retryConnection",
 		});
@@ -141,7 +141,7 @@ describe("NH-1: ConnectionStatusScreen", () => {
 			/>,
 		);
 
-		// The EmptyState description falls back to
+		// The description falls back to
 		// app.lostConnectionHint when lastError is null.
 		expect(screen.getByText("app.lostConnectionHint")).toBeTruthy();
 	});
@@ -183,5 +183,40 @@ describe("NH-1: ConnectionStatusScreen", () => {
 			'[data-testid="connection-status"] p[role="status"]',
 		);
 		expect(status?.textContent).toBe("boom");
+	});
+
+	it("renders a calm app-theme card (bg-card, no destructive wash, h2 title)", () => {
+		render(
+			<ConnectionStatusScreen
+				status="disconnected"
+				lastError="boom"
+				onRetry={vi.fn()}
+				connectingProgress={null}
+			/>,
+		);
+		// The local card is the direct child of the wrapper: app-theme
+		// surface (bg-card), never the shared EmptyState error wash
+		// (bg-destructive/5 + border-destructive/40).
+		const card = document.querySelector(
+			'[data-testid="connection-status"] > div',
+		) as HTMLElement;
+		expect(card).toBeTruthy();
+		expect(card.className).toContain("bg-card");
+		expect(card.className).not.toContain("bg-destructive/5");
+		expect(card.className).not.toContain("border-destructive");
+		// Title hierarchy: the card title is an h2 (EmptyState used h3).
+		const heading = screen.getByRole("heading", {
+			name: "app.lostConnection",
+		});
+		expect(heading.tagName).toBe("H2");
+		// No assertive region anywhere on this screen: the description
+		// <p role="status"> is the single polite live region (the old
+		// EmptyState error variant carried role="alert", deliberately
+		// dropped here to avoid double-announcement).
+		expect(
+			document.querySelector(
+				'[data-testid="connection-status"] [role="alert"]',
+			),
+		).toBeNull();
 	});
 });

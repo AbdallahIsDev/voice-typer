@@ -614,7 +614,8 @@ RW2_BACKFILLED_PENDING_TRANSLATION: set[str] = {
     # local-vs-cloud backend choice + in-wizard Download button + cloud
     # API panel). Backfilled with English values via
     # scripts/add_i18n_keys.py --all pending native translation.
-    "onboarding.backendAria",
+    # MO-41 (2026-09-15): onboarding.backendAria REMOVED from this set —
+    # now genuinely translated in all 7 non-English locales.
     "onboarding.backendLocalLabel",
     # onboarding.backendLocalDescription / backendCloudDescription /
     # cloudNote / downloadModelAria / downloadFailedHint REMOVED

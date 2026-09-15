@@ -100,7 +100,7 @@ export function ThemeSwitch({
 				"hover:bg-foreground/5",
 				// Visible focus indicator so keyboard users can see which
 				// theme button is focused. Use the shared focusRing
-				// constant (ring-3 / ring-ring/30) for parity with the
+				// constant (ring-1 / ring-ring/30) for parity with the
 				// design-system Button.
 				focusRing,
 				"h-7 w-7 rounded-md",

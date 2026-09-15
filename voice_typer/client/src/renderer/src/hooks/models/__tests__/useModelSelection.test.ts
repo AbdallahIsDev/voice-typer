@@ -12,6 +12,7 @@
  *   - requestDeleteModel: refuses active model while it's on disk; ALLOWS
  *     deleting an active-but-missing (stale) model; stashes other targets
  *   - confirmDelete: fires delete_model IPC, updates local state, surfaces snack
+ *     (failure reasons map to locale keys, unknown reasons fall back)
  */
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -407,12 +408,13 @@ describe("useModelSelection, requestDeleteModel + confirmDelete", () => {
 		expect(result.current.deleteModelTarget).toBeNull();
 	});
 
-	it("confirmDelete surfaces the backend reason when delete_model reports failure", async () => {
-		// The backend names the cause (dictation in flight, unload
-		// failure, ...); the toast must carry it, not the generic
-		// "Delete failed".
+	it("confirmDelete maps the backend reason code to a localized snack (not backend English)", async () => {
+		// The backend names the cause via `reason` (dictation in
+		// flight, unload failure, ...); the toast must use the
+		// renderer locale key, not the backend English `message`.
 		callMock.mockResolvedValue({
 			success: false,
+			reason: "dictation_in_flight",
 			message: "Stop the current dictation before deleting the active model.",
 		});
 		const args = makeHookArgs();
@@ -428,10 +430,76 @@ describe("useModelSelection, requestDeleteModel + confirmDelete", () => {
 		});
 
 		expect(args.showSnack).toHaveBeenCalledWith(
-			"Stop the current dictation before deleting the active model.",
+			"models.snack.deleteDictationInFlight",
 			"error",
 		);
 		expect(result.current.deleteModelTarget).toBeNull();
+	});
+
+	it("confirmDelete maps unknown_model / unload_failed reasons with the model name", async () => {
+		callMock.mockResolvedValue({
+			success: false,
+			reason: "unload_failed",
+			message: "Could not unload 'tiny' for deletion.",
+		});
+		const args = makeHookArgs();
+		const { result } = renderHook(() => useModelSelection(args));
+
+		act(() => {
+			result.current.requestDeleteModel(makeModel({ name: "tiny" }));
+		});
+
+		await act(async () => {
+			await result.current.confirmDelete();
+		});
+
+		// The test t() mock returns the bare key plus any params
+		// whose placeholder is missing; deleteUnloadFailed carries
+		// {name}, which the bare key lacks, so it appends as k=v.
+		expect(args.showSnack).toHaveBeenCalledWith(
+			"models.snack.deleteUnloadFailed: name=tiny",
+			"error",
+		);
+	});
+
+	it("confirmDelete falls back to backend message then generic snack for unknown reasons", async () => {
+		callMock.mockResolvedValue({
+			success: false,
+			reason: "some_future_reason",
+			message: "Backend English we do not know yet.",
+		});
+		const args = makeHookArgs();
+		const { result } = renderHook(() => useModelSelection(args));
+
+		act(() => {
+			result.current.requestDeleteModel(makeModel({ name: "tiny" }));
+		});
+
+		await act(async () => {
+			await result.current.confirmDelete();
+		});
+
+		expect(args.showSnack).toHaveBeenCalledWith(
+			"Backend English we do not know yet.",
+			"error",
+		);
+
+		callMock.mockResolvedValue({ success: false });
+		const args2 = makeHookArgs();
+		const { result: result2 } = renderHook(() => useModelSelection(args2));
+
+		act(() => {
+			result2.current.requestDeleteModel(makeModel({ name: "tiny" }));
+		});
+
+		await act(async () => {
+			await result2.current.confirmDelete();
+		});
+
+		expect(args2.showSnack).toHaveBeenCalledWith(
+			"models.snack.deleteFailed",
+			"error",
+		);
 	});
 
 	it("confirmDelete surfaces error snack when delete_model IPC throws", async () => {
