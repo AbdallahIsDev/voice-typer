@@ -655,10 +655,13 @@ jobs:
           python-version: '3.12'
 
       # `tauri icon` runs via npx (@tauri-apps/cli ships a native binary).
-      - name: Set up Node 22
+      # Node 24 matches the other setup-node pins in this workflow
+      # (C-CI-5 / Node-24 runtime alignment; icons-drift is not a
+      # tauri-*-build.yml job so C-CI-2 does not apply here).
+      - name: Set up Node 24
         uses: actions/setup-node@v7
         with:
-          node-version: 22
+          node-version: "24"
 
       - name: Verify src-tauri/icons matches a fresh `tauri icon` + prune
         run: python scripts/build/generate_tauri_icons.py --check

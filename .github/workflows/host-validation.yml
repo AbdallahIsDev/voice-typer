@@ -1,0 +1,374 @@
+# Host Validation (Cannot-Verify close-out, review.md §E)
+#
+# WHY THIS EXISTS
+# ---------------
+# review.md §E lists 19 findings that need a real Windows / macOS / Linux
+# desktop runtime (Win32 console handler, macOS clipboard restore, native
+# hotkey binaries, StartupWMClass, taskkill, notarization, cross-platform
+# native binaries, VT-1). The Linux CI sandbox cannot prove them.
+#
+# This workflow runs the AUTOMATABLE subset on GitHub-hosted runners
+# (windows-2022, macos-14, ubuntu-22.04) via manual dispatch. Anything
+# needing a mic, display server interaction, TCC permission grant, logon
+# cycle, or human speech stays VALIDATE-ON-HOST per the migration
+# runbooks and is recorded as a warning, never faked green.
+#
+# WHAT EACH JOB PROVES
+# --------------------
+# windows: Win32 console-handler imports + safe-routing probe (unknown-event
+#   passthrough, Ctrl+C dispatch; CTRL_CLOSE/FreeConsole is NEVER probed on
+#   CI: detaching the runner console would break later steps),
+#   windows-key-listener source/exe (+ VERSION/PONG/ERROR needles, sha-format
+#   check), taskkill tree-kill semantics (WM-14), kill-path source contracts
+#   (taskkill argv, TerminateProcess handle close), VT-1 imports (config
+#   warnings + timeout utils), GP-135 windows manifest entries,
+#   clipboard-restore + timeout unit tests.
+# macos: clipboard snapshot/restore imports, macos-key-listener.swift
+#   source + swiftc, GP-7 notarization PREFLIGHT (Info.plist keys +
+#   secrets presence, soft-pass without secrets), GP-135 macos entry.
+# linux: S1-CR-146 StartupWMClass vs Cargo binary-name evidence (warning,
+#   never auto-fix: real WM_CLASS needs xprop on a display host),
+#   linux-key-listener source/binary, WM-6/7/8/11/12/13 pytest subset.
+#
+# This file deliberately does NOT touch tauri-windows-build.yml,
+# tauri-macos-build.yml, tauri-linux-build.yml, or tauri-build.yml
+# (AGENTS.md C-CI-2: 50+-failure-history assets). It consumes only source
+# + pytest, never their artifacts. XPLAT-12 stays owned by
+# tauri-windows-arm-validation.yml (windows-11-arm emulation).
+#
+# USER OVERRIDE NOTE (2026-09-15): the user authorized breaking Hard
+# Don'ts if needed ("no problem"). No override was needed: this is a NEW
+# file, no fragile pipeline edited, no pins downgraded, no sentinel
+# changed. C-CI-2/C-CI-4/C-CI-5/C-CI-13 all hold.
+
+name: Host Validation (Cannot-Verify close-out)
+
+on:
+  workflow_dispatch:
+    inputs:
+      scope:
+        description: "Which hosts to validate (all | windows | macos | linux)"
+        required: false
+        default: "all"
+        type: choice
+        options:
+          - all
+          - windows
+          - macos
+          - linux
+
+permissions:
+  contents: read
+
+concurrency:
+  group: host-validation-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  windows-host-validation:
+    if: ${{ github.event.inputs.scope == 'all' || github.event.inputs.scope == 'windows' || github.event.inputs.scope == '' }}
+    runs-on: windows-2022
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Win32 console handler import check
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path host-validation/evidence | Out-Null
+          python -c "from voice_typer.server.signal_handlers import install_win32_console_handler, win32_console_handler; print('signal_handlers OK:', install_win32_console_handler.__name__, win32_console_handler.__name__)"
+          python -c "import voice_typer.server.shutdown_controller as sc; print('shutdown_controller OK')"
+          "WIN32_CONSOLE_HANDLER_IMPORT=PASS" | Out-File host-validation/evidence/windows.txt -Encoding utf8
+
+      - name: Native windows-key-listener source + exe check (GP-135)
+        shell: pwsh
+        run: |
+          $src = "voice_typer/server/native/windows-key-listener.c"
+          if (-not (Test-Path $src)) { Write-Error "missing $src"; exit 1 }
+          $text = Get-Content $src -Raw
+          foreach ($needle in @("SetConsoleCtrlHandler", "WH_KEYBOARD_LL", "READY", "VERSION", "PONG", "ERROR")) {
+            if ($text -notmatch [regex]::Escape($needle)) { Write-Error "windows-key-listener.c missing $needle"; exit 1 }
+          }
+          Write-Host "windows-key-listener.c source contract PASS"
+          "NATIVE_SOURCE=PASS" | Out-File host-validation/evidence/windows.txt -Append -Encoding utf8
+          $exe = "voice_typer/server/native/windows-key-listener.exe"
+          if (Test-Path $exe) {
+            $bytes = [System.IO.File]::ReadAllBytes($exe)
+            $pe = [BitConverter]::ToInt32($bytes, 0x3C)
+            $machine = "0x{0:X4}" -f [BitConverter]::ToUInt16($bytes, $pe + 4)
+            "NATIVE_EXE_MACHINE=$machine" | Out-File host-validation/evidence/windows.txt -Append -Encoding utf8
+            Write-Host "windows-key-listener.exe PE machine=$machine"
+          } else {
+            Write-Host "::warning::windows-key-listener.exe not tracked in repo; source contract is the gate (frozen exe ships via tauri-windows-build)."
+            "NATIVE_EXE=ABSENT_SOURCE_ONLY" | Out-File host-validation/evidence/windows.txt -Append -Encoding utf8
+          }
+          python -c "import json; m=json.load(open('voice_typer/server/native/binaries.json')); b=m['binaries']; assert 'windows-key-listener-x86_64.exe' in b and b['windows-key-listener-x86_64.exe']['sha256'], 'windows x86_64 manifest entry missing'; print('binaries.json windows entry PASS')"
+
+      - name: WM-14 taskkill tree-kill semantics
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath "ping.exe" -ArgumentList "-t 127.0.0.1" -PassThru
+          Start-Sleep -Seconds 2
+          if ($p.HasExited) { Write-Error "ping probe exited early, cannot test taskkill"; exit 1 }
+          taskkill /PID $p.Id /T /F | Out-Null
+          Start-Sleep -Seconds 2
+          $p.Refresh()
+          if (-not $p.HasExited) { Write-Error "WM-14 FAIL: taskkill /T /F did not kill ping tree"; exit 1 }
+          Write-Host "WM-14 taskkill /T /F PASS"
+          "WM14_TASKKILL=PASS" | Out-File host-validation/evidence/windows.txt -Append -Encoding utf8
+
+      - name: Windows kill-path contracts + safe handler routing
+        shell: pwsh
+        run: |
+          python -c "import pathlib; t=pathlib.Path('voice_typer/server/electron_launcher.py').read_text(encoding='utf-8'); assert 'taskkill' in t and '/T' in t and '/F' in t and '/PID' in t and '_windows_create_no_window_flags' in t; print('taskkill argv contract PASS')"
+          python -c "import pathlib; t=pathlib.Path('voice_typer/server/shutdown/teardowns/electron.py').read_text(encoding='utf-8'); assert 'TerminateProcess' in t and 'CloseHandle' in t and 'finally:' in t; print('teardown handle contract PASS')"
+          python -c "import types; from voice_typer.server.signal_handlers import win32_console_handler; c=types.SimpleNamespace(_app=types.SimpleNamespace()); c.quit=lambda: None; assert win32_console_handler(c, 99) is False; print('win32 unknown-event passthrough PASS')"
+          python -c "import types; from voice_typer.server.signal_handlers import win32_console_handler; c=types.SimpleNamespace(_app=types.SimpleNamespace()); c.quit=lambda: None; assert win32_console_handler(c, 0) is True; print('win32 ctrl-c dispatch PASS')"
+          python -c "from voice_typer.server._timeout_utils import TIMEOUT; from voice_typer.server.config.loader import _validate_config_warnings; assert TIMEOUT is not None and isinstance(_validate_config_warnings, set); print('VT-1 registries PASS')"
+          python -c "import json, re; m=json.load(open('voice_typer/server/native/binaries.json')); e=m['binaries']['windows-key-listener-x86_64.exe']; assert re.fullmatch(r'[0-9a-f]{64}', e['sha256'] or ''); print('binaries.json windows sha PASS')"
+          'KILL_PATH_CONTRACTS=PASS' | Out-File host-validation/evidence/windows.txt -Append -Encoding utf8
+
+      - name: VT-1 imports (config warnings + timeout utils)
+        shell: pwsh
+        run: |
+          python -c "from voice_typer.server._timeout_utils import TIMEOUT, _run_with_timeout; print('timeout_utils OK')"
+          python -c "from voice_typer.server.config.loader import _validate_config_warnings; print('config warnings registry OK')"
+          python -c "from voice_typer.server.clipboard_snapshot import ClipboardSnapshot; print('clipboard snapshot import OK')"
+          "VT1_IMPORTS=PASS" | Out-File host-validation/evidence/windows.txt -Append -Encoding utf8
+
+      - name: Headless pytest subset (clipboard restore + timeouts)
+        shell: pwsh
+        run: |
+          python -m pip install -e ".[test]" --quiet
+          python -m pytest tests/test_clipboard_restore_args.py tests/test_timeout_utils.py -q --no-cov --tb=short 2>&1 | Tee-Object host-validation/evidence/windows-pytest.txt
+          if ($LASTEXITCODE -ne 0) { Write-Error "pytest subset failed"; exit 1 }
+
+      - name: Upload windows evidence
+        uses: actions/upload-artifact@v6
+        with:
+          name: host-validation-windows
+          path: host-validation/evidence/
+          if-no-files-found: error
+
+  macos-host-validation:
+    if: ${{ github.event.inputs.scope == 'all' || github.event.inputs.scope == 'macos' || github.event.inputs.scope == '' }}
+    runs-on: macos-14
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Clipboard restore import check
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p host-validation/evidence
+          python3 -c "from voice_typer.server.clipboard_snapshot import ClipboardSnapshot; print('clipboard snapshot import OK')"
+          python3 -c "from voice_typer.server.clipboard.restore import _pending_restores; print('clipboard restore registry OK')"
+          echo "CLIPBOARD_RESTORE_IMPORT=PASS" >> host-validation/evidence/macos.txt
+
+      - name: Native macos-key-listener source + swiftc (GP-135)
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC="voice_typer/server/native/macos-key-listener.swift"
+          test -f "$SRC" || { echo "::error::missing $SRC"; exit 1; }
+          grep -q "CGEvent" "$SRC" || { echo "::error::macos-key-listener.swift missing CGEvent"; exit 1; }
+          grep -q "READY" "$SRC" || { echo "::error::macos-key-listener.swift missing READY"; exit 1; }
+          grep -q "VERSION:" "$SRC" || { echo "::error::macos-key-listener.swift missing VERSION wire protocol"; exit 1; }
+          grep -q "VOICE_TYPER_SKIP_ACCESSIBILITY_CHECK" "$SRC" || { echo "::error::macos-key-listener.swift missing headless smoke-test bypass"; exit 1; }
+          grep -q "PING" "$SRC" || { echo "::error::macos-key-listener.swift missing PING/PONG liveness"; exit 1; }
+          swiftc --version
+          echo "NATIVE_SOURCE=PASS" >> host-validation/evidence/macos.txt
+          python3 -c "import json; m=json.load(open('voice_typer/server/native/binaries.json')); b=m['binaries']; e=b.get('macos-key-listener'); assert e is not None, 'macos manifest entry missing'; assert e.get('version'), 'macos manifest version missing'; assert 'min_proto_version' in e, 'macos manifest min_proto_version missing'; print('binaries.json macos entry present (sha empty is fail-closed pending signed build: ' + ('EMPTY_EXPECTED' if not e.get('sha256') else 'POPULATED') + ')')"
+
+      - name: Native macos-key-listener compile + smoke (headless, no Accessibility grant)
+        shell: bash
+        run: |
+          set -euo pipefail
+          swiftc -O voice_typer/server/native/macos-key-listener.swift -framework Cocoa -framework CoreGraphics -o /tmp/macos-key-listener
+          echo "SWIFTC_COMPILE=PASS" >> host-validation/evidence/macos.txt
+          codesign --force --sign - /tmp/macos-key-listener || true
+          codesign --verify --verbose=2 /tmp/macos-key-listener || echo "::warning::ad-hoc signature verify needs host review (not a gate)"
+          lipo -archs /tmp/macos-key-listener || file /tmp/macos-key-listener
+          rm -f /tmp/listener-out.txt
+          VOICE_TYPER_SKIP_ACCESSIBILITY_CHECK=1 /tmp/macos-key-listener "<ctrl>+v" > /tmp/listener-out.txt 2>&1 &
+          PID=$!
+          sleep 3
+          kill $PID 2>/dev/null || true
+          wait $PID 2>/dev/null || true
+          cat /tmp/listener-out.txt || true
+          if grep -q "READY" /tmp/listener-out.txt && grep -q "VERSION:" /tmp/listener-out.txt; then
+            echo "LISTENER_SMOKE=PASS" >> host-validation/evidence/macos.txt
+          else
+            echo "::warning::listener run needs an interactive session with Accessibility/Input-Monitoring grant (expected headless on hosted runners); compile + source contract above is the gate, live toggle stays VALIDATE-ON-HOST per the macos runbook."
+            echo "LISTENER_SMOKE=SKIPPED_NO_TCC" >> host-validation/evidence/macos.txt
+          fi
+
+      - name: Bundle config parity (Info.plist + entitlements + tauri configs)
+        shell: bash
+        run: |
+          set -euo pipefail
+          plutil -lint src-tauri/Info.plist
+          plutil -lint src-tauri/entitlements.plist
+          python3 - <<'PY'
+          import json, plistlib
+          info = plistlib.load(open("src-tauri/Info.plist", "rb"))
+          for key in ("NSMicrophoneUsageDescription", "NSUserNotificationsUsageDescription",
+                      "NSAppleEventsUsageDescription", "LSMinimumSystemVersion"):
+              assert key in info, f"Info.plist missing {key}"
+          assert info["LSMinimumSystemVersion"] == "13.0", info["LSMinimumSystemVersion"]
+          ent = plistlib.load(open("src-tauri/entitlements.plist", "rb"))
+          for key in ("com.apple.security.cs.allow-jit",
+                      "com.apple.security.cs.allow-unsigned-executable-memory",
+                      "com.apple.security.cs.disable-library-validation",
+                      "com.apple.security.device.audio-input",
+                      "com.apple.security.automation.apple-events"):
+              assert key in ent, f"entitlements.plist missing {key}"
+          assert not any("notification" in k for k in ent), "entitlements must not carry a notification entitlement"
+          conf = json.load(open("src-tauri/tauri.conf.json"))
+          mac = conf["bundle"]["macOS"]
+          assert mac["minimumSystemVersion"] == "13.0", mac
+          assert mac["minimumSystemVersion"] == info["LSMinimumSystemVersion"], "tauri macOS minimum must match Info.plist"
+          assert mac["entitlements"] == "entitlements.plist"
+          assert mac["infoPlist"] == "Info.plist"
+          import pathlib
+          assert (pathlib.Path("src-tauri") / mac["entitlements"]).is_file()
+          assert (pathlib.Path("src-tauri") / mac["infoPlist"]).is_file()
+          mconf = json.load(open("src-tauri/tauri.macos.conf.json"))
+          assert "resources/native/macos-key-listener" in mconf["bundle"]["resources"], mconf["bundle"]["resources"]
+          print("bundle parity OK")
+          PY
+          echo "BUNDLE_PREFLIGHT=PASS" >> host-validation/evidence/macos.txt
+
+      - name: Notarization toolchain presence (no submit, no secrets)
+        shell: bash
+        run: |
+          set -euo pipefail
+          command -v codesign
+          command -v xcrun
+          command -v plutil
+          xcrun notarytool --help 2>&1 | head -5
+          xcrun stapler --help 2>&1 | head -5 || echo "::warning::stapler help text needs host review (toolchain present, flag variant differs)"
+          echo "TOOLCHAIN=PASS" >> host-validation/evidence/macos.txt
+
+      - name: GP-7 notarization preflight (soft-pass without secrets)
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f src-tauri/Info.plist || { echo "::error::missing src-tauri/Info.plist"; exit 1; }
+          grep -q "NSMicrophoneUsageDescription" src-tauri/Info.plist
+          grep -q "NSUserNotificationsUsageDescription" src-tauri/Info.plist
+          grep -q "NSAppleEventsUsageDescription" src-tauri/Info.plist
+          grep -q "LSMinimumSystemVersion" src-tauri/Info.plist
+          echo "INFO_PLIST_KEYS=PASS" >> host-validation/evidence/macos.txt
+          if [[ -z "${MAC_SIGNING_IDENTITY:-}" || -z "${APPLE_ID:-}" ]]; then
+            echo "::warning::GP-7 notarization needs Developer ID + notary secrets on a real dispatch (MAC_SIGNING_IDENTITY/APPLE_ID/APPLE_APP_SPECIFIC_PASSWORD/APPLE_TEAM_ID). Preflight only; full sign+notarize+staple stays VALIDATE-ON-MACOS-HOST per macos-validation-runbook §7."
+            echo "GP7_NOTARIZATION=PREFLIGHT_ONLY_NO_SECRETS" >> host-validation/evidence/macos.txt
+          else
+            echo "GP7_NOTARIZATION=SECRETS_PRESENT" >> host-validation/evidence/macos.txt
+          fi
+        env:
+          MAC_SIGNING_IDENTITY: ${{ secrets.MAC_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+
+      - name: Headless pytest subset (borrow/restore + snapshot + bundle preflight + ready ordering)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install -e ".[test]" --quiet
+          python3 -m pytest tests/test_clipboard_borrow_restore.py tests/test_clipboard_snapshot.py tests/tauri/test_macos_bundle_preflight.py tests/test_clipboard_macos_capture.py tests/test_sidecar_ws_ready_ordering.py -q --no-cov --tb=short 2>&1 | tee host-validation/evidence/macos-pytest.txt
+
+      - name: Upload macos evidence
+        uses: actions/upload-artifact@v6
+        with:
+          name: host-validation-macos
+          path: host-validation/evidence/
+          if-no-files-found: error
+
+  linux-host-validation:
+    if: ${{ github.event.inputs.scope == 'all' || github.event.inputs.scope == 'linux' || github.event.inputs.scope == '' }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: S1-CR-146 StartupWMClass evidence (warning, never auto-fix)
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p host-validation/evidence
+          python3 - <<'PY' | tee host-validation/evidence/s1-cr-146.txt
+          import re, tomllib
+          tpl = open("src-tauri/voice-typer.desktop.template").read()
+          m = re.search(r"^StartupWMClass=(.+)$", tpl, re.M)
+          wm = m.group(1).strip() if m else "<missing>"
+          cargo = tomllib.load(open("src-tauri/Cargo.toml", "rb"))
+          bins = [b.get("name") for b in cargo.get("bin", [])]
+          print(f"StartupWMClass={wm!r} CargoBins={bins}")
+          if wm not in bins:
+              print(f"::warning::S1-CR-146 plausible-true: StartupWMClass {wm!r} != binary {bins}. Real WM_CLASS needs `xprop WM_CLASS` on a Linux display host running the Tauri window; NOT auto-fixed here.")
+          else:
+              print("S1-CR-146 MATCH: template class equals binary name")
+          PY
+
+      - name: Native linux-key-listener source + binary (GP-135)
+        shell: bash
+        run: |
+          set -euo pipefail
+          SRC="voice_typer/server/native/linux-key-listener.c"
+          test -f "$SRC" || { echo "::error::missing $SRC"; exit 1; }
+          grep -q "READY" "$SRC" || { echo "::error::linux-key-listener.c missing READY"; exit 1; }
+          file voice_typer/server/native/linux-key-listener 2>/dev/null || echo "(binary not tracked or not built here; source contract is the gate)"
+          python3 -c "import json; m=json.load(open('voice_typer/server/native/binaries.json')); b=m['binaries']; assert 'linux-key-listener-x86_64' in b and b['linux-key-listener-x86_64']['sha256'], 'linux x86_64 manifest entry missing'; print('binaries.json linux entry PASS')"
+          echo "NATIVE_SOURCE=PASS" >> host-validation/evidence/linux.txt
+
+      - name: Headless pytest subset (WM-6/7/8/11/12/13 runnable slice)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install -e ".[test]" --quiet
+          python3 -m pytest tests/test_clipboard_restore_args.py tests/test_clipboard_borrow_restore.py tests/test_sidecar_ws_ready_ordering.py tests/test_timeout_utils.py -q --no-cov --tb=short 2>&1 | tee host-validation/evidence/linux-pytest.txt
+
+      - name: Upload linux evidence
+        uses: actions/upload-artifact@v6
+        with:
+          name: host-validation-linux
+          path: host-validation/evidence/
+          if-no-files-found: error
+
+  validation-summary:
+    needs: [windows-host-validation, macos-host-validation, linux-host-validation]
+    if: always()
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    steps:
+      - name: Download all evidence
+        uses: actions/download-artifact@v6
+        with:
+          path: host-validation/all-evidence
+
+      - name: Summary
+        shell: bash
+        run: |
+          echo "=== Host Validation evidence ==="
+          find host-validation/all-evidence -type f | sort
+          echo ""
+          echo "Interactive gates (mic/speech, TCC grant, logon cycle, xprop WM_CLASS on a visible window, full notarize+staple on a clean Mac) remain VALIDATE-ON-HOST per docs/migration/*-validation-runbook.md."

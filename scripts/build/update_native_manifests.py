@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
 """Update the native binary SHA-256 manifest after a compile step.
 
-This script is invoked by ``scripts/build/compile_native.sh`` and
-``scripts/build/compile_native.ps1`` as the final build step. It walks
+This script runs STANDALONE (manually or from a CI step) after a build
+finishes: ``scripts/build/compile_native.sh``,
+``scripts/build/compile_native.ps1``, and the
+``scripts/build/build_native_listener_*.sh`` wrappers do NOT invoke it
+themselves. It walks
 ``voice_typer/server/native/``, computes
 ``hashlib.sha256(path.read_bytes()).hexdigest()`` for each compiled
 binary it finds, and writes the sha256 back into
@@ -34,8 +37,9 @@ Usage
     python3 scripts/build/update_native_manifests.py [NATIVE_DIR]
 
 If ``NATIVE_DIR`` is omitted, the script defaults to
-``<repo-root>/voice_typer/server/native/``. The compile scripts pass
-their ``$OUT`` directory as ``$1``.
+``<repo-root>/voice_typer/server/native/``. Pass an explicit directory
+when hashing a different tree (e.g. a temp dir in tests); no build
+script passes anything here automatically.
 
 Exit codes
 ----------
