@@ -16,6 +16,7 @@
         "titleBarStyle": "Overlay",
         "hiddenTitle": true,
         "visible": true,
+        "create": false,
         "label": "main"
       },
       {

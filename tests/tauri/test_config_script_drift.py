@@ -767,6 +767,33 @@ class TestPerArchConfigsStayLockedToBase:
                 "that platform."
             )
 
+    def test_per_arch_main_window_keeps_create_false(self) -> None:
+        """Overrides declaring ``app.windows`` must keep ``main`` manual.
+
+        The host builds the ``main`` window itself inside ``.setup``
+        (``window_bootstrap::bootstrap_main_window``) so the frame can
+        stay platform-conditional. The base ``tauri.conf.json`` declares
+        it with ``"create": false``; a per-arch ``--config`` override
+        REPLACES the ``windows`` array, so a ``main`` entry without
+        ``create: false`` is auto-created by the framework AND built
+        again in setup → ``WebviewLabelAlreadyExists("main")`` panic
+        (exit 101) on every launch of the shipped bundle (found via the
+        windows-11-arm emulation run: sidecar gate passed, host died).
+        """
+        base_windows = {w["label"]: w for w in _tauri_conf()["app"]["windows"]}
+        assert base_windows["main"].get("create") is False
+        for rel, (platform, _triples) in PER_ARCH_CONFIGS.items():
+            cfg = json.loads((SRC_TAURI / rel).read_text(encoding="utf-8"))
+            windows = {w["label"]: w for w in cfg.get("app", {}).get("windows", [])}
+            if "main" not in windows:
+                continue  # inherits the base array untouched (linux confs)
+            assert windows["main"].get("create") is False, (
+                f"{rel} ({platform}) declares a main window without "
+                '"create": false: the framework auto-creates it and '
+                "bootstrap_main_window builds it again → "
+                'WebviewLabelAlreadyExists("main") at startup.'
+            )
+
 
 # ─── Pair 10: version lockstep across every layer ──────────────────────────
 

@@ -13,6 +13,7 @@
         "transparent": false,
         "decorations": false,
         "visible": true,
+        "create": false,
         "label": "main"
       },
       {
