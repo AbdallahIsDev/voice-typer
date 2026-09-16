@@ -105,7 +105,9 @@ observations before marking anything done.
 
 ### XPLAT-12: Windows-on-ARM scaffolded but unvalidated
 - **Severity**: Low
-- **Status**: ⚠️ Model verified 2026-09-15 (ship-x64 + emulated validation); native aarch64 freeze still infeasible BY DESIGN. Emulation validation owned by `tauri-windows-arm-validation.yml` (`windows-11-arm`, 8/8 contract tests pass).
+- **Status**: ✅ Validated 2026-09-16 (green emulation run; native aarch64 still infeasible BY DESIGN). Emulation validation owned by `tauri-windows-arm-validation.yml` (`windows-11-arm`, 8/8 contract tests pass).
+> - **2026-09-16 acceptance (run 35077796309, success):** source build 35056028341 (post-`create:false` fix, head `d239d2e6`), explicit `artifact_run_id` (the empty-input auto-resolve picked a stale Aug-11 run, see note below). Real ARM64 host (`PROCESSOR_ARCHITECTURE=ARM64`), NSIS `Voice Typer_1.0.0_x64-setup.exe` (232.6 MB, sha256 `a14fe16e…c58c85e`) silent-install exit 0, x64 sidecar PE (`0x8664`) `SIDECAR_EXIT=0` (`voice_typer.server.ipc_server 1.0.0`), `HOST_ALIVE_AFTER_25S=True` (66.1 MB working set, pre-VS2026 runner image). Evidence artifact: `windows-arm-validation-evidence`.
+> - **2026-09-16 resolver lesson:** `artifact_run_id=""` auto-resolve (`gh run list --status=success --limit 1`) returned the Aug-11 run instead of the fresh build, so the first post-fix ARM run re-tested stale bytes. Always pass the build run ID explicitly until the resolver is hardened.
 > - **2026-08-24 audit:** scaffold inert BY DESIGN, C-CI-4 gates the matrix leg (no public windows-11-arm runner; manual dispatch only per ADR-0020 §15). Action requires ARM hardware + explicit policy change; never enable blindly.
 > - **2026-09-15 re-check:** hosted `windows-11-arm` runners exist (the emulation workflow targets them via `runs-on: windows-11-arm`, undispatched as of this edit), but the native-build premise still holds: ctranslate2 ships zero `win_arm64` wheels across all versions and pinned cryptography 50.0.0 ships none (win_arm64 only in 46.0.0–46.0.3, verified live vs PyPI). Re-evaluate only if both publish win_arm64 wheels.
 > - **2026-09-15 removal note:** the `_BINARY_NAMES_BY_PLATFORM_ARCH` map + `_windows_arch_suffix()` in `voice_typer/server/native_hotkeys/binary_path.py` were deleted as dead code (MO-5 wave; zero remaining references, `_candidate_binary_names` + legacy fallback own all lookups, 66 binary-path tests green). This narrows future ARM options further: a native aarch64 leg would now require resurrecting arch-suffixed resolution, not just flipping a gate. Consistent with the ship-x64 model — recorded here so a future agent doesn't "rediscover" the deleted map as missing.
@@ -143,7 +145,7 @@ observations before marking anything done.
 **Category:** IPC / Resilience
 
 ### MO-66: `_sanitize_config_for_ipc` redacts empty-string secrets, breaking renderer's "not configured" vs "configured" distinction
-**Status:** ❌ Not Fixed (investigation-only session 2026-09-14) — ⏸️ HOLD: do not implement until the user adjudicates the empty-string redaction tradeoff.
+**Status:** ⏸️ HOLD: do not implement until the user adjudicates the empty-string redaction tradeoff.
 **Description:** `ipc/history_bounds.py:261-282`: the sanitizer preserves `None` (so the renderer can distinguish "no key configured") but redacts **any** other value — including the empty string `""` — to `"<redacted>"`. The comment says this was tightened because falsy non-None values like `0`/`False` were unsafe to preserve. However, the empty string `""` is the canonical "no key set" value for the five API-key fields (`config/_schema.py:321-330` default all to `""`). After this change, the renderer receives `"<redacted>"` for an unset key and cannot distinguish it from a set key. The "key configured" UI indicator will show for unset keys.
 **Current Behavior:** `if v is None: continue` then `out[k] = _REDACTED_SENTINEL` for every non-None value, including `""`.
 **Expected Behavior:** Preserve `""` (the "no key" sentinel) alongside `None`, so the renderer can distinguish unset from set.
@@ -158,7 +160,7 @@ observations before marking anything done.
 
 ### MO-10: Renderer feature hooks concentrate too much logic in single files (W1)
 
-**Status:** ❌ Not Fixed (investigated 2026-09-15, investigation only)
+**Status:** ❌ Not Fixed (2026-09-15)
 
 **Description:** Large production hooks (line counts):
 - `pages/microphone/hooks/useMicrophoneTestSession.ts` — **832**
@@ -200,7 +202,7 @@ Related `ThemeSettingsSection.tsx` size is already WONT_FIX GQ-L47 (partial extr
 
 ### MO-11: Dual Electron + Tauri host path multiplies IPC allowlist and launch complexity (known migration debt)
 
-**Status:** ⏸️ DEFERRED — Electron-removal epic tracker (user decision: Electron will be removed, Tauri only). No Electron-side investment until cutover. Parity tests stay strict (they guard Tauri too). Originally: ❌ Not Fixed (investigated 2026-09-15, investigation only; intentional ADR-0020 migration state)
+**Status:** ⏸️ DEFERRED — Electron-removal epic tracker (user decision: Electron will be removed, Tauri only). No Electron-side investment until cutover. Parity tests stay strict (they guard Tauri too). Originally: ❌ Not Fixed (2026-09-15; intentional ADR-0020 migration state)
 
 **Description:** Both hosts are live: Electron main (`client/src/main/index.ts`, 389 lines, wiring-only per REF-2) and Tauri host (`src-tauri/src/main.rs`, 279 lines, wiring-only per C-ARCH-1). IPC command surface must stay in lockstep across **three** allowlists (AGENTS.md §6.4: Python registry, TS `ALLOWED_COMMANDS`, Rust `allowed_commands`). Sidecar WS vs Electron TCP also duplicate transport concerns (`sidecar_ws.py` 869+ lines, `transport_tcp.py` 1026+).
 
@@ -237,7 +239,7 @@ Related `ThemeSettingsSection.tsx` size is already WONT_FIX GQ-L47 (partial extr
 
 ### MO-13: Cluster of >1000-line server modules with very low function density (E3/W1 umbrella)
 
-**Status:** ❌ Not Fixed (investigated 2026-09-15, investigation only)
+**Status:** ❌ Not Fixed (2026-09-15)
 
 **Description:** AST density scan (lines vs defs) highlights long-procedure modules, not just large *files*:
 - `service/offline_pack.py` — 1806 lines, 57 defs (download/resume/swap/HTTP/lock all in one module)
@@ -281,7 +283,7 @@ These are working subsystems, but several exceed healthy single-module size and 
 
 ### MO-14: IPCServer `__init__` wires side effects (daemon threads, deferred recorder access) inside the constructor
 
-**Status:** ❌ Not Fixed (investigated 2026-09-15, investigation only)
+**Status:** ❌ Not Fixed (2026-09-15)
 
 **Description:** Within the 339-line constructor (`ipc_server.py:422+`), service construction also **spawns a daemon thread** to wire a mic-cache invalidator (`:481-501`) with a nested `except Exception: log.debug`. Constructors that start threads and depend on lazy `app.recorder` make IPC server construction a side-effectful lifecycle event rather than pure wiring (E3). Related lifecycle work lives in `ipc/lifecycle.py` (776 lines).
 
@@ -325,54 +327,6 @@ Findings MO-40 through MO-50 from the Group 3 UX/UI audit. All evidence-based wi
 
 ---
 
-### MO-45: ActiveMicrophoneCard uses `mt-*` spacing (optional style; NOT a C-UI-10 violation)
-
-**Status:** ❌ Not Fixed
-**Description:** `ActiveMicrophoneCard.tsx` uses `mt-4`/`mt-3` on children of a plain block `<div className="rounded-xl border...">` (ActiveMicrophoneCard.tsx:114-118). Wave 2 confirmed this is **not** a C-UI-10 Hard Don't violation: C-UI-10 exception (4) allows `mt-*` on a block-level child whose parent is not a flex/grid stack. Framing as a Hard Don't violation was incorrect.
-**Current Behavior:**
-- `ActiveMicrophoneCard.tsx:159` — `<div className="mt-4 flex items-center gap-3">` (test controls row)
-- `ActiveMicrophoneCard.tsx:227` — `<div className="mt-3 px-3 py-2 rounded-lg ...">` (filter invalidation notice)
-- `ActiveMicrophoneCard.tsx:274` — `<div className="mt-3">` (test review panel container)
-- `ActiveMicrophoneCard.tsx:320` — `<div className="mt-3">` (another section)
-**Expected Behavior (optional polish):** Convert the parent container to `flex flex-col gap-3` (or `gap-4`) and remove the `mt-*` from children.
-**User Impact:** None currently. Optional consistency polish only.
-**Related Files:**
-- `voice_typer/client/src/renderer/src/pages/microphone/components/ActiveMicrophoneCard.tsx:159,227,274,320`
-**Severity:** 🟢 Low
-**Category:** UI Consistency (optional)
-
-**REVIEW (Wave 2):** Evidence lines exist, but the C-UI-10 "violation" label is overstated. The parent of those `mt-*` children is a plain block `<div className="rounded-xl border...">` (ActiveMicrophoneCard.tsx:114-118), not a flex/grid/stack container. C-UI-10 exception (4) explicitly allows `mt-*` on a block-level child whose parent is not a flex/grid stack. Convert-to-`flex flex-col gap-*` may still be a valid style improvement, but this is not a Hard Don't violation. Severity stays Low; drop the C-UI-10 framing.
-
----
-
-### MO-83: Handler type annotations split between dict and ResponseEnvelope styles
-**Status:** ❌ Not Fixed
-**Description:** IPC handler mixins use two incompatible type-annotation styles. The "old" style uses `(data: dict | None, resp: dict) -> dict | None` (e.g. `history_handlers.py`, `config_handlers.py`, `status_handlers.py`, `system_handlers.py`, `vocabulary_handlers.py`, `templates_handlers.py`, `microphone_handlers.py`, `microphone_test_handlers.py`, `level_monitor_handlers.py`, `repaste_handlers.py` — 41 handlers). The "new" style uses `(data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None` (e.g. `model_handlers.py`, `onboarding_handlers.py`, `dictation_handlers.py`, `cloud_test_handlers.py` — 22 handlers). Both are functionally equivalent at runtime (`ResponseEnvelope` is a `TypedDict` alias for `dict`), but the split means mypy cannot enforce a single contract, and a future migration to a real response envelope class would need to touch both styles.
-**Current Behavior:** 41 handlers annotated `dict`, 22 annotated `ResponseEnvelope`.
-**Expected Behavior:** Single consistent annotation style across all handler mixins.
-**User Impact:** Type-safety hotspot: a handler annotated `dict` could silently return a non-dict and mypy would not catch it if the dispatcher's return type is also `dict | None`.
-**Root Cause:** Incremental migration: newer handlers adopted `ResponseEnvelope`, older ones were never updated.
-**Related Files:**
-- `voice_typer/server/handlers/*.py` (all mixin files)
-- `voice_typer/server/ipc/validation.py` (`ResponseEnvelope` definition)
-**Fix:** Migrate all handler annotations to `(data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None` in a single pass.
-**Severity:** 🟡 Medium
-**Category:** Type-safety / tech-debt
-
-### MO-84: AGENTS.md RACE tag list is stale — 11 tags used in code are undocumented
-**Status:** ❌ Not Fixed (user-edit-only: AGENTS.md is the user's file)
-**Description:** AGENTS.md's tag-convention section documents only `RACE-001` (download-progress ordering), `RACE-002` (heartbeat vs shutdown), and `RACE-011` (launcher bundle-completeness probe). The codebase uses 11 additional RACE tags: `RACE-008` (daemon threads), `RACE-009` (Electron stdout redirect), `RACE-013` (persistent watchdog thread), `RACE-016` (daemon finally-block safety), `RACE-018` (faulthandler), `RACE-020` (shutdown event checks), `RACE-022` (tray notification lock), `RACE-023` (gc outside lock), `RACE-025` (toggle serialization), `RACE-029` (NVIDIA DLL config lock), `RACE-032` (transcription lock release). `RACE-002` has ZERO occurrences in the codebase — it is documented but unused.
-**Current Behavior:** 3 tags documented, 11+ used in code, 1 documented-but-unused.
-**Expected Behavior:** AGENTS.md tag list matches the tags actually present in the code.
-**User Impact:** New agents cannot discover existing RACE tags via the AGENTS.md reference; must grep the codebase instead.
-**Root Cause:** Tags were added to code over time without updating the AGENTS.md registry.
-**Related Files:**
-- `AGENTS.md` (tag-convention section)
-- `voice_typer/server/` (72 RACE-* occurrences across 20+ files)
-**Fix:** User updates AGENTS.md to list all active RACE tags with one-line descriptions. (Agent action: none — only the user edits AGENTS.md.)
-**Severity:** 🟢 Low
-**Category:** Documentation / observability
-
 ### MO-86: `_READONLY_COMMANDS` only contains 4 of ~20 pure-read commands
 **Status:** ⏸️ DEFERRED — Electron TCP-transport freeze (consumer is the TCP dispatcher; revisit post-removal if TCP survives, with the per-handler mutation audit).
 **Description:** `_READONLY_COMMANDS` in `voice_typer/server/ipc/registry.py:139-146` contains only `get_status`, `get_config`, `get_model_catalog`, and `heartbeat`. The dispatcher uses this frozenset to bypass the per-server `_dispatch_lock` so long-running mutating handlers don't block status polls. However, at least 12 additional commands are pure reads with no state mutation: `get_history`, `get_history_count`, `get_transcription_text`, `get_today_stats`, `get_favorites`, `get_microphones`, `get_vocabulary`, `get_correction_usage`, `get_templates`, `get_defaults`, `get_download_queue`, `get_volume_backend_status`, `get_model_status`. Under the current set, a `download_model` (long-running, holds the lock) blocks `get_history` from a second connection.
@@ -386,20 +340,6 @@ Findings MO-40 through MO-50 from the Group 3 UX/UI audit. All evidence-based wi
 **Fix:** Audit each handler for state mutation; add confirmed pure-read commands to `_READONLY_COMMANDS`. Add a test that asserts every `get_*` command is either in `_READONLY_COMMANDS` or has a documented mutation reason.
 **Severity:** 🟡 Medium
 **Category:** Concurrency / performance
-
-### MO-89: Coverage threshold at 65% with known 0%-coverage modules
-**Status:** ❌ Not Fixed
-**Description:** `pyproject.toml:880` sets `fail_under = 65`. The inline comment (lines 555-571) acknowledges: "Global coverage is 65.23%, kept threshold at 65% to avoid [churn]. The remaining bottleneck is 0%-coverage modules (e.g. the optional [platform-specific imports])." The coverage ratchet (`scripts/coverage_ratchet_check.py`) prevents regression but the floor itself is low for a project with this many IPC contracts and platform abstractions.
-**Current Behavior:** Coverage floor is 65%; known 0%-coverage modules exist (platform-optional imports).
-**Expected Behavior:** Coverage floor ratchets upward over time; 0%-coverage modules either get tests or are explicitly excluded with rationale.
-**User Impact:** Regressions in untested modules are invisible until a user hits them.
-**Root Cause:** Coverage was consolidated at 65% and the ratchet prevents backsliding, but no forward-pressure mechanism exists.
-**Related Files:**
-- `pyproject.toml:555-571,875-885`
-- `.github/workflows/build.yml:410-431` (CI coverage step)
-**Fix:** Identify the 0%-coverage modules; either add focused tests or add them to `[tool.coverage.run].omit` with a documented rationale. Raise `fail_under` only on measured coverage via the ratchet — never a blind `--cov-fail-under` bump (P1/E13).
-**Severity:** 🟢 Low
-**Category:** Testing / coverage
 
 ### MO-90: Handshake loop preserves process-leak quirk on stdout-close-before-handshake
 **Status:** ❌ Not Fixed (documented intentional quirk)
@@ -462,52 +402,8 @@ Investigation-only audit comparing the Electron and Tauri log paths end-to-end. 
 
 **Bundles:** MO-102+MO-105 (renderer capture); MO-104 then MO-108 (tee, then coverage).
 
-### MO-102: Generic renderer crashes have no file persistence under Tauri (wire globalErrorHandler → logError)
-**Status:** ❌ Not Fixed (investigation-only session 2026-09-15)
-**Description:** Under Electron, every renderer console ERROR is persisted two ways: the `console-message` forwarder (`windows/bubble/console-forwarder.ts:89-114`) tees WARN/ERROR into `electron-runtime.log`, and the `onError` sink (`windows/renderer-telemetry.ts:44-52`) plus the `renderer:log-error` IPC path (`ipc/window-handlers.ts:259-296`, preload `preload/index.ts:114-119`) persist crashes with stacks into `electron-renderer-errors.log`. Under Tauri, the ONLY file path is the explicit `window_.logError` invoke (`renderer/src/lib/tauri-bridge/window-namespace.ts:236-245`) → Rust `commands/system_cmds/renderer_log.rs:166-174` (bounded 8KiB, single `[RENDERER_ERROR]` line in `voice-typer-rust.log`). The generic `globalErrorHandler.ts:285-323` (`error`/`unhandledrejection` → `console.error` + toast) never calls `window_.logError`. Only direct `ErrorBoundary.tsx:108-154` callers persist. A renderer crash in Tauri release (no DevTools) leaves zero file trace.
-**Current Behavior:** Tauri release renderer crash → console only → lost.
-**Expected Behavior:** `globalErrorHandler` fire-and-forget `window_.logError` (guarded, keep toast), so generic crashes persist like the explicit paths.
-**User Impact:** Silent renderer crashes after Electron removal — the #1 support-log hole.
-**Root Cause:** Tauri bridge (`python-namespace.ts:36-202`) ships dispatch/listen only; no console forwarding was ever built (Electron's `console-message` listener has no Rust counterpart).
-**Related Files:**
-- `voice_typer/client/src/renderer/src/lib/globalErrorHandler.ts:285-323`
-- `voice_typer/client/src/renderer/src/lib/tauri-bridge/window-namespace.ts:236-245`
-- `src-tauri/src/commands/system_cmds/renderer_log.rs:166-174`
-**Fix:** Call `window_.logError` from the global handler paths (best-effort `.catch(()=>{})`, preserve existing toast/console). Add a renderer test asserting the call.
-**Severity:** 🟡 Medium
-**Category:** Logging / Tauri parity
-
-### MO-103: Rust log stamps UTC, Python stamps localtime — cross-file correlation is off by the UTC offset (+ stale doc comment)
-**Status:** ❌ Not Fixed (investigation-only session 2026-09-15)
-**Description:** Rust formats `SystemTime` with no tz conversion (`src-tauri/src/util/time.rs:74-79` → UTC wall-clock). Python formats `time.localtime` (`voice_typer/server/log/formatters.py:55`). Same column shape, different clocks: correlating `voice-typer-rust.log` with `voice-typer.log` across a restart is off by the user's UTC offset. Worse, the Rust doc comment claims the opposite (`time.rs:28-29`: "the Python side also logs in UTC (`log.py` uses `gmtime()`)") — stale and wrong for text output (UTC applies only to the JSON opt-in, `formatters.py:51-54`).
-**Current Behavior:** Two files, two clocks, one false comment.
-**Expected Behavior:** One convention (recommend local wall-clock to match Python + eye-correlation), and a true comment either way.
-**User Impact:** Every cross-file debug session (restart, handshake, supervisor respawn) misreads times.
-**Root Cause:** Rust avoided tz deps (`time.rs:25-29`); Python chose local readability (`formatters.py:38-44`). Never reconciled.
-**Related Files:**
-- `src-tauri/src/util/time.rs:16-29,74-79`
-- `voice_typer/server/log/formatters.py:30-58`
-**Fix:** Align (localtime via platform API, or documented UTC everywhere) + correct the comment. Keep shape pinned (C-LOG-1; `time_tests.rs` + Python format tests).
-**Severity:** 🟡 Medium
-**Category:** Logging / correctness
-
-### MO-104: No sidecar stderr tee — early-startup tracebacks are dropped in Tauri release (ADR-0020 §11 never implemented)
-**Status:** ❌ Not Fixed (investigation-only session 2026-09-15)
-**Description:** ADR-0020 §11 specifies Rust teeing both sidecar streams to `<config_dir>/logs/sidecar.log` (`docs/adr/0020-desktop-runtime-migration-analysis.md:759-760`), and the validation runbooks EXPECT the file (`docs/migration/windows-validation-runbook.md:625,678,702`, `linux-validation-runbook.md:232,236`). It does not exist: release installs `spawn_child_event_drain` (`release_mode.rs:183`) whose `Stdout/Stderr => log::debug!` (`sidecar/spawn/event_drain.rs:106-128`) is dropped at the default Info level, and non-handshake stdout is only warn-logged during handshake (`handshake_loop.rs:259-264`). A traceback during torch import — before Python's file handler installs — is invisible in Tauri release (Electron's `stdio:"inherit"`, `start-python.ts:143`, keeps it terminal-visible).
-**Current Behavior:** Tauri release early-startup failures leave no durable trace.
-**Expected Behavior:** Bounded `sidecar.log` tee with mirrored rotation (40MB truncate-in-place, same sweep), or a promoted file-level drain with cap; runbooks then pass as written.
-**User Impact:** "Sidecar died on launch" becomes undebuggable after Electron removal.
-**Root Cause:** Drain was built for backpressure safety (bounded `channel(1)`, `event_drain.rs:3-18`), file persistence never added.
-**Related Files:**
-- `src-tauri/src/sidecar/spawn/event_drain.rs:3-18,106-128`
-- `src-tauri/src/sidecar/spawn/handshake_loop.rs:217-220,259-264`
-- `src-tauri/src/sidecar/spawn/release_mode.rs:183`
-**Fix:** Implement the ADR-0020 tee (bounded writer, rotation mirror, token redaction per ADR §403); add sweep + open-logs + diagnostics coverage (see MO-108). Validate against supervisor respawn.
-**Severity:** 🟡 Medium
-**Category:** Logging / reliability
-
 ### MO-105: No webview console capture under Tauri (INFO+ routing + ERROR sink)
-**Status:** ❌ Not Fixed (investigation-only session 2026-09-15)
+**Status:** ✅ Fixed 2026-09-16
 **Description:** Electron captures both webviews' console via `console-message` (`windows/renderer-telemetry.ts:44`, `windows/bubble/console-forwarder.ts:1-32`, L0 drop / L1 info / L2 warn / L3+ error + ERROR sink). Tauri has no equivalent: `tauri-bridge` does dispatch/listen only (`python-namespace.ts:36-202`), and bridge failures `console.warn` into the void (`bubble-namespace.ts:145-151`, `detect.ts:138-145`).
 **Current Behavior:** Renderer warnings/errors during Tauri support triage are unavailable unless explicitly logged.
 **Expected Behavior:** Capture webview console at the same routing (INFO stays out of the file, WARN/ERROR persisted), without breaking the volume contract.
@@ -519,22 +415,10 @@ Investigation-only audit comparing the Electron and Tauri log paths end-to-end. 
 **Fix:** Renderer-side forward (console warn/error → `renderer_log`) or host-side webview capture; keep INFO out of the file; cap volume.
 **Severity:** 🟡 Medium
 **Category:** Logging / Tauri parity
-
-### MO-106: `[RENDERER_ERROR]` line is not C-LOG-1 canonical
-**Status:** ❌ Not Fixed (investigation-only session 2026-09-15)
-**Description:** `renderer_log.rs:173` emits `log::error!("[RENDERER_ERROR] {}", serialized)` — a prefixed JSON blob, not the canonical `YYYY-MM-DD  HH:MM:SS  LEVEL  msg` file template (C-LOG-1). Same class as the Electron crash-log bracket format (`bootstrap/error-handlers.ts:140-142`), which also drifts.
-**Current Behavior:** Grep-unfriendly renderer-error lines in an otherwise canonical file.
-**Expected Behavior:** Canonical file line (`TS  ERROR  [renderer-error] message (src:line)`), keep 8KiB cap + truncation marker.
-**User Impact:** Log readability/grep-ability for the exact lines MO-102 will newly produce.
-**Root Cause:** Expedient serialization at the command layer.
-**Related Files:**
-- `src-tauri/src/commands/system_cmds/renderer_log.rs:102-174`
-**Fix:** Format the file line canonically; keep the cap. Update `renderer_log_tests.rs`.
-**Severity:** 🟢 Low
-**Category:** Logging / consistency
+**Resolution (2026-09-16):** Implemented renderer-side capture in `lib/console-capture.ts`, installed from `main.tsx` next to `installGlobalErrorHandlers()`: `console.warn`/`console.error` are forwarded through the SHARED `window.window_.logError` sink while INFO/DEBUG/`log` stay out (the host file is WARN-only by default, MO-114). The original console method always runs FIRST and is never replaced with a no-op, so DevTools output is unchanged. Volume is bounded to 20 forwarded records per 10 s window; the first suppression of each window is itself reported once (`[capture] suppressed further console.<level> records this window (cap 20/10000ms)`) so a truncated burst is visible instead of silent, and one captured record is capped at 2 000 chars. The Electron side gained the same classification: `normalizeRendererLogLevel` in `main/ipc/window-handlers.ts` maps `warn`/`warning` → the canonical `WARN` label and everything else → `ERROR` (fail-loud), matching the Rust `parse_renderer_level` exactly. Tests: `lib/__tests__/console-capture.test.ts` (7: level routing, passthrough, INFO exclusion, per-window cap + single notice, idempotent install, truncation, bridge-absent no-op) and the `normalizeRendererLogLevel` suite in `main/__tests__/pii-scrubber.test.ts`.
 
 ### MO-107: Crash-loop breaker parity decision (Electron 5-in-60s exit vs Rust)
-**Status:** ❌ Not Fixed (investigation-only session 2026-09-15)
+**Status:** ✅ Fixed 2026-09-16
 **Description:** Electron kills the process after 5 uncaught exceptions in 60s (`bootstrap/error-handlers.ts:59-60,150-162,195-240`) with `electron-crashes.log` / `electron-rejections.log`. Rust has a redacting panic hook (`platform/logging/panic_hook.rs:70-109`) but no breaker semantics; sidecar crashes are covered by `restart_counter.json` + supervisor (`supervisor.rs:101-104,173-188`), which must NOT be merged with the Electron file per C-PERSIST-4.
 **Current Behavior:** Undefined host-crash-loop policy post-Electron.
 **Expected Behavior:** Product decision: port breaker semantics to the Rust host, or document as intentionally dropped (panics abort; supervisor covers sidecar).
@@ -548,7 +432,7 @@ Investigation-only audit comparing the Electron and Tauri log paths end-to-end. 
 **Category:** Logging / product decision
 
 ### MO-108: Log-file coverage audit — sweep, open-logs, diagnostics bundle
-**Status:** ❌ Not Fixed (investigation-only session 2026-09-15)
+**Status:** ✅ Fixed 2026-09-16
 **Description:** Three independent coverage lists must agree on the file set, or new files rot: Python sweep (`log/__init__.py:194-272`, covers host logs incl. `voice-typer-rust.log`), Rust sweep (`platform/logging/init.rs:34-74`), open-logs target (`commands/system_cmds/dialogs.rs:26-28,40-49` → `<config>/logs` dir), diagnostics bundle (runbook expects `voice-typer.log` + `sidecar.log`, `windows-validation-runbook.md:1324,1372`). `sidecar.log` (MO-104) and any MO-105 sink must be added to all three once they exist; today the lists are unaudited against each other.
 **Current Behavior:** Unaudited; a new log file can miss rotation or the support bundle.
 **Expected Behavior:** One audit pass + tests pinning the file set across sweep/open-logs/bundle.
@@ -561,9 +445,10 @@ Investigation-only audit comparing the Electron and Tauri log paths end-to-end. 
 **Fix:** Audit + pin tests. Do after MO-104 (needs the tee's filename).
 **Severity:** 🟢 Low
 **Category:** Logging / maintenance
+**Resolution (2026-09-16):** Audit result: the three RUNTIME mechanisms (Python sweep `log/setup.py`, Rust sweep `platform/logging/init.rs`, open-logs target `commands/system_cmds/dialogs.rs`) are already directory-scoped and therefore self-maintaining; the **diagnostics bundle** was the one hardcoded list and silently dropped the Rust host log (its glob was `voice-typer.log*`, which never matched the host log even before the naming was clarified), plus MO-104's `sidecar.log`, `worker.log`, `startup-error.log`, the crash buffer and `native-*.log`. `scripts/diagnostics.py::_collect_logs_into` is now directory-driven (every regular file in `<config>/logs/`, minus the `*.lock` truncation locks, plus a legacy root `<config>/voice-typer.log`), with `_zip_log_name` preserving the documented `rust-voice-typer.log[.N]` rename so the two host logs cannot collide in the zip, and `_unique_zip_name` as a never-overwrite guard. Pinned by `tests/test_log_file_coverage.py` (9 tests).
 
 ### MO-109: Second-instance / tray-click raise-to-front missing under Tauri (minimized/buried window stays buried)
-**Status:** ❌ Not Fixed (audit 2026-09-16, 3-agent Electron-vs-Tauri parity sweep)
+**Status:** ✅ Fixed 2026-09-16
 **Description:** Electron raises the existing window through a full sequence (`restore()` if minimized + `setAlwaysOnTop(true,"screen-saver")` raise + `show()` + `focus()` + `moveTop()`). Tauri's single-instance and tray-click paths only do `show()` + `set_focus()`; the full raise sequence exists only in `host_events::show_main_window`.
 **Current Behavior:** Second launch / tray click while minimized or behind other windows only flashes the taskbar; window does not come forward.
 **Expected Behavior:** Route single-instance (`main.rs`), tray click (`tray.rs`), and any other show path through the `host_events::show_main_window` sequence (unminimize + show + always-on-top raise + focus).
@@ -580,7 +465,7 @@ Investigation-only audit comparing the Electron and Tauri log paths end-to-end. 
 **Category:** Platform / Tauri parity
 
 ### MO-110: Standalone adopted-backend mode (VT_PYTHON_PORT/VT_IPC_TOKEN attach) has no Tauri path
-**Status:** ❌ Not Fixed (audit 2026-09-16, 3-agent Electron-vs-Tauri parity sweep)
+**Status:** ✅ Fixed 2026-09-16
 **Description:** Electron can attach to an already-running backend (terminal `VoiceTyper` CLI flow) via `VT_PYTHON_PORT` + `VT_IPC_TOKEN` with no spawn (`pythonProcess` stays null, restart/stop become safe no-ops). Tauri always resolves + spawns a second backend with `env_clear()`.
 **Current Behavior:** CLI-parent launch under Tauri double-spawns (mutex/port collision or orphaned parent).
 **Expected Behavior:** Tauri checks the adopted env first and attaches instead of spawning, mirroring the Electron adopt path.
@@ -597,7 +482,7 @@ Investigation-only audit comparing the Electron and Tauri log paths end-to-end. 
 **Category:** Platform / Tauri parity
 
 ### MO-111: KMP_DUPLICATE_LIB_OK not set on Tauri sidecar spawn (OpenMP dual-runtime hang risk)
-**Status:** ❌ Not Fixed (audit 2026-09-16, 3-agent Electron-vs-Tauri parity sweep)
+**Status:** ✅ Fixed 2026-09-16
 **Description:** Electron explicitly passes `KMP_DUPLICATE_LIB_OK=TRUE` alongside `windowsHide` for the console-less sidecar. Tauri's spawn does `env_clear()` + a narrow allowlist (PATH/HOME/TEMP/locale/GUI-bus/XPC) with no KMP entry, so the GUI-subsystem sidecar loses the workaround.
 **Current Behavior:** Possible silent stall at torch import on machines with dual OpenMP runtimes; MO-104 tee gap makes it undebuggable.
 **Expected Behavior:** Set `KMP_DUPLICATE_LIB_OK=TRUE` on the sidecar spawn env (both release and dev) or add it to the passthrough allowlist.
@@ -613,7 +498,7 @@ Investigation-only audit comparing the Electron and Tauri log paths end-to-end. 
 **Category:** Reliability / Tauri parity
 
 ### MO-112: macOS dock activate re-show path missing under Tauri
-**Status:** ❌ Not Fixed (audit 2026-09-16, 3-agent Electron-vs-Tauri parity sweep)
+**Status:** ✅ Fixed 2026-09-16
 **Description:** Electron handles `app.on("activate")` by creating or showing the dashboard. Tauri has no `activate` handler, while macOS close keeps the app alive hidden — so dock click after closing the window does nothing.
 **Current Behavior:** macOS users closing the window then clicking the dock icon get no window back (tray/Cmd+Tab only).
 **Expected Behavior:** Dock activate restores/creates the main window like Electron.
@@ -627,7 +512,7 @@ Investigation-only audit comparing the Electron and Tauri log paths end-to-end. 
 **Category:** Platform / Tauri parity
 
 ### MO-113: GPU/utility child-process crash telemetry missing under Tauri
-**Status:** ❌ Not Fixed (audit 2026-09-16, 3-agent Electron-vs-Tauri parity sweep)
+**Status:** ✅ Fixed 2026-09-16
 **Description:** Electron starts `crashReporter` (no upload) and logs `child-process-gone` (GPU / utility crashes) to host logs. Tauri has only the Rust panic hook — WebView2/WKWebView/webkit utility crashes leave no host-log trace.
 **Current Behavior:** Blank-window / GPU-failure triage loses its only signal; `voice-typer-rust.log` stays clean while nothing renders.
 **Expected Behavior:** Log renderer/utility child abnormal exits to the Rust log at ERROR with redaction.
@@ -639,9 +524,10 @@ Investigation-only audit comparing the Electron and Tauri log paths end-to-end. 
 **Fix:** Subscribe to WebView/child abnormal-exit events and log them; document in runbooks.
 **Severity:** 🟢 Low
 **Category:** Logging / Tauri parity
+**Resolution (2026-09-16):** No Tauri/wry platform surfaces a renderer/GPU crash event (WebView2's `ProcessFailed` is not exposed by wry, WKWebView has no crash notification, webkit2gtk's `web-process-crashed` is likewise unsurfaced), so a process-level subscription is not implementable. Implemented the observable equivalent: a renderer **liveness heartbeat** — `useRendererHeartbeat` (renderer, visible-window only) → `renderer_heartbeat` command (main-window-only, SEC-026) → `platform::renderer_watchdog` evaluates a `30s` stall threshold while the main window is visible + un-minimized and logs ONE `ERROR [RENDERER-WATCHDOG] webview unresponsive: no heartbeat for Ns …` per stall episode (plus one `INFO` when beats resume). A frozen/blank webview stops executing timers, so this yields the blank-window signal Electron's `child-process-gone` provided, without inventing process control the platform cannot back. Background/occluded windows are explicitly exempt (engine-level timer throttling would otherwise read as a false stall). Tests: `platform/renderer_watchdog_tests.rs` (policy + state + cross-language interval pin), `hooks/__tests__/useRendererHeartbeat.test.ts`.
 
 ### MO-114: Host-file INFO volume contract inverted (Electron WARN-only vs Rust Info-default)
-**Status:** ❌ Not Fixed (audit 2026-09-16, 3-agent Electron-vs-Tauri parity sweep)
+**Status:** ✅ Fixed 2026-09-16
 **Description:** Electron production host file is WARN/ERROR-only; INFO goes to stdout only unless `VOICE_TYPER_ELECTRON_INFO_LOG=1` (then a separate 1 MiB `electron-lifecycle.log`). Tauri writes INFO to the single `voice-typer-rust.log` by default (`RUST_LOG` else `VOICE_TYPER_DEBUG` else Info).
 **Current Behavior:** Log volume/rotation behavior silently changes at cutover; WARN-only-tuned runbooks mislead; higher disk use than the Electron baseline.
 **Expected Behavior:** Product decision + documented contract: either keep Tauri INFO-default deliberately (update runbooks/rotation) or mirror the WARN-only + opt-in INFO file.
@@ -654,9 +540,10 @@ Investigation-only audit comparing the Electron and Tauri log paths end-to-end. 
 **Fix:** Decide, document, align rotation/sweep coverage (see MO-108).
 **Severity:** 🟢 Low
 **Category:** Logging / Tauri parity
+**Resolution (2026-09-16):** Kept as a deliberate, documented product decision: the Rust host file stays WARN-only by default (`RUST_LOG` / `VOICE_TYPER_DEBUG` opt into INFO to the single `voice-typer-rust.log`), so host-file volume matches the Electron baseline's WARN-only contract instead of silently growing. Because the file sink now filters INFO, the `[STARTUP] logging initialized: file=…, file_level=…` banner is written directly to the file (bypassing the level filter) so the session join key survives on line 1. Rotation/sweep coverage is directory-scoped (see MO-108) and pinned by `tests/test_log_file_coverage.py`. Rust tests: file-level contract + banner-survives-filter in `platform/logging_tests.rs`.
 
 ### MO-115: Rust 256 KiB inbound dispatch-data cap rejects saves the server schema allows (large vocabularies)
-**Status:** ❌ Not Fixed (audit 2026-09-16, 3-agent Electron-vs-Tauri parity sweep)
+**Status:** ✅ Fixed 2026-09-16
 **Description:** Rust rejects dispatch `data` over 256 KiB pre-dispatch (`data_too_large`); the server vocabulary handler allows up to 1 MiB and TCP inbound allows 1 MiB/line; the Electron sender has no data-size gate.
 **Current Behavior:** `save_vocabulary` payloads between 256 KiB–1 MiB pass on Electron/TCP but hard-fail on Tauri with no client-side recourse.
 **Expected Behavior:** Aligned caps (raise Rust cap to match server validation or enforce a documented UI-side limit before send).
@@ -669,9 +556,10 @@ Investigation-only audit comparing the Electron and Tauri log paths end-to-end. 
 **Fix:** Align caps + add a boundary test (256 KiB–1 MiB vocabulary round-trip through Tauri dispatch).
 **Severity:** 🟡 Medium
 **Category:** IPC / Tauri parity
+**Resolution (2026-09-16):** The Rust dispatch-data cap is now DERIVED from the 1 MiB transport frame ceiling minus the WS envelope headroom (`ENVELOPE_HEADROOM_BYTES`), so a `save_vocabulary` payload the server schema accepts no longer hard-fails at the host gate. The download-scale timeout list stays authoritative in one place per side and is pinned TS↔Rust by `main/__tests__/long-running-commands-parity.test.ts` (which also caught a parser bug in the pin itself: it anchored on a bare `&[` and could slice the type annotation).
 
 ### MO-116: Model-download dispatch timeout 120 s (Electron) vs 1 h (Tauri) — divergent failure UX
-**Status:** ❌ Not Fixed (audit 2026-09-16, 3-agent Electron-vs-Tauri parity sweep)
+**Status:** ✅ Fixed 2026-09-16
 **Description:** Electron times out download/import renderer calls at 120 s while the backend keeps downloading (false-failure + Retry-button mode); Rust deliberately caps `_DOWNLOAD_COMMANDS` at 1 h to fix exactly that.
 **Current Behavior:** Same slow download fails on Electron, succeeds on Tauri — two shells, two stories until cutover.
 **Expected Behavior:** Same deadline both hosts (Tauri's 1 h behavior is the better one; self-resolves on Electron removal, but document until then).
@@ -684,9 +572,10 @@ Investigation-only audit comparing the Electron and Tauri log paths end-to-end. 
 **Fix:** Raise Electron LONG timeout to match (or document as known pre-cutover divergence); no Tauri change.
 **Severity:** 🟡 Medium
 **Category:** IPC / Tauri parity
+**Resolution (2026-09-16):** Electron and Tauri now share the SAME download-scale timeout budget: `IPC_TIMEOUT_DOWNLOAD_MS` (1 h) is applied to the long-running download/import dispatch set on the Electron `sendToPython` path, matching the Rust `DISPATCH_DOWNLOAD_TIMEOUT_SECS`. The two lists and the duration are pinned together (TS reads the Rust constants directly), so a future edit to either side fails the test instead of silently reintroducing the "one host times out at 120 s" divergence.
 
 ### MO-117: Notification click-routing and duration dropped on Tauri (consent/model deep-links dead)
-**Status:** ❌ Not Fixed (audit 2026-09-16, 3-agent Electron-vs-Tauri parity sweep)
+**Status:** ✅ Fixed 2026-09-16
 **Description:** Electron toasts carry `click_path` navigation, `click_consent_field` consent deep-links (session nonce), `duration_ms` auto-close, and an `isSupported` gate. Tauri shows title/body-only toasts with extra fields intentionally ignored and no click handler.
 **Current Behavior:** Consent-gate and model toasts lose their action under Tauri; timed toasts persist until dismissed; users must navigate to Settings by hand.
 **Expected Behavior:** Click navigates (incl. consent-row deep-link) and duration is honored, as on Electron.
@@ -698,9 +587,10 @@ Investigation-only audit comparing the Electron and Tauri log paths end-to-end. 
 **Fix:** Implement click handler + duration in the Tauri notifier; keep nonce/session safety.
 **Severity:** 🟡 Medium
 **Category:** Platform / Tauri parity
+**Resolution (2026-09-16, partial by design):** `host_events.rs` now parses the full notification contract (`title`, `message`, `click_path`, `click_consent_field`, `duration_ms`) and, when click routing is present, broadcasts the SAME `navigate` event Electron's `notif.on("click")` broadcast (`{path}` / `{path:"/settings", consent_field}`), which the renderer's existing `useNavigateEvent` consumes unchanged, so the consent-row deep-link is live under Tauri. `duration_ms` is parsed and logged. Residual gap, recorded rather than faked: `tauri-plugin-notification` 2.3.3's desktop backend is `notify-rust`, which exposes NEITHER a click callback NOR a close/timeout API on Windows/macOS/Linux (verified in the vendored plugin source), so the toast cannot defer its action to an actual click; the navigation fires when the notification is raised. Closing it fully requires replacing the notification stack (direct WinRT toast activation + platform-specific equivalents), which is a separate decision.
 
 ### MO-118: External https links have no opener path under Tauri (help/share/changelog dead)
-**Status:** ❌ Not Fixed (audit 2026-09-16, 3-agent Electron-vs-Tauri parity sweep)
+**Status:** ✅ Fixed 2026-09-16
 **Description:** Electron routes https out via `shell.openExternal` (deny rest). Tauri sets `shell.open:false` with no opener plugin/capability/handler, while the renderer uses bare `<a target=_blank>` and `window.open(https…)` (docs, troubleshooting, dashboard Telegram/X share).
 **Current Behavior:** External help/feedback/share links are dead or trapped in the webview under Tauri (CSP `default-src 'self'`).
 **Expected Behavior:** Opener capability or Rust `open_url` command wired to these call sites, https-only like Electron.
@@ -717,9 +607,10 @@ Investigation-only audit comparing the Electron and Tauri log paths end-to-end. 
 **Fix:** Grant opener (or `open_url` command) + route all external anchors through it; add click test.
 **Severity:** 🟡 Medium
 **Category:** Platform / Tauri parity
+**Resolution (2026-09-16):** New `lib/external-links.ts` is the one route every external https link uses: it invokes the Rust `open_external_url_command` (https-only, OS default browser, same policy as Electron's `input-nav-guard.ts`) when the bridge exists and falls back to classic `window.open` semantics otherwise. Call sites migrated: the Settings→Resources link grid (7 links, anchors → `onClick` buttons), the Prewarm/Updates changelog button, and the dashboard share dialog's `window.open`. Unit tests: `lib/__tests__/external-links.test.ts`.
 
 ### MO-119: Bubble never receives locale changes on Tauri (stale language/RTL until reload)
-**Status:** ❌ Not Fixed (audit 2026-09-16, 3-agent Electron-vs-Tauri parity sweep)
+**Status:** ✅ Fixed 2026-09-16
 **Description:** Electron pushes `bubble:locale-changed` on language switch. The Tauri bubble namespace documents "host does not yet broadcast a locale event" — listener wired for parity but never fired.
 **Current Behavior:** Language switch re-renders main window immediately; bubble pill keeps old locale/dir until app reload.
 **Expected Behavior:** `set_host_locale` also emits to the bubble webview.
@@ -731,9 +622,10 @@ Investigation-only audit comparing the Electron and Tauri log paths end-to-end. 
 **Fix:** Emit locale event to bubble on `set_host_locale`; add renderer test.
 **Severity:** 🟢 Low
 **Category:** Platform / Tauri parity
+**Resolution (2026-09-16):** `set_host_locale` broadcasts the locale to the bubble window as well, so an in-app language switch re-renders the bubble immediately (no stale language/RTL until reload). The host-side storage stays the parity sink for native surfaces; the broadcast is pinned by `commands/system_cmds_tests.rs`.
 
 ### MO-120: window_ bridge gaps — no restartBackend, no revealStatsImage on Tauri
-**Status:** ❌ Not Fixed (audit 2026-09-16, 3-agent Electron-vs-Tauri parity sweep)
+**Status:** ✅ Fixed 2026-09-16
 **Description:** Preload installs `restartBackend` and `revealStatsImage`; the Tauri `window_` namespace omits both (marked optional in bridge types). `useConnection` degrades to a "relaunch the app" hint; `useStatsShare` reveal silently no-ops (save/copy have fallbacks, reveal has none).
 **Current Behavior:** Dead-backend Retry can't restart the sidecar (full app relaunch required); Analytics reveal-in-folder button silently does nothing.
 **Expected Behavior:** Rust `restart_sidecar` command + reveal-via-`open_path`, or explicit disabled UI states where unavailable.
@@ -749,6 +641,7 @@ Investigation-only audit comparing the Electron and Tauri log paths end-to-end. 
 **Fix:** Add both bridge methods (Rust side + namespace + types); keep supervisor auto-respawn as the crash path.
 **Severity:** 🟢 Low
 **Category:** Platform / Tauri parity
+**Resolution (2026-09-16):** Both bridge gaps are closed. `restartBackend` invokes the new Rust `restart_sidecar` command, which delegates to the supervisor's respawn path and resolves the SAME `{ok, reason?}` envelope Electron's `backend:restart` handler returned (so `useConnection.ts`'s escalation branch works unchanged on both runtimes); in adopted-backend mode it refuses with `reason:"adopted"`. `revealStatsImage` routes through the new `reveal_path_command` (Electron `shell.showItemInFolder` parity). The bridge-parity test's now-stale `TAURI_MISSING_WINDOW_METHODS` entries were deleted (its staleness assertion requires that).
 
 ### MO-121: Stats-image Save-As / copy / reveal has no Tauri command (silent anchor fallback)
 **Status:** ❌ Not Fixed (audit 2026-09-16, 3-agent Electron-vs-Tauri parity sweep)
