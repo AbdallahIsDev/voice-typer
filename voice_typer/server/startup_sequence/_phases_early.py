@@ -548,12 +548,14 @@ class EarlyPhases:
             try:
                 unpasted = app._crash_recovery.check_on_startup()
                 if unpasted:
+                    # Silent by design (user decision): the recovered
+                    # entries are already in History (the dictation
+                    # pipeline writes every transcription to history_db
+                    # AND the recovery buffer in parallel), so a
+                    # "Recovered N transcriptions" toast adds no
+                    # information and only distracts at startup. The
+                    # log line below is the diagnostic trail.
                     log.info("[STARTUP] Found %d unpasted transcriptions from previous session", len(unpasted))
-                    # critical, bypass toggle (recovered user data).
-                    app.tray.notify_safety(
-                        APP_NAME,
-                        f"Recovered {len(unpasted)} transcriptions from last session. Open History to view.",
-                    )
             except Exception:
                 # M-67: promote debug→warning so the failure surfaces in
                 # the default log; include the traceback so operators can

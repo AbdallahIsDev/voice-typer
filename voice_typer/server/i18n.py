@@ -263,9 +263,6 @@ _INITIAL_LABELS: dict[str, str] = {
     "notify.startup_sequence.corrections_error_body": (
         "{error}\nCorrections will use built-in defaults. Fix the file and restart."
     ),
-    "notify.startup_sequence.crash_recovery_body": (
-        "Recovered {count} transcriptions from last session. Open History to view."
-    ),
     "notify.startup_sequence.wayland_hotkeys_title": "{app} | Wayland Hotkeys",
     "notify.startup_sequence.wayland_hotkeys_body": (
         "Global hotkeys may not work on Wayland. "
