@@ -73,8 +73,11 @@ issue (drag-and-drop onto the GitHub editor).
   canonical `_SECRET_CONFIG_FIELDS` frozenset from
   `voice_typer/server/ipc_server.py`).
 - `voice-typer.log` — the Python host log (last 1 MiB if larger).
-- `rust-voice-typer.log[.N]` — the Rust / Tauri host log (+ any
-  rotated variants) from `<config_dir>/logs/`.
+  When a legacy pre-migration root file and the current
+  `logs/voice-typer.log` are both present, the current log ships as
+  `voice-typer.log-2`.
+- `voice-typer-rust.log[.N]` — the Rust / Tauri host log (+ any
+  rotated variants) from `<config_dir>/logs/`, under its on-disk name.
 - `model_info.json` — which ASR models are currently downloaded.
 
 **The bundle EXCLUDES (PII never leaves your machine):**

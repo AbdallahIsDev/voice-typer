@@ -66,20 +66,20 @@ log (below).
 ### Tauri Rust host log
 
 When running under the Tauri runtime (ADR-0020), the Rust host writes
-its own log at `<DATA_DIR>/logs/voice-typer.log` (single-file policy: it
-is truncated in place at 5 MB, numbered backups are never created —
-see `src-tauri/src/platform/logging.rs`). The file is
-named `voice-typer.log` (NOT `voice-typer-rust.log` An earlier draft
-of this doc mis-named it; the diagnostics bundle renames it to
-`rust-voice-typer.log` only inside the exported zip so the two files
-don't collide, but on disk it's `voice-typer.log` in both processes).
+its own log at `<DATA_DIR>/logs/voice-typer-rust.log` (single-file
+policy: it is truncated in place at 5 MB, numbered backups are never
+created — see `src-tauri/src/platform/logging/init.rs:135-149`). The
+basename is `voice-typer-rust` (distinct from the Python current log
+`logs/voice-typer.log`) so the two hosts never collide on disk or in
+the diagnostics zip; the bundle ships the file under this same
+on-disk name.
 
 | Platform | Rust host log file path |
 |----------|-------------------------|
-| Windows (new installs) | `%APPDATA%\voice-typer\logs\voice-typer.log` → `C:\Users\<you>\AppData\Roaming\voice-typer\logs\voice-typer.log` |
-| Windows (existing users) | `%USERPROFILE%\.voice-typer\logs\voice-typer.log` (legacy data directory is honored if it already exists, see above) |
-| macOS | `~/Library/Application Support/voice-typer/logs/voice-typer.log` |
-| Linux | `$XDG_DATA_HOME/voice-typer/logs/voice-typer.log` (falls back to `~/.local/share/voice-typer/logs/voice-typer.log`) |
+| Windows (new installs) | `%APPDATA%\voice-typer\logs\voice-typer-rust.log` → `C:\Users\<you>\AppData\Roaming\voice-typer\logs\voice-typer-rust.log` |
+| Windows (existing users) | `%USERPROFILE%\.voice-typer\logs\voice-typer-rust.log` (legacy data directory is honored if it already exists, see above) |
+| macOS | `~/Library/Application Support/voice-typer/logs/voice-typer-rust.log` |
+| Linux | `$XDG_DATA_HOME/voice-typer/logs/voice-typer-rust.log` (falls back to `~/.local/share/voice-typer/logs/voice-typer-rust.log`) |
 
 Electron crash logs (when running under the Electron host) land at
 `<userData>/electron-crashes.log`.

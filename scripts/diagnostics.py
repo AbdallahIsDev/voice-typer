@@ -121,13 +121,80 @@ def _collect_log_tail(
         dest.write_text(f"Error reading log {src}: {exc}", encoding="utf-8")
 
 
+def _unique_zip_name(name: str, taken: set[str]) -> str:
+    """Return ``name``, suffixed when a previously collected log already claimed it.
+
+    Defensive only: with the current runtime log set the only reachable
+    collision is the legacy root ``<config>/voice-typer.log`` against the
+    current Python log ``<config>/logs/voice-typer.log`` (same basename,
+    different directories). Collection is directory-driven, so an
+    unexpected file must never silently overwrite another file's
+    contents in a support bundle (the whole point of the bundle is that
+    nothing is missing).
+    """
+    if name not in taken:
+        return name
+    stem, _, suffix = name.partition(".log")
+    index = 2
+    while f"{stem}.log-{index}{suffix}" in taken:
+        index += 1
+    return f"{stem}.log-{index}{suffix}"
+
+
+def _collect_logs_into(config_dir: Path, dest_dir: Path) -> list[str]:
+    """Copy the tail of every runtime log into ``dest_dir``.
+
+    Directory-driven (review.md MO-108): every regular file under
+    ``<config_dir>/logs/`` except the inter-process ``*.lock`` files,
+    each shipped under its **on-disk basename** (no rename), plus a
+    legacy pre-migration ``<config_dir>/voice-typer.log`` when it still
+    exists. On-disk names are already distinct after the Rust host
+    rename (Python current: ``logs/voice-typer.log``; Rust host:
+    ``logs/voice-typer-rust.log``, ``init.rs:149``), so the pre-rename
+    ``rust-`` zip alias is gone — a support bundle now labels every file
+    the same way the runtime does. :func:`_unique_zip_name` remains as
+    the never-overwrite backstop for the legacy-root vs current-Python
+    basename pair. This mirrors the three other log-coverage mechanisms,
+    which are all directory-scoped (Python sweep in ``log/setup.py``,
+    Rust sweep in ``platform/logging/init.rs``, open-logs target in
+    ``commands/system_cmds/dialogs.rs``), so a newly added log file
+    (e.g. the MO-104 ``sidecar.log`` child tee) ships in support bundles
+    automatically instead of being silently dropped by a stale name
+    list.
+
+    Pure filesystem work (no app imports) so the coverage contract is
+    unit-testable. Returns the collected destination names, sorted.
+    """
+    collected: list[str] = []
+    taken: set[str] = set()
+    legacy_python_log = config_dir / "voice-typer.log"
+    if legacy_python_log.is_file():
+        _collect_log_tail(legacy_python_log, dest_dir, "voice-typer.log")
+        collected.append("voice-typer.log")
+        taken.add("voice-typer.log")
+    logs_dir = config_dir / "logs"
+    if logs_dir.is_dir():
+        for entry in sorted(logs_dir.iterdir()):
+            if not entry.is_file() or entry.name.endswith(".lock"):
+                continue
+            dest_name = _unique_zip_name(entry.name, taken)
+            _collect_log_tail(entry, dest_dir, dest_name)
+            collected.append(dest_name)
+            taken.add(dest_name)
+    return collected
+
+
 def export_diagnostics() -> str:
     """Collect diagnostic info and save as a timestamped zip file.
 
     Collects:
-      - voice-typer.log (Python host log, if it exists)
-      - rust-voice-typer.log[.N] (Rust/Tauri host log + rotated variants,
-        if they exist, lives under ``<config_dir>/logs/``)
+      - every log file under ``<config_dir>/logs/`` (Python current log
+        ``voice-typer.log`` + rotations, Rust host ``voice-typer-rust.log``,
+        the ``sidecar.log`` child tee, ``worker.log``, native listener
+        logs, crash buffer, …, whatever the runtime actually wrote),
+        each shipped under its on-disk basename and tailed to 1 MiB;
+        plus a legacy pre-migration ``<config_dir>/voice-typer.log``
+        when it still exists
       - config.json (with API keys redacted)
       - System info (OS, GPU, CUDA version, Python version)
       - Model info (which models are downloaded)
@@ -280,25 +347,23 @@ def export_diagnostics() -> str:
             except Exception as exc:
                 (tmpdir_path / "config_redacted.json").write_text(f"Error reading config: {exc}", encoding="utf-8")
 
-        # 3. Log files (Python + Rust host).
-        # Previously only the Python log
-        # (``config_dir/voice-typer.log``) was collected. The Rust/Tauri
-        # host writes to ``config_dir/logs/voice-typer.log`` (rotated to
-        # ``.log.1`` … ``.log.4``: see ``src-tauri/src/platform/logging.rs``
-        # ``RotatingFileWriter``). Collect both so bug-report bundles
-        # include the full cross-language log picture. The Python log
-        # keeps its original ``voice-typer.log`` name; Rust logs are
-        # prefixed ``rust-`` so they're trivially distinguishable in the
-        # zip without a directory prefix.
-        _collect_log_tail(config_dir / "voice-typer.log", tmpdir_path, "voice-typer.log")
-        rust_logs_dir = config_dir / "logs"
-        if rust_logs_dir.is_dir():
-            # ``voice-typer.log`` (current) + ``voice-typer.log.N`` (rotated).
-            # ``glob`` returns matches in arbitrary order; the destination
-            # name embeds the suffix so ordering doesn't matter.
-            for rust_log in rust_logs_dir.glob("voice-typer.log*"):
-                suffix = rust_log.name.removeprefix("voice-typer.log")
-                _collect_log_tail(rust_log, tmpdir_path, f"rust-voice-typer.log{suffix}")
+        # 3. Log files: EVERY log in ``<config_dir>/logs/`` (plus a legacy
+        # root-level ``voice-typer.log`` for pre-migration profiles).
+        #
+        # Directory-driven on purpose (see review.md MO-108): the three
+        # log-coverage lists (the Python sweep in ``log/setup.py``, the
+        # Rust sweep in ``platform/logging/init.rs``, and the open-logs
+        # target in ``commands/system_cmds/dialogs.rs``) are all
+        # DIRECTORY-scoped, so any new log file is automatically rotated
+        # and visible in the log folder. A hardcoded name list HERE was
+        # the odd one out: it collected only ``voice-typer.log*`` and
+        # therefore silently dropped ``voice-typer-rust.log`` (the Rust
+        # host's log — the glob never matched it), the MO-104
+        # ``sidecar.log`` child tee, ``worker.log``, ``startup-error.log``,
+        # the crash buffer and ``native-*.log``. Reading the directory
+        # keeps the bundle in lockstep with whatever the runtime actually
+        # writes, with no list to rot.
+        _collect_logs_into(config_dir, tmpdir_path)
 
         # 4. Model info
         model_info: dict = {}

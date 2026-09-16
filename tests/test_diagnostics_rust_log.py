@@ -1,12 +1,16 @@
-"""Tests for the diagnostics export bundle's Rust host-log collection.
+"""Tests for the diagnostics export bundle's host-log collection.
 
-Covers the diagnostics-side half of the cross-language log-path fix:
-``scripts/diagnostics.py export`` previously collected only the Python
-host log (``<config_dir>/voice-typer.log``) and silently omitted the
-Rust/Tauri host log (``<config_dir>/logs/voice-typer.log`` +
-``.log.1`` … ``.log.4``). The fix routes both through
-``_collect_log_tail`` and names the Rust logs with a ``rust-`` prefix
-so they're distinguishable in the zip.
+Covers the directory-driven contract (MO-108): ``scripts/diagnostics.py
+export`` collects the legacy Python host log
+(``<config_dir>/voice-typer.log``) plus EVERY regular file under
+``<config_dir>/logs/`` **under its on-disk basename** (no zip-side
+rename). On-disk ground truth: Python current log is
+``logs/voice-typer.log`` (``log/setup.py`` ``get_log_file_path``);
+Rust host log is ``logs/voice-typer-rust.log``
+(``platform/logging/init.rs:149``). The former ``rust-`` zip alias
+was removed after the Rust rename, because no two runtime logs share
+a basename anymore — a support bundle now labels every file the same
+way the runtime does.
 """
 
 from __future__ import annotations
@@ -57,10 +61,10 @@ def _make_bundle(tmp_path: Path, monkeypatch, config_dir: Path) -> Path:
 
 
 class TestExportCollectsRustLog:
-    """``export_diagnostics`` must include the Rust host log, not just Python's."""
+    """``export_diagnostics`` must include logs under ``logs/``, not just the legacy root file."""
 
     def test_bundle_includes_python_log(self, tmp_path, monkeypatch):
-        """Sanity: the Python log is still collected (regression guard)."""
+        """Sanity: the legacy Python log is still collected (regression guard)."""
         config_dir = tmp_path / "config"
         config_dir.mkdir()
         (config_dir / "voice-typer.log").write_text("python log line\n", encoding="utf-8")
@@ -74,44 +78,44 @@ class TestExportCollectsRustLog:
             assert "python log line" in content
 
     def test_bundle_includes_rust_current_log(self, tmp_path, monkeypatch):
-        """The Rust host log at ``logs/voice-typer.log`` must be collected."""
+        """The Rust host log at ``logs/voice-typer-rust.log`` must be collected under its own name."""
         config_dir = tmp_path / "config"
         config_dir.mkdir()
         (config_dir / "voice-typer.log").write_text("python\n", encoding="utf-8")
         logs_dir = config_dir / "logs"
         logs_dir.mkdir()
-        (logs_dir / "voice-typer.log").write_text("rust host log line\n", encoding="utf-8")
+        (logs_dir / "voice-typer-rust.log").write_text("rust host log line\n", encoding="utf-8")
 
         zip_path = _make_bundle(tmp_path, monkeypatch, config_dir)
 
         with zipfile.ZipFile(zip_path) as zf:
             names = zf.namelist()
-            assert "rust-voice-typer.log" in names, f"Rust current log missing from bundle: {names}"
-            content = zf.read("rust-voice-typer.log").decode("utf-8")
+            assert "voice-typer-rust.log" in names, f"Rust current log missing from bundle: {names}"
+            content = zf.read("voice-typer-rust.log").decode("utf-8")
             assert "rust host log line" in content
 
     def test_bundle_includes_rotated_rust_logs(self, tmp_path, monkeypatch):
-        """Rotated Rust logs (``.log.1`` … ``.log.4``) must be collected too."""
+        """Rotated Rust logs under ``logs/`` must be collected under their original names."""
         config_dir = tmp_path / "config"
         config_dir.mkdir()
         (config_dir / "voice-typer.log").write_text("python\n", encoding="utf-8")
         logs_dir = config_dir / "logs"
         logs_dir.mkdir()
-        (logs_dir / "voice-typer.log").write_text("current\n", encoding="utf-8")
+        (logs_dir / "voice-typer-rust.log").write_text("current\n", encoding="utf-8")
         # newline="" writes the exact bytes (no \n → \r\n translation
         # on Windows) so the zip content comparison stays byte-exact.
-        (logs_dir / "voice-typer.log.1").write_text("rotated-1\n", encoding="utf-8", newline="")
-        (logs_dir / "voice-typer.log.2").write_text("rotated-2\n", encoding="utf-8", newline="")
+        (logs_dir / "voice-typer-rust.log.1").write_text("rotated-1\n", encoding="utf-8", newline="")
+        (logs_dir / "voice-typer-rust.log.2").write_text("rotated-2\n", encoding="utf-8", newline="")
 
         zip_path = _make_bundle(tmp_path, monkeypatch, config_dir)
 
         with zipfile.ZipFile(zip_path) as zf:
             names = set(zf.namelist())
-            assert "rust-voice-typer.log" in names
-            assert "rust-voice-typer.log.1" in names, f"missing rotated log .1 in {sorted(names)}"
-            assert "rust-voice-typer.log.2" in names, f"missing rotated log .2 in {sorted(names)}"
-            assert zf.read("rust-voice-typer.log.1").decode("utf-8") == "rotated-1\n"
-            assert zf.read("rust-voice-typer.log.2").decode("utf-8") == "rotated-2\n"
+            assert "voice-typer-rust.log" in names
+            assert "voice-typer-rust.log.1" in names, f"missing rotated log .1 in {sorted(names)}"
+            assert "voice-typer-rust.log.2" in names, f"missing rotated log .2 in {sorted(names)}"
+            assert zf.read("voice-typer-rust.log.1").decode("utf-8") == "rotated-1\n"
+            assert zf.read("voice-typer-rust.log.2").decode("utf-8") == "rotated-2\n"
 
     def test_bundle_omits_rust_log_when_absent(self, tmp_path, monkeypatch):
         """If no Rust log exists, the bundle simply doesn't include it (no crash, no placeholder)."""
@@ -125,9 +129,7 @@ class TestExportCollectsRustLog:
         with zipfile.ZipFile(zip_path) as zf:
             names = set(zf.namelist())
             assert "voice-typer.log" in names
-            assert not any(n.startswith("rust-") for n in names), (
-                f"no Rust log files should be present: {sorted(names)}"
-            )
+            assert "voice-typer-rust.log" not in names, f"no Rust log files should be present: {sorted(names)}"
 
 
 class TestCollectLogTail:
