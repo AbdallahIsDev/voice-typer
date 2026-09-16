@@ -189,8 +189,7 @@ _INITIAL_LABELS: dict[str, str] = {
     "notify.native_adapter.warn_title": "{app}: Native hotkey warning",
     "notify.native_adapter.fallback_title": "{app}: Compatibility mode",
     "notify.native_adapter.fallback_body": (
-        "Hotkey is running in compatibility mode (reduced features). "
-        "Restart the app for full functionality."
+        "Hotkey is running in compatibility mode (reduced features). Restart the app for full functionality."
     ),
     "notify.native_adapter.recovery_title": "{app}: Full mode restored",
     "notify.native_adapter.recovery_body": "Hotkey is running in full mode.",
@@ -204,15 +203,9 @@ _INITIAL_LABELS: dict[str, str] = {
     "notify.model.delete.stale_cleared_no_model": (
         "Model '{model}' was not on disk, no model selected. Pick a model on the Models page."
     ),
-    "notify.model.delete.stale_cleared_switched": (
-        "Model '{model}' was not on disk, switched to '{replacement}'."
-    ),
-    "notify.model.delete.stale_nothing_to_delete": (
-        "Model '{model}' was not on disk, nothing to delete."
-    ),
-    "notify.model.delete.active_refused_recording": (
-        "Stop the current dictation before deleting the active model."
-    ),
+    "notify.model.delete.stale_cleared_switched": ("Model '{model}' was not on disk, switched to '{replacement}'."),
+    "notify.model.delete.stale_nothing_to_delete": ("Model '{model}' was not on disk, nothing to delete."),
+    "notify.model.delete.active_refused_recording": ("Stop the current dictation before deleting the active model."),
     "notify.model.delete.unload_failed": (
         "Could not unload '{model}' for deletion. Try again after stopping any dictation."
     ),
