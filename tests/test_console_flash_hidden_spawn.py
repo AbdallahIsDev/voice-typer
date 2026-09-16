@@ -209,7 +209,14 @@ class TestDesktopShortcutPowershellHidden:
         from voice_typer.server.server_platform import desktop_shortcut
 
         self._patch_windows(monkeypatch)
-        monkeypatch.setattr("win32com.client.Dispatch", None, raising=False)
+        # NOTE: do NOT patch ``win32com.client.Dispatch`` here. The
+        # ``__import__`` hook below is what forces the PowerShell fallback
+        # (it raises ImportError for ``win32com.client`` regardless of
+        # whether pywin32 is installed), and patching the real module would
+        # make this test REQUIRE pywin32 to be installed: ``monkeypatch.setattr``
+        # resolves the module at patch time, and ``raising=False`` only
+        # tolerates a missing attribute, not a missing module
+        # (ModuleNotFoundError: No module named 'win32com').
 
         captured: dict = {}
 

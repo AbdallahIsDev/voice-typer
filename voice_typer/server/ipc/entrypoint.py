@@ -673,13 +673,52 @@ def main() -> None:
 
             _record_backend_ipc_port(standalone_port)
 
-            # Launch Electron as a subprocess.  Pass the port + token via
-            # env vars so Electron's main process detects them and connects
-            # directly instead of spawning its own Python backend.
-            electron_pid = electron_launcher.launch_electron_frontend(
-                standalone_port,
-                ipc_token,
-            )
+            # Launch the frontend as a subprocess. Pass the port + token
+            # via env vars so the frontend host detects them and connects
+            # directly instead of spawning its own Python backend
+            # (P1-1.2 adopted mode).
+            #
+            # MO-110: under a Tauri install the frontend is the native
+            # ``voice-typer-tauri`` binary, spawned via the same
+            # fail-closed integrity gate the autostart launcher uses,
+            # with the SAME VT_PYTHON_PORT/VT_IPC_TOKEN adopt env. The
+            # Tauri host's `adopted_backend_env` helper consumes those
+            # vars and attaches to THIS backend (no second spawn).
+            frontend_pid: int | None = None
+            try:
+                from voice_typer.server.autostart_launcher import (
+                    _is_tauri_mode,
+                    _tauri_binary,
+                )
+
+                if _is_tauri_mode():
+                    tauri_bin = _tauri_binary()
+                    if tauri_bin is not None:
+                        from voice_typer.server.autostart import tauri_spawn
+
+                        frontend_pid = tauri_spawn.launch_tauri_frontend_standalone(
+                            tauri_bin,
+                            port=standalone_port,
+                            token=ipc_token,
+                        )
+                        if frontend_pid is not None:
+                            log.info(
+                                "[STARTUP] Standalone mode, launched Tauri frontend (PID=%s) on port %d",
+                                frontend_pid,
+                                standalone_port,
+                            )
+                    else:
+                        log.warning("[STARTUP] Tauri mode but no binary resolvable; falling back to Electron path")
+            except ImportError:
+                log.debug("[IPC] Tauri launcher unavailable, using Electron path", exc_info=True)
+
+            if frontend_pid is None:
+                electron_pid = electron_launcher.launch_electron_frontend(
+                    standalone_port,
+                    ipc_token,
+                )
+            else:
+                electron_pid = frontend_pid
             if electron_pid is not None:
                 # Track PID on the app instance so quit() can terminate
                 # the subprocess during shutdown (P1-1.3).

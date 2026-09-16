@@ -204,10 +204,19 @@ class TestThreadRegistryRegistration:
         worker.set_thread_registry(registry)
 
         # Force idle-timeout to fire immediately on the next worker tick.
-        lm._monitor_active = True
-        lm._last_get_level_poll_ts = time.monotonic() - 9999.0
-        lm._mic_level_last_push_ts = time.monotonic() - 9999.0
-        lm._LEVEL_IDLE_TIMEOUT_SEC = 0.0
+        monkeypatch.setattr(lm, "_monitor_active", True)
+        # Seed BOTH activity clocks POSITIVE and older than the zeroed idle
+        # window. They must stay positive: ``_idle_timeout_auto_stop`` treats
+        # a non-positive timestamp as "no poll has ever been recorded yet"
+        # (``if last_activity_ts <= 0.0: return False``) so the timeout would
+        # never fire. Absolute arithmetic like ``time.monotonic() - 9999.0``
+        # is NEGATIVE whenever the host's monotonic clock is younger than
+        # 9999 s (a freshly booted machine or CI runner), which is exactly
+        # how this test used to fail. A small positive epsilon is older than
+        # a 0 s window on any host that has been up for a millisecond.
+        monkeypatch.setattr(lm, "_last_get_level_poll_ts", 0.001)
+        monkeypatch.setattr(lm, "_mic_level_last_push_ts", 0.001)
+        monkeypatch.setattr(lm, "_LEVEL_IDLE_TIMEOUT_SEC", 0.0)
 
         worker._ensure_level_worker_running()
         thread = lm._level_worker_thread

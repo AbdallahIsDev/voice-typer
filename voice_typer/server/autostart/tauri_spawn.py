@@ -378,6 +378,60 @@ def _spawn_tauri_host(binary: str, hidden: bool = False) -> subprocess.Popen | N
     )
 
 
+def launch_tauri_frontend_standalone(binary: str, *, port: int, token: str) -> int | None:
+    """Spawn the Tauri host in STANDALONE adopted mode (MO-110).
+
+    Called from the backend's standalone-mode startup
+    (``ipc/entrypoint.py``): the user ran ``voice-typer`` from a
+    terminal, the backend picked a port + generated a token, and the
+    frontend host must connect to US instead of spawning its own
+    backend. The adopt contract is the SAME env trio the Electron
+    launcher exports (``electron_launcher.launch_electron_frontend``):
+
+    - ``VT_PYTHON_PORT``: the port this backend is listening on.
+    - ``VT_IPC_TOKEN``: the session token the host must send as the
+      first WS auth line.
+    - ``VOICE_TYPER_IPC_TOKEN``: the same token under the backend's
+      auth env-var name.
+
+    The Tauri host's ``adopted_backend_env`` (``sidecar/spawn.rs``)
+    reads these and attaches (no spawn, supervisor disabled). The
+    binary is verified against ``tauri-binaries.json`` (fail-closed,
+    same as autostart) before spawning.
+
+    Returns the child PID on success, ``None`` on failure (the caller
+    falls back to the Electron launcher path).
+    """
+    from voice_typer.server import autostart_launcher as _pkg
+
+    if not _pkg.verify_tauri_binary_or_skip(binary):
+        log.error(
+            "[LAUNCHER] refusing to spawn Tauri frontend %s, integrity verification failed (fail-closed).",
+            binary,
+        )
+        return None
+    # ``_launcher_child_env`` force-disables ANSI colour + npm notices
+    # (the child's output is redirected to the tauri log files).
+    env = _launcher_child_env()
+    env["VT_PYTHON_PORT"] = str(port)
+    env["VT_IPC_TOKEN"] = token
+    from voice_typer.server._paths import IPC_TOKEN_ENV_VAR
+
+    env[IPC_TOKEN_ENV_VAR] = token
+    sk: dict = {}
+    sk.update(_pkg._tauri_log_files())
+    sk.update(_spawn_flags(hidden=False))
+    child = _spawn_login_child(
+        [binary],
+        env=env,
+        spawn_kwargs=sk,
+        describe=f"tauri frontend (standalone adopt) {binary}",
+    )
+    if child is None:
+        return None
+    return getattr(child, "pid", None)
+
+
 # Backward-compat alias, older test imports use the previous name.
 # Both names refer to the same function object.
 _launch_tauri_app = _spawn_tauri_host
