@@ -4,7 +4,7 @@
 //!
 //! - `self`: orchestrator: submodule declarations + the crate-visible
 //!   re-exports (`dispatch`, `dispatch_inner`, `DispatchArgs`,
-//!   `dispatch_fire_and_forget`, `shutdown_sidecar`,
+//!   `dispatch_fire_and_forget`, `restart_sidecar`, `shutdown_sidecar`,
 //!   `on_main_window_close`, `DISALLOWED_COMMAND_CODE`,
 //!   `DISALLOWED_WINDOW_CODE`, `PENDING_FULL_CODE`).
 //! - [`allowlist`]: the `ALLOWED_COMMANDS` defense-in-depth allowlist
@@ -15,6 +15,9 @@
 //!   dispatch helpers (`dispatch_inner`, `dispatch_frame`,
 //!   `dispatch_fire_and_forget`, `DispatchArgs`, per-command timeout
 //!   routing).
+//! - [`restart`]: the `restart_sidecar` Tauri command (Electron
+//!   `backend:restart` parity, MO-120): renderer-initiated restart of
+//!   the Python sidecar via the supervisor's respawn path.
 //! - [`shutdown`]: the `shutdown_sidecar` cooperative-shutdown Tauri
 //!   command (ADR-0020 §10).
 //! - [`window_close`]: the main-window close-requested branch body
@@ -27,6 +30,7 @@
 
 mod allowlist;
 mod dispatch;
+mod restart;
 mod shutdown;
 mod window_close;
 
@@ -38,6 +42,7 @@ mod window_close;
 // the codes without inline literals.
 pub(crate) use allowlist::{DISALLOWED_COMMAND_CODE, DISALLOWED_WINDOW_CODE, PENDING_FULL_CODE};
 pub(crate) use dispatch::{dispatch, dispatch_fire_and_forget, dispatch_inner, DispatchArgs};
+pub(crate) use restart::restart_sidecar;
 pub(crate) use shutdown::shutdown_sidecar;
 pub(crate) use window_close::on_main_window_close;
 

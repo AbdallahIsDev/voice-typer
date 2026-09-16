@@ -4,6 +4,10 @@
 // rate-limiting predicate with nothing to do with sidecar supervision.
 // The supervisor module now owns ONLY respawn/backoff logic.
 pub(crate) mod bubble_coalesce;
+// Durable tee for the child's raw stdout/stderr (ADR-0020 §11): keeps
+// early-startup tracebacks observable in a release install, where the
+// host pipes the streams and there is no terminal to inherit.
+pub(crate) mod child_log;
 pub(crate) mod handle;
 pub(crate) mod lifecycle;
 pub(crate) mod shutdown;

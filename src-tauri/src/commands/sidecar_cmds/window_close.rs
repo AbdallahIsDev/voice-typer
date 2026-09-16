@@ -79,6 +79,24 @@ pub(crate) fn on_main_window_close(
                     "[WINDOW] main window close requested: hiding to tray (sidecar stays running)"
                 );
                 api.prevent_close();
+                // MO-124 (Electron parity): `hide()` alone leaves the
+                // taskbar button behind, so a "hidden" app kept a ghost
+                // entry the user could click to bring back an invisible
+                // window. Electron's close handler pairs
+                // `hide()` + `setSkipTaskbar(true)`
+                // (`windows/window-events.ts`), and the show side
+                // restores it. The counterpart lives in the ONE shared
+                // raise routine (`host_events::raise_main_window`,
+                // `set_skip_taskbar(false)`), so EVERY show path
+                // (tray click, second instance, macOS dock activate,
+                // `show_window` event, `VT_START_HIDDEN` relaunch)
+                // restores the entry from a single place (E7).
+                if let Err(e) = window.set_skip_taskbar(true) {
+                    log::warn!(
+                        "[WINDOW] set_skip_taskbar(true) on close failed (best-effort): {}",
+                        e
+                    );
+                }
                 if let Err(e) = window.hide() {
                     log::warn!("[WINDOW] hide on close failed (best-effort): {}", e);
                 }

@@ -93,7 +93,7 @@ async fn test_drain_child_events_never_blocks_when_no_waiter() {
     // relieving the real channel's back-pressure, re-introducing the
     // deadlock class this module exists to fix).
     let (tx, rx) = mpsc::channel(1);
-    let (exit_tx, mut exit_rx) = mpsc::channel(1);
+    let (exit_tx, exit_rx) = mpsc::channel(1);
     // Consume + drop the forwarded receiver up front, simulate the
     // respawn replacing the slot before the exit event lands.
     drop(exit_rx);

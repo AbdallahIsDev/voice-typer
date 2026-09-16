@@ -105,6 +105,72 @@ use futures_util::future::FutureExt;
 
 // ─── Sidecar spawn + stdout handshake (ADR-0020 §1) ───────────────────
 
+/// MO-110 (Electron parity, P1-1.2): adopted-backend mode. When the
+/// host was launched BY an already-running Python backend (the
+/// standalone `VoiceTyper` CLI flow), the backend exports
+/// `VT_PYTHON_PORT` + `VT_IPC_TOKEN` into the host's env. In that case
+/// the host must NOT spawn a second backend: it connects to the
+/// existing one on that port with that token, and the spawn/kill
+/// paths become safe no-ops (the backend is our parent; killing it
+/// takes the app down).
+///
+/// Electron implements the same contract at `start-python.ts`
+/// (P1-1.2: skip spawn, connect directly) with `restart-backend.ts`
+/// (adopted mode → refuse) and `stop-python.ts` (null
+/// `pythonProcess` → no-op) completing the no-kill/no-restart
+/// guarantees.
+///
+/// Returns `(port, token)` to attach with, or `None` for a normal
+/// launch (spawn a fresh sidecar). A malformed port (non-numeric / 0)
+/// logs + falls through to the normal spawn rather than aborting: a
+/// bad adopt env is a misconfigured CLI session, not a reason to
+/// break every launch.
+/// Pure parser for the adopted-backend env pair (MO-110).
+///
+/// No I/O, no logging, no process-global state: unit-testable without
+/// an env mutex. `None` on any of: missing port, missing token,
+/// non-numeric port, or port `0`. A malformed adopt env is a
+/// misconfigured CLI session — the caller falls through to the normal
+/// spawn rather than aborting.
+pub(crate) fn parse_adopted_backend_env(
+    port_raw: Option<&str>,
+    token: Option<&str>,
+) -> Option<(u16, String)> {
+    let port_raw = port_raw?;
+    let token = token?;
+    let port = port_raw.parse::<u16>().ok()?;
+    if port == 0 {
+        return None;
+    }
+    Some((port, token.to_string()))
+}
+
+/// Thin env reader over [`parse_adopted_backend_env`]: reads
+/// `VT_PYTHON_PORT` + `VT_IPC_TOKEN` from the process environment and
+/// logs the attach / ignore decision. Returns `(port, token)` to
+/// attach with, or `None` for a normal launch (spawn a fresh
+/// sidecar).
+pub(crate) fn adopted_backend_env() -> Option<(u16, String)> {
+    let port_raw = std::env::var("VT_PYTHON_PORT").ok()?;
+    let token = std::env::var("VT_IPC_TOKEN").ok()?;
+    match parse_adopted_backend_env(Some(&port_raw), Some(&token)) {
+        Some((port, token)) => {
+            log::info!(
+                "[SETUP] VT_PYTHON_PORT={} set, attaching to existing backend (no spawn)",
+                port
+            );
+            Some((port, token))
+        }
+        None => {
+            log::warn!(
+                "[SETUP] VT_PYTHON_PORT={} is not a valid port, ignoring adopt env",
+                port_raw
+            );
+            None
+        }
+    }
+}
+
 /// Spawn the Python sidecar via Tauri's `externalBin` mechanism and
 /// read the `server_started` JSON from stdout.
 ///
@@ -188,6 +254,26 @@ pub(crate) async fn initialize_sidecar(
     app_handle: &tauri::AppHandle,
     state: Arc<crate::state::SidecarState>,
 ) {
+    // MO-110: adopted-backend mode. When the backend launched us
+    // (VT_PYTHON_PORT + VT_IPC_TOKEN in the host env), connect to IT
+    // instead of spawning a second backend. No child handle is
+    // installed (state.child stays None) so every kill/stop/respawn
+    // path is a safe no-op, exactly like Electron's null
+    // `pythonProcess` in the same mode. The supervisor must also stay
+    // out of the way: a respawn would spawn a SECOND backend next to
+    // our parent, hence the `adopted` flag below guards the fallback.
+    if let Some((port, token)) = adopted_backend_env() {
+        *state.adopted_backend.lock().await = true;
+        if let Err(e) = crate::sidecar::ws::reconnect_ws(app_handle, &state, port, &token).await {
+            log::error!("[SETUP] initial WS connect to adopted backend failed: {}", e);
+            // NO respawn fallback in adopted mode: the backend is our
+            // parent, respawning would double-spawn. Surface the
+            // failure and let the renderer's connection-loss UI
+            // handle it (the WS retry loop keeps trying).
+        }
+        return;
+    }
+
     let token = crate::util::generate_token();
 
     match spawn_sidecar_and_get_port_with_shutdown(app_handle, &token, &state.shutting_down).await {

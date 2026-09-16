@@ -58,7 +58,20 @@ pub(crate) fn is_debug_env_truthy(value: Option<&str>) -> bool {
 /// we can add the file sink without a multiplexer crate.
 pub(crate) struct CombinedLogger {
     pub(crate) file_writer: Option<RotatingFileWriter>,
+    /// Global gate: the MOST VERBOSE of the two sink levels, checked by
+    /// [`log::Log::enabled`] before any record is formatted. A record
+    /// that passes here may still be written to only ONE of the two
+    /// sinks, that is decided by [`Self::file_level`] inside `log`.
     pub(crate) level_filter: log::LevelFilter,
+    /// Level gate for the FILE sink only. The file defaults to
+    /// WARN/ERROR (mirroring the Electron production contract, where the
+    /// host file carried WARN+ and INFO went to stdout unless an opt-in
+    /// env var was set), so the default support log stays small and
+    /// rotation-friendly; INFO can be opted back in with
+    /// `VOICE_TYPER_RUST_INFO_LOG=1` (or an explicit `RUST_LOG`). The
+    /// TERMINAL sink keeps the more verbose `level_filter` gate, so a
+    /// developer still sees INFO on stderr.
+    pub(crate) file_level: log::LevelFilter,
     //cached predicate: `true` if log lines should ALSO be
     /// written to stderr. Computed ONCE at logger init from
     /// `cfg!(debug_assertions)` (always true in debug builds) OR the
@@ -165,7 +178,15 @@ impl log::Log for CombinedLogger {
         // (filter returning True = "do NOT filter out" in Python's
         // logging API). The Rust equivalent is the level-guarded
         // early-skip below.
+        // FILE-sink level gate: the file defaults to WARN/ERROR (see
+        // `file_level`), so INFO-capable call sites stay out of the
+        // support log unless the user opted in. The gate is applied
+        // HERE rather than in `enabled()` so the terminal sink keeps
+        // its own (more verbose) level.
         if let Some(writer) = &self.file_writer {
+            if record.level() > self.file_level {
+                return;
+            }
             // The `log` crate orders levels by severity: Error(1) <
             // Warn(2) < Info(3) < Debug(4) < Trace(5). So "WARNING+"
             // (preserve Error/Warn) is `record.level() <= Warn`.

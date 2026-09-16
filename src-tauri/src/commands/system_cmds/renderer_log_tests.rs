@@ -14,7 +14,10 @@
     clippy::unreachable
 )]
 
-use super::{cap_and_serialize_renderer_payload, MAX_RENDERER_ERROR_PAYLOAD_BYTES};
+use super::{
+    cap_and_serialize_renderer_payload, format_renderer_log_line, parse_renderer_level,
+    MAX_RENDERER_ERROR_PAYLOAD_BYTES,
+};
 use serde_json::{json, Value};
 
 const CAP: usize = MAX_RENDERER_ERROR_PAYLOAD_BYTES;
@@ -137,6 +140,126 @@ fn test_multibyte_payload_under_cap_passes_through() {
 fn test_empty_and_null_payloads() {
     assert_eq!(cap_and_serialize_renderer_payload(&json!({})), "{}");
     assert_eq!(cap_and_serialize_renderer_payload(&Value::Null), "null");
+}
+
+// ── canonical line formatting (MO-106) ──────────────────────────
+
+/// An error payload with a message + structured location renders as the
+/// canonical, grep-able line: tag, message, `(src=file:line:col)`,
+/// scope. No JSON braces, no `[RENDERER_ERROR]` blob.
+#[test]
+fn test_format_error_payload_is_canonical_line() {
+    let payload = json!({
+        "level": "error",
+        "scope": "react-error-boundary",
+        "message": "Cannot read properties of undefined",
+        "location": { "file": "App.tsx", "line": 42, "column": 7 },
+        "stack": "Error: boom\n    at App (App.tsx:42:7)\n    at render"
+    });
+    let (level, line) = format_renderer_log_line(&payload);
+    assert_eq!(level, log::Level::Error);
+    assert!(line.starts_with("[renderer-error] Cannot read properties of undefined"));
+    assert!(line.contains("(src=App.tsx:42:7)"), "line: {line}");
+    assert!(line.contains("scope=react-error-boundary"), "line: {line}");
+    assert!(line.contains("stack=Error: boom at App (App.tsx:42:7)"));
+    assert!(!line.contains('{'), "no JSON blob: {line}");
+    assert!(!line.contains('\n'), "single line: {line}");
+}
+
+/// The renderers send the Electron-era `kind` field name (both
+/// `globalErrorHandler` and the console capture). It MUST render as the
+/// `scope=` fragment instead of being dropped as an unknown field, and
+/// the explicit `level` must still select the tag, this is the exact
+/// payload shape `console.warn` produces under Tauri.
+#[test]
+fn test_renderer_kind_field_aliases_scope() {
+    let payload = json!({
+        "level": "warn",
+        "kind": "console.warn",
+        "message": "Some UI problem"
+    });
+    let (level, line) = format_renderer_log_line(&payload);
+    assert_eq!(level, log::Level::Warn);
+    assert_eq!(line, "[renderer-warn] Some UI problem scope=console.warn");
+
+    // An explicit `scope` still wins nothing / changes nothing: both
+    // spellings map to the same rendered fragment.
+    let with_scope = json!({"scope": "console.error", "message": "boom"});
+    assert_eq!(
+        format_renderer_log_line(&with_scope).1,
+        "[renderer-error] boom scope=console.error"
+    );
+}
+
+/// `warn` renders at WARN level with the `[renderer-warn]` tag; any
+/// other / absent value stays ERROR (fail-loud).
+#[test]
+fn test_format_level_routing() {
+    let warn = json!({"level": "warn", "message": "deprecated path"});
+    assert_eq!(format_renderer_log_line(&warn).0, log::Level::Warn);
+    assert!(format_renderer_log_line(&warn).1.starts_with("[renderer-warn] "));
+    let weird = json!({"level": "verbose", "message": "x"});
+    assert_eq!(format_renderer_log_line(&weird).0, log::Level::Error);
+    let absent = json!({"message": "x"});
+    assert_eq!(format_renderer_log_line(&absent).0, log::Level::Error);
+    assert_eq!(parse_renderer_level(Some(" WARNING ")), log::Level::Warn);
+    assert_eq!(parse_renderer_level(Some("Error")), log::Level::Error);
+    assert_eq!(parse_renderer_level(None), log::Level::Error);
+}
+
+/// Multi-line messages and string locations are collapsed to one line
+/// (the canonical template is one record per line).
+#[test]
+fn test_format_collapses_multiline_message_and_text_location() {
+    let payload = json!({
+        "message": "line one\n\tline two   line three",
+        "location": "bundle.js:1:99"
+    });
+    let (_, line) = format_renderer_log_line(&payload);
+    assert_eq!(
+        line,
+        "[renderer-error] line one line two line three (src=bundle.js:1:99)"
+    );
+}
+
+/// A payload without a `message` field (unexpected shape) still lands,
+/// via the bounded JSON fallback, so nothing is silently dropped.
+#[test]
+fn test_format_payload_without_message_falls_back_to_json() {
+    let payload = json!({"detail": {"code": 7}, "extra": [1, 2]});
+    let (level, line) = format_renderer_log_line(&payload);
+    assert_eq!(level, log::Level::Error);
+    assert_eq!(line, serde_json::to_string(&payload).unwrap());
+}
+
+/// The 8 KiB ceiling survives the switch from serialized JSON to a
+/// formatted line: huge messages are truncated with the marker and the
+/// result never exceeds the cap (marker included).
+#[test]
+fn test_format_caps_oversized_line_with_marker() {
+    let payload = json!({
+        "message": "m".repeat(50_000),
+        "stack": "s".repeat(50_000)
+    });
+    let (_, line) = format_renderer_log_line(&payload);
+    assert!(line.ends_with(TRUNCATION_MARKER), "marker expected");
+    assert!(
+        line.len() <= CAP,
+        "capped line must never exceed the cap: {} > {}",
+        line.len(),
+        CAP
+    );
+}
+
+/// UTF-8 safety at the cap boundary: a multi-byte char straddling the
+/// truncation point must not panic and must stay valid UTF-8.
+#[test]
+fn test_format_cap_floors_to_char_boundary() {
+    let payload = json!({ "message": format!("{}éé", "a".repeat(CAP)) });
+    let (_, line) = format_renderer_log_line(&payload);
+    assert!(line.ends_with(TRUNCATION_MARKER));
+    assert!(line.len() <= CAP);
+    assert!(line.is_char_boundary(line.len()));
 }
 
 /// The `renderer_log_error` Tauri command itself needs a live window to

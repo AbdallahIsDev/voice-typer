@@ -187,17 +187,14 @@ pub(crate) fn create_tray(app: &AppHandle) -> tauri::Result<()> {
             // only fires for left-clicks. Right-click falls through to
             // the OS default (Tauri v2 opens the bound `.menu(...)`
             // automatically on right-click on Windows + Linux).
+            // MO-109: route through the ONE shared raise-to-front
+            // routine (`host_events::show_main_window`) instead of a
+            // bare show()+set_focus() pair. The bare pair leaves a
+            // minimized / buried window buried: `set_focus` is subject
+            // to the OS foreground lock for a background process, so the
+            // click only flashed the taskbar.
             if is_focus_main_window_event(&event) {
-                if let Some(window) = tray.app_handle().get_webview_window("main") {
-                    if let Err(e) = window.show() {
-                        log::warn!("[TRAY] show failed: {}", e);
-                    }
-                    if let Err(e) = window.set_focus() {
-                        log::warn!("[TRAY] set_focus failed: {}", e);
-                    }
-                } else {
-                    log::warn!("[TRAY] main window not found on tray click");
-                }
+                crate::host_events::show_main_window(tray.app_handle());
             }
         });
 

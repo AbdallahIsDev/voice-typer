@@ -522,15 +522,22 @@ def test_single_instance_plugin_enforced():
         )
 
     # 4. The callback focuses the existing main window.
-    assert "get_webview_window" in main_rs and "set_focus" in main_rs, (
-        "single-instance callback must show + focus the existing main "
-        "window (second launch → focus first, no duplicate window)"
+    #
+    # MO-109: the raise sequence is NOT inlined in main.rs any more —
+    # every "bring the dashboard back" path (second launch, tray
+    # left-click, macOS dock activation, the sidecar's `show_window`
+    # event) routes through ONE shared routine in `host_events.rs`, so a
+    # second launch cannot drift from the tray path. `main.rs` stays
+    # wiring-only (C-ARCH-1) and just calls it, so this test now asserts
+    # the delegation here AND the raise sequence at its single owner.
+    assert "show_main_window" in main_rs, (
+        "single-instance callback must raise the existing main window via "
+        "the shared `host_events::show_main_window` routine (MO-109)"
     )
-    # The callback should reference the "main" window label (the dashboard).
-    # Find the single-instance init block and check it references "main".
-    init_block_end = main_rs.find("}))", single_instance_idx)
-    if init_block_end != -1:
-        init_block = main_rs[single_instance_idx:init_block_end]
-        assert '"main"' in init_block or "'main'" in init_block, (
-            "single-instance callback must target the 'main' window label"
+    host_events_rs = (_REPO_ROOT / "src-tauri" / "src" / "host_events.rs").read_text(encoding="utf-8")
+    for token in ("webview_windows", "set_focus", '"main"'):
+        assert token in host_events_rs, (
+            f"shared raise routine must contain {token!r} (show + focus the "
+            "'main' window label: second launch → focus first, no duplicate "
+            "window)"
         )

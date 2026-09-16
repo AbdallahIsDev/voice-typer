@@ -48,6 +48,9 @@ pub(crate) enum DialogTitle {
     ExportTemplates,
     /// `export_config`'s save-file dialog.
     ExportConfig,
+    /// `save_stats_image`'s save-file dialog (MO-121: the Analytics /
+    /// Dashboard share-image "Save As…" path).
+    ExportStatsImage,
 }
 
 /// The app's supported UI languages (mirrors `SUPPORTED_LOCALES` in
@@ -145,6 +148,19 @@ pub(crate) fn localized_title(kind: DialogTitle, locale: Option<&str>) -> &'stat
             "ru" => "Экспортировать шаблоны",
             "zh" => "导出模板",
             _ => "Export Templates",
+        },
+        // MO-121: byte-mirrors the Electron main-process locale key
+        // `dialog.export.statsImage`, which the old
+        // `stats-image-handlers.ts` passed to `dialog.showSaveDialog`.
+        DialogTitle::ExportStatsImage => match lang.as_str() {
+            "ar" => "تصدير صورة الإحصائيات",
+            "de" => "Statistikbild exportieren",
+            "es" => "Exportar imagen de estadísticas",
+            "fr" => "Exporter l'image des statistiques",
+            "hi" => "आँकड़े छवि निर्यात करें",
+            "ru" => "Экспортировать изображение статистики",
+            "zh" => "导出统计图像",
+            _ => "Export Stats Image",
         },
         DialogTitle::ExportConfig => match lang.as_str() {
             "ar" => "تصدير الإعدادات",

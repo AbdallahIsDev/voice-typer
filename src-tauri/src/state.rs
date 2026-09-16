@@ -173,8 +173,7 @@ pub(crate) struct SidecarState {
     /// single permit, so a `notify_one()` fired BEFORE the supervisor
     /// starts awaiting `notified()` is consumed by the very next
     /// `notified()` call: no race window.
-    pub(crate) shutdown_notify: Notify,
-    /// Locale pushed by the main-window renderer via the
+    pub(crate) shutdown_notify: Notify,    /// Locale pushed by the main-window renderer via the
     /// `set_host_locale` command (`window.window_.setLocale(locale)`
     /// in the Tauri bridge). Mirrors Electron's `i18n:set-locale`
     /// main-process storage, where the pushed locale localizes native
@@ -186,6 +185,22 @@ pub(crate) struct SidecarState {
     /// instead of being rejected under Tauri. `None` until the first
     /// push arrives.
     pub(crate) host_locale: Mutex<Option<String>>,
+    /// MO-110: adopted-backend mode. `true` when the host attached to
+    /// an already-running backend launched BY the backend itself
+    /// (`VT_PYTHON_PORT` + `VT_IPC_TOKEN` in the host env, the
+    /// standalone CLI flow). In this mode `state.child` stays `None`
+    /// (all kill/stop paths are naturally no-ops) and the supervisor
+    /// MUST NOT respawn (spawning would create a second backend next
+    /// to our parent). Mirrors Electron's adopted-mode checks at
+    /// `restart-backend.ts` / `stop-python.ts`.
+    pub(crate) adopted_backend: AsyncMutex<bool>,
+    /// MO-126: host is in OS suspend. Set by
+    /// `platform::power` when a `PBT_APMSUSPEND` (or equivalent) arrives
+    /// and cleared on resume. The supervisor's `respawn` checks this and
+    /// stands down while suspended so a mid-sleep sidecar crash does not
+    /// spawn a replacement into a frozen process. Cleared by the resume
+    /// path before it requests `ensure_sidecar_after_resume`.
+    pub(crate) power_suspended: AtomicBool,
 }
 
 impl SidecarState {
@@ -211,6 +226,11 @@ impl SidecarState {
             // Renderer-pushed locale (parity sink for the
             // `window_.setLocale` bridge method); None until pushed.
             host_locale: Mutex::new(None),
+            // MO-110: false = normal launch (spawn + supervise); set
+            // true only by the adopted-backend attach path.
+            adopted_backend: AsyncMutex::new(false),
+            // MO-126: false until an OS suspend arrives.
+            power_suspended: AtomicBool::new(false),
         }
     }
 

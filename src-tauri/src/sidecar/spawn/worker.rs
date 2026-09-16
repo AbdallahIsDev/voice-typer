@@ -125,7 +125,12 @@ pub(crate) async fn spawn_worker_release(
     let cmd = worker
         .env_clear()
         .envs(passthrough_env_allowlist())
-        .envs(worker_shared_env(token));
+        .envs(worker_shared_env(token))
+        // MO-111 (Electron spawn-env parity): same OpenMP dual-runtime
+        // workaround as the sidecar spawn paths (see `release_mode.rs`
+        // for the full rationale) - the worker also imports torch and
+        // can hit the dual-OpenMP abort on affected machines.
+        .env("KMP_DUPLICATE_LIB_OK", "TRUE");
 
     let (rx, child) = cmd
         .spawn()
@@ -189,6 +194,9 @@ pub(crate) async fn spawn_worker_dev_mode(
         .env_clear()
         .envs(passthrough_env_allowlist())
         .envs(worker_shared_env(token))
+        // MO-111: same OpenMP workaround as the release worker + the
+        // sidecar spawn paths (see `release_mode.rs`).
+        .env("KMP_DUPLICATE_LIB_OK", "TRUE")
         .env("VOICE_TYPER_DEBUG", "1")
         .stdout(std::process::Stdio::piped())
         // Dev mode: inherit stderr so the developer sees Python

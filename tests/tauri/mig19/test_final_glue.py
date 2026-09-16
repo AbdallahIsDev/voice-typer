@@ -257,6 +257,31 @@ EXPECTED_MAIN_RS_COMMANDS = [
     # Electron-only `i18n:set-locale` main-process channel). The command
     # lives in commands/system_cmds.rs and stores into SidecarState.
     "set_host_locale",
+    # Electron-parity host surfaces added by the 2026-09-16 audit
+    # (review.md MO-118 / MO-120 / MO-113). Each is main-window-only
+    # (SEC-026) and each replaces an Electron main-process capability
+    # that would otherwise be lost at the Tauri cutover:
+    #   - `open_external_url_command`: `shell.openExternal` (https-only),
+    #     the route every help / feedback / changelog / share link uses.
+    #   - `reveal_path_command`: `shell.showItemInFolder`.
+    #   - `restart_sidecar`: the renderer's "Lost connection → Retry"
+    #     escalation (Electron `backend:restart`).
+    #   - `renderer_heartbeat`: webview liveness beacon feeding the
+    #     host's renderer watchdog (Electron `child-process-gone`
+    #     telemetry, which no Tauri/wry platform surfaces).
+    "open_external_url_command",
+    "reveal_path_command",
+    "restart_sidecar",
+    "renderer_heartbeat",
+    # Share-stats PNG export (review.md MO-121, ADR-0020 §16 addendum
+    # 2026-09-16). Replaces Electron `main/ipc/stats-image-handlers.ts`
+    # Save-As + Downloads instant-save (the reveal half is
+    # `reveal_path_command` above). Main-window-only (SEC-026 via
+    # `require_main_window`); payload is a `data:image/png;base64,...`
+    # string capped at 25 MB with a decoded PNG-signature check and a
+    # traversal-safe stem. Clipboard copy stays on the renderer's
+    # web-API path. Body: `commands/system_cmds/stats_image.rs`.
+    "save_stats_image",
 ]
 
 #: ADR-0020 §15: the v1 Tauri migration MUST NOT wire up

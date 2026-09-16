@@ -34,7 +34,13 @@
 /// invariants) only on config-level defects: a missing `main` window
 /// entry in `tauri.conf.json` or an invalid window config. Those are
 /// build-time constants: they cannot vary at runtime.
-pub(crate) fn bootstrap_main_window(app: &tauri::App) {
+///
+/// Takes an `&AppHandle` (rather than `&App`) so the SAME builder can run
+/// from `host_events::show_main_window` when the window no longer exists
+/// (macOS: the last window can be closed while the process stays alive,
+/// and the Dock-activate path must bring it back, Electron's `activate`
+/// parity, MO-112). `main.rs` passes `app.handle()` at startup.
+pub(crate) fn bootstrap_main_window(app: &tauri::AppHandle) {
     let main_window_config = app
         .config()
         .app

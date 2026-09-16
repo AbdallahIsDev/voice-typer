@@ -84,10 +84,18 @@ pub(crate) fn sweep_stale_logs(logs_dir: &std::path::Path) {
 ///
 /// **Emits the session banner**: the FIRST line written to the file
 /// for the session is `[STARTUP] logging initialized: file=...,
-/// level=..., session=...`: mirroring the Python side's banner
-/// (`voice_typer/server/logging_setup.py`) and carrying the ONLY
-/// sanctioned per-session id occurrence (the trailing `session=`
-/// field; every other file line is clean `ts  LEVEL  msg`).
+/// file_level=..., stderr_level=..., session=...`: mirroring the
+/// Python side's banner (`voice_typer/server/logging_setup.py`) and
+/// carrying the ONLY sanctioned per-session id occurrence (the
+/// trailing `session=` field; every other file line is clean
+/// `ts  LEVEL  msg`). The banner is written straight to the file
+/// writer, so it is never filtered by the WARN-default file level.
+///
+/// **Level contract (2026-09-16, MO-114):** the FILE sink defaults to
+/// WARN/ERROR (Electron production parity, where WARN+ went to the host
+/// file and INFO to stdout); `VOICE_TYPER_RUST_INFO_LOG=1` opts the file
+/// back up to INFO. The STDERR sink keeps INFO. An explicit `RUST_LOG`
+/// (or truthy `VOICE_TYPER_DEBUG` → Debug) overrides both.
 ///
 /// Replaces the prior `env_logger::Builder::init()` call, this
 /// logger writes to BOTH stderr (matching the prior env_logger
@@ -139,37 +147,53 @@ pub(crate) fn init_file_logger(config_dir: &std::path::Path) -> Result<(), Strin
     // layout change. Mirrors the Python side's
     // `RotatingFileHandler(filename=...)` at log.py:891-893.
     let writer = RotatingFileWriter::new(logs_dir.clone(), "voice-typer-rust");
-    // honor `RUST_LOG` runtime log-level override. Parsed
-    // as a `log::LevelFilter` (e.g. "debug", "trace", "warn", "off").
-    // Default to `Info` if the var is unset OR unparseable so a typo
-    // (e.g. `RUST_LOG=debog`) doesn't silently disable all logging.
-    // Both the global `log::set_max_level` AND the per-logger
-    // `level_filter` are set to this value, `set_max_level` is the
-    // fast-path short-circuit at the macro call site, while
-    // `level_filter` is consulted inside `CombinedLogger::enabled`
-    // (which `log::log!` calls as a second filter).
+    // ── Level resolution (two sinks, two defaults) ────────────────
     //
-    // fallback: if `RUST_LOG` is unset, also honor
-    // the Voice Typer-specific `VOICE_TYPER_DEBUG` env var. When
-    // truthy ("1", "true", "yes", case-insensitive), set the level to
-    // Debug so developers get verbose logs in the file + stderr. This
-    // mirrors the Python side's `env_validation.py` boolean-var
-    // pattern so the Rust + Python hosts respond identically to the
-    // same env var. `RUST_LOG` (the standard Rust convention) wins if
-    // set; `VOICE_TYPER_DEBUG` is a fallback for users who don't know
-    // about `RUST_LOG`.
-    let max_level = std::env::var("RUST_LOG")
+    // explicit_level: an EXPLICIT user override, honored for BOTH sinks
+    // (an operator who sets `RUST_LOG=info` means "be verbose", and one
+    // who sets `RUST_LOG=off` means "be quiet").
+    //   - `RUST_LOG` (the standard Rust convention) wins; parsed as a
+    //     `log::LevelFilter`. An UNPARSEABLE value (e.g. `RUST_LOG=debog`)
+    //     is treated as absent so a typo doesn't silently disable all
+    //     logging.
+    //   - else `VOICE_TYPER_DEBUG` truthy ("1"/"true"/"yes", the same
+    //     matcher the Python side's `env_validation.py` uses) → Debug.
+    //   - else none → the per-sink defaults below apply.
+    let explicit_level = std::env::var("RUST_LOG")
         .ok()
         .and_then(|s| s.parse::<log::LevelFilter>().ok())
         .or_else(|| {
-            // RUST_LOG unset/unparseable: try VOICE_TYPER_DEBUG.
             if is_debug_env_truthy(std::env::var("VOICE_TYPER_DEBUG").ok().as_deref()) {
                 Some(log::LevelFilter::Debug)
             } else {
                 None
             }
-        })
-        .unwrap_or(log::LevelFilter::Info);
+        });
+    // FILE sink default: WARN/ERROR only, mirroring the Electron
+    // production contract (its host file was WARN+ with INFO on stdout
+    // unless `VOICE_TYPER_ELECTRON_INFO_LOG=1`). INFO is opt-in through
+    // `VOICE_TYPER_RUST_INFO_LOG=1` (a separate 1 MiB lifecycle file was
+    // deliberately NOT mirrored: one file keeps rotation + support
+    // bundling single-source, see MO-108/MO-114 in review.md).
+    let file_level = explicit_level.unwrap_or_else(|| {
+        if is_truthy_env_var("VOICE_TYPER_RUST_INFO_LOG") {
+            log::LevelFilter::Info
+        } else {
+            log::LevelFilter::Warn
+        }
+    });
+    // TERMINAL sink default: INFO, so a developer tailing stderr still
+    // sees the lifecycle lines even though the file (above) is WARN-only.
+    let stderr_level = explicit_level.unwrap_or(log::LevelFilter::Info);
+    // The `log` crate orders `LevelFilter` by verbosity (`Off` < `Error`
+    // < `Warn` < `Info` < `Debug` < `Trace`), so `max` is the MOST
+    // VERBOSE of the two: the global gate must let through anything
+    // either sink may want, the per-sink gates then decide.
+    let max_level = if file_level > stderr_level {
+        file_level
+    } else {
+        stderr_level
+    };
     // gate stderr output on debug builds OR `RUST_LOG_STDERR=1`.
     // Release builds with no env var skip the per-line `eprintln!`
     // syscall (saves 1 `write(2)` per log line). The env var is the
@@ -181,9 +205,50 @@ pub(crate) fn init_file_logger(config_dir: &std::path::Path) -> Result<(), Strin
     // defined in exactly one place. The same helper is used by
     // `install_early_logger` and `is_debug_env_truthy`.
     let stderr_verbose_init = cfg!(debug_assertions) || is_truthy_env_var("RUST_LOG_STDERR");
+    // ── Session banner (BEFORE the writer is moved into the logger) ──
+    //
+    // Session banner: the FIRST line written to the log file for this
+    // session. Mirrors the Python side's startup banner
+    // (`voice_typer/server/logging_setup.py` logs
+    // `[STARTUP] logging initialized: file=..., level=..., json=...,
+    // debug=..., quiet=..., session=...`), adapted to the fields the
+    // Rust logger knows: the logs dir, the two resolved levels, and the
+    // 8-char hex session id. The session id is the ONLY sanctioned id
+    // occurrence in the file, every other line is clean
+    // `ts  LEVEL  msg`. Cross-process correlation with the Python
+    // sidecar is preserved: the SAME id is passed to the sidecar via
+    // `VOICE_TYPER_SESSION_ID`, and the sidecar stamps it into its own
+    // banner.
+    //
+    // WRITTEN DIRECTLY to the writer rather than through `log::info!`:
+    // the file sink now defaults to WARN/ERROR, so an INFO-level banner
+    // would be filtered out of the very file it marks the start of.
+    // The session marker is a boundary record, not a diagnostic record,
+    // so it bypasses the level gate by design (and is written before any
+    // other line can reach the file: the sweep/chmod/writer-open code
+    // above emits nothing, so it is guaranteed to stay line #1).
+    //
+    // The resolved levels are both reported so an operator reading the
+    // banner knows whether INFO was filtered out of this file and why
+    // (`VOICE_TYPER_RUST_INFO_LOG=1` opts the file back in).
+    {
+        let (file_ts, _) = crate::util::now_timestamps();
+        let banner = format!(
+            "{}  {:5} [STARTUP] logging initialized: file={}, file_level={}, stderr_level={}, session={}",
+            file_ts,
+            log::Level::Info,
+            logs_dir.display(),
+            file_level,
+            stderr_level,
+            crate::util::session_id()
+        );
+        let _ = writer.write_line_level(&banner, log::Level::Info);
+        let _ = writer.flush();
+    }
     let combined = CombinedLogger {
         file_writer: Some(writer),
         level_filter: max_level,
+        file_level,
         // `AtomicBool` so future code (e.g. a Tauri command)
         // can toggle stderr verbosity at runtime. The per-line cost
         // is a single `AtomicBool::load(Relaxed)`, same as a `bool`
@@ -230,34 +295,10 @@ pub(crate) fn init_file_logger(config_dir: &std::path::Path) -> Result<(), Strin
     // Bump the global max-level to the resolved value (the
     // EarlyLogger was installed with `Info` as a safe default; the
     // file-logger init may have parsed `RUST_LOG=debug` etc.).
-    // `set_max_level` can be called multiple times safely. This runs
-    // BEFORE the banner so the banner (an INFO record) survives the
-    // level gate under the default `Info` configuration.
+    // `set_max_level` can be called multiple times safely. The session
+    // banner was already written directly to the file above (it must
+    // survive the WARN-default file gate).
     log::set_max_level(max_level);
-    // Session banner: the FIRST line written to the log file for
-    // this session. Mirrors the Python side's startup banner
-    // (`voice_typer/server/logging_setup.py` logs
-    // `[STARTUP] logging initialized: file=..., level=..., json=...,
-    // debug=..., quiet=..., session=...`), adapted to the fields the
-    // Rust logger knows: the logs dir, the resolved max level, and
-    // the 8-char hex session id. The session id is the ONLY
-    // sanctioned id occurrence in the file, every other line is
-    // clean `ts  LEVEL  msg`. Cross-process correlation with the
-    // Python sidecar is preserved: the SAME id is passed to the
-    // sidecar via `VOICE_TYPER_SESSION_ID`, and the sidecar stamps it
-    // into its own banner. Logged at INFO so it lands in the file
-    // under the default level gate. Emitted HERE (not in
-    // `install_early_logger`) because the banner belongs to
-    // file-logger init: the early stderr-only phase has no file
-    // sink yet, and no record is routed to the fresh file between
-    // the install above and this line (sweep/chmod/writer-open emit
-    // nothing), so the banner is guaranteed to be the first line.
-    log::info!(
-        "[STARTUP] logging initialized: file={}, level={}, session={}",
-        logs_dir.display(),
-        max_level,
-        crate::util::session_id()
-    );
     Ok(())
 }
 

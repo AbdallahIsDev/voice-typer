@@ -11,7 +11,12 @@
 pub(crate) mod logging;
 pub(crate) mod open_path;
 pub(crate) mod paths;
+pub(crate) mod power;
 pub(crate) mod process;
+// Renderer/webview liveness watchdog (MO-113): a heartbeat-based stand-in
+// for Electron's `child-process-gone` telemetry, which no Tauri/wry
+// platform exposes (see the module docs).
+pub(crate) mod renderer_watchdog;
 pub(crate) mod worker_path;
 
 #[cfg(test)]

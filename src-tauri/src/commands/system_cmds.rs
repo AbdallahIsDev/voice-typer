@@ -7,7 +7,10 @@
 //!   dialog title sites (mirrors Electron's `mainT()` dialog
 //!   strings).
 //! - [`dialogs`]: native OS-surface commands: `open_logs` (OS file
-//!   manager) + `open_model_import_dialog` (native folder picker).
+//!   manager), `open_external_url_command` (https-only browser launch,
+//!   MO-118), `reveal_path_command` (Electron
+//!   `shell.showItemInFolder` parity, MO-120) + `open_model_import_dialog`
+//!   (native folder picker).
 //! - [`renderer_log`]: the `renderer_log_error` sink + its
 //!   bounded-payload (8 KiB cap) serialization core.
 //! - [`export`]: `export_templates` + `export_config` (thin wrappers
@@ -16,6 +19,9 @@
 //!   library (`REDACTED_MARKER`, `is_sensitive_key`,
 //!   `redact_config_secrets`), consumed by `export_config`.
 //! - [`locale`]: `set_host_locale` + its pure decision core.
+//! - [`stats_image`]: `save_stats_image`, the share-image
+//!   Downloads-instant-save + localized Save-As dialog (MO-121,
+//!   Electron `stats-image:save` parity).
 //!
 //! This file is the orchestrator only: submodule declarations + the
 //! crate-visible re-exports that keep every historical public name
@@ -33,9 +39,13 @@
 mod dialog_titles;
 mod dialogs;
 mod export;
+// [`heartbeat`]: `renderer_heartbeat`, the renderer-liveness timestamp
+// consumed by `platform::renderer_watchdog` (MO-113).
+mod heartbeat;
 mod locale;
 mod redaction;
 mod renderer_log;
+mod stats_image;
 
 // Crate-visible re-exports: `main.rs` imports these six commands from
 // `commands::system_cmds` (see the `use commands::system_cmds::{...}`
@@ -46,10 +56,14 @@ mod renderer_log;
 // keep their owning submodule as the single import path, no extra
 // re-export surface for items only the sibling test files consume.
 pub(crate) use dialog_titles::{localized_title_for, DialogTitle};
-pub(crate) use dialogs::{open_logs, open_model_import_dialog};
+pub(crate) use dialogs::{
+    open_external_url_command, open_logs, open_model_import_dialog, reveal_path_command,
+};
 pub(crate) use export::{export_config, export_templates};
+pub(crate) use heartbeat::renderer_heartbeat;
 pub(crate) use locale::set_host_locale;
 pub(crate) use renderer_log::renderer_log_error;
+pub(crate) use stats_image::save_stats_image;
 
 // Unit tests for the redaction library + locale core live in the
 // sibling `system_cmds_tests.rs` file (C-TEST-5: keeps production

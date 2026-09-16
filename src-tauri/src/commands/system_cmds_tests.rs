@@ -11,6 +11,7 @@
 //! case the Python sidecar's own redaction path regresses.
 
 use super::locale::set_host_locale_core;
+use super::locale::tests_support::locale_changed_for_test;
 use super::redaction::{is_sensitive_key, redact_config_secrets, REDACTED_MARKER};
 use crate::commands::main_window_label_check;
 use crate::state::{lock, SidecarState};
@@ -266,4 +267,20 @@ fn test_set_host_locale_window_gate_uses_main_label_predicate() {
     // guard delegates to this exact predicate.
     assert!(main_window_label_check("main"));
     assert!(!main_window_label_check("bubble"));
+}
+
+#[test]
+fn test_set_host_locale_broadcast_gate_mirrors_production_condition() {
+    // MO-119: the bubble broadcast fires only for a push that (a) stored
+    // successfully AND (b) matches the value now in state (i.e. a real
+    // change; Settings re-pushes the same locale on mount, which must
+    // NOT re-broadcast). The pure shim mirrors the production condition
+    // `ok == Some(true) && stored == pushed`, so this test fails if
+    // someone edits one of the two conditions without the other.
+    assert!(locale_changed_for_test(true, Some("de-DE"), "de-DE"));
+    // A rejected push (empty locale) never broadcasts.
+    assert!(!locale_changed_for_test(false, Some("de-DE"), "de-DE"));
+    // A push that somehow did not land in state never broadcasts.
+    assert!(!locale_changed_for_test(true, Some("fr"), "de-DE"));
+    assert!(!locale_changed_for_test(true, None, "de-DE"));
 }

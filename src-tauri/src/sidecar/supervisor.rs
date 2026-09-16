@@ -17,7 +17,8 @@ use crate::sidecar::spawn::spawn_sidecar_and_get_port_with_shutdown;
 use crate::sidecar::ws::reconnect_ws;
 use crate::state::lock as mutex_lock;
 use crate::util::{
-    atomic_write_bytes, generate_token, PRE_RESTART_DELAY_MS, SUPERVISOR_BACKOFF_MS,
+    atomic_write_bytes, generate_token, PRE_RESTART_DELAY_MS, SHUTDOWN_ACK_TIMEOUT_MS,
+    SUPERVISOR_BACKOFF_MS,
 };
 // reuse the canonical atomic write helper so the
 // restart counter is durable against mid-write crashes (see
@@ -226,12 +227,152 @@ pub(crate) fn clear_restart_counter_for_user_restart(_state: &Arc<SidecarState>)
     write_restart_counter(0);
 }
 
+// ─── MO-126: power suspend / resume sidecar actions ─────────────
+
+/// Cooperatively stop the sidecar for an OS suspend (MO-126).
+///
+/// Unlike [`crate::sidecar::shutdown::shutdown_sidecar_for_exit`],
+/// this does **not** call `begin_shutdown()`: the host itself is not
+/// quitting, it is about to freeze. Marking `shutting_down` here would
+/// permanently disable the supervisor, and the resume path could never
+/// respawn. Sequence (best-effort, never panics, never blocks the
+/// caller — the caller must spawn this on the tokio runtime):
+///
+/// 1. Abort the in-flight heartbeat so it does not dispatch into a
+///    dying WS.
+/// 2. Send the cooperative `{"type":"shutdown"}` frame.
+/// 3. Wait up to [`SHUTDOWN_ACK_TIMEOUT_MS`] for graceful exit
+///    (the OS may freeze the process any moment; a long 30s wait
+///    would be cut short mid-cleanup anyway).
+/// 4. Force-kill the process tree backstop + clear `ws_tx` so later
+///    dispatches fail fast with "not connected" instead of hanging.
+///
+/// **Adopted-backend mode (MO-110) is a no-op**: there is no child
+/// handle (the backend is our parent).
+pub(crate) async fn stop_sidecar_for_suspend(state: &Arc<SidecarState>) {
+    if *state.adopted_backend.lock().await {
+        log::info!(
+            "[POWER] adopted-backend mode: suspend stop is a no-op (backend is our parent)"
+        );
+        return;
+    }
+    if state.shutting_down.load(Ordering::SeqCst) {
+        log::info!("[POWER] host already shutting down: suspend stop skipped");
+        return;
+    }
+    {
+        let mut hb_guard = state.heartbeat_handle.lock().await;
+        if let Some(handle) = hb_guard.take() {
+            handle.abort();
+            log::info!("[POWER] aborted heartbeat task before suspend stop");
+        }
+    }
+    let frame = serde_json::json!({"type": "shutdown"});
+    if let Some(ws_tx) = mutex_lock(&state.ws_tx).clone() {
+        if let Err(e) = ws_tx.try_send(tokio_tungstenite::tungstenite::Message::Text(
+            frame.to_string().into(),
+        )) {
+            log::warn!(
+                "[POWER] try_send of shutdown frame failed (best-effort): {}",
+                e
+            );
+        }
+    } else {
+        log::info!("[POWER] no ws_tx, skipping cooperative shutdown frame");
+    }
+    let deadline = Duration::from_millis(SHUTDOWN_ACK_TIMEOUT_MS);
+    let rx_opt = {
+        let mut rx_guard = state.child_exit_rx.lock().await;
+        rx_guard.take()
+    };
+    if let Some(mut rx) = rx_opt {
+        match tokio::time::timeout(deadline, rx.recv()).await {
+            Ok(Some(tauri_plugin_shell::process::CommandEvent::Terminated(payload))) => {
+                log::info!(
+                    "[POWER] sidecar exited gracefully on suspend (code={:?})",
+                    payload.code
+                );
+            }
+            Ok(_) | Err(_) => {
+                log::info!(
+                    "[POWER] sidecar did not exit within {}ms: force-killing",
+                    SHUTDOWN_ACK_TIMEOUT_MS
+                );
+            }
+        }
+    }
+    let child_opt = mutex_lock(&state.child).take();
+    if let Some(child) = child_opt {
+        if let Err(e) = child.kill_tree().await {
+            log::warn!("[POWER] suspend kill_tree failed (best-effort): {}", e);
+        }
+    }
+    // Drop the writer so dispatches fail fast instead of queueing into
+    // a peer that is about to freeze.
+    *mutex_lock(&state.ws_tx) = None;
+    log::info!("[POWER] sidecar stopped for suspend");
+}
+
+/// Ensure the sidecar is running after an OS resume (MO-126).
+///
+/// If the sidecar survived the sleep (WS still live) this is a no-op.
+/// Otherwise it requests one supervisor [`respawn`] so wake recovers
+/// immediately instead of waiting for the next backoff tick.
+///
+/// **Adopted-backend mode (MO-110) is a no-op** (same reason as
+/// [`stop_sidecar_for_suspend`]).
+pub(crate) async fn ensure_sidecar_after_resume(
+    app: &tauri::AppHandle,
+    state: &Arc<SidecarState>,
+) {
+    if *state.adopted_backend.lock().await {
+        log::info!(
+            "[POWER] adopted-backend mode: resume ensure is a no-op (backend is our parent)"
+        );
+        return;
+    }
+    if state.shutting_down.load(Ordering::SeqCst) {
+        log::info!("[POWER] host shutting down: resume ensure skipped");
+        return;
+    }
+    if mutex_lock(&state.ws_tx).is_some() {
+        log::info!("[POWER] sidecar already connected on resume: ensure is a no-op");
+        return;
+    }
+    log::info!("[POWER] resume: requesting sidecar respawn");
+    if let Err(e) = respawn(app, state).await {
+        log::warn!(
+            "[POWER] resume respawn failed (supervisor/backoff will retry): {}",
+            e
+        );
+    }
+}
+
 // ─── Supervisor (ADR-0020 §10) ───────────────────────────────────
 
 pub(crate) async fn respawn(
     app: &tauri::AppHandle,
     state: &Arc<SidecarState>,
 ) -> Result<(), String> {
+    // MO-110: in adopted-backend mode the running backend is our
+    // PARENT (it launched us via the VT_PYTHON_PORT flow). Spawning a
+    // replacement would create a second backend next to it (mutex/
+    // port collision, orphaned processes). The WS retry loop owns
+    // reconnection; the supervisor stands down entirely.
+    if *state.adopted_backend.lock().await {
+        log::info!(
+            "[SUPERVISOR] adopted-backend mode (VT_PYTHON_PORT attach): respawn disabled"
+        );
+        return Ok(());
+    }
+    // MO-126: stand down while the OS is suspending. A mid-sleep
+    // crash must not spawn a replacement into a frozen process; the
+    // resume path (`ensure_sidecar_after_resume`) requests one respawn
+    // after the power state flips back to Running.
+    if state.power_suspended.load(Ordering::SeqCst) {
+        log::info!("[SUPERVISOR] host is suspended: skipping respawn");
+        return Ok(());
+    }
     // Serialize: only one respawn may run at a time. If a previous
     // respawn is still in flight (e.g., the sidecar died again mid-
     // reconnect), bail out: the in-flight supervisor owns the recovery.

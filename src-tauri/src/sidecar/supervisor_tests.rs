@@ -20,7 +20,8 @@
 
 use super::supervisor::{
     clear_restart_counter_for_user_restart, now_unix_secs, parse_restart_counter,
-    read_restart_counter, write_restart_counter, COUNTER_STALE_SECS, MAX_RESTART_ATTEMPTS,
+    read_restart_counter, stop_sidecar_for_suspend, write_restart_counter, COUNTER_STALE_SECS,
+    MAX_RESTART_ATTEMPTS,
 };
 #[cfg(target_os = "linux")]
 use crate::state::SidecarHandle;
@@ -1167,5 +1168,69 @@ fn test_clear_restart_counter_helper_is_wired_not_dead_code() {
         : its live caller is the tray-Restart relaunch listener \
          (lifecycle.rs::on_relaunch_app); a dead helper leaves the tripped \
          breaker armed across a user-initiated restart"
+    );
+}
+
+// ── MO-126: power suspend/resume sidecar actions ─────────────────
+
+#[tokio::test]
+async fn test_stop_sidecar_for_suspend_adopted_mode_is_noop() {
+    // MO-110: adopted-backend mode has no child handle; stop must
+    // return immediately without touching shutting_down (which would
+    // permanently disable the supervisor).
+    let state = Arc::new(SidecarState::new());
+    *state.adopted_backend.lock().await = true;
+    stop_sidecar_for_suspend(&state).await;
+    assert!(
+        !state.shutting_down.load(std::sync::atomic::Ordering::SeqCst),
+        "adopted-mode suspend stop must NOT mark the host as shutting_down"
+    );
+}
+
+#[tokio::test]
+async fn test_stop_sidecar_for_suspend_skips_when_host_shutting_down() {
+    let state = Arc::new(SidecarState::new());
+    state.shutting_down.store(true, std::sync::atomic::Ordering::SeqCst);
+    stop_sidecar_for_suspend(&state).await;
+    // Flag stays true (already set); the point is we did not panic
+    // and did not try to take/kill a child while shutting down.
+    assert!(state.shutting_down.load(std::sync::atomic::Ordering::SeqCst));
+}
+
+#[tokio::test]
+async fn test_stop_sidecar_for_suspend_does_not_set_shutting_down() {
+    // The whole point of the suspend-specific stop: unlike
+    // shutdown_sidecar_for_exit, the host itself is NOT quitting, so
+    // shutting_down must stay false and the child/ws_tx slots are
+    // cleared for the resume respawn.
+    let state = Arc::new(SidecarState::new());
+    stop_sidecar_for_suspend(&state).await;
+    assert!(
+        !state.shutting_down.load(std::sync::atomic::Ordering::SeqCst),
+        "suspend stop must leave shutting_down=false so resume can respawn"
+    );
+    assert!(
+        std::sync::Mutex::lock(&state.child).unwrap().is_none(),
+        "suspend stop must clear the child slot (nothing to kill when there is no child)"
+    );
+    assert!(
+        std::sync::Mutex::lock(&state.ws_tx).unwrap().is_none(),
+        "suspend stop must clear ws_tx so dispatches fail fast"
+    );
+}
+
+#[test]
+fn test_respawn_source_gates_on_power_suspended() {
+    // Source pin: supervisor::respawn must stand down while the host
+    // is suspended (MO-126). A mid-sleep crash must not spawn into a
+    // frozen process; resume's ensure requests one respawn instead.
+    let src = include_str!("supervisor.rs");
+    assert!(
+        src.contains("power_suspended.load"),
+        "supervisor::respawn must check power_suspended (MO-126)"
+    );
+    assert!(
+        src.contains("host is suspended: skipping respawn"),
+        "the suspended skip path must be logged for operator triage"
     );
 }

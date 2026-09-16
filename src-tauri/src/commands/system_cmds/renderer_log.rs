@@ -7,12 +7,16 @@
 //! `log::error!` global logger) for operator triage without requiring
 //! DevTools to be open.
 //!
-//! The payload is an opaque JSON value, the renderer sends
-//! `{message, stack?, componentStack?, location?}`. We serialize it to
-//! a single line and emit via `log::error!` with a `[RENDERER_ERROR]`
-//! prefix. Returns `Ok(())` unconditionally: the renderer's promise
-//! resolves so its `__tauriLog.error` call doesn't itself become an
-//! unhandled rejection.
+//! The payload is a JSON object, the renderer sends
+//! `{level?, scope?, message?, stack?, componentStack?, location?}`.
+//! It is rendered as ONE canonical C-LOG-1 line
+//! (`[renderer-error] <message> (src=<file>:<line>:<col>) scope=<s>`),
+//! never a raw JSON blob, so renderer records are as readable and
+//! grep-able as every other line in `voice-typer-rust.log`. Payloads
+//! without a `message` field (unexpected shape) fall back to the
+//! bounded JSON serialization. Returns `Ok(())` unconditionally: the
+//! renderer's promise resolves so its `__tauriLog.error` call doesn't
+//! itself become an unhandled rejection.
 //!
 //! Payload size is capped at 8 KiB DURING serialization (not after):
 //! the React UI's `__tauriLog.error(...)` is called with arbitrary
@@ -29,7 +33,7 @@
 //! dominated by a single pathological payload. Truncation is marked
 //! with `...[truncated]` so operators can see the cap was hit.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::commands::require_main_window;
@@ -153,6 +157,162 @@ pub(crate) fn cap_and_serialize_renderer_payload(payload: &Value) -> String {
     }
 }
 
+/// Truncation marker appended to an over-cap renderer log line (same
+/// contract as the bounded JSON serializer below).
+const TRUNCATION_MARKER: &str = "...[truncated]";
+
+/// Renderer-supplied level (`"warn"` / `"warning"`), anything else
+/// (including absent) is an ERROR: the fail-loud default means an
+/// unexpected payload is never silently demoted into the WARN stream.
+///
+/// `"error"` and `"info"`/`"debug"` are accepted spellings of the
+/// default so a caller can pass its own level name verbatim (the
+/// console capture does) without relying on the absent-field default.
+fn parse_renderer_level(raw: Option<&str>) -> log::Level {
+    match raw.map(str::trim).map(str::to_ascii_lowercase).as_deref() {
+        Some("warn" | "warning") => log::Level::Warn,
+        _ => log::Level::Error,
+    }
+}
+
+
+/// Where the renderer error came from: either the structured
+/// `location` object Chrome reports on `ErrorEvent`
+/// (`{file, line, column}`) or a plain string when a caller passes
+/// one directly.
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum RendererLocation {
+    Structured {
+        #[serde(default)]
+        file: Option<String>,
+        #[serde(default)]
+        line: Option<u64>,
+        #[serde(default)]
+        column: Option<u64>,
+    },
+    Text(String),
+}
+
+impl RendererLocation {
+    fn render(&self) -> String {
+        match self {
+            Self::Text(text) => collapse_whitespace(text),
+            Self::Structured { file, line, column } => {
+                let file = file
+                    .clone()
+                    .unwrap_or_else(|| "<unknown>".to_string());
+                match (line, column) {
+                    (Some(line), Some(column)) => format!("{file}:{line}:{column}"),
+                    (Some(line), None) => format!("{file}:{line}"),
+                    _ => file,
+                }
+            }
+        }
+    }
+}
+
+/// Deserialized renderer log payload. Every field is optional so an
+/// older/newer renderer can never make the sink itself throw.
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RendererLogPayload {
+    #[serde(default)]
+    level: Option<String>,
+    // `kind` is the field name both renderer callers actually use
+    // (`globalErrorHandler` + the console capture), inherited from the
+    // Electron-era payload. Accept it as an alias so it renders as the
+    // `scope=` fragment instead of being silently dropped by serde's
+    // unknown-field tolerance (E9/P4: the sender's advertised field and
+    // the receiver's expected field must agree).
+    #[serde(default, alias = "kind")]
+    scope: Option<String>,
+    #[serde(default)]
+    message: Option<String>,
+    #[serde(default)]
+    stack: Option<String>,
+    #[serde(default, alias = "component_stack")]
+    component_stack: Option<String>,
+    #[serde(default)]
+    location: Option<RendererLocation>,
+}
+
+/// Collapse every whitespace run (including newlines) into a single
+/// space so a multi-line renderer message cannot break the one-line-
+/// per-record contract of the canonical log template (C-LOG-1).
+fn collapse_whitespace(text: &str) -> String {
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// Compact a secondary field (stack / componentStack) into an inline
+/// fragment: whitespace-collapsed and bounded so one pathological
+/// stack cannot crowd out the message ahead of it.
+fn compact_fragment(text: &str, max_bytes: usize) -> String {
+    let collapsed = collapse_whitespace(text);
+    if collapsed.len() <= max_bytes {
+        return collapsed;
+    }
+    let mut cut = max_bytes;
+    while cut > 0 && !collapsed.is_char_boundary(cut) {
+        cut -= 1;
+    }
+    format!("{}…", &collapsed[..cut])
+}
+
+/// Truncate `line` to at most `MAX_RENDERER_ERROR_PAYLOAD_BYTES` bytes
+/// (UTF-8-boundary safe) with a visible marker when it cut, so the
+/// whole-log-line cap is preserved now that the message is formatted
+/// instead of serialized. The marker is reserved OUT of the budget, so
+/// the returned string never exceeds the cap.
+fn cap_renderer_log_line(line: String) -> String {
+    if line.len() <= MAX_RENDERER_ERROR_PAYLOAD_BYTES {
+        return line;
+    }
+    let mut cut = MAX_RENDERER_ERROR_PAYLOAD_BYTES - TRUNCATION_MARKER.len();
+    while cut > 0 && !line.is_char_boundary(cut) {
+        cut -= 1;
+    }
+    let mut out = line[..cut].to_string();
+    out.push_str(TRUNCATION_MARKER);
+    out
+}
+
+/// Build the canonical log line for a renderer payload and the level it
+/// should be emitted at. Pure (no logging, no window) so the whole
+/// formatting contract is unit-testable.
+///
+/// Payloads with no `message` fall back to the bounded JSON
+/// serialization, so an unexpected shape is still persisted rather
+/// than dropped.
+fn format_renderer_log_line(payload: &Value) -> (log::Level, String) {
+    let parsed: RendererLogPayload = serde_json::from_value(payload.clone()).unwrap_or_default();
+    let level = parse_renderer_level(parsed.level.as_deref());
+    let Some(message) = parsed.message.as_deref() else {
+        return (level, cap_and_serialize_renderer_payload(payload));
+    };
+    let tag = match level {
+        log::Level::Warn => "[renderer-warn]",
+        _ => "[renderer-error]",
+    };
+    let mut line = format!("{} {}", tag, collapse_whitespace(message));
+    if let Some(location) = &parsed.location {
+        line.push_str(&format!(" (src={})", location.render()));
+    }
+    if let Some(scope) = &parsed.scope {
+        line.push_str(&format!(" scope={}", collapse_whitespace(scope)));
+    }
+    if let Some(component_stack) = &parsed.component_stack {
+        line.push_str(&format!(
+            " component={}",
+            compact_fragment(component_stack, 512)
+        ));
+    }
+    if let Some(stack) = &parsed.stack {
+        line.push_str(&format!(" stack={}", compact_fragment(stack, 2048)));
+    }
+    (level, cap_renderer_log_line(line))
+}
+
 /// Tauri command: sink for renderer-side error logs. See the module
 /// doc for the payload contract + cap rationale.
 ///
@@ -169,8 +329,11 @@ pub async fn renderer_log_error(
     _app: tauri::AppHandle,
 ) -> Result<(), VoiceTyperError> {
     require_main_window(&window)?;
-    let serialized = cap_and_serialize_renderer_payload(&payload);
-    log::error!("[RENDERER_ERROR] {}", serialized);
+    let (level, line) = format_renderer_log_line(&payload);
+    match level {
+        log::Level::Warn => log::warn!("{}", line),
+        _ => log::error!("{}", line),
+    }
     Ok(())
 }
 

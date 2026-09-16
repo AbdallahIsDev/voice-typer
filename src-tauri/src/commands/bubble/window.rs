@@ -13,7 +13,7 @@ use tauri::{Emitter, Manager};
 /// share the same hide path, the two commands are semantically distinct
 /// (animation-complete signal vs user-dismiss affordance) but have
 /// identical hide behavior.
-pub(super) fn hide_bubble_window(app: &tauri::AppHandle) -> Result<(), String> {
+pub(crate) fn hide_bubble_window(app: &tauri::AppHandle) -> Result<(), String> {
     //emit FIRST so the renderer's cleanup runs while the
     // window is still visible.
     app.emit_to("bubble", "bubble:hide", ())

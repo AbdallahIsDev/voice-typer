@@ -557,6 +557,10 @@ fn test_combined_logger_log_format_is_clean() {
     let logger = CombinedLogger {
         file_writer: Some(writer),
         level_filter: log::LevelFilter::Info,
+        // File sink pinned to Info so these formatting tests still see
+        // their INFO records in the file (production defaults the file
+        // to Warn, see `CombinedLogger::file_level`).
+        file_level: log::LevelFilter::Info,
         //stderr_verbose=true in tests so the eprintln! path
         // is exercised (mirrors debug-build behavior).
         //AtomicBool (was `bool`) so the predicate is
@@ -630,6 +634,10 @@ fn test_combined_logger_log_format_renders_without_file_line() {
     let logger = CombinedLogger {
         file_writer: Some(writer),
         level_filter: log::LevelFilter::Info,
+        // File sink pinned to Info so these formatting tests still see
+        // their INFO records in the file (production defaults the file
+        // to Warn, see `CombinedLogger::file_level`).
+        file_level: log::LevelFilter::Info,
         //stderr_verbose=true in tests so the eprintln! path
         // is exercised (mirrors debug-build behavior).
         //AtomicBool (was `bool`) so the predicate is
@@ -681,6 +689,10 @@ fn test_combined_logger_file_line_has_no_session_id() {
     let logger = CombinedLogger {
         file_writer: Some(writer),
         level_filter: log::LevelFilter::Info,
+        // File sink pinned to Info so these formatting tests still see
+        // their INFO records in the file (production defaults the file
+        // to Warn, see `CombinedLogger::file_level`).
+        file_level: log::LevelFilter::Info,
         // stderr off: this test asserts only on the file sink.
         stderr_verbose: AtomicBool::new(false),
     };
@@ -723,6 +735,10 @@ fn test_combined_logger_file_line_matches_canonical_shape() {
     let logger = CombinedLogger {
         file_writer: Some(writer),
         level_filter: log::LevelFilter::Info,
+        // File sink pinned to Info so these formatting tests still see
+        // their INFO records in the file (production defaults the file
+        // to Warn, see `CombinedLogger::file_level`).
+        file_level: log::LevelFilter::Info,
         stderr_verbose: AtomicBool::new(false),
     };
     // Capture the clock around the log calls: the record's internal
@@ -1033,6 +1049,7 @@ fn test_fr33_bubble_level_filter_drops_info_record() {
     let logger = CombinedLogger {
         file_writer: Some(writer),
         level_filter: log::LevelFilter::Trace,
+        file_level: log::LevelFilter::Trace,
         stderr_verbose: AtomicBool::new(false),
     };
     let record = log::Record::builder()
@@ -1065,6 +1082,7 @@ fn test_fr33_bubble_level_filter_preserves_warn_record() {
     let logger = CombinedLogger {
         file_writer: Some(writer),
         level_filter: log::LevelFilter::Trace,
+        file_level: log::LevelFilter::Trace,
         stderr_verbose: AtomicBool::new(false),
     };
     let record = log::Record::builder()
@@ -1100,6 +1118,7 @@ fn test_fr33_bubble_level_filter_preserves_error_record() {
     let logger = CombinedLogger {
         file_writer: Some(writer),
         level_filter: log::LevelFilter::Trace,
+        file_level: log::LevelFilter::Trace,
         stderr_verbose: AtomicBool::new(false),
     };
     let record = log::Record::builder()
@@ -1181,6 +1200,10 @@ fn test_fr16_early_logger_pre_init_fallback_does_not_panic() {
         inner: OnceLock::new(),
         stderr_verbose: AtomicBool::new(false),
         level_filter: log::LevelFilter::Info,
+        // NOTE: no `file_level` here. `EarlyLogger` is the PRE-INIT
+        // stderr fallback; the file level lives on `CombinedLogger`
+        // (created by `init_file_logger`, defaulting the file sink to
+        // Warn: see `CombinedLogger::file_level`).
     };
     let record = log::Record::builder()
         .level(log::Level::Info)
@@ -2338,4 +2361,115 @@ fn test_rotating_queue_byte_gate_drops_non_error_keeps_error() {
         "dropped non-error records must never land in the file"
     );
     std::fs::remove_dir_all(&tmp).ok();
+}
+
+// ── file-sink level contract (MO-114) ────────────────────
+
+#[test]
+fn test_combined_logger_file_level_gate_suppresses_info_keeps_warn() {
+    // Production defaults the FILE sink to WARN/ERROR (Electron
+    // production parity: WARN+ to the host file, INFO to stdout unless
+    // opted in), while the global gate stays at the more verbose
+    // terminal level. Pin BOTH halves: an INFO record is filtered out of
+    // the file, a WARN record is written, and a logger constructed with
+    // the opt-in INFO file level writes INFO again.
+    let tmp =
+        std::env::temp_dir().join(format!("voice-typer-test-{}-file-level", std::process::id()));
+    std::fs::remove_dir_all(&tmp).ok();
+    let writer = RotatingFileWriter::new(tmp.clone(), "test-log");
+    let logger = CombinedLogger {
+        file_writer: Some(writer),
+        // Global gate wide open (the terminal sink's default): the file
+        // must still be narrowed by `file_level` alone.
+        level_filter: log::LevelFilter::Info,
+        file_level: log::LevelFilter::Warn,
+        stderr_verbose: AtomicBool::new(false),
+    };
+    let info = log::Record::builder()
+        .level(log::Level::Info)
+        .target("test_target")
+        .args(format_args!("info-must-not-land"))
+        .build();
+    let warn = log::Record::builder()
+        .level(log::Level::Warn)
+        .target("test_target")
+        .args(format_args!("warn-must-land"))
+        .build();
+    logger.log(&info);
+    logger.log(&warn);
+    logger.flush();
+    let content = std::fs::read_to_string(tmp.join("test-log.log")).unwrap();
+    assert!(
+        !content.contains("info-must-not-land"),
+        "INFO must be filtered out of the WARN-default file: {}",
+        content
+    );
+    assert!(
+        content.contains("warn-must-land"),
+        "WARN must still land in the file: {}",
+        content
+    );
+
+    // Opt-in INFO file level: the same INFO record now lands.
+    std::fs::remove_dir_all(&tmp).ok();
+    let writer = RotatingFileWriter::new(tmp.clone(), "test-log");
+    let logger = CombinedLogger {
+        file_writer: Some(writer),
+        level_filter: log::LevelFilter::Info,
+        file_level: log::LevelFilter::Info,
+        stderr_verbose: AtomicBool::new(false),
+    };
+    logger.log(&info);
+    logger.flush();
+    let content = std::fs::read_to_string(tmp.join("test-log.log")).unwrap();
+    assert!(
+        content.contains("info-must-not-land"),
+        "INFO must land when the file level is opted in: {}",
+        content
+    );
+    std::fs::remove_dir_all(&tmp).ok();
+}
+
+// ── crash-loop breaker policy (MO-107) ─────────────────────
+
+#[test]
+fn test_breaker_should_exit_policy_counts_within_window() {
+    let start = std::time::Instant::now();
+    let mut recent: Vec<std::time::Instant> = Vec::new();
+    let offsets: [u64; 4] = [1, 2, 3, 4];
+    // The first `MAX - 1` panics inside the window do NOT trip it.
+    for (index, offset) in offsets.iter().enumerate() {
+        assert!(
+            !breaker_should_exit(
+                &mut recent,
+                start + std::time::Duration::from_secs(*offset)
+            ),
+            "panic #{} must not trip the breaker",
+            index + 1
+        );
+    }
+    // The MAX-th panic inside the window trips it.
+    assert!(
+        breaker_should_exit(
+            &mut recent,
+            start + std::time::Duration::from_secs(5)
+        ),
+        "the {}th panic inside the window must trip the breaker",
+        PANIC_BREAKER_MAX
+    );
+    // Windows roll: with only the newest timestamp inside the window,
+    // an old burst can never accumulate into a trip.
+    let mut recent: Vec<std::time::Instant> = Vec::new();
+    for _ in 0..3 {
+        assert!(
+            !breaker_should_exit(&mut recent, start),
+            "3 panics must not trip the breaker"
+        );
+    }
+    let later = start + std::time::Duration::from_secs(PANIC_BREAKER_WINDOW_SECS + 1);
+    assert!(
+        !breaker_should_exit(&mut recent, later),
+        "stale panics outside the window must be dropped"
+    );
+    assert_eq!(recent.len(), 1, "window must retain only the fresh panic");
 }

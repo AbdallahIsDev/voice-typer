@@ -68,6 +68,18 @@
 use tauri_plugin_shell::process::CommandEvent;
 use tokio::sync::mpsc;
 
+use crate::sidecar::child_log::{should_tee, tee_child_output, ChildStream};
+
+/// Tee one chunk of child output to `<config_dir>/logs/sidecar.log`,
+/// but only for the children whose early output would otherwise be
+/// lost (`should_tee`: the release sidecar; the worker keeps its own
+/// log and the dev child inherits the terminal's stderr).
+fn tee(log_tag: &'static str, stream: ChildStream, bytes: &[u8]) {
+    if should_tee(log_tag) {
+        tee_child_output(stream, bytes);
+    }
+}
+
 /// Take ownership of a release-mode child's event receiver and return
 /// a forwarded receiver that yields the child's `Terminated` exit
 /// event.
@@ -106,6 +118,11 @@ pub(crate) async fn drain_child_events(
     while let Some(event) = rx.recv().await {
         match event {
             CommandEvent::Stdout(bytes) => {
+                // Durable tee first (ADR-0020 §11 / `sidecar/child_log.rs`):
+                // the host's own DEBUG copy below is dropped at the
+                // default level, so without the tee this line would be
+                // visible nowhere in a release install.
+                tee(log_tag, ChildStream::Stdout, &bytes);
                 // Post-handshake stdout is abnormal (the handshake
                 // line was already consumed) but harmless, log at
                 // debug and keep draining.
@@ -116,6 +133,11 @@ pub(crate) async fn drain_child_events(
                 );
             }
             CommandEvent::Stderr(bytes) => {
+                // Durable tee first (see the Stdout arm): this is the
+                // arm that carries early-startup tracebacks and engine
+                // device dumps, the evidence a "sidecar died on
+                // launch" report needs.
+                tee(log_tag, ChildStream::Stderr, &bytes);
                 // The child's stderr can be extremely chatty (engine
                 // device dumps, Python warning frames), debug level
                 // only; the child's own rotating log already carries

@@ -97,6 +97,19 @@ pub(crate) async fn spawn_sidecar_release(
         .envs(super::env_allowlist::vt_start_hidden_env())
         .env("TAURI_SIDECAR", "1")
         .env("VOICE_TYPER_IPC_TOKEN", token)
+        // MO-111 (Electron spawn-env parity): the Electron spawner
+        // always passed `KMP_DUPLICATE_LIB_OK=TRUE` alongside
+        // `windowsHide` for its console-less child. The value suppresses
+        // the Intel OpenMP runtime's abort when TWO OpenMP runtimes end
+        // up loaded in one process (torch's `libiomp5md` next to a
+        // MKL/`vcomp140` runtime pulled in by another native dependency),
+        // a condition that otherwise surfaces as a silent stall or
+        // hard abort at `import torch`. `env_clear()` + the narrow
+        // allowlist dropped it, so the frozen sidecar lost the
+        // workaround. Set explicitly on BOTH spawn paths (release here,
+        // dev in `dev_mode.rs`) so the sidecar behaves identically to
+        // the Electron child regardless of host env.
+        .env("KMP_DUPLICATE_LIB_OK", "TRUE")
         // Share the host's per-process session ID so the
         // Python sidecar's log lines carry the same join key as the
         // Rust host's (cross-process log correlation). The Python

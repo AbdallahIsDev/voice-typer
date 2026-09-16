@@ -211,15 +211,15 @@ def test_gp94_tauri_command_count_in_doc_matches_code():
     assert rust_row_match is not None, "Rust host row not found."
     body = rust_row_match.group("body")
 
-    # Doc must say "19 Tauri commands: 1 generic `dispatch` + 18 typed shortcuts"
-    assert "19 Tauri commands" in body, f"Rust host row must say '19 Tauri commands'. Got: {body!r}"
+    # Doc must say "24 Tauri commands: 1 generic `dispatch` + 23 typed shortcuts"
+    assert "24 Tauri commands" in body, f"Rust host row must say '24 Tauri commands'. Got: {body!r}"
     assert "1 generic `dispatch`" in body
-    assert "18 typed shortcuts" in body
+    assert "23 typed shortcuts" in body
 
     cmds = _parse_generate_handler()
-    assert len(cmds) == 19, f"generate_handler! in main.rs must register 19 commands (actual: {len(cmds)}: {cmds})"
+    assert len(cmds) == 24, f"generate_handler! in main.rs must register 24 commands (actual: {len(cmds)}: {cmds})"
     assert cmds[0] == "dispatch", f"First command must be `dispatch` (actual: {cmds[0]!r})."
-    # All 17 typed shortcut names from  must be present.
+    # Every typed shortcut name from the frozen §16 contract must be present.
     expected_typed = {
         "shutdown_sidecar",
         "export_history",
@@ -239,6 +239,16 @@ def test_gp94_tauri_command_count_in_doc_matches_code():
         "open_model_import_dialog",
         "renderer_log_error",
         "set_host_locale",
+        # 2026-09-16 Electron-parity additions (review.md MO-118 / MO-120 /
+        # MO-113 / MO-121): https-only external-link launch, reveal-in-file-manager,
+        # the renderer's backend-restart escalation, the webview
+        # liveness heartbeat feeding the renderer watchdog, and the
+        # share-stats PNG save/Save-As command.
+        "open_external_url_command",
+        "reveal_path_command",
+        "restart_sidecar",
+        "renderer_heartbeat",
+        "save_stats_image",
     }
     actual_typed = set(cmds[1:])
     assert actual_typed == expected_typed, (
@@ -332,21 +342,34 @@ def test_gp94_main_rs_line_count_is_385():
     import + ``.manage(Arc::new(WorkerState::new()))`` call; bodies
     live in ``sidecar/spawn/worker.rs``). Still wiring-only. Doc +
     test pin updated in lockstep.
+
+    Updated 2026-09-16 (Electron-parity + MO-121/125): main.rs grew
+    from 279 → 305 (renderer_heartbeat + HeartbeatState manage,
+    open_external_url_command / reveal_path_command / restart_sidecar
+    registrations) then 305 → 320 (`save_stats_image` registration +
+    `tauri_plugin_global_shortcut::Builder::new().build()` plugin
+    setup; bodies in ``commands/system_cmds/stats_image.rs`` +
+    ``platform/shortcuts.rs``). Still wiring-only. Doc + test pin
+    updated in lockstep.
     """
     doc = _read(ARCH_DOC)
-    assert "279 lines" in doc, "Doc must claim '279 lines' for main.rs."
+    assert "330 lines" in doc, "Doc must claim '330 lines' for main.rs."
     actual = sum(1 for _ in _read(MAIN_RS).splitlines())
-    assert actual == 279, (
-        f"src-tauri/src/main.rs must be 279 lines (actual: {actual}). Update the doc + this test together."
+    assert actual == 330, (
+        f"src-tauri/src/main.rs must be 330 lines (actual: {actual}). Update the doc + this test together."
     )
     # Stale counts must NOT be in the doc.
     assert "274 lines" not in doc, "Stale '274 lines' must be removed from doc."
     assert "264 lines" not in doc, "Stale '264 lines' must be removed from doc."
     assert "488 lines" not in doc, "Stale '488 lines' must be removed from doc."
     assert "288 lines" not in doc, "Stale '288 lines' must be removed from doc."
+    assert "305 lines" not in doc, "Stale '305 lines' must be removed from doc."
+    assert "320 lines" not in doc, "Stale '320 lines' must be removed from doc."
+    assert "325 lines" not in doc, "Stale '325 lines' must be removed from doc."
     assert "326 lines" not in doc, "Stale '326 lines' must be removed from doc."
     assert "333 lines" not in doc, "Stale '333 lines' must be removed from doc."
     assert "378 lines" not in doc, "Stale '378 lines' must be removed from doc."
+    assert "279 lines" not in doc, "Stale '279 lines' must be removed from doc."
     assert "349 lines" not in doc, "Stale '349 lines' must be removed from doc."
     assert "337 lines" not in doc, "Stale '337 lines' must be removed from doc."
     assert "385 lines" not in doc, "Stale '385 lines' must be removed from doc."

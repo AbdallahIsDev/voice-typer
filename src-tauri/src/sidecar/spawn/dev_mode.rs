@@ -85,6 +85,11 @@ pub(crate) async fn spawn_sidecar_dev_mode(
         .envs(super::env_allowlist::vt_start_hidden_env())
         .env("TAURI_SIDECAR", "1")
         .env("VOICE_TYPER_IPC_TOKEN", token)
+        // MO-111: same OpenMP dual-runtime workaround as the release
+        // path (see `release_mode.rs` for the full rationale). Set here
+        // too so a dev-mode sidecar on the same machine cannot stall at
+        // `import torch` while the release child works, or vice versa.
+        .env("KMP_DUPLICATE_LIB_OK", "TRUE")
         // Share the host's per-process session ID so the
         // Python sidecar's log lines carry the same join key as the
         // Rust host's (cross-process log correlation). The Python

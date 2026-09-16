@@ -54,6 +54,22 @@ const _LONG_RUNNING_COMMANDS: &[&str] = &[
 // (Retry button) over an in-flight download.
 const _DOWNLOAD_COMMANDS: &[&str] = &["download_model", "import_model"];
 
+/// Bytes reserved for the WS envelope (`{"type":"<cmd>","data":…,"id":N}`)
+/// when the dispatch data cap is derived from the 1 MiB frame ceiling.
+/// The longest allowlisted command name is well under 64 chars and the
+/// id is a `u64`, so 256 bytes is generous headroom while still leaving
+/// the cap within 0.03 % of the transport limit.
+pub(crate) const ENVELOPE_HEADROOM_BYTES: usize = 256;
+
+/// Largest accepted `dispatch` data payload, DERIVED from the shared
+/// 1 MiB transport frame ceiling minus [`ENVELOPE_HEADROOM_BYTES`].
+/// A `save_vocabulary` payload the Python schema accepts (up to 1 MiB
+/// TCP inbound) must pass this host gate; a future change to
+/// `MAX_FRAME_BYTES` moves the gate with it (pinned by
+/// `dispatch_tests.rs`).
+pub(crate) const DISPATCH_DATA_MAX_BYTES: usize =
+    crate::util::MAX_FRAME_BYTES - ENVELOPE_HEADROOM_BYTES;
+
 /// Returns the dispatch timeout (in seconds) for `cmd`.
 ///
 /// - 1h (`DISPATCH_DOWNLOAD_TIMEOUT_SECS`) for the multi-GB transfer
@@ -350,12 +366,22 @@ async fn dispatch_frame(
     // the frame has been serialized and enqueued on the bounded
     // `mpsc::channel(256)`, a compromised renderer could send 256
     // concurrent ~5 MB dispatches (~1.28 GB peak) before the writer
-    // task ever broke a single frame. Capping at 256 KiB (4× the WS
-    // layer's 1 MiB / 4 cap to allow for cmd + id + JSON envelope
-    // overhead while still preventing the OOM vector) rejects
-    // oversized payloads at the dispatch entry point. The check runs
-    // BEFORE the pending-map insert so an oversized payload never
-    // consumes a pending slot.
+    // task ever broke a single frame, so the payload is rejected at
+    // the dispatch entry point instead. The check runs BEFORE the
+    // pending-map insert so an oversized payload never consumes a
+    // pending slot.
+    //
+    // THE CAP IS THE TRANSPORT CEILING MINUS ENVELOPE HEADROOM (MO-115).
+    // It used to be an arbitrary 256 KiB, which silently hard-failed a
+    // legitimate `save_vocabulary` between 256 KiB and the schema's own
+    // 1 MiB `max_payload_bytes` limit (`handlers/vocabulary_handlers.py`),
+    // even though the TCP path accepted it. Deriving the cap from
+    // `MAX_FRAME_BYTES` (the SAME 1 MiB ceiling this host's tungstenite
+    // config and the Python WS server's `serve(max_size=...)` both
+    // enforce) keeps the two layers in lockstep: nothing the server's
+    // schema accepts is rejected early here, and nothing accepted here
+    // can produce a frame the receiver refuses (a >1 MiB frame would be
+    // closed by websockets with 1009 instead of erroring cleanly).
     //
     // SINGLE-SERIALIZE OPTIMIZATION: the data Value is serialized
     // ONCE here into ``data_str``. The same ``data_str`` is then
@@ -367,7 +393,9 @@ async fn dispatch_frame(
     // For a 256 KiB ``set_config`` payload, that was ~512 KiB of
     // wasted serialization CPU + ~256 KiB of wasted heap allocation
     // + a deep Value clone per dispatch.
-    const DISPATCH_DATA_MAX_BYTES: usize = 256 * 1024;
+    //
+    // `DISPATCH_DATA_MAX_BYTES` is the module-level derived cap
+    // (see its doc + `dispatch_tests.rs`).
     // `Cow<'static, str>` for `data_str` so the `data: None` case
     // uses `Cow::Borrowed("{}")` (a zero-allocation static slice, no
     // heap-allocated `String` for the common 2-byte literal). The
@@ -658,3 +686,9 @@ pub async fn dispatch(
     // command contexts too (e.g. the tray menu click handler).
     dispatch_inner(args, state.inner().clone()).await
 }
+
+// Sibling test module: tests live in `dispatch_tests.rs` (per C-TEST-5:
+// no inline `#[cfg(test)] mod tests` blocks in production source).
+#[cfg(test)]
+#[path = "dispatch_tests.rs"]
+mod dispatch_tests;

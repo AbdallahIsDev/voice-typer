@@ -22,6 +22,11 @@ mod persisted_position;
 mod rate_limit;
 mod window;
 
+// MO-125: the global bubble-dismiss shortcut reuses the exact hide
+// body the bubble's '×' button uses, so the keyboard path can never
+// drift from the click path (E7).
+pub(crate) use window::hide_bubble_window;
+
 pub(crate) use commands::{
     bubble_dismiss, bubble_hide_complete, bubble_move_by, bubble_resize, bubble_set_draggable,
     bubble_set_position, bubble_show, bubble_signal_ready, bubble_toggle_dictation,

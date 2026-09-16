@@ -886,3 +886,91 @@ fn test_worker_spawn_stubs_exist() {
     // Reaching this line means both stub symbols resolved, the
     // Phase 2a scaffolding is in place.
 }
+/// MO-111 (Electron spawn-env parity): every `env_clear()` spawn path
+/// must re-add `KMP_DUPLICATE_LIB_OK=TRUE`.
+///
+/// Electron's spawner always passed it for its console-less child; the
+/// Intel OpenMP runtime aborts (silent stall or hard exit) at
+/// `import torch` when two OpenMP runtimes land in one process, and the
+/// Tauri spawn paths clear the host env, so the var must be set
+/// explicitly. The env chains are builder expressions that cannot be
+/// inspected after the fact, so this test pins the SOURCE of all three
+/// spawn modules (hermetic, no filesystem/env mutation): dropping the
+/// var, or adding a new cleared spawn path without it, fails here.
+#[test]
+fn test_every_cleared_spawn_path_sets_kmp_duplicate_lib_ok() {
+    // `include_str!` keeps this test self-contained: no cwd assumptions,
+    // works in the binary test harness on every platform.
+    const MODULES: [(&str, &str); 3] = [
+        (
+            "release_mode.rs",
+            include_str!("spawn/release_mode.rs"),
+        ),
+        ("dev_mode.rs", include_str!("spawn/dev_mode.rs")),
+        ("worker.rs", include_str!("spawn/worker.rs")),
+    ];
+    for (name, source) in MODULES {
+        // Strip `//` comment tails: the modules' prose also mentions
+        // `.env_clear()` in doc comments, and the KMP rationale comments
+        // mention the var name, so a raw count would double-count.
+        let code: String = source
+            .lines()
+            .map(|line| line.split("//").next().unwrap_or(""))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let clears = code.matches(".env_clear()").count();
+        let kmp_sets = code.matches(".env(\"KMP_DUPLICATE_LIB_OK\", \"TRUE\")").count();
+        assert!(clears >= 1, "{name}: expected at least one .env_clear()");
+        assert!(
+            kmp_sets >= clears,
+            "{name}: {clears} .env_clear() paths but only {kmp_sets} \
+             KMP_DUPLICATE_LIB_OK sets; every cleared spawn path must \
+             re-add the OpenMP workaround (MO-111)"
+        );
+    }
+}
+
+// ── MO-110: adopted_backend_env pure parse ───────────────────────────
+//
+// `parse_adopted_backend_env` is the unit-testable core (no process
+// env mutation, no mutex). `adopted_backend_env()` is a thin env
+// reader + logger over it; its fall-through behavior is pinned by the
+// pure-function cases below.
+
+#[test]
+fn test_adopted_backend_env_valid_port_and_token() {
+    let got = parse_adopted_backend_env(Some("8765"), Some("deadbeefcafebabe"));
+    assert_eq!(got, Some((8765, "deadbeefcafebabe".to_string())));
+}
+
+#[test]
+fn test_adopted_backend_env_port_zero_is_none() {
+    // Port 0 is a misconfigured CLI session, not an adopt signal.
+    assert_eq!(parse_adopted_backend_env(Some("0"), Some("tok")), None);
+}
+
+#[test]
+fn test_adopted_backend_env_garbage_port_is_none() {
+    assert_eq!(parse_adopted_backend_env(Some("not-a-port"), Some("tok")), None);
+    assert_eq!(parse_adopted_backend_env(Some(""), Some("tok")), None);
+    assert_eq!(parse_adopted_backend_env(Some("65536"), Some("tok")), None);
+}
+
+#[test]
+fn test_adopted_backend_env_missing_token_is_none() {
+    assert_eq!(parse_adopted_backend_env(Some("8765"), None), None);
+}
+
+#[test]
+fn test_adopted_backend_env_missing_port_is_none() {
+    assert_eq!(parse_adopted_backend_env(None, Some("tok")), None);
+    assert_eq!(parse_adopted_backend_env(None, None), None);
+}
+
+#[test]
+fn test_adopted_backend_env_port_u16_max_is_accepted() {
+    assert_eq!(
+        parse_adopted_backend_env(Some("65535"), Some("tok")),
+        Some((65535, "tok".to_string()))
+    );
+}

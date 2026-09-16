@@ -35,7 +35,8 @@
         "trafficLightPosition": { "x": 12, "y": 10 },
         "visible": true,
         "create": false,
-        "label": "main"
+        "label": "main",
+        "additionalBrowserArgs": "--autoplay-policy=no-user-gesture-required --disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection"
       },
       {
         "title": "Voice Typer Bubble",

@@ -37,6 +37,13 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = ["tray-icon", "image-png"] }
 tauri-plugin-shell = "2"
 tauri-plugin-notification = "2"
+# MO-125: the system-wide bubble-dismiss accelerator
+# (CommandOrControl+Shift+D). Electron registered it via the
+# `globalShortcut` main-process module; this plugin is the Tauri v2
+# equivalent (Rust-side registration via `on_shortcut`, no JS surface
+# needed). Windows/macOS/Linux only (mobile is unsupported by the
+# plugin, and the app is desktop-only).
+tauri-plugin-global-shortcut = "2"
 # XE-4-4: tauri-plugin-clipboard-manager removed: the renderer uses
 # the web-API navigator.clipboard.writeText() for all writes (paste
 # path was removed in FZ-19/PVT-051), and the capability grant
@@ -72,6 +79,12 @@ rand = "0.9"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
+
+# MO-121: `save_stats_image` decodes the renderer's PNG data URL on the
+# host (Electron parity for `Buffer.from(b64, "base64")`). Already in
+# the tree transitively (tauri uses base64 0.22); pinned here so the
+# command's dependency is explicit.
+base64 = "0.22"
 
 # Logging
 log = "0.4"
@@ -110,6 +123,11 @@ windows = { version = "0.61", features = [
     "Win32_UI_WindowsAndMessaging",
     "Win32_Foundation",
     "Win32_System_Threading",
+    # GetLocalTime: the LOCAL wall-clock source for the canonical log
+    # timestamps (`util/time.rs`). The host stamps local time so its log
+    # file correlates with the Python sidecar's (which logs
+    # `time.localtime`) and with the user's file-manager clock.
+    "Win32_System_SystemInformation",
     # Job Object APIs for kill-on-parent-exit on the release
     # sidecar. `Win32_System_JobObjects` provides `CreateJobObjectW`,
     # `SetInformationJobObject`, `AssignProcessToJobObject`. See

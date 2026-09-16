@@ -42,6 +42,11 @@ use tokio::io::AsyncBufReadExt;
 use tokio::sync::mpsc;
 
 use super::handshake::is_shutting_down;
+// Durable child-output tee (ADR-0020 §11): the handshake window is
+// exactly when the child is most likely to die before its own logger
+// exists, so the same tee the post-handshake drain uses also covers
+// these arms (release pair only: see `child_log::should_tee`).
+use crate::sidecar::child_log::{should_tee, tee_child_output, ChildStream};
 
 /// How long the spawn paths wait for the killed child's exit signal after
 /// sending the kill (both machinery families): the release pair polls the
@@ -154,7 +159,8 @@ pub(super) fn register_kill_on_parent_exit_best_effort(log_tag: &str, warn_detai
 ///   running would survive past the Err return), then return the
 ///   spawn-failure error. Kill errors are logged, never replace the
 ///   original error.
-/// - **`CommandEvent::Stderr`**, logged at `debug!` (the child's stderr
+/// - **`CommandEvent::Stderr`**, teed to `<config_dir>/logs/sidecar.log`
+///   (release sidecar only) and logged at `debug!` (the child's stderr
 ///   can be extremely chatty: Python warning frames, native-binary
 ///   debug prints, ctranslate2 device dumps, and the child's own log
 ///   file already carries its warnings/errors) and skipped: never parsed
@@ -207,6 +213,9 @@ pub(super) async fn read_handshake_from_command_events(
                 let line =
                     match event {
                         CommandEvent::Stdout(bytes) => {
+                            if should_tee(labels.log_tag) {
+                                tee_child_output(ChildStream::Stdout, &bytes);
+                            }
                             // `.into_owned()` reuses the inner String when the
                             // Cow is Owned (invalid UTF-8 case, the child's
                             // stderr can carry non-UTF-8 bytes from a C
@@ -215,6 +224,9 @@ pub(super) async fn read_handshake_from_command_events(
                             String::from_utf8_lossy(&bytes).into_owned()
                         }
                         CommandEvent::Stderr(bytes) => {
+                            if should_tee(labels.log_tag) {
+                                tee_child_output(ChildStream::Stderr, &bytes);
+                            }
                             let s = String::from_utf8_lossy(&bytes).into_owned();
                             log::debug!("{} stderr: {}", labels.log_tag, s.trim());
                             continue;

@@ -21,12 +21,13 @@ use serde_json::Value;
 /// All title kinds covered by the lookup, every test below iterates
 /// this list so adding a new dialog title site without extending the
 /// lookup (or the tests) fails loudly.
-const ALL_KINDS: [DialogTitle; 5] = [
+const ALL_KINDS: [DialogTitle; 6] = [
     DialogTitle::SelectModelFolder,
     DialogTitle::ExportHistory,
     DialogTitle::ExportVocabulary,
     DialogTitle::ExportTemplates,
     DialogTitle::ExportConfig,
+    DialogTitle::ExportStatsImage,
 ];
 
 /// The 7 non-English supported languages (English is the fallback,
@@ -195,7 +196,7 @@ fn test_dialog_titles_are_byte_identical_to_electron_main_locale_files() {
     for (lang, raw) in files {
         let parsed: Value = serde_json::from_str(raw)
             .unwrap_or_else(|e| panic!("main locale file for '{lang}' must parse: {e}"));
-        let cases: [(DialogTitle, &str); 5] = [
+        let cases: [(DialogTitle, &str); 6] = [
             (
                 DialogTitle::SelectModelFolder,
                 "dialog.selectModelFolder.title",
@@ -204,6 +205,7 @@ fn test_dialog_titles_are_byte_identical_to_electron_main_locale_files() {
             (DialogTitle::ExportVocabulary, "dialog.export.vocabulary"),
             (DialogTitle::ExportTemplates, "dialog.export.templates"),
             (DialogTitle::ExportConfig, "dialog.export.config"),
+            (DialogTitle::ExportStatsImage, "dialog.export.statsImage"),
         ];
         for (kind, key) in cases {
             let expected = parsed[key].as_str().unwrap_or_else(|| {

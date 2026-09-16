@@ -141,19 +141,20 @@ HOST_SYNTHESIZED_PUSH_EVENTS: dict[str, str] = {
 # method under Tauri REQUIRES deleting its entry (the staleness assertion
 # fails while the entry survives).
 TAURI_MISSING_WINDOW_METHODS: dict[str, str] = {
-    # Restarts ONLY the Python backend process while Electron stays alive.
-    # The Rust host owns the sidecar lifecycle itself (supervisor +
-    # respawn scheduler), so there is no renderer-triggered restart path.
-    "restartBackend": (
-        "the Tauri Rust host owns backend lifecycle via its supervisor; "
-        "no main-process spawn surface exists for the renderer to trigger"
-    ),
-    # Share-stats image platform operations. Under Tauri the renderer
-    # falls back to an anchor download; the clipboard/reveal operations
-    # have no Rust command counterparts yet.
-    "saveStatsImage": ("no Rust command counterpart yet; the renderer falls back to an anchor download under Tauri"),
+    # (`restartBackend` and `revealStatsImage` were implemented under Tauri
+    # on 2026-09-16 — review.md MO-120: `restart_sidecar` delegates to the
+    # supervisor's respawn path with Electron's `{ok, reason?}` envelope,
+    # and `reveal_path_command` covers `shell.showItemInFolder` — so their
+    # entries were deleted here; the staleness assertion requires it.)
+    #
+    # Share-stats image platform operations still without Rust
+    # counterparts: under Tauri the renderer falls back to an anchor
+    # download for save, and the clipboard copy path is Electron-only.
+    # (`saveStatsImage` was implemented under Tauri on 2026-09-16 —
+    # review.md MO-121: `save_stats_image` ports the Downloads
+    # instant-save + the localized Save-As dialog — so its entry was
+    # deleted here; the staleness assertion requires it.)
     "copyStatsImage": ("no Rust clipboard command counterpart yet; stats-image copy is Electron-only"),
-    "revealStatsImage": ("no Rust shell-reveal command counterpart yet; stats-image reveal is Electron-only"),
 }
 
 # Documented asymmetry between the TS renderer allowlist and the Rust host

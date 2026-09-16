@@ -11,7 +11,9 @@ use super::dialog_titles::{localized_title_for, DialogTitle};
 use crate::commands::export::await_dialog_bridge;
 use crate::commands::require_main_window;
 use crate::error::VoiceTyperError;
-use crate::platform::open_path::open_path_in_file_manager;
+use crate::platform::open_path::{
+    open_external_url, open_path_in_file_manager, reveal_path_in_file_manager,
+};
 use crate::platform::paths::config_dir;
 
 /// Pure decision core for [`open_logs`]: the directory the command
@@ -108,6 +110,66 @@ pub async fn open_logs(
         Err(join_err) => Ok(json!({
             "success": false,
             "error": format!("open_logs blocking task failed: {join_err}")
+        })),
+    }
+}
+
+/// Open an https URL in the user's default browser (MO-118).
+///
+/// Replaces Electron's `shell.openExternal` route (see
+/// `platform::open_path::open_external_url` for the https-only rationale
+/// and the per-OS mechanics). The renderer's `ExternalLink` component /
+/// `openExternalUrl` helper invoke this instead of `window.open`, which
+/// the Tauri webview either blocks or traps inside the app (CSP
+/// `default-src 'self'`, `plugins.shell.open = false` per C-TAURI-2).
+///
+/// Returns the same `{success, error?}` envelope shape as `open_logs` so
+/// the renderer's existing handling is reused unchanged. `window` is
+/// auto-injected by Tauri; `require_main_window` runs FIRST so the
+/// sandboxed bubble renderer cannot launch a browser.
+#[tauri::command]
+pub async fn open_external_url_command(
+    url: String,
+    window: tauri::Window,
+) -> Result<Value, VoiceTyperError> {
+    require_main_window(&window)?;
+    // Blocking work (argv build + OS handler spawn) goes to the blocking
+    // pool, mirroring `open_logs`.
+    let result = tauri::async_runtime::spawn_blocking(move || open_external_url(&url)).await;
+    match result {
+        Ok(Ok(())) => Ok(json!({"success": true})),
+        Ok(Err(e)) => Ok(json!({"success": false, "error": e})),
+        Err(join_err) => Ok(json!({
+            "success": false,
+            "error": format!("open_external_url blocking task failed: {join_err}")
+        })),
+    }
+}
+
+/// Reveal a file in the OS file manager (MO-120b): the Analytics /
+/// Dashboard share-image "Reveal" action. Mirrors Electron's
+/// `shell.showItemInFolder`, which the renderer reaches through
+/// `window.window_.revealStatsImage`.
+///
+/// Returns the shared `{success, error?}` envelope; a missing path is
+/// reported as `success: false` with a message instead of doing nothing
+/// (the pre-fix Tauri behavior, where the optional bridge method was
+/// simply absent, made the button silently inert).
+#[tauri::command]
+pub async fn reveal_path_command(
+    path: String,
+    window: tauri::Window,
+) -> Result<Value, VoiceTyperError> {
+    require_main_window(&window)?;
+    let path_buf = std::path::PathBuf::from(path);
+    let result =
+        tauri::async_runtime::spawn_blocking(move || reveal_path_in_file_manager(&path_buf)).await;
+    match result {
+        Ok(Ok(())) => Ok(json!({"success": true})),
+        Ok(Err(e)) => Ok(json!({"success": false, "error": e})),
+        Err(join_err) => Ok(json!({
+            "success": false,
+            "error": format!("reveal_path blocking task failed: {join_err}")
         })),
     }
 }

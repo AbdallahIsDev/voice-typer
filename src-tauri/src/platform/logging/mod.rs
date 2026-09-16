@@ -21,6 +21,7 @@
 //!   combined.rs     // CombinedLogger + truthy-env helpers
 //!   redact.rs       // redact_pii + try_match_* + SECRET_KEYWORDS
 //!   panic_hook.rs   // install_panic_hook + PANIC_HOOK_REENTRY
+//!                   //   + the crash-loop breaker policy
 //!   early.rs        // EarlyLogger + EARLY_LOGGER_HANDLE
 //!                   //   + install_early_logger
 //!   rotating.rs     // RotatingFileWriter
@@ -53,12 +54,21 @@ mod rotating;
 pub(crate) use early::install_early_logger;
 pub(crate) use init::init_file_logger_or_stderr_fallback;
 pub(crate) use panic_hook::install_panic_hook;
+// Production API for the sidecar child-output tee
+// (`sidecar/child_log.rs`): it reuses the canonical redaction pass (so
+// a traceback can never persist a secret) and the canonical rotating
+// writer (single file, truncate-in-place at the 40 MB ceiling, bounded
+// queue) instead of forking either concern.
+pub(crate) use redact::redact_pii;
+pub(crate) use rotating::RotatingFileWriter;
 
 // Test-only re-exports: the sibling `logging_tests.rs` resolves these
 // via `use super::logging::*;` / `super::logging::<name>`; production
 // callers reach the submodules directly (same pattern as
 // `sidecar/spawn.rs`). Gated so non-test builds carry no dead
-// re-exports.
+// re-exports. `redact_pii` / `RotatingFileWriter` are re-exported
+// unconditionally above (production consumers), so they are absent
+// from this gated block.
 #[cfg(test)]
 pub(crate) use combined::{
     is_debug_env_truthy, is_truthy_env_var, is_truthy_value, CombinedLogger,
@@ -68,8 +78,8 @@ pub(crate) use early::{EarlyLogger, EARLY_LOGGER_HANDLE};
 #[cfg(test)]
 pub(crate) use init::{init_file_logger, sweep_stale_logs};
 #[cfg(test)]
-pub(crate) use panic_hook::PANIC_HOOK_REENTRY;
+pub(crate) use panic_hook::{
+    breaker_should_exit, PANIC_BREAKER_MAX, PANIC_BREAKER_WINDOW_SECS, PANIC_HOOK_REENTRY,
+};
 #[cfg(test)]
-pub(crate) use redact::{has_any_fast_trigger, redact_pii};
-#[cfg(test)]
-pub(crate) use rotating::RotatingFileWriter;
+pub(crate) use redact::has_any_fast_trigger;

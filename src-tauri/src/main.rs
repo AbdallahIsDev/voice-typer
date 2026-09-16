@@ -40,6 +40,7 @@ mod host_events;
 mod migrate;
 mod notify_aumid;
 mod platform;
+mod shortcuts;
 mod sidecar;
 mod startup_timeline;
 mod state;
@@ -74,9 +75,8 @@ mod test_support;
 
 use std::sync::Arc;
 
-// `Listener` for `app.listen("relaunch_app", ...)`, `Manager` for the
-// single-instance callback's `.get_webview_window`, `RunEvent` for the
-// `.run` callback.
+// `Listener` for `app.listen("relaunch_app", ...)`, `RunEvent` for the
+// `.run` callback (incl. the macOS `Reopen` arm, MO-112).
 use tauri::{Listener, Manager, RunEvent};
 
 use commands::bubble::{
@@ -84,13 +84,15 @@ use commands::bubble::{
     bubble_set_position, bubble_show, bubble_signal_ready, bubble_toggle_dictation,
 };
 use commands::export::{export_history, export_vocabulary};
-use commands::sidecar_cmds::{dispatch, shutdown_sidecar};
+use commands::sidecar_cmds::{dispatch, restart_sidecar, shutdown_sidecar};
 // system_cmds exposes the window_-namespace commands (open_logs /
+// open_external_url_command / reveal_path_command /
 // open_model_import_dialog / export_templates / export_config) and the
 // renderer_log_error sink.
 use commands::system_cmds::{
-    export_config, export_templates, open_logs, open_model_import_dialog, renderer_log_error,
-    set_host_locale,
+    export_config, export_templates, open_external_url_command, open_logs,
+    open_model_import_dialog, renderer_heartbeat, renderer_log_error, reveal_path_command,
+    save_stats_image, set_host_locale,
 };
 use platform::logging::init_file_logger_or_stderr_fallback;
 use platform::paths::config_dir;
@@ -119,21 +121,15 @@ fn main() {
         // would otherwise leave a zombie python process on a double
         // launch). The plugin's callback focuses the existing main
         // window; the second instance exits immediately after.
+        // The callback (MO-109) routes through the ONE shared
+        // raise-to-front routine: bare `show()` + `set_focus()` only
+        // flashed the taskbar when the window was minimized or buried
+        // (the OS foreground lock denies SetForegroundWindow to a
+        // background process), so a second Start-Menu launch looked
+        // dead. `show_main_window` also recreates the window when it no
+        // longer exists.
         .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
-            if let Some(window) = app.get_webview_window("main") {
-                if let Err(e) = window.show() {
-                    log::warn!(
-                        "[MAIN] single-instance: window.show() failed (best-effort): {}",
-                        e
-                    );
-                }
-                if let Err(e) = window.set_focus() {
-                    log::warn!(
-                        "[MAIN] single-instance: window.set_focus() failed (best-effort): {}",
-                        e
-                    );
-                }
-            }
+            crate::host_events::show_main_window(app);
         }))
         // PLUGIN CONFIG CONTRACT (src-tauri/tauri.conf.json `plugins`
         // block): verified against the plugins-workspace v2 sources +
@@ -161,7 +157,16 @@ fn main() {
         // dialog plugin for export_history / export_vocabulary
         // save-file dialogs (invoked from Rust, not TS).
         .plugin(tauri_plugin_dialog::init())
+        // MO-125: global-shortcut plugin for the system-wide
+        // bubble-dismiss accelerator. Registration itself happens in
+        // `setup` (shortcuts::register_bubble_dismiss), the plugin
+        // only supplies the runtime. Rust-side only: no capability
+        // grant is needed because the renderer never touches it.
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .manage(Arc::new(SidecarState::new()))
+        // Renderer liveness tracker (MO-113): the `renderer_heartbeat`
+        // command timestamps into it, the watchdog reads it.
+        .manage(Arc::new(platform::renderer_watchdog::HeartbeatState::new()))
         // BP-33 (Phase 2c): the ML worker's lifecycle state. The
         // worker (re)starts on the `offline_pack_verified` event (see
         // `sidecar::spawn::worker::on_pack_verified`).
@@ -169,6 +174,9 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             dispatch,
             shutdown_sidecar,
+            // renderer-initiated sidecar restart (Electron
+            // `backend:restart` parity, MO-120).
+            restart_sidecar,
             export_history,
             export_vocabulary,
             bubble_show,
@@ -184,14 +192,25 @@ fn main() {
             bubble_toggle_dictation,
             //system-level window_ commands.
             open_logs,
+            // external https links (MO-118) + reveal-in-file-manager
+            // (MO-120b): Electron's shell.openExternal /
+            // shell.showItemInFolder parity under Tauri.
+            open_external_url_command,
+            reveal_path_command,
             open_model_import_dialog,
             export_templates,
             export_config,
+            // Share-image Downloads-save + localized Save-As dialog
+            // (Electron `stats-image:save` parity, MO-121).
+            save_stats_image,
             //renderer_log_error sink.
             renderer_log_error,
             //renderer-pushed locale for host-side native-surface
             // localization (Electron `i18n:set-locale` parity).
             set_host_locale,
+            //renderer liveness heartbeat feeding the webview watchdog
+            // (Electron `child-process-gone` parity, MO-113).
+            renderer_heartbeat,
         ])
         .setup(|app| {
             // Windows toast identity (AUMID) registration, idempotent,
@@ -199,8 +218,10 @@ fn main() {
             crate::notify_aumid::register(app.handle());
 
             // Build the `main` window from its `tauri.conf.json` config
-            // (body in `window_bootstrap.rs`).
-            crate::window_bootstrap::bootstrap_main_window(app);
+            // (body in `window_bootstrap.rs`). The builder takes an
+            // `&AppHandle` so the same code can rebuild the window later
+            // (macOS Dock activation after the last window closed).
+            crate::window_bootstrap::bootstrap_main_window(app.handle());
 
             let app_handle = app.handle().clone();
             //log only the basename: the absolute path can leak the
@@ -238,6 +259,26 @@ fn main() {
             // App") + `notification` (native toast), bodies in
             // `host_events.rs`.
             crate::host_events::setup(app.handle());
+            // System-wide bubble-dismiss accelerator (MO-125,
+            // Electron `globalShortcut` parity). Best-effort: an OS
+            // refusal only costs the keyboard dismiss path, the
+            // bubble's '×' button still works.
+            crate::shortcuts::register_bubble_dismiss(app.handle());
+            // Renderer liveness watchdog (MO-113): Electron logged
+            // `child-process-gone`; Tauri/wry exposes no such event, so
+            // the host watches the renderer's heartbeat instead and logs
+            // a stall while the window is visible.
+            crate::platform::renderer_watchdog::spawn_watchdog(app.handle());
+            // MO-126: OS power events (suspend/resume). Body lives in
+            // `platform/power.rs`; sidecar actions are handed to the
+            // supervisor via `tauri::async_runtime::spawn` (C-TOKIO-1).
+            // Best-effort: a subscribe failure only costs the
+            // suspend-finalize path; the supervisor still recovers a
+            // dead sidecar after wake.
+            let _power = crate::platform::power::spawn_power_monitor(
+                app.handle().clone(),
+                app.state::<Arc<SidecarState>>().inner().clone(),
+            );
             //(Critical): the unconditional `write_restart_counter(0)`
             // that used to live here DEFEATED the circuit breaker, the
             // reset is now ONLY done on successful `reconnect_ws`
@@ -273,6 +314,16 @@ fn main() {
                 // Teardown body: `state::on_host_exit`, dedicated thread
                 // + bounded-time `block_on` (see `sidecar::lifecycle`).
                 crate::state::on_host_exit(app_handle);
+            }
+            // macOS Dock-icon activation (Electron `app.on("activate")`
+            // parity, MO-112): macOS keeps the process alive after the
+            // last window is closed (tray / Dock), so a Dock click must
+            // bring the dashboard back instead of doing nothing. The
+            // shared routine recreates the window when it is gone and
+            // otherwise runs the full raise sequence (MO-109).
+            #[cfg(target_os = "macos")]
+            RunEvent::Reopen { .. } => {
+                crate::host_events::show_main_window(app_handle);
             }
             _ => {}
         });
