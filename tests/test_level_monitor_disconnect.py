@@ -410,3 +410,38 @@ class TestIdempotency:
         )
 
         lm.stop_monitoring()
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# constructor failure (pyrefly unbound-name: stream)
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class TestConstructorFailure:
+    """``sd.InputStream(...)`` itself can raise (no device, PortAudio
+    down). The ``except`` handler closes the stream, so ``stream`` must
+    be pre-declared: otherwise the handler raises ``NameError`` and masks
+    the real failure instead of returning the clean failure dict."""
+
+    def test_constructor_failure_returns_clean_failure(self, monkeypatch):
+        """A raising constructor yields ``success=False`` with cleared state."""
+        import sounddevice as sd
+        import voice_typer.server.level_monitor as lm
+
+        def _raise(*args, **kwargs):
+            raise OSError("No input devices available")
+
+        monkeypatch.setattr(sd, "InputStream", _raise)
+        monkeypatch.setattr(
+            sd,
+            "query_devices",
+            lambda *args, **kwargs: {"name": "Mock Mic", "default_samplerate": 16000},
+        )
+
+        result = lm.start_monitoring(mic_id=None)
+
+        assert result["success"] is False, f"constructor failure must return success=False; got {result}"
+        assert "No input devices available" in result["message"]
+        assert lm._monitor_active is False
+        assert lm._monitor_stream is None
+        assert lm._monitor_mic_id is None

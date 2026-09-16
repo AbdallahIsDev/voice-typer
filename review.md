@@ -562,6 +562,300 @@ Investigation-only audit comparing the Electron and Tauri log paths end-to-end. 
 **Severity:** 🟢 Low
 **Category:** Logging / maintenance
 
+### MO-109: Second-instance / tray-click raise-to-front missing under Tauri (minimized/buried window stays buried)
+**Status:** ❌ Not Fixed (audit 2026-09-16, 3-agent Electron-vs-Tauri parity sweep)
+**Description:** Electron raises the existing window through a full sequence (`restore()` if minimized + `setAlwaysOnTop(true,"screen-saver")` raise + `show()` + `focus()` + `moveTop()`). Tauri's single-instance and tray-click paths only do `show()` + `set_focus()`; the full raise sequence exists only in `host_events::show_main_window`.
+**Current Behavior:** Second launch / tray click while minimized or behind other windows only flashes the taskbar; window does not come forward.
+**Expected Behavior:** Route single-instance (`main.rs`), tray click (`tray.rs`), and any other show path through the `host_events::show_main_window` sequence (unminimize + show + always-on-top raise + focus).
+**User Impact:** Start Menu / second launch while dashboard minimized feels dead after Electron removal.
+**Root Cause:** Partial port — raise logic built once in `host_events.rs` but not wired to the two other entry points.
+**Related Files:**
+- `voice_typer/client/src/main/windows/main-window.ts:77-108`
+- `voice_typer/client/src/main/single_instance.ts:272-277`
+- `src-tauri/src/main.rs:122-135`
+- `src-tauri/src/tray.rs:191-197`
+- `src-tauri/src/host_events.rs:96-128`
+**Fix:** Call the shared show routine from all three paths; add host test for minimized → shown + focused.
+**Severity:** 🟡 Medium
+**Category:** Platform / Tauri parity
+
+### MO-110: Standalone adopted-backend mode (VT_PYTHON_PORT/VT_IPC_TOKEN attach) has no Tauri path
+**Status:** ❌ Not Fixed (audit 2026-09-16, 3-agent Electron-vs-Tauri parity sweep)
+**Description:** Electron can attach to an already-running backend (terminal `VoiceTyper` CLI flow) via `VT_PYTHON_PORT` + `VT_IPC_TOKEN` with no spawn (`pythonProcess` stays null, restart/stop become safe no-ops). Tauri always resolves + spawns a second backend with `env_clear()`.
+**Current Behavior:** CLI-parent launch under Tauri double-spawns (mutex/port collision or orphaned parent).
+**Expected Behavior:** Tauri checks the adopted env first and attaches instead of spawning, mirroring the Electron adopt path.
+**User Impact:** Dev/standalone terminal workflow breaks after Electron removal.
+**Root Cause:** Never ported — zero `VT_PYTHON_PORT` references in `src-tauri/src`.
+**Related Files:**
+- `voice_typer/client/src/main/python/start-python.ts:126-136`
+- `voice_typer/client/src/main/python/restart-backend.ts:61-66`
+- `voice_typer/client/src/main/python/stop-python.ts:211-215`
+- `src-tauri/src/sidecar/spawn/release_mode.rs:58-131`
+- `src-tauri/src/sidecar/spawn/dev_mode.rs:71-85`
+**Fix:** Adopt-if-present check before resolve+spawn; keep restart/stop as safe no-ops in adopted mode.
+**Severity:** 🟡 Medium
+**Category:** Platform / Tauri parity
+
+### MO-111: KMP_DUPLICATE_LIB_OK not set on Tauri sidecar spawn (OpenMP dual-runtime hang risk)
+**Status:** ❌ Not Fixed (audit 2026-09-16, 3-agent Electron-vs-Tauri parity sweep)
+**Description:** Electron explicitly passes `KMP_DUPLICATE_LIB_OK=TRUE` alongside `windowsHide` for the console-less sidecar. Tauri's spawn does `env_clear()` + a narrow allowlist (PATH/HOME/TEMP/locale/GUI-bus/XPC) with no KMP entry, so the GUI-subsystem sidecar loses the workaround.
+**Current Behavior:** Possible silent stall at torch import on machines with dual OpenMP runtimes; MO-104 tee gap makes it undebuggable.
+**Expected Behavior:** Set `KMP_DUPLICATE_LIB_OK=TRUE` on the sidecar spawn env (both release and dev) or add it to the passthrough allowlist.
+**User Impact:** App hangs at startup on affected machines with no log trace.
+**Root Cause:** Env allowlist built without the Electron spawn-env audit.
+**Related Files:**
+- `voice_typer/client/src/main/python/start-python.ts:150-164`
+- `src-tauri/src/sidecar/spawn/release_mode.rs:88-99`
+- `src-tauri/src/sidecar/spawn/dev_mode.rs:77-85`
+- `src-tauri/src/sidecar/spawn/env_allowlist.rs:56-144`
+**Fix:** Add the var to spawn env + test asserting its presence.
+**Severity:** 🟡 Medium
+**Category:** Reliability / Tauri parity
+
+### MO-112: macOS dock activate re-show path missing under Tauri
+**Status:** ❌ Not Fixed (audit 2026-09-16, 3-agent Electron-vs-Tauri parity sweep)
+**Description:** Electron handles `app.on("activate")` by creating or showing the dashboard. Tauri has no `activate` handler, while macOS close keeps the app alive hidden — so dock click after closing the window does nothing.
+**Current Behavior:** macOS users closing the window then clicking the dock icon get no window back (tray/Cmd+Tab only).
+**Expected Behavior:** Dock activate restores/creates the main window like Electron.
+**User Impact:** macOS window recovery broken after Electron removal.
+**Root Cause:** Never ported — zero `activate` matches in `src-tauri/src`.
+**Related Files:**
+- `voice_typer/client/src/main/index.ts:370-376`
+- `src-tauri/src/commands/sidecar_cmds/window_close.rs:88-95`
+**Fix:** Register macOS activate handler routing to the shared show routine (see MO-109).
+**Severity:** 🟢 Low
+**Category:** Platform / Tauri parity
+
+### MO-113: GPU/utility child-process crash telemetry missing under Tauri
+**Status:** ❌ Not Fixed (audit 2026-09-16, 3-agent Electron-vs-Tauri parity sweep)
+**Description:** Electron starts `crashReporter` (no upload) and logs `child-process-gone` (GPU / utility crashes) to host logs. Tauri has only the Rust panic hook — WebView2/WKWebView/webkit utility crashes leave no host-log trace.
+**Current Behavior:** Blank-window / GPU-failure triage loses its only signal; `voice-typer-rust.log` stays clean while nothing renders.
+**Expected Behavior:** Log renderer/utility child abnormal exits to the Rust log at ERROR with redaction.
+**User Impact:** Support sees "window won't render" with no evidence after Electron removal.
+**Root Cause:** No Tauri equivalent of `child-process-gone` was ever wired.
+**Related Files:**
+- `voice_typer/client/src/main/bootstrap/runtime.ts:59-80`
+- `src-tauri/src/platform/logging/panic_hook.rs:70-109`
+**Fix:** Subscribe to WebView/child abnormal-exit events and log them; document in runbooks.
+**Severity:** 🟢 Low
+**Category:** Logging / Tauri parity
+
+### MO-114: Host-file INFO volume contract inverted (Electron WARN-only vs Rust Info-default)
+**Status:** ❌ Not Fixed (audit 2026-09-16, 3-agent Electron-vs-Tauri parity sweep)
+**Description:** Electron production host file is WARN/ERROR-only; INFO goes to stdout only unless `VOICE_TYPER_ELECTRON_INFO_LOG=1` (then a separate 1 MiB `electron-lifecycle.log`). Tauri writes INFO to the single `voice-typer-rust.log` by default (`RUST_LOG` else `VOICE_TYPER_DEBUG` else Info).
+**Current Behavior:** Log volume/rotation behavior silently changes at cutover; WARN-only-tuned runbooks mislead; higher disk use than the Electron baseline.
+**Expected Behavior:** Product decision + documented contract: either keep Tauri INFO-default deliberately (update runbooks/rotation) or mirror the WARN-only + opt-in INFO file.
+**User Impact:** Support sizing/rotation surprises; misleading runbook expectations.
+**Root Cause:** Two logging defaults designed independently, never reconciled.
+**Related Files:**
+- `voice_typer/client/src/main/logging/structuredLogger.ts:349-380`
+- `voice_typer/client/src/main/logging/printfLogger.ts:259-285`
+- `src-tauri/src/platform/logging/init.rs:161-172`
+**Fix:** Decide, document, align rotation/sweep coverage (see MO-108).
+**Severity:** 🟢 Low
+**Category:** Logging / Tauri parity
+
+### MO-115: Rust 256 KiB inbound dispatch-data cap rejects saves the server schema allows (large vocabularies)
+**Status:** ❌ Not Fixed (audit 2026-09-16, 3-agent Electron-vs-Tauri parity sweep)
+**Description:** Rust rejects dispatch `data` over 256 KiB pre-dispatch (`data_too_large`); the server vocabulary handler allows up to 1 MiB and TCP inbound allows 1 MiB/line; the Electron sender has no data-size gate.
+**Current Behavior:** `save_vocabulary` payloads between 256 KiB–1 MiB pass on Electron/TCP but hard-fail on Tauri with no client-side recourse.
+**Expected Behavior:** Aligned caps (raise Rust cap to match server validation or enforce a documented UI-side limit before send).
+**User Impact:** Users with thousands of vocabulary entries get a hard save failure after Electron removal — silent feature regression.
+**Root Cause:** Host-side cap chosen without auditing the largest legitimate payload (vocabulary save).
+**Related Files:**
+- `src-tauri/src/commands/sidecar_cmds/dispatch.rs:370`
+- `voice_typer/server/handlers/vocabulary_handlers.py:89`
+- `voice_typer/server/ipc/transport.py:214`
+**Fix:** Align caps + add a boundary test (256 KiB–1 MiB vocabulary round-trip through Tauri dispatch).
+**Severity:** 🟡 Medium
+**Category:** IPC / Tauri parity
+
+### MO-116: Model-download dispatch timeout 120 s (Electron) vs 1 h (Tauri) — divergent failure UX
+**Status:** ❌ Not Fixed (audit 2026-09-16, 3-agent Electron-vs-Tauri parity sweep)
+**Description:** Electron times out download/import renderer calls at 120 s while the backend keeps downloading (false-failure + Retry-button mode); Rust deliberately caps `_DOWNLOAD_COMMANDS` at 1 h to fix exactly that.
+**Current Behavior:** Same slow download fails on Electron, succeeds on Tauri — two shells, two stories until cutover.
+**Expected Behavior:** Same deadline both hosts (Tauri's 1 h behavior is the better one; self-resolves on Electron removal, but document until then).
+**User Impact:** Confusing pre-cutover download-failure reports; no post-cutover impact.
+**Root Cause:** Timeout raised on the Rust side only; Electron constant never updated.
+**Related Files:**
+- `voice_typer/client/src/main/constants.ts:111-112`
+- `voice_typer/client/src/main/python/send-to-python.ts:278-285`
+- `src-tauri/src/commands/sidecar_cmds/dispatch.rs:59-75`
+**Fix:** Raise Electron LONG timeout to match (or document as known pre-cutover divergence); no Tauri change.
+**Severity:** 🟡 Medium
+**Category:** IPC / Tauri parity
+
+### MO-117: Notification click-routing and duration dropped on Tauri (consent/model deep-links dead)
+**Status:** ❌ Not Fixed (audit 2026-09-16, 3-agent Electron-vs-Tauri parity sweep)
+**Description:** Electron toasts carry `click_path` navigation, `click_consent_field` consent deep-links (session nonce), `duration_ms` auto-close, and an `isSupported` gate. Tauri shows title/body-only toasts with extra fields intentionally ignored and no click handler.
+**Current Behavior:** Consent-gate and model toasts lose their action under Tauri; timed toasts persist until dismissed; users must navigate to Settings by hand.
+**Expected Behavior:** Click navigates (incl. consent-row deep-link) and duration is honored, as on Electron.
+**User Impact:** Actionable toasts become informational after Electron removal.
+**Root Cause:** Click-routing deferred as follow-up at `host_events.rs:29-41`.
+**Related Files:**
+- `voice_typer/client/src/main/python/handle-message.ts:154-241`
+- `src-tauri/src/host_events.rs:29-41,63-85`
+**Fix:** Implement click handler + duration in the Tauri notifier; keep nonce/session safety.
+**Severity:** 🟡 Medium
+**Category:** Platform / Tauri parity
+
+### MO-118: External https links have no opener path under Tauri (help/share/changelog dead)
+**Status:** ❌ Not Fixed (audit 2026-09-16, 3-agent Electron-vs-Tauri parity sweep)
+**Description:** Electron routes https out via `shell.openExternal` (deny rest). Tauri sets `shell.open:false` with no opener plugin/capability/handler, while the renderer uses bare `<a target=_blank>` and `window.open(https…)` (docs, troubleshooting, dashboard Telegram/X share).
+**Current Behavior:** External help/feedback/share links are dead or trapped in the webview under Tauri (CSP `default-src 'self'`).
+**Expected Behavior:** Opener capability or Rust `open_url` command wired to these call sites, https-only like Electron.
+**User Impact:** Every outbound link broken after Electron removal.
+**Root Cause:** Opener never granted — C-TAURI-2 narrowed `plugins.shell` to `{open:false}` and no replacement route was built.
+**Related Files:**
+- `voice_typer/client/src/main/windows/input-nav-guard.ts:68-91`
+- `src-tauri/tauri.conf.json:54,136-138`
+- `src-tauri/capabilities/main-runtime.json:18-19`
+- `voice_typer/client/src/renderer/src/components/settings/advanced/ResourcesSettingsSection.tsx:124`
+- `voice_typer/client/src/renderer/src/components/settings/advanced/PrewarmAndUpdates.tsx:441`
+- `voice_typer/client/src/renderer/src/components/settings/advanced/TroubleshootingSettingsSection.tsx:309-336`
+- `voice_typer/client/src/renderer/src/components/dashboard/ShareStatsDialog.tsx:216`
+**Fix:** Grant opener (or `open_url` command) + route all external anchors through it; add click test.
+**Severity:** 🟡 Medium
+**Category:** Platform / Tauri parity
+
+### MO-119: Bubble never receives locale changes on Tauri (stale language/RTL until reload)
+**Status:** ❌ Not Fixed (audit 2026-09-16, 3-agent Electron-vs-Tauri parity sweep)
+**Description:** Electron pushes `bubble:locale-changed` on language switch. The Tauri bubble namespace documents "host does not yet broadcast a locale event" — listener wired for parity but never fired.
+**Current Behavior:** Language switch re-renders main window immediately; bubble pill keeps old locale/dir until app reload.
+**Expected Behavior:** `set_host_locale` also emits to the bubble webview.
+**User Impact:** Wrong-language / wrong-direction bubble after every language change.
+**Root Cause:** Emit side of the listener never implemented.
+**Related Files:**
+- `voice_typer/client/src/main/windows/bubble/lifecycle.ts:356-367`
+- `voice_typer/client/src/renderer/src/lib/tauri-bridge/bubble-namespace.ts:290-310`
+**Fix:** Emit locale event to bubble on `set_host_locale`; add renderer test.
+**Severity:** 🟢 Low
+**Category:** Platform / Tauri parity
+
+### MO-120: window_ bridge gaps — no restartBackend, no revealStatsImage on Tauri
+**Status:** ❌ Not Fixed (audit 2026-09-16, 3-agent Electron-vs-Tauri parity sweep)
+**Description:** Preload installs `restartBackend` and `revealStatsImage`; the Tauri `window_` namespace omits both (marked optional in bridge types). `useConnection` degrades to a "relaunch the app" hint; `useStatsShare` reveal silently no-ops (save/copy have fallbacks, reveal has none).
+**Current Behavior:** Dead-backend Retry can't restart the sidecar (full app relaunch required); Analytics reveal-in-folder button silently does nothing.
+**Expected Behavior:** Rust `restart_sidecar` command + reveal-via-`open_path`, or explicit disabled UI states where unavailable.
+**User Impact:** One-click recovery and Reveal both lost after Electron removal.
+**Root Cause:** Two preload methods never ported to the Tauri bridge.
+**Related Files:**
+- `voice_typer/client/src/main/preload/index.ts:120-152`
+- `voice_typer/client/src/renderer/src/lib/tauri-bridge/window-namespace.ts:97-247`
+- `voice_typer/client/src/renderer/src/types/ipc/bridge.ts:85-120`
+- `voice_typer/client/src/renderer/src/hooks/useConnection.ts:729-746`
+- `voice_typer/client/src/renderer/src/hooks/useStatsShare.ts:344-351`
+- `voice_typer/client/src/main/ipc/backend-restart-handler.ts:26`
+**Fix:** Add both bridge methods (Rust side + namespace + types); keep supervisor auto-respawn as the crash path.
+**Severity:** 🟢 Low
+**Category:** Platform / Tauri parity
+
+### MO-121: Stats-image Save-As / copy / reveal has no Tauri command (silent anchor fallback)
+**Status:** ❌ Not Fixed (audit 2026-09-16, 3-agent Electron-vs-Tauri parity sweep)
+**Description:** Electron serves stats images through native Save-As (`dialog.showSaveDialog(title: dialog.export.statsImage)`), Downloads, and Reveal. Tauri has no stats-image command; the renderer falls back to anchor download / `navigator.clipboard` with no localized dialog and no reveal.
+**Current Behavior:** Analytics/Dashboard Share-image Save-As + Reveal broken under Tauri (see also MO-120 for the reveal half).
+**Expected Behavior:** Rust stats-image export command mirroring `export_history/vocabulary/templates` shape, or explicit UI disable with reason.
+**User Impact:** Share-image flow degraded after Electron removal.
+**Root Cause:** Stats-image handlers never ported (only history/vocabulary/templates/config were).
+**Related Files:**
+- `voice_typer/client/src/renderer/src/hooks/useStatsShare.ts:275,295,318,347`
+- `voice_typer/client/src/main/ipc/stats-image-handlers.ts:145-146`
+**Fix:** Port the command; localize the dialog title like the other exports.
+**Severity:** 🟡 Medium
+**Category:** Platform / Tauri parity
+
+### MO-122: Transport robustness contract differs per host (backpressure 256 vs 1024 + duplicate-connection steal vs reject)
+**Status:** ❌ Not Fixed (audit 2026-09-16, 3-agent Electron-vs-Tauri parity sweep)
+**Description:** Two coupled divergences: (a) Electron rejects at 256 pending requests with `command_failed`, Rust at 1024 with `pending_full`, and neither has auto-retry (parse-only, pinned by `error-envelope.test.ts`); (b) WS enforces single-connection + 16-conn cap + Origin rejection with explicit `duplicate_connection`/`max_connections_reached`, while a second TCP auth silently reassigns `_tcp_client` leaving the first loop push-starved with no signal.
+**Current Behavior:** Same overload / duplicate-client state surfaces differently per host; callers branching on the code see different values.
+**Expected Behavior:** Same threshold + same machine-readable code, and same duplicate-client invariant (explicit rejection both sides) — or a documented per-host contract callers can branch on.
+**User Impact:** Minimal day-to-day (only bites under retry storms / stale-zombie + fresh-client races); diagnostic confusion pre-cutover, strict behavior remains post-cutover.
+**Root Cause:** Two transports designed independently; WS hardened later, TCP never updated.
+**Related Files:**
+- `voice_typer/client/src/main/state.ts:48`
+- `src-tauri/src/commands/sidecar_cmds/allowlist.rs:46`
+- `src-tauri/src/commands/sidecar_cmds/dispatch.rs:437-454`
+- `voice_typer/server/sidecar_ws_internals/connection.py:111-193`
+- `voice_typer/server/sidecar_ws.py:435,528-549`
+- `voice_typer/server/ipc/transport_tcp.py:672-676`
+**Fix:** Align threshold + code; make TCP duplicate-auth explicit; document the contract.
+**Severity:** 🟢 Low
+**Category:** IPC / Tauri parity
+
+### MO-123: TitleBar maximize state denied — isMaximized + onResized capability missing
+**Status:** ❌ Not Fixed (audit 2026-09-16, 3-agent Electron-vs-Tauri parity sweep)
+**Description:** The Tauri capability grants `allow-toggle-maximize` but not `allow-is-maximized` / `allow-on-resized` (Tauri v2 zero-permissions default), while `window_` calls `isMaximized()` + `onResized()` on mount and on every resize to mirror `is-maximized` onto `<html>`.
+**Current Behavior:** Invoke denied → `toggleMaximize` works but UI state desyncs: maximize/restore glyph + `rounded-lg` / `is-maximized` class stale (incl. OS-snap paths that bypass the button).
+**Expected Behavior:** Grant both permissions; no code change.
+**User Impact:** Maximize/restore icon + window-corner rounding wrong under Tauri.
+**Root Cause:** Capability grant written without the bridge's query/subscribe audit.
+**Related Files:**
+- `src-tauri/capabilities/main-runtime.json:9-16`
+- `voice_typer/client/src/renderer/src/lib/tauri-bridge/window-namespace.ts:106-115`
+- `voice_typer/client/src/renderer/src/hooks/useWindowMaximized.ts:32-64`
+- `voice_typer/client/src/renderer/src/App.tsx:211,376,385`
+- `voice_typer/client/src/renderer/src/components/layout/TitleBar.tsx:504-506,715-718`
+- `voice_typer/client/src/main/ipc/window-handlers.ts:138-141`
+**Fix:** Add the two grants + host invoke test.
+**Severity:** 🟡 Medium
+**Category:** Platform / Tauri parity
+
+### MO-124: Close-to-tray leaves taskbar entry under Tauri (skipTaskbar not mirrored)
+**Status:** ❌ Not Fixed (audit 2026-09-16, 3-agent Electron-vs-Tauri parity sweep)
+**Description:** Electron hides as `hide()` + `setSkipTaskbar(true)` (restored on show). Tauri `window_close` only `hide()`s.
+**Current Behavior:** Close-to-tray still shows a taskbar button under Tauri — a ghost entry for a "hidden" app.
+**Expected Behavior:** Mirror the skipTaskbar pair on hide/show.
+**User Impact:** Tray UX feels broken (hidden but present).
+**Root Cause:** One-line port omission in `window_close.rs`.
+**Related Files:**
+- `voice_typer/client/src/main/windows/window-events.ts:64-70`
+- `src-tauri/src/commands/sidecar_cmds/window_close.rs:74-85`
+**Fix:** Set skip-taskbar false/true around hide/show; test the pair.
+**Severity:** 🟢 Low
+**Category:** Platform / Tauri parity
+
+### MO-125: System-wide bubble-dismiss accelerator not registered under Tauri
+**Status:** ❌ Not Fixed (audit 2026-09-16, 3-agent Electron-vs-Tauri parity sweep)
+**Description:** Electron registers a global `BUBBLE_DISMISS_ACCELERATOR` (CmdOrCtrl+Shift+D) to dismiss the bubble from anywhere. Tauri ships no global-shortcut plugin/registration; only the bubble × button works. The native dictation hotkey (Python binaries) is unaffected.
+**Current Behavior:** Keyboard dismiss lost system-wide under Tauri.
+**Expected Behavior:** Register the same global accelerator on Tauri, or document as intentionally dropped.
+**User Impact:** Keyboard-first dictation flow loses its dismiss key.
+**Root Cause:** Global-shortcut surface never ported (tauri.conf plugins list has notification/single-instance/dialog/shell only).
+**Related Files:**
+- `voice_typer/client/src/main/shortcuts/global-shortcuts.ts:70-79`
+- `src-tauri/tauri.conf.json:132-139`
+**Fix:** Register accelerator via Tauri global-shortcut (or record Won't Fix with rationale).
+**Severity:** 🟢 Low
+**Category:** Platform / Tauri parity
+
+### MO-126: OS power events (suspend/resume/on-battery) have no Tauri counterpart
+**Status:** ❌ Not Fixed (audit 2026-09-16, 3-agent Electron-vs-Tauri parity sweep)
+**Description:** Electron bridges `powerMonitor` suspend/resume/on-battery. Tauri has no power handling (only supervisor backoff + shutdown notify).
+**Current Behavior:** Suspend-mid-recording / resume behavior unhandled under Tauri.
+**Expected Behavior:** Handle suspend (stop/finalize recording safely) + resume (re-probe devices/sidecar) or document as dropped.
+**User Impact:** Recording/device edge cases after sleep/wake.
+**Root Cause:** Power surface never ported.
+**Related Files:**
+- `voice_typer/client/src/main/power.ts:224,241,257`
+**Fix:** Subscribe to OS power events in Rust host; route to sidecar/recorder lifecycle.
+**Severity:** 🟢 Low
+**Category:** Platform / Tauri parity
+
+### MO-127: Hotkey-triggered sound cues may be autoplay-blocked under Tauri (needs host validation)
+**Status:** ❌ Not Fixed (audit 2026-09-16, 3-agent Electron-vs-Tauri parity sweep; suspected, needs Windows/WebView2 host run)
+**Description:** Electron sets `autoplayPolicy: no-user-gesture-required` so OS-hotkey-triggered start/stop beeps always play. Tauri has no autoplay key (WebView2/WebKitGTK default = gesture-required); `sound-manager` gesture-resume + HTMLAudio fallback stay policy-gated. Respects C-SOUND-1 (start/stop only, never a complete cue).
+**Current Behavior (suspected):** First hotkey-dictated cues silent until a prior window click under Tauri.
+**Expected Behavior:** Autoplay allowed for the main window (or a host-side beep path) so hotkey cues always play.
+**User Impact:** Start/stop beeps intermittent when dictating purely via hotkey.
+**Root Cause:** Autoplay policy set for Electron window creation, never set for the Tauri webview.
+**Related Files:**
+- `voice_typer/client/src/main/windows/window-chrome.ts:69-81`
+- `src-tauri/tauri.conf.json`
+- `voice_typer/client/src/renderer/src/lib/sound-manager.ts:34-40`
+**Fix:** Set webview autoplay policy (or host-side cue); validate on Windows host per runbook.
+**Severity:** 🟡 Medium
+**Category:** Platform / Tauri parity
+
 ---
 
 ## Completed and removed from the queue (2026-09-15)

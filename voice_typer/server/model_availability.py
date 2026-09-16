@@ -73,7 +73,9 @@ def snapshot_dir(config_dir: Path | str, repo_id: str) -> Path:
 # Stored per key: (verdict, fingerprint, monotonic timestamp).
 # Fingerprint = tuple of (str(path), mtime_ns | None) over every
 # watched directory, so ANY layout change (add/remove/touch) busts it.
-_store: dict[tuple[str, ...], tuple[bool, tuple[Any, ...], float]] = {}
+# Key shape is (repo_id, str(config_dir), watch-tuple): the third
+# element is itself a tuple, so the key is NOT a flat tuple[str, ...].
+_store: dict[tuple[str, str, tuple[str, ...]], tuple[bool, tuple[Any, ...], float]] = {}
 _LOCK = threading.Lock()
 
 # Override hook for the in-flight-download check (tests replace it;

@@ -672,6 +672,10 @@ def start_monitoring(mic_id: str | None = None) -> dict:
         # after ``start()``/``close()``, by which point the cell is filled.
         stream_cell: dict[str, object] = {}
 
+        # Pre-declare so the ``except`` below never reads an unbound
+        # local: ``sd.InputStream(...)`` itself can raise (no device,
+        # PortAudio down), and the handler closes the stream.
+        stream = None
         try:
             stream = sd.InputStream(
                 samplerate=native_rate,
@@ -735,10 +739,12 @@ def start_monitoring(mic_id: str | None = None) -> dict:
             log.warning("[LEVEL-MON] Failed to start monitoring: %s", exc)
             # The stream already started above: close it before clearing
             # state, otherwise a bookkeeping failure leaks an open
-            # PortAudio stream holding the device.
+            # PortAudio stream holding the device. ``stream`` is None
+            # when the constructor itself raised: nothing to close.
             with contextlib.suppress(Exception):
-                stream.stop()
-                stream.close()
+                if stream is not None:
+                    stream.stop()
+                    stream.close()
             _state._monitor_stream = None
             _state._monitor_active = False
             _state._monitor_mic_id = None
