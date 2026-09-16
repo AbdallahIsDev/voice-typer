@@ -2,12 +2,12 @@
 
 > Auto-generated from the latest GitHub Actions run via `scripts/ci/write_ci_errors.py`. Do not edit by hand, it is overwritten on every CI run.
 
-**81 failing/errored test(s)** across 11 matrix leg(s).
+**86 failing/errored test(s)** across 11 matrix leg(s).
 
 ### 1. `tests.handlers.test_handler_signature_conformance`
 
 - Legs: macos-14-3.10, ubuntu-22.04-3.10, windows-2022-3.10
-- Location: `tests/handlers/test_handler_signature_conformance.py:39`
+- Location: `tests/handlers/test_handler_signature_conformance.py:50`
 
 ```
 ImportError: cannot import name 'NotRequired' from 'typing' (/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/typing.py)
@@ -16,11 +16,11 @@ collection failure
 ImportError while importing test module '/Users/runner/work/voice-typer/voice-typer/tests/handlers/test_handler_signature_conformance.py'.
 Hint: make sure your test modules/packages have valid Python names.
 Traceback:
-tests/handlers/test_handler_signature_conformance.py:39: in <module>
-    from voice_typer.server.handlers.dictation_handlers import (  # noqa: E402
+tests/handlers/test_handler_signature_conformance.py:50: in <module>
+    import voice_typer.server.handlers as _handlers_pkg
 voice_typer/server/handlers/__init__.py:61: in <module>
     from voice_typer.server.handlers.vocabulary_handlers import VocabularyHandlersMixin
-voice_typer/server/handlers/vocabulary_handlers.py:16: in <module>
+voice_typer/server/handlers/vocabulary_handlers.py:17: in <module>
     from voice_typer.server.service.vocabulary import VocabularyDuplicateError
 voice_typer/server/service/__init__.py:42: in <module>
     from voice_typer.server.service.model import _MODEL_STATUS_CACHE_TTL_S, ModelMixin
@@ -51,7 +51,7 @@ tests/handlers/test_privacy_handlers.py:40: in <module>
     from voice_typer.server.handlers import PrivacyHandlersMixin as ReExportedMixin
 voice_typer/server/handlers/__init__.py:61: in <module>
     from voice_typer.server.handlers.vocabulary_handlers import VocabularyHandlersMixin
-voice_typer/server/handlers/vocabulary_handlers.py:16: in <module>
+voice_typer/server/handlers/vocabulary_handlers.py:17: in <module>
     from voice_typer.server.service.vocabulary import VocabularyDuplicateError
 voice_typer/server/service/__init__.py:42: in <module>
     from voice_typer.server.service.model import _MODEL_STATUS_CACHE_TTL_S, ModelMixin
@@ -84,7 +84,7 @@ voice_typer/server/ipc_server.py:304: in <module>
     from voice_typer.server.handlers.vocabulary_handlers import VocabularyHandlersMixin  # noqa: E402
 voice_typer/server/handlers/__init__.py:61: in <module>
     from voice_typer.server.handlers.vocabulary_handlers import VocabularyHandlersMixin
-voice_typer/server/handlers/vocabulary_handlers.py:16: in <module>
+voice_typer/server/handlers/vocabulary_handlers.py:17: in <module>
     from voice_typer.server.service.vocabulary import VocabularyDuplicateError
 voice_typer/server/service/__init__.py:42: in <module>
     from voice_typer.server.service.model import _MODEL_STATUS_CACHE_TTL_S, ModelMixin
@@ -117,7 +117,7 @@ voice_typer/server/ipc_server.py:304: in <module>
     from voice_typer.server.handlers.vocabulary_handlers import VocabularyHandlersMixin  # noqa: E402
 voice_typer/server/handlers/__init__.py:61: in <module>
     from voice_typer.server.handlers.vocabulary_handlers import VocabularyHandlersMixin
-voice_typer/server/handlers/vocabulary_handlers.py:16: in <module>
+voice_typer/server/handlers/vocabulary_handlers.py:17: in <module>
     from voice_typer.server.service.vocabulary import VocabularyDuplicateError
 voice_typer/server/service/__init__.py:42: in <module>
     from voice_typer.server.service.model import _MODEL_STATUS_CACHE_TTL_S, ModelMixin
@@ -150,7 +150,7 @@ voice_typer/server/ipc_server.py:304: in <module>
     from voice_typer.server.handlers.vocabulary_handlers import VocabularyHandlersMixin  # noqa: E402
 voice_typer/server/handlers/__init__.py:61: in <module>
     from voice_typer.server.handlers.vocabulary_handlers import VocabularyHandlersMixin
-voice_typer/server/handlers/vocabulary_handlers.py:16: in <module>
+voice_typer/server/handlers/vocabulary_handlers.py:17: in <module>
     from voice_typer.server.service.vocabulary import VocabularyDuplicateError
 voice_typer/server/service/__init__.py:42: in <module>
     from voice_typer.server.service.model import _MODEL_STATUS_CACHE_TTL_S, ModelMixin
@@ -184,7 +184,7 @@ voice_typer/server/ipc_server.py:304: in <module>
     from voice_typer.server.handlers.vocabulary_handlers import VocabularyHandlersMixin  # noqa: E402
 voice_typer/server/handlers/__init__.py:61: in <module>
     from voice_typer.server.handlers.vocabulary_handlers import VocabularyHandlersMixin
-voice_typer/server/handlers/vocabulary_handlers.py:16: in <module>
+voice_typer/server/handlers/vocabulary_handlers.py:17: in <module>
     from voice_typer.server.service.vocabulary import VocabularyDuplicateError
 voice_typer/server/service/__init__.py:42: in <module>
     from voice_typer.server.service.model import _MODEL_STATUS_CACHE_TTL_S, ModelMixin
@@ -244,7 +244,7 @@ voice_typer/server/ipc_server.py:304: in <module>
     from voice_typer.server.handlers.vocabulary_handlers import VocabularyHandlersMixin  # noqa: E402
 voice_typer/server/handlers/__init__.py:61: in <module>
     from voice_typer.server.handlers.vocabulary_handlers import VocabularyHandlersMixin
-voice_typer/server/handlers/vocabulary_handlers.py:16: in <module>
+voice_typer/server/handlers/vocabulary_handlers.py:17: in <module>
     from voice_typer.server.service.vocabulary import VocabularyDuplicateError
 voice_typer/server/service/__init__.py:42: in <module>
     from voice_typer.server.service.model import _MODEL_STATUS_CACHE_TTL_S, ModelMixin
@@ -277,7 +277,7 @@ voice_typer/server/ipc_server.py:304: in <module>
     from voice_typer.server.handlers.vocabulary_handlers import VocabularyHandlersMixin  # noqa: E402
 voice_typer/server/handlers/__init__.py:61: in <module>
     from voice_typer.server.handlers.vocabulary_handlers import VocabularyHandlersMixin
-voice_typer/server/handlers/vocabulary_handlers.py:16: in <module>
+voice_typer/server/handlers/vocabulary_handlers.py:17: in <module>
     from voice_typer.server.service.vocabulary import VocabularyDuplicateError
 voice_typer/server/service/__init__.py:42: in <module>
     from voice_typer.server.service.model import _MODEL_STATUS_CACHE_TTL_S, ModelMixin
@@ -308,7 +308,7 @@ tests/test_cloud_provider_map_single_source.py:42: in <module>
     from voice_typer.server.handlers import cloud_test_handlers
 voice_typer/server/handlers/__init__.py:61: in <module>
     from voice_typer.server.handlers.vocabulary_handlers import VocabularyHandlersMixin
-voice_typer/server/handlers/vocabulary_handlers.py:16: in <module>
+voice_typer/server/handlers/vocabulary_handlers.py:17: in <module>
     from voice_typer.server.service.vocabulary import VocabularyDuplicateError
 voice_typer/server/service/__init__.py:42: in <module>
     from voice_typer.server.service.model import _MODEL_STATUS_CACHE_TTL_S, ModelMixin
@@ -339,7 +339,7 @@ tests/test_cloud_test_handlers_redirect.py:49: in <module>
     from voice_typer.server.handlers import cloud_test_handlers
 voice_typer/server/handlers/__init__.py:61: in <module>
     from voice_typer.server.handlers.vocabulary_handlers import VocabularyHandlersMixin
-voice_typer/server/handlers/vocabulary_handlers.py:16: in <module>
+voice_typer/server/handlers/vocabulary_handlers.py:17: in <module>
     from voice_typer.server.service.vocabulary import VocabularyDuplicateError
 voice_typer/server/service/__init__.py:42: in <module>
     from voice_typer.server.service.model import _MODEL_STATUS_CACHE_TTL_S, ModelMixin
@@ -372,7 +372,7 @@ voice_typer/server/ipc_server.py:304: in <module>
     from voice_typer.server.handlers.vocabulary_handlers import VocabularyHandlersMixin  # noqa: E402
 voice_typer/server/handlers/__init__.py:61: in <module>
     from voice_typer.server.handlers.vocabulary_handlers import VocabularyHandlersMixin
-voice_typer/server/handlers/vocabulary_handlers.py:16: in <module>
+voice_typer/server/handlers/vocabulary_handlers.py:17: in <module>
     from voice_typer.server.service.vocabulary import VocabularyDuplicateError
 voice_typer/server/service/__init__.py:42: in <module>
     from voice_typer.server.service.model import _MODEL_STATUS_CACHE_TTL_S, ModelMixin
@@ -405,7 +405,7 @@ voice_typer/server/ipc_server.py:304: in <module>
     from voice_typer.server.handlers.vocabulary_handlers import VocabularyHandlersMixin  # noqa: E402
 voice_typer/server/handlers/__init__.py:61: in <module>
     from voice_typer.server.handlers.vocabulary_handlers import VocabularyHandlersMixin
-voice_typer/server/handlers/vocabulary_handlers.py:16: in <module>
+voice_typer/server/handlers/vocabulary_handlers.py:17: in <module>
     from voice_typer.server.service.vocabulary import VocabularyDuplicateError
 voice_typer/server/service/__init__.py:42: in <module>
     from voice_typer.server.service.model import _MODEL_STATUS_CACHE_TTL_S, ModelMixin
@@ -438,7 +438,7 @@ voice_typer/server/ipc_server.py:304: in <module>
     from voice_typer.server.handlers.vocabulary_handlers import VocabularyHandlersMixin  # noqa: E402
 voice_typer/server/handlers/__init__.py:61: in <module>
     from voice_typer.server.handlers.vocabulary_handlers import VocabularyHandlersMixin
-voice_typer/server/handlers/vocabulary_handlers.py:16: in <module>
+voice_typer/server/handlers/vocabulary_handlers.py:17: in <module>
     from voice_typer.server.service.vocabulary import VocabularyDuplicateError
 voice_typer/server/service/__init__.py:42: in <module>
     from voice_typer.server.service.model import _MODEL_STATUS_CACHE_TTL_S, ModelMixin
@@ -552,7 +552,7 @@ voice_typer/server/ipc_server.py:304: in <module>
     from voice_typer.server.handlers.vocabulary_handlers import VocabularyHandlersMixin  # noqa: E402
 voice_typer/server/handlers/__init__.py:61: in <module>
     from voice_typer.server.handlers.vocabulary_handlers import VocabularyHandlersMixin
-voice_typer/server/handlers/vocabulary_handlers.py:16: in <module>
+voice_typer/server/handlers/vocabulary_handlers.py:17: in <module>
     from voice_typer.server.service.vocabulary import VocabularyDuplicateError
 voice_typer/server/service/__init__.py:42: in <module>
     from voice_typer.server.service.model import _MODEL_STATUS_CACHE_TTL_S, ModelMixin
@@ -585,7 +585,7 @@ voice_typer/server/ipc_server.py:304: in <module>
     from voice_typer.server.handlers.vocabulary_handlers import VocabularyHandlersMixin  # noqa: E402
 voice_typer/server/handlers/__init__.py:61: in <module>
     from voice_typer.server.handlers.vocabulary_handlers import VocabularyHandlersMixin
-voice_typer/server/handlers/vocabulary_handlers.py:16: in <module>
+voice_typer/server/handlers/vocabulary_handlers.py:17: in <module>
     from voice_typer.server.service.vocabulary import VocabularyDuplicateError
 voice_typer/server/service/__init__.py:42: in <module>
     from voice_typer.server.service.model import _MODEL_STATUS_CACHE_TTL_S, ModelMixin
@@ -618,7 +618,7 @@ voice_typer/server/ipc_server.py:304: in <module>
     from voice_typer.server.handlers.vocabulary_handlers import VocabularyHandlersMixin  # noqa: E402
 voice_typer/server/handlers/__init__.py:61: in <module>
     from voice_typer.server.handlers.vocabulary_handlers import VocabularyHandlersMixin
-voice_typer/server/handlers/vocabulary_handlers.py:16: in <module>
+voice_typer/server/handlers/vocabulary_handlers.py:17: in <module>
     from voice_typer.server.service.vocabulary import VocabularyDuplicateError
 voice_typer/server/service/__init__.py:42: in <module>
     from voice_typer.server.service.model import _MODEL_STATUS_CACHE_TTL_S, ModelMixin
@@ -651,7 +651,7 @@ voice_typer/server/ipc_server.py:304: in <module>
     from voice_typer.server.handlers.vocabulary_handlers import VocabularyHandlersMixin  # noqa: E402
 voice_typer/server/handlers/__init__.py:61: in <module>
     from voice_typer.server.handlers.vocabulary_handlers import VocabularyHandlersMixin
-voice_typer/server/handlers/vocabulary_handlers.py:16: in <module>
+voice_typer/server/handlers/vocabulary_handlers.py:17: in <module>
     from voice_typer.server.service.vocabulary import VocabularyDuplicateError
 voice_typer/server/service/__init__.py:42: in <module>
     from voice_typer.server.service.model import _MODEL_STATUS_CACHE_TTL_S, ModelMixin
@@ -684,7 +684,7 @@ voice_typer/server/ipc_server.py:304: in <module>
     from voice_typer.server.handlers.vocabulary_handlers import VocabularyHandlersMixin  # noqa: E402
 voice_typer/server/handlers/__init__.py:61: in <module>
     from voice_typer.server.handlers.vocabulary_handlers import VocabularyHandlersMixin
-voice_typer/server/handlers/vocabulary_handlers.py:16: in <module>
+voice_typer/server/handlers/vocabulary_handlers.py:17: in <module>
     from voice_typer.server.service.vocabulary import VocabularyDuplicateError
 voice_typer/server/service/__init__.py:42: in <module>
     from voice_typer.server.service.model import _MODEL_STATUS_CACHE_TTL_S, ModelMixin
@@ -717,7 +717,7 @@ voice_typer/server/ipc_server.py:304: in <module>
     from voice_typer.server.handlers.vocabulary_handlers import VocabularyHandlersMixin  # noqa: E402
 voice_typer/server/handlers/__init__.py:61: in <module>
     from voice_typer.server.handlers.vocabulary_handlers import VocabularyHandlersMixin
-voice_typer/server/handlers/vocabulary_handlers.py:16: in <module>
+voice_typer/server/handlers/vocabulary_handlers.py:17: in <module>
     from voice_typer.server.service.vocabulary import VocabularyDuplicateError
 voice_typer/server/service/__init__.py:42: in <module>
     from voice_typer.server.service.model import _MODEL_STATUS_CACHE_TTL_S, ModelMixin
@@ -750,7 +750,7 @@ voice_typer/server/ipc_server.py:304: in <module>
     from voice_typer.server.handlers.vocabulary_handlers import VocabularyHandlersMixin  # noqa: E402
 voice_typer/server/handlers/__init__.py:61: in <module>
     from voice_typer.server.handlers.vocabulary_handlers import VocabularyHandlersMixin
-voice_typer/server/handlers/vocabulary_handlers.py:16: in <module>
+voice_typer/server/handlers/vocabulary_handlers.py:17: in <module>
     from voice_typer.server.service.vocabulary import VocabularyDuplicateError
 voice_typer/server/service/__init__.py:42: in <module>
     from voice_typer.server.service.model import _MODEL_STATUS_CACHE_TTL_S, ModelMixin
@@ -783,7 +783,7 @@ voice_typer/server/ipc_server.py:304: in <module>
     from voice_typer.server.handlers.vocabulary_handlers import VocabularyHandlersMixin  # noqa: E402
 voice_typer/server/handlers/__init__.py:61: in <module>
     from voice_typer.server.handlers.vocabulary_handlers import VocabularyHandlersMixin
-voice_typer/server/handlers/vocabulary_handlers.py:16: in <module>
+voice_typer/server/handlers/vocabulary_handlers.py:17: in <module>
     from voice_typer.server.service.vocabulary import VocabularyDuplicateError
 voice_typer/server/service/__init__.py:42: in <module>
     from voice_typer.server.service.model import _MODEL_STATUS_CACHE_TTL_S, ModelMixin
@@ -816,7 +816,7 @@ voice_typer/server/ipc_server.py:304: in <module>
     from voice_typer.server.handlers.vocabulary_handlers import VocabularyHandlersMixin  # noqa: E402
 voice_typer/server/handlers/__init__.py:61: in <module>
     from voice_typer.server.handlers.vocabulary_handlers import VocabularyHandlersMixin
-voice_typer/server/handlers/vocabulary_handlers.py:16: in <module>
+voice_typer/server/handlers/vocabulary_handlers.py:17: in <module>
     from voice_typer.server.service.vocabulary import VocabularyDuplicateError
 voice_typer/server/service/__init__.py:42: in <module>
     from voice_typer.server.service.model import _MODEL_STATUS_CACHE_TTL_S, ModelMixin
@@ -849,7 +849,7 @@ voice_typer/server/ipc_server.py:304: in <module>
     from voice_typer.server.handlers.vocabulary_handlers import VocabularyHandlersMixin  # noqa: E402
 voice_typer/server/handlers/__init__.py:61: in <module>
     from voice_typer.server.handlers.vocabulary_handlers import VocabularyHandlersMixin
-voice_typer/server/handlers/vocabulary_handlers.py:16: in <module>
+voice_typer/server/handlers/vocabulary_handlers.py:17: in <module>
     from voice_typer.server.service.vocabulary import VocabularyDuplicateError
 voice_typer/server/service/__init__.py:42: in <module>
     from voice_typer.server.service.model import _MODEL_STATUS_CACHE_TTL_S, ModelMixin
@@ -882,7 +882,7 @@ voice_typer/server/ipc_server.py:304: in <module>
     from voice_typer.server.handlers.vocabulary_handlers import VocabularyHandlersMixin  # noqa: E402
 voice_typer/server/handlers/__init__.py:61: in <module>
     from voice_typer.server.handlers.vocabulary_handlers import VocabularyHandlersMixin
-voice_typer/server/handlers/vocabulary_handlers.py:16: in <module>
+voice_typer/server/handlers/vocabulary_handlers.py:17: in <module>
     from voice_typer.server.service.vocabulary import VocabularyDuplicateError
 voice_typer/server/service/__init__.py:42: in <module>
     from voice_typer.server.service.model import _MODEL_STATUS_CACHE_TTL_S, ModelMixin
@@ -915,7 +915,7 @@ voice_typer/server/ipc_server.py:304: in <module>
     from voice_typer.server.handlers.vocabulary_handlers import VocabularyHandlersMixin  # noqa: E402
 voice_typer/server/handlers/__init__.py:61: in <module>
     from voice_typer.server.handlers.vocabulary_handlers import VocabularyHandlersMixin
-voice_typer/server/handlers/vocabulary_handlers.py:16: in <module>
+voice_typer/server/handlers/vocabulary_handlers.py:17: in <module>
     from voice_typer.server.service.vocabulary import VocabularyDuplicateError
 voice_typer/server/service/__init__.py:42: in <module>
     from voice_typer.server.service.model import _MODEL_STATUS_CACHE_TTL_S, ModelMixin
@@ -948,7 +948,7 @@ voice_typer/server/ipc_server.py:304: in <module>
     from voice_typer.server.handlers.vocabulary_handlers import VocabularyHandlersMixin  # noqa: E402
 voice_typer/server/handlers/__init__.py:61: in <module>
     from voice_typer.server.handlers.vocabulary_handlers import VocabularyHandlersMixin
-voice_typer/server/handlers/vocabulary_handlers.py:16: in <module>
+voice_typer/server/handlers/vocabulary_handlers.py:17: in <module>
     from voice_typer.server.service.vocabulary import VocabularyDuplicateError
 voice_typer/server/service/__init__.py:42: in <module>
     from voice_typer.server.service.model import _MODEL_STATUS_CACHE_TTL_S, ModelMixin
@@ -981,7 +981,7 @@ voice_typer/server/ipc_server.py:304: in <module>
     from voice_typer.server.handlers.vocabulary_handlers import VocabularyHandlersMixin  # noqa: E402
 voice_typer/server/handlers/__init__.py:61: in <module>
     from voice_typer.server.handlers.vocabulary_handlers import VocabularyHandlersMixin
-voice_typer/server/handlers/vocabulary_handlers.py:16: in <module>
+voice_typer/server/handlers/vocabulary_handlers.py:17: in <module>
     from voice_typer.server.service.vocabulary import VocabularyDuplicateError
 voice_typer/server/service/__init__.py:42: in <module>
     from voice_typer.server.service.model import _MODEL_STATUS_CACHE_TTL_S, ModelMixin
@@ -1014,7 +1014,7 @@ voice_typer/server/ipc_server.py:304: in <module>
     from voice_typer.server.handlers.vocabulary_handlers import VocabularyHandlersMixin  # noqa: E402
 voice_typer/server/handlers/__init__.py:61: in <module>
     from voice_typer.server.handlers.vocabulary_handlers import VocabularyHandlersMixin
-voice_typer/server/handlers/vocabulary_handlers.py:16: in <module>
+voice_typer/server/handlers/vocabulary_handlers.py:17: in <module>
     from voice_typer.server.service.vocabulary import VocabularyDuplicateError
 voice_typer/server/service/__init__.py:42: in <module>
     from voice_typer.server.service.model import _MODEL_STATUS_CACHE_TTL_S, ModelMixin
@@ -1047,7 +1047,7 @@ voice_typer/server/ipc_server.py:304: in <module>
     from voice_typer.server.handlers.vocabulary_handlers import VocabularyHandlersMixin  # noqa: E402
 voice_typer/server/handlers/__init__.py:61: in <module>
     from voice_typer.server.handlers.vocabulary_handlers import VocabularyHandlersMixin
-voice_typer/server/handlers/vocabulary_handlers.py:16: in <module>
+voice_typer/server/handlers/vocabulary_handlers.py:17: in <module>
     from voice_typer.server.service.vocabulary import VocabularyDuplicateError
 voice_typer/server/service/__init__.py:42: in <module>
     from voice_typer.server.service.model import _MODEL_STATUS_CACHE_TTL_S, ModelMixin
@@ -1080,7 +1080,7 @@ voice_typer/server/ipc_server.py:304: in <module>
     from voice_typer.server.handlers.vocabulary_handlers import VocabularyHandlersMixin  # noqa: E402
 voice_typer/server/handlers/__init__.py:61: in <module>
     from voice_typer.server.handlers.vocabulary_handlers import VocabularyHandlersMixin
-voice_typer/server/handlers/vocabulary_handlers.py:16: in <module>
+voice_typer/server/handlers/vocabulary_handlers.py:17: in <module>
     from voice_typer.server.service.vocabulary import VocabularyDuplicateError
 voice_typer/server/service/__init__.py:42: in <module>
     from voice_typer.server.service.model import _MODEL_STATUS_CACHE_TTL_S, ModelMixin
@@ -1113,7 +1113,7 @@ voice_typer/server/ipc_server.py:304: in <module>
     from voice_typer.server.handlers.vocabulary_handlers import VocabularyHandlersMixin  # noqa: E402
 voice_typer/server/handlers/__init__.py:61: in <module>
     from voice_typer.server.handlers.vocabulary_handlers import VocabularyHandlersMixin
-voice_typer/server/handlers/vocabulary_handlers.py:16: in <module>
+voice_typer/server/handlers/vocabulary_handlers.py:17: in <module>
     from voice_typer.server.service.vocabulary import VocabularyDuplicateError
 voice_typer/server/service/__init__.py:42: in <module>
     from voice_typer.server.service.model import _MODEL_STATUS_CACHE_TTL_S, ModelMixin
@@ -1632,7 +1632,7 @@ voice_typer/server/ipc_server.py:304: in <module>
     from voice_typer.server.handlers.vocabulary_handlers import VocabularyHandlersMixin  # noqa: E402
 voice_typer/server/handlers/__init__.py:61: in <module>
     from voice_typer.server.handlers.vocabulary_handlers import VocabularyHandlersMixin
-voice_typer/server/handlers/vocabulary_handlers.py:16: in <module>
+voice_typer/server/handlers/vocabulary_handlers.py:17: in <module>
     from voice_typer.server.service.vocabulary import VocabularyDuplicateError
 voice_typer/server/service/__init__.py:42: in <module>
     from voice_typer.server.service.model import _MODEL_STATUS_CACHE_TTL_S, ModelMixin
@@ -1719,7 +1719,7 @@ voice_typer/server/ipc_server.py:304: in <module>
     from voice_typer.server.handlers.vocabulary_handlers import VocabularyHandlersMixin  # noqa: E402
 voice_typer/server/handlers/__init__.py:61: in <module>
     from voice_typer.server.handlers.vocabulary_handlers import VocabularyHandlersMixin
-voice_typer/server/handlers/vocabulary_handlers.py:16: in <module>
+voice_typer/server/handlers/vocabulary_handlers.py:17: in <module>
     from voice_typer.server.service.vocabulary import VocabularyDuplicateError
 voice_typer/server/service/__init__.py:42: in <module>
     from voice_typer.server.service.model import _MODEL_STATUS_CACHE_TTL_S, ModelMixin
@@ -1752,7 +1752,7 @@ voice_typer/server/ipc_server.py:304: in <module>
     from voice_typer.server.handlers.vocabulary_handlers import VocabularyHandlersMixin  # noqa: E402
 voice_typer/server/handlers/__init__.py:61: in <module>
     from voice_typer.server.handlers.vocabulary_handlers import VocabularyHandlersMixin
-voice_typer/server/handlers/vocabulary_handlers.py:16: in <module>
+voice_typer/server/handlers/vocabulary_handlers.py:17: in <module>
     from voice_typer.server.service.vocabulary import VocabularyDuplicateError
 voice_typer/server/service/__init__.py:42: in <module>
     from voice_typer.server.service.model import _MODEL_STATUS_CACHE_TTL_S, ModelMixin
@@ -1785,7 +1785,7 @@ voice_typer/server/ipc_server.py:304: in <module>
     from voice_typer.server.handlers.vocabulary_handlers import VocabularyHandlersMixin  # noqa: E402
 voice_typer/server/handlers/__init__.py:61: in <module>
     from voice_typer.server.handlers.vocabulary_handlers import VocabularyHandlersMixin
-voice_typer/server/handlers/vocabulary_handlers.py:16: in <module>
+voice_typer/server/handlers/vocabulary_handlers.py:17: in <module>
     from voice_typer.server.service.vocabulary import VocabularyDuplicateError
 voice_typer/server/service/__init__.py:42: in <module>
     from voice_typer.server.service.model import _MODEL_STATUS_CACHE_TTL_S, ModelMixin
@@ -1818,7 +1818,7 @@ voice_typer/server/ipc_server.py:304: in <module>
     from voice_typer.server.handlers.vocabulary_handlers import VocabularyHandlersMixin  # noqa: E402
 voice_typer/server/handlers/__init__.py:61: in <module>
     from voice_typer.server.handlers.vocabulary_handlers import VocabularyHandlersMixin
-voice_typer/server/handlers/vocabulary_handlers.py:16: in <module>
+voice_typer/server/handlers/vocabulary_handlers.py:17: in <module>
     from voice_typer.server.service.vocabulary import VocabularyDuplicateError
 voice_typer/server/service/__init__.py:42: in <module>
     from voice_typer.server.service.model import _MODEL_STATUS_CACHE_TTL_S, ModelMixin
@@ -1851,7 +1851,7 @@ voice_typer/server/ipc_server.py:304: in <module>
     from voice_typer.server.handlers.vocabulary_handlers import VocabularyHandlersMixin  # noqa: E402
 voice_typer/server/handlers/__init__.py:61: in <module>
     from voice_typer.server.handlers.vocabulary_handlers import VocabularyHandlersMixin
-voice_typer/server/handlers/vocabulary_handlers.py:16: in <module>
+voice_typer/server/handlers/vocabulary_handlers.py:17: in <module>
     from voice_typer.server.service.vocabulary import VocabularyDuplicateError
 voice_typer/server/service/__init__.py:42: in <module>
     from voice_typer.server.service.model import _MODEL_STATUS_CACHE_TTL_S, ModelMixin
@@ -1884,7 +1884,7 @@ voice_typer/server/ipc_server.py:304: in <module>
     from voice_typer.server.handlers.vocabulary_handlers import VocabularyHandlersMixin  # noqa: E402
 voice_typer/server/handlers/__init__.py:61: in <module>
     from voice_typer.server.handlers.vocabulary_handlers import VocabularyHandlersMixin
-voice_typer/server/handlers/vocabulary_handlers.py:16: in <module>
+voice_typer/server/handlers/vocabulary_handlers.py:17: in <module>
     from voice_typer.server.service.vocabulary import VocabularyDuplicateError
 voice_typer/server/service/__init__.py:42: in <module>
     from voice_typer.server.service.model import _MODEL_STATUS_CACHE_TTL_S, ModelMixin
@@ -1917,7 +1917,7 @@ voice_typer/server/ipc_server.py:304: in <module>
     from voice_typer.server.handlers.vocabulary_handlers import VocabularyHandlersMixin  # noqa: E402
 voice_typer/server/handlers/__init__.py:61: in <module>
     from voice_typer.server.handlers.vocabulary_handlers import VocabularyHandlersMixin
-voice_typer/server/handlers/vocabulary_handlers.py:16: in <module>
+voice_typer/server/handlers/vocabulary_handlers.py:17: in <module>
     from voice_typer.server.service.vocabulary import VocabularyDuplicateError
 voice_typer/server/service/__init__.py:42: in <module>
     from voice_typer.server.service.model import _MODEL_STATUS_CACHE_TTL_S, ModelMixin
@@ -2030,7 +2030,37 @@ voice_typer/server/service/_download_helpers.py:39: in <module>
 E   ImportError: cannot import name 'NotRequired' from 'typing' (/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/typing.py)
 ```
 
-### 68. `tests.app.test_lifecycle.TestMainWrapsIpcMain.test_main_does_not_swallow_system_exit`
+### 68. `tests.app.test_lifecycle.TestMainWrapsIpcMain.test_main_logs_and_exits_when_ipc_main_raises`
+
+- Legs: macos-14-3.10, ubuntu-22.04-3.10, windows-2022-3.10
+- Location: `tests/app/test_lifecycle.py:1606`
+
+```
+ImportError: cannot import name 'NotRequired' from 'typing' (/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/typing.py)
+
+ImportError: cannot import name 'NotRequired' from 'typing' (/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/typing.py)
+tests/app/test_lifecycle.py:1606: in test_main_logs_and_exits_when_ipc_main_raises
+    import voice_typer.server.ipc_server as ipc_server_module
+voice_typer/server/ipc_server.py:304: in <module>
+    from voice_typer.server.handlers.vocabulary_handlers import VocabularyHandlersMixin  # noqa: E402
+voice_typer/server/handlers/__init__.py:61: in <module>
+    from voice_typer.server.handlers.vocabulary_handlers import VocabularyHandlersMixin
+voice_typer/server/handlers/vocabulary_handlers.py:17: in <module>
+    from voice_typer.server.service.vocabulary import VocabularyDuplicateError
+voice_typer/server/service/__init__.py:42: in <module>
+    from voice_typer.server.service.model import _MODEL_STATUS_CACHE_TTL_S, ModelMixin
+voice_typer/server/service/model/__init__.py:7: in <module>
+    from .mixin import ModelMixin
+voice_typer/server/service/model/mixin.py:7: in <module>
+    from ._downloads import DownloadsMixin
+voice_typer/server/service/model/_downloads.py:11: in <module>
+    from voice_typer.server.service._download_helpers import DownloadOutcome
+voice_typer/server/service/_download_helpers.py:39: in <module>
+    from typing import NotRequired, TypedDict
+E   ImportError: cannot import name 'NotRequired' from 'typing' (/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/typing.py)
+```
+
+### 69. `tests.app.test_lifecycle.TestMainWrapsIpcMain.test_main_does_not_swallow_system_exit`
 
 - Legs: macos-14-3.10, ubuntu-22.04-3.10, windows-2022-3.10
 - Location: `tests/app/test_lifecycle.py:1648`
@@ -2045,7 +2075,7 @@ voice_typer/server/ipc_server.py:304: in <module>
     from voice_typer.server.handlers.vocabulary_handlers import VocabularyHandlersMixin  # noqa: E402
 voice_typer/server/handlers/__init__.py:61: in <module>
     from voice_typer.server.handlers.vocabulary_handlers import VocabularyHandlersMixin
-voice_typer/server/handlers/vocabulary_handlers.py:16: in <module>
+voice_typer/server/handlers/vocabulary_handlers.py:17: in <module>
     from voice_typer.server.service.vocabulary import VocabularyDuplicateError
 voice_typer/server/service/__init__.py:42: in <module>
     from voice_typer.server.service.model import _MODEL_STATUS_CACHE_TTL_S, ModelMixin
@@ -2060,22 +2090,22 @@ voice_typer/server/service/_download_helpers.py:39: in <module>
 E   ImportError: cannot import name 'NotRequired' from 'typing' (/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/typing.py)
 ```
 
-### 69. `tests.app.test_lifecycle.TestMainWrapsIpcMain.test_main_logs_warning_when_faulthandler_enable_raises`
+### 70. `tests.app.test_lifecycle.TestMainWrapsIpcMain.test_main_logs_warning_when_faulthandler_import_fails`
 
-- Legs: macos-14-3.10, ubuntu-22.04-3.10, windows-2022-3.10
-- Location: `tests/app/test_lifecycle.py:1690`
+- Legs: macos-14-3.10, ubuntu-22.04-3.10
+- Location: `tests/app/test_lifecycle.py:1721`
 
 ```
 ImportError: cannot import name 'NotRequired' from 'typing' (/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/typing.py)
 
 ImportError: cannot import name 'NotRequired' from 'typing' (/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/typing.py)
-tests/app/test_lifecycle.py:1690: in test_main_logs_warning_when_faulthandler_enable_raises
+tests/app/test_lifecycle.py:1721: in test_main_logs_warning_when_faulthandler_import_fails
     import voice_typer.server.ipc_server as ipc_server_module
 voice_typer/server/ipc_server.py:304: in <module>
     from voice_typer.server.handlers.vocabulary_handlers import VocabularyHandlersMixin  # noqa: E402
 voice_typer/server/handlers/__init__.py:61: in <module>
     from voice_typer.server.handlers.vocabulary_handlers import VocabularyHandlersMixin
-voice_typer/server/handlers/vocabulary_handlers.py:16: in <module>
+voice_typer/server/handlers/vocabulary_handlers.py:17: in <module>
     from voice_typer.server.service.vocabulary import VocabularyDuplicateError
 voice_typer/server/service/__init__.py:42: in <module>
     from voice_typer.server.service.model import _MODEL_STATUS_CACHE_TTL_S, ModelMixin
@@ -2090,7 +2120,7 @@ voice_typer/server/service/_download_helpers.py:39: in <module>
 E   ImportError: cannot import name 'NotRequired' from 'typing' (/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/typing.py)
 ```
 
-### 70. `pytest.internal`
+### 71. `pytest.internal`
 
 - Legs: macos-14-3.10, macos-14-3.11, ubuntu-22.04-3.10, ubuntu-22.04-3.11, windows-2022-3.10
 - Location: `(pytest internal error, no test location)`
@@ -2104,7 +2134,7 @@ def worker_internal_error(
     ) -> None:
         """
         pytest_internalerror() was called on the worker.
-
+    
         pytest_internalerror() arguments are an excinfo and an excrepr, which can't
         be serialized, so we go with a poor man's solution of raising an exception
         here ourselves using the formatted message.
@@ -2138,63 +2168,116 @@ E                 result = yield
 E               File "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/site-packages/pluggy/_callers.py", line 121, in _multicall
 ```
 
-### 71. `tests.tauri.mig16.test_externalbin_spawn_macos.test_spawn_rs_server_started_log_line_format`
+### 72. `tests.tauri.mig16.test_autostart_installer_macos.test_single_instance_plugin_enforced`
+
+- Legs: macos-14-3.11, macos-14-3.13
+- Location: `tests/tauri/mig16/test_autostart_installer_macos.py:749`
+
+```
+assert ('get_webview_window' in '//! Voice Typer: Tauri v2 host (ADR-0020 implementation).\n//!\n//! Rust shell replacing the Electron main process. Responsibilities:\n//! 1. Spawn the Python sidecar via Tauri\'s `externalBin` mechanism,\n//!    passing `VOICE_TYPER_IPC_TOKEN` + `TAURI_SIDECAR=1` env vars.\n//! 2. Open a WebSocket client to `ws://127.0.0.1:N` and perform the\n//!    bearer-token auth handshake (`{"type":"auth","token":...}`).\n//! 3. Expose ONE generic `dispatch` command to the webview and\n//!    re-emit server-initiated events as Tauri events.\n//! 4. Run the supervisor (respawn with backoff, then full-app relaunch)\n//!    and coalesce `bubble_level` events to ≤30 Hz.\n//! 5. Single-instance gate runs BEFORE any sidecar init so a second\n//!    launch doesn\'t spawn a zombie sidecar.\n//!\n//! # Cross-platform\n//!\n//! - Windows: WebView2 (Chromium-based, system-installed on Win10+).\n//! - macOS: WKWebView (Safari-based, system).\n//! - Linux: webkit2gtk (system; requires `libwebkit2gtk-4.1-0`).\n//!\n//! # Module layout\n//!\n//! Wiring-only (C-ARCH-1): app builder, plugin registration, `.setup`\n//! glue (window bootstrap → `window_bootstrap`, sidecar cold-start\n//! task → `sidecar::spa...tauri::generate_context!())\n        .unwrap_or_else(|e| {\n            eprintln!("[FATAL] tauri build failed: {e:?}");\n            log::error!("[FATAL] tauri build failed: {e:?}");\n            std::process::exit(1);\n        })\n        .run(|app_handle, event| match event {\n            RunEvent::ExitRequested { .. } | RunEvent::Exit => {\n                // Teardown body: `state::on_host_exit`, dedicated thread\n                // + bounded-time `block_on` (see `sidecar::lifecycle`).\n                crate::state::on_host_exit(app_handle);\n            }\n            // macOS Dock-icon activation (Electron `app.on("activate")`\n            // parity, MO-112): macOS keeps the process alive after the\n            // last window is closed (tray / Dock), so a Dock click must\n            // bring the dashboard back instead of doing nothing. The\n            // shared routine recreates the window when it is gone and\n            // otherwise runs the full raise sequence (MO-109).\n            #[cfg(target_os = "macos")]\n            RunEvent::Reopen { .. } => {\n                crate::host_events::show_main_window(app_handle);\n            }\n            _ => {}\n        });\n}\n')
+
+AssertionError: single-instance callback must show + focus the existing main window (second launch → focus first, no duplicate window)
+assert ('get_webview_window' in '//! Voice Typer: Tauri v2 host (ADR-0020 implementation).\n//!\n//! Rust shell replacing the Electron main process. Responsibilities:\n//! 1. Spawn the Python sidecar via Tauri\'s `externalBin` mechanism,\n//!    passing `VOICE_TYPER_IPC_TOKEN` + `TAURI_SIDECAR=1` env vars.\n//! 2. Open a WebSocket client to `ws://127.0.0.1:N` and perform the\n//!    bearer-token auth handshake (`{"type":"auth","token":...}`).\n//! 3. Expose ONE generic `dispatch` command to the webview and\n//!    re-emit server-initiated events as Tauri events.\n//! 4. Run the supervisor (respawn with backoff, then full-app relaunch)\n//!    and coalesce `bubble_level` events to ≤30 Hz.\n//! 5. Single-instance gate runs BEFORE any sidecar init so a second\n//!    launch doesn\'t spawn a zombie sidecar.\n//!\n//! # Cross-platform\n//!\n//! - Windows: WebView2 (Chromium-based, system-installed on Win10+).\n//! - macOS: WKWebView (Safari-based, system).\n//! - Linux: webkit2gtk (system; requires `libwebkit2gtk-4.1-0`).\n//!\n//! # Module layout\n//!\n//! Wiring-only (C-ARCH-1): app builder, plugin registration, `.setup`\n//! glue (window bootstrap → `window_bootstrap`, sidecar cold-start\n//! task → `sidecar::spa...tauri::generate_context!())\n        .unwrap_or_else(|e| {\n            eprintln!("[FATAL] tauri build failed: {e:?}");\n            log::error!("[FATAL] tauri build failed: {e:?}");\n            s
+… (truncated)
+```
+
+### 73. `tests.tauri.mig16.test_externalbin_spawn_macos.test_spawn_rs_server_started_log_line_format`
 
 - Legs: macos-14-3.11, macos-14-3.13
 - Location: `tests/tauri/mig16/test_externalbin_spawn_macos.py:529`
 
 ```
-+    where <built-in method search of re.Pattern object at 0x13b59d750> = re.compile('\\[SIDECAR\\]\\s*server_started\\s*port=\\{[^}]*\\}').search
++    where <built-in method search of re.Pattern object at 0x12e055f20> = re.compile('\\[SIDECAR\\]\\s*server_started\\s*port=\\{[^}]*\\}').search
 
 AssertionError: spawn.rs must log '[SIDECAR] server_started port={}' on success (runbook §5 pass criteria greps for this line on macOS)
 assert None
- +  where None = <built-in method search of re.Pattern object at 0x13b59d750>('//! Sidecar spawn + stdout handshake (ADR-0020 §1 + §4.1 + §14).\n//!\n//! Module layout (split out of the former single-file module):\n//!\n//! - `self`: orchestration: the public spawn entry points\n//!   (`spawn_sidecar_and_get_port[_with_shutdown]`), the dev-vs-release\n//!   dispatch (`spawn_sidecar_and_get_port_inner`), the cold-start\n//!   wiring (`initialize_sidecar`), and the panic-captured background\n//!   task body (`initialize_sidecar_guarded`) that `main.rs`\'s\n//!   `.setup` spawns.\n//! - [`dev_mode`]: `VOICE_TYPER_SIDECAR_DEV=1` dev-mode spawn\n//!   (`spawn_sidecar_dev_mode` + the `is_dev_mode` predicates).\n//! - [`release_mode`]: release-build `externalBin` spawn\n//!   (`spawn_sidecar_release`).\n//! - [`handshake`]: `server_started` stdout parsing\n//!   (`parse_server_started`) + the shutting-down loop short-circuit\n//!   (`is_shutting_down`).\n//! - [`handshake_loop`]: the shared stdout-handshake read loops used by\n//!   all four spawn paths (`spawn_sidecar_release` /\n//!   `spawn_sidecar_dev_mode` / `spawn_worker_release` /\n//!   `spawn_worker_dev_mode`): one loop body for the shell-plugin\n//!   `CommandEvent` pair, one for the tokio `read_line` p....clone();\n    tauri::async_runtime::spawn(async move {\n        let state = app_handle.state::<Arc<WorkerState>>().inner().clone();\n        if !try_claim_restart_slot(&state.respawn_in_progress) {\n            log::info!(\n                "[WORKER-INIT] pack verified while a worker (re)start is in flight: skipping duplicate"\n            );\n            return;\n        }\n        // Stop-first: the verified event fires right after the\n        // atomic swap, so a still-running worker may hold the OLD\n        // pack files open (Windows file-lock swap failure).\n        stop_worker_child(&state).await;\n        if state.shutting_down.load(Ordering::SeqCst) {\n            state.respawn_in_progress.store(false, Ordering::SeqCst);\n            return;\n        }\n        if !worker_binary_present() {\n            log::info!(\n                "[WORKER-INIT] pack verified but no worker binary on disk: skipping worker start"\n            );\n            state.respawn_in_progress.store(false, Ordering::SeqCst);\n            return;\n        }\n        initialize_worker(&app_handle, state.clone()).await;\n        state.respawn_in_progress.store(false, Ordering::SeqCst);\n    });\n}\n')
- +    where <built-in method search of re.Pattern object at 0x13b59d750> = re.compile('\\[SIDECAR\\]\\s*server_started\\s*port=\\{[^}]*\\}').search
+ +  where None = <built-in method search of re.Pattern object at 0x12e055f20>('//! Sidecar spawn + stdout handshake (ADR-0020 §1 + §4.1 + §14).\n//!\n//! Module layout (split out of the former single-file module):\n//!\n//! - `self`: orchestration: the public spawn entry points\n//!   (`spawn_sidecar_and_get_port[_with_shutdown]`), the dev-vs-release\n//!   dispatch (`spawn_sidecar_and_get_port_inner`), the cold-start\n//!   wiring (`initialize_sidecar`), and the panic-captured background\n//!   task body (`initialize_sidecar_guarded`) that `main.rs`\'s\n//!   `.setup` spawns.\n//! - [`dev_mode`]: `VOICE_TYPER_SIDECAR_DEV=1` dev-mode spawn\n//!   (`spawn_sidecar_dev_mode` + the `is_dev_mode` predicates).\n//! - [`release_mode`]: release-build `externalBin` spawn\n//!   (`spawn_sidecar_release`).\n//! - [`handshake`]: `server_started` stdout parsing\n//!   (`parse_server_started`) + the shutting-down loop short-circuit\n//!   (`is_shutting_down`).\n//! - [`handshake_loop`]: the shared stdout-handshake read loops used by\n//!   all four spawn paths (`spawn_sidecar_release` /\n//!   `spawn_sidecar_dev_mode` / `spawn_worker_release` /\n//!   `spawn_worker_dev_mode`): one loop body for the shell-plugin\n//!   `CommandEvent` pair, one for the tokio `read_line` p....clone();\n    tauri::async_runtime::spawn(async move {\n        let state = app_handle.state::<Arc<WorkerState>>().inner().clone();\n        if !try_claim_restart_slot(&state.respawn_in_progress) {\n            log::info!(\n                "[WORKER-INIT] pack verified while a worker (re)start is in flight: skipping duplicate"\n            );\n            return;\n        }\n        // Stop-first: the verified event fires right after the\n        // atomic swap, so a still-running worker may hold the OLD\n        // pack files open (Windows file-lock swap failure).\n        stop_worker_child(&state).await;\n        if state.shutting_down.load(Ordering::SeqCst) {\n            state.respawn_in_progress.store(false, Ordering::SeqCst);\n            return;\n        }\n        if !worker_binary_present() {\n            log::info!(\n                "[WORKER-INIT] pack verified but no worker binary on disk: skipping worker start"\n            );\n            state.respawn_in_progress.store(false, Ordering::SeqCst);\n            return;\n        }\n        initialize_worker(&app_handle, state.clone()).await;\n        state.respawn_in_progress.store(false, Ordering::SeqCst);\n    });\n}\n')
+ +    where <built-in method search of re.Pattern object at 0x12e055f20> = re.compile('\\[SIDECAR\\]\\s*server_started\\s*port=\\{[^}]*\\}').search
 tests/tauri/mig16/test_externalbin_spawn_macos.py:529: in test_spawn_rs_server_started_log_line_format
     assert port_log_re.search(spawn_rs_source), (
 E   AssertionError: spawn.rs must log '[SIDECAR] server_started port={}' on success (runbook §5 pass criteria greps for this line on macOS)
 E   assert None
-E    +  where None = <built-in method search of re.Pattern object at 0x13b59d750>('//! Sidecar spawn + stdout handshake (ADR-0020 §1 + §4.1 + §14).\n//!\n//! Module layout (split out of the former single-file module):\n//!\n//! - `self`: orchestration: the public spawn entry points\n//!   (`spawn_sidecar_and_get_port[_with_shutdown]`), the dev-vs-release\n//!   dispatch (`spawn_sidecar_and_get_port_inner`), the cold-start\n//!   wiring (`initialize_sidecar`), and the panic-captured background\n//!   task body (`initialize_sidecar_guarded`) that `main.rs`\'s\n//!   `.setup` spawns.\n//! - [`dev_mode`]: `VOICE_TYPER_SIDECAR_DEV=1` dev-mode spawn\n//!   (`spawn_sidecar_dev_mode` + the `is_dev_mode` predicates).\n//! - [`release_mode`]: release-build `externalB
+E    +  where None = <built-in method search of re.Pattern object at 0x12e055f20>('//! Sidecar spawn + stdout handshake (ADR-0020 §1 + §4.1 + §14).\n//!\n//! Module layout (split out of the former single-file module):\n//!\n//! - `self`: orchestration: the public spawn entry points\n//!   (`spawn_sidecar_and_get_port[_with_shutdown]`), the dev-vs-release\n//!   dispatch (`spawn_sidecar_and_get_port_inner`), the cold-start\n//!   wiring (`initialize_sidecar`), and the panic-captured background\n//!   task body (`initialize_sidecar_guarded`) that `main.rs`\'s\n//!   `.setup` spawns.\n//! - [`dev_mode`]: `VOICE_TYPER_SIDECAR_DEV=1` dev-mode spawn\n//!   (`spawn_sidecar_dev_mode` + the `is_dev_mode` predicates).\n//! - [`release_mode`]: release-build `externalB
 … (truncated)
 ```
 
-### 72. `tests.tauri.mig16.test_shutdown_macos.TestSupervisorSource.test_returns_ok_on_successful_respawn`
+### 74. `tests.tauri.mig16.test_shutdown_macos.TestSupervisorSource.test_returns_ok_on_successful_respawn`
 
 - Legs: macos-14-3.11, macos-14-3.13
 - Location: `tests/tauri/mig16/test_shutdown_macos.py:811`
 
 ```
-assert (34982 - 31937) < 2000
+assert (40663 - 37618) < 2000
 
 AssertionError: `return Ok(())` after 'respawn succeeded' log must be in the same match arm (within 400 chars); gap was 3045 chars, the supervisor must return immediately on successful reconnect_ws (reset-on-success: the loop exits early, the next crash starts a fresh backoff schedule)
-assert (34982 - 31937) < 2000
+assert (40663 - 37618) < 2000
 tests/tauri/mig16/test_shutdown_macos.py:811: in test_returns_ok_on_successful_respawn
     assert idx_return - idx_log < 2000, (
 E   AssertionError: `return Ok(())` after 'respawn succeeded' log must be in the same match arm (within 400 chars); gap was 3045 chars, the supervisor must return immediately on successful reconnect_ws (reset-on-success: the loop exits early, the next crash starts a fresh backoff schedule)
-E   assert (34982 - 31937) < 2000
+E   assert (40663 - 37618) < 2000
 ```
 
-### 73. `tests.test_console_flash_hidden_spawn.TestDesktopShortcutPowershellHidden.test_lnk_powershell_fallback_passes_create_no_window`
+### 75. `tests.tauri.test_rust_log_file_perms.test_pi7_rust_unit_test_log_file_mode_0o600_passes`
+
+- Legs: macos-14-3.11
+- Location: `(unknown location)`
+
+```
+(no error line)
+
+failed on setup with "worker 'gw0' crashed while running 'tests/tauri/test_rust_log_file_perms.py::test_pi7_rust_unit_test_log_file_mode_0o600_passes'"
+worker 'gw0' crashed while running 'tests/tauri/test_rust_log_file_perms.py::test_pi7_rust_unit_test_log_file_mode_0o600_passes'
+```
+
+### 76. `tests.tauri.test_window_lifecycle_parity.test_main_runtime_grants_on_resized_via_event_listen`
 
 - Legs: macos-14-3.11, macos-14-3.13, ubuntu-22.04-3.11, ubuntu-22.04-3.12, ubuntu-22.04-3.13, windows-2022-3.11, windows-2022-3.12, windows-2022-3.13
-- Location: `tests/test_console_flash_hidden_spawn.py:212`
+- Location: `tests/tauri/test_window_lifecycle_parity.py:133`
 
 ```
-ModuleNotFoundError: No module named 'win32com'
+FileNotFoundError: [Errno 2] No such file or directory: '/Users/runner/work/voice-typer/voice-typer/src-tauri/gen/schemas/acl-manifests.json'
 
-ModuleNotFoundError: No module named 'win32com'
-tests/test_console_flash_hidden_spawn.py:212: in test_lnk_powershell_fallback_passes_create_no_window
-    monkeypatch.setattr("win32com.client.Dispatch", None, raising=False)
-/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/site-packages/_pytest/monkeypatch.py:102: in derive_importpath
-    target = resolve(module)
-             ^^^^^^^^^^^^^^^
-/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/site-packages/_pytest/monkeypatch.py:65: in resolve
-    found: object = __import__(used)
-                    ^^^^^^^^^^^^^^^^
-E   ModuleNotFoundError: No module named 'win32com'
+FileNotFoundError: [Errno 2] No such file or directory: '/Users/runner/work/voice-typer/voice-typer/src-tauri/gen/schemas/acl-manifests.json'
+tests/tauri/test_window_lifecycle_parity.py:133: in test_main_runtime_grants_on_resized_via_event_listen
+    resolved = _capability_permissions("main-runtime")
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/tauri/test_window_lifecycle_parity.py:82: in _capability_permissions
+    manifest = json.loads(ACL_MANIFESTS.read_text(encoding="utf-8"))
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/pathlib.py:1058: in read_text
+    with self.open(mode='r', encoding=encoding, errors=errors) as f:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/pathlib.py:1044: in open
+    return io.open(self, mode, buffering, encoding, errors, newline)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   FileNotFoundError: [Errno 2] No such file or directory: '/Users/runner/work/voice-typer/voice-typer/src-tauri/gen/schemas/acl-manifests.json'
 ```
 
-### 74. `tests.test_dictation_pipeline_check_resources.TestCheckResourcesXZEH008SilentExcept.test_ram_ctypes_fallback_failure_logs_debug`
+### 77. `tests.tauri.test_window_lifecycle_parity.test_main_runtime_grants_the_window_queries_the_bridge_calls`
+
+- Legs: macos-14-3.11, macos-14-3.13, ubuntu-22.04-3.11, ubuntu-22.04-3.12, ubuntu-22.04-3.13, windows-2022-3.11, windows-2022-3.12, windows-2022-3.13
+- Location: `tests/tauri/test_window_lifecycle_parity.py:92`
+
+```
+FileNotFoundError: [Errno 2] No such file or directory: '/Users/runner/work/voice-typer/voice-typer/src-tauri/gen/schemas/acl-manifests.json'
+
+FileNotFoundError: [Errno 2] No such file or directory: '/Users/runner/work/voice-typer/voice-typer/src-tauri/gen/schemas/acl-manifests.json'
+tests/tauri/test_window_lifecycle_parity.py:92: in test_main_runtime_grants_the_window_queries_the_bridge_calls
+    resolved = _capability_permissions("main-runtime")
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/tauri/test_window_lifecycle_parity.py:82: in _capability_permissions
+    manifest = json.loads(ACL_MANIFESTS.read_text(encoding="utf-8"))
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/pathlib.py:1058: in read_text
+    with self.open(mode='r', encoding=encoding, errors=errors) as f:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/pathlib.py:1044: in open
+    return io.open(self, mode, buffering, encoding, errors, newline)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   FileNotFoundError: [Errno 2] No such file or directory: '/Users/runner/work/voice-typer/voice-typer/src-tauri/gen/schemas/acl-manifests.json'
+```
+
+### 78. `tests.test_dictation_pipeline_check_resources.TestCheckResourcesXZEH008SilentExcept.test_ram_ctypes_fallback_failure_logs_debug`
 
 - Legs: macos-14-3.13, ubuntu-22.04-3.12, ubuntu-22.04-3.13
 - Location: `tests/test_dictation_pipeline_check_resources.py:515`
@@ -2213,49 +2296,62 @@ voice_typer/server/resource_probe.py:300: in check_resources
 E   TypeError: statvfs: path should be string, bytes, os.PathLike or integer, not _StubPath
 ```
 
-### 75. `tests.test_level_monitor_worker_lifecycle.TestThreadRegistryRegistration.test_idle_exit_unregisters_level_worker`
+### 79. `tests.test_hotkey_watchdog.TestPynputWatchdog.test_watchdog_resets_failure_count_on_recovery`
 
-- Legs: macos-14-3.13, ubuntu-22.04-3.12, ubuntu-22.04-3.13, windows-2022-3.11, windows-2022-3.12, windows-2022-3.13
-- Location: `tests/test_level_monitor_worker_lifecycle.py:216`
+- Legs: macos-14-3.13
+- Location: `tests/test_hotkey_watchdog.py:179`
 
 ```
-+    where is_alive = <Thread(level-monitor-worker, started daemon 14163685376)>.is_alive
++  where 3 = <voice_typer.server.hotkeys.pynput_backend.PynputHotkey object at 0x12b768210>._watchdog_failure_count
 
-assert not True
- +  where True = is_alive()
- +    where is_alive = <Thread(level-monitor-worker, started daemon 14163685376)>.is_alive
-tests/test_level_monitor_worker_lifecycle.py:216: in test_idle_exit_unregisters_level_worker
-    assert not thread.is_alive()
-E   assert not True
-E    +  where True = is_alive()
-E    +    where is_alive = <Thread(level-monitor-worker, started daemon 14163685376)>.is_alive
+AssertionError: Watchdog should reset failure count to 0 when listener is healthy
+assert 3 == 0
+ +  where 3 = <voice_typer.server.hotkeys.pynput_backend.PynputHotkey object at 0x12b768210>._watchdog_failure_count
+tests/test_hotkey_watchdog.py:179: in test_watchdog_resets_failure_count_on_recovery
+    assert backend._watchdog_failure_count == 0, (
+E   AssertionError: Watchdog should reset failure count to 0 when listener is healthy
+E   assert 3 == 0
+E    +  where 3 = <voice_typer.server.hotkeys.pynput_backend.PynputHotkey object at 0x12b768210>._watchdog_failure_count
 ```
 
-### 76. `tests.test_logging_rotation_perms.test_do_rollover_chmod_runs_inside_lock`
+### 80. `tests.test_logging_rotation_perms.test_do_rollover_chmod_runs_inside_lock`
 
 - Legs: macos-14-3.13, ubuntu-22.04-3.12, ubuntu-22.04-3.13
 - Location: `tests/test_logging_rotation_perms.py:338`
 
 ```
-+    where <built-in method index of list object at 0x142488900> = ['release', 'chmod', 'release'].index
++    where <built-in method index of list object at 0x114be0700> = ['release', 'chmod', 'release'].index
 
 AssertionError: chmod must run BEFORE release; got call_order=['release', 'chmod', 'release']
 assert 1 < 0
- +  where 1 = <built-in method index of list object at 0x142488900>('chmod')
- +    where <built-in method index of list object at 0x142488900> = ['release', 'chmod', 'release'].index
- +  and   0 = <built-in method index of list object at 0x142488900>('release')
- +    where <built-in method index of list object at 0x142488900> = ['release', 'chmod', 'release'].index
+ +  where 1 = <built-in method index of list object at 0x114be0700>('chmod')
+ +    where <built-in method index of list object at 0x114be0700> = ['release', 'chmod', 'release'].index
+ +  and   0 = <built-in method index of list object at 0x114be0700>('release')
+ +    where <built-in method index of list object at 0x114be0700> = ['release', 'chmod', 'release'].index
 tests/test_logging_rotation_perms.py:338: in test_do_rollover_chmod_runs_inside_lock
     assert call_order.index("chmod") < call_order.index("release"), (
 E   AssertionError: chmod must run BEFORE release; got call_order=['release', 'chmod', 'release']
 E   assert 1 < 0
-E    +  where 1 = <built-in method index of list object at 0x142488900>('chmod')
-E    +    where <built-in method index of list object at 0x142488900> = ['release', 'chmod', 'release'].index
-E    +  and   0 = <built-in method index of list object at 0x142488900>('release')
-E    +    where <built-in method index of list object at 0x142488900> = ['release', 'chmod', 'release'].index
+E    +  where 1 = <built-in method index of list object at 0x114be0700>('chmod')
+E    +    where <built-in method index of list object at 0x114be0700> = ['release', 'chmod', 'release'].index
+E    +  and   0 = <built-in method index of list object at 0x114be0700>('release')
+E    +    where <built-in method index of list object at 0x114be0700> = ['release', 'chmod', 'release'].index
 ```
 
-### 77. `tests.test_install_permissions_gsettings.TestSwayFlow.test_appends_block_when_no_existing_line`
+### 81. `tests.tauri.mig17.test_autostart_installer_linux.test_single_instance_plugin_wired_in_tauri`
+
+- Legs: ubuntu-22.04-3.11, ubuntu-22.04-3.12, ubuntu-22.04-3.13
+- Location: `tests/tauri/mig17/test_autostart_installer_linux.py:728`
+
+```
+assert 'get_webview_window' in '//! Voice Typer: Tauri v2 host (ADR-0020 implementation).\n//!\n//! Rust shell replacing the Electron main process. Responsibilities:\n//! 1. Spawn the Python sidecar via Tauri\'s `externalBin` mechanism,\n//!    passing `VOICE_TYPER_IPC_TOKEN` + `TAURI_SIDECAR=1` env vars.\n//! 2. Open a WebSocket client to `ws://127.0.0.1:N` and perform the\n//!    bearer-token auth handshake (`{"type":"auth","token":...}`).\n//! 3. Expose ONE generic `dispatch` command to the webview and\n//!    re-emit server-initiated events as Tauri events.\n//! 4. Run the supervisor (respawn with backoff, then full-app relaunch)\n//!    and coalesce `bubble_level` events to ≤30 Hz.\n//! 5. Single-instance gate runs BEFORE any sidecar init so a second\n//!    launch doesn\'t spawn a zombie sidecar.\n//!\n//! # Cross-platform\n//!\n//! - Windows: WebView2 (Chromium-based, system-installed on Win10+).\n//! - macOS: WKWebView (Safari-based, system).\n//! - Linux: webkit2gtk (system; requires `libwebkit2gtk-4.1-0`).\n//!\n//! # Module layout\n//!\n//! Wiring-only (C-ARCH-1): app builder, plugin registration, `.setup`\n//! glue (window bootstrap → `window_bootstrap`, sidecar cold-start\n//! task → `sidecar::spa...tauri::generate_context!())\n        .unwrap_or_else(|e| {\n            eprintln!("[FATAL] tauri build failed: {e:?}");\n            log::error!("[FATAL] tauri build failed: {e:?}");\n            std::process::exit(1);\n        })\n        .run(|app_handle, event| match event {\n            RunEvent::ExitRequested { .. } | RunEvent::Exit => {\n                // Teardown body: `state::on_host_exit`, dedicated thread\n                // + bounded-time `block_on` (see `sidecar::lifecycle`).\n                crate::state::on_host_exit(app_handle);\n            }\n            // macOS Dock-icon activation (Electron `app.on("activate")`\n            // parity, MO-112): macOS keeps the process alive after the\n            // last window is closed (tray / Dock), so a Dock click must\n            // bring the dashboard back instead of doing nothing. The\n            // shared routine recreates the window when it is gone and\n            // otherwise runs the full raise sequence (MO-109).\n            #[cfg(target_os = "macos")]\n            RunEvent::Reopen { .. } => {\n                crate::host_events::show_main_window(app_handle);\n            }\n            _ => {}\n        });\n}\n'
+
+AssertionError: main.rs's single-instance callback must call app.get_webview_window("main") to focus the existing window.
+assert 'get_webview_window' in '//! Voice Typer: Tauri v2 host (ADR-0020 implementation).\n//!\n//! Rust shell replacing the Electron main process. Responsibilities:\n//! 1. Spawn the Python sidecar via Tauri\'s `externalBin` mechanism,\n//!    passing `VOICE_TYPER_IPC_TOKEN` + `TAURI_SIDECAR=1` env vars.\n//! 2. Open a WebSocket client to `ws://127.0.0.1:N` and perform the\n//!    bearer-token auth handshake (`{"type":"auth","token":...}`).\n//! 3. Expose ONE generic `dispatch` command to the webview and\n//!    re-emit server-initiated events as Tauri events.\n//! 4. Run the supervisor (respawn with backoff, then full-app relaunch)\n//!    and coalesce `bubble_level` events to ≤30 Hz.\n//! 5. Single-instance gate runs BEFORE any sidecar init so a second\n//!    launch doesn\'t spawn a zombie sidecar.\n//!\n//! # Cross-platform\n//!\n//! - Windows: WebView2 (Chromium-based, system-installed on Win10+).\n//! - macOS: WKWebView (Safari-based, system).\n//! - Linux: webkit2gtk (system; requires `libwebkit2gtk-4.1-0`).\n//!\n//! # Module layout\n//!\n//! Wiring-only (C-ARCH-1): app builder, plugin registration, `.setup`\n//! glue (window bootstrap → `window_bootstrap`, sidecar cold-start\n//! task → `sidecar::spa...tauri::generate_context!())\n        .unwrap_or_else(|e| {\n            eprintln!("[FATAL] tauri build failed: {e:?}");\n            log::error!("[FATAL] tauri build failed: {e:?}");\n            std::process::exi
+… (truncated)
+```
+
+### 82. `tests.test_install_permissions_gsettings.TestSwayFlow.test_appends_block_when_no_existing_line`
 
 - Legs: ubuntu-22.04-3.12, ubuntu-22.04-3.13
 - Location: `tests/test_install_permissions_gsettings.py:430`
@@ -2269,7 +2365,7 @@ tests/test_install_permissions_gsettings.py:430: in test_appends_block_when_no_e
 E   AssertionError: assert '# Voice Typer — Caps Lock neutralization' in 'set $mod Mod4\nbindsym Mod4+Return exec foot\n\n# Voice Typer. Caps Lock neutralization\ninput * xkb_options caps:none\n'
 ```
 
-### 78. `tests.test_install_permissions_gsettings.TestUninstallRestore.test_sway_restore_removes_block_when_no_prior_line`
+### 83. `tests.test_install_permissions_gsettings.TestUninstallRestore.test_sway_restore_removes_block_when_no_prior_line`
 
 - Legs: ubuntu-22.04-3.12, ubuntu-22.04-3.13
 - Location: `tests/test_install_permissions_gsettings.py:607`
@@ -2278,7 +2374,7 @@ E   AssertionError: assert '# Voice Typer — Caps Lock neutralization' in 'set 
 bindsym Mod4+Return exec foot
 
 AssertionError: assert '# Voice Typ...utralization' not in 'set $mod Mo... exec foot\n'
-
+  
   '# Voice Typer — Caps Lock neutralization' is contained here:
     set $mod Mod4
     # Voice Typer — Caps Lock neutralization
@@ -2286,49 +2382,43 @@ AssertionError: assert '# Voice Typ...utralization' not in 'set $mod Mo... exec 
 tests/test_install_permissions_gsettings.py:607: in test_sway_restore_removes_block_when_no_prior_line
     assert "# Voice Typer — Caps Lock neutralization" not in new_text
 E   AssertionError: assert '# Voice Typ...utralization' not in 'set $mod Mo... exec foot\n'
-E
+E     
 E     '# Voice Typer — Caps Lock neutralization' is contained here:
 E       set $mod Mod4
 E       # Voice Typer — Caps Lock neutralization
 E       bindsym Mod4+Return exec foot
 ```
 
-### 79. `tests.test_mic_test_quality_grading.TestPersistFailureEnvelope.test_write_failure_returns_quality_without_raising`
+### 84. `tests.test_mic_test_quality_grading.TestNoiseFloorGrading.test_sustained_voice_caps_noise_at_moderate`
 
 - Legs: ubuntu-22.04-3.13
-- Location: `tests/test_mic_test_quality_grading.py:291`
+- Location: `tests/test_mic_test_quality_grading.py:108`
 
 ```
-+ very_low
+assert False is True
 
-AssertionError: assert 'very_low' == 'good'
-
-  - good
-  + very_low
-tests/test_mic_test_quality_grading.py:291: in test_write_failure_returns_quality_without_raising
-    assert result["quality"]["volume_level"] == "good"
-E   AssertionError: assert 'very_low' == 'good'
-E
-E     - good
-E     + very_low
+assert False is True
+tests/test_mic_test_quality_grading.py:108: in test_sustained_voice_caps_noise_at_moderate
+    assert quality["has_voice"] is True
+E   assert False is True
 ```
 
-### 80. `tests.app.test_lifecycle.TestMainWrapsIpcMain.test_main_logs_and_exits_when_ipc_main_raises`
+### 85. `tests.app.test_lifecycle.TestMainWrapsIpcMain.test_main_logs_warning_when_faulthandler_enable_raises`
 
 - Legs: windows-2022-3.10
-- Location: `tests/app/test_lifecycle.py:1606`
+- Location: `tests/app/test_lifecycle.py:1690`
 
 ```
 ImportError: cannot import name 'NotRequired' from 'typing' (C:\hostedtoolcache\windows\Python\3.10.11\x64\lib\typing.py)
 
 ImportError: cannot import name 'NotRequired' from 'typing' (C:\hostedtoolcache\windows\Python\3.10.11\x64\lib\typing.py)
-tests\app\test_lifecycle.py:1606: in test_main_logs_and_exits_when_ipc_main_raises
+tests\app\test_lifecycle.py:1690: in test_main_logs_warning_when_faulthandler_enable_raises
     import voice_typer.server.ipc_server as ipc_server_module
 voice_typer\server\ipc_server.py:304: in <module>
     from voice_typer.server.handlers.vocabulary_handlers import VocabularyHandlersMixin  # noqa: E402
 voice_typer\server\handlers\__init__.py:61: in <module>
     from voice_typer.server.handlers.vocabulary_handlers import VocabularyHandlersMixin
-voice_typer\server\handlers\vocabulary_handlers.py:16: in <module>
+voice_typer\server\handlers\vocabulary_handlers.py:17: in <module>
     from voice_typer.server.service.vocabulary import VocabularyDuplicateError
 voice_typer\server\service\__init__.py:42: in <module>
     from voice_typer.server.service.model import _MODEL_STATUS_CACHE_TTL_S, ModelMixin
@@ -2343,32 +2433,14 @@ voice_typer\server\service\_download_helpers.py:39: in <module>
 E   ImportError: cannot import name 'NotRequired' from 'typing' (C:\hostedtoolcache\windows\Python\3.10.11\x64\lib\typing.py)
 ```
 
-### 81. `tests.app.test_lifecycle.TestMainWrapsIpcMain.test_main_logs_warning_when_faulthandler_import_fails`
+### 86. `tests.app.test_config_wiring.TestSettingsWindowIntegration.test_restart_app_does_not_spawn_subprocess`
 
-- Legs: windows-2022-3.10
-- Location: `tests/app/test_lifecycle.py:1721`
+- Legs: windows-2022-3.11
+- Location: `tests/app/test_config_wiring.py:369`
 
 ```
-ImportError: cannot import name 'NotRequired' from 'typing' (C:\hostedtoolcache\windows\Python\3.10.11\x64\lib\typing.py)
+#x1B[92m+ ]#x1B[39;49;00m#x1B[90m#x1B[39;49;00m
 
-ImportError: cannot import name 'NotRequired' from 'typing' (C:\hostedtoolcache\windows\Python\3.10.11\x64\lib\typing.py)
-tests\app\test_lifecycle.py:1721: in test_main_logs_warning_when_faulthandler_import_fails
-    import voice_typer.server.ipc_server as ipc_server_module
-voice_typer\server\ipc_server.py:304: in <module>
-    from voice_typer.server.handlers.vocabulary_handlers import VocabularyHandlersMixin  # noqa: E402
-voice_typer\server\handlers\__init__.py:61: in <module>
-    from voice_typer.server.handlers.vocabulary_handlers import VocabularyHandlersMixin
-voice_typer\server\handlers\vocabulary_handlers.py:16: in <module>
-    from voice_typer.server.service.vocabulary import VocabularyDuplicateError
-voice_typer\server\service\__init__.py:42: in <module>
-    from voice_typer.server.service.model import _MODEL_STATUS_CACHE_TTL_S, ModelMixin
-voice_typer\server\service\model\__init__.py:7: in <module>
-    from .mixin import ModelMixin
-voice_typer\server\service\model\mixin.py:7: in <module>
-    from ._downloads import DownloadsMixin
-voice_typer\server\service\model\_downloads.py:11: in <module>
-    from voice_typer.server.service._download_helpers import DownloadOutcome
-voice_typer\server\service\_download_helpers.py:39: in <module>
-    from typing import NotRequired, TypedDict
-E   ImportError: cannot import name 'NotRequired' from 'typing' (C:\hostedtoolcache\windows\Python\3.10.11\x64\lib\typing.py)
+AssertionError: restart_app must NOT spawn a replacement backend/Electron subprocess (port-race); got: [((['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', 'Add-Type -TypeDefinition @\'\nusing System;\nusing System.Runtime.InteropServices;\nusing System.Text;\npublic static class LnkAumid {\n    [ComImport, Guid("00021401-0000-0000-C000-000000000046")]\n    private class CShellLink { }\n    [ComImport, Guid("000214F9-0000-0000-C000-000000000046"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]\n    private interface IShellLinkW {\n        void GetPath([Out, MarshalAs(UnmanagedType.LPWStr)] StringBuilder pszFile, int cchMaxPath, IntPtr pfd, uint fFlags);\n        void GetIDList(out IntPtr ppidl);\n        void SetIDList(IntPtr pidl);\n        void GetDescription([Out, MarshalAs(UnmanagedType.LPWStr)] StringBuilder pszName, int cchMaxName);\n        void SetDescription([MarshalAs(UnmanagedType.LPWStr)] string pszName);\n        void GetWorkingDirectory([Out, MarshalAs(UnmanagedType.LPWStr)] StringBuilder pszDir, int cchMaxPath);\n        void SetWorkingDirectory([MarshalAs(UnmanagedType.LPWStr)] string pszDir);\n        void GetArguments([Out, MarshalAs(UnmanagedType.LPWStr)] StringBuilder pszArgs, int cchMaxPath);\n        void SetArguments([MarshalAs(UnmanagedType.LPWStr)] string pszArgs);\n        void GetHotkey(out short pwHotkey);\n        void SetHotkey(short wHotkey);\n        void GetShowCmd(out int piShowCmd);\n        void SetShowCmd(int iShowCmd);\n        void GetIconLocation([Out, MarshalAs(UnmanagedType.LPWStr)] StringBuilder pszIconPath, int cchIconPath, out int piIcon);\n        void SetIconLocation([MarshalAs(UnmanagedType.LPWStr)] string pszIconPath, int iIcon);\n        void SetRelativePath([MarshalAs(UnmanagedType.LPWStr)] string pszPathRel, int dwReserved);\n        void Resolve(IntPtr hwnd, uint fFlags);\n        void SetPath([MarshalAs(UnmanagedType.LPWStr)] string pszFile);\n    }\n    [ComImport, Guid("0000010B-0000-0000-C000-000000000046"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]\n    private interface IPersistFile {\n        void GetClassID(out Guid pClassID);\n        int IsDirty();\n        void Load([MarshalAs(UnmanagedType.LPWStr)] string pszFileName, int dwMode);\n        void Save([MarshalAs(UnmanagedType.LPWStr)] string pszFileName, [MarshalAs(UnmanagedType.Bool)] bool fRemember);\n        void SaveCompleted([MarshalAs(UnmanagedType.LPWStr)] string pszFileName);\n        void GetCurFile(out IntPtr ppszFileName);\n    }\n    [ComImport, Guid("886d8eeb-8cf2-4446-8d02-cdba1dbdcf99"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]\n    private interface IPropertyStore {\n        [PreserveSig] int GetCount(out uint cProps);\n        [PreserveSig] int GetAt(uint iProp, out PROPERTYKEY pkey);\n        [PreserveSig] int GetValue(ref PROPERTYKEY key, out PROPVARIANT pv);\n        [PreserveSig] int SetValue(ref PROPERTYKEY key, ref PROPVARIANT pv);\n        [PreserveSig] int Commit();\n    }\n    [StructLayout(LayoutKind.Sequential)]\n    private struct PROPERTYKEY { public Guid fmtid; public int pid; }\n    [StructLayout(LayoutKind.Sequential)]\n    private struct PROPVARIANT {\n        public ushort vt;\n        public ushort wReserved1, wReserved2, wReserved3;\n        public IntPtr p;\n    }\n    public static int Set(string path, string target, string arguments, string workingDir, string description, string iconPath, string aumid) {\n        object link = new CShellLink();\n        IShellLinkW sl = (IShellLinkW)link;\n        sl.SetPath(target);\n        if (!string.IsNullOrEmpty(arguments)) sl.SetArguments(arguments);\n        if (!string.IsNullOrEmpty(workingDir)) sl.SetWorkingDirectory(workingDir);\n        if (!string.IsNullOrEmpty(description)) sl.SetDescription(description);\n        if (!string.IsNullOrEmpty(iconPath)) sl.SetIconLocation(iconPath, 0);\n        IPropertyStore ps = (IPropertyStore)link
+… (truncated)
 ```
