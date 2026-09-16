@@ -15,6 +15,11 @@
  *   never the thinner focus-visible:ring-1.
  */
 
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { cleanup, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { SearchField } from "@/components/common/SearchField";
 import ar from "@/i18n/translations/ar.json";
 import de from "@/i18n/translations/de.json";
@@ -26,11 +31,6 @@ import ru from "@/i18n/translations/ru.json";
 import zh from "@/i18n/translations/zh.json";
 import { MicToggleButton } from "@/pages/home/components/MicToggleButton";
 import { HEADING_CLASS } from "@/pages/onboarding/lib/constants";
-import { cleanup, render, screen } from "@testing-library/react";
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
-import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@hugeicons/react", () => ({
 	HugeiconsIcon: () => <span data-testid="hugeicon" />,
@@ -134,7 +134,7 @@ describe("focus-ring migration ring-1 → ring-1(C-FOCUS-2/5)", () => {
 				isRecording={false}
 				toggling={false}
 				disabled={false}
-				onClick={() => { }}
+				onClick={() => {}}
 				label="Start dictation"
 			/>,
 		);
@@ -152,7 +152,7 @@ describe("focus-ring migration ring-1 → ring-1(C-FOCUS-2/5)", () => {
 				isRecording={false}
 				toggling={false}
 				disabled={false}
-				onClick={() => { }}
+				onClick={() => {}}
 				label="Start dictation"
 				error
 			/>,
@@ -165,7 +165,7 @@ describe("focus-ring migration ring-1 → ring-1(C-FOCUS-2/5)", () => {
 	});
 
 	it("SearchField clear button uses focus-visible:ring-1(not ring-1)", () => {
-		render(<SearchField value="hello" onChange={() => { }} />);
+		render(<SearchField value="hello" onChange={() => {}} />);
 		const clearBtn = screen.getByRole("button", { name: /clear search/i });
 		const cls = clearBtn.className;
 		expect(cls).toContain("focus-visible:ring-1");

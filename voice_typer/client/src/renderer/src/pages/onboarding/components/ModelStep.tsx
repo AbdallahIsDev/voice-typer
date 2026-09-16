@@ -1,3 +1,4 @@
+import type { Ref } from "react";
 import { InfoTooltip } from "@/components/feedback/InfoTooltip";
 import { FamilyLogo } from "@/components/models/FamilyLogo";
 import {
@@ -20,7 +21,6 @@ import {
 import { t } from "@/i18n/i18n";
 import { formatVram } from "@/lib/format";
 import { formatModelSpeed } from "@/lib/utils/models";
-import type { Ref } from "react";
 import type { BackendChoice } from "../hooks/useOnboardingWizard";
 import { HEADING_CLASS } from "../lib/constants";
 import type { ModelOption } from "../lib/types";

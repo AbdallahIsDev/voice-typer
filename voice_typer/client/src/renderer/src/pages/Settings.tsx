@@ -1,8 +1,3 @@
-import ConfirmDialog from "@/components/common/ConfirmDialog";
-import PageHeading from "@/components/common/PageHeading";
-import { EmptyState } from "@/components/feedback/EmptyState";
-import { HelpOverlay } from "@/components/help/HelpOverlay";
-import { configHotkeyLabels } from "@/components/hotkey/hotkey-format";
 import {
 	AlertCircleIcon,
 	ArrowLeft01Icon,
@@ -10,6 +5,11 @@ import {
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import ConfirmDialog from "@/components/common/ConfirmDialog";
+import PageHeading from "@/components/common/PageHeading";
+import { EmptyState } from "@/components/feedback/EmptyState";
+import { HelpOverlay } from "@/components/help/HelpOverlay";
+import { configHotkeyLabels } from "@/components/hotkey/hotkey-format";
 // amber banner shown when the OS has not granted the
 // keyboard-monitoring (Accessibility / input-group) permission. Mirrors
 // the MicrophonePermissionBanner placement on the Microphone page.

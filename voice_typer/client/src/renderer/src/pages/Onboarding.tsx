@@ -32,11 +32,11 @@
 // wizard follows the canonical guard pattern so no setState lands after
 // unmount. The init effect lives in `./onboarding/hooks/useOnboardingWizard.ts`.
 
+import { useEffect, useRef } from "react";
 import { Spinner } from "@/components/feedback/Spinner";
 import { formatHotkey } from "@/components/hotkey/hotkey-format";
 import { Button } from "@/components/ui/button";
 import { t } from "@/i18n/i18n";
-import { useEffect, useRef } from "react";
 import ConsentStep from "./onboarding/components/ConsentStep";
 import HotkeyStep from "./onboarding/components/HotkeyStep";
 import ModelStep from "./onboarding/components/ModelStep";

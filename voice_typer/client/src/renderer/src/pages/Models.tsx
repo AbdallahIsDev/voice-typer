@@ -26,6 +26,14 @@
  *    download).
  */
 
+import {
+	AiBrain03Icon,
+	AlertCircleIcon,
+	Cancel01Icon,
+	Folder02Icon,
+} from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import ConfirmDialog from "@/components/common/ConfirmDialog";
 import PageHeading from "@/components/common/PageHeading";
 import { EmptyState } from "@/components/feedback/EmptyState";
@@ -40,14 +48,6 @@ import { useFilterState } from "@/hooks/useFilterState";
 import { useModelLifecycle } from "@/hooks/useModelLifecycle";
 import { t } from "@/i18n/i18n";
 import { getActiveFamilyId, groupModelsByFamily } from "@/lib/utils/models";
-import {
-	AiBrain03Icon,
-	AlertCircleIcon,
-	Cancel01Icon,
-	Folder02Icon,
-} from "@hugeicons/core-free-icons";
-import { HugeiconsIcon } from "@hugeicons/react";
-import { useCallback, useEffect, useMemo, useState } from "react";
 import { tabPageIndicatorClassName } from "./_tabBarStyles";
 import { ModelsSkeleton } from "./models/components/ModelsSkeleton";
 

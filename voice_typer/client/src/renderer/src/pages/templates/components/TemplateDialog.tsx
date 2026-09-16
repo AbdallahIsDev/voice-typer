@@ -105,8 +105,8 @@ export function TemplateDialog({
 		editingTemplate === null
 			? trigger.trim() !== "" || expansion.trim() !== ""
 			: trigger !== editingTemplate.trigger ||
-			expansion !== editingTemplate.expansion ||
-			matchMode !== (editingTemplate.match_mode ?? "exact");
+				expansion !== editingTemplate.expansion ||
+				matchMode !== (editingTemplate.match_mode ?? "exact");
 
 	const handleCloseIntent = (): boolean => {
 		if (!hasEdits) return true;
