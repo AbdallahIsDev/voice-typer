@@ -233,6 +233,15 @@ export function createWindowNamespace(tauri: TauriGlobal): WindowBridge {
 		// dev-tools + main-process console-forwarding path, so a
 		// failing persistence command must never crash the
 		// ErrorBoundary itself.
+		// MO-113: webview liveness heartbeat consumed by the Rust host's
+		// `platform::renderer_watchdog` (the Tauri stand-in for Electron's
+		// `child-process-gone` telemetry: no wry platform surfaces a
+		// renderer/GPU crash event, but a visible webview whose timers
+		// stopped beating is exactly the blank-window signal).
+		// Fire-and-forget: a dropped beat is invisible by design, the
+		// watchdog tolerates one missed interval before reporting.
+		heartbeat: () => tauri.core.invoke<void>("renderer_heartbeat"),
+
 		logError: (payload) =>
 			tauri.core.invoke<void>("renderer_log_error", payload).catch(() => {
 				// Best-effort: never let the persistence path
@@ -243,5 +252,119 @@ export function createWindowNamespace(tauri: TauriGlobal): WindowBridge {
 				// failing Rust command is invisible
 				// to the user (intentional, see comment above).
 			}),
+
+		// MO-120a: restart the Python sidecar from the "Lost connection"
+		// Retry escalation. Invokes the Rust `restart_sidecar` command
+		// (Electron `backend:restart` parity, `main/ipc/
+		// backend-restart-handler.ts`): process-control only, no TCP
+		// command is sent (the backend is dead by definition here). The
+		// command delegates to the supervisor's respawn path and returns
+		// the same `{ok, reason?}` envelope Electron's handler resolves,
+		// so `useConnection.ts`'s escalation branch works unchanged. The
+		// invoke itself resolves (the command maps failures into the
+		// envelope); the catch is belt-and-braces for transport-level
+		// failures so a dead host cannot produce an unhandled rejection
+		// on top of the dead backend the user is already looking at.
+		restartBackend: async () => {
+			try {
+				return await tauri.core.invoke<{
+					ok: boolean;
+					reason?: string;
+				}>("restart_sidecar");
+			} catch (e) {
+				return {
+					ok: false,
+					reason: e instanceof Error ? e.message : String(e),
+				};
+			}
+		},
+
+		// MO-121: save the share-stats PNG through the host (Electron
+		// `stats-image:save` parity). `mode: "downloads"` instant-saves
+		// to the OS Downloads folder with a non-colliding name;
+		// `mode: "saveAs"` opens the localized native save dialog
+		// (Rust `save_stats_image`, dialog title key
+		// `dialog.export.statsImage`). Without this the hook fell back
+		// to a bare anchor download, which the Tauri webview either
+		// blocks (CSP) or saves to an opaque app-internal location.
+		saveStatsImage: async (dataUrl, defaultName, mode) => {
+			try {
+				const result = await tauri.core.invoke<{
+					success: boolean;
+					canceled?: boolean;
+					path?: string;
+					error?: string;
+				}>("save_stats_image", { payload: { dataUrl, defaultName, mode } });
+				return {
+					success: Boolean(result?.success),
+					canceled: result?.canceled,
+					path: result?.path,
+					error: result?.error,
+				};
+			} catch (e) {
+				return {
+					success: false,
+					error: e instanceof Error ? e.message : String(e),
+				};
+			}
+		},
+
+		// MO-121 (deliberate omission): `copyStatsImage` has NO host
+		// command under Tauri. Image clipboard writes stay on the
+		// renderer's web-API `navigator.clipboard` path (the hook's
+		// fallback), which is not ACL-gated and needs no plugin.
+		// Registering a host command would add an image-capable
+		// clipboard dependency to the Rust host for zero functional
+		// gain (E13: no unnecessary dependencies).
+
+		// MO-118: open an https URL in the user's default browser.
+		// Replaces the renderer's `window.open(url, "_blank")` calls,
+		// which the Tauri webview either blocks (CSP `default-src
+		// 'self'`) or traps inside the app. The Rust
+		// `open_external_url_command` enforces the SAME https-only policy
+		// as Electron's `input-nav-guard.ts` and returns the shared
+		// `{success, error?}` envelope.
+		openExternalUrl: async (url: string) => {
+			try {
+				const result = await tauri.core.invoke<{
+					success: boolean;
+					error?: string;
+				}>("open_external_url_command", { url });
+				return {
+					success: Boolean(result?.success),
+					error: result?.error,
+				};
+			} catch (e) {
+				return {
+					success: false,
+					error: e instanceof Error ? e.message : String(e),
+				};
+			}
+		},
+
+		// MO-120b: reveal a saved file in the OS file manager (Analytics
+		// share-image "Show in folder"). Invokes the Rust
+		// `reveal_path_command` (`shell.showItemInFolder` parity:
+		// `explorer /select,` on Windows, `open -R` on macOS, the parent
+		// dir on Linux). Missing paths surface as `success: false` with a
+		// message instead of the silent no-op the optional-bridge gap
+		// used to produce.
+		revealStatsImage: async (filePath: string) => {
+			try {
+				const result = await tauri.core.invoke<{
+					success: boolean;
+					error?: string;
+				}>("reveal_path_command", { path: filePath });
+				return {
+					success: Boolean(result?.success),
+					error: result?.error,
+				};
+			} catch (e) {
+				return {
+					success: false,
+					error: e instanceof Error ? e.message : String(e),
+				};
+			}
+		},
 	};
 }

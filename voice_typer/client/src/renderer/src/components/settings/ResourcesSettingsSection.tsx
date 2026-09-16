@@ -28,6 +28,7 @@ import {
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { memo } from "react";
+import { ExternalLink } from "@/components/common/ExternalLink";
 import { SettingsSection } from "@/components/common/SettingsSection";
 import { Button } from "@/components/ui/button";
 import { t } from "@/i18n/i18n";
@@ -121,7 +122,11 @@ export const ResourcesSettingsSection = memo(function ResourcesSettingsSection({
 								"w-full justify-start gap-2 text-(--text-muted) hover:text-(--text-primary)",
 							)}
 						>
-							<a href={link.href} target="_blank" rel="noreferrer noopener">
+							{/* A real anchor (role=link, copy-link, middle-click),
+							    activating it through the shared host opener so the
+							    Tauri webview never traps the page in the app
+							    (MO-118, C-TAURI-2). */}
+							<ExternalLink href={link.href}>
 								<HugeiconsIcon
 									icon={link.icon}
 									strokeWidth={2}
@@ -137,7 +142,7 @@ export const ResourcesSettingsSection = memo(function ResourcesSettingsSection({
 									aria-hidden="true"
 									className="size-3 shrink-0 opacity-60"
 								/>
-							</a>
+							</ExternalLink>
 						</Button>
 					) : null,
 				)}

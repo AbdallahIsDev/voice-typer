@@ -20,6 +20,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+	_payloadForTests,
+	_persistForTests,
 	_resetGlobalErrorHandlerStateForTests,
 	installGlobalErrorHandlers,
 } from "@/lib/globalErrorHandler";
@@ -225,5 +227,97 @@ describe("G4-CR-10: installed listener logs to console.error", () => {
 		expect(consoleErrorSpy).toHaveBeenCalled();
 		const firstCallArg = String(consoleErrorSpy.mock.calls[0]?.[0] ?? "");
 		expect(firstCallArg).toContain("[renderer:globalErrorHandler]");
+	});
+});
+
+/**
+ * MO-102: generic crashes must be FORWARDED to the host log via
+ * `window.window_.logError` (the sink React's ErrorBoundary already
+ * uses). Under Tauri there is no main-process console tee, so this is
+ * the only file-persistence path for errors outside React's boundary.
+ *
+ * The tests stub the module's `_persistForTests.persist` seam (the real
+ * function reads the bridge off `window.window_`, which jsdom does not
+ * install) and assert both listeners forward their event, with the
+ * ErrorEvent's structured location info.
+ */
+describe("MO-102: global handler persists crashes via logError", () => {
+	let persistSpy: ReturnType<typeof vi.spyOn>;
+
+	beforeEach(() => {
+		_resetGlobalErrorHandlerStateForTests();
+		persistSpy = vi
+			.spyOn(_persistForTests, "persist")
+			.mockImplementation(() => {});
+	});
+
+	afterEach(() => {
+		persistSpy.mockRestore();
+		_resetGlobalErrorHandlerStateForTests();
+	});
+
+	it("forwards synchronous 'error' events with kind + message + source event", () => {
+		installGlobalErrorHandlers();
+		const event = new ErrorEvent("error", {
+			error: new Error("persist-me"),
+			message: "persist-me",
+			filename: "App.tsx",
+			lineno: 42,
+			colno: 7,
+		});
+		window.dispatchEvent(event);
+		expect(persistSpy).toHaveBeenCalledTimes(1);
+		const [kind, detail, source] = persistSpy.mock.calls[0] as [
+			string,
+			unknown,
+			unknown,
+		];
+		expect(kind).toBe("error");
+		expect((detail as Error).message).toBe("persist-me");
+		// The ErrorEvent is passed as the SOURCE: filename/lineno/colno
+		// live on the event, never on `event.error`, so the payload
+		// builder needs it to emit `location`.
+		expect(source).toBe(event);
+	});
+
+	it("builds a payload carrying the ErrorEvent's file:line:col location", () => {
+		// The real payload shape (what the Rust `renderer_log_error`
+		// command renders into `(src=file:line:col)`), asserted directly
+		// on the pure builder so the wire contract is pinned even
+		// without a bridge.
+		const event = new ErrorEvent("error", {
+			error: new Error("boom"),
+			message: "boom",
+			filename: "App.tsx",
+			lineno: 42,
+			colno: 7,
+		});
+		const payload = _payloadForTests.build("error", event.error, event);
+		expect(payload.kind).toBe("error");
+		expect(payload.message).toBe("boom");
+		expect(payload.stack).toContain("boom");
+		expect(payload.location).toEqual({ file: "App.tsx", line: 42, column: 7 });
+	});
+
+	it("omits location for sources without a filename (rejections, strings)", () => {
+		expect(
+			_payloadForTests.build("unhandledrejection", new Error("x")).location,
+		).toBe(undefined);
+		expect(
+			_payloadForTests.build("error", "plain string", { lineno: 3 }).location,
+		).toBeUndefined();
+	});
+
+	it("forwards 'unhandledrejection' reasons with kind 'unhandledrejection'", () => {
+		installGlobalErrorHandlers();
+		const event = new PromiseRejectionEvent("unhandledrejection", {
+			promise: Promise.resolve(),
+			reason: new Error("rejected-persist"),
+		});
+		window.dispatchEvent(event);
+		expect(persistSpy).toHaveBeenCalledTimes(1);
+		const [kind, detail] = persistSpy.mock.calls[0] as [string, unknown];
+		expect(kind).toBe("unhandledrejection");
+		expect((detail as Error).message).toBe("rejected-persist");
 	});
 });

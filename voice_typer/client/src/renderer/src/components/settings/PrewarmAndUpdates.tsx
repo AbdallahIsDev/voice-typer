@@ -37,6 +37,7 @@
 import { RefreshIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useEffect, useState } from "react";
+import { ExternalLink } from "@/components/common/ExternalLink";
 import { ReadonlyRow } from "@/components/common/ReadonlyRow";
 import { SettingsSection } from "@/components/common/SettingsSection";
 // Reuse the byte/relative-time formatters exported by the diagnostics
@@ -429,23 +430,25 @@ export default function PrewarmAndUpdates({
 						<p className="text-sm text-(--text-muted) me-auto">
 							{t("about.offlineUpdatesMessage")}
 						</p>
-						{/* "View Changelog", an `<a href>` link the user
-                                                clicks to open the GitHub releases page in their
-                                                browser. This is NOT a renderer network call: it's
-                                                an anchor the user explicitly activates, routed by
-                                                Electron to the system browser (or a new
-                                                BrowserWindow). C-DATA-1 forbids automated network
-                                                calls; user-clicked external links are the user's
-                                                browser making the call, not Voice Typer. */}
+						{/* "View Changelog", a real `<a href>` link to the
+                                                GitHub releases page. This is NOT a renderer
+                                                network call: it's a user-activated OS-browser
+                                                navigation (MO-118: the shared `ExternalLink`
+                                                routes the activation through the host opener so
+                                                the Tauri webview doesn't trap the page inside the
+                                                app, while keeping the anchor semantics). C-DATA-1
+                                                forbids automated network calls; user-clicked
+                                                external links are the user's browser making the
+                                                call, not Voice Typer. */}
 						<Button asChild variant="ghost" size="sm">
-							<a href={RELEASES_URL} target="_blank" rel="noreferrer noopener">
+							<ExternalLink href={RELEASES_URL}>
 								<HugeiconsIcon
 									icon={RefreshIcon}
 									strokeWidth={2}
 									className="h-4 w-4"
 								/>
 								{t("about.viewChangelog")}
-							</a>
+							</ExternalLink>
 						</Button>
 					</div>
 				</SettingsSection>

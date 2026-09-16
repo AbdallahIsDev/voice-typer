@@ -1,6 +1,7 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { ErrorBoundary } from "@/components/feedback/ErrorBoundary";
+import { installConsoleCapture } from "@/lib/console-capture";
 import { installGlobalErrorHandlers } from "@/lib/globalErrorHandler";
 import App from "./App";
 import { ensureTauriBridgeInstalled } from "./lib/tauri-bridge/ensure";
@@ -37,6 +38,15 @@ await ensureTauriBridgeInstalled();
 // if the `<Toaster />` hasn't mounted yet, see lib/globalErrorHandler.ts
 // for the defensive guard).
 installGlobalErrorHandlers();
+
+// MO-105: console capture. Under Electron the main process listened to
+// each webview's `console-message` and routed WARN/ERROR into the host
+// log; Tauri has no such listener, so `console.warn` / `console.error`
+// from UI code that never reached React's boundary left no trace in
+// `voice-typer-rust.log`. INFO/DEBUG stay out of the file (the host file
+// is WARN-only by default, MO-114) and the forwarding volume is
+// token-bucketed inside the module.
+installConsoleCapture();
 
 //(fix): explicit null check instead of `!` non-null assertion.
 // If the root element is missing, fail loudly with a clear error message

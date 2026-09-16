@@ -57,11 +57,28 @@ export interface WindowBridge {
 	// write to userData directly, only the main process can.
 	// Optional so the Tauri bridge (which has no main-process file
 	// system access) can omit it without breaking the type contract.
+	// MO-113: webview liveness beacon. The Rust host's
+	// `renderer_heartbeat` command stamps the receipt; the watchdog
+	// reports a stall when beats stop while the main window is visible.
+	heartbeat?: () => Promise<void>;
 	logError?: (payload: {
 		kind: string;
+		// `level` selects the log level on both runtimes (`"warn"` →
+		// the WARN line, anything else → ERROR, the fail-loud default).
+		// The console capture (MO-105) passes the captured method's own
+		// name; the Rust `renderer_log_error` command and the Electron
+		// `renderer:log-error` handler both route on it, so a captured
+		// `console.warn` is never promoted to an error.
+		level?: string;
 		stack?: string;
 		componentStack?: string;
 		message?: string;
+		// Source position for a window `error` event
+		// (`{file, line, column}`), forwarded by the shared
+		// `globalErrorHandler` (MO-102) and rendered into the
+		// `[renderer-error]` line's `(src=file:line:col)` suffix by the
+		// Rust `renderer_log_error` command.
+		location?: { file: string; line?: number; column?: number };
 	}) => Promise<void>;
 	//native folder picker for HuggingFace model imports. Was
 	// missing from the type, Models.tsx accessed it via a runtime cast.
@@ -84,9 +101,10 @@ export interface WindowBridge {
 	setLocale?: (locale: string) => Promise<unknown>;
 	//Restart the Python backend process only (Electron stays alive).
 	// Used by the "Lost connection" Retry escalation AFTER a plain
-	// reconnect probe fails. Optional because the Tauri bridge has no
-	// main-process spawn surface (Tauri's Rust host owns the backend
-	// lifecycle there). Electron preload always installs it.
+	// reconnect probe fails. Electron preload always installs it; the
+	// Tauri bridge installs it too since MO-120a (`restart_sidecar`
+	// command = Electron's `backend:restart` IPC handler parity), so
+	// one-click backend recovery works on both runtimes.
 	restartBackend?: () => Promise<{
 		ok: boolean;
 		reason?: string;
@@ -94,12 +112,15 @@ export interface WindowBridge {
 	// Share-stats image platform operations. The renderer captures the
 	// PNG data URL itself; these bridge to the Electron main process for
 	// filesystem / clipboard / shell access a sandboxed renderer cannot
-	// use. Optional because the Tauri bridge does not implement them yet
-	// (the renderer falls back to an anchor download there).
+	// use. Optional (the anchor-download / navigator.clipboard fallbacks
+	// stay for runtimes that omit them):
 	//   - saveStatsImage: mode "downloads" = instant save to the OS
 	//     Downloads folder (no dialog); mode "saveAs" = native save dialog.
 	//   - copyStatsImage: put the PNG on the OS clipboard.
 	//   - revealStatsImage: reveal a saved PNG in the OS file manager.
+	//     Since MO-120b the Tauri bridge installs it too
+	//     (`reveal_path_command` = Electron's `shell.showItemInFolder`),
+	//     so the previously-silent "Show in folder" button works there.
 	saveStatsImage?: (
 		dataUrl: string,
 		defaultName: string,
@@ -115,6 +136,17 @@ export interface WindowBridge {
 		error?: string;
 	}>;
 	revealStatsImage?: (filePath: string) => Promise<{
+		success: boolean;
+		error?: string;
+	}>;
+	// MO-118: open an https URL in the user's default browser. The
+	// replacement for the renderer's bare `window.open(url, "_blank")`
+	// / `target="_blank"` anchors, which are blocked or trapped under
+	// Tauri (CSP `default-src 'self'`, `plugins.shell.open = false` per
+	// C-TAURI-2). The host enforces the SAME https-only policy as
+	// Electron's `input-nav-guard.ts` (deny rest). Optional: the
+	// sandboxed bubble window does not install the namespace.
+	openExternalUrl?: (url: string) => Promise<{
 		success: boolean;
 		error?: string;
 	}>;

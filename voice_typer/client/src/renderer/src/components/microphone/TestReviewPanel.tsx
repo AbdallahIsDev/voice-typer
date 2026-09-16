@@ -174,7 +174,10 @@ export function TestReviewPanel({
 	if (!testAudioBase64 && !rawAudioBase64 && !hasVerdict) return null;
 
 	return (
-		<div className="mt-4 flex flex-col gap-4 rounded-xl border border-border/10 bg-(--bg-subtle) p-4">
+		// Spacing contract: the only production parent (`ActiveMicrophoneCard`)
+		// is a `flex flex-col gap-3` stack that owns inter-child spacing, so this
+		// panel carries no top margin of its own.
+		<div className="flex flex-col gap-4 rounded-xl border border-border/10 bg-(--bg-subtle) p-4">
 			{/* Standard card surface (C-MIC-6): subtle bg + card border,
 			    no tint. Spacing is parent gap only (C-UI-10). */}
 			{/* Header */}

@@ -103,6 +103,24 @@ export function scrubComponentStackPii(s: string): string {
 	);
 }
 
+/**
+ * Normalize a renderer-supplied level name to the canonical short log
+ * label (C-LOG-1: `DEBUG`/`INFO`/`WARN`/`ERROR`/`CRITICAL`).
+ *
+ * Only `warn`/`warning` (case/whitespace-insensitive) map to `WARN`;
+ * everything else, including an absent or non-string value, maps to
+ * `ERROR`. That fail-loud default is deliberate and matches the Rust
+ * `renderer_log_error` command's `parse_renderer_level`, so the two
+ * runtimes classify the same payload identically (MO-105/106 parity).
+ *
+ * Exported so unit tests can exercise it directly.
+ */
+export function normalizeRendererLogLevel(raw: unknown): "WARN" | "ERROR" {
+	if (typeof raw !== "string") return "ERROR";
+	const normalized = raw.trim().toLowerCase();
+	return normalized === "warn" || normalized === "warning" ? "WARN" : "ERROR";
+}
+
 export function registerWindowHandlers(): void {
 	// Idempotent registration: removeHandler is a no-op if no handler
 	// is registered for the channel. Optional chaining tolerates test
@@ -263,6 +281,12 @@ export function registerWindowHandlers(): void {
 			_event,
 			payload: {
 				kind?: unknown;
+				// Optional level name (`"warn"` / `"warning"` → WARN,
+				// anything else → ERROR). The Rust `renderer_log_error`
+				// command routes on the same field, so the two runtimes
+				// classify a captured `console.warn` identically
+				// (MO-105 parity). Absent → ERROR, the fail-loud default.
+				level?: unknown;
 				stack?: unknown;
 				componentStack?: unknown;
 				message?: unknown;
@@ -271,6 +295,7 @@ export function registerWindowHandlers(): void {
 			try {
 				const kind =
 					typeof payload?.kind === "string" ? payload.kind : "unknown";
+				const level = normalizeRendererLogLevel(payload?.level);
 				const message =
 					typeof payload?.message === "string" ? payload.message : "";
 				const stack = typeof payload?.stack === "string" ? payload.stack : "";
@@ -278,7 +303,7 @@ export function registerWindowHandlers(): void {
 					typeof payload?.componentStack === "string"
 						? scrubComponentStackPii(payload.componentStack)
 						: "";
-				const line = `${fileTimestamp()}  ERROR  [renderer-error:${kind}] ${message}\n${
+				const line = `${fileTimestamp()}  ${level}  [renderer-error${level === "WARN" ? "-warn" : ""}:${kind}] ${message}\n${
 					stack ? `  stack: ${stack.replace(/\n/g, "\n    ")}\n` : ""
 				}${
 					componentStack

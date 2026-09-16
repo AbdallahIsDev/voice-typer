@@ -33,6 +33,7 @@ import { useOnboardingRouteGuard } from "@/hooks/useOnboardingRouteGuard";
 import { usePasteDeferredToast } from "@/hooks/usePasteDeferredToast";
 import { usePasteFailedToast } from "@/hooks/usePasteFailedToast";
 import { usePython } from "@/hooks/usePython";
+import { useRendererHeartbeat } from "@/hooks/useRendererHeartbeat";
 import { useRouteChangeFocus } from "@/hooks/useRouteChangeFocus";
 import { useSidebarAutoCollapse } from "@/hooks/useSidebarAutoCollapse";
 import { useSoundFeedback } from "@/hooks/useSoundFeedback";
@@ -228,6 +229,9 @@ export default function App() {
 	// are extracted to `useNavigateEvent`, the entry file stays
 	// wiring-only.
 	useNavigateEvent({ navigate });
+	// MO-113: webview liveness beacon for the host's watchdog (the Tauri
+	// stand-in for Electron's `child-process-gone` telemetry).
+	useRendererHeartbeat();
 
 	// paste_failed toast, extracted to `usePasteFailedToast`.
 	usePasteFailedToast(t);

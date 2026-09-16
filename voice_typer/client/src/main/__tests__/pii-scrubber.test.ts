@@ -89,3 +89,35 @@ describe("DE-85: scrubComponentStackPii strips prop values from componentStack",
 		expect(out).toContain("[scrubbed]");
 	});
 });
+
+/**
+ * MO-105/MO-106 parity: the renderer's log level must be classified the
+ * same way by BOTH runtimes. The Rust `renderer_log_error` command
+ * (`parse_renderer_level`) is the reference: `warn`/`warning` → WARN,
+ * everything else (including absent) → ERROR.
+ */
+describe("normalizeRendererLogLevel maps the renderer level like the Rust command", () => {
+	let normalize: (raw: unknown) => "WARN" | "ERROR";
+
+	beforeEach(async () => {
+		vi.resetModules();
+		const mod = await import("../ipc/window-handlers");
+		normalize = mod.normalizeRendererLogLevel;
+	});
+
+	it("maps warn/warning (any case, padded) to WARN", () => {
+		expect(normalize("warn")).toBe("WARN");
+		expect(normalize("warning")).toBe("WARN");
+		expect(normalize(" WARNING ")).toBe("WARN");
+		expect(normalize("Warn")).toBe("WARN");
+	});
+
+	it("fails loud: unknown, empty and absent levels stay ERROR", () => {
+		expect(normalize("error")).toBe("ERROR");
+		expect(normalize("verbose")).toBe("ERROR");
+		expect(normalize("")).toBe("ERROR");
+		expect(normalize(undefined)).toBe("ERROR");
+		expect(normalize(null)).toBe("ERROR");
+		expect(normalize(3)).toBe("ERROR");
+	});
+});

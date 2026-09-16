@@ -170,10 +170,13 @@ describe("TestReviewPanel result-card redesign (declutter)", () => {
 		// The card root is the standard design-system surface
 		// (rounded-xl + card border + subtle bg). The legacy
 		// primary-tinted surface (border-primary/20 bg-primary/5)
-		// must not return.
+		// must not return. Anchor on the surface class rather than a
+		// spacing utility: the card is rendered as a child of the
+		// parent's `flex flex-col gap-3` stack, which owns inter-child
+		// spacing, so the root itself carries no margin.
 		const card = screen
 			.getByText(enText("microphoneTest.title"))
-			.closest("div.mt-4");
+			.closest("div.rounded-xl");
 		expect(card).toBeTruthy();
 		expect(card?.className).toContain("rounded-xl");
 		expect(card?.className).toContain("bg-(--bg-subtle)");

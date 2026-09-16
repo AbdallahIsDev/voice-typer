@@ -31,9 +31,15 @@
  * running), that would be wrong, because most commands correctly use
  * the 15s timeout. It only asserts the forward direction.
  */
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { ALLOWED_COMMANDS } from "../allowed-commands";
-import { _LONG_RUNNING_COMMANDS_FOR_TEST } from "../python/send-to-python";
+import { IPC_TIMEOUT_DOWNLOAD_MS } from "../constants";
+import {
+	_DOWNLOAD_COMMANDS_FOR_TEST,
+	_LONG_RUNNING_COMMANDS_FOR_TEST,
+} from "../python/send-to-python";
 
 describe("YJ-35: _LONG_RUNNING_COMMANDS entries are all in ALLOWED_COMMANDS (parity)", () => {
 	it("every long-running command is also an allowed command", () => {
@@ -73,5 +79,80 @@ describe("YJ-35: _LONG_RUNNING_COMMANDS entries are all in ALLOWED_COMMANDS (par
 		expect(_LONG_RUNNING_COMMANDS_FOR_TEST.has("cancel_download")).toBe(false);
 		expect(_LONG_RUNNING_COMMANDS_FOR_TEST.has("pause_download")).toBe(false);
 		expect(_LONG_RUNNING_COMMANDS_FOR_TEST.has("transcribe_audio")).toBe(false);
+	});
+});
+
+/**
+ * MO-116 parity: the download-scale timeout must agree between the two
+ * hosts, and the command set it applies to must be the same one.
+ *
+ * The divergences this pins:
+ *   - Electron timed out download/import at 120s while Tauri allowed 1 h,
+ *     so the same slow download failed on one shell and succeeded on the
+ *     other over an in-flight transfer.
+ *   - A future edit to either side's download list (or to the Rust
+ *     constant) would silently reintroduce it; the Rust source is read
+ *     directly here, so the two files must be changed together.
+ */
+describe("MO-116: download-scale dispatch timeout parity (TS <-> Rust)", () => {
+	const dispatchRs = readFileSync(
+		resolve(
+			__dirname,
+			"../../../../../src-tauri/src/commands/sidecar_cmds/dispatch.rs",
+		),
+		"utf8",
+	);
+	const utilRs = readFileSync(
+		resolve(__dirname, "../../../../../src-tauri/src/util.rs"),
+		"utf8",
+	);
+
+	/**
+	 * Extract the string entries of a Rust `const NAME: &[&str] = &[...];`.
+	 *
+	 * Anchors on the `= &[` INITIALIZER, not a bare `&[`: the type
+	 * annotation itself contains `&[` (`: &[&str]`), so searching for
+	 * `&[` can land inside the type and slice an empty region (which is
+	 * how this parser silently produced `[]` after the declaration was
+	 * collapsed onto one line).
+	 */
+	function rustStringList(source: string, constName: string): string[] {
+		const start = source.indexOf(`const ${constName}`);
+		expect(start, `${constName} not found in the Rust source`).toBeGreaterThan(
+			-1,
+		);
+		const open = source.indexOf("= &[", start);
+		expect(open, `${constName} initializer '= &[' not found`).toBeGreaterThan(
+			-1,
+		);
+		const close = source.indexOf("]", open);
+		expect(open).toBeGreaterThan(-1);
+		expect(close).toBeGreaterThan(open);
+		return [...source.slice(open, close).matchAll(/"([a-z_]+)"/g)].map(
+			(m) => m[1] ?? "",
+		);
+	}
+
+	it("applies to exactly the same commands as the Rust host", () => {
+		const rustDownload = rustStringList(dispatchRs, "_DOWNLOAD_COMMANDS");
+		expect([..._DOWNLOAD_COMMANDS_FOR_TEST].sort()).toEqual(
+			rustDownload.sort(),
+		);
+	});
+
+	it("download commands are also long-running + allowed commands", () => {
+		for (const cmd of _DOWNLOAD_COMMANDS_FOR_TEST) {
+			expect(_LONG_RUNNING_COMMANDS_FOR_TEST.has(cmd)).toBe(true);
+			expect(ALLOWED_COMMANDS.has(cmd)).toBe(true);
+		}
+	});
+
+	it("the 1-hour budget matches DISPATCH_DOWNLOAD_TIMEOUT_SECS", () => {
+		const match = utilRs.match(
+			/const DISPATCH_DOWNLOAD_TIMEOUT_SECS: u64 = ([0-9_]+);/,
+		);
+		expect(match, "DISPATCH_DOWNLOAD_TIMEOUT_SECS not found").not.toBeNull();
+		const rustSecs = Number((match?.[1] ?? "").replace(/_/g, ""));
+		expect(IPC_TIMEOUT_DOWNLOAD_MS).toBe(rustSecs * 1000);
 	});
 });

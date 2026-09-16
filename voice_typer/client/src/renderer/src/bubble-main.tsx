@@ -2,6 +2,7 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import { Bubble } from "./Bubble";
 import { ErrorBoundary } from "./components/feedback/ErrorBoundary";
+import { installConsoleCapture } from "./lib/console-capture";
 import { installGlobalErrorHandlers } from "./lib/globalErrorHandler";
 import { ensureTauriBridgeInstalled } from "./lib/tauri-bridge/ensure";
 import "./index.css";
@@ -37,6 +38,14 @@ await ensureTauriBridgeInstalled();
 // has its own JS context). Safe to call before
 // `window.bubble?.signalReady?.()` below.
 installGlobalErrorHandlers();
+
+// MO-105: the bubble is a SEPARATE BrowserWindow / JS context from the
+// main renderer. Under Electron the main process captured console
+// output from BOTH webviews; under Tauri each entrypoint must install
+// the shared sink itself. `installConsoleCapture()` is idempotent and
+// reuses the same `window_.logError` path as main.tsx — no new bridge
+// method, no new capability grant (SEC-026: observability OUT only).
+installConsoleCapture();
 
 // Signal the main process that we're mounted and ready to receive
 // level events.  Used for diagnostics and to mark the window as

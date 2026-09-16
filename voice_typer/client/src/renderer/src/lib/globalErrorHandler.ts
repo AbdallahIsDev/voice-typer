@@ -71,11 +71,137 @@ import { t } from "@/i18n/i18n";
 
 let _installed = false;
 
+/** The live listener pair, so the test-only reset can REMOVE them.
+ * Production installs once and keeps them for the process lifetime. */
+let _installedHandlers: {
+	onError: (event: ErrorEvent) => void;
+	onUnhandledRejection: (event: PromiseRejectionEvent) => void;
+} | null = null;
+
 //stable toast id so successive errors replace (not stack on
 // top of) the existing toast. Sonner's ``id`` option dedupes, the
 // second ``toast.error(msg, {id})`` call updates the existing toast
 // in place rather than spawning a second one.
 const GLOBAL_ERROR_TOAST_ID = "global-error-handler";
+
+/**
+ * Source position of a window `error` event, or `undefined`.
+ *
+ * `ErrorEvent.filename` / `.lineno` / `.colno` are ADJACENT properties
+ * on the event (they are not nested under a `location` key and are NOT
+ * part of the `Error` interface, so `event.error` never carries them).
+ * Narrowed with real `typeof` guards: no assertion, and a plain object
+ * or string source simply yields `undefined`.
+ */
+function _rendererErrorLocation(
+	source: unknown,
+): { file: string; line?: number; column?: number } | undefined {
+	if (source === null || typeof source !== "object") return undefined;
+	const raw = source as Record<string, unknown>;
+	if (typeof raw.filename !== "string" || raw.filename.length === 0) {
+		return undefined;
+	}
+	return {
+		file: raw.filename,
+		line: typeof raw.lineno === "number" ? raw.lineno : undefined,
+		column: typeof raw.colno === "number" ? raw.colno : undefined,
+	};
+}
+
+/**
+ * Build the `renderer_log_error` payload for a crash (MO-102).
+ *
+ * Pure, so the wire shape is unit-testable: `kind` + `message` +
+ * optional `stack` and `location`. The Rust command renders these into
+ * ONE canonical C-LOG-1 line
+ * (`[renderer-error] <message> (src=<file>:<line>:<col>) scope=<kind>`).
+ *
+ * `source` is the originating `ErrorEvent` (for the source position);
+ * `detail` is what was thrown/rejected.
+ */
+function _buildLogErrorPayload(
+	kind: string,
+	detail: unknown,
+	source?: unknown,
+): {
+	kind: string;
+	message: string;
+	stack?: string;
+	location?: { file: string; line?: number; column?: number };
+} {
+	const thrown = detail instanceof Error ? detail : undefined;
+	const asRecord =
+		detail !== null && typeof detail === "object"
+			? (detail as Record<string, unknown>)
+			: undefined;
+	const message =
+		typeof thrown?.message === "string"
+			? thrown.message
+			: typeof asRecord?.message === "string"
+				? asRecord.message
+				: typeof detail === "string"
+					? detail
+					: String(detail);
+	const stack =
+		typeof thrown?.stack === "string"
+			? thrown.stack
+			: typeof asRecord?.stack === "string"
+				? asRecord.stack
+				: undefined;
+	return {
+		kind,
+		message,
+		stack,
+		location: _rendererErrorLocation(source),
+	};
+}
+
+/**
+ * Persist a generic renderer crash to the host log (MO-102).
+ *
+ * Under Electron the `console.error` calls below are enough — the main
+ * process tees console output into ``electron-runtime.log``. Under
+ * Tauri there is NO console capture (the bridge does dispatch/listen
+ * only), so a crash that fires outside React's boundary previously left
+ * zero file trace in a release install (no DevTools). This forwards the
+ * error through ``window.window_.logError`` (the same sink React's
+ * ``ErrorBoundary`` uses), best-effort: the promise is swallowed so a
+ * failing persistence command can never add a SECOND error on top of
+ * the one being handled, and the whole call is guarded so a runtime
+ * without the bridge (tests, older preload) is a no-op.
+ *
+ * `source` is the originating event (optional) and supplies the
+ * `location` field for window `error` events.
+ *
+ * Testability: routed through ``_persistForTests`` so unit tests can
+ * stub the module export.
+ */
+function _persistRendererError(
+	kind: string,
+	detail: unknown,
+	source?: unknown,
+): void {
+	try {
+		const logError = window.window_?.logError?.bind(window.window_);
+		if (typeof logError !== "function") return;
+		void Promise.resolve(
+			logError(_buildLogErrorPayload(kind, detail, source)),
+		).catch(() => {
+			// Best-effort: never let the persistence path become its own
+			// unhandled rejection.
+		});
+	} catch (e) {
+		// Same contract: logging must never throw.
+		console.warn("[renderer:globalErrorHandler] logError forward failed:", e);
+	}
+}
+
+/** Test seam: the unit tests stub this to capture the persisted payload
+ * without installing a real bridge. */
+export const _persistForTests = { persist: _persistRendererError };
+
+/** Test seam: the pure payload builder (asserted directly by tests). */
+export const _payloadForTests = { build: _buildLogErrorPayload };
 
 /**
  * Generic, localized error message for the user-facing toast.
@@ -282,9 +408,16 @@ export function installGlobalErrorHandlers(): void {
 
 	// Synchronous errors (script parse errors, throws in event handlers
 	// outside React's boundary, etc.).
-	window.addEventListener("error", (event: ErrorEvent) => {
+	const onError = (event: ErrorEvent) => {
 		const detail = _formatForConsole(event.error ?? event.message);
 		console.error("[renderer:globalErrorHandler] uncaught error:", detail);
+		// MO-102: persist to the host log (no-op where the bridge is
+		// absent). Fired BEFORE the toast so a toast failure can never
+		// suppress the persistence path. `event` is passed as the
+		// SOURCE so the payload carries the `filename:lineno:colno`
+		// position (those live on the ErrorEvent, never on
+		// `event.error`).
+		_persistForTests.persist("error", event.error ?? event.message, event);
 		try {
 			toast.error(_genericUserMessage(), _buildToastOptions(detail));
 		} catch (e) {
@@ -292,34 +425,37 @@ export function installGlobalErrorHandlers(): void {
 			// before the Toaster component renders), the toast call is a
 			// no-op. The console.error above still surfaces the error.
 			console.warn("[renderer:globalErrorHandler] toast.error failed:", e);
-		}
-		// Do NOT call event.preventDefault(), we want the default
+		} // Do NOT call event.preventDefault(), we want the default
 		// browser console error to also appear in DevTools for parity
 		// with the pre-listener behavior.
-	});
+	};
+	window.addEventListener("error", onError);
 
 	// Promise rejections with no ``.catch()`` handler.
-	window.addEventListener(
-		"unhandledrejection",
-		(event: PromiseRejectionEvent) => {
-			const detail = _formatForConsole(event.reason);
-			console.error(
-				"[renderer:globalErrorHandler] unhandled promise rejection:",
-				detail,
+	const onUnhandledRejection = (event: PromiseRejectionEvent) => {
+		const detail = _formatForConsole(event.reason);
+		console.error(
+			"[renderer:globalErrorHandler] unhandled promise rejection:",
+			detail,
+		);
+		// MO-102: persist to the host log (no-op where the bridge is
+		// absent), before the toast (same ordering rationale as above).
+		// A rejection carries no source position, so no `source` arg.
+		_persistForTests.persist("unhandledrejection", event.reason);
+		try {
+			toast.error(_genericUserMessage(), _buildToastOptions(detail));
+		} catch (e) {
+			// Same defensive guard as above.
+			console.warn(
+				"[renderer:globalErrorHandler] toast.error (rejection) failed:",
+				e,
 			);
-			try {
-				toast.error(_genericUserMessage(), _buildToastOptions(detail));
-			} catch (e) {
-				// Same defensive guard as above.
-				console.warn(
-					"[renderer:globalErrorHandler] toast.error (rejection) failed:",
-					e,
-				);
-			}
-			// Do NOT call event.preventDefault(), let the default browser
-			// warning appear in DevTools too.
-		},
-	);
+		}
+		// Do NOT call event.preventDefault(), let the default browser
+		// warning appear in DevTools too.
+	};
+	window.addEventListener("unhandledrejection", onUnhandledRejection);
+	_installedHandlers = { onError, onUnhandledRejection };
 }
 
 /**
@@ -330,4 +466,19 @@ export function installGlobalErrorHandlers(): void {
  */
 export function _resetGlobalErrorHandlerStateForTests(): void {
 	_installed = false;
+	// Remove the listeners too. Resetting only the flag would let the
+	// NEXT install add a SECOND pair while the earlier pair stayed
+	// attached to the shared jsdom `window`, so every dispatched event
+	// fired the persistence seam twice (test flake, and a misleading
+	// "called 2 times" failure). Removing them keeps each test's
+	// install/observe cycle isolated. No-op in production (the reset is
+	// only ever called by tests).
+	if (_installedHandlers && typeof window !== "undefined") {
+		window.removeEventListener("error", _installedHandlers.onError);
+		window.removeEventListener(
+			"unhandledrejection",
+			_installedHandlers.onUnhandledRejection,
+		);
+	}
+	_installedHandlers = null;
 }

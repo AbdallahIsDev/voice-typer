@@ -48,6 +48,7 @@ import {
 } from "@/components/ui/dialog";
 import { STATS_IMAGE_FILENAME } from "@/hooks/useStatsShare";
 import { t } from "@/i18n/i18n";
+import { openExternalUrl } from "@/lib/external-links";
 import type { StatsThemePalette } from "@/lib/theme-palette";
 import type { ShareStats } from "@/types/stats";
 import { StatsShareImage } from "./StatsShareImage";
@@ -213,7 +214,7 @@ export function ShareStatsDialog({
 		const caption = t("stats.shareImage.socialCaption", {
 			appName: APP_NAME,
 		});
-		window.open(target.url(caption), "_blank", "noopener,noreferrer");
+		void openExternalUrl(target.url(caption));
 		toast.success(
 			t("stats.shareImage.socialCopiedTo", {
 				platform: t(target.labelKey),

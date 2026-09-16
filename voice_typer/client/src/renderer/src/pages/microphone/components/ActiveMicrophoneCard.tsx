@@ -113,7 +113,15 @@ export function ActiveMicrophoneCard({
 	return (
 		<div
 			className={cn(
-				"rounded-xl border border-border/5 p-4 transition-colors",
+				// Inter-child spacing is owned by this flex stack (one
+				// consistent `gap-3` rhythm): the children carry no `mt-*`
+				// of their own. The direct children are the header, the
+				// fragment children of `LevelBarContainer` (the LevelBar
+				// wrapper plus the conditionally rendered
+				// `LiveQualityFeedback`), the test controls row, the
+				// filter-invalidation notice, `TestReviewPanel` and the
+				// preset-selector wrapper.
+				"flex flex-col gap-3 rounded-xl border border-border/5 p-4 transition-colors",
 				"bg-(--bg-subtle)",
 			)}
 		>
@@ -156,7 +164,7 @@ export function ActiveMicrophoneCard({
 			/>
 
 			{/* Test controls */}
-			<div className="mt-4 flex items-center gap-3">
+			<div className="flex items-center gap-3">
 				{!testRunning ? (
 					<Button
 						variant="default"
@@ -224,7 +232,7 @@ export function ActiveMicrophoneCard({
 
 			{/* Filter invalidation notice */}
 			{filtersSinceLastTest && filtersChangedSinceTest && !testRunning && (
-				<div className="mt-3 px-3 py-2 rounded-lg bg-warning/10 border border-warning/20 text-xs text-warning">
+				<div className="px-3 py-2 rounded-lg bg-warning/10 border border-warning/20 text-xs text-warning">
 					{t("microphone.filtersChangedNotice")}
 				</div>
 			)}
@@ -271,7 +279,7 @@ export function ActiveMicrophoneCard({
                             excludes `onToggleAdvanced` (inline closure in
                             Microphone.tsx, identity changes per render but the
                             behavior is identical, so skipping is safe). */}
-			<div className="mt-3">
+			<div>
 				{config && (
 					<MemoizedPresetAccordionSelector
 						preset={(config.audio_preset as AudioPreset) ?? "auto"}
@@ -317,7 +325,7 @@ function LevelBarContainer({
 	return (
 		<>
 			{/* Level bar */}
-			<div className="mt-3">
+			<div>
 				<LevelBar level={level} playing={playing} />
 			</div>
 

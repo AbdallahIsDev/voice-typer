@@ -32,6 +32,7 @@ import { useLatestRef } from "@/hooks/useLatestRef";
 import { usePython } from "@/hooks/usePython";
 import { useSnackbar } from "@/hooks/useSnackbar";
 import { t } from "@/i18n/i18n";
+import { openExternalUrl } from "@/lib/external-links";
 import type { VoiceTyperConfig } from "@/types/config";
 import type { Page } from "@/types/ipc";
 import { anyRowVisible } from "./settingsRowGating";
@@ -307,10 +308,8 @@ export const TroubleshootingSettingsSection = memo(
 							variant="outline"
 							className="gap-2"
 							onClick={() =>
-								window.open(
+								void openExternalUrl(
 									"https://github.com/AbdallahIsDev/voice-typer/blob/main/README.md",
-									"_blank",
-									"noopener,noreferrer",
 								)
 							}
 							aria-label={t("settings.troubleshooting.openDocsAria")}
@@ -329,10 +328,8 @@ export const TroubleshootingSettingsSection = memo(
 							variant="outline"
 							className="gap-2"
 							onClick={() =>
-								window.open(
+								void openExternalUrl(
 									"https://github.com/AbdallahIsDev/voice-typer/issues",
-									"_blank",
-									"noopener,noreferrer",
 								)
 							}
 							aria-label={t("settings.troubleshooting.reportBugAria")}

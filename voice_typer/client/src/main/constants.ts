@@ -107,6 +107,22 @@ export const TCP_FRAME_MAX_BYTES = 1 * 1024 * 1024;
 //IPC command timeouts in `send-to-python.ts::_commandTimeoutMs`.
 // Long-running commands (model load, transcription) get the long
 // timeout; everything else gets the short timeout. Per-command overrides
-// live in `_SHORT_TIMEOUT_COMMANDS`.
+// live in `_SHORT_TIMEOUT_COMMANDS`, and the multi-GB transfer commands
+// get the download-scale timeout below.
 export const IPC_TIMEOUT_SHORT_MS = 15_000;
 export const IPC_TIMEOUT_LONG_MS = 120_000;
+
+// Download-scale timeout (1 h) for the two commands that stream a
+// multi-GB model file (`download_model` / `import_model`), mirroring the
+// Rust host's `DISPATCH_DOWNLOAD_TIMEOUT_SECS` (`src-tauri/src/util.rs`)
+// and its `_DOWNLOAD_COMMANDS` routing
+// (`commands/sidecar_cmds/dispatch.rs::dispatch_timeout_for`).
+//
+// MO-116: the two shells previously disagreed, Electron timed out at
+// 120s while the BACKEND kept downloading, so the renderer showed a
+// false failure (retry button) over an in-flight download, and the same
+// download succeeded under Tauri. The longer deadline on both hosts
+// makes the pre-cutover behavior identical; the other model-lifecycle
+// commands (delete / cancel / pause / resume) deliberately stay on
+// `IPC_TIMEOUT_LONG_MS`, exactly as they are on the Rust side.
+export const IPC_TIMEOUT_DOWNLOAD_MS = 3_600_000;

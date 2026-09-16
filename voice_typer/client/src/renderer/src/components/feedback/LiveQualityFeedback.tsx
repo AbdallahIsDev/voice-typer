@@ -31,7 +31,10 @@ export function LiveQualityFeedback({
 	};
 
 	return (
-		<div className="mt-2 text-center">
+		// Spacing contract: rendered as a direct child of the
+		// `ActiveMicrophoneCard` `flex flex-col gap-3` stack, which owns the
+		// inter-child spacing, so no top margin here.
+		<div className="text-center">
 			{/* Timer, visual-only; rapid updates would spam SR if live */}
 			<span className="text-xs font-mono tabular-nums text-(--text-muted)">
 				{t("microphoneTest.qualityFeedback.recording")}{" "}
