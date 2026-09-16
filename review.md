@@ -156,69 +156,6 @@ observations before marking anything done.
 **Severity:** 🟡 Medium
 **Category:** Configuration / UI Correctness
 
-### MO-9: Residual silent `except Exception: pass/continue` sites (E13)
-
-**Status:** ✅ Fixed (2026-09-15: remaining sites narrowed + logged; focused tests ON WINDOWS)
-
-**Description:** A strict scan still finds production silent swallows (next statement `pass`/`continue`):
-- `voice_typer/server/transcription_download.py:57-58` (registry lookup failure falls through to naive Systran repo id)
-- `voice_typer/server/single_instance.py:113-114` (stderr warn writer)
-- `voice_typer/server/log/__init__.py:1070,1095,1285`
-- `voice_typer/server/platform_utils.py:113,130,133`
-- `voice_typer/server/dictation_pipeline/transcribe_step.py:157-158`
-- crash-handler modules (several, partly justified "never crash the hook")
-- `recording/disconnect_handler.py:466`, `resource_probe.py:295,325`
-
-Many historical `except Exception: pass` comments document *prior* fixes; these are remaining live sites.
-
-**Progress:** Done 2026-09-15. `transcription_download`, `transcribe_step`, and the `log` split were already
-`log.debug+exc_info` from the prior session. This session finished the rest:
-- `single_instance._startup_line`: `except Exception: pass` → `except (OSError, ValueError): pass`
-  (+ `sys.stderr is None`/closed guard). Nothing to log — logging is not configured yet at this call site.
-- `platform_utils._set_windows_process_metadata`: all three `except Exception: pass` →
-  narrowed `(OSError, AttributeError, ValueError, TypeError)` / `(ImportError, OSError, AttributeError)`
-  with `log.debug(..., exc_info=True)`.
-- `resource_probe`: config-dir fallback `except Exception` now `log.debug+exc_info`; both disk-loop
-  `except Exception: continue` narrowed to `except OSError` / `except (OSError, ValueError)` with
-  per-path `log.debug+exc_info`.
-- `disconnect_handler.py:466` verified as a false positive (`if _cand_info is None: continue`, not an
-  except-swallow). Crash-handler `contextlib.suppress` sites are deliberate never-crash hooks, out of scope.
-
-**Verification:** `test_paths_lazy_import + test_paths + test_resource_probe +
-test_dictation_pipeline_check_resources + test_broad_except_cleanup` — 65 passed.
-`test_single_instance(+posix,+chmod) + test_app_cleanup + test_platform_flag_guard` — 37 passed, 3 skipped.
-
-**User Impact:** Silent wrong defaults (e.g. turbo repo-id miss → wrong HF path), invisible secondary failures during shutdown/diagnostics, harder production diagnosis.
-
-**Root Cause:** E13 cleanup completed unevenly; some sites intentionally best-effort but not all logged at an appropriate level.
-
-**Gain vs Trade-off:** Logging/narrowing improves operability; over-logging shutdown paths can spam.
-
-**If We Do It:** Fewer silent wrong paths; better support logs.
-
-**If We Don't:** E13 debt remains in edge paths.
-
-**My Recommendation:** ✅ Implement — log at debug/warning with context; keep true never-fail hooks but document + measure.
-
-**Progress:** None yet.
-
-**Related Files:**
-- `voice_typer/server/transcription_download.py:57`
-- `voice_typer/server/single_instance.py:113`
-- `voice_typer/server/log/__init__.py:1070`
-- `voice_typer/server/platform_utils.py:113-134`
-- `voice_typer/server/dictation_pipeline/transcribe_step.py:157`
-
-**Fix:** Replace bare pass with logged best-effort handling or explicit typed fallbacks.
-
-**Simplified Fix:** Some failures are still swallowed with `except Exception: pass`; log them or handle them explicitly.
-
-**Implementation Difficulty:** 🟢 Easy
-
-**Severity:** 🟡 Medium
-
-**Category:** Code Quality / Observability
-
 ### MO-10: Renderer feature hooks concentrate too much logic in single files (W1)
 
 **Status:** ❌ Not Fixed (investigated 2026-09-15, investigation only)
@@ -297,49 +234,6 @@ Related `ThemeSettingsSection.tsx` size is already WONT_FIX GQ-L47 (partial extr
 **Severity:** 🟡 Medium
 
 **Category:** Architecture / Migration
-
-### MO-12: `_paths._config_dir = None` mutable module global with `# type: ignore[assignment]` (E13/P1)
-
-**Status:** ✅ Fixed (2026-09-15: `_ConfigDirResolver` holder; focused tests ON WINDOWS)
-
-**Description:** `_paths.py:106` sets `_config_dir = None  # type: ignore[assignment]` then lazily rebinds the module global on first use (`:109-131`). Tests monkeypatch the same name. This is a documented cold-start optimization (~54ms config import deferral), but it uses a type ignore + mutable module state as the seam.
-
-**User Impact:** None if the documented contract holds; risk of type-checker blindness and surprising rebinding if another module imports the name by value.
-
-**Root Cause:** Preferable alternatives (explicit provider object / functools cache) were not used to keep existing `monkeypatch.setattr(_paths, "_config_dir", ...)` sites working.
-
-**Gain vs Trade-off:** A typed resolver object would remove the ignore; migration cost is test-site updates (similar to MO-6).
-
-**If We Do It:** Cleaner typing, no ignore.
-
-**If We Don't:** Minor permanent lint debt.
-
-**My Recommendation:** ✅ Implement opportunistically when touching `_paths` — introduce a small `ConfigDirResolver` while keeping a compatibility property.
-
-**Progress:** Done 2026-09-15. `_config_dir` is now a `_ConfigDirResolver` holder object (identity-stable,
-no `type: ignore`, no `None` sentinel, no module-attribute rebinding in the production path). The cached
-callable + an explicit test-override slot live as holder fields; `_resolve_config_dir()` returns the
-override / cached callable. Full backward compat: every existing `monkeypatch.setattr(_paths, "_config_dir",
-lambda: tmp_path)` keeps working (rebound lambda short-circuits, no import), plus a new
-`_config_dir.override(fn)` pin that needs no rebinding. `tests/test_paths_lazy_import.py` updated to the
-holder contract (fresh-import unresolved holder, post-call `_cached` populated, holder identity stable
-across calls) + a new `test_resolver_override_pins_without_rebinding`.
-
-**Verification:** `test_paths_lazy_import + test_paths` — 18 passed (incl. the 2 updated + 1 new test);
-`test_app_cleanup` — 26 passed.
-
-**Related Files:**
-- `voice_typer/server/_paths.py:90-140`
-
-**Fix:** Replace the None-rebind global with an explicit lazy resolver type; update tests.
-
-**Simplified Fix:** A module-level variable starts as `None` and is type-ignored; replace it with a proper lazy helper.
-
-**Implementation Difficulty:** 🟢 Easy
-
-**Severity:** 🟢 Low
-
-**Category:** Code Quality
 
 ### MO-13: Cluster of >1000-line server modules with very low function density (E3/W1 umbrella)
 

@@ -1,8 +1,8 @@
-# Voice Typer: keyboard event device access
+# Voice Typer, keyboard event device access
 #
 # Grants read access to keyboard event devices for members of the "input"
 # group. Installed by the Voice Typer package (or via pkexec for AppImage
-# users). Do not edit: remove this file to revoke access.
+# users). Do not edit. Remove this file to revoke access.
 #
 # Why MODE="0660" + GROUP="input": owner (root) gets rw, group (input)
 # gets rw, others get nothing. This is the standard pattern for /dev/input

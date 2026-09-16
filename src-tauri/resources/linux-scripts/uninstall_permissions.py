@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Voice Typer: Linux keyboard permission uninstaller.
+"""Voice Typer. Linux keyboard permission uninstaller.
 
 Thin wrapper around ``install_permissions.py --uninstall``. Kept as a
 separate script so package managers can reference it directly in prerm
@@ -75,7 +75,7 @@ def _purge_user_data_for(username: str, data_dir: Path) -> None:
         ``$XDG_DATA_HOME`` doesn't take out unrelated user files.
 
         Uses ``sudo -u <username> -- rm -rf <subpath>`` per subpath so the
-        deletion runs as the user (not root), this preserves file
+        deletion runs as the user (not root): this preserves file
         ownership semantics and works even when the data dir contains
         files owned by the user that root would otherwise need to chown
         (e.g. venv files created with the user's umask).
@@ -87,7 +87,7 @@ def _purge_user_data_for(username: str, data_dir: Path) -> None:
         file=sys.stderr,
     )
     # The subpaths list covers a SUBSET of the canonical user-data
-    # inventories: the heavyweight dirs plus the recovery/onboarding
+    # inventories, the heavyweight dirs plus the recovery/onboarding
     # markers from
     # voice_typer/server/_user_data_files.py::_USER_DATA_FILES (flat
     # file names) plus the directory layout used by
@@ -132,7 +132,7 @@ def _purge_user_data_for(username: str, data_dir: Path) -> None:
                 check=False,
                 capture_output=True,
                 text=True,
-                timeout=60,  # bound the rm: a hung NFS / FUSE mount shouldn't stall prerm
+                timeout=60,  # bound the rm, a hung NFS / FUSE mount shouldn't stall prerm
             )
             if result.returncode != 0:
                 print(
@@ -158,15 +158,15 @@ def _purge_user_data_for(username: str, data_dir: Path) -> None:
         # rmdir exits non-zero if the dir is non-empty, that's expected
         # and not worth warning about.
         if result.returncode != 0 and data_dir.exists():
-            # The dir still exists: check if it's because it's non-empty
-            # (expected: we didn't create it) or because rmdir failed.
+            # The dir still exists. Check if it's because it's non-empty
+            # (expected, we didn't create it) or because rmdir failed.
             try:
                 remaining = list(data_dir.iterdir())
                 if remaining:
                     print(
                         f"[voice-typer-permissions] --purge: {data_dir} still "
                         f"contains {len(remaining)} items not created by "
-                        "Voice Typer: left in place",
+                        "Voice Typer, left in place",
                         file=sys.stderr,
                     )
             except OSError:
@@ -190,7 +190,7 @@ def _purge_user_data() -> None:
     """
     sudo_user = os.environ.get("SUDO_USER", "").strip()
     if sudo_user:
-        # SUDO_USER is set: purge just that user's data dir.
+        # SUDO_USER is set, purge just that user's data dir.
         import pwd  # POSIX-only; the script is Linux-only per its docstring
 
         try:
@@ -210,7 +210,7 @@ def _purge_user_data() -> None:
                 _purge_user_data_for(sudo_user, candidate)
         return
 
-    # No SUDO_USER: scan /home for any user with a Voice Typer data dir.
+    # No SUDO_USER, scan /home for any user with a Voice Typer data dir.
     # This is the prerm codepath (apt/dnf run prerm as root with no
     # SUDO_USER). Best-effort: if no user has a Voice Typer data dir, the
     # purge is a no-op (the system-level uninstall still runs).
@@ -221,7 +221,7 @@ def _purge_user_data() -> None:
         if not home.is_dir():
             continue
         # Check both the XDG default and the legacy ~/.voice-typer path
-        # (the config_dir() resolver checks both, see
+        # (the config_dir() resolver checks both: see
         # voice_typer/server/config.py).
         xdg_path = home / ".local" / "share" / "voice-typer"
         legacy_path = home / ".voice-typer"
