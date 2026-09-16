@@ -2104,7 +2104,7 @@ def worker_internal_error(
     ) -> None:
         """
         pytest_internalerror() was called on the worker.
-    
+
         pytest_internalerror() arguments are an excinfo and an excrepr, which can't
         be serialized, so we go with a poor man's solution of raising an exception
         here ourselves using the formatted message.
@@ -2278,7 +2278,7 @@ E   AssertionError: assert '# Voice Typer — Caps Lock neutralization' in 'set 
 bindsym Mod4+Return exec foot
 
 AssertionError: assert '# Voice Typ...utralization' not in 'set $mod Mo... exec foot\n'
-  
+
   '# Voice Typer — Caps Lock neutralization' is contained here:
     set $mod Mod4
     # Voice Typer — Caps Lock neutralization
@@ -2286,7 +2286,7 @@ AssertionError: assert '# Voice Typ...utralization' not in 'set $mod Mo... exec 
 tests/test_install_permissions_gsettings.py:607: in test_sway_restore_removes_block_when_no_prior_line
     assert "# Voice Typer — Caps Lock neutralization" not in new_text
 E   AssertionError: assert '# Voice Typ...utralization' not in 'set $mod Mo... exec foot\n'
-E     
+E
 E     '# Voice Typer — Caps Lock neutralization' is contained here:
 E       set $mod Mod4
 E       # Voice Typer — Caps Lock neutralization
@@ -2302,13 +2302,13 @@ E       bindsym Mod4+Return exec foot
 + very_low
 
 AssertionError: assert 'very_low' == 'good'
-  
+
   - good
   + very_low
 tests/test_mic_test_quality_grading.py:291: in test_write_failure_returns_quality_without_raising
     assert result["quality"]["volume_level"] == "good"
 E   AssertionError: assert 'very_low' == 'good'
-E     
+E
 E     - good
 E     + very_low
 ```
