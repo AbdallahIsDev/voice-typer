@@ -78,6 +78,11 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Install package + test deps (pyperclip etc. needed by import checks)
+        shell: pwsh
+        run: |
+          python -m pip install -e ".[test]" --quiet
+
       - name: Win32 console handler import check
         shell: pwsh
         run: |
@@ -145,7 +150,6 @@ jobs:
       - name: Headless pytest subset (clipboard restore + timeouts)
         shell: pwsh
         run: |
-          python -m pip install -e ".[test]" --quiet
           python -m pytest tests/test_clipboard_restore_args.py tests/test_timeout_utils.py -q --no-cov --tb=short 2>&1 | Tee-Object host-validation/evidence/windows-pytest.txt
           if ($LASTEXITCODE -ne 0) { Write-Error "pytest subset failed"; exit 1 }
 
@@ -168,6 +172,12 @@ jobs:
         uses: actions/setup-python@v7
         with:
           python-version: "3.12"
+
+      - name: Install package + test deps (pyperclip etc. needed by import checks)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install -e ".[test]" --quiet
 
       - name: Clipboard restore import check
         shell: bash
@@ -287,7 +297,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python3 -m pip install -e ".[test]" --quiet
           python3 -m pytest tests/test_clipboard_borrow_restore.py tests/test_clipboard_snapshot.py tests/tauri/test_macos_bundle_preflight.py tests/test_clipboard_macos_capture.py tests/test_sidecar_ws_ready_ordering.py -q --no-cov --tb=short 2>&1 | tee host-validation/evidence/macos-pytest.txt
 
       - name: Upload macos evidence
@@ -309,6 +318,12 @@ jobs:
         uses: actions/setup-python@v7
         with:
           python-version: "3.12"
+
+      - name: Install package + test deps (needed by pytest subset)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install -e ".[test]" --quiet
 
       - name: S1-CR-146 StartupWMClass evidence (warning, never auto-fix)
         shell: bash
@@ -344,7 +359,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python3 -m pip install -e ".[test]" --quiet
           python3 -m pytest tests/test_clipboard_restore_args.py tests/test_clipboard_borrow_restore.py tests/test_sidecar_ws_ready_ordering.py tests/test_timeout_utils.py -q --no-cov --tb=short 2>&1 | tee host-validation/evidence/linux-pytest.txt
 
       - name: Upload linux evidence
