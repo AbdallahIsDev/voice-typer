@@ -122,7 +122,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Set up Python 3.12
         uses: actions/setup-python@v7
@@ -240,25 +240,25 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Download Windows installer
         if: needs.build-windows.result == 'success'
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v8
         with:
           name: tauri-windows-installer
           path: aggregated/windows
 
       - name: Download macOS installer
         if: needs.build-macos.result == 'success'
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v8
         with:
           name: tauri-macos-installer
           path: aggregated/macos
 
       - name: Download Linux installer
         if: needs.build-linux.result == 'success'
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v8
         with:
           name: tauri-linux-installer
           path: aggregated/linux
@@ -275,28 +275,28 @@ jobs:
       # Linux manifests to download.
       - name: Download macOS manifest
         if: needs.build-macos.result == 'success'
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v8
         with:
           name: tauri-binaries-manifest-macos
           path: manifests/macos
 
       - name: Download Windows manifest
         if: needs.build-windows.result == 'success'
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v8
         with:
           name: tauri-binaries-manifest-windows
           path: manifests/windows
 
       - name: Download Linux manifests (x86_64 + aarch64 legs)
         if: needs.build-linux.result == 'success'
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v8
         with:
           name: tauri-binaries-manifest-linux-x86_64
           path: manifests/linux-x86_64
 
       - name: Download Linux manifests (aarch64 leg)
         if: needs.build-linux.result == 'success'
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v8
         with:
           name: tauri-binaries-manifest-linux-aarch64
           path: manifests/linux-aarch64
@@ -363,7 +363,7 @@ jobs:
           fi
 
       - name: Upload aggregated artifact
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: tauri-all-installers
           path: aggregated/
@@ -374,7 +374,7 @@ jobs:
       # integrity gate has the real hashes for every platform.
       - name: Upload merged tauri-binaries.json
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: tauri-binaries-manifest-merged
           path: tauri-binaries-merged.json
