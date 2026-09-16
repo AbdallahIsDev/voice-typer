@@ -99,6 +99,7 @@ const ERROR_MESSAGES: Record<PythonCallErrorCode, string> = {
 	backend_exited_early: "Python backend exited during startup.",
 	command_failed: "Python command failed.",
 	command_timeout: "Python command timed out.",
+	pending_full: "Too many pending IPC requests; back off and retry.",
 };
 
 export function registerPythonCallHandler(): void {

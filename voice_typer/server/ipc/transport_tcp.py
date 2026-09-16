@@ -642,6 +642,49 @@ class TCPTransportMixin:
             auth_client.close()
             return
 
+        # MO-122: single-connection invariant, matching the WS path
+        # (`sidecar_ws_internals/connection.py::_check_duplicate_auth`).
+        # A second authenticated TCP client must be EXPLICITLY rejected
+        # with the same `duplicate_connection` error envelope, not
+        # silently steal `_tcp_client` (which left the first loop
+        # push-starved with no signal). An existing live client wins;
+        # a half-dead/zombie slot is allowed to be replaced (the
+        # fileno probe below treats any error as "closed").
+        existing = self._tcp_client
+        if existing is not None and existing is not auth_client:
+            existing_alive = False
+            try:
+                existing_alive = existing.fileno() >= 0
+            except Exception:
+                existing_alive = False
+            if existing_alive:
+                log.warning(
+                    "[TCP] duplicate authenticated connection from %s, "
+                    "an existing authenticated client is already active; "
+                    "rejecting the NEW connection (MO-122 single-connection "
+                    "invariant, matching WS duplicate_connection)",
+                    addr,
+                )
+                try:
+                    auth_client.write(
+                        json.dumps(
+                            {
+                                "type": "error",
+                                "data": {
+                                    "code": ErrorCodes.DUPLICATE_CONNECTION,
+                                    "message": ("another authenticated connection is already active"),
+                                },
+                            }
+                        )
+                        + "\n"
+                    )
+                    auth_client.flush()
+                except Exception:
+                    log.debug("[TCP] failed to send duplicate_connection frame")
+                with contextlib.suppress(Exception):
+                    auth_client.close()
+                return
+
         # Set the idle-read timeout on the dispatch-loop socket AFTER
         # auth succeeds, sized to ``_HEARTBEAT_TIMEOUT_SECONDS +
         # _HEARTBEAT_INTERVAL_SECONDS`` so it tracks the watchdog

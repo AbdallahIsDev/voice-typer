@@ -17,7 +17,11 @@
  * substring from that file.
  */
 import { ALLOWED_COMMANDS } from "../allowed-commands";
-import { IPC_TIMEOUT_LONG_MS, IPC_TIMEOUT_SHORT_MS } from "../constants";
+import {
+	IPC_TIMEOUT_DOWNLOAD_MS,
+	IPC_TIMEOUT_LONG_MS,
+	IPC_TIMEOUT_SHORT_MS,
+} from "../constants";
 import {
 	MAX_PENDING_REQUESTS,
 	RATE_LIMIT_MAX_CALLS,
@@ -322,10 +326,38 @@ const _SHORT_TIMEOUT_COMMANDS: ReadonlyMap<string, number> = new Map([
 	["relaunch_ack", 5_000], // 5s, fire-and-forget ack
 ]);
 
+/**
+ * The two commands that stream a multi-GB model file and can legitimately
+ * run for tens of minutes.
+ *
+ * MO-116: mirrors the Rust host's `_DOWNLOAD_COMMANDS`
+ * (`src-tauri/src/commands/sidecar_cmds/dispatch.rs`) so the two shells
+ * apply the SAME per-command deadline. The sidecar keeps downloading
+ * after a host-side timeout, so the previous 120s cap on this path
+ * produced a false-failure UI over a download that was still
+ * progressing, while the identical download succeeded under Tauri.
+ *
+ * Test-only export for the parity assertion in
+ * `src/main/__tests__/long-running-commands-parity.test.ts`.
+ */
+export const _DOWNLOAD_COMMANDS_FOR_TEST: ReadonlySet<string> = new Set([
+	"download_model",
+	"import_model",
+]);
+
+function _isDownloadCommand(cmd: string): boolean {
+	return _DOWNLOAD_COMMANDS_FOR_TEST.has(cmd);
+}
+
 function _commandTimeoutMs(cmd: string): number {
 	const override = _SHORT_TIMEOUT_COMMANDS.get(cmd);
 	if (override !== undefined) {
 		return override;
+	}
+	// Download-scale first: these two are ALSO in
+	// `_LONG_RUNNING_COMMANDS`, so order matters.
+	if (_isDownloadCommand(cmd)) {
+		return IPC_TIMEOUT_DOWNLOAD_MS;
 	}
 	return _isLongRunningCommand(cmd)
 		? IPC_TIMEOUT_LONG_MS
@@ -520,7 +552,9 @@ export function sendToPython(
 		if (state.pendingRequests.size >= MAX_PENDING_REQUESTS) {
 			reject(
 				new PythonIpcError(
-					"command_failed",
+					// MO-122: same machine-readable code as the Tauri host's
+					// `pending_full` (allowlist.rs PENDING_FULL_CODE).
+					"pending_full",
 					`Pending IPC request limit reached (${MAX_PENDING_REQUESTS})`,
 				),
 			);

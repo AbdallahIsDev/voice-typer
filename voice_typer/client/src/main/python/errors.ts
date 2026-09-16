@@ -29,10 +29,12 @@
  *                                    socket close / backend crash /
  *                                    backend-only restart teardown;
  *      - `backend_exited_early`   , backend died during startup;
- *      - `command_failed`         , allowlist/rate-limit/cap gates,
+ *      - `command_failed`         , allowlist/rate-limit gates,
  *                                    oversized replies, restart
  *                                    teardowns;
- *      - `command_timeout`        , per-command deadline.
+ *      - `command_timeout`        , per-command deadline;
+ *      - `pending_full`           , pending-map backpressure (MO-122,
+ *                                    same code as the Tauri host).
  *  - The handler checks `err instanceof PythonIpcError`, verifies
  *    `err.code` against the canonical `PYTHON_CALL_ERROR_CODES` union
  *    (backend-emitted codes can carry out-of-union strings, see

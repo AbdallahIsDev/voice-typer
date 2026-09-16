@@ -45,7 +45,7 @@ export interface PendingRequest {
  * few dozen in flight) and rejects flooders fast with a structured
  * error rather than letting the Map grow unbounded.
  */
-export const MAX_PENDING_REQUESTS = 256;
+export const MAX_PENDING_REQUESTS = 1024;
 
 /**
  * Per-renderer rate limit (calls per `RATE_LIMIT_WINDOW_MS`).
