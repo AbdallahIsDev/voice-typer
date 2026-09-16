@@ -1,9 +1,11 @@
 # =============================================================================
-# PINNED ACTION VERSIONS — DO NOT DOWNGRADE (verified 2026-07-24):
+# PINNED ACTION VERSIONS — DO NOT DOWNGRADE (verified 2026-07-24,
+# bumped codeql v3→v4 2026-09-16: v3 runs Node 20, deprecated 2025-09-19,
+# action itself deprecated Dec 2026):
 #   actions/checkout@v5 — Node 24 runtime (v4 = Node 20, deprecated)
-#   github/codeql-action/init@v3 / autobuild@v3 / analyze@v3 — CodeQL
-#   analysis engine. Keep at the latest v3 release; the components
-#   must stay in lockstep (same @v3 tag).
+#   github/codeql-action/init@v4 / autobuild@v4 / analyze@v4 — CodeQL
+#   analysis engine (v4 = Node 24). Keep at the latest v4 release; the
+#   components must stay in lockstep (same @v4 tag).
 # See build.yml header for full rationale + breaking-change analysis.
 # =============================================================================
 
@@ -65,7 +67,7 @@ jobs:
         uses: actions/checkout@v5
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@v3
+        uses: github/codeql-action/init@v4
         with:
           languages: ${{ matrix.language }}
           # WR-16: opt into the extended query suites. Default behavior is
@@ -81,7 +83,7 @@ jobs:
 
       # ── S5-CR-75 (b): explicit build step for Python ─────────────────
       #
-      # The default ``github/codeql-action/autobuild@v3`` step runs a
+      # The default ``github/codeql-action/autobuild@v4`` step runs a
       # heuristic that pip-installs the project WITHOUT extras. That
       # means CodeQL's Python extractor cannot resolve heavy optional
       # imports (``sounddevice``, ``numpy``, ``pystray``, ``webrtcvad``,
@@ -121,7 +123,7 @@ jobs:
 
       - name: Autobuild (JS/TS + Actions)
         if: matrix.language != 'python'
-        uses: github/codeql-action/autobuild@v3
+        uses: github/codeql-action/autobuild@v4
 
       - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@v3
+        uses: github/codeql-action/analyze@v4
