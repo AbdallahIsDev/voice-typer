@@ -84,9 +84,9 @@ pub(crate) use handshake::{is_shutting_down, parse_server_started, parse_worker_
 #[cfg(test)]
 pub(crate) use target_triple::{current_target_triple, target_triple_for};
 #[cfg(test)]
-pub(crate) use worker::worker_shared_env;
-#[cfg(test)]
 pub(crate) use worker::try_claim_restart_slot;
+#[cfg(test)]
+pub(crate) use worker::worker_shared_env;
 
 use crate::state::SidecarHandle;
 use std::panic::AssertUnwindSafe;
@@ -473,8 +473,7 @@ pub(crate) async fn initialize_worker(
             // producer) can never block its writer threads on a full
             // bounded channel. NOTE for the future worker-respawn
             // path: wrap the freshly spawned receiver the same way.
-            let exit_rx =
-                exit_rx.map(|rx| event_drain::spawn_child_event_drain("[WORKER]", rx));
+            let exit_rx = exit_rx.map(|rx| event_drain::spawn_child_event_drain("[WORKER]", rx));
             *state.child_exit_rx.lock().await = exit_rx;
             // NOTE: never include the bearer token (or the word
             // "token") in any log line here, ADR-0020 §3 "never

@@ -279,10 +279,7 @@ pub(crate) async fn stop_worker_child(state: &Arc<WorkerState>) {
 pub(crate) fn on_pack_verified(app: &tauri::AppHandle) {
     let app_handle = app.clone();
     tauri::async_runtime::spawn(async move {
-        let state = app_handle
-            .state::<Arc<WorkerState>>()
-            .inner()
-            .clone();
+        let state = app_handle.state::<Arc<WorkerState>>().inner().clone();
         if !try_claim_restart_slot(&state.respawn_in_progress) {
             log::info!(
                 "[WORKER-INIT] pack verified while a worker (re)start is in flight: skipping duplicate"

@@ -92,7 +92,9 @@ fn test_rotating_file_writer_truncates_in_place() {
     // ceiling at line ~420).
     let big_line = "x".repeat(100_000);
     for _ in 0..450 {
-        writer.write_line_level(&big_line, log::Level::Info).unwrap();
+        writer
+            .write_line_level(&big_line, log::Level::Info)
+            .unwrap();
     }
     writer.flush().unwrap();
     // The single `.log` file exists (current + only file) ...
@@ -134,7 +136,9 @@ fn test_rotating_file_writer_keeps_single_file_after_many_truncations() {
     // ~50 MB total (100 KB/line × 500 lines), ~10 truncation cycles.
     let big_line = "x".repeat(100_000);
     for _ in 0..500 {
-        writer.write_line_level(&big_line, log::Level::Info).unwrap();
+        writer
+            .write_line_level(&big_line, log::Level::Info)
+            .unwrap();
     }
     writer.flush().unwrap();
 
@@ -170,7 +174,8 @@ fn test_rotating_file_writer_thread_safety() {
         let w = writer.clone();
         handles.push(std::thread::spawn(move || {
             for j in 0..50 {
-                w.write_line_level(&format!("thread-{}-line-{}", i, j), log::Level::Info).unwrap();
+                w.write_line_level(&format!("thread-{}-line-{}", i, j), log::Level::Info)
+                    .unwrap();
             }
         }));
     }
@@ -269,7 +274,9 @@ fn test_rotating_file_writer_recovers_from_poisoned_mutex() {
     std::fs::remove_dir_all(&tmp).ok();
     let writer = RotatingFileWriter::new(tmp.clone(), "test-log");
     // Write an initial line so the inner File handle is opened.
-    writer.write_line_level("before-poison", log::Level::Info).unwrap();
+    writer
+        .write_line_level("before-poison", log::Level::Info)
+        .unwrap();
     // Poison the mutex: lock it, then panic while holding it
     // (caught via `catch_unwind` so the test process survives).
     let poison_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -281,7 +288,9 @@ fn test_rotating_file_writer_recovers_from_poisoned_mutex() {
         "test setup: panic should have fired"
     );
     // Now the mutex is poisoned. The post-fix code must NOT panic.
-    writer.write_line_level("after-poison", log::Level::Info).unwrap();
+    writer
+        .write_line_level("after-poison", log::Level::Info)
+        .unwrap();
     writer.flush().unwrap();
     // Verify both lines landed (the recovered guard carries the
     // previously-opened File handle, so the post-poison write
@@ -909,7 +918,9 @@ fn test_rotating_file_writer_log_file_mode_is_0o600_on_posix() {
         std::env::temp_dir().join(format!("voice-typer-test-{}-pi7-mode", std::process::id()));
     std::fs::remove_dir_all(&tmp).ok();
     let writer = RotatingFileWriter::new(tmp.clone(), "test-log");
-    writer.write_line_level("secret-dictation-text", log::Level::Info).unwrap();
+    writer
+        .write_line_level("secret-dictation-text", log::Level::Info)
+        .unwrap();
     writer.flush().unwrap();
 
     let path = tmp.join("test-log.log");
@@ -941,7 +952,9 @@ fn test_rotating_file_writer_truncate_keeps_0o600_on_posix() {
     // (LOG_MAX_BYTES = 40 MB).
     let big_line = "x".repeat(100_000);
     for _ in 0..450 {
-        writer.write_line_level(&big_line, log::Level::Info).unwrap();
+        writer
+            .write_line_level(&big_line, log::Level::Info)
+            .unwrap();
     }
     writer.flush().unwrap();
 
@@ -2041,7 +2054,9 @@ fn test_rotating_flush_barrier_timeout_returns_instead_of_hanging() {
     ));
     std::fs::remove_dir_all(&tmp).ok();
     let writer = RotatingFileWriter::new(tmp.clone(), "test-log");
-    writer.write_line_level("stalled-line", log::Level::Info).unwrap();
+    writer
+        .write_line_level("stalled-line", log::Level::Info)
+        .unwrap();
     // Hold the inner mutex so the writer thread cannot complete the
     // flush syscall → the ack never arrives.
     let _stall = writer.inner.lock().unwrap_or_else(|e| e.into_inner());
@@ -2108,10 +2123,8 @@ fn test_rotating_sequential_flushes_still_each_flush() {
     // before the next is issued, so the gate is free and every flush
     // is a real barrier. This is the property the existing
     // read-after-flush tests (and the panic-hook flush path) rely on.
-    let tmp = std::env::temp_dir().join(format!(
-        "voice-typer-test-{}-seq-flush",
-        std::process::id()
-    ));
+    let tmp =
+        std::env::temp_dir().join(format!("voice-typer-test-{}-seq-flush", std::process::id()));
     std::fs::remove_dir_all(&tmp).ok();
     let writer = RotatingFileWriter::new(tmp.clone(), "test-log");
     writer.write_line_level("first", log::Level::Info).unwrap();
@@ -2142,7 +2155,9 @@ fn test_rotating_writer_idle_autoflush_lands_unflushed_lines() {
     ));
     std::fs::remove_dir_all(&tmp).ok();
     let writer = RotatingFileWriter::new(tmp.clone(), "test-log");
-    writer.write_line_level("idle-autoflush-line", log::Level::Info).unwrap();
+    writer
+        .write_line_level("idle-autoflush-line", log::Level::Info)
+        .unwrap();
     // NO explicit flush(): the writer thread's idle auto-flush must
     // land the line.
     let log_path = tmp.join("test-log.log");

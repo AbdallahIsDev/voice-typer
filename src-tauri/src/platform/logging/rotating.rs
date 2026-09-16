@@ -211,9 +211,7 @@ impl RotatingFileWriter {
                 // may each pass the check before any increment lands,
                 // bounding the overshoot to a handful of records
                 // (never to grow-only memory).
-                if !critical
-                    && self.queued_bytes.load(Ordering::Relaxed) >= QUEUE_BYTE_CEILING
-                {
+                if !critical && self.queued_bytes.load(Ordering::Relaxed) >= QUEUE_BYTE_CEILING {
                     notify_queue_saturation_once();
                     return Ok(());
                 }
@@ -417,9 +415,7 @@ fn notify_queue_saturation_once() {
     eprintln!(
         "{} {:5} [LOG] writer queue saturated ({} bytes in flight), non-error log lines \
          dropped until it drains",
-        ts,
-        "WARN",
-        QUEUE_BYTE_CEILING
+        ts, "WARN", QUEUE_BYTE_CEILING
     );
 }
 

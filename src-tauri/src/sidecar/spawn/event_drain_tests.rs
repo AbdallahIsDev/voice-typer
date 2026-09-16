@@ -52,7 +52,9 @@ async fn test_drain_child_events_forwards_terminated_and_closes_with_stream() {
     // drain's recv()s: the drain relieves back-pressure by
     // construction.
     let feeder = tokio::spawn(async move {
-        tx.send(stderr_event("ctranslate2 device=cuda")).await.unwrap();
+        tx.send(stderr_event("ctranslate2 device=cuda"))
+            .await
+            .unwrap();
         tx.send(stdout_event("stray stdout line")).await.unwrap();
         tx.send(stderr_event("second stderr line")).await.unwrap();
         tx.send(CommandEvent::Error("pipe read failed".to_string()))
@@ -150,14 +152,18 @@ async fn test_drain_child_events_relieves_backpressure_on_bounded_channel() {
     let (exit_tx, mut exit_rx) = mpsc::channel(1);
     let feeder = tokio::spawn(async move {
         for i in 0..64 {
-            tx.send(stderr_event(&format!("noise line {i}"))).await.unwrap();
+            tx.send(stderr_event(&format!("noise line {i}")))
+                .await
+                .unwrap();
         }
         tx.send(terminated_event(0)).await.unwrap();
         drop(tx);
     });
-    let drained =
-        tokio::time::timeout(std::time::Duration::from_secs(5), drain_child_events("[TEST]", rx, exit_tx))
-            .await;
+    let drained = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        drain_child_events("[TEST]", rx, exit_tx),
+    )
+    .await;
     assert!(drained.is_ok(), "drain must keep up with a 64-event burst");
     feeder.await.unwrap();
     assert!(

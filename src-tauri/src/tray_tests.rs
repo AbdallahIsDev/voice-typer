@@ -45,16 +45,16 @@ fn test_tray_state_payload_parses_icon_only() {
 fn test_tray_state_payload_parses_tooltip_only() {
     let p: TrayStatePayload =
         serde_json::from_str(r#"{"tooltip":"Voice Typer: Recording"}"#).expect("parse");
-        assert!(p.icon.is_none());
-        assert_eq!(p.tooltip.as_deref(), Some("Voice Typer: Recording"));
+    assert!(p.icon.is_none());
+    assert_eq!(p.tooltip.as_deref(), Some("Voice Typer: Recording"));
 }
 
 #[test]
 fn test_tray_state_payload_parses_both_fields() {
     let p: TrayStatePayload =
         serde_json::from_str(r#"{"icon":"error","tooltip":"Voice Typer: Error"}"#).expect("parse");
-        assert_eq!(p.icon.as_deref(), Some("error"));
-        assert_eq!(p.tooltip.as_deref(), Some("Voice Typer: Error"));
+    assert_eq!(p.icon.as_deref(), Some("error"));
+    assert_eq!(p.tooltip.as_deref(), Some("Voice Typer: Error"));
 }
 
 #[test]

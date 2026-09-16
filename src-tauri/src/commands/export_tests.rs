@@ -548,8 +548,7 @@ async fn test_await_dialog_bridge_times_out_when_callback_never_fires() {
     // forever.
     let (tx, rx) = tokio::sync::oneshot::channel::<Option<String>>();
     let started = std::time::Instant::now();
-    let result =
-        await_dialog_bridge_with_timeout(rx, std::time::Duration::from_millis(50)).await;
+    let result = await_dialog_bridge_with_timeout(rx, std::time::Duration::from_millis(50)).await;
     let elapsed = started.elapsed();
     assert!(
         result.is_none(),

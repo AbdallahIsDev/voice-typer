@@ -274,7 +274,9 @@ pub(crate) fn on_host_exit(app_handle: &tauri::AppHandle) {
     // take its child for the force-kill below. Missing state would
     // panic, but main.rs always manages WorkerState unconditionally.
     let worker_state = app_handle.state::<Arc<WorkerState>>().inner().clone();
-    worker_state.shutting_down.store(true, std::sync::atomic::Ordering::SeqCst);
+    worker_state
+        .shutting_down
+        .store(true, std::sync::atomic::Ordering::SeqCst);
     std::thread::spawn(move || {
         tauri::async_runtime::block_on(async move {
             let _ = tokio::time::timeout(

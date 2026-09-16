@@ -255,9 +255,7 @@ pub(crate) async fn respawn(
     // its own three `shutting_down` checks, but it closes the I/O
     // window between flag acquisition and the in-loop checks.
     if state.shutting_down.load(Ordering::SeqCst) {
-        log::info!(
-            "[SUPERVISOR] shutting down (post-flag-acquisition, pre-I/O): skipping respawn"
-        );
+        log::info!("[SUPERVISOR] shutting down (post-flag-acquisition, pre-I/O): skipping respawn");
         state.respawn_in_progress.store(false, Ordering::SeqCst);
         return Ok(());
     }
