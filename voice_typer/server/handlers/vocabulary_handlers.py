@@ -9,6 +9,7 @@ from voice_typer.server.handlers._base import HandlerBase
 from voice_typer.server.handlers._log import log
 from voice_typer.server.ipc.validation import (
     ErrorCodes,
+    ResponseEnvelope,
     _enforce_payload_size_cap,
     _error_response,
     _validate_dict_payload,
@@ -27,7 +28,7 @@ class VocabularyHandlersMixin(HandlerBase):
         branch on the code rather than pattern-matching the message text.
     """
 
-    def _handle_get_vocabulary(self, data: dict | None, resp: dict) -> dict | None:
+    def _handle_get_vocabulary(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:
         """Handle the ``get_vocabulary`` IPC command."""
         # delegates to service layer
         try:
@@ -57,7 +58,7 @@ class VocabularyHandlersMixin(HandlerBase):
             self._respond_with_error(resp, exc, "get_vocabulary")
         return resp
 
-    def _handle_save_vocabulary(self, data: dict | None, resp: dict) -> dict | None:
+    def _handle_save_vocabulary(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:
         """Handle the ``save_vocabulary`` IPC command."""
         # delegates to service layer
         # cap payload size to prevent DoS. A 1 GB JSON
@@ -108,6 +109,20 @@ class VocabularyHandlersMixin(HandlerBase):
                         _err_data.get("message"),
                     )
                 return resp
+
+            # Type narrowing for the dict operations below. The schema
+            # helper above already rejects a non-dict payload with
+            # ``client.invalid_payload``, so this guard is unreachable in
+            # practice; it exists so the ``data.items()`` walk and
+            # ``save_vocabulary_with_diff(data)`` below type-check against
+            # a real ``dict`` instead of the handler's ``object`` payload
+            # parameter (the handler signature matches ``CommandHandler``).
+            if not isinstance(data, dict):
+                return _error_response(
+                    resp,
+                    "save_vocabulary requires data: object",
+                    code="invalid_payload",
+                )
 
             # Per-value length cap (NESTED). Kept inline because the
             # schema rule ``max_value_len`` only applies to TOP-LEVEL
@@ -187,7 +202,7 @@ class VocabularyHandlersMixin(HandlerBase):
             self._respond_with_error(resp, exc, "save_vocabulary")
         return resp
 
-    def _handle_get_correction_usage(self, data: dict | None, resp: dict) -> dict | None:
+    def _handle_get_correction_usage(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:
         """Handle the ``get_correction_usage`` IPC command.
 
         Returns the per-correction usage snapshot (counts + last-trigger
@@ -203,7 +218,9 @@ class VocabularyHandlersMixin(HandlerBase):
             self._respond_with_error(resp, exc, "get_correction_usage")
         return resp
 
-    def _handle_test_vocabulary_correction(self, data: dict | None, resp: dict) -> dict | None:
+    def _handle_test_vocabulary_correction(
+        self, data: object | None, resp: ResponseEnvelope
+    ) -> ResponseEnvelope | None:
         """Handle the ``test_vocabulary_correction`` IPC command.
 
          Applies the LIVE vocabulary rules to a phrase so the "Test

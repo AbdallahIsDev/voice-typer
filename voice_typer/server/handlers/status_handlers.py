@@ -45,7 +45,12 @@ pinned by ``tests/test_command_registry_parity.py`` and
 
 from voice_typer.server.handlers._base import HandlerBase
 from voice_typer.server.handlers._log import log
-from voice_typer.server.ipc.validation import ErrorCodes, LegacyErrorCodes, _error_response  # noqa: F401
+from voice_typer.server.ipc.validation import (  # noqa: F401
+    ErrorCodes,
+    LegacyErrorCodes,
+    ResponseEnvelope,
+    _error_response,
+)
 from voice_typer.server.platform_utils import is_windows
 
 
@@ -62,7 +67,7 @@ class StatusHandlersMixin(HandlerBase):
         pattern-matching the message text.
     """
 
-    def _handle_get_status(self, data: dict | None, resp: dict) -> dict | None:
+    def _handle_get_status(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:
         """Handle the ``get_status`` IPC command.
 
         (session-DE): this was the only status handler with NO
@@ -108,7 +113,7 @@ class StatusHandlersMixin(HandlerBase):
             self._respond_with_error(resp, exc, "get_status")
         return resp
 
-    def _handle_get_volume_backend_status(self, data: dict | None, resp: dict) -> dict | None:
+    def _handle_get_volume_backend_status(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:
         """Handle the ``get_volume_backend_status`` IPC command."""
         # Returns the active volume backend's name + capability flags
         # delegates to service layer
@@ -122,7 +127,7 @@ class StatusHandlersMixin(HandlerBase):
             self._respond_with_error(resp, exc, "get_volume_backend_status")
         return resp
 
-    def _handle_get_model_status(self, data: dict | None, resp: dict) -> dict | None:
+    def _handle_get_model_status(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:
         """Handle the ``get_model_status`` IPC command."""
         # Item 10/11: check which models are actually on disk.
         # Returns a dict mapping model name → {downloaded: bool, deps_ok: bool}.
@@ -136,7 +141,7 @@ class StatusHandlersMixin(HandlerBase):
             self._respond_with_error(resp, exc, "get_model_status")
         return resp
 
-    def _handle_get_prewarm_status(self, data: dict | None, resp: dict) -> dict | None:
+    def _handle_get_prewarm_status(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:
         """Handle the ``get_prewarm_status`` IPC command.
 
         ADR-0009 Issue 3: returns a snapshot of the prewarm cache state
@@ -158,7 +163,7 @@ class StatusHandlersMixin(HandlerBase):
             self._respond_with_error(resp, exc, "get_prewarm_status")
         return resp
 
-    def _handle_run_prewarm(self, data: dict | None, resp: dict) -> dict | None:
+    def _handle_run_prewarm(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:
         """Handle the ``run_prewarm`` IPC command, re-warm the OS cache now.
 
         RESTORED 2026-08-14 (plan §6.3 addendum, second half). The
@@ -188,7 +193,7 @@ class StatusHandlersMixin(HandlerBase):
             self._respond_with_error(resp, exc, "run_prewarm")
         return resp
 
-    def _handle_open_prewarm_log(self, data: dict | None, resp: dict) -> dict | None:
+    def _handle_open_prewarm_log(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:
         """Handle the ``open_prewarm_log`` IPC command.
 
         Task 2: opens the prewarm log file in the OS default text

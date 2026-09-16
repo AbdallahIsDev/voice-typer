@@ -23,6 +23,7 @@ is preferred).
 """
 
 from voice_typer.server.handlers._base import HandlerBase
+from voice_typer.server.ipc.validation import ResponseEnvelope
 
 
 class RepasteHandlersMixin(HandlerBase):
@@ -33,7 +34,7 @@ class RepasteHandlersMixin(HandlerBase):
         no ``str(e)`` leak).
     """
 
-    def _handle_repaste_last(self, data: dict | None, resp: dict) -> dict | None:
+    def _handle_repaste_last(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:
         """Handle the ``repaste_last`` IPC command ().
 
                 Re-pastes the last transcription via

@@ -1,164 +1,248 @@
-"""YJ-1 regression: typed handler-method signatures in the four owned mixins.
+"""Handler-mixin signature conformance for the FULL handler set.
 
-The keystone ``# type: ignore[assignment]`` at
-``voice_typer/server/ipc_server.py:1908`` (``handler = _resolved``)
-cannot be deleted until ALL 65+ ``_handle_*`` methods across the 15
-handler mixins conform to the ``CommandHandler`` signature::
+Every ``_handle_*`` method across the handler mixins MUST be annotated with
+the canonical ``CommandHandler`` shape declared in
+``voice_typer/server/ipc/validation.py``::
 
     (self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None
 
-This test covers the four mixins owned by the YJ-11 agent
-(history / dictation / model / onboarding). When the other 11 mixins
-(owned by agents 14 and 15) are annotated in lockstep, the keystone
-``# type: ignore`` can be deleted and this test extended to cover the
-full set.
+``ResponseEnvelope`` is the alias ``dict[str, object]`` (the structural shape
+every IPC frame carries), so the expectations below are expressed structurally:
+they keep holding if the mixin modules import the alias instead of the raw
+``dict`` spelling.
 
-Scope (per the bucket assignment in ``final_groups.json``):
+History (why this file exists)
+------------------------------
 
-- ``voice_typer/server/handlers/history_handlers.py``
-- ``voice_typer/server/handlers/dictation_handlers.py``
-- ``voice_typer/server/handlers/model_handlers.py``
-- ``voice_typer/server/handlers/onboarding_handlers.py``
+Typing the handler surface happened in stages. An early pass annotated only
+four mixins (history / dictation / model / onboarding) and this test covered
+exactly those, while the remaining mixins still used the older
+``(data: dict | None, resp: dict) -> dict | None`` style. Two consequences:
+the declared ``CommandHandler`` contract could not be enforced (a ``dict``
+annotation is not parameter-compatible with the ``object | None`` payload the
+dispatcher actually passes), and there was no single source of truth for the
+response envelope.
 
-The test introspects each ``_handle_*`` method's signature via
-``inspect.signature`` and asserts the parameter and return annotations
-match the canonical ``CommandHandler`` shape. A handler that drops the
-annotation (e.g. by copy-pasting a new ``def _handle_x(self, data, resp) -> dict | None``)
-fails the test, surfacing the regression before the keystone
-``# type: ignore`` deletion lands.
+The migration is complete: every handler mixin annotates the canonical shape.
+The test therefore
+
+* **discovers** the mixins instead of naming four of them, so a new handler
+  module is covered without editing this file, and
+* asserts the **exact** canonical annotations rather than merely "an
+  annotation is present", so reintroducing either half of the old pair
+  (``data: dict | None`` / ``resp: dict`` / ``-> dict | None``) fails loudly.
+
+``TestNoLegacyHandlerAnnotation`` additionally guards the handler sources that
+are NOT introspected here (the ``ipc/`` dispatch mixins) by scanning the
+signature lines on disk.
 """
 
 from __future__ import annotations
 
+import importlib
 import inspect
+import pkgutil
+import types
+import typing
 from pathlib import Path
 
 import pytest
+import voice_typer.server.handlers as _handlers_pkg
 
-# Mixins under test (owned by  bucket) ──────────────────────────
-from voice_typer.server.handlers.dictation_handlers import (  # noqa: E402
-    DictationHandlersMixin,
-)
-from voice_typer.server.handlers.history_handlers import (  # noqa: E402
-    HistoryHandlersMixin,
-)
-from voice_typer.server.handlers.model_handlers import (  # noqa: E402
-    ModelHandlersMixin,
-)
-from voice_typer.server.handlers.onboarding_handlers import (  # noqa: E402
-    OnboardingHandlersMixin,
-)
+# Canonical structural renderings of the ``CommandHandler`` annotations.
+_EXPECTED_DATA = "object | None"
+_EXPECTED_RESP = "dict[str, object]"
+_EXPECTED_RETURN = "dict[str, object] | None"
 
-# ResponseEnvelope is currently defined in ``voice_typer.server.ipc_server``
-# (a 3095-line god-class slated for split in  / ). The
-# ``test_response_envelope_importable_from_validation`` test below pins the
-# ASPIRATIONAL future home ``voice_typer.server.ipc.validation`` once the
-# split lands. For now we import from the canonical current location so the
-# module is collectable.
-from voice_typer.server.ipc_server import ResponseEnvelope  # noqa: E402
+# Floor for the discovered handler count. Guards against a discovery
+# regression (e.g. a botched ``pkgutil`` change) silently shrinking the
+# checked surface to a handful of methods.
+_MIN_EXPECTED_HANDLERS = 60
 
-_OWNED_MIXINS = (
-    HistoryHandlersMixin,
-    DictationHandlersMixin,
-    ModelHandlersMixin,
-    OnboardingHandlersMixin,
-)
+_NONE_TYPE = type(None)
+
+_HANDLERS_DIR = Path(_handlers_pkg.__file__).parent
+_IPC_DIR = _HANDLERS_DIR.parent / "ipc"
+
+# Directories whose ``_handle_*`` signature lines are scanned for the
+# legacy annotation pair by ``TestNoLegacyHandlerAnnotation``.
+_HANDLER_SOURCE_DIRS = (_HANDLERS_DIR, _IPC_DIR)
 
 
-def _resolve_annotation(ann: object) -> str:
-    """Return a stable string form of an annotation.
+def _resolve_atom(annotation: object) -> str:
+    """Render a non-parameterized annotation as a stable string."""
+    if annotation is _NONE_TYPE:
+        return "None"
+    return getattr(annotation, "__name__", str(annotation))
 
-    ``inspect.signature`` may return either a real type (``object``, ``dict``)
-    or a string forward ref (``"ResponseEnvelope"``). Comparing annotations
-    via ``__eq__`` is brittle across Python versions and string-vs-type
-    forms. Stringifying both sides gives a stable comparison surface.
+
+def _canonical(annotation: object) -> str:
+    """Render *annotation* structurally, stable across Python versions.
+
+    ``typing.get_type_hints`` hands back real objects (``types.UnionType``,
+    ``types.GenericAlias``, plain classes) or forward-ref strings. Comparing
+    those directly is brittle (``dict[str, object]`` has a ``__name__`` of
+    ``"dict"`` via attribute proxying, ``X | None`` has none at all), so both
+    sides of a comparison are rendered through this function.
     """
-    if ann is inspect.Parameter.empty:
+    if annotation is inspect.Parameter.empty:
         return "<empty>"
-    if isinstance(ann, str):
-        # Forward ref string, strip any surrounding quotes.
-        return ann.strip("'\"")
-    if hasattr(ann, "__name__"):
-        return ann.__name__
-    return str(ann).replace("typing.", "")
+    if isinstance(annotation, str):
+        return annotation.strip("'\"")
+    origin = typing.get_origin(annotation)
+    args = typing.get_args(annotation)
+    if origin is typing.Union or origin is types.UnionType:
+        return " | ".join(_canonical(arg) for arg in args)
+    if args:
+        return f"{_resolve_atom(origin)}[{', '.join(_canonical(arg) for arg in args)}]"
+    return _resolve_atom(annotation)
 
 
 def _handle_methods(mixin_cls: type) -> list[str]:
-    """Return every ``_handle_*`` method name on ``mixin_cls``."""
+    """Return every ``_handle_*`` method name declared on ``mixin_cls``."""
     return [name for name in vars(mixin_cls) if name.startswith("_handle_")]
+
+
+def _discover_mixins() -> list[type]:
+    """Every class in ``voice_typer/server/handlers/`` declaring handlers.
+
+    Modules are imported via ``pkgutil`` so a newly added handler mixin is
+    picked up automatically.
+    """
+    mixins: set[type] = set()
+    for module_info in sorted(pkgutil.iter_modules(_handlers_pkg.__path__), key=lambda m: m.name):
+        module = importlib.import_module(f"{_handlers_pkg.__name__}.{module_info.name}")
+        for obj in vars(module).values():
+            if not inspect.isclass(obj) or obj.__module__ != module.__name__:
+                continue
+            if _handle_methods(obj):
+                mixins.add(obj)
+    return sorted(mixins, key=lambda cls: cls.__name__)
+
+
+_MIXIN_CLASSES = _discover_mixins()
+
+
+def _handler_source_files() -> list[Path]:
+    """Every handler/dispatch source file on disk (sorted)."""
+    files: list[Path] = []
+    for directory in _HANDLER_SOURCE_DIRS:
+        files.extend(sorted(directory.glob("*.py")))
+    return files
 
 
 # ── Tests ──────────────────────────────────────────────────────────────
 
 
 class TestHandlerSignatureConformance:
-    """Every ``_handle_*`` method on the 4 owned mixins MUST be annotated
-    to match the ``CommandHandler`` signature ``(data: object | None,
-    resp: ResponseEnvelope) -> ResponseEnvelope | None``.
+    """Every discovered ``_handle_*`` method MUST carry the canonical
+    ``CommandHandler`` annotations.
     """
 
     @pytest.mark.parametrize(
         "mixin_cls",
-        _OWNED_MIXINS,
-        ids=lambda c: c.__name__,
+        _MIXIN_CLASSES,
+        ids=lambda cls: cls.__name__,
     )
-    def test_every_handle_method_is_typed(self, mixin_cls: type) -> None:
-        """All ``_handle_*`` methods on ``mixin_cls`` MUST have the
-        ``data``, ``resp``, and return-type annotations matching the
-        ``CommandHandler`` signature.
+    def test_every_handle_method_matches_command_handler_shape(self, mixin_cls: type) -> None:
+        """``data`` / ``resp`` / return annotations MUST be exactly the
+        canonical ``(object | None, ResponseEnvelope) -> ResponseEnvelope | None``.
 
-        Missing annotations fail the test, this is the YJ-1 contract
-        that allows the keystone ``# type: ignore[assignment]`` at
-        ``ipc_server.py:1908`` to be deleted once ALL 15 handler mixins
-        conform (the other 11 are owned by agents 14 and 15).
+        A handler that drops or reverts an annotation (e.g. a copy-pasted
+        ``def _handle_x(self, data: dict | None, resp: dict) -> dict | None``)
+        fails here before it can drift from the dispatcher's
+        ``CommandHandler`` contract.
         """
         method_names = _handle_methods(mixin_cls)
         assert method_names, f"{mixin_cls.__name__} should declare at least one _handle_* method"
         failures: list[str] = []
         for name in method_names:
-            method = getattr(mixin_cls, name)
-            sig = inspect.signature(method)
+            sig = inspect.signature(getattr(mixin_cls, name))
             params = list(sig.parameters.values())
-            # Expected: (self, data, resp)
+            where = f"{mixin_cls.__name__}.{name}"
             if len(params) != 3:
-                failures.append(f"{mixin_cls.__name__}.{name}: expected 3 params (self, data, resp), got {len(params)}")
+                failures.append(f"{where}: expected 3 params (self, data, resp), got {len(params)}")
                 continue
-            self_p, data_p, resp_p = params
-            assert self_p.name == "self", f"{mixin_cls.__name__}.{name}: first param must be 'self'"
-            assert data_p.name == "data", f"{mixin_cls.__name__}.{name}: second param must be 'data'"
-            assert resp_p.name == "resp", f"{mixin_cls.__name__}.{name}: third param must be 'resp'"
-            # data: object | None, accept either the ``object | None``
-            # typing form or a forward-ref string. The annotation must
-            # NOT be ``inspect.Parameter.empty`` (untyped).
-            data_ann = _resolve_annotation(data_p.annotation)
-            if data_ann == "<empty>":
-                failures.append(f"{mixin_cls.__name__}.{name}: missing 'data' annotation")
-            # resp: ResponseEnvelope, accept either the alias itself
-            # or the underlying ``dict[str, object]`` shape, plus the
-            # forward-ref string form ``"ResponseEnvelope"``.
-            resp_ann = _resolve_annotation(resp_p.annotation)
-            if resp_ann == "<empty>":
-                failures.append(f"{mixin_cls.__name__}.{name}: missing 'resp' annotation")
-            # Return: ResponseEnvelope | None, accept the union form
-            # or the stringified form (pyrefly strips the alias).
-            ret_ann = _resolve_annotation(sig.return_annotation)
-            if ret_ann == "<empty>":
-                failures.append(f"{mixin_cls.__name__}.{name}: missing return annotation")
+            self_param, data_param, resp_param = params
+            if (self_param.name, data_param.name, resp_param.name) != ("self", "data", "resp"):
+                failures.append(
+                    f"{where}: params must be named (self, data, resp), got "
+                    f"({self_param.name}, {data_param.name}, {resp_param.name})"
+                )
+                continue
+            # ``get_type_hints`` (not the raw ``inspect.signature``
+            # annotations) because a mixin module may opt into postponed
+            # evaluation (``from __future__ import annotations``), which
+            # turns every annotation into a string: the ``ResponseEnvelope``
+            # alias would then compare as the bare name instead of its
+            # ``dict[str, object]`` shape.
+            try:
+                hints = typing.get_type_hints(getattr(mixin_cls, name))
+            except Exception as exc:  # pragma: no cover - defensive
+                failures.append(f"{where}: annotations are not resolvable ({exc!r})")
+                continue
+            data_ann = _canonical(hints.get("data", inspect.Parameter.empty))
+            if data_ann != _EXPECTED_DATA:
+                failures.append(f"{where}: data must be annotated `{_EXPECTED_DATA}`, got `{data_ann}`")
+            resp_ann = _canonical(hints.get("resp", inspect.Parameter.empty))
+            if resp_ann != _EXPECTED_RESP:
+                failures.append(f"{where}: resp must be annotated `{_EXPECTED_RESP}`, got `{resp_ann}`")
+            return_ann = _canonical(hints.get("return", inspect.Parameter.empty))
+            if return_ann != _EXPECTED_RETURN:
+                failures.append(f"{where}: return must be annotated `{_EXPECTED_RETURN}`, got `{return_ann}`")
         assert not failures, f"{mixin_cls.__name__} has non-conformant _handle_* methods:\n  - " + "\n  - ".join(
             failures
         )
 
-    def test_owned_mixins_collectively_have_at_least_30_handlers(self) -> None:
-        """Sanity check: the 4 owned mixins should declare at least 30
-        ``_handle_*`` methods combined. Guards against an accidental
-        mass-deletion of handlers (e.g. a bad refactor that swallowed
-        the mixin into a single dispatch method)."""
-        total = sum(len(_handle_methods(m)) for m in _OWNED_MIXINS)
-        # As of the  partial-annotation pass: 10 (history) + 3
-        # (dictation) + 8 (model) + 17 (onboarding) = 38 handlers.
-        # Use a floor of 30 to allow minor future reshuffling without
-        # tripping the test on every change.
-        assert total >= 30, f"Expected ≥30 _handle_* methods across the 4 owned mixins; found {total}"
+    def test_discovery_covers_every_mixin_and_handler(self) -> None:
+        """Discovery MUST reach every mixin module that declares handlers.
+
+        Cross-checks the introspected set against the sources on disk: every
+        ``voice_typer/server/handlers/*.py`` file containing a ``_handle_*``
+        definition must contribute at least one discovered mixin (a module
+        added to the package can therefore never be silently skipped).
+        """
+        discovered_modules = {cls.__module__ for cls in _MIXIN_CLASSES}
+        missing: list[str] = []
+        for path in sorted(_HANDLERS_DIR.glob("*.py")):
+            source = path.read_text(encoding="utf-8")
+            if "def _handle_" not in source:
+                continue
+            module_name = f"{_handlers_pkg.__name__}.{path.stem}"
+            if module_name not in discovered_modules:
+                missing.append(module_name)
+        assert not missing, f"handler modules declaring _handle_* were not discovered: {missing}"
+
+        total = sum(len(_handle_methods(cls)) for cls in _MIXIN_CLASSES)
+        assert total >= _MIN_EXPECTED_HANDLERS, (
+            f"Expected >= {_MIN_EXPECTED_HANDLERS} _handle_* methods across the discovered mixins; found {total}"
+        )
+
+
+class TestNoLegacyHandlerAnnotation:
+    """The legacy ``(data: dict | None, resp: dict) -> dict | None`` handler
+    annotation MUST NOT reappear anywhere in the handler/dispatch sources.
+
+    The introspective test above only sees the ``handlers/`` package mixins;
+    this scan also covers the ``ipc/`` dispatch mixins (``DispatcherMixin``,
+    ``LifecycleMixin``) whose ``_handle_*`` methods are annotated in place.
+    """
+
+    def test_no_handler_signature_uses_the_legacy_annotation_pair(self) -> None:
+        offenders: list[str] = []
+        for path in _handler_source_files():
+            lines = path.read_text(encoding="utf-8").splitlines()
+            for index, line in enumerate(lines):
+                if "def _handle_" not in line:
+                    continue
+                # Signature may wrap across lines; scan a small window.
+                signature = " ".join(lines[index : index + 3])
+                if "data: dict | None" in signature or "resp: dict) -> dict | None" in signature:
+                    offenders.append(f"{path.name}:{index + 1}")
+        assert not offenders, (
+            "handler signature(s) still use the legacy `dict` annotation style "
+            f"(use `object | None` / `ResponseEnvelope`): {offenders}"
+        )
 
 
 class TestResponseEnvelopeImportable:
@@ -180,8 +264,6 @@ class TestResponseEnvelopeImportable:
         # Accept either the ``types.GenericAlias`` form (``dict[str, object]``)
         # or the ``typing.Dict`` form (``typing.Dict[str, object]``) —
         # both are valid alias declarations.
-        import typing
-
         from voice_typer.server.ipc.validation import ResponseEnvelope
 
         origin = typing.get_origin(ResponseEnvelope)
@@ -195,7 +277,6 @@ class TestResponseEnvelopeImportable:
         # ``Callable[[object | None, ResponseEnvelope], Optional[ResponseEnvelope]]``
         # has 2 args: the parameter-types tuple and the return type.
         import collections.abc
-        import typing
 
         from voice_typer.server.ipc.validation import CommandHandler
 
@@ -221,9 +302,7 @@ class TestResponseEnvelopeImportable:
     def test_ipc_server_reexports_canonical_aliases(self) -> None:
         """``ipc_server.py`` MUST re-export the canonical aliases from
         ``validation.py`` (not define its own local copies) so the two
-        modules stay in sync. Without this, the keystone
-        ``# type: ignore[assignment]`` removal in a future YJ-1 pass
-        could silently diverge from the actual handler signatures."""
+        modules stay in sync."""
         from voice_typer.server import ipc_server as s
         from voice_typer.server.ipc import validation as v
 
@@ -279,7 +358,7 @@ class TestRestoreHistoryNarrowing:
         long_text = "x" * 8193
         record = {"text": long_text, "id": 1}
 
-        resp: ResponseEnvelope = {}
+        resp: dict = {}
         result = server._handle_restore_history({"record": record}, resp)
 
         # The handler MUST return an error envelope with the
@@ -314,7 +393,7 @@ class TestRestoreHistoryNarrowing:
 
         # A non-dict record, schema validation rejects with
         # ``client.invalid_field`` BEFORE the defensive guard runs.
-        resp: ResponseEnvelope = {}
+        resp: dict = {}
         result = server._handle_restore_history({"record": ["not", "a", "dict"]}, resp)
 
         assert result is not None
@@ -341,7 +420,7 @@ class TestRestoreHistoryNarrowing:
         server = IPCServer(fake_app, service=fake_service)
 
         record = {"text": "hello world", "id": 1}
-        resp: ResponseEnvelope = {}
+        resp: dict = {}
         result = server._handle_restore_history({"record": record}, resp)
 
         assert result is not None

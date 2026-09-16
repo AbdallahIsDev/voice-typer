@@ -13,7 +13,7 @@ only the IPC dispatch route was deleted.
 
 from voice_typer.server.asr_errors import ConsentRequiredError
 from voice_typer.server.handlers._base import HandlerBase, log
-from voice_typer.server.ipc.validation import _validate_dict_payload
+from voice_typer.server.ipc.validation import ResponseEnvelope, _validate_dict_payload
 
 
 class LevelMonitorHandlersMixin(HandlerBase):
@@ -36,7 +36,7 @@ class LevelMonitorHandlersMixin(HandlerBase):
         and the mic-test path (microphone_test_handlers.py).
     """
 
-    def _handle_level_monitor_start(self, data: dict | None, resp: dict) -> dict | None:
+    def _handle_level_monitor_start(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:
         """Handle the ``level_monitor_start`` IPC command.
 
         Migrated to :meth:`HandlerBase._wrap`: the helper handles the
@@ -101,7 +101,7 @@ class LevelMonitorHandlersMixin(HandlerBase):
             body=body,
         )
 
-    def _handle_level_monitor_stop(self, data: dict | None, resp: dict) -> dict | None:
+    def _handle_level_monitor_stop(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:
         """Handle the ``level_monitor_stop`` IPC command."""
         try:
             result = self.service.level_monitor_stop()

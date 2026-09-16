@@ -13,7 +13,12 @@ from voice_typer.server import event_bus
 from voice_typer.server.config import validate_config_update
 from voice_typer.server.handlers._base import HandlerBase
 from voice_typer.server.handlers._log import log
-from voice_typer.server.ipc.validation import ErrorCodes, LegacyErrorCodes, _error_response  # noqa: F401
+from voice_typer.server.ipc.validation import (  # noqa: F401
+    ErrorCodes,
+    LegacyErrorCodes,
+    ResponseEnvelope,
+    _error_response,
+)
 
 # module-level "warned once" flag for the missing
 # ``_config_mutation_lock`` case. The handler runs on every ``set_config``
@@ -56,7 +61,7 @@ class ConfigHandlersMixin(HandlerBase):
         process instead of silently falling back to lock-free execution.
     """
 
-    def _handle_get_config(self, data: dict | None, resp: dict) -> dict | None:
+    def _handle_get_config(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:
         """Handle the ``get_config`` IPC command."""
         resp["type"] = "config"
         # SEC-003: previously this returned config.__dict__.copy()
@@ -70,7 +75,7 @@ class ConfigHandlersMixin(HandlerBase):
         resp["data"] = self.service.get_config()
         return resp
 
-    def _handle_get_defaults(self, data: dict | None, resp: dict) -> dict | None:
+    def _handle_get_defaults(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:
         """Handle the ``get_defaults`` IPC command."""
         # return the default Config() values so the
         # renderer's "Reset to Defaults" button doesn't have to
@@ -85,7 +90,7 @@ class ConfigHandlersMixin(HandlerBase):
             self._respond_with_error(resp, exc, "get_defaults")
         return resp
 
-    def _handle_set_config(self, data: dict | None, resp: dict) -> dict | None:
+    def _handle_set_config(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:
         """Handle the ``set_config`` IPC command."""
         try:
             # reject non-dict data with an explicit error
@@ -500,7 +505,7 @@ class ConfigHandlersMixin(HandlerBase):
             self._respond_with_error(resp, exc, "set_config")
         return resp
 
-    def _handle_add_trusted_endpoint(self, data: dict | None, resp: dict) -> dict | None:
+    def _handle_add_trusted_endpoint(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:
         """Handle the ``add_trusted_endpoint`` IPC command.
 
         Adds a hostname to the runtime URL allowlist AND persists it to

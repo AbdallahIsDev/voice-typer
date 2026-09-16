@@ -11,9 +11,11 @@ test; the separate status query was unused. The service-layer method
 only the IPC dispatch route was deleted.
 """
 
+from typing import cast
+
 from voice_typer.server.asr_errors import ConsentRequiredError
 from voice_typer.server.handlers._base import HandlerBase, log
-from voice_typer.server.ipc.validation import _error_response, _validate_dict_payload
+from voice_typer.server.ipc.validation import ResponseEnvelope, _error_response, _validate_dict_payload
 
 
 class MicrophoneTestHandlersMixin(HandlerBase):
@@ -38,7 +40,7 @@ class MicrophoneTestHandlersMixin(HandlerBase):
         consent dialog instead of a generic error toast.
     """
 
-    def _handle_microphone_test_start(self, data: dict | None, resp: dict) -> dict | None:
+    def _handle_microphone_test_start(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:
         """Handle the ``microphone_test_start`` IPC command.
 
         ``duration`` is validated with ``clamp_range: (1.0, 30.0)``.
@@ -127,7 +129,7 @@ class MicrophoneTestHandlersMixin(HandlerBase):
             # (the helper only clamps int/float). A string like
             # ``"1e300"`` would coerce to ``inf`` here; the re-clamp
             # brings it back to 30.0.
-            duration = float(validated["duration"])
+            duration = float(cast(float | int | str, validated["duration"]))
             duration = max(1.0, min(duration, 30.0))
             result = self.service.microphone_test_start(mic_id=mic_id, duration=duration, filters=filters)
             return {"type": "microphone_test_result", "data": result}
@@ -140,7 +142,7 @@ class MicrophoneTestHandlersMixin(HandlerBase):
             body=body,
         )
 
-    def _handle_microphone_test_stop(self, data: dict | None, resp: dict) -> dict | None:
+    def _handle_microphone_test_stop(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:
         """Handle the ``microphone_test_stop`` IPC command."""
         try:
             result = self.service.microphone_test_stop()
@@ -151,7 +153,9 @@ class MicrophoneTestHandlersMixin(HandlerBase):
             self._respond_with_error(resp, exc, "microphone_test_stop")
         return resp
 
-    def _handle_microphone_test_read_audio(self, data: dict | None, resp: dict) -> dict | None:
+    def _handle_microphone_test_read_audio(
+        self, data: object | None, resp: ResponseEnvelope
+    ) -> ResponseEnvelope | None:
         """Handle the ``microphone_test_read_audio`` IPC command.
 
         Chunked file-reference transport: returns one slice of a persisted
@@ -174,9 +178,9 @@ class MicrophoneTestHandlersMixin(HandlerBase):
                 return error
             assert validated is not None
             result = self.service.microphone_test_read_audio(
-                path=validated["path"],
-                offset=int(validated["offset"]),
-                length=int(validated["length"]),
+                path=cast(str, validated["path"]),
+                offset=int(cast(int | str, validated["offset"])),
+                length=int(cast(int | str, validated["length"])),
             )
             resp["type"] = "microphone_test_audio_chunk"
             resp["data"] = result
@@ -184,7 +188,7 @@ class MicrophoneTestHandlersMixin(HandlerBase):
             self._respond_with_error(resp, exc, "microphone_test_read_audio")
         return resp
 
-    def _handle_microphone_test_cancel(self, data: dict | None, resp: dict) -> dict | None:
+    def _handle_microphone_test_cancel(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:
         """Handle the ``microphone_test_cancel`` IPC command."""
         try:
             result = self.service.microphone_test_cancel()
@@ -195,7 +199,7 @@ class MicrophoneTestHandlersMixin(HandlerBase):
             self._respond_with_error(resp, exc, "microphone_test_cancel")
         return resp
 
-    def _handle_microphone_test_get_level(self, data: dict | None, resp: dict) -> dict | None:
+    def _handle_microphone_test_get_level(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:
         """Handle the ``microphone_test_get_level`` IPC command."""
         try:
             result = self.service.microphone_test_get_level()

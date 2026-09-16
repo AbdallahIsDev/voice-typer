@@ -1,7 +1,11 @@
 {
   "_schema_version": 1,
-  "_comment": "WR-13: bootstrapped coverage baseline. The ratchet script (scripts/coverage_ratchet_check.py) hard-exits with code 2 if this file is missing, but no preceding CI step ever generated it — so every CI run on ubuntu-22.04 x Python 3.12 hard-failed at the 'Coverage ratchet check' step. This bootstrap uses the documented aspirational target of 65.23% (per pyproject.toml:391-392 comment 'Global coverage is 65.23%'). Run `python scripts/coverage_ratchet_check.py --regenerate` after a real pytest --cov run to lock in the actual current percentage as the new floor.",
-  "_updated": "2026-07-24",
-  "_source": "bootstrapped from pyproject.toml documented aspirational target (65.23%)",
-  "total_coverage": 65.23
+  "_comment": "Coverage ratchet floor. MO-89 (2026-09-16) replaced the never-regenerated bootstrap value (65.23, taken from a pyproject comment) with a floor derived from a REAL measurement: the full suite (14976 passing tests, Windows, `pytest tests/ -n auto --dist=loadgroup --cov=voice_typer`) measured 84.84% total line coverage (37491/44193 statements, 459 files) with ZERO 0%-coverage modules. The floor is set 4.84 points BELOW that measurement on purpose: the ratchet runs only on the canonical ubuntu x 3.12 leg (.github/workflows/build.yml) while coverage is measured on every OS, and platform-conditional code (windows/ ~4.8% of statements, linux/ ~1.6%, macos/ ~1.1%) cannot be exercised identically everywhere. A 80.0 floor still removes the ~19 points of slack the bootstrap value left, so any real erosion now fails CI. Raise it ONLY on a fresh measurement (scripts/coverage_ratchet_check.py --regenerate); never lower it to accommodate a drop.",
+  "_updated": "2026-09-16",
+  "_source": "MO-89: full-suite measurement 84.84% (Windows, 14976 passed / 0 failed), floor set with cross-platform headroom",
+  "_previous": {
+    "total_coverage": 65.23,
+    "source": "bootstrapped 2026-07-24 from the pyproject.toml aspirational target (65.23%), never regenerated from a real run"
+  },
+  "total_coverage": 80.0
 }

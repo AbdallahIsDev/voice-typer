@@ -18,6 +18,7 @@ from voice_typer.server.ipc.history_bounds import (
 from voice_typer.server.ipc.validation import (  # noqa: F401
     ErrorCodes,
     LegacyErrorCodes,
+    ResponseEnvelope,
     _validate_dict_payload,
 )
 
@@ -104,7 +105,7 @@ class HistoryHandlersMixin(HandlerBase):
                 )
         return before_timestamp, before_id
 
-    def _handle_get_history(self, data: dict | None, resp: dict) -> dict | None:
+    def _handle_get_history(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:
         """Handle the ``get_history`` IPC command.
 
         Migrated to :meth:`HandlerBase._wrap`: the helper handles
@@ -298,7 +299,7 @@ class HistoryHandlersMixin(HandlerBase):
             }
         return rows
 
-    def _handle_get_today_stats(self, data: dict | None, resp: dict) -> dict | None:
+    def _handle_get_today_stats(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:
         """Handle the ``get_today_stats`` IPC command."""
         try:
             resp["type"] = "today_stats"
@@ -308,7 +309,7 @@ class HistoryHandlersMixin(HandlerBase):
             self._respond_with_error(resp, exc, "get_today_stats")
         return resp
 
-    def _handle_delete_history(self, data: dict | None, resp: dict) -> dict | None:
+    def _handle_delete_history(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:
         """Handle the ``delete_history`` IPC command.
 
          Migrated to :meth:`HandlerBase._wrap` with ``pre_coerce=False``
@@ -339,7 +340,7 @@ class HistoryHandlersMixin(HandlerBase):
             pre_coerce=False,
         )
 
-    def _handle_restore_history(self, data: dict | None, resp: dict) -> dict | None:
+    def _handle_restore_history(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:
         """Handle the ``restore_history`` IPC command.
 
          re-insert a previously-deleted record so the
@@ -397,7 +398,7 @@ class HistoryHandlersMixin(HandlerBase):
             pre_coerce=False,
         )
 
-    def _handle_clear_history(self, data: dict | None, resp: dict) -> dict | None:
+    def _handle_clear_history(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:
         """Handle the ``clear_history`` IPC command."""
         try:
             self.service.clear_history()
@@ -414,7 +415,7 @@ class HistoryHandlersMixin(HandlerBase):
             self._respond_with_error(resp, exc, "clear_history")
         return resp
 
-    def _handle_toggle_favorite(self, data: dict | None, resp: dict) -> dict | None:
+    def _handle_toggle_favorite(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:
         """Handle the ``toggle_favorite`` IPC command.
 
          Migrated to :meth:`HandlerBase._wrap` with ``pre_coerce=False``
@@ -442,7 +443,7 @@ class HistoryHandlersMixin(HandlerBase):
             pre_coerce=False,
         )
 
-    def _handle_get_favorites(self, data: dict | None, resp: dict) -> dict | None:
+    def _handle_get_favorites(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:
         """Handle the ``get_favorites`` IPC command.
 
         Migrated to :meth:`HandlerBase._wrap`: the helper handles
@@ -499,7 +500,7 @@ class HistoryHandlersMixin(HandlerBase):
             body=body,
         )
 
-    def _handle_search_history(self, data: dict | None, resp: dict) -> dict | None:
+    def _handle_search_history(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:
         """Handle the ``search_history`` IPC command.
 
         Migrated to :meth:`HandlerBase._wrap`: the helper handles
@@ -571,7 +572,7 @@ class HistoryHandlersMixin(HandlerBase):
     # On-demand full-text + total-count handlers
     # ──────────────────────────────────────────────────────────────
 
-    def _handle_get_history_count(self, data: dict | None, resp: dict) -> dict | None:
+    def _handle_get_history_count(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:
         """Handle the ``get_history_count`` IPC command.
 
         Returns the total number of transcription rows in the DB.
@@ -604,7 +605,7 @@ class HistoryHandlersMixin(HandlerBase):
             body=body,
         )
 
-    def _handle_get_transcription_text(self, data: dict | None, resp: dict) -> dict | None:
+    def _handle_get_transcription_text(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:
         """Handle the ``get_transcription_text`` IPC command.
 
          Returns the FULL text of a single transcription row by id.

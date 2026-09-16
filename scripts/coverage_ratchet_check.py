@@ -12,9 +12,9 @@ CI policy
 * Coverage MAY increase: when it does, contributors SHOULD regenerate
   the baseline so the new (higher) number becomes the floor (see
   ``--regenerate``).
-* The fixed ``--cov-fail-under=65`` floor in CI still catches
-  catastrophic drops below 65%; this ratchet catches silent erosion
-  (e.g. 70% -> 65.01%).
+* The fixed ``--cov-fail-under=78`` floor in CI still catches
+  catastrophic drops below 78%; this ratchet catches silent erosion
+  (e.g. 84% -> 80.5%).
 
 Usage
 -----

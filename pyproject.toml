@@ -552,23 +552,41 @@ testpaths = ["tests"]
 norecursedirs = [".venv", "dist", "build", "node_modules", "voice_typer/client", ".git", ".mypy_cache", ".pytest_cache", ".ruff_cache", "voice_typer.egg-info", ".hypothesis"]
 # CQ-018: -v --tb=short for readable CI output; previously -q was too terse
 # for diagnosing failures in long test suites.
-# TEST-011: --cov=voice_typer --cov-fail-under=65 for coverage threshold.
-# COV-002: clipboard.py now at 100% coverage (was 40%) via
-# tests/clipboard/win32/ (110 new tests mocking ctypes.windll
-# on Linux). Global coverage is 65.23%, kept threshold at 65% to avoid
-# breaking CI. Aspirational target: 70%. The three modules previously
-# cited as blockers now EXCEED 70%:
+# TEST-011: --cov=voice_typer scopes the report; the coverage FLOOR is
+# enforced by an explicit --cov-fail-under (CI + `make test-cov`) plus
+# ``[tool.coverage.report].fail_under`` below. Those three sites must
+# stay in lockstep — tests/test_coverage_floor_consistency.py fails if
+# they drift apart.
+# COV-002 + MO-89 re-measurement (2026-09-16, full suite, 14976 passing
+# tests): global line coverage is 84.84% (37491/44193 statements across
+# 459 files) and there are ZERO 0%-coverage modules. The earlier
+# "0%-coverage modules are the bottleneck" claim (cloud-engine adapters,
+# platform GUI shells) is obsolete: the cloud adapters are exercised via
+# mocked transports in tests/test_cloud_engines.py and the platform
+# shells are exercised through the per-platform mock suites.
+# The lowest-coverage modules are platform/launch-path code whose
+# remaining lines need a REAL OS integration (a live Win32 message loop,
+# an NVIDIA driver, a Wayland compositor, or an actual crash-time
+# vectored exception handler), which is why the floor keeps several
+# points of headroom under the measured total instead of sitting on it:
+#   - server/native_hotkeys/recorder.py   15%  (needs real key events)
+#   - worker/__main__.py                  23%  (frozen-worker entry)
+#   - crash_handler/_veh_callback.py      30%  (needs a real crash)
+#   - hotkeys/wayland.py                  35%  (needs a compositor)
+#   - task_scheduler.py                   39%  (schtasks/launchctl I/O)
+#   - single_instance.py                  45%  (real mutex/lock files)
+# Do NOT "fix" a coverage drop by adding production modules to
+# ``[tool.coverage.run].omit``: that list is for tests/*, and
+# tests/test_coverage_floor_consistency.py fails if voice_typer code is
+# excluded. Raise the floor only on a MEASURED total, via the ratchet
+# (``scripts/coverage_ratchet_check.py --regenerate``) — never a blind
+# bump.
+# The three modules previously cited as blockers all EXCEED the 70%
+# target:
 #   - streaming.py:      88%  (was the #1 blocker; raised via the
 #                              tests/test_streaming_*.py suite)
 #   - transcription.py:  75%  (raised via tests/test_transcription_*.py)
 #   - tray.py:           85%  (raised via tests/test_tray*.py)
-# The remaining bottleneck is 0%-coverage modules (e.g. the optional
-# cloud-engine adapters under voice_typer/server/cloud_engines.py that
-# require API keys to exercise, and platform-specific GUI shells that
-# don't run headless). Raising the global threshold above 70% requires
-# either stubbing those adapters for tests or excluding them from
-# ``[tool.coverage.run].source``: both are deferred to a separate
-# coverage-focused pass.
 # Per-module status of pure-python modules called out in the backlog:
 #   - config.py:        76%  ✓ (>75% target)
 #   - text_cleanup.py:  90%  ✓ (>75% target)
@@ -587,7 +605,7 @@ norecursedirs = [".venv", "dist", "build", "node_modules", "voice_typer/client",
 # missing plugins (see conftest.py, the stand-ins are skipped when the
 # real plugin is present, so real coverage/timeout behavior is intact).
 # This way:
-#   - CI (with [test]): coverage enforced at 65% + 60s test timeout.
+#   - CI (with [test]): coverage enforced at 78% + 60s test timeout.
 #   - Minimal install (no [test]): `pytest` runs without unknown-arg errors.
 # WR-1: --strict-markers + --strict-config convert unknown marker typos (e.g.
 # `@pytest.mark.rela_pynput` instead of `real_pynput`) and ini-parse errors
@@ -602,10 +620,10 @@ norecursedirs = [".venv", "dist", "build", "node_modules", "voice_typer/client",
 # 60s is generous: the longest legitimate test (test_stalled_auth_connection_
 # times_out) was patched down to 0.5s in WR-10, so no in-tree test should
 # approach the cap.
-# Note: removed --cov-fail-under=65 from addopts so local subset runs
+# Note: removed --cov-fail-under from addopts so local subset runs
 # (e.g. `pytest tests/test_foo.py`) don't trip the coverage gate. The
 # threshold is still enforced in CI (build.yml pytest step passes
-# --cov-fail-under=65 explicitly) and in [tool.coverage.report].fail_under.
+# --cov-fail-under=78 explicitly) and in [tool.coverage.report].fail_under.
 # LOCAL RUNS NOTE: `--cov=voice_typer` is intentional for CI parity, it
 # instruments every `voice_typer/**` import so the CI coverage report
 # matches what a contributor would see locally. The trade-off is that
@@ -615,7 +633,7 @@ norecursedirs = [".venv", "dist", "build", "node_modules", "voice_typer/client",
 # `--no-cov` to skip coverage entirely, or `-o addopts=""` to drop ALL
 # addopts (also drops --timeout / --strict-markers, prefer `--no-cov`
 # for the surgical case). Do NOT remove `--cov=voice_typer` from
-# addopts, CI's `pytest tests/ --cov-fail-under=65` step relies on
+# addopts, CI's `pytest tests/ --cov-fail-under=78` step relies on
 # the addopts `--cov=voice_typer` to scope the report; removing it
 # would silently drop CI coverage enforcement.
 # PERF-007: --import-mode=importlib avoids the legacy "prepend" mode
@@ -877,7 +895,7 @@ source = ["voice_typer"]
 omit = ["tests/*"]
 
 [tool.coverage.report]
-fail_under = 65  # TEST-011 + COV-001: minimum coverage threshold (was 60, raised after consolidation)
+fail_under = 78  # TEST-011 + COV-001 + MO-89: measured 84.84% (2026-09-16 full run); 78 keeps ~7 points of cross-platform headroom. Must match the --cov-fail-under values in .github/workflows/build.yml + Makefile.
 exclude_lines = [
     "pragma: no cover",
     "if TYPE_CHECKING:",

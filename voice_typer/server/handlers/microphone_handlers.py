@@ -13,6 +13,7 @@ only the IPC dispatch route was deleted.
 """
 
 from voice_typer.server.handlers._base import HandlerBase
+from voice_typer.server.ipc.validation import ResponseEnvelope
 
 
 class MicrophoneHandlersMixin(HandlerBase):
@@ -23,7 +24,7 @@ class MicrophoneHandlersMixin(HandlerBase):
         no ``str(e)`` leak).
     """
 
-    def _handle_get_microphones(self, data: dict | None, resp: dict) -> dict | None:
+    def _handle_get_microphones(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:
         """Handle the ``get_microphones`` IPC command."""
         try:
             resp["type"] = "microphones"

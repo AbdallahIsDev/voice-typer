@@ -39,6 +39,7 @@ from voice_typer.server.handlers._log import log
 from voice_typer.server.ipc.validation import (  # noqa: F401
     ErrorCodes,
     LegacyErrorCodes,
+    ResponseEnvelope,
     Schema,
     _validate_dict_payload,
 )
@@ -226,7 +227,7 @@ class SystemHandlersMixin(HandlerBase):
         notification API would silently truncate or refuse to display.
     """
 
-    def _handle_restart_app(self, data: dict | None, resp: dict) -> dict | None:
+    def _handle_restart_app(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:
         """Handle the ``restart_app`` IPC command.
 
         Sends the ack BEFORE calling ``service.restart()`` (the service
@@ -263,7 +264,7 @@ class SystemHandlersMixin(HandlerBase):
             self._publish_service_failure("restart_failed", str(e))
         return None
 
-    def _handle_quit_app(self, data: dict | None, resp: dict) -> dict | None:
+    def _handle_quit_app(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:
         """Handle the ``quit_app`` IPC command.
 
         Mirrors :meth:`_handle_restart_app`: ack first, then
@@ -306,7 +307,7 @@ class SystemHandlersMixin(HandlerBase):
                 exc_info=True,
             )
 
-    def _handle_check_accessibility(self, data: dict | None, resp: dict) -> dict | None:
+    def _handle_check_accessibility(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:
         """Handle the ``check_accessibility`` IPC command.
 
         macOS Accessibility permission check.
@@ -477,7 +478,7 @@ class SystemHandlersMixin(HandlerBase):
             pre_coerce=False,
         )
 
-    def _handle_reset_macos_accessibility(self, data: object | None, resp: dict) -> dict | None:
+    def _handle_reset_macos_accessibility(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:
         """Handle the ``reset_macos_accessibility`` IPC command.
 
         Runs ``tccutil reset Accessibility <bundle-id>`` to clear a stale
@@ -577,7 +578,7 @@ class SystemHandlersMixin(HandlerBase):
             pre_coerce=False,
         )
 
-    def _handle_reset_linux_permissions(self, data: object | None, resp: dict) -> dict | None:
+    def _handle_reset_linux_permissions(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:
         """Handle the ``reset_linux_permissions`` IPC command.
 
         The Linux sibling of ``reset_macos_accessibility``: clears a
@@ -665,7 +666,7 @@ class SystemHandlersMixin(HandlerBase):
             pre_coerce=False,
         )
 
-    def _handle_set_tray_locale(self, data: dict | None, resp: dict) -> dict | None:
+    def _handle_set_tray_locale(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:
         """Handle the ``set_tray_locale`` IPC command.
 
         accepts ``locale`` (required) and an optional
@@ -787,7 +788,7 @@ class SystemHandlersMixin(HandlerBase):
             pre_coerce=False,
         )
 
-    def _handle_set_esc_cancel_paused(self, data: dict | None, resp: dict) -> dict | None:
+    def _handle_set_esc_cancel_paused(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:
         """Handle the ``set_esc_cancel_paused`` IPC command.
 
         this is now a thin wrapper around the
@@ -861,7 +862,9 @@ class SystemHandlersMixin(HandlerBase):
             pre_coerce=False,
         )
 
-    def _handle_show_electron_notification(self, data: dict | None, resp: dict) -> dict | None:
+    def _handle_show_electron_notification(
+        self, data: object | None, resp: ResponseEnvelope
+    ) -> ResponseEnvelope | None:
         """Handle the ``show_electron_notification`` IPC command.
 
         NOT registered in ``_COMMAND_REGISTRY`` / renderer allowlist.
@@ -1028,7 +1031,7 @@ class SystemHandlersMixin(HandlerBase):
             assert validated is not None  # narrowed by the error guard above
             title = validated["title"]
             message = validated["message"]
-            duration_ms = int(validated["duration_ms"])
+            duration_ms = int(cast(int | str, validated["duration_ms"]))
             critical = validated["critical"]
             click_path = validated["click_path"]
             click_consent_field = validated["click_consent_field"]

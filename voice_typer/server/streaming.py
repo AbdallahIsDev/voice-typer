@@ -267,6 +267,10 @@ class StreamingTextAssembler:
     # hard cap on the dedup set, a 30-min session typically
     # produces 5-10k timestamps so 50k entries is a generous upper
     # bound that still keeps memory bounded for runaway sessions.
+    # RACE-031: the seen-timestamps set is the streaming dedup
+    # contention approximation — add_words batches candidates outside
+    # the lock, then holds it only for the O(k) insert loop (k~5-20).
+    # Bench: bench/bench_streaming.py. Pin: tests/test_streaming_timestamps_cap.py.
     _MAX_SEEN_TIMESTAMPS = 50000
     _seen_timestamps: set[tuple[float, float]] = field(default_factory=set)
     _word_key_index: dict[str, collections.deque[int]] = field(default_factory=dict)
@@ -313,6 +317,7 @@ class StreamingTextAssembler:
         # structures, rather than holding the lock for the entire loop.
         # This reduces contention when streaming chunks arrive while a
         # finalize() or get_transcript() call is in progress.
+        # RACE-031: batch-then-lock is the contention approximation.
         #
         # Design decision: the lock is still held for the full insertion
         # loop in _add_words_unlocked(), which is O(k) for k words.
