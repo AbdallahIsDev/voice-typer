@@ -413,11 +413,19 @@ jobs:
         # dropped. Force bash on all matrix legs (Git Bash ships on the
         # windows-2022 runner image).
         shell: bash
-        # --cov-fail-under=65 moved here from pyproject.toml addopts
+        # --cov-fail-under=78 moved here from pyproject.toml addopts
         # so local subset runs (e.g. `pytest tests/test_foo.py`) no
         # longer trigger the coverage threshold (the conftest.py
         # --cov-strip shim was dead code that gave a false sense of
         # robustness — see XS-9).
+        # MO-89: raised 65 → 78 on a MEASURED total (84.84% on the
+        # 2026-09-16 full run, zero 0%-coverage modules). The value is
+        # kept equal to [tool.coverage.report].fail_under and to
+        # `make test-cov`; tests/test_coverage_floor_consistency.py
+        # fails if the three sites drift. Do NOT lower it back without a
+        # measured reason, and prefer raising it via the ratchet
+        # (scripts/coverage_ratchet_check.py --regenerate), which is the
+        # tighter gate and runs on the ubuntu × 3.12 leg only.
         # -n auto --dist=loadgroup parallelises via pytest-xdist.
         # --junitxml emits pytest-results.xml consumed by the
         # mikepenz/action-junit-report step below for PR annotations,
@@ -428,7 +436,7 @@ jobs:
         # these guards if they lived only in pyproject.toml).
         run: |
           python -m pytest tests/ -n auto --dist=loadgroup -v --tb=short -q \
-            --cov=voice_typer --cov-fail-under=65 \
+            --cov=voice_typer --cov-fail-under=78 \
             --cov-report=xml --cov-report=term-missing \
             --junitxml=pytest-results.xml \
             --timeout=120 --timeout-method=thread \
@@ -490,8 +498,8 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: ${{ secrets.CODECOV_TOKEN != '' }}
 
-      # coverage ratchet. The fixed --cov-fail-under=65 floor
-      # only catches catastrophic drops below 65%; this step catches
+      # coverage ratchet. The fixed --cov-fail-under=78 floor
+      # only catches catastrophic drops below 78%; this step catches
       # silent erosion (e.g. 70% → 65.01%). Compares the current total
       # coverage % against coverage-baseline.json and fails if current <
       # baseline (epsilon 0.01% for float jitter). Run only on the

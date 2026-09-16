@@ -68,7 +68,7 @@ Keep `Keep a Changelog` formatting (the file header links to the spec).
 Run this on `main` (or your release branch) **before** tagging:
 
 ```bash
-# 1. Full Python suite + coverage gate (65%, see pyproject.toml).
+# 1. Full Python suite + coverage gate (78%, see pyproject.toml / build.yml).
 pytest tests/ -v
 
 # 2. Frontend suite + lint + typecheck + production build.

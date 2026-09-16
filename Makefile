@@ -25,7 +25,9 @@
 #     recipe cd's there and back so the contributor's CWD is unchanged.
 #   - `make test` mirrors the CI invocation but passes `--no-cov` so the
 #     local loop is ~15-25% faster (C-TEST-4). Use `make test-cov` for
-#     explicit coverage runs (matches CI's --cov --cov-fail-under=65).
+#     explicit coverage runs (matches CI's --cov --cov-fail-under=78; the
+#     floor must stay equal to [tool.coverage.report].fail_under and the
+#     CI flag — tests/test_coverage_floor_consistency.py enforces that).
 #   - `make typecheck` runs TypeScript typecheck, mypy, and ruff in
 #     PARALLEL (background `&` + per-PID `wait` collection). They touch
 #     disjoint file sets so the wall-clock time is max(tsc, mypy, ruff)
@@ -56,8 +58,8 @@ setup: ## Install all dependencies (Python + Node)
 test: ## Run Python tests (parallel, NO coverage for fast local loop, C-TEST-4)
 	python -m pytest tests/ -n auto --dist=loadgroup -q --timeout=60 --no-cov
 
-test-cov: ## Run Python tests WITH coverage (CI parity, slow, but enforces the 65% gate)
-	python -m pytest tests/ -n auto --dist=loadgroup -q --timeout=60 --cov=voice_typer --cov-report=term-missing --cov-fail-under=65
+test-cov: ## Run Python tests WITH coverage (CI parity, slow, but enforces the 78% gate)
+	python -m pytest tests/ -n auto --dist=loadgroup -q --timeout=60 --cov=voice_typer --cov-report=term-missing --cov-fail-under=78
 
 # test-fast real delta vs `make test`: --timeout=30 (vs 60) only —
 # otherwise identical (same -n auto parallelism, same --no-cov).

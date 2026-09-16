@@ -534,8 +534,8 @@ voice-typer/
 ### 4.1 Python tests
 
 ```bash
-# Full suite: verbose, with coverage collection (the 65% gate fires in
-# CI / make test-cov, which pass --cov-fail-under=65 explicitly)
+# Full suite: verbose, with coverage collection (the 78% gate fires in
+# CI / make test-cov, which pass --cov-fail-under=78 explicitly)
 pytest tests/ -v
 
 # Single test file / single test
@@ -552,7 +552,7 @@ pytest --cov=voice_typer --cov-report=html
 open htmlcov/index.html
 ```
 
-The `addopts` in `pyproject.toml` already include `-v --tb=short --cov=voice_typer` (plus strict markers/config, a 60s timeout, and importlib import mode), so a bare `pytest` is enough for CI-equivalent output. Note the 65% coverage GATE itself is not in `addopts` It is enforced CI-side via an explicit `--cov-fail-under=65` (see `.github/workflows/build.yml` and `make test-cov`), so local subset runs don't spuriously fail on partial-file coverage.
+The `addopts` in `pyproject.toml` already include `-v --tb=short --cov=voice_typer` (plus strict markers/config, a 60s timeout, and importlib import mode), so a bare `pytest` is enough for CI-equivalent output. Note the 78% coverage GATE itself is not in `addopts` It is enforced CI-side via an explicit `--cov-fail-under=78` (see `.github/workflows/build.yml` and `make test-cov`), so local subset runs don't spuriously fail on partial-file coverage.
 
 ### 4.2 Frontend tests
 
@@ -1116,9 +1116,13 @@ hand-rolling the React tree in component tests. Sibling files:
   `tests/tauri/mig18/test_build_script_glue.py`), and
   `faster_whisper_linux`
   (`tests/tauri/mig17/test_faster_whisper_linux.py`).
-- **Coverage threshold:** 65 %, enforced by `--cov-fail-under=65` in
-  `pyproject.toml`. If your change drops coverage below 65 %, add
-  tests or mark unreachable branches with `# pragma: no cover`.
+- **Coverage threshold:** 78 %, enforced by `--cov-fail-under=78` in
+  `pyproject.toml` and `.github/workflows/build.yml` (plus
+  `[tool.coverage.report].fail_under`, all three kept in lockstep by
+  `tests/test_coverage_floor_consistency.py`). The floor was raised from
+  65 % on a measured total of 84.84 % (2026-09-16 full run). If your
+  change drops coverage below 78 %, add tests or mark unreachable
+  branches with `# pragma: no cover`.
 - **Property-based testing:** use `hypothesis` for parsers and pure
   functions, see `tests/test_text_cleanup_hypothesis.py` and
   `tests/test_property_based.py` for patterns.
@@ -1186,8 +1190,11 @@ hand-rolling the React tree in component tests. Sibling files:
   `aria-label`, `aria-current`, `role="alert"`, etc. See
   `src/renderer/src/a11y/accessibility.test.tsx` for the global a11y
   suite.
-- **Coverage:** vitest is configured in `vitest.config.ts`; aim for
-  ≥ 65 % to match the Python gate.
+- **Coverage:** vitest is configured in `vitest.config.ts`, the enforced
+  floor there is 70 % lines / functions / statements and 60 % branches
+  (raise it as the renderer suite grows; lowering it needs
+  justification). The Python gate is separate and stricter (78 %, see
+  §4.1).
 
 #### 7.2.1 Skipping pre-commit / pre-push hooks (XS-59)
 
@@ -1424,7 +1431,7 @@ A maintainer will merge your PR once:
 
 - All CI checks pass (pytest, vitest, biome, tsc, ruff, mypy,
   pre-commit).
-- Coverage does not drop below 65 %.
+- Coverage does not drop below 78 % (Python) / 70 % (renderer).
 - No `SEC-*` control is bypassed without an ADR.
 - The commit history is clean (squash or rebase as needed, maintainers
   will prompt you).

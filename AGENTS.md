@@ -229,12 +229,46 @@ instead):
 - `SEC-*` Security boundary / hardening. Examples: `SEC-002`
   (set_config allowlist), `SEC-018` (TCP auth token), `SEC-019`
   (renderer IPC allowlist), `SEC-026` (sandboxed bubble preload).
-- `RACE-*` Concurrency / ordering invariant. Examples:
-  `RACE-001` (download-progress event ordering), `RACE-002`
-  (heartbeat vs. shutdown ordering), `RACE-011` (launcher
-  bundle-completeness probe: a missing renderer/preload bundle lets
-  `electron .` linger as a blank hidden zombie that holds the
-  single-instance lock and kills every later launch).
+- `RACE-*` Concurrency / ordering invariant. The full set of tags
+  present in the code today, one line each (grep the tag to reach the
+  rationale comment at its first occurrence in `voice_typer/` or
+  `tests/`):
+  `RACE-001` (minimal lock scope in the audio callback AND serialized
+  credential-store secret migration),
+  `RACE-003` (audio ring buffer: the recent-RMS snapshot is read inside
+  the same lock as the append/counter),
+  `RACE-008` (every `Thread(daemon=True)` site carries a rationale
+  comment explaining why daemon is acceptable),
+  `RACE-009` (Electron stdout/stderr redirected to log files so the
+  packaged app has no console),
+  `RACE-011` (config-mutation lock serializing `set_config` /
+  `apply_config`; ALSO the launcher bundle-completeness probe: a
+  missing renderer/preload bundle lets `electron .` linger as a blank
+  hidden zombie that holds the single-instance lock and kills every
+  later launch),
+  `RACE-013` (persistent Event-based watchdog thread for the dictation
+  pipeline instead of one-shot `Timer` watchdogs),
+  `RACE-016` (daemon threads + finally-block / atexit cleanup must never
+  block process exit; the cleanup is wrapped in try/except),
+  `RACE-018` (`faulthandler` enabled for automatic thread dumps on
+  SIGSEGV/SIGABRT),
+  `RACE-020` (`app._shutting_down` is re-checked between each major
+  startup/shutdown step and short-circuits the sequence),
+  `RACE-022` (tray notification queue append guarded by `_queue_lock`
+  against the flush in `run()`),
+  `RACE-023` (deferred GC / GPU-memory release runs OUTSIDE the model
+  lock),
+  `RACE-025` (recording-toggle serialization: two near-simultaneous
+  hotkey presses must not both pass the busy check),
+  `RACE-029` (`_nvidia_config_lock` serializes concurrent NVIDIA DLL
+  path configuration),
+  `RACE-031` (streaming seen-timestamps set, benchmark contention
+  approximation),
+  `RACE-032` (`qwen_engine.transcribe()` releases `self._lock` during
+  inference so a concurrent unload can land).
+  `RACE-002` (heartbeat vs. shutdown ordering) is RETIRED: it has no
+  occurrence in the code today and is listed only so a future session
+  does not re-invent the number.
 - `PERF-*` Performance-sensitive path where a "trivial" change
   could regress hot-loop or memory. Examples: `PERF-005`
   (relaunch_ack fast-path), `PERF-006` (audio ring buffer zero-copy),
