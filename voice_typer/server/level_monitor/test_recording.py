@@ -378,8 +378,9 @@ def read_test_recording_slice(path: str, offset: int, length: int) -> dict:
         # per-slice base64 strings; independently-encoded fragments carry
         # their own "=" padding, and joining fragments whose byte sizes are
         # not multiples of 3 produces corrupted audio (padding appearing
-        # mid-stream). 256*1024 % 3 == 1, clamp to the nearest lower
-        # multiple of 3 so interior slices never carry padding.
+        # mid-stream). Default request size is 255*1024 (already % 3 == 0);
+        # still clamp here so a caller-supplied unaligned length cannot
+        # produce an interior padded slice.
         length -= length % 3
         offset = max(0, int(offset))
         remaining = total - offset

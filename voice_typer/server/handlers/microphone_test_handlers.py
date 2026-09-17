@@ -171,7 +171,7 @@ class MicrophoneTestHandlersMixin(HandlerBase):
                 {
                     "path": {"type": str, "required": True},
                     "offset": {"type": int, "required": False, "default": 0, "clamp_range": (0, 100_000_000)},
-                    "length": {"type": int, "required": False, "default": 256 * 1024, "clamp_range": (1, 256 * 1024)},
+                    "length": {"type": int, "required": False, "default": 255 * 1024, "clamp_range": (1, 256 * 1024)},
                 },
             )
             if error:

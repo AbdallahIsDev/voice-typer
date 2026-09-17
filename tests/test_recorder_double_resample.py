@@ -98,19 +98,35 @@ def _capture_stream(streams):
 
 
 def _drain_ring_buffer(rec, timeout_s: float = 2.0) -> None:
-    """Wait for the audio worker thread to drain the SPSC ring buffer.
+    """Wait until the audio worker has fully processed queued chunks.
 
     RT-SAFE-001: the PortAudio callback pushes chunks to a ring buffer and
     returns immediately; a daemon worker thread processes them
-    asynchronously. Tests that push chunks via ``FakeInputStream`` must
-    call this helper before asserting on ``rec._audio_pipeline._buffer``, otherwise the
-    worker may not have processed the chunks yet.
+    asynchronously.
+
+    An empty ring is NOT sufficient: the worker pops the chunk first, then
+    runs process/append and writes ``_buffer_sr``. Returning as soon as
+    the ring is empty lets a test assert while that critical section is
+    still in flight (``_buffer_sr is None`` under CPU load). After the
+    ring drains, settle briefly until the buffer grew or ``_buffer_sr``
+    was written.
     """
     deadline = time.perf_counter() + timeout_s
     while time.perf_counter() < deadline:
         if len(rec._ring_buffer) == 0:
-            return
+            break
         time.sleep(0.005)
+    else:
+        # Timed out with chunks still queued; caller assertions will fail
+        # with a clearer buffer-length message.
+        return
+
+    pipeline = rec._audio_pipeline
+    settle_deadline = time.perf_counter() + 0.5
+    while time.perf_counter() < settle_deadline:
+        if pipeline._buffer_sr is not None or len(pipeline._buffer) > 0:
+            return
+        time.sleep(0.001)
 
 
 def _make_sine(freq: float, duration_s: float, sr: int = 16000, amp: float = 0.5) -> np.ndarray:
