@@ -162,7 +162,10 @@ class LifecycleMixin:
         """Start the IPC server in a daemon thread.
 
         Also hooks ``app.tray.set_state`` so that every state change emits
-        a ``status_change`` push event back to the frontend.
+        a ``status_change`` push event back to the frontend, and runs the
+        deferred background integrations
+        (``wire_background_integrations``) as the explicit post-start
+        phase so ``IPCServer.__init__`` stays side-effect-free.
         """
         self._running = True
         # Refresh the cached shutdown flag. ``start()`` is called once at
@@ -309,6 +312,12 @@ class LifecycleMixin:
         # DEBUG: the entrypoint's "[IPC] TCP server listening on port
         # ..." line is the single INFO startup marker for the server.
         log.debug("[IPC] server started; push hook registered")
+        # Post-start phase: deferred background integrations (the
+        # service-layer mic cache invalidator). Construction stays pure
+        # wiring; the invalidator daemon thread is spawned only here,
+        # after the server is accepting. Idempotent via the
+        # once-per-server gate set in ``_init_app_and_service``.
+        self.wire_background_integrations()
 
     def stop(self) -> None:
         """Signal the stdin loop and TCP accept loop to stop.

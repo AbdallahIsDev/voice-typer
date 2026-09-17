@@ -468,8 +468,18 @@ class IPCServer(
         because the annotation is a forward ref resolved only under
         ``TYPE_CHECKING``. Existing test code that passes a MagicMock
         therefore keeps working unchanged.
+
+        Construction is side-effect-free: no threads are spawned here.
+        The deferred recorder/invalidator wiring lives in
+        :meth:`wire_background_integrations`, which ``start()`` runs as
+        its explicit post-start phase.
         """
         self.app = app
+        # Once-per-server gate for :meth:`wire_background_integrations`
+        # (initialized for BOTH the DI and the real-service branches
+        # below so a repeated ``start()`` never re-spawns the wiring
+        # thread).
+        self._background_integrations_wired = False
         if service is not None:
             self.service = service
             return
@@ -483,16 +493,40 @@ class IPCServer(
 
         self.service = VoiceTyperService(app)
 
-        # wire the service-layer mic cache invalidator so
-        # the OS device-change watcher (which already invalidates
-        # DeviceManager._device_list_cache via _invalidate_device_cache)
-        # ALSO invalidates the service-layer 5s-TTL cache
-        # (_microphones_cache_ts in MicrophoneTestMixin). Without
-        # this, after a USB/BT hot-plug event the Electron UI
-        # continues to show the stale microphone dropdown (including
-        # the unplugged device, missing the newly-plugged one) for
-        # up to 5s. Best-effort: guarded so a recorder-without-
-        # DeviceManager (tests) doesn't fail.
+    def wire_background_integrations(self) -> None:
+        """Wire deferred background integrations (post-start phase).
+
+        Called once from :meth:`LifecycleMixin.start` (the explicit
+        construct-vs-start boundary): construction stays pure wiring,
+        and the background work below runs only after the server is
+        started by a real entrypoint.
+
+        Today this owns a single integration: the service-layer mic
+        cache invalidator, so the OS device-change watcher (which
+        already invalidates DeviceManager._device_list_cache via
+        _invalidate_device_cache) ALSO invalidates the service-layer
+        5s-TTL cache (_microphones_cache_ts in MicrophoneTestMixin).
+        Without this, after a USB/BT hot-plug event the Electron UI
+        continues to show the stale microphone dropdown (including
+        the unplugged device, missing the newly-plugged one) for up
+        to 5s. Best-effort: guarded so a recorder-without-
+        DeviceManager (tests) doesn't fail.
+
+        The wiring runs on a daemon thread so it never blocks server
+        startup on ``app.recorder`` (the lazy property would wait for
+        the whole multi-second recorder build). The invalidator is a
+        best-effort nicety: until it is wired, the DeviceManager's own
+        cache invalidation (30s TTL fallback) still applies.
+
+        Idempotent: the once-per-server gate set in
+        ``_init_app_and_service`` makes a repeated ``start()``
+        (start/stop/start cycles in tests) a no-op after the first
+        wiring.
+        """
+        if self._background_integrations_wired:
+            return
+        self._background_integrations_wired = True
+
         # STARTUP-9: the recorder may still be building on its
         # background thread, so this wiring is deferred to a daemon
         # thread instead of blocking IPC-server startup on
@@ -507,15 +541,23 @@ class IPCServer(
                     recorder_devices,
                     "set_service_cache_invalidator",
                 ):
-                    recorder_devices.set_service_cache_invalidator(
-                        lambda: self.service.refresh_microphones(force=True)
-                    )
+                    recorder_devices.set_service_cache_invalidator(lambda: self.service.refresh_microphones(force=True))
             except Exception:
                 log.debug(
                     "[IPC] failed to wire service-layer cache invalidator",
                     exc_info=True,
                 )
 
+        # RACE-008: daemon=True is acceptable because this thread is a
+        # bounded best-effort nicety, it performs one attribute chain
+        # plus a single registration callback and then exits; it owns
+        # no lock, holds no socket, and publishes nothing, so killing
+        # it at interpreter exit loses nothing (the 30s-TTL fallback
+        # covers the unwired window). Daemon is REQUIRED here, not
+        # just acceptable: the ``app.recorder`` lazy property can block
+        # inside this thread for the whole multi-second recorder
+        # build, and a non-daemon thread would hang process exit
+        # behind that wait.
         _wire_thread = threading.Thread(
             target=_wire_service_cache_invalidator,
             name="ipc-cache-invalidator-wiring",

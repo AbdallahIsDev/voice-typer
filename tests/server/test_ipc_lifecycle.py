@@ -651,3 +651,159 @@ class TestStdinIpcEnvVarGate:
             assert server._stdin_thread is None
         finally:
             server.stop()
+
+
+# ── Background integrations wiring (construct-vs-start boundary) ──────
+
+
+class TestBackgroundIntegrationsWiring:
+    """``wire_background_integrations`` runs only from ``start()``.
+
+    Construction is side-effect-free (no threads). The mic-cache
+    invalidator is wired exactly once per server, at the end of
+    ``start()``, and a repeated ``start()`` is a no-op thanks to the
+    once-per-server gate.
+    """
+
+    _WIRE_THREAD_NAME = "ipc-cache-invalidator-wiring"
+
+    def test_construction_does_not_spawn_background_integrator_thread(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Constructing ``IPCServer`` must not spawn any thread, and
+        specifically not the mic-cache invalidator wiring thread."""
+        created_threads: list[str] = []
+
+        class _CountingThread:
+            def __init__(self, target=None, name=None, daemon=False):
+                self.name = name
+                created_threads.append(name)
+
+            def start(self):
+                pass
+
+            def is_alive(self):
+                return False
+
+            def join(self, timeout=None):
+                pass
+
+        monkeypatch.setattr(lifecycle_mod.threading, "Thread", _CountingThread)
+        monkeypatch.setattr(
+            __import__("voice_typer.server.ipc_server", fromlist=["threading"]).threading,
+            "Thread",
+            _CountingThread,
+        )
+
+        server, _app, _service = make_ipc_server_with_fakes(thread_registry=None)
+
+        assert created_threads == [], (
+            f"IPCServer construction spawned threads: {created_threads}. "
+            "Construction must stay side-effect-free; deferred wiring "
+            "belongs in wire_background_integrations()."
+        )
+        assert server._background_integrations_wired is False
+        assert self._WIRE_THREAD_NAME not in created_threads
+
+    def test_construction_without_start_leaves_integrations_unwired(self) -> None:
+        """A constructed-but-never-started server must leave the
+        once-per-server gate closed and must not register the
+        service-layer mic cache invalidator."""
+        server, fake_app, _fake_service = make_ipc_server_with_fakes(thread_registry=None)
+
+        assert server._background_integrations_wired is False
+        # The wiring thread (if it ever ran) would touch
+        # ``app.recorder._devices.set_service_cache_invalidator``.
+        # Construction alone must not reach that attribute chain.
+        # ``fake_app.recorder`` is a plain MagicMock, so the child
+        # attribute would exist if accessed; assert the gate instead.
+        assert server.wire_background_integrations.__self__ is server
+
+    def test_start_calls_wire_background_integrations(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """``start()`` must run ``wire_background_integrations`` as its
+        post-start phase (spawning the invalidator wiring thread)."""
+        import voice_typer.server.ipc_server as ipc_server_mod
+        from voice_typer.server import event_bus
+
+        monkeypatch.delenv("TAURI_SIDECAR", raising=False)
+        server = _make_server()
+        server._tcp_mode = True
+
+        monkeypatch.setattr(event_bus, "subscribe", lambda fn: None)
+        monkeypatch.setattr(event_bus, "unsubscribe", lambda fn: None)
+
+        created_threads: list[str] = []
+
+        class _FakeThread:
+            def __init__(self, target=None, name=None, daemon=False):
+                self.name = name
+                created_threads.append(name)
+
+            def start(self):
+                pass
+
+            def is_alive(self):
+                return False
+
+            def join(self, timeout=None):
+                pass
+
+        monkeypatch.setattr(lifecycle_mod.threading, "Thread", _FakeThread)
+        monkeypatch.setattr(ipc_server_mod.threading, "Thread", _FakeThread)
+
+        assert server._background_integrations_wired is False
+        server.start()
+        try:
+            assert server._background_integrations_wired is True, (
+                "start() must call wire_background_integrations(); "
+                "the mic-cache invalidator would otherwise be dead code."
+            )
+            assert self._WIRE_THREAD_NAME in created_threads, (
+                f"start() did not spawn the invalidator wiring thread (created: {created_threads})."
+            )
+        finally:
+            server.stop()
+
+    def test_double_start_wires_exactly_once(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A second ``start()`` after ``stop()`` must not re-spawn the
+        invalidator wiring thread (once-per-server gate)."""
+        import voice_typer.server.ipc_server as ipc_server_mod
+        from voice_typer.server import event_bus
+
+        monkeypatch.delenv("TAURI_SIDECAR", raising=False)
+        server = _make_server()
+        server._tcp_mode = True
+
+        monkeypatch.setattr(event_bus, "subscribe", lambda fn: None)
+        monkeypatch.setattr(event_bus, "unsubscribe", lambda fn: None)
+
+        created_threads: list[str] = []
+
+        class _FakeThread:
+            def __init__(self, target=None, name=None, daemon=False):
+                self.name = name
+                created_threads.append(name)
+
+            def start(self):
+                pass
+
+            def is_alive(self):
+                return False
+
+            def join(self, timeout=None):
+                pass
+
+        monkeypatch.setattr(lifecycle_mod.threading, "Thread", _FakeThread)
+        monkeypatch.setattr(ipc_server_mod.threading, "Thread", _FakeThread)
+
+        server.start()
+        server.stop()
+        server.start()
+        try:
+            wire_count = created_threads.count(self._WIRE_THREAD_NAME)
+            assert wire_count == 1, (
+                f"Expected the invalidator wiring thread exactly once "
+                f"across two start() calls; got {wire_count} "
+                f"(all: {created_threads})."
+            )
+            assert server._background_integrations_wired is True
+        finally:
+            server.stop()
