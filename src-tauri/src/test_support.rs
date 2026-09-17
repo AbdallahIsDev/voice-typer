@@ -96,6 +96,8 @@ pub(crate) static PANIC_HOOK_TEST_LOCK: Mutex<()> = Mutex::new(());
 ///   (spawns `sleep 30`)
 /// - `sidecar::supervisor_tests::test_cr14_retry_loop_first_iteration_kills_crashed_sidecar`
 ///   (spawns `sleep 30`)
+/// - `sidecar::spawn::handshake_loop_tests::*` (spawn ping/sleep/cmd
+///   children for the handshake kill-on-failure arms)
 ///
 /// Poison-recovery (`.unwrap_or_else(|e| e.into_inner())`) mirrors
 /// `PANIC_HOOK_TEST_LOCK`: a panicking test would poison the mutex,

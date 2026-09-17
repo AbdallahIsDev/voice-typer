@@ -47,6 +47,7 @@
 
 use crate::state::SidecarHandle;
 use crate::state::WorkerState;
+use crate::util::SERVER_STARTED_TIMEOUT_MS;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tauri::Manager;
@@ -161,6 +162,7 @@ pub(crate) async fn spawn_worker_release(
         child,
         shutting_down,
         parse_worker_started,
+        SERVER_STARTED_TIMEOUT_MS,
     )
     .await?;
     Ok((port, SidecarHandle::ShellPlugin(Some(child)), rx))
@@ -227,6 +229,7 @@ pub(crate) async fn spawn_worker_dev_mode(
         &mut child,
         shutting_down,
         parse_worker_started,
+        SERVER_STARTED_TIMEOUT_MS,
     )
     .await?;
     Ok((port, SidecarHandle::DevMode(child)))

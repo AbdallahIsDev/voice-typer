@@ -3,6 +3,7 @@
 //! `sidecar/spawn.rs`.
 
 use crate::state::SidecarHandle;
+use crate::util::SERVER_STARTED_TIMEOUT_MS;
 use std::sync::atomic::AtomicBool;
 use tauri::Manager;
 use tauri_plugin_shell::process::CommandEvent;
@@ -173,6 +174,7 @@ pub(crate) async fn spawn_sidecar_release(
         child,
         shutting_down,
         parse_server_started,
+        SERVER_STARTED_TIMEOUT_MS,
     )
     .await?;
     // Hand the event receiver back to the caller so

@@ -2,6 +2,7 @@
 //! single-file `sidecar/spawn.rs`.
 
 use crate::state::SidecarHandle;
+use crate::util::SERVER_STARTED_TIMEOUT_MS;
 use std::sync::atomic::AtomicBool;
 
 use super::env_allowlist::passthrough_env_allowlist;
@@ -182,6 +183,7 @@ pub(crate) async fn spawn_sidecar_dev_mode(
         &mut child,
         shutting_down,
         parse_server_started,
+        SERVER_STARTED_TIMEOUT_MS,
     )
     .await?;
     Ok((port, SidecarHandle::DevMode(child)))

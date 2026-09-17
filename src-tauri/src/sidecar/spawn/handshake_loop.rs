@@ -27,14 +27,29 @@
 //! and every returned error string stays byte-identical to the
 //! pre-extraction per-loop wording.
 //!
-//! Preserved quirk (do NOT "fix" without a separate decision): the
-//! stdout-closed-before-handshake error paths in BOTH helpers return
-//! WITHOUT killing the child. The release loop leaks the process on
-//! channel-close (the shell-plugin child does not kill on Drop); the dev
-//! loop relies on `kill_on_drop(true)`. That is the pre-existing shape of
-//! all four loops and is kept exactly.
+//! Former quirk, now fixed: the stdout-closed-before-handshake error
+//! paths in BOTH helpers used to return WITHOUT killing the child. The
+//! release loop leaked the process on channel-close (the shell-plugin
+//! child does not kill on Drop, so a sidecar that crashed mid-startup
+//! held the single-instance mutex and blocked relaunch); the dev loop
+//! relied on `kill_on_drop(true)`. Both arms now reap the tree + kill
+//! explicitly (kill errors logged, never replacing the original error),
+//! matching every other failure arm in these helpers. The same contract
+//! covers the remaining failure arms (shutting-down, Terminated/Error,
+//! stdout-read `Err`, deadline): every non-success return kills first.
+//!
+//! Supervisor interaction (C-WS-3 / no-ping-pong): handshake-time kill
+//! happens INSIDE `spawn_sidecar_*` / `spawn_worker_*`, BEFORE
+//! `reconnect_ws` installs a WS connection and before any
+//! `ws_generation` bump. A failed handshake returns a spawn error to
+//! `respawn_inner`, which either retries with backoff or short-circuits
+//! on the exact `"shutdown"` sentinel — it never enqueues a
+//! generation-tagged respawn request. The dequeue-time stale-generation
+//! re-check in `ws/respawn_scheduler.rs` therefore cannot be confused
+//! by a handshake-time kill: those kills have no generation to carry
+//! and never reach the scheduler.
 
-use crate::util::{SERVER_STARTED_POLL_INTERVAL_MS, SERVER_STARTED_TIMEOUT_MS};
+use crate::util::SERVER_STARTED_POLL_INTERVAL_MS;
 use std::sync::atomic::AtomicBool;
 use std::time::{Duration, Instant};
 use tauri_plugin_shell::process::{CommandChild, CommandEvent};
@@ -141,6 +156,10 @@ pub(super) fn register_kill_on_parent_exit_best_effort(log_tag: &str, warn_detai
 /// `SHUTDOWN_ACK_TIMEOUT_MS`, the child so it can be wrapped in
 /// `SidecarHandle::ShellPlugin`.
 ///
+/// `timeout_ms` is the overall handshake deadline. Production callers
+/// pass [`crate::util::SERVER_STARTED_TIMEOUT_MS`]; tests pass a short
+/// value so the deadline-kill arm can be exercised without a 30s wait.
+///
 /// Loop semantics (identical for both callers pre-extraction):
 ///
 /// - **shutting-down short-circuit**: checked every iteration. A respawn
@@ -165,8 +184,12 @@ pub(super) fn register_kill_on_parent_exit_best_effort(log_tag: &str, warn_detai
 ///   debug prints, ctranslate2 device dumps, and the child's own log
 ///   file already carries its warnings/errors) and skipped: never parsed
 ///   as the handshake line.
-/// - **channel closed (`Ok(None)`)**: error return WITHOUT a kill (see
-///   the module-level preserved-quirk note).
+/// - **channel closed (`Ok(None)`)**: reap the tree, kill the child
+///   (the shell-plugin handle does not kill on Drop; without this a
+///   child that closed stdout but is still running would survive past
+///   the Err return), then return the spawn-failure error. Kill errors
+///   are logged, never replace the original error. No receiver drain:
+///   the channel already read closed.
 /// - **per-iteration timeout**: loop and retry until the deadline.
 /// - **deadline exceeded**: reap the tree, kill the child, drain the
 ///   receiver 500ms, return the timeout error with the stdout seen so
@@ -177,8 +200,9 @@ pub(super) async fn read_handshake_from_command_events(
     child: CommandChild,
     shutting_down: Option<&AtomicBool>,
     parse_line: fn(&str) -> Option<u16>,
+    timeout_ms: u64,
 ) -> Result<(u16, CommandChild, mpsc::Receiver<CommandEvent>), String> {
-    let deadline = Instant::now() + Duration::from_millis(SERVER_STARTED_TIMEOUT_MS);
+    let deadline = Instant::now() + Duration::from_millis(timeout_ms);
     let mut stdout_buf = String::new();
 
     while Instant::now() < deadline {
@@ -276,6 +300,16 @@ pub(super) async fn read_handshake_from_command_events(
                 );
             }
             Ok(None) => {
+                let pid = child.pid();
+                kill_process_tree_off_thread(pid).await;
+                if let Err(kill_err) = child.kill() {
+                    log::warn!(
+                        "{} failed to kill {} after stdout closed before handshake (best-effort): {}",
+                        labels.log_tag,
+                        labels.kill_target,
+                        kill_err
+                    );
+                }
                 return Err(format!(
                     "{} stdout closed before {}",
                     labels.err_noun, labels.event_name
@@ -309,7 +343,7 @@ pub(super) async fn read_handshake_from_command_events(
     let _ = tokio::time::timeout(Duration::from_millis(EXIT_DRAIN_TIMEOUT_MS), rx.recv()).await;
     Err(format!(
         "{} did not emit {} within {}ms. stdout so far: {}",
-        labels.err_noun, labels.event_name, SERVER_STARTED_TIMEOUT_MS, stdout_buf
+        labels.err_noun, labels.event_name, timeout_ms, stdout_buf
     ))
 }
 
@@ -331,23 +365,34 @@ pub(super) async fn read_handshake_from_command_events(
 ///   wait via `child.wait()`) so there is no zombie window between this
 ///   return and the eventual Drop. Returns `Err("shutdown")` (the
 ///   supervisor's graceful-exit marker: see the release-pair helper).
-/// - **`read_line` returns `Ok(0)` (EOF)**, error return WITHOUT an
-///   explicit kill (kill_on_drop reaps on return; see the module-level
-///   preserved-quirk note).
-/// - **`read_line` returns `Err`**. The io error is returned verbatim.
+/// - **`read_line` returns `Ok(0)` (EOF)**, reap the tree (pid via
+///   `child.id()`, `None` if the child was already reaped), kill the
+///   child (errors logged), wait 500ms for the zombie reap, return the
+///   spawn-failure error. `kill_on_drop(true)` remains as the backstop
+///   for panics between spawn and this return.
+/// - **`read_line` returns `Err`**, reap the tree, kill the child
+///   (errors logged, never replacing the original io error), wait 500ms
+///   for the zombie reap, then return the io error. Without the
+///   explicit kill a stdout pipe failure would leave the child running
+///   until the caller's `Child` Drop fired `kill_on_drop` — a zombie
+///   window this helper closes on every other failure arm.
 /// - **per-iteration timeout**: loop and retry until the deadline.
 /// - **deadline exceeded**: reap the tree (pid via `child.id()`, `None`
 ///   if the child was already reaped), kill the child (errors logged),
 ///   wait 500ms for the zombie reap, return the timeout error with the
 ///   stdout seen so far.
+///
+/// `timeout_ms` is the overall handshake deadline (see the release-pair
+/// helper).
 pub(super) async fn read_handshake_from_stdout_lines(
     labels: &HandshakeLabels<'_>,
     reader: &mut tokio::io::BufReader<tokio::process::ChildStdout>,
     child: &mut tokio::process::Child,
     shutting_down: Option<&AtomicBool>,
     parse_line: fn(&str) -> Option<u16>,
+    timeout_ms: u64,
 ) -> Result<u16, String> {
-    let deadline = Instant::now() + Duration::from_millis(SERVER_STARTED_TIMEOUT_MS);
+    let deadline = Instant::now() + Duration::from_millis(timeout_ms);
     let mut stdout_buf = String::new();
     while Instant::now() < deadline {
         if is_shutting_down(shutting_down) {
@@ -381,6 +426,27 @@ pub(super) async fn read_handshake_from_stdout_lines(
         .await
         {
             Ok(Ok(0)) => {
+                let pid_opt = child.id();
+                if let Some(pid) = pid_opt {
+                    kill_process_tree_off_thread(pid).await;
+                }
+                // Kill errors are logged for visibility (mirrors the
+                // release-pair helper): a kill racing an already-dead
+                // child is harmless and must not replace the original
+                // stdout-closed error.
+                if let Err(e) = child.kill().await {
+                    log::warn!(
+                        "{} failed to kill {} after stdout closed before handshake (best-effort): {}",
+                        labels.log_tag,
+                        labels.kill_target,
+                        e
+                    );
+                }
+                // Reap the zombie (mirrors the dev deadline arm):
+                // `kill()` sends the signal but does NOT call waitpid.
+                let _ =
+                    tokio::time::timeout(Duration::from_millis(EXIT_DRAIN_TIMEOUT_MS), child.wait())
+                        .await;
                 return Err(format!(
                     "{} stdout closed before {}",
                     labels.err_noun, labels.event_name
@@ -400,6 +466,25 @@ pub(super) async fn read_handshake_from_stdout_lines(
                 );
             }
             Ok(Err(e)) => {
+                let pid_opt = child.id();
+                if let Some(pid) = pid_opt {
+                    kill_process_tree_off_thread(pid).await;
+                }
+                // Kill errors are logged for visibility (mirrors every
+                // other failure arm): a kill racing an already-dead
+                // child is harmless and must not replace the original
+                // stdout-read error.
+                if let Err(kill_err) = child.kill().await {
+                    log::warn!(
+                        "{} failed to kill {} after stdout read error (best-effort): {}",
+                        labels.log_tag,
+                        labels.kill_target,
+                        kill_err
+                    );
+                }
+                let _ =
+                    tokio::time::timeout(Duration::from_millis(EXIT_DRAIN_TIMEOUT_MS), child.wait())
+                        .await;
                 return Err(format!("{} stdout read error: {}", labels.err_noun, e));
             }
             Err(_) => continue, // per-iteration timeout: retry until deadline
@@ -427,6 +512,13 @@ pub(super) async fn read_handshake_from_stdout_lines(
     let _ = tokio::time::timeout(Duration::from_millis(EXIT_DRAIN_TIMEOUT_MS), child.wait()).await;
     Err(format!(
         "{} did not emit {} within {}ms. stdout so far: {}",
-        labels.err_noun, labels.event_name, SERVER_STARTED_TIMEOUT_MS, stdout_buf
+        labels.err_noun, labels.event_name, timeout_ms, stdout_buf
     ))
 }
+
+// Sibling test module: tests live in `handshake_loop_tests.rs` (per
+// C-TEST-5: no inline `#[cfg(test)] mod tests` blocks in production
+// source).
+#[cfg(test)]
+#[path = "handshake_loop_tests.rs"]
+mod handshake_loop_tests;
