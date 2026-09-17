@@ -165,7 +165,7 @@ async def _authenticate(websocket) -> bool:
     # the connection on mismatch because a misconfigured host should
     # still be able to authenticate (the version negotiation is
     # defense-in-depth, not a security gate). The TCP transport's
-    # parallel check lives in ipc/transport_tcp.py ().
+    # parallel check rejects in ipc/transport_tcp.py; see ADR-0022 for why the two differ.
     host_protocol = first.get("protocol_version")
     if host_protocol is not None:
         try:

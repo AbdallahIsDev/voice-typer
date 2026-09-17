@@ -27,6 +27,7 @@ Tooling note: `adr-tools` and similar expect unique `NNNN-*.md` names; this dire
 | 0019 | `0019-per-connection-rate-limiter.md` | Per-Connection Rate Limiter (RELIABILITY-006) | Accepted: implemented in `voice_typer/server/ipc_server.py` as the `_RateLimiter` class, instantiated per TCP connection in `_handle_tcp_connection`. |
 | 0020 | `0020-desktop-runtime-migration-analysis.md` | Desktop Runtime Migration to Tauri v2 + Python Sidecar (Cross-Platform Edition) | Accepted: migration in progress. Cross-platform rewrite of ADR-0013: covers Windows + macOS + Linux + Wayland + Apple Silicon + Linux ARM64. Electron is retained intact as a reversible fallback until Tauri + Sidecar is proven and cut over on all three supported platforms. Cutover is per-platform (Windows first → macOS → Linux). |
 | 0021 | `0021-at-rest-encryption.md` | At-Rest Encryption for User Data (Design-Gated) | Proposed (design-only: no production code changes; implementation tracked under the "Phased rollout" section of the ADR). |
+| 0022 | `0022-ws-tcp-protocol-version-asymmetry.md` | Sidecar WS Protocol-Version Check Stays Advisory While TCP Rejects | Accepted: deliberate asymmetry (WS warns-and-continues, TCP rejects with `server.protocol_version_mismatch`); revisit at the ADR-0020 single-transport cutover. |
 
 ## Template
 
