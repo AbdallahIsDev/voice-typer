@@ -795,6 +795,139 @@ class TestPerArchConfigsStayLockedToBase:
             )
 
 
+# ─── Pair 9b: bubble window url must be bubble.html ───────────────────────
+
+
+def _configs_declaring_bubble() -> list[tuple[str, dict]]:
+    """Every Tauri config on disk that declares a ``bubble`` window.
+
+    Glob-discovered so a future arch config is covered automatically;
+    configs without a bubble entry (linux overrides, the dev override)
+    are skipped.
+    """
+    found: list[tuple[str, dict]] = []
+    for path in sorted(SRC_TAURI.glob("tauri*.conf.json")):
+        cfg = json.loads(path.read_text(encoding="utf-8"))
+        windows = cfg.get("app", {}).get("windows") or []
+        if any(w.get("label") == "bubble" for w in windows):
+            found.append((path.name, cfg))
+    return found
+
+
+class TestBubbleWindowLoadsBubbleHtml:
+    """The bubble window must load ``bubble.html``, not ``index.html``.
+
+    Tauri v2 resolves a window with no ``url`` to ``index.html``. The
+    bubble is a 240x80 transparent overlay (``bubble.html`` →
+    ``bubble-main.tsx``); the dashboard is ``index.html`` → ``main.tsx``.
+    Without an explicit ``url`` every config shipped the MAIN app inside
+    the bubble frame (titlebar, sidebar, "Retry Connection").
+    """
+
+    def test_base_config_bubble_url_is_bubble_html(self) -> None:
+        windows = {w["label"]: w for w in _tauri_conf()["app"]["windows"]}
+        assert "bubble" in windows, "tauri.conf.json must declare a bubble window"
+        assert windows["bubble"].get("url") == "bubble.html", (
+            'tauri.conf.json bubble window must set "url": "bubble.html"; '
+            "without it Tauri defaults to index.html and the bubble frame "
+            "renders the MAIN app instead of the pill overlay"
+        )
+
+    def test_every_config_declaring_bubble_sets_bubble_html(self) -> None:
+        found = _configs_declaring_bubble()
+        assert found, "expected at least one Tauri config declaring a bubble window"
+        for name, cfg in found:
+            windows = {w["label"]: w for w in cfg.get("app", {}).get("windows", [])}
+            bubble = windows["bubble"]
+            assert bubble.get("url") == "bubble.html", (
+                f"{name}: bubble window url is {bubble.get('url')!r}, "
+                'must be "bubble.html" (Tauri v2 defaults a missing url to '
+                "index.html, which renders the main dashboard inside the "
+                "bubble frame)"
+            )
+
+    def test_main_window_url_stays_default(self) -> None:
+        """The main window must keep the default index.html (no explicit url)."""
+        windows = {w["label"]: w for w in _tauri_conf()["app"]["windows"]}
+        assert windows["main"].get("url") in (None, "index.html"), "main window must not point at bubble.html"
+
+    def test_renderer_build_emits_bubble_html(self) -> None:
+        """``electron.vite.renderer.ts`` must emit bubble.html as a page input.
+
+        The production frontend build (``npm run build:renderer``) is
+        the same script ``tauri.conf.json`` beforeDevCommand /
+        beforeBuildCommand runs; without a ``bubble`` rollup input the
+        config's ``"url": "bubble.html"`` 404s in the packaged app.
+        """
+        src = (PROJECT_ROOT / "voice_typer" / "client" / "electron.vite.renderer.ts").read_text(encoding="utf-8")
+        assert "bubble.html" in src, (
+            "electron.vite.renderer.ts must list bubble.html as a rollup "
+            "input so out/renderer/bubble.html exists for the Tauri "
+            "bubble window url"
+        )
+
+
+class TestBubbleWindowHasNoShadow:
+    """The bubble window must ship with ``shadow: false``.
+
+    Tauri v2 ``WindowConfig.shadow`` defaults to ``true``. On an
+    UNDECORATED window on Windows, a enabled shadow renders a 1px white
+    border (rounded-corner variant on Windows 11) — exactly the light
+    outer frame the user sees around the pill. Electron's bubble sets
+    ``hasShadow: false`` (``client/src/main/windows/bubble/lifecycle.ts``).
+    The pill's own ``border-border/5`` (Bubble.tsx) is the shared
+    unified-border design system and is NOT the cause — do not restyle it.
+    """
+
+    def test_base_config_bubble_shadow_is_false(self) -> None:
+        windows = {w["label"]: w for w in _tauri_conf()["app"]["windows"]}
+        assert "bubble" in windows, "tauri.conf.json must declare a bubble window"
+        assert windows["bubble"].get("shadow") is False, (
+            'tauri.conf.json bubble window must set "shadow": false; '
+            "Tauri v2 defaults shadow to true, and on an undecorated "
+            "Windows window that paints a 1px white border around the pill"
+        )
+
+    def test_every_config_declaring_bubble_sets_shadow_false(self) -> None:
+        found = _configs_declaring_bubble()
+        assert found, "expected at least one Tauri config declaring a bubble window"
+        for name, cfg in found:
+            windows = {w["label"]: w for w in cfg.get("app", {}).get("windows", [])}
+            bubble = windows["bubble"]
+            assert bubble.get("shadow") is False, (
+                f"{name}: bubble window shadow is {bubble.get('shadow')!r}, "
+                "must be false (Tauri v2 default true paints a 1px white "
+                "border on an undecorated Windows window)"
+            )
+
+    def test_main_window_shadow_stays_default(self) -> None:
+        """Decorated main windows keep the default shadow (always-on on Windows)."""
+        windows = {w["label"]: w for w in _tauri_conf()["app"]["windows"]}
+        assert windows["main"].get("shadow") is not False, "main window is decorated; do not disable its shadow"
+
+    def test_show_bubble_window_does_not_call_set_focus(self) -> None:
+        """Focus-steal audit (secondary): the show path must not grab focus.
+
+        Electron's bubble is ``focusable: false``. Tauri's
+        ``WindowConfig.focusable`` defaults to ``true``. The show path
+        (``show_bubble_window``) only calls ``window.show()`` and
+        ``set_position`` — it never calls ``set_focus``. Whether
+        ``show()`` alone activates a focusable window on this host is a
+        VALIDATE-ON-HOST question; until a live focus-steal is observed
+        we do NOT add ``"focusable": false`` (no hunch changes).
+        """
+        src = (SRC_TAURI / "src" / "commands" / "bubble" / "window.rs").read_text(encoding="utf-8")
+        # Isolate the show function body.
+        start = src.find("pub(crate) fn show_bubble_window")
+        assert start >= 0, "show_bubble_window must exist"
+        end = src.find("pub(crate) fn hide_bubble_window", start)
+        body = src[start:end] if end > 0 else src[start:]
+        assert "set_focus" not in body, (
+            "show_bubble_window must not call set_focus: the dictation "
+            "target is the user's text field, not the bubble overlay"
+        )
+
+
 # ─── Pair 10: version lockstep across every layer ──────────────────────────
 
 

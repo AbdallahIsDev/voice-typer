@@ -249,6 +249,21 @@ pub(super) fn spawn_reader_task(
                             crate::commands::bubble::update_persisted_pos_from_config(&payload);
                         }
 
+                        // Recording started: the sidecar published
+                        // `bubble_show`, so the bubble OS window (created
+                        // hidden) must be shown — the Tauri equivalent of
+                        // Electron's main-process show on record start.
+                        // Best-effort: a show failure must never break the
+                        // event fan-out below (the bubble renderer still
+                        // gets its `bubble:show` for content state).
+                        if crate::commands::bubble::wants_bubble_show(event_type) {
+                            if let Err(e) = crate::commands::bubble::show_bubble_window(
+                                &app_for_reader,
+                            ) {
+                                log::warn!("[WS-READER] bubble_show window show failed: {}", e);
+                            }
+                        }
+
                         // BP-33 (Phase 2c): the sidecar publishes
                         // `offline_pack_verified` after a pack passes
                         // SHA256 + signature checks: (re)start the ML

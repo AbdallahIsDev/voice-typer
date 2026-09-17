@@ -699,4 +699,16 @@ ALLOW_PATTERNS_WHISPER: list[str] = [
     "generation_config.json",
     "model.safetensors.index.json",
     "*.model",
+    # Legacy vocabulary tables shipped by faster-whisper repos
+    # (e.g. Systran/faster-whisper-tiny's ``vocabulary.txt``,
+    # mobiuslabsgmbh/faster-whisper-large-v3-turbo's
+    # ``vocabulary.json``). The engine tokenizes from
+    # ``tokenizer.json`` and never reads these, but the integrity
+    # manifest pins them and hard-fails when a pinned file is
+    # missing — without these patterns no download could ever pass
+    # verification (observed 2026-09-16: every turbo/tiny download
+    # "completed" yet failed integrity). ~1-3 MB each, negligible
+    # against multi-hundred-MB weights.
+    "vocabulary.json",
+    "vocabulary.txt",
 ]

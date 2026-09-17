@@ -131,31 +131,37 @@ class TestSanitizePatternDenylistDirect:
 
 
 class TestSanitizeFalsySecretValuesDirect:
-    """Covers acceptance criterion (2): ``0``, ``False``, ``""`` secret
-    values must all be masked to the presence-indicator
-    (``<redacted>``), NOT leaked verbatim.
+    """Covers acceptance criterion (2): ``0`` / ``False`` secret values
+    must be masked to the presence-indicator (``<redacted>``), NOT
+    leaked verbatim, while ``""`` is preserved as the schema's "no key
+    set" sentinel.
 
-    The old truthy-only redaction (``v if not v else _REDACTED_SENTINEL``)
-    preserved these falsy values, which was fine for the empty-string
-    "no key set" case but unsafe for ``0`` / ``False`` secrets and
-    inconsistent with the documented "key is set" semantic. The fix
-    masks any non-None value.
+    User-adjudicated product decision (2026-09-16): the empty string is
+    the canonical unset value for every API-key field
+    (``config/_schema.py``), so the renderer must receive it verbatim
+    to distinguish "not configured" from "configured but hidden".
+    ``0`` / ``False`` stay masked — no real secret takes those values.
     """
 
     @pytest.mark.parametrize(
         "value",
-        [0, False, ""],
-        ids=["int-zero", "bool-false", "empty-string"],
+        [0, False],
+        ids=["int-zero", "bool-false"],
     )
     def test_falsy_secret_is_redacted(self, value):
-        """``0``, ``False``, ``""`` are non-None and must be masked."""
+        """``0`` / ``False`` are set values and must be masked."""
         cfg = _ConfigLike(azure_api_key=value)
         out = _sanitize_config_for_ipc(cfg)
         assert out["azure_api_key"] == _REDACTED_SENTINEL, (
-            f"Falsy secret value {value!r} must be masked to "
-            f"{_REDACTED_SENTINEL!r}, not leaked verbatim, the "
-            f"redaction contract is 'any non-None value is masked'."
+            f"Falsy secret value {value!r} must be masked to {_REDACTED_SENTINEL!r}, not leaked verbatim."
         )
+
+    def test_empty_string_is_preserved_as_unset_sentinel(self):
+        """``""`` is the "no key set" sentinel, preserved verbatim so
+        the renderer shows "not configured" instead of "configured"."""
+        cfg = _ConfigLike(azure_api_key="")
+        out = _sanitize_config_for_ipc(cfg)
+        assert out["azure_api_key"] == ""
 
     def test_none_value_is_preserved(self):
         """``None`` is the one exception: it's preserved so the renderer

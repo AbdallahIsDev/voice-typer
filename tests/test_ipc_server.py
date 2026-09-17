@@ -992,13 +992,11 @@ class TestSanitizePatternDenylist:
 
 
 class TestSanitizeFalsyValues:
-    """redaction now masks any non-None value, regardless of truthiness.
-
-      Previously the redaction logic was ``out[k] = _REDACTED_SENTINEL if v else v``
-    , a secret stored as ``0``, ``False``, or ``""`` would NOT be
-      redacted (falsy values were preserved verbatim). This was fine for
-      the empty-string "no key set" case but unsafe for ``0`` / ``False``
-      secrets and inconsistent with the documented "key is set" semantic.
+    """redaction masks any set value. ``0`` / ``False`` are masked;
+    ``""`` is preserved as the schema's "no key set" sentinel (every
+    API-key field defaults to ``""`` in ``config/_schema.py``), so the
+    renderer can distinguish "not configured" from "configured but
+    hidden". User-adjudicated product decision (2026-09-16).
     """
 
     def test_falsy_zero_is_redacted(self):
@@ -1014,18 +1012,13 @@ class TestSanitizeFalsyValues:
         out = _sanitize_config_for_ipc(cfg)
         assert out["azure_api_key"] == _REDACTED_SENTINEL
 
-    def test_falsy_empty_string_is_redacted(self):
-        """A secret stored as ``""`` is redacted. Previously the empty
-        string was preserved so the renderer could distinguish "no key
-        set" from "key set but hidden", but ``None`` is the canonical
-        sentinel for "not configured" in the Config dataclass (most
-        secret fields default to ``""``, not ``None``, so the empty-
-        string "not configured" semantic was already ambiguous). This
-        unifies the contract: ``None`` → not configured; any other
-        value (including ``""``) → redacted."""
+    def test_falsy_empty_string_is_preserved(self):
+        """A secret stored as ``""`` is preserved verbatim: it is the
+        schema's "no key set" sentinel (all API-key fields default to
+        ``""``), and the renderer shows "not configured" for it."""
         cfg = _ConfigLike(azure_api_key="")
         out = _sanitize_config_for_ipc(cfg)
-        assert out["azure_api_key"] == _REDACTED_SENTINEL
+        assert out["azure_api_key"] == ""
 
     def test_none_value_is_preserved(self):
         """``None`` is preserved so the renderer can distinguish "not

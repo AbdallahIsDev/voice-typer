@@ -255,29 +255,31 @@ def _sanitize_config_for_ipc(config) -> dict:
           based denylist, defense-in-depth so a new secret field added to
           ``Config`` without updating the frozenset is still redacted).
 
-    redaction now masks any non-None value, regardless of
-        truthiness.  Previously falsy values like ``0`` / ``False`` /
-        ``""`` were preserved verbatim, fine for the empty-string "no key
-        set" case but unsafe for ``0`` / ``False`` secrets and inconsistent
-        with the "key is set" semantic.  ``None`` is still preserved (so
-        the renderer can distinguish "no key configured" from "key set but
-        hidden"); any other value (including ``""``) is replaced with the
-        ``<redacted>`` sentinel.
+    redaction masks any non-None, non-empty-string value.  ``None``
+        AND ``""`` are both preserved: ``""`` is the config schema's
+        canonical "no key set" value for every API-key field (see
+        ``config/_schema.py``), so the renderer must receive it verbatim
+        to distinguish "not configured" from "configured but hidden".
+        User-adjudicated product decision (2026-09-16): restoring the
+        ``""`` carve-out narrows the earlier all-falsy tightening, but
+        ``0`` / ``False`` stay masked (a real key is never ``0`` /
+        ``False``; an empty string uniquely means "unset" by schema
+        contract).  Any other value is replaced with the ``<redacted>``
+        sentinel.
     """
     out = config.__dict__.copy()
     for k in list(out.keys()):
         if not _is_secret_field_name(k):
             continue
         v = out[k]
-        # redact any non-None value, regardless of truthiness.
-        # Previously ``v if not v else _REDACTED_SENTINEL`` would skip
-        # falsy non-None values (``0``, ``False``, ``""``), fine for
-        # ``""`` (the "no key set" case) but unsafe for ``0`` /
-        # ``False`` secrets and inconsistent with the documented
-        # "key is set" semantic.  ``None`` is preserved so the
-        # renderer can distinguish "not configured" from "configured
-        # but hidden".
-        if v is None:
+        # redact any set value.  Both "unset" sentinels (``None`` and
+        # ``""``, the schema default for API-key fields) are preserved
+        # verbatim so the renderer can distinguish "not configured"
+        # from "configured but hidden".  ``0`` / ``False`` stay masked:
+        # no real secret takes those values.  NOTE: use ``== ""``,
+        # never truthiness — ``not v`` would re-open the ``0`` /
+        # ``False`` leak this tightening closed.
+        if v is None or v == "":
             continue
         out[k] = _REDACTED_SENTINEL
     return out

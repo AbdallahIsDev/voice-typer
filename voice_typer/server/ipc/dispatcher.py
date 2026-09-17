@@ -32,7 +32,7 @@ import typing
 
 from voice_typer.server.asr_errors import ConsentRequiredError
 from voice_typer.server.handlers._log import log
-from voice_typer.server.ipc.registry import _READONLY_COMMANDS
+from voice_typer.server.ipc.registry import _INSTANT_CONTROL_COMMANDS, _READONLY_COMMANDS
 from voice_typer.server.ipc.validation import (
     CommandHandler,
     ErrorCodes,
@@ -213,11 +213,17 @@ class DispatcherMixin:
         try:
             if handler is None:
                 result = self._handle_unknown_command(cmd, data, resp)
-            elif cmd_key in _READONLY_COMMANDS:
+            elif cmd_key in _READONLY_COMMANDS or cmd_key in _INSTANT_CONTROL_COMMANDS:
                 # read-only handlers bypass the dispatch lock —
                 # they don't mutate shared app/service state, so a
                 # long-running state-mutating handler on another thread
-                # can't block a quick status poll.
+                # can't block a quick status poll. Instant download-
+                # control commands (pause/resume/cancel) bypass for the
+                # same reason: they flip atomic flags under their own
+                # dedicated locks and must stay responsive WHILE a
+                # download holds this lock, otherwise pause/cancel can
+                # never fire and the transfer is unstoppable until it
+                # finishes or times out (observed 2026-09-16).
                 # best-effort unlocked re-check (the initial
                 #  gate already covered the common case).
                 if getattr(self, "_cached_shutting_down", False) is True:

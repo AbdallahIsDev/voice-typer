@@ -306,3 +306,48 @@ def test_allow_patterns_backward_compat_alias_removed():
         "caller violates the cleanup. Use ALLOW_PATTERNS_PARAKEET or "
         "ALLOW_PATTERNS_WHISPER explicitly instead."
     )
+
+
+def test_pinned_files_are_fetchable_by_allow_patterns():
+    """Every file pinned in the integrity manifest must match its
+    backend family's download allow-patterns.
+
+    The download, the completeness probe, and the integrity check must
+    agree on the file set: downloads fetch ONLY allow-pattern files,
+    the probe verifies ONLY allow-pattern files, but
+    ``verify_model_integrity`` hard-fails on ANY missing pinned file.
+    A pinned-but-unfetchable file makes the model permanently
+    unloadable — downloads "complete", status shows downloaded, yet
+    every load refuses (observed 2026-09-16: faster-whisper
+    ``vocabulary.json`` / ``vocabulary.txt`` pinned for turbo/tiny
+    but absent from ``ALLOW_PATTERNS_WHISPER``, so no download could
+    ever pass verification).
+    """
+    import fnmatch
+
+    from voice_typer.server._model_integrity import (
+        ALLOW_PATTERNS_PARAKEET,
+        ALLOW_PATTERNS_PARAKEET_ONNX,
+        ALLOW_PATTERNS_WHISPER,
+    )
+    from voice_typer.server.security import MODEL_HASHES
+
+    def patterns_for(repo_id: str) -> list[str]:
+        if "parakeet" in repo_id:
+            # Both parakeet download paths: the legacy safetensors
+            # repo (nvidia, existing caches) and the current ONNX
+            # export (grikdotnet, fresh downloads).
+            return list(ALLOW_PATTERNS_PARAKEET) + list(ALLOW_PATTERNS_PARAKEET_ONNX)
+        return list(ALLOW_PATTERNS_WHISPER)
+
+    for repo_id, entry in MODEL_HASHES.items():
+        if repo_id == "qwen":
+            continue  # local model, not fetched from HuggingFace
+        patterns = patterns_for(repo_id)
+        for filename in entry.get("files", {}):
+            assert any(fnmatch.fnmatchcase(filename, pattern) for pattern in patterns), (
+                f"model_hashes.json pins {filename!r} for '{repo_id}' but no "
+                f"download allow-pattern matches it, the file is never "
+                f"fetched so verification can never pass. Either add the "
+                f"file to the backend's allow-patterns or drop the pin."
+            )

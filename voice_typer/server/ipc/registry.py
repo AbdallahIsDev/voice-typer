@@ -145,6 +145,31 @@ _READONLY_COMMANDS: frozenset[str] = frozenset(
     }
 )
 
+# Instant download-control commands. These bypass the per-server
+# ``_dispatch_lock`` like the read-only set above, even though they
+# DO mutate state — the mutation is a single atomic flag/event flip
+# under ``asr_setup``'s own ``_download_pause_lock`` (pause/resume) or
+# under the service's ``_download_cancel_lock`` (cancel), never shared
+# app/service state, so serializing them against unrelated mutations
+# buys nothing and costs everything: ``download_model`` runs its
+# poll loop synchronously in the dispatch thread for the whole
+# transfer, and a pause/cancel queued behind that lock can never run
+# (observed 2026-09-16: pause + cancel + status polls all timed out
+# mid-download of large-v3-turbo, pool saturated, backend wedged).
+# Safety invariants (do NOT add commands here unless all hold):
+# 1. The handler performs no network/disk I/O and takes no other
+#    locks except its own dedicated flag/queue lock.
+# 2. The operation is idempotent (double pause / double cancel safe).
+# 3. It never starts a long-running operation (cancel only SIGNALS;
+#    the queued-download drain runs on the exiting transfer's path).
+_INSTANT_CONTROL_COMMANDS: frozenset[str] = frozenset(
+    {
+        "pause_model_download",
+        "resume_model_download",
+        "cancel_model_download",
+    }
+)
+
 # commands intentionally absent from the TS / Rust allowlists.
 # These commands are registered in the Python ``_COMMAND_REGISTRY``
 # (so the dispatcher recognizes them) but are NEVER invoked by the
