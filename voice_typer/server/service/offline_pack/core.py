@@ -485,4 +485,3 @@ def verify_offline_pack_signature_macos(path: Path) -> bool | None:
     except (FileNotFoundError, subprocess.TimeoutExpired, OSError) as exc:
         log.debug("[PACK] macOS codesign/spctl unavailable: %s", exc)
         return None
-

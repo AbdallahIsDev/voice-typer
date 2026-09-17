@@ -493,4 +493,3 @@ def _parse_content_range_total(headers: object) -> int | None:
     if not total.isdigit():
         return None
     return int(total)
-

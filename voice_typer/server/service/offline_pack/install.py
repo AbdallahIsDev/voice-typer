@@ -250,4 +250,3 @@ def install_offline_pack(
         {"version": version, "sha256": manifest["sha256"]},
     )
     return True
-

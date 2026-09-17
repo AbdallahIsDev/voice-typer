@@ -274,4 +274,3 @@ def _is_process_alive(pid: int) -> bool:
         return True
     except (OSError, ProcessLookupError, PermissionError, AttributeError):
         return False
-

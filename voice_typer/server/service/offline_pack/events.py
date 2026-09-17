@@ -39,4 +39,3 @@ def _publish_event(event_bus: ModuleType | None, event_type: str, payload: dict)
         event_bus.publish({"type": event_type, "data": payload})
     except Exception:
         log.debug("[PACK] event_bus publish failed for %s", event_type, exc_info=True)
-

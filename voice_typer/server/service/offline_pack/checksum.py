@@ -92,4 +92,3 @@ class BackgroundChecksum:
         if self._thread is not None:
             self._thread.join(timeout_s)
         return self._result
-

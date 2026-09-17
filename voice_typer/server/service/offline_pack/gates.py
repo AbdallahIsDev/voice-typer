@@ -133,4 +133,3 @@ def proxy_env() -> dict[str, str]:
         if val:
             out[key] = val
     return out
-
