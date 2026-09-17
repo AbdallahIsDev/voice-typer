@@ -2,11 +2,11 @@
 
 > Auto-generated from the latest GitHub Actions run via `scripts/ci/write_ci_errors.py`. Do not edit by hand, it is overwritten on every CI run.
 
-**93 failing/errored test(s)** across 10 matrix leg(s).
+**81 failing/errored test(s)** across 6 matrix leg(s).
 
 ### 1. `tests.handlers.test_handler_signature_conformance`
 
-- Legs: macos-14-3.10, ubuntu-22.04-3.10, windows-2022-3.10
+- Legs: macos-14-3.10, ubuntu-22.04-3.10
 - Location: `tests/handlers/test_handler_signature_conformance.py:50`
 
 ```
@@ -37,7 +37,7 @@ E   ImportError: cannot import name 'NotRequired' from 'typing' (/Library/Framew
 
 ### 2. `tests.handlers.test_privacy_handlers`
 
-- Legs: macos-14-3.10, ubuntu-22.04-3.10, windows-2022-3.10
+- Legs: macos-14-3.10, ubuntu-22.04-3.10
 - Location: `tests/handlers/test_privacy_handlers.py:40`
 
 ```
@@ -68,7 +68,7 @@ E   ImportError: cannot import name 'NotRequired' from 'typing' (/Library/Framew
 
 ### 3. `tests.regressions.test_cli_exit_codes`
 
-- Legs: macos-14-3.10, ubuntu-22.04-3.10, windows-2022-3.10
+- Legs: macos-14-3.10, ubuntu-22.04-3.10
 - Location: `tests/regressions/test_cli_exit_codes.py:38`
 
 ```
@@ -101,7 +101,7 @@ E   ImportError: cannot import name 'NotRequired' from 'typing' (/Library/Framew
 
 ### 4. `tests.regressions.test_tcp_live`
 
-- Legs: macos-14-3.10, ubuntu-22.04-3.10, windows-2022-3.10
+- Legs: macos-14-3.10, ubuntu-22.04-3.10
 - Location: `tests/regressions/test_tcp_live.py:47`
 
 ```
@@ -134,7 +134,7 @@ E   ImportError: cannot import name 'NotRequired' from 'typing' (/Library/Framew
 
 ### 5. `tests.security.test_tcp_accept_worker_pool`
 
-- Legs: macos-14-3.10, ubuntu-22.04-3.10, windows-2022-3.10
+- Legs: macos-14-3.10, ubuntu-22.04-3.10
 - Location: `tests/security/test_tcp_accept_worker_pool.py:26`
 
 ```
@@ -167,7 +167,7 @@ E   ImportError: cannot import name 'NotRequired' from 'typing' (/Library/Framew
 
 ### 6. `tests.server`
 
-- Legs: macos-14-3.10, ubuntu-22.04-3.10, windows-2022-3.10
+- Legs: macos-14-3.10, ubuntu-22.04-3.10
 - Location: `tests/server/conftest.py:57`
 
 ```
@@ -201,7 +201,7 @@ E   ImportError: cannot import name 'NotRequired' from 'typing' (/Library/Framew
 
 ### 7. `tests.service.test_status_volume_cache`
 
-- Legs: macos-14-3.10, ubuntu-22.04-3.10, windows-2022-3.10
+- Legs: macos-14-3.10, ubuntu-22.04-3.10
 - Location: `tests/service/test_status_volume_cache.py:47`
 
 ```
@@ -228,7 +228,7 @@ E   ImportError: cannot import name 'NotRequired' from 'typing' (/Library/Framew
 
 ### 8. `tests.test_asr_errors_consent`
 
-- Legs: macos-14-3.10, ubuntu-22.04-3.10, windows-2022-3.10
+- Legs: macos-14-3.10, ubuntu-22.04-3.10
 - Location: `tests/test_asr_errors_consent.py:57`
 
 ```
@@ -261,7 +261,7 @@ E   ImportError: cannot import name 'NotRequired' from 'typing' (/Library/Framew
 
 ### 9. `tests.test_cloud_connection_ipc_wiring`
 
-- Legs: macos-14-3.10, ubuntu-22.04-3.10, windows-2022-3.10
+- Legs: macos-14-3.10, ubuntu-22.04-3.10
 - Location: `tests/test_cloud_connection_ipc_wiring.py:42`
 
 ```
@@ -294,7 +294,7 @@ E   ImportError: cannot import name 'NotRequired' from 'typing' (/Library/Framew
 
 ### 10. `tests.test_cloud_provider_map_single_source`
 
-- Legs: macos-14-3.10, ubuntu-22.04-3.10, windows-2022-3.10
+- Legs: macos-14-3.10, ubuntu-22.04-3.10
 - Location: `tests/test_cloud_provider_map_single_source.py:42`
 
 ```
@@ -325,7 +325,7 @@ E   ImportError: cannot import name 'NotRequired' from 'typing' (/Library/Framew
 
 ### 11. `tests.test_cloud_test_handlers_redirect`
 
-- Legs: macos-14-3.10, ubuntu-22.04-3.10, windows-2022-3.10
+- Legs: macos-14-3.10, ubuntu-22.04-3.10
 - Location: `tests/test_cloud_test_handlers_redirect.py:49`
 
 ```
@@ -356,7 +356,7 @@ E   ImportError: cannot import name 'NotRequired' from 'typing' (/Library/Framew
 
 ### 12. `tests.test_command_registry_parity`
 
-- Legs: macos-14-3.10, ubuntu-22.04-3.10, windows-2022-3.10
+- Legs: macos-14-3.10, ubuntu-22.04-3.10
 - Location: `tests/test_command_registry_parity.py:44`
 
 ```
@@ -389,7 +389,7 @@ E   ImportError: cannot import name 'NotRequired' from 'typing' (/Library/Framew
 
 ### 13. `tests.test_dead_code_stays_removed`
 
-- Legs: macos-14-3.10, ubuntu-22.04-3.10, windows-2022-3.10
+- Legs: macos-14-3.10, ubuntu-22.04-3.10
 - Location: `tests/test_dead_code_stays_removed.py:26`
 
 ```
@@ -422,7 +422,7 @@ E   ImportError: cannot import name 'NotRequired' from 'typing' (/Library/Framew
 
 ### 14. `tests.test_di_providers`
 
-- Legs: macos-14-3.10, ubuntu-22.04-3.10, windows-2022-3.10
+- Legs: macos-14-3.10, ubuntu-22.04-3.10
 - Location: `tests/test_di_providers.py:38`
 
 ```
@@ -455,7 +455,7 @@ E   ImportError: cannot import name 'NotRequired' from 'typing' (/Library/Framew
 
 ### 15. `tests.test_download_model_dispatcher_structure`
 
-- Legs: macos-14-3.10, ubuntu-22.04-3.10, windows-2022-3.10
+- Legs: macos-14-3.10, ubuntu-22.04-3.10
 - Location: `tests/test_download_model_dispatcher_structure.py:39`
 
 ```
@@ -482,7 +482,7 @@ E   ImportError: cannot import name 'NotRequired' from 'typing' (/Library/Framew
 
 ### 16. `tests.test_download_model_return_shape`
 
-- Legs: macos-14-3.10, ubuntu-22.04-3.10, windows-2022-3.10
+- Legs: macos-14-3.10, ubuntu-22.04-3.10
 - Location: `tests/test_download_model_return_shape.py:20`
 
 ```
@@ -509,7 +509,7 @@ E   ImportError: cannot import name 'NotRequired' from 'typing' (/Library/Framew
 
 ### 17. `tests.test_download_progress_events`
 
-- Legs: macos-14-3.10, ubuntu-22.04-3.10, windows-2022-3.10
+- Legs: macos-14-3.10, ubuntu-22.04-3.10
 - Location: `tests/test_download_progress_events.py:15`
 
 ```
@@ -536,7 +536,7 @@ E   ImportError: cannot import name 'NotRequired' from 'typing' (/Library/Framew
 
 ### 18. `tests.test_e2e_pipeline`
 
-- Legs: macos-14-3.10, ubuntu-22.04-3.10, windows-2022-3.10
+- Legs: macos-14-3.10, ubuntu-22.04-3.10
 - Location: `tests/test_e2e_pipeline.py:36`
 
 ```
@@ -569,7 +569,7 @@ E   ImportError: cannot import name 'NotRequired' from 'typing' (/Library/Framew
 
 ### 19. `tests.test_heartbeat`
 
-- Legs: macos-14-3.10, ubuntu-22.04-3.10, windows-2022-3.10
+- Legs: macos-14-3.10, ubuntu-22.04-3.10
 - Location: `tests/test_heartbeat.py:54`
 
 ```
@@ -602,7 +602,7 @@ E   ImportError: cannot import name 'NotRequired' from 'typing' (/Library/Framew
 
 ### 20. `tests.test_heartbeat_force_exit`
 
-- Legs: macos-14-3.10, ubuntu-22.04-3.10, windows-2022-3.10
+- Legs: macos-14-3.10, ubuntu-22.04-3.10
 - Location: `tests/test_heartbeat_force_exit.py:44`
 
 ```
@@ -635,7 +635,7 @@ E   ImportError: cannot import name 'NotRequired' from 'typing' (/Library/Framew
 
 ### 21. `tests.test_ipc_deadlock_regression`
 
-- Legs: macos-14-3.10, ubuntu-22.04-3.10, windows-2022-3.10
+- Legs: macos-14-3.10, ubuntu-22.04-3.10
 - Location: `tests/test_ipc_deadlock_regression.py:37`
 
 ```
@@ -668,7 +668,7 @@ E   ImportError: cannot import name 'NotRequired' from 'typing' (/Library/Framew
 
 ### 22. `tests.test_ipc_dispatch_errors`
 
-- Legs: macos-14-3.10, ubuntu-22.04-3.10, windows-2022-3.10
+- Legs: macos-14-3.10, ubuntu-22.04-3.10
 - Location: `tests/test_ipc_dispatch_errors.py:56`
 
 ```
@@ -701,7 +701,7 @@ E   ImportError: cannot import name 'NotRequired' from 'typing' (/Library/Framew
 
 ### 23. `tests.test_ipc_error_envelope_helper`
 
-- Legs: macos-14-3.10, ubuntu-22.04-3.10, windows-2022-3.10
+- Legs: macos-14-3.10, ubuntu-22.04-3.10
 - Location: `tests/test_ipc_error_envelope_helper.py:33`
 
 ```
@@ -734,7 +734,7 @@ E   ImportError: cannot import name 'NotRequired' from 'typing' (/Library/Framew
 
 ### 24. `tests.test_ipc_error_envelope_parity`
 
-- Legs: macos-14-3.10, ubuntu-22.04-3.10, windows-2022-3.10
+- Legs: macos-14-3.10, ubuntu-22.04-3.10
 - Location: `tests/test_ipc_error_envelope_parity.py:54`
 
 ```
@@ -767,7 +767,7 @@ E   ImportError: cannot import name 'NotRequired' from 'typing' (/Library/Framew
 
 ### 25. `tests.test_ipc_no_client_log_redaction`
 
-- Legs: macos-14-3.10, ubuntu-22.04-3.10, windows-2022-3.10
+- Legs: macos-14-3.10, ubuntu-22.04-3.10
 - Location: `tests/test_ipc_no_client_log_redaction.py:41`
 
 ```
@@ -800,7 +800,7 @@ E   ImportError: cannot import name 'NotRequired' from 'typing' (/Library/Framew
 
 ### 26. `tests.test_ipc_pending_tcp_remerge`
 
-- Legs: macos-14-3.10, ubuntu-22.04-3.10, windows-2022-3.10
+- Legs: macos-14-3.10, ubuntu-22.04-3.10
 - Location: `tests/test_ipc_pending_tcp_remerge.py:42`
 
 ```
@@ -833,7 +833,7 @@ E   ImportError: cannot import name 'NotRequired' from 'typing' (/Library/Framew
 
 ### 27. `tests.test_ipc_rate_limiter_dual_window`
 
-- Legs: macos-14-3.10, ubuntu-22.04-3.10, windows-2022-3.10
+- Legs: macos-14-3.10, ubuntu-22.04-3.10
 - Location: `tests/test_ipc_rate_limiter_dual_window.py:29`
 
 ```
@@ -866,7 +866,7 @@ E   ImportError: cannot import name 'NotRequired' from 'typing' (/Library/Framew
 
 ### 28. `tests.test_ipc_send_shutdown_allowlist`
 
-- Legs: macos-14-3.10, ubuntu-22.04-3.10, windows-2022-3.10
+- Legs: macos-14-3.10, ubuntu-22.04-3.10
 - Location: `tests/test_ipc_send_shutdown_allowlist.py:41`
 
 ```
@@ -899,7 +899,7 @@ E   ImportError: cannot import name 'NotRequired' from 'typing' (/Library/Framew
 
 ### 29. `tests.test_ipc_sender_select`
 
-- Legs: macos-14-3.10, ubuntu-22.04-3.10, windows-2022-3.10
+- Legs: macos-14-3.10, ubuntu-22.04-3.10
 - Location: `tests/test_ipc_sender_select.py:31`
 
 ```
@@ -932,7 +932,7 @@ E   ImportError: cannot import name 'NotRequired' from 'typing' (/Library/Framew
 
 ### 30. `tests.test_ipc_server`
 
-- Legs: macos-14-3.10, ubuntu-22.04-3.10, windows-2022-3.10
+- Legs: macos-14-3.10, ubuntu-22.04-3.10
 - Location: `tests/test_ipc_server.py:67`
 
 ```
@@ -965,7 +965,7 @@ E   ImportError: cannot import name 'NotRequired' from 'typing' (/Library/Framew
 
 ### 31. `tests.test_ipc_server_main_diagnostics`
 
-- Legs: macos-14-3.10, ubuntu-22.04-3.10, windows-2022-3.10
+- Legs: macos-14-3.10, ubuntu-22.04-3.10
 - Location: `tests/test_ipc_server_main_diagnostics.py:47`
 
 ```
@@ -998,7 +998,7 @@ E   ImportError: cannot import name 'NotRequired' from 'typing' (/Library/Framew
 
 ### 32. `tests.test_ipc_shutdown_registry`
 
-- Legs: macos-14-3.10, ubuntu-22.04-3.10, windows-2022-3.10
+- Legs: macos-14-3.10, ubuntu-22.04-3.10
 - Location: `tests/test_ipc_shutdown_registry.py:37`
 
 ```
@@ -1031,7 +1031,7 @@ E   ImportError: cannot import name 'NotRequired' from 'typing' (/Library/Framew
 
 ### 33. `tests.test_ipc_tray_click_validation`
 
-- Legs: macos-14-3.10, ubuntu-22.04-3.10, windows-2022-3.10
+- Legs: macos-14-3.10, ubuntu-22.04-3.10
 - Location: `tests/test_ipc_tray_click_validation.py:42`
 
 ```
@@ -1064,7 +1064,7 @@ E   ImportError: cannot import name 'NotRequired' from 'typing' (/Library/Framew
 
 ### 34. `tests.test_keyboard_ownership_watchdog`
 
-- Legs: macos-14-3.10, ubuntu-22.04-3.10, windows-2022-3.10
+- Legs: macos-14-3.10, ubuntu-22.04-3.10
 - Location: `tests/test_keyboard_ownership_watchdog.py:29`
 
 ```
@@ -1097,7 +1097,7 @@ E   ImportError: cannot import name 'NotRequired' from 'typing' (/Library/Framew
 
 ### 35. `tests.test_module_constant_hoist`
 
-- Legs: macos-14-3.10, ubuntu-22.04-3.10, windows-2022-3.10
+- Legs: macos-14-3.10, ubuntu-22.04-3.10
 - Location: `tests/test_module_constant_hoist.py:12`
 
 ```
@@ -1130,7 +1130,7 @@ E   ImportError: cannot import name 'NotRequired' from 'typing' (/Library/Framew
 
 ### 36. `tests.test_pack_atomic_swap`
 
-- Legs: macos-14-3.10, ubuntu-22.04-3.10, windows-2022-3.10
+- Legs: macos-14-3.10, ubuntu-22.04-3.10
 - Location: `tests/test_pack_atomic_swap.py:36`
 
 ```
@@ -1157,7 +1157,7 @@ E   ImportError: cannot import name 'NotRequired' from 'typing' (/Library/Framew
 
 ### 37. `tests.test_pack_checksum_background`
 
-- Legs: macos-14-3.10, ubuntu-22.04-3.10, windows-2022-3.10
+- Legs: macos-14-3.10, ubuntu-22.04-3.10
 - Location: `tests/test_pack_checksum_background.py:29`
 
 ```
@@ -1184,7 +1184,7 @@ E   ImportError: cannot import name 'NotRequired' from 'typing' (/Library/Framew
 
 ### 38. `tests.test_pack_consent_gate`
 
-- Legs: macos-14-3.10, ubuntu-22.04-3.10, windows-2022-3.10
+- Legs: macos-14-3.10, ubuntu-22.04-3.10
 - Location: `tests/test_pack_consent_gate.py:31`
 
 ```
@@ -1211,7 +1211,7 @@ E   ImportError: cannot import name 'NotRequired' from 'typing' (/Library/Framew
 
 ### 39. `tests.test_pack_corruption_recovery`
 
-- Legs: macos-14-3.10, ubuntu-22.04-3.10, windows-2022-3.10
+- Legs: macos-14-3.10, ubuntu-22.04-3.10
 - Location: `tests/test_pack_corruption_recovery.py:28`
 
 ```
@@ -1238,7 +1238,7 @@ E   ImportError: cannot import name 'NotRequired' from 'typing' (/Library/Framew
 
 ### 40. `tests.test_pack_disk_full_during_download`
 
-- Legs: macos-14-3.10, ubuntu-22.04-3.10, windows-2022-3.10
+- Legs: macos-14-3.10, ubuntu-22.04-3.10
 - Location: `tests/test_pack_disk_full_during_download.py:26`
 
 ```
@@ -1265,7 +1265,7 @@ E   ImportError: cannot import name 'NotRequired' from 'typing' (/Library/Framew
 
 ### 41. `tests.test_pack_disk_space_check`
 
-- Legs: macos-14-3.10, ubuntu-22.04-3.10, windows-2022-3.10
+- Legs: macos-14-3.10, ubuntu-22.04-3.10
 - Location: `tests/test_pack_disk_space_check.py:32`
 
 ```
@@ -1292,7 +1292,7 @@ E   ImportError: cannot import name 'NotRequired' from 'typing' (/Library/Framew
 
 ### 42. `tests.test_pack_download_resume`
 
-- Legs: macos-14-3.10, ubuntu-22.04-3.10, windows-2022-3.10
+- Legs: macos-14-3.10, ubuntu-22.04-3.10
 - Location: `tests/test_pack_download_resume.py:29`
 
 ```
@@ -1319,7 +1319,7 @@ E   ImportError: cannot import name 'NotRequired' from 'typing' (/Library/Framew
 
 ### 43. `tests.test_pack_dual_instance`
 
-- Legs: macos-14-3.10, ubuntu-22.04-3.10, windows-2022-3.10
+- Legs: macos-14-3.10, ubuntu-22.04-3.10
 - Location: `tests/test_pack_dual_instance.py:35`
 
 ```
@@ -1346,7 +1346,7 @@ E   ImportError: cannot import name 'NotRequired' from 'typing' (/Library/Framew
 
 ### 44. `tests.test_pack_fallback_dir`
 
-- Legs: macos-14-3.10, ubuntu-22.04-3.10, windows-2022-3.10
+- Legs: macos-14-3.10, ubuntu-22.04-3.10
 - Location: `tests/test_pack_fallback_dir.py:27`
 
 ```
@@ -1373,7 +1373,7 @@ E   ImportError: cannot import name 'NotRequired' from 'typing' (/Library/Framew
 
 ### 45. `tests.test_pack_github_rate_limit`
 
-- Legs: macos-14-3.10, ubuntu-22.04-3.10, windows-2022-3.10
+- Legs: macos-14-3.10, ubuntu-22.04-3.10
 - Location: `tests/test_pack_github_rate_limit.py:28`
 
 ```
@@ -1400,7 +1400,7 @@ E   ImportError: cannot import name 'NotRequired' from 'typing' (/Library/Framew
 
 ### 46. `tests.test_pack_install`
 
-- Legs: macos-14-3.10, ubuntu-22.04-3.10, windows-2022-3.10
+- Legs: macos-14-3.10, ubuntu-22.04-3.10
 - Location: `tests/test_pack_install.py:43`
 
 ```
@@ -1427,7 +1427,7 @@ E   ImportError: cannot import name 'NotRequired' from 'typing' (/Library/Framew
 
 ### 47. `tests.test_pack_missing_on_launch`
 
-- Legs: macos-14-3.10, ubuntu-22.04-3.10, windows-2022-3.10
+- Legs: macos-14-3.10, ubuntu-22.04-3.10
 - Location: `tests/test_pack_missing_on_launch.py:33`
 
 ```
@@ -1454,7 +1454,7 @@ E   ImportError: cannot import name 'NotRequired' from 'typing' (/Library/Framew
 
 ### 48. `tests.test_pack_proxy`
 
-- Legs: macos-14-3.10, ubuntu-22.04-3.10, windows-2022-3.10
+- Legs: macos-14-3.10, ubuntu-22.04-3.10
 - Location: `tests/test_pack_proxy.py:23`
 
 ```
@@ -1481,7 +1481,7 @@ E   ImportError: cannot import name 'NotRequired' from 'typing' (/Library/Framew
 
 ### 49. `tests.test_pack_schema_caps`
 
-- Legs: macos-14-3.10, ubuntu-22.04-3.10, windows-2022-3.10
+- Legs: macos-14-3.10, ubuntu-22.04-3.10
 - Location: `tests/test_pack_schema_caps.py:48`
 
 ```
@@ -1508,7 +1508,7 @@ E   ImportError: cannot import name 'NotRequired' from 'typing' (/Library/Framew
 
 ### 50. `tests.test_pack_signing`
 
-- Legs: macos-14-3.10, ubuntu-22.04-3.10, windows-2022-3.10
+- Legs: macos-14-3.10, ubuntu-22.04-3.10
 - Location: `tests/test_pack_signing.py:32`
 
 ```
@@ -1535,7 +1535,7 @@ E   ImportError: cannot import name 'NotRequired' from 'typing' (/Library/Framew
 
 ### 51. `tests.test_pack_version_change_during_download`
 
-- Legs: macos-14-3.10, ubuntu-22.04-3.10, windows-2022-3.10
+- Legs: macos-14-3.10, ubuntu-22.04-3.10
 - Location: `tests/test_pack_version_change_during_download.py:30`
 
 ```
@@ -1562,7 +1562,7 @@ E   ImportError: cannot import name 'NotRequired' from 'typing' (/Library/Framew
 
 ### 52. `tests.test_privacy_helpers`
 
-- Legs: macos-14-3.10, ubuntu-22.04-3.10, windows-2022-3.10
+- Legs: macos-14-3.10, ubuntu-22.04-3.10
 - Location: `tests/test_privacy_helpers.py:37`
 
 ```
@@ -1589,7 +1589,7 @@ E   ImportError: cannot import name 'NotRequired' from 'typing' (/Library/Framew
 
 ### 53. `tests.test_segmented_progress_tracker`
 
-- Legs: macos-14-3.10, ubuntu-22.04-3.10, windows-2022-3.10
+- Legs: macos-14-3.10, ubuntu-22.04-3.10
 - Location: `tests/test_segmented_progress_tracker.py:22`
 
 ```
@@ -1616,7 +1616,7 @@ E   ImportError: cannot import name 'NotRequired' from 'typing' (/Library/Framew
 
 ### 54. `tests.test_sender_select_timeout`
 
-- Legs: macos-14-3.10, ubuntu-22.04-3.10, windows-2022-3.10
+- Legs: macos-14-3.10, ubuntu-22.04-3.10
 - Location: `tests/test_sender_select_timeout.py:31`
 
 ```
@@ -1649,7 +1649,7 @@ E   ImportError: cannot import name 'NotRequired' from 'typing' (/Library/Framew
 
 ### 55. `tests.test_service_download_consent`
 
-- Legs: macos-14-3.10, ubuntu-22.04-3.10, windows-2022-3.10
+- Legs: macos-14-3.10, ubuntu-22.04-3.10
 - Location: `tests/test_service_download_consent.py:34`
 
 ```
@@ -1676,7 +1676,7 @@ E   ImportError: cannot import name 'NotRequired' from 'typing' (/Library/Framew
 
 ### 56. `tests.test_service_llm_consent`
 
-- Legs: macos-14-3.10, ubuntu-22.04-3.10, windows-2022-3.10
+- Legs: macos-14-3.10, ubuntu-22.04-3.10
 - Location: `tests/test_service_llm_consent.py:11`
 
 ```
@@ -1703,7 +1703,7 @@ E   ImportError: cannot import name 'NotRequired' from 'typing' (/Library/Framew
 
 ### 57. `tests.test_sidecar_ready_emitted`
 
-- Legs: macos-14-3.10, ubuntu-22.04-3.10, windows-2022-3.10
+- Legs: macos-14-3.10, ubuntu-22.04-3.10
 - Location: `tests/test_sidecar_ready_emitted.py:40`
 
 ```
@@ -1736,7 +1736,7 @@ E   ImportError: cannot import name 'NotRequired' from 'typing' (/Library/Framew
 
 ### 58. `tests.test_sidecar_ws_ready_ordering`
 
-- Legs: macos-14-3.10, ubuntu-22.04-3.10, windows-2022-3.10
+- Legs: macos-14-3.10, ubuntu-22.04-3.10
 - Location: `tests/test_sidecar_ws_ready_ordering.py:40`
 
 ```
@@ -1769,7 +1769,7 @@ E   ImportError: cannot import name 'NotRequired' from 'typing' (/Library/Framew
 
 ### 59. `tests.test_startup_error_log_cap`
 
-- Legs: macos-14-3.10, ubuntu-22.04-3.10, windows-2022-3.10
+- Legs: macos-14-3.10, ubuntu-22.04-3.10
 - Location: `tests/test_startup_error_log_cap.py:47`
 
 ```
@@ -1802,7 +1802,7 @@ E   ImportError: cannot import name 'NotRequired' from 'typing' (/Library/Framew
 
 ### 60. `tests.test_tcp_dispatch_concurrency`
 
-- Legs: macos-14-3.10, ubuntu-22.04-3.10, windows-2022-3.10
+- Legs: macos-14-3.10, ubuntu-22.04-3.10
 - Location: `tests/test_tcp_dispatch_concurrency.py:53`
 
 ```
@@ -1835,7 +1835,7 @@ E   ImportError: cannot import name 'NotRequired' from 'typing' (/Library/Framew
 
 ### 61. `tests.test_tcp_drain_batching`
 
-- Legs: macos-14-3.10, ubuntu-22.04-3.10, windows-2022-3.10
+- Legs: macos-14-3.10, ubuntu-22.04-3.10
 - Location: `tests/test_tcp_drain_batching.py:36`
 
 ```
@@ -1868,7 +1868,7 @@ E   ImportError: cannot import name 'NotRequired' from 'typing' (/Library/Framew
 
 ### 62. `tests.test_tcp_idle_read_timeout`
 
-- Legs: macos-14-3.10, ubuntu-22.04-3.10, windows-2022-3.10
+- Legs: macos-14-3.10, ubuntu-22.04-3.10
 - Location: `tests/test_tcp_idle_read_timeout.py:26`
 
 ```
@@ -1901,7 +1901,7 @@ E   ImportError: cannot import name 'NotRequired' from 'typing' (/Library/Framew
 
 ### 63. `tests.test_transport_write_raw`
 
-- Legs: macos-14-3.10, ubuntu-22.04-3.10, windows-2022-3.10
+- Legs: macos-14-3.10, ubuntu-22.04-3.10
 - Location: `tests/test_transport_write_raw.py:22`
 
 ```
@@ -1934,7 +1934,7 @@ E   ImportError: cannot import name 'NotRequired' from 'typing' (/Library/Framew
 
 ### 64. `tests.test_trusted_extra_hosts`
 
-- Legs: macos-14-3.10, ubuntu-22.04-3.10, windows-2022-3.10
+- Legs: macos-14-3.10, ubuntu-22.04-3.10
 - Location: `tests/test_trusted_extra_hosts.py:37`
 
 ```
@@ -1951,7 +1951,7 @@ E   ImportError: cannot import name 'IPCServer' from 'tests.server.conftest' (/U
 
 ### 65. `tests.test_update_check`
 
-- Legs: macos-14-3.10, ubuntu-22.04-3.10, windows-2022-3.10
+- Legs: macos-14-3.10, ubuntu-22.04-3.10
 - Location: `tests/test_update_check.py:44`
 
 ```
@@ -1978,7 +1978,7 @@ E   ImportError: cannot import name 'NotRequired' from 'typing' (/Library/Framew
 
 ### 66. `tests.test_vocabulary_backend_duplicates`
 
-- Legs: macos-14-3.10, ubuntu-22.04-3.10, windows-2022-3.10
+- Legs: macos-14-3.10, ubuntu-22.04-3.10
 - Location: `tests/test_vocabulary_backend_duplicates.py:22`
 
 ```
@@ -2005,7 +2005,7 @@ E   ImportError: cannot import name 'NotRequired' from 'typing' (/Library/Framew
 
 ### 67. `tests.test_vocabulary_delete_persistence`
 
-- Legs: macos-14-3.10, ubuntu-22.04-3.10, windows-2022-3.10
+- Legs: macos-14-3.10, ubuntu-22.04-3.10
 - Location: `tests/test_vocabulary_delete_persistence.py:33`
 
 ```
@@ -2032,7 +2032,7 @@ E   ImportError: cannot import name 'NotRequired' from 'typing' (/Library/Framew
 
 ### 68. `tests.app.test_lifecycle.TestMainWrapsIpcMain.test_main_does_not_swallow_system_exit`
 
-- Legs: macos-14-3.10, windows-2022-3.10
+- Legs: macos-14-3.10, ubuntu-22.04-3.10
 - Location: `tests/app/test_lifecycle.py:1648`
 
 ```
@@ -2060,39 +2060,9 @@ voice_typer/server/service/_download_helpers.py:39: in <module>
 E   ImportError: cannot import name 'NotRequired' from 'typing' (/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/typing.py)
 ```
 
-### 69. `tests.app.test_lifecycle.TestMainWrapsIpcMain.test_main_logs_and_exits_when_ipc_main_raises`
+### 69. `tests.app.test_lifecycle.TestMainWrapsIpcMain.test_main_logs_warning_when_faulthandler_enable_raises`
 
-- Legs: macos-14-3.10, ubuntu-22.04-3.10, windows-2022-3.10
-- Location: `tests/app/test_lifecycle.py:1606`
-
-```
-ImportError: cannot import name 'NotRequired' from 'typing' (/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/typing.py)
-
-ImportError: cannot import name 'NotRequired' from 'typing' (/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/typing.py)
-tests/app/test_lifecycle.py:1606: in test_main_logs_and_exits_when_ipc_main_raises
-    import voice_typer.server.ipc_server as ipc_server_module
-voice_typer/server/ipc_server.py:304: in <module>
-    from voice_typer.server.handlers.vocabulary_handlers import VocabularyHandlersMixin  # noqa: E402
-voice_typer/server/handlers/__init__.py:61: in <module>
-    from voice_typer.server.handlers.vocabulary_handlers import VocabularyHandlersMixin
-voice_typer/server/handlers/vocabulary_handlers.py:17: in <module>
-    from voice_typer.server.service.vocabulary import VocabularyDuplicateError
-voice_typer/server/service/__init__.py:42: in <module>
-    from voice_typer.server.service.model import _MODEL_STATUS_CACHE_TTL_S, ModelMixin
-voice_typer/server/service/model/__init__.py:7: in <module>
-    from .mixin import ModelMixin
-voice_typer/server/service/model/mixin.py:7: in <module>
-    from ._downloads import DownloadsMixin
-voice_typer/server/service/model/_downloads.py:11: in <module>
-    from voice_typer.server.service._download_helpers import DownloadOutcome
-voice_typer/server/service/_download_helpers.py:39: in <module>
-    from typing import NotRequired, TypedDict
-E   ImportError: cannot import name 'NotRequired' from 'typing' (/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/typing.py)
-```
-
-### 70. `tests.app.test_lifecycle.TestMainWrapsIpcMain.test_main_logs_warning_when_faulthandler_enable_raises`
-
-- Legs: macos-14-3.10, windows-2022-3.10
+- Legs: macos-14-3.10, ubuntu-22.04-3.10
 - Location: `tests/app/test_lifecycle.py:1690`
 
 ```
@@ -2120,9 +2090,9 @@ voice_typer/server/service/_download_helpers.py:39: in <module>
 E   ImportError: cannot import name 'NotRequired' from 'typing' (/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/typing.py)
 ```
 
-### 71. `pytest.internal`
+### 70. `pytest.internal`
 
-- Legs: macos-14-3.10, macos-14-3.11, ubuntu-22.04-3.10, ubuntu-22.04-3.11, windows-2022-3.10
+- Legs: macos-14-3.10, macos-14-3.11, ubuntu-22.04-3.10, ubuntu-22.04-3.11
 - Location: `(pytest internal error, no test location)`
 
 ```
@@ -2134,7 +2104,7 @@ def worker_internal_error(
     ) -> None:
         """
         pytest_internalerror() was called on the worker.
-
+    
         pytest_internalerror() arguments are an excinfo and an excrepr, which can't
         be serialized, so we go with a poor man's solution of raising an exception
         here ourselves using the formatted message.
@@ -2168,7 +2138,7 @@ E                 result = yield
 E               File "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/site-packages/pluggy/_callers.py", line 121, in _multicall
 ```
 
-### 72. `tests.tauri.mig16.test_autostart_installer_macos.test_single_instance_plugin_enforced`
+### 71. `tests.tauri.mig16.test_autostart_installer_macos.test_single_instance_plugin_enforced`
 
 - Legs: macos-14-3.11
 - Location: `tests/tauri/mig16/test_autostart_installer_macos.py:749`
@@ -2181,27 +2151,27 @@ assert ('get_webview_window' in '//! Voice Typer: Tauri v2 host (ADR-0020 implem
 … (truncated)
 ```
 
-### 73. `tests.tauri.mig16.test_externalbin_spawn_macos.test_spawn_rs_server_started_log_line_format`
+### 72. `tests.tauri.mig16.test_externalbin_spawn_macos.test_spawn_rs_server_started_log_line_format`
 
 - Legs: macos-14-3.11
 - Location: `tests/tauri/mig16/test_externalbin_spawn_macos.py:529`
 
 ```
-+    where <built-in method search of re.Pattern object at 0x13ced5e70> = re.compile('\\[SIDECAR\\]\\s*server_started\\s*port=\\{[^}]*\\}').search
++    where <built-in method search of re.Pattern object at 0x13d5215f0> = re.compile('\\[SIDECAR\\]\\s*server_started\\s*port=\\{[^}]*\\}').search
 
 AssertionError: spawn.rs must log '[SIDECAR] server_started port={}' on success (runbook §5 pass criteria greps for this line on macOS)
 assert None
- +  where None = <built-in method search of re.Pattern object at 0x13ced5e70>('//! Sidecar spawn + stdout handshake (ADR-0020 §1 + §4.1 + §14).\n//!\n//! Module layout (split out of the former single-file module):\n//!\n//! - `self`: orchestration: the public spawn entry points\n//!   (`spawn_sidecar_and_get_port[_with_shutdown]`), the dev-vs-release\n//!   dispatch (`spawn_sidecar_and_get_port_inner`), the cold-start\n//!   wiring (`initialize_sidecar`), and the panic-captured background\n//!   task body (`initialize_sidecar_guarded`) that `main.rs`\'s\n//!   `.setup` spawns.\n//! - [`dev_mode`]: `VOICE_TYPER_SIDECAR_DEV=1` dev-mode spawn\n//!   (`spawn_sidecar_dev_mode` + the `is_dev_mode` predicates).\n//! - [`release_mode`]: release-build `externalBin` spawn\n//!   (`spawn_sidecar_release`).\n//! - [`handshake`]: `server_started` stdout parsing\n//!   (`parse_server_started`) + the shutting-down loop short-circuit\n//!   (`is_shutting_down`).\n//! - [`handshake_loop`]: the shared stdout-handshake read loops used by\n//!   all four spawn paths (`spawn_sidecar_release` /\n//!   `spawn_sidecar_dev_mode` / `spawn_worker_release` /\n//!   `spawn_worker_dev_mode`): one loop body for the shell-plugin\n//!   `CommandEvent` pair, one for the tokio `read_line` p....clone();\n    tauri::async_runtime::spawn(async move {\n        let state = app_handle.state::<Arc<WorkerState>>().inner().clone();\n        if !try_claim_restart_slot(&state.respawn_in_progress) {\n            log::info!(\n                "[WORKER-INIT] pack verified while a worker (re)start is in flight: skipping duplicate"\n            );\n            return;\n        }\n        // Stop-first: the verified event fires right after the\n        // atomic swap, so a still-running worker may hold the OLD\n        // pack files open (Windows file-lock swap failure).\n        stop_worker_child(&state).await;\n        if state.shutting_down.load(Ordering::SeqCst) {\n            state.respawn_in_progress.store(false, Ordering::SeqCst);\n            return;\n        }\n        if !worker_binary_present() {\n            log::info!(\n                "[WORKER-INIT] pack verified but no worker binary on disk: skipping worker start"\n            );\n            state.respawn_in_progress.store(false, Ordering::SeqCst);\n            return;\n        }\n        initialize_worker(&app_handle, state.clone()).await;\n        state.respawn_in_progress.store(false, Ordering::SeqCst);\n    });\n}\n')
- +    where <built-in method search of re.Pattern object at 0x13ced5e70> = re.compile('\\[SIDECAR\\]\\s*server_started\\s*port=\\{[^}]*\\}').search
+ +  where None = <built-in method search of re.Pattern object at 0x13d5215f0>('//! Sidecar spawn + stdout handshake (ADR-0020 §1 + §4.1 + §14).\n//!\n//! Module layout (split out of the former single-file module):\n//!\n//! - `self`: orchestration: the public spawn entry points\n//!   (`spawn_sidecar_and_get_port[_with_shutdown]`), the dev-vs-release\n//!   dispatch (`spawn_sidecar_and_get_port_inner`), the cold-start\n//!   wiring (`initialize_sidecar`), and the panic-captured background\n//!   task body (`initialize_sidecar_guarded`) that `main.rs`\'s\n//!   `.setup` spawns.\n//! - [`dev_mode`]: `VOICE_TYPER_SIDECAR_DEV=1` dev-mode spawn\n//!   (`spawn_sidecar_dev_mode` + the `is_dev_mode` predicates).\n//! - [`release_mode`]: release-build `externalBin` spawn\n//!   (`spawn_sidecar_release`).\n//! - [`handshake`]: `server_started` stdout parsing\n//!   (`parse_server_started`) + the shutting-down loop short-circuit\n//!   (`is_shutting_down`).\n//! - [`handshake_loop`]: the shared stdout-handshake read loops used by\n//!   all four spawn paths (`spawn_sidecar_release` /\n//!   `spawn_sidecar_dev_mode` / `spawn_worker_release` /\n//!   `spawn_worker_dev_mode`): one loop body for the shell-plugin\n//!   `CommandEvent` pair, one for the tokio `read_line` p....clone();\n    tauri::async_runtime::spawn(async move {\n        let state = app_handle.state::<Arc<WorkerState>>().inner().clone();\n        if !try_claim_restart_slot(&state.respawn_in_progress) {\n            log::info!(\n                "[WORKER-INIT] pack verified while a worker (re)start is in flight: skipping duplicate"\n            );\n            return;\n        }\n        // Stop-first: the verified event fires right after the\n        // atomic swap, so a still-running worker may hold the OLD\n        // pack files open (Windows file-lock swap failure).\n        stop_worker_child(&state).await;\n        if state.shutting_down.load(Ordering::SeqCst) {\n            state.respawn_in_progress.store(false, Ordering::SeqCst);\n            return;\n        }\n        if !worker_binary_present() {\n            log::info!(\n                "[WORKER-INIT] pack verified but no worker binary on disk: skipping worker start"\n            );\n            state.respawn_in_progress.store(false, Ordering::SeqCst);\n            return;\n        }\n        initialize_worker(&app_handle, state.clone()).await;\n        state.respawn_in_progress.store(false, Ordering::SeqCst);\n    });\n}\n')
+ +    where <built-in method search of re.Pattern object at 0x13d5215f0> = re.compile('\\[SIDECAR\\]\\s*server_started\\s*port=\\{[^}]*\\}').search
 tests/tauri/mig16/test_externalbin_spawn_macos.py:529: in test_spawn_rs_server_started_log_line_format
     assert port_log_re.search(spawn_rs_source), (
 E   AssertionError: spawn.rs must log '[SIDECAR] server_started port={}' on success (runbook §5 pass criteria greps for this line on macOS)
 E   assert None
-E    +  where None = <built-in method search of re.Pattern object at 0x13ced5e70>('//! Sidecar spawn + stdout handshake (ADR-0020 §1 + §4.1 + §14).\n//!\n//! Module layout (split out of the former single-file module):\n//!\n//! - `self`: orchestration: the public spawn entry points\n//!   (`spawn_sidecar_and_get_port[_with_shutdown]`), the dev-vs-release\n//!   dispatch (`spawn_sidecar_and_get_port_inner`), the cold-start\n//!   wiring (`initialize_sidecar`), and the panic-captured background\n//!   task body (`initialize_sidecar_guarded`) that `main.rs`\'s\n//!   `.setup` spawns.\n//! - [`dev_mode`]: `VOICE_TYPER_SIDECAR_DEV=1` dev-mode spawn\n//!   (`spawn_sidecar_dev_mode` + the `is_dev_mode` predicates).\n//! - [`release_mode`]: release-build `externalB
+E    +  where None = <built-in method search of re.Pattern object at 0x13d5215f0>('//! Sidecar spawn + stdout handshake (ADR-0020 §1 + §4.1 + §14).\n//!\n//! Module layout (split out of the former single-file module):\n//!\n//! - `self`: orchestration: the public spawn entry points\n//!   (`spawn_sidecar_and_get_port[_with_shutdown]`), the dev-vs-release\n//!   dispatch (`spawn_sidecar_and_get_port_inner`), the cold-start\n//!   wiring (`initialize_sidecar`), and the panic-captured background\n//!   task body (`initialize_sidecar_guarded`) that `main.rs`\'s\n//!   `.setup` spawns.\n//! - [`dev_mode`]: `VOICE_TYPER_SIDECAR_DEV=1` dev-mode spawn\n//!   (`spawn_sidecar_dev_mode` + the `is_dev_mode` predicates).\n//! - [`release_mode`]: release-build `externalB
 … (truncated)
 ```
 
-### 74. `tests.tauri.mig16.test_shutdown_macos.TestSupervisorSource.test_returns_ok_on_successful_respawn`
+### 73. `tests.tauri.mig16.test_shutdown_macos.TestSupervisorSource.test_returns_ok_on_successful_respawn`
 
 - Legs: macos-14-3.11
 - Location: `tests/tauri/mig16/test_shutdown_macos.py:811`
@@ -2217,113 +2187,9 @@ E   AssertionError: `return Ok(())` after 'respawn succeeded' log must be in the
 E   assert (40663 - 37618) < 2000
 ```
 
-### 75. `tests.tauri.mig19.test_reconnect_ux.test_use_connection_probe_has_retry_cap`
+### 74. `tests.tauri.test_window_lifecycle_parity.test_main_runtime_grants_the_window_queries_the_bridge_calls`
 
-- Legs: macos-14-3.11, ubuntu-22.04-3.11, ubuntu-22.04-3.12, ubuntu-22.04-3.13, windows-2022-3.11, windows-2022-3.12, windows-2022-3.13
-- Location: `tests/tauri/mig19/test_reconnect_ux.py:1152`
-
-```
-+    where <built-in method search of re.Pattern object at 0x127e683c0> = re.compile('const\\s+maxRetries\\s*=\\s*5\\b', re.MULTILINE).search
-
-AssertionError: useConnection.ts must define `const maxRetries = 5` in the connection-probe effect, caps the cold-start retry loop so a permanently-down backend transitions to 'disconnected'.
-assert None
- +  where None = <built-in method search of re.Pattern object at 0x127e683c0>('import { useCallback, useEffect, useRef } from "react";\nimport { useShallow } from "zustand/react/shallow";\nimport { useLatestRef } from "@/hooks/useLatestRef";\nimport { usePythonEvent } from "@/hooks/usePython";\nimport { useT } from "@/i18n/i18n";\nimport { useAppStore } from "@/stores/appStore";\nimport type { VoiceTyperConfig } from "@/types/config";\nimport type { Page } from "@/types/ipc";\nimport {\n\tapplyStatusWithReason,\n\tasRecordingState,\n\tBACKGROUND_RECONNECT_INTERVAL_MS,\n\tCONNECTION_PROBE_MAX_RETRIES,\n\tCONNECTION_PROBE_RETRY_DELAY_MS,\n\tHEALTH_CHECK_EVENT_GRACE_MS,\n\tHEALTH_CHECK_INTERVAL_MS,\n\tHEALTH_CHECK_MAX_RETRIES,\n\tHEALTH_CHECK_RETRY_DELAY_MS,\n\tMAX_BACKGROUND_RECONNECTS,\n\tRESPAWN_EXHAUSTED_CODE,\n} from "./connectionStatus";\n\ninterface UseConnectionArgs {\n\t/** Python bridge `call` function (from usePython). */\n\tcall: <T = unknown>(\n\t\ttype: string,\n\t\tdata?: Record<string, unknown>,\n\t) => Promise<T>;\n\t/**\n\t * Current page (historically used for onboarding first-run\n\t * auto-routing check).\n\t *\n\t * @deprecated No longer read inside the hook (the first-run\n\t * check is now unconditional). Kept for backward compatibilit...("connected");\n\t\t\treturn;\n\t\t} catch {\n\t\t\t// Probe failed, the backend may be dead, not just flapping.\n\t\t\t// Escalate to a process restart (Phase 2 below).\n\t\t}\n\t\t// Phase 2, escalate to a backend-process restart.\n\t\ttry {\n\t\t\tconst res = await window.window_?.restartBackend?.();\n\t\t\tif (res?.ok) {\n\t\t\t\tsetConnectionStatus("restarting");\n\t\t\t\treturn;\n\t\t\t}\n\t\t\t// adopted mode (backend spawned us) or relaunch in-flight —\n\t\t\t// nothing more the main process can do for us.\n\t\t\tsetLastError(t("connection.restartBackendHint"));\n\t\t\tsetConnectionStatus("disconnected");\n\t\t} catch (e) {\n\t\t\t// Bridge channel unavailable (tauri mode, old preload) or\n\t\t\t// handler threw, no restart capability, fall back to the\n\t\t\t// previous bare-probe behavior.\n\t\t\tconsole.warn(\n\t\t\t\t"[renderer:useConnection] restartBackend escalation failed:",\n\t\t\t\te,\n\t\t\t);\n\t\t\tsetLastError(t("connection.restartBackendHint"));\n\t\t\tsetConnectionStatus("disconnected");\n\t\t}\n\t}, [call, setConnectionStatus, setLastError, t]);\n\n\treturn {\n\t\trecordingState,\n\t\tconnectionStatus,\n\t\tlastError,\n\t\thandleRetryConnection,\n\t};\n}\n')
- +    where <built-in method search of re.Pattern object at 0x127e683c0> = re.compile('const\\s+maxRetries\\s*=\\s*5\\b', re.MULTILINE).search
-tests/tauri/mig19/test_reconnect_ux.py:1152: in test_use_connection_probe_has_retry_cap
-    assert max_retries_re.search(use_connection_source), (
-E   AssertionError: useConnection.ts must define `const maxRetries = 5` in the connection-probe effect, caps the cold-start retry loop so a permanently-down backend transitions to 'disconnected'.
-E   assert None
-E    +  where None = <built-in method search of re.Pattern object at 0x127e683c0>('import { useCallback, useEffect, useRef } from "react";\nimport { useShallow } from "zustand/react/shallow";\nimport { useLatestRef } from "@/hooks/useLatestRef";\nimport { usePythonEvent } from "@/hooks/usePython";\nimport { useT } from "@/i18n/i18n";\nimport { useAppStore } from "@/stores/appStore";\nimport type { VoiceTyperConfig } from "@/types/config";\nimport type { Page } from "@/types/ipc";\nimport {\n\tapplyStatusWithReason,\n\tasRecordingState,\n\tBACKGROUND_RECONNECT_INTERVAL_MS,\n\tCONNECTION_PROBE_MAX_RETRIES,\n\tCONNECTION_PROBE_RETRY_DELAY_MS,\n\tHEALTH_CHECK_EVENT_G
-… (truncated)
-```
-
-### 76. `tests.tauri.mig19.test_reconnect_ux.test_use_connection_periodic_health_check_flips_to_disconnected`
-
-- Legs: macos-14-3.11, ubuntu-22.04-3.11, ubuntu-22.04-3.12, ubuntu-22.04-3.13, windows-2022-3.11, windows-2022-3.12, windows-2022-3.13
-- Location: `tests/tauri/mig19/test_reconnect_ux.py:1186`
-
-```
-assert None is not None
-
-AssertionError: useConnection.ts must call setInterval(() => probe(false), 15_000) for the periodic health check (BG-92, 15s interval; the body is now a thin call to the hoisted probe arrow function).
-assert None is not None
-tests/tauri/mig19/test_reconnect_ux.py:1186: in test_use_connection_periodic_health_check_flips_to_disconnected
-    assert interval_match is not None, (
-E   AssertionError: useConnection.ts must call setInterval(() => probe(false), 15_000) for the periodic health check (BG-92, 15s interval; the body is now a thin call to the hoisted probe arrow function).
-E   assert None is not None
-```
-
-### 77. `tests.tauri.test_kill_process_tree_migration.test_spawn_rs_uses_platform_module_exactly_four_times`
-
-- Legs: macos-14-3.11, ubuntu-22.04-3.11, ubuntu-22.04-3.12, ubuntu-22.04-3.13, windows-2022-3.11, windows-2022-3.12, windows-2022-3.13
-- Location: `tests/tauri/test_kill_process_tree_migration.py:187`
-
-```
-+  where 9 = len(['kill_process_tree_off_thread(', 'kill_process_tree_off_thread(', 'kill_process_tree_off_thread(', 'kill_process_tree_off_thread(', 'kill_process_tree_off_thread(', 'kill_process_tree_off_thread(', ...])
-
-AssertionError: the spawn module must invoke `kill_process_tree_off_thread` exactly 6 times (one per handshake cleanup path); found 9.
-assert 9 == 6
- +  where 9 = len(['kill_process_tree_off_thread(', 'kill_process_tree_off_thread(', 'kill_process_tree_off_thread(', 'kill_process_tree_off_thread(', 'kill_process_tree_off_thread(', 'kill_process_tree_off_thread(', ...])
-tests/tauri/test_kill_process_tree_migration.py:187: in test_spawn_rs_uses_platform_module_exactly_four_times
-    assert len(helper_calls) == 6, (
-E   AssertionError: the spawn module must invoke `kill_process_tree_off_thread` exactly 6 times (one per handshake cleanup path); found 9.
-E   assert 9 == 6
-E    +  where 9 = len(['kill_process_tree_off_thread(', 'kill_process_tree_off_thread(', 'kill_process_tree_off_thread(', 'kill_process_tree_off_thread(', 'kill_process_tree_off_thread(', 'kill_process_tree_off_thread(', ...])
-```
-
-### 78. `tests.tauri.test_rust_log_file_perms.test_pi7_rust_unit_test_log_file_mode_0o600_passes`
-
-- Legs: macos-14-3.11
-- Location: `(unknown location)`
-
-```
-(no error line)
-
-failed on setup with "worker 'gw0' crashed while running 'tests/tauri/test_rust_log_file_perms.py::test_pi7_rust_unit_test_log_file_mode_0o600_passes'"
-worker 'gw0' crashed while running 'tests/tauri/test_rust_log_file_perms.py::test_pi7_rust_unit_test_log_file_mode_0o600_passes'
-```
-
-### 79. `tests.tauri.test_tauri_sidecar_gate.test_heartbeat_skipped_under_tauri_sidecar`
-
-- Legs: macos-14-3.11, ubuntu-22.04-3.11, ubuntu-22.04-3.12, ubuntu-22.04-3.13, windows-2022-3.11, windows-2022-3.12, windows-2022-3.13
-- Location: `tests/tauri/test_tauri_sidecar_gate.py:72`
-
-```
-AttributeError: 'IPCServer' object has no attribute '_background_integrations_wired'
-
-AttributeError: 'IPCServer' object has no attribute '_background_integrations_wired'
-tests/tauri/test_tauri_sidecar_gate.py:72: in test_heartbeat_skipped_under_tauri_sidecar
-    server.start()
-voice_typer/server/ipc/lifecycle.py:320: in start
-    self.wire_background_integrations()
-voice_typer/server/ipc_server.py:526: in wire_background_integrations
-    if self._background_integrations_wired:
-       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-E   AttributeError: 'IPCServer' object has no attribute '_background_integrations_wired'
-```
-
-### 80. `tests.tauri.test_tauri_sidecar_gate.test_heartbeat_started_without_tauri_sidecar`
-
-- Legs: macos-14-3.11, ubuntu-22.04-3.11, ubuntu-22.04-3.12, ubuntu-22.04-3.13, windows-2022-3.11, windows-2022-3.12, windows-2022-3.13
-- Location: `tests/tauri/test_tauri_sidecar_gate.py:114`
-
-```
-AttributeError: 'IPCServer' object has no attribute '_background_integrations_wired'
-
-AttributeError: 'IPCServer' object has no attribute '_background_integrations_wired'
-tests/tauri/test_tauri_sidecar_gate.py:114: in test_heartbeat_started_without_tauri_sidecar
-    server.start()
-voice_typer/server/ipc/lifecycle.py:320: in start
-    self.wire_background_integrations()
-voice_typer/server/ipc_server.py:526: in wire_background_integrations
-    if self._background_integrations_wired:
-       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-E   AttributeError: 'IPCServer' object has no attribute '_background_integrations_wired'
-```
-
-### 81. `tests.tauri.test_window_lifecycle_parity.test_main_runtime_grants_the_window_queries_the_bridge_calls`
-
-- Legs: macos-14-3.11, ubuntu-22.04-3.11, ubuntu-22.04-3.12, ubuntu-22.04-3.13, windows-2022-3.11, windows-2022-3.12, windows-2022-3.13
+- Legs: macos-14-3.11, ubuntu-22.04-3.11, ubuntu-22.04-3.12, ubuntu-22.04-3.13
 - Location: `tests/tauri/test_window_lifecycle_parity.py:92`
 
 ```
@@ -2345,9 +2211,9 @@ tests/tauri/test_window_lifecycle_parity.py:82: in _capability_permissions
 E   FileNotFoundError: [Errno 2] No such file or directory: '/Users/runner/work/voice-typer/voice-typer/src-tauri/gen/schemas/acl-manifests.json'
 ```
 
-### 82. `tests.tauri.test_window_lifecycle_parity.test_main_runtime_grants_on_resized_via_event_listen`
+### 75. `tests.tauri.test_window_lifecycle_parity.test_main_runtime_grants_on_resized_via_event_listen`
 
-- Legs: macos-14-3.11, ubuntu-22.04-3.11, ubuntu-22.04-3.12, ubuntu-22.04-3.13, windows-2022-3.11, windows-2022-3.12, windows-2022-3.13
+- Legs: macos-14-3.11, ubuntu-22.04-3.11, ubuntu-22.04-3.12, ubuntu-22.04-3.13
 - Location: `tests/tauri/test_window_lifecycle_parity.py:133`
 
 ```
@@ -2369,37 +2235,7 @@ tests/tauri/test_window_lifecycle_parity.py:82: in _capability_permissions
 E   FileNotFoundError: [Errno 2] No such file or directory: '/Users/runner/work/voice-typer/voice-typer/src-tauri/gen/schemas/acl-manifests.json'
 ```
 
-### 83. `tests.app.test_lifecycle.TestMainWrapsIpcMain.test_main_logs_warning_when_faulthandler_import_fails`
-
-- Legs: ubuntu-22.04-3.10, windows-2022-3.10
-- Location: `tests/app/test_lifecycle.py:1721`
-
-```
-ImportError: cannot import name 'NotRequired' from 'typing' (/opt/hostedtoolcache/Python/3.10.21/x64/lib/python3.10/typing.py)
-
-ImportError: cannot import name 'NotRequired' from 'typing' (/opt/hostedtoolcache/Python/3.10.21/x64/lib/python3.10/typing.py)
-tests/app/test_lifecycle.py:1721: in test_main_logs_warning_when_faulthandler_import_fails
-    import voice_typer.server.ipc_server as ipc_server_module
-voice_typer/server/ipc_server.py:304: in <module>
-    from voice_typer.server.handlers.vocabulary_handlers import VocabularyHandlersMixin  # noqa: E402
-voice_typer/server/handlers/__init__.py:61: in <module>
-    from voice_typer.server.handlers.vocabulary_handlers import VocabularyHandlersMixin
-voice_typer/server/handlers/vocabulary_handlers.py:17: in <module>
-    from voice_typer.server.service.vocabulary import VocabularyDuplicateError
-voice_typer/server/service/__init__.py:42: in <module>
-    from voice_typer.server.service.model import _MODEL_STATUS_CACHE_TTL_S, ModelMixin
-voice_typer/server/service/model/__init__.py:7: in <module>
-    from .mixin import ModelMixin
-voice_typer/server/service/model/mixin.py:7: in <module>
-    from ._downloads import DownloadsMixin
-voice_typer/server/service/model/_downloads.py:11: in <module>
-    from voice_typer.server.service._download_helpers import DownloadOutcome
-voice_typer/server/service/_download_helpers.py:39: in <module>
-    from typing import NotRequired, TypedDict
-E   ImportError: cannot import name 'NotRequired' from 'typing' (/opt/hostedtoolcache/Python/3.10.21/x64/lib/python3.10/typing.py)
-```
-
-### 84. `tests.tauri.mig17.test_autostart_installer_linux.test_single_instance_plugin_wired_in_tauri`
+### 76. `tests.tauri.mig17.test_autostart_installer_linux.test_single_instance_plugin_wired_in_tauri`
 
 - Legs: ubuntu-22.04-3.11, ubuntu-22.04-3.12, ubuntu-22.04-3.13
 - Location: `tests/tauri/mig17/test_autostart_installer_linux.py:728`
@@ -2412,7 +2248,7 @@ assert 'get_webview_window' in '//! Voice Typer: Tauri v2 host (ADR-0020 impleme
 … (truncated)
 ```
 
-### 85. `tests.test_dictation_pipeline_check_resources.TestCheckResourcesXZEH008SilentExcept.test_ram_ctypes_fallback_failure_logs_debug`
+### 77. `tests.test_dictation_pipeline_check_resources.TestCheckResourcesXZEH008SilentExcept.test_ram_ctypes_fallback_failure_logs_debug`
 
 - Legs: ubuntu-22.04-3.12, ubuntu-22.04-3.13
 - Location: `tests/test_dictation_pipeline_check_resources.py:515`
@@ -2431,7 +2267,27 @@ voice_typer/server/resource_probe.py:300: in check_resources
 E   TypeError: statvfs: path should be string, bytes, os.PathLike or integer, not _StubPath
 ```
 
-### 86. `tests.test_install_permissions_gsettings.TestSwayFlow.test_appends_block_when_no_existing_line`
+### 78. `tests.test_golden_path_dictation.test_golden_path_sine_to_final_text_history_and_recovery`
+
+- Legs: ubuntu-22.04-3.12
+- Location: `tests/test_golden_path_dictation.py:332`
+
+```
+- Please receive the report grammar.
+
+AssertionError: history DB row does not carry the final pasted text
+assert '' == 'Please recei...port grammar.'
+  
+  - Please receive the report grammar.
+tests/test_golden_path_dictation.py:332: in test_golden_path_sine_to_final_text_history_and_recovery
+    assert app.history_db.get_latest_text() == _FINAL_TRANSCRIPT, "history DB row does not carry the final pasted text"
+E   AssertionError: history DB row does not carry the final pasted text
+E   assert '' == 'Please recei...port grammar.'
+E     
+E     - Please receive the report grammar.
+```
+
+### 79. `tests.test_install_permissions_gsettings.TestSwayFlow.test_appends_block_when_no_existing_line`
 
 - Legs: ubuntu-22.04-3.12, ubuntu-22.04-3.13
 - Location: `tests/test_install_permissions_gsettings.py:430`
@@ -2445,7 +2301,7 @@ tests/test_install_permissions_gsettings.py:430: in test_appends_block_when_no_e
 E   AssertionError: assert '# Voice Typer — Caps Lock neutralization' in 'set $mod Mod4\nbindsym Mod4+Return exec foot\n\n# Voice Typer. Caps Lock neutralization\ninput * xkb_options caps:none\n'
 ```
 
-### 87. `tests.test_install_permissions_gsettings.TestUninstallRestore.test_sway_restore_removes_block_when_no_prior_line`
+### 80. `tests.test_install_permissions_gsettings.TestUninstallRestore.test_sway_restore_removes_block_when_no_prior_line`
 
 - Legs: ubuntu-22.04-3.12, ubuntu-22.04-3.13
 - Location: `tests/test_install_permissions_gsettings.py:607`
@@ -2454,7 +2310,7 @@ E   AssertionError: assert '# Voice Typer — Caps Lock neutralization' in 'set 
 bindsym Mod4+Return exec foot
 
 AssertionError: assert '# Voice Typ...utralization' not in 'set $mod Mo... exec foot\n'
-
+  
   '# Voice Typer — Caps Lock neutralization' is contained here:
     set $mod Mod4
     # Voice Typer — Caps Lock neutralization
@@ -2462,117 +2318,33 @@ AssertionError: assert '# Voice Typ...utralization' not in 'set $mod Mo... exec 
 tests/test_install_permissions_gsettings.py:607: in test_sway_restore_removes_block_when_no_prior_line
     assert "# Voice Typer — Caps Lock neutralization" not in new_text
 E   AssertionError: assert '# Voice Typ...utralization' not in 'set $mod Mo... exec foot\n'
-E
+E     
 E     '# Voice Typer — Caps Lock neutralization' is contained here:
 E       set $mod Mod4
 E       # Voice Typer — Caps Lock neutralization
 E       bindsym Mod4+Return exec foot
 ```
 
-### 88. `tests.test_logging_rotation_perms.test_do_rollover_chmod_runs_inside_lock`
+### 81. `tests.test_logging_rotation_perms.test_do_rollover_chmod_runs_inside_lock`
 
 - Legs: ubuntu-22.04-3.12, ubuntu-22.04-3.13
 - Location: `tests/test_logging_rotation_perms.py:338`
 
 ```
-+    where <built-in method index of list object at 0x7f6140c01d00> = ['release', 'chmod', 'release'].index
++    where <built-in method index of list object at 0x7f29d05d5e40> = ['release', 'chmod', 'release'].index
 
 AssertionError: chmod must run BEFORE release; got call_order=['release', 'chmod', 'release']
 assert 1 < 0
- +  where 1 = <built-in method index of list object at 0x7f6140c01d00>('chmod')
- +    where <built-in method index of list object at 0x7f6140c01d00> = ['release', 'chmod', 'release'].index
- +  and   0 = <built-in method index of list object at 0x7f6140c01d00>('release')
- +    where <built-in method index of list object at 0x7f6140c01d00> = ['release', 'chmod', 'release'].index
+ +  where 1 = <built-in method index of list object at 0x7f29d05d5e40>('chmod')
+ +    where <built-in method index of list object at 0x7f29d05d5e40> = ['release', 'chmod', 'release'].index
+ +  and   0 = <built-in method index of list object at 0x7f29d05d5e40>('release')
+ +    where <built-in method index of list object at 0x7f29d05d5e40> = ['release', 'chmod', 'release'].index
 tests/test_logging_rotation_perms.py:338: in test_do_rollover_chmod_runs_inside_lock
     assert call_order.index("chmod") < call_order.index("release"), (
 E   AssertionError: chmod must run BEFORE release; got call_order=['release', 'chmod', 'release']
 E   assert 1 < 0
-E    +  where 1 = <built-in method index of list object at 0x7f6140c01d00>('chmod')
-E    +    where <built-in method index of list object at 0x7f6140c01d00> = ['release', 'chmod', 'release'].index
-E    +  and   0 = <built-in method index of list object at 0x7f6140c01d00>('release')
-E    +    where <built-in method index of list object at 0x7f6140c01d00> = ['release', 'chmod', 'release'].index
-```
-
-### 89. `tests.test_pyrefly_baseline_accuracy.test_errors_array_has_no_stale_entries`
-
-- Legs: ubuntu-22.04-3.12, ubuntu-22.04-3.13, windows-2022-3.11, windows-2022-3.12, windows-2022-3.13
-- Location: `tests/test_pyrefly_baseline_accuracy.py:100`
-
-```
-[393] voice_typer/server/service/offline_pack.py:870 -- file does not exist: voice_typer/server/service/offline_pack.py
-
-Failed: pyrefly-baseline.json: 5 stale entries in `errors` array (of 466 total). Each stale entry must be either remapped to its live location or dropped.
-  [389] voice_typer/server/service/offline_pack.py:791 -- file does not exist: voice_typer/server/service/offline_pack.py
-  [390] voice_typer/server/service/offline_pack.py:791 -- file does not exist: voice_typer/server/service/offline_pack.py
-  [391] voice_typer/server/service/offline_pack.py:791 -- file does not exist: voice_typer/server/service/offline_pack.py
-  [392] voice_typer/server/service/offline_pack.py:870 -- file does not exist: voice_typer/server/service/offline_pack.py
-  [393] voice_typer/server/service/offline_pack.py:870 -- file does not exist: voice_typer/server/service/offline_pack.py
-tests/test_pyrefly_baseline_accuracy.py:100: in test_errors_array_has_no_stale_entries
-    pytest.fail(
-E   Failed: pyrefly-baseline.json: 5 stale entries in `errors` array (of 466 total). Each stale entry must be either remapped to its live location or dropped.
-E     [389] voice_typer/server/service/offline_pack.py:791 -- file does not exist: voice_typer/server/service/offline_pack.py
-E     [390] voice_typer/server/service/offline_pack.py:791 -- file does not exist: voice_typer/server/service/offline_pack.py
-E     [391] voice_typer/server/service/offline_pack.py:791 -- file does not exist: voice_typer/server/service/offline_pack.py
-E     [392] voice_typer/server/service/offline_pack.py:870 -- file does not exist: voice_typer/server/service/offline_pack.py
-E     [393] voice_typer/server/service/offline_pack.py:870 -- file does not exist: voice_typer/server/service/offline_pack.py
-```
-
-### 90. `tests.test_mic_test_quality_grading.TestVolumeScorePenalty.test_inaudible_input_charged_once`
-
-- Legs: ubuntu-22.04-3.13
-- Location: `tests/test_mic_test_quality_grading.py:227`
-
-```
-assert False is True
-
-assert False is True
-tests/test_mic_test_quality_grading.py:227: in test_inaudible_input_charged_once
-    assert quality["has_voice"] is True
-E   assert False is True
-```
-
-### 91. `tests.test_mic_test_quality_grading.TestVoiceGating.test_sustained_speech_counts_as_voice`
-
-- Legs: ubuntu-22.04-3.13
-- Location: `tests/test_mic_test_quality_grading.py:214`
-
-```
-assert False is True
-
-assert False is True
-tests/test_mic_test_quality_grading.py:214: in test_sustained_speech_counts_as_voice
-    assert result["quality"]["has_voice"] is True
-E   assert False is True
-```
-
-### 92. `tests.test_mic_test_quality_grading.TestPersistFailureEnvelope.test_write_failure_returns_quality_without_raising`
-
-- Legs: ubuntu-22.04-3.13
-- Location: `tests/test_mic_test_quality_grading.py:291`
-
-```
-+ very_low
-
-AssertionError: assert 'very_low' == 'good'
-
-  - good
-  + very_low
-tests/test_mic_test_quality_grading.py:291: in test_write_failure_returns_quality_without_raising
-    assert result["quality"]["volume_level"] == "good"
-E   AssertionError: assert 'very_low' == 'good'
-E
-E     - good
-E     + very_low
-```
-
-### 93. `tests.app.test_config_wiring.TestSettingsWindowIntegration.test_restart_app_does_not_spawn_subprocess`
-
-- Legs: windows-2022-3.12
-- Location: `tests/app/test_config_wiring.py:369`
-
-```
-#x1B[92m+ ]#x1B[39;49;00m#x1B[90m#x1B[39;49;00m
-
-AssertionError: restart_app must NOT spawn a replacement backend/Electron subprocess (port-race); got: [((['powershell', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', 'Add-Type -TypeDefinition @\'\nusing System;\nusing System.Runtime.InteropServices;\nusing System.Text;\npublic static class LnkAumid {\n    [ComImport, Guid("00021401-0000-0000-C000-000000000046")]\n    private class CShellLink { }\n    [ComImport, Guid("000214F9-0000-0000-C000-000000000046"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]\n    private interface IShellLinkW {\n        void GetPath([Out, MarshalAs(UnmanagedType.LPWStr)] StringBuilder pszFile, int cchMaxPath, IntPtr pfd, uint fFlags);\n        void GetIDList(out IntPtr ppidl);\n        void SetIDList(IntPtr pidl);\n        void GetDescription([Out, MarshalAs(UnmanagedType.LPWStr)] StringBuilder pszName, int cchMaxName);\n        void SetDescription([MarshalAs(UnmanagedType.LPWStr)] string pszName);\n        void GetWorkingDirectory([Out, MarshalAs(UnmanagedType.LPWStr)] StringBuilder pszDir, int cchMaxPath);\n        void SetWorkingDirectory([MarshalAs(UnmanagedType.LPWStr)] string pszDir);\n        void GetArguments([Out, MarshalAs(UnmanagedType.LPWStr)] StringBuilder pszArgs, int cchMaxPath);\n        void SetArguments([MarshalAs(UnmanagedType.LPWStr)] string pszArgs);\n        void GetHotkey(out short pwHotkey);\n        void SetHotkey(short wHotkey);\n        void GetShowCmd(out int piShowCmd);\n        void SetShowCmd(int iShowCmd);\n        void GetIconLocation([Out, MarshalAs(UnmanagedType.LPWStr)] StringBuilder pszIconPath, int cchIconPath, out int piIcon);\n        void SetIconLocation([MarshalAs(UnmanagedType.LPWStr)] string pszIconPath, int iIcon);\n        void SetRelativePath([MarshalAs(UnmanagedType.LPWStr)] string pszPathRel, int dwReserved);\n        void Resolve(IntPtr hwnd, uint fFlags);\n        void SetPath([MarshalAs(UnmanagedType.LPWStr)] string pszFile);\n    }\n    [ComImport, Guid("0000010B-0000-0000-C000-000000000046"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]\n    private interface IPersistFile {\n        void GetClassID(out Guid pClassID);\n        int IsDirty();\n        void Load([MarshalAs(UnmanagedType.LPWStr)] string pszFileName, int dwMode);\n        void Save([MarshalAs(UnmanagedType.LPWStr)] string pszFileName, [MarshalAs(UnmanagedType.Bool)] bool fRemember);\n        void SaveCompleted([MarshalAs(UnmanagedType.LPWStr)] string pszFileName);\n        void GetCurFile(out IntPtr ppszFileName);\n    }\n    [ComImport, Guid("886d8eeb-8cf2-4446-8d02-cdba1dbdcf99"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]\n    private interface IPropertyStore {\n        [PreserveSig] int GetCount(out uint cProps);\n        [PreserveSig] int GetAt(uint iProp, out PROPERTYKEY pkey);\n        [PreserveSig] int GetValue(ref PROPERTYKEY key, out PROPVARIANT pv);\n        [PreserveSig] int SetValue(ref PROPERTYKEY key, ref PROPVARIANT pv);\n        [PreserveSig] int Commit();\n    }\n    [StructLayout(LayoutKind.Sequential)]\n    private struct PROPERTYKEY { public Guid fmtid; public int pid; }\n    [StructLayout(LayoutKind.Sequential)]\n    private struct PROPVARIANT {\n        public ushort vt;\n        public ushort wReserved1, wReserved2, wReserved3;\n        public IntPtr p;\n    }\n    public static int Set(string path, string target, string arguments, string workingDir, string description, string iconPath, string aumid) {\n        object link = new CShellLink();\n        IShellLinkW sl = (IShellLinkW)link;\n        sl.SetPath(target);\n        if (!string.IsNullOrEmpty(arguments)) sl.SetArguments(arguments);\n        if (!string.IsNullOrEmpty(workingDir)) sl.SetWorkingDirectory(workingDir);\n        if (!string.IsNullOrEmpty(description)) sl.SetDescription(description);\n        if (!string.IsNullOrEmpty(iconPath)) sl.SetIconLocation(iconPath, 0);\n        IPropertyStore ps = (IPropertyStore)link
-… (truncated)
+E    +  where 1 = <built-in method index of list object at 0x7f29d05d5e40>('chmod')
+E    +    where <built-in method index of list object at 0x7f29d05d5e40> = ['release', 'chmod', 'release'].index
+E    +  and   0 = <built-in method index of list object at 0x7f29d05d5e40>('release')
+E    +    where <built-in method index of list object at 0x7f29d05d5e40> = ['release', 'chmod', 'release'].index
 ```
