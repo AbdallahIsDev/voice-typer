@@ -17,7 +17,9 @@
 # Per ADR-0020 §15: NO auto-update. This workflow is triggered MANUALLY
 # only (`workflow_dispatch`) — it is NOT triggered on push or tag, and it
 # does NOT emit a `latest.json` updater manifest. Releases are
-# manual-download only, matching today's Electron release model. The
+# manual-download only. This workflow is now THE installer pipeline
+# (Electron packaging retired 2026-09-17; the former electron-builder
+# jobs in build.yml were removed).
 # `validate` job below runs the same fail-fast config-drift gate as the
 # per-platform workflows (identifier↔appId parity, bundle.icon↔git
 # lockstep, config↔script registry pairs) BEFORE fanning out, so a drift

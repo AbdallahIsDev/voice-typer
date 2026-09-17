@@ -1,6 +1,9 @@
 # Tauri + Python Sidecar Migration, Bridge Architecture
 
-**Status**: Phase 0-W scaffolding + Rust host compilation + Phase 3 UI port implemented (2026-07-16). Phase 0-W validation gate (Nuitka exe + Tauri spawn + WS + bearer-token auth + faster-whisper + enigo + notification + cooperative shutdown + prewarm LogonTrigger + native hotkey) pending on a real Windows host.
+**Status**: **IMPLEMENTED; Electron path historical (removed 2026-09-17).**
+Tauri is the sole host. The dual-path comparisons below (Electron
+preload vs Tauri bridge) are retained as migration history; do not
+treat "Electron path unchanged" / "reversible fallback" as current.
 
 **Reference ADR**: [`docs/adr/0020-desktop-runtime-migration-analysis.md`](../adr/0020-desktop-runtime-migration-analysis.md) (cross-platform rewrite).
 

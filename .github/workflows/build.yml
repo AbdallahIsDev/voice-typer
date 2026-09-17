@@ -60,6 +60,17 @@ permissions:
   pull-requests: read
 
 jobs:
+  # ──────────────────────────────────────────────────────────────────────
+  # ELECTRON PACKAGING RETIRED (2026-09-17 cutover, ADR-0020 Phase 5).
+  # The former build-windows / build-macos / build-linux / build-macos-universal
+  # jobs (PyInstaller + electron-builder NSIS / DMG / deb / rpm / AppImage) are
+  # REMOVED. Installer production now lives exclusively in tauri-build.yml and
+  # the per-platform tauri-*-build.yml workflows. This workflow keeps the
+  # quality gates (test, client typecheck/lint/build, version/branding/drift,
+  # native-listener compile, pre-commit, audit).
+  # C-CI-2: this delta is Electron-retirement-only; no nuitka pin, timeout,
+  # matrix, CLCACHE, signing gate, or Tauri artifact name was touched.
+  # ──────────────────────────────────────────────────────────────────────
   test:
     # skip the full test matrix on weekly schedule runs —
     # only pip-audit-weekly should run on schedule.
@@ -941,16 +952,17 @@ jobs:
   # build-native matrix job. Compiles each native key-listener
   # binary on its native platform (Swift on macOS, MSVC on Windows, gcc
   # on Linux). The binaries are uploaded as artifacts so the per-platform
-  # installer jobs (build-windows, build-macos, build-linux) can download
-  # them and bundle them into PyInstaller/electron-builder packages.
+  # Tauri installer workflows (tauri-*-build.yml) can download them and
+  # bundle them into the sidecar/installer resources.
   #
-  # the two macOS legs pass `--arch x86_64` / `--arch arm64`
+  # Electron packaging jobs (build-windows / build-macos / build-linux /
+  # build-macos-universal) were REMOVED at the 2026-09-17 Tauri cutover.
+  # The two macOS legs still pass `--arch x86_64` / `--arch arm64`
   # explicitly so `compile_native.sh` invokes `swiftc -target
   # <arch>-apple-macos11.0` for each leg — previously both legs ran
   # plain `swiftc` which produced an arm64 binary on the Apple-Silicon
-  # runner regardless of the matrix leg, so the `lipo -create` step in
-  # `build-macos-universal` merged two identical arm64 slices and
-  # silently produced a single-arch "universal" binary.
+  # runner regardless of the matrix leg, so a fat-binary merge would
+  # silently produce a single-arch "universal" binary.
   build-native:
     if: github.event_name != 'schedule'  # XS-REVIEW: skip on weekly schedule
     needs: [test, client-build, version-check]
@@ -971,8 +983,6 @@ jobs:
             binary: voice_typer/server/native/macos-key-listener
             artifact_name: macos-key-listener-x64
           # macOS arm64 build (macos-14 = Apple Silicon).
-          # The two macOS builds are merged into a universal binary by
-          # the build-macos-universal job below (lipo -create).
           # `--arch arm64` is redundant on the Apple-Silicon
           # runner (swiftc's default target is arm64) but is passed
           # explicitly so the matrix leg is self-documenting and a
@@ -1095,679 +1105,6 @@ jobs:
   # bundles into the .dmg. This avoids shipping two separate .dmgs
   # (one per architecture) and matches Apple's universal-binary
   # convention for native helper tools.
-  build-macos-universal:
-    if: github.event_name != 'schedule'  # XS-REVIEW: skip on weekly schedule
-    needs: [build-native]
-    runs-on: macos-14
-    # cap universal-binary merge runtime (lipo is fast).
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v5
-
-      - name: Download x64 binary
-        uses: actions/download-artifact@v6
-        with:
-          name: native-macos-x64
-          path: /tmp/macos-x64
-
-      - name: Download arm64 binary
-        uses: actions/download-artifact@v6
-        with:
-          name: native-macos-arm64
-          path: /tmp/macos-arm64
-
-      - name: Merge with lipo
-        run: |
-          mkdir -p voice_typer/server/native
-          # verify the two input slices are DIFFERENT arches
-          # before merging. Pre-CR-011, both matrix legs ran plain
-          # `swiftc` on the arm64 runner and produced identical arm64
-          # binaries — `lipo -create` on two identical arm64 slices
-          # either errored out ("duplicate architecture") or silently
-          # produced a single-arch "universal" binary depending on the
-          # Xcode version. The build-native matrix now passes
-          # `--arch x86_64` / `--arch arm64` so the slices are
-          # guaranteed different — this assertion makes that guarantee
-          # explicit so a future regression fails loudly here.
-          echo "Input slice arches:"
-          lipo -info /tmp/macos-x64/macos-key-listener
-          lipo -info /tmp/macos-arm64/macos-key-listener
-          X64_ARCH="$(lipo -info /tmp/macos-x64/macos-key-listener | awk '{print $NF}')"
-          ARM_ARCH="$(lipo -info /tmp/macos-arm64/macos-key-listener | awk '{print $NF}')"
-          if [ "$X64_ARCH" = "$ARM_ARCH" ]; then
-            echo "ERROR: both input slices are the same arch ($X64_ARCH) — CR-011 regressed."
-            echo "  build-native must pass --arch x86_64 / --arch arm64 to compile_native.sh."
-            exit 1
-          fi
-          lipo -create \
-            /tmp/macos-x64/macos-key-listener \
-            /tmp/macos-arm64/macos-key-listener \
-            -output voice_typer/server/native/macos-key-listener
-          chmod +x voice_typer/server/native/macos-key-listener
-          # Verify the universal binary contains BOTH architectures.
-          UNIVERSAL_INFO="$(lipo -info voice_typer/server/native/macos-key-listener)"
-          echo "$UNIVERSAL_INFO"
-          file voice_typer/server/native/macos-key-listener
-          # CR-011: hard-assert both arches are present in the fat
-          # binary. `lipo -info` on a universal binary prints
-          # "Architectures in the fat file: <path> are: x86_64 arm64"
-          # — both arch names must appear.
-          echo "$UNIVERSAL_INFO" | grep -q "x86_64" || {
-            echo "ERROR: universal binary is missing x86_64 slice — CR-011 regressed."
-            exit 1
-          }
-          echo "$UNIVERSAL_INFO" | grep -q "arm64" || {
-            echo "ERROR: universal binary is missing arm64 slice — CR-011 regressed."
-            exit 1
-          }
-          echo "OK: universal binary contains both x86_64 + arm64 slices."
-
-      - name: Codesign universal binary
-        run: |
-          codesign --force --sign - voice_typer/server/native/macos-key-listener
-          echo "Ad-hoc signed universal binary"
-
-      - name: Upload universal binary artifact
-        uses: actions/upload-artifact@v6
-        with:
-          name: native-macos
-          path: voice_typer/server/native/macos-key-listener
-          if-no-files-found: error
-
-  # build-windows (renamed from "build"). Downloads the Windows
-  # native binary from build-native, runs PyInstaller + Inno Setup.
-  build-windows:
-    if: github.event_name != 'schedule'  # XS-REVIEW: skip on weekly schedule
-    needs: [test, client-build, version-check, build-native]
-    runs-on: windows-2022
-    # cap Windows build runtime (PyInstaller + electron-builder
-    # NSIS are the slowest steps in the matrix).
-    timeout-minutes: 60
-    # gate signing-secret exposure behind the `release` environment
-    # when triggered by a tag push. PRs / branches get '' (no environment),
-    # so WIN_CSC_LINK etc. are not exposed to non-release runs. The
-    # `release` environment should be configured with required reviewers
-    # in the repo settings to gate signed releases.
-    environment: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && 'release' || '' }}
-    permissions:
-      contents: write
-      # required for actions/attest-build-provenance to generate signed attestations
-      id-token: write
-      attestations: write
-    steps:
-      - uses: actions/checkout@v5
-
-      # cache electron-builder download cache (~200MB of Electron
-      # binaries) so it isn't re-fetched on every run.
-      - name: Cache electron-builder cache (Windows)
-        uses: actions/cache@v5
-        with:
-          path: ~\AppData\Local\electron-builder\Cache
-          key: ${{ runner.os }}-electron-builder-${{ hashFiles('voice_typer/client/package-lock.json') }}
-          restore-keys: |
-            ${{ runner.os }}-electron-builder-
-
-      # cache PyInstaller bundle cache.
-      - name: Cache PyInstaller cache (Windows)
-        uses: actions/cache@v5
-        with:
-          path: ~\AppData\Local\pyinstaller
-          key: ${{ runner.os }}-pyinstaller-${{ hashFiles('pyproject.toml') }}
-
-      - name: Set up Python 3.12
-        uses: actions/setup-python@v7
-        with:
-          python-version: "3.12"
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v7
-        with:
-          enable-cache: true
-          cache-dependency-glob: "**/pyproject.toml"
-
-      - name: Install Python dependencies
-        run: |
-          uv pip install --system ".[build]"
-          uv pip install --system .
-          pip list
-
-      # download the Windows native binary compiled by build-native
-      - name: Download Windows native binary
-        uses: actions/download-artifact@v6
-        with:
-          name: native-windows
-          path: voice_typer/server/native/
-
-      - name: Verify native binary
-        shell: pwsh
-        run: |
-          $bin = "voice_typer/server/native/windows-key-listener.exe"
-          if (-not (Test-Path $bin)) {
-            Write-Error "Native binary not found: $bin"
-            exit 1
-          }
-          Write-Host "Native binary present: $bin"
-
-      - name: Verify version matches git tag
-        if: startsWith(github.ref, 'refs/tags/v')
-        shell: pwsh
-        run: |
-          # installer.iss was removed (ADR-0020 §13.3 — Inno Setup superseded);
-          # the electron-builder NSIS installer inherits its version from
-          # voice_typer/client/package.json, so validate the tag against that.
-          $tagVersion = $env:GITHUB_REF_NAME -replace '^v', ''
-          $installerVersion = (Get-Content voice_typer/client/package.json | ConvertFrom-Json).version
-          if ($tagVersion -ne $installerVersion) {
-            Write-Error "Version mismatch! Git tag=$tagVersion, package.json=$installerVersion"
-            exit 1
-          }
-
-      - name: Generate app icon
-        run: python scripts/build/generate_icon.py scripts/build/voice-typer.ico
-
-      - name: Build with PyInstaller
-        # --distpath voice_typer/dist (CONSISTENT with build-macos
-        # and build-linux) so the win.extraResources `from: ../dist` in
-        # voice_typer/client/electron-builder.yml resolves to
-        # <repo>/voice_typer/dist/. Previously this used `--distpath dist`
-        # which produced <repo>/dist/, diverging from the macOS/Linux
-        # staging path and breaking cross-platform path consistency.
-        run: |
-          pyinstaller scripts/build/voice-typer.spec --noconfirm --distpath voice_typer/dist --workpath voice_typer/build
-
-      # build the Electron UI installer (NSIS) via electron-builder.
-      # The PyInstaller backend produced above
-      # (voice_typer/dist/VoiceTyper.exe) is embedded into the installer
-      # via the `win.extraResources` section of
-      # voice_typer/client/electron-builder.yml, which copies ../dist/
-      # to <resourcesPath>/voice-typer-backend/ at packaging time. At
-      # runtime, index.ts's pythonArgs() looks for the bundled exe first
-      # (packaged mode), falling back to the dev-mode venv.
-      - name: Set up Node 24
-        uses: actions/setup-node@v7
-        with:
-          # Node 24 — CURRENT TARGET. Do NOT downgrade to Node 20 (deprecated on GitHub Actions 2025-09-19).
-          # If a newer LTS is available, bump this comment AND the version below together.
-          node-version: "24"
-          cache: "npm"
-          cache-dependency-path: voice_typer/client/package-lock.json
-
-      # CI-05: download the platform-independent renderer built by
-      # client-build and only rebuild the platform-specific main + preload.
-      - name: Download renderer artifact
-        uses: actions/download-artifact@v6
-        with:
-          name: voice-typer-renderer-dist
-          path: voice_typer/client/out/renderer/
-
-      - name: Build main + preload only
-        working-directory: voice_typer/client
-        run: npm run build:main
-
-      - name: Build Windows .exe installer with electron-builder
-        working-directory: voice_typer/client
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # code-signing env vars (passed through from
-          # GitHub Actions secrets). When the secrets are empty (PR builds,
-          # forks without secrets configured), electron-builder skips
-          # signing — the installer is still produced, just unsigned.
-          # Release builds MUST have these secrets set in the repo to
-          # produce a signed, SmartScreen-trusted installer.
-          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
-          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
-          # CSC_LINK / CSC_KEY_PASSWORD are electron-builder's generic
-          # fallback names (used if WIN_CSC_LINK is unset).
-          CSC_LINK: ${{ secrets.CSC_LINK }}
-          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
-        run: npx electron-builder --win --config electron-builder.yml --publish never
-
-      - name: Upload Windows Electron installer artifact
-        uses: actions/upload-artifact@v6
-        with:
-          name: VoiceTyper-Windows-Electron
-          path: voice_typer/client/dist/*-setup.exe
-          if-no-files-found: error
-
-      # NOTE: the legacy Inno Setup installer steps (choco innosetup + iscc
-      # scripts/build/installer.iss) were REMOVED — installer.iss was deleted
-      # from the repo (ADR-0020 §13.3: Inno superseded; the electron-builder
-      # NSIS installer above is the Windows installer on this legacy path,
-      # and the Tauri NSIS bundler is the migration target). The release
-      # steps below consume the electron-builder artifact instead.
-
-      - name: Generate SHA-256 checksums
-        if: startsWith(github.ref, 'refs/tags/v')
-        shell: pwsh
-        run: |
-          $checksums = @()
-          Get-ChildItem -Path "voice_typer/client/dist" -Filter "*-setup.exe" | ForEach-Object {
-            $hash = (Get-FileHash -Path $_.FullName -Algorithm SHA256).Hash
-            $checksums += "$hash  $($_.Name)"
-          }
-          $checksums | Out-File -FilePath "${{ github.workspace }}/SHA256SUMS.txt" -Encoding utf8
-
-      - name: Get installer filename
-        id: installer
-        shell: pwsh
-        run: |
-          $exe = Get-ChildItem -Path "voice_typer/client/dist" -Filter "*-setup.exe" | Select-Object -First 1
-          if (-not $exe) { Write-Error "electron-builder NSIS installer not found"; exit 1 }
-          echo "file=$($exe.FullName)" >> $env:GITHUB_OUTPUT
-
-      - name: Upload to release
-        if: startsWith(github.ref, 'refs/tags/v')
-        run: gh release upload ${{ github.ref_name }} ${{ steps.installer.outputs.file }} --repo ${{ github.repository }} --clobber
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Upload checksums to release
-        if: startsWith(github.ref, 'refs/tags/v')
-        run: gh release upload ${{ github.ref_name }} ${{ github.workspace }}/SHA256SUMS.txt --repo ${{ github.repository }} --clobber
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      # CI-09: SLSA build provenance attestation — generates a signed
-      # attestation linking the installer artifact to this workflow run.
-      # Users verify with: gh attestation verify <file> --repo owner/repo
-      - name: Attest build provenance (Windows)
-        if: startsWith(github.ref, 'refs/tags/v')
-        uses: actions/attest-build-provenance@v4
-        with:
-          subject-path: voice_typer/client/dist/*-setup.exe
-
-  # GAP-1: build-macos. Downloads the macOS native binary, runs
-  # PyInstaller + electron-builder for .dmg.
-  # depends on build-macos-universal (which merges x64 + arm64
-  # into a universal binary). CI-04: migrated from the deprecated
-  # macos-13 Intel runner to macos-14 (Apple Silicon). The PyInstaller
-  # x64 bundle is produced by an x64 Python interpreter installed below
-  # (runs under Rosetta), so the .dmg still supports Intel Macs.
-  build-macos:
-    if: github.event_name != 'schedule'  # XS-REVIEW: skip on weekly schedule
-    needs: [test, client-build, version-check, build-macos-universal]
-    runs-on: macos-14
-    # XS-25: cap macOS build runtime (PyInstaller + electron-builder .dmg).
-    timeout-minutes: 60
-    # XS-55: gate signing-secret exposure behind the `release` environment
-    # when triggered by a tag push. See build-windows for the same gate.
-    environment: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && 'release' || '' }}
-    permissions:
-      contents: write
-      id-token: write
-      # CI-09: required for actions/attest-build-provenance to generate signed attestations
-      attestations: write
-    steps:
-      - uses: actions/checkout@v5
-
-      # CI-03: cache electron-builder download cache.
-      - name: Cache electron-builder cache (macOS)
-        uses: actions/cache@v5
-        with:
-          path: ~/Library/Caches/electron-builder
-          key: ${{ runner.os }}-electron-builder-${{ hashFiles('voice_typer/client/package-lock.json') }}
-          restore-keys: |
-            ${{ runner.os }}-electron-builder-
-
-      # CI-03: cache PyInstaller bundle cache.
-      - name: Cache PyInstaller cache (macOS)
-        uses: actions/cache@v5
-        with:
-          path: ~/.cache/pyinstaller
-          key: ${{ runner.os }}-pyinstaller-${{ hashFiles('pyproject.toml') }}
-
-      - name: Set up Python 3.12 (x64, for x64 PyInstaller bundle)
-        uses: actions/setup-python@v7
-        with:
-          python-version: "3.12"
-          architecture: x64
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v7
-        with:
-          enable-cache: true
-          cache-dependency-glob: "**/pyproject.toml"
-
-      - name: Install Python dependencies
-        run: |
-          uv pip install --system ".[build]"
-          uv pip install --system .
-          pip list
-
-      - name: Download macOS native binary
-        uses: actions/download-artifact@v6
-        with:
-          name: native-macos
-          path: voice_typer/server/native/
-
-      - name: Verify native binary
-        run: |
-          bin="voice_typer/server/native/macos-key-listener"
-          if [ ! -f "$bin" ]; then
-            echo "ERROR: native binary not found: $bin"
-            exit 1
-          fi
-          chmod +x "$bin"
-          echo "Native binary present: $bin"
-
-      - name: Set up Node 24
-        uses: actions/setup-node@v7
-        with:
-          # Node 24 — CURRENT TARGET. Do NOT downgrade to Node 20 (deprecated on GitHub Actions 2025-09-19).
-          # If a newer LTS is available, bump this comment AND the version below together.
-          node-version: "24"
-          cache: "npm"
-          cache-dependency-path: voice_typer/client/package-lock.json
-
-      # CI-05: no standalone npm ci here — setup-node restores the
-      # node_modules cache that client-build populated, so electron-vite
-      # (needed by build:main) is already present. We only re-run the
-      # platform-specific main + preload build after downloading the
-      # shared renderer, avoiding the redundant ~200MB install per platform.
-
-      # CI-05: download the platform-independent renderer built by
-      # client-build and only rebuild the platform-specific main + preload.
-      - name: Download renderer artifact
-        uses: actions/download-artifact@v6
-        with:
-          name: voice-typer-renderer-dist
-          path: voice_typer/client/out/renderer/
-
-      - name: Build main + preload only
-        working-directory: voice_typer/client
-        run: npm run build:main
-
-      - name: Build with PyInstaller
-        # output to voice_typer/dist so the mac.extraResources
-        # entry in electron-builder.yml (from: ../dist/voice-typer-backend.app)
-        # resolves correctly relative to voice_typer/client/.
-        run: |
-          pyinstaller scripts/build/voice-typer.spec --noconfirm --distpath voice_typer/dist --workpath voice_typer/build
-
-      - name: Stage PyInstaller backend for embedding (macOS)
-        # PyInstaller spec produces "VoiceTyper" as the output name.
-        # electron-builder.yml's mac.extraResources expects the path
-        # voice-typer-backend.app/Contents/MacOS/voice-typer. Stage the
-        # rename here so the embedded-backend lookup in pythonArgs()
-        # (src/main/index.ts) finds the executable at the expected path.
-        run: |
-          set -euo pipefail
-          mkdir -p voice_typer/dist/voice-typer-backend.app/Contents/MacOS
-          if [ -d "voice_typer/dist/VoiceTyper.app" ]; then
-            # PyInstaller BUNDLE output — replace the placeholder .app
-            # directory with the real bundle.
-            rm -rf voice_typer/dist/voice-typer-backend.app
-            mv voice_typer/dist/VoiceTyper.app voice_typer/dist/voice-typer-backend.app
-            echo "Renamed VoiceTyper.app -> voice-typer-backend.app"
-          elif [ -f "voice_typer/dist/VoiceTyper" ]; then
-            # PyInstaller onefile output (no .app wrapper) — wrap the
-            # binary into the .app structure pythonArgs() expects.
-            mv voice_typer/dist/VoiceTyper voice_typer/dist/voice-typer-backend.app/Contents/MacOS/voice-typer
-            echo "Wrapped onefile VoiceTyper -> voice-typer-backend.app/Contents/MacOS/voice-typer"
-          else
-            echo "ERROR: PyInstaller macOS output not found at voice_typer/dist/"
-            ls -la voice_typer/dist/
-            exit 1
-          fi
-          chmod +x voice_typer/dist/voice-typer-backend.app/Contents/MacOS/voice-typer
-          echo "Staged macOS backend:"
-          find voice_typer/dist/voice-typer-backend.app -maxdepth 4 -type f -o -type d | head -20
-
-      - name: Build macOS .dmg with electron-builder
-        working-directory: voice_typer/client
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          MAC_SIGNING_IDENTITY: ${{ secrets.MAC_SIGNING_IDENTITY }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        # --config electron-builder.yml explicit (the file is picked
-        # up by default, but being explicit documents the dependency on
-        # the mac.extraResources entry that embeds the PyInstaller backend).
-        run: npx electron-builder --mac --config electron-builder.yml --publish never
-
-      # GP-70: verify the signing result before the artifact leaves the
-      # job. When MAC_SIGNING_IDENTITY is set, electron-builder signs the
-      # .app (hardenedRuntime + notarize: true drive the full path); a
-      # failed sign previously surfaced only as a broken .dmg or a
-      # Gatekeeper failure on a user machine. codesign --verify --deep
-      # catches a bad/partial signature here, at build time. Skipped when
-      # no identity is configured (unsigned PR builds are expected).
-      # NOTE: the secret is mapped to a STEP-level env on the electron-builder
-      # step only, so it is NOT in this step's env context — re-map it here
-      # explicitly (a step `if:` cannot see another step's env).
-      - name: Verify codesign (GP-70, signed builds only)
-        if: startsWith(matrix.platform, 'macos')
-        env:
-          MAC_SIGNING_IDENTITY: ${{ secrets.MAC_SIGNING_IDENTITY }}
-        run: |
-          if [ -z "$MAC_SIGNING_IDENTITY" ]; then
-            echo "GP-70: MAC_SIGNING_IDENTITY not set — unsigned build, skipping codesign --verify"
-            exit 0
-          fi
-          APP_PATH="voice_typer/dist/voice-typer-backend.app"
-          codesign --verify --deep --strict "$APP_PATH"
-          echo "OK: $APP_PATH passes codesign --verify --deep --strict"
-
-      - name: Upload macOS installer artifact
-        uses: actions/upload-artifact@v6
-        with:
-          name: VoiceTyper-macOS
-          path: voice_typer/client/dist/*.dmg
-
-      - name: Upload to release
-        if: startsWith(github.ref, 'refs/tags/v')
-        run: gh release upload ${{ github.ref_name }} "voice_typer/client/dist/*.dmg" --repo ${{ github.repository }} --clobber
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      # CI-09: SLSA build provenance attestation — generates a signed
-      # attestation linking the installer artifact to this workflow run.
-      # Users verify with: gh attestation verify <file> --repo owner/repo
-      - name: Attest build provenance (macOS)
-        if: startsWith(github.ref, 'refs/tags/v')
-        uses: actions/attest-build-provenance@v4
-        with:
-          subject-path: voice_typer/client/dist/*.dmg
-
-  # GAP-1: build-linux. Downloads the Linux native binary, runs
-  # PyInstaller + electron-builder for .deb / .rpm / AppImage.
-  build-linux:
-    if: github.event_name != 'schedule'  # XS-REVIEW: skip on weekly schedule
-    needs: [test, client-build, version-check, build-native]
-    runs-on: ubuntu-22.04
-    # XS-25: cap Linux build runtime (PyInstaller + electron-builder .deb/.rpm/AppImage).
-    timeout-minutes: 60
-    # XS-55: gate signing-secret exposure behind the `release` environment
-    # when triggered by a tag push. See build-windows for the same gate.
-    environment: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && 'release' || '' }}
-    permissions:
-      contents: write
-      id-token: write
-      # CI-09: required for actions/attest-build-provenance to generate signed attestations
-      attestations: write
-    steps:
-      - uses: actions/checkout@v5
-
-      # CI-03: cache electron-builder download cache.
-      - name: Cache electron-builder cache (Linux)
-        uses: actions/cache@v5
-        with:
-          path: ~/.cache/electron-builder
-          key: ${{ runner.os }}-electron-builder-${{ hashFiles('voice_typer/client/package-lock.json') }}
-          restore-keys: |
-            ${{ runner.os }}-electron-builder-
-
-      # CI-03: cache PyInstaller bundle cache.
-      - name: Cache PyInstaller cache (Linux)
-        uses: actions/cache@v5
-        with:
-          path: ~/.cache/pyinstaller
-          key: ${{ runner.os }}-pyinstaller-${{ hashFiles('pyproject.toml') }}
-
-      - name: Set up Python 3.12
-        uses: actions/setup-python@v7
-        with:
-          python-version: "3.12"
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v7
-        with:
-          enable-cache: true
-          cache-dependency-glob: "**/pyproject.toml"
-
-      - name: Install Python dependencies
-        run: |
-          uv pip install --system ".[build]"
-          uv pip install --system .
-          pip list
-
-      - name: Download Linux native binary
-        uses: actions/download-artifact@v6
-        with:
-          name: native-linux
-          path: voice_typer/server/native/
-
-      - name: Verify native binary
-        run: |
-          bin="voice_typer/server/native/linux-key-listener"
-          if [ ! -f "$bin" ]; then
-            echo "ERROR: native binary not found: $bin"
-            exit 1
-          fi
-          chmod +x "$bin"
-          echo "Native binary present: $bin"
-
-      - name: Set up Node 24
-        uses: actions/setup-node@v7
-        with:
-          # Node 24 — CURRENT TARGET. Do NOT downgrade to Node 20 (deprecated on GitHub Actions 2025-09-19).
-          # If a newer LTS is available, bump this comment AND the version below together.
-          node-version: "24"
-          cache: "npm"
-          cache-dependency-path: voice_typer/client/package-lock.json
-
-      # CI-05: no standalone npm ci here — setup-node restores the
-      # node_modules cache that client-build populated, so electron-vite
-      # (needed by build:main) is already present. We only re-run the
-      # platform-specific main + preload build after downloading the
-      # shared renderer, avoiding the redundant ~200MB install per platform.
-
-      # CI-05: download the platform-independent renderer built by
-      # client-build and only rebuild the platform-specific main + preload.
-      - name: Download renderer artifact
-        uses: actions/download-artifact@v6
-        with:
-          name: voice-typer-renderer-dist
-          path: voice_typer/client/out/renderer/
-
-      - name: Build main + preload only
-        working-directory: voice_typer/client
-        run: npm run build:main
-
-      - name: Build with PyInstaller
-        # output to voice_typer/dist so the linux.extraResources
-        # entry in electron-builder.yml (from: ../dist/voice-typer-backend)
-        # resolves correctly relative to voice_typer/client/.
-        run: |
-          pyinstaller scripts/build/voice-typer.spec --noconfirm --distpath voice_typer/dist --workpath voice_typer/build
-
-      - name: Stage PyInstaller backend for embedding (Linux)
-        # PyInstaller spec produces "VoiceTyper" as the output name.
-        # electron-builder.yml's linux.extraResources expects the path
-        # voice-typer-backend/voice-typer. Stage the rename here so the
-        # embedded-backend lookup in pythonArgs() (src/main/index.ts)
-        # finds the executable at the expected path.
-        run: |
-          set -euo pipefail
-          mkdir -p voice_typer/dist/voice-typer-backend
-          if [ -d "voice_typer/dist/VoiceTyper" ]; then
-            # PyInstaller onedir output — move directory contents.
-            mv voice_typer/dist/VoiceTyper/* voice_typer/dist/voice-typer-backend/
-            rmdir voice_typer/dist/VoiceTyper
-            # Rename the executable inside the directory if it's still
-            # named "VoiceTyper" to match pythonArgs()'s expectation.
-            if [ -f "voice_typer/dist/voice-typer-backend/VoiceTyper" ] && [ ! -f "voice_typer/dist/voice-typer-backend/voice-typer" ]; then
-              mv voice_typer/dist/voice-typer-backend/VoiceTyper voice_typer/dist/voice-typer-backend/voice-typer
-            fi
-            echo "Moved onedir VoiceTyper/ -> voice-typer-backend/"
-          elif [ -f "voice_typer/dist/VoiceTyper" ]; then
-            # PyInstaller onefile output — move binary into directory.
-            mv voice_typer/dist/VoiceTyper voice_typer/dist/voice-typer-backend/voice-typer
-            echo "Moved onefile VoiceTyper -> voice-typer-backend/voice-typer"
-          else
-            echo "ERROR: PyInstaller Linux output not found at voice_typer/dist/"
-            ls -la voice_typer/dist/
-            exit 1
-          fi
-          chmod +x voice_typer/dist/voice-typer-backend/voice-typer
-          echo "Staged Linux backend:"
-          ls -la voice_typer/dist/voice-typer-backend/ | head -20
-
-      - name: Install Linux build deps (fpm for electron-builder)
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y dpkg-dev rpm libarchive-tools
-
-      - name: Build Linux packages with electron-builder
-        working-directory: voice_typer/client
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        # --config electron-builder.yml explicit (the file is picked
-        # up by default, but being explicit documents the dependency on
-        # the linux.extraResources entry that embeds the PyInstaller backend).
-        run: npx electron-builder --linux --config electron-builder.yml --publish never
-
-      - name: Upload Linux installer artifacts
-        uses: actions/upload-artifact@v6
-        with:
-          name: VoiceTyper-Linux
-          path: |
-            voice_typer/client/dist/*.deb
-            voice_typer/client/dist/*.rpm
-            voice_typer/client/dist/*.AppImage
-
-      - name: Upload to release
-        if: startsWith(github.ref, 'refs/tags/v')
-        run: gh release upload ${{ github.ref_name }} "voice_typer/client/dist/*" --repo ${{ github.repository }} --clobber
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      # CI-09: SLSA build provenance attestation — generates a signed
-      # attestation linking the installer artifacts to this workflow run.
-      # Users verify with: gh attestation verify <file> --repo owner/repo
-      - name: Attest build provenance (Linux)
-        if: startsWith(github.ref, 'refs/tags/v')
-        uses: actions/attest-build-provenance@v4
-        with:
-          subject-path: |
-            voice_typer/client/dist/*.deb
-            voice_typer/client/dist/*.rpm
-            voice_typer/client/dist/*.AppImage
-
-  # S5-CR-72: centralized failure-notification job. Pre-fix every workflow
-  # lacked a top-level notify step — a failed test job, a failed build-windows,
-  # a failed build-linux etc. each posted to the GitHub Actions check status
-  # but there was no consolidated "the build is broken" signal. Maintainers
-  # had to scroll the Actions tab to discover failures.
-  #
-  # This job runs `if: always()` (so it executes even when upstream jobs
-  # fail) and emits a `::error::` annotation summarizing which jobs failed
-  # — visible at the top of the workflow run summary page. Skipped jobs
-  # (e.g. slow-tests on a PR, pip-audit-weekly on a push) are filtered out
-  # so they don't generate noise.
-  #
-  # To wire a real notification channel (Slack / Microsoft Teams / email),
-  # add a step below using `rtCamp/action-slack-notify@v2` (Slack) or
-  # `mmellado/teams-notify@v1` (Teams) gated on the same `FAILURE_COUNT > 0`
-  # condition. The required webhook URL should be stored as a repo secret
-  # (e.g. SLACK_WEBHOOK_URL). The current implementation intentionally
-  # ships without a third-party action so the workflow stays usable in
-  # air-gapped / sandboxed CI environments.
-  # pre-commit hygiene job — runs ONLY the 7 hygiene hooks from
-  # pre-commit/pre-commit-hooks repo (trailing-whitespace, end-of-file-fixer,
-  # check-yaml, check-json, check-merge-conflict, check-added-large-files,
-  # mixed-line-ending). Ruff/mypy/biome intentionally skipped (already in CI
-  # via the `test` job's ruff step, or need extra deps not worth the install
-  # cost for a hygiene-only gate).
   pre-commit:
     name: Pre-commit hygiene
     runs-on: ubuntu-22.04
@@ -1813,13 +1150,13 @@ jobs:
   notify:
     name: Notify on failure
     # `always()` so the job runs even when one of `needs` failed. Skipped
-    # upstream jobs (e.g. build-windows on a schedule run) won't block —
+    # upstream jobs (e.g. slow-tests on a schedule run) won't block —
     # the step below filters them out.
     if: always()
     # List every job whose failure should fire a notification. jobs not
     # listed here (pip-audit-weekly, slow-tests) already have their own
     # issue-on-failure step; including them would double-notify.
-    needs: [test, client-build, version-check, branding-check, build-native, build-macos-universal, build-windows, build-macos, build-linux, pre-commit]
+    needs: [test, client-build, version-check, branding-check, build-native, pre-commit]
     runs-on: ubuntu-22.04
     timeout-minutes: 5
     permissions:
@@ -1842,10 +1179,6 @@ jobs:
             echo "| version-check | ${{ needs.version-check.result }} |"
             echo "| branding-check | ${{ needs.branding-check.result }} |"
             echo "| build-native | ${{ needs.build-native.result }} |"
-            echo "| build-macos-universal | ${{ needs.build-macos-universal.result }} |"
-            echo "| build-windows | ${{ needs.build-windows.result }} |"
-            echo "| build-macos | ${{ needs.build-macos.result }} |"
-            echo "| build-linux | ${{ needs.build-linux.result }} |"
             echo "| pre-commit | ${{ needs.pre-commit.result }} |"
           } >> $GITHUB_STEP_SUMMARY
 
@@ -1857,10 +1190,6 @@ jobs:
               "${{ needs.version-check.result }}" \
               "${{ needs.branding-check.result }}" \
               "${{ needs.build-native.result }}" \
-              "${{ needs.build-macos-universal.result }}" \
-              "${{ needs.build-windows.result }}" \
-              "${{ needs.build-macos.result }}" \
-              "${{ needs.build-linux.result }}" \
               "${{ needs.pre-commit.result }}"; do
             if [ "$r" = "failure" ]; then
               FAILURE_COUNT=$((FAILURE_COUNT + 1))

@@ -2,7 +2,9 @@
 
 ## Status
 
-Accepted
+**Superseded by ADR-0020 (Tauri + Python sidecar).** Electron removed
+2026-09-17; Tauri is the sole desktop host. Preserved for historical
+context (the original two-process Electron + Python design).
 
 ## Context
 

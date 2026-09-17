@@ -2,7 +2,11 @@
 
 ## Status
 
-Accepted: implemented in `voice_typer/client/src/main/allowed-commands.ts` (canonical declaration moved from `index.ts` per R6-F10, see `allowed-commands.ts` file header for the circular-dependency rationale).
+**Historical (Electron removed 2026-09-17).** `allowed-commands.ts`
+was deleted with the Electron main process. The renderer→host surface
+is now the Tauri `dispatch` command + Rust `allowlist.rs`. Do not
+reintroduce the TS `ALLOWED_COMMANDS` Set. Preserved for the SEC-019
+rationale (renderer-compromised → arbitrary IPC).
 
 ## Date
 

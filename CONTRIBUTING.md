@@ -25,8 +25,8 @@ changes that pass CI and respect the security model.
 
 ## 1. Prerequisites
 
-Voice Typer is a cross-platform desktop app with a Python backend and an
-Electron + React frontend. Both halves must be present to develop
+Voice Typer is a cross-platform desktop app with a Python backend and a
+Tauri v2 + React frontend. Both halves must be present to develop
 locally.
 
 ### Common
@@ -100,17 +100,19 @@ uv pip install -e ".[test,dev]"
 #    --require-hashes, use requirements-lock.txt.)
 uv pip install -r requirements-lock.txt   # reproducible exact versions + sha256 hashes
 
-# 5. Install the Electron + React frontend
+# 5. Install the Tauri + React frontend
 cd voice_typer/client
 npm install
 
-# 6. Run the app in dev mode (two terminals, or use `npm run dev`
-#    which spawns the Python subprocess automatically)
-#    Terminal 1: Python backend (optional; `npm run dev` starts it
-#    automatically, but running it standalone is useful for debugging):
-python -m voice_typer.server.ipc_server
-#    Terminal 2: Electron + Vite HMR:
-npm run dev
+# 6. Run the app in dev mode (Tauri host + Vite HMR + Python sidecar)
+#    Preferred: `npm run tauri:dev` (or `npm run dev`, same script)
+#    from voice_typer/client — starts Vite then `cargo tauri dev`
+#    with VOICE_TYPER_SIDECAR_DEV so the backend runs as a live
+#    Python subprocess (no Nuitka rebuild).
+#    Standalone backend (optional, for transport debugging):
+python -m voice_typer.server.ipc_server --ws
+#    Terminal 2 (from voice_typer/client):
+npm run tauri:dev
 
 # 7. Run tests (uv runs them in .venv automatically; --no-sync
 #    skips the uv lockfile step that would otherwise trigger the
@@ -146,17 +148,15 @@ pip install -e ".[test,dev]"
 #    --require-hashes, use requirements-lock.txt.)
 pip install -r requirements-lock.txt   # reproducible exact versions + sha256 hashes
 
-# 5. Install the Electron + React frontend
+# 5. Install the Tauri + React frontend
 cd voice_typer/client
 npm install
 
-# 6. Run the app in dev mode (two terminals, or use `npm run dev`
-#    which spawns the Python subprocess automatically)
-#    Terminal 1: Python backend (optional; `npm run dev` starts it
-#    automatically, but running it standalone is useful for debugging):
-python -m voice_typer.server.ipc_server
-#    Terminal 2: Electron + Vite HMR:
-npm run dev
+# 6. Run the app in dev mode
+#    Terminal 1 (optional standalone backend):
+python -m voice_typer.server.ipc_server --ws
+#    Terminal 2 (from voice_typer/client):
+npm run tauri:dev
 ```
 
 ### Optional extras
@@ -314,11 +314,14 @@ pre-commit run ruff --all-files
 pre-commit run mypy --all-files   # requires project venv activated
 ```
 
-### Tauri Development (migration in progress)
+### Tauri Development
 
-> **Note:** The Tauri stack is **NOT the default shipping app yet**, Electron is still the default. Cutover is per-platform per [`docs/migration/cutover-playbook.md`](docs/migration/cutover-playbook.md). The Tauri stack is additive: the Electron code is untouched and remains a reversible fallback. See [README § Runtime Architecture](README.md#runtime-architecture) and [ADR-0020](docs/adr/0020-desktop-runtime-migration-analysis.md) for the migration contract.
+> **Note:** Tauri is the sole desktop host (Electron removed 2026-09-17,
+> ADR-0020 Phase 5). See [README § Runtime Architecture](README.md#runtime-architecture)
+> and [ADR-0020](docs/adr/0020-desktop-runtime-migration-analysis.md).
+> Historical Electron notes live under `docs/migration/`.
 
-The Tauri v2 + Python sidecar host lives in `src-tauri/`. The React renderer (`voice_typer/client/src/renderer/`) is **shared between both stacks**. The same bundle runs under Electron (via `voice_typer/client/src/preload/index.ts`'s `contextBridge`) and under Tauri (via `voice_typer/client/src/renderer/src/lib/tauri-bridge.ts`, which auto-detects the host and installs the `window.python` / `window.bubble` / `window.window_` namespaces using Tauri's global `__TAURI__` API).
+The Tauri v2 + Python sidecar host lives in `src-tauri/`. The React renderer (`voice_typer/client/src/renderer/`) installs `window.python` / `window.bubble` / `window.window_` via `voice_typer/client/src/renderer/src/lib/tauri-bridge.ts` (Tauri's global `__TAURI__` API).
 
 #### Prerequisites (in addition to the common prereqs in §1)
 
@@ -434,20 +437,22 @@ invocations on the GNU target.) These files are gitignored on purpose
 | `src-tauri/Cargo.toml` | Tauri v2 + plugins (`shell`, `notification`, `clipboard-manager`, `single-instance`, `dialog`) + `enigo` (keystroke injection) + `tokio-tungstenite` (WS client). |
 | `src-tauri/tauri.conf.json` | Per-arch `externalBin` (6 target triples) + `resources` (3 native hotkey binaries; the prewarm binaries were dropped with the prewarm retirement, master plan §6.2 P-1) + Tauri v2 capabilities. `withGlobalTauri: true` exposes `window.__TAURI__`. |
 | `src-tauri/capabilities/main-runtime.json` + `bubble-runtime.json` | Least-privilege capability split (CR-5 / SEC-026): `main-runtime` grants the privileged main window scoped `shell:allow-spawn` per sidecar binary, `notification`, `clipboard-manager`, `single-instance`, `dialog`, and `core:tray:*`; `bubble-runtime` is minimal (`core:event:default` + `core:window:allow-start-dragging`) so a compromised bubble renderer cannot spawn, write clipboard, or touch the tray. (The legacy `migrate-runtime.json` file was split into these two scopes.) |
-| `voice_typer/client/src/renderer/src/lib/tauri-bridge.ts` | React ↔ Tauri bridge. Auto-installs `window.python` / `window.bubble` / `window.window_` using Tauri's global API when Tauri is detected; no-op under Electron (the preload already installed the namespaces). |
+| `voice_typer/client/src/renderer/src/lib/tauri-bridge.ts` | React ↔ Tauri bridge. Installs `window.python` / `window.bubble` / `window.window_` using Tauri's global API. |
 | `voice_typer/server/sidecar_ws.py` | WebSocket server side of the bridge. Binds `127.0.0.1:0`, emits `{"event":"server_started","port":N}` to stdout, performs bearer-token auth handshake (ZR-56 reconciliation 2026-07-24: the implementation has always been a constant-time bearer-token literal match via `hmac.compare_digest`, not a keyed HMAC: historical "HMAC" wording has been reconciled across docs), dispatches WS frames via `IPCServer._dispatch` (reuses the 75-command registry unchanged: CR-18 reconciliation 2026-07-19; re-verified 2026-07-24 S4-CR-18; +1 2026-08-13 for `transcribe_offline` per master plan §7.4; −3 2026-08-14 for the prewarm retirements `get_prewarm_status` / `run_prewarm` / `open_prewarm_log` per master plan §6.2 P-1; +2 2026-08-14: `get_prewarm_status` / `open_prewarm_log` restored for the Settings → About Cache Status card per plan §6.3 addendum, registered verbatim from 5a319872; +1 2026-08-14: `run_prewarm` restored (plan §6.3 addendum 2nd half, re-implemented: re-runs the worker's warm phase in-process via `prewarm.status.run_prewarm_now`, no deleted-subprocess spawn); +1 2026-08-14: `check_offline_pack_update` added by the auto-update feature, docs/auto-update-feature.md; +2 2026-08-16: `get_correction_usage` + `test_vocabulary_correction` added by the vocabulary usage-tracking + live-correction-test feature (ADR-0020 §16 addendum 2026-08-16); see `_HOST_ONLY_COMMANDS` in `tests/test_security_doc_command_count.py` for the +2 host-only delta), handles `{"type":"shutdown"}` cooperative shutdown. |
-| `voice_typer/server/ipc_server.py` | `--ws` CLI flag + `TAURI_SIDECAR=1` env gate. Under `TAURI_SIDECAR=1`: heartbeat thread is NOT started; Win32 single-instance mutex is NOT acquired. Electron path unchanged. |
+| `voice_typer/server/ipc_server.py` | `--ws` CLI flag + `TAURI_SIDECAR=1` env gate. Under `TAURI_SIDECAR=1`: heartbeat thread is NOT started; Win32 single-instance mutex is NOT acquired. |
 
 #### Cutover status
 
-The Tauri stack is gated on a per-platform Phase 0 validation spike before it can become the default. See:
+Electron was removed 2026-09-17 (ADR-0020 Phase 5). Tauri is the sole
+desktop host. Historical migration notes:
 
-- [`docs/migration/windows-validation-runbook.md`](docs/migration/windows-validation-runbook.md): Phase 0-W (Windows, in progress; CI workflow dispatch-enabled for validation).
-- [`docs/migration/macos-validation-runbook.md`](docs/migration/macos-validation-runbook.md): Phase 0-M (macOS, host validation not started; CI workflow dispatch-enabled for validation).
-- [`docs/migration/linux-validation-runbook.md`](docs/migration/linux-validation-runbook.md): Phase 0-L (Linux X11 + Wayland, host validation not started; CI workflow dispatch-enabled for validation).
-- [`docs/migration/cutover-playbook.md`](docs/migration/cutover-playbook.md): per-platform cutover gates.
-- [`docs/migration/tauri-build-runbook.md`](docs/migration/tauri-build-runbook.md): full Nuitka + Tauri build instructions.
-- [`docs/migration/tauri-sidecar-bridge.md`](docs/migration/tauri-sidecar-bridge.md): bridge architecture + current implementation status.
+- [`docs/migration/windows-validation-runbook.md`](docs/migration/windows-validation-runbook.md)
+- [`docs/migration/macos-validation-runbook.md`](docs/migration/macos-validation-runbook.md)
+- [`docs/migration/linux-validation-runbook.md`](docs/migration/linux-validation-runbook.md)
+- [`docs/migration/cutover-playbook.md`](docs/migration/cutover-playbook.md)
+- [`docs/migration/tauri-build-runbook.md`](docs/migration/tauri-build-runbook.md)
+- [`docs/migration/tauri-sidecar-bridge.md`](docs/migration/tauri-sidecar-bridge.md)
+- [`docs/migration/electron-decommission-checklist.md`](docs/migration/electron-decommission-checklist.md)
 
 ---
 
@@ -475,20 +480,23 @@ voice-typer/
 │   │   ├── native/                   # C/Swift key listeners per OS
 │   │   └── ...
 │   │
-│   └── client/                       # Electron + React frontend
+│   └── client/                       # Tauri + React frontend
 │       ├── src/
-│       │   ├── main/index.ts         # Electron main process, spawns Python
-│       │   ├── preload/index.ts      # SEC-014 contextIsolation bridge
-│       │   ├── preload/bubble.ts     # SEC-016 bubble-scoped bridge
 │       │   └── renderer/src/
 │       │       ├── App.tsx           # React root, routing
 │       │       ├── pages/            # Home, Settings, History, Models, …
 │       │       ├── components/       # Sidebar, StatCards, ThemeSwitch, …
 │       │       ├── hooks/            # usePython, useSnackbar, useStatsShare
+│       │       ├── lib/tauri-bridge.ts  # window.python / bubble / window_ via __TAURI__
 │       │       └── types/            # ipc.ts, config.ts, stats.ts
-│       ├── package.json              # scripts: dev, build, test, typecheck
+│       ├── package.json              # scripts: dev / tauri:dev, build, test, typecheck
 │       ├── biome.json                # formatter: tabs + double quotes
-│       └── electron-builder.yml
+│       └── vite.tauri.config.ts
+│
+├── src-tauri/                        # Rust Tauri host (sole desktop shell)
+│   ├── src/main.rs                   # wiring-only host (C-ARCH-1)
+│   ├── tauri.conf.json               # externalBin + resources + capabilities
+│   └── capabilities/                 # main-runtime + bubble-runtime scopes
 │
 ├── tests/                            # pytest suite (6000+ tests; see `pytest --collect-only -q | tail -1` for the live count)
 │   ├── conftest.py                   # mock_heavy_imports autouse fixture (session + per-test split, see below)
@@ -505,7 +513,7 @@ voice-typer/
 │
 ├── docs/
 │   ├── ARCHITECTURE.md               # the big picture (READ THIS)
-│   ├── ipc-reference.md              # IPC message reference (auto-generated from _COMMAND_REGISTRY + ALLOWED_COMMANDS)
+│   ├── ipc-reference.md              # IPC message reference (auto-generated from _COMMAND_REGISTRY + allowed_commands())
 │   ├── python-api.md                 # Python class API reference (renamed from API.md)
 │   ├── PLATFORM_STATUS.md            # per-OS support matrix
 │   ├── home-directory.md             # ~/.voice-typer/ layout
@@ -569,7 +577,7 @@ npm run typecheck      # tsc -p tsconfig.web.json --noEmit && tsc -p tsconfig.no
                        #   --noEmit. NEVER a bare root `tsc --noEmit`: the root
                        #   tsconfig.json is solution-style (files: []) so plain
                        #   --noEmit checks nothing: use tsc -b / the -p forms.
-npm run build          # electron-vite build (full production bundle)
+npm run build          # vite build --config vite.tauri.config.ts (renderer bundle)
 ```
 
 ### 4.3 Pre-commit
@@ -668,26 +676,27 @@ S2-CR-62 config-drift cleanup and should NOT be recreated.
 
 ## 5. Architecture Overview
 
-Voice Typer is a **two-process desktop app**. The Electron **main
-process** (`voice_typer/client/src/main/index.ts`) is the entry point:
-it generates a 32-byte `IPC_TOKEN` via `crypto.randomBytes`, spawns the
-Python backend as a child process with that token injected through the
-`VOICE_TYPER_IPC_TOKEN` environment variable, then opens the main React
-window and a small always-on-top "bubble" window for live waveform
-feedback. The Python process (`voice_typer/server/ipc_server.py`) binds
-to **`127.0.0.1:9876`** and speaks JSON-lines over TCP. The very first
-frame Electron sends is `{"type":"auth","token":...}` The connection
-is dropped unless the token matches (SEC-018). All subsequent IPC is
-untrusted-by-default: each inbound message is size-capped at 1 MB
-(SEC-009), rate-limited at 200 burst / 60 sustained messages per second
-(RELIABILITY-006), and dispatched through a per-method allowlist
-(`set_config` enforces the SEC-002 allowlist (`IPC_CONFIG_ALLOWLIST` in
+Voice Typer is a **two-process desktop app**. The Tauri **Rust host**
+(`src-tauri/src/main.rs`) is the entry point: it generates a 32-byte
+`IPC_TOKEN`, spawns the Python backend as a Nuitka-frozen sidecar (or a
+live `python -m voice_typer.server.ipc_server --ws` subprocess in dev)
+with that token injected through the `VOICE_TYPER_IPC_TOKEN` environment
+variable, opens the main React window and a small always-on-top "bubble"
+window for live waveform feedback, then connects a localhost WebSocket.
+The Python process (`voice_typer/server/sidecar_ws.py`) binds
+`127.0.0.1:0`, announces the port on stdout, and speaks JSON frames over
+WS. The very first post-auth frame must be `ready` (C-WS-1). The
+connection is dropped unless the bearer token matches (SEC-018). All
+subsequent IPC is untrusted-by-default: each inbound message is size-
+capped (SEC-009), rate-limited (RELIABILITY-006 / SEC-019), and
+dispatched through a per-method allowlist (`set_config` enforces the
+SEC-002 allowlist (`IPC_CONFIG_ALLOWLIST` in
 ``voice_typer/server/config_validators/__init__.py``) with type/range/
 enum/URL validation; `get_config` redacts API keys via SEC-003).
 
 The Python **backend** is a long-running tray app. `VoiceTyperApp`
 (in `app.py`) wires together: a **pystray** tray icon (with a minimal
-menu: most configuration lives in the Electron UI), three hotkey
+menu: most configuration lives in the desktop UI), three hotkey
 backends (Win32, macOS CGEvent, Linux `/dev/input` See ADR 0007), a
 PortAudio recorder that captures 16 kHz mono into a bounded `deque`,
 and a transcription pipeline. The pipeline dispatches to one of three
@@ -704,18 +713,12 @@ and pasted into the focused field. History entries land in a SQLite
 WAL database (SEC-007: `0o600` perms on POSIX) and crash-recovery
 state is flushed through a daemon thread (RELIABILITY-005).
 
-The **React renderer** never talks to Python directly, it goes through
-the **preload bridge**. Electron's `webPreferences` are locked down
-per SEC-014 (`contextIsolation: true`, `sandbox: true`,
-`webSecurity: true`, `nodeIntegration: false`), so the renderer sees
-only the small typed surface that `src/preload/index.ts` exposes via
-`contextBridge.exposeInMainWorld`. The bubble window has its own
-preload (`src/preload/bubble.ts`) with an even smaller surface; every
-IPC handler that the bubble can invoke is guarded by
-`assertFromBubble(event)` (SEC-016) so a compromised renderer cannot
-replay bubble-scoped messages back through the main window. Broadcasts
-from Python to Electron are filtered to `mainWindow` only (SEC-017).
-The renderer itself is a standard Vite + React 19 + Tailwind 4 app
+The **React renderer** never talks to Python directly: it goes through
+`tauri-bridge.ts`, which installs `window.python` / `window.bubble` /
+`window.window_` on Tauri's global API. Capability scopes
+(`src-tauri/capabilities/main-runtime.json` vs `bubble-runtime.json`)
+keep the bubble surface minimal (SEC-026). The renderer itself is a
+standard Vite + React 19 + Tailwind 4 app
 with shadcn/ui components; all backend interaction goes through the
 shared `usePython()` hook (`src/renderer/src/hooks/usePython.ts`),
 which handles reconnects, request/response correlation, and event
@@ -821,35 +824,32 @@ particular:
 - Do not log API keys, tokens, or transcription text, `SEC-003` and
   `RELIABILITY-004` redact them; new logging must follow the same
   pattern.
-- Do not disable `contextIsolation`, `sandbox`, or `webSecurity` in
-  Electron `webPreferences` (SEC-014), even for debugging. Use
-  `!app.isPackaged` guards (SEC-013) to scope DevTools instead.
+- Do not widen the Tauri capability scopes beyond
+  `src-tauri/capabilities/main-runtime.json` /
+  `bubble-runtime.json` (SEC-026). The bubble scope stays minimal.
 - Do not remove `assertFromBubble(event)` from bubble IPC handlers
   (SEC-016), even if it looks redundant.
 
 If you believe a control is wrong, open an issue tagged `security` and
 write a draft ADR (`docs/adr/template.md`) before changing code.
 
-### 6.4 IPC command parity (keep the four allowlists in lockstep)
+### 6.4 IPC command parity (keep the two allowlists in lockstep)
 
-Voice Typer's IPC surface is a **multi-layer allowlist**: the Python backend
-only dispatches commands it knows about, the Electron main process and the
-Tauri Rust host each only *forward* commands the renderer is allowed to send,
-and three docs must reflect the resulting counts in lockstep. A new command
-is useless: or, worse, silently blocked, unless **all 11 touchpoints** below
-are updated together.
+Voice Typer's IPC surface is a **two-layer allowlist**: the Python backend
+only dispatches commands it knows about, and the Tauri Rust host only
+*forwards* commands the renderer is allowed to send. Docs must reflect
+the resulting counts in lockstep. A new command is useless — or, worse,
+silently blocked — unless **all 10 touchpoints** below are updated
+together.
 
-> **ZR-48 reconciliation (2026-07-24):** an earlier draft of this section
-> listed only 3 touchpoints (Python registry + Electron allowlist + renderer
-> type union). The Tauri migration (ADR-0020) and the GT-32 allowlist
-> narrowing added 8 more touchpoints: a second host allowlist (Rust), a
-> renderer typed-Request interface, a renderer call site, and four doc-count
-> references that must stay in sync. The automated checker
-> `scripts/check_new_command.sh <cmd>` greps all 11 locations and reports
-> which are missing. Run it before opening a PR that adds or renames a
-> command.
+> **Electron/TCP removal note (2026-09):** Electron main and the TCP
+> transport are gone. The former TS `ALLOWED_COMMANDS` Set is deleted
+> with Electron main; do not reintroduce it. The automated checker
+> `scripts/check_new_command.sh <cmd>` greps the remaining locations
+> and reports which are missing. Run it before opening a PR that adds
+> or renames a command.
 
-#### The 11 touchpoints (in update order)
+#### The 10 touchpoints (in update order)
 
 1. **Python `_COMMAND_REGISTRY`**, add `"<cmd>": "_handle_<cmd>"` to the
    `_COMMAND_REGISTRY` dict in `voice_typer/server/ipc/registry.py`. This is
@@ -861,37 +861,34 @@ are updated together.
 3. **Python service method**: add the underlying `def <cmd>(self, ...)` to
    `voice_typer/server/service/<domain>.py`. (Skip if the handler is pure
    IPC-server state: see the existing `heartbeat` handler for the pattern.)
-4. **TS renderer allowlist**, add `"<cmd>"` to the `ALLOWED_COMMANDS` Set
-   in `voice_typer/client/src/main/allowed-commands.ts`. The Electron main
-   process refuses to forward any command not in this list (SEC-019 lateral
-   boundary on the Electron path).
-5. **Rust host allowlist**, add `"<cmd>"` to the `allowed_commands()`
-   literal in `src-tauri/src/commands/sidecar_cmds.rs`. The Tauri host's
-   `dispatch` command refuses to forward any command not in this list
-   (defense-in-depth backstop for a compromised-renderer attack on the
-   Tauri path: see ADR-0015).
-6. **TS discriminated union**, add a `type: "<cmd>"` literal to the
+4. **Rust host allowlist**, add `"<cmd>"` to the `allowed_commands()`
+   literal in `src-tauri/src/commands/sidecar_cmds/allowlist.rs`. The Tauri
+   host's `dispatch` command refuses to forward any command not in this list
+   (defense-in-depth backstop for a compromised-renderer attack: see
+   ADR-0015 / SEC-019).
+5. **TS discriminated union**, add a `type: "<cmd>"` literal to the
    renderer Request union in
    `voice_typer/client/src/renderer/src/types/ipc/requests.ts` so the
    renderer's `call<T>()` helper can type-check requests and responses.
-   (Skip if the renderer uses an untyped `call<T>` But typed is preferred.)
-7. **TS renderer call site**, add a `python.call("<cmd>", ...)` invocation
+   (Skip if the renderer uses an untyped `call<T>`. But typed is preferred.)
+6. **TS renderer call site**, add a `python.call("<cmd>", ...)` invocation
    in the renderer code path that triggers the command. (Skip for host-only
-   commands like `tray_click` / `shutdown` They originate from the Rust
+   commands like `tray_click` / `shutdown` — they originate from the Rust
    host, never from the renderer.)
-8. **`SECURITY.md` doc count**: update the `only the **N** commands listed
-   in ALLOWED_COMMANDS` count (this is the renderer-reachable count, NOT the
-   registry count). Enforced by `tests/test_security_doc_command_count.py
-   ::test_security_md_documents_renderer_count_not_registry_count`.
-9. **`docs/ARCHITECTURE.md` doc count**: update the `N-command
+7. **`SECURITY.md` doc count**: update the `only the **N** commands listed
+   in allowed_commands()` count (this is the renderer-reachable / Rust
+   allowlist count, NOT the registry count). Enforced by
+   `tests/test_security_doc_command_count.py
+   ::test_security_md_allowlist_count_matches_source`.
+8. **`docs/ARCHITECTURE.md` doc count**: update the `N-command
    _COMMAND_REGISTRY` references (3 occurrences). Enforced by
-   `scripts/check_new_command.sh` touchpoint 9.
-10. **`CONTRIBUTING.md` doc count**: update the `N-command registry
-    unchanged` count in the `sidecar_ws.py` row of the module table (this
-    section). Enforced by `scripts/check_new_command.sh` touchpoint 10.
-11. **`docs/migration/tauri-sidecar-bridge.md` doc count**: update the
+   `scripts/check_new_command.sh` touchpoint 8.
+9. **`CONTRIBUTING.md` doc count**: update the `N-command registry
+   unchanged` count in the `sidecar_ws.py` row of the module table (this
+   section). Enforced by `scripts/check_new_command.sh` touchpoint 9.
+10. **`docs/migration/tauri-sidecar-bridge.md` doc count**: update the
     `N-command registry` references (2 occurrences). Enforced by
-    `scripts/check_new_command.sh` touchpoint 11.
+    `scripts/check_new_command.sh` touchpoint 10.
 
 If you are creating a brand-new handler file (not just adding to an existing
 one), also update `voice_typer/server/handlers/__init__.py` `__all__`.
@@ -904,7 +901,7 @@ Run the automated checker from the repo root:
 bash scripts/check_new_command.sh <cmd>
 ```
 
-It greps each of the 11 touchpoints for the command name, reports which are
+It greps each of the 10 touchpoints for the command name, reports which are
 missing, and verifies that the doc-count references match the actual source
 counts. Exit code 0 = all required touchpoints present; 1 = at least one
 missing or doc-count drift detected.
@@ -912,8 +909,8 @@ missing or doc-count drift detected.
 Then run the parity tests to confirm:
 
 ```bash
-python -m pytest tests/test_security_doc_command_count.py \
-                 tests/test_electron_ipc_and_build.py::TestAllowlistCorrectness \
+python -m pytest tests/test_ipc_command_parity.py \
+                 tests/test_security_doc_command_count.py \
                  -o addopts="" --tb=short
 ```
 
@@ -933,20 +930,19 @@ Adding a new **ASR engine** has its own touchpoint set: see
 `asr_registry.ENGINES` dict is the single point of registration.
 
 > **Common mistake (Finding 2):** adding a command to the server registry
-> *without* updating `ALLOWED_COMMANDS` means the renderer's `call()` is
-> rejected by the main process before it ever reaches Python. This has
-> happened 10 times in the past. When you add or rename a command, run
-> `bash scripts/check_new_command.sh <cmd>` and update each missing
-> touchpoint.
+> *without* updating `allowed_commands()` means the renderer's `call()` is
+> rejected by the Rust host before it ever reaches Python. When you add or
+> rename a command, run `bash scripts/check_new_command.sh <cmd>` and
+> update each missing touchpoint.
 
 > **Regression guards:**
-> - `tests/test_electron_ipc_and_build.py::TestAllowlistCorrectness` —
->   bidirectional parity between `_COMMAND_REGISTRY` and `ALLOWED_COMMANDS`.
-> - `tests/test_security_doc_command_count.py` Four-way parity:
->   TS allowlist ↔ Rust allowlist ↔ Python `_COMMAND_REGISTRY` (with the
->   `_HOST_ONLY_COMMANDS` delta for `tray_click` + `shutdown`) ↔
->   `SECURITY.md` documented count.
-> - `scripts/check_new_command.sh` Pre-PR grep checker for all 11
+> - `tests/test_ipc_command_parity.py` — bidirectional parity between
+>   `_COMMAND_REGISTRY` and Rust `allowed_commands()` (modulo the
+>   host-dispatched delta `heartbeat` / `relaunch_ack` / `shutdown` /
+>   `tray_click`) + `SECURITY.md` documented count.
+> - `tests/test_security_doc_command_count.py` — SECURITY.md count ↔
+>   Rust allowlist size + registry/host-delta count invariant.
+> - `scripts/check_new_command.sh` — pre-PR grep checker for all 10
 >   touchpoints (including the doc-count references the tests don't
 >   enforce).
 

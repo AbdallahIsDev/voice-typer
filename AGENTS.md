@@ -124,36 +124,40 @@ the surrounding code.
 ## npm Overrides: DO NOT REMOVE
 
 `voice_typer/client/package.json` contains `overrides` that force-upgrade
-deprecated transitive deps (`@electron/asar`, `@electron/get`,
-`@hono/node-server`). These eliminate deprecation warnings and security
-vulnerabilities. Do not remove or downgrade them. See the `//overrides_note`
-comment in package.json for full rationale.
+deprecated transitive deps still pulled by Vite/Tailwind/vitest tooling
+(for example `@hono/node-server`, `postcss`, `nanoid`, `browserslist`).
+These eliminate deprecation warnings and security vulnerabilities. Do not
+remove or downgrade them. See the `//overrides_note` comment in package.json
+for full rationale. Electron-only overrides (`@electron/asar`,
+`@electron/get`, `electron-winstaller`) were removed with the Electron host
+(2026-09-17 cutover) — do not reintroduce them.
 
 ## Critical contracts (read before editing IPC / security surfaces)
 
-Three cross-file contracts are NON-NEGOTIABLE. Violating any of them
+Cross-file contracts are NON-NEGOTIABLE. Violating any of them
 silently breaks parity tests, opens security holes, or both. The full
 rationale lives in `CONTRIBUTING.md`:
 
 - **§6.3 Security** (`CONTRIBUTING.md` §6.3): non-negotiable rules:
   the `set_config` SEC-002 allowlist (`IPC_CONFIG_ALLOWLIST` in
   `voice_typer/server/config_validators/__init__.py`), redaction (SEC-003), the
-  per-renderer IPC rate limiter (SEC-019), and the TCP auth token
+  per-renderer IPC rate limiter (SEC-019), and the sidecar WS auth token
   boundary. Do NOT add fields to `set_config` outside the SEC-002
-  allowlist; do NOT bypass the renderer→main→backend allowlist chain.
-- **§6.4 IPC command parity** (`CONTRIBUTING.md` §6.4): the THREE
-  allowlists must stay in lockstep:
+  allowlist; do NOT bypass the renderer→Tauri host→backend allowlist chain.
+- **§6.4 IPC command parity** (`CONTRIBUTING.md` §6.4): post-Electron
+  cutover the TWO allowlists must stay in lockstep:
   1. Server: `_COMMAND_REGISTRY` in `voice_typer/server/ipc/registry.py`.
-  2. Electron main: `ALLOWED_COMMANDS` in
-     `voice_typer/client/src/main/allowed-commands.ts`.
-  3. Renderer types: `PythonRequest` / `PythonPushEvent` unions in
-     `voice_typer/client/src/renderer/src/types/ipc.ts`.
-  The parity test
-  `tests/test_electron_ipc_and_build.py::test_allowlist_matches_server_commands`
-  slices the literal `ALLOWED_COMMANDS = new Set([` substring out of
-  `allowed-commands.ts` and diffs it against the server registry, do
-  NOT reformat that Set's declaration (the test relies on the exact
-  `new Set([` opening and `]);` closing).
+  2. Rust host: `allowed_commands()` in
+     `src-tauri/src/commands/sidecar_cmds/allowlist.rs`.
+  Host-dispatched commands (`tray_click`, `shutdown`, `heartbeat`,
+  `relaunch_ack`) are intentionally absent from the Rust renderer-facing
+  allowlist (see `tests/test_ipc_command_parity.py` +
+  `tests/test_security_doc_command_count.py`). There is NO TypeScript
+  `ALLOWED_COMMANDS` set anymore (`voice_typer/client/src/main/` was
+  deleted). Do NOT reintroduce a third host allowlist.
+- **Renderer types** still document the request/push surface in
+  `voice_typer/client/src/renderer/src/types/ipc/` — keep them accurate
+  but they are not a dispatch allowlist.
 - **Branding** (see section above), `APP_NAME` must never be inlined.
 
 When in doubt, link to the relevant `CONTRIBUTING.md` section in your
@@ -174,25 +178,26 @@ source .venv/bin/activate
 # extras present in the venv.
 uv pip install -e ".[test,dev]" -r requirements-lock.txt
 
-# Renderer + main process: one-time install
+# Renderer (Tauri webview frontend): one-time install
 cd voice_typer/client && npm install && cd -
 
-# Run both dev servers (Electron + Python backend hot-reload)
-npm run dev
-# (equivalently: cd voice_typer/client && npm run dev)
+# Run the Tauri host + Vite HMR + Python sidecar
+cd voice_typer/client && npm run tauri:dev
+# (equivalently: `npm run dev` at client/ — same tauri-dev.mjs script)
 
 # Python tests
 pytest
 
-# Renderer + main TS tests
+# Renderer TS tests
 cd voice_typer/client && npx vitest run
 ```
 
-`npm run dev` boots the Electron main process, the React renderer
-(Vite HMR), and the Python backend (with `--reload`). The first
-`get_config` round-trip from the renderer establishes the IPC
-bridge: if you see a "Lost connection" screen for >5s on cold
-start, the Python backend is still booting (model warmup).
+`npm run tauri:dev` starts the Vite dev server (`vite.tauri.config.ts`),
+then `cargo tauri dev`, which boots the Rust host and the Python sidecar
+over WebSocket (`--ws`). The first `get_config` round-trip from the
+renderer establishes the IPC bridge: if you see a "Lost connection"
+screen for >5s on cold start, the Python backend is still booting
+(model warmup). There is no Electron main process.
 
 ## Test patterns
 
@@ -227,7 +232,8 @@ adding new tags (do NOT invent new prefixes, add to this list
 instead):
 
 - `SEC-*` Security boundary / hardening. Examples: `SEC-002`
-  (set_config allowlist), `SEC-018` (TCP auth token), `SEC-019`
+  (set_config allowlist), `SEC-018` (sidecar WS auth token), `SEC-019`
+
   (renderer IPC allowlist), `SEC-026` (sandboxed bubble preload).
 - `RACE-*` Concurrency / ordering invariant. The full set of tags
   present in the code today, one line each (grep the tag to reach the
@@ -239,11 +245,11 @@ instead):
   the same lock as the append/counter),
   `RACE-008` (every `Thread(daemon=True)` site carries a rationale
   comment explaining why daemon is acceptable),
-  `RACE-009` (Electron stdout/stderr redirected to log files so the
+  `RACE-009` (sidecar stdout/stderr redirected to log files so the
   packaged app has no console),
   `RACE-011` (config-mutation lock serializing `set_config` /
   `apply_config`; ALSO the launcher bundle-completeness probe: a
-  missing renderer/preload bundle lets `electron .` linger as a blank
+  missing renderer asset bundle lets a half-built host linger as a blank
   hidden zombie that holds the single-instance lock and kills every
   later launch),
   `RACE-013` (persistent Event-based watchdog thread for the dictation
@@ -550,18 +556,19 @@ browser-automation capability in your sandbox that can control a real browser:
 open pages, click, fill, navigate, screenshot. Use it to verify the running
 application, not just the code:
 
-- The app runs with `npm run dev` in `voice_typer/client/` This boots the
-  Electron main process, the React renderer, and the Python backend together
-  (the first `get_config` round-trip establishes the IPC bridge).
+- The app runs with `cd voice_typer/client && npm run tauri:dev` (or
+  `npm run dev` — same script). This boots the Tauri Rust host, the React
+  renderer (Vite HMR), and the Python sidecar over WS (the first
+  `get_config` round-trip establishes the IPC bridge).
 - During Manual Verification (below), operate the UI as a real user: launch,
   wait for the app to come up, click through the main flows (settings,
   transcription/recording controls where the sandbox allows, error states), and
   screenshot key screens as evidence.
 - If the sandbox has no display, launch under `xvfb-run` (e.g.
-  `xvfb-run -a npm run dev` or a wrapper) for a smoke test; if the GUI genuinely
-  cannot run (Electron fails headless), record it in `worklog.md` under
-  `## Known Limitations` with the exact error and cover behavior via the test
-  suite instead.
+  `xvfb-run -a npm run tauri:dev` or a wrapper) for a smoke test; if the GUI
+  genuinely cannot run (missing WebView2 / display), record it in
+  `worklog.md` under `## Known Limitations` with the exact error and cover
+  behavior via the test suite instead.
 - Never claim "manual verification passed" without the evidence (screenshots,
   logs, or the recorded limitation).
 
@@ -620,12 +627,14 @@ and expected; the forbidden waste is a second FULL-suite run whose only purpose
 is to enumerate failures the first run already reported.
 
 **Manual Verification: mandatory before packaging.** Launch the app the way a
-real user would (`npm run dev`), then drive it with browser automation: it
-launches successfully, the backend starts, Electron connects, IPC/TCP work, auth
-works, startup logs are clean, no regressions. **Not optional**, last item on
-the to-do list; the session isn't complete until this passes. Record the result
-in `worklog.md` (`## Validation Performed`) with a platform qualifier and
-screenshots where captured.
+real user would (`cd voice_typer/client && npm run tauri:dev`), then drive it
+with browser automation: it launches successfully, the backend starts, the
+Tauri host connects over WS, auth works, startup logs are clean, no
+regressions. **Not optional**, last item on the to-do list; the session
+isn't complete until this passes. Record the result in `worklog.md`
+(`## Validation Performed`) with a platform qualifier and screenshots where
+captured. Electron + TCP are gone — do not test or document them as live
+paths.
 
 ---
 
@@ -732,7 +741,7 @@ Applies to: All agents, all modes, all sub-agents.
 
 ```
 C-UI-10
-Rule: Do NOT use margin utilities (`mb-*`, `mt-*`, `my-*`, `mx-*`) or Tailwind `space-y-*` / `space-x-*` sibling-selector utilities to create spacing between the CHILDREN of a flex/grid/stack container. Inter-child spacing MUST be expressed as `gap-*` on the PARENT (e.g. a vertical field/group stack is `flex flex-col gap-6` for groups and `flex flex-col gap-2` inside a group; a horizontal icon+label row is `flex items-center gap-2`). Every layout container that would otherwise pad each child with a margin must instead be a flex/grid container with the equivalent `gap`. Exceptions (margin utilities remain legitimate): (1) spacing an element FROM the container's outer edge where no parent flex/grid gap applies (e.g. a lone `mb-*` on the last visual block against a panel boundary, an inset `mt-*` on a heading that sits under a non-flex boundary), but even these SHOULD prefer the nearest parent gap when that parent is a stack; (2) `mr-*`/`ml-*` (and logical `me-*`/`ms-*`) used for inline text flow where an element is NOT a flex child; (3) alignment nudges on an element inside an otherwise gap-driven flex row when a real alignment need exists (document it); (4) `mt-*` on a block-level element whose parent is NOT a flex/grid stack. The canonical pattern for a labeled field (label + control + hint) is a `flex flex-col gap-2` wrapper, never a `mb-2` on the label or `mt-2` on the hint. Same rule in the Rust/Electron/any templated UI and in storybook decorators.
+Rule: Do NOT use margin utilities (`mb-*`, `mt-*`, `my-*`, `mx-*`) or Tailwind `space-y-*` / `space-x-*` sibling-selector utilities to create spacing between the CHILDREN of a flex/grid/stack container. Inter-child spacing MUST be expressed as `gap-*` on the PARENT (e.g. a vertical field/group stack is `flex flex-col gap-6` for groups and `flex flex-col gap-2` inside a group; a horizontal icon+label row is `flex items-center gap-2`). Every layout container that would otherwise pad each child with a margin must instead be a flex/grid container with the equivalent `gap`. Exceptions (margin utilities remain legitimate): (1) spacing an element FROM the container's outer edge where no parent flex/grid gap applies (e.g. a lone `mb-*` on the last visual block against a panel boundary, an inset `mt-*` on a heading that sits under a non-flex boundary), but even these SHOULD prefer the nearest parent gap when that parent is a stack; (2) `mr-*`/`ml-*` (and logical `me-*`/`ms-*`) used for inline text flow where an element is NOT a flex child; (3) alignment nudges on an element inside an otherwise gap-driven flex row when a real alignment need exists (document it); (4) `mt-*` on a block-level element whose parent is NOT a flex/grid stack. The canonical pattern for a labeled field (label + control + hint) is a `flex flex-col gap-2` wrapper, never a `mb-2` on the label or `mt-2` on the hint. Same rule in the Rust/Tauri/any templated UI and in storybook decorators.
 Rationale: Margin-based inter-child spacing (and `space-y-*`, which is implemented via `> * + *` margins) is the old method: it leaks spacing out of an element (margins collapse / interact with surrounding layout), makes reordering fragile, and cannot be expressed as a single parent-level declaration. `gap` on a flex/grid parent is the modern, self-contained, RTL-safe contract. Migrated app-wide 2026-09-03 (TemplateDialog + every Dialog/Modal surface + Models cards + onboarding + all pages/components): field stacks, stat rows, card metadata lines, list rows, and dialog bodies all use `gap-*`. New code MUST ship with `gap-*` from the first commit; existing margin-based stacks are a defect to convert.
 Applies to: All agents, all modes, all sub-agents.
 ```
@@ -1118,7 +1127,7 @@ Applies to: All agents, all modes, all sub-agents.
 ```
 C-TDEV-1
 Rule: Do NOT assume `cargo tauri dev` needs MSVC on this machine, and do NOT delete the GNU-toolchain plumbing: `src-tauri/.cargo/config.toml` (rust-lld linker wrapper at `.cargo-tmp/linker-wrap.exe`), the MSYS2 mingw64 dependency (`x86_64-w64-mingw32-gcc-ar.exe` on PATH), the default `stable-x86_64-pc-windows-gnu` rustup toolchain, and the generated binary stubs from `python scripts/gen_tauri_icons_stub.py` (satisfies `bundle.externalBin` + `bundle.resources`; they are FAKE binaries that exit 1, never ship them; re-run the generator if `resource path ... doesn't exist` fails a dev build).
-Rationale: The machine has no Visual Studio C++ Build Tools; the whole GNU setup is what makes local Tauri builds possible (~80s full compile, deps cached). ONE-COMMAND DEV RECIPE (2026-08-30, the Tauri equivalent of Electron's `npm run dev`): `cd voice_typer/client && npm run tauri:dev`, `scripts/tauri-dev.mjs` starts the Vite dev server (`vite.tauri.config.ts`, port 1420, HMR), waits for it, then runs `tauri dev --config src-tauri/tauri.dev.conf.json` from the repo root. The committed `tauri.dev.conf.json` override blanks `build.beforeDevCommand` because the JS CLI spawns it with a CWD where the stock `cd voice_typer/client && npm run build:renderer` cannot resolve ("The system cannot find the path specified", reproduced 2026-08-30; the stock literal stays pinned in tauri.conf.json + mig19 for CI builds, which DO resolve it, do NOT "fix" the conf by removing it). A debug host binary defaults `dev_mode::is_dev_mode()` to the SOURCE Python sidecar (`VOICE_TYPER_SIDECAR_DEV` unset + `cfg!(debug_assertions)`; explicit `0` forces the release path), so no env vars are needed. Renderer edits = instant HMR; Rust edits = the CLI watcher rebuilds + relaunches. Do NOT regenerate this flow with a plain `python -m http.server 1420` static server (no HMR) or raw `npx @tauri-apps/cli dev` (beforeDevCommand failure).
+Rationale: The machine has no Visual Studio C++ Build Tools; the whole GNU setup is what makes local Tauri builds possible (~80s full compile, deps cached). ONE-COMMAND DEV RECIPE: `cd voice_typer/client && npm run tauri:dev`, `scripts/tauri-dev.mjs` starts the Vite dev server (`vite.tauri.config.ts`, port 1420, HMR), waits for it, then runs `tauri dev --config src-tauri/tauri.dev.conf.json` from the repo root. The committed `tauri.dev.conf.json` override blanks `build.beforeDevCommand` because the JS CLI spawns it with a CWD where the stock `cd voice_typer/client && npm run build:renderer` cannot resolve ("The system cannot find the path specified", reproduced 2026-08-30; the stock literal stays pinned in tauri.conf.json + mig19 for CI builds, which DO resolve it, do NOT "fix" the conf by removing it). A debug host binary defaults `dev_mode::is_dev_mode()` to the SOURCE Python sidecar (`VOICE_TYPER_SIDECAR_DEV` unset + `cfg!(debug_assertions)`; explicit `0` forces the release path), so no env vars are needed. Renderer edits = instant HMR; Rust edits = the CLI watcher rebuilds + relaunches. Do NOT regenerate this flow with a plain `python -m http.server 1420` static server (no HMR) or raw `npx @tauri-apps/cli dev` (beforeDevCommand failure).
 Applies to: All agents, all modes, all sub-agents.
 ```
 
@@ -1566,7 +1575,7 @@ Task selection MUST favor improvements with significant product impact while min
 
 ```
 C-CONF-1
-Rule: Do NOT create a second source of truth for application settings. `config.json` (managed by `voice_typer/server/config`) is THE canonical store; every producer and consumer of a setting (Settings UI, Microphone page, backend commands, tray, onboarding, autostart) must read/write through the Config instance and persist via its save path. Never mirror settings into renderer-local storage as an authority, and never write config values from Electron/Tauri hosts directly.
+Rule: Do NOT create a second source of truth for application settings. `config.json` (managed by `voice_typer/server/config`) is THE canonical store; every producer and consumer of a setting (Settings UI, Microphone page, backend commands, tray, onboarding, autostart) must read/write through the Config instance and persist via its save path. Never mirror settings into renderer-local storage as an authority, and never write config values from the Tauri host (or any host) directly.
 Rationale: Parallel stores drift silently; the renderer already receives authoritative updates through get_config + config_changed pushes.
 Applies to: All agents, all modes.
 ```
@@ -1594,7 +1603,7 @@ Applies to: All agents, all modes.
 
 ```
 C-CONF-5
-Rule: Do NOT make runtime initialization overwrite valid persisted settings with defaults/stale values without an explicit migration/defaulting reason (corrupt-file quarantine, first-run defaults, versioned migration with .bak backup. All existing, all logged). Known accepted edge: an OLDER build loading a NEWER-schema config.json drops unknown keys at its next explicit save (warned once per process in config/loader.py `_filter_unknown_keys_impl`; newer-than-build keys are preserved until that save). Dev (`npm run dev`) and built runtimes intentionally share ONE profile dir (`~/.voice-typer` legacy-first); concurrent double-writes are prevented by the Electron single-instance lock + Python `Local\VoiceTyperSingleInstance` mutex, do not add per-runtime profile splits or second locks without a product decision.
+Rule: Do NOT make runtime initialization overwrite valid persisted settings with defaults/stale values without an explicit migration/defaulting reason (corrupt-file quarantine, first-run defaults, versioned migration with .bak backup. All existing, all logged). Known accepted edge: an OLDER build loading a NEWER-schema config.json drops unknown keys at its next explicit save (warned once per process in config/loader.py `_filter_unknown_keys_impl`; newer-than-build keys are preserved until that save). Dev (`npm run tauri:dev`) and built runtimes intentionally share ONE profile dir (`~/.voice-typer` legacy-first); concurrent double-writes are prevented by the Tauri single-instance plugin + Python `Local\VoiceTyperSingleInstance` mutex, do not add per-runtime profile splits or second locks without a product decision.
 Rationale: Distinguishes genuine bugs from the documented stale-build downgrade; protects the single-profile/single-instance architecture agents might "fix" wrongly.
 Applies to: All agents, all modes.
 ```

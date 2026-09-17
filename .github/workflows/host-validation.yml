@@ -131,8 +131,6 @@ jobs:
       - name: Windows kill-path contracts + safe handler routing
         shell: pwsh
         run: |
-          python -c "import pathlib; t=pathlib.Path('voice_typer/server/electron_launcher.py').read_text(encoding='utf-8'); assert 'taskkill' in t and '/T' in t and '/F' in t and '/PID' in t and '_windows_create_no_window_flags' in t; print('taskkill argv contract PASS')"
-          python -c "import pathlib; t=pathlib.Path('voice_typer/server/shutdown/teardowns/electron.py').read_text(encoding='utf-8'); assert 'TerminateProcess' in t and 'CloseHandle' in t and 'finally:' in t; print('teardown handle contract PASS')"
           python -c "import types; from voice_typer.server.signal_handlers import win32_console_handler; c=types.SimpleNamespace(_app=types.SimpleNamespace()); c.quit=lambda: None; assert win32_console_handler(c, 99) is False; print('win32 unknown-event passthrough PASS')"
           python -c "import types; from voice_typer.server.signal_handlers import win32_console_handler; c=types.SimpleNamespace(_app=types.SimpleNamespace()); c.quit=lambda: None; assert win32_console_handler(c, 0) is True; print('win32 ctrl-c dispatch PASS')"
           python -c "from voice_typer.server._timeout_utils import TIMEOUT; from voice_typer.server.config.loader import _validate_config_warnings; assert TIMEOUT is not None and isinstance(_validate_config_warnings, set); print('VT-1 registries PASS')"

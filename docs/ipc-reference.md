@@ -5,55 +5,48 @@ Auto-generated reference for the Voice Typer IPC protocol.
 **Source of truth:**
 
 - [_COMMAND_REGISTRY](../voice_typer/server/ipc/registry.py): server-side handler map (canonical command list)
-- [ALLOWED_COMMANDS](../voice_typer/client/src/main/allowed-commands.ts): Electron main-process allowlist (renderer-reachable subset)
+- [allowed_commands()](../src-tauri/src/commands/sidecar_cmds/allowlist.rs): Rust host's renderer-reachable allowlist gate (CR-4 / SEC-019)
 - [types/ipc/](../voice_typer/client/src/renderer/src/types/ipc/): TypeScript subpackage: requests, push_events, bridge, enums, etc.
-- [allowed_commands()](../src-tauri/src/commands/sidecar_cmds.rs): Rust host's defense-in-depth allowlist gate (CR-4)
 
-> This file is a human-readable summary. The four sources above are the
+> This file is a human-readable summary. The sources above are the
 > authoritative references; if this doc disagrees with any of them, the
 > source files win.
 
-## Four-allowlist contract (NH-33 / NH-34 / CR-4)
+## Two-allowlist contract (post-Electron / post-TCP)
 
-Every IPC command must exist in **all four** places to be reachable from
+Every IPC command must exist in the places below to be reachable from
 the renderer:
 
 1. **Server registry** (`_COMMAND_REGISTRY` in `voice_typer/server/ipc/registry.py`):
    maps `command_name` to `_handler_method` on the `IPCServer` class.
    Without an entry here, the server returns
    `{type:"error", data:{code:"unknown_command"}}`.
-2. **Electron allowlist** (`ALLOWED_COMMANDS` in `allowed-commands.ts`): the
-   canonical set of commands the renderer may invoke via
-   `window.python.call(...)`. The Electron main process rejects anything
-   not in this set BEFORE the command reaches the Python backend
-   (SEC-019).
+2. **Rust allowlist** (`allowed_commands()` in
+   `src-tauri/src/commands/sidecar_cmds/allowlist.rs`): defense-in-depth
+   backstop for the Tauri host path (CR-4). The Rust host forwards only
+   names in this set, so a compromised renderer cannot reach handlers it
+   was never meant to invoke.
 3. **Renderer types** (`PythonRequest` / `PythonPushEvent` in the
    `types/ipc/` subpackage): TypeScript unions that give the renderer
    compile-time type safety for the request/response shapes.
-4. **Rust allowlist** (`allowed_commands()` in
-   `src-tauri/src/commands/sidecar_cmds.rs`): defense-in-depth backstop
-   for the Tauri host path (CR-4). The Rust host mirrors the TS
-   allowlist exactly so a compromised renderer cannot bypass the TS gate
-   by some other route to `invoke('dispatch', ...)`.
 
-The parity tests
-`tests/test_electron_ipc_and_build.py::test_allowlist_matches_server_commands`
-and `tests/test_security_doc_command_count.py` assert that
-`ALLOWED_COMMANDS` (sliced as a literal substring from
-`allowed-commands.ts`) matches the renderer-reachable subset of
-`_COMMAND_REGISTRY`, and that the Rust `allowed_commands()` set mirrors
-the TS set exactly (modulo the `_TS_ONLY_EXCEPTIONS` documented in the
-parity test). Commands in `_COMMAND_REGISTRY` but NOT in
-`ALLOWED_COMMANDS` are server-only (invoked internally by the backend or
-via the Rust tray host's `dispatch_inner`, which **bypasses the
-renderer ALLOWED_COMMANDS gate but still routes through
-`_COMMAND_REGISTRY`**: i.e. the handler must be registered or the
-dispatch fails with `unknown_command`).
+The TypeScript `ALLOWED_COMMANDS` Set is **gone** (Electron main deleted
+with the Tauri cutover). Do not reintroduce it.
 
-## Commands (75 total: 73 renderer-reachable + 2 host-only: shutdown, tray_click)
+The parity tests `tests/test_ipc_command_parity.py` and
+`tests/test_security_doc_command_count.py` assert that the Rust
+`allowed_commands()` set is a subset of `_COMMAND_REGISTRY` and that the
+ONLY registry commands outside the Rust allowlist are the documented
+host-dispatched / host-only set (`heartbeat`, `relaunch_ack`,
+`shutdown`, `tray_click`). Commands in `_COMMAND_REGISTRY` but NOT in
+`allowed_commands()` are host-internal (invoked by the Rust host via
+`dispatch_inner` or host-supervised shutdown), never by the renderer.
+
+## Commands (75 total: 71 renderer-reachable + 4 host-dispatched: shutdown, tray_click, heartbeat, relaunch_ack)
 
 Grouped by namespace. "✓" in the Allowlist column means the command is
-in `ALLOWED_COMMANDS` (renderer-reachable); "—" means server-only.
+in `allowed_commands()` (renderer-reachable); "—" means host-dispatched
+/ host-only.
 
 ### System / config / heartbeat
 
@@ -62,8 +55,8 @@ in `ALLOWED_COMMANDS` (renderer-reachable); "—" means server-only.
 | `get_config` | `_handle_get_config` | ✓ |  |
 | `get_defaults` | `_handle_get_defaults` | ✓ |  |
 | `get_status` | `_handle_get_status` | ✓ |  |
-| `heartbeat` | `_handle_heartbeat` | ✓ | watchdog tick: coalesces repeated ticks so a stalled backend doesn't strand the mic open + mutex held. |
-| `relaunch_ack` | `_handle_relaunch_ack` | ✓ | PERF-005 relaunch ack: event-driven wait bounded by a 2s timeout. |
+| `heartbeat` | `_handle_heartbeat` | — | Host-dispatched watchdog tick via `dispatch_inner`. Kept out of the renderer allowlist so a compromised WebView cannot spoof ticks. |
+| `relaunch_ack` | `_handle_relaunch_ack` | — | Host-dispatched PERF-005 relaunch ack (fire-and-forget). Kept out of the renderer allowlist so a compromised WebView cannot race the restart-wait event. |
 | `set_config` | `_handle_set_config` | ✓ |  |
 
 ### App control (toggle, undo, repaste, tray, force-cancel, restart/quit)

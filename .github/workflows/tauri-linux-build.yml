@@ -52,8 +52,8 @@
 #   [ ] 9. Single-instance (lockfile) — second launch focuses first, no
 #            zombie sidecar
 # All 9 pending — host validation has not run yet; tick each off in the
-# runbook as it passes on a real Linux display host. Electron remains the
-# shipped fallback until the Phase 0-L gate is met (ADR-0020 Phase 5).
+# runbook as it passes on a real Linux display host. Tauri is the sole
+# host (Electron removed 2026-09-17, ADR-0020 Phase 5).
 # =============================================================================
 
 name: Tauri Linux build (Phase 0-L)

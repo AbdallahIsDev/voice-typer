@@ -1,11 +1,15 @@
 # Cutover Playbook: Electron → Tauri (ADR-0020 Phase 5)
 
-**Status**: this is the **per-platform cutover procedure** for flipping the
-default shipping Voice Typer app from Electron to Tauri. It is the
-authoritative playbook for Phase 5 of ADR-0020. Cutover is **per-platform**,
-not all-at-once: Windows first, then macOS, then Linux. The Electron build
-path stays intact and shippable on every platform throughout, Tauri is
-strictly additive until the platform's cutover gate is met.
+**Status**: **HISTORICAL — cutover completed 2026-09-17.** Electron was
+removed; Tauri is the sole desktop host. This playbook documents the
+per-platform procedure that was used. Do not re-apply the Electron
+rollback steps: the Electron source, `electron-builder.yml`, and the
+electron-builder CI jobs are gone. Installer production lives in
+`.github/workflows/tauri-build.yml` + `tauri-*-build.yml`.
+
+This was the **per-platform cutover procedure** for flipping the
+default shipping Voice Typer app from Electron to Tauri. Cutover was
+**per-platform**: Windows first, then macOS, then Linux.
 
 **Scope of this document**:
 - Cutover criteria per platform (what evidence is required to flip).

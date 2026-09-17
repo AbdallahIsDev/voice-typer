@@ -36,7 +36,7 @@ observations before marking anything done.
 - Fix: Verify actual WM_CLASS via `xprop WM_CLASS` on a running Tauri window; set `StartupWMClass` to match. `VALIDATE ON LINUX HOST`. · **Found by**: R15
 
 - **WM-6 / WM-7 / WM-8 / WM-11 / WM-12 / WM-13**, headless slice green 2026-09-15 (`test_clipboard_restore_args` + `test_clipboard_borrow_restore` + `test_sidecar_ws_ready_ordering` + `test_timeout_utils`, 57 passed); live desktop runs (X11/Wayland paste, toasts, hooks, logon) still need real hosts.
-- **WM-14**: Windows `taskkill` behavior. Kill paths verified correct on inspection (`electron_launcher.py:308-339` `taskkill /T /F` + `teardowns/electron.py:103-136` fallback; synthetic tree-kill probe in `host-validation.yml`); real Electron-tree kill needs a Windows host.
+- **WM-14**: Windows `taskkill` behavior. **2026-09-17:** Electron-tree kill path (`electron_launcher.py` + `teardowns/electron.py`) was removed with the Electron host; the synthetic `taskkill /T /F` probe remains in `host-validation.yml`. Live Electron-tree kill is N/A post-removal; Tauri sidecar kill paths are owned by `src-tauri/src/sidecar/`.
 - **GP-7**: macOS notarization. Preflight verified (`Info.plist` mic/notification keys + entitlements + secrets-gated workflow step); full sign + notarize + staple + clean-Mac Gatekeeper check needs a real macOS host with Developer ID + notary credentials.
 - **GP-135**: cross-platform native binaries. Manifest/lookup/source verified headless (x86_64 shas match disk bytes; empty aarch64/macOS shas are fail-closed BY DESIGN; mirror tables match). Open host work: per-platform hash population, `build_native_listener_windows.sh` vs `compile_native.ps1` output-dir mismatch to confirm on Windows Git Bash, arch-aware `get_expected_sha256` gap (owned elsewhere), live per-OS runs.
 - **VT-1**: Windows host validation. Code verified present (`config/loader.py` warnings registry, `_timeout_utils` TIMEOUT runner, `tray_lifecycle.py:151-177` degradation) + imports/unit green (`test_timeout_utils` 34 passed); live Windows terminal re-run needs a real host.
@@ -58,29 +58,29 @@ observations before marking anything done.
 **Category:** Configuration / UI Correctness
 
 ### MO-11: Dual Electron + Tauri host path multiplies IPC allowlist and launch complexity (known migration debt)
-**Status:** ⏸️ DEFERRED — Electron-removal epic tracker (user decision: Electron will be removed, Tauri only). No Electron-side investment until cutover. Parity tests stay strict (they guard Tauri too). Originally: ❌ Not Fixed (2026-09-15; intentional ADR-0020 migration state)
-**Description:** Both hosts are live: Electron main (`client/src/main/index.ts`, 389 lines, wiring-only per REF-2) and Tauri host (`src-tauri/src/main.rs`, 279 lines, wiring-only per C-ARCH-1). IPC command surface must stay in lockstep across **three** allowlists (AGENTS.md §6.4: Python registry, TS `ALLOWED_COMMANDS`, Rust `allowed_commands`). Sidecar WS vs Electron TCP also duplicate transport concerns (`sidecar_ws.py` 869+ lines, `transport_tcp.py` 1026+).
-**User Impact:** No bug if contracts hold; high process cost for every IPC change, and drift risk is already a named non-negotiable contract.
+**Status:** ✅ Fixed (2026-09-17 Electron-removal cutover). Evidence: Electron main (`client/src/main/`), preload bridges, `electron-builder.yml`, `electron.vite.*` configs, and the build.yml Electron packaging jobs (`build-windows` / `build-macos` / `build-linux` / `build-macos-universal`) were removed; Tauri is the sole host. IPC surface collapsed to Python `_COMMAND_REGISTRY` + Rust `allowlist.rs` (the former TS `ALLOWED_COMMANDS` Set is gone — do not reintroduce; see CONTRIBUTING §6.4). Transport is WS-only (`sidecar_ws.py`); the Electron TCP path is retired. Originally: ⏸️ DEFERRED — Electron-removal epic tracker.
+**Description:** Both hosts were live: Electron main (`client/src/main/index.ts`) and Tauri host (`src-tauri/src/main.rs`). IPC command surface had to stay in lockstep across three allowlists. Sidecar WS vs Electron TCP duplicated transport concerns.
+**User Impact:** Resolved: one host, one transport, half the IPC/launch maintenance.
 **Root Cause:** Migration window with two production hosts (ADR-0020). Documented, not accidental.
-**Gain vs Trade-off:** Retiring Electron after Tauri validation collapses the surface; until then dual maintenance is required.
-**If We Do It (retire Electron):** Halve host-side IPC/launch maintenance.
+**Gain vs Trade-off:** Done — surface collapsed.
+**If We Do It (retire Electron):** Halve host-side IPC/launch maintenance. **DONE 2026-09-17.**
 **If We Don't:** Every command change stays a 3-way edit forever until migration completes.
-**My Recommendation:** ⚠️ Track as the Electron-removal epic, do not "simplify" by deleting Electron until host validation (Phase 0-W) completes AND the user orders cutover; keep parity tests strict. No standalone Electron-side work until then.
-**Progress:** None yet.
+**My Recommendation:** ✅ Closed by the Electron-removal epic.
+**Progress:** Electron removed 2026-09-17 (Lanes A–D). CI packaging retired (build.yml Electron jobs deleted; tauri-build.yml is THE pipeline). Docs/review metadata cut over same day.
 **Related Files:**
-- `voice_typer/client/src/main/index.ts`
 - `src-tauri/src/main.rs`
 - `voice_typer/server/ipc/registry.py`
-- `voice_typer/client/src/main/allowed-commands.ts`
 - `src-tauri/src/commands/sidecar_cmds/dispatch.rs`
-**Fix:** Complete Tauri host validation, then remove Electron host + one transport path.
-**Simplified Fix:** Two desktop shells both talk to the same backend; finish the migration so only one shell remains.
+- `.github/workflows/build.yml` (Electron packaging jobs removed)
+- `.github/workflows/tauri-build.yml` (sole installer pipeline)
+**Fix:** Complete Tauri host validation, then remove Electron host + one transport path. **EXECUTED 2026-09-17.**
+**Simplified Fix:** Two desktop shells both talk to the same backend; finish the migration so only one shell remains. **DONE.**
 **Implementation Difficulty:** 🔴 Hard (product migration, not a local refactor)
 **Severity:** 🟡 Medium
 **Category:** Architecture / Migration
 
 ### MO-86: `_READONLY_COMMANDS` only contains 4 of ~20 pure-read commands
-**Status:** ⏸️ DEFERRED — Electron TCP-transport freeze (consumer is the TCP dispatcher; revisit post-removal if TCP survives, with the per-handler mutation audit).
+**Status:** ⏸️ DEFERRED — Electron TCP-transport freeze. **2026-09-17 note:** the TCP consumer is gone (Electron removed; WS-only). Revisit only if the WS dispatcher still consults `_READONLY_COMMANDS` for lock-bypass; do the per-handler mutation audit against the surviving WS path. Do not invent Fixed without that audit.
 **Description:** `_READONLY_COMMANDS` in `voice_typer/server/ipc/registry.py:139-146` contains only `get_status`, `get_config`, `get_model_catalog`, and `heartbeat`. The dispatcher uses this frozenset to bypass the per-server `_dispatch_lock` so long-running mutating handlers don't block status polls. However, at least 12 additional commands are pure reads with no state mutation: `get_history`, `get_history_count`, `get_transcription_text`, `get_today_stats`, `get_favorites`, `get_microphones`, `get_vocabulary`, `get_correction_usage`, `get_templates`, `get_defaults`, `get_download_queue`, `get_volume_backend_status`, `get_model_status`. Under the current set, a `download_model` (long-running, holds the lock) blocks `get_history` from a second connection.
 **Current Behavior:** 4 commands bypass the dispatch lock; ~13 pure-read commands are serialized behind it.
 **Expected Behavior:** All pure-read commands are in `_READONLY_COMMANDS`.

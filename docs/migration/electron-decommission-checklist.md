@@ -1,16 +1,13 @@
 # Electron Decommission Checklist: Gated on T-1 Host Validation
 
-**Status**: planning artifact. **Nothing in this document may be executed
-until T-1's Windows-host validation completes** (browser-driven visual
-walkthrough + real-model dictation on the Tauri host, see `review.md` T-1
-and the cutover criteria in `docs/migration/cutover-playbook.md`). This
-checklist exists so the future session executes a written plan instead of
-re-deriving one (E15 discipline: deletions recorded in
-`archive/deleted_files.txt`, one operation per line).
+**Status**: **EXECUTED 2026-09-17.** Electron source, electron-builder
+config, and the build.yml Electron packaging jobs were removed. This
+checklist is retained as the historical plan (E15 deletions recorded in
+`archive/deleted_files.txt`). Do not re-run the port-or-drop decisions
+against deleted files.
 
-**Direction** (ADR-0020): the Electron shell is being removed; Tauri becomes
-the main: and only, runtime. Electron is a behavioral REFERENCE during the
-migration, nothing more.
+**Direction** (ADR-0020): the Electron shell was removed; Tauri is the
+only runtime. Electron is no longer a behavioral reference in-tree.
 
 **Two crash-loop breaker files must NOT be merged** (C-PERSIST-4):
 `restart_history.json` (Electron-only, `client/src/main/python/relaunch-app.ts`)

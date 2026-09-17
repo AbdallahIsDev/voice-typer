@@ -2,11 +2,14 @@
 
 ## Status
 
-Accepted: migration in progress. Electron is retained intact as a reversible fallback until Tauri + Sidecar is proven and cut over on **all three supported platforms** (Windows, macOS, Linux). Cutover is per-platform, not all-at-once: Windows first, then macOS, then Linux, each gated on its own Phase 0 spike.
+Accepted → **cutover complete (2026-09-17)**. Electron was removed;
+Tauri v2 + Python sidecar is the sole desktop host on all supported
+platforms. Historical Electron notes below describe the migration
+contract as written; the Electron path is no longer in-tree.
 
 ## Date
 
-2026-07-13 (decision): 2026-07-14 (updated to Sidecar-only, actionable migration plan), 2026-07-16 (cross-platform rewrite: verified against `AbdallahIsDev/voice-typer` `main`, reconciled with ADRs 0003/0007/0008/0009/0011/0014/0015/0016/0017/0018/0019, expanded to cover Windows + macOS + Linux + Wayland + Apple Silicon + Linux ARM64).
+2026-07-13 (decision): 2026-07-14 (updated to Sidecar-only, actionable migration plan), 2026-07-16 (cross-platform rewrite: verified against `AbdallahIsDev/voice-typer` `main`, reconciled with ADRs 0003/0007/0008/0009/0011/0014/0015/0016/0017/0018/0019, expanded to cover Windows + macOS + Linux + Wayland + Apple Silicon + Linux ARM64). **2026-09-17: cutover note — Electron host removed; Tauri sole host.**
 
 ---
 
@@ -204,6 +207,9 @@ The plan runs **Windows → macOS → Linux** in sequence. Each platform has its
 - Enable the `single-instance` plugin so only one app instance runs. **On Windows, also remove the `VoiceTyperSingleInstance` Win32 mutex from `app.py` (locate by `class VoiceTyperSingleInstance`)** when running under Tauri: the Tauri plugin already provides the mutex, and double-locking would block the second-instance focus path.
 
 ### Phase 5: Validation & cutover (per platform)
+
+**COMPLETED 2026-09-17.** Electron removed; Tauri is the sole host.
+The steps below are the historical procedure that was executed.
 
 - Verify: one icon/install; UI never freezes (sidecar owns its own GIL); crash isolation works; prewarm still warms the cache; streaming unchanged; global hotkey + tray work.
 - Keep the Electron code path intact until satisfied; then make Tauri the default shipping app **for that platform**. Revert at any time by shipping the Electron build.

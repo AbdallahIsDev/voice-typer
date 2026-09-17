@@ -40,7 +40,7 @@ source ~/.cargo/env
 ```bash
 cd voice-typer
 
-# 1. Build the React renderer (shared between Electron + Tauri)
+# 1. Build the React renderer (Tauri renderer bundle)
 cd voice_typer/client
 npm install
 npm run build:renderer

@@ -33,84 +33,37 @@ process can connect to the IPC port without this token.
 
 ### Command Allowlist (SEC-019)
 
-The Electron main process enforces an allowlist of IPC commands. The renderer
-cannot invoke arbitrary commands: only the **73** commands listed in
-`ALLOWED_COMMANDS` (a `Set` defined at
-`voice_typer/client/src/main/allowed-commands.ts`) are forwarded to the Python backend.
-The authoritative count is enforced by CI (see
-`tests/test_security_doc_command_count.py`); update the count there if entries
-are added or removed. The Tauri Rust host enforces a mirror allowlist
-(`allowed_commands()` in `src-tauri/src/commands/sidecar_cmds.rs`); the Rust ↔ TS
-entry-level parity is asserted by `tests/test_rust_allowlist_parity.py`.
+The Tauri Rust host enforces an allowlist of IPC commands. The renderer
+cannot invoke arbitrary commands: only the **71** commands listed in
+`allowed_commands()` (defined in
+`src-tauri/src/commands/sidecar_cmds/allowlist.rs`) are forwarded to
+the Python backend. The authoritative count is enforced by CI (see
+`tests/test_security_doc_command_count.py` and
+`tests/test_ipc_command_parity.py`); update the count there if entries
+are added or removed.
 
-> The Python-side `_COMMAND_REGISTRY` in
-> `voice_typer/server/ipc/registry.py` (re-exported by
-> `ipc_server.py`) registers **75** handlers. Two of
-> those are intentionally absent from the renderer allowlist:
-> `tray_click` (a Rust-only command routed via `dispatch_inner` The
-> tray handler invokes it directly, bypassing the allowlist gate) and
-> `shutdown` (cooperative shutdown is sent via `shutdown_sidecar`
-> directly, NOT via the generic dispatch path). The remaining **73**
-> handlers are renderer-callable. The +2 host-only delta is asserted by
-> the `_HOST_ONLY_COMMANDS` frozenset in
-> `tests/test_security_doc_command_count.py`. (reconciliation
-> 2026-07-24: an earlier draft of this blockquote mentioned "78
-> handlers" + "17 stale entries" + "19 of the 78 handlers", that
-> framing was a leftover from the 78-entry registry. The 17
-> stale entries were deleted from all three sources of truth, the
-> Python `_COMMAND_REGISTRY`, the TS `ALLOWED_COMMANDS` set, and the
-> Rust `allowed_commands()` literal: in lockstep during, so
-> they no longer exist in any layer. The current counts are 75 Python
-> ↔ 73 TS ↔ 71 Rust, with the +2 host-only delta as the only
-> intentional divergence. `check_accessibility` was re-added on
-> 2026-08-10 (finding #919 part b), the Settings → Troubleshooting
-> UI now invokes it on macOS to surface the stale-grant `tccutil`
-> reset command: bumping the counts from 68/66/64; it was part of
-> the 17 removed in the cleanup pass. `transcribe_offline` was added
-> on 2026-08-13 by the runtime-pack split (master plan §7.4 —
-> slim core → worker offline-transcription request). On 2026-08-14,
-> the prewarm IPC surface (`get_prewarm_status`, `run_prewarm`,
-> `open_prewarm_log`) was retired across all 4 allowlists in lockstep
-> when prewarm became a worker startup phase (plan §6.2 P-1),
-> bringing the counts from 70/68/66 to 67/65/63; later the same day,
-> `get_prewarm_status` + `open_prewarm_log` were RESTORED in lockstep
-> (the About-page Cache Status card is a user-facing product feature —
-> plan §6.3 addendum) while `run_prewarm` stayed removed (its
-> standalone-prewarm subprocess machinery is gone), bringing the
-> counts to 69/67/65. `check_offline_pack_update` was added the same day by
-> the auto-update feature (docs/auto-update-feature.md), the
-> runtime-pack manifest check + consent-gated background download —
-> bringing the counts to 70/68/66. Later the same day, `run_prewarm`
-> was ALSO restored (plan §6.3 addendum 2nd half), re-implemented to
-> re-run the worker's warm phase in-process via
-> `prewarm.status.run_prewarm_now()` (warm_imports_for_worker on a
-> daemon thread + status-file refresh) instead of spawning the deleted
-> standalone-prewarm subprocess: bringing the counts to 71/69/67.
-> `test_vocabulary_correction` was added on 2026-08-15 (the Vocabulary
-> page's live-engine "Test this entry" panel), bringing the counts to
-> 72/70/68. `get_correction_usage` was added on 2026-08-16
-> (server-side per-correction usage tracking powering the Vocabulary
-> page's "used N×" and the Analytics corrections-applied rate) —
-> bringing the counts to 73/71/69. `microphone_test_read_audio` was added (mic-test chunked WAV transport under the 1 MiB IPC frame cap), bringing the counts to 74/72/70. `get_download_queue` was added on 2026-09-08 (Models download-queue mount hydration, read-only snapshot), bringing the counts to 75/73/71.)
-
-> **TS-only exceptions (`_TS_ONLY_EXCEPTIONS`):** Two commands are present
-> in the renderer TS `ALLOWED_COMMANDS` but intentionally absent from the
-> Rust host's `allowed_commands()` literal: `heartbeat` (watchdog
-> tick: the Rust WS-reader task sends this directly to the Python
-> backend; the renderer never dispatches it) and `relaunch_ack` (PERF-005
-> relaunch ack, the `relaunch_app` Tauri command sends this directly to
-> release the relaunch-wait event; the renderer never dispatches it).
-> Keeping these out of the Rust allowlist closes the attack surface where
-> a compromised renderer could `invoke('dispatch', {cmd:'heartbeat'})` to
-> spoof watchdog ticks and mask backend hangs, or
-> `invoke('dispatch', {cmd:'relaunch_ack'})` to prematurely release the
-> relaunch-wait event and cause a race. The +2 TS-only delta is asserted
-> by the `_TS_ONLY_EXCEPTIONS` frozenset in
-> `tests/test_security_doc_command_count.py`. When a TS-only command is
-> added or removed, this frozenset MUST be updated in the same PR, and
-> the rationale (why the Rust host dispatches it directly rather than
-> going through the generic `dispatch` path) MUST be documented as a
-> comment in the frozenset entry.
+> Electron main and the TCP transport are gone (ADR-0020 cutover). The
+> former TypeScript `ALLOWED_COMMANDS` Set is deleted with Electron
+> main. The remaining two-way contract is: Python
+> `_COMMAND_REGISTRY` (`voice_typer/server/ipc/registry.py`,
+> re-exported by `ipc_server.py`) registers **75** handlers; the Rust
+> renderer allowlist exposes **71** of them. Four registry commands are
+> intentionally absent from the Rust allowlist:
+>
+> - `tray_click` — Rust tray handler invokes via `dispatch_inner`
+>   (bypasses the renderer gate).
+> - `shutdown` — cooperative shutdown is host-supervised
+>   (`shutdown_sidecar` path), not a renderer dispatch.
+> - `heartbeat` — host heartbeat task sends this via `dispatch_inner`;
+>   a renderer-spoofable heartbeat would keep the watchdog alive after
+>   the WebView is killed.
+> - `relaunch_ack` — host relaunch listener sends this fire-and-forget;
+>   a renderer-spoofable ack would race `restart_app`'s wait event.
+>
+> The +4 host-delta is asserted by
+> `tests/test_ipc_command_parity.py::HOST_DISPATCHED_COMMANDS` and
+> mirrored in `_HOST_ONLY_OR_HOST_DISPATCHED` in
+> `tests/test_security_doc_command_count.py`.
 
 ### Secret Redaction (SEC-003)
 
@@ -160,8 +113,8 @@ SEC-018 model:
 5. **Lateral boundary.** Once authenticated, the Tauri `dispatch`
    command (in `src-tauri/capabilities/main-runtime.json` +
    `bubble-runtime.json`) scopes
-   `shell:allow-spawn` to the sidecar binary, mirroring the Electron
-   `ALLOWED_COMMANDS` lateral boundary on the TCP path.
+   `shell:allow-spawn` to the sidecar binary and enforces the Rust
+   `allowed_commands()` lateral boundary (SEC-019).
 
 The WS server only accepts a single authenticated connection at a time;
 any second connection that completes the handshake before the first

@@ -2,7 +2,10 @@
 
 ## Status
 
-Accepted: implemented in `ipc_server.py:_accept_tcp` / `_handle_tcp_connection`, in the Electron host at `voice_typer/client/src/main/python/tcp-connect.ts`, and in the Tauri host at `src-tauri/src/util.rs::generate_token` + `src-tauri/src/sidecar/ws.rs`.
+Accepted, **transport narrowed 2026-09-17**: the Electron TCP client was
+removed. Token auth remains on the Tauri WS path
+(`src-tauri/src/util.rs::generate_token` +
+`src-tauri/src/sidecar/ws.rs` + `voice_typer/server/sidecar_ws.py`).
 
 ## Date
 

@@ -71,13 +71,28 @@ One log per process, under the data directory: `%APPDATA%\voice-typer\voice-type
 
 ## Runtime Architecture
 
-Voice Typer runs on **two parallel runtime stacks** during the migration from Electron to Tauri v2:
+Voice Typer runs on a **single desktop host: Tauri v2 + Python sidecar**.
+The Electron host was removed on 2026-09-17 (ADR-0020 Phase 5 cutover;
+historical Electron path documented in
+[ADR-0020](docs/adr/0020-desktop-runtime-migration-analysis.md) and
+[docs/migration/](docs/migration/)).
 
-1. **Electron (current default shipping app)**, `voice_typer/client/src/main/index.ts` (Electron main process) spawns the Python backend as a child process and bridges IPC over a local TCP socket on `127.0.0.1:9876`. This is the app users install today from the [Releases page](https://github.com/AbdallahIsDev/voice-typer/releases).
+1. **Tauri v2 + Python sidecar (the shipping app)**, `src-tauri/src/main.rs`
+   is a Rust host that spawns the Python backend as a Nuitka-frozen sidecar
+   via Tauri's `externalBin` mechanism and bridges IPC over a localhost
+   WebSocket (the sidecar binds an ephemeral loopback port and announces it
+   on stdout; the host connects and authenticates with a bearer token). The
+   Rust host also spawns the runtime-pack worker exe
+   (`voice-typer-worker-<triple>`), a second Nuitka-frozen process that owns
+   the heavy offline-ASR stack; the sidecar talks to it over a dedicated
+   second WebSocket hop to serve the `transcribe_offline` command.
 
-2. **Tauri v2 + Python sidecar (in migration, not yet the default)**, `src-tauri/src/main.rs` is a Rust host that spawns the Python backend as a Nuitka-frozen sidecar via Tauri's `externalBin` mechanism and bridges IPC over a localhost WebSocket (the sidecar binds an ephemeral loopback port and announces it on stdout; the host connects and authenticates with a bearer token). The Rust host also spawns the runtime-pack worker exe (`voice-typer-worker-<triple>`), a second Nuitka-frozen process that owns the heavy offline-ASR stack; the sidecar talks to it over a dedicated second WebSocket hop to serve the `transcribe_offline` command. This stack is being developed per [ADR-0020](docs/adr/0020-desktop-runtime-migration-analysis.md).
-
-The Electron stack remains fully shippable as a **reversible fallback** until each platform's Tauri build is proven and cut over (Windows first → macOS → Linux, per [docs/migration/cutover-playbook.md](docs/migration/cutover-playbook.md)). The Tauri stack is **additive**. The Electron code is untouched and remains buildable, runnable, and shippable at every phase. The React renderer (`voice_typer/client/src/renderer/`) is **shared between both stacks**. The same bundle runs under Electron (via the preload `contextBridge`) and under Tauri (via `voice_typer/client/src/renderer/src/lib/tauri-bridge.ts`, which auto-detects the host at startup and installs the `window.python` / `window.bubble` / `window.window_` namespaces using Tauri's global `__TAURI__` API).
+The React renderer (`voice_typer/client/src/renderer/`) installs the
+`window.python` / `window.bubble` / `window.window_` namespaces through
+`voice_typer/client/src/renderer/src/lib/tauri-bridge.ts` using Tauri's
+global `__TAURI__` API. Installer production is
+[`.github/workflows/tauri-build.yml`](.github/workflows/tauri-build.yml)
+plus the per-platform `tauri-*-build.yml` workflows.
 
 ### Developer environment variables
 
@@ -109,7 +124,7 @@ No Python, no terminal, no commands needed.
 > defaults to showing a standard license wizard page only if one is
 > configured.  **Autostart is enabled by default** (the installer
 > creates a Windows Scheduled Task).  To disable autostart after
-> installation, open the Electron app (tray menu → **Open App**) and
+> installation, open the app (tray menu → **Open App**) and
 > turn off the **Launch at Login** toggle under Settings → General, or
 > delete the scheduled task in Task Scheduler.
 
@@ -264,7 +279,7 @@ The tray icon appears quickly on startup (cold import is measured in tens of mil
 
 ## Settings
 
-Open the Electron app from the tray menu → **Open App** to change the hotkey,
+Open the app from the tray menu → **Open App** to change the hotkey,
 microphone, model, start-on-login, and notifications. The Settings page
 exposes every configurable field with validation and inline help.
 
@@ -296,7 +311,7 @@ for every setting. Key categories:
 ### Tray Menu Structure
 
 The tray menu is intentionally minimal, most configuration lives in the
-Electron app. The actual menu (`build_menu_for_tray` in
+app. The actual menu (`build_menu_for_tray` in
 `voice_typer/server/tray_menu.py`) is:
 
 ```
@@ -316,7 +331,7 @@ Quit
 ```
 
 The dictation item's label switches to "Stop Dictation" while recording.
-There is no Hotkey submenu: hotkey selection lives in the Electron app's
+There is no Hotkey submenu: hotkey selection lives in the app's
 Settings page.
 
 ### Hotkey
@@ -386,15 +401,15 @@ Voice Typer monitors audio input during recording to detect microphone disconnec
 
 ### Silence Warning
 
-Uses variance-based analysis to detect when the microphone stops capturing audio. When silence exceeds the configured threshold (default 20s), a safety notification warns you to check your microphone. The warning repeats with exponential backoff (10s, 20s, 40s...) until audio resumes or recording stops. Configure from **Settings → Recording → Silence Warning** (Electron app → Settings).
+Uses variance-based analysis to detect when the microphone stops capturing audio. When silence exceeds the configured threshold (default 20s), a safety notification warns you to check your microphone. The warning repeats with exponential backoff (10s, 20s, 40s...) until audio resumes or recording stops. Configure from **Settings → Recording → Silence Warning** (app → Settings).
 
 ### Auto-Stop Timeout
 
-Recording automatically stops after a configurable silence period (default 2 minutes). This prevents runaway recordings if you walk away or forget to press the hotkey. Configure from **Settings → Recording → Auto-Stop Timeout** (Electron app → Settings).
+Recording automatically stops after a configurable silence period (default 2 minutes). This prevents runaway recordings if you walk away or forget to press the hotkey. Configure from **Settings → Recording → Auto-Stop Timeout** (app → Settings).
 
 ### Max Recording Duration
 
-Recording automatically stops after reaching a maximum time limit. Configure from **Settings → Recording → Max Recording** (Electron app → Settings).
+Recording automatically stops after reaching a maximum time limit. Configure from **Settings → Recording → Max Recording** (app → Settings).
 
 All three features fire **safety notifications** that bypass the notification toggle. You will always be alerted when recording stops due to silence or max duration.
 
@@ -403,11 +418,11 @@ All three features fire **safety notifications** that bypass the notification to
 Notifications are split into two categories:
 
 - **Safety alerts** (silence warnings, auto-stop, max duration), always fire regardless of notification settings. You will never miss a safety-critical event.
-- **Dictation notifications** (transcription complete, errors, clipboard status), controlled by the **Dictation Notifications** toggle under **Settings → General** (Electron app → Settings).
+- **Dictation notifications** (transcription complete, errors, clipboard status), controlled by the **Dictation Notifications** toggle under **Settings → General** (app → Settings).
 
 ## Microphone Selection
 
-Microphone selection lives in the Electron app's **Microphone** page
+Microphone selection lives in the app's **Microphone** page
 (open the tray menu → **Open App** → Microphone). The page lists every
 input device reported by PortAudio, shows a live level meter, and
 remembers your selection across restarts.
@@ -425,7 +440,7 @@ python -c "import sounddevice as sd; [print(i, d['name'], sd.query_hostapis(d['h
 
 ## Autostart
 
-Enable or disable from **Settings → General → Launch at Login** (Electron app → Settings).
+Enable or disable from **Settings → General → Launch at Login** (app → Settings).
 
 - **Windows**: registers itself in `HKCU\...\Run` using `pythonw.exe` (no console window).
 - **macOS**: installs a `LaunchAgents` plist in `~/Library/LaunchAgents/`.
@@ -518,7 +533,7 @@ voice_typer/
 │   ├── clipboard/     # Clipboard copy + safe auto-paste (package: manager, linux, windows; terminal-aware: Shift+Insert)
 │   ├── hotkeys/        # Hotkey backend abstraction package (Win32 native / pynput / Wayland fallback)
 │   ├── hotkey_dispatcher.py  # Owns the 3 hotkey backends (dictation / ESC / repaste)
-│   ├── ipc_server.py   # IPC server for the desktop client: JSON-over-TCP (port 9876) under Electron; WebSocket (--ws) as the Tauri sidecar
+│   ├── ipc_server.py   # IPC server for the desktop client: WebSocket (--ws) as the Tauri sidecar
 │   ├── server_platform/  # OS-specific autostart adapters + mic listing + desktop shortcut (package)
 │   ├── tray.py         # System tray icon (pystray) + dynamic menu
 │   ├── tray_menu.py    # Tray menu builder (extracted from tray.py)
@@ -538,13 +553,10 @@ voice_typer/
 │   ├── prewarm_scheduler_posix.py  # POSIX pre-warm scheduling (LaunchAgent / systemd user timer)
 │   ├── platform_utils.py  # Platform detection helpers (is_windows / is_macos / is_linux)
 │   └── corrections.json  # Bundled misspellings, phrase corrections (canonical path: voice_typer/server/corrections.json)
-├── client/             # Electron frontend (TypeScript/React/Vite)
-│   ├── src/main/       # Electron main process, window lifecycle, IPC bridge
+├── client/             # React frontend (TypeScript/React/Vite, Tauri host)
 │   ├── src/renderer/   # React renderer, pages (Home, Settings, Models, History, ...)
-│   ├── src/preload/    # Context bridge (IPC channel whitelists)
-│   ├── electron.vite.config.ts  # electron-vite build config
-│   ├── electron-builder.yml     # Distribution config (NSIS / DMG / AppImage)
-│   ├── package.json    # Node deps + scripts (dev / build / lint / test)
+│   ├── vite.tauri.config.ts  # Vite build config (Tauri renderer)
+│   ├── package.json    # Node deps + scripts (dev / tauri:dev / build / lint / test)
 │   └── vite.config.ts  # Vite aliases (shadcn CLI compatibility shim)
 └── tests/              # Pytest suite (E2E + per-module unit tests)
 ```
@@ -685,25 +697,25 @@ The Windows native binary **does** suppress the Caps Lock keydown event so the O
 
 ### No speech detected
 
-- Check the selected microphone in the Electron app (tray menu → **Open App** → Microphone).
+- Check the selected microphone in the app (tray menu → **Open App** → Microphone).
 - Watch the log line `RMS`, `peak`, and `silence_pct`. Near-zero RMS usually means the wrong mic or muted input.
 - If audio is quiet but real, move closer to the mic or choose the non-virtual physical microphone.
 
 ### Wrong microphone
 
-- Use the Electron app's Microphone page (tray menu → **Open App** → Microphone). Duplicate names show host APIs where needed.
+- Use the app's Microphone page (tray menu → **Open App** → Microphone). Duplicate names show host APIs where needed.
 - If one host API fails, Voice Typer can fall back to another entry with the same physical microphone name and persist the working device index.
 
 ### Silence warnings during recording
 
 - If you get silence warnings while actively speaking, your microphone may have a high noise floor or the silence threshold is too aggressive.
-- Adjust **Settings → Recording → Silence Warning** (Electron app → Settings) to a higher value (e.g., 15s or 20s).
+- Adjust **Settings → Recording → Silence Warning** (app → Settings) to a higher value (e.g., 15s or 20s).
 - Check that the correct microphone is selected and is not being used by another application.
 
 ### Recording stops unexpectedly
 
 - Check if **Auto-Stop Timeout** or **Max Recording** triggered. Both fire safety notifications.
-- Adjust these from **Settings → Recording** (Electron app → Settings).
+- Adjust these from **Settings → Recording** (app → Settings).
 
 ### Slow stop after pressing the hotkey
 
@@ -720,13 +732,13 @@ The Windows native binary **does** suppress the Caps Lock keydown event so the O
 ### Autostart
 
 - Install the package first: `pip install .`
-- Enable from **Settings → General → Launch at Login** (Electron app → Settings).
+- Enable from **Settings → General → Launch at Login** (app → Settings).
 - Windows uses `pythonw.exe -m voice_typer` when available so no console window stays open.
 
 ### Settings window
 
 - If the settings window does not appear, check the log for errors.
-- The window is the Electron app's Settings page (React + shadcn/ui), organized into sections (General, Recording, Audio, Models, AI Enhancement, Privacy, Theme). Open it via the tray menu → **Open App** → Settings.
+- The window is the app's Settings page (React + shadcn/ui), organized into sections (General, Recording, Audio, Models, AI Enhancement, Privacy, Theme). Open it via the tray menu → **Open App** → Settings.
 - Cancelling discards changes; Save validates and applies them immediately.
 
 ### Text corrections
