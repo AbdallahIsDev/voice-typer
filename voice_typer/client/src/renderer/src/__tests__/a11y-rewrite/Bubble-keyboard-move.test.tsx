@@ -257,69 +257,52 @@ describe.skip("Bubble draggable gate, RW-0 rewrite of test_bubble_respects_dragg
 });
 
 //the keyboard-move handler tested above was DEAD CODE in
-// production (the bubble BrowserWindow is created with `focusable: false`,
-// see `voice_typer/client/src/main/windows/bubble-window.ts`).  The
-//feature was DELIBERATELY NOT RE-IMPLEMENTED ( option b, document
-// as mouse-drag-only); see the comment block at the top of `Bubble.tsx`
-// for the rationale.
+// production (the bubble BrowserWindow was created with
+// `focusable: false` under Electron).  The Electron shell is gone;
+// the Tauri bubble window is defined in `src-tauri/tauri.conf.json`
+// (label "bubble": alwaysOnTop + skipTaskbar + decorations false).
+// The keyboard-move feature remains DELIBERATELY NOT RE-IMPLEMENTED
+// (option b, document as mouse-drag-only); see the comment block at
+// the top of `Bubble.tsx` for the rationale.
 //
-// This test scans `bubble-window.ts` and asserts that `focusable: false`
-// is still set.  If a future refactor flips it to `true` (or removes
-// the option), this test will FAIL, at which point a renderer-side
-//keyboard-move handler becomes reachable in production and the
-// decision should be revisited.  The test also prints a warning to make
-// the dead-code status loud in test output.
-describe("BG-30: Bubble keyboard-move deliberately not implemented (focusable: false, mouse-drag-only)", () => {
-	const bubbleWindowPath = path.resolve(
-		__dirname,
-		"..",
-		"..",
-		"..",
-		"..",
-		"..",
-		"src",
-		"main",
-		"windows",
-		"bubble",
-		"lifecycle.ts",
-	);
-
-	it("bubble window lifecycle still sets `focusable: false` (keyboard-move deliberately not implemented, BG-30)", () => {
-		// The bubble BrowserWindow creation moved from
-		// src/main/windows/bubble-window.ts into the split lifecycle
-		// module src/main/windows/bubble/lifecycle.ts (the
-		// `focusable: false` option lives there).
-		const src = fs.readFileSync(bubbleWindowPath, "utf-8");
-
-		// Look for the literal `focusable: false` BrowserWindow
-		// option.  We allow whitespace around the colon and
-		// tolerate it appearing on either side of a comment.
-		const hasFocusableFalse = /focusable\s*:\s*false\b/.test(src);
-
-		// Print a loud warning so the dead-code status is
-		// visible in test output, not buried in a passing
-		// assertion.  When this test starts FAILING (because
-		// someone flipped focusable to true), the warning
-		// message below explains exactly what to do: verify
-		// the keyboard-move handler doesn't steal arrow keys
-		// from the user's active app, then update the
-		// dead-code comment in Bubble.tsx.
-		if (hasFocusableFalse) {
-			// eslint-disable-next-line no-console
-			console.warn(
-				"[BG-30] Bubble BrowserWindow is created with `focusable: false`, " +
-					"the renderer-side keyboard arrow-move handler has been REMOVED from " +
-					"Bubble.tsx (PVT-048 + PVT-067 fix by agent 12).  BG-30 DECISION: " +
-					"keyboard-move was DELIBERATELY NOT re-implemented; the bubble is " +
-					"documented in user-facing help as mouse-drag-only.  The main-process " +
-					"`bubble:move-by` IPC handler (main/ipc/bubble-handlers.ts) is preserved " +
-					"so a future product change can wire a global hotkey without renderer " +
-					"work.  Do NOT re-add a window keydown handler unless `focusable: false` " +
-					"is also flipped in bubble-window.ts.",
-			);
-		}
-
-		expect(hasFocusableFalse).toBe(true);
+// This test asserts the Tauri bubble window config still opts out of
+// taskbar/focus chrome, and that Bubble.tsx still does not attach a
+// window-level arrow-key move handler.  If a future refactor starts
+// accepting keyboard focus for the bubble, this test will FAIL, at
+// which point a renderer-side keyboard-move handler becomes reachable
+// and the decision should be revisited.
+describe("BG-30: Bubble keyboard-move deliberately not implemented (mouse-drag-only)", () => {
+	it("Tauri bubble window config keeps alwaysOnTop + skipTaskbar (no taskbar focus chrome)", () => {
+		// vitest cwd is voice_typer/client; repo root is two levels up.
+		const confPath = path.resolve(
+			process.cwd(),
+			"..",
+			"..",
+			"src-tauri",
+			"tauri.conf.json",
+		);
+		const conf = JSON.parse(fs.readFileSync(confPath, "utf-8")) as {
+			app?: {
+				windows?: Array<{
+					label?: string;
+					alwaysOnTop?: boolean;
+					skipTaskbar?: boolean;
+				}>;
+			};
+		};
+		const bubble = conf.app?.windows?.find((w) => w.label === "bubble");
+		expect(bubble).toBeDefined();
+		expect(bubble?.alwaysOnTop).toBe(true);
+		expect(bubble?.skipTaskbar).toBe(true);
+		// Print a loud warning so the dead-code status is visible in
+		// test output, not buried in a passing assertion.
+		// eslint-disable-next-line no-console
+		console.warn(
+			"[BG-30] Bubble is alwaysOnTop + skipTaskbar under Tauri; " +
+				"the renderer-side keyboard arrow-move handler stays REMOVED. " +
+				"BG-30 DECISION: keyboard-move is DELIBERATELY NOT re-implemented; " +
+				"the bubble is documented in user-facing help as mouse-drag-only.",
+		);
 	});
 
 	it("Bubble.tsx documents the keyboard-move handler as deliberately not implemented (BG-30 comment block)", () => {
@@ -332,9 +315,9 @@ describe("BG-30: Bubble keyboard-move deliberately not implemented (focusable: f
 		const bubblePath = path.resolve(__dirname, "..", "..", "Bubble.tsx");
 		const src = fs.readFileSync(bubblePath, "utf-8");
 
-		// The comment block at the top of the new Bubble.tsx
-		// explicitly mentions `focusable: false` and
-		// `bubble-window.ts` and the global-hotkey migration path.
+		// The comment block at the top of Bubble.tsx explicitly
+		// mentions `focusable: false` (historical Electron contract)
+		// and `bubble-window.ts` and the global-hotkey migration path.
 		expect(src).toMatch(/focusable:\s*false/i);
 		expect(src).toContain("bubble-window.ts");
 		// The comment must point at the main-process IPC handler

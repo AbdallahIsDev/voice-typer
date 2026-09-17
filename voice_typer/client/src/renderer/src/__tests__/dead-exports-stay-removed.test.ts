@@ -53,10 +53,6 @@ function readRenderer(relPath: string): string {
 	return readFileSync(resolve(RENDERER_SRC, relPath), "utf8");
 }
 
-function readMain(relPath: string): string {
-	return readFileSync(resolve(CLIENT_SRC, "main", relPath), "utf8");
-}
-
 describe("dead exports stay removed, renderer hooks/components", () => {
 	it("useModelDownload has no installDeps flow (phantom install_parakeet_deps IPC)", () => {
 		const src = readRenderer("hooks/models/useModelDownload.ts");
@@ -87,11 +83,10 @@ describe("dead exports stay removed, renderer hooks/components", () => {
 	});
 });
 
-describe("dead exports stay removed, main process + Rust host", () => {
-	it("tray_available has no refreshTrayAvailableCache export", () => {
-		const src = readMain("tray_available.ts");
-		expect(src).not.toContain("refreshTrayAvailableCache");
-	});
+describe("dead exports stay removed, Rust host", () => {
+	// NOTE: the Electron main-process tree (src/main, including
+	// tray_available.ts / refreshTrayAvailableCache) was deleted with
+	// the Electron shell; that assertion is gone with it.
 
 	it("export.rs has no allocation-returning csv_escape twin (production uses csv_escape_into)", () => {
 		const src = readFileSync(

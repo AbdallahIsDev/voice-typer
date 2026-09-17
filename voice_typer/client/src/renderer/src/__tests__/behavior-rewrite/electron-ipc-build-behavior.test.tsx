@@ -1,19 +1,18 @@
 /**
  *  vitest rewrite, behavioral tests for renderer TS source files
  * that were previously covered by string-pattern Python tests in
- * `tests/test_electron_ipc_and_build.py`.
+ * `tests/test_electron_ipc_and_build.py` (Electron shell removed).
  *
  * The Python file is the LARGEST of the 5  files (90 tests).
  * Sections 1–4 below cover the original PORT candidates that read
  * renderer TS/TSX source files and asserted on string patterns.
  *
- * Sections 5–13 extend the rewrite to cover the remaining
+ * Sections 5–12 extend the rewrite to cover the remaining
  * string-pattern tests in the same Python file: build-config /
  * project-metadata invariants read via Node.js `fs` (package.json,
- * electron-builder.yml, voice-typer.spec, pyproject.toml,
+ * voice-typer.spec, pyproject.toml,
  * .github/workflows/build.yml, CHANGELOG.md, standard project files,
- * generate-icons.mjs, voice_typer/__init__.py, and the
- * `ALLOWED_COMMANDS` set inside src/main/index.ts).  These are not
+ * generate-icons.mjs, voice_typer/__init__.py).  These are not
  * React-component behavior tests, they are project-metadata
  * invariants, but they CAN run in vitest (Node.js `fs` is available
  * even under the jsdom environment), so porting them keeps all
@@ -45,10 +44,6 @@
  *   - TestIconsScriptPutsProjectVenvFirst::test_legacy_venv_path_is_last_resort
  *   - TestIconScriptFallsBackAcrossPythonPaths::test_script_has_fallback_chain
  *   - TestIconScriptRenamesRootToClientDir::test_no_confusing_root_variable
- *
- * electron-builder.yml (Section 7):
- *   - TestElectronBuilderConfigHasSigningAndPublish::test_has_publish_config
- *   - TestElectronBuilderConfigHasSigningAndPublish::test_has_code_signing_config
  *
  * voice-typer.spec (Section 8):
  *   - TestPyinstallerSpecHasAsrHiddenImports::test_has_parakeet_engine
@@ -87,30 +82,9 @@
  *   - TestVersionReadsFromPackageMetadata::test_sync_versions_script_exists
  *   - TestChangelogHasCurrentTestCount::test_changelog_has_current_count
  *
- * ALLOWED_COMMANDS in src/main/index.ts (Section 13):
- *   - TestAllowlistCorrectness::test_quit_app_in_allowlist
- *   - TestAllowlistCorrectness::test_restart_app_in_allowlist
- *   - TestAllowlistCorrectness::test_dead_quit_not_in_allowlist
- *   - TestAllowlistCorrectness::test_dead_restart_not_in_allowlist
- *   - TestAllowlistCorrectness::test_dead_save_config_not_in_allowlist
- *   - TestAllowlistCorrectness::test_dead_save_vocabulary_with_diff_not_in_allowlist
- *   - TestAllowlistCorrectness::test_dead_repaste_last_not_in_allowlist
- *   - TestAllowlistCorrectness::test_dead_complete_onboarding_not_in_allowlist
- *
- * KEEP in Python, REQUIRES-ELECTRON-RUNNER (behavioral version needs
- * real Electron main process; jsdom cannot load `src/main/index.ts` or
- * `src/preload/index.ts` because they import `electron` and `node:*`):
- *   - TestElectronExposesDataExportHandlers::test_main_has_templates_export_handler
- *   - TestElectronExposesDataExportHandlers::test_main_has_config_export_handler
- *   - TestElectronExposesDataExportHandlers::test_preload_exposes_export_templates
- *   - TestElectronExposesDataExportHandlers::test_history_export_still_present
- *   - TestElectronExposesDataExportHandlers::test_vocabulary_export_still_present
- *
  * KEEP in Python, REQUIRES-PYTHON-RUNNER (tests import Python modules
  * or introspect Python source via `inspect.getsource`; out of scope
  * for a TS-string rewrite):
- *   - TestAllowlistCorrectness::test_allowlist_matches_server_commands
- *     (cross-validates main allowlist against `voice_typer/server/ipc_server.py`)
  *   - TestSetConfigRejectsSensitiveAttrs::test_rejects_combined_sensitive_payload
  *   - TestUnknownIPCCommandCode::test_unknown_command_payload_has_code_field
  *   - TestEntryPointImportable::{test_ipc_server_main_importable,
@@ -934,47 +908,6 @@ describe("generate-icons.mjs renames root → clientDir (rewrite of TestIconScri
 });
 
 // ────────────────────────────────────────────────────────────────────
-// Section 7: electron-builder.yml
-// ────────────────────────────────────────────────────────────────────
-//
-// Ports:
-//   - TestElectronBuilderConfigHasSigningAndPublish (2 tests)
-//
-// We read the YAML as plain text and assert on substring presence
-// (same as the Python test; no YAML parser is installed, see
-// worklog for the documented `js-yaml` follow-up).
-
-const ELECTRON_BUILDER_PATH = resolve(CLIENT_DIR, "electron-builder.yml");
-
-function readElectronBuilderYml(): string {
-	return readFileSync(ELECTRON_BUILDER_PATH, "utf-8");
-}
-
-describe("electron-builder.yml has signing + publish (rewrite of TestElectronBuilderConfigHasSigningAndPublish)", () => {
-	it("does NOT declare a live GitHub publish provider (dead config removed)", () => {
-		// S1-CR-148 / S5-CR-51 deliberately removed the `publish: github`
-		// block from electron-builder.yml: it was dead config, no
-		// `electron-updater` integration exists on the Electron path and
-		// the Tauri path uses `tauri-plugin-updater` instead. The removal
-		// is documented in the config header. Assert BOTH halves: no live
-		// provider stanza (a regression that silently re-adds it without
-		// wiring electron-updater would be caught) AND the removal
-		// rationale comment is still present (so maintainers don't
-		// "helpfully" re-add it).
-		const yml = readElectronBuilderYml();
-		expect(yml).not.toMatch(/^publish:\s*$/m);
-		expect(yml).not.toContain("provider: github");
-		expect(yml).toContain("dead config");
-	});
-
-	it("declares signAndEditExecutable + notarize", () => {
-		const yml = readElectronBuilderYml();
-		expect(yml).toContain("signAndEditExecutable");
-		expect(yml).toContain("notarize");
-	});
-});
-
-// ────────────────────────────────────────────────────────────────────
 // Section 8: voice-typer.spec (PyInstaller)
 // ────────────────────────────────────────────────────────────────────
 //
@@ -1119,18 +1052,14 @@ describe("CI verifies version sync (rewrite of TestCiVerifiesVersionSync)", () =
 		expect(readCiWorkflow()).toContain("version-check");
 	});
 
-	it("verifies tag matches installer version via package.json read in CI", () => {
-		// The CI workflow reads the version out of voice_typer/client/package.json
-		// and compares it against the git tag ($tagVersion vs $installerVersion).
-		// The previous NSIS-based flow used the ``MyAppVersion`` preprocessor
-		// define; the current PowerShell-based flow uses a ``$installerVersion``
-		// variable populated from ``ConvertFrom-Json``. Both serve the same
-		// purpose (block a tag↔installer version mismatch), so accepting either
-		// token keeps the test resilient to the CI's shell choice.
+	it("version-check job runs sync_versions.py --check", () => {
+		// The Electron-era `MyAppVersion` / `$installerVersion` NSIS
+		// tokens are gone with electron-builder. The current CI gate is
+		// `python scripts/build/sync_versions.py --check` inside the
+		// `version-check` job (see .github/workflows/build.yml).
 		const ci = readCiWorkflow();
-		const hasVersionSync =
-			ci.includes("MyAppVersion") || ci.includes("installerVersion");
-		expect(hasVersionSync).toBe(true);
+		expect(ci).toContain("sync_versions.py");
+		expect(ci).toContain("--check");
 	});
 });
 
@@ -1216,103 +1145,5 @@ describe("CHANGELOG test count is current (rewrite of test_changelog_has_current
 	it("CHANGELOG.md does NOT contain the stale '1127 tests passing' line", () => {
 		const src = readFileSync(CHANGELOG_PATH, "utf-8");
 		expect(src).not.toContain("1127 tests passing");
-	});
-});
-
-// ────────────────────────────────────────────────────────────────────
-// Section 13: ALLOWED_COMMANDS in src/main/allowed-commands.ts
-// ────────────────────────────────────────────────────────────────────
-//
-// Ports (8 of 9 TestAllowlistCorrectness tests):
-//   - test_quit_app_in_allowlist
-//   - test_restart_app_in_allowlist
-//   - test_dead_quit_not_in_allowlist
-//   - test_dead_restart_not_in_allowlist
-//   - test_dead_save_config_not_in_allowlist
-//   - test_dead_save_vocabulary_with_diff_not_in_allowlist
-//   - test_dead_repaste_last_not_in_allowlist
-//   - test_dead_complete_onboarding_not_in_allowlist
-//
-// The 9th test (`test_allowlist_matches_server_commands`) cross-validates
-// the main allowlist against `voice_typer/server/ipc_server.py`, that
-// requires reading Python source AND matching it against the TS source,
-// which is out of scope for a TS-string rewrite.  It stays in Python
-// with a REQUIRES-PYTHON-RUNNER comment.
-//
-// R6-F10: the canonical ALLOWED_COMMANDS declaration was moved from
-// `src/main/index.ts` (inline) into its own dependency-free module at
-// `src/main/allowed-commands.ts` to break a circular-import cycle
-// (`index.ts` → `python/` → `send-to-python.ts` → `index.ts`). The
-// test reads the canonical declaration so it stays in sync with the
-//file the Rust defense-in-depth gate () and the Python parity
-// test (`tests/test_security_doc_command_count.py`) both reference.
-//
-// We extract the ALLOWED_COMMANDS set by slicing the source between
-// `ALLOWED_COMMANDS = new Set([` and the closing `]);`, same logic
-// as the Python test, then regex-match the quoted entries.
-
-const ALLOWED_COMMANDS_PATH = resolve(
-	CLIENT_DIR,
-	"src",
-	"main",
-	"allowed-commands.ts",
-);
-
-function readAllowlistEntries(): Set<string> {
-	const src = readFileSync(ALLOWED_COMMANDS_PATH, "utf-8");
-	const start = src.indexOf("ALLOWED_COMMANDS = new Set(");
-	expect(start).not.toBe(-1);
-	const end = src.indexOf("]);", start);
-	expect(end).not.toBe(-1);
-	const block = src.slice(start, end);
-	const matches = block.matchAll(/"([a-z_]+)"/g);
-	const entries = new Set<string>();
-	for (const m of matches) {
-		// RegExpMatchArray indexing is `string | undefined` under
-		// `noUncheckedIndexedAccess`; the regex captures a group so
-		// guard + fallback keeps the Set happy.
-		const captured = m[1];
-		if (captured !== undefined) entries.add(captured);
-	}
-	return entries;
-}
-
-describe("ALLOWED_COMMANDS in src/main/allowed-commands.ts (rewrite of TestAllowlistCorrectness, 8 of 9 tests)", () => {
-	it("includes quit_app (rewrite of test_quit_app_in_allowlist)", () => {
-		expect(readAllowlistEntries().has("quit_app")).toBe(true);
-	});
-
-	it("includes restart_app (rewrite of test_restart_app_in_allowlist)", () => {
-		expect(readAllowlistEntries().has("restart_app")).toBe(true);
-	});
-
-	it("does NOT include the dead `quit` alias (rewrite of test_dead_quit_not_in_allowlist)", () => {
-		expect(readAllowlistEntries().has("quit")).toBe(false);
-	});
-
-	it("does NOT include the dead `restart` alias (rewrite of test_dead_restart_not_in_allowlist)", () => {
-		expect(readAllowlistEntries().has("restart")).toBe(false);
-	});
-
-	it("does NOT include the dead `save_config` alias (rewrite of test_dead_save_config_not_in_allowlist)", () => {
-		expect(readAllowlistEntries().has("save_config")).toBe(false);
-	});
-
-	it("does NOT include the dead `save_vocabulary_with_diff` alias (rewrite of test_dead_save_vocabulary_with_diff_not_in_allowlist)", () => {
-		expect(readAllowlistEntries().has("save_vocabulary_with_diff")).toBe(false);
-	});
-
-	it("includes the live `repaste_last` command (re-added per UX-23)", () => {
-		//`repaste_last` was previously in the  "dead commands"
-		// removal list because it was only invoked via the tray hotkey
-		//callback, not as an IPC command.  wired the renderer's
-		// "Re-paste" button (Home.tsx) to call it via the IPC bridge, so
-		// it was re-added to the allowlist, it is no longer dead.
-		//See allowed-commands.ts § for the full rationale.
-		expect(readAllowlistEntries().has("repaste_last")).toBe(true);
-	});
-
-	it("does NOT include the dead `complete_onboarding` alias (rewrite of test_dead_complete_onboarding_not_in_allowlist)", () => {
-		expect(readAllowlistEntries().has("complete_onboarding")).toBe(false);
 	});
 });

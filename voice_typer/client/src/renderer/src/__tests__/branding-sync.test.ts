@@ -1,14 +1,15 @@
 /**
- * BRAND-001 / Fix #25-1: assert that APP_NAME stays in sync across all
- * three branding modules.
+ * BRAND-001 / Fix #25-1: assert that APP_NAME stays in sync across the
+ * remaining branding modules (renderer TS + Python server).
  *
  * The renderer branding.ts is imported directly (it lives inside the
- * renderer's tsconfig include). The main branding.ts and the Python
- * branding.py live OUTSIDE the renderer's tsconfig include (they're
- * compiled under tsconfig.node.json and the Python toolchain
- * respectively), so we read them at test-time with `node:fs` and
- * regex out the APP_NAME literal, mirroring the approach used by
- * `scripts/check_branding.py`.
+ * renderer's tsconfig include). The Python branding.py lives OUTSIDE
+ * the renderer's tsconfig include, so we read it at test-time with
+ * `node:fs` and regex out the APP_NAME literal, mirroring the approach
+ * used by `scripts/check_branding.py`.
+ *
+ * (The Electron main-process `src/main/branding.ts` was deleted with
+ * the Electron shell; parity is now renderer ↔ server only.)
  *
  * Python-side parity: a separate Python test (e.g. in
  * `voice_typer/server/tests/`) would need to import `branding.py` and
@@ -39,14 +40,6 @@ import { APP_NAME as RENDERER_APP_NAME } from "@/branding";
 //   ../../../../../.. → .../voice-typer  (project root)
 const REPO_ROOT = path.resolve(__dirname, "..", "..", "..", "..", "..", "..");
 
-const MAIN_BRANDING_PATH = path.resolve(
-	REPO_ROOT,
-	"voice_typer",
-	"client",
-	"src",
-	"main",
-	"branding.ts",
-);
 const SERVER_BRANDING_PATH = path.resolve(
 	REPO_ROOT,
 	"voice_typer",
@@ -82,13 +75,6 @@ describe("branding sync (BRAND-001)", () => {
 		expect(RENDERER_APP_NAME.length).toBeGreaterThan(0);
 	});
 
-	it("main branding.ts exists and exports the same APP_NAME as renderer", () => {
-		expect(fs.existsSync(MAIN_BRANDING_PATH)).toBe(true);
-		const mainContent = fs.readFileSync(MAIN_BRANDING_PATH, "utf-8");
-		const mainAppName = extractAppName(mainContent, MAIN_BRANDING_PATH);
-		expect(mainAppName).toBe(RENDERER_APP_NAME);
-	});
-
 	it("server branding.py exists and exports the same APP_NAME as renderer", () => {
 		expect(fs.existsSync(SERVER_BRANDING_PATH)).toBe(true);
 		const serverContent = fs.readFileSync(SERVER_BRANDING_PATH, "utf-8");
@@ -96,14 +82,12 @@ describe("branding sync (BRAND-001)", () => {
 		expect(serverAppName).toBe(RENDERER_APP_NAME);
 	});
 
-	it("all three APP_NAME values are identical (cross-language parity)", () => {
-		const mainContent = fs.readFileSync(MAIN_BRANDING_PATH, "utf-8");
+	it("renderer and server APP_NAME values are identical (cross-language parity)", () => {
 		const serverContent = fs.readFileSync(SERVER_BRANDING_PATH, "utf-8");
-		const mainAppName = extractAppName(mainContent, MAIN_BRANDING_PATH);
 		const serverAppName = extractAppName(serverContent, SERVER_BRANDING_PATH);
 
-		// A Set with one entry means all three values are identical.
-		const unique = new Set([RENDERER_APP_NAME, mainAppName, serverAppName]);
+		// A Set with one entry means both values are identical.
+		const unique = new Set([RENDERER_APP_NAME, serverAppName]);
 		expect(unique.size).toBe(1);
 		expect([...unique][0]).toBe(RENDERER_APP_NAME);
 	});

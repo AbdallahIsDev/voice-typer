@@ -1,11 +1,10 @@
 {
 	"name": "voice-typer-desktop",
 	"version": "1.0.0",
-	"description": "Electron shell for Voice Typer",
+	"description": "Tauri desktop shell for Voice Typer",
 	"private": true,
-	"main": "./out/main/index.js",
 	"//engines_note": "Node 24 is the CURRENT TARGET. Do NOT downgrade to Node 20 (deprecated on GitHub Actions 2025-09-19). If a newer LTS is available, bump this comment AND the engines.node AND .nvmrc AND all .github/workflows/*.yml files together. Node 20 deprecation also causes [DEP0040] punycode DeprecationWarning noise in CI logs.",
-	"//overrides_note": "electron-winstaller (and the rimraf@2 + temp@0.9.4 it pulls, both CJS-only) is NOT repo code \u2014 it is an auto-installed PEER dependency of electron-builder (electron-builder-squirrel-windows) that backs the Squirrel.Windows target, which this project does not use (electron-builder.yml win.target = nsis only). npm 7+ auto-installs electron-builder's peerDependencies, so the chain stays in the tree even though it is inert at build time; the allowScripts entry and the overrides below keep its install scripts benign and its vulnerable transitive deps neutralized. As of 2026-08-04, `npm audit` reports 0 vulnerabilities after overrides (was 6: 4 high, 2 moderate \u2014 all in dev-time transitive chains). Runtime renderer bundle is clean. Track: https://github.com/electron-userland/electron-builder/issues for brace-expansion fix.",
+	"//overrides_note": "Force-upgrades for transitive deps pulled by the remaining vite/tailwind/vitest/shadcn tooling chain. As of 2026-08-04, `npm audit` reports 0 vulnerabilities after overrides. Electron-only overrides (@electron/asar, @electron/get, undici, @xmldom/xmldom, js-yaml) were removed with the Electron shell.",
 	"engines": {
 		"node": ">=24"
 	},
@@ -17,7 +16,7 @@
 		"dictation",
 		"accessibility",
 		"offline",
-		"electron",
+		"tauri",
 		"windows"
 	],
 	"author": "Abdallah IsDev",
@@ -27,13 +26,10 @@
 		"#utils": "./src/renderer/src/lib/utils.ts"
 	},
 	"scripts": {
-		"dev": "electron-vite dev",
+		"dev": "node scripts/tauri-dev.mjs",
 		"tauri:dev": "node scripts/tauri-dev.mjs",
-		"build": "electron-vite build",
-		"build:renderer": "electron-vite build --config electron.vite.renderer.ts",
-		"build:main": "electron-vite build --config electron.vite.main.ts",
-		"build:dist:electron": "node scripts/generate-icons.mjs && electron-vite build && electron-builder",
-		"start": "electron-vite preview",
+		"build": "vite build --config vite.tauri.config.ts",
+		"build:renderer": "vite build --config vite.tauri.config.ts",
 		"python:dev": "python3 -m voice_typer.server.ipc_server || python -m voice_typer.server.ipc_server",
 		"lint": "biome check .",
 		"lint:fix": "biome check --write .",
@@ -56,38 +52,27 @@
 		"storybook": "storybook dev -p 6006",
 		"build-storybook": "storybook build"
 	},
-	"//electron_vite_note": "electron-vite is pinned to 6.0.0-beta.1 because the stable latest (5.0.0) peer-requires vite ^5.0.0 || ^6.0.0 || ^7.0.0, which is incompatible with this project's vite ^8.1.4 (npm install --package-lock-only fails with ERESOLVE). electron-vite@6.0.0-beta.1 peer-requires vite ^6.0.0 || ^7.0.0 || ^8.0.0 and is the only version that supports vite 8. Attempted downgrade to ^5.0.0 reverted. Re-evaluate when electron-vite 6.x stable is released (track https://github.com/alex8088/electron-vite/releases).",
 	"//overrides_annotations": "JSON has no comments, so each override's rationale lives in a sibling `//overrides_<pkg>` key (npm ignores keys starting with `//`). See //overrides_note for the chain-level rationale.",
-	"//overrides_@electron/asar": "force-upgrade past the deprecated asar@3 line pulled by electron-builder's archive path.",
-	"//overrides_@electron/get": "force-upgrade to 5.x \u2014 the 4.x line is deprecated (Node 20-era) and drops the vulnerable artifacts downloader.",
-	"//overrides_@hono/node-server": "force-upgrade to ^2.0.11 \u2014 patches the path-traversal advisory in the static-file handler (the one documented in //overrides_note's npm-audit count).",
-	"//overrides_brace-expansion": "force-upgrade to ^5.0.9 \u2014 replaces the deprecated brace-expansion@1 (glob@7) engine with the maintained 5.x line.",
-	"//overrides_undici": "force-upgrade to ^7.28.1 \u2014 resolves the npm-audit findings (fetch/websocket) in older undici versions pulled by electron tooling.",
-	"//overrides_ip-address": "force-upgrade to ^10.3.1 \u2014 resolves the IPv6-parsing ReDoS advisory in ip-address@9 (npm-audit finding).",
-	"//overrides_fast-uri": "force-upgrade to ^3.1.6 \u2014 resolves the ReDoS advisory in fast-uri@2, ajv-compiler chain (npm-audit finding).",
-	"//overrides_hono": "force-upgrade to ^4.12.34 \u2014 keeps hono on a patched 4.x aligned with the @hono/node-server override.",
-	"//overrides_postcss": "force-upgrade to ^8.5.23 \u2014 resolves the postcss@8 parser advisories pulled by vite/tailwind build tooling (npm-audit finding).",
-	"//overrides_nanoid": "force-upgrade to ^3.3.18 \u2014 postcss pulls nanoid ^3.3.16 which resolves to 3.3.17, vulnerable to GHSA-2v37-7h3g-55p8 (custom generators loop indefinitely when size is zero).",
+	"//overrides_@hono/node-server": "force-upgrade to ^2.0.11 — patches the path-traversal advisory in the static-file handler.",
+	"//overrides_brace-expansion": "force-upgrade to ^5.0.9 — replaces the deprecated brace-expansion@1 (glob@7) engine with the maintained 5.x line.",
+	"//overrides_ip-address": "force-upgrade to ^10.3.1 — resolves the IPv6-parsing ReDoS advisory in ip-address@9 (npm-audit finding).",
+	"//overrides_fast-uri": "force-upgrade to ^3.1.6 — resolves the ReDoS advisory in fast-uri@2, ajv-compiler chain (npm-audit finding).",
+	"//overrides_hono": "force-upgrade to ^4.12.34 — keeps hono on a patched 4.x aligned with the @hono/node-server override.",
+	"//overrides_postcss": "force-upgrade to ^8.5.23 — resolves the postcss@8 parser advisories pulled by vite/tailwind build tooling (npm-audit finding).",
+	"//overrides_nanoid": "force-upgrade to ^3.3.18 — postcss pulls nanoid ^3.3.16 which resolves to 3.3.17, vulnerable to GHSA-2v37-7h3g-55p8 (custom generators loop indefinitely when size is zero).",
 	"//overrides_browserslist": "force-upgrade to ^4.28.9 - resolves the GHSA-73wf normalizeStats crash/prototype-write advisory in browserslist<=4.28.6 pulled by vitest 5 istanbul babel chain (dev-only).",
 	"//overrides_qs": "force-upgrade to ^6.16.0 - resolves the GHSA-4mjr/x5fp qs DoS advisories in qs<6.16.0 pulled by the shadcn CLI express chain (dev-only).",
-	"//overrides_xmldom": "force-upgrade @xmldom/xmldom to ^0.9.12 - resolves the GHSA-6gmq entity-reference injection advisory in @xmldom/xmldom<=0.8.14 pulled by electron-builder plist chain (dev-only).",
-	"//overrides_js-yaml": "pin js-yaml to ^4.3.1 - resolves the GHSA-5p4m omap quadratic-CPU advisory in js-yaml 4.0.0-4.3.0 pulled by electron-builder (stay on 4.x).",
 	"//overrides_postcss-selector-parser": "force-upgrade to ^7.1.6 - resolves the GHSA-w9m9 AST-recursion DoS advisory in postcss-selector-parser<7.1.3 (dev-only).",
 	"overrides": {
 		"nanoid": "^3.3.18",
-		"@electron/asar": "^4.2.1",
-		"@electron/get": "^5.0.0",
 		"@hono/node-server": "^2.0.11",
 		"brace-expansion": "^5.0.9",
-		"undici": "^7.28.1",
 		"ip-address": "^10.3.1",
 		"fast-uri": "^3.1.6",
 		"hono": "^4.12.34",
 		"postcss": "^8.5.23",
 		"browserslist": "^4.28.9",
 		"qs": "^6.16.0",
-		"@xmldom/xmldom": "^0.9.12",
-		"js-yaml": "^4.3.1",
 		"postcss-selector-parser": "^7.1.6"
 	},
 	"devDependencies": {
@@ -106,9 +91,6 @@
 		"@vitejs/plugin-react": "^6.0.3",
 		"@vitest/coverage-istanbul": "^5.0.0",
 		"axe-core": "^4.12.1",
-		"electron": "^43.2.0",
-		"electron-builder": "26.15.7",
-		"electron-vite": "6.0.0-beta.1",
 		"husky": "^9.1.7",
 		"jsdom": "^29.1.1",
 		"lint-staged": "^17.0.8",
@@ -144,7 +126,6 @@
 	},
 	"allowScripts": {
 		"esbuild@0.25.12": true,
-		"esbuild@0.28.1": true,
-		"electron-winstaller@5.4.0": true
+		"esbuild@0.28.1": true
 	}
 }

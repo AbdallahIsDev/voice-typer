@@ -203,7 +203,7 @@ export const DownloadProgressBar = memo(function DownloadProgressBar({
 					)}
 				</p>
 				{!hasError && downloadedBytes !== null && totalBytes !== null && (
-					<span className="shrink-0 whitespace-nowrap text-right text-xs text-(--text-muted) tabular-nums">
+					<span className="shrink-0 whitespace-nowrap text-end text-xs text-(--text-muted) tabular-nums">
 						· {formatBytes(downloadedBytes)} / {formatBytes(totalBytes)}
 					</span>
 				)}
@@ -213,12 +213,12 @@ export const DownloadProgressBar = memo(function DownloadProgressBar({
 					// them, live pushes repopulate) shifts the whole row.
 					// Absent data renders "—" in a fixed-width,
 					// tabular-nums slot instead.
-					<span className="min-w-[9ch] shrink-0 whitespace-nowrap text-right text-xs text-(--text-muted) tabular-nums">
+					<span className="min-w-[9ch] shrink-0 whitespace-nowrap text-end text-xs text-(--text-muted) tabular-nums">
 						· {speedBps !== null && speedBps > 0 ? formatSpeed(speedBps) : "—"}
 					</span>
 				)}
 				{!hasError && (
-					<span className="min-w-[13ch] shrink-0 whitespace-nowrap text-right text-xs text-(--text-muted) tabular-nums">
+					<span className="min-w-[13ch] shrink-0 whitespace-nowrap text-end text-xs text-(--text-muted) tabular-nums">
 						·{" "}
 						{etaSeconds !== null && etaSeconds > 0
 							? t("models.progress.eta", {

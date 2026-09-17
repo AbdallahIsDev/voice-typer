@@ -2,13 +2,9 @@ import { resolve } from "node:path";
 import { defineConfig } from "vite";
 
 // shadcn CLI's framework detection globs for files matching `vite.config.*`
-// at the project root. The actual electron-vite config is named
-// `electron.vite.config.ts`, which shadcn does not recognize, so it falls
-// back to `manual` framework and refuses to apply presets.
-//
-// This file exposes a Vite-shaped config so shadcn sees a Vite project.
-// electron-vite itself only reads `electron.vite.config.ts` and ignores
-// this file, so there is no conflict.
+// at the project root. This file is a minimal Vite-shaped config so
+// shadcn sees a Vite project. The production/dev Tauri builds use
+// `vite.tauri.config.ts` (multi-page + outDir), not this file.
 export default defineConfig({
 	root: resolve(__dirname, "src/renderer"),
 	resolve: {

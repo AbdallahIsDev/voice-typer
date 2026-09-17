@@ -13,17 +13,11 @@
 		"skipLibCheck": true
 	},
 	"include": [
-		"electron.vite.config.ts",
-		"electron.vite.renderer.ts",
-		"electron.vite.main.ts",
 		"vitest.config.ts",
 		"vite.config.ts",
 		"vite.tauri.config.ts",
 		"csp-plugin.ts",
 		"aliases.ts",
-		"src/main/**/*",
-		"src/main/**/*.json",
-		"src/preload/**/*",
 		"src/shared/**/*"
 	]
 }

@@ -44,11 +44,13 @@ import { describe, expect, it } from "vitest";
 
 const RENDERER_SRC = resolve(__dirname, "..", "..", ".."); // .../src/renderer/src
 const CLIENT_DIR = resolve(RENDERER_SRC, "..", "..", ".."); // .../client
+// Electron main/preload trees were deleted with the Electron shell;
+// keep only roots that still exist so the guard does not ENOENT.
 const MAIN_SRC = join(CLIENT_DIR, "src", "main");
 const PRELOAD_SRC = join(CLIENT_DIR, "src", "preload");
 const ROOTS = [
 	RENDERER_SRC,
-	MAIN_SRC,
+	...(existsSync(MAIN_SRC) ? [MAIN_SRC] : []),
 	...(existsSync(PRELOAD_SRC) ? [PRELOAD_SRC] : []),
 ];
 
