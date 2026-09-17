@@ -2,7 +2,7 @@
 
 > Auto-generated from the latest GitHub Actions run via `scripts/ci/write_ci_errors.py`. Do not edit by hand, it is overwritten on every CI run.
 
-**86 failing/errored test(s)** across 11 matrix leg(s).
+**93 failing/errored test(s)** across 10 matrix leg(s).
 
 ### 1. `tests.handlers.test_handler_signature_conformance`
 
@@ -2030,7 +2030,37 @@ voice_typer/server/service/_download_helpers.py:39: in <module>
 E   ImportError: cannot import name 'NotRequired' from 'typing' (/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/typing.py)
 ```
 
-### 68. `tests.app.test_lifecycle.TestMainWrapsIpcMain.test_main_logs_and_exits_when_ipc_main_raises`
+### 68. `tests.app.test_lifecycle.TestMainWrapsIpcMain.test_main_does_not_swallow_system_exit`
+
+- Legs: macos-14-3.10, windows-2022-3.10
+- Location: `tests/app/test_lifecycle.py:1648`
+
+```
+ImportError: cannot import name 'NotRequired' from 'typing' (/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/typing.py)
+
+ImportError: cannot import name 'NotRequired' from 'typing' (/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/typing.py)
+tests/app/test_lifecycle.py:1648: in test_main_does_not_swallow_system_exit
+    import voice_typer.server.ipc_server as ipc_server_module
+voice_typer/server/ipc_server.py:304: in <module>
+    from voice_typer.server.handlers.vocabulary_handlers import VocabularyHandlersMixin  # noqa: E402
+voice_typer/server/handlers/__init__.py:61: in <module>
+    from voice_typer.server.handlers.vocabulary_handlers import VocabularyHandlersMixin
+voice_typer/server/handlers/vocabulary_handlers.py:17: in <module>
+    from voice_typer.server.service.vocabulary import VocabularyDuplicateError
+voice_typer/server/service/__init__.py:42: in <module>
+    from voice_typer.server.service.model import _MODEL_STATUS_CACHE_TTL_S, ModelMixin
+voice_typer/server/service/model/__init__.py:7: in <module>
+    from .mixin import ModelMixin
+voice_typer/server/service/model/mixin.py:7: in <module>
+    from ._downloads import DownloadsMixin
+voice_typer/server/service/model/_downloads.py:11: in <module>
+    from voice_typer.server.service._download_helpers import DownloadOutcome
+voice_typer/server/service/_download_helpers.py:39: in <module>
+    from typing import NotRequired, TypedDict
+E   ImportError: cannot import name 'NotRequired' from 'typing' (/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/typing.py)
+```
+
+### 69. `tests.app.test_lifecycle.TestMainWrapsIpcMain.test_main_logs_and_exits_when_ipc_main_raises`
 
 - Legs: macos-14-3.10, ubuntu-22.04-3.10, windows-2022-3.10
 - Location: `tests/app/test_lifecycle.py:1606`
@@ -2060,46 +2090,16 @@ voice_typer/server/service/_download_helpers.py:39: in <module>
 E   ImportError: cannot import name 'NotRequired' from 'typing' (/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/typing.py)
 ```
 
-### 69. `tests.app.test_lifecycle.TestMainWrapsIpcMain.test_main_does_not_swallow_system_exit`
+### 70. `tests.app.test_lifecycle.TestMainWrapsIpcMain.test_main_logs_warning_when_faulthandler_enable_raises`
 
-- Legs: macos-14-3.10, ubuntu-22.04-3.10, windows-2022-3.10
-- Location: `tests/app/test_lifecycle.py:1648`
-
-```
-ImportError: cannot import name 'NotRequired' from 'typing' (/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/typing.py)
-
-ImportError: cannot import name 'NotRequired' from 'typing' (/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/typing.py)
-tests/app/test_lifecycle.py:1648: in test_main_does_not_swallow_system_exit
-    import voice_typer.server.ipc_server as ipc_server_module
-voice_typer/server/ipc_server.py:304: in <module>
-    from voice_typer.server.handlers.vocabulary_handlers import VocabularyHandlersMixin  # noqa: E402
-voice_typer/server/handlers/__init__.py:61: in <module>
-    from voice_typer.server.handlers.vocabulary_handlers import VocabularyHandlersMixin
-voice_typer/server/handlers/vocabulary_handlers.py:17: in <module>
-    from voice_typer.server.service.vocabulary import VocabularyDuplicateError
-voice_typer/server/service/__init__.py:42: in <module>
-    from voice_typer.server.service.model import _MODEL_STATUS_CACHE_TTL_S, ModelMixin
-voice_typer/server/service/model/__init__.py:7: in <module>
-    from .mixin import ModelMixin
-voice_typer/server/service/model/mixin.py:7: in <module>
-    from ._downloads import DownloadsMixin
-voice_typer/server/service/model/_downloads.py:11: in <module>
-    from voice_typer.server.service._download_helpers import DownloadOutcome
-voice_typer/server/service/_download_helpers.py:39: in <module>
-    from typing import NotRequired, TypedDict
-E   ImportError: cannot import name 'NotRequired' from 'typing' (/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/typing.py)
-```
-
-### 70. `tests.app.test_lifecycle.TestMainWrapsIpcMain.test_main_logs_warning_when_faulthandler_import_fails`
-
-- Legs: macos-14-3.10, ubuntu-22.04-3.10
-- Location: `tests/app/test_lifecycle.py:1721`
+- Legs: macos-14-3.10, windows-2022-3.10
+- Location: `tests/app/test_lifecycle.py:1690`
 
 ```
 ImportError: cannot import name 'NotRequired' from 'typing' (/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/typing.py)
 
 ImportError: cannot import name 'NotRequired' from 'typing' (/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/typing.py)
-tests/app/test_lifecycle.py:1721: in test_main_logs_warning_when_faulthandler_import_fails
+tests/app/test_lifecycle.py:1690: in test_main_logs_warning_when_faulthandler_enable_raises
     import voice_typer.server.ipc_server as ipc_server_module
 voice_typer/server/ipc_server.py:304: in <module>
     from voice_typer.server.handlers.vocabulary_handlers import VocabularyHandlersMixin  # noqa: E402
@@ -2170,7 +2170,7 @@ E               File "/Library/Frameworks/Python.framework/Versions/3.10/lib/pyt
 
 ### 72. `tests.tauri.mig16.test_autostart_installer_macos.test_single_instance_plugin_enforced`
 
-- Legs: macos-14-3.11, macos-14-3.13
+- Legs: macos-14-3.11
 - Location: `tests/tauri/mig16/test_autostart_installer_macos.py:749`
 
 ```
@@ -2183,27 +2183,27 @@ assert ('get_webview_window' in '//! Voice Typer: Tauri v2 host (ADR-0020 implem
 
 ### 73. `tests.tauri.mig16.test_externalbin_spawn_macos.test_spawn_rs_server_started_log_line_format`
 
-- Legs: macos-14-3.11, macos-14-3.13
+- Legs: macos-14-3.11
 - Location: `tests/tauri/mig16/test_externalbin_spawn_macos.py:529`
 
 ```
-+    where <built-in method search of re.Pattern object at 0x12e055f20> = re.compile('\\[SIDECAR\\]\\s*server_started\\s*port=\\{[^}]*\\}').search
++    where <built-in method search of re.Pattern object at 0x13ced5e70> = re.compile('\\[SIDECAR\\]\\s*server_started\\s*port=\\{[^}]*\\}').search
 
 AssertionError: spawn.rs must log '[SIDECAR] server_started port={}' on success (runbook §5 pass criteria greps for this line on macOS)
 assert None
- +  where None = <built-in method search of re.Pattern object at 0x12e055f20>('//! Sidecar spawn + stdout handshake (ADR-0020 §1 + §4.1 + §14).\n//!\n//! Module layout (split out of the former single-file module):\n//!\n//! - `self`: orchestration: the public spawn entry points\n//!   (`spawn_sidecar_and_get_port[_with_shutdown]`), the dev-vs-release\n//!   dispatch (`spawn_sidecar_and_get_port_inner`), the cold-start\n//!   wiring (`initialize_sidecar`), and the panic-captured background\n//!   task body (`initialize_sidecar_guarded`) that `main.rs`\'s\n//!   `.setup` spawns.\n//! - [`dev_mode`]: `VOICE_TYPER_SIDECAR_DEV=1` dev-mode spawn\n//!   (`spawn_sidecar_dev_mode` + the `is_dev_mode` predicates).\n//! - [`release_mode`]: release-build `externalBin` spawn\n//!   (`spawn_sidecar_release`).\n//! - [`handshake`]: `server_started` stdout parsing\n//!   (`parse_server_started`) + the shutting-down loop short-circuit\n//!   (`is_shutting_down`).\n//! - [`handshake_loop`]: the shared stdout-handshake read loops used by\n//!   all four spawn paths (`spawn_sidecar_release` /\n//!   `spawn_sidecar_dev_mode` / `spawn_worker_release` /\n//!   `spawn_worker_dev_mode`): one loop body for the shell-plugin\n//!   `CommandEvent` pair, one for the tokio `read_line` p....clone();\n    tauri::async_runtime::spawn(async move {\n        let state = app_handle.state::<Arc<WorkerState>>().inner().clone();\n        if !try_claim_restart_slot(&state.respawn_in_progress) {\n            log::info!(\n                "[WORKER-INIT] pack verified while a worker (re)start is in flight: skipping duplicate"\n            );\n            return;\n        }\n        // Stop-first: the verified event fires right after the\n        // atomic swap, so a still-running worker may hold the OLD\n        // pack files open (Windows file-lock swap failure).\n        stop_worker_child(&state).await;\n        if state.shutting_down.load(Ordering::SeqCst) {\n            state.respawn_in_progress.store(false, Ordering::SeqCst);\n            return;\n        }\n        if !worker_binary_present() {\n            log::info!(\n                "[WORKER-INIT] pack verified but no worker binary on disk: skipping worker start"\n            );\n            state.respawn_in_progress.store(false, Ordering::SeqCst);\n            return;\n        }\n        initialize_worker(&app_handle, state.clone()).await;\n        state.respawn_in_progress.store(false, Ordering::SeqCst);\n    });\n}\n')
- +    where <built-in method search of re.Pattern object at 0x12e055f20> = re.compile('\\[SIDECAR\\]\\s*server_started\\s*port=\\{[^}]*\\}').search
+ +  where None = <built-in method search of re.Pattern object at 0x13ced5e70>('//! Sidecar spawn + stdout handshake (ADR-0020 §1 + §4.1 + §14).\n//!\n//! Module layout (split out of the former single-file module):\n//!\n//! - `self`: orchestration: the public spawn entry points\n//!   (`spawn_sidecar_and_get_port[_with_shutdown]`), the dev-vs-release\n//!   dispatch (`spawn_sidecar_and_get_port_inner`), the cold-start\n//!   wiring (`initialize_sidecar`), and the panic-captured background\n//!   task body (`initialize_sidecar_guarded`) that `main.rs`\'s\n//!   `.setup` spawns.\n//! - [`dev_mode`]: `VOICE_TYPER_SIDECAR_DEV=1` dev-mode spawn\n//!   (`spawn_sidecar_dev_mode` + the `is_dev_mode` predicates).\n//! - [`release_mode`]: release-build `externalBin` spawn\n//!   (`spawn_sidecar_release`).\n//! - [`handshake`]: `server_started` stdout parsing\n//!   (`parse_server_started`) + the shutting-down loop short-circuit\n//!   (`is_shutting_down`).\n//! - [`handshake_loop`]: the shared stdout-handshake read loops used by\n//!   all four spawn paths (`spawn_sidecar_release` /\n//!   `spawn_sidecar_dev_mode` / `spawn_worker_release` /\n//!   `spawn_worker_dev_mode`): one loop body for the shell-plugin\n//!   `CommandEvent` pair, one for the tokio `read_line` p....clone();\n    tauri::async_runtime::spawn(async move {\n        let state = app_handle.state::<Arc<WorkerState>>().inner().clone();\n        if !try_claim_restart_slot(&state.respawn_in_progress) {\n            log::info!(\n                "[WORKER-INIT] pack verified while a worker (re)start is in flight: skipping duplicate"\n            );\n            return;\n        }\n        // Stop-first: the verified event fires right after the\n        // atomic swap, so a still-running worker may hold the OLD\n        // pack files open (Windows file-lock swap failure).\n        stop_worker_child(&state).await;\n        if state.shutting_down.load(Ordering::SeqCst) {\n            state.respawn_in_progress.store(false, Ordering::SeqCst);\n            return;\n        }\n        if !worker_binary_present() {\n            log::info!(\n                "[WORKER-INIT] pack verified but no worker binary on disk: skipping worker start"\n            );\n            state.respawn_in_progress.store(false, Ordering::SeqCst);\n            return;\n        }\n        initialize_worker(&app_handle, state.clone()).await;\n        state.respawn_in_progress.store(false, Ordering::SeqCst);\n    });\n}\n')
+ +    where <built-in method search of re.Pattern object at 0x13ced5e70> = re.compile('\\[SIDECAR\\]\\s*server_started\\s*port=\\{[^}]*\\}').search
 tests/tauri/mig16/test_externalbin_spawn_macos.py:529: in test_spawn_rs_server_started_log_line_format
     assert port_log_re.search(spawn_rs_source), (
 E   AssertionError: spawn.rs must log '[SIDECAR] server_started port={}' on success (runbook §5 pass criteria greps for this line on macOS)
 E   assert None
-E    +  where None = <built-in method search of re.Pattern object at 0x12e055f20>('//! Sidecar spawn + stdout handshake (ADR-0020 §1 + §4.1 + §14).\n//!\n//! Module layout (split out of the former single-file module):\n//!\n//! - `self`: orchestration: the public spawn entry points\n//!   (`spawn_sidecar_and_get_port[_with_shutdown]`), the dev-vs-release\n//!   dispatch (`spawn_sidecar_and_get_port_inner`), the cold-start\n//!   wiring (`initialize_sidecar`), and the panic-captured background\n//!   task body (`initialize_sidecar_guarded`) that `main.rs`\'s\n//!   `.setup` spawns.\n//! - [`dev_mode`]: `VOICE_TYPER_SIDECAR_DEV=1` dev-mode spawn\n//!   (`spawn_sidecar_dev_mode` + the `is_dev_mode` predicates).\n//! - [`release_mode`]: release-build `externalB
+E    +  where None = <built-in method search of re.Pattern object at 0x13ced5e70>('//! Sidecar spawn + stdout handshake (ADR-0020 §1 + §4.1 + §14).\n//!\n//! Module layout (split out of the former single-file module):\n//!\n//! - `self`: orchestration: the public spawn entry points\n//!   (`spawn_sidecar_and_get_port[_with_shutdown]`), the dev-vs-release\n//!   dispatch (`spawn_sidecar_and_get_port_inner`), the cold-start\n//!   wiring (`initialize_sidecar`), and the panic-captured background\n//!   task body (`initialize_sidecar_guarded`) that `main.rs`\'s\n//!   `.setup` spawns.\n//! - [`dev_mode`]: `VOICE_TYPER_SIDECAR_DEV=1` dev-mode spawn\n//!   (`spawn_sidecar_dev_mode` + the `is_dev_mode` predicates).\n//! - [`release_mode`]: release-build `externalB
 … (truncated)
 ```
 
 ### 74. `tests.tauri.mig16.test_shutdown_macos.TestSupervisorSource.test_returns_ok_on_successful_respawn`
 
-- Legs: macos-14-3.11, macos-14-3.13
+- Legs: macos-14-3.11
 - Location: `tests/tauri/mig16/test_shutdown_macos.py:811`
 
 ```
@@ -2217,7 +2217,61 @@ E   AssertionError: `return Ok(())` after 'respawn succeeded' log must be in the
 E   assert (40663 - 37618) < 2000
 ```
 
-### 75. `tests.tauri.test_rust_log_file_perms.test_pi7_rust_unit_test_log_file_mode_0o600_passes`
+### 75. `tests.tauri.mig19.test_reconnect_ux.test_use_connection_probe_has_retry_cap`
+
+- Legs: macos-14-3.11, ubuntu-22.04-3.11, ubuntu-22.04-3.12, ubuntu-22.04-3.13, windows-2022-3.11, windows-2022-3.12, windows-2022-3.13
+- Location: `tests/tauri/mig19/test_reconnect_ux.py:1152`
+
+```
++    where <built-in method search of re.Pattern object at 0x127e683c0> = re.compile('const\\s+maxRetries\\s*=\\s*5\\b', re.MULTILINE).search
+
+AssertionError: useConnection.ts must define `const maxRetries = 5` in the connection-probe effect, caps the cold-start retry loop so a permanently-down backend transitions to 'disconnected'.
+assert None
+ +  where None = <built-in method search of re.Pattern object at 0x127e683c0>('import { useCallback, useEffect, useRef } from "react";\nimport { useShallow } from "zustand/react/shallow";\nimport { useLatestRef } from "@/hooks/useLatestRef";\nimport { usePythonEvent } from "@/hooks/usePython";\nimport { useT } from "@/i18n/i18n";\nimport { useAppStore } from "@/stores/appStore";\nimport type { VoiceTyperConfig } from "@/types/config";\nimport type { Page } from "@/types/ipc";\nimport {\n\tapplyStatusWithReason,\n\tasRecordingState,\n\tBACKGROUND_RECONNECT_INTERVAL_MS,\n\tCONNECTION_PROBE_MAX_RETRIES,\n\tCONNECTION_PROBE_RETRY_DELAY_MS,\n\tHEALTH_CHECK_EVENT_GRACE_MS,\n\tHEALTH_CHECK_INTERVAL_MS,\n\tHEALTH_CHECK_MAX_RETRIES,\n\tHEALTH_CHECK_RETRY_DELAY_MS,\n\tMAX_BACKGROUND_RECONNECTS,\n\tRESPAWN_EXHAUSTED_CODE,\n} from "./connectionStatus";\n\ninterface UseConnectionArgs {\n\t/** Python bridge `call` function (from usePython). */\n\tcall: <T = unknown>(\n\t\ttype: string,\n\t\tdata?: Record<string, unknown>,\n\t) => Promise<T>;\n\t/**\n\t * Current page (historically used for onboarding first-run\n\t * auto-routing check).\n\t *\n\t * @deprecated No longer read inside the hook (the first-run\n\t * check is now unconditional). Kept for backward compatibilit...("connected");\n\t\t\treturn;\n\t\t} catch {\n\t\t\t// Probe failed, the backend may be dead, not just flapping.\n\t\t\t// Escalate to a process restart (Phase 2 below).\n\t\t}\n\t\t// Phase 2, escalate to a backend-process restart.\n\t\ttry {\n\t\t\tconst res = await window.window_?.restartBackend?.();\n\t\t\tif (res?.ok) {\n\t\t\t\tsetConnectionStatus("restarting");\n\t\t\t\treturn;\n\t\t\t}\n\t\t\t// adopted mode (backend spawned us) or relaunch in-flight —\n\t\t\t// nothing more the main process can do for us.\n\t\t\tsetLastError(t("connection.restartBackendHint"));\n\t\t\tsetConnectionStatus("disconnected");\n\t\t} catch (e) {\n\t\t\t// Bridge channel unavailable (tauri mode, old preload) or\n\t\t\t// handler threw, no restart capability, fall back to the\n\t\t\t// previous bare-probe behavior.\n\t\t\tconsole.warn(\n\t\t\t\t"[renderer:useConnection] restartBackend escalation failed:",\n\t\t\t\te,\n\t\t\t);\n\t\t\tsetLastError(t("connection.restartBackendHint"));\n\t\t\tsetConnectionStatus("disconnected");\n\t\t}\n\t}, [call, setConnectionStatus, setLastError, t]);\n\n\treturn {\n\t\trecordingState,\n\t\tconnectionStatus,\n\t\tlastError,\n\t\thandleRetryConnection,\n\t};\n}\n')
+ +    where <built-in method search of re.Pattern object at 0x127e683c0> = re.compile('const\\s+maxRetries\\s*=\\s*5\\b', re.MULTILINE).search
+tests/tauri/mig19/test_reconnect_ux.py:1152: in test_use_connection_probe_has_retry_cap
+    assert max_retries_re.search(use_connection_source), (
+E   AssertionError: useConnection.ts must define `const maxRetries = 5` in the connection-probe effect, caps the cold-start retry loop so a permanently-down backend transitions to 'disconnected'.
+E   assert None
+E    +  where None = <built-in method search of re.Pattern object at 0x127e683c0>('import { useCallback, useEffect, useRef } from "react";\nimport { useShallow } from "zustand/react/shallow";\nimport { useLatestRef } from "@/hooks/useLatestRef";\nimport { usePythonEvent } from "@/hooks/usePython";\nimport { useT } from "@/i18n/i18n";\nimport { useAppStore } from "@/stores/appStore";\nimport type { VoiceTyperConfig } from "@/types/config";\nimport type { Page } from "@/types/ipc";\nimport {\n\tapplyStatusWithReason,\n\tasRecordingState,\n\tBACKGROUND_RECONNECT_INTERVAL_MS,\n\tCONNECTION_PROBE_MAX_RETRIES,\n\tCONNECTION_PROBE_RETRY_DELAY_MS,\n\tHEALTH_CHECK_EVENT_G
+… (truncated)
+```
+
+### 76. `tests.tauri.mig19.test_reconnect_ux.test_use_connection_periodic_health_check_flips_to_disconnected`
+
+- Legs: macos-14-3.11, ubuntu-22.04-3.11, ubuntu-22.04-3.12, ubuntu-22.04-3.13, windows-2022-3.11, windows-2022-3.12, windows-2022-3.13
+- Location: `tests/tauri/mig19/test_reconnect_ux.py:1186`
+
+```
+assert None is not None
+
+AssertionError: useConnection.ts must call setInterval(() => probe(false), 15_000) for the periodic health check (BG-92, 15s interval; the body is now a thin call to the hoisted probe arrow function).
+assert None is not None
+tests/tauri/mig19/test_reconnect_ux.py:1186: in test_use_connection_periodic_health_check_flips_to_disconnected
+    assert interval_match is not None, (
+E   AssertionError: useConnection.ts must call setInterval(() => probe(false), 15_000) for the periodic health check (BG-92, 15s interval; the body is now a thin call to the hoisted probe arrow function).
+E   assert None is not None
+```
+
+### 77. `tests.tauri.test_kill_process_tree_migration.test_spawn_rs_uses_platform_module_exactly_four_times`
+
+- Legs: macos-14-3.11, ubuntu-22.04-3.11, ubuntu-22.04-3.12, ubuntu-22.04-3.13, windows-2022-3.11, windows-2022-3.12, windows-2022-3.13
+- Location: `tests/tauri/test_kill_process_tree_migration.py:187`
+
+```
++  where 9 = len(['kill_process_tree_off_thread(', 'kill_process_tree_off_thread(', 'kill_process_tree_off_thread(', 'kill_process_tree_off_thread(', 'kill_process_tree_off_thread(', 'kill_process_tree_off_thread(', ...])
+
+AssertionError: the spawn module must invoke `kill_process_tree_off_thread` exactly 6 times (one per handshake cleanup path); found 9.
+assert 9 == 6
+ +  where 9 = len(['kill_process_tree_off_thread(', 'kill_process_tree_off_thread(', 'kill_process_tree_off_thread(', 'kill_process_tree_off_thread(', 'kill_process_tree_off_thread(', 'kill_process_tree_off_thread(', ...])
+tests/tauri/test_kill_process_tree_migration.py:187: in test_spawn_rs_uses_platform_module_exactly_four_times
+    assert len(helper_calls) == 6, (
+E   AssertionError: the spawn module must invoke `kill_process_tree_off_thread` exactly 6 times (one per handshake cleanup path); found 9.
+E   assert 9 == 6
+E    +  where 9 = len(['kill_process_tree_off_thread(', 'kill_process_tree_off_thread(', 'kill_process_tree_off_thread(', 'kill_process_tree_off_thread(', 'kill_process_tree_off_thread(', 'kill_process_tree_off_thread(', ...])
+```
+
+### 78. `tests.tauri.test_rust_log_file_perms.test_pi7_rust_unit_test_log_file_mode_0o600_passes`
 
 - Legs: macos-14-3.11
 - Location: `(unknown location)`
@@ -2229,33 +2283,47 @@ failed on setup with "worker 'gw0' crashed while running 'tests/tauri/test_rust_
 worker 'gw0' crashed while running 'tests/tauri/test_rust_log_file_perms.py::test_pi7_rust_unit_test_log_file_mode_0o600_passes'
 ```
 
-### 76. `tests.tauri.test_window_lifecycle_parity.test_main_runtime_grants_on_resized_via_event_listen`
+### 79. `tests.tauri.test_tauri_sidecar_gate.test_heartbeat_skipped_under_tauri_sidecar`
 
-- Legs: macos-14-3.11, macos-14-3.13, ubuntu-22.04-3.11, ubuntu-22.04-3.12, ubuntu-22.04-3.13, windows-2022-3.11, windows-2022-3.12, windows-2022-3.13
-- Location: `tests/tauri/test_window_lifecycle_parity.py:133`
+- Legs: macos-14-3.11, ubuntu-22.04-3.11, ubuntu-22.04-3.12, ubuntu-22.04-3.13, windows-2022-3.11, windows-2022-3.12, windows-2022-3.13
+- Location: `tests/tauri/test_tauri_sidecar_gate.py:72`
 
 ```
-FileNotFoundError: [Errno 2] No such file or directory: '/Users/runner/work/voice-typer/voice-typer/src-tauri/gen/schemas/acl-manifests.json'
+AttributeError: 'IPCServer' object has no attribute '_background_integrations_wired'
 
-FileNotFoundError: [Errno 2] No such file or directory: '/Users/runner/work/voice-typer/voice-typer/src-tauri/gen/schemas/acl-manifests.json'
-tests/tauri/test_window_lifecycle_parity.py:133: in test_main_runtime_grants_on_resized_via_event_listen
-    resolved = _capability_permissions("main-runtime")
-               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-tests/tauri/test_window_lifecycle_parity.py:82: in _capability_permissions
-    manifest = json.loads(ACL_MANIFESTS.read_text(encoding="utf-8"))
-                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/pathlib.py:1058: in read_text
-    with self.open(mode='r', encoding=encoding, errors=errors) as f:
-         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/pathlib.py:1044: in open
-    return io.open(self, mode, buffering, encoding, errors, newline)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-E   FileNotFoundError: [Errno 2] No such file or directory: '/Users/runner/work/voice-typer/voice-typer/src-tauri/gen/schemas/acl-manifests.json'
+AttributeError: 'IPCServer' object has no attribute '_background_integrations_wired'
+tests/tauri/test_tauri_sidecar_gate.py:72: in test_heartbeat_skipped_under_tauri_sidecar
+    server.start()
+voice_typer/server/ipc/lifecycle.py:320: in start
+    self.wire_background_integrations()
+voice_typer/server/ipc_server.py:526: in wire_background_integrations
+    if self._background_integrations_wired:
+       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   AttributeError: 'IPCServer' object has no attribute '_background_integrations_wired'
 ```
 
-### 77. `tests.tauri.test_window_lifecycle_parity.test_main_runtime_grants_the_window_queries_the_bridge_calls`
+### 80. `tests.tauri.test_tauri_sidecar_gate.test_heartbeat_started_without_tauri_sidecar`
 
-- Legs: macos-14-3.11, macos-14-3.13, ubuntu-22.04-3.11, ubuntu-22.04-3.12, ubuntu-22.04-3.13, windows-2022-3.11, windows-2022-3.12, windows-2022-3.13
+- Legs: macos-14-3.11, ubuntu-22.04-3.11, ubuntu-22.04-3.12, ubuntu-22.04-3.13, windows-2022-3.11, windows-2022-3.12, windows-2022-3.13
+- Location: `tests/tauri/test_tauri_sidecar_gate.py:114`
+
+```
+AttributeError: 'IPCServer' object has no attribute '_background_integrations_wired'
+
+AttributeError: 'IPCServer' object has no attribute '_background_integrations_wired'
+tests/tauri/test_tauri_sidecar_gate.py:114: in test_heartbeat_started_without_tauri_sidecar
+    server.start()
+voice_typer/server/ipc/lifecycle.py:320: in start
+    self.wire_background_integrations()
+voice_typer/server/ipc_server.py:526: in wire_background_integrations
+    if self._background_integrations_wired:
+       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   AttributeError: 'IPCServer' object has no attribute '_background_integrations_wired'
+```
+
+### 81. `tests.tauri.test_window_lifecycle_parity.test_main_runtime_grants_the_window_queries_the_bridge_calls`
+
+- Legs: macos-14-3.11, ubuntu-22.04-3.11, ubuntu-22.04-3.12, ubuntu-22.04-3.13, windows-2022-3.11, windows-2022-3.12, windows-2022-3.13
 - Location: `tests/tauri/test_window_lifecycle_parity.py:92`
 
 ```
@@ -2277,9 +2345,76 @@ tests/tauri/test_window_lifecycle_parity.py:82: in _capability_permissions
 E   FileNotFoundError: [Errno 2] No such file or directory: '/Users/runner/work/voice-typer/voice-typer/src-tauri/gen/schemas/acl-manifests.json'
 ```
 
-### 78. `tests.test_dictation_pipeline_check_resources.TestCheckResourcesXZEH008SilentExcept.test_ram_ctypes_fallback_failure_logs_debug`
+### 82. `tests.tauri.test_window_lifecycle_parity.test_main_runtime_grants_on_resized_via_event_listen`
 
-- Legs: macos-14-3.13, ubuntu-22.04-3.12, ubuntu-22.04-3.13
+- Legs: macos-14-3.11, ubuntu-22.04-3.11, ubuntu-22.04-3.12, ubuntu-22.04-3.13, windows-2022-3.11, windows-2022-3.12, windows-2022-3.13
+- Location: `tests/tauri/test_window_lifecycle_parity.py:133`
+
+```
+FileNotFoundError: [Errno 2] No such file or directory: '/Users/runner/work/voice-typer/voice-typer/src-tauri/gen/schemas/acl-manifests.json'
+
+FileNotFoundError: [Errno 2] No such file or directory: '/Users/runner/work/voice-typer/voice-typer/src-tauri/gen/schemas/acl-manifests.json'
+tests/tauri/test_window_lifecycle_parity.py:133: in test_main_runtime_grants_on_resized_via_event_listen
+    resolved = _capability_permissions("main-runtime")
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/tauri/test_window_lifecycle_parity.py:82: in _capability_permissions
+    manifest = json.loads(ACL_MANIFESTS.read_text(encoding="utf-8"))
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/pathlib.py:1058: in read_text
+    with self.open(mode='r', encoding=encoding, errors=errors) as f:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/pathlib.py:1044: in open
+    return io.open(self, mode, buffering, encoding, errors, newline)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   FileNotFoundError: [Errno 2] No such file or directory: '/Users/runner/work/voice-typer/voice-typer/src-tauri/gen/schemas/acl-manifests.json'
+```
+
+### 83. `tests.app.test_lifecycle.TestMainWrapsIpcMain.test_main_logs_warning_when_faulthandler_import_fails`
+
+- Legs: ubuntu-22.04-3.10, windows-2022-3.10
+- Location: `tests/app/test_lifecycle.py:1721`
+
+```
+ImportError: cannot import name 'NotRequired' from 'typing' (/opt/hostedtoolcache/Python/3.10.21/x64/lib/python3.10/typing.py)
+
+ImportError: cannot import name 'NotRequired' from 'typing' (/opt/hostedtoolcache/Python/3.10.21/x64/lib/python3.10/typing.py)
+tests/app/test_lifecycle.py:1721: in test_main_logs_warning_when_faulthandler_import_fails
+    import voice_typer.server.ipc_server as ipc_server_module
+voice_typer/server/ipc_server.py:304: in <module>
+    from voice_typer.server.handlers.vocabulary_handlers import VocabularyHandlersMixin  # noqa: E402
+voice_typer/server/handlers/__init__.py:61: in <module>
+    from voice_typer.server.handlers.vocabulary_handlers import VocabularyHandlersMixin
+voice_typer/server/handlers/vocabulary_handlers.py:17: in <module>
+    from voice_typer.server.service.vocabulary import VocabularyDuplicateError
+voice_typer/server/service/__init__.py:42: in <module>
+    from voice_typer.server.service.model import _MODEL_STATUS_CACHE_TTL_S, ModelMixin
+voice_typer/server/service/model/__init__.py:7: in <module>
+    from .mixin import ModelMixin
+voice_typer/server/service/model/mixin.py:7: in <module>
+    from ._downloads import DownloadsMixin
+voice_typer/server/service/model/_downloads.py:11: in <module>
+    from voice_typer.server.service._download_helpers import DownloadOutcome
+voice_typer/server/service/_download_helpers.py:39: in <module>
+    from typing import NotRequired, TypedDict
+E   ImportError: cannot import name 'NotRequired' from 'typing' (/opt/hostedtoolcache/Python/3.10.21/x64/lib/python3.10/typing.py)
+```
+
+### 84. `tests.tauri.mig17.test_autostart_installer_linux.test_single_instance_plugin_wired_in_tauri`
+
+- Legs: ubuntu-22.04-3.11, ubuntu-22.04-3.12, ubuntu-22.04-3.13
+- Location: `tests/tauri/mig17/test_autostart_installer_linux.py:728`
+
+```
+assert 'get_webview_window' in '//! Voice Typer: Tauri v2 host (ADR-0020 implementation).\n//!\n//! Rust shell replacing the Electron main process. Responsibilities:\n//! 1. Spawn the Python sidecar via Tauri\'s `externalBin` mechanism,\n//!    passing `VOICE_TYPER_IPC_TOKEN` + `TAURI_SIDECAR=1` env vars.\n//! 2. Open a WebSocket client to `ws://127.0.0.1:N` and perform the\n//!    bearer-token auth handshake (`{"type":"auth","token":...}`).\n//! 3. Expose ONE generic `dispatch` command to the webview and\n//!    re-emit server-initiated events as Tauri events.\n//! 4. Run the supervisor (respawn with backoff, then full-app relaunch)\n//!    and coalesce `bubble_level` events to ≤30 Hz.\n//! 5. Single-instance gate runs BEFORE any sidecar init so a second\n//!    launch doesn\'t spawn a zombie sidecar.\n//!\n//! # Cross-platform\n//!\n//! - Windows: WebView2 (Chromium-based, system-installed on Win10+).\n//! - macOS: WKWebView (Safari-based, system).\n//! - Linux: webkit2gtk (system; requires `libwebkit2gtk-4.1-0`).\n//!\n//! # Module layout\n//!\n//! Wiring-only (C-ARCH-1): app builder, plugin registration, `.setup`\n//! glue (window bootstrap → `window_bootstrap`, sidecar cold-start\n//! task → `sidecar::spa...tauri::generate_context!())\n        .unwrap_or_else(|e| {\n            eprintln!("[FATAL] tauri build failed: {e:?}");\n            log::error!("[FATAL] tauri build failed: {e:?}");\n            std::process::exit(1);\n        })\n        .run(|app_handle, event| match event {\n            RunEvent::ExitRequested { .. } | RunEvent::Exit => {\n                // Teardown body: `state::on_host_exit`, dedicated thread\n                // + bounded-time `block_on` (see `sidecar::lifecycle`).\n                crate::state::on_host_exit(app_handle);\n            }\n            // macOS Dock-icon activation (Electron `app.on("activate")`\n            // parity, MO-112): macOS keeps the process alive after the\n            // last window is closed (tray / Dock), so a Dock click must\n            // bring the dashboard back instead of doing nothing. The\n            // shared routine recreates the window when it is gone and\n            // otherwise runs the full raise sequence (MO-109).\n            #[cfg(target_os = "macos")]\n            RunEvent::Reopen { .. } => {\n                crate::host_events::show_main_window(app_handle);\n            }\n            _ => {}\n        });\n}\n'
+
+AssertionError: main.rs's single-instance callback must call app.get_webview_window("main") to focus the existing window.
+assert 'get_webview_window' in '//! Voice Typer: Tauri v2 host (ADR-0020 implementation).\n//!\n//! Rust shell replacing the Electron main process. Responsibilities:\n//! 1. Spawn the Python sidecar via Tauri\'s `externalBin` mechanism,\n//!    passing `VOICE_TYPER_IPC_TOKEN` + `TAURI_SIDECAR=1` env vars.\n//! 2. Open a WebSocket client to `ws://127.0.0.1:N` and perform the\n//!    bearer-token auth handshake (`{"type":"auth","token":...}`).\n//! 3. Expose ONE generic `dispatch` command to the webview and\n//!    re-emit server-initiated events as Tauri events.\n//! 4. Run the supervisor (respawn with backoff, then full-app relaunch)\n//!    and coalesce `bubble_level` events to ≤30 Hz.\n//! 5. Single-instance gate runs BEFORE any sidecar init so a second\n//!    launch doesn\'t spawn a zombie sidecar.\n//!\n//! # Cross-platform\n//!\n//! - Windows: WebView2 (Chromium-based, system-installed on Win10+).\n//! - macOS: WKWebView (Safari-based, system).\n//! - Linux: webkit2gtk (system; requires `libwebkit2gtk-4.1-0`).\n//!\n//! # Module layout\n//!\n//! Wiring-only (C-ARCH-1): app builder, plugin registration, `.setup`\n//! glue (window bootstrap → `window_bootstrap`, sidecar cold-start\n//! task → `sidecar::spa...tauri::generate_context!())\n        .unwrap_or_else(|e| {\n            eprintln!("[FATAL] tauri build failed: {e:?}");\n            log::error!("[FATAL] tauri build failed: {e:?}");\n            std::process::exi
+… (truncated)
+```
+
+### 85. `tests.test_dictation_pipeline_check_resources.TestCheckResourcesXZEH008SilentExcept.test_ram_ctypes_fallback_failure_logs_debug`
+
+- Legs: ubuntu-22.04-3.12, ubuntu-22.04-3.13
 - Location: `tests/test_dictation_pipeline_check_resources.py:515`
 
 ```
@@ -2296,62 +2431,7 @@ voice_typer/server/resource_probe.py:300: in check_resources
 E   TypeError: statvfs: path should be string, bytes, os.PathLike or integer, not _StubPath
 ```
 
-### 79. `tests.test_hotkey_watchdog.TestPynputWatchdog.test_watchdog_resets_failure_count_on_recovery`
-
-- Legs: macos-14-3.13
-- Location: `tests/test_hotkey_watchdog.py:179`
-
-```
-+  where 3 = <voice_typer.server.hotkeys.pynput_backend.PynputHotkey object at 0x12b768210>._watchdog_failure_count
-
-AssertionError: Watchdog should reset failure count to 0 when listener is healthy
-assert 3 == 0
- +  where 3 = <voice_typer.server.hotkeys.pynput_backend.PynputHotkey object at 0x12b768210>._watchdog_failure_count
-tests/test_hotkey_watchdog.py:179: in test_watchdog_resets_failure_count_on_recovery
-    assert backend._watchdog_failure_count == 0, (
-E   AssertionError: Watchdog should reset failure count to 0 when listener is healthy
-E   assert 3 == 0
-E    +  where 3 = <voice_typer.server.hotkeys.pynput_backend.PynputHotkey object at 0x12b768210>._watchdog_failure_count
-```
-
-### 80. `tests.test_logging_rotation_perms.test_do_rollover_chmod_runs_inside_lock`
-
-- Legs: macos-14-3.13, ubuntu-22.04-3.12, ubuntu-22.04-3.13
-- Location: `tests/test_logging_rotation_perms.py:338`
-
-```
-+    where <built-in method index of list object at 0x114be0700> = ['release', 'chmod', 'release'].index
-
-AssertionError: chmod must run BEFORE release; got call_order=['release', 'chmod', 'release']
-assert 1 < 0
- +  where 1 = <built-in method index of list object at 0x114be0700>('chmod')
- +    where <built-in method index of list object at 0x114be0700> = ['release', 'chmod', 'release'].index
- +  and   0 = <built-in method index of list object at 0x114be0700>('release')
- +    where <built-in method index of list object at 0x114be0700> = ['release', 'chmod', 'release'].index
-tests/test_logging_rotation_perms.py:338: in test_do_rollover_chmod_runs_inside_lock
-    assert call_order.index("chmod") < call_order.index("release"), (
-E   AssertionError: chmod must run BEFORE release; got call_order=['release', 'chmod', 'release']
-E   assert 1 < 0
-E    +  where 1 = <built-in method index of list object at 0x114be0700>('chmod')
-E    +    where <built-in method index of list object at 0x114be0700> = ['release', 'chmod', 'release'].index
-E    +  and   0 = <built-in method index of list object at 0x114be0700>('release')
-E    +    where <built-in method index of list object at 0x114be0700> = ['release', 'chmod', 'release'].index
-```
-
-### 81. `tests.tauri.mig17.test_autostart_installer_linux.test_single_instance_plugin_wired_in_tauri`
-
-- Legs: ubuntu-22.04-3.11, ubuntu-22.04-3.12, ubuntu-22.04-3.13
-- Location: `tests/tauri/mig17/test_autostart_installer_linux.py:728`
-
-```
-assert 'get_webview_window' in '//! Voice Typer: Tauri v2 host (ADR-0020 implementation).\n//!\n//! Rust shell replacing the Electron main process. Responsibilities:\n//! 1. Spawn the Python sidecar via Tauri\'s `externalBin` mechanism,\n//!    passing `VOICE_TYPER_IPC_TOKEN` + `TAURI_SIDECAR=1` env vars.\n//! 2. Open a WebSocket client to `ws://127.0.0.1:N` and perform the\n//!    bearer-token auth handshake (`{"type":"auth","token":...}`).\n//! 3. Expose ONE generic `dispatch` command to the webview and\n//!    re-emit server-initiated events as Tauri events.\n//! 4. Run the supervisor (respawn with backoff, then full-app relaunch)\n//!    and coalesce `bubble_level` events to ≤30 Hz.\n//! 5. Single-instance gate runs BEFORE any sidecar init so a second\n//!    launch doesn\'t spawn a zombie sidecar.\n//!\n//! # Cross-platform\n//!\n//! - Windows: WebView2 (Chromium-based, system-installed on Win10+).\n//! - macOS: WKWebView (Safari-based, system).\n//! - Linux: webkit2gtk (system; requires `libwebkit2gtk-4.1-0`).\n//!\n//! # Module layout\n//!\n//! Wiring-only (C-ARCH-1): app builder, plugin registration, `.setup`\n//! glue (window bootstrap → `window_bootstrap`, sidecar cold-start\n//! task → `sidecar::spa...tauri::generate_context!())\n        .unwrap_or_else(|e| {\n            eprintln!("[FATAL] tauri build failed: {e:?}");\n            log::error!("[FATAL] tauri build failed: {e:?}");\n            std::process::exit(1);\n        })\n        .run(|app_handle, event| match event {\n            RunEvent::ExitRequested { .. } | RunEvent::Exit => {\n                // Teardown body: `state::on_host_exit`, dedicated thread\n                // + bounded-time `block_on` (see `sidecar::lifecycle`).\n                crate::state::on_host_exit(app_handle);\n            }\n            // macOS Dock-icon activation (Electron `app.on("activate")`\n            // parity, MO-112): macOS keeps the process alive after the\n            // last window is closed (tray / Dock), so a Dock click must\n            // bring the dashboard back instead of doing nothing. The\n            // shared routine recreates the window when it is gone and\n            // otherwise runs the full raise sequence (MO-109).\n            #[cfg(target_os = "macos")]\n            RunEvent::Reopen { .. } => {\n                crate::host_events::show_main_window(app_handle);\n            }\n            _ => {}\n        });\n}\n'
-
-AssertionError: main.rs's single-instance callback must call app.get_webview_window("main") to focus the existing window.
-assert 'get_webview_window' in '//! Voice Typer: Tauri v2 host (ADR-0020 implementation).\n//!\n//! Rust shell replacing the Electron main process. Responsibilities:\n//! 1. Spawn the Python sidecar via Tauri\'s `externalBin` mechanism,\n//!    passing `VOICE_TYPER_IPC_TOKEN` + `TAURI_SIDECAR=1` env vars.\n//! 2. Open a WebSocket client to `ws://127.0.0.1:N` and perform the\n//!    bearer-token auth handshake (`{"type":"auth","token":...}`).\n//! 3. Expose ONE generic `dispatch` command to the webview and\n//!    re-emit server-initiated events as Tauri events.\n//! 4. Run the supervisor (respawn with backoff, then full-app relaunch)\n//!    and coalesce `bubble_level` events to ≤30 Hz.\n//! 5. Single-instance gate runs BEFORE any sidecar init so a second\n//!    launch doesn\'t spawn a zombie sidecar.\n//!\n//! # Cross-platform\n//!\n//! - Windows: WebView2 (Chromium-based, system-installed on Win10+).\n//! - macOS: WKWebView (Safari-based, system).\n//! - Linux: webkit2gtk (system; requires `libwebkit2gtk-4.1-0`).\n//!\n//! # Module layout\n//!\n//! Wiring-only (C-ARCH-1): app builder, plugin registration, `.setup`\n//! glue (window bootstrap → `window_bootstrap`, sidecar cold-start\n//! task → `sidecar::spa...tauri::generate_context!())\n        .unwrap_or_else(|e| {\n            eprintln!("[FATAL] tauri build failed: {e:?}");\n            log::error!("[FATAL] tauri build failed: {e:?}");\n            std::process::exi
-… (truncated)
-```
-
-### 82. `tests.test_install_permissions_gsettings.TestSwayFlow.test_appends_block_when_no_existing_line`
+### 86. `tests.test_install_permissions_gsettings.TestSwayFlow.test_appends_block_when_no_existing_line`
 
 - Legs: ubuntu-22.04-3.12, ubuntu-22.04-3.13
 - Location: `tests/test_install_permissions_gsettings.py:430`
@@ -2365,7 +2445,7 @@ tests/test_install_permissions_gsettings.py:430: in test_appends_block_when_no_e
 E   AssertionError: assert '# Voice Typer — Caps Lock neutralization' in 'set $mod Mod4\nbindsym Mod4+Return exec foot\n\n# Voice Typer. Caps Lock neutralization\ninput * xkb_options caps:none\n'
 ```
 
-### 83. `tests.test_install_permissions_gsettings.TestUninstallRestore.test_sway_restore_removes_block_when_no_prior_line`
+### 87. `tests.test_install_permissions_gsettings.TestUninstallRestore.test_sway_restore_removes_block_when_no_prior_line`
 
 - Legs: ubuntu-22.04-3.12, ubuntu-22.04-3.13
 - Location: `tests/test_install_permissions_gsettings.py:607`
@@ -2389,53 +2469,105 @@ E       # Voice Typer — Caps Lock neutralization
 E       bindsym Mod4+Return exec foot
 ```
 
-### 84. `tests.test_mic_test_quality_grading.TestNoiseFloorGrading.test_sustained_voice_caps_noise_at_moderate`
+### 88. `tests.test_logging_rotation_perms.test_do_rollover_chmod_runs_inside_lock`
+
+- Legs: ubuntu-22.04-3.12, ubuntu-22.04-3.13
+- Location: `tests/test_logging_rotation_perms.py:338`
+
+```
++    where <built-in method index of list object at 0x7f6140c01d00> = ['release', 'chmod', 'release'].index
+
+AssertionError: chmod must run BEFORE release; got call_order=['release', 'chmod', 'release']
+assert 1 < 0
+ +  where 1 = <built-in method index of list object at 0x7f6140c01d00>('chmod')
+ +    where <built-in method index of list object at 0x7f6140c01d00> = ['release', 'chmod', 'release'].index
+ +  and   0 = <built-in method index of list object at 0x7f6140c01d00>('release')
+ +    where <built-in method index of list object at 0x7f6140c01d00> = ['release', 'chmod', 'release'].index
+tests/test_logging_rotation_perms.py:338: in test_do_rollover_chmod_runs_inside_lock
+    assert call_order.index("chmod") < call_order.index("release"), (
+E   AssertionError: chmod must run BEFORE release; got call_order=['release', 'chmod', 'release']
+E   assert 1 < 0
+E    +  where 1 = <built-in method index of list object at 0x7f6140c01d00>('chmod')
+E    +    where <built-in method index of list object at 0x7f6140c01d00> = ['release', 'chmod', 'release'].index
+E    +  and   0 = <built-in method index of list object at 0x7f6140c01d00>('release')
+E    +    where <built-in method index of list object at 0x7f6140c01d00> = ['release', 'chmod', 'release'].index
+```
+
+### 89. `tests.test_pyrefly_baseline_accuracy.test_errors_array_has_no_stale_entries`
+
+- Legs: ubuntu-22.04-3.12, ubuntu-22.04-3.13, windows-2022-3.11, windows-2022-3.12, windows-2022-3.13
+- Location: `tests/test_pyrefly_baseline_accuracy.py:100`
+
+```
+[393] voice_typer/server/service/offline_pack.py:870 -- file does not exist: voice_typer/server/service/offline_pack.py
+
+Failed: pyrefly-baseline.json: 5 stale entries in `errors` array (of 466 total). Each stale entry must be either remapped to its live location or dropped.
+  [389] voice_typer/server/service/offline_pack.py:791 -- file does not exist: voice_typer/server/service/offline_pack.py
+  [390] voice_typer/server/service/offline_pack.py:791 -- file does not exist: voice_typer/server/service/offline_pack.py
+  [391] voice_typer/server/service/offline_pack.py:791 -- file does not exist: voice_typer/server/service/offline_pack.py
+  [392] voice_typer/server/service/offline_pack.py:870 -- file does not exist: voice_typer/server/service/offline_pack.py
+  [393] voice_typer/server/service/offline_pack.py:870 -- file does not exist: voice_typer/server/service/offline_pack.py
+tests/test_pyrefly_baseline_accuracy.py:100: in test_errors_array_has_no_stale_entries
+    pytest.fail(
+E   Failed: pyrefly-baseline.json: 5 stale entries in `errors` array (of 466 total). Each stale entry must be either remapped to its live location or dropped.
+E     [389] voice_typer/server/service/offline_pack.py:791 -- file does not exist: voice_typer/server/service/offline_pack.py
+E     [390] voice_typer/server/service/offline_pack.py:791 -- file does not exist: voice_typer/server/service/offline_pack.py
+E     [391] voice_typer/server/service/offline_pack.py:791 -- file does not exist: voice_typer/server/service/offline_pack.py
+E     [392] voice_typer/server/service/offline_pack.py:870 -- file does not exist: voice_typer/server/service/offline_pack.py
+E     [393] voice_typer/server/service/offline_pack.py:870 -- file does not exist: voice_typer/server/service/offline_pack.py
+```
+
+### 90. `tests.test_mic_test_quality_grading.TestVolumeScorePenalty.test_inaudible_input_charged_once`
 
 - Legs: ubuntu-22.04-3.13
-- Location: `tests/test_mic_test_quality_grading.py:108`
+- Location: `tests/test_mic_test_quality_grading.py:227`
 
 ```
 assert False is True
 
 assert False is True
-tests/test_mic_test_quality_grading.py:108: in test_sustained_voice_caps_noise_at_moderate
+tests/test_mic_test_quality_grading.py:227: in test_inaudible_input_charged_once
     assert quality["has_voice"] is True
 E   assert False is True
 ```
 
-### 85. `tests.app.test_lifecycle.TestMainWrapsIpcMain.test_main_logs_warning_when_faulthandler_enable_raises`
+### 91. `tests.test_mic_test_quality_grading.TestVoiceGating.test_sustained_speech_counts_as_voice`
 
-- Legs: windows-2022-3.10
-- Location: `tests/app/test_lifecycle.py:1690`
+- Legs: ubuntu-22.04-3.13
+- Location: `tests/test_mic_test_quality_grading.py:214`
 
 ```
-ImportError: cannot import name 'NotRequired' from 'typing' (C:\hostedtoolcache\windows\Python\3.10.11\x64\lib\typing.py)
+assert False is True
 
-ImportError: cannot import name 'NotRequired' from 'typing' (C:\hostedtoolcache\windows\Python\3.10.11\x64\lib\typing.py)
-tests\app\test_lifecycle.py:1690: in test_main_logs_warning_when_faulthandler_enable_raises
-    import voice_typer.server.ipc_server as ipc_server_module
-voice_typer\server\ipc_server.py:304: in <module>
-    from voice_typer.server.handlers.vocabulary_handlers import VocabularyHandlersMixin  # noqa: E402
-voice_typer\server\handlers\__init__.py:61: in <module>
-    from voice_typer.server.handlers.vocabulary_handlers import VocabularyHandlersMixin
-voice_typer\server\handlers\vocabulary_handlers.py:17: in <module>
-    from voice_typer.server.service.vocabulary import VocabularyDuplicateError
-voice_typer\server\service\__init__.py:42: in <module>
-    from voice_typer.server.service.model import _MODEL_STATUS_CACHE_TTL_S, ModelMixin
-voice_typer\server\service\model\__init__.py:7: in <module>
-    from .mixin import ModelMixin
-voice_typer\server\service\model\mixin.py:7: in <module>
-    from ._downloads import DownloadsMixin
-voice_typer\server\service\model\_downloads.py:11: in <module>
-    from voice_typer.server.service._download_helpers import DownloadOutcome
-voice_typer\server\service\_download_helpers.py:39: in <module>
-    from typing import NotRequired, TypedDict
-E   ImportError: cannot import name 'NotRequired' from 'typing' (C:\hostedtoolcache\windows\Python\3.10.11\x64\lib\typing.py)
+assert False is True
+tests/test_mic_test_quality_grading.py:214: in test_sustained_speech_counts_as_voice
+    assert result["quality"]["has_voice"] is True
+E   assert False is True
 ```
 
-### 86. `tests.app.test_config_wiring.TestSettingsWindowIntegration.test_restart_app_does_not_spawn_subprocess`
+### 92. `tests.test_mic_test_quality_grading.TestPersistFailureEnvelope.test_write_failure_returns_quality_without_raising`
 
-- Legs: windows-2022-3.11
+- Legs: ubuntu-22.04-3.13
+- Location: `tests/test_mic_test_quality_grading.py:291`
+
+```
++ very_low
+
+AssertionError: assert 'very_low' == 'good'
+  
+  - good
+  + very_low
+tests/test_mic_test_quality_grading.py:291: in test_write_failure_returns_quality_without_raising
+    assert result["quality"]["volume_level"] == "good"
+E   AssertionError: assert 'very_low' == 'good'
+E     
+E     - good
+E     + very_low
+```
+
+### 93. `tests.app.test_config_wiring.TestSettingsWindowIntegration.test_restart_app_does_not_spawn_subprocess`
+
+- Legs: windows-2022-3.12
 - Location: `tests/app/test_config_wiring.py:369`
 
 ```
