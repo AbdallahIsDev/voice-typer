@@ -1144,15 +1144,19 @@ def test_use_connection_probe_has_retry_cap(use_connection_source: str) -> None:
     leave the renderer stuck on ``"connecting"`` forever, the user
     would see the spinner but no way to manually retry.
     """
-    # The maxRetries constant + the post-cap setConnectionStatus("disconnected")
+    # Accept either a literal `5` or the shared CONNECTION_PROBE_MAX_RETRIES
+    # constant (extracted during the connectionStatus helper split). The
+    # product contract (value = 5) is pinned by connectionStatus unit tests;
+    # this source gate only requires the cap identifier to be wired.
     max_retries_re = re.compile(
-        r"const\s+maxRetries\s*=\s*5\b",
+        r"const\s+maxRetries\s*=\s*(?:5\b|CONNECTION_PROBE_MAX_RETRIES\b)",
         re.MULTILINE,
     )
     assert max_retries_re.search(use_connection_source), (
-        "useConnection.ts must define `const maxRetries = 5` in the "
-        "connection-probe effect, caps the cold-start retry loop so "
-        "a permanently-down backend transitions to 'disconnected'."
+        "useConnection.ts must define `const maxRetries = 5` (or "
+        "`CONNECTION_PROBE_MAX_RETRIES`) in the connection-probe effect, "
+        "caps the cold-start retry loop so a permanently-down backend "
+        "transitions to 'disconnected'."
     )
 
 
@@ -1176,10 +1180,11 @@ def test_use_connection_periodic_health_check_flips_to_disconnected(
     probe arrow function is now hoisted into the surrounding
     useEffect scope so it can also be invoked from the retry path).
     """
-    # The setInterval call now invokes the hoisted ``probe`` arrow
-    # function with ``false`` (non-retry) and a 15_000 ms interval.
+    # Accept the literal 15_000 or the shared HEALTH_CHECK_INTERVAL_MS
+    # constant (value pinned by connectionStatus unit tests; this gate
+    # only requires the 15s interval to be wired via the hoisted probe).
     interval_start_re = re.compile(
-        r"setInterval\s*\(\s*\(\)\s*=>\s*probe\s*\(\s*false\s*\)\s*,\s*15[_\s]*000\s*\)",
+        r"setInterval\s*\(\s*\(\)\s*=>\s*probe\s*\(\s*false\s*\)\s*,\s*(?:15[_\s]*000|HEALTH_CHECK_INTERVAL_MS)\s*\)",
         re.MULTILINE,
     )
     interval_match = interval_start_re.search(use_connection_source)

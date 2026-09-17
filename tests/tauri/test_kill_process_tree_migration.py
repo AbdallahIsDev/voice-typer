@@ -160,10 +160,11 @@ def test_spawn_rs_uses_platform_module_exactly_four_times() -> None:
     , ``kill_process_tree_off_thread``, which contains the single
       ``crate::platform::process::kill_process_tree`` call site, and is
       invoked once per handshake cleanup path (release-path
-      ``Terminated`` / ``Error`` arms, the server-started-deadline
-      fallbacks, and the worker-path siblings). The platform module
-      remains the ONLY tree-kill implementation in the spawn module —
-      the state.rs shim must stay dead (guarded by the tests above).
+      ``Terminated`` / ``Error`` / channel-close / deadline arms, the
+      dev-path shutting-down / EOF / stdout-Err / deadline siblings, and
+      the remaining worker-path arms). The platform module remains the
+      ONLY tree-kill implementation in the spawn module — the state.rs
+      shim must stay dead (guarded by the tests above).
     """
     body = _read_spawn_module()
     # The platform-module call now appears exactly ONCE, inside the
@@ -177,14 +178,15 @@ def test_spawn_rs_uses_platform_module_exactly_four_times() -> None:
         f"spawn/handshake_loop.rs); found {len(platform_matches)}. Route any new "
         f"kill path through the helper, do not duplicate the platform call."
     )
-    # The helper is defined once and invoked from exactly six cleanup
-    # paths (the handshake-loop arms enumerated in the docstring above).
-    # Bump this pin deliberately when adding ANOTHER kill path, the
+    # The helper is defined once and invoked from every handshake cleanup
+    # path. Bump this pin deliberately when adding ANOTHER kill path, the
     # point is that every spawn kill routes through the shared helper,
     # never resurrects the state.rs shim, and never re-duplicates the
-    # platform call.
+    # platform call. Current inventory (2026-09-17): 9 arms — release
+    # shutting-down / Terminated / Error / channel-close / deadline +
+    # dev shutting-down / EOF / stdout-Err / deadline.
     helper_calls = re.findall(r"(?<!fn )kill_process_tree_off_thread\s*\(", body)
-    assert len(helper_calls) == 6, (
-        f"the spawn module must invoke `kill_process_tree_off_thread` exactly 6 "
+    assert len(helper_calls) == 9, (
+        f"the spawn module must invoke `kill_process_tree_off_thread` exactly 9 "
         f"times (one per handshake cleanup path); found {len(helper_calls)}."
     )

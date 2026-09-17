@@ -45,12 +45,16 @@ def test_heartbeat_skipped_under_tauri_sidecar(monkeypatch):
     server._heartbeat_thread = None
     server._stdin_thread = None
     server._push_fn = None
+    # Post-start wiring gate (set by _init_app_and_service; __new__ stubs
+    # must provide it because start() calls wire_background_integrations).
+    server._background_integrations_wired = False
     server.app = type("FakeApp", (), {"_thread_registry": None})()
 
     # Mock the methods start() calls so we don't actually start a stdin
     # thread or hook the tray.
     server._hook_tray_set_state = lambda: None
     server._run = lambda: None  # stdin loop target, don't actually run
+    server.wire_background_integrations = lambda: None
 
     # Patch event_bus.subscribe + threading.Thread so we can observe
     # what threads get created.
@@ -91,10 +95,14 @@ def test_heartbeat_started_without_tauri_sidecar(monkeypatch):
     server._heartbeat_thread = None
     server._stdin_thread = None
     server._push_fn = None
+    # Post-start wiring gate (set by _init_app_and_service; __new__ stubs
+    # must provide it because start() calls wire_background_integrations).
+    server._background_integrations_wired = False
     server.app = type("FakeApp", (), {"_thread_registry": None})()
 
     server._hook_tray_set_state = lambda: None
     server._run = lambda: None
+    server.wire_background_integrations = lambda: None
 
     created_threads = []
 

@@ -275,33 +275,39 @@ class TestHfDownloadCache:
         # All three results must agree.
         assert result1 == result2 == result3
 
-    def test_layout_change_forces_reprobe(self, tmp_path):
+    def test_layout_change_forces_reprobe(self, tmp_path, monkeypatch):
         """A layout change (new mtime) busts the fingerprint, the next
-        call must re-check the filesystem even with no invalidation."""
+        call must re-probe even with no explicit invalidation."""
         repo_id = "test/repo"
         config_dir = tmp_path
 
-        # First call populates the shared store.
-        result1 = _check_hf_model_downloaded(repo_id, config_dir)
+        # Production probe reads the REAL HF cache by repo_id (ignores
+        # config_dir). Pin a counting stub so verdicts and re-probe
+        # observability are deterministic under xdist / shared patches.
+        probe_calls = [0]
 
-        # Simulate a layout change by backdating... no, by BUMPING the
-        # stored fingerprint's mtime basis: create the snapshot dir so
-        # its mtime differs from the stored (missing-dir) fingerprint.
+        def counting_probe(_repo_id: str) -> bool:
+            probe_calls[0] += 1
+            return False
+
+        monkeypatch.setattr(_shared_store, "_default_probe", counting_probe)
+
+        # First call populates the shared store (probe #1).
+        result1 = _check_hf_model_downloaded(repo_id, config_dir)
+        assert probe_calls[0] == 1
+        assert result1 is False
+
+        # Unchanged layout: cache hit, no second probe.
+        assert _check_hf_model_downloaded(repo_id, config_dir) is False
+        assert probe_calls[0] == 1, "unchanged layout must be served from the shared store (no re-probe)"
+
+        # Simulate a layout change: create the snapshot dir so its mtime
+        # differs from the stored (missing-dir) fingerprint.
         snap = config_dir / "huggingface" / "hub" / "models--test--repo"
         snap.mkdir(parents=True)
 
-        # Patch is_dir to verify it's called again.
-        original_is_dir = Path.is_dir
-        call_count = [0]
-
-        def counting_is_dir(self):
-            call_count[0] += 1
-            return original_is_dir(self)
-
-        with patch.object(Path, "is_dir", counting_is_dir):
-            result2 = _check_hf_model_downloaded(repo_id, config_dir)
-
-        assert call_count[0] >= 1, "is_dir() should run again after a layout change"
+        result2 = _check_hf_model_downloaded(repo_id, config_dir)
+        assert probe_calls[0] == 2, f"layout change must force a re-probe; probe ran {probe_calls[0]} times"
         assert result2 == result1
 
     def test_different_repos_cached_separately(self, tmp_path):
