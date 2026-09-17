@@ -20,7 +20,7 @@ use super::math::{
     round_f64_to_u32_saturating, RectPx,
 };
 use super::rate_limit::toggle_rate_limiter_allows;
-use super::window::hide_bubble_window;
+use super::window::{hide_bubble_window, show_bubble_window};
 
 // Tauri commands: bubble window (ADR-0020 §9) ────────────
 
@@ -63,28 +63,16 @@ use super::window::hide_bubble_window;
 /// the hot zone, so requiring the call to originate from the main
 /// window would break that UX. The command's effect is confined to
 /// the bubble window itself.
+///
+/// The WS reader task invokes the same shared body when the sidecar
+/// publishes `bubble_show` on recording start, so the bubble OS window
+/// appears under Tauri exactly as Electron's main process showed it.
 #[tauri::command]
 pub async fn bubble_show(app: tauri::AppHandle) -> Result<(), VoiceTyperError> {
-    let window = app
-        .get_webview_window("bubble")
-        .ok_or(VoiceTyperError::Host("bubble window not found".into()))?;
-    // Durable drag-position restore (mirrors Electron's show-time
-    // placement): when the sidecar's config carries a persisted
-    // `bubble_x` / `bubble_y` pair that still lies on an attached
-    // monitor, place the window there before showing. Without a cached
-    // pair (never dragged / edge-toggle reset) the window keeps its
-    // last keyword-centered position: default behavior unchanged.
-    //
-    // The restore itself is a PROGRAMMATIC placement, suppress the
-    // debounced persist around it so its own `Moved` event doesn't
-    // rewrite the config with the coordinates just read from it.
-    if let Some((x, y)) = crate::commands::bubble::restore_position(&app) {
-        crate::commands::bubble::suppress_persist_for_window();
-        let _ = window.set_position(PhysicalPosition::new(x, y));
-    }
-    window
-        .show()
-        .map_err(|e| VoiceTyperError::Host(e.to_string()))
+    // Shared body with the WS reader's recording-start trigger
+    // (`super::window::show_bubble_window`): renderer-invoked and
+    // host-triggered shows stay identical.
+    show_bubble_window(&app).map_err(VoiceTyperError::Host)
 }
 
 /// Emit `bubble:ready` to signal that the bubble page is mounted and

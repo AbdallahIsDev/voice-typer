@@ -25,7 +25,7 @@ use super::math::{
     MAX_BUBBLE_H, MAX_BUBBLE_W, MIN_BUBBLE_H, MIN_BUBBLE_W,
 };
 use super::parse::parse_position;
-use super::window::hide_bubble_window;
+use super::window::{hide_bubble_window, show_bubble_window, wants_bubble_show};
 use crate::commands::main_window_label_check;
 use serde_json::{json, Value};
 
@@ -998,4 +998,38 @@ fn test_bubble_dismiss_rejection_envelope_is_valid_json() {
         "bubble_dismiss rejection message must name the bubble window, got: {}",
         msg
     );
+}
+
+#[test]
+fn test_show_bubble_window_helper_exists() {
+    // Pin the existence + signature of the shared `show_bubble_window`
+    // helper via a fn-pointer cast (same convention as
+    // `test_hide_bubble_window_helper_exists`): the `bubble_show`
+    // command and the WS reader's recording-start trigger both
+    // delegate to it, so a rename/remove/signature change fails here.
+    let _helper: fn(&tauri::AppHandle) -> Result<(), String> = show_bubble_window;
+    let _ = _helper;
+}
+
+#[test]
+fn test_wants_bubble_show_only_for_bubble_show_event() {
+    // The WS reader shows the bubble OS window (created hidden) exactly
+    // when the sidecar publishes `bubble_show` on recording start.
+    // Every other event leaves visibility alone: levels/config/state
+    // flow to the renderers, which manage their own content.
+    assert!(wants_bubble_show("bubble_show"));
+    for other in [
+        "bubble_hide",
+        "bubble_level",
+        "bubble_config",
+        "bubble_set_state",
+        "status_change",
+        "recording_state",
+        "",
+    ] {
+        assert!(
+            !wants_bubble_show(other),
+            "event {other:?} must not show the bubble OS window"
+        );
+    }
 }

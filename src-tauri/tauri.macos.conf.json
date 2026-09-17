@@ -21,11 +21,13 @@
       },
       {
         "title": "Voice Typer Bubble",
+        "url": "bubble.html",
         "width": 240,
         "height": 80,
         "resizable": false,
         "decorations": false,
         "transparent": true,
+        "shadow": false,
         "alwaysOnTop": true,
         "skipTaskbar": true,
         "visible": false,
