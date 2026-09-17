@@ -1,11 +1,16 @@
-"""Tests for Electron/IPC infrastructure, build tooling, CI, package metadata,
-and type-safety fixes."""
+"""Tests for IPC infrastructure, build tooling, CI, package metadata,
+and type-safety fixes.
+
+Post-Electron cutover: the Electron main/preload source pins were
+deleted with the TS shell. Remaining tests here cover the Python
+IPC/service layer only. Renderer-callable command parity lives in
+``tests/test_ipc_command_parity.py`` (Python registry ↔ Rust allowlist).
+"""
 
 from __future__ import annotations
 
 import contextlib
 import inspect
-import re
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -19,63 +24,6 @@ RENDERER_SRC = CLIENT_SRC / "renderer" / "src"
 
 def _read(rel: str) -> str:
     return (RENDERER_SRC / rel).read_text(encoding="utf-8")
-
-
-class TestElectronExposesDataExportHandlers:
-    """Electron exposes export handlers for templates + config.
-
-    status: the renderer-side type/UX tests below are ported to
-    vitest (see ``electron-ipc-build-behavior.test.tsx`` Sections 1–2).
-    The 5 main/preload-source tests stay in Python, they assert on
-    ``src/main/index.ts`` and ``src/preload/index.ts`` source strings,
-    which cannot be loaded in the jsdom vitest environment (both files
-    import ``electron`` and ``node:*`` built-ins).  A behavioral port
-    would require ``@vitest/electron`` or Playwright Electron to spawn
-    a real main process and invoke ``ipcMain.handle("templates:export",
-    ...)`` end-to-end, see worklog for the documented dep.
-    """
-
-    # REQUIRES-ELECTRON-RUNNER: asserts on src/main/index.ts source which
-    # imports `electron` + `node:*`; behavioral version needs a real Electron
-    # main process (would use @vitest/electron or Playwright Electron).
-    def test_main_has_templates_export_handler(self):
-        main_ts = (CLIENT_SRC / "main" / "index.ts").read_text(encoding="utf-8")
-        export_handlers_ts = (CLIENT_SRC / "main" / "ipc" / "export-handlers.ts").read_text(encoding="utf-8")
-        channels_ts = (CLIENT_SRC / "main" / "ipc" / "channels.ts").read_text(encoding="utf-8")
-        combined = main_ts + "\n" + export_handlers_ts + "\n" + channels_ts
-        assert 'ipcMain.handle("templates:export"' in combined or '"templates:export"' in combined
-
-    # REQUIRES-ELECTRON-RUNNER: same as above, src/main/index.ts source check.
-    def test_main_has_config_export_handler(self):
-        main_ts = (CLIENT_SRC / "main" / "index.ts").read_text(encoding="utf-8")
-        export_handlers_ts = (CLIENT_SRC / "main" / "ipc" / "export-handlers.ts").read_text(encoding="utf-8")
-        channels_ts = (CLIENT_SRC / "main" / "ipc" / "channels.ts").read_text(encoding="utf-8")
-        combined = main_ts + "\n" + export_handlers_ts + "\n" + channels_ts
-        assert 'ipcMain.handle("config:export"' in combined or '"config:export"' in combined
-
-    # REQUIRES-ELECTRON-RUNNER: asserts on src/preload/index.ts source which
-    # imports `electron` + `node:*`; behavioral version needs a real Electron
-    # preload context.
-    def test_preload_exposes_export_templates(self):
-        preload = (CLIENT_SRC / "preload" / "index.ts").read_text(encoding="utf-8")
-        assert "exportTemplates" in preload
-        assert "exportConfig" in preload
-
-    # REQUIRES-ELECTRON-RUNNER: asserts on src/main/index.ts source.
-    def test_history_export_still_present(self):
-        main_ts = (CLIENT_SRC / "main" / "index.ts").read_text(encoding="utf-8")
-        export_handlers_ts = (CLIENT_SRC / "main" / "ipc" / "export-handlers.ts").read_text(encoding="utf-8")
-        channels_ts = (CLIENT_SRC / "main" / "ipc" / "channels.ts").read_text(encoding="utf-8")
-        combined = main_ts + "\n" + export_handlers_ts + "\n" + channels_ts
-        assert 'ipcMain.handle("history:export"' in combined or '"history:export"' in combined
-
-    # REQUIRES-ELECTRON-RUNNER: asserts on src/main/index.ts source.
-    def test_vocabulary_export_still_present(self):
-        main_ts = (CLIENT_SRC / "main" / "index.ts").read_text(encoding="utf-8")
-        export_handlers_ts = (CLIENT_SRC / "main" / "ipc" / "export-handlers.ts").read_text(encoding="utf-8")
-        channels_ts = (CLIENT_SRC / "main" / "ipc" / "channels.ts").read_text(encoding="utf-8")
-        combined = main_ts + "\n" + export_handlers_ts + "\n" + channels_ts
-        assert 'ipcMain.handle("vocabulary:export"' in combined or '"vocabulary:export"' in combined
 
 
 class TestVersionReadsFromPackageMetadata:
@@ -190,79 +138,6 @@ class TestEntryPointImportable:
 
         assert hasattr(main_mod, "main")
         assert callable(main_mod.main)
-
-
-class TestAllowlistCorrectness:
-    """Allowlist correctness, no dead entries, all have server handlers."""
-
-    @pytest.fixture
-    def allowlist_entries(self):
-        # previously pointed at `index.ts`, but R6-F10 moved
-        # the canonical `ALLOWED_COMMANDS = new Set([...])` literal out of
-        # `index.ts` into its own dependency-free leaf module
-        # `allowed-commands.ts` (`index.ts:56` now just re-exports it).
-        # `src.index("ALLOWED_COMMANDS = new Set([")` was raising
-        # `ValueError: substring not found` on the stale path, erroring
-        # every test in this class without any assertion ever running.
-        idx_path = REPO_ROOT / "voice_typer" / "client" / "src" / "main" / "allowed-commands.ts"
-        src = idx_path.read_text(encoding="utf-8")
-        start = src.index("ALLOWED_COMMANDS = new Set([")
-        end = src.index("]);", start)
-        block = src[start:end]
-
-        entries = re.findall(r'"([a-z_]+)"', block)
-        return set(entries)
-
-    def test_repaste_last_in_allowlist(self, allowlist_entries):
-        # repaste_last is wired in the renderer (Home.tsx + tray menu)
-        # and dispatched by the backend (_COMMAND_REGISTRY in
-        # voice_typer/server/ipc/server.py). It must be in the renderer's
-        # ALLOWED_COMMANDS so the IPC call is not rejected. (Was previously
-        # asserted as a "dead" exclusion before the handler was added.)
-        assert "repaste_last" in allowlist_entries
-
-    # REQUIRES-PYTHON-RUNNER: cross-validates the main allowlist against
-    # `voice_typer/server/ipc/registry.py` (the canonical source for
-    # `_COMMAND_REGISTRY`); out of scope for a TS-string vitest rewrite.
-    def test_allowlist_matches_server_commands(self, allowlist_entries):
-        # The canonical source for ``_COMMAND_REGISTRY`` is
-        # ``voice_typer/server/ipc/registry.py`` (the
-        # ``ipc_server.py`` god-module used to host it inline, but
-        # extraction moved it to the leaf ``ipc.registry``
-        # submodule, reading ``ipc_server.py`` source for handler
-        # patterns would silently miss any new command added in the
-        # registry module). Import the registry directly so the
-        # parity check is exact (every key in the dict is a
-        # server-recognized command, no regex drift, no stale
-        # pattern).
-        from voice_typer.server.ipc.registry import _COMMAND_REGISTRY
-
-        server_cmds = set(_COMMAND_REGISTRY.keys())
-        orphans = allowlist_entries - server_cmds
-        assert not orphans, f"Allowlist has orphan entries: {sorted(orphans)}"
-        # `tray_click` is a Rust-only command. The server
-        # registry has a `_handle_tray_click` handler (invoked by the
-        # Rust tray menu handler in `src-tauri/src/tray.rs::on_menu_event`
-        # via `dispatch_inner`, which bypasses the renderer allowlist
-        # gate). The renderer never sends `tray_click`, so it is
-        # intentionally NOT in the TS `ALLOWED_COMMANDS` Set. Exclude
-        # it from the "missing" check so the parity test does not flag
-        # it as a renderer-reachable gap.
-        # +  reviewer feedback: `tray_click` and
-        # `shutdown` are Rust-only / host-supervised commands. The
-        # server registry has handlers for both, but neither is ever
-        # sent by the renderer:
-        #   - `tray_click` is dispatched internally by the Rust tray
-        #     menu handler (src-tauri/src/tray.rs::on_menu_event).
-        #   - `shutdown` is host-supervised (the Rust host + Electron
-        #     main both manage sidecar shutdown; the renderer never
-        #     sends it). See FEATURES.md row 81.
-        # Both are intentionally NOT in the TS ALLOWED_COMMANDS Set.
-        rust_only_commands = {"tray_click", "shutdown"}
-        missing = server_cmds - allowlist_entries - rust_only_commands
-        assert not missing, (
-            f"Allowlist is missing server commands (renderer calls would be silently rejected): {sorted(missing)}"
-        )
 
 
 # REQUIRES-PYTHON-RUNNER: imports `voice_typer.server.vocabulary` +

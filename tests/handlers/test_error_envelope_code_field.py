@@ -148,11 +148,7 @@ class TestHandlerFilesUseHelper:
             # pattern (restart_app / quit_app) still carry ``_wrap``
             # or ``self._error_response`` on sibling handlers, so the
             # file-level check continues to hold.
-            has_helper = (
-                "_respond_with_error" in src
-                or "_error_response" in src
-                or "self._wrap(" in src
-            )
+            has_helper = "_respond_with_error" in src or "_error_response" in src or "self._wrap(" in src
             if not has_helper:
                 no_helper_use.append(fpath.name)
         assert not no_helper_use, f"these handler files have an except block but don't use a helper: {no_helper_use}"

@@ -720,39 +720,24 @@ class TestAutostartLauncherTauriMode:
         """In Tauri mode, the launcher exits 1 if voice-typer-tauri is not found."""
         assert AUTOSTART_LAUNCHER.is_file()
         text = _launcher_text()
-        assert "_is_tauri_mode()" in text, "launch() must call _is_tauri_mode() to detect Tauri mode ."
-        assert "_spawn_tauri_host" in text, "launch() must call _spawn_tauri_host() in Tauri mode ."
-        # The Tauri branch must contain a `return 1` on spawn failure.
-        # Accept both `if _is_tauri_mode():` and the refactored
-        # `tauri_mode = _is_tauri_mode()\n    if tauri_mode:` form.
-        tauri_branch_match = re.search(
-            r"if\s+(?:_is_tauri_mode\(\)|tauri_mode)\s*:(.*?)(?=\n    if backend_running|\n    # 2\) Fresh start)",
-            text,
-            re.DOTALL,
-        )
-        assert tauri_branch_match is not None, "launch() must have an `if _is_tauri_mode():` branch ."
-        tauri_branch = tauri_branch_match.group(1)
-        assert "return 1" in tauri_branch, (
-            "launch()'s Tauri-mode branch must `return 1` when "
-            "_spawn_tauri_host() returns None (no silent Electron "
-            "fallback)."
-        )
+        assert "_is_tauri_mode()" in text, "launch() must call _is_tauri_mode() to detect Tauri mode."
+        assert "_spawn_tauri_host" in text, "launch() must call _spawn_tauri_host() in Tauri mode."
+        # Post-Electron cutover: fresh-start is Tauri-only; missing binary
+        # or failed spawn must return 1 (no silent Electron fallback).
+        assert "return 1" in text, "launch() must return 1 when the Tauri binary is missing or spawn fails."
+        assert "Electron launch path removed" in text or "No Tauri binary" in text
 
-    def test_autostart_launcher_preserves_electron_path(self):
-        """must NOT break the existing Electron path."""
+    def test_autostart_launcher_is_tauri_only(self):
+        """Electron spawn helpers must be gone from the launcher."""
         assert AUTOSTART_LAUNCHER.is_file()
         text = _launcher_text()
-        assert "_ensure_built_and_launch" in text, (
-            "autostart_launcher.py must still call _ensure_built_and_launch "
-            "in the Electron path ( must not break the Electron path "
-            "during the mixed-mode period)."
+        assert "_ensure_built_and_launch" not in text, (
+            "autostart_launcher.py must not retain Electron _ensure_built_and_launch"
         )
-        assert "_spawn_npm_run_dev" in text, (
-            "autostart_launcher.py must still call _spawn_npm_run_dev as the Electron-path last-resort fallback."
-        )
+        assert "_spawn_npm_run_dev" not in text, "autostart_launcher.py must not retain Electron _spawn_npm_run_dev"
+        assert "_spawn_tauri_host" in text
         assert "_focus_running_app" in text, (
-            "autostart_launcher.py must still call _focus_running_app for "
-            "the Electron-path 'backend already running' case."
+            "autostart_launcher.py must keep _focus_running_app for the 'backend already running' case."
         )
 
 

@@ -594,33 +594,23 @@ class TestDispatchesTestLlmConnection:
 
 
 class TestRendererAllowlist:
-    """ZR-45: the Electron main process allowlist must NOT include
+    """ZR-45: the Rust renderer allowlist must NOT include
     ``test_llm_connection``, the IPC command was removed from
-    ``_COMMAND_REGISTRY`` and the renderer no longer invokes it."""
+    ``_COMMAND_REGISTRY`` and the renderer no longer invokes it.
 
-    def test_allowlist_does_not_include_test_llm_connection(self):
-        from pathlib import Path
+    Post-Electron cutover: the TS ``ALLOWED_COMMANDS`` set is gone;
+    the Rust ``allowed_commands()`` set is the sole renderer-reachable
+    gate.
+    """
 
-        # allowlist moved from index.ts to allowed-commands.ts per
-        main_ts = (
-            Path(__file__).resolve().parent.parent / "voice_typer" / "client" / "src" / "main" / "allowed-commands.ts"
-        )
-        source = main_ts.read_text(encoding="utf-8")
-        # the literal must NOT appear inside the
-        # ``ALLOWED_COMMANDS = new Set<string>([...])`` block. We
-        # tolerate the name appearing in comments (e.g. the
-        # stale-entry-removal note), so the check is scoped to the
-        # Set block specifically.
-        set_start = source.find("ALLOWED_COMMANDS = new Set")
-        assert set_start != -1, "ALLOWED_COMMANDS = new Set block not found"
-        set_end = source.find("]);", set_start)
-        assert set_end != -1, "ALLOWED_COMMANDS = new Set block end not found"
-        set_block = source[set_start:set_end]
-        assert '"test_llm_connection"' not in set_block, (
+    def test_rust_allowlist_does_not_include_test_llm_connection(self):
+        from tests.test_security_doc_command_count import _allowed_commands_rust
+
+        assert "test_llm_connection" not in _allowed_commands_rust(), (
             "ZR-45: `test_llm_connection` was removed from _COMMAND_REGISTRY; "
-            "the renderer ALLOWED_COMMANDS Set must NOT include it. If the "
+            "the Rust allowed_commands() set must NOT include it. If the "
             "command was intentionally re-added to _COMMAND_REGISTRY, update "
-            "the allowlist + this test together."
+            "the Rust allowlist + this test together."
         )
 
 

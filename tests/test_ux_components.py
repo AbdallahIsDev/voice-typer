@@ -23,25 +23,13 @@ def _read(rel: str) -> str:
 
 
 class TestBubbleSupportsKeyboardArrowMove:
-    """Bubble supports keyboard-based repositioning via arrow keys."""
+    """Bubble supports keyboard-based repositioning via arrow keys.
 
-    def test_main_has_move_by_ipc_handler(self):
-        # EC-29 / REF-2 split: the ``bubble:move-by`` channel is declared
-        # in main/ipc/channels.ts (BubbleChannels.moveBy). The keyboard-
-        # nudge HANDLER was removed from bubble-handlers.ts (no production
-        # caller, the bubble window is focusable:false), so the channel
-        # constant is the surviving contract.
-        channels_ts = (CLIENT_SRC / "main" / "ipc" / "channels.ts").read_text(encoding="utf-8")
-        assert "bubble:move-by" in channels_ts
-        assert "moveBy" in channels_ts
-
-    def test_preload_exposes_move_by(self):
-        # EC-29 split: the bubble API surface lives in
-        # preload/_bubble-channels.ts (makeBubbleApi exposes moveBy);
-        # preload/index.ts delegates to it.
-        preload = (CLIENT_SRC / "preload" / "_bubble-channels.ts").read_text(encoding="utf-8")
-        assert "moveBy" in preload
-        assert "bubble:move-by" in preload
+    Post-Electron cutover: the main/preload channel pins were deleted
+    with the TS shell. The Tauri host owns ``bubble_move_by``
+    (``src-tauri/src/commands/bubble/commands.rs``); this class pins
+    the renderer type contract that still exists.
+    """
 
     def test_window_bubble_type_has_move_by(self):
         # the former monolithic ipc types file was
@@ -86,11 +74,12 @@ class TestDeleteModelRouteRemovesFiles:
         assert "delete_model" in IPCServer._COMMAND_REGISTRY
         assert hasattr(IPCServer, "_handle_delete_model")
 
-    def test_renderer_allowlist_has_delete_model(self):
-        # REF-2 split: allowed-commands.ts (not main/index.ts) holds the
-        # renderer->main allowlist.
-        allowed_ts = (CLIENT_SRC / "main" / "allowed-commands.ts").read_text(encoding="utf-8")
-        assert '"delete_model"' in allowed_ts
+    def test_rust_allowlist_has_delete_model(self):
+        # Post-Electron: the renderer-callable gate is the Rust
+        # allowed_commands() set (the TS ALLOWED_COMMANDS file is gone).
+        from tests.test_security_doc_command_count import _allowed_commands_rust
+
+        assert "delete_model" in _allowed_commands_rust()
 
 
 class TestErrorBoundaryComponentExists:
@@ -155,10 +144,12 @@ class TestModelDownloadSupportsCancel:
         registry_py = (REPO_ROOT / "voice_typer" / "server" / "ipc" / "registry.py").read_text(encoding="utf-8")
         assert '"cancel_model_download": "_handle_cancel_model_download"' in registry_py
 
-    def test_main_allowlist_includes_cancel_model_download(self):
-        # REF-2 split: allowed-commands.ts holds the allowlist.
-        allowed_ts = (CLIENT_SRC / "main" / "allowed-commands.ts").read_text(encoding="utf-8")
-        assert '"cancel_model_download"' in allowed_ts
+    def test_rust_allowlist_includes_cancel_model_download(self):
+        # Post-Electron: the renderer-callable gate is the Rust
+        # allowed_commands() set.
+        from tests.test_security_doc_command_count import _allowed_commands_rust
+
+        assert "cancel_model_download" in _allowed_commands_rust()
 
     def test_models_page_has_cancel_button(self):
         # Models.tsx is now a thin composition root; the Cancel control

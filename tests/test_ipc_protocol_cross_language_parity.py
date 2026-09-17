@@ -3,19 +3,16 @@
 The IPC wire protocol version is a single integer that MUST be kept in
 lockstep across three language surfaces:
 
-  - Python (TCP receiver): ``voice_typer/server/ipc/transport_tcp.py``
-    defines ``IPC_PROTOCOL_VERSION = 1`` and rejects auth frames whose
-    explicit ``protocol_version`` field does not match.
-  - Python (WS receiver): ``voice_typer/server/sidecar_ws.py`` defines
-    ``PROTOCOL_VERSION = 1`` and logs a WARNING on mismatch (advisory
-    only, does not reject).
+  - Python (WS receiver): ``voice_typer/server/ipc/protocol_version.py``
+    defines ``PROTOCOL_VERSION = 1``; ``sidecar_ws.py`` imports it and
+    logs a WARNING on mismatch (advisory only, does not reject).
   - Rust (host sender): ``src-tauri/src/sidecar/ws.rs`` defines
     ``const EXPECTED_PROTOCOL_VERSION: u64 = 1`` and sends it in its
     auth frame.
   - TypeScript (renderer contract): ``voice_typer/client/src/renderer/
     src/types/ipc/push_events.ts`` exports ``IPC_PROTOCOL_VERSION`` so
-    any future renderer-side auth-frame construction (e.g. an Electron
-    fallback path) can reference the same constant.
+    any future renderer-side auth-frame construction can reference the
+    same constant.
 
 A drift between any two of these would either:
   - cause a stale client to be rejected with an opaque ``auth_failed``
@@ -24,7 +21,7 @@ A drift between any two of these would either:
     fails with a confusing ``unknown_command`` (if the sender is ahead
     of the receiver).
 
-This file is the regression guard: if any of the four constants drifts
+This file is the regression guard: if any of the constants drifts
 out of sync, this test fails before the change can be merged. Bumping
 the protocol version is a deliberate, multi-file change, never an
 accidental one.
@@ -36,7 +33,7 @@ import re
 from pathlib import Path
 
 import pytest
-from voice_typer.server.ipc.transport_tcp import IPC_PROTOCOL_VERSION
+from voice_typer.server.ipc.protocol_version import PROTOCOL_VERSION as IPC_PROTOCOL_VERSION
 
 # ────────────────────────────────────────────────────────────────────────────
 # Paths

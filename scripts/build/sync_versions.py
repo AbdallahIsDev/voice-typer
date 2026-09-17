@@ -6,9 +6,7 @@ version.  This script reads the version from ``pyproject.toml``
 and writes the same value into every other file that hardcodes a
 version string:
 
-  - ``voice_typer/client/package.json`` (Electron app version).
-  - ``voice_typer/client/electron-builder.yml`` (installer version,
-    only when an explicit ``version:`` field already exists).
+  - ``voice_typer/client/package.json`` (client package version).
   - ``src-tauri/tauri.conf.json`` (Tauri host app version).
   - ``src-tauri/Cargo.toml`` (crate ``[package] version``).
   - ``tauri-binaries.json`` (per-binary integrity-manifest versions).
@@ -301,7 +299,6 @@ def collect_versions() -> dict[str, str | None]:
     return {
         "pyproject.toml": read_pyproject_version(),
         "voice_typer/client/package.json": read_package_json_version(),
-        "voice_typer/client/electron-builder.yml": read_electron_builder_version(),
         # WR-20: Tauri v2 host files
         "src-tauri/tauri.conf.json": read_tauri_conf_version(),
         "src-tauri/Cargo.toml": read_cargo_toml_version(),
@@ -316,9 +313,6 @@ def apply_version(version: str) -> list[str]:
     if PACKAGE_JSON.exists():
         write_package_json_version(version)
         updated.append(str(PACKAGE_JSON))
-    if ELECTRON_BUILDER.exists() and read_electron_builder_version() is not None:
-        write_electron_builder_version(version)
-        updated.append(str(ELECTRON_BUILDER))
     # WR-20: Tauri v2 host files
     if TAURI_CONF_JSON.exists() and read_tauri_conf_version() is not None:
         write_tauri_conf_version(version)

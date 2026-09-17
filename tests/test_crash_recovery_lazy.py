@@ -37,6 +37,8 @@ def _mock_recovery_owner_acl(monkeypatch):
         "voice_typer.server.config._enforce_windows_owner_only_acl",
         MagicMock(return_value=True),
     )
+
+
 @pytest.fixture
 def recovery_dir(tmp_config_dir: Path) -> Path:
     """Point ``config._config_dir`` at a temp directory so the recovery

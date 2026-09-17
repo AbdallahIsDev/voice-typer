@@ -544,26 +544,9 @@ def test_index_lists_all_five_module_docs():
 # ─── error-envelope-contract path references ────────────────────────────────
 
 
-def test_error_envelope_contract_uses_transport_tcp_path():
-    doc = _read(ERROR_ENV_DOC)
-    # Stale path must be gone.
-    assert "ipc_server.py:_handle_tcp_connection" not in doc, (
-        "Stale 'ipc_server.py:_handle_tcp_connection' must be replaced with "
-        "'ipc/transport_tcp.py:_handle_tcp_connection'."
-    )
-    assert "ipc_server._handle_tcp_connection" not in doc, "Stale 'ipc_server._handle_tcp_connection' must be replaced."
-    # New path must be present (twice, line 25 + line 91).
-    assert "ipc/transport_tcp.py:_handle_tcp_connection" in doc
-    assert doc.count("ipc/transport_tcp.py:_handle_tcp_connection") >= 2, (
-        "Expected at least 2 references to ipc/transport_tcp.py:_handle_tcp_connection."
-    )
-
-    # Code-side cross-check: TCPTransportMixin._handle_tcp_connection exists.
-    from voice_typer.server.ipc.transport_tcp import TCPTransportMixin
-
-    assert callable(getattr(TCPTransportMixin, "_handle_tcp_connection", None)), (
-        "TCPTransportMixin must define _handle_tcp_connection."
-    )
+# TCP transport removed: the error-envelope contract test that pinned
+# ``ipc/transport_tcp.py:_handle_tcp_connection`` was deleted with the
+# transport. The WS path (``sidecar_ws``) carries the equivalent contract.
 
 
 # ─── prewarm_resolver deletion (plan-runtime-pack-split §6.2 P-1) ──────────

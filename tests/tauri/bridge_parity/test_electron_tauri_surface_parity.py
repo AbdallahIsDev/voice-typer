@@ -1,59 +1,18 @@
-r"""Electron↔Tauri renderer-facing surface parity (static contract tests).
+r"""Tauri renderer-facing surface parity (static contract tests).
 
-Existing guards pin the *command* allowlists three ways (server registry ↔
-Electron ``ALLOWED_COMMANDS`` ↔ Rust ``allowed_commands()``) and the WS
-event protocol inside the Rust tree, but NOTHING enumerated the
-RENDERER-FACING surface, the methods the preload installs on ``window``
-and the ``PythonPushEvent`` union members the renderer types consume —
-against BOTH runtime implementations. Parity gaps therefore surfaced
-silently at runtime (e.g. ``setLocale`` missing on Tauri; ``show_window`` /
-``notification`` unhandled on Tauri until host listeners were added).
+Post-Electron / post-TCP the IPC surface is **two-way** (Python
+``_COMMAND_REGISTRY`` ↔ Rust ``allowed_commands()``). This module
+enumerates the renderer-facing surface that remains under Tauri —
+the ``PythonPushEvent`` union members the renderer types consume, the
+Tauri bridge namespaces, and the command allowlists — and asserts they
+agree with the Rust host + Python registry.
 
-This module closes that gap by PARSING (regex / string-slicing only, no
-TS compilation, no cargo/npm build) both implementations of every
-renderer-facing surface and asserting they agree:
+Electron preload / main / TCP parsers were removed with those trees.
+Do not reintroduce a TypeScript ``ALLOWED_COMMANDS`` Set.
 
-Enumerated surfaces
--------------------
-
-1. ``voice_typer/client/src/preload/index.ts``
- , the Electron preload's ``exposeInMainWorld("python", ...)`` and
-   ``exposeInMainWorld("window_", ...)`` method sets + every
-   ``ipcRenderer.invoke(<channel>)`` reference.
-2. ``voice_typer/client/src/renderer/src/types/ipc/push_events.ts``
- , the ``PythonPushEvent`` discriminated union members (resolved from
-   the union membership list to each interface's ``type: "..."`` literal,
-   so future additions are auto-covered).
-3. ``voice_typer/client/src/renderer/src/lib/tauri-bridge/{python,
-   window}-namespace.ts``, the Tauri-side implementations of the same
-   namespaces.
-4. ``voice_typer/client/src/main/``, the Electron main-process side:
-   every ``ipcMain.handle(...)`` registration (channel constants resolved
-   through ``main/ipc/channels.ts``), the dedicated push-event dispatch
-   table in ``main/python/handle-message.ts``, and the bubble-only event
-   filter in ``main/ipc/bubble-handlers.ts``.
-5. ``src-tauri/src/``, the Rust host side: ``ALLOWED_EVENT_TYPES`` in
-   ``sidecar/ws/event_protocol.rs`` (the WS-reader allowlist that decides
-   which server events reach the renderer as Tauri events), the
-   ``translate_event_name`` bubble renames, the per-event ``app.listen``
-   host handlers (``host_events.rs``, ``main.rs``, ``tray.rs``), and the
-   renderer→sidecar command allowlist literal in
-   ``commands/sidecar_cmds/allowlist.rs``.
-
-Assertions
-----------
-
-* Every ``PythonPushEvent`` union member must be allowlisted in the Rust
-  WS reader (or be an explicitly reviewed host-synthesized exception).
-* Every Electron-main-dedicated push handler must have a Tauri host-side
-  counterpart (an ``app.listen`` registration, or a bubble rename arm /
-  explicit emit for the bubble-only events).
-* Every preload-exposed namespace method must exist on BOTH runtimes —
-  or be listed in the reviewed, commented exceptions below with a reason.
-* Every channel the preload invokes must have an ``ipcMain.handle``
-  registration in the Electron main process.
-* The TS and Rust command allowlists stay in lockstep modulo their one
-  documented asymmetry.
+Parity gaps that historically surfaced silently (e.g. ``setLocale``
+missing on Tauri; ``show_window`` / ``notification`` unhandled on Tauri
+until host listeners were added) are why this file exists.
 
 Robustness
 ----------
@@ -81,34 +40,23 @@ PROJECT_ROOT = Path(__file__).resolve().parents[3]
 CLIENT_SRC = PROJECT_ROOT / "voice_typer" / "client" / "src"
 SRC_TAURI_SRC = PROJECT_ROOT / "src-tauri" / "src"
 
-PRELOAD_TS = CLIENT_SRC / "preload" / "index.ts"
 PUSH_EVENTS_TS = CLIENT_SRC / "renderer" / "src" / "types" / "ipc" / "push_events.ts"
 TAURI_PYTHON_NS_TS = CLIENT_SRC / "renderer" / "src" / "lib" / "tauri-bridge" / "python-namespace.ts"
 TAURI_WINDOW_NS_TS = CLIENT_SRC / "renderer" / "src" / "lib" / "tauri-bridge" / "window-namespace.ts"
-HANDLE_MESSAGE_TS = CLIENT_SRC / "main" / "python" / "handle-message.ts"
-MAIN_IPC_DIR = CLIENT_SRC / "main" / "ipc"
-CHANNELS_TS = MAIN_IPC_DIR / "channels.ts"
-BUBBLE_HANDLERS_TS = MAIN_IPC_DIR / "bubble-handlers.ts"
-MAIN_WINDOW_TS = CLIENT_SRC / "main" / "windows" / "main-window.ts"
-ALLOWED_COMMANDS_TS = CLIENT_SRC / "main" / "allowed-commands.ts"
 
 EVENT_PROTOCOL_RS = SRC_TAURI_SRC / "sidecar" / "ws" / "event_protocol.rs"
 WS_RS = SRC_TAURI_SRC / "sidecar" / "ws.rs"
 COMMAND_ALLOWLIST_RS = SRC_TAURI_SRC / "commands" / "sidecar_cmds" / "allowlist.rs"
+IPC_REGISTRY_PY = PROJECT_ROOT / "voice_typer" / "server" / "ipc" / "registry.py"
 
 for _required in (
-    PRELOAD_TS,
     PUSH_EVENTS_TS,
     TAURI_PYTHON_NS_TS,
     TAURI_WINDOW_NS_TS,
-    HANDLE_MESSAGE_TS,
-    CHANNELS_TS,
-    BUBBLE_HANDLERS_TS,
-    MAIN_WINDOW_TS,
-    ALLOWED_COMMANDS_TS,
     EVENT_PROTOCOL_RS,
     WS_RS,
     COMMAND_ALLOWLIST_RS,
+    IPC_REGISTRY_PY,
 ):
     assert _required.exists(), f"parity-test input missing: {_required}"
 
@@ -116,10 +64,9 @@ for _required in (
 
 # Push-event union members that are NEVER published by the Python sidecar
 # (`event_bus.publish`). Each is SYNTHESIZED by the host bridge when the
-# transport layer drops/re-establishes the connection, under Electron by
-# the main process reconnect machinery, under Tauri by
+# transport layer drops/re-establishes the connection (under Tauri by
 # `lib/tauri-bridge/python-namespace.ts` translating the supervisor
-# `supervisor_relaunching` / `supervisor_reconnected` host events. They are
+# `supervisor_relaunching` / `supervisor_reconnected` host events). They are
 # deliberately absent from the Rust WS-reader allowlist because no inbound
 # WS frame ever carries them. If a name here ever gains a server-side
 # publisher, remove it from this map, the parity test will then require it
@@ -134,38 +81,33 @@ HOST_SYNTHESIZED_PUSH_EVENTS: dict[str, str] = {
 }
 
 # Preload-exposed `window.window_` methods with NO Tauri implementation.
-# Each entry documents WHY the gap exists today (mirroring the optionality
-# rationale in types/ipc/bridge.ts). This list is REVIEWED CONTRACT, not a
-# dumping ground: adding a method here without implementing it under Tauri
-# requires updating the WindowBridge docstring too, and implementing a
-# method under Tauri REQUIRES deleting its entry (the staleness assertion
-# fails while the entry survives).
+# Kept as reviewed, contract for window-namespace methods the Tauri
+# bridge still does not implement. Adding a method here without
+# implementing it under Tauri requires updating the WindowBridge
+# docstring too, and implementing a method under Tauri REQUIRES deleting
+# its entry (the staleness assertion fails while the entry survives).
+#
+# (Electron preload comparison removed with Electron main; this map now
+# documents known Tauri gaps against the renderer's expected surface.)
 TAURI_MISSING_WINDOW_METHODS: dict[str, str] = {
-    # (`restartBackend` and `revealStatsImage` were implemented under Tauri
-    # on 2026-09-16 — review.md MO-120: `restart_sidecar` delegates to the
-    # supervisor's respawn path with Electron's `{ok, reason?}` envelope,
-    # and `reveal_path_command` covers `shell.showItemInFolder` — so their
-    # entries were deleted here; the staleness assertion requires it.)
-    #
-    # Share-stats image platform operations still without Rust
-    # counterparts: under Tauri the renderer falls back to an anchor
-    # download for save, and the clipboard copy path is Electron-only.
-    # (`saveStatsImage` was implemented under Tauri on 2026-09-16 —
-    # review.md MO-121: `save_stats_image` ports the Downloads
-    # instant-save + the localized Save-As dialog — so its entry was
-    # deleted here; the staleness assertion requires it.)
-    "copyStatsImage": ("no Rust clipboard command counterpart yet; stats-image copy is Electron-only"),
+    # Share-stats image clipboard copy is not implemented under Tauri
+    # (save/reveal are; copy falls back to the renderer web-API path).
+    "copyStatsImage": ("no Rust clipboard command counterpart yet; stats-image copy is renderer web-API only"),
 }
 
-# Documented asymmetry between the TS renderer allowlist and the Rust host
-# allowlist (see allowlist.rs): both commands are sent by the ELECTRON MAIN
-# process directly to the Python sidecar (never by the renderer through the
-# Tauri dispatch gate), so they exist in the TS set but intentionally not in
-# the Rust literal. Any OTHER divergence fails the lockstep test.
+# Host-dispatched / host-only commands that live in the Python
+# ``_COMMAND_REGISTRY`` but are intentionally ABSENT from the Rust
+# renderer allowlist (see allowlist.rs). The Tauri host sends them via
+# ``dispatch_inner`` / host-supervised paths; a compromised WebView must
+# not be able to ``invoke('dispatch', ...)`` them.
 DOCUMENTED_COMMAND_ASYMMETRY: dict[frozenset[str], str] = {
     frozenset({"heartbeat", "relaunch_ack"}): (
-        "sent by the Electron/Tauri HOST processes directly over the "
-        "transport, never dispatched by the renderer through the gate"
+        "sent by the Tauri HOST directly via dispatch_inner / "
+        "fire-and-forget WS frames, never dispatched by the renderer "
+        "through the allowlist gate"
+    ),
+    frozenset({"shutdown", "tray_click"}): (
+        "host-only (cooperative shutdown / tray click); the renderer has no legitimate path to either command"
     ),
 }
 
@@ -277,13 +219,24 @@ def _extract_rust_string_slice(src: str, anchor: str) -> list[str]:
     return re.findall(r'"([^"]*)"', src[m.end() : end])
 
 
-def _extract_ts_string_set(src: str, anchor: str) -> list[str]:
-    """Quoted strings inside the ``new Set([...])`` literal at ``anchor``."""
-    src = _strip_line_comments(src)
-    m = re.search(anchor, src)
-    assert m, f"TS Set anchor not found: {anchor!r}"
-    end = src.index("]);", m.end())
-    return re.findall(r'"([^"]*)"', src[m.end() : end])
+def _extract_python_registry(src: str) -> list[str]:
+    """Command keys of the Python ``_COMMAND_REGISTRY`` dict literal."""
+    m = re.search(r"_COMMAND_REGISTRY\s*:\s*dict\[str,\s*str\]\s*=\s*\{", src)
+    assert m, "Python _COMMAND_REGISTRY literal not found"
+    depth = 1
+    i = m.end()
+    n = len(src)
+    while i < n and depth > 0:
+        ch = src[i]
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+        i += 1
+    body = src[m.end() : i - 1]
+    keys = re.findall(r'"([a-z_]+)"\s*:\s*"_handle_', body)
+    assert keys, "Python _COMMAND_REGISTRY parse produced no keys"
+    return keys
 
 
 def _parse_ts_push_event_union(push_events_src: str) -> set[str]:
@@ -323,15 +276,6 @@ def _parse_ts_push_event_union(push_events_src: str) -> set[str]:
     return {interfaces[name] for name in members}
 
 
-def _preload_namespace_methods(preload_src: str, namespace: str) -> set[str]:
-    """Method keys exposed via ``exposeInMainWorld("<namespace>", {...})``."""
-    text = _strip_line_comments(preload_src)
-    m = re.search(rf'exposeInMainWorld\(\s*"{namespace}"\s*,\s*\{{', text)
-    assert m, f'exposeInMainWorld("{namespace}") not found in preload'
-    close = _match_delimiter(text, m.end() - 1)
-    return set(_object_literal_keys(text[m.end() : close]))
-
-
 def _factory_return_keys(ts_src: str, factory_name: str) -> set[str]:
     """Property keys of the object returned by ``function <factory_name>``."""
     text = _strip_line_comments(ts_src)
@@ -342,39 +286,6 @@ def _factory_return_keys(ts_src: str, factory_name: str) -> set[str]:
     open_idx = fac.end() + ret.end() - 1
     close = _match_delimiter(text, open_idx)
     return set(_object_literal_keys(text[open_idx + 1 : close]))
-
-
-def _channel_constants(channels_src: str) -> dict[str, str]:
-    """Flatten ``export const X = { key: "value", ... }`` blocks to X.key→value."""
-    mapping: dict[str, str] = {}
-    for m in re.finditer(r"export\s+const\s+(\w+)\s*=\s*\{([^}]*)\}", channels_src):
-        const = m.group(1)
-        for key, value in re.findall(r'(\w+)\s*:\s*"([^"]+)"', m.group(2)):
-            mapping[f"{const}.{key}"] = value
-    return mapping
-
-
-def _electron_main_handled_channels(main_ipc_dir: Path) -> set[str]:
-    """Channel names registered via ``ipcMain.handle(...)`` across main/ipc."""
-    channels = _channel_constants(_read(CHANNELS_TS))
-    resolved: set[str] = set()
-    for ts_file in sorted(main_ipc_dir.glob("*.ts")):
-        text = _strip_line_comments(_read(ts_file))
-        for m in re.finditer(r"ipcMain\.handle\s*\(\s*([A-Za-z_][\w.]*)", text):
-            ref = m.group(1)
-            resolved.add(channels.get(ref, ref))
-    return resolved
-
-
-def _preload_invoked_channels(preload_src: str) -> set[str]:
-    """Channel names referenced by ``ipcRenderer.invoke(...)`` in the preload."""
-    channels = _channel_constants(_read(CHANNELS_TS))
-    text = _strip_line_comments(preload_src)
-    resolved: set[str] = set()
-    for m in re.finditer(r"ipcRenderer\.invoke\(\s*([A-Za-z_][\w.]*)", text):
-        ref = m.group(1)
-        resolved.add(channels.get(ref, ref))
-    return resolved
 
 
 def _rust_listen_event_names() -> set[str]:
@@ -390,18 +301,7 @@ def _translate_event_sources(event_protocol_src: str) -> set[str]:
     return {m.group(1) for m in re.finditer(r'"(\w+)"\s*=>\s*&?"[^"]+"', event_protocol_src)}
 
 
-def _push_handler_keys(handle_message_src: str) -> set[str]:
-    """Keys of the dedicated push-event dispatch table in handle-message.ts."""
-    text = _strip_line_comments(handle_message_src)
-    m = re.search(r"PUSH_HANDLERS[^={]*=\s*\{", text)
-    assert m, "PUSH_HANDLERS dispatch table not found"
-    close = _match_delimiter(text, m.end() - 1)
-    return set(_object_literal_keys(text[m.end() : close]))
-
-
 # ── Parsed surfaces (module-level; fail collection loudly if empty) ─────
-
-_PRELOAD_TEXT = _strip_line_comments(_read(PRELOAD_TS))
 
 PYTHON_PUSH_EVENTS: frozenset[str] = frozenset(_parse_ts_push_event_union(_read(PUSH_EVENTS_TS)))
 RUST_ALLOWED_EVENT_TYPES: tuple[str, ...] = tuple(
@@ -423,16 +323,6 @@ WS_RS_TEXT = "\n\n".join(
     ]
 )
 
-ELECTRON_PUSH_HANDLERS: frozenset[str] = frozenset(_push_handler_keys(_read(HANDLE_MESSAGE_TS)))
-ELECTRON_BUBBLE_ONLY_TYPES: frozenset[str] = frozenset(
-    _extract_ts_string_set(
-        _read(BUBBLE_HANDLERS_TS),
-        r"BUBBLE_ONLY_TYPES[^=]*=\s*new\s+Set\(",
-    )
-)
-
-PRELOAD_PYTHON_METHODS: frozenset[str] = frozenset(_preload_namespace_methods(_read(PRELOAD_TS), "python"))
-PRELOAD_WINDOW_METHODS: frozenset[str] = frozenset(_preload_namespace_methods(_read(PRELOAD_TS), "window_"))
 TAURI_PYTHON_METHODS: frozenset[str] = frozenset(
     _factory_return_keys(_read(TAURI_PYTHON_NS_TS), "createPythonNamespace")
 )
@@ -440,12 +330,7 @@ TAURI_WINDOW_METHODS: frozenset[str] = frozenset(
     _factory_return_keys(_read(TAURI_WINDOW_NS_TS), "createWindowNamespace")
 )
 
-ELECTRON_MAIN_HANDLED_CHANNELS: frozenset[str] = frozenset(_electron_main_handled_channels(MAIN_IPC_DIR))
-PRELOAD_INVOKED_CHANNELS: frozenset[str] = frozenset(_preload_invoked_channels(_read(PRELOAD_TS)))
-
-TS_ALLOWED_COMMANDS: frozenset[str] = frozenset(
-    _extract_ts_string_set(_read(ALLOWED_COMMANDS_TS), r"ALLOWED_COMMANDS\s*=\s*new\s+Set[^([]*\(")
-)
+PYTHON_COMMAND_REGISTRY: frozenset[str] = frozenset(_extract_python_registry(_read(IPC_REGISTRY_PY)))
 RUST_ALLOWED_COMMANDS: frozenset[str] = frozenset(
     _extract_rust_string_slice(_read(COMMAND_ALLOWLIST_RS), r"let\s+cmds:\s*&\[&str\]\s*=\s*&\[")
 )
@@ -453,15 +338,9 @@ RUST_ALLOWED_COMMANDS: frozenset[str] = frozenset(
 for _name, _surface in (
     ("PYTHON_PUSH_EVENTS", PYTHON_PUSH_EVENTS),
     ("RUST_EVENT_SET", RUST_EVENT_SET),
-    ("ELECTRON_PUSH_HANDLERS", ELECTRON_PUSH_HANDLERS),
-    ("ELECTRON_BUBBLE_ONLY_TYPES", ELECTRON_BUBBLE_ONLY_TYPES),
-    ("PRELOAD_PYTHON_METHODS", PRELOAD_PYTHON_METHODS),
-    ("PRELOAD_WINDOW_METHODS", PRELOAD_WINDOW_METHODS),
     ("TAURI_PYTHON_METHODS", TAURI_PYTHON_METHODS),
     ("TAURI_WINDOW_METHODS", TAURI_WINDOW_METHODS),
-    ("ELECTRON_MAIN_HANDLED_CHANNELS", ELECTRON_MAIN_HANDLED_CHANNELS),
-    ("PRELOAD_INVOKED_CHANNELS", PRELOAD_INVOKED_CHANNELS),
-    ("TS_ALLOWED_COMMANDS", TS_ALLOWED_COMMANDS),
+    ("PYTHON_COMMAND_REGISTRY", PYTHON_COMMAND_REGISTRY),
     ("RUST_ALLOWED_COMMANDS", RUST_ALLOWED_COMMANDS),
 ):
     assert _surface, f"parser produced an EMPTY surface ({_name}), regex regression"
@@ -473,7 +352,7 @@ for _name, _surface in (
 
 
 class TestPushEventSurfaceParity:
-    """``PythonPushEvent`` union vs Rust WS-reader allowlist vs Electron main."""
+    """``PythonPushEvent`` union vs Rust WS-reader allowlist."""
 
     def test_union_parses_with_known_anchor_members(self):
         """Guard against silent-empty / misanchored union parsing."""
@@ -486,7 +365,7 @@ class TestPushEventSurfaceParity:
 
         The Rust WS reader DROPS any inbound frame whose ``type`` is not in
         ``ALLOWED_EVENT_TYPES``, so an event typed in TS but missing there
-        silently never fires on Tauri while working under Electron.
+        silently never fires on Tauri.
         """
         missing = sorted(PYTHON_PUSH_EVENTS - RUST_EVENT_SET - set(HOST_SYNTHESIZED_PUSH_EVENTS))
         assert not missing, (
@@ -505,119 +384,88 @@ class TestPushEventSurfaceParity:
         duplicates = [name for name in set(RUST_ALLOWED_EVENT_TYPES) if RUST_ALLOWED_EVENT_TYPES.count(name) > 1]
         assert not duplicates, f"duplicate entries: {duplicates}"
 
-    def test_electron_main_broadcast_delivery_machinery_is_present(self):
-        """Non-bubble events rely on the unconditional broadcast fall-through.
+    def test_native_push_events_have_tauri_listeners(self):
+        """Host-handled push events need an ``app.listen`` registration.
 
-        Every push event NOT consumed by a dedicated handler or filtered as
-        bubble-only reaches the main renderer via
-        ``broadcastToMainWindow(PythonChannels.event, ...)``, the Electron
-        half of the delivery contract.
+        Bubble-only events are delivered via translate_event_name rename
+        or an explicit WS-reader emit instead of app.listen.
         """
-        assert re.search(
-            r"broadcastToMainWindow\s*\(\s*PythonChannels\.event",
-            _strip_line_comments(_read(HANDLE_MESSAGE_TS)),
-        ), "the unconditional python-event broadcast disappeared from handle-message.ts"
-
-    def test_bubble_only_filter_covers_exactly_the_bubble_handlers(self):
-        """Events routed exclusively to the bubble window are exactly the five
-        bubble_* dispatch-table keys (SEC-017 keeps everything else off that path)."""
-        bubble_handlers = ELECTRON_PUSH_HANDLERS & ELECTRON_BUBBLE_ONLY_TYPES
-        expected = {name for name in ELECTRON_PUSH_HANDLERS if name.startswith("bubble_")}
-        assert bubble_handlers == expected
-
-    def test_electron_dedicated_push_handlers_have_tauri_counterparts(self):
-        """Dedicated Electron-main handling implies Tauri host handling.
-
-        - Non-bubble handlers (show_window, notification, quit_app,
-          relaunch_app) MUST have an ``app.listen("<name>")`` registration
-          in the Rust host (host_events.rs / main.rs).
-        - Bubble handlers MUST either be renamed by
-          ``translate_event_name`` to the kebab-case names the Tauri bubble
-          window listens for, or be explicitly emitted by the WS reader
-          (``bubble_level``'s coalescing path emits the raw snake name).
-        """
-        native = ELECTRON_PUSH_HANDLERS - ELECTRON_BUBBLE_ONLY_TYPES
+        # Events the host must listen for (window/tray lifecycle). Bubble
+        # delivery is covered by the bubble-route check below.
+        native = {"show_window", "notification", "quit_app", "relaunch_app"}
         missing_listen = sorted(native - RUST_LISTEN_EVENTS)
         assert not missing_listen, (
-            f"Electron-main-dedicated push handlers without an app.listen registration in src-tauri: {missing_listen}"
+            f"host-handled push events without an app.listen registration in src-tauri: {missing_listen}"
         )
+
+    def test_bubble_events_have_a_tauri_delivery_route(self):
+        """bubble_* events must be renamed or explicitly emitted by the WS path."""
+        bubble = {name for name in PYTHON_PUSH_EVENTS if name.startswith("bubble_")}
         missing_bubble_route = sorted(
-            name
-            for name in ELECTRON_PUSH_HANDLERS & ELECTRON_BUBBLE_ONLY_TYPES
-            if name not in BUBBLE_TRANSLATE_SOURCES and f'"{name}"' not in WS_RS_TEXT
+            name for name in bubble if name not in BUBBLE_TRANSLATE_SOURCES and f'"{name}"' not in WS_RS_TEXT
         )
         assert not missing_bubble_route, (
-            "bubble-only push handlers with no Tauri delivery route "
-            f"(rename arm or explicit emit): {missing_bubble_route}"
+            f"bubble push events with no Tauri delivery route (rename arm or explicit emit): {missing_bubble_route}"
         )
 
 
 # ═════════════════════════════════════════════════════════════════════════
-# Renderer bridge namespace parity
+# Tauri bridge namespace surface
 # ═════════════════════════════════════════════════════════════════════════
 
 
-class TestRendererBridgeSurfaceParity:
-    """Preload-exposed namespaces vs both runtime implementations."""
+class TestTauriBridgeSurface:
+    """Tauri bridge namespaces expose the renderer's expected methods."""
 
-    def test_python_namespace_matches_on_both_runtimes(self):
-        assert {"call", "onEvent"} == PRELOAD_PYTHON_METHODS
-        assert TAURI_PYTHON_METHODS == PRELOAD_PYTHON_METHODS, (
-            "window.python surface diverges between the Electron preload "
-            f"({sorted(PRELOAD_PYTHON_METHODS)}) and the Tauri bridge "
-            f"({sorted(TAURI_PYTHON_METHODS)})"
+    def test_python_namespace_exposes_call_and_on_event(self):
+        assert {"call", "onEvent"} == TAURI_PYTHON_METHODS, (
+            f"window.python surface under Tauri must be exactly {{call, onEvent}}; got {sorted(TAURI_PYTHON_METHODS)}"
         )
 
     def test_window_namespace_methods_have_a_tauri_implementation_or_reviewed_exception(
         self,
     ):
-        missing = PRELOAD_WINDOW_METHODS - TAURI_WINDOW_METHODS
-        undocumented = sorted(missing - set(TAURI_MISSING_WINDOW_METHODS))
-        assert not undocumented, (
-            "preload window_ methods with NO Tauri implementation and NO "
-            f"entry in TAURI_MISSING_WINDOW_METHODS: {undocumented}"
-        )
-        stale = sorted(set(TAURI_MISSING_WINDOW_METHODS) - missing)
+        # Without the Electron preload there is no external "expected
+        # method list" to diff against; instead pin the reviewed gap set
+        # so a newly implemented method must clear its exception entry.
+        # The current Tauri window namespace must not be empty.
+        assert TAURI_WINDOW_METHODS, "Tauri window_ namespace parsed empty"
+        # Stale exception entries: methods listed as missing but that are
+        # now implemented.
+        stale = sorted(set(TAURI_MISSING_WINDOW_METHODS) & TAURI_WINDOW_METHODS)
         assert not stale, (
             "TAURI_MISSING_WINDOW_METHODS lists methods the Tauri bridge "
             f"NOW implements, delete the stale entries: {stale}"
         )
 
-    def test_preload_invoke_channels_all_have_electron_main_handlers(self):
-        missing = sorted(PRELOAD_INVOKED_CHANNELS - ELECTRON_MAIN_HANDLED_CHANNELS)
-        assert not missing, (
-            f"channels invoked by the preload without an ipcMain.handle registration in main/ipc: {missing}"
-        )
 
-    def test_maximized_changed_push_channel_is_wired_by_electron_main(self):
-        """onMaximizedChanged is a main→renderer PUSH (no invoke); the main
-        process must still send the channel the preload listens on."""
-        assert re.search(
-            r"webContents\.send\s*\(\s*WindowChannels\.maximizedChanged",
-            _strip_line_comments(_read(MAIN_WINDOW_TS)),
-        ), "maximized-changed push channel lost from main-window.ts"
+# ═════════════════════════════════════════════════════════════════════════
+# Command allowlist parity (Python registry ↔ Rust)
+# ═════════════════════════════════════════════════════════════════════════
 
-    def test_command_allowlists_stay_in_lockstep_across_ts_and_rust(self):
+
+class TestCommandAllowlistParity:
+    def test_command_allowlists_stay_in_lockstep_across_python_and_rust(self):
         """Renderer↔host command gate parity (defense-in-depth cross-check).
 
-        Existing guards pin TS↔Python-registry and Rust↔count; this pins
-        the exact TS↔Rust entry sets, allowing ONLY the documented
-        host-only asymmetry (heartbeat / relaunch_ack).
+        Two-way contract: every Rust-allowlisted command is registered
+        in Python, and the ONLY Python commands outside the Rust
+        allowlist are the documented host-dispatched / host-only set.
         """
-        ts_only = TS_ALLOWED_COMMANDS - RUST_ALLOWED_COMMANDS
-        rust_only = RUST_ALLOWED_COMMANDS - TS_ALLOWED_COMMANDS
+        registry_only = PYTHON_COMMAND_REGISTRY - RUST_ALLOWED_COMMANDS
+        rust_only = RUST_ALLOWED_COMMANDS - PYTHON_COMMAND_REGISTRY
         documented_extra = {name for group, _reason in DOCUMENTED_COMMAND_ASYMMETRY.items() for name in group}
-        unexpected_ts_only = sorted(ts_only - documented_extra)
-        assert not unexpected_ts_only, (
-            f"commands in the TS allowlist but not the Rust allowlist "
+        unexpected_registry_only = sorted(registry_only - documented_extra)
+        assert not unexpected_registry_only, (
+            f"commands in the Python registry but not the Rust allowlist "
             f"(add to allowlist.rs or DOCUMENTED_COMMAND_ASYMMETRY): "
-            f"{unexpected_ts_only}"
+            f"{unexpected_registry_only}"
         )
-        assert not sorted(rust_only), f"commands in the Rust allowlist but not the TS allowlist: {sorted(rust_only)}"
-        stale_documented = sorted(documented_extra - ts_only)
+        assert not sorted(rust_only), f"commands in the Rust allowlist but not the Python registry: {sorted(rust_only)}"
+        stale_documented = sorted(documented_extra - registry_only)
         assert not stale_documented, (
             "DOCUMENTED_COMMAND_ASYMMETRY lists commands no longer "
-            f"TS-only, delete the stale entries: {stale_documented}"
+            f"registry-only, delete the stale entries: {stale_documented}"
         )
 
 
@@ -679,3 +527,7 @@ class TestEnumeratorSelfCheck:
             "realKey: () => {},\n"
         )
         assert _object_literal_keys(body) == ["call", "pick", "flag", "realKey"]
+
+    def test_python_registry_parser_detects_missing_handler_key(self):
+        src = '_COMMAND_REGISTRY: dict[str, str] = {"get_status": "_handle_get_status"}'
+        assert _extract_python_registry(src) == ["get_status"]

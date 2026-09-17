@@ -289,9 +289,7 @@ class TestTrayNotificationStillFires:
         tray_call_args = app.tray.notify.call_args
         tray_message = tray_call_args.args[1] if tray_call_args.args else ""
         event_data = next(e["data"] for e in published if e.get("type") == "paste_failed")
-        assert "clipboard" in tray_message.lower(), (
-            f"tray.notify body must mention clipboard; got: {tray_message!r}"
-        )
+        assert "clipboard" in tray_message.lower(), f"tray.notify body must mention clipboard; got: {tray_message!r}"
         assert event_data.get("message") in (None, ""), (
             "paste_failed.message must be omitted (renderer owns the "
             f"localized toast text); got: {event_data.get('message')!r}"

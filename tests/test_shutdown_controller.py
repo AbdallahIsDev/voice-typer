@@ -569,30 +569,7 @@ class TestDoCleanupSubsystemCoverage:
         controller._do_cleanup()
         assert close_calls == [True]
 
-    def test_terminates_electron_subprocess_when_pid_tracked(self, controller, fake_app, monkeypatch):
-        """When ``_electron_pid`` is set, ``_do_cleanup`` must call
-        ``electron_launcher.terminate_electron(pid)`` to clean up the
-        subprocess."""
-        terminate_calls: list[int] = []
-        # Patch the real electron_launcher.terminate_electron function
-        # (the module is already imported at app.py import time, so
-        # monkeypatching the attribute on the real module is what
-        # actually intercepts the call, mirrors the convention used
-        # for ``_clear_backend_pid_file``).
-        monkeypatch.setattr(
-            "voice_typer.server.electron_launcher.terminate_electron",
-            lambda pid: terminate_calls.append(pid),
-        )
-        # Avoid the legacy tray_window fallback path (only runs when
-        # _electron_pid is None).
-        fake_app._electron_pid = 99999
-
-        controller._do_cleanup()
-
-        assert terminate_calls == [99999], (
-            "_do_cleanup must call electron_launcher.terminate_electron(pid) when _electron_pid is set"
-        )
-        assert fake_app._electron_pid is None, "_do_cleanup must clear _electron_pid after terminating"
+    # Electron subprocess termination test removed with the Electron path.
 
     def test_stops_bubble_level_worker_when_present(self, controller, fake_app):
         """When the bubble level worker is wired, ``_do_cleanup`` must

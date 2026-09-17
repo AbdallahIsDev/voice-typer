@@ -25,9 +25,8 @@ SOURCE_FILES = [
     "voice_typer/server/autostart/pid_file.py",
     "voice_typer/server/autostart/port_probe.py",
     "voice_typer/server/autostart/tauri_spawn.py",
-    "voice_typer/server/autostart/electron_spawn.py",
     "voice_typer/server/autostart/focus.py",
-    "voice_typer/server/electron_launcher.py",
+    "voice_typer/server/autostart/_spawn_env.py",
 ]
 
 

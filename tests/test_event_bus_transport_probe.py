@@ -101,32 +101,19 @@ class TestProbeRegistry:
 
 
 class TestTcpServerProbeWiring:
-    """``IPCServer.start_tcp`` registers a probe reporting the live
-    client state and ``IPCServer.stop`` unregisters it."""
+    """TCP accept-loop probe wiring was removed with the TCP transport.
 
-    def test_start_tcp_registers_and_stop_unregisters(self, monkeypatch):
+    The WS transport does not register a ``_transport_live_probe`` on
+    ``IPCServer`` the same way; this class pins that the deleted
+    ``start_tcp`` / ``_accept_tcp`` surface stays gone.
+    """
+
+    def test_start_tcp_surface_is_removed(self):
         from tests.fixtures.ipc_test_helpers import make_ipc_server_with_fakes
 
         server, _app, _service = make_ipc_server_with_fakes()
-        # Don't bind a real socket: replace the accept loop (spawned in
-        # a daemon thread by start_tcp) with a no-op.
-        monkeypatch.setattr(server, "_accept_tcp", lambda port: None)
-
-        server.start_tcp(9999)
-        try:
-            assert server._transport_live_probe is not None
-            # No client connected yet → probe reports False (and the
-            # registry reports no live transport).
-            server._tcp_client = None
-            assert server._transport_live_probe() is False
-            assert has_live_transport() is False
-            # A connected client flips the probe live.
-            server._tcp_client = object()
-            assert server._transport_live_probe() is True
-            assert has_live_transport() is True
-        finally:
-            server._tcp_client = None
-            server.stop()
+        assert not hasattr(server, "_accept_tcp")
+        assert not hasattr(type(server), "start_tcp") or not callable(getattr(type(server), "start_tcp", None))
         # stop() unregistered the probe → back to the no-probe default.
         assert has_live_transport() is True
 

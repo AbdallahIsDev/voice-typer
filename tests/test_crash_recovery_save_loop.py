@@ -48,6 +48,8 @@ def _mock_recovery_owner_acl(monkeypatch):
         "voice_typer.server.config._enforce_windows_owner_only_acl",
         MagicMock(return_value=True),
     )
+
+
 LOGGER_NAME = "voice_typer.server.crash_recovery"
 
 

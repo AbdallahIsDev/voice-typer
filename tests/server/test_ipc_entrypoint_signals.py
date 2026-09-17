@@ -128,9 +128,33 @@ class TestSignalHandlerWiring:
             "voice_typer.server.providers.build_ipc_server",
             lambda app: fake_server,
         )
-        # Use --port so the standalone electron-launch path is skipped.
-        monkeypatch.setattr(sys, "argv", ["ipc_server", "--port", "9876"])
+        # Use --ws so the entrypoint takes the Tauri sidecar path.
+        monkeypatch.setattr(sys, "argv", ["ipc_server", "--ws"])
         monkeypatch.delenv("TAURI_SIDECAR", raising=False)
+
+        # Mock sidecar_ws.run to raise KeyboardInterrupt (simulates
+        # SIGINT arriving during the WS event loop). In --ws mode,
+        # main() blocks in sidecar_ws.run(), not app.start().
+        import voice_typer.server.sidecar_ws as sidecar_ws_mod
+
+        def _fake_ws_run(server):
+            raise KeyboardInterrupt()
+
+        monkeypatch.setattr(sidecar_ws_mod, "run", _fake_ws_run)
+
+        # Prevent the WS startup daemon thread from actually running
+        # app.start() (the mock returns immediately but the thread
+        # spawn + join overhead is unnecessary and can leave the
+        # interpreter waiting on a non-daemon atexit hook).
+        import threading as _threading
+
+        _real_thread_init = _threading.Thread.__init__
+
+        def _noop_thread_init(self, *args, **kwargs):
+            kwargs["target"] = lambda *a, **kw: None
+            _real_thread_init(self, *args, **kwargs)
+
+        monkeypatch.setattr(_threading.Thread, "__init__", _noop_thread_init)
 
         # Disable faulthandler.enable so the test doesn't alter real
         # process state.
@@ -204,8 +228,13 @@ class TestSignalHandlerWiring:
             "voice_typer.server.providers.build_ipc_server",
             lambda app: fake_server,
         )
-        monkeypatch.setattr(sys, "argv", ["ipc_server", "--port", "9876"])
+        monkeypatch.setattr(sys, "argv", ["ipc_server", "--ws"])
         monkeypatch.delenv("TAURI_SIDECAR", raising=False)
+
+        # Mock sidecar_ws.run so main() doesn't block.
+        import voice_typer.server.sidecar_ws as sidecar_ws_mod
+
+        monkeypatch.setattr(sidecar_ws_mod, "run", lambda server: 0)
 
         import faulthandler
 
@@ -231,7 +260,10 @@ class TestSignalHandlerWiring:
         monkeypatch.setattr(signal, "signal", _capture_signal)
 
         # Run main(), it registers the SIGUSR1 handler.
-        entrypoint.main()
+        # --ws mode calls sys.exit() after sidecar_ws.run returns;
+        # catch SystemExit so the test continues.
+        with pytest.raises(SystemExit):
+            entrypoint.main()
 
         # The SIGUSR1 handler was registered.
         assert signal.SIGUSR1 in registered_handlers, "main() must register a handler for SIGUSR1 on POSIX"

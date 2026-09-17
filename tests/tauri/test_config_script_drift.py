@@ -852,16 +852,19 @@ class TestBubbleWindowLoadsBubbleHtml:
         assert windows["main"].get("url") in (None, "index.html"), "main window must not point at bubble.html"
 
     def test_renderer_build_emits_bubble_html(self) -> None:
-        """``electron.vite.renderer.ts`` must emit bubble.html as a page input.
+        """``vite.tauri.config.ts`` must emit bubble.html as a page input.
 
         The production frontend build (``npm run build:renderer``) is
         the same script ``tauri.conf.json`` beforeDevCommand /
         beforeBuildCommand runs; without a ``bubble`` rollup input the
         config's ``"url": "bubble.html"`` 404s in the packaged app.
+        Post-Electron cutover the renderer build is Vite via
+        ``vite.tauri.config.ts`` (the Electron vite renderer config is
+        gone).
         """
-        src = (PROJECT_ROOT / "voice_typer" / "client" / "electron.vite.renderer.ts").read_text(encoding="utf-8")
+        src = (PROJECT_ROOT / "voice_typer" / "client" / "vite.tauri.config.ts").read_text(encoding="utf-8")
         assert "bubble.html" in src, (
-            "electron.vite.renderer.ts must list bubble.html as a rollup "
+            "vite.tauri.config.ts must list bubble.html as a rollup "
             "input so out/renderer/bubble.html exists for the Tauri "
             "bubble window url"
         )
@@ -938,7 +941,6 @@ class TestBubbleWindowHasNoShadow:
 VERSIONED_FILES: dict[str, Path] = {
     "pyproject.toml": PROJECT_ROOT / "pyproject.toml",
     "voice_typer/client/package.json": PROJECT_ROOT / "voice_typer" / "client" / "package.json",
-    "voice_typer/client/electron-builder.yml": PROJECT_ROOT / "voice_typer" / "client" / "electron-builder.yml",
     "src-tauri/tauri.conf.json": SRC_TAURI / "tauri.conf.json",
     "src-tauri/Cargo.toml": SRC_TAURI / "Cargo.toml",
 }
@@ -1004,16 +1006,6 @@ class TestVersionLockstep:
                 f"{source!r}, bump via `python scripts/build/sync_versions.py "
                 "--apply` (bump pyproject.toml first), never by hand-editing "
                 "one file."
-            )
-
-    def test_electron_builder_version_matches_when_explicit(self) -> None:
-        """electron-builder.yml version must match if it declares one."""
-        source = _read_pyproject_version(VERSIONED_FILES["pyproject.toml"])
-        explicit = _read_electron_builder_version(VERSIONED_FILES["voice_typer/client/electron-builder.yml"])
-        if explicit is not None:
-            assert explicit == source, (
-                f"electron-builder.yml declares version {explicit!r} but "
-                f"pyproject.toml says {source!r}, sync_versions.py --apply."
             )
 
 
@@ -1131,12 +1123,12 @@ class TestUpdateFeedParity:
             )
 
     def test_no_unlicensed_update_feed_wiring_ships(self) -> None:
-        """ADR-0020 §15: no electron publish block, no Tauri updater plugin."""
-        builder = VERSIONED_FILES["voice_typer/client/electron-builder.yml"].read_text(encoding="utf-8")
-        assert not re.search(r"^publish:", builder, re.MULTILINE), (
-            "electron-builder.yml must NOT declare a `publish:` block "
+        """ADR-0020 §15: no Tauri updater plugin wiring in tauri.conf.json."""
+        conf = VERSIONED_FILES["src-tauri/tauri.conf.json"].read_text(encoding="utf-8")
+        assert "plugins" not in conf or "updater" not in conf, (
+            "tauri.conf.json must NOT wire plugins.updater "
             "(ADR-0020 §15. NO auto-update). If a feed is being wired, "
-            "add the block AND keep the feed-version parity guard green."
+            "add the plugin AND keep the feed-version parity guard green."
         )
         for name in sorted(
             [SRC_TAURI / "tauri.conf.json", *_per_arch_configs_on_disk()],

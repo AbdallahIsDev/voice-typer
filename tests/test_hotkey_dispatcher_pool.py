@@ -593,9 +593,7 @@ def _install_shared_native(dispatcher: HotkeyDispatcher) -> MagicMock:
     return shared_native
 
 
-def test_register_repaste_empty_config_removes_pooled_extra_matcher(
-    dispatcher: HotkeyDispatcher, monkeypatch
-):
+def test_register_repaste_empty_config_removes_pooled_extra_matcher(dispatcher: HotkeyDispatcher, monkeypatch):
     """Clearing ``repaste_hotkey`` (config_applier calls
     ``register_repaste()`` with empty config) must remove the pooled
     ``"repaste"`` extra matcher from the still-alive shared backend
@@ -624,9 +622,7 @@ def test_register_repaste_empty_config_removes_pooled_extra_matcher(
     shared_native.remove_extra_matcher.assert_called_once_with("repaste")
 
 
-def test_register_repaste_rejected_spec_removes_pooled_extra_matcher(
-    dispatcher: HotkeyDispatcher, monkeypatch
-):
+def test_register_repaste_rejected_spec_removes_pooled_extra_matcher(dispatcher: HotkeyDispatcher, monkeypatch):
     """When the configured repaste hotkey is rejected by the denylist,
     ``register_repaste`` disables repaste and must also remove any
     previously-pooled extra matcher (the old backend was already
@@ -653,9 +649,7 @@ def test_register_repaste_rejected_spec_removes_pooled_extra_matcher(
     shared_native.remove_extra_matcher.assert_called_once_with("repaste")
 
 
-def test_register_esc_pool_then_start_failure_removes_matcher(
-    dispatcher: HotkeyDispatcher, monkeypatch
-):
+def test_register_esc_pool_then_start_failure_removes_matcher(dispatcher: HotkeyDispatcher, monkeypatch):
     """If pooling succeeds but ``start()`` raises, the extra matcher
     already installed on the shared backend must be removed (and the
     stashed callback cleared) so a failed registration cannot keep
@@ -678,9 +672,7 @@ def test_register_esc_pool_then_start_failure_removes_matcher(
     shared_native.remove_extra_matcher.assert_called_once_with("esc")
 
 
-def test_register_repaste_pool_then_start_failure_removes_matcher(
-    dispatcher: HotkeyDispatcher, monkeypatch
-):
+def test_register_repaste_pool_then_start_failure_removes_matcher(dispatcher: HotkeyDispatcher, monkeypatch):
     """Same pool-then-start failure contract for the repaste role."""
     shared_native = _install_shared_native(dispatcher)
     dispatcher._app.config.repaste_hotkey = "<ctrl>+<shift>+<v>"
@@ -701,9 +693,7 @@ def test_register_repaste_pool_then_start_failure_removes_matcher(
     shared_native.remove_extra_matcher.assert_called_once_with("repaste")
 
 
-def test_esc_reregister_after_unregister_re_adds_single_matcher(
-    dispatcher: HotkeyDispatcher, monkeypatch
-):
+def test_esc_reregister_after_unregister_re_adds_single_matcher(dispatcher: HotkeyDispatcher, monkeypatch):
     """Unregister then re-register ESC must re-pool exactly ONE
     ``"esc"`` extra matcher (add is role-idempotent) and leave the
     shared backend alive — no matcher leak across the cycle."""

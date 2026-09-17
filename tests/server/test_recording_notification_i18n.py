@@ -199,21 +199,15 @@ class TestStartFailureReasonUsesI18n:
     """
 
     def test_start_impl_uses_key(self) -> None:
-        src = inspect.getsource(
-            RecordingLifecycle._publish_start_failure_notification
-        )
+        src = inspect.getsource(RecordingLifecycle._publish_start_failure_notification)
         assert "notify.recording_controller.start_failed_with_reason" in src
         caller = inspect.getsource(RecordingLifecycle._start_impl)
         assert "_publish_start_failure_notification" in caller
 
     def test_start_worker_uses_key(self) -> None:
-        src = inspect.getsource(
-            RecordingLifecycle._publish_start_failure_notification
-        )
+        src = inspect.getsource(RecordingLifecycle._publish_start_failure_notification)
         assert "notify.recording_controller.start_failed_with_reason" in src
-        caller = inspect.getsource(
-            RecordingLifecycle._start_dictation_worker_entry
-        )
+        caller = inspect.getsource(RecordingLifecycle._start_dictation_worker_entry)
         assert "_publish_start_failure_notification" in caller
 
 

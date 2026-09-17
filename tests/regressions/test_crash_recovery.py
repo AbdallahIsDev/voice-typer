@@ -29,6 +29,8 @@ def _mock_recovery_owner_acl(monkeypatch):
         "voice_typer.server.config._enforce_windows_owner_only_acl",
         MagicMock(return_value=True),
     )
+
+
 # the previous Linux test-env shim that aliased
 # ``ctypes.WINFUNCTYPE = ctypes.CFUNCTYPE`` and inserted a ``MagicMock``
 # for ``voice_typer.server.crash_handler`` into ``sys.modules`` has been
@@ -51,51 +53,24 @@ class TestSubprocessCrashRecoveryHandler:
     """Test the Python exit handler logic."""
 
     def test_exit_handler_logic_exists(self):
-        """Electron main process must handle Python subprocess exit.
+        """Tauri host must reap/kill the Python sidecar on host exit.
 
-        KEEP, pins (Electron main has pythonProcess.on('exit')
-        # handler that calls app.quit). A behavioral test would need to run
-        # the Electron main process and kill the Python subprocess, which
-        # is heavy (requires a running Electron app); the file-content
-        # check catches removal of the handler directly.
-
-        update: the pythonProcess.on('exit') handler was extracted from
-        ``src/main/index.ts`` into ``src/main/python/start-python.ts`` as
-        part of the main-entry refactor. The handler still exists with
-        the same behavior, we now look in the new module location.
+        Post-Electron cutover the pythonProcess.on('exit') handler lives
+        in the Rust supervisor, not Electron main. Pin the supervisor
+        spawn/respawn wiring so a sidecar cannot outlive the host.
         """
-        # REF-2: handler now lives in start-python.ts (extracted from index.ts)
-        start_python_path = (
-            Path(__file__).resolve().parent.parent.parent
-            / "voice_typer"
-            / "client"
-            / "src"
-            / "main"
-            / "python"
-            / "start-python.ts"
+        supervisor = (
+            Path(__file__).resolve().parent.parent.parent / "src-tauri" / "src" / "sidecar" / "ws" / "supervisor.rs"
         )
-        main_path = (
-            Path(__file__).resolve().parent.parent.parent / "voice_typer" / "client" / "src" / "main" / "index.ts"
+        spawn_mod = Path(__file__).resolve().parent.parent.parent / "src-tauri" / "src" / "sidecar" / "spawn"
+        src = supervisor.read_text(encoding="utf-8") if supervisor.exists() else ""
+        if spawn_mod.is_dir():
+            for p in spawn_mod.rglob("*.rs"):
+                src += "\n" + p.read_text(encoding="utf-8")
+        assert src, "no supervisor/spawn sources found for sidecar lifecycle"
+        assert "shutdown_sidecar" in src or "kill" in src.lower(), (
+            "supervisor/spawn sources must include sidecar kill/shutdown wiring"
         )
-        # Search both locations, the handler may be in either depending on
-        # whether the refactor is in place.
-        src = ""
-        if start_python_path.exists():
-            src += start_python_path.read_text(encoding="utf-8")
-        if main_path.exists():
-            src += "\n" + main_path.read_text(encoding="utf-8")
-        assert src, "neither start-python.ts nor index.ts found"
-        # update: the variable was renamed `pythonProcess` → `proc`
-        # (stored in `state.pythonProcess`). Either form satisfies the
-        # invariant: "the python subprocess has an exit handler that
-        # calls app.quit". Look for either.
-        assert (
-            'pythonProcess.on("exit"' in src
-            or "pythonProcess.on('exit'" in src
-            or 'proc.on("exit"' in src
-            or "proc.on('exit'" in src
-        ), "missing pythonProcess/proc exit handler"
-        assert "app.quit" in src
 
 
 class TestCrashRecoveryLoadsStaleState:

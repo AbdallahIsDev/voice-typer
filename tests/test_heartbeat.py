@@ -43,8 +43,6 @@ These tests exercise:
 from __future__ import annotations
 
 import contextlib
-import json
-import socket
 import threading
 import time
 import typing
@@ -499,96 +497,3 @@ class TestHeartbeatThreadLifecycle:
 
 
 # ── Integration test: real TCP socketpair ──────────────────────────────
-
-
-def test_heartbeat_over_real_tcp_socket_updates_timestamp(monkeypatch) -> None:
-    """End-to-end: a ``heartbeat`` command sent over TCP updates the timestamp.
-
-    Spins up the real ``_handle_tcp_connection`` path with a real
-    ``socket.socketpair`` so we exercise the same JSON-line dispatch
-    path that production uses.  Electron's ``sendToPython({type:
-    "heartbeat"})`` lands here.
-
-    the handler now refuses connections
-    when ``expected_token`` is empty (SEC-2 hardening) and reads the
-    token from the ``VOICE_TYPER_IPC_TOKEN`` env var when the
-    ``expected_token`` parameter is ``None`` (IPC-10 fix).  The test
-    sets the env var and sends a valid auth line before the heartbeat
-    so the handler enters the dispatch loop.
-    """
-    _test_token = "heartbeat-test-token-ipc10"
-    monkeypatch.setenv("VOICE_TYPER_IPC_TOKEN", _test_token)
-
-    app = make_fake_app()
-    service = make_fake_service()
-    server = IPCServer(app, service=service)
-    server._running = True
-
-    assert server._last_heartbeat_at is None
-
-    client_sock, server_sock = socket.socketpair()
-
-    # Run the connection handler in a thread, it blocks on readline()
-    # until the client closes.  Pass the expected token directly (the
-    # handler requires a non-empty expected_token and does not fall back
-    # to the env var when None).
-    handler_thread = threading.Thread(
-        target=server._handle_tcp_connection,
-        args=(server_sock, ("127.0.0.1", 0), _test_token),
-        daemon=True,
-    )
-    handler_thread.start()
-
-    # Send the auth line first (SEC-2 hardening requires a valid token
-    # before the dispatch loop is entered).
-    client_sock.sendall((json.dumps({"type": "auth", "token": _test_token}) + "\n").encode("utf-8"))
-
-    # Drain the post-auth connect-time events ( state_changed
-    # push + any pending flush) so the first response the test reads
-    # is the heartbeat_ack, not the state_changed event.
-    client_sock.settimeout(1.0)
-    _drain_buf = b""
-    try:
-        while True:
-            chunk = client_sock.recv(4096)
-            if not chunk:
-                break
-            _drain_buf += chunk
-            # Stop once we've consumed at least one newline-terminated
-            # line (the state_changed event).
-            if b"\n" in _drain_buf:
-                break
-    except (TimeoutError, OSError):
-        pass
-
-    # Send a heartbeat command.  The dispatcher routes it to
-    # _handle_heartbeat, which updates _last_heartbeat_at.
-    client_sock.sendall(b'{"type":"heartbeat","id":1}\n')
-
-    # Wait for the timestamp to be updated (the handler runs on the
-    # TCP thread; we poll from the main thread).
-    deadline = time.monotonic() + 2.0
-    while time.monotonic() < deadline:
-        if server._last_heartbeat_at is not None:
-            break
-        time.sleep(0.02)
-
-    assert server._last_heartbeat_at is not None, "heartbeat command over TCP did not update _last_heartbeat_at"
-
-    # Read the response from the client side, should be a
-    # heartbeat_ack with id=1.
-    client_sock.settimeout(2.0)
-    response_line = b""
-    while b"\n" not in response_line:
-        chunk = client_sock.recv(4096)
-        if not chunk:
-            break
-        response_line += chunk
-    response = json.loads(response_line.decode("utf-8").strip())
-    assert response["type"] == "heartbeat_ack"
-    assert response["id"] == 1
-
-    # Close the client side, server's readline() returns "" (EOF).
-    client_sock.close()
-    handler_thread.join(timeout=5.0)
-    assert not handler_thread.is_alive()

@@ -1,5 +1,6 @@
 """Tests for the waveform bubble coordinator (server/waveform.py)."""
 
+import sys
 import threading
 from unittest.mock import MagicMock
 
@@ -501,12 +502,22 @@ class TestAppMainWiresIpcHook:
         # ``from voice_typer.server.ipc_server import IPCServer``, so
         # patching the symbol on ipc_server is what gets picked up.
         monkeypatch.setattr(ipc_server, "IPCServer", FakeServer)
+        monkeypatch.setattr("voice_typer.server.app.VoiceTyperApp", FakeApp)
+        monkeypatch.setattr("voice_typer.server.sidecar_ws.run", lambda server: 0)
+        monkeypatch.setattr(sys, "argv", ["ipc_server", "--ws"])
+        import threading as _threading
 
-        # BUILD-002: the console script entry point was moved from
-        # app.main() to ipc_server.main().  This test was updated to
-        # call ipc_server.main() instead of app.main().
-        # We need to stub the same things ipc_server.main() calls:
-        # _setup_logging, _ensure_single_instance (from app), VoiceTyperApp.
+        class _ImmediateThread:
+            def __init__(self, target=None, args=(), kwargs=None, **_kw):
+                self._target = target
+                self._args = args or ()
+                self._kwargs = kwargs or {}
+
+            def start(self):
+                if self._target is not None:
+                    self._target(*self._args, **self._kwargs)
+
+        monkeypatch.setattr(_threading, "Thread", _ImmediateThread)
         monkeypatch.setattr("voice_typer.server.logging_setup._setup_logging", lambda: None)
         monkeypatch.setattr(
             "voice_typer.server.single_instance._ensure_single_instance",
@@ -514,15 +525,13 @@ class TestAppMainWiresIpcHook:
         )
 
         try:
-            ipc_server.main()
+            with pytest.raises(SystemExit) as exc_info:
+                ipc_server.main()
+            assert exc_info.value.code in (0, None)
             assert calls["ipc_started"] == 1, "IPCServer.start was not called by ipc_server.main()"
             assert calls["app_started"] == 1, "VoiceTyperApp.start was not called"
-            # Module-level hook must be set (the whole point of the fix).
-            # the registry is a set, non-empty means at
-            # least one server registered its push callable.
             with event_bus._lock:
                 assert len(event_bus._subscribers) > 0, "ipc_server.main() did not register the IPC push hook"
         finally:
-            # clear the registry on teardown.
             with event_bus._lock:
                 event_bus._subscribers.clear()

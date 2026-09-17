@@ -165,13 +165,6 @@ def _yaml_job_block(text: str, job: str) -> str | None:
 
 
 @pytest.fixture(scope="module")
-def electron_builder_text() -> str:
-    """Read ``electron-builder.yml`` once per module."""
-    assert ELECTRON_BUILDER_YML.is_file(), f"electron-builder.yml missing: {ELECTRON_BUILDER_YML}"
-    return ELECTRON_BUILDER_YML.read_text()
-
-
-@pytest.fixture(scope="module")
 def tauri_conf() -> dict:
     """Load ``tauri.conf.json`` once per module."""
     assert TAURI_CONF.is_file(), f"tauri.conf.json missing: {TAURI_CONF}"
@@ -367,109 +360,6 @@ def test_ci_workflow_builds_rpm_via_bundle_config(tauri_conf: dict) -> None:
 
 
 # ─── Tests: Electron fallback preserved (Linux AppImage/deb/rpm in electron-builder.yml) ──
-
-
-def test_electron_builder_has_linux_section(electron_builder_text: str) -> None:
-    """electron-builder.yml must keep a top-level ``linux:`` section (Electron fallback)."""
-    assert re.search(r"^linux:\s*$", electron_builder_text, re.MULTILINE), (
-        "electron-builder.yml must have a top-level 'linux:' section (Electron fallback)"
-    )
-
-
-def test_electron_builder_linux_target_includes_all_three_formats(
-    electron_builder_text: str,
-) -> None:
-    """The Electron Linux ``target:`` list must include AppImage + deb + rpm.
-
-    Per the cutover playbook Step 2.2, the Electron build PATH stays in
-    the repo (reversible fallback), only the active ``target:`` entries
-    are DISABLED (commented out) at cutover time. All three Linux formats
-    (AppImage, deb, rpm) must be listed in the ``linux.target`` array so
-    the Electron fallback can ship any of them if the Tauri cutover is
-    rolled back.
-    """
-    entries = _extract_linux_target_entries(electron_builder_text)
-    assert entries, "could not extract any target: entries from electron-builder.yml linux: block"
-    for fmt in ("AppImage", "deb", "rpm"):
-        assert fmt in entries, (
-            f"electron-builder.yml linux.target must include '{fmt}' "
-            f"(Electron fallback must ship all three Linux formats); "
-            f"got entries={entries}"
-        )
-
-
-def test_electron_builder_linux_target_entries_not_commented_out(
-    electron_builder_text: str,
-) -> None:
-    """The Electron Linux ``target:`` entries must NOT be commented out (cutover not yet flipped).
-
-    Per the cutover playbook Step 2.2, the cutover flip COMMENTS OUT the
-    platform's ``target:`` entries in electron-builder.yml. As of MIG-1.9
-    Phase 5 (Linux cutover validation), the Linux cutover has NOT yet
-    happened, the Electron fallback must remain the active shipping path
-    (``target:`` entries NOT commented out). This test will START FAILING
-    once the Linux cutover is flipped (which is the correct signal, the
-    test should be removed at that point).
-    """
-    linux_block = _extract_linux_block(electron_builder_text)
-    # Find every `  - AppImage` / `  - deb` / `  - rpm` line in the linux block.
-    target_item_lines = re.findall(
-        r"^([ \t]+-[ \t]+(?:AppImage|deb|rpm)[ \t]*)$",
-        linux_block,
-        re.MULTILINE,
-    )
-    assert target_item_lines, (
-        "could not find uncommented `  - AppImage` / `  - deb` / `  - rpm` entries in electron-builder.yml linux: block"
-    )
-    # Every target item line must be uncommented (no leading `#`).
-    for line in target_item_lines:
-        stripped = line.lstrip()
-        assert not stripped.startswith("#"), (
-            f"electron-builder.yml linux.target entry must NOT be commented out "
-            f"(Linux cutover not yet flipped): {line!r}"
-        )
-
-
-def test_electron_builder_linux_extra_resources_preserved(
-    electron_builder_text: str,
-) -> None:
-    """The Electron Linux ``extraResources:`` must remain (Python backend embedded).
-
-    The Electron fallback must remain functional, the PyInstaller-built
-    Python backend (``voice_typer/dist/voice-typer-backend/``) must still
-    be embedded into the .deb/.rpm/AppImage. Without this, the Electron
-    fallback silently fails to start (no venv on a fresh install).
-    """
-    linux_block = _extract_linux_block(electron_builder_text)
-    assert "extraResources:" in linux_block, (
-        "electron-builder.yml linux: block must keep 'extraResources:' for the Python backend"
-    )
-    assert "voice-typer-backend" in linux_block, (
-        "electron-builder.yml linux.extraResources must reference 'voice-typer-backend'"
-    )
-
-
-def test_electron_builder_deb_and_rpm_sections_preserved(
-    electron_builder_text: str,
-) -> None:
-    """electron-builder.yml must keep top-level ``deb:`` + ``rpm:`` sections.
-
-    The ``deb:`` section wires ``afterInstall: resources/linux/postinst`` +
-    ``afterRemove: resources/linux/prerm``; the ``rpm:`` section wires the
-    .rpm variants. These must remain so the Electron fallback can install
-    the udev rule + input group + Caps Lock neutralization on rollback.
-    """
-    assert re.search(r"^deb:\s*$", electron_builder_text, re.MULTILINE), (
-        "electron-builder.yml must keep a top-level 'deb:' section (Electron fallback)"
-    )
-    assert re.search(r"^rpm:\s*$", electron_builder_text, re.MULTILINE), (
-        "electron-builder.yml must keep a top-level 'rpm:' section (Electron fallback)"
-    )
-    assert "postinst" in electron_builder_text, "electron-builder.yml deb/rpm sections must reference postinst scripts"
-    assert "prerm" in electron_builder_text, "electron-builder.yml deb/rpm sections must reference prerm scripts"
-
-
-# ─── Tests: Linux cutover gate requires Phase 0-L on X11 + Wayland + both archs ──
 
 
 def test_ci_workflow_documents_phase_0_l_gate(linux_workflow_text: str) -> None:
@@ -705,16 +595,16 @@ def test_playbook_documents_rollback_procedure(playbook_text: str) -> None:
 
 
 def test_playback_documents_electron_fallback_preserved(playbook_text: str) -> None:
-    """The playbook must state the Electron path stays intact (reversible fallback)."""
-    # The intro states: "The Electron build path stays intact and shippable
-    # on every platform throughout, Tauri is strictly additive until the
-    # platform's cutover gate is met."
+    """The playbook must state the Electron path stays intact (reversible fallback).
+
+    Cutover is marked HISTORICAL (Electron source removed); the playbook
+    still documents that the pre-cutover code path was kept intact on
+    every platform and that rollback used the prior Electron installer.
+    """
     text_lower = playbook_text.lower()
-    assert "intact" in text_lower and "shippable" in text_lower, (
-        "playbook must state the Electron build path stays intact + shippable (reversible fallback)"
+    assert "intact" in text_lower, (
+        "playbook must state the Electron code path stays intact (reversible fallback language)"
     )
-    # Step 2.2 explicitly says: "The Electron build PATH stays in the repo
-    # (reversible fallback), only the active target is disabled."
     assert "reversible fallback" in text_lower, (
         "playbook Step 2.2 must call out 'reversible fallback' for the Electron path"
     )

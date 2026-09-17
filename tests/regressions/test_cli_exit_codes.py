@@ -24,6 +24,7 @@ verbatim from the original monolith, only file location has changed.
 
 from __future__ import annotations
 
+import os
 import sys
 from unittest.mock import MagicMock
 
@@ -76,50 +77,61 @@ class TestCrashPathUsesExitCrash:
     """
 
     def test_crash_path_uses_exit_crash(self, monkeypatch, tmp_config_dir):
-        """When ``app.start()`` raises an Exception, ``main()`` must
-        exit with ``EXIT_CRASH`` (1), and that 1 must come from the
-        named constant, not a raw literal.
+        """WS-mode ``app.start()`` crash must exit with EXIT_CRASH (1).
+
+        Post-TCP cutover the supported transport is ``--ws``: ``main()``
+        launches ``_ws_startup_thread_main`` on a daemon thread (which
+        runs ``app.start()``) and the process fail-exits via ``os._exit``
+        when start() raises so the Tauri supervisor can respawn.
         """
-        # Isolate the crash-diagnostic writer.  ``main()`` appends the
-        # traceback to ``_config_dir() / "startup-error.log"``; without
-        # this, the test pollutes the *real* config dir (e.g. the
-        # developer's ~/.voice-typer/startup-error.log) with fake
-        # "simulated crash" entries.
+        monkeypatch.setattr(sys, "argv", ["voice-typer", "--ws"])
 
-        # Set up the argv so argparse doesn't bail.
-        monkeypatch.setattr(sys, "argv", ["voice-typer"])
-
-        # Avoid actually starting the IPC server / app, make start() raise.
         app_mock = MagicMock()
         app_mock.start.side_effect = RuntimeError("simulated crash")
 
-        # Stub out heavy pieces of main().
         monkeypatch.setattr("voice_typer.server.app.VoiceTyperApp", lambda: app_mock)
         monkeypatch.setattr("voice_typer.server.logging_setup._setup_logging", lambda: None)
         monkeypatch.setattr(
             "voice_typer.server.single_instance._ensure_single_instance",
             lambda silent=False: object(),
         )
-        # Stub IPCServer so it doesn't try to bind or spawn threads.
         fake_server = MagicMock()
         monkeypatch.setattr(ipc_server, "IPCServer", lambda app: fake_server)
+        monkeypatch.setattr(
+            "voice_typer.server.providers.build_ipc_server",
+            lambda app: fake_server,
+        )
+        # WS transport: return immediately so main() does not block.
+        monkeypatch.setattr("voice_typer.server.sidecar_ws.run", lambda server: 0)
 
-        # Stub sys.modules registration so main()'s self-registration
-        # of the canonical name doesn't overwrite the real module.
-        # (main() only sets it if missing, so this is a no-op when
-        # the test runner has already imported it.)
+        # Run daemon-thread targets inline so the crash path executes
+        # inside this test process (not on a real background thread).
+        class _ImmediateThread:
+            def __init__(self, target=None, args=(), kwargs=None, **_kw):
+                self._target = target
+                self._args = args or ()
+                self._kwargs = kwargs or {}
 
-        # Stub out the inner import by pre-populating sys.modules with
-        # the constants, main() does `from voice_typer.__main__ import
-        # EXIT_BAD_ARGS, EXIT_CRASH`, which works without monkeypatching.
+            def start(self):
+                if self._target is not None:
+                    self._target(*self._args, **self._kwargs)
+
+        import threading as _threading
+
+        monkeypatch.setattr(_threading, "Thread", _ImmediateThread)
+        # os._exit would kill the test runner; surface it as SystemExit.
+        monkeypatch.setattr(
+            os,
+            "_exit",
+            lambda code: (_ for _ in ()).throw(SystemExit(code)),
+        )
+        monkeypatch.setattr("faulthandler.enable", lambda: None)
 
         with pytest.raises(SystemExit) as exc_info:
             ipc_server.main()
 
         assert exc_info.value.code == EXIT_CRASH
 
-        # The diagnostic must land in the isolated temp dir, not the
-        # developer's real startup-error.log (O1: logs/).
         diag = tmp_config_dir / "logs" / "startup-error.log"
         assert diag.exists()
         assert "simulated crash" in diag.read_text(encoding="utf-8")
@@ -162,8 +174,15 @@ class TestNoRawSysExitOneInMain:
         source = inspect.getsource(ipc_server.main)
         # The constant reference is allowed.
         assert "sys.exit(EXIT_CRASH)" in source
-        # The raw literal must NOT appear (we use the named constant).
-        assert "sys.exit(1)" not in source, "main() still uses raw sys.exit(1) instead of EXIT_CRASH"
+        # A raw `sys.exit(1)` crash-path literal must not appear; the
+        # "no transport specified" diagnostic may use EXIT_BAD_ARGS via
+        # the named constant only.
+        assert "sys.exit(EXIT_BAD_ARGS)" in source or "sys.exit(EXIT_CRASH)" in source
+        # Forbidden: raw crash-path literal (not a named constant).
+        for line in source.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("sys.exit(1)"):
+                raise AssertionError(f"main() still uses raw {stripped} instead of a named EXIT_* constant")
 
 
 if __name__ == "__main__":

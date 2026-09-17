@@ -30,6 +30,8 @@ def _mock_recovery_owner_acl(monkeypatch):
         "voice_typer.server.config._enforce_windows_owner_only_acl",
         MagicMock(return_value=True),
     )
+
+
 @pytest.fixture
 def recovery_dir(tmp_config_dir):
     """Point config to a temp directory (via the canonical tmp_config_dir fixture)."""

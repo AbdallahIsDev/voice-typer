@@ -139,7 +139,7 @@ def fake_app(tmp_config_dir, monkeypatch):
     - ``voice_typer.server.app._close_devnull_files``, no-op.
     - ``voice_typer.server.app._register_devnull_file``, no-op.
     - ``voice_typer.server.platform_utils.is_windows``, returns False (POSIX test env).
-    - ``voice_typer.server.electron_launcher.terminate_electron``, recorder.
+    - ``voice_typer.server.autostart.tauri_spawn.terminate_tauri``, no-op.
     """
     import voice_typer.server.app as _app_module
 
@@ -152,11 +152,13 @@ def fake_app(tmp_config_dir, monkeypatch):
     monkeypatch.setattr(_app_module, "_close_devnull_files", lambda: None, raising=False)
     monkeypatch.setattr(_app_module, "_register_devnull_file", lambda f: None, raising=False)
     monkeypatch.setattr(_app_module, "is_windows", lambda: False, raising=False)
-    # Patch the real electron_launcher.terminate_electron function so
-    # the production import path inside _do_cleanup hits the spy.
+    # Patch the real host-termination function so the production
+    # import path inside _do_cleanup hits the spy. The Tauri host
+    # replaces the deleted Electron launcher.
     monkeypatch.setattr(
-        "voice_typer.server.electron_launcher.terminate_electron",
+        "voice_typer.server.autostart.tauri_spawn.terminate_tauri",
         lambda pid: None,
+        raising=False,
     )
     return _FakeApp()
 
@@ -555,121 +557,6 @@ class TestForceExitOnNonMainThread:
 
 
 # _electron_pid lock ─────────────────────────────────────────
-
-
-class TestElectronPidLock:
-    """DE-53: the ``_electron_pid`` read-terminate-clear sequence inside
-    ``_do_cleanup`` must be guarded by ``self._electron_pid_lock`` so
-    concurrent quit() callers don't double-terminate or clobber a
-    freshly-installed PID."""
-
-    def test_controller_has_electron_pid_lock(self, controller):
-        """The controller must expose a ``_electron_pid_lock`` attribute
-        that is a ``threading.Lock`` (or compatible)."""
-        assert hasattr(controller, "_electron_pid_lock"), (
-            "DE-53: ShutdownController must have a _electron_pid_lock attribute"
-        )
-        lock = controller._electron_pid_lock
-        # A Lock's acquire/release should work; block=False should return
-        # True on first acquire, False on second (held).
-        assert lock.acquire(blocking=False), (
-            "DE-53: _electron_pid_lock must be a valid Lock, acquire(blocking=False) should succeed when uncontended"
-        )
-        try:
-            assert not lock.acquire(blocking=False), (
-                "DE-53: _electron_pid_lock must be non-reentrant, second "
-                "acquire(blocking=False) on the same thread must fail"
-            )
-        finally:
-            lock.release()
-
-    def test_terminate_electron_called_with_pid(self, controller, fake_app, monkeypatch):
-        """When ``_electron_pid`` is set, ``_do_cleanup`` must call
-        ``electron_launcher.terminate_electron(pid)`` and clear the
-        attribute. Verifies the lock hasn't broken the happy path."""
-        terminate_calls: list[int] = []
-        monkeypatch.setattr(
-            "voice_typer.server.electron_launcher.terminate_electron",
-            lambda pid: terminate_calls.append(pid),
-        )
-        fake_app._electron_pid = 99999
-
-        controller._do_cleanup()
-
-        assert terminate_calls == [99999], (
-            f"DE-53: terminate_electron must be called with the tracked PID; got {terminate_calls}"
-        )
-        assert fake_app._electron_pid is None, "DE-53: _electron_pid must be cleared after termination"
-
-    def test_concurrent_callers_dont_double_terminate(self, controller, fake_app, monkeypatch):
-        """DE-53: two concurrent ``_do_cleanup`` callers must NOT both
-        call ``terminate_electron(pid)`` with the same PID. The lock
-        ensures only one caller enters the read-terminate-clear critical
-        section; the other observes ``_electron_pid is None`` (cleared
-        by the first) and skips.
-
-        NOTE: in practice, ``_do_cleanup`` is itself idempotent via
-        ``_cleanup_done``, so the second caller short-circuits at the
-        top of the method. This test intentionally DISABLES that
-        idempotency guard by resetting ``_cleanup_done = False`` between
-        calls so we exercise the lock directly.
-        """
-        terminate_calls: list[int] = []
-        terminate_lock = threading.Lock()
-
-        def _spy_terminate(pid):
-            with terminate_lock:
-                terminate_calls.append(pid)
-
-        monkeypatch.setattr(
-            "voice_typer.server.electron_launcher.terminate_electron",
-            _spy_terminate,
-        )
-        fake_app._electron_pid = 88888
-
-        # Barrier so both threads enter _do_cleanup at the same time.
-        barrier = threading.Barrier(2)
-
-        def _call_cleanup():
-            barrier.wait()
-            # Bypass the _cleanup_done guard by calling the body directly
-            # AND resetting the flag, the lock is what we're testing.
-            controller._do_cleanup()
-
-        # First call: sets _cleanup_done = True. Then both threads call
-        # _do_cleanup; the second short-circuits via _cleanup_done. To
-        # exercise the lock, we need BOTH threads to enter the body. So
-        # we pre-set _cleanup_done = False and let one thread win the
-        # check-then-set; the other short-circuits. That still tests
-        # that the lock prevents double-terminate IF the second thread
-        # somehow entered the body (defense-in-depth).
-        controller._do_cleanup()  # first call, sets _cleanup_done
-
-        # Reset so subsequent calls enter the body again, but the lock
-        # is what we're verifying; the test asserts that even if both
-        # threads DID enter the body (e.g. a future caller bypasses
-        # _quit_lock), the lock serializes them.
-        fake_app._cleanup_done = False
-        fake_app._electron_pid = 77777  # fresh PID for the second pass
-
-        t1 = threading.Thread(target=_call_cleanup)
-        t2 = threading.Thread(target=_call_cleanup)
-        t1.start()
-        t2.start()
-        t1.join(timeout=5.0)
-        t2.join(timeout=5.0)
-
-        # At most ONE of the two threads should have called
-        # terminate_electron(77777), the other either short-circuited
-        # via _cleanup_done OR observed _electron_pid == None under the
-        # lock.
-        pid_77777_calls = [pid for pid in terminate_calls if pid == 77777]
-        assert len(pid_77777_calls) <= 1, (
-            f"DE-53: terminate_electron(77777) was called "
-            f"{len(pid_77777_calls)} times, expected at most 1 (the lock "
-            f"should serialize the read-terminate-clear). "
-            f"All calls: {terminate_calls}"
-        )
 
 
 # sd.stop() skipped on recorder.stop() timeout ───────────────

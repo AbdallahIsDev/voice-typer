@@ -92,42 +92,6 @@ class TestMacosAutostartPlistWellFormed:
         assert "timeout=" in src
 
 
-class TestTrayWindowUsesShutilWhichNotShellTrue:
-    """tray_window.py uses shutil.which instead of shell=True.
-
-    S-7: Last-resort ``shell=True`` fallback was removed from
-    ``tray_window.open_electron_window``.  The function now resolves
-    npm via the shared :func:`_electron_build._npm_command` helper
-    (which uses ``shutil.which`` with PATHEXT on Windows) and logs +
-    skips when npm truly cannot be resolved.
-    """
-
-    def test_tray_window_uses_shutil_which(self):
-        import ast
-
-        tray_window = REPO_ROOT / "voice_typer" / "server" / "tray_window.py"
-        src = tray_window.read_text(encoding="utf-8")
-        # Either the shared ``_npm_command`` helper (preferred) or an
-        # inline ``shutil.which`` call is acceptable, both resolve the
-        # binary path explicitly so we don't need a shell.
-        assert "_npm_command" in src or "shutil.which" in src
-        # S-7: no ``shell=True`` keyword argument may appear in any
-        # subprocess call.  AST-based check is robust against mentions
-        # in comments/docstrings (which are kept for context).
-        tree = ast.parse(src)
-        shell_true_calls: list[ast.Call] = []
-        for node in ast.walk(tree):
-            if not isinstance(node, ast.Call):
-                continue
-            for kw in node.keywords:
-                if kw.arg == "shell" and isinstance(kw.value, ast.Constant) and kw.value.value is True:
-                    shell_true_calls.append(node)
-        assert not shell_true_calls, (
-            f"S-7: tray_window.py must not pass shell=True to any call; found {len(shell_true_calls)} offending calls."
-        )
-        assert "npm not on PATH" in src
-
-
 class TestTrayDetectsWaylandWithoutSni:
     """tray.py detects Wayland without SNI and skips tray."""
 
@@ -203,67 +167,6 @@ class TestTrayThreadAttributeNaming:
         assert tray_py.count("self._bg_thread = threading.Thread") == 1
         # All start paths call the shared helper.
         assert tray_py.count("_launch_bg_work()") >= 3
-
-
-class TestElectronUserDataPathMatchesConfigDir:
-    """Electron's userData matches Python's config dir."""
-
-    def test_main_sets_user_data_path(self):
-        # REF-2 split: userData wiring moved from main/index.ts to
-        # bootstrap.ts (bootstrapRuntime sets app.setPath("userData")).
-        bootstrap_ts = "".join(
-            p.read_text(encoding="utf-8")
-            for p in sorted((REPO_ROOT / "voice_typer" / "client" / "src" / "main" / "bootstrap").glob("*.ts"))
-        )
-        assert 'app.setPath("userData"' in bootstrap_ts
-
-    def test_main_mirrors_python_config_dir_logic(self):
-        # REF-2 split: the config-dir resolver moved to single_instance.ts
-        # (computeConfigDir mirrors Python's _config_dir), then extracted
-        # into the dependency-free leaf `config-dir.ts` during the O1
-        # logs → logs/ migration (so the logging package can consume it
-        # without a circular import). single_instance.ts still re-exports
-        # it, but the resolver logic + its marker tokens live in the leaf.
-        config_dir_ts = (REPO_ROOT / "voice_typer" / "client" / "src" / "main" / "config-dir.ts").read_text(
-            encoding="utf-8"
-        )
-        assert "VOICE_TYPER_CONFIG_DIR" in config_dir_ts
-        assert ".voice-typer" in config_dir_ts
-        assert "APPDATA" in config_dir_ts
-        assert "Application Support" in config_dir_ts
-        assert "XDG_DATA_HOME" in config_dir_ts
-        # The re-export seam must stay intact so existing importers of
-        # `computeConfigDir` from `./single_instance` keep working.
-        single_instance_ts = (REPO_ROOT / "voice_typer" / "client" / "src" / "main" / "single_instance.ts").read_text(
-            encoding="utf-8"
-        )
-        assert 'export { computeConfigDir } from "./config-dir"' in single_instance_ts
-
-    def test_gitignore_does_not_ignore_scripts_build(self):
-        gitignore = (REPO_ROOT / ".gitignore").read_text(encoding="utf-8")
-        assert "/build/" in gitignore
-        lines = [ln.strip() for ln in gitignore.splitlines()]
-        for line in lines:
-            if line == "build/":
-                pytest.fail(".gitignore still has unanchored 'build/' pattern")
-
-    def test_sync_versions_script_exists(self):
-        script = REPO_ROOT / "scripts" / "build" / "sync_versions.py"
-        assert script.exists()
-
-
-# (Wave 3, 2026-08-14): ``TestLinuxUnitDirHandlesEmptyXdgConfigHome`` (4 tests)
-# and ``TestIoprioSetUsesSyscallNotLibcSymbol`` (2 tests) were DELETED —
-# they pinned helpers in the deleted ``voice_typer.server.prewarm_scheduler_posix``
-# module (``_linux_unit_dir``) and the deleted ``prewarm._lower_io_priority``
-# function. Prewarm became a worker startup phase (master plan §6.2 P-1),
-# so the POSIX prewarm scheduler module + the IO-priority syscall helper
-# were removed. There is no equivalent behavior to re-pin: the worker
-# doesn't run as a boot scheduled task, so it doesn't need to lower its
-# own IO priority, and the systemd user-timer unit-dir resolution was
-# only used by the deleted POSIX prewarm scheduler (the autostart code
-# paths on POSIX use LaunchAgent / .desktop files directly via
-# ``server_platform/autostart_macos.py`` / ``autostart_linux.py``).
 
 
 class TestPlatformChecksUseExactMatchNotStartswith:

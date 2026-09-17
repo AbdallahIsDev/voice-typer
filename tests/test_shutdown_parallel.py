@@ -32,7 +32,6 @@ from __future__ import annotations
 import os
 import sys
 import threading
-import time
 from unittest.mock import MagicMock
 
 import pytest
@@ -347,124 +346,6 @@ class TestParallelTeardownBatch:
 
 
 # Electron termination timeout + SIGKILL escalation ────────────
-
-
-class TestElectronTerminationTimeout:
-    """XV-8: ``_teardown_electron`` wraps BOTH branches in
-    ``_run_with_timeout(timeout=5.0)`` and adds SIGKILL escalation
-    after 2 s on POSIX for the legacy tray_window fallback path."""
-
-    def test_terminate_electron_wrapped_in_timeout(self, controller, fake_app, monkeypatch):
-        """When ``_electron_pid`` is set, ``_teardown_electron`` must
-        call ``electron_launcher.terminate_electron(pid)`` via
-        ``_run_with_timeout`` (so a hung terminate_electron doesn't
-        hang the whole shutdown). We verify the wrapping by making
-        ``terminate_electron`` block forever and asserting the helper
-        returns within ~6 s (5 s timeout + scheduling slack)."""
-        # Skip on Windows, the test relies on POSIX-only behavior.
-        if os.name != "posix":
-            pytest.skip("XV-8 POSIX-only test")
-
-        fake_app._electron_pid = 99999
-
-        # Inject a fake electron_launcher module whose terminate_electron
-        # blocks indefinitely. _run_with_timeout should abandon it after
-        # 5 s and return.
-        blocked = threading.Event()
-
-        def _blocking_terminate(pid):
-            # Block until the test tears us down (or _run_with_timeout
-            # abandons us as a daemon thread).
-            blocked.wait(timeout=30.0)
-
-        fake_electron_launcher = MagicMock()
-        fake_electron_launcher.terminate_electron = _blocking_terminate
-        monkeypatch.setitem(sys.modules, "voice_typer.server.electron_launcher", fake_electron_launcher)
-
-        start = time.monotonic()
-        controller._teardown_electron()
-        elapsed = time.monotonic() - start
-
-        # Must return within ~6 s (5 s timeout + scheduling slack).
-        assert elapsed < 6.0, (
-            f"XV-8: _teardown_electron took {elapsed:.2f}s, expected "
-            f"<6.0s (5s _run_with_timeout + slack). The helper is not "
-            f"wrapping terminate_electron in _run_with_timeout."
-        )
-        # Unblock the worker thread so it doesn't linger.
-        blocked.set()
-        # _electron_pid must have been cleared even though the
-        # terminate_electron call didn't complete (the helper clears it
-        # after the _run_with_timeout call returns, regardless of
-        # whether the worker actually finished).
-        # NOTE: the current implementation clears _electron_pid AFTER
-        # the _run_with_timeout call, so if the call timed out, the
-        # clear DID happen (the wrapper returned None, then the next
-        # line ran). Verify.
-        assert fake_app._electron_pid is None, (
-            "_teardown_electron must clear _electron_pid after the terminate_electron call (even on timeout)"
-        )
-
-    def test_legacy_tray_window_path_uses_sigkill_escalation_on_posix(self, controller, fake_app, monkeypatch):
-        """XV-8: when ``_electron_pid`` is None, the legacy
-        tray_window path sends SIGTERM, waits 2 s, then SIGKILL on
-        POSIX. We mock ``os.kill`` and ``os.waitpid`` to verify both
-        signals are sent."""
-        # Skip on Windows. SIGKILL doesn't exist there.
-        if os.name != "posix":
-            pytest.skip("XV-8 POSIX-only test")
-
-        fake_app._electron_pid = None  # force legacy path
-
-        # Inject a fake tray_window module whose get_electron_pid
-        # returns a fake PID.
-        fake_tray_window = MagicMock()
-        fake_tray_window.get_electron_pid = lambda: 12345
-        monkeypatch.setitem(sys.modules, "voice_typer.server.tray_window", fake_tray_window)
-
-        # Mock os.kill to record the signals sent. Make waitpid block
-        # past the 2s grace deadline so the SIGKILL escalation fires.
-        signals_sent: list[int] = []
-
-        def _mock_kill(pid, sig):
-            signals_sent.append(sig)
-            # Don't actually kill anything, just record.
-
-        # ``os.waitpid(electron_pid, 0)`` is the BLOCKING variant, so
-        # "process still running" means the syscall never returns.
-        # Returning ``(0, 0)`` immediately (the WNOHANG-era mock
-        # contract) is treated by the production code as "reaped" —
-        # any non-TIMEOUT waitpid result means the child exited, so no
-        # SIGKILL would fire. Sleeping past the 2s deadline inside the
-        # ``_run_with_timeout`` worker makes the wrapper return TIMEOUT
-        # and the escalation fire, while keeping the real ~2s grace
-        # semantics (the test takes ~2s, which is acceptable).
-        def _mock_waitpid(pid, options):
-            time.sleep(2.1)
-            return (0, 0)  # never reached while the deadline holds
-
-        monkeypatch.setattr(os, "kill", _mock_kill)
-        monkeypatch.setattr(os, "waitpid", _mock_waitpid)
-
-        start = time.monotonic()
-        controller._teardown_electron()
-        elapsed = time.monotonic() - start
-
-        # Must have sent SIGTERM first, then SIGKILL.
-        import signal as _sig
-
-        assert _sig.SIGTERM in signals_sent, f"XV-8: legacy tray_window path must send SIGTERM; got {signals_sent}"
-        assert _sig.SIGKILL in signals_sent, (
-            f"XV-8: legacy tray_window path must escalate to SIGKILL after 2s; got {signals_sent}"
-        )
-        # SIGTERM must come before SIGKILL.
-        term_idx = signals_sent.index(_sig.SIGTERM)
-        kill_idx = signals_sent.index(_sig.SIGKILL)
-        assert term_idx < kill_idx, (
-            f"XV-8: SIGTERM (at {term_idx}) must precede SIGKILL (at {kill_idx}); got order: {signals_sent}"
-        )
-        # Total elapsed should be ~2 s (the SIGTERM wait deadline) + slack.
-        assert 1.5 < elapsed < 6.0, f"XV-8: SIGKILL escalation should fire after ~2s; took {elapsed:.2f}s"
 
 
 # tray.stop() timeout fallback ────────────────────────────────

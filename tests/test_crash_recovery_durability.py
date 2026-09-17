@@ -39,6 +39,8 @@ def _mock_recovery_owner_acl(monkeypatch):
         "voice_typer.server.config._enforce_windows_owner_only_acl",
         MagicMock(return_value=True),
     )
+
+
 @pytest.fixture
 def recovery_dir(tmp_path: Path) -> Path:
     """Return a clean config_dir for a CrashRecovery instance."""

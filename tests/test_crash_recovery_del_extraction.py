@@ -78,6 +78,8 @@ def _mock_recovery_owner_acl(monkeypatch):
         "voice_typer.server.config._enforce_windows_owner_only_acl",
         MagicMock(return_value=True),
     )
+
+
 if TYPE_CHECKING:
     from pathlib import Path
 

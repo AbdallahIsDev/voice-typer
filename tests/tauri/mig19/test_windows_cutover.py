@@ -1,10 +1,12 @@
-"""MIG-1.9 Phase 5 Check: Windows cutover plan validation.
+"""MIG-1.9 Phase 5 Check: Windows cutover COMPLETE (Electron removed 2026-09-17).
 
-This test file is the **Windows cutover validation** for ADR-0020 Phase 5
-(see ``docs/adr/0020-desktop-runtime-migration-analysis.md`` §"Phase 5 —
-Validation & cutover (per platform)" + §"Reversibility"). It validates the
-**structure** of the Windows cutover plan as documented in
-``docs/migration/cutover-playbook.md`` and as wired in:
+This test file originally validated the dual-host reversible-fallback
+plan. Electron packaging (electron-builder.yml, build.yml::build-windows)
+was deleted 2026-09-17. The module now pins the cutover contract:
+tauri-windows-build.yml + tauri-build.yml are the only installer
+pipelines; Electron packaging artifacts must stay gone.
+
+Historical references:
 
   - ``.github/workflows/tauri-windows-build.yml``, the Tauri host build
     (Phase 0-W / Phase 1-W packaging; the x86_64 matrix leg is ENABLED
@@ -151,18 +153,14 @@ def build_workflow_text() -> str:
 
 @pytest.fixture(scope="module")
 def electron_builder_text() -> str:
-    """Read electron-builder.yml once per module; fail fast if missing.
+    """Electron fallback config is GONE (cutover 2026-09-17).
 
-    This file is the Electron fallback config, its presence + validity
-    is the foundation of the "reversible fallback" guarantee. The Windows
-    cutover does NOT delete this file; it comments out the ``win:`` target.
+    The file was deleted with the Electron host. Tests that previously
+    required its presence now assert its absence.
     """
-    assert ELECTRON_BUILDER_YML.is_file(), (
-        f"electron-builder.yml not found at {ELECTRON_BUILDER_YML}. "
-        "The Electron fallback must remain in the repo per ADR-0020 "
-        "§'Reversibility' + the cutover playbook's §'Rollback procedure'."
-    )
-    return ELECTRON_BUILDER_YML.read_text(encoding="utf-8")
+    if ELECTRON_BUILDER_YML.is_file():
+        return ELECTRON_BUILDER_YML.read_text(encoding="utf-8")
+    return ""
 
 
 @pytest.fixture(scope="module")
@@ -295,96 +293,20 @@ def test_playbook_documents_evidence_trail(playbook_text: str):
         )
 
 
-# ─── 2. Electron fallback is preserved (electron-builder.yml exists + valid) ─
+# ─── 2. Electron fallback is REMOVED (cutover 2026-09-17) ────────────────────
 
 
-def test_electron_builder_yml_exists(electron_builder_text: str):
-    """electron-builder.yml must exist (Electron fallback preserved).
-
-    ADR-0020 §"Reversibility" + the cutover playbook's §"Rollback
-    procedure" both depend on this file remaining in the repo. Deleting
-    it would break the reversibility guarantee.
-    """
-    # The fixture already asserts the file exists; this test makes the
-    # intent explicit in the test report.
-    assert electron_builder_text, "electron-builder.yml must be non-empty (Electron fallback config)."
+def test_electron_builder_yml_removed(electron_builder_text: str):
+    """electron-builder.yml must be gone (Electron host removed)."""
+    assert not ELECTRON_BUILDER_YML.is_file(), "electron-builder.yml must not exist (Electron host removed 2026-09-17)."
 
 
-def test_electron_builder_yml_has_win_section(electron_builder_text: str):
-    """electron-builder.yml must have a ``win:`` section.
-
-    The ``win:`` section is the Electron fallback config for Windows.
-    The Windows cutover (Step 2.2 of the playbook) comments out the
-    ``target:`` entries inside this section, it does NOT delete the
-    section. The section must exist (pre-cutover state) so the cutover
-    lever is reachable.
-    """
-    # The `win:` section must appear as a top-level key (start of line).
-    assert re.search(r"^win:", electron_builder_text, flags=re.MULTILINE), (
-        "electron-builder.yml must have a top-level `win:` section "
-        "(the Electron fallback config for Windows, the cutover lever)."
-    )
+def test_electron_builder_yml_win_section_gone(electron_builder_text: str):
+    """No win: section survives without the file."""
+    assert electron_builder_text == "" or not re.search(r"^win:", electron_builder_text, flags=re.MULTILINE)
 
 
-def test_electron_builder_yml_win_target_is_nsis(electron_builder_text: str):
-    """electron-builder.yml ``win:`` section must target ``nsis``.
-
-    The Windows Electron installer is NSIS (matching
-    ``.github/workflows/build.yml::build-windows`` which runs
-    ``npx electron-builder --win``). The cutover comments out this
-    target (Step 2.2 of the playbook).
-    """
-    # Find the `win:` section and confirm it has `target: nsis` or
-    # `target:\n    - nsis`.
-    win_section_match = re.search(
-        r"^win:\s*\n((?:[ \t]+.*\n)+)",
-        electron_builder_text,
-        flags=re.MULTILINE,
-    )
-    assert win_section_match is not None, "electron-builder.yml `win:` section must have indented content."
-    win_section = win_section_match.group(1)
-    assert "nsis" in win_section, (
-        "electron-builder.yml `win:` section must target `nsis` (the Electron fallback installer format on Windows)."
-    )
-
-
-def test_electron_builder_yml_win_target_is_currently_active_pre_cutover(
-    electron_builder_text: str,
-):
-    """Pre-cutover state: the ``win:`` target is NOT commented out.
-
-    This is GAP-1 in the module docstring. Windows has not been cut over
-    yet (Phase 0-W has not passed on a real Windows host), so the
-    ``win:`` target in electron-builder.yml must still be active
-    (NOT prefixed with ``#``).
-
-    When the cutover happens, the release engineer will comment out the
-    ``target:`` entries per Step 2.2 of the playbook, at that point
-    this test should be updated to assert the commented-out state.
-    """
-    # Find the `win:` section.
-    win_section_match = re.search(
-        r"^win:\s*\n((?:[ \t]+.*\n)+)",
-        electron_builder_text,
-        flags=re.MULTILINE,
-    )
-    assert win_section_match is not None, "electron-builder.yml `win:` section must exist."
-    win_section = win_section_match.group(1)
-    # The `target:` line inside the `win:` section must NOT be a comment.
-    target_lines = [ln for ln in win_section.splitlines() if "target" in ln.lower()]
-    assert target_lines, "electron-builder.yml `win:` section must have a `target:` entry."
-    for ln in target_lines:
-        # A commented-out line starts with `#` (after optional whitespace).
-        stripped = ln.lstrip()
-        assert not stripped.startswith("#"), (
-            "electron-builder.yml `win:` target must NOT be commented out "
-            "in the pre-cutover state. (If you are running this test AFTER "
-            "the Windows cutover, update this test to assert the "
-            "commented-out state per cutover-playbook.md Step 2.2.)"
-        )
-
-
-# ─── 3. CI workflow can build BOTH the Tauri host AND the Electron fallback ──
+# ─── 3. CI workflow builds the Tauri host only (Electron fallback removed) ──
 
 
 def test_tauri_windows_workflow_exists(tauri_windows_workflow_text: str):
@@ -439,114 +361,52 @@ def test_tauri_build_orchestrator_calls_windows_workflow(
     )
 
 
-def test_electron_windows_build_job_exists_in_ci(build_workflow_text: str):
-    """The top-level CI workflow must still build the Electron Windows
-    installer (the fallback).
+def test_electron_windows_build_job_removed_from_ci(build_workflow_text: str):
+    """Cutover complete: the Electron packaging jobs are GONE from build.yml.
 
-    ``.github/workflows/build.yml::build-windows`` runs
-    ``npx electron-builder --win`` to produce the Electron NSIS
-    installer. This job MUST remain in the repo (it is the reversible
-    fallback), the cutover playbook does NOT instruct deleting it; it
-    instructs commenting out the ``win:`` target in
-    ``electron-builder.yml``.
+    ``build.yml::build-windows`` / ``build-macos`` / ``build-linux`` /
+    ``build-macos-universal`` (electron-builder) were removed 2026-09-17.
+    Installer production is tauri-build.yml + tauri-*-build.yml only.
+    Comments may still mention the retirement; the JOB KEYS and the
+    ``electron-builder`` RUN commands must not.
     """
-    assert "build-windows" in build_workflow_text, (
-        "build.yml must still have a `build-windows` job (the Electron "
-        "fallback build path, preserved per ADR-0020 §'Reversibility')."
-    )
-    assert "electron-builder --win" in build_workflow_text, (
-        "build.yml::build-windows must invoke "
-        "`npx electron-builder --win` to produce the Electron NSIS "
-        "installer (the fallback)."
+    # Job keys must not reappear as top-level jobs.
+    for job in ("build-windows", "build-macos", "build-linux", "build-macos-universal"):
+        assert not re.search(rf"^  {job}:\s*$", build_workflow_text, flags=re.MULTILINE), (
+            f"build.yml must not define the Electron packaging job `{job}`."
+        )
+    # No step may invoke electron-builder.
+    assert "electron-builder --" not in build_workflow_text, (
+        "build.yml must not invoke electron-builder (Electron packaging retired)."
     )
 
 
-def test_ci_can_build_both_tauri_and_electron_for_windows(
+def test_ci_builds_tauri_only_for_windows(
     tauri_windows_workflow_text: str,
     build_workflow_text: str,
 ):
-    """The repo's CI MUST be able to build BOTH the Tauri host AND the
-      Electron fallback for Windows (they coexist).
-
-      ADR-0020 §"Reversibility" + the cutover playbook's
-      §"Mixed-mode period" require that both builds can ship in the same
-      release (Tauri as default + Electron as the alternative/legacy
-      fallback). This means BOTH workflows must exist in ``.github/workflows/``
-    , neither deletes the other.
-    """
-    # Tauri host build path exists.
+    """The repo's CI builds the Tauri host only (Electron fallback removed)."""
     assert "cargo tauri build" in tauri_windows_workflow_text, (
         "Tauri host build path (tauri-windows-build.yml) must invoke `cargo tauri build`."
     )
-    # Electron fallback build path exists.
-    assert "electron-builder --win" in build_workflow_text, (
-        "Electron fallback build path (build.yml::build-windows) must invoke `npx electron-builder --win`."
+    assert "electron-builder --" not in build_workflow_text, (
+        "build.yml must not retain the Electron fallback build path."
     )
 
 
-# ─── 4. Cutover is reversible (Electron build is NOT deleted, just deprioritized) ──
+# ─── 4. Cutover completed (Electron removed 2026-09-17) ─────────────────────
 
 
-def test_playbook_states_electron_path_stays_in_repo(playbook_text: str):
-    """The playbook must explicitly state that the Electron build PATH
-    stays in the repo (reversible fallback).
-
-    Per the playbook §"Step 2, Flip the default" item 2: "The Electron
-    build PATH stays in the repo (reversible fallback), only the active
-    target is disabled." This is the reversibility guarantee.
-    """
-    assert "reversible fallback" in playbook_text.lower(), (
-        "cutover-playbook.md must explicitly state that the Electron "
-        "build path stays in the repo as a 'reversible fallback'."
+def test_playbook_marks_electron_path_historical(playbook_text: str):
+    """The playbook must record that cutover completed and Electron is gone."""
+    assert "HISTORICAL" in playbook_text or "completed 2026-09-17" in playbook_text, (
+        "cutover-playbook.md must record cutover completion / historical status."
     )
 
 
-def test_playbook_rollback_does_not_delete_electron(playbook_text: str):
-    """The rollback procedure must NOT delete Electron code, it
-    re-enables the electron-builder target + disables the Tauri
-    workflow's ``if:`` guard.
-
-    Per the playbook §"What does NOT change on rollback": no data,
-    config, or model loss; the Tauri build writes to the same data dir;
-    the Python sidecar is the same binary in both paths.
-    """
-    # Find the "What does NOT change on rollback" subsection.
-    no_change_match = re.search(
-        r"What does NOT change on rollback.*?(?=^### |^## |\Z)",
-        playbook_text,
-        flags=re.DOTALL | re.MULTILINE,
-    )
-    assert no_change_match is not None, "cutover-playbook.md must have a 'What does NOT change on rollback' subsection."
-    no_change = no_change_match.group(0)
-    assert "data" in no_change.lower() or "config" in no_change.lower(), (
-        "cutover-playbook.md rollback section must mention that no data or config is lost on rollback."
-    )
-
-
-def test_electron_builder_yml_not_scheduled_for_deletion(
-    electron_builder_text: str,
-    playbook_text: str,
-):
-    """The Electron fallback config (electron-builder.yml) must NOT be
-    scheduled for deletion, neither the playbook nor the config file
-    itself indicates removal.
-
-    ADR-0020 §"Reversibility" mandates the Electron code path stays
-    intact on every platform throughout the migration. The playbook's
-    §"Step 3, Post-flip monitoring" says "the Electron fallback can
-    be marked 'legacy' in the release notes (but NOT deleted from the
-    repo)".
-    """
-    # The playbook must say Electron is NOT deleted.
-    assert "NOT deleted" in playbook_text or "not deleted" in playbook_text.lower(), (
-        "cutover-playbook.md must explicitly state the Electron fallback "
-        "is NOT deleted from the repo (marked 'legacy' at most)."
-    )
-    # electron-builder.yml is non-empty (the fixture asserted existence;
-    # this is the deprioritized-not-deleted guarantee).
-    assert electron_builder_text.strip(), (
-        "electron-builder.yml must be non-empty (Electron fallback config preserved in the repo, not deleted)."
-    )
+def test_electron_builder_yml_removed_not_preserved():
+    """Electron fallback config is deleted (cutover 2026-09-17)."""
+    assert not ELECTRON_BUILDER_YML.is_file(), "electron-builder.yml must not exist (Electron host removed)."
 
 
 # ─── 5. Windows cutover gate requires Phase 0-W to pass first ────────────────

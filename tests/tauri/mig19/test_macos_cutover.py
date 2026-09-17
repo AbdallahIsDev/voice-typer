@@ -211,20 +211,6 @@ def workflow_text() -> str:
 
 
 @pytest.fixture(scope="module")
-def electron_builder_text() -> str:
-    """Read electron-builder.yml once per module; fail fast if missing."""
-    assert ELECTRON_BUILDER.is_file(), (
-        f"electron-builder.yml not found at {ELECTRON_BUILDER}. "
-        "The Electron fallback config must stay in the repo per "
-        "ADR-0020 §'Reversibility' + cutover-playbook.md Step 2.2 "
-        "(reversible fallback)."
-    )
-    return ELECTRON_BUILDER.read_text(encoding="utf-8")
-
-
-# ─── 1. Playbook documents macOS cutover for BOTH archs ──────────────────────
-
-
 def test_playbook_documents_macos_in_cutover_order(playbook_text: str):
     """Playbook must list macOS in the per-platform cutover order table.
 
@@ -430,72 +416,6 @@ def test_workflow_is_enabled_for_phase_0_m_validation(workflow_text: str):
 
 
 # ─── 4. Electron fallback preserved (macOS dmg target) ──────────────────────
-
-
-def test_electron_builder_preserves_macos_dmg_target(
-    electron_builder_text: str,
-):
-    """electron-builder.yml must keep the macOS dmg target (reversible fallback).
-
-    ADR-0020 §"Reversibility" + cutover-playbook.md Step 2.2: "The
-    Electron build PATH stays in the repo (reversible fallback), only
-    the active target is disabled." The macOS ``mac:`` section with
-    ``dmg`` target must stay present even after macOS cuts over to Tauri
-    (so rollback is a one-line uncomment, not a git revert).
-    """
-    # The mac: section must exist (top-level key at start of line).
-    assert re.search(r"^mac\s*:", electron_builder_text, re.MULTILINE), (
-        "electron-builder.yml is missing the 'mac:' section. ADR-0020 "
-        "§'Reversibility' + cutover-playbook.md Step 2.2 mandate that "
-        "the Electron fallback stays in the repo (the mac: section is "
-        "commented out on cutover, NOT deleted)."
-    )
-    # Isolate the mac: section (from `mac:` to the next top-level key).
-    mac_section_match = re.search(
-        r"^mac\s*:.*?(?=^[a-zA-Z_-]+\s*:|\Z)",
-        electron_builder_text,
-        re.MULTILINE | re.DOTALL,
-    )
-    assert mac_section_match is not None, "Could not isolate the 'mac:' section in electron-builder.yml."
-    mac_section = mac_section_match.group(0)
-    assert "dmg" in mac_section, (
-        "electron-builder.yml 'mac:' section does NOT include 'dmg' as a "
-        "target. ADR-0020 §'Reversibility' + cutover-playbook.md Step 2.2 "
-        "mandate that the macOS dmg target stays present as the "
-        "reversible fallback (commented out on cutover, NOT deleted)."
-    )
-
-
-def test_electron_builder_macos_lists_both_archs(
-    electron_builder_text: str,
-):
-    """electron-builder.yml macOS dmg target must list BOTH archs (x64 + arm64).
-
-    cutover-playbook.md macOS row: 'aarch64 + x86_64'. The Electron
-    fallback must cover both archs (so rolling back from Tauri to
-    Electron doesn't drop support for one arch). electron-builder uses
-    'x64' (Intel) + 'arm64' (Apple Silicon) arch names.
-    """
-    mac_section_match = re.search(
-        r"^mac\s*:.*?(?=^[a-zA-Z_-]+\s*:|\Z)",
-        electron_builder_text,
-        re.MULTILINE | re.DOTALL,
-    )
-    assert mac_section_match is not None, "Could not isolate the 'mac:' section in electron-builder.yml."
-    mac_section = mac_section_match.group(0)
-    assert "x64" in mac_section, (
-        "electron-builder.yml 'mac:' section does NOT list 'x64' arch. "
-        "The Electron fallback must cover Intel Macs (x64) so rollback "
-        "from Tauri doesn't drop Intel support."
-    )
-    assert "arm64" in mac_section, (
-        "electron-builder.yml 'mac:' section does NOT list 'arm64' arch. "
-        "The Electron fallback must cover Apple Silicon Macs (arm64) so "
-        "rollback from Tauri doesn't drop Apple Silicon support."
-    )
-
-
-# ─── 5. macOS cutover includes signing + notarization + stapling ────────────
 
 
 def test_playbook_documents_macos_signing_notarization_stapling(

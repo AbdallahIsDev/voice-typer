@@ -31,7 +31,6 @@ UE-1 and UE-2):
 from __future__ import annotations
 
 import os
-import sys
 import threading
 from unittest.mock import MagicMock
 
@@ -52,21 +51,8 @@ _SIGNAL_HANDLERS_PATH = os.path.join(
     "server",
     "signal_handlers.py",
 )
-# Phase 4.5 (OI-36) extracted the ``_teardown_electron`` body verbatim into
-# ``voice_typer/server/shutdown/teardowns/electron.py``. The
-# ``ShutdownController._teardown_electron`` method is now a thin delegate
-# that forwards to ``teardown_electron(controller)``. Source-inspection
-# tests for the Windows TerminateProcess fallback must read the body from
-# the extracted module (the delegate body contains only the forward call).
-_TEARDOWNS_ELECTRON_PATH = os.path.join(
-    os.path.dirname(__file__),
-    "..",
-    "voice_typer",
-    "server",
-    "shutdown",
-    "teardowns",
-    "electron.py",
-)
+# Electron teardown source-inspection path removed with
+# shutdown/teardowns/electron.py (Electron path deleted).
 
 
 def _src(path: str) -> str:
@@ -346,196 +332,7 @@ class TestSignalWatcherLoopSurvivesMultipleSignals:  # noqa: N801
             controller._stop.set()
 
 
-# Windows TerminateProcess fallback in _teardown_electron ─
-
-
-class TestWindowsTerminateProcessFallback:  # noqa: N801
-    """UE-1-F6: ``_teardown_electron`` must add a Windows ctypes
-    ``TerminateProcess`` fallback when ``terminate_electron`` times out.
-    Pre-fix, the POSIX branch had SIGKILL escalation but the Windows
-    branch was a silent no-op."""
-
-    def test_windows_terminate_process_fallback_exists_in_source(self):
-        """UE-1-F6 (source-inspection): the source must contain a
-        ``sys.platform == "win32"`` branch inside the ``if _term_result
-        is TIMEOUT:`` block that calls ``OpenProcess`` +
-        ``TerminateProcess`` + ``CloseHandle`` via ctypes.
-
-        Phase 4.5 (OI-36) extracted the ``_teardown_electron`` body into
-        ``voice_typer/server/shutdown/teardowns/electron.py``. The
-        source-inspection reads the extracted module (the delegate on
-        ``ShutdownController`` is a thin forwarder)."""
-        s = _src(_TEARDOWNS_ELECTRON_PATH)
-        idx = s.find("def teardown_electron(controller) -> None:")
-        assert idx > -1, "teardown_electron must be defined in the extracted module"
-        next_def = s.find("\ndef ", idx + 1)
-        body = s[idx:] if next_def == -1 else s[idx:next_def]
-        # The TIMEOUT branch must exist.
-        assert "if _term_result is TIMEOUT:" in body, (
-            "_teardown_electron must have an ``if _term_result is TIMEOUT:`` branch"
-        )
-        # The Windows TerminateProcess fallback must exist.
-        assert "TerminateProcess" in body, (
-            "UE-1-F6: _teardown_electron must call TerminateProcess as "
-            "the Windows fallback when terminate_electron times out"
-        )
-        assert "OpenProcess" in body, (
-            "UE-1-F6: _teardown_electron must call OpenProcess to obtain the process handle before TerminateProcess"
-        )
-        assert "PROCESS_TERMINATE" in body, (
-            "UE-1-F6: _teardown_electron must request the "
-            "PROCESS_TERMINATE (0x0001) access right when opening the handle"
-        )
-        assert "CloseHandle" in body, (
-            "UE-1-F6: _teardown_electron must close the handle after TerminateProcess to avoid handle leaks"
-        )
-        # The Windows branch must be platform-guarded (POSIX uses
-        # SIGKILL). The canonical codebase guard is the
-        # ``platform_utils.is_windows()`` helper (the historical
-        # ``sys.platform == "win32"`` literal was replaced by it when
-        # the extracted module adopted the shared helper); accept either
-        # form.
-        assert ('sys.platform == "win32"' in body) or ("is_windows()" in body), (
-            "the TerminateProcess fallback must be guarded by "
-            '``sys.platform == "win32"`` (or the canonical '
-            "``platform_utils.is_windows()`` guard), POSIX uses SIGKILL"
-        )
-
-    def test_posix_sigkill_escalation_preserved(self):
-        """UE-1-F6 (regression): the POSIX SIGKILL escalation must
-        STILL be present (the Windows fallback is ADDED, not a
-        replacement). Pre-fix the POSIX branch was the only escalation
-        path; my fix must not remove it.
-
-        Phase 4.5 (OI-36): reads from the extracted
-        ``teardowns/electron.py`` module (see
-        ``test_windows_terminate_process_fallback_exists_in_source`` for
-        the rationale)."""
-        s = _src(_TEARDOWNS_ELECTRON_PATH)
-        idx = s.find("def teardown_electron(controller) -> None:")
-        assert idx > -1
-        next_def = s.find("\ndef ", idx + 1)
-        body = s[idx:] if next_def == -1 else s[idx:next_def]
-        assert "SIGKILL" in body, (
-            "UE-1-F6: POSIX SIGKILL escalation must be preserved in the "
-            "``else:`` branch (Windows gets TerminateProcess, POSIX keeps "
-            "SIGKILL)"
-        )
-
-    @pytest.mark.skipif(
-        sys.platform != "win32",
-        reason="Windows kernel32 OpenProcess path, Windows only",
-    )
-    def test_electron_pid_cleared_even_on_windows_timeout(self, monkeypatch):
-        """UE-1-F6: even when ``terminate_electron`` times out on
-        Windows, ``_electron_pid`` must be cleared so the next launch
-        isn't blocked by a stale PID. (Pre-fix the clear happened
-        unconditionally, this test pins that the clear is preserved
-        with the new Windows fallback branch.)"""
-        controller, app = _make_controller_with_app()
-        app._electron_pid = 99999
-
-        # Inject a fake electron_launcher whose terminate_electron blocks
-        # forever (simulating a hung helper).
-        blocked = threading.Event()
-
-        def _blocking_terminate(pid):
-            blocked.wait(timeout=30.0)
-
-        fake_electron_launcher = MagicMock()
-        fake_electron_launcher.terminate_electron = _blocking_terminate
-        # Test-isolation hardening: patch BOTH ``sys.modules`` AND the
-        # ``voice_typer.server`` package attribute. When a prior test
-        # (e.g. ``test_shutdown_controller.py::TestRecorderForceClosedBarrier``
-        # which exercises ``_do_cleanup`` → ``_teardown_electron`` →
-        # ``from voice_typer.server import electron_launcher``) imports
-        # the real submodule, Python sets it as an attribute on the
-        # parent package. Subsequent ``from voice_typer.server import
-        # electron_launcher`` calls return the package attribute (the
-        # REAL module) and bypass ``sys.modules`` entirely, so the
-        # ``monkeypatch.setitem(sys.modules, ...)`` alone has no effect
-        # when this test runs after that prior import. Patching the
-        # package attribute too (via ``monkeypatch.setattr``) ensures
-        # the production code observes the fake regardless of import
-        # order.
-        import sys as _sys_for_modules
-
-        monkeypatch.setitem(
-            _sys_for_modules.modules,
-            "voice_typer.server.electron_launcher",
-            fake_electron_launcher,
-        )
-        monkeypatch.setattr(
-            "voice_typer.server.electron_launcher",
-            fake_electron_launcher,
-            raising=False,
-        )
-
-        # Force the Windows branch, patch sys.platform to "win32" and
-        # provide a fake ctypes.windll whose kernel32 attributes are
-        # MagicMocks (so ``argtypes`` / ``restype`` assignment works).
-        monkeypatch.setattr("sys.platform", "win32")
-
-        fake_kernel32 = MagicMock()
-        # OpenProcess returns 0 (NULL handle), simulates the
-        # "process already reaped" path. The fallback should still
-        # proceed to clear the PID.
-        fake_kernel32.OpenProcess.return_value = 0
-        fake_kernel32.TerminateProcess.return_value = 1
-        fake_kernel32.CloseHandle.return_value = 1
-
-        fake_windll = MagicMock()
-        fake_windll.kernel32 = fake_kernel32
-
-        # Build a fake ``ctypes`` module surface that satisfies
-        # ``import ctypes`` + ``from ctypes import wintypes``.
-        class _FakeWintypes:
-            DWORD = int
-            BOOL = int
-            HANDLE = int
-            UINT = int
-
-        fake_ctypes = MagicMock()
-        fake_ctypes.windll = fake_windll
-        fake_ctypes.wintypes = _FakeWintypes
-
-        import sys as _sys
-
-        monkeypatch.setitem(_sys.modules, "ctypes", fake_ctypes)
-        monkeypatch.setitem(_sys.modules, "ctypes.wintypes", _FakeWintypes)
-
-        # Patch _run_with_timeout so terminate_electron times out fast
-        # (the real 5s timeout would make the test slow).
-        import voice_typer.server.shutdown_controller as _sc
-
-        original_run_with_timeout = _sc._run_with_timeout
-
-        def _fast_run_with_timeout(description, func, timeout=5.0):
-            if description == "electron_launcher.terminate_electron":
-                return original_run_with_timeout(description, func, timeout=0.1)
-            return original_run_with_timeout(description, func, timeout=timeout)
-
-        monkeypatch.setattr(_sc, "_run_with_timeout", _fast_run_with_timeout)
-
-        try:
-            controller._teardown_electron()
-        finally:
-            blocked.set()  # Unblock the leaked worker thread.
-
-        # The PID must have been cleared even on the Windows-timeout
-        # path, otherwise the next launch would be blocked by a stale
-        # PID file / single-instance check.
-        assert app._electron_pid is None, (
-            "UE-1-F6: _electron_pid must be cleared after the Windows "
-            "TerminateProcess fallback path (stale PID would block the "
-            "next launch)"
-        )
-        # The Windows TerminateProcess fallback was attempted (OpenProcess
-        # was called for the PID, even though it returned NULL).
-        fake_kernel32.OpenProcess.assert_called_once()
-        # SIGKILL must NOT have been called (we're on the Windows branch).
-        # We can't easily assert this without mocking os.kill, but the
-        # source-inspection test above already pins the platform guard.
+# Windows TerminateProcess fallback tests removed with the Electron path.
 
 
 # signal_watcher_loop stderr fallback write ──────────────

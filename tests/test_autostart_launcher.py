@@ -114,41 +114,37 @@ class TestWritePidFile:
 
 
 class TestFocusRunningApp:
-    """_focus_running_app() spawns a lean electron to trigger second-instance."""
+    """_focus_running_app() spawns the Tauri binary to trigger second-instance."""
 
     def test_returns_false_when_no_binary(self, monkeypatch):
-        """If the electron binary is absent, should return False."""
+        """If the Tauri binary is absent, should return False."""
         monkeypatch.setattr(
-            "voice_typer.server.autostart_launcher._electron_binary",
+            "voice_typer.server.autostart_launcher._tauri_binary",
             lambda: None,
         )
         assert _focus_running_app() is False
 
-    def test_returns_false_when_no_main_entry(self, monkeypatch):
-        """If the built main entry is absent, should return False."""
+    def test_returns_false_when_integrity_gate_fails(self, monkeypatch):
+        """If integrity verification fails, the focus probe is refused."""
         monkeypatch.setattr(
-            "voice_typer.server.autostart_launcher._electron_binary",
-            lambda: "/fake/electron",
+            "voice_typer.server.autostart_launcher._tauri_binary",
+            lambda: "/fake/voice-typer-tauri",
         )
         monkeypatch.setattr(
-            "voice_typer.server.autostart_launcher._main_entry_built",
-            lambda: False,
+            "voice_typer.server.autostart_launcher.verify_tauri_binary_or_skip",
+            lambda path: False,
         )
         assert _focus_running_app() is False
 
-    def test_spawns_lean_electron_with_focus_only(self, monkeypatch):
-        """When binary + entry exist, should spawn electron with VT_FOCUS_ONLY=1."""
+    def test_spawns_tauri_with_focus_only(self, monkeypatch):
+        """When the binary verifies, spawn Tauri with VT_FOCUS_ONLY=1."""
         monkeypatch.setattr(
-            "voice_typer.server.autostart_launcher._electron_binary",
-            lambda: "/fake/electron",
+            "voice_typer.server.autostart_launcher._tauri_binary",
+            lambda: "/fake/voice-typer-tauri",
         )
         monkeypatch.setattr(
-            "voice_typer.server.autostart_launcher._main_entry_built",
-            lambda: True,
-        )
-        monkeypatch.setattr(
-            "voice_typer.server.autostart_launcher.CLIENT_DIR",
-            Path("/fake/client"),
+            "voice_typer.server.autostart_launcher.verify_tauri_binary_or_skip",
+            lambda path: True,
         )
         spawned_env = {}
 
@@ -189,10 +185,10 @@ class TestLaunchPortOpenPath:
 
 
 class TestLaunchPortClosedPath:
-    """When the backend port is closed, launch starts a fresh instance."""
+    """When the backend port is closed, launch starts a fresh Tauri instance."""
 
-    def test_fails_gracefully_without_client_dir(self, monkeypatch, tmp_path):
-        """If the client directory doesn't exist, should return 1."""
+    def test_fails_gracefully_without_tauri_mode(self, monkeypatch, tmp_path):
+        """No Tauri mode + no Tauri binary → exit 1 (Electron path removed)."""
         monkeypatch.setattr(
             "voice_typer.server.autostart_launcher._is_port_open",
             lambda h, p: False,
@@ -202,7 +198,7 @@ class TestLaunchPortClosedPath:
             lambda: tmp_path / "nonexistent.pid",
         )
         monkeypatch.setattr(
-            "voice_typer.server.autostart_launcher._client_dir_exists",
+            "voice_typer.server.autostart_launcher._is_tauri_mode",
             lambda: False,
         )
         monkeypatch.setattr(
@@ -223,8 +219,16 @@ class TestLaunchPortClosedPath:
             lambda: Path("/nonexistent.pid"),
         )
         monkeypatch.setattr(
-            "voice_typer.server.autostart_launcher._client_dir_exists",
+            "voice_typer.server.autostart_launcher._is_tauri_mode",
             lambda: True,
+        )
+        monkeypatch.setattr(
+            "voice_typer.server.autostart_launcher._tauri_binary",
+            lambda: "/fake/voice-typer-tauri",
+        )
+        monkeypatch.setattr(
+            "voice_typer.server.autostart_launcher.verify_tauri_binary_or_skip",
+            lambda path: True,
         )
         monkeypatch.setattr(
             "voice_typer.server.autostart_launcher._setup_logging",
@@ -233,6 +237,10 @@ class TestLaunchPortClosedPath:
         monkeypatch.setattr(
             "voice_typer.server.autostart_launcher._write_pid_file",
             lambda lp, cp: None,
+        )
+        monkeypatch.setattr(
+            "voice_typer.server.autostart_launcher._wait_for_ipc_ready",
+            lambda: None,
         )
         monkeypatch.setattr(time, "sleep", lambda s: None)
 
@@ -262,8 +270,16 @@ class TestLaunchPortClosedPath:
             lambda: Path("/nonexistent.pid"),
         )
         monkeypatch.setattr(
-            "voice_typer.server.autostart_launcher._client_dir_exists",
+            "voice_typer.server.autostart_launcher._is_tauri_mode",
             lambda: True,
+        )
+        monkeypatch.setattr(
+            "voice_typer.server.autostart_launcher._tauri_binary",
+            lambda: "/fake/voice-typer-tauri",
+        )
+        monkeypatch.setattr(
+            "voice_typer.server.autostart_launcher.verify_tauri_binary_or_skip",
+            lambda path: True,
         )
         monkeypatch.setattr(
             "voice_typer.server.autostart_launcher._setup_logging",
@@ -272,6 +288,10 @@ class TestLaunchPortClosedPath:
         monkeypatch.setattr(
             "voice_typer.server.autostart_launcher._write_pid_file",
             lambda lp, cp: None,
+        )
+        monkeypatch.setattr(
+            "voice_typer.server.autostart_launcher._wait_for_ipc_ready",
+            lambda: None,
         )
         monkeypatch.setattr(time, "sleep", lambda s: None)
 
@@ -319,15 +339,23 @@ class TestLegacyDelayClamp:
         )
         monkeypatch.setattr(
             "voice_typer.server.autostart_launcher._is_tauri_mode",
-            lambda: False,
-        )
-        monkeypatch.setattr(
-            "voice_typer.server.autostart_launcher._client_dir_exists",
             lambda: True,
         )
         monkeypatch.setattr(
-            "voice_typer.server.autostart_launcher._ensure_built_and_launch",
-            lambda hidden=False: True,
+            "voice_typer.server.autostart_launcher._tauri_binary",
+            lambda: "/fake/voice-typer-tauri",
+        )
+        monkeypatch.setattr(
+            "voice_typer.server.autostart_launcher.verify_tauri_binary_or_skip",
+            lambda path: True,
+        )
+        monkeypatch.setattr(
+            "voice_typer.server.autostart_launcher._spawn_tauri_host",
+            lambda binary, hidden=False: MagicMock(pid=1234),
+        )
+        monkeypatch.setattr(
+            "voice_typer.server.autostart_launcher._write_pid_file",
+            lambda lp, cp: None,
         )
         monkeypatch.setattr(
             "voice_typer.server.autostart_launcher._wait_for_ipc_ready",

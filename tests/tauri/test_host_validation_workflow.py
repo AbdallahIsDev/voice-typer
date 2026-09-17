@@ -36,11 +36,12 @@ class TestHostValidationWorkflowContract:
         text = _workflow_text()
         assert "VERSION" in text
         assert "PONG" in text
-        assert "TerminateProcess" in text
-        assert "CloseHandle" in text
-        assert "finally:" in text
-        assert "KILL_PATH_CONTRACTS=PASS" in text
+        # Post-Electron cutover: kill-path contracts pin the surviving
+        # signal-handler / timeout / native-binary surfaces, not the
+        # deleted Electron process-tree helpers.
         assert "win32_console_handler" in text
+        assert "KILL_PATH_CONTRACTS=PASS" in text
+        assert "binaries.json" in text
 
     def test_windows_job_covers_win32_taskkill_vt1(self) -> None:
         text = _workflow_text()

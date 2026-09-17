@@ -9,14 +9,12 @@
 //! - `None` (locale never pushed), empty, unrecognized, and
 //!   unknown-region locales fall back to English;
 //! - the pushed locale is normalized (primary subtag,
-//!   case-insensitive, `-` and `_` separators);
-//! - the Rust table stays byte-identical to the Electron
-//!   main-process locale files (`voice_typer/client/src/main/i18n/
-//!   locales/*.json` keys `dialog.selectModelFolder.title` +
-//!   `dialog.export.*`): the cross-runtime parity guard.
+//!   case-insensitive, `-` and `_` separators).
+//!
+//! Post-Electron cutover the Rust locale table is the sole source of
+//! host dialog titles (the Electron main-process locale JSONs are gone).
 
 use super::{localized_title, DialogTitle, SUPPORTED_LANGUAGES};
-use serde_json::Value;
 
 /// All title kinds covered by the lookup, every test below iterates
 /// this list so adding a new dialog title site without extending the
@@ -154,69 +152,4 @@ fn test_underscore_separator_and_uppercase_locale_resolve_primary_language() {
         "اختيار مجلد النماذج",
         "'AR' (uppercase) must resolve to the Arabic title"
     );
-}
-
-// ── cross-runtime parity with the Electron main-process locales ──
-//
-// The Rust table mirrors the Electron main process's `mainT()`
-// dialog strings byte-for-byte. These tests parse the actual locale
-// JSON files shipped in the client tree and compare every (kind,
-// language) pair, so a future edit to either side that breaks
-// parity fails here instead of shipping silently.
-
-const EN_MAIN_JSON: &str =
-    include_str!("../../../../voice_typer/client/src/main/i18n/locales/en.json");
-const AR_MAIN_JSON: &str =
-    include_str!("../../../../voice_typer/client/src/main/i18n/locales/ar.json");
-const DE_MAIN_JSON: &str =
-    include_str!("../../../../voice_typer/client/src/main/i18n/locales/de.json");
-const ES_MAIN_JSON: &str =
-    include_str!("../../../../voice_typer/client/src/main/i18n/locales/es.json");
-const FR_MAIN_JSON: &str =
-    include_str!("../../../../voice_typer/client/src/main/i18n/locales/fr.json");
-const HI_MAIN_JSON: &str =
-    include_str!("../../../../voice_typer/client/src/main/i18n/locales/hi.json");
-const RU_MAIN_JSON: &str =
-    include_str!("../../../../voice_typer/client/src/main/i18n/locales/ru.json");
-const ZH_MAIN_JSON: &str =
-    include_str!("../../../../voice_typer/client/src/main/i18n/locales/zh.json");
-
-#[test]
-fn test_dialog_titles_are_byte_identical_to_electron_main_locale_files() {
-    let files: [(&str, &str); 8] = [
-        ("en", EN_MAIN_JSON),
-        ("ar", AR_MAIN_JSON),
-        ("de", DE_MAIN_JSON),
-        ("es", ES_MAIN_JSON),
-        ("fr", FR_MAIN_JSON),
-        ("hi", HI_MAIN_JSON),
-        ("ru", RU_MAIN_JSON),
-        ("zh", ZH_MAIN_JSON),
-    ];
-    for (lang, raw) in files {
-        let parsed: Value = serde_json::from_str(raw)
-            .unwrap_or_else(|e| panic!("main locale file for '{lang}' must parse: {e}"));
-        let cases: [(DialogTitle, &str); 6] = [
-            (
-                DialogTitle::SelectModelFolder,
-                "dialog.selectModelFolder.title",
-            ),
-            (DialogTitle::ExportHistory, "dialog.export.history"),
-            (DialogTitle::ExportVocabulary, "dialog.export.vocabulary"),
-            (DialogTitle::ExportTemplates, "dialog.export.templates"),
-            (DialogTitle::ExportConfig, "dialog.export.config"),
-            (DialogTitle::ExportStatsImage, "dialog.export.statsImage"),
-        ];
-        for (kind, key) in cases {
-            let expected = parsed[key].as_str().unwrap_or_else(|| {
-                panic!("main locale file for '{lang}' must contain key '{key}'")
-            });
-            let actual = localized_title(kind, Some(lang));
-            assert_eq!(
-                actual, expected,
-                "Rust title for {kind:?} under '{lang}' diverged from the Electron \
-                 main locale file key '{key}'"
-            );
-        }
-    }
 }

@@ -1,11 +1,9 @@
-"""Bubble-dismiss global shortcut parity pin (MO-125).
+"""Bubble-dismiss global shortcut pin (MO-125).
 
-Electron registered ``CommandOrControl+Shift+D`` system-wide
-(``main/shortcuts/global-shortcuts.ts``, sourced from the cross-process
-shared constant ``src/shared/dismiss-shortcut.ts``); the Tauri host
-registers the same binding Rust-side via
-``tauri-plugin-global-shortcut``. These tests pin the two registrations
-to the ONE shared TS constant so neither runtime can drift.
+Post-Electron cutover the Electron accelerator source is gone; the
+Tauri host registers the binding Rust-side via
+``tauri-plugin-global-shortcut``. These tests pin the Rust constant
+to the shared TS display constant so the two stay in lockstep.
 """
 
 from __future__ import annotations
@@ -15,7 +13,6 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SHARED_SHORTCUT_TS = REPO_ROOT / "voice_typer" / "client" / "src" / "shared" / "dismiss-shortcut.ts"
-ELECTRON_SHORTCUTS_TS = REPO_ROOT / "voice_typer" / "client" / "src" / "main" / "shortcuts" / "global-shortcuts.ts"
 RUST_SHORTCUTS_RS = REPO_ROOT / "src-tauri" / "src" / "shortcuts.rs"
 MAIN_RS = REPO_ROOT / "src-tauri" / "src" / "main.rs"
 CARGO_TOML = REPO_ROOT / "src-tauri" / "Cargo.toml"
@@ -34,11 +31,6 @@ def test_shared_constant_is_the_ctrl_shift_d_binding() -> None:
     )
 
 
-def test_electron_registers_the_shared_accelerator() -> None:
-    source = _read(ELECTRON_SHORTCUTS_TS)
-    assert "DISMISS_SHORTCUT.accelerator" in source, "the Electron registration must read the shared constant"
-
-
 def test_rust_registers_the_same_binding() -> None:
     source = _read(RUST_SHORTCUTS_RS)
     match = re.search(r'BUBBLE_DISMISS_ACCELERATOR:\s*&str\s*=\s*"([^"]+)"', source)
@@ -47,7 +39,7 @@ def test_rust_registers_the_same_binding() -> None:
     # binding in different spellings; the Rust global-hotkey parser
     # accepts the former.
     assert match.group(1) == "CmdOrCtrl+Shift+D", (
-        "the Rust binding diverged from the Electron one (CommandOrControl+Shift+D)"
+        "the Rust binding diverged from the shared TS constant (CommandOrControl+Shift+D)"
     )
     # The registration must fire on the press edge only.
     assert "ShortcutState::Pressed" in source
@@ -60,9 +52,7 @@ def test_rust_dismiss_reuses_the_bubble_hide_path() -> None:
         "body the bubble '×' button uses), not grow a second hide "
         "implementation (E7)"
     )
-    assert '"toggle_dictation"' in source, (
-        "an in-flight recording must be cancelled before hiding (Electron dismissAndHideBubble ordering)"
-    )
+    assert '"toggle_dictation"' in source, "an in-flight recording must be cancelled before hiding"
 
 
 def test_plugin_is_registered_in_the_builder_and_lockstepped() -> None:

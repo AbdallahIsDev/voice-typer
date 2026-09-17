@@ -48,13 +48,11 @@ from __future__ import annotations
 
 import json
 import socket
-import time
 from contextlib import suppress
 from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
-from voice_typer.server.ipc_server import IPCServer
 from voice_typer.server.tray import AppState
 
 # class-attribute and subclass tests ───────────────────────────
@@ -443,72 +441,27 @@ class _MockApp:
 
 
 @pytest.fixture
-def live_server(tmp_path, monkeypatch):
-    port = _free_port()
-    token = "de31-consent-test-token"
-    monkeypatch.setenv("VOICE_TYPER_IPC_TOKEN", token)
+def consent_server(tmp_path, monkeypatch):
+    """IPCServer with fakes, no TCP transport (WS/stdin only)."""
+    from tests.fixtures.ipc_test_helpers import make_ipc_server_with_fakes
+
     monkeypatch.setenv("VOICE_TYPER_CONFIG_DIR_OVERRIDE", str(tmp_path))
-
-    app = _MockApp(tmp_path=tmp_path, monkeypatch=monkeypatch)
-    server = IPCServer(app)
-    app._ipc_server = server
-    server.start()
-    server.start_tcp(port)
-
-    deadline = time.monotonic() + 2.0
-    while time.monotonic() < deadline:
-        try:
-            test_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            test_sock.settimeout(0.25)
-            test_sock.connect(("127.0.0.1", port))
-            test_sock.close()
-            break
-        except (TimeoutError, ConnectionRefusedError, OSError):
-            time.sleep(0.02)
-    else:
-        server.stop()
-        pytest.fail(f"IPC server did not start listening on port {port} within 2s")
-
-    yield server, port, token
-
-    server.stop()
-    with suppress(Exception):
-        if hasattr(app, "history_db") and hasattr(app.history_db, "close"):
-            app.history_db.close()
-    with suppress(Exception):
-        if hasattr(app, "_crash_recovery") and hasattr(app._crash_recovery, "shutdown"):
-            app._crash_recovery.shutdown()
-    deadline = time.monotonic() + 1.0
-    while time.monotonic() < deadline:
-        if server._tcp_server_socket is None:
-            break
-        time.sleep(0.02)
-
-
-@pytest.fixture
-def authenticated_client(live_server):
-    server, port, token = live_server
-    client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    client.connect(("127.0.0.1", port))
-    _send_line(client, {"type": "auth", "token": token})
-    _drain(client, timeout=0.3)
-    yield client, server
-    with suppress(OSError):
-        client.close()
+    server, _fake_app, _fake_service = make_ipc_server_with_fakes()
+    server._running = True
+    return server
 
 
 class TestIpcDispatchConsentRequiredEnvelope:
-    """DE-31: a handler raising ``ConsentRequiredError`` must produce a
+    """A handler raising ``ConsentRequiredError`` must produce a
     structured ``consent_required`` error envelope (carrying
     ``provider`` / ``scope``) instead of the generic
-    ``server.internal_error`` toast, and must NOT tear down the TCP
-    connection.
+    ``server.internal_error`` error, and must keep the server usable.
     """
 
-    def test_cloud_consent_error_produces_consent_required_envelope(self, authenticated_client, monkeypatch):
+    def test_cloud_consent_error_produces_consent_required_envelope(self, consent_server, monkeypatch):
         from voice_typer.server.asr_errors import CloudConsentRequiredError
 
-        client, server = authenticated_client
+        server = consent_server
 
         def raise_cloud_consent(data, resp):  # noqa: ARG001
             raise CloudConsentRequiredError(
@@ -518,27 +471,19 @@ class TestIpcDispatchConsentRequiredEnvelope:
 
         monkeypatch.setattr(server, "_handle_get_status", raise_cloud_consent)
 
-        _send_line(client, {"id": 42, "type": "get_status"})
-        resp = _read_response_line(client, timeout=2.0)
+        resp = server._dispatch({"id": 42, "type": "get_status"})
 
         assert resp["type"] == "error", f"Expected error envelope, got: {resp}"
         assert resp.get("id") == 42, f"Response id mismatch: {resp}"
-        # The consent handler produces ``code: consent_required`` (NOT
-        # ``server.internal_error``, that would hide the consent signal
-        # from the renderer's consent-dialog logic).
         assert resp["data"]["code"] == "server.consent_required", f"Expected code=consent_required, got: {resp}"
-        # provider / scope are surfaced from the exception so the
-        # renderer can show the correct provider-specific dialog.
         assert resp["data"]["provider"] == "openai"
         assert resp["data"]["scope"] == "transcribe"
-        # The original exception message is surfaced (consent errors
-        # are user-actionable, not internal server leakage).
         assert "consent not given" in resp["data"]["message"]
 
-    def test_huggingface_consent_error_produces_consent_required_envelope(self, authenticated_client, monkeypatch):
+    def test_huggingface_consent_error_produces_consent_required_envelope(self, consent_server, monkeypatch):
         from voice_typer.server.asr_errors import HuggingFaceConsentRequiredError
 
-        client, server = authenticated_client
+        server = consent_server
 
         def raise_hf_consent(data, resp):  # noqa: ARG001
             raise HuggingFaceConsentRequiredError(
@@ -547,72 +492,54 @@ class TestIpcDispatchConsentRequiredEnvelope:
 
         monkeypatch.setattr(server, "_handle_get_status", raise_hf_consent)
 
-        _send_line(client, {"id": 7, "type": "get_status"})
-        resp = _read_response_line(client, timeout=2.0)
+        resp = server._dispatch({"id": 7, "type": "get_status"})
 
         assert resp["type"] == "error"
         assert resp.get("id") == 7
         assert resp["data"]["code"] == "server.consent_required"
-        # ``provider`` / ``scope`` come from the subclass's class
-        # attributes (), they're NOT set per-instance like
-        # ``CloudConsentRequiredError``.
         assert resp["data"]["provider"] == "huggingface"
         assert resp["data"]["scope"] == "download"
         assert "HuggingFace consent not given" in resp["data"]["message"]
 
-    def test_legacy_base_consent_error_still_produces_envelope(self, authenticated_client, monkeypatch):
-        """DE-30 backward compat: a legacy ``raise
-        ConsentRequiredError("...")`` callsite (no provider/scope set)
-        must still produce a ``consent_required`` envelope, with empty
-        ``provider`` / ``scope`` strings, so the IPC layer's
-        ``getattr(exc, "provider", "")`` reads degrade gracefully on
-        older raise sites that haven't been migrated to the typed
-        subclasses yet (e.g. transcription.py / parakeet_engine.py
-        before Agent 2-E adopts them).
+    def test_legacy_base_consent_error_still_produces_envelope(self, consent_server, monkeypatch):
+        """A legacy ``raise ConsentRequiredError("...")`` callsite (no
+        provider/scope set) must still produce a ``consent_required``
+        envelope with empty ``provider`` / ``scope`` strings.
         """
         from voice_typer.server.asr_errors import ConsentRequiredError
 
-        client, server = authenticated_client
+        server = consent_server
 
         def raise_legacy_consent(data, resp):  # noqa: ARG001
             raise ConsentRequiredError("legacy consent raise site")
 
         monkeypatch.setattr(server, "_handle_get_status", raise_legacy_consent)
 
-        _send_line(client, {"id": 99, "type": "get_status"})
-        resp = _read_response_line(client, timeout=2.0)
+        resp = server._dispatch({"id": 99, "type": "get_status"})
 
         assert resp["type"] == "error"
         assert resp.get("id") == 99
         assert resp["data"]["code"] == "server.consent_required"
-        # provider / scope degrade to empty string for legacy raise
-        # sites (base-class default).
         assert resp["data"]["provider"] == ""
         assert resp["data"]["scope"] == ""
         assert "legacy consent raise site" in resp["data"]["message"]
 
-    def test_consent_error_does_not_mask_as_internal_error(self, authenticated_client, monkeypatch):
-        """DE-31 regression: the ``except ConsentRequiredError`` clause
-        MUST come BEFORE the generic ``except Exception``, otherwise
-        the consent signal would be swallowed into a generic
-        ``server.internal_error`` toast.  This test pins the clause
-        ordering by asserting that a ``ConsentRequiredError`` produces
-        ``code=consent_required`` (NOT ``code=server.internal_error``).
+    def test_consent_error_does_not_mask_as_internal_error(self, consent_server, monkeypatch):
+        """The ``except ConsentRequiredError`` clause MUST come BEFORE
+        the generic ``except Exception``, otherwise the consent signal
+        would be swallowed into a generic ``server.internal_error``.
         """
         from voice_typer.server.asr_errors import CloudConsentRequiredError
 
-        client, server = authenticated_client
+        server = consent_server
 
         def raise_consent(data, resp):  # noqa: ARG001
             raise CloudConsentRequiredError("groq consent", provider="groq")
 
         monkeypatch.setattr(server, "_handle_get_status", raise_consent)
 
-        _send_line(client, {"id": 5, "type": "get_status"})
-        resp = _read_response_line(client, timeout=2.0)
+        resp = server._dispatch({"id": 5, "type": "get_status"})
 
-        # The deciding assertion: code is consent_required, NOT
-        # server.internal_error, the consent handler ran first.
         assert resp["data"]["code"] != "server.internal_error", (
             f"ConsentRequiredError was swallowed by the generic except "
             f"Exception clause, clause ordering is wrong: {resp}"
@@ -620,15 +547,13 @@ class TestIpcDispatchConsentRequiredEnvelope:
         assert resp["data"]["code"] == "server.consent_required"
         assert resp["data"]["provider"] == "groq"
 
-    def test_connection_survives_consent_error(self, authenticated_client, monkeypatch):
-        """DE-31: after a ``consent_required`` envelope, the same TCP
-        socket must accept and respond to a subsequent request, the
-        connection survives (mirrors the B-6 contract for the generic
-        dispatch safety net).
+    def test_dispatch_survives_consent_error(self, consent_server, monkeypatch):
+        """After a ``consent_required`` envelope, the server must still
+        accept and respond to a subsequent request.
         """
         from voice_typer.server.asr_errors import HuggingFaceConsentRequiredError
 
-        client, server = authenticated_client
+        server = consent_server
 
         original = server._handle_get_status
         call_count = {"n": 0}
@@ -641,18 +566,13 @@ class TestIpcDispatchConsentRequiredEnvelope:
 
         monkeypatch.setattr(server, "_handle_get_status", consent_then_ok)
 
-        # First call, consent required envelope.
-        _send_line(client, {"id": 1, "type": "get_status"})
-        resp1 = _read_response_line(client, timeout=2.0)
+        resp1 = server._dispatch({"id": 1, "type": "get_status"})
         assert resp1["type"] == "error"
         assert resp1["data"]["code"] == "server.consent_required"
 
-        # Second call on the SAME socket, connection must survive
-        # and the handler (now un-flaked) returns a normal status.
-        _send_line(client, {"id": 2, "type": "get_status"})
-        resp2 = _read_response_line(client, timeout=2.0)
+        resp2 = server._dispatch({"id": 2, "type": "get_status"})
         assert resp2["type"] == "status", (
-            f"Second response should be a normal status, connection "
+            f"Second response should be a normal status, server "
             f"did not survive the prior consent_required envelope: {resp2}"
         )
         assert resp2.get("id") == 2

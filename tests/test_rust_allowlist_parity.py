@@ -1,45 +1,11 @@
-"""YJ-10 redundant parity guard: Rust ↔ TS allowlist byte-for-byte equality.
+"""YJ-10 negative-regression guard for the Rust allowlist.
 
-This test file is a SECOND layer of defense for the YJ-10 invariant
-(Rust ``allowed_commands()`` set MUST mirror the TS ``ALLOWED_COMMANDS``
-Set exactly, same count + same entries). The primary guard lives in
-``tests/test_security_doc_command_count.py`` (functions
-``test_rust_allowlist_matches_ts_allowlist_count`` and
-``test_rust_allowlist_matches_ts_allowlist_entries``). This file
-exists so that:
-
-1. **The YJ-10 finding has its own dedicated test file.** Group 5's
-   review process assigns each finding a regression test that lives
-   close to the finding's documentation.
-   ``test_security_doc_command_count.py`` predates YJ-10 (it was
-   d-review Finding 5 + CR-4 Fix-C), its scope is broader (also
-   covers SECURITY.md doc-count parity). This file is YJ-10-specific:
-   it asserts ONLY the Rust ↔ TS parity invariant, with a clearer
-   failure message that points at the YJ-10 fix's two files.
-
-2. **A negative-regression guard for the 16 removed commands.** The
-   ``test_rust_allowlist_does_notContain_yj10_removed_commands``
-   test below asserts that none of the 16 commands removed by the
-   YJ-10 fix silently creep back into the Rust allowlist. Each of
-   those 16 was audited via
-   ``rg --type=ts '<cmd>' voice_typer/client/src/renderer/src/``
-   and confirmed to have ZERO renderer callers; re-adding one would
-   re-open the defense-in-depth gap. (``check_accessibility`` was
-   removed from the guard set on 2026-08-10, finding #919 part b
-   gave it a legitimate renderer caller, so it was re-added to all
-   three allowlists in lockstep instead.)
-
-The test imports the Rust allowlist by parsing ``sidecar_cmds.rs``
-(string scan for the ``let cmds: &[&str] = &[`` ... ``];`` literal
-inside ``allowed_commands()``) and compares against the TS
-``ALLOWED_COMMANDS`` (string scan for the
-``ALLOWED_COMMANDS = new Set([`` ... ``]);`` literal).
-
-If you're modifying the Rust allowlist shape and the parser here
-breaks, prefer updating the parser (the regex is intentionally
-specific) over skipping the test, the YJ-10 invariant is a
-defense-in-depth gate against a compromised renderer reaching
-server-side handlers the renderer never legitimately invokes.
+Post-Electron cutover the TS ``ALLOWED_COMMANDS`` set is gone; the
+Rust ``allowed_commands()`` set is the sole renderer-reachable gate.
+Python ↔ Rust membership parity lives in
+``tests/test_ipc_command_parity.py``. This file keeps the YJ-10
+negative-regression pin: the 16 commands removed by the YJ-10 fix
+must NOT silently creep back into the Rust allowlist.
 """
 
 from __future__ import annotations
@@ -53,151 +19,36 @@ SIDECAR_CMDS_DIR = REPO_ROOT / "src-tauri" / "src" / "commands" / "sidecar_cmds"
 
 
 def _read_sidecar_cmds_module() -> str:
-    """Concatenate sidecar_cmds.rs + sidecar_cmds/*.rs (EO-35 split).
-
-    EO-35 split the former single-file ``commands/sidecar_cmds.rs``
-    into an orchestrator (``sidecar_cmds.rs``) + four concern
-    submodules (``sidecar_cmds/allowlist.rs``, ``dispatch.rs``,
-    ``shutdown.rs``, ``window_close.rs``). The parity assertions
-    target the module as a whole, so we read every file and join them.
-    """
+    """Concatenate sidecar_cmds.rs + sidecar_cmds/*.rs (EO-35 split)."""
     files = [SIDECAR_CMDS_RS] + sorted(SIDECAR_CMDS_DIR.glob("*.rs"))
     return "\n\n".join(p.read_text(encoding="utf-8") for p in files)
-
-
-ALLOWED_COMMANDS_TS = REPO_ROOT / "voice_typer" / "client" / "src" / "main" / "allowed-commands.ts"
-
-# commands present in the TS allowlist but intentionally
-# ABSENT from the Rust allowlist because the Rust host dispatches them
-# directly (they don't flow through the renderer's ``invoke('dispatch')``
-# path). The authoritative definition lives in
-# ``tests/test_security_doc_command_count.py::_TS_ONLY_EXCEPTIONS``; this
-# local copy is a thin mirror so this file stays self-contained (no
-# cross-file import of a private constant). If the exception set changes,
-# update BOTH locations in the same PR.
-_TS_ONLY_EXCEPTIONS = frozenset({"heartbeat", "relaunch_ack"})
 
 
 def _rust_allowed_commands() -> set[str]:
     """Parse the Rust ``allowed_commands()`` body for quoted command names.
 
-    YJ-10: the Rust source stores the allowlist as a ``&[&str]`` slice
-    literal inside the ``allowed_commands()`` function's
-    ``ALLOWED_COMMANDS.get_or_init`` closure. We anchor on
-    ``let cmds: &[&str] = &[`` (the start of the literal) and extract
-    each ``"<snake_case_name>"`` token until the matching ``];``.
-
-    This mirrors the primary parser in
-    ``test_security_doc_command_count.py::_allowed_commands_rust``
-    rather than using a more permissive regex (which would also match
-    the error-envelope field names like ``"type"``, ``"code"``,
-    ``"data"``, ``"message"``, ``"disallowed_window"`` that appear in
-    ``require_main_window`` above the literal). The duplication is
-    intentional, if the literal shape changes, both parsers fail
-    loudly with the same actionable error message.
+    Anchors on ``let cmds: &[&str] = &[`` inside the
+    ``ALLOWED_COMMANDS.get_or_init`` closure and extracts each
+    ``"<snake_case_name>"`` token until the matching ``];``. Mirrors
+    the parser in ``test_security_doc_command_count.py`` so a literal
+    shape change fails both loudly.
     """
     src = _read_sidecar_cmds_module()
     m_start = re.search(r"let\s+cmds:\s*&\[&str\]\s*=\s*&\[", src)
     assert m_start is not None, (
-        "src-tauri/src/commands/sidecar_cmds.rs no longer declares the "
-        "`let cmds: &[&str] = &[` literal inside `allowed_commands()`. "
-        "Did the constructor shape change? Update this parser (and the "
-        "primary parser in test_security_doc_command_count.py) to match."
+        "src-tauri/src/commands/sidecar_cmds/allowlist.rs no longer "
+        "declares the `let cmds: &[&str] = &[` literal inside "
+        "`allowed_commands()`. Update this parser (and the primary "
+        "parser in test_security_doc_command_count.py) to match."
     )
     body = src[m_start.end() :]
     m_end = re.search(r"\];", body)
     assert m_end is not None, (
-        "src-tauri/src/commands/sidecar_cmds.rs: could not find the "
-        "closing `];` of the `let cmds: &[&str] = &[` literal. Update "
-        "this parser if the literal shape changed."
+        "src-tauri/src/commands/sidecar_cmds/allowlist.rs: could not "
+        "find the closing `];` of the `let cmds: &[&str] = &[` literal."
     )
     literal = body[: m_end.start()]
     return set(re.findall(r'"([a-z_]+)"', literal))
-
-
-def _ts_allowed_commands() -> set[str]:
-    """Parse the TS ``ALLOWED_COMMANDS = new Set([...])`` literal.
-
-    Mirrors the parser in
-    ``test_security_doc_command_count.py::_allowed_commands_ts`` —
-    same regex, same anchoring. Duplicated here so this test file is
-    self-contained (no cross-file import of a private helper).
-    """
-    src = ALLOWED_COMMANDS_TS.read_text(encoding="utf-8")
-    start = src.index("ALLOWED_COMMANDS = new Set([")
-    end = src.index("]);", start)
-    block = src[start:end]
-    return set(re.findall(r'"([a-z_]+)"', block))
-
-
-def test_rust_allowlist_count_matches_ts() -> None:
-    """YJ-10: Rust allowlist count MUST equal TS allowlist count (modulo
-    the documented ``_TS_ONLY_EXCEPTIONS`` set).
-
-    A count mismatch means a command was added to one file but not
-    the other, the entry-level test below pinpoints which one.
-
-    DT-50: ``heartbeat`` and ``relaunch_ack`` are intentionally TS-only
-    (the Rust host dispatches them directly via ``dispatch_inner``, not
-    via the renderer's ``invoke('dispatch')`` path); they're subtracted
-    from the TS count before comparison.
-    """
-    rust = _rust_allowed_commands()
-    ts = _ts_allowed_commands()
-    ts_excluded = ts & _TS_ONLY_EXCEPTIONS
-    ts_effective = ts - _TS_ONLY_EXCEPTIONS
-    assert len(rust) == len(ts_effective), (
-        f"YJ-10 parity broken: Rust ALLOWED_COMMANDS has {len(rust)} "
-        f"entries but TS has {len(ts_effective)} (after excluding "
-        f"{len(ts_excluded)} _TS_ONLY_EXCEPTIONS: {sorted(ts_excluded)}). "
-        f"Update both files in the same PR. Files:\n"
-        f"  - Rust: src-tauri/src/commands/sidecar_cmds.rs "
-        f"(allowed_commands fn)\n"
-        f"  - TS:   voice_typer/client/src/main/allowed-commands.ts "
-        f"(ALLOWED_COMMANDS = new Set([...]))"
-    )
-
-
-def test_rust_allowlist_entries_match_ts() -> None:
-    """YJ-10: Rust allowlist entries MUST equal TS allowlist entries
-    (modulo the documented ``_TS_ONLY_EXCEPTIONS`` set).
-
-    Catches the case where the counts match but the entries differ
-    (e.g. a typo renamed ``quit_app`` to ``quit`` in one file but not
-    the other). Reports the symmetric difference so the contributor
-    sees exactly which commands are in only one of the two files.
-
-    DT-50: ``heartbeat`` and ``relaunch_ack`` are intentionally TS-only
-    (the Rust host dispatches them directly via ``dispatch_inner``, not
-    via the renderer's ``invoke('dispatch')`` path); they're subtracted
-    from the TS set before comparison so the intentional exclusion
-    doesn't false-positive.
-    """
-    rust = _rust_allowed_commands()
-    ts = _ts_allowed_commands()
-    ts_excluded = ts & _TS_ONLY_EXCEPTIONS
-    ts_effective = ts - _TS_ONLY_EXCEPTIONS
-    only_rust = rust - ts_effective
-    only_ts = ts_effective - rust
-    assert not only_rust and not only_ts, (
-        f"YJ-10 entry-level drift detected:\n"
-        f"  In Rust but NOT in TS: {sorted(only_rust) or '(none)'}\n"
-        f"  In TS but NOT in Rust (excluding _TS_ONLY_EXCEPTIONS): "
-        f"{sorted(only_ts) or '(none)'}\n"
-        f"  Intentionally TS-only (per _TS_ONLY_EXCEPTIONS): "
-        f"{sorted(ts_excluded) or '(none)'}\n"
-        f"Both files MUST list the same commands (modulo "
-        f"_TS_ONLY_EXCEPTIONS). Update them in the same PR. Files:\n"
-        f"  - Rust: src-tauri/src/commands/sidecar_cmds.rs "
-        f"(allowed_commands fn)\n"
-        f"  - TS:   voice_typer/client/src/main/allowed-commands.ts "
-        f"(ALLOWED_COMMANDS = new Set([...]))\n"
-        f"If a command was intentionally removed from one file, "
-        f"remove it from the other too. If a command was intentionally "
-        f"added to one file, add it to the other too. See the YJ-10 "
-        f"reconciliation note in sidecar_cmds.rs::allowed_commands "
-        f"for the audit criteria (renderer-caller check)."
-    )
 
 
 def test_rust_allowlist_does_not_contain_removed_commands() -> None:
@@ -217,14 +68,14 @@ def test_rust_allowlist_does_not_contain_removed_commands() -> None:
     If a future contributor legitimately adds a renderer caller for
     one of these commands (e.g. wires up a Settings page button for
     ``export_diagnostics``), they MUST:
-      1. Add the command back to BOTH the Rust allowlist AND the TS
-         allowlist (in the same PR).
+      1. Add the command back to the Rust allowlist (and keep the
+         Python ``_COMMAND_REGISTRY`` entry in lockstep).
       2. Remove the command name from the ``yj10_removed`` set below
          so this negative-regression guard no longer flags it.
     (``check_accessibility`` followed exactly this path on
     2026-08-10, finding #919 part b gave it a renderer caller, so
-    it was dropped from the set below and re-added to both
-    allowlists plus the Python registry.)
+    it was dropped from the set below and re-added to the Rust
+    allowlist plus the Python registry.)
     """
     rust = _rust_allowed_commands()
     yj10_removed = {
@@ -254,7 +105,6 @@ def test_rust_allowlist_does_not_contain_removed_commands() -> None:
         f"`rg --type=ts '<cmd>' voice_typer/client/src/renderer/src/`). "
         f"Re-adding one re-opens a defense-in-depth gap. If you've "
         f"added a legitimate renderer caller for one of these, ALSO "
-        f"add the command to the TS allowlist AND remove it from the "
-        f"yj10_removed set in this test (so the guard no longer flags "
-        f"the intentional re-addition)."
+        f"remove it from the yj10_removed set in this test (so the "
+        f"guard no longer flags the intentional re-addition)."
     )

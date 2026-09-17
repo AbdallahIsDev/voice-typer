@@ -26,9 +26,7 @@ class TestResumeModelDownloadReturnsRealBool:
         clear_download_pause_state()
         service = VoiceTyperService(MagicMock())
         result = service.resume_model_download()
-        assert result == {"resumed": False}, (
-            f"no-active-download resume must return resumed=False, got: {result}"
-        )
+        assert result == {"resumed": False}, f"no-active-download resume must return resumed=False, got: {result}"
 
     def test_resume_returns_true_when_download_is_live(self, monkeypatch):
         # Simulate a live download pause event.
@@ -42,9 +40,7 @@ class TestResumeModelDownloadReturnsRealBool:
         try:
             service = VoiceTyperService(MagicMock())
             result = service.resume_model_download()
-            assert result == {"resumed": True}, (
-                f"live-download resume must return resumed=True, got: {result}"
-            )
+            assert result == {"resumed": True}, f"live-download resume must return resumed=True, got: {result}"
         finally:
             asr_setup._download_pause_event = None
 
@@ -66,7 +62,7 @@ class TestHotkeyDispatcherI18nKeys:
         ("notify.hotkey_dispatcher.restore_failed", {"hotkey": "<caps_lock>"}),
     ]
 
-    @pytest.mark.parametrize(("key","fmt"), KEYS)
+    @pytest.mark.parametrize(("key", "fmt"), KEYS)
     def test_key_resolves_to_non_key_text(self, key, fmt):
         from voice_typer.server.i18n import t
 
@@ -234,9 +230,7 @@ class TestHotkeyDispatcherSourceUsesI18n:
     def test_hotkey_dispatcher_no_hardcoded_notice_bodies(self):
         from pathlib import Path
 
-        src = Path(
-            "voice_typer/server/hotkey_dispatcher.py"
-        ).read_text(encoding="utf-8")
+        src = Path("voice_typer/server/hotkey_dispatcher.py").read_text(encoding="utf-8")
         # The two previously-hardcoded long bodies must be gone.
         assert "could not be registered. It may be in use" not in src
         assert "Failed to save hotkey to disk. Check disk space" not in src
@@ -246,9 +240,7 @@ class TestHotkeyDispatcherSourceUsesI18n:
     def test_native_adapter_no_hardcoded_title_prefix(self):
         from pathlib import Path
 
-        src = Path(
-            "voice_typer/server/hotkeys/native_adapter.py"
-        ).read_text(encoding="utf-8")
+        src = Path("voice_typer/server/hotkeys/native_adapter.py").read_text(encoding="utf-8")
         assert 'f"{APP_NAME}: Compatibility mode"' not in src
         assert 'f"{APP_NAME}: Hotkey error"' not in src
         assert "notify.native_adapter.fallback_title" in src

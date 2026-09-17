@@ -10,10 +10,9 @@ previously untested (master plan §9.4 / `PLAN_ONNX_INTEGRATION.md` §7.6):
        drops the frame with a ``[WS-READER] dropping unknown event
        type:`` warning).
 
-The other three IPC allowlists (``_COMMAND_REGISTRY`` Python +
-``ALLOWED_COMMANDS`` TS + ``allowed_commands()`` Rust) are already
-pinned by ``tests/test_command_registry_parity.py`` +
-``tests/test_electron_ipc_and_build.py`` +
+The other two IPC allowlists (``_COMMAND_REGISTRY`` Python +
+``allowed_commands()`` Rust) are already
+pinned by ``tests/test_ipc_command_parity.py`` +
 ``tests/test_security_doc_command_count.py``. This file adds the
 missing parity for the event-type allowlist.
 
@@ -24,8 +23,8 @@ split. The canonical Python-side source of truth is
 kinds:
 
 * 1 REQUEST (renderer → slim core → worker): ``transcribe_offline``.
-  This MUST be in the three COMMAND allowlists (Python registry +
-  TS ALLOWED_COMMANDS + Rust allowed_commands()) AND in the TS
+  This MUST be in the two COMMAND allowlists (Python registry +
+  Rust allowed_commands()) AND in the TS
   ``PythonRequest`` discriminated union. It is ALSO listed in
   ``ALLOWED_EVENT_TYPES`` (the event allowlist) so the WS reader
   doesn't drop any future server-initiated variant of the name.
@@ -82,7 +81,6 @@ REQUESTS_TS = REPO_ROOT / "voice_typer" / "client" / "src" / "renderer" / "src" 
 USE_PYTHON_TS = (
     REPO_ROOT / "voice_typer" / "client" / "src" / "renderer" / "src" / "lib" / "python-bridge" / "known-event-types.ts"
 )
-ALLOWED_COMMANDS_TS = REPO_ROOT / "voice_typer" / "client" / "src" / "main" / "allowed-commands.ts"
 ALLOWLIST_RS = REPO_ROOT / "src-tauri" / "src" / "commands" / "sidecar_cmds" / "allowlist.rs"
 EVENT_BUS_PY = REPO_ROOT / "voice_typer" / "server" / "event_bus.py"
 
@@ -109,7 +107,7 @@ def _pack_event_types() -> frozenset[str]:
 
 
 # The single request-type event (the other 12 are push events).
-# Used to verify the COMMAND allowlists (registry + TS + Rust) contain
+# Used to verify the COMMAND allowlists (registry + Rust) contain
 # this one and ONLY this one of the 13 new events.
 REQUEST_EVENT_NAME = "transcribe_offline"
 
@@ -229,15 +227,6 @@ def _ts_python_request_types() -> set[str]:
     return set(re.findall(r'type:\s*"([a-z_]+)"\s*;', src))
 
 
-def _ts_allowed_commands() -> set[str]:
-    """Parse the TS ``ALLOWED_COMMANDS = new Set([...])`` literal."""
-    src = ALLOWED_COMMANDS_TS.read_text(encoding="utf-8")
-    start = src.index("ALLOWED_COMMANDS = new Set([")
-    end = src.index("]);", start)
-    block = src[start:end]
-    return set(re.findall(r'"([a-z_]+)"', block))
-
-
 def _rust_allowed_commands() -> set[str]:
     """Parse the Rust ``allowed_commands()`` body for quoted command names."""
     src = ALLOWLIST_RS.read_text(encoding="utf-8")
@@ -318,15 +307,14 @@ class TestRustAllowlistContainsAllNewEvents:
         )
 
 
-# ─── 2. the 1 request event is in all 3 COMMAND allowlists ────────────────
+# ─── 2. the 1 request event is in both COMMAND allowlists ─────────────────
 
 
 class TestRequestEventInCommandAllowlists:
-    """The 1 request-type event ``transcribe_offline`` MUST be in all
-    three COMMAND allowlists (Python registry + TS ALLOWED_COMMANDS +
-    Rust allowed_commands()) so the renderer's
-    ``call('transcribe_offline', ...)`` dispatches cleanly through
-    every layer.
+    """The 1 request-type event ``transcribe_offline`` MUST be in both
+    COMMAND allowlists (Python registry + Rust allowed_commands())
+    so the renderer's ``call('transcribe_offline', ...)`` dispatches
+    cleanly through every layer.
     """
 
     def test_in_python_command_registry(self) -> None:
@@ -334,20 +322,8 @@ class TestRequestEventInCommandAllowlists:
         assert REQUEST_EVENT_NAME in registry, (
             f"§7.4: '{REQUEST_EVENT_NAME}' MUST be in the Python "
             "_COMMAND_REGISTRY (voice_typer/server/ipc/registry.py) "
-            "so the dispatcher routes it. The TS ALLOWED_COMMANDS + "
-            "Rust allowed_commands() literals must be updated in "
-            "lockstep."
-        )
-
-    def test_in_ts_allowed_commands(self) -> None:
-        ts = _ts_allowed_commands()
-        assert REQUEST_EVENT_NAME in ts, (
-            f"§7.4: '{REQUEST_EVENT_NAME}' MUST be in the TS "
-            "ALLOWED_COMMANDS Set "
-            "(voice_typer/client/src/main/allowed-commands.ts), "
-            "the renderer's call('transcribe_offline', ...) would "
-            "otherwise be silently rejected by the main process's "
-            "sendToPython gate (SEC-019)."
+            "so the dispatcher routes it. The Rust "
+            "allowed_commands() literal must be updated in lockstep."
         )
 
     def test_in_rust_allowed_commands(self) -> None:
@@ -385,21 +361,15 @@ class TestRequestEventInCommandAllowlists:
         """
         push_events = _push_event_types()
         registry = _python_command_registry()
-        ts_cmds = _ts_allowed_commands()
         rust_cmds = _rust_allowed_commands()
-        # None of the 12 push events should be in any of the 3
-        # command allowlists.
+        # None of the 12 push events should be in either command allowlist.
         leaked_registry = push_events & registry
-        leaked_ts = push_events & ts_cmds
         leaked_rust = push_events & rust_cmds
         assert not leaked_registry, (
             "§7.4: Python _COMMAND_REGISTRY contains push events "
             f"that should NOT be commands: {sorted(leaked_registry)}. "
             "Push events are published via event_bus.publish, not "
             "dispatched as commands."
-        )
-        assert not leaked_ts, (
-            f"§7.4: TS ALLOWED_COMMANDS contains push events that should NOT be commands: {sorted(leaked_ts)}."
         )
         assert not leaked_rust, (
             f"§7.4: Rust allowed_commands() contains push events that should NOT be commands: {sorted(leaked_rust)}."

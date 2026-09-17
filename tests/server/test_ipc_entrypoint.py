@@ -112,12 +112,12 @@ class TestParseIpcArgs:
         assert os.environ.get("TAURI_SIDECAR") is None
         assert os.environ.get("VOICE_TYPER_ALLOW_STDIN_IPC") is None
 
-    def test_port_arg_returns_port_int(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """``--port 9876`` returns ``(9876, False)``."""
+    def test_port_arg_is_rejected(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """``--port`` is unsupported after TCP removal: EXIT_BAD_ARGS (4)."""
         monkeypatch.setattr(sys, "argv", ["ipc_server", "--port", "9876"])
-        port, ws_mode = entrypoint.parse_ipc_args()
-        assert port == 9876
-        assert ws_mode is False
+        with pytest.raises(SystemExit) as exc_info:
+            entrypoint.parse_ipc_args()
+        assert exc_info.value.code == 4
 
     def test_ws_arg_sets_tauri_sidecar_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """``--ws`` returns ``(None, True)`` and sets ``TAURI_SIDECAR=1``
@@ -685,15 +685,18 @@ class TestMainEntrypoint:
             "voice_typer.server.providers.build_ipc_server",
             lambda app: fake_server,
         )
-        # Skip the standalone path's electron launch + port pick by
-        # passing --port (start_tcp is mocked on the fake server).
-        monkeypatch.setattr(sys, "argv", ["ipc_server", "--port", "9876"])
+        # Skip the standalone path's frontend launch by passing --ws
+        # (TCP transport was removed; start() is a no-op MagicMock).
+        monkeypatch.setattr(sys, "argv", ["ipc_server", "--ws"])
+        # main() blocks in sidecar_ws.run under --ws; return immediately.
+        monkeypatch.setattr("voice_typer.server.sidecar_ws.run", lambda server: 0)
         # Disable faulthandler.enable so the test doesn't alter real
         # process state, but keep signal.signal mockable.
         import faulthandler
 
         monkeypatch.setattr(faulthandler, "enable", lambda: None)
         monkeypatch.setattr(faulthandler, "dump_traceback_later", lambda **kw: None)
+        os.environ.pop("TAURI_SIDECAR", None)
 
         # Capture signal.signal calls.
         signal_calls: list[tuple] = []
@@ -707,9 +710,11 @@ class TestMainEntrypoint:
 
         monkeypatch.setattr(signal, "signal", _capture_signal)
 
-        # main() should return None (clean shutdown), no SystemExit.
-        result = entrypoint.main()
-        assert result is None, "main() must return None on a clean shutdown (Python exit code 0)."
+        # WS-mode main() exits via sys.exit(sidecar_ws.run's code).
+        with pytest.raises(SystemExit) as exc_info:
+            entrypoint.main()
+        assert exc_info.value.code in (0, None)
+        os.environ.pop("TAURI_SIDECAR", None)
 
         # On POSIX, main() registers a SIGUSR1 faulthandler-dump handler
         # via signal.signal. On Windows SIGUSR1 does not exist and
@@ -755,22 +760,40 @@ class TestMainEntrypoint:
             "voice_typer.server.providers.build_ipc_server",
             lambda app: fake_server,
         )
-        # Use --port mode so the standalone electron-launch path is
-        # skipped (start_tcp is a no-op MagicMock).
-        monkeypatch.setattr(sys, "argv", ["ipc_server", "--port", "9876"])
+        # Use --ws (TCP transport removed).
+        monkeypatch.setattr(sys, "argv", ["ipc_server", "--ws"])
+        # main() blocks in sidecar_ws.run under --ws; return immediately.
+        monkeypatch.setattr("voice_typer.server.sidecar_ws.run", lambda server: 0)
         # faulthandler.enable would alter real process state, stub it.
         import faulthandler
 
         monkeypatch.setattr(faulthandler, "enable", lambda: None)
+        os.environ.pop("TAURI_SIDECAR", None)
 
-        # main() returns None on clean shutdown, no SystemExit raised.
-        result = entrypoint.main()
-        assert result is None
-        # The IPC server was started + the ready event was pushed.
+        # Run daemon-thread targets inline so app.start() is invoked
+        # before main() returns/exits.
+        import threading as _threading
+
+        class _ImmediateThread:
+            def __init__(self, target=None, args=(), kwargs=None, **_kw):
+                self._target = target
+                self._args = args or ()
+                self._kwargs = kwargs or {}
+
+            def start(self):
+                if self._target is not None:
+                    self._target(*self._args, **self._kwargs)
+
+        monkeypatch.setattr(_threading, "Thread", _ImmediateThread)
+
+        # WS-mode main() exits via sys.exit(0) after sidecar_ws.run(0).
+        with pytest.raises(SystemExit) as exc_info:
+            entrypoint.main()
+        assert exc_info.value.code in (0, None)
+        os.environ.pop("TAURI_SIDECAR", None)
+        # The IPC server was started; WS path does not push TCP `ready`.
         fake_server.start.assert_called_once()
-        fake_server.start_tcp.assert_called_once_with(9876)
-        fake_server.push.assert_called_once_with({"type": "ready"})
-        # app.start() was called and returned cleanly.
+        # app.start() ran on the (inlined) startup thread.
         app_mock.start.assert_called_once()
 
     def test_main_exit_code_crash_on_app_construction_failure(
@@ -798,6 +821,8 @@ class TestMainEntrypoint:
             raise RuntimeError("simulated construction failure")
 
         monkeypatch.setattr("voice_typer.server.app.VoiceTyperApp", _boom)
+        monkeypatch.setattr("voice_typer.server.sidecar_ws.run", lambda server: 0)
+        monkeypatch.setattr(sys, "argv", ["ipc_server", "--ws"])
         import faulthandler
 
         monkeypatch.setattr(faulthandler, "enable", lambda: None)
@@ -807,6 +832,7 @@ class TestMainEntrypoint:
         assert exc_info.value.code == 1, (
             f"construction failure must exit with EXIT_CRASH (1); got {exc_info.value.code!r}"
         )
+        os.environ.pop("TAURI_SIDECAR", None)
         # The diagnostic landed in the isolated tmp_config_dir (O1: logs/).
         diag = tmp_config_dir / "logs" / "startup-error.log"
         assert diag.exists()

@@ -347,58 +347,17 @@ class TestMainEarlyWsBind:
         assert server.started is True
         assert server._early_bind_app_ready is True
 
-    def test_early_flag_is_ignored_outside_ws_mode(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """The reorder exists ONLY on the ws sidecar path: with the flag
-        set but ``--port`` mode selected, construction runs on the MAIN
-        thread in the exact default shape and no early-bind attributes
-        are installed."""
-        events: list[str] = []
-        self._patch_common(monkeypatch, events)
-
-        constructor_threads: list[threading.Thread] = []
-
-        class _MainThreadApp:
-            def __init__(self) -> None:
-                constructor_threads.append(threading.current_thread())
-                events.append("construct:done")
-
-            def start(self) -> None:
-                events.append("app.start")
-
-        monkeypatch.setattr("voice_typer.server.app.VoiceTyperApp", _MainThreadApp)
-
-        servers: list[_FakeServer] = []
-
-        class _RecordingServer(_FakeServer):
-            def __init__(self, app_arg) -> None:
-                super().__init__(app_arg)
-                servers.append(self)
-
-        monkeypatch.setattr("voice_typer.server.providers.build_ipc_server", _RecordingServer)
-
+    def test_port_flag_is_rejected_even_with_early_bind_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """TCP transport was removed: ``--port`` hard-exits EXIT_BAD_ARGS
+        even when ``VT_EARLY_SERVER_STARTED`` is set (the early-bind
+        reorder is WS-only)."""
         monkeypatch.setenv("VT_EARLY_SERVER_STARTED", "1")
         monkeypatch.setattr(sys, "argv", ["ipc_server", "--port", "9876"])
-        monkeypatch.delenv("TAURI_SIDECAR", raising=False)
-        # Keep the TCP-path port bookkeeping hermetic (no real config-dir
-        # writes from this test).
-        monkeypatch.setattr(
-            "voice_typer.server.single_instance._record_backend_ipc_port",
-            lambda port: None,
-        )
+        with pytest.raises(SystemExit) as exc_info:
+            from voice_typer.server.ipc import entrypoint as _ep
 
-        result = entrypoint.main()
-        assert result is None, "TCP mode with the flag set must run the default path cleanly"
-
-        assert constructor_threads == [threading.main_thread()], (
-            "outside --ws mode the app must still be constructed on the MAIN thread"
-        )
-        server = servers[0]
-        assert server.built_with is not None, "the server must be built over the real app"
-        assert not hasattr(server, "_early_ws_bind"), (
-            "no early-bind marker may be installed outside the ws sidecar path"
-        )
-        assert server.started is True
-        assert events[:2] == ["construct:done", "app.start"]
+            _ep.parse_ipc_args()
+        assert exc_info.value.code == 4
 
 
 # ── main() launch-order: flag OFF (default-order parity) ────────────

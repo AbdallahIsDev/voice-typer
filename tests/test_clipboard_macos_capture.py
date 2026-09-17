@@ -112,9 +112,7 @@ class TestCaptureMacosItems:
         assert (1, "public.utf8-plain-text", b"world") in snap.items
 
     def test_zero_length_data_yields_empty_bytes(self) -> None:
-        appkit = _install_fake_appkit(
-            [_FakeItem({"public.utf8-plain-text": _FakeNSData(b"")})]
-        )
+        appkit = _install_fake_appkit([_FakeItem({"public.utf8-plain-text": _FakeNSData(b"")})])
         with patch.dict(sys.modules, {"AppKit": appkit}):
             snap = ClipboardSnapshot._capture_macos()
         assert snap is not None
@@ -141,9 +139,7 @@ class TestCaptureMacosItems:
         mock_log.debug.assert_called_once()
 
     def test_oversized_only_returns_none(self) -> None:
-        appkit = _install_fake_appkit(
-            [_FakeItem({"public.tiff": _FakeOversizedNSData(_MAX_FORMAT_BYTES + 1)})]
-        )
+        appkit = _install_fake_appkit([_FakeItem({"public.tiff": _FakeOversizedNSData(_MAX_FORMAT_BYTES + 1)})])
         with (
             patch.dict(sys.modules, {"AppKit": appkit}),
             patch.object(snap_mod, "log"),

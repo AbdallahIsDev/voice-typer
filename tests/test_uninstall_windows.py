@@ -83,7 +83,6 @@ import types
 from unittest.mock import MagicMock
 
 import pytest
-import yaml
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 ELECTRON_BUILDER_YML = REPO_ROOT / "voice_typer" / "client" / "electron-builder.yml"
@@ -600,35 +599,6 @@ class TestUninstallPermissionsScript:
 class TestWiring:
     """S2-CR-69: verify the .nsh / .bat / Python script are wired into
     the build configs and reference existing files."""
-
-    def test_electron_builder_yml_has_nsis_include(self):
-        """electron-builder.yml nsis.include must point at a real .nsh file."""
-        with ELECTRON_BUILDER_YML.open("r", encoding="utf-8") as f:
-            cfg = yaml.safe_load(f)
-        nsis = cfg.get("nsis") or {}
-        assert "include" in nsis, (
-            "electron-builder.yml nsis.include is missing, the NSIS uninstaller hook (.nsh) is not wired. See S2-CR-69."
-        )
-        include_path = nsis["include"]
-        assert isinstance(include_path, str), f"nsis.include must be a string, got {type(include_path)}"
-        # electron-builder resolves `include:` relative to its cwd
-        # (voice_typer/client/).
-        resolved = (ELECTRON_BUILDER_YML.parent / include_path).resolve()
-        assert resolved.is_file(), (
-            f"nsis.include points at {include_path} (resolved: {resolved}) "
-            f"but the file does NOT exist, the NSIS build would fail."
-        )
-
-    def test_electron_builder_yml_keeps_delete_app_data_on_uninstall(self):
-        """S2-CR-70: deleteAppDataOnUninstall must remain true (the
-        .nsh removes the registry; this removes the AppData dir)."""
-        with ELECTRON_BUILDER_YML.open("r", encoding="utf-8") as f:
-            cfg = yaml.safe_load(f)
-        nsis = cfg.get("nsis") or {}
-        assert nsis.get("deleteAppDataOnUninstall") is True, (
-            "nsis.deleteAppDataOnUninstall must be true (S2-CR-70, "
-            "removes the %APPDATA%\\voice-typer directory on uninstall)."
-        )
 
     def test_tauri_conf_has_windows_webview_install_mode(self):
         """tauri.conf.json bundle.windows.webviewInstallMode must be set

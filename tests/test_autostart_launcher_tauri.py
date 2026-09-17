@@ -151,49 +151,50 @@ class TestTauriBinaryLookup:
 
 
 class TestIsTauriMode:
-    """``_is_tauri_mode()`` decides whether to take the Tauri path."""
+    """``_is_tauri_mode()`` decides whether to take the Tauri path.
+
+    Electron is removed: Tauri mode is ON whenever the env opt-in is
+    set, the current executable is the Tauri host, or a Tauri binary
+    is found at a known install path.
+    """
 
     def test_env_opt_in_forces_tauri_mode(self, monkeypatch):
         """``VT_TAURI_AUTOSTART=1`` forces Tauri mode regardless of the
-        local Electron / Tauri binary state."""
+        local Tauri binary state."""
         monkeypatch.setenv("VT_TAURI_AUTOSTART", "1")
         # Even if no Tauri binary is resolvable, the env opt-in wins.
         monkeypatch.setattr("voice_typer.server.autostart_launcher._tauri_binary", lambda: None)
-        monkeypatch.setattr("voice_typer.server.autostart_launcher._electron_binary", lambda: "/fake/electron")
         assert _is_tauri_mode() is True
 
     def test_no_tauri_binary_returns_false(self, monkeypatch):
-        """Without a Tauri binary on disk, Tauri mode is OFF, preserves
-        the legacy Electron path in dev/CI environments."""
+        """Without a Tauri binary on disk (and no env/executable signal),
+        Tauri mode is OFF in the dev/CI case."""
         monkeypatch.delenv("VT_TAURI_AUTOSTART", raising=False)
+        monkeypatch.delenv("VOICE_TYPER_TAURI", raising=False)
         monkeypatch.setattr("voice_typer.server.autostart_launcher._tauri_binary", lambda: None)
-        monkeypatch.setattr("voice_typer.server.autostart_launcher._electron_binary", lambda: None)
+        # Ensure sys.executable is not the Tauri host.
+        monkeypatch.setattr(sys, "executable", "C:/Python/python.exe")
         assert _is_tauri_mode() is False
 
-    def test_tauri_binary_and_no_electron_returns_true(self, monkeypatch):
-        """Production Tauri install: Tauri binary found, Electron NOT
-        found locally → Tauri mode ON."""
+    def test_tauri_binary_returns_true(self, monkeypatch):
+        """A Tauri binary found at an install path is sufficient (no
+        Electron-node_modules suppression remains)."""
         monkeypatch.delenv("VT_TAURI_AUTOSTART", raising=False)
+        monkeypatch.delenv("VOICE_TYPER_TAURI", raising=False)
+        monkeypatch.setattr(sys, "executable", "C:/Python/python.exe")
         monkeypatch.setattr(
             "voice_typer.server.autostart_launcher._tauri_binary",
             lambda: "/usr/bin/voice-typer-tauri",
         )
-        monkeypatch.setattr("voice_typer.server.autostart_launcher._electron_binary", lambda: None)
         assert _is_tauri_mode() is True
 
-    def test_tauri_binary_and_electron_present_returns_false(self, monkeypatch):
-        """Dev checkout: BOTH Tauri binary and local Electron present →
-        prefer Electron so the developer exercises the Electron build."""
+    def test_tauri_sidecar_executable_returns_true(self, monkeypatch):
+        """When sys.executable is the Tauri host binary, mode is ON."""
         monkeypatch.delenv("VT_TAURI_AUTOSTART", raising=False)
-        monkeypatch.setattr(
-            "voice_typer.server.autostart_launcher._tauri_binary",
-            lambda: "/usr/bin/voice-typer-tauri",
-        )
-        monkeypatch.setattr(
-            "voice_typer.server.autostart_launcher._electron_binary",
-            lambda: "/fake/node_modules/electron/dist/electron",
-        )
-        assert _is_tauri_mode() is False
+        monkeypatch.delenv("VOICE_TYPER_TAURI", raising=False)
+        monkeypatch.setattr(sys, "executable", "/opt/VoiceTyper/voice-typer-tauri")
+        monkeypatch.setattr("voice_typer.server.autostart_launcher._tauri_binary", lambda: None)
+        assert _is_tauri_mode() is True
 
 
 # ---------------------------------------------------------------------------
@@ -363,10 +364,9 @@ class TestLaunchTauriFreshStart:
         assert captured["cmd"] == ["/usr/bin/voice-typer-tauri"]
         assert captured["env"].get("VT_START_HIDDEN") == "1"
 
-    def test_tauri_mode_falls_back_to_electron_when_spawn_fails(self, monkeypatch):
-        """If the Tauri spawn fails, the launcher falls back to the
-        legacy Electron path (which itself falls back to ``npm run dev``
-        when no Electron binary is present)."""
+    def test_tauri_mode_exits_one_when_spawn_fails(self, monkeypatch):
+        """If the Tauri spawn fails, the launcher exits 1. There is no
+        Electron fallback (Electron launch path removed)."""
         monkeypatch.setattr(
             "voice_typer.server.autostart_launcher._is_port_open",
             lambda h, p: False,
@@ -379,18 +379,9 @@ class TestLaunchTauriFreshStart:
         monkeypatch.setattr("voice_typer.server.autostart_launcher._setup_logging", lambda: None)
         monkeypatch.setattr("voice_typer.server.autostart_launcher._write_pid_file", lambda lp, cp: None)
         monkeypatch.setattr(time, "sleep", lambda s: None)
-        monkeypatch.setattr("voice_typer.server.autostart_launcher._electron_binary", lambda: None)
-        monkeypatch.setattr("voice_typer.server.autostart_launcher._main_entry_built", lambda: False)
-        monkeypatch.setattr("voice_typer.server.autostart_launcher._client_dir_exists", lambda: True)
-        # Force npm run dev to be unavailable so the fallback path
-        # returns 1, proving the fallback was taken.
-        monkeypatch.setattr(
-            "voice_typer.server.autostart_launcher._spawn_npm_run_dev",
-            lambda hidden=False: None,
-        )
 
         # Patch the OWNING module (the runtime-neutral PID-file leaf)
-        # , the launcher resolves the helper through it at call time.
+        # — the launcher resolves the helper through it at call time.
         from voice_typer.server import backend_pid as _backend_pid_mod
 
         class _FakePidFile:
@@ -406,25 +397,20 @@ class TestLaunchTauriFreshStart:
         monkeypatch.setattr(subprocess, "Popen", boom)
         monkeypatch.setattr(sys, "argv", ["autostart_launcher.py", "--hidden"])
 
-        # The Tauri path fails → fallback to Electron → Electron binary
-        # is None → fallback to npm run dev → which returns None → ret 1.
         ret = launch()
         assert ret == 1
 
 
 # ---------------------------------------------------------------------------
-# launch(), preserves legacy Electron path when NOT in Tauri mode
+# launch(), exits 1 when not in Tauri mode
 # ---------------------------------------------------------------------------
 
 
-class TestLaunchPreservesElectronPath:
-    """When ``_is_tauri_mode()`` is False, the legacy Electron path
-    runs unchanged (this is the dev/CI scenario)."""
+class TestLaunchWithoutTauriModeExitsOne:
+    """When ``_is_tauri_mode()`` is False and no Tauri binary is
+    resolvable, the launcher exits 1 (Electron path removed)."""
 
-    def test_electron_path_runs_when_not_tauri_mode(self, monkeypatch):
-        """If ``_is_tauri_mode()`` is False, the launcher does NOT
-        attempt to spawn a Tauri binary, it proceeds to the Electron
-        build-first / npm run dev fallback chain."""
+    def test_no_tauri_mode_exits_one(self, monkeypatch):
         monkeypatch.setattr(
             "voice_typer.server.autostart_launcher._is_port_open",
             lambda h, p: False,
@@ -433,12 +419,7 @@ class TestLaunchPreservesElectronPath:
         monkeypatch.setattr("voice_typer.server.autostart_launcher._setup_logging", lambda: None)
         monkeypatch.setattr("voice_typer.server.autostart_launcher._write_pid_file", lambda lp, cp: None)
         monkeypatch.setattr(time, "sleep", lambda s: None)
-        monkeypatch.setattr("voice_typer.server.autostart_launcher._client_dir_exists", lambda: True)
-        monkeypatch.setattr("voice_typer.server.autostart_launcher._electron_binary", lambda: None)
-        monkeypatch.setattr("voice_typer.server.autostart_launcher._main_entry_built", lambda: False)
 
-        # Patch the OWNING module (the runtime-neutral PID-file leaf)
-        # , the launcher resolves the helper through it at call time.
         from voice_typer.server import backend_pid as _backend_pid_mod
 
         class _FakePidFile:
@@ -446,34 +427,10 @@ class TestLaunchPreservesElectronPath:
                 return False
 
         monkeypatch.setattr(_backend_pid_mod, "_backend_pid_file", lambda: _FakePidFile())
-
-        captured = {}
-
-        def fake_popen(cmd, env=None, **kwargs):
-            captured["cmd"] = cmd
-            captured["env"] = env
-            proc = MagicMock()
-            proc.pid = 7777
-            return proc
-
-        monkeypatch.setattr(subprocess, "Popen", fake_popen)
         monkeypatch.setattr(sys, "argv", ["autostart_launcher.py", "--hidden"])
 
         ret = launch()
-        assert ret == 0
-        # The spawned command is from ``npm run dev`` (POSIX list form),
-        # NOT the Tauri binary. ``_npm_command`` resolves the full path
-        # via ``shutil.which("npm")`` so the first element is either
-        # ``npm`` / ``npm.cmd`` (Windows fallback) or the full path
-        # (e.g. ``/usr/bin/npm``).
-        npm_bin = captured["cmd"][0]
-        # Case-insensitive: ``shutil.which("npm")`` on Windows resolves
-        # to e.g. ``C:\\Program Files\\nodejs\\npm.CMD`` (uppercase
-        # extension), which ``str.endswith("npm.cmd")`` would reject.
-        assert npm_bin.lower().endswith("npm") or npm_bin.lower().endswith("npm.cmd"), (
-            f"expected npm binary, got {npm_bin!r}"
-        )
-        assert captured["env"].get("VT_START_HIDDEN") == "1"
+        assert ret == 1
 
 
 # ---------------------------------------------------------------------------

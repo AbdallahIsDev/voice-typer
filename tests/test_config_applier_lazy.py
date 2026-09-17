@@ -394,13 +394,11 @@ class TestApplyConfigStepExtraction:
             "on the outer method so every caller path hits it."
         )
         assert "SEC-002" in src, (
-            "SEC-002 regression: apply_config no longer raises with the "
-            "SEC-002 marker in the message."
+            "SEC-002 regression: apply_config no longer raises with the SEC-002 marker in the message."
         )
         raise_nodes = [n for n in ast.walk(tree) if isinstance(n, ast.Raise)]
         assert raise_nodes, (
-            "SEC-002 regression: apply_config contains no raise "
-            "statement; the unknown-key hard fail was removed."
+            "SEC-002 regression: apply_config contains no raise statement; the unknown-key hard fail was removed."
         )
 
     def test_race011_lock_acquisition_stays_on_outer_method(self):
