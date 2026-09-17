@@ -88,6 +88,20 @@ function loadNavState(): NavState {
 				parsed.index >= 0 &&
 				parsed.index < parsed.history.length
 			) {
+				// Privacy (C-BG-1): never restore a cold start onto the
+				// Microphone page. That page opens a continuous InputStream
+				// (level monitor) on mount and lights the OS mic indicator.
+				// A background/autostart restore (VT_START_HIDDEN=1) or a
+				// tray-relaunch would capture the mic while the user cannot
+				// see the window, and `document.visibilityState` is not a
+				// reliable "window is shown" signal for a never-shown
+				// Electron window (`show: false` + skipTaskbar). Other
+				// pages restore normally. In-session navigation to
+				// Microphone is unaffected — this runs only at store init
+				// and `_resetNavigationForTest`.
+				if (parsed.page === "microphone") {
+					return defaultNavState();
+				}
 				return {
 					page: parsed.page,
 					history: parsed.history as Page[],

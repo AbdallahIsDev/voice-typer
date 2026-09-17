@@ -305,3 +305,65 @@ describe("useNavigation consent deep-link channel (pendingConsentField / consume
 		u.unmount();
 	});
 });
+
+describe("useNavigation cold-start privacy: never restore Microphone page", () => {
+	afterEach(() => {
+		localStorage.removeItem("vt_nav_state");
+		_resetNavigationForTest();
+	});
+
+	it("remaps a persisted microphone page to home on load", () => {
+		localStorage.setItem(
+			"vt_nav_state",
+			JSON.stringify({ page: "microphone", history: ["microphone"], index: 0 }),
+		);
+		_resetNavigationForTest();
+
+		const captures = {
+			current: null as ReturnType<typeof useNavigation> | null,
+		};
+		const u = render(<Probe captures={captures} />);
+
+		expect(captures.current?.currentPage).toBe("home");
+
+		u.unmount();
+	});
+
+	it("still restores other pages (e.g. settings) normally", () => {
+		localStorage.setItem(
+			"vt_nav_state",
+			JSON.stringify({ page: "settings", history: ["settings"], index: 0 }),
+		);
+		_resetNavigationForTest();
+
+		const captures = {
+			current: null as ReturnType<typeof useNavigation> | null,
+		};
+		const u = render(<Probe captures={captures} />);
+
+		expect(captures.current?.currentPage).toBe("settings");
+
+		u.unmount();
+	});
+
+	it("in-session navigate to microphone still works after a privacy remap", () => {
+		localStorage.setItem(
+			"vt_nav_state",
+			JSON.stringify({ page: "microphone", history: ["microphone"], index: 0 }),
+		);
+		_resetNavigationForTest();
+
+		const captures = {
+			current: null as ReturnType<typeof useNavigation> | null,
+		};
+		const u = render(<Probe captures={captures} />);
+		expect(captures.current?.currentPage).toBe("home");
+
+		act(() => {
+			captures.current?.navigate("microphone");
+		});
+		expect(captures.current?.currentPage).toBe("microphone");
+
+		u.unmount();
+	});
+});

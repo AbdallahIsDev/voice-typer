@@ -83,16 +83,16 @@ export default function App() {
 	const hotkeyFromConfig = useAppStore((s) => s.config?.hotkey);
 	const repasteHotkeyFromConfig = useAppStore((s) => s.config?.repaste_hotkey);
 
-	// Privacy: when the app starts hidden in the background (autostart
-	// with VT_START_HIDDEN=1), the renderer still boots and restores the
-	// last persisted page from localStorage (vt_nav_state). If that page
-	// is "microphone", the Microphone page's live level monitor would
-	// start immediately and activate the OS mic indicator while the
-	// window is still hidden. Redirect to "home" in that specific case.
-	// The check is deferred by ~900ms so a normal foreground launch
-	// (which briefly starts hidden before ready-to-show) is not
-	// misclassified as background, it becomes visible within the grace
-	// period and the redirect is cancelled via visibilitychange.
+	// Privacy defense-in-depth (C-BG-1). Cold-start restore of
+	// "microphone" is already remapped to "home" in `loadNavState()`
+	// (see useNavigation.ts). This effect covers the remaining in-session
+	// case: the Microphone page is already mounted (user navigated there
+	// this session) and the window then goes hidden (close-to-tray /
+	// autostart hide) before the level monitor unmounts. After a short
+	// grace period — so a normal foreground launch that briefly starts
+	// hidden before ready-to-show is not misclassified — still-hidden
+	// means genuine background, so leave Microphone for Home. Becoming
+	// visible cancels the redirect via visibilitychange.
 	useEffect(() => {
 		if (typeof document === "undefined") return;
 		if (currentPage !== "microphone") return;
