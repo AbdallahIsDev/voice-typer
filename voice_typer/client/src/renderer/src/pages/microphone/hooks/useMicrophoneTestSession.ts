@@ -52,11 +52,15 @@ import { userFacingErrorMessage } from "@/lib/errors/userFacingErrorMessage";
 import type { MicrophoneDevice, VoiceTyperConfig } from "@/types/config";
 import { buildTestFilters } from "../lib/buildTestFilters";
 import { computeAudioKey } from "../lib/computeAudioKey";
-import type {
-	TestAudioChunk,
-	TestResultQuality,
-	TestStopResult,
-} from "../lib/types";
+import { fetchTestAudioFileDeduped } from "../lib/testAudioTransfer";
+import {
+	_resetMicrophoneTestCache,
+	readTestSessionCache,
+	writeTestSessionCache,
+} from "../lib/testSessionCache";
+import type { TestResultQuality, TestStopResult } from "../lib/types";
+
+export { _resetMicrophoneTestCache };
 
 /**
  * Fixed microphone-test recording duration, in seconds. The test is
@@ -76,103 +80,9 @@ export const MICROPHONE_TEST_DURATION_SEC = 10;
  */
 export const MIC_TEST_RECORDING_TTL_MS = 5 * 60 * 1000;
 
-// Module-level cache for the last-test recording + quality
-// verdict, mirrors the ``_cachedMicrophones`` / ``_cachedConfig``
-// pattern in ``useMicrophoneData``. Persists across page navigations so
-// a user who runs a mic test, navigates to the Models page to download
-// a model, then returns to the Microphone page sees their previous
-// test's recording + verdict WITHOUT having to re-run the test (which
-// would otherwise be lost, the test audio + quality were React-state
-// only, cleared on unmount). The cache is invalidated whenever:
-//   • ``startTest`` runs (a new test supersedes the old one), or
-//   • ``selectMicrophone`` picks a different mic (the cached recording
-//     was for a DIFFERENT mic, keeping it would be misleading A/B
-//     comparison material).
-let _cachedTestAudioBase64: string | null = null;
-let _cachedRawAudioBase64: string | null = null;
-let _cachedTestQuality: TestResultQuality | null = null;
-let _cachedTestDurationMs: number = 0;
-let _cachedTestTranscription: string | null = null;
-let _cachedTestTranscriptionUnavailable: boolean = false;
-
-/**
- * Reset the module-level test cache. Exported for tests + for the
- * session hook's own use when invalidating on a mic switch. The cached
- * recordings are tied to the PREVIOUS mic + filter config, keeping
- * them across a mic switch would let the user "play" the wrong
- * recording against the wrong mic (mismatched A/B).
- */
-export function _resetMicrophoneTestCache(): void {
-	_cachedTestAudioBase64 = null;
-	_cachedRawAudioBase64 = null;
-	_cachedTestQuality = null;
-	_cachedTestDurationMs = 0;
-	_cachedTestTranscription = null;
-	_cachedTestTranscriptionUnavailable = false;
-}
-
-/**
- * Binary bytes fetched per ``microphone_test_read_audio`` chunk. Each
- * response stays well under the 1 MiB IPC frame cap; a completed 10 s
- * test WAV is ~0.9 MB, so ~5 chunks per file.
- */
-const AUDIO_CHUNK_BYTES = 256 * 1024;
-
-/**
- * Single-flight registry: concurrent ``fetchTestAudioFile`` calls for the
- * SAME path share one in-flight promise instead of issuing parallel
- * duplicate ``microphone_test_read_audio`` request bursts (which would
- * double the slice count against the shared per-connection rate budget
- * for no benefit). Entries self-remove on settle.
- */
-const _inFlightAudioFetches = new Map<string, Promise<string>>();
-
-function fetchTestAudioFileDeduped(
-	call: PythonCall,
-	path: string,
-): Promise<string> {
-	const existing = _inFlightAudioFetches.get(path);
-	if (existing) return existing;
-	const p = fetchTestAudioFile(call, path).finally(() => {
-		_inFlightAudioFetches.delete(path);
-	});
-	_inFlightAudioFetches.set(path, p);
-	return p;
-}
-
-/**
- * Fetch a persisted mic-test WAV via the chunked file-reference IPC
- * transport and return its full base64 payload (playback keeps using
- * data URIs, so only the TRANSPORT is chunked, the assembled result
- * shape is unchanged).
- *
- * The backend persists each completed test's WAVs on disk precisely
- * because a base64 double-WAV stop payload exceeded the 1 MiB frame cap
- * and was silently dropped, leaving the 10 s recording unusable.
- */
-async function fetchTestAudioFile(
-	call: PythonCall,
-	path: string,
-): Promise<string> {
-	let offset = 0;
-	const parts: string[] = [];
-	// Bounded loop: total/bytes_read come from the backend; the guard
-	// prevents an endless loop against a buggy server.
-	for (let safety = 0; safety < 1024; safety++) {
-		const res = await call<TestAudioChunk>("microphone_test_read_audio", {
-			path,
-			offset,
-			length: AUDIO_CHUNK_BYTES,
-		});
-		if (!res?.success) {
-			throw new Error(res?.message || "audio chunk read failed");
-		}
-		if (res.data_b64) parts.push(res.data_b64);
-		offset += res.bytes_read || 0;
-		if (res.eof || offset >= (res.total_bytes || Infinity)) break;
-	}
-	return parts.join("");
-}
+// Module-level last-test cache lives in ../lib/testSessionCache (with
+// the chunked audio transport in ../lib/testAudioTransfer); this hook
+// keeps only the subscription/state/timer/effect wiring.
 
 /** Type of the ``t()`` i18n function, accepts a key + optional params. */
 type TFunction = (key: string, params?: Record<string, string>) => string;
@@ -293,21 +203,24 @@ export function useMicrophoneTestSession({
 	// restores the last test's recording + verdict. The cache is
 	// invalidated on startTest (a new test) and on selectMicrophone
 	// (mic switch, the cached recording is for a different mic).
+	const initialSession = readTestSessionCache();
 	const [testAudioBase64, setTestAudioBase64] = useState<string | null>(
-		_cachedTestAudioBase64,
+		initialSession.audioBase64,
 	);
 	const [rawAudioBase64, setRawAudioBase64] = useState<string | null>(
-		_cachedRawAudioBase64,
+		initialSession.rawAudioBase64,
 	);
-	const [testDurationMs, setTestDurationMs] = useState(_cachedTestDurationMs);
+	const [testDurationMs, setTestDurationMs] = useState(
+		initialSession.durationMs,
+	);
 	const [testQuality, setTestQuality] = useState<TestResultQuality | null>(
-		_cachedTestQuality,
+		initialSession.quality,
 	);
 	const [testTranscription, setTestTranscription] = useState<string | null>(
-		_cachedTestTranscription,
+		initialSession.transcription,
 	);
 	const [testTranscriptionUnavailable, setTestTranscriptionUnavailable] =
-		useState(_cachedTestTranscriptionUnavailable);
+		useState(initialSession.transcriptionUnavailable);
 	// Tracks whether filters have changed since last test (invalidation).
 	const [filtersSinceLastTest, setFiltersSinceLastTest] = useState<string>("");
 
@@ -394,16 +307,17 @@ export function useMicrophoneTestSession({
 				setTestTranscriptionUnavailable(transcriptionUnavailable);
 				// Mirror the freshly-captured test recording into
 				// the module-level cache so a page navigation does NOT
-				// discard it. Mirrors the ``_cachedConfig`` write-through
-				// pattern in useMicrophoneData.updateConfig.
-				_cachedTestAudioBase64 = audioB64;
-				_cachedRawAudioBase64 = rawB64;
-				_cachedTestDurationMs = result.duration_ms || 0;
-				if (result.quality) {
-					_cachedTestQuality = result.quality;
-				}
-				_cachedTestTranscription = transcriptionText;
-				_cachedTestTranscriptionUnavailable = transcriptionUnavailable;
+				// discard it.
+				writeTestSessionCache({
+					audioBase64: audioB64,
+					rawAudioBase64: rawB64,
+					durationMs: result.duration_ms || 0,
+					// Keep any prior quality when the backend omitted it
+					// this stop (matches the previous if-write).
+					quality: result.quality ?? readTestSessionCache().quality,
+					transcription: transcriptionText,
+					transcriptionUnavailable,
+				});
 				// Arm the silent 5-min UI expiry (covers both fetch-ok and
 				// fetch-failed-null above: the branch is entered whenever
 				// the recording itself completed). Generation-guarded so a
@@ -494,12 +408,7 @@ export function useMicrophoneTestSession({
 		// update React state immediately; the cache reset keeps the
 		// module-level copy in lockstep so a navigation during the
 		// test doesn't surface stale data on return.
-		_cachedTestAudioBase64 = null;
-		_cachedRawAudioBase64 = null;
-		_cachedTestQuality = null;
-		_cachedTestDurationMs = 0;
-		_cachedTestTranscription = null;
-		_cachedTestTranscriptionUnavailable = false;
+		_resetMicrophoneTestCache();
 		setLevel(0);
 		setPeak(0);
 		setTestElapsed(0);
@@ -723,12 +632,7 @@ export function useMicrophoneTestSession({
 				clearTimeout(expiryTimerRef.current);
 				expiryTimerRef.current = null;
 			}
-			_cachedTestAudioBase64 = null;
-			_cachedRawAudioBase64 = null;
-			_cachedTestQuality = null;
-			_cachedTestDurationMs = 0;
-			_cachedTestTranscription = null;
-			_cachedTestTranscriptionUnavailable = false;
+			_resetMicrophoneTestCache();
 
 			try {
 				await callRef.current("set_config", { microphone: micId });

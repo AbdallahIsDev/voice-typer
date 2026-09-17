@@ -58,13 +58,16 @@ import type { ShowSnackOptions } from "@/hooks/useSnackbar";
 import { t } from "@/i18n/i18n";
 import { userFacingErrorMessage } from "@/lib/errors/userFacingErrorMessage";
 import { formatErrorMessage, type ModelInfo } from "@/lib/utils/models";
+import {
+	applyDownloadPatch,
+	buildDownloadProgressPatch,
+	type DownloadState,
+	type FailedDownload,
+	INITIAL_DOWNLOAD_STATE,
+	withResetProgress,
+} from "./downloadState";
 
-// ── Types ─────────────────────────────────────────────────────────────
-
-export interface FailedDownload {
-	modelName: string;
-	error: string;
-}
+export type { DownloadState, FailedDownload };
 
 interface UseModelDownloadArgs {
 	call: PythonCall;
@@ -113,60 +116,11 @@ export interface UseModelDownloadResult {
 
 // ── Consolidated download state ───────────────────────────────────────
 //
-// All 9 previously-separate useState fields live in ONE state object.
-// Updates go through functional `setState(prev => ({ ...prev, ...patch }))`
-// so each `download_progress` event produces exactly ONE setState call
-// (down from up to 8). React 18 already batched the per-field setStates
-// into a single re-render, but the consolidation still:
-//   - eliminates 7 redundant state-entry lookups per event
-//   - eliminates 7 redundant Object.is equality checks per event
-//   - produces a single subscriber notification per event (down from 8)
-//   - makes the atomicity guarantee explicit (all fields update together)
-//
-// `Partial<DownloadState>` is the patch shape used by event handlers —
-// only fields present in the event payload are set, others are preserved
-// via the `{ ...prev, ...patch }` spread.
-interface DownloadState {
-	downloadingModel: string | null;
-	downloadProgress: number;
-	downloadStatus: string;
-	isPaused: boolean;
-	downloadedBytes: number | null;
-	totalBytes: number | null;
-	speedBps: number | null;
-	etaSeconds: number | null;
-	failedDownload: FailedDownload | null;
-}
-
-const INITIAL_DOWNLOAD_STATE: DownloadState = {
-	downloadingModel: null,
-	downloadProgress: 0,
-	downloadStatus: "",
-	isPaused: false,
-	downloadedBytes: null,
-	totalBytes: null,
-	speedBps: null,
-	etaSeconds: null,
-	failedDownload: null,
-};
-
-/** Zero the progress-related fields (preserving `downloadingModel`,
- * `failedDownload`). Pure so the claim-time
- * updater inside `downloadModel` can reuse it, an updater must not
- * call `setState` (which the `resetProgress` callback does). This is
- * the SAME field set `resetProgress` clears, kept in one place. */
-function withResetProgress(prev: DownloadState): DownloadState {
-	return {
-		...prev,
-		downloadProgress: 0,
-		downloadStatus: "",
-		downloadedBytes: null,
-		totalBytes: null,
-		speedBps: null,
-		etaSeconds: null,
-		isPaused: false,
-	};
-}
+// All 9 previously-separate useState fields live in ONE state object,
+// see ./downloadState for the shape, the initial value, the progress
+// reset, and the `download_progress` patch builder. Updates go through
+// functional `setState(prev => applyDownloadPatch(prev, patch))` so
+// each event produces exactly ONE setState call (down from up to 8).
 
 // ── Hook ──────────────────────────────────────────────────────────────
 
@@ -221,64 +175,9 @@ export function useModelDownload({
 		"download_progress",
 		useCallback(
 			(data: Record<string, unknown> | undefined): (() => void) | undefined => {
-				if (!data) return undefined;
-				const patch: Partial<DownloadState> = {};
-				if (typeof data.progress === "number")
-					patch.downloadProgress = data.progress;
-				if (typeof data.status === "string") patch.downloadStatus = data.status;
-				if (typeof data.downloaded_bytes === "number")
-					patch.downloadedBytes = data.downloaded_bytes;
-				if (typeof data.total_bytes === "number")
-					patch.totalBytes = data.total_bytes;
-				// Speed/ETA: set when present; cleared ONLY on a state
-				// transition (pause/resume/status change), the backend
-				// also pushes transition-only events (e.g. a lone
-				// `paused: true`) whose absent speed/ETA fields mean
-				// "not re-measured", not "reset to zero". Clearing on
-				// absence made every partial event wipe the live
-				// speed/ETA readout, contradicting the patch contract
-				// above (only fields present in the event are set).
-				const isTransition =
-					typeof data.status === "string" ||
-					typeof data.paused === "boolean" ||
-					data.resumed === true;
-				if (typeof data.speed_bytes_per_sec === "number") {
-					patch.speedBps = data.speed_bytes_per_sec;
-				} else if (data.speed_bytes_per_sec == null && isTransition) {
-					patch.speedBps = null;
-				}
-				if (typeof data.eta_seconds === "number") {
-					patch.etaSeconds = data.eta_seconds;
-				} else if (data.eta_seconds == null && isTransition) {
-					patch.etaSeconds = null;
-				}
-				if (typeof data.paused === "boolean") patch.isPaused = data.paused;
-				if (typeof data.resumed === "boolean" && data.resumed)
-					patch.isPaused = false;
-				// Only fire setState if the patch actually contains
-				// updates, avoids a no-op state transition.
-				if (Object.keys(patch).length > 0) {
-					// Bail out if no field actually changed value.
-					// The original per-`useState` pattern relied on
-					// React's `Object.is` bailout (e.g.
-					// `setSpeedBps(null)` was a no-op when speedBps
-					// was already null). The consolidated form
-					// creates a new state object on every call, which
-					// would defeat that bailout, so we explicitly
-					// compare each patched field against `prev` and
-					// return `prev` (same reference) when nothing
-					// changed. React's `Object.is` check then skips
-					// the re-render, matching the original behaviour.
-					setState((prev) => {
-						let changed = false;
-						for (const key of Object.keys(patch) as (keyof DownloadState)[]) {
-							if (!Object.is(prev[key], (patch as DownloadState)[key])) {
-								changed = true;
-								break;
-							}
-						}
-						return changed ? { ...prev, ...patch } : prev;
-					});
+				const patch = buildDownloadProgressPatch(data);
+				if (patch) {
+					setState((prev) => applyDownloadPatch(prev, patch));
 				}
 				return undefined;
 			},

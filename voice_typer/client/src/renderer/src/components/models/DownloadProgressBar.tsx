@@ -172,7 +172,9 @@ export const DownloadProgressBar = memo(function DownloadProgressBar({
 			</div>
 			<div className="flex items-center justify-between gap-3">
 				<p
-					className={`min-w-0 flex-1 truncate text-xs ${
+					// tabular-nums: per-tick numbers (bytes/percent) keep a
+					// constant width so the row doesn't jitter every push.
+					className={`min-w-0 flex-1 truncate text-xs tabular-nums ${
 						hasError ? "text-destructive font-medium" : "text-(--text-muted)"
 					}`}
 					// Truncated status line gets a native tooltip with the
@@ -201,21 +203,28 @@ export const DownloadProgressBar = memo(function DownloadProgressBar({
 					)}
 				</p>
 				{!hasError && downloadedBytes !== null && totalBytes !== null && (
-					<span className="shrink-0 whitespace-nowrap text-xs text-(--text-muted)">
+					<span className="shrink-0 whitespace-nowrap text-right text-xs text-(--text-muted) tabular-nums">
 						· {formatBytes(downloadedBytes)} / {formatBytes(totalBytes)}
 					</span>
 				)}
-				{!hasError && speedBps !== null && speedBps > 0 && (
-					<span className="shrink-0 whitespace-nowrap text-xs text-(--text-muted)">
-						· {formatSpeed(speedBps)}
+				{!hasError && (
+					// Always rendered (never mounted/unmounted): mounting
+					// churn on every speed/ETA appearance (pause clears
+					// them, live pushes repopulate) shifts the whole row.
+					// Absent data renders "—" in a fixed-width,
+					// tabular-nums slot instead.
+					<span className="min-w-[9ch] shrink-0 whitespace-nowrap text-right text-xs text-(--text-muted) tabular-nums">
+						· {speedBps !== null && speedBps > 0 ? formatSpeed(speedBps) : "—"}
 					</span>
 				)}
-				{!hasError && etaSeconds !== null && etaSeconds > 0 && (
-					<span className="shrink-0 whitespace-nowrap text-xs text-(--text-muted)">
+				{!hasError && (
+					<span className="min-w-[13ch] shrink-0 whitespace-nowrap text-right text-xs text-(--text-muted) tabular-nums">
 						·{" "}
-						{t("models.progress.eta", {
-							time: formatEta(etaSeconds),
-						})}
+						{etaSeconds !== null && etaSeconds > 0
+							? t("models.progress.eta", {
+									time: formatEta(etaSeconds),
+								})
+							: "—"}
 					</span>
 				)}
 				<div className="flex items-center gap-2 shrink-0">
@@ -250,7 +259,9 @@ export const DownloadProgressBar = memo(function DownloadProgressBar({
 								? t("models.download.resumeAria")
 								: t("models.download.pauseAria")
 						}
-						className="gap-1 px-3 text-xs"
+						// Fixed width: the Pause↔Resume label swap (up to
+						// 16 chars across locales) must not move Cancel.
+						className="min-w-28 justify-center gap-1 px-3 text-xs"
 					>
 						<HugeiconsIcon
 							icon={isPaused ? PlayIcon : PauseIcon}

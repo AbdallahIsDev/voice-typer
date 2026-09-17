@@ -5,57 +5,20 @@ import { usePythonEvent } from "@/hooks/usePython";
 import { useT } from "@/i18n/i18n";
 import { useAppStore } from "@/stores/appStore";
 import type { VoiceTyperConfig } from "@/types/config";
-import type { Page, RecordingState } from "@/types/ipc";
-
-//runtime validator for the RecordingState string-literal
-// union.  The backend emits status values as plain strings over IPC;
-// previously we cast them to ``RecordingState`` without validation,
-// which would silently propagate unknown values through the type
-// system.  This validator returns ``null`` for unknown values so the
-// caller can discard them instead of corrupting React state.
-const RECORDING_STATES: ReadonlySet<string> = new Set([
-	"idle",
-	"recording",
-	"transcribing",
-	"loading",
-	"cancelling",
-	"error",
-]);
-
-function asRecordingState(value: unknown): RecordingState | null {
-	if (typeof value !== "string") return null;
-	return RECORDING_STATES.has(value) ? (value as RecordingState) : null;
-}
-
-/**
- * Apply ONE backend status snapshot, the `{status, message}` tuple —
- * atomically to the store.
- *
- * SOURCE-OF-TRUTH INVARIANT: `recordingState` (drives the Home page's
- * "ERROR" status pill) and `lastError` (drives the red description line
- * below the mic) are two views of the SAME authoritative pair emitted by
- * the backend's tray state (`set_state(state, message)`). Every renderer
- * sync path MUST feed both fields from the same payload via this helper:
- * the live `status_change` push, the connect-time `state_changed`
- * snapshot, and both `get_status` catch-ups (the server includes
- * `message` in its `get_status` response for exactly this reason).
- *
- * REGRESSION TO AVOID: a sync path that sets `recordingState` without
- * deriving `lastError` from the same payload's message leaves the pill
- * stuck on ERROR while the description still shows the normal
- * "Press <hotkey> or click to dictate" hint, the intermittent mismatch
- * this helper exists to prevent. Conversely, non-error transitions clear
- * `lastError` so recovery restores the normal dictate guidance.
- */
-function applyStatusWithReason(
-	status: RecordingState,
-	message: string | null | undefined,
-	setRecordingState: (s: RecordingState) => void,
-	setLastError: (error: string | null) => void,
-): void {
-	setRecordingState(status);
-	setLastError(status === "error" && message ? message : null);
-}
+import type { Page } from "@/types/ipc";
+import {
+	applyStatusWithReason,
+	asRecordingState,
+	BACKGROUND_RECONNECT_INTERVAL_MS,
+	CONNECTION_PROBE_MAX_RETRIES,
+	CONNECTION_PROBE_RETRY_DELAY_MS,
+	HEALTH_CHECK_EVENT_GRACE_MS,
+	HEALTH_CHECK_INTERVAL_MS,
+	HEALTH_CHECK_MAX_RETRIES,
+	HEALTH_CHECK_RETRY_DELAY_MS,
+	MAX_BACKGROUND_RECONNECTS,
+	RESPAWN_EXHAUSTED_CODE,
+} from "./connectionStatus";
 
 interface UseConnectionArgs {
 	/** Python bridge `call` function (from usePython). */
@@ -167,7 +130,7 @@ export function useConnection({
 	// biome-ignore lint/correctness/useExhaustiveDependencies: callRef is a useLatestRef mirror: reading .current in a stale closure is the hook's documented contract, .current must NOT become a dep
 	useEffect(() => {
 		let retries = 0;
-		const maxRetries = 5;
+		const maxRetries = CONNECTION_PROBE_MAX_RETRIES;
 		let timer: ReturnType<typeof setTimeout>;
 		let cancelled = false;
 
@@ -280,7 +243,7 @@ export function useConnection({
 				);
 				retries++;
 				if (!cancelled && retries < maxRetries) {
-					timer = setTimeout(checkConnection, 2000);
+					timer = setTimeout(checkConnection, CONNECTION_PROBE_RETRY_DELAY_MS);
 				} else if (!cancelled) {
 					setConnectionStatus("disconnected");
 				}
@@ -347,18 +310,6 @@ export function useConnection({
 		if (connectionStatus !== "connected") return;
 
 		let cancelled = false;
-		// Number of quick retries before declaring disconnected.
-		// 3 strikes (initial attempt + 2 retries) ≈ 1s of total
-		// tolerance for a transient flap before we surface the
-		// outage to the user.
-		const HEALTH_CHECK_MAX_RETRIES = 2;
-		const HEALTH_CHECK_RETRY_DELAY_MS = 500;
-		//skip the active probe if a push event was received
-		//within this grace window. 60s matches the  "user
-		// perceives hung" threshold, a backend that hasn't pushed
-		// for 60s is either dead or stuck, and the active probe is
-		// the right tool to disambiguate.
-		const HEALTH_CHECK_EVENT_GRACE_MS = 60_000;
 		let retryTimer: ReturnType<typeof setTimeout> | undefined;
 		let failureCount = 0;
 
@@ -395,7 +346,7 @@ export function useConnection({
 			}
 		};
 
-		const interval = setInterval(() => probe(false), 15_000);
+		const interval = setInterval(() => probe(false), HEALTH_CHECK_INTERVAL_MS);
 
 		return () => {
 			cancelled = true;
@@ -435,8 +386,6 @@ export function useConnection({
 		let cancelled = false;
 		let attempts = 0;
 		let timer: ReturnType<typeof setTimeout> | undefined;
-		const MAX_BACKGROUND_RECONNECTS = 12; // 12 × 10s = 2 minutes
-		const BACKGROUND_RECONNECT_INTERVAL_MS = 10_000;
 
 		const tryReconnect = async () => {
 			if (cancelled) return;
@@ -518,14 +467,10 @@ export function useConnection({
 
 	// ── App-level event subscriptions ─────────────────────────────
 
-	//the supervisor's "respawn exhausted" condition is now
-	// signaled via a structured `data.code: "respawn_exhausted"` field on
-	// the `error` event (previously a brittle sentinel substring match).
-	// When this code is present, the handler flips `connectionStatus` to
-	// `"disconnected"` in addition to setting a localized `lastError` —
-	// otherwise the UI stays stuck on the transient `"restarting"` banner
-	// forever.
-	const RESPAWN_EXHAUSTED_CODE = "respawn_exhausted";
+	//the supervisor's "respawn exhausted" condition is signaled via
+	// RESPAWN_EXHAUSTED_CODE (see ./connectionStatus), flipping
+	// `connectionStatus` to `"disconnected"` plus a localized
+	// `lastError` so the UI leaves the transient `"restarting"` banner.
 
 	usePythonEvent(
 		"status_change",
