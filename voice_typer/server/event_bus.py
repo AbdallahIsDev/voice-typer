@@ -855,7 +855,7 @@ def register_transport_probe(probe: typing.Callable[[], bool] | None) -> None:
     transport currently has a live host client connected.
 
     The TCP transport (``IPCServer.start_tcp`` in
-    ``voice_typer/server/ipc/transport_tcp.py``) registers a bound
+    the WS transport) registers a bound
     method reporting ``self._tcp_client is not None`` and
     ``IPCServer.stop`` unregisters it. Registering ``None`` is a no-op.
     """

@@ -312,7 +312,7 @@ class OutputMixin:
         Consolidates the inline ``err = {"type": "error", "data": {...}};
         if "id" in msg: err["id"] = msg["id"]; self._send(err, ...)`` blocks
         that were copy-pasted across the TCP dispatch / rate-limit /
-        dispatch-exception paths in ``ipc/transport_tcp.py``. The
+        dispatch-exception paths in the WS dispatch closure. The
         ``code``/``message`` pair and the optional ``id`` propagation are
         the common shape; sites that need extra fields (e.g.
         ``protocol_version_mismatch`` adds ``client_protocol_version`` /

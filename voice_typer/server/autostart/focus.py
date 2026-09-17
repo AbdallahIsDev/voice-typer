@@ -10,11 +10,11 @@ from __future__ import annotations
 
 import logging
 
-from voice_typer.server._electron_build import (
+from voice_typer.server.autostart._spawn import _spawn_login_child
+from voice_typer.server.autostart._spawn_env import (
     _launcher_child_env,
     _spawn_flags,
 )
-from voice_typer.server.autostart._spawn import _spawn_login_child
 
 # C-CROSS-3: explicit dotted logger name: see log_files.py for why
 # ``__name__`` cannot be used here.
@@ -24,18 +24,10 @@ log = logging.getLogger("voice_typer.server.autostart_launcher")
 def _focus_running_app() -> bool:
     """Wake an already-running instance via its single-instance lock.
 
-    Electron path: spawns a LEAN second ``electron .`` process.  That
-    process:
-      1. loads the prebuilt main bundle,
-      2. calls requestSingleInstanceLock() → returns false,
-      3. quits, which is what triggers the FIRST instance's
-         ``second-instance`` event → it shows + focuses the dashboard.
-
     Tauri path: spawns the Tauri binary itself.  Tauri's
     ``tauri-plugin-single-instance`` plugin (declared in
     ``src-tauri/tauri.conf.json``) detects the duplicate instance,
-    focuses the first, and quits the second, same effect as the
-    Electron lean-spawn pattern, but without a separate lean binary.
+    focuses the first, and quits the second.
 
     This is the cheap path (~100ms, no Vite, no extra ports) for "user
     clicked Start Menu while app is already in the background."  Returns
@@ -43,72 +35,33 @@ def _focus_running_app() -> bool:
     """
     from voice_typer.server import autostart_launcher as _pkg
 
-    # Tauri focus path: spawn the Tauri binary, the single-instance
-    # plugin handles the focus + second-instance-quit dance.
-    focus_tauri = _pkg._is_tauri_mode()
-    if focus_tauri:
-        binary = _pkg._tauri_binary()
-        if not binary:
-            log.info("[AUTOSTART] tauri focus: binary missing; cannot focus existing instance")
-            return False
-        # Fail-closed integrity gate, same contract as
-        # ``_spawn_tauri_host`` (the focus probe spawns the real binary).
-        if not _pkg.verify_tauri_binary_or_skip(binary):
-            log.error(
-                "[AUTOSTART] tauri focus: refusing to spawn %s, integrity verification failed (fail-closed).",
-                binary,
-            )
-            return False
-        # ``_launcher_child_env`` force-disables ANSI colour + npm notices
-        # (the child's output is redirected to the electron/tauri log files).
-        env = _launcher_child_env()
-        env["VT_FOCUS_ONLY"] = "1"
-        # Audit note: the sensitive-env audit line is emitted once by
-        # ``_spawn_login_child`` (the single choke point for all login
-        # spawns), so this call site must NOT pre-log it (that doubled
-        # the identical [ENV] line on every spawn).
-        sk: dict = {}
-        sk.update(_pkg._tauri_log_files())
-        sk.update(_spawn_flags(hidden=False))  # focus probe is intentionally foreground
-        child = _spawn_login_child(
-            [binary],
-            env=env,
-            spawn_kwargs=sk,
-            describe="tauri focus probe",
-        )
-        return child is not None
-
-    # Legacy Electron focus path.
-    exe = _pkg._electron_binary()
-    if not exe or not _pkg._main_entry_built():
-        # No lean binary available, caller falls back to npm run dev,
-        # which itself will fail the lock and focus the existing window
-        # (at the cost of spinning up a Vite server briefly).
-        log.info("[AUTOSTART] lean electron unavailable; will use npm run dev to focus")
+    binary = _pkg._tauri_binary()
+    if not binary:
+        log.info("[AUTOSTART] focus: tauri binary missing; cannot focus existing instance")
         return False
-
-    spawn_kwargs: dict = dict(cwd=str(_pkg.CLIENT_DIR))
-    # RACE-009: redirect Electron stdout/stderr to log files.
-    spawn_kwargs.update(_pkg._electron_log_files())
-    # _focus_running_app() always spawns the lean electron in the
-    # foreground (hidden=False) so the user sees the focused window.
-    spawn_kwargs.update(_spawn_flags(hidden=False))
-    # ``electron .`` runs the app pointed at by package.json "main",
-    # i.e. ./out/main/index.js.  VT_FOCUS_ONLY is a marker env var the
-    # duplicate reads to know it should not attempt any heavy init.
-    # same-app restart, full env intentionally inherited
-    # (see _spawn_electron above for rationale). Only sensitive KEY
-    # NAMES are logged for audit; values are never printed.
+    # Fail-closed integrity gate, same contract as
+    # ``_spawn_tauri_host`` (the focus probe spawns the real binary).
+    if not _pkg.verify_tauri_binary_or_skip(binary):
+        log.error(
+            "[AUTOSTART] focus: refusing to spawn %s, integrity verification failed (fail-closed).",
+            binary,
+        )
+        return False
     # ``_launcher_child_env`` force-disables ANSI colour + npm notices
-    # (the child's output is redirected to the electron/tauri log files).
+    # (the child's output is redirected to the tauri log files).
     env = _launcher_child_env()
     env["VT_FOCUS_ONLY"] = "1"
-    # Same single-choke-point note as above: ``_spawn_login_child``
-    # emits the one [ENV] audit line.
+    # Audit note: the sensitive-env audit line is emitted once by
+    # ``_spawn_login_child`` (the single choke point for all login
+    # spawns), so this call site must NOT pre-log it (that doubled
+    # the identical [ENV] line on every spawn).
+    sk: dict = {}
+    sk.update(_pkg._tauri_log_files())
+    sk.update(_spawn_flags(hidden=False))  # focus probe is intentionally foreground
     child = _spawn_login_child(
-        [exe, "."],
+        [binary],
         env=env,
-        spawn_kwargs=spawn_kwargs,
-        describe="lean electron to focus running instance",
+        spawn_kwargs=sk,
+        describe="tauri focus probe",
     )
     return child is not None

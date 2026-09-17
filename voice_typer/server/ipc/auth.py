@@ -1,17 +1,10 @@
-"""Shared auth-handshake helpers for the TCP and sidecar-WS transports.
+"""Shared auth-handshake helpers for the sidecar-WS transport.
 
-The TCP handshake (``ipc/transport_tcp.py``'s
-``_handle_tcp_connection``) and the Tauri sidecar handshake
-(``sidecar_ws.py``'s ``_authenticate``) implemented the SAME contract
-twice, read the first frame, validate ``type == "auth"``, extract the
-bearer token, compare it constant-time, and the two copies had
-already drifted once (TCP rejects a ``protocol_version`` mismatch with
-a structured error envelope; WS only warns). Before this module every
-bug fix to the validation contract needed a coordinated edit in BOTH
-files.
-
-This module is the single source of truth for the transport-independent
-parts of the handshake:
+The Tauri sidecar handshake (``sidecar_ws.py``'s
+``_authenticate``) implements the contract: read the first frame,
+validate ``type == "auth"``, extract the bearer token, compare it
+constant-time. This module is the single source of truth for the
+transport-independent parts of the handshake:
 
 - :func:`extract_auth_token`: frame-shape validation + token
   extraction (the ADR-0020 §3 / ADR-0014 first-frame contract:
@@ -21,9 +14,9 @@ parts of the handshake:
   helper; there is no key derivation, signing, or per-message MAC, see
   ``sidecar_ws._authenticate`` for the compensating controls).
 - :data:`AUTH_READ_TIMEOUT_SECONDS`: the shared auth-read deadline
-  (seconds) both transports enforce before dropping a silent client.
+  (seconds) enforced before dropping a silent client.
 
-The transports keep their transport-specific concerns local
+The transport keeps its transport-specific concerns local
 (asyncio/timeout handling, the ``protocol_version`` check, the error /
 close behavior, and logging vocabulary). Only the names above are
 shared, so a fix to the validation contract lands in ONE module.
@@ -33,14 +26,9 @@ from __future__ import annotations
 
 import hmac
 
-# Auth-read deadline (seconds), shared by BOTH IPC transports: a client
-# that connects but never sends the auth frame must not hold the
-# connection (and its dispatcher slot) indefinitely. The sidecar WS
-# handshake (``sidecar_ws._authenticate``) and the TCP handshake
-# (``ipc/transport_tcp.py::_handle_tcp_connection``) both import this
-# constant so the auth-deadline budget cannot drift between the two
-# transports (previously each carried its own 5.0 with a comment
-# requiring manual sync).
+# Auth-read deadline (seconds), enforced by the sidecar-WS handshake: a
+# client that connects but never sends the auth frame must not hold the
+# connection (and its dispatcher slot) indefinitely.
 AUTH_READ_TIMEOUT_SECONDS = 5.0
 
 

@@ -15,7 +15,7 @@ from __future__ import annotations
 import logging
 import subprocess
 
-from voice_typer.server._electron_build import _log_sensitive_env_keys
+from voice_typer.server.autostart._spawn_env import _log_sensitive_env_keys
 from voice_typer.server.autostart.log_files import _close_log_files
 
 # C-CROSS-3: explicit dotted logger name, the launcher runs as a bare

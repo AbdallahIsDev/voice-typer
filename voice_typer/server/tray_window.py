@@ -25,7 +25,6 @@ method signatures still pass.
 """
 
 import logging
-import os
 import subprocess
 from typing import TYPE_CHECKING
 
@@ -309,51 +308,15 @@ def open_electron_window() -> None:
         return
 
     # 3. Duplicate-launch gate: if the focus helpers above failed
-    #    but we KNOW an Electron process is still alive (tracked PID, or
-    #    a pgrep match), do NOT spawn a second Electron, the existing
-    #    window simply couldn't be focused (e.g. the window manager
-    #    refused, or the window is on another desktop). Spawning a
-    #    duplicate would surface a confusing "port already in use" crash
-    #    or a second window. Previously this gate only existed on
-    #    Windows (where bring_electron_to_front actually worked); on
-    #    macOS/Linux a transient TCP blip fell straight through to a
-    #    duplicate launch.
+    #    but we KNOW a host process is still alive, do NOT spawn a
+    #    duplicate.
     if _electron_process_is_running():
-        log.warning("[TRAY] Electron appears to be running but window focus failed, skipping duplicate launch")
+        log.warning("[TRAY] App appears to be running but window focus failed, skipping duplicate launch")
         return
 
-    # 4. Last resort: Electron isn't running, build + launch with
-    #    electron . (production path, no Vite).
-    from voice_typer.server.autostart_launcher import _ensure_built_and_launch
-
-    if _ensure_built_and_launch(hidden=False):
-        log.info("[TRAY] Electron app launched (build-first)")
-        return
-    # If build-first also failed, try dev mode as absolute last resort.
-    try:
-        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        client_dir = os.path.join(project_root, "voice_typer", "client")
-        log.info("[TRAY] Build-first failed, trying dev mode from %s", client_dir)
-        # S-7: previously used ``shell=True`` here (which
-        # spawns a shell to find npm, propagating PATH/env to it, a
-        # shell-injection risk and breaks on paths with spaces).  We now
-        # resolve the npm path explicitly via the shared
-        # :func:`_electron_build._npm_command` helper, which uses
-        # ``shutil.which`` (and on Windows checks ``PATHEXT`` so ``npm``
-        # resolves to ``npm.cmd``).  When npm truly cannot be resolved,
-        # we log and skip, never fall back to ``shell=True``.
-        from voice_typer.server._electron_build import _npm_command
-
-        cmd = _npm_command("dev")
-        if cmd is None:
-            log.error("[TRAY] npm not on PATH; cannot launch dev mode. Install Node.js / npm or add it to PATH.")
-            return
-        proc = subprocess.Popen(cmd, cwd=client_dir)
-        # track PID for cleanup on shutdown
-        set_electron_pid(proc.pid)
-        log.info("[TRAY] Electron app launched (dev mode fallback)")
-    except Exception as e:
-        log.exception("[TRAY] Failed to launch Electron app: %s", e)
+    # Electron launch path removed. The Tauri host manages its own
+    # window lifecycle; the backend only publishes show_window events.
+    log.info("[TRAY] No live transport and focus failed; cannot launch frontend from backend (Electron removed)")
 
 
 def open_page(path: str) -> None:

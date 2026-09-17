@@ -186,13 +186,13 @@ class ErrorCodes:
     RECORDING_RESAMPLE_FAILED = "server.recording_resample_failed"
     RECORDING_RESAMPLE_UNAVAILABLE = "server.recording_resample_unavailable"
     # IPC wire-protocol version negotiation. Emitted by the TCP auth
-    # handshake in ``voice_typer/server/ipc/transport_tcp.py`` when an
+    # handshake in the sidecar-WS path when an
     # inbound auth frame carries an explicit ``protocol_version`` that
     # does not match the server's :data:`IPC_PROTOCOL_VERSION`. The
     # check runs BEFORE the token check so a stale client gets a
     # structured rejection (with both client and server version numbers
     # in the payload) instead of an opaque ``auth_failed``. See the
-    # comment block in ``transport_tcp.py`` for the full versioning
+    # protocol_version module for the full versioning
     # contract.
     PROTOCOL_VERSION_MISMATCH = "server.protocol_version_mismatch"
 

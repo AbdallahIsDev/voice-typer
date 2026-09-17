@@ -12,17 +12,22 @@ constants that the IPC dispatcher consults at runtime:
   class:`IPCServer` ( / ).
 - data:`_READONLY_COMMANDS`: frozenset of command names whose
   handlers do NOT mutate shared app/service state. The dispatcher
+  (used by the WS transport, stdin, and any remaining transport)
   bypasses the per-server ``_dispatch_lock`` for these so a
   long-running state-mutating handler (e.g. ``download_model``) does
   not block a quick status poll from a second authenticated connection
-().
+(). KEPT after the Electron/TCP removal: the WS dispatch path still
+  consults this set; do not delete it as "TCP-only".
 - data:`_PYTHON_ONLY_COMMANDS`: frozenset of commands that are
-  intentionally absent from the TS / Rust allowlists (). These
+  intentionally absent from the Rust renderer allowlist (). These
   commands are registered in :data:`_COMMAND_REGISTRY` (so the
   dispatcher recognizes them) but are NEVER invoked by the renderer —
   they are server-internal or host-internal (e.g. ``shutdown`` is
   invoked by the Tauri host's WS transport; ``tray_click`` is invoked
-  by the Rust host's tray-icon click handler).
+  by the Rust host's tray-icon click handler). Host-dispatched
+  ``heartbeat`` / ``relaunch_ack`` also stay out of the Rust allowlist
+  for the same renderer-spoofing reason; they are not in this frozenset
+  but are documented in ``tests/test_ipc_command_parity.py``.
 
 Why this module exists
 ----------------------
@@ -65,8 +70,8 @@ Registry history
 The following command-name strings were at various points in the
 codebase history members of :data:`_COMMAND_REGISTRY` and were
 subsequently REMOVED. Each removal was coordinated across the Python
-registry, the TS ``ALLOWED_COMMANDS`` set, and the Rust
-``allowed_commands()`` array. The regression guard in
+registry and the Rust ``allowed_commands()`` array (the TS
+``ALLOWED_COMMANDS`` Set is retired with Electron main). The regression guard in
 ``tests/test_dead_code_stays_removed.py`` pins the removals so they
 cannot silently re-appear. Brief context for each removal:
 
@@ -136,6 +141,14 @@ from __future__ import annotations
 # block a quick status poll from a second authenticated connection. The
 # set is intentionally minimal, only commands whose handler bodies are
 # pure reads (no recorder / config / model / history mutation).
+#
+# MO-86 decision (Lane C, Electron/TCP removal): KEEP this frozenset.
+# The WS dispatcher (`ipc/dispatcher.py::_dispatch`) still consults it
+# for lock bypass; it is NOT TCP-only. Expanding membership to every
+# confirmed pure-read ``get_*`` handler is tracked as MO-86 (audit each
+# handler body for mutation) and is deliberately NOT done in the
+# transport-collapse pass — a wrong membership entry would let a
+# mutating handler race under the lock-free path.
 _READONLY_COMMANDS: frozenset[str] = frozenset(
     {
         "get_status",
@@ -170,7 +183,7 @@ _INSTANT_CONTROL_COMMANDS: frozenset[str] = frozenset(
     }
 )
 
-# commands intentionally absent from the TS / Rust allowlists.
+# commands intentionally absent from the Rust renderer allowlist.
 # These commands are registered in the Python ``_COMMAND_REGISTRY``
 # (so the dispatcher recognizes them) but are NEVER invoked by the
 # renderer, they are server-internal or host-internal:
@@ -183,11 +196,15 @@ _INSTANT_CONTROL_COMMANDS: frozenset[str] = frozenset(
 #   handler. The renderer has no business sending this, it would
 #   let a compromised renderer spoof tray clicks.
 #
-# This frozenset is the single source of truth for the
-# ``the registry-parity assertions in tests/test_ipc_server.py`` regression test
-# which asserts that the Python registry, the TS allowlist, and
-# the Rust allowlist agree on membership (modulo this documented
-# exception set).
+# Host-dispatched ``heartbeat`` / ``relaunch_ack`` also stay out of the
+# Rust allowlist (see ``tests/test_ipc_command_parity.py``).
+#
+# This frozenset is the single source of truth for the subset of the
+# host-dispatched delta that is purely host-internal; the full delta
+# (including heartbeat/relaunch_ack) is pinned by
+# ``tests/test_ipc_command_parity.py::HOST_DISPATCHED_COMMANDS``.
+# There is no TypeScript ``ALLOWED_COMMANDS`` anymore (Electron main
+# deleted with the Tauri cutover).
 _PYTHON_ONLY_COMMANDS: frozenset[str] = frozenset({"shutdown", "tray_click"})
 
 # Command registry: maps IPC command name to handler method.
@@ -195,13 +212,14 @@ _PYTHON_ONLY_COMMANDS: frozenset[str] = frozenset({"shutdown", "tray_click"})
 # Each handler takes (data, resp) and returns resp (to send) or None
 # (for commands that send their response internally, like restart_app).
 #
-# reconciliation (2026-07-18, updated 2026-08-30): the registry
-# contains exactly 74 commands. 72 are renderer-visible; the two
-# `_PYTHON_ONLY_COMMANDS` (`shutdown`, `tray_click`) are host-only and
-# excluded from the TS/Rust renderer allowlists. Most handlers live in
-# voice_typer/server/handlers/ (one mixin module per domain); a few are
-# resident on IPCServer / in ipc/, `heartbeat` (, ADR-0018
-# Electron-alive watchdog), `relaunch_ack` (PERF-005, ack of
+# reconciliation (2026-07-18, updated 2026-08-30 / 2026-09 Lane C):
+# the registry contains exactly 75 commands. 71 are renderer-visible
+# (Rust ``allowed_commands()``); four are host-dispatched / host-only
+# (`_PYTHON_ONLY_COMMANDS` = shutdown + tray_click, plus heartbeat +
+# relaunch_ack which the host sends via ``dispatch_inner``). Most
+# handlers live in voice_typer/server/handlers/ (one mixin module per
+# domain); a few are resident on IPCServer / in ipc/, `heartbeat`
+# (, ADR-0018 Electron-alive watchdog), `relaunch_ack` (PERF-005, ack of
 # `relaunch_electron` so `restart_app` can drop its fixed 300 ms
 # sleep), `transcribe_offline` and `check_offline_pack_update`, because
 # they touch IPC-server-owned state (`_last_heartbeat_at`,
@@ -216,11 +234,8 @@ _PYTHON_ONLY_COMMANDS: frozenset[str] = frozenset({"shutdown", "tray_click"})
 # (`get_prewarm_status` / `run_prewarm` / `open_prewarm_log`,
 # kept as parity-clean stubs while the renderer's About page still
 # invoked them), net 70. The 2026-08-14 retirement removed the three
-# prewarm stubs in lockstep across all four allowlists (this
-# registry, the TS ``ALLOWED_COMMANDS`` Set, the Rust
-# ``allowed_commands()`` literal, and the now-deleted
-# ``handlers/status_handlers.py`` stub methods) because the
-# prewarm surface was fully absorbed into the worker startup
+# prewarm stubs in lockstep across the registry + host allowlists
+# because the prewarm surface was fully absorbed into the worker startup
 # phase (master plan §6.2 P-1), net 67. RESTORED 2026-08-14:
 # `get_prewarm_status` + `open_prewarm_log` came back verbatim
 # from 5a319872 (the Cache Status card is a user-facing feature —
@@ -234,6 +249,7 @@ _PYTHON_ONLY_COMMANDS: frozenset[str] = frozenset({"shutdown", "tray_click"})
 # (ADR-0020 §16 addendum 2026-08-16), net 73. The 2026-08-30 count
 # audit (GP-80) verified the actual dict has 74 keys (73 domain +
 # `tray_click`; `shutdown` is in `_PYTHON_ONLY_COMMANDS`).
+# 2026-09 Lane C recount: 75 keys / 71 Rust / 4 host-delta.
 _COMMAND_REGISTRY: dict[str, str] = {
     "get_status": "_handle_get_status",
     "toggle_dictation": "_handle_toggle_dictation",
@@ -268,9 +284,9 @@ _COMMAND_REGISTRY: dict[str, str] = {
     # page's "Cache Status" card. RESTORED 2026-08-14 verbatim from
     # commit 5a319872, the card is a user-facing product feature
     # (plan §6.3 addendum), not prewarm machinery. Lockstep-across all
-    # four allowlists per §6.4 parity: this registry, the TS
-    # ``ALLOWED_COMMANDS`` Set, the Rust ``allowed_commands()``
-    # literal, and the Python handler in ``handlers/status_handlers.py``.
+    # the Python handler in ``handlers/status_handlers.py``.
+    # Lockstep-across the two command allowlists per §6.4 parity: this
+    # registry + the Rust ``allowed_commands()`` literal.
     "get_prewarm_status": "_handle_get_prewarm_status",
     # Task 2: open the prewarm log file in the OS default text editor.
     # RESTORED 2026-08-14 verbatim from 5a319872 (points at the worker
@@ -354,9 +370,9 @@ _COMMAND_REGISTRY: dict[str, str] = {
     # so Settings → Troubleshooting can surface it next to the
     # "Reset Accessibility Permission" button. Was removed in the
     # stale-entry cleanup (no renderer caller at the time); the
-    # Troubleshooting UI now invokes it, so it is re-wired through all
-    # THREE allowlists in lockstep (TS ``allowed-commands.ts`` + Rust
-    # ``sidecar_cmds.rs`` + this registry). Handler lives in
+    # Troubleshooting UI now invokes it, so it is re-wired through
+    # the two command allowlists in lockstep (Rust ``sidecar_cmds/allowlist.rs``
+    # + this registry). Handler lives in
     # ``handlers/system_handlers.py``.
     "check_accessibility": "_handle_check_accessibility",
     # Linux troubleshooting: reset a stale polkit authorization
@@ -422,10 +438,9 @@ _COMMAND_REGISTRY: dict[str, str] = {
     # forwards the request to the worker over the worker's dedicated
     # WS hop). The handler stub lives on the worker-handlers mixin
     # (added in parallel by the worker-IPC sub-agent); the registry
-    # entry + the matching entries in the TS ``ALLOWED_COMMANDS`` Set +
-    # the Rust ``allowed_commands()`` literal are added here in
-    # lockstep so the renderer's ``call('transcribe_offline', ...)``
-    # dispatches cleanly through all three command allowlists. The
+    # entry + the matching Rust ``allowed_commands()`` entry are added
+    # here in lockstep so the renderer's ``call('transcribe_offline', ...)``
+    # dispatches cleanly through the two command allowlists. The
     # push counterpart ``transcribe_offline_result`` is published via
     # ``event_bus.publish(...)`` (NOT a command, see the
     # ``ALLOWED_EVENT_TYPES`` slice in
@@ -435,9 +450,8 @@ _COMMAND_REGISTRY: dict[str, str] = {
     # Pinned by ``tests/test_event_types_parity.py``.
     "transcribe_offline": "_handle_transcribe_offline",
     # Auto-update feature (docs/auto-update-feature.md), pack update
-    # check + consent-gated background download. Registered in the TS
-    # ``ALLOWED_COMMANDS`` Set + the Rust ``allowed_commands()``
-    # literal in lockstep. Handler: ``_handle_check_offline_pack_update`` in
+    # check + consent-gated background download. Registered in the Rust
+    # ``allowed_commands()`` literal in lockstep. Handler: ``_handle_check_offline_pack_update`` in
     # ``ipc/lifecycle.py`` (delegates to
     # ``update_check.handle_check_offline_pack_update_ipc``).
     "check_offline_pack_update": "_handle_check_offline_pack_update",

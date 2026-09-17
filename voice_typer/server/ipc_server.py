@@ -335,7 +335,7 @@ from voice_typer.server.ipc.entrypoint import (  # noqa: E402, F401
 )
 from voice_typer.server.ipc.lifecycle import LifecycleMixin  # noqa: E402
 
-# TCP transport and output/push methods extracted to leaf mixins.
+# Output/push methods extracted to leaf mixins.
 # ``_SHUTDOWN_ALLOWLIST`` / ``_TCP_PENDING_DRAIN_CAP`` / ``_TCP_PENDING_BUFFER_CAP``
 # are re-exported here so existing ``from voice_typer.server.ipc_server import
 # _SHUTDOWN_ALLOWLIST`` callers (tests/test_ipc_send_shutdown_allowlist.py,
@@ -348,11 +348,9 @@ from voice_typer.server.ipc.sender import (  # noqa: E402, F401
     _PendingBuffer,
 )
 from voice_typer.server.ipc.stdin_runner import StdinRunnerMixin  # noqa: E402
-from voice_typer.server.ipc.transport_tcp import TCPTransportMixin  # noqa: E402
 
 
 class IPCServer(
-    TCPTransportMixin,
     OutputMixin,
     StdinRunnerMixin,
     DispatcherMixin,
@@ -373,7 +371,7 @@ class IPCServer(
     RepasteHandlersMixin,
     CloudTestHandlersMixin,
 ):
-    """Reads JSON commands from stdin or TCP, dispatches, writes responses.
+    """Reads JSON commands from WS or stdin, dispatches, writes responses.
 
     Attributes
     ----------

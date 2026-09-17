@@ -9,7 +9,8 @@ logic lives in these leaf modules:
 - :mod:`voice_typer.server.autostart.pid_file`    -- PID/port file helpers
 - :mod:`voice_typer.server.autostart.port_probe`  -- backend readiness polling
 - :mod:`voice_typer.server.autostart.tauri_spawn` -- Tauri binary discovery/integrity/spawn
-- :mod:`voice_typer.server.autostart.electron_spawn` -- built Electron / npm-run-dev spawns
+- :mod:`voice_typer.server.autostart._spawn_env`  -- shared spawn-env helpers
+- :mod:`voice_typer.server.autostart._spawn`      -- unified login-child spawn recipe
 - :mod:`voice_typer.server.autostart.focus`       -- focus-running-instance probe
 
 Patch-target contract: tests (and any future caller) monkeypatch these

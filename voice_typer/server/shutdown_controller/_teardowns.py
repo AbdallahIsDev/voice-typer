@@ -161,18 +161,12 @@ class TeardownsMixin:
         abort_sounddevice_streams(self, sd_module)
 
     def _teardown_electron(self) -> None:
-        """terminate the Electron subprocess.
+        """No-op: Electron subprocess teardown was removed with the Electron path.
 
-        Body lives in
-        :func:`voice_typer.server.shutdown.teardowns.electron.teardown_electron`.
-        Acquires ``self._electron_pid_lock`` (initialized in ``__init__``)
-        around the read-terminate-clear critical section.
+        Kept as a method so the sequenced teardown plan (which still
+        references ``controller._teardown_electron``) does not break.
         """
-        from voice_typer.server.shutdown.teardowns.electron import (
-            teardown_electron,
-        )
-
-        teardown_electron(self)
+        return None
 
     def _teardown_pid_file(self) -> None:
         """clear the backend PID file so a subsequent launch isn't

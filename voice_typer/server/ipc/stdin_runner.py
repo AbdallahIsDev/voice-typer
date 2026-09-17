@@ -55,9 +55,9 @@ class StdinRunnerMixin:
         consolidates the three inline error-envelope construction
         sites in :meth:`_run` (invalid payload / invalid JSON /
         internal_error) into a single helper so the envelope shape is
-        defined in one place. The TCP / WS paths use
+        defined in one place. The WS path uses
         :meth:`_shutting_down_error` (which returns the envelope; the
-        caller sends it via ``_send`` with the TCP ``_client`` kwarg);
+        caller sends it via ``_send``);
         this stdin-path helper sends directly because every call site
         uses ``_out=stdout`` (the TextIO variant of ``_send``).
 
@@ -128,10 +128,9 @@ class StdinRunnerMixin:
                             _out=stdout,
                         )
                         continue
-                    # Per-process rate limiter gate. The TCP
-                    # read loop (``transport_tcp.py``) and the WS
+                    # Per-process rate limiter gate. The WS
                     # dispatch closure (``sidecar_ws._make_dispatch``)
-                    # each apply the shared ``_RateLimiter`` BEFORE
+                    # applies the shared ``_RateLimiter`` BEFORE
                     # ``_dispatch``; the stdin path previously had NO
                     # gate, so a buggy/loopy stdin client could
                     # dispatch unbounded ``download_model`` /
@@ -145,10 +144,10 @@ class StdinRunnerMixin:
                     # (``_RateLimiter.allow`` short-circuits to True
                     # for ``command == "heartbeat"``) so the heartbeat
                     # keep-alive is unaffected. The error envelope
-                    # mirrors the TCP path's (``transport_tcp.py``)
+                    # mirrors the TCP path's (``the WS dispatch path``)
                     # ``client.rate_limited`` shape so a client
                     # branching on ``code`` sees the same value across
-                    # all three transports.
+                    # transports.
                     msg_type = msg.get("type", "")
                     if not _get_rate_limiter(self).allow(command=msg_type):
                         self._send_stdin_error_envelope(
@@ -160,18 +159,16 @@ class StdinRunnerMixin:
                     result = self._dispatch(msg)
                     self._send(result, _out=stdout)
                 except json.JSONDecodeError:
-                    #  note: the TCP path now emits
-                    # ``{"code": "invalid_payload", "message": "invalid JSON"}``
-                    # to match the WS path (see ``_handle_tcp_connection``).
+                    # The WS path emits
+                    # ``{"code": "invalid_payload", "message": "invalid JSON"}``.
                     # The stdin/stdout (legacy console) path is
                     # intentionally left WITHOUT the ``code`` field to
                     # preserve backward compatibility with the
                     # existing ``test_handles_invalid_json`` contract
                     # in ``tests/test_server.py`` (which asserts the
                     # bare ``{"message": "invalid JSON"}`` envelope).
-                    # The stdin path is not in the  parity scope
-                    # (the directive only mentions TCP vs WS); a
-                    # future task may align all three paths.
+                    # A future task may align the stdin
+                    # invalid-JSON envelope with the WS path.
                     # route through the shared helper. ``code``
                     # is intentionally omitted to preserve the
                     #  backward-compat contract pinned by
@@ -182,7 +179,6 @@ class StdinRunnerMixin:
                         _out=stdout,
                     )
                 except Exception as dispatch_exc:
-                    # mirror the TCP path's  hardening —
                     # catch ANY exception from ``_dispatch`` so a
                     # handler bug doesn't silently kill the stdin
                     # thread. Log server-side with traceback; return a

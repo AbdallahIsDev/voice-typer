@@ -18,11 +18,11 @@ import subprocess
 import sys
 from pathlib import Path
 
-from voice_typer.server._electron_build import (
+from voice_typer.server.autostart._spawn import _spawn_login_child
+from voice_typer.server.autostart._spawn_env import (
     _launcher_child_env,
     _spawn_flags,
 )
-from voice_typer.server.autostart._spawn import _spawn_login_child
 from voice_typer.server.branding import APP_NAME
 from voice_typer.server.platform_utils import is_macos, is_windows
 
@@ -32,10 +32,14 @@ log = logging.getLogger("voice_typer.server.autostart_launcher")
 
 
 def _client_dir_exists() -> bool:
-    """Return True if the Electron client directory (with package.json) exists."""
-    from voice_typer.server import autostart_launcher as _pkg
+    """Return True if the client directory (with package.json) exists.
 
-    return _pkg.CLIENT_DIR.is_dir() and (_pkg.CLIENT_DIR / "package.json").exists()
+    Used as a dev-checkout detection heuristic by ``_is_tauri_mode``.
+    """
+    from pathlib import Path
+
+    client_dir = Path(__file__).resolve().parent.parent.parent.parent / "voice_typer" / "client"
+    return client_dir.is_dir() and (client_dir / "package.json").exists()
 
 
 # Well-known install paths per OS, in DISCOVERY ORDER. Tokens:
@@ -181,11 +185,10 @@ def _is_tauri_mode() -> bool:
     exe_basename = os.path.basename(sys.executable).lower()
     if "voice-typer-tauri" in exe_basename:
         return True
-    if _pkg._tauri_binary() is None:
-        return False
-    # Tauri binary exists; prefer it only when the local Electron
-    # dev binary is absent (production Tauri install).
-    return _pkg._electron_binary() is None
+    # Tauri binary exists → prefer it. The Electron-node_modules
+    # heuristic is gone (Electron removed); a present client tree no
+    # longer suppresses Tauri mode.
+    return _pkg._tauri_binary() is not None
 
 
 def _tauri_manifest_path() -> Path | None:

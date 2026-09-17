@@ -425,7 +425,7 @@ def _run_parallel_with_timeout(
             # FATAL tray-crash path exits the interpreter while a
             # background startup thread is still in this helper -
             # observed in the ``voice-typer`` terminal run). The same
-            # race was already guarded in ``transport_tcp.py``'
+            # race was already guarded in the transport layer'
             # accept loop; here we record the failure as the item's
             # result tuple (``(desc, RuntimeError)``) instead of
             # letting it kill the calling thread with an unhandled

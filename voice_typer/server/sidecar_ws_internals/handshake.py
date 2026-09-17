@@ -77,10 +77,8 @@ async def _authenticate(websocket) -> bool:
 
     DEDUP ()
     ----------------
-    This function mirrors the TCP auth handshake in
-    ``ipc/transport_tcp.py::_handle_tcp_connection`` (the
-    ``if expected_token:`` block at ~L300-365).  BOTH transports
-    implement the same contract:
+    This function implements the shared auth-handshake contract
+    (see ``ipc/auth.py``):
 
     - Read the first frame/line.
     - Parse JSON.
@@ -164,8 +162,9 @@ async def _authenticate(websocket) -> bool:
     # before confusing partial-failure symptoms appear. We do NOT reject
     # the connection on mismatch because a misconfigured host should
     # still be able to authenticate (the version negotiation is
-    # defense-in-depth, not a security gate). The TCP transport's
-    # parallel check rejects in ipc/transport_tcp.py; see ADR-0022 for why the two differ.
+    # defense-in-depth, not a security gate). A blind reject would send
+    # the Rust supervisor into its refused-connection respawn loop
+    # (ADR-0022; the Electron/TCP reject path is retired with TCP).
     host_protocol = first.get("protocol_version")
     if host_protocol is not None:
         try:

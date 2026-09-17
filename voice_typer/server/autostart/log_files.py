@@ -1,7 +1,6 @@
 """Child stdout/stderr handle helpers for the autostart launcher.
 
-Shared by the Tauri and Electron spawn paths (see ``tauri_spawn.py``
-and ``electron_spawn.py``).
+Shared by the Tauri spawn paths (see ``tauri_spawn.py``).
 """
 
 from __future__ import annotations
@@ -20,7 +19,6 @@ log = logging.getLogger("voice_typer.server.autostart_launcher")
 def _tauri_log_files() -> dict:
     """Return DEVNULL for the Tauri host's stdout/stderr (O4: no duplicate capture).
 
-    Mirrors :func:`voice_typer.server._electron_build._electron_log_files`.
     The Tauri host + Python backend already write structured logs to
     ``logs/`` (``voice-typer-rust.log`` on the Rust side, ``voice-typer.log``
     on the Python side); raw child stdout/stderr capture

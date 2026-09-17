@@ -125,9 +125,7 @@ class DispatcherMixin:
 
         # NOTE: the per-process rate limiter is NO LONGER enforced
         # here. Each transport chokepoint applies the limiter BEFORE
-        # calling ``_dispatch``: TCP at ``transport_tcp.py`` (the
-        # ``rate_limiter.allow(command=msg_type)`` gate inside
-        # ``_handle_tcp_connection``'s read loop) and WS at
+        # calling ``_dispatch``: WS at
         # ``sidecar_ws._make_dispatch`` (the closure-captured
         # ``rate_limiter.allow(command=msg_type)`` gate). The stdin
         # path applies the limiter in ``stdin_runner._run`` before

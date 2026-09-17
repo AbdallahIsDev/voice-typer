@@ -80,7 +80,7 @@ def _make_dispatch(server: IPCServer):
     # ``tests/test_ipc_rate_limiter_concurrent_init.py``).  Changing the
     # import to the leaf
     # module would BREAK the test monkey-patch contract.  The TCP path
-    # (``ipc/transport_tcp.py``) also imports from ``ipc_server`` for
+    # (the stdin path) also imports from ``ipc_server`` for
     # the same reason.
     #
     # Stored on the server instance (not the closure) so

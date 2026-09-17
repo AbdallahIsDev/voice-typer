@@ -1,4 +1,4 @@
-"""IPC server leaf-submodule package, validation, transport, rate-limiting, history bounds.
+"""IPC server leaf-submodule package, validation, rate-limiting, history bounds.
 
 Phase 4.5 /  began a split of the original ``ipc_server.py``
 god-module into a package with one module per concern.  The split was
@@ -7,11 +7,9 @@ abandoned mid-way and the parallel ``server.py`` / ``main.py`` /
 code ().  This package now contains ONLY the leaf submodules that
 are actually imported by the handler mixins:
 
-- :func:`extract_auth_token` / :func:`tokens_equal` (shared TCP + WS
+- :func:`extract_auth_token` / :func:`tokens_equal` (shared WS
   auth-handshake helpers), :mod:`.auth`
 - :func:`_validate_dict_payload` (IPC payload validation), :mod:`.validation`
-- :func:`_pick_available_port` + :class:`_TCPLineIO` (TCP transport) —
-  :mod:`.transport`
 - :class:`_RateLimiter` + :func:`_get_rate_limiter` (per-connection
   rate limiter), :mod:`.rate_limiter`
 - :func:`_bound_history_limit` / :func:`_bound_history_offset` /

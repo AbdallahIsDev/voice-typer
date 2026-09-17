@@ -49,7 +49,8 @@ _PATH_VALUE_PATTERN = re.compile(r"^[^\0]+$")  # no null bytes
 # keyring via ``credential_store``; the HF token is never used by
 # Voice Typer itself).
 #
-# This list MUST stay in sync with ``electron_launcher._SENSITIVE_ENV_NAMES``.
+# This list MUST stay in sync with the sensitive-env markers used by
+# ``autostart/_spawn_env.py`` for the child-inherit audit log.
 # The duplication is deliberate (env_validation is a low-level startup
 # module; importing electron_launcher would pull in ``_electron_build``
 # and ``platform_utils`` at startup time, which is intentionally

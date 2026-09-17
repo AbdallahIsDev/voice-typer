@@ -96,7 +96,7 @@ class _TCPLineIO:
         # enable TCP_NODELAY on the wrapped socket so small push
         # events (bubble_level at 15-50 Hz, heartbeat_ack) are not
         # delayed by Nagle's algorithm (up to ~40 ms of coalescing on
-        # loopback). Defense-in-depth: ``transport_tcp`` also sets it on
+        # loopback). Defense-in-depth: the WS transport also sets it on
         # accepted sockets, but ``_TCPLineIO`` is constructed directly in
         # tests and via the WS-bridge path. The suppress() wrapper keeps
         # non-TCP sockets (socketpair on some platforms, test mocks)

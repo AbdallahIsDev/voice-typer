@@ -414,12 +414,8 @@ _MAX_FRAME_BYTES: int = _outbound_mod._MAX_FRAME_BYTES
 # Auth frame timeout (seconds). A client that connects but never
 # sends the auth frame must not hold the connection indefinitely —
 # the budget is single-sourced as ``AUTH_READ_TIMEOUT_SECONDS`` in
-# :mod:`voice_typer.server.ipc.auth` and imported by BOTH transports
-# (the WS path, via the handshake leaf, and the TCP path in
-# ``ipc/transport_tcp.py::_handle_tcp_connection``), so the two
-# handshakes cannot drift apart (previously each transport carried
-# its own 5.0 literal with a comment requiring manual sync, that
-# duplication is what this single-sourcing removed).
+# :mod:`voice_typer.server.ipc.auth` and imported by the WS handshake
+# leaf, so the deadline cannot drift from the shared constant.
 #
 # The module-level alias below preserves the historical patch
 # surface: tests read/patch ``sidecar_ws._AUTH_TIMEOUT_SECONDS``

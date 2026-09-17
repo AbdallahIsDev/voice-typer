@@ -45,6 +45,7 @@ from voice_typer.server.ipc.rate_limiter import (
     _HEARTBEAT_TIMEOUT_SECONDS,
 )
 from voice_typer.server.ipc.validation import ResponseEnvelope
+from voice_typer.server.keyboard_ownership import keyboard_ownership
 from voice_typer.server.tray_types import is_tauri_sidecar
 
 # PERF-SHUTDOWN-001: the TCP dispatch pool's ``thread_name_prefix``,
@@ -123,15 +124,11 @@ class LifecycleMixin:
     _shutdown_completed_event: threading.Event
     _relaunch_ack_event: threading.Event
     _last_heartbeat_at: float | None
-    # host app object, declared (mirroring ``TCPTransportMixin``) so
-    # the mixin's ``self.app`` accesses type-check; ``Any`` avoids an
-    # override conflict with the host's concrete ``app`` attribute.
+    # host app object; ``Any`` avoids an override conflict with the
+    # host's concrete ``app`` attribute.
     app: typing.Any
-    # transport-liveness probe registered by ``TCPTransportMixin.start_tcp``
-    # and unregistered here in ``stop()``. Declared with the SAME type
-    # as ``TCPTransportMixin`` so mypy merges the two base-class
-    # definitions instead of flagging an MRO conflict (the assignment
-    # in ``stop()`` alone would infer ``None``).
+    # transport-liveness probe (historically registered by the TCP
+    # transport). Declared here so ``stop()`` can unregister it.
     _transport_live_probe: typing.Callable[[], bool] | None
 
     def _reset_ready_emitted(self) -> None:
@@ -157,6 +154,43 @@ class LifecycleMixin:
         host already tolerates (it's idempotent on the UI side).
         """
         self._ready_emitted = False
+
+    def _on_ipc_client_disconnect(self, reason: str) -> None:
+        """Reset keyboard ownership when the IPC client disconnects.
+
+        Backend ownership watchdog: if the frontend crashes mid-capture
+        (before sending ``set_esc_cancel_paused: false``), the backend
+        would otherwise be stuck in ``"hotkey_capture"`` state forever,
+        suppressing all hotkey interactions until restart. Resetting
+        ownership here ensures the next client reconnect starts clean.
+
+        Skipped during server shutdown (``self._running == False``)
+        so an active recording isn't interrupted by the teardown
+        sequence — we only want to fire on an *unexpected* client
+        disconnect, not on a planned stop().
+
+        The reset is idempotent: calling it when ownership is already
+        ``"normal"`` is a no-op. Safe to call from multiple disconnect
+        paths (WS drop + stdin EOF) — the second call is a no-op.
+        """
+        if not self._running:
+            # Server is shutting down (stop() was called). Don't
+            # reset ownership — a recording might be in progress
+            # and the teardown sequence will handle cleanup.
+            log.debug("[IPC] client disconnect during shutdown; skipping keyboard ownership reset")
+            return
+        keyboard_ownership().reset()
+        # Also clear the ESC-pending-capture-exit Event on the hotkey
+        # dispatcher. If the frontend crashed mid-capture (ESC pressed
+        # but not yet released), the flag would remain set and cause a
+        # spurious ``hotkey_capture_cancel`` event on the next ESC
+        # press after reconnect. The Event is cleared atomically so the
+        # threads that touch this flag cannot race on a
+        # read-modify-write cycle.
+        _hotkeys = getattr(self.app, "hotkeys", None)
+        if _hotkeys is not None:
+            with contextlib.suppress(AttributeError):
+                _hotkeys._esc_pending_capture_exit_event.clear()
 
     def start(self) -> None:
         """Start the IPC server in a daemon thread.

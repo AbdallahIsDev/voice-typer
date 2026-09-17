@@ -20,12 +20,10 @@ reused.
 
 Historical note: this constant was previously duplicated as
 ``IPC_PROTOCOL_VERSION: int = 1`` in
-``voice_typer/server/ipc/transport_tcp.py`` and
-``PROTOCOL_VERSION: int = 1`` in ``voice_typer/server/sidecar_ws.py``.
-Both transports now import from this module so the two cannot silently
-drift. The TCP transport keeps the ``IPC_PROTOCOL_VERSION`` name as a
-backward-compat alias (``IPC_PROTOCOL_VERSION = PROTOCOL_VERSION``) so
-existing tests that import the alias directly continue to resolve.
+``voice_typer/server/ipc/transport_tcp.py`` (deleted with the TCP
+transport) and ``PROTOCOL_VERSION: int = 1`` in
+``voice_typer/server/sidecar_ws.py``. The WS transport now imports
+from this module so it cannot silently drift.
 """
 
 PROTOCOL_VERSION: int = 1

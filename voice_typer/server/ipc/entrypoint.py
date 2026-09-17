@@ -27,9 +27,7 @@ if TYPE_CHECKING:
 # Re-exported by ``ipc_server.py`` so existing
 # ``from voice_typer.server.ipc_server import main`` /
 # ``... import parse_ipc_args`` callers keep working unchanged.
-from voice_typer.server._paths import IPC_PORT, IPC_TOKEN_ENV_VAR
 from voice_typer.server.ipc._helpers import _STDIN_IPC_ENV_VAR, log
-from voice_typer.server.ipc.transport import _pick_available_port
 from voice_typer.server.tray_types import is_tauri_sidecar
 
 
@@ -243,7 +241,7 @@ def parse_ipc_args() -> tuple[int | None, bool]:
 
     parser = argparse.ArgumentParser(
         prog="voice_typer.server.ipc_server",
-        description="Voice Typer IPC server (spawned by Electron)",
+        description="Voice Typer IPC server (spawned by the Tauri host)",
         add_help=False,  # we add --help manually to avoid conflict with app
     )
     parser.add_argument(
@@ -251,7 +249,7 @@ def parse_ipc_args() -> tuple[int | None, bool]:
         type=int,
         default=None,
         metavar="N",
-        help="TCP port to listen on (1..65535). If omitted, uses stdin/stdout IPC.",
+        help="REMOVED: the TCP transport was deleted. Use --ws for the Tauri sidecar.",
     )
     parser.add_argument(
         "--ws",
@@ -262,7 +260,7 @@ def parse_ipc_args() -> tuple[int | None, bool]:
             "server on an OS-assigned ephemeral port (127.0.0.1:0), prints "
             'a single {"event":"server_started","port":N} JSON line to '
             "stdout, then accepts WS connections authenticated by the "
-            "VOICE_TYPER_IPC_TOKEN env var. Mutually exclusive with --port."
+            "VOICE_TYPER_IPC_TOKEN env var."
         ),
     )
     parser.add_argument(
@@ -305,14 +303,14 @@ def parse_ipc_args() -> tuple[int | None, bool]:
         )
     port = args.port
     ws_mode = args.ws
-    # ADR-0020 §2: --ws and --port are mutually exclusive. --ws binds
-    # an OS-assigned ephemeral port and reports it via stdout; --port
-    # binds a fixed port for the legacy Electron TCP path.
-    if ws_mode and port is not None:
-        print("--ws and --port are mutually exclusive", file=sys.stderr)
-        sys.exit(EXIT_BAD_ARGS)
-    if port is not None and not (1 <= port <= 65535):
-        print(f"Invalid port: {port} (must be 1..65535)", file=sys.stderr)
+    # TCP transport removed: --port is an unsupported leftover that
+    # must fail clearly rather than starting a TCP listener.
+    if port is not None:
+        print(
+            "--port is no longer supported: the TCP IPC transport was removed. "
+            "Use --ws for the Tauri sidecar WebSocket transport.",
+            file=sys.stderr,
+        )
         sys.exit(EXIT_BAD_ARGS)
     # ADR-0020 §2 + §10: when running as a Tauri sidecar, set the
     # TAURI_SIDECAR=1 env var so downstream gates (heartbeat watchdog,
@@ -330,15 +328,9 @@ def parse_ipc_args() -> tuple[int | None, bool]:
 def main() -> None:
     """Create a ``VoiceTyperApp``, wrap it in an ``IPCServer``, and block.
 
-    Designed as the subprocess entry point for an Electron frontend::
+    Designed as the subprocess entry point for the Tauri host::
 
-        python -m voice_typer.server.ipc_server          # stdin/stdout
-        python -m voice_typer.server.ipc_server --port N  # TCP
-
-    In TCP mode, stdout/stderr are NOT piped (Electron uses
-    ``stdio: "inherit"``) so there is no pipe-backpressure issue
-    during the heavy torch import.  Push events reach the frontend
-    via TCP, and the terminal sees normal log output.
+        python -m voice_typer.server.ipc_server --ws  # Tauri sidecar WebSocket
     """
     #  (privacy): tighten the process umask to ``0o077`` (owner-only)
     # at process startup so ALL files created by the sidecar, including
@@ -627,122 +619,20 @@ def main() -> None:
             if _ws_exit != 0:
                 log.warning("[IPC] sidecar_ws.run exited with code %d", _ws_exit)
             sys.exit(_ws_exit)
-        elif port is not None:
-            server.start_tcp(port)
-            log.info("[IPC] TCP server listening on port %d (Electron will connect)", port)
-            # BP-130: publish the bound port into the backend PID file
-            # so the autostart launcher + post-spawn poll find the
-            # actual port (not just the default) on the next launch.
-            from voice_typer.server.single_instance import (
-                _record_backend_ipc_port,
-            )
-
-            _record_backend_ipc_port(port)
         else:
-            # P1-1.2: Standalone mode (no --port). The user ran VoiceTyper
-            # from a terminal.  Auto-pick an available port, start the TCP
-            # server, generate a session token, and launch the Electron
-            # frontend so it connects back to us over TCP instead of
-            # spawning its own Python backend.
-            from voice_typer.server import electron_launcher
-
-            standalone_port, standalone_sock = _pick_available_port(IPC_PORT)
-
-            # Generate the session token and set it as an env var BEFORE
-            # starting the TCP listener.  The _accept_tcp daemon thread reads
-            # VOICE_TYPER_IPC_TOKEN at the top of its function; if we set it
-            # after start_tcp(), the thread can read the env var before we
-            # assign it, leaving expected_token empty and the connection
-            # unauthenticated.
-            ipc_token = electron_launcher.generate_session_token()
-            os.environ[IPC_TOKEN_ENV_VAR] = ipc_token
-
-            # pass the BOUND socket through to start_tcp so there's
-            # no race window between _pick_available_port's probe and the
-            # real bind() in _accept_tcp.  The kernel guarantees no other
-            # local process can claim the port between probe and listen.
-            server.start_tcp((standalone_port, standalone_sock))
-            log.info(
-                "[IPC] standalone TCP mode on port %d. Electron will connect here",
-                standalone_port,
+            # TCP transport and Electron standalone spawn were removed.
+            # The only supported transport is --ws (Tauri sidecar).
+            log.error(
+                "[IPC] No transport specified. The TCP transport was removed; "
+                "run with --ws for the Tauri sidecar WebSocket transport."
             )
-            # BP-130: publish the bound port (see --port branch above).
-            from voice_typer.server.single_instance import (
-                _record_backend_ipc_port,
-            )
+            from voice_typer.__main__ import EXIT_BAD_ARGS
 
-            _record_backend_ipc_port(standalone_port)
+            sys.exit(EXIT_BAD_ARGS)
 
-            # Launch the frontend as a subprocess. Pass the port + token
-            # via env vars so the frontend host detects them and connects
-            # directly instead of spawning its own Python backend
-            # (P1-1.2 adopted mode).
-            #
-            # MO-110: under a Tauri install the frontend is the native
-            # ``voice-typer-tauri`` binary, spawned via the same
-            # fail-closed integrity gate the autostart launcher uses,
-            # with the SAME VT_PYTHON_PORT/VT_IPC_TOKEN adopt env. The
-            # Tauri host's `adopted_backend_env` helper consumes those
-            # vars and attaches to THIS backend (no second spawn).
-            frontend_pid: int | None = None
-            try:
-                from voice_typer.server.autostart_launcher import (
-                    _is_tauri_mode,
-                    _tauri_binary,
-                )
-
-                if _is_tauri_mode():
-                    tauri_bin = _tauri_binary()
-                    if tauri_bin is not None:
-                        from voice_typer.server.autostart import tauri_spawn
-
-                        frontend_pid = tauri_spawn.launch_tauri_frontend_standalone(
-                            tauri_bin,
-                            port=standalone_port,
-                            token=ipc_token,
-                        )
-                        if frontend_pid is not None:
-                            log.info(
-                                "[STARTUP] Standalone mode, launched Tauri frontend (PID=%s) on port %d",
-                                frontend_pid,
-                                standalone_port,
-                            )
-                    else:
-                        log.warning("[STARTUP] Tauri mode but no binary resolvable; falling back to Electron path")
-            except ImportError:
-                log.debug("[IPC] Tauri launcher unavailable, using Electron path", exc_info=True)
-
-            if frontend_pid is None:
-                electron_pid = electron_launcher.launch_electron_frontend(
-                    standalone_port,
-                    ipc_token,
-                )
-            else:
-                electron_pid = frontend_pid
-            if electron_pid is not None:
-                # Track PID on the app instance so quit() can terminate
-                # the subprocess during shutdown (P1-1.3).
-                app._electron_pid = electron_pid
-                # Also register with tray_window so its existing cleanup
-                # path (which calls get_electron_pid()) still works.
-                try:
-                    from voice_typer.server.tray_window import set_electron_pid
-
-                    set_electron_pid(electron_pid)
-                except Exception:
-                    log.debug("[IPC] could not register Electron PID with tray_window", exc_info=True)
-                log.info(
-                    "[STARTUP] Standalone mode, launched Electron (PID=%s) on port %d",
-                    electron_pid,
-                    standalone_port,
-                )
-            else:
-                log.error(
-                    "[STARTUP] Standalone mode, failed to launch Electron; backend is running on port %d with no UI",
-                    standalone_port,
-                )
-
-        # Tell the frontend we're ready. Electron defers window creation until this.
+        # Tell the frontend we're ready. (WS mode exits above via
+        # sidecar_ws.run + sys.exit; this line is only reached if a
+        # future non-WS transport is re-added.)
         server.push({"type": "ready"})
         # DEBUG: the tray's own "[TRAY] Tray icon created; event loop
         # running" INFO line covers this hand-off.
