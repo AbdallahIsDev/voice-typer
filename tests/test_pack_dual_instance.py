@@ -173,7 +173,7 @@ class TestPackLock:
         # Force the PID-file fallback path (skip native flock).
         monkeypatch.setattr(offline_pack.OfflinePackLock, "_try_native_lock", lambda self: self._pid_file_fallback())
         # Make _is_process_alive return False for the stale PID.
-        monkeypatch.setattr(offline_pack, "_is_process_alive", lambda pid: False)
+        monkeypatch.setattr(offline_pack.lock, "_is_process_alive", lambda pid: False)
         lock = offline_pack.OfflinePackLock("v1", root=tmp_path, timeout_s=1.0)
         assert lock.acquire() is True
         lock.release()

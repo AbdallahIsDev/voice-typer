@@ -207,7 +207,7 @@ class TestInstallOfflinePack:
         def boom(new_dir, current_dir, **kwargs):
             raise OSError("destination open by another process")
 
-        monkeypatch.setattr(offline_pack, "atomic_swap_offline_pack", boom)
+        monkeypatch.setattr(offline_pack.install, "atomic_swap_offline_pack", boom)
 
         ok = offline_pack.install_offline_pack(archive, "5.0.0", manifest, root=tmp_path, event_bus=bus)
 
