@@ -599,12 +599,12 @@ caught at runtime by ``verify_model_integrity()`` returning False.
 
 (Session 7, Group 4): the original monolithic
 ``ALLOW_PATTERNS`` list included ``*.bin`` (a pickle-serialised
-PyTorch state-dict) which is a remote-code-execution vector.  Parakeet
+state-dict) which is a remote-code-execution vector.  Parakeet
 ships ``model.safetensors`` only and never needs ``*.bin``; allowing
 it created an injection surface where a compromised HF repo could ship
-a malicious ``pytorch_model.bin`` that the user would pull into their
-local cache (and that ``verify_model_integrity`` would then have to
-either pin or ignore).  The list is now split per backend:
+a malicious ``*.bin`` weights file that the user would pull into
+their local cache (and that ``verify_model_integrity`` would then have
+to either pin or ignore).  The list is now split per backend:
 
 - ``ALLOW_PATTERNS_PARAKEET``: safetensors + config/tokenizer JSONs.
   No ``*.bin``.  Used by ``parakeet_engine.py`` and the Parakeet path
@@ -612,8 +612,8 @@ either pin or ignore).  The list is now split per backend:
 - ``ALLOW_PATTERNS_WHISPER``: keeps ``*.bin`` because CTranslate2
   (used by ``faster_whisper``) consumes the ``model.bin`` format
   natively.  Whisper weights are only ever loaded via CTranslate2
-  and never via ``torch.load`` (the pickle-vector path), so the
-  risk is bounded.  Used by ``transcription.py::_pre_download_model``.
+  and never via the pickle-based loader, so the risk is bounded.
+  Used by ``transcription.py::_pre_download_model``.
 
 """
 
@@ -621,9 +621,8 @@ either pin or ignore).  The list is now split per backend:
 # HuggingFace Parakeet model downloads.  ``*.bin`` is intentionally
 # OMITTED, Parakeet ships ``model.safetensors`` only, and the
 # pickle-serialised ``*.bin`` format is a remote-code-execution vector
-# if a compromised HF repo were to ship a malicious
-# ``pytorch_model.bin``.  ``verify_model_integrity()`` hard-fails if a
-# pinned file is missing, so every pattern here must also have a
+# if a compromised HF repo were to ship a malicious weights file.
+# ``verify_model_integrity()`` hard-fails if a pinned file is missing, so every pattern here must also have a
 # corresponding entry in the ``files`` dict of ``model_hashes.json``
 # (or the structural check in ``verify_model_integrity()`` will pass
 # but the pinned-files check will fail).
@@ -648,7 +647,7 @@ ALLOW_PATTERNS_PARAKEET: list[str] = [
 # ONNX Runtime migration (PLAN_ONNX_INTEGRATION.md §3.5.4): allowlist
 # for the ONNX Parakeet weights (``istupakov/parakeet-tdt-0.6b-v3-onnx``
 # via the ``onnx-asr`` library). The pre-migration ``ALLOW_PATTERNS_PARAKEET``
-# above stays, it covers the torch/safetensors cache layout (still
+# above stays, it covers the legacy safetensors cache layout (still
 # downloaded by users who haven't migrated to ONNX). This new constant
 # covers the ONNX-specific files the ``onnx-asr`` library fetches:
 # ``*.onnx`` for the encoder/decoder/joint ONNX graphs, plus the
@@ -680,10 +679,9 @@ ALLOW_PATTERNS_PARAKEET_ONNX: frozenset[str] = frozenset(
 # SEC-audit-005: Allowlist for HuggingFace Whisper-family
 # downloads (``Systran/faster-whisper-*``).  CTranslate2 loads model
 # weights from ``model.bin``: this is the native on-disk format for
-# ``faster_whisper.WhisperModel`` and is NOT loaded via
-# ``torch.load`` (the pickle-vector path), so the ``*.bin`` risk is
-# bounded to "wrong weights → bad transcription" rather than "arbitrary
-# code execution".  ``model_hashes.json`` pins the SHA-256 of every
+# ``faster_whisper.WhisperModel`` and is NOT loaded via the
+# pickle-based loader, so the ``*.bin`` risk is bounded to "wrong
+# weights → bad transcription" rather than "arbitrary code execution".  ``model_hashes.json`` pins the SHA-256 of every
 # ``model.bin`` so a tampered file would be detected by
 # ``verify_model_integrity()`` before ``WhisperModel.__init__`` is
 # called.

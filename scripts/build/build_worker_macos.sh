@@ -42,7 +42,7 @@
 # The CI step is gated on hashFiles('scripts/build/build_worker_macos.sh')
 # so it stays inert until this script lands (C-CI-2: do not edit the workflow).
 #
-# CI gate contract (binding. C-CI-6/8/9/13): see build_worker_windows.sh
+# CI gate contract (binding. C-CI-6/9/13): see build_worker_windows.sh
 # header for the full rationale. Same flags apply here, with the macOS
 # platform differences: no --windows-console-mode=disable, onefile tempdir
 # spec uses ~/Library/Application Support, output has no .exe suffix,
@@ -164,16 +164,7 @@ NUITKA_ARGS=(
     --standalone --onefile
     --assume-yes-for-downloads
     --enable-plugin=anti-bloat
-    # C-CI-8 / NU-106: --module-parameter=torch-disable-jit=no stays. See
-    # build_worker_windows.sh header for full rationale.
-    --module-parameter=torch-disable-jit=no
-    # C-CI-8 / NU-106: --nofollow-import-to ONLY for the lazily-imported safe
-    # torch.* submodules. Do NOT add for torch.utils.data.distributed /
-    # torch.export / torch._functorch / torch.testing / torch.package.
-    --nofollow-import-to=torch._dynamo
-    --nofollow-import-to=torch._inductor
-    --nofollow-import-to=torch.onnx
-    --nofollow-import-to=torch.utils.benchmark
+    # NU-106 retired (Phase 1c torch-free): runtime is ONNX-only, no torch flags.
     --nofollow-import-to=transformers
     --nofollow-import-to=scipy._lib.cobyqa
     --nofollow-import-to=scipy._lib.array_api_extra.testing

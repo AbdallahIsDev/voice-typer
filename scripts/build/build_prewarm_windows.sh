@@ -163,7 +163,6 @@ echo "[build_prewarm_windows] Running Nuitka..."
     --standalone --onefile \
     --assume-yes-for-downloads \
     --jobs="$NUITKA_JOBS" \
-    --nofollow-import-to=torch \
     --nofollow-import-to=transformers \
     --nofollow-import-to=faster_whisper \
     --nofollow-import-to=ctranslate2 \

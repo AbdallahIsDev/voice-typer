@@ -240,13 +240,11 @@ def export_diagnostics() -> str:
             "python_implementation": platform.python_implementation(),
         }
 
-        # GPU / CUDA info. Phase 1c (PLAN_ONNX_INTEGRATION.md §3.7):
-        # replaced the ``torch.cuda.*`` block with
-        # ``onnxruntime.__version__`` / ``get_available_providers()``
-        # / ``get_device()`` so the CLI diagnostic producer no longer
-        # imports torch. ``nvidia-smi`` subprocess provides the GPU name
-        # + total VRAM (ORT's ``get_device()`` returns only "cuda" or
-        # "cpu"). ctranslate2 info is preserved (faster-whisper still
+        # GPU / CUDA info: uses ``onnxruntime.__version__`` /
+        # ``get_available_providers()`` / ``get_device()`` so the CLI
+        # diagnostic producer has no heavy GPU-framework import.
+        # ``nvidia-smi`` subprocess provides the GPU name + total VRAM
+        # (ORT's ``get_device()`` returns only "cuda" or "cpu"). ctranslate2 info is preserved (faster-whisper still
         # uses ctranslate2 in Phase 1c).
         try:
             import onnxruntime as ort

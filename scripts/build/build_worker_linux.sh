@@ -35,7 +35,7 @@
 # Linux worker is UNSIGNED by design (ADR-0020 §13.3, no Linux signing
 # secrets exist; the workflow's sign=true gate fails fast at lines 393-397).
 #
-# CI gate contract (binding. C-CI-6/8/9/13): see build_worker_windows.sh
+# CI gate contract (binding. C-CI-6/9/13): see build_worker_windows.sh
 # header for the full rationale. Same flags apply here, with the Linux
 # platform differences: no --windows-console-mode=disable, onefile tempdir
 # spec uses XDG_CACHE_HOME, output has no .exe suffix, binary is chmod +x'd.
@@ -241,21 +241,12 @@ if [[ -z "${NUITKA_JOBS:-}" ]]; then
 fi
 echo "[build_worker_linux] Nuitka --jobs=$NUITKA_JOBS"
 
-# C-CI-8 / NU-106: --module-parameter=torch-disable-jit=no stays. See
-# build_worker_windows.sh header for full rationale.
-# C-CI-8 / NU-106: --nofollow-import-to ONLY for the lazily-imported safe
-# torch.* submodules. Do NOT add for torch.utils.data.distributed /
-# torch.export / torch._functorch / torch.testing / torch.package.
+# NU-106 retired (Phase 1c torch-free): runtime is ONNX-only, no torch flags.
 NUITKA_ARGS=(
     --standalone --onefile
     --assume-yes-for-downloads
     --jobs="$NUITKA_JOBS"
     --enable-plugin=anti-bloat
-    --module-parameter=torch-disable-jit=no
-    --nofollow-import-to=torch._dynamo
-    --nofollow-import-to=torch._inductor
-    --nofollow-import-to=torch.onnx
-    --nofollow-import-to=torch.utils.benchmark
     --nofollow-import-to=transformers
     --nofollow-import-to=scipy._lib.cobyqa
     --nofollow-import-to=scipy._lib.array_api_extra.testing

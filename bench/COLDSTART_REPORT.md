@@ -84,8 +84,8 @@ test mock pattern.
 - Python 3.12.13 (`/home/z/.venv`)
 - Installed: `numpy`, `scipy`, `Pillow`, `psutil`, `pyperclip`, `pystray`,
   `pynput`, `librosa`
-- **Not installed:** `sounddevice`, `faster-whisper`, `transformers`,
-  `torch` (already lazy-loaded inside `transcription.py`, `vad.py`,
+- **Not installed:** `sounddevice`, `faster-whisper`, `onnxruntime`,
+  `ctranslate2` (already lazy-loaded inside `transcription.py`, `vad.py`,
   `parakeet_engine.py` etc., so their absence does not affect the import
   chain)
 - Linux + Xvfb (`:99`) for `pystray`'s import-time X11 connection
@@ -124,8 +124,8 @@ rank    self_ms     cum_ms  module
 
 Modules already lazy-loading their heavy deps correctly (good prior work):
 `tray_icon.py` (PIL via `_get_pil_image()`), `transcription.py`
-(`faster_whisper`, `torch`), `vad.py` (`torch`), `parakeet_engine.py`
-(`torch`, `transformers`), `level_monitor.py` / `server_platform.py` /
+(`faster-whisper`/`ctranslate2`), `vad.py` (`onnxruntime`), `parakeet_engine.py`
+(`onnxruntime`), `level_monitor.py` / `server_platform.py` /
 `app.py` (`sounddevice` inside functions).
 
 ---

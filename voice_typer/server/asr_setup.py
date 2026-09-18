@@ -616,7 +616,7 @@ def download_parakeet_weights(
 
     # The engine is ONNX-only post-migration (parakeet_engine.py). The
     # fp16 ONNX export (USER-selected repo, 2026-08-20) is the download
-    # target, the torch/safetensors weights (nvidia/parakeet-tdt-0.6b-v3)
+    # target, the legacy safetensors weights (nvidia/parakeet-tdt-0.6b-v3)
     # are NOT loadable by the engine anymore. ``grikdotnet/...`` is the
     # upstream original of the fp16 export (the earlier
     # ``visuall/...`` copy shipped NO config.json upstream, that is why

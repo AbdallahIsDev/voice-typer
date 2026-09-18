@@ -67,7 +67,7 @@ issue (drag-and-drop onto the GitHub editor).
 **The bundle contains:**
 
 - `system_info.json` — OS, Python version, architecture, GPU / CUDA
-  info (if `torch` is installed), `voice-typer` app version.
+  info (via `onnxruntime` providers/device + version), `voice-typer` app version.
 - `config_redacted.json` — your `~/.voice-typer/config.json` with
   secret fields redacted (API keys, cloud credentials, etc., via the
   canonical `_SECRET_CONFIG_FIELDS` frozenset from

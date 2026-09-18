@@ -152,10 +152,7 @@ NUITKA_ARGS=(
     --jobs="$NUITKA_JOBS"
     --enable-plugin=numpy
     --enable-plugin=anti-bloat
-    --nofollow-import-to=torch._dynamo
-    --nofollow-import-to=torch._inductor
-    --nofollow-import-to=torch.export
-    --nofollow-import-to=torch._functorch
+    # NU-106 retired (Phase 1c torch-free): runtime is ONNX-only, no torch flags.
     --nofollow-import-to=transformers
     --include-package=faster_whisper
     --include-package=ctranslate2

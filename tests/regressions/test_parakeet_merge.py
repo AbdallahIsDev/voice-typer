@@ -48,7 +48,7 @@ def engine_no_model() -> ParakeetEngine:
     operations and do not touch the model, so a model-less instance is
     safe for these tests.
     """
-    # Bypass __init__ which would try to import torch / load weights.
+    # Bypass __init__ which would try to load ONNX weights.
     eng = ParakeetEngine.__new__(ParakeetEngine)
     return eng
 

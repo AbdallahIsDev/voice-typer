@@ -30,23 +30,13 @@
 # The CI step is gated on hashFiles('scripts/build/build_worker_windows.sh')
 # so it stays inert until this script lands (C-CI-2: do not edit the workflow).
 #
-# CI gate contract (binding, C-CI-6/8/9/13):
+# CI gate contract (binding, C-CI-6/9/13):
 #   - nuitka==2.8.10 (C-CI-6, NU-105). Nuitka <2.8.0 crashes on numpy 2.5
 #     PEP 695 type-generic aliases. We verify the installed version below.
-#   - --module-parameter=torch-disable-jit=no (C-CI-8, NU-106), kept even
-#     though the worker does not import torch directly; the worker bundles
-#     torch as bytecode (via transitive voice_typer imports) for the prewarm
-#     cache_probe's find_spec() probe, and the torch plugin's default
-#     standalone-mode JIT disable breaks torch.jit.load on bundles that DO
-#     import torch.
-#   - --nofollow-import-to ONLY for the lazily-imported safe modules listed
-#     in C-CI-8 (torch._dynamo, torch._inductor, torch.onnx,
-#     torch.utils.benchmark, transformers, scipy.*, psutil._ps*, sympy,
-#     mpmath, pytest, PIL.* non-UI). Do NOT add --nofollow-import-to for
-#     torch.utils.data.distributed / torch.export / torch._functorch /
-#     torch.testing / torch.package, they are imported unconditionally by
-#     `import torch` (torch 2.13), and excluding them makes `import torch`
-#     raise ModuleNotFoundError inside the frozen exe (NU-106).
+#   - C-CI-8 / NU-106 retired (Phase 1c torch-free): runtime is ONNX-only, no torch flags.
+#   - --nofollow-import-to ONLY for the lazily-imported safe modules
+#     (transformers, scipy.*, psutil._ps*, sympy, mpmath, pytest,
+#     PIL.* non-UI).
 #   - --include-package-data=voice_typer.server (C-CI-9, IPD-1), the
 #     frozen worker reads package data at import time (hotkey_reserved.json,
 #     corrections.json, model_hashes.json, native/binaries.json,
@@ -177,30 +167,13 @@ mkdir -p "$WORKER_DIR"
 # so its self-extraction doesn't collide with the sidecar's or the prewarm's.
 # Different temp dir, different binary, different process.
 #
-# C-CI-8 / NU-106: --module-parameter=torch-disable-jit=no stays. The worker
-# does not import torch directly (Phase 1c swept vad.py + parakeet_engine.py
-# to ONNX), but torch is still bundled as bytecode (transitive voice_typer
-# imports pull it in; prewarm cache_probe uses find_spec on it). Nuitka's
-# torch plugin disables torch.jit by default in standalone mode; if any
-# transitive import path lands in torch.jit, the bundle crashes with
-# "module 'torch' has no attribute 'jit'": keep JIT enabled.
+# NU-106 retired (Phase 1c torch-free): runtime is ONNX-only, no torch flags.
 #
-# C-CI-8 / NU-106: --nofollow-import-to ONLY for the lazily-imported safe
-# torch.* submodules (torch._dynamo, torch._inductor, torch.onnx,
-# torch.utils.benchmark). Do NOT add --nofollow-import-to for
-# torch.utils.data.distributed / torch.export / torch._functorch /
-# torch.testing / torch.package, they are imported UNCONDITIONALLY by
-# plain `import torch` (torch 2.13), and excluding them makes `import torch`
-# raise ModuleNotFoundError inside the frozen exe.
+# --nofollow-import-to ONLY for the lazily-imported safe non-torch modules.
 NUITKA_ARGS=(
     --standalone --onefile
     --assume-yes-for-downloads
     --enable-plugin=anti-bloat
-    --module-parameter=torch-disable-jit=no
-    --nofollow-import-to=torch._dynamo
-    --nofollow-import-to=torch._inductor
-    --nofollow-import-to=torch.onnx
-    --nofollow-import-to=torch.utils.benchmark
     --nofollow-import-to=transformers
     --nofollow-import-to=scipy._lib.cobyqa
     --nofollow-import-to=scipy._lib.array_api_extra.testing

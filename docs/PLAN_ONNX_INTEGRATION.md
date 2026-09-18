@@ -1021,6 +1021,12 @@ added (mirroring `tests/test_ipc_command_registry_sync.py`).
 
 ### 8.3 Phase 1c (torch sweep) gate, revised
 
+> **Status: COMPLETED 2026-08-15.** VAD (`vad.py` via
+> `onnxruntime.InferenceSession` against the bundled `silero_vad.onnx`)
+> and Parakeet (via `onnx-asr`) no longer import torch; the AST scan of
+> `voice_typer/**/*.py` returns zero `import torch` hits. Historical gate
+> below preserved for traceability.
+
 If Option C-3 (defer Qwen) is chosen, the gate is:
 
 - `grep -ri "import torch\|from torch" voice_typer/` returns hits ONLY in
@@ -1034,6 +1040,14 @@ If Option C-3 (defer Qwen) is chosen, the gate is:
 - AGENTS.md rule C-CI-8/NU-106 retired by the user.
 
 ### 8.4 Phase 1d (Qwen → ONNX) gate, new
+
+> **Status: COMPLETED 2026-08-15.** Option C-2 shipped via the
+> pre-exported `andrewleech/qwen3-asr-*-onnx` models
+> (`voice_typer/server/qwen_onnx_model.py`); the torch `qwen-asr` path
+> was removed and `torch` / `transformers` / `qwen-asr` dropped from
+> `pyproject.toml`. Total torch removal holds (AST scan of
+> `voice_typer/`: zero `import torch` hits). Historical gate below
+> preserved for traceability.
 
 This gate is defined after the Qwen migration option is chosen (see §4.3).
 Until then, Qwen keeps torch + transformers, and the "total torch removal"

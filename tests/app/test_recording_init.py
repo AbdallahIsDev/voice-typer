@@ -3,7 +3,7 @@
 recorder-subsystem construction slice extracted from ``VoiceTyperApp``.
 
 Covers the mixin's public API on a minimal host class (no real
-``Recorder`` / ``RecordingController`` / PortAudio / torch, external
+``Recorder`` / ``RecordingController`` / PortAudio / ORT, external
 dependencies stubbed), mirroring how ``tests/app/test_dictation.py``
 exercises the ``AppDictation`` mixin surface:
 

@@ -3,7 +3,7 @@
 Pre-fix: the registry had NO notion of "this backend is currently
 inside ``transcribe_with_fallback``". The dictation pipeline called
 ``active.transcribe_with_fallback(...)`` directly (1-30s ctranslate2 /
-torch inference), and if that call hung (a stuck C-level ctranslate2
+ORT inference), and if that call hung (a stuck C-level ctranslate2
 invocation documented to hold GPU + GIL for 5-30 min), the user's next
 F2 press would call ``ensure_active_engine_loaded`` → re-enter the
 SAME stuck backend object → either queue behind the stuck call (GIL /

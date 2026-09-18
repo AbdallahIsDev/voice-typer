@@ -8,7 +8,7 @@ exception, logged it, and returned None. It did NOT call
 a failed ``change_model`` (e.g. F2 hotkey on a broken Parakeet
 install) called ``load_active`` each time, failure counter never
 incremented (backend never auto-disabled) and partially-allocated
-torch tensors / CUDA contexts from each failed ``from_pretrained``
+ORT / CUDA contexts from each failed session creation
 were never released (GPU memory accumulation across retries).
 """
 
@@ -122,7 +122,7 @@ class TestLoadActiveUnloadOnFailure:
     def test_load_active_calls_unload_on_failure(self):
         """When ``backend.load`` raises, ``load_active`` must call
         ``backend.unload()`` to release partially-allocated resources
-        (torch tensors, CUDA contexts, model weights)."""
+        (ORT sessions, CUDA contexts, model weights)."""
         registry, engine = _make_registry_with_failing_backend()
 
         registry.load_active(progress_callback=lambda msg: None)
@@ -132,8 +132,8 @@ class TestLoadActiveUnloadOnFailure:
             (
                 "load_active must call backend.unload() on "
                 "exception to release partially-allocated resources (mirror "
-                "load_with_fallback). Pre-fix, partially-allocated torch "
-                "tensors from each failed from_pretrained were never released "
+                "load_with_fallback). Pre-fix, partially-allocated ORT "
+                "sessions from each failed load were never released "
                 "across retries."
             ),
         )

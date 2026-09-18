@@ -71,7 +71,7 @@ class TestHeartbeatWatchdog:
     def test_no_trip_when_first_heartbeat_never_arrived(self) -> None:
         """A ``None`` ``_last_heartbeat_at`` means predecessor has not yet
         sent its first heartbeat. The watchdog must NOT fire, otherwise
-        a slow predecessor cold start (10+ s for the torch import) would
+        a slow predecessor cold start (10+ s for the ORT/ctranslate2 cold start) would
         cause a false-positive exit."""
         server = _make_server()
         assert server._last_heartbeat_at is None

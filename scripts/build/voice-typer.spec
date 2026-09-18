@@ -86,8 +86,8 @@ _PROJECT_ROOT = Path(_spec_script).resolve().parent.parent.parent
 _corrections_json = str(_PROJECT_ROOT / "voice_typer" / "server" / "corrections.json")
 _hotkey_reserved_json = str(_PROJECT_ROOT / "voice_typer" / "server" / "hotkey_reserved.json")
 _model_hashes_json = str(_PROJECT_ROOT / "voice_typer" / "server" / "model_hashes.json")
-# MEM-03: bundled Silero VAD JIT model (loaded by vad.py via torch.jit.load)
-_silero_vad_jit = str(_PROJECT_ROOT / "voice_typer" / "server" / "silero_vad.jit")
+# MEM-03: bundled Silero VAD ONNX model (loaded by vad.py via ORT InferenceSession)
+_silero_vad_onnx = str(_PROJECT_ROOT / "voice_typer" / "server" / "silero_vad.onnx")
 _icon_path = _PROJECT_ROOT / "scripts" / "build" / "voice-typer.ico"
 
 # NATIVE-001: native key-listener binaries.
@@ -248,7 +248,7 @@ a = Analysis(
         (_corrections_json, "voice_typer/server"),
         (_hotkey_reserved_json, "voice_typer/server"),
         (_model_hashes_json, "voice_typer/server"),
-        (_silero_vad_jit, "voice_typer/server"),
+        (_silero_vad_onnx, "voice_typer/server"),
     ]
     + _linux_scripts,
     hiddenimports=_hiddenimports,

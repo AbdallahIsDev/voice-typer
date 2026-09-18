@@ -88,19 +88,12 @@ VAD_THRESHOLD = 0.5
 _VAD_EARLY_EXIT_PROB: float = 0.95
 
 # Path to the bundled Silero VAD ONNX model (next to this file).
-# The legacy ``silero_vad.jit`` is RETAINED in the repo and the frozen
-# bundle until Phase 1c (companion §2.5). Parakeet + Qwen still need
-# torch between Phase 1a and Phase 1c, and the Nuitka flag
-# ``--module-parameter=torch-disable-jit=no`` (C-CI-8 / NU-106) stays
-# until then. Do NOT delete the .jit file or the .jit MANIFEST.in entry
-# in Phase 1a.
 _VAD_MODEL_PATH = Path(__file__).resolve().parent / "silero_vad.onnx"
 
 # Silero v4 LSTM hidden-state shape: see the module docstring's
 # "hidden-state threading" note. The buffer is hoisted to module level
 # (one per process) so every ``compute_vad_prob`` call threads the
-# running state forward, exactly mirroring the JIT-era model's internal
-# ``_model.reset_states()`` / stateful ``_model(input, sr)`` semantics.
+# running state forward, mirroring stateful VAD semantics.
 _VAD_STATE_SHAPE: tuple[int, int, int] = (2, 1, 128)
 
 # Lazy-loaded ORT session reference. Stays ``None`` until ``_load_model``
@@ -110,9 +103,7 @@ _model = None
 
 #: The LSTM hidden-state buffer threaded across ``compute_vad_prob``
 #: calls. Re-zeroed on ``reset_states()``, ``unload()``, and first load.
-#: Module-level (single per process) because the JIT model's internal
-#: state was also per-process, preserving that semantics keeps the
-#: call-site contract unchanged.
+#: Module-level (single per process), preserving the call-site contract.
 _state = None  # initialized lazily in _load_model to avoid eager numpy use
 
 # ORT I/O names discovered at load time. Silero v4 ONNX uses non-default
@@ -137,11 +128,9 @@ _preload_warmed_logged: bool = False
 def is_available() -> bool:
     """Check if Silero VAD can be loaded (onnxruntime + bundled model).
 
-    Companion §2.3.4: replaced the JIT-era ``import torch`` probe with
-    an ``onnxruntime`` probe + bundled-file existence check. Returns
-    ``True`` only when both (a) ``onnxruntime`` is importable AND (b)
-    ``silero_vad.onnx`` exists on disk, so a real ``InferenceSession``
-    can be constructed without a network round-trip.
+    Returns ``True`` only when both (a) ``onnxruntime`` is importable
+    AND (b) ``silero_vad.onnx`` exists on disk, so a real
+    ``InferenceSession`` can be constructed without a network round-trip.
     """
     try:
         import onnxruntime  # noqa: F401
@@ -164,18 +153,15 @@ def _load_model():
     Returns:
         ``(session, io_names)`` on success where ``io_names`` is the
         5-tuple ``(input, state, sr, output, stateN)`` of ORT I/O names
-        discovered at load time. ``(None, None)`` on any failure path
-       , preserves the JIT-era 2-tuple contract so callers (and tests)
+        discovered at load time. ``(None, None)`` on any failure path,
+        preserving the 2-tuple contract so callers (and tests)
         that destructure the result keep working unchanged.
 
-    Companion §2.3.3, ``providers=["CPUExecutionProvider"]`` is PINNED,
-        not defaulted. ORT's default provider list is
-        ``["CUDAExecutionProvider", "CPUExecutionProvider"]`` when
-        ``onnxruntime-gpu`` is installed. VAD is CPU-only by design
-        (the JIT-era code at vad.py:174-181 explicitly documented this
-        and intentionally did NOT probe/move to CUDA). Routing VAD to
-        GPU adds GPU→CPU upload latency per 512-sample window and
-        breaks the existing latency budget.
+    ``providers=["CPUExecutionProvider"]`` is PINNED, not defaulted.
+        ORT's default provider list includes CUDA when
+        ``onnxruntime-gpu`` is installed. VAD is CPU-only by design:
+        routing VAD to GPU adds GPU→CPU upload latency per 512-sample
+        window and breaks the existing latency budget.
     """
     global _model, _state, _input_name, _state_name, _sr_name, _output_name, _state_out_name
     if _model is not None:
@@ -302,12 +288,11 @@ def _reflect_pad_to(chunk: np.ndarray, expected: int) -> np.ndarray:
 def _run_one_inference(audio_1d: np.ndarray, sr: int) -> float:
     """Run one ORT forward pass and thread the LSTM hidden state.
 
-    Companion §2.2, the stateless ``InferenceSession`` cannot hold the
-    LSTM hidden state internally (unlike the JIT module). The caller
-    (``compute_vad_prob``) holds it at module level via ``_state``;
-    this helper passes the current state in, runs the session, and
-    stores the returned ``stateN`` back into ``_state`` so the next
-    call continues the LSTM sequence.
+    The stateless ``InferenceSession`` cannot hold the LSTM hidden
+    state internally. The caller (``compute_vad_prob``) holds it at
+    module level via ``_state``; this helper passes the current state
+    in, runs the session, and stores the returned ``stateN`` back into
+    ``_state`` so the next call continues the LSTM sequence.
 
     Args:
         audio_1d: 1-D float32 numpy array of length ``expected`` (512 at
@@ -344,9 +329,9 @@ def _run_one_inference(audio_1d: np.ndarray, sr: int) -> float:
     # against either a (1,1) ndarray or a (1,) ndarray returned by the
     # session.
     prob = float(np.asarray(out[0]).reshape(-1)[0])
-    # Thread the new hidden state forward, companion §2.2 says this is
-    # the critical step. If we forget, VAD probabilities are garbage
-    # after the first 512-sample window.
+    # Thread the new hidden state forward, this is the critical step.
+    # If we forget, VAD probabilities are garbage after the first
+    # 512-sample window.
     _state = np.asarray(out[1], dtype=np.float32)
     return prob
 
@@ -395,11 +380,9 @@ def compute_vad_prob(audio_chunk: np.ndarray, sample_rate: int = WHISPER_SAMPLE_
         chunks are inferred (speech is an "any sub-chunk contains it"
         decision, so a single high-prob sub-chunk is sufficient evidence).
 
-    Hidden-state threading (companion §2.2): each sub-chunk call
-        consumes the running ``_state`` and produces a new one, the
-        next sub-chunk inherits it. This mirrors the JIT-era model's
-        internal stateful behavior. ``reset_states()`` zeros the buffer
-        at session boundaries.
+    Hidden-state threading: each sub-chunk call consumes the running
+        ``_state`` and produces a new one, the next sub-chunk inherits
+        it. ``reset_states()`` zeros the buffer at session boundaries.
     """
     session, _names = _load_model()
     if session is None:
@@ -531,9 +514,7 @@ def preload() -> bool:
         dummy = np.zeros(512, dtype=np.float32)
         _run_one_inference(dummy, WHISPER_SAMPLE_RATE)
         # warmup pollutes the LSTM hidden state, reset to fresh zeros
-        # so the first real audio chunk starts from a clean state (the
-        # JIT-era model exposed ``reset_states()`` for the same reason;
-        # see companion §2.3.5).
+        # so the first real audio chunk starts from a clean state.
         reset_states()
     except Exception:
         # Loaded but not warmed, still usable (first chunk pays the
@@ -567,10 +548,10 @@ def unload() -> None:
         This drops the reference so Python can GC it and ORT can free the
         (CPU-only) arena. Safe to call when VAD is already unloaded (no-op).
 
-    Companion §2.3.5: also calls ``reset_states()`` so the LSTM hidden
-        buffer is zeroed, a subsequent ``preload()`` / first-chunk load
-        starts from a fresh state (otherwise stale state from the prior
-        session bleeds into the next).
+    Also calls ``reset_states()`` so the LSTM hidden buffer is zeroed:
+        a subsequent ``preload()`` / first-chunk load starts from a
+        fresh state (otherwise stale state from the prior session bleeds
+        into the next).
     """
     global _model
     _model = None
@@ -587,13 +568,12 @@ def reset_states() -> None:
         speaker/environment and produce stale probabilities. Call this at
         session boundaries (``Recorder.start()`` via ``VadProcessor.reset()``).
 
-    Companion §2.2 / §2.3.5: under the ORT backend the state lives at
-        module level (``_state``) instead of inside the JIT model.
-        Re-zeroing it here is the load-bearing reset, every
-        ``compute_vad_prob`` call threads whatever ``_state`` currently
-        holds into the next session.run, so a non-zeroed state would
-        produce garbage probabilities on the first chunk after a
-        session boundary.
+    Under the ORT backend the state lives at module level (``_state``)
+        instead of inside the model. Re-zeroing it here is the
+        load-bearing reset: every ``compute_vad_prob`` call threads
+        whatever ``_state`` currently holds into the next session.run,
+        so a non-zeroed state would produce garbage probabilities on
+        the first chunk after a session boundary.
 
         No-op if the model isn't loaded (avoids triggering a load just to
         reset state, the model starts with a fresh state on first load).
@@ -615,8 +595,8 @@ def reset():
     _model = None
     # ``reset_states()`` checks ``_model``: we just set it to None, so
     # call the inline zeroing path here directly to keep the post-condition
-    # "``_state`` is None after ``reset()``" honest (matches the JIT-era
-    # behavior where ``reset()`` cleared both the cached model and the
-    # internal LSTM state).
+    # "``_state`` is None after ``reset()``" honest (matches the behavior
+    # where ``reset()`` clears both the cached model and the internal
+    # LSTM state).
     global _state
     _state = None

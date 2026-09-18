@@ -4,10 +4,10 @@ PLAN_ONNX_INTEGRATION.md §4.3 Option C-2, implemented 2026-08-14 using the
 pre-exported ONNX model files (``andrewleech/qwen3-asr-1.7b-onnx`` /
 ``qwen3-asr-0.6b-onnx`` on HuggingFace; the export tool is
 ``andrewleech/qwen3-asr-onnx``). The export already exists upstream, so
-no ``torch.onnx.export`` is needed in this project: this module loads the
+no in-project model export is needed: this module loads the
 ONNX sessions via ``onnxruntime`` and runs the Whisper-compatible
 mel → encoder → prompt → greedy-decode pipeline described by the model
-card. No torch, no transformers, no ``qwen_asr`` package.
+card. Only ``onnxruntime`` + ``tokenizers`` are required.
 
 Model dir layout (auto-detects the ``.int4.`` quantized variants):
 
@@ -40,9 +40,8 @@ Inference pipeline (verbatim from the model card + the export tool's
 The class exposes the same ``from_pretrained(path)`` +
 ``transcribe((audio, sample_rate), language=...) -> list[Transcription]``
 surface that ``qwen_asr.Qwen3ASRModel`` exposes, so
-``QwenEngine.load()`` can swap between the torch backend and this ONNX
-backend without touching any caller (see the auto-detect logic in
-``qwen_engine.py``).
+``QwenEngine.load()`` uses it directly without touching any caller
+(see the auto-detect logic in ``qwen_engine.py``).
 
 Known validation scope (honest): the ONNX I/O names / special-token IDs /
 mel parameters were verified 2026-08-15 against the REAL export —
@@ -182,7 +181,7 @@ def _log_mel_spectrogram(audio: np.ndarray) -> np.ndarray:
     (0-8 kHz, 128 bins), ``log10(clamp 1e-10)`` → ``max(x, max-8)`` →
     ``(x+4)/4``, drop the last frame. Uses ``faster_whisper``'s
     FeatureExtractor (already a project dependency via the Whisper
-    backend) for the filterbank + torch-mirroring STFT, DRY, E7.
+    backend) for the filterbank + Whisper-compatible STFT, DRY, E7.
     """
     if audio.dtype != np.float32:
         audio = audio.astype(np.float32)
@@ -260,7 +259,7 @@ def _resolve_onnx_paths(model_dir: Path, prefer_quantized: bool) -> dict[str, Pa
 
 
 class QwenOnnxModel:
-    """ONNX Runtime Qwen3-ASR model (pre-exported files, no torch).
+    """ONNX Runtime Qwen3-ASR model (pre-exported files, ONNX-only).
 
     Drop-in replacement for ``qwen_asr.Qwen3ASRModel`` at the
     ``from_pretrained`` + ``transcribe((audio, sr), language=...)``

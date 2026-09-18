@@ -203,12 +203,11 @@ pytest
 pip install .
 ```
 
-> **Note:** the default `pip install .` pulls in the GPU-enabled torch
-> wheel (~2 GB) via the `faster-whisper` / `transformers` dependencies.
-> If you don't have an NVIDIA GPU and want a smaller CPU-only install,
-> use `pip install . --no-deps` followed by manual installation of the
-> CPU-only variants, or use the `[cpu]` extra (if available). The
-> `pyproject.toml` `dependencies` block lists the full set.
+> **Note:** the install is ONNX-only (no `torch`). The default
+> `pip install .` pulls `onnxruntime` (CPU), `onnx-asr`, and
+> `faster-whisper` / `ctranslate2` plus `tokenizers`. GPU users install
+> `onnxruntime-gpu` separately. The `pyproject.toml` `dependencies`
+> block lists the full set.
 
 The package must be installed (not just run from source) for autostart to work.
 
@@ -230,17 +229,19 @@ against `pyproject.toml` is verified by
 sync with `pyproject.toml` `pyproject.toml` is now the single source
 of truth for Python dependencies.)
 
-### Optional: Qwen ASR backend
+### Optional: Qwen ASR backend (ONNX-only, no torch)
 
-Voice Typer ships with Whisper by default. To also enable the experimental
-Qwen3-ASR-0.6B backend, install the additional dependencies:
+Whisper ships by default. The experimental Qwen3-ASR backend runs on
+ONNX Runtime via the pre-exported `andrewleech/qwen3-asr-*-onnx` models
+(see `docs/PLAN_ONNX_INTEGRATION.md` §4.3 C-2). No `torch` install is
+needed: `pip install .` already includes `onnxruntime` + `tokenizers`.
 
 ```bash
-pip install qwen-asr torch --index-url https://download.pytorch.org/whl/cpu
+pip install .
 ```
 
-For CUDA support, replace `cpu` with `cu118` or `cu121` matching your
-NVIDIA driver version. Then set `asr_backend: "qwen"` and `qwen_model_path`
+Then download an ONNX export (e.g. `andrewleech/qwen3-asr-0.6b-onnx`)
+and set `asr_backend: "qwen"` plus `qwen_model_path` (local ONNX dir)
 in the config file.
 
 ### ASR Auto-Setup
@@ -392,7 +393,7 @@ Available models (subject to Whisper upstream naming and sizes):
 | `tiny.en` | Fastest, lower accuracy |
 | `small.en` | Default, best balance of speed and accuracy |
 | `medium.en` | Higher accuracy for difficult audio |
-| `qwen` | Qwen3-ASR, requires separate installation (`pip install qwen-asr torch`) |
+| `qwen` | Qwen3-ASR via ONNX Runtime (pre-exported `andrewleech/qwen3-asr-*-onnx`, no torch needed; set `qwen_model_path` to the local ONNX dir) |
 | `parakeet` | NVIDIA Parakeet TDT v3: English-only, optimized for GPU. Weights are auto-downloaded from HuggingFace on first use. Set `asr_backend = "parakeet"` in config or pick "Parakeet" from the Models submenu. |
 
 ## Silence Detection and Auto-Stop

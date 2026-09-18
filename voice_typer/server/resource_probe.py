@@ -29,12 +29,10 @@ often caused by low memory (RAM) or insufficient disk space (affecting
 pagefile/swap). The logs emitted here help diagnose the root cause when
 paired with a crash dump.
 
-Phase 1c (PLAN_ONNX_INTEGRATION.md §6.4): the GPU-memory block was
-rewritten to drop the ``torch.cuda.*`` dependency. ``onnxruntime.get_device()``
-is used for the CUDA-availability check and ``nvidia-smi`` (or ``pynvml``
-if installed) is used for the memory query. The block is still wrapped
-in ``try/except Exception`` with DEBUG fallback so the probe remains
-best-effort.
+The GPU-memory block uses ``onnxruntime.get_device()`` for the
+CUDA-availability check and ``nvidia-smi`` (or ``pynvml`` if installed)
+for the memory query. The block is wrapped in ``try/except Exception``
+with DEBUG fallback so the probe remains best-effort.
 """
 
 import contextlib
@@ -360,14 +358,13 @@ def check_resources(*, logger: logging.Logger | None = None) -> None:
                 )
 
     # ── GPU memory check (if CUDA) ──────────────────────────────
-    # Phase 1c (PLAN_ONNX_INTEGRATION.md §6.4): replaced the 13-line
-    # ``torch.cuda.memory_*`` block with ``onnxruntime.get_device()``
-    # (CUDA-availability check) + ``nvidia-smi`` subprocess (memory
-    # query). ``pynvml`` is used if available, it is more efficient
-    # than spawning ``nvidia-smi`` per check, but the wheel is not in
-    # the project's hard deps so the subprocess is the safe fallback.
-    # The block is wrapped in the same ``try/except Exception`` pattern
-    # with DEBUG fallback as the original torch block.
+    # Uses ``onnxruntime.get_device()`` (CUDA-availability check) +
+    # ``nvidia-smi`` subprocess (memory query). ``pynvml`` is used if
+    # available, it is more efficient than spawning ``nvidia-smi`` per
+    # check, but the wheel is not in the project's hard deps so the
+    # subprocess is the safe fallback. The block is wrapped in
+    # ``try/except Exception`` with DEBUG fallback so the probe remains
+    # best-effort.
     try:
         gpu_total_mb, gpu_free_mb = _probe_gpu_memory_via_nvidia_smi()
         if gpu_total_mb is not None and gpu_free_mb is not None:

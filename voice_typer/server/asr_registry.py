@@ -230,8 +230,8 @@ class AsrBackendRegistry(RegistryCore):
                 log.info("[ASR_REGISTRY] unloaded backend: %s", target)
             except Exception:
                 # ``log.exception`` so the full traceback lands in the
-                # log, a backend.unload() failure usually means a CUDA
-                # context tear-down or torch-tensor free raised.
+                # log, a backend.unload() failure usually means a GPU
+                # context tear-down or device-memory free raised.
                 log.exception("[ASR_REGISTRY] failed to unload %s", target)
 
     # ── circuit-breaker wrapper methods ─────────────────────────────

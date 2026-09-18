@@ -58,9 +58,8 @@ _MODEL_SIZE_MB = {
     # ``large-v3-turbo`` is the fast multilingual model released by
     # OpenAI in 2024, near-large-v3 accuracy at ~8x speed.
     "large-v3-turbo": 809,
-    # Parakeet TDT 0.6b v3. ONNX fp16 export (grikdotnet repo, 2026-08-20)
-    # is ~1.28 GB uncompressed (the engine is ONNX-only post-migration;
-    # the old torch/safetensors 2.5 GB estimate is obsolete). Pre-fix the
+    # Parakeet TDT 0.6b v3 ONNX fp16 export is ~1.28 GB uncompressed
+    # (the legacy safetensors 2.5 GB estimate is obsolete). Pre-fix the
     # ``"parakeet"`` key was missing and ``_MODEL_SIZE_MB.get("parakeet", 500)``
     # fell through to the 500 MB default, so the disk-space pre-check
     # required only ~1000 MB (500 + 500 margin) and false-passed with
@@ -78,14 +77,10 @@ _DISK_SPACE_MARGIN_MB = 500
 def release_gpu_memory() -> None:
     """No-op for ONNX Runtime, kept for API compatibility.
 
-    Historically this helper called ``torch.cuda.empty_cache()`` to
-    release PyTorch's CUDA caching-allocator blocks after an engine
-    ``unload()``. After the ONNX Runtime migration
-    (PLAN_ONNX_INTEGRATION.md §5.2), torch is no longer a project
-    dependency and ONNX Runtime has **no** ``empty_cache()`` API —
-    the CUDA arena is freed automatically when the
-    ``ort.InferenceSession`` is destroyed (i.e. when the engine drops
-    its session reference and ``gc.collect()`` runs).
+    The runtime is ONNX-only and ONNX Runtime has **no**
+    ``empty_cache()`` API — the CUDA arena is freed automatically
+    when the ``ort.InferenceSession`` is destroyed (i.e. when the
+    engine drops its session reference and ``gc.collect()`` runs).
 
     The function is preserved as a no-op so existing callers in
     ``TranscriptionEngine.unload()``, ``ParakeetEngine.unload()``,
@@ -94,12 +89,11 @@ def release_gpu_memory() -> None:
     call it without modification. Tests that ``patch(...)`` the
     function still see the call, the patched mock replaces the no-op.
 
-    After total torch removal (Phase 1d), this function can be deleted
-    and callers updated to drop the call entirely.
+    This function can be deleted once callers drop the call entirely.
     """
     # Intentionally a no-op. ORT's CUDA arena is released on session
     # destroy; the caller's ``del self._session; gc.collect()`` is the
-    # equivalent of ``del model; gc.collect(); torch.cuda.empty_cache()``.
+    # equivalent of dropping the model and collecting.
     log.debug("[GPU] release_gpu_memory() is a no-op for ONNX Runtime (ORT frees the CUDA arena on session destroy)")
 
 
@@ -110,7 +104,7 @@ def is_cuda_error(exc: Exception) -> bool:
     """Return ``True`` if *exc* looks like a GPU/CUDA runtime failure.
 
     A 4-layer classifier preserved from the original
-    ``TranscriptionEngine._is_gpu_runtime_error`` body (pre-torch-removal).
+    ``TranscriptionEngine._is_gpu_runtime_error`` body.
     The plan (PLAN_ONNX_INTEGRATION.md §5.1) explicitly forbids collapsing
     this to a 4-keyword frozenset, the layered structure is what
     distinguishes a true CUDA OOM from a CPU RAM exhaustion, a ROCm
@@ -118,14 +112,12 @@ def is_cuda_error(exc: Exception) -> bool:
 
     Layers (in evaluation order, first match wins):
 
-    1. **ORT CUDA exceptions** (replaces the old
-       ``isinstance(exc, torch.cuda.OutOfMemoryError)`` check that died
-       with torch). ``onnxruntime.RuntimeException`` whose message
-       contains ``"cuda"`` or ``"gpu"`` is a CUDA-side failure.
+    1. **ORT CUDA exceptions.** ``onnxruntime.RuntimeException`` whose
+        message contains ``"cuda"`` or ``"gpu"`` is a CUDA-side failure.
     2. **RuntimeError + attribute check.** Some libraries
-       (``ctranslate2``, newer ``torch`` if installed) attach a
-       structured ``.cuda_error`` attribute to a generic
-       ``RuntimeError`` rather than raising a typed subclass.
+        (``ctranslate2`` and similar runtimes) attach a
+        structured ``.cuda_error`` attribute to a generic
+        ``RuntimeError`` rather than raising a typed subclass.
     3. **Keyword match on the exception message**, 3 keywords
        (``"cuda"``, ``"cublas"``, ``"cudnn"``). OOM is handled
        separately by :func:`is_oom_error` so a CPU RAM exhaustion
@@ -148,7 +140,7 @@ def is_cuda_error(exc: Exception) -> bool:
         ``True`` if *exc* matches any of the 4 CUDA/GPU layers.
         ``False`` otherwise.
     """
-    # Layer 1: ORT CUDA exceptions (replaces torch.cuda.OutOfMemoryError).
+    # Layer 1: ORT CUDA exceptions (replaces the typed CUDA OOM check).
     try:
         import onnxruntime as ort
 

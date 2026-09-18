@@ -1,9 +1,8 @@
 """Windows-specific NVIDIA CUDA DLL path setup.
 
 This module exposes NVIDIA wheel DLL directories (cuBLAS / cuDNN / nvRTC
-shipped by the ``nvidia-*`` pip packages or bundled under ``torch/lib``)
-to the Windows loader so that faster-whisper's CTK runtime can locate
-them at model-load time.
+shipped by the ``nvidia-*`` pip packages) to the Windows loader so that
+faster-whisper's CTK runtime can locate them at model-load time.
 
 On non-Windows platforms every entry point is a no-op, the inner
 implementation early-returns when ``is_windows()`` is false, so callers
@@ -206,11 +205,6 @@ class _NvidiaDllPathManager:
             ("nvidia", "cublas", "bin"),
             ("nvidia", "cudnn", "bin"),
             ("nvidia", "cuda_nvrtc", "bin"),
-            # The old CUDA-DLL-001 ``("torch", "lib")`` entry (torch GPU
-            # wheels place cublas64_12.dll etc. under torch/lib) was
-            # removed 2026-08-15 together with the torch dependency
-            # (PLAN_ONNX_INTEGRATION.md §4.3 C-2, torch is fully gone;
-            # there is no torch/lib to scan).
         ]
         existing_paths = os.environ.get("PATH", "").split(os.pathsep)
         new_paths: list[str] = []
@@ -290,11 +284,11 @@ def _configure_nvidia_dll_paths():
      RACE-029: serialized by ``_nvidia_config_lock`` to prevent concurrent
      calls from corrupting ``_nvidia_dll_path_handles`` and PATH.
 
-     Also gates CUDA visibility: when the runtime DLLs cannot actually be
-     loaded (CPU-only torch install, missing ``nvidia-*`` wheels), every
-     downstream ``import ctranslate2`` / ``import torch`` would otherwise
-     pay ~20s of CUDA device enumeration before falling back to CPU.
-     Setting ``CUDA_VISIBLE_DEVICES=""`` here, before those imports run
+      Also gates CUDA visibility: when the runtime DLLs cannot actually be
+      loaded (CPU-only install, missing ``nvidia-*`` wheels), every
+      downstream ``import ctranslate2`` would otherwise
+      pay ~20s of CUDA device enumeration before falling back to CPU.
+      Setting ``CUDA_VISIBLE_DEVICES=""`` here, before those imports run
     , makes them skip the GPU probe entirely (~3s vs ~22s cold) and
      keeps model loading on CPU directly.
 
@@ -328,8 +322,8 @@ def _configure_nvidia_dll_paths_locked():
 # ── CUDA runtime availability gate ────────────────────────────────────
 #
 # The CUDA runtime DLLs (cuBLAS / cuLt / cuDNN) ship with the
-# ``nvidia-*`` wheels or the GPU build of torch. NOT with a CPU-only
-# torch install. On such machines ``ctranslate2.get_cuda_device_count()``
+# ``nvidia-*`` wheels or a GPU-enabled install. NOT with a CPU-only
+# install. On such machines ``ctranslate2.get_cuda_device_count()``
 # still reports a device (the driver is present), but model load fails
 # with "cublas64_12.dll is not found or cannot be loaded", after
 # ~20s of CUDA enumeration during ``import ctranslate2``. These helpers
@@ -389,8 +383,8 @@ def _configure_cuda_visibility_if_broken() -> None:
     """Hide the GPU from downstream libraries when CUDA is unusable.
 
     Sets ``CUDA_VISIBLE_DEVICES=""`` once when the CUDA runtime DLLs
-    cannot be loaded, so ``import ctranslate2`` / ``import torch`` skip
-    the ~20s CUDA device-enumeration stall and load in CPU-only mode.
+    cannot be loaded, so ``import ctranslate2`` skips
+    the ~20s CUDA device-enumeration stall and loads in CPU-only mode.
     No-op on non-Windows, when CUDA is usable, or when the variable is
     already set (by the user or a prior call).
     """
@@ -407,5 +401,5 @@ def _configure_cuda_visibility_if_broken() -> None:
     os.environ["CUDA_VISIBLE_DEVICES"] = ""
     log.info(
         "[CUDA-DLL] Set CUDA_VISIBLE_DEVICES='': downstream imports "
-        "(ctranslate2/torch) skip CUDA enumeration (~20s) and load on CPU"
+        "(ctranslate2) skip CUDA enumeration (~20s) and load on CPU"
     )

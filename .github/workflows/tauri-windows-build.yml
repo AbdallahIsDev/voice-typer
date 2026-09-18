@@ -420,33 +420,8 @@ jobs:
           # These are conditionally imported at runtime via sys.platform
           # guards; exclude the non-Windows ones to save ~15 min of C
           # compilation. Also removed deprecated --enable-plugin=numpy.
-          # NU-106 (VAD): DO NOT add `--nofollow-import-to=torch.utils.
-          # data.distributed` — torch 2.13 imports that module
-          # UNCONDITIONALLY at torch/utils/data/__init__.py:32 (`from
-          # torch.utils.data.distributed import DistributedSampler`), so
-          # excluding it makes `import torch` raise ModuleNotFoundError
-          # inside the frozen exe. vad.py catches that as ImportError and
-          # SILENTLY DISABLES Silero VAD in the shipped binary (verified
-          # on-host with a minimal frozen probe reproducing the exact
-          # traceback; the Linux/macOS sidecars build without this flag
-          # and keep VAD). The remaining torch.* exclusions below are
-          # lazily-imported submodules and are safe to keep.
-          # NU-106 (VAD): `--module-parameter=torch-disable-jit=no` is
-          # REQUIRED — Nuitka's torch plugin disables torch.jit by
-          # default in standalone mode, and vad.py loads the bundled
-          # model via torch.jit.load(silero_vad.jit); without this flag
-          # VAD fails with "module 'torch' has no attribute 'jit'" and
-          # silently degrades to the RMS fallback (verified on-host).
-          # NU-106 (VAD): DO NOT add --nofollow-import-to for torch.export,
-          # torch._functorch, torch.testing, or torch.package — plain
-          # `import torch` loads all four UNCONDITIONALLY (verified via
-          # sys.modules after `import torch` on torch 2.13: export via
-          # torch/__init__.py:2869, testing via :2324, package via
-          # torch/_jit_internal.py:47, _functorch transitively), so
-          # excluding any of them breaks `import torch` with
-          # ModuleNotFoundError inside the frozen exe. The exclusions
-          # kept below (_dynamo, _inductor, onnx, utils.benchmark) are
-          # lazily imported and safe.
+          # NU-106 (Phase-1c DONE): torch removed runtime-wide — VAD runs on
+          # ONNX Runtime (silero_vad.onnx), no torch plugin/JIT flags needed.
           # IPD-1: the frozen sidecar loads package data at import time
           # (voice_typer/server/hotkey_reserved.json via __file__-relative
           # path in config_validators/hotkey.py, plus corrections.json,
@@ -467,11 +442,6 @@ jobs:
               --standalone --onefile `
               --assume-yes-for-downloads `
               --jobs=3 `
-              --module-parameter=torch-disable-jit=no `
-              --nofollow-import-to=torch._dynamo `
-              --nofollow-import-to=torch._inductor `
-              --nofollow-import-to=torch.onnx `
-              --nofollow-import-to=torch.utils.benchmark `
               --nofollow-import-to=transformers `
               --nofollow-import-to=scipy._lib.cobyqa `
               --nofollow-import-to=scipy._lib.array_api_extra.testing `
@@ -513,12 +483,9 @@ jobs:
       # plan-runtime-pack-split.md §11.4 — Sidecar size gate (HARD-FAIL).
       # Pre-fix (lines 509-510) only Write-Host-ed the size; a regression
       # that bloated the sidecar past 185 MB would ship silently. The 185 MB
-      # ceiling is the Phase 1c target: torch removal (Phase 1c) drops the
-      # sidecar from ~200+ MB to ~100 MB; until Phase 1c ships, this gate
-      # FAILS the build (correct signal — torch is still in the bundle).
-      # C-CI-8 retirement is a USER action; until C-CI-8 is retired AND
-      # Phase 1c is verified, expect this gate to fail on the torch-bearing
-      # sidecar. Do NOT weaken the threshold to make today's bundle pass —
+      # ceiling is the Phase 1c target: torch removal (Phase 1c DONE) drops
+      # the sidecar from ~200+ MB to ~100 MB; torch removed, gate enforces.
+      # Do NOT weaken the threshold to make an oversized bundle pass —
       # the gate's value IS its strictness.
       - name: Assert sidecar size <= 185 MB (plan §11.4, Phase 1c target)
         shell: pwsh

@@ -253,7 +253,7 @@ class TestModelSizeMbIncludesParakeet:
         bound of the ONNX fp16 export's ~1.28 GB uncompressed size).
 
         Pre-fix: 500 MB default false-passed the check with only ~1 GB free.
-        The estimate moved from 2500 (torch/safetensors, now obsolete)
+        The estimate moved from the legacy 2500 MB bundle (now obsolete)
         to 1275 (grikdotnet fp16 ONNX export, 2026-08-15).
         """
         assert "parakeet" in _MODEL_SIZE_MB, "AP-43: missing 'parakeet' key"
@@ -284,7 +284,7 @@ class TestModelSizeMbIncludesParakeet:
 
         Pre-fix: it required only 1000 MB (500 default + 500 margin) and
         false-passed when there wasn't actually enough space. The model
-        estimate moved from 2500 (torch/safetensors) to 1275 (grikdotnet
+        estimate moved from the legacy 2500 MB bundle to 1275 (grikdotnet
         fp16 ONNX export, 2026-08-15).
         """
         import shutil

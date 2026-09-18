@@ -741,7 +741,7 @@ class TranscriptionEngine:
         ``_pending_gc_collect = True`` while still holding the lock;
         the caller drops the lock and then calls us). This avoids
         blocking ``is_loaded`` / ``transcribe`` for the 10-100ms that
-        gc.collect() + ``torch.cuda.empty_cache()`` can take.
+        the deferred cleanup can take.
 
         Shared by ``_with_lock_and_deferred_gc`` (for ``transcribe_words``)
         and ``transcribe_with_fallback`` (which uses the inference-counter
@@ -908,11 +908,10 @@ class TranscriptionEngine:
         ``_configure_nvidia_dll_paths`` so the process doesn't hold
         phantom DLL refs after the model is unloaded.
 
-        also call ``torch.cuda.empty_cache()`` so the
-        PyTorch caching allocator releases freed CUDA blocks back to
-        the OS.  Without this, switching backends (Whisper → Parakeet
-        → Whisper) accumulates cached blocks and OOMs on RTX 3060/4060
-        (8–12 GB VRAM) after ~2 switches.
+        also release GPU memory via ``release_gpu_memory()`` so freed
+        CUDA blocks return to the OS. Without this, switching backends
+        (Whisper → Parakeet → Whisper) accumulates cached blocks and
+        OOMs on RTX 3060/4060 (8–12 GB VRAM) after ~2 switches.
 
         RACE-023: gc.collect() moved OUTSIDE the lock to avoid blocking
         is_loaded / transcribe for 10-100ms.

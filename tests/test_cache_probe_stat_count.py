@@ -1,7 +1,7 @@
 """DJ-46: stat-count regression test for ``cache_probe._iter_warmable_files``.
 
 The previous ``root.rglob('*')`` + ``path.is_file()`` pattern issued a
-fresh ``stat()`` syscall per file (~40 k stats for torch alone) even
+fresh ``stat()`` syscall per file (~40 k stats for a large dependency tree alone) even
 though ``readdir`` already returned the d_type for each entry. DJ-46
 replaces this with ``os.scandir`` + ``DirEntry.is_file()`` which uses
 the cached d_type, no per-file ``stat()`` on filesystems that

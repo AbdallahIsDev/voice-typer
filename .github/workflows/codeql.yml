@@ -87,7 +87,7 @@ jobs:
       # heuristic that pip-installs the project WITHOUT extras. That
       # means CodeQL's Python extractor cannot resolve heavy optional
       # imports (``sounddevice``, ``numpy``, ``pystray``, ``webrtcvad``,
-      # ``torch``, ``torchaudio``) — they appear as unresolved symbols
+      # ``onnxruntime``, ``ctranslate2``) — they appear as unresolved symbols
       # in the CodeQL database, suppressing queries that depend on
       # import-graph resolution (e.g. "unused import", "dangerous
       # global", "unreachable code after return").
@@ -99,7 +99,7 @@ jobs:
       # pytest-benchmark (~30 MB), which is acceptable on the
       # ubuntu-22.04 runner.
       #
-      # Note: the HEAVY production deps (``torch``, ``torchaudio``,
+      # Note: the HEAVY production deps (``onnxruntime``, ``ctranslate2``,
       # ``sounddevice``, ``webrtcvad``, ``pystray``) are NOT in any
       # optional extra (they're declared in ``requirements-lock.txt``
       # for the PyInstaller build only) — installing them on every
@@ -110,7 +110,7 @@ jobs:
       # remain suppressed. This is the documented trade-off in the
       # finding: "this requires a Linux runner with the heavy optional
       # deps installable" — we install the ``test`` extra but defer the
-      # heavy audio/torch deps to a future dedicated job.
+      # heavy audio/ML deps to a future dedicated job.
       #
       # JS/TS and Actions languages: keep autobuild (it correctly
       # resolves ``npm install`` + ``tsc`` for the renderer, and

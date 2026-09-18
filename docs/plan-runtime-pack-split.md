@@ -143,11 +143,16 @@ for engine internals, code sketches, and test lists.
 |---|---|---|---|
 | Silero VAD → ONNX | ✅ Convert (Phase 1a) | `silero_vad.onnx` ~2 MB, runs on `onnxruntime`. **Hidden state must be hoisted into Python**. The JIT module manages it internally, ORT does not. | A |
 | Parakeet → ONNX | ✅ Convert (Phase 1b) | Use `onnx-asr` library (Option B-1). TDT decoding handled by the library. Makes Parakeet shippable for the first time. | B |
-| Qwen → ONNX | ⏸ Defer (Phase 1d) | **Qwen is an ASR engine, not an LLM.** `onnxruntime-genai` is the wrong tool. Defer until `qwen_asr` maintainer confirms ONNX support, or export manually (Option C-2). | C |
+| Qwen → ONNX | ✅ Done (Phase 1d, 2026-08-15) | Pre-exported `andrewleech/qwen3-asr-*-onnx` via `qwen_onnx_model.py` (Option C-2, no manual export needed). Historical note: Qwen is an ASR engine, not an LLM, so `onnxruntime-genai` was the wrong tool. | C |
 | Whisper / faster-whisper / ctranslate2 | ❌ Keep as-is | ctranslate2 does NOT depend on torch (verified via lockfile). | — |
 | numpy / scipy / av / pyrnnoise / PIL | keep | Unrelated to torch. | — |
 
 ### 3.2 Torch removal scope (honest)
+
+> **Status: COMPLETED 2026-08-15 (Phase 1d).** Torch is removed from
+> VAD, Parakeet, Qwen, and the supporting modules; the AST scan of
+> `voice_typer/` returns zero `import torch` hits. Scope below preserved
+> as history.
 
 The 2026-08-12 version claimed "TOTAL torch removal." Given the Qwen
 deferral, the honest scope is:
@@ -1079,7 +1084,7 @@ Update `tauri-build.yml` download steps in lockstep.
    - Add `ALLOW_PATTERNS_PARAKEET_ONNX` to `security/model_integrity.py`.
    - Add 5 new `tests/test_parakeet_onnx_*.py`.
    - **Gate:** Parakeet parity test passes (edit distance ≤ threshold).
-3. **Phase 1c: torch sweep (except Qwen).** See `PLAN_ONNX_INTEGRATION.md` §8.3.
+3. **Phase 1c: torch sweep (except Qwen) — DONE 2026-08-15.** See `PLAN_ONNX_INTEGRATION.md` §8.3.
    - Sweep the 30+ torch import sites (§3.3).
    - Update `scripts/diagnostics.py:175-199`.
    - Update `pyproject.toml` (drop `torch>=2.0,<3.0`; keep `transformers`
@@ -1090,8 +1095,8 @@ Update `tauri-build.yml` download steps in lockstep.
    - Update doc-accuracy tests + tech-debt TODO freshness test.
    - Add `scripts/build/check_bundle_torch_free.sh` + CI step.
    - Add size gate to `tauri-windows-build.yml` (≤ 185 MB).
-   - **Gate:** `grep -ri "import torch" voice_typer/` → zero hits except
-     `qwen_engine.py`. Full workflow run, confirmed with user (C-CI-2).
+   - **Gate (superseded by Phase 1d):** `grep -ri "import torch" voice_typer/` → zero hits except
+     `qwen_engine.py`. Full workflow run, confirmed with user (C-CI-2). Met at the time, then superseded: zero hits total after Phase 1d.
    - **USER action:** retire C-CI-8 in AGENTS.md.
 4. **Phase 2a: worker exe skeleton.** See §4.4, §7.
    - New `voice_typer/worker/__main__.py` entry point.
@@ -1122,12 +1127,10 @@ Update `tauri-build.yml` download steps in lockstep.
    - Cheap existence check on launch.
    - Background checksum check.
    - Degradation matrix live in mic test + cloud paths.
-8. **Phase 1d: Qwen → ONNX (deferred).** See `PLAN_ONNX_INTEGRATION.md` §4.
-   - Decide Option C-1/C-2/C-3.
-   - If C-3 (defer indefinitely), document the decision and accept that
-     torch stays for Qwen.
-   - If C-1/C-2, execute the migration + final torch sweep on
-     `qwen_engine.py` + drop `transformers` dep.
+8. **Phase 1d: Qwen → ONNX — DONE 2026-08-15 (Option C-2).** See `PLAN_ONNX_INTEGRATION.md` §4.
+   - Decided Option C-2 (pre-exported `andrewleech/qwen3-asr-*-onnx` via
+     `qwen_onnx_model.py`); torch `qwen-asr` path removed.
+   - Final torch sweep on `qwen_engine.py` complete + `transformers` dep dropped.
 
 ---
 

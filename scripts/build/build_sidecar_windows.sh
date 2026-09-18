@@ -164,18 +164,7 @@ NUITKA_ARGS=(
     --assume-yes-for-downloads
     --jobs="$NUITKA_JOBS"
     --enable-plugin=anti-bloat
-    # NU-106 (VAD): keep torch.jit ENABLED. Nuitka's torch plugin
-    # disables JIT by default in standalone mode (sets PYTORCH_JIT=0 /
-    # omits torch.jit), which breaks torch.jit.load(silero_vad.jit) with
-    # "module 'torch' has no attribute 'jit'": Silero VAD silently
-    # degrades to RMS. Make the choice explicit.
-    --module-parameter=torch-disable-jit=no
-    --nofollow-import-to=torch._dynamo
-    --nofollow-import-to=torch._inductor
-    # NU-106 (VAD): torch.export / torch._functorch / torch.testing /
-    # torch.package are loaded UNCONDITIONALLY by plain `import torch`
-    # (torch 2.13), do NOT exclude them or `import torch` fails with
-    # ModuleNotFoundError and Silero VAD silently degrades to RMS.
+    # NU-106 retired (Phase 1c torch-free): runtime is ONNX-only, no torch flags.
     --nofollow-import-to=scipy._lib.cobyqa
     --nofollow-import-to=scipy._lib.array_api_extra.testing
     --nofollow-import-to=sympy

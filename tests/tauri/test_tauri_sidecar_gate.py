@@ -5,7 +5,8 @@ Verifies that:
 - TAURI_SIDECAR=1 disables the heartbeat watchdog thread.
 - TAURI_SIDECAR=1 skips the Python-side single-instance mutex.
 
-These tests don't boot the full app (that requires torch etc.); they
+These tests don't boot the full app (that requires heavy ORT/ctranslate2
+deps etc.); they
 test the gate logic in isolation via the public functions that read
 the env var.
 """
@@ -18,7 +19,7 @@ import os
 def test_ws_flag_sets_tauri_sidecar_env_via_argparse(monkeypatch):
     """The --ws flag triggers `os.environ["TAURI_SIDECAR"] = "1"`.
 
-    We can't easily run main() (it would try to import torch and
+    We can't easily run main() (it would try to import heavy deps and
     construct VoiceTyperApp), so we test the gate logic by re-importing
     the module with the env var set and verifying the IPCServer.start()
     path skips the heartbeat thread.
@@ -128,7 +129,7 @@ def test_heartbeat_started_without_tauri_sidecar(monkeypatch):
 def test_ws_and_port_are_mutually_exclusive(capsys, monkeypatch):
     """--ws and --port together must exit with EXIT_BAD_ARGS."""
 
-    # We can't easily run main() (it would import torch). Instead we
+    # We can't easily run main() (it would import heavy deps). Instead we
     # verify the argparse setup by parsing args manually.
     import argparse
 

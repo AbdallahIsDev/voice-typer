@@ -2,7 +2,7 @@
 
 MO-111: predecessor always passed ``KMP_DUPLICATE_LIB_OK=TRUE`` to its
 console-less Python child (the Intel OpenMP runtime aborts at
-``import torch`` when two OpenMP runtimes land in one process). The
+ORT/ctranslate2 import when two OpenMP runtimes land in one process). The
 Tauri spawn paths ``.env_clear()`` the host env, so the var must be
 re-added EXPLICITLY on every sidecar/worker spawn builder. These tests
 grep the four spawn modules for the literal so a spawn path that drops

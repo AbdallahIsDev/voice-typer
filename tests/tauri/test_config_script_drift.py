@@ -37,19 +37,14 @@ Pairs guarded here:
    onefile exe BUILDS fine but crashes on launch with FileNotFoundError
  , and the CI existence check cannot catch it.
 
-5. Sidecar Nuitka builds must NOT exclude any of the torch submodules
-   that plain ``import torch`` loads UNCONDITIONALLY on torch 2.13
-   (``torch.utils.data.distributed`` via ``utils/data/__init__.py:32``,
-   ``torch.package`` via ``_jit_internal.py:47``, ``torch.export`` via
-   ``__init__.py:2869``, ``torch.testing`` via ``__init__.py:2324``,
-   ``torch._functorch`` transitively) and must keep ``torch.jit``
-   enabled (``--module-parameter=torch-disable-jit=no``). Excluding any
-   of them makes ``import torch`` raise ModuleNotFoundError inside the
-   frozen exe, and ``vad.py`` catches that as ImportError, SILENTLY
-   disabling Silero VAD in the shipped binary while the build still
-   succeeds. Likewise Nuitka's torch plugin disables ``torch.jit`` by
-   default in standalone mode, breaking the ``torch.jit.load`` of the
-   bundled model.
+5. Nuitka builds are torch-free (Phase 1c retired the NU-106/C-CI-8
+   torch contract): the runtime is ONNX-only (``vad.py`` loads
+   ``silero_vad.onnx`` via ``onnxruntime.InferenceSession``, Parakeet
+   via onnx-asr, Qwen via onnxruntime), ``voice_typer/`` carries zero
+   ``import torch`` sites, so no build script may pass torch Nuitka
+   flags and the PyInstaller fallback spec must bundle
+   ``silero_vad.onnx``, never ``silero_vad.jit``. The ``check_bundle_torch_free.sh``
+   gate stays as the binary-level enforcement (read-only, not edited here).
 
 6. ``tauri.conf.json`` ``bundle.windows.nsis.installerHooks`` must point
    at an NSIS script (``.nsh``). Tauri ``!include``s each hook into the
@@ -440,7 +435,7 @@ class TestNuitkaBuildsIncludeVoiceTyperPackageData:
         )
 
 
-# ─── Pair 5: sidecar Nuitka builds ↔ torch.utils.data.distributed ──────────
+# ─── Pair 5: Nuitka builds are torch-free (Phase 1c) ──────────
 
 
 SIDECAR_SCRIPTS = [
@@ -449,83 +444,107 @@ SIDECAR_SCRIPTS = [
     "scripts/build/build_sidecar_macos.sh",
 ]
 
+WORKER_SCRIPTS = [
+    "scripts/build/build_worker_windows.sh",
+    "scripts/build/build_worker_linux.sh",
+    "scripts/build/build_worker_macos.sh",
+]
+
+PREWARM_SCRIPTS = [
+    "scripts/build/build_prewarm_windows.sh",
+    "scripts/build/build_prewarm_linux.sh",
+    "scripts/build/build_prewarm_macos.sh",
+]
+
+# Every Nuitka build script that freezes ``voice_typer``. The torch-free
+# invariant applies to all three processes (sidecar, worker, prewarm):
+# none of them imports torch anymore, so none may carry torch flags.
+TORCH_FREE_SCRIPTS = SIDECAR_SCRIPTS + WORKER_SCRIPTS + PREWARM_SCRIPTS
+
+PYINSTALLER_SPEC = PROJECT_ROOT / "scripts" / "build" / "voice-typer.spec"
+
 
 class TestNuitkaSidecarBuildsDoNotExcludeTorchDistributed:
-    """Sidecar Nuitka invocations must NOT exclude ``torch.utils.data.distributed``.
+    """Nuitka build scripts must stay torch-free (Phase 1c retirement of C-CI-8/NU-106).
 
-    NU-106 (VAD) regression guard: torch 2.13 imports
-    ``torch.utils.data.distributed`` UNCONDITIONALLY at
-    ``torch/utils/data/__init__.py`` line 32 (``from
-    torch.utils.data.distributed import DistributedSampler``). A
-    ``--nofollow-import-to=torch.utils.data.distributed`` flag makes
-    ``import torch`` raise ``ModuleNotFoundError`` inside the frozen
-    exe; ``voice_typer/server/vad.py`` catches that as ``ImportError``
-    and SILENTLY disables Silero VAD in the shipped binary (verified
-    on-host with a minimal frozen probe that reproduces the exact
-    traceback). The other excluded torch submodules
-    (``_dynamo``/``_inductor``/``export``/``_functorch``/``testing``/
-    ``onnx``/``package``/``utils.benchmark``) are lazily imported and
-    safe to exclude.
+    Sanctioned C-CI-8 retirement, why the old contract is gone: torch is
+    gone from the runtime (``vad.py`` uses ``onnxruntime.InferenceSession``
+    on ``silero_vad.onnx``, Parakeet via onnx-asr, Qwen via
+    onnxruntime; zero ``import torch`` sites under ``voice_typer/``), so
+    the old flags (``--module-parameter=torch-disable-jit=no`` plus every
+    ``--nofollow-import-to=torch*`` exclusion) are obsolete dead weight.
+    Keeping them would drag torch back into the bundle graph the
+    ``check_bundle_torch_free.sh`` gate exists to forbid. The old
+    presence-guards are therefore inverted here: instead of asserting
+    torch flags exist, these tests assert NONE exist, and the spec
+    bundles the ONNX model instead of the JIT one.
     """
 
     def test_no_sidecar_build_excludes_unconditionally_imported_torch_modules(
         self,
     ) -> None:
-        """Sidecar builds must not exclude any torch module ``import torch`` needs.
+        """No build script may carry any torch Nuitka flag.
 
-        torch 2.13 loads all of these at plain ``import torch`` (verified
-        via ``sys.modules`` inspection on the pinned version):
-        ``torch.utils.data.distributed`` (utils/data/__init__.py:32),
-        ``torch.package`` (_jit_internal.py:47), ``torch.export``
-        (__init__.py:2869), ``torch.testing`` (__init__.py:2324),
-        ``torch._functorch`` (transitively via export). Excluding any of
-        them makes ``import torch`` raise ModuleNotFoundError inside the
-        frozen exe, and ``vad.py`` catches that as ImportError,
-        SILENTLY disabling Silero VAD while the build still succeeds
-        (NU-106, verified on-host with a frozen probe).
+        Covers all nine sidecar/worker/prewarm scripts: neither
+        ``torch-disable-jit`` (the old ``--module-parameter`` keep-JIT
+        flag) nor any ``nofollow-import-to=torch`` exclusion (which as a
+        substring covers ``torch``, ``torch._dynamo``,
+        ``torch._inductor``, ``torch.export``, ``torch._functorch``,
+        ``torch.testing``, ``torch.package``, ``torch.onnx``, and
+        ``torch.utils.benchmark``) may appear. The runtime imports no
+        torch, so any such flag is a stale Phase-1b leftover that risks
+        re-pulling torch into the frozen bundle.
         """
         forbidden = [
-            "--nofollow-import-to=torch.utils.data.distributed",
-            "--nofollow-import-to=torch.export",
-            "--nofollow-import-to=torch._functorch",
-            "--nofollow-import-to=torch.testing",
-            "--nofollow-import-to=torch.package",
+            "torch-disable-jit",
+            "nofollow-import-to=torch",
         ]
-        targets = [WINDOWS_WORKFLOW] + [PROJECT_ROOT / s for s in SIDECAR_SCRIPTS]
-        for path in targets:
-            text = path.read_text(encoding="utf-8")
+        for rel in TORCH_FREE_SCRIPTS:
+            text = (PROJECT_ROOT / rel).read_text(encoding="utf-8")
             for flag in forbidden:
                 assert flag not in text, (
-                    f"{path.relative_to(PROJECT_ROOT)} must NOT pass {flag}: "
-                    "plain `import torch` loads that module unconditionally on "
-                    "torch 2.13, so excluding it makes `import torch` fail with "
-                    "ModuleNotFoundError inside the frozen exe and vad.py "
-                    "SILENTLY DISABLES Silero VAD (NU-106). Only lazily-"
-                    "imported torch submodules (_dynamo, _inductor, onnx, "
-                    "utils.benchmark) may be excluded."
+                    f"{rel} must NOT contain {flag!r}: the runtime is "
+                    "ONNX-only (Phase 1c, zero `import torch` sites under "
+                    "voice_typer/), torch Nuitka flags are obsolete dead "
+                    "weight and risk re-pulling torch into the bundle "
+                    "that check_bundle_torch_free.sh forbids."
                 )
 
-    def test_every_sidecar_build_keeps_torch_jit_enabled(self) -> None:
-        """All sidecar builds must pass ``--module-parameter=torch-disable-jit=no``.
+    def test_no_build_script_carries_torch_jit_flag(self) -> None:
+        """All nine builds must be free of the torch JIT module-parameter.
 
-        Nuitka's torch plugin disables ``torch.jit`` by default in
-        standalone mode; ``voice_typer/server/vad.py`` loads the bundled
-        Silero model with ``torch.jit.load(silero_vad.jit)`` and fails
-        with ``module 'torch' has no attribute 'jit'`` otherwise, VAD
-        silently degrades to the RMS fallback in the shipped binary
-        (NU-106, verified on-host).
+        Replaces the retired keep-JIT-enabled guard: Nuitka's torch
+        plugin default no longer matters because nothing imports torch.
+        Any ``torch-disable-jit`` sighting in a sidecar, worker, or
+        prewarm script is a stale leftover, not a protection.
         """
-        required = "--module-parameter=torch-disable-jit=no"
-        targets = [WINDOWS_WORKFLOW] + [PROJECT_ROOT / s for s in SIDECAR_SCRIPTS]
-        for path in targets:
-            text = path.read_text(encoding="utf-8")
-            assert required in text, (
-                f"{path.relative_to(PROJECT_ROOT)} must pass {required}: Nuitka's "
-                "torch plugin disables torch.jit in standalone mode, and vad.py "
-                "loads silero_vad.jit via torch.jit.load, without the flag VAD "
-                "fails with 'module torch has no attribute jit' and silently "
-                "degrades to the RMS fallback (NU-106)."
+        required_absent = "torch-disable-jit"
+        for rel in TORCH_FREE_SCRIPTS:
+            text = (PROJECT_ROOT / rel).read_text(encoding="utf-8")
+            assert required_absent not in text, (
+                f"{rel} must NOT pass {required_absent}: vad.py loads "
+                "silero_vad.onnx via onnxruntime, there is no "
+                "torch.jit.load left to protect (Phase 1c retirement of "
+                "the NU-106 keep-JIT guard)."
             )
+
+    def test_spec_bundles_onnx_not_jit(self) -> None:
+        """The PyInstaller fallback spec must bundle ``silero_vad.onnx``.
+
+        MEM-03 now points at the ONNX model loaded via ORT
+        ``InferenceSession``; any ``silero_vad.jit`` reference in the
+        spec would ship the legacy JIT model the torch-free gate
+        forbids.
+        """
+        text = PYINSTALLER_SPEC.read_text(encoding="utf-8")
+        assert "silero_vad.onnx" in text, (
+            "scripts/build/voice-typer.spec must reference silero_vad.onnx (the ORT-loaded VAD model)."
+        )
+        assert "silero_vad.jit" not in text, (
+            "scripts/build/voice-typer.spec must NOT reference "
+            "silero_vad.jit (legacy torch JIT model, forbidden by the "
+            "Phase 1c torch-free gate)."
+        )
 
 
 # ─── Pair 6: tauri.conf.json NSIS installerHooks ↔ NSIS script ─────────────

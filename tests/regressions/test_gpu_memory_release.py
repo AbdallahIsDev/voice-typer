@@ -108,7 +108,8 @@ class TestEnginesCallReleaseGpuMemory:
         source = inspect.getsource(TranscriptionEngine.unload)
         assert "release_gpu_memory()" in source, (
             "TranscriptionEngine.unload() must call release_gpu_memory() "
-            "to release PyTorch's CUDA cached blocks (NEW-MEM-001)"
+            "to drop the ORT InferenceSession reference so the CUDA arena "
+            "is freed on gc (NEW-MEM-001)"
         )
 
     def test_parakeet_engine_unload_calls_release(self):
@@ -120,7 +121,8 @@ class TestEnginesCallReleaseGpuMemory:
         source = inspect.getsource(ParakeetEngine.unload)
         assert "release_gpu_memory()" in source, (
             "ParakeetEngine.unload() must call release_gpu_memory() "
-            "to release PyTorch's CUDA cached blocks (NEW-MEM-001)"
+            "to drop the ORT InferenceSession reference so the CUDA arena "
+            "is freed on gc (NEW-MEM-001)"
         )
 
     def test_qwen_engine_unload_calls_release(self):
@@ -131,7 +133,7 @@ class TestEnginesCallReleaseGpuMemory:
 
         source = inspect.getsource(QwenEngine.unload)
         assert "release_gpu_memory()" in source, (
-            "QwenEngine.unload() must call release_gpu_memory() to release PyTorch's CUDA cached blocks (NEW-MEM-001)"
+            "QwenEngine.unload() must call release_gpu_memory() to drop the ORT session reference (NEW-MEM-001)"
         )
 
     def test_gpu_fallback_paths_call_release(self):

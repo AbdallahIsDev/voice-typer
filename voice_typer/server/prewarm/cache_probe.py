@@ -16,7 +16,7 @@ into the OS standby cache without importing the packages they belong to:
 - :func:`_warm_file`: sequentially read a file into the standby cache.
 - :func:`_warm_package_files`: read a package's installed files into
   the standby cache WITHOUT importing it.
-- :func:`_warm_imports`: page torch + transformers files into the OS
+- :func:`_warm_imports`: page runtime-pack library files into the OS
   cache (no import).
 
 ``_warm_file`` is defined in this module, and
@@ -58,8 +58,8 @@ _READ_CHUNK_BYTES = 4 * 1024 * 1024  # 4 MB
 # file wastes disk bandwidth and standby-cache space.
 # added ``.dylib`` (macOS dynamic libraries, equivalent to
 # ``.so`` on Linux and ``.dll`` on Windows; without it, a macOS
-# prewarm run would skip every native extension in a package like
-# ``torch`` / ``numpy`` / ``cv2``). ``.json`` / ``.txt`` are retained
+# prewarm run would skip every native extension in packages like
+# ``numpy`` / ``cv2``). ``.json`` / ``.txt`` are retained
 # because some packages (``tokenizers``, ``transformers``) read
 # tokenizer configs / vocab files at import time.
 _WARM_PACKAGE_SUFFIXES: frozenset[str] = frozenset({".pyc", ".so", ".pyd", ".dll", ".dylib", ".json", ".txt"})
@@ -102,7 +102,7 @@ _WHISPER_FALLBACK_MODEL_SIZE = "tiny"
 # by the Cache Status card. Mirrors the "at least one model file"
 # check in ``security/model_integrity.py`` (``model_extensions``):
 # Whisper ships ``model.bin``, Parakeet (ONNX engine) ships
-# ``*.onnx`` shards, and the legacy torch-era Parakeet download ships
+# ``*.onnx`` shards, and the legacy Parakeet download ships
 # ``model.safetensors`` (no longer fetched but still valid to warm if
 # present on disk).
 _MODEL_WEIGHTS_SUFFIXES: frozenset[str] = frozenset({".bin", ".onnx", ".safetensors"})
@@ -120,9 +120,8 @@ def _iter_warmable_files(root: Path) -> Iterator[Path]:
     This is the single warmable-file walker used by BOTH production
     consumers (``_warm_package_files`` and the stat-count regression
     test). It replaces the old ``root.rglob('*')`` + ``path.is_file()``
-    pattern, which issued a fresh ``stat()`` syscall per entry (~40 k
-    stats for torch alone) even though ``os.scandir`` already returned
-    the d_type for each entry.
+    pattern, which issued a fresh ``stat()`` syscall per entry even
+    though ``os.scandir`` already returned the d_type for each entry.
 
     This implementation uses an explicit ``os.scandir`` stack-walk
     (iterative, not recursive, so deep trees don't hit the recursion
@@ -213,15 +212,15 @@ def _warm_package_files(pkg_name: str) -> int:
     """Read a package's installed files into the OS page cache WITHOUT
     importing it.
 
-    Replaces the old ``import torch`` / ``import transformers`` warmup.
-    ``import`` executes the package's code (~5 s of CPU for torch) and builds
+    Replaces the old import-based warmup. ``import`` executes the
+    package's code (~5 s of CPU for heavy native packages) and builds
     live objects we immediately throw away when prewarm exits, the only
     thing we actually want is the file *bytes* resident in the OS standby
-    cache, so a later ``import torch`` in the real app reads them from RAM.
+    cache, so a later import in the real app reads them from RAM.
     Reading the files directly produces the same cache state but skips the
     CPU cost, so prewarm finishes in seconds instead of ~a minute and uses
-    far less memory.  The app still has to execute torch's code once, in its
-    own process: that is unavoidable and unchanged.
+    far less memory. The app still has to execute the library code once,
+    in its own process: that is unavoidable and unchanged.
 
     Locating the files uses ``importlib.util.find_spec`` (the import *finder*
     phase), which does NOT execute the package's code, verified by asserting
@@ -300,7 +299,7 @@ def _cached_active_config():
         return None
 
 
-# Phase 2 / Plan §6.2 P-1: the warm list after the torch removal
+# Phase 2 / Plan §6.2 P-1: the warm list for the ONNX-only runtime
 # + runtime-pack split. The OS-level schedulers (Windows LogonTrigger,
 # macOS LaunchAgent, Linux systemd) are GONE; prewarm is now a startup
 # phase of the worker exe (``voice_typer/worker/__main__.py``). The
@@ -309,15 +308,12 @@ def _cached_active_config():
 #
 # The package list is FIXED, it no longer varies by active backend.
 # Per the master plan §6.2 P-1: ``onnxruntime + ctranslate2 +
-# numpy/scipy`` (≈200 MB total, far fewer files than the old
-# torch+transformers stack: see plan §3.4). torch + transformers are
-# DROPPED because:
-#   - VAD is now Silero VAD ONNX (no torch): see PLAN_ONNX_INTEGRATION §2.
-#   - Parakeet is now ``onnx-asr`` (no transformers), see
-#     PLAN_ONNX_INTEGRATION §3.
-#   - Qwen migration (Phase 1d) is deferred; if/when Qwen ships torch,
-#     it warms in its own process (the worker exe is the runtime pack
-#     and never contains torch).
+# numpy/scipy`` (≈200 MB total, far fewer files than the old legacy
+# stack: see plan §3.4). Legacy frameworks are DROPPED because:
+#   - VAD is now Silero VAD ONNX (see PLAN_ONNX_INTEGRATION §2).
+#   - Parakeet is now ``onnx-asr``, see PLAN_ONNX_INTEGRATION §3.
+#   - Qwen is ONNX-only in the worker exe; any future variant warms in
+#     its own process (the worker exe is the runtime pack).
 #
 # ``faster_whisper`` is kept in the list because it is still the
 # Whisper backend (``ctranslate2`` is its underlying runtime, but
@@ -339,8 +335,8 @@ def _warm_imports() -> None:
     Per master plan §6.2 P-1 (worker-startup prewarm phase), the warm
     list is ``onnxruntime + ctranslate2 + numpy/scipy`` (plus
     ``faster_whisper`` for the Whisper backend's own Python files).
-    ``torch`` and ``transformers`` are DROPPED. VAD is now ONNX, Parakeet
-    is now ``onnx-asr``, and neither ships in the worker exe.
+    Legacy frameworks are excluded: VAD is ONNX and Parakeet is
+    ``onnx-asr``, and neither ships outside the worker exe.
 
     This function pages the libraries' installed files into the OS
     standby cache **without importing them** (see
@@ -351,8 +347,8 @@ def _warm_imports() -> None:
 
     BACKEND-INDEPENDENT: the list is fixed. The pre-Phase-2 code varied
     the list by ``asr_backend`` (whisper vs parakeet/qwen) because
-    parakeet/qwen pulled in the torch + transformers stack; with torch
-    gone that variation is gone too.
+    parakeet/qwen pulled in the legacy stack; with the ONNX-only
+    runtime that variation is gone too.
     """
     t0 = time.perf_counter()
     warmed: list[str] = []
@@ -761,11 +757,10 @@ def _warm_file(path: Path) -> int:
             # object on the next loop iteration's read assignment, so
             # no explicit cleanup is needed here.
     rate = (read / (1024 * 1024)) / max(time.perf_counter() - t0, 1e-6)
-    # per-file log demoted to DEBUG. Large packages (torch,
-    # transformers) contain tens of thousands of files; an INFO line
-    # per file floods ``prewarm.log`` and drowns out the per-package
-    # summary. Operators who need per-file detail can enable DEBUG
-    # via ``--debug``.
+    # per-file log demoted to DEBUG. Large packages contain tens of
+    # thousands of files; an INFO line per file floods ``prewarm.log``
+    # and drowns out the per-package summary. Operators who need
+    # per-file detail can enable DEBUG via ``--debug``.
     log.debug(
         "[PREWARM] warmed %s: %.0f MB in %.1fs (%.0f MB/s)",
         path.name,

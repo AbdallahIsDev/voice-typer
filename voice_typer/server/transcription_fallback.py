@@ -112,9 +112,9 @@ def is_gpu_runtime_error(engine, exc: Exception) -> bool:
     list was the primary check, misclassifying new error classes
     (e.g. ROCm) and triggering wrong fallbacks.
 
-    The ``isinstance(exc, torch.cuda.OutOfMemoryError)`` check was
-    replaced with :func:`is_oom_error` (shared ASR utility) so this
-    module no longer imports ``torch``. The OOM classifier is kept
+    The typed CUDA OOM check was replaced with :func:`is_oom_error`
+    (shared ASR utility) so this module has no heavy GPU-framework
+    import. The OOM classifier is kept
     separate from the CUDA classifier
     (:func:`voice_typer.server.asr_utils.is_cuda_error`) because
     ``"out of memory"`` alone is too broad, it matches CPU RAM
@@ -122,7 +122,7 @@ def is_gpu_runtime_error(engine, exc: Exception) -> bool:
     """
     if engine._device == "cpu":
         return False
-    # 1. OOM check (replaces torch.cuda.OutOfMemoryError isinstance).
+    # 1. OOM check (replaces the typed CUDA OOM isinstance check).
     #    ``is_oom_error`` is the shared classifier in
     #    ``voice_typer.server.asr_utils``: kept separate from the
     #    CUDA classifier so CPU RAM exhaustion does not false-positive.

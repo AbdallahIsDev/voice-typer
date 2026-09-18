@@ -8,12 +8,12 @@ SILENCE. Two paths exist:
    machine takes a per-frame RMS (dB) + optional Silero probability and
    returns the new state. Cheap (pure-Python state machine).
 2. :func:`voice_typer.server.vad.compute_vad_prob`: the Silero model
-   inference path. Expensive (Torch forward pass). Only invoked when
+   inference path. Expensive (ORT InferenceSession forward pass). Only invoked when
    ``use_silero_vad`` is enabled.
 
 This benchmark measures both paths and reports per-call latency. The
-Silero path is auto-skipped when torch is unavailable (the production
-code degrades to RMS-only VAD in that case).
+Silero path is auto-skipped when onnxruntime or the Silero ONNX bundle
+is unavailable (the production code degrades to RMS-only VAD in that case).
 
 Usage:
     python bench/bench_vad.py
@@ -56,7 +56,7 @@ def _make_vad_processor():
 
     # Pass a None ``vad_check_available_fn`` so VadProcessor uses its
     # own lazy import path: this mirrors production behavior. We don't
-    # want to pre-import torch for the state-machine-only benchmark.
+    # want to pre-import onnxruntime for the state-machine-only benchmark.
     return VadProcessor(_StubConfig(), vad_check_available_fn=None)
 
 
@@ -101,7 +101,7 @@ def bench_update_frame_state_machine(iterations: int) -> dict:
 def bench_compute_vad_prob(iterations: int) -> dict | None:
     """Benchmark vad.compute_vad_prob (Silero model inference).
 
-    Returns None when torch / Silero is unavailable, the production
+    Returns None when onnxruntime / Silero ONNX is unavailable, the production
     path degrades to RMS-only VAD in that case, so the benchmark
     mirrors that.
     """

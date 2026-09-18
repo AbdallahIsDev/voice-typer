@@ -181,9 +181,8 @@ jobs:
           file src-tauri/bin/python-sidecar-aarch64-apple-darwin
 
       # plan-runtime-pack-split.md §11.4 — Sidecar size gate (HARD-FAIL).
-      # Phase 1c target: ≤185 MB. Until Phase 1c ships (torch removed
-      # from vad.py + parakeet_engine.py), the sidecar carries torch +
-      # will exceed this gate — correct signal. Mirrors the Windows gate.
+      # Phase 1c target: ≤185 MB. Phase 1c DONE (torch removed from the
+      # bundle) — torch removed, gate enforces. Mirrors the Windows gate.
       - name: Assert sidecar size <= 185 MB (plan §11.4, Phase 1c target, aarch64 leg)
         run: |
           set -euo pipefail

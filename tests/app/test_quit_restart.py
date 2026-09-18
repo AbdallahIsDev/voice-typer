@@ -529,7 +529,7 @@ class TestSingleInstanceEnforcement:
         app_idx = source.index("VoiceTyperApp()")
         assert si_idx < app_idx, (
             "_ensure_single_instance must be called BEFORE VoiceTyperApp() "
-            "so a duplicate process exits before loading torch/etc."
+            "so a duplicate process exits before loading heavy modules."
         )
 
 

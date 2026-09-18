@@ -342,9 +342,9 @@ def winfunctype_alias(monkeypatch):
 #
 # Originally a single autouse ``mock_heavy_imports`` fixture ran at
 # function scope for every one of the ~12k tests, installing the SAME
-# unconditional mocks (sounddevice, faster_whisper, pystray, pyperclip,
-# torch, transformers) each time. The mocks are identical across every
-# test, so the per-test ``sys.modules.setitem`` calls (~6) + MagicMock
+# unconditional mocks (sounddevice, faster_whisper, pystray, pyperclip)
+# each time. The mocks are identical across every
+# test, so the per-test ``sys.modules.setitem`` calls (~5) + MagicMock
 # constructions (~4) were pure overhead, ~120k redundant operations
 # per session.
 #
@@ -409,49 +409,24 @@ def winfunctype_alias(monkeypatch):
 # (``mock_heavy_imports_session``) so there is no collision.
 
 
-class _FakeOutOfMemoryError(Exception):
-    """DEPRECATED, kept only for backward-compat with tests that import it.
-
-    The session fixture installs a plain ``MagicMock`` as the mocked
-    framework module, so this class is retained at module level purely so
-    a test that imports it directly does not break at collection time.
-    Tests that need OOM semantics should construct a
-    ``RuntimeError("CUDA out of memory")`` and rely on
-    :func:`voice_typer.server.asr_utils.is_oom_error` (which inspects
-    the exception *message*, not its class hierarchy).
-    """
-
-
-class _FakeTensor:
-    """DEPRECATED, kept only for backward-compat with tests that import it.
-
-    The session fixture also assigns this class as ``Tensor`` on the
-    mocked framework module: scipy's ``array_api_compat`` probes
-    ``issubclass(cls, <framework>.Tensor)`` at import time and that probe
-    needs a REAL class, not a MagicMock attribute.
-    """
-
-
-def _build_mock_torch() -> MagicMock:
-    """DEPRECATED, returns a plain ``MagicMock``, retained for backward-compat.
-
-    The helper previously attached real exception / tensor stand-ins to
-    the mock it returned; the OOM classifier and tensor ``isinstance``
-    checks it existed for are gone (see :class:`_FakeOutOfMemoryError`).
-    It is retained so any out-of-scope test that calls it directly does
-    not break at collection time.
-    """
-    return MagicMock(name="mock_torch")
+# Torch/transformers mocks were removed after the ORT migration:
+# production has no executable ``import torch`` / ``import transformers``
+# (verified via module-scope import scan), VAD runs Silero ONNX through
+# ``onnxruntime.InferenceSession`` with ``providers=[CPUExecutionProvider]``,
+# and ``scipy.signal`` imports cleanly without a torch stand-in. Tests that
+# pin the torch-free contract inject their own local fake via
+# ``monkeypatch.setitem(sys.modules, "torch", ...)`` instead of relying on
+# a global mock.
 
 
 @pytest.fixture(scope="session", autouse=True)
 def mock_heavy_imports_session():
     """Install unconditional heavy-import mocks once per worker session.
 
-    These six mocks (sounddevice, faster_whisper, faster_whisper.WhisperModel,
-    pystray, pyperclip, torch, transformers) are identical across every
+    These mocks (sounddevice, faster_whisper, faster_whisper.WhisperModel,
+    pystray, pyperclip) are identical across every
     test. Moving them from the per-test ``mock_heavy_imports`` fixture
-    to this session-scoped fixture eliminates ~6 ``sys.modules.setitem``
+    to this session-scoped fixture eliminates ~5 ``sys.modules.setitem``
     + ~4 ``MagicMock`` constructions per test × ~12k tests.
 
     Uses the ``pytest.MonkeyPatch()`` factory (instead of the
@@ -484,21 +459,10 @@ def mock_heavy_imports_session():
         mp.setitem(sys.modules, "pystray", MagicMock())
         mp.setitem(sys.modules, "pyperclip", MagicMock())
 
-        # The mocked framework module and ``transformers`` are installed
-        # because the parakeet_engine + noise_suppressor paths lazily
-        # import them.
-        #
-        # ``mock_torch.Tensor`` MUST stay a REAL class (not a MagicMock
-        # attribute): scipy.signal imports ``array_api_compat``, whose
-        # ``_issubclass_fast`` calls ``issubclass(cls, torch.Tensor)``
-        # at import time, a MagicMock attribute is not a class and
-        # raises ``TypeError``, breaking ``import scipy.signal`` under
-        # the suite (regression seen 2026-08-14 in
-        # tests/test_audio_pipeline_regressions.py).
-        mock_torch = MagicMock(name="mock_torch")
-        mock_torch.Tensor = _FakeTensor
-        mp.setitem(sys.modules, "torch", mock_torch)
-        mp.setitem(sys.modules, "transformers", MagicMock(name="mock_transformers"))
+        # NOTE: no torch/transformers mocks. Production is torch-free
+        # (ORT InferenceSession with CPUExecutionProvider is the canonical
+        # VAD path), so a global torch stand-in is dead weight. Contract
+        # tests inject their own local fake instead.
 
         # BLOCK THE REAL ``winreg`` MODULE. Setting ``sys.modules["winreg"]``
         # to ``None`` makes any later ``import winreg`` raise ImportError
@@ -560,7 +524,7 @@ def mock_heavy_imports(monkeypatch, request):
         state from a prior test leaking into the next).
 
     The unconditional mocks (sounddevice, faster_whisper, pystray,
-    pyperclip, torch, transformers) are installed ONCE per session by
+    pyperclip) are installed ONCE per session by
     :func:`mock_heavy_imports_session` and are NOT re-installed here.
 
     tests marked with @pytest.mark.real_pynput will NOT
