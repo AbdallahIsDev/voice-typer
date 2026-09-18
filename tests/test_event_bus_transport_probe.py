@@ -9,7 +9,7 @@ tray's parakeet-cpu-fallback listener) accept every event.
 
 The probe registry (``register_transport_probe`` /
 ``unregister_transport_probe`` / ``has_live_transport``) gives callers
-such as ``tray_window.open_electron_window`` a truthful delivery
+such as ``tray_window.open_app_window`` a truthful delivery
 signal: ``has_live_transport()`` is True only when a registered probe
 reports a live host client. The TCP transport (``IPCServer.start_tcp``)
 registers one reporting ``self._tcp_client is not None`` and

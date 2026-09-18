@@ -6,7 +6,7 @@
 //
 // Why this exists (HP-6): `usePython.call` stamps structured fields onto
 // thrown Errors, `.code` (the server's error-envelope code or the
-// Electron main's `_code`: ``command_timeout`` /
+// predecessor main's `_code`: ``command_timeout`` /
 // ``backend_not_connected`` / ...), `.errors` (multi-field validation
 // lists), but most catch-callers showed a generic "X failed" toast,
 // so a timeout, an unreachable backend, and a rejected value were all

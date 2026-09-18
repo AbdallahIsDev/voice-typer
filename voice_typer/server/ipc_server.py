@@ -1,10 +1,10 @@
 # handlers extracted to handlers/ package as mixins
 """JSON-lines IPC server over stdin/stdout OR TCP.
 
-Reads JSON commands from stdin (legacy) or a TCP socket (Electron),
+Reads JSON commands from stdin (legacy) or a TCP socket (the predecessor),
 dispatches to the VoiceTyperApp instance, and writes JSON responses.
 
-Usage (TCP mode, Electron)::
+Usage (TCP mode, predecessor)::
 
     python -m voice_typer.server.ipc_server --port 9876
 
@@ -320,7 +320,7 @@ from voice_typer.server.ipc.dispatcher import DispatcherMixin  # noqa: E402
 # ``inspect.getsource(ipc_server.main)`` source-string-pinning tests in
 # ``tests/test_ipc_server.py``, ``tests/test_startup_error_log_cap.py``,
 # ``tests/server/test_ipc_server_regressions.py``,
-# ``tests/test_electron_ipc_and_build.py``,
+# ``tests/test_host_ipc_and_build.py``,
 # ``tests/regressions/test_cli_exit_codes.py``,
 # ``tests/app/test_lifecycle.py``: keep working unchanged.
 # The tests' substring checks (``_frame: FrameType | None``,
@@ -504,7 +504,7 @@ class IPCServer(
         already invalidates DeviceManager._device_list_cache via
         _invalidate_device_cache) ALSO invalidates the service-layer
         5s-TTL cache (_microphones_cache_ts in MicrophoneTestMixin).
-        Without this, after a USB/BT hot-plug event the Electron UI
+        Without this, after a USB/BT hot-plug event the predecessor UI
         continues to show the stale microphone dropdown (including
         the unplugged device, missing the newly-plugged one) for up
         to 5s. Best-effort: guarded so a recorder-without-
@@ -631,11 +631,11 @@ class IPCServer(
         """Heartbeat / stdin / relaunch / shutdown-completion events."""
         # heartbeat watchdog state.
         #
-        # ``_last_heartbeat_at`` is ``None`` until Electron sends its
+        # ``_last_heartbeat_at`` is ``None`` until predecessor sends its
         # first ``heartbeat`` IPC command.  The watchdog daemon thread
         # started in ``start()`` refuses to fire ``app.quit()`` while
         # this is ``None``, so the backend doesn't exit prematurely
-        # during a slow Electron cold start (10+ seconds for the torch
+        # during a slow predecessor cold start (10+ seconds for the torch
         # import on first launch).  Once the first heartbeat lands,
         # the timestamp is updated on every subsequent heartbeat.
         self._last_heartbeat_at: float | None = None
@@ -658,10 +658,10 @@ class IPCServer(
         # the subsequent ``None`` assignment as bad-assignment. Mirrors
         # the ``_heartbeat_thread`` pattern above.
         self._stdin_thread: threading.Thread | None = None
-        # PERF-005: Electron sets this event when it receives the
-        # ``relaunch_electron`` request and is about to relaunch.  restart_app
+        # PERF-005: predecessor sets this event when it receives the
+        # ``the legacy relaunch event name`` request and is about to relaunch.  restart_app
         # waits on it (bounded by a 2s timeout) instead of a fixed time.sleep,
-        # so the tray thread is unblocked as soon as Electron acks (or after
+        # so the tray thread is unblocked as soon as predecessor acks (or after
         # the timeout).  Cleared before each wait so a stale ack from a prior
         # restart can't satisfy a fresh one.
         self._relaunch_ack_event = threading.Event()

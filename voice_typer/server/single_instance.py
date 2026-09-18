@@ -321,7 +321,7 @@ def _ensure_single_instance(silent: bool = False):
         ----------
         silent : bool
             If True, skip the Windows MessageBoxW dialog (the caller, e.g.
-            the Electron frontend, handles the "already running" UX). The
+            the predecessor frontend, handles the "already running" UX). The
             stderr line always prints regardless of ``silent``, it is the
             single user-facing "already running" diagnostic in a terminal;
             under ``pythonw.exe`` stderr is devnull so it is invisible

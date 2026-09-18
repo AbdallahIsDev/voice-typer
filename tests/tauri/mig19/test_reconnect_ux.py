@@ -16,7 +16,7 @@ backoff lives entirely in the React renderer:
      + ``supervisor_reconnected`` Tauri events and **synthesises** matching
      ``python-event`` frames (``{type:"reconnecting", ...}`` and
      ``{type:"reconnected", ...}``) so the existing
-     ``usePythonEvent`` React hook works unchanged on both Electron
+     ``usePythonEvent`` React hook works unchanged on both predecessor
      and Tauri runtimes.
 
   3. The ``useConnection`` hook (``voice_typer/client/src/renderer/src/
@@ -775,43 +775,49 @@ def test_supervisor_rs_calls_app_restart_after_exhaustion(supervisor_rs_source: 
 
 
 def test_use_python_throws_when_bridge_missing(use_python_source: str) -> None:
-    """The ``usePython`` ``call`` function must throw a JS Error when
+    """The ``usePython`` ``call`` function must reject with a JS Error when
     the Python bridge is not installed (``window.python`` undefined).
 
     This is the renderer-side error surface for "backend not
     connected", the catch block in ``useConnection``'s connection-
-    probe effect catches this throw and flips the status to
+    probe effect catches this rejection and flips the status to
     ``"disconnected"`` after the 5-retry cap.
+
+    The guard rejects instead of throwing (``return Promise.reject``),
+    which is the same observable contract for a caller awaiting the
+    promise, so this test accepts either synchronously-throwing form.
     """
     assert "Python bridge not available" in use_python_source, (
-        "usePython.ts must throw an Error with the message "
+        "usePython.ts must reject with an Error whose message is "
         "'Python bridge not available' when window.python is undefined. "
         "This is the renderer-side error surface for a missing backend."
     )
-    # The throw must come BEFORE the call to api.call (so the error
+    # The guard must come BEFORE the call to api.call (so the error
     # surfaces immediately, not after a 120s timeout). We split this
     # into two checks because the source has a multi-line comment block
-    # between the throw and the withCommandTimeout call.
-    throw_re = re.compile(
-        r"if\s*\(\s*!api\s*\)\s*throw\s+new\s+Error\s*\(\s*[\"']"
-        r"Python bridge not available[\"']\s*\)",
+    # between the guard and the withCommandTimeout call.
+    guard_re = re.compile(
+        r"if\s*\(\s*!api\s*\)\s*"
+        r"(?:throw\s+new\s+Error|return\s+Promise\.reject\s*\(\s*new\s+Error)"
+        r"\s*\(\s*[\"']Python bridge not available[\"']\s*\)",
         re.MULTILINE | re.DOTALL,
     )
-    throw_match = throw_re.search(use_python_source)
-    assert throw_match is not None, (
-        "usePython.ts must throw `new Error('Python bridge not available')` when `!api` (window.python undefined)."
+    guard_match = guard_re.search(use_python_source)
+    assert guard_match is not None, (
+        "usePython.ts must reject with `new Error('Python bridge not available')` "
+        "when `!api` (window.python undefined)."
     )
-    # Find `withCommandTimeout(\s*api.call` AFTER the throw statement.
+    # Find `withCommandTimeout(\s*api.call` AFTER the guard statement.
     # There's a multi-line comment between them, so we search the
-    # remainder of the source from the throw position forward.
-    rest = use_python_source[throw_match.end() :]
+    # remainder of the source from the guard position forward.
+    rest = use_python_source[guard_match.end() :]
     call_re = re.compile(
         r"withCommandTimeout\s*\(\s*api\.call",
         re.MULTILINE | re.DOTALL,
     )
     assert call_re.search(rest), (
         "usePython.ts must call withCommandTimeout(api.call(...)) AFTER "
-        "the `if (!api) throw` guard, otherwise the renderer would "
+        "the `if (!api)` guard, otherwise the renderer would "
         "wait for the 120s command timeout instead of surfacing the "
         "'Python bridge not available' error immediately."
     )
@@ -821,14 +827,14 @@ def test_use_python_translates_error_envelopes_to_throws(
     use_python_source: str,
 ) -> None:
     """The ``usePython`` ``call`` function must translate both error-
-    envelope shapes (the Electron main-process ``{_error: "..."}``
+    envelope shapes (the predecessor main-process ``{_error: "..."}``
     synthetic envelope AND the Python server's
     ``{type:"error", data:{code, message}}`` envelope) into real JS
     Errors so callers using ``try { await python.call(...) } catch``
     see failures instead of silent undefined-data reads.
 
     The two envelope shapes:
-      1. ``{_error: "..."}``   , Electron main-process synthetic errors
+      1. ``{_error: "..."}``   , predecessor main-process synthetic errors
                                     (backend-not-connected, send-exception).
       2. ``{type:"error", data:{...}}``, Python server unhandled-dispatch
                                     exceptions (with code + message).
@@ -836,13 +842,13 @@ def test_use_python_translates_error_envelopes_to_throws(
     On Tauri, NEITHER in-code check is reachable (the Rust ``dispatch``
     command rejects the invoke promise on ``type:"error"`` BEFORE the
     resolved value reaches JS), but the same ``usePython.ts`` bundle
-    ships under both hosts, these checks are load-bearing on Electron
+    ships under both hosts, these checks are load-bearing on predecessor
     and harmless no-ops on Tauri.
     """
     # Check 1: _error envelope
     assert '"_error"' in use_python_source, (
         "usePython.ts must inspect the resolved result for an `_error` "
-        "field (Electron main-process synthetic error envelope) and "
+        "field (predecessor main-process synthetic error envelope) and "
         "throw a JS Error so callers' catch blocks fire."
     )
     # Check 2: type:"error" envelope

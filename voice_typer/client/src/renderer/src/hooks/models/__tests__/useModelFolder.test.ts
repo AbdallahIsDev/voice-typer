@@ -108,7 +108,7 @@ describe("useModelFolder, initial state (phantom probes removed)", () => {
 describe("useModelFolder, handleImportModel error paths", () => {
 	it("bails out with a warning snack when window.window_ is unavailable (no desktop host bridge)", async () => {
 		// No window.window_ stub installed, simulates running outside
-		// Electron (e.g. in a browser dev shell or a test environment
+		// predecessor (e.g. in a browser dev shell or a test environment
 		// without the preload bridge).
 		clearWindowBridge();
 

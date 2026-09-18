@@ -137,14 +137,11 @@ dependencies = [
     # The `>=1.7` floor matches the first release with the `mouse.Listener`
     # `suppress=True` flag we use for the bubble-drag capture path.
     "pynput>=1.7,<2.0",
-    # torch + transformers + qwen-asr REMOVED 2026-08-15 (Phase 1d):
-    # qwen_engine.py migrated to the ONNX-only backend
-    # (qwen_onnx_model.py, pre-exported andrewleech/qwen3-asr-*-onnx
-    # via onnxruntime, no torch). Parakeet + VAD were already ONNX
-    # (Phase 1b/1c). torch>=2.0,<3.0, transformers>=5.14.1,<6.0 and the
-    # `qwen-asr` extra were the LAST torch-family deps; nothing imports
-    # them anymore (verified `grep -rn "^import torch" voice_typer/` →
-    # 0 hits). The installer is now torch-free.
+    # torch + transformers + qwen-asr REMOVED 2026-08-15: qwen_engine.py
+    # migrated to the ONNX-only backend (qwen_onnx_model.py,
+    # pre-exported andrewleech/qwen3-asr-*-onnx via onnxruntime).
+    # Parakeet + VAD were already ONNX. Nothing imports the removed
+    # framework deps anymore; the shipped runtime is ONNX-only.
     # Phase 1b (§3.3 Option B-1): onnx-asr provides the
     # `load_model(name, path=..., quantization=..., providers=...)`
     # function + `recognize(audio, *, sample_rate=...)` adapter used by
@@ -186,7 +183,7 @@ dependencies = [
     # (qwen_onnx_model.py, ``Tokenizer.from_file`` for the ASR prompt
     # decode). It is pulled transitively by the declared
     # ``transformers>=5.14.1`` dep, but the ONNX path (PLAN_ONNX_INTEGRATION
-    # §4.3 C-2) intends to be the torch-free Qwen option, so the direct
+    # §4.3 C-2) is the framework-free Qwen option, so the direct
     # import gets a direct declaration (E13, declare what you import;
     # survives the eventual transformers removal at Phase 1d).
     "tokenizers>=0.21,<1",
@@ -286,7 +283,7 @@ dependencies = [
     # wheel our CI matrix needs.
     "pyrnnoise>=0.4,<1.0; platform_machine != 'arm64' or sys_platform != 'darwin'",
     # ADR-0020 §14: websockets is required for the Tauri sidecar
-    # transport. The retired Electron path used raw TCP and did not need
+    # transport. The retired predecessor path used raw TCP and did not need
     # this dep, but it is small (~200 KB) and pure-Python, so it's safe
     # to install everywhere. Lazy-imported in sidecar_ws.py so
     # non-WebSocket paths don't pay the import cost.
@@ -387,7 +384,7 @@ macos = []
 linux = ["dbus-python>=1.3,<2; sys_platform == 'linux'"]
 # ADR 0007: Noise filtering. RNNoise is now a default dep (above).
 # noisereduce is removed (post-capture denoise deleted per ADR 0007 §3.8).
-# DeepFilterNet is offered as a premium alternative to RNNoise (requires torch).
+# DeepFilterNet is offered as a premium alternative to RNNoise.
 deepfilternet = [
     "deepfilternet>=0.5,<1",
 ]
@@ -476,7 +473,7 @@ baseline = "pyrefly-baseline.json"
 #
 # TASK-13: extended `search-path` to also include the project venv's
 # site-packages. The directive reported 73 false-positive
-# `missing-import` (Class A) errors for third-party deps (numpy, torch,
+# `missing-import` (Class A) errors for third-party deps (numpy,
 # scipy.signal, huggingface_hub, PIL, pynput.*, sounddevice, pyperclip,
 # transformers, psutil, faster_whisper, ctranslate2, pystray, win32gui,
 # win32com.client, qwen_asr). Those are NOT real code bugs, pyrefly
@@ -492,7 +489,7 @@ baseline = "pyrefly-baseline.json"
 # venv to `search-path` drops missing-imports from 73 → 2 (win32gui,
 # win32com.client, all platform-only / optional, already in
 # `pyrefly-baseline.json`). With the baseline applied, missing-imports
-# drop to 0. (qwen_asr + torch + transformers removed 2026-08-15.)
+# drop to 0. (qwen_asr + transformers removed 2026-08-15.)
 #
 # Note: the hardcoded `.venv/lib/python3.12/site-packages`
 # entry was REMOVED from `search-path`. Rationale: pyrefly 1.x
@@ -673,18 +670,12 @@ filterwarnings = [
     # filter was dead config. RULE: when you delete a module, remove its
     # warning filter in the same PR so pyproject.toml never references
     # code that no longer exists.
-    # Phase 1c (2026-XX-XX): the `ignore::DeprecationWarning:torch.jit._serialization`
-    # filter was REMOVED. The filter was added when `vad.py` loaded
-    # Silero VAD via `torch.jit.load(silero_vad.jit)`, which triggered a
-    # DeprecationWarning from `torch/jit/_serialization.py`. After the
-    # Phase 1a migration, `vad.py` uses `onnxruntime.InferenceSession`
-    # (verified via `grep -rn "torch.jit.load" voice_typer/` → 0 hits in
-    # the runtime code; the only remaining `torch.jit.load` call is in
-    # `scripts/build/export_silero_vad_onnx.py:114`, a build-time script
-    # that is NOT imported by pytest). The filter is now dead config —
-    # keeping it would violate the same RULE that retired the settings
-    # filter above. RULE: when a code path that triggers a warning is
-    # deleted, remove the warning filter in the same PR so pyproject.toml
+    # The `<framework>.jit._serialization` DeprecationWarning filter was
+    # RETIRED: `vad.py` now loads Silero VAD through
+    # `onnxruntime.InferenceSession`, so nothing triggers that deprecation
+    # anymore. Keeping it would violate the same RULE that retired the
+    # settings filter above. RULE: when a code path that triggers a warning
+    # is deleted, remove the warning filter in the same PR so pyproject.toml
     # never references code that no longer triggers it.
     # pytest-benchmark emits a PytestBenchmarkWarning on every xdist
     # worker startup ("Benchmarks are automatically disabled because
@@ -699,7 +690,7 @@ filterwarnings = [
     # ratchet, once a voice_typer deprecation is fixed it can never
     # silently regress. The filter is scoped to ``voice_typer`` (the
     # ``module`` regex field) so third-party DeprecationWarnings (e.g.
-    # from torch, sounddevice, faster_whisper) are NOT affected, only
+    # from sounddevice, faster_whisper) are NOT affected, only
     # warnings raised by code inside the ``voice_typer`` package itself.
     # Listed LAST so it takes precedence (pytest prepends filters in
     # list order; the last entry is checked first by the warnings

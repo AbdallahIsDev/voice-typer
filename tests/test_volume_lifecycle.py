@@ -473,11 +473,11 @@ class TestQuitRestoresVolumeInstantly:
 
 class TestRestartRestoresBeforeExiting:
     """§7.6 + fix-restart-tcp: restart_app() must restore volume BEFORE
-    exiting so the user's audio isn't left ducked while Electron spawns
+    exiting so the user's audio isn't left ducked while predecessor spawns
     the replacement Python process (which can take a few seconds for
     the Python interpreter + torch import).  Previously this asserted
     that restore happened before ``subprocess.Popen``, but
-    fix-restart-tcp removed the Popen call entirely (Electron is now
+    fix-restart-tcp removed the Popen call entirely (predecessor is now
     the sole spawner), so the assertion now checks that restore
     happens before ``sys.exit(0)``."""
 

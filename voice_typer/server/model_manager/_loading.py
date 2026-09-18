@@ -516,7 +516,7 @@ class LoadingMixin:
         """Ensure the active backend's engine exists; lazy-init if missing.
 
         Called from VoiceTyperApp._start_dictation to handle the case
-        where the user changed the backend via Electron UI after startup
+        where the user changed the backend via predecessor UI after startup
         (so the engine wasn't created during __init__).
 
         previously two threads could both pass the

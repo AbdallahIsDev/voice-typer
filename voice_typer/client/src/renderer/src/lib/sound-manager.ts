@@ -5,7 +5,7 @@
  *
  *  1. ``_audioContextInitAttempted = true`` was set BEFORE the constructor
  *     ran, so if the AudioContext construction threw (e.g. on a locked-down
- *     browser/Electron config), the manager NEVER retried, every
+ *     browser/predecessor config), the manager NEVER retried, every
  *     subsequent ``playSoundCue`` was a silent no-op.
  *
  *  2. AudioContext starts in "suspended" state until a user gesture

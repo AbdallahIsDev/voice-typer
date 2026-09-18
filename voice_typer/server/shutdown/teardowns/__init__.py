@@ -14,7 +14,7 @@ so:
 * the parallel batch in ``_do_cleanup`` (which references
   ``self._teardown_recorder`` etc.) keeps working unchanged;
 * tests that ``monkeypatch.setattr(controller, "_teardown_recorder", spy)``
-  / ``controller._teardown_electron()`` keep intercepting the call (see
+  / ``controller._teardown_host_child()`` keep intercepting the call (see
   ``tests/test_shutdown_parallel.py`` and
   ``tests/test_shutdown_asr_unload.py``);
 * the controller's class body shrinks from ~1622 LOC to an

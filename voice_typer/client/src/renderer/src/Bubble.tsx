@@ -84,7 +84,7 @@ function getBubbleApi(): BubbleWindowBubble | undefined {
 // user-facing help as mouse-drag-only. This is a deliberate product
 // decision: the bubble is a tiny always-on-top pill that the user
 // occasionally drags to a new spot; a global hotkey would consume a
-// valuable shortcut and add cross-platform complexity (Electron
+// valuable shortcut and add cross-platform complexity (predecessor
 // `globalShortcut` on Windows/macOS, X11 grab on Linux) for a feature
 // with low expected usage. The main-process `bubble:move-by` IPC
 // handler (in `main/ipc/bubble-handlers.ts`) is preserved so a future

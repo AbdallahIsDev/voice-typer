@@ -571,7 +571,7 @@ class OnboardingController:
         carry the ``tccutil reset Accessibility <bundle-id>`` re-grant
         command with the bundle ID resolved at RUNTIME
         (``resolve_host_bundle_id``), never hardcoded, so both the
-        Electron and Tauri builds show the command for the actually
+        predecessor and Tauri builds show the command for the actually
         running host. The renderer supports both the new key-based
         shape and the legacy literal shape (``title`` / ``steps``) for
         backward compatibility with older backends and test mocks.
@@ -601,7 +601,7 @@ class OnboardingController:
                 # The re-grant command embeds the host app's bundle ID,
                 # resolved at RUNTIME from the nearest ``*.app`` in the
                 # parent-process chain (``resolve_host_bundle_id``) so
-                # both the Electron and Tauri builds show the correct
+                # both the predecessor and Tauri builds show the correct
                 # ``tccutil`` command and a future bundle-identifier
                 # change needs no code edit, mirrors the a11y re-grant
                 # notification in ``startup_tasks.py``. ``None`` when

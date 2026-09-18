@@ -4,7 +4,7 @@
 // `window.python` was undefined at mount, and the effect's only
 // dependency was `[type]`, so if `window.python` was installed later
 // (e.g. by the Tauri bridge's auto-install on first import, or by the
-// Electron preload under slow HMR), the subscription was never
+// predecessor preload under slow HMR), the subscription was never
 // re-attempted and events were silently dropped.
 //
 // `useBridgeReady` polls `window.python` presence every 100ms until it
@@ -22,7 +22,7 @@ import { useSyncExternalStore } from "react";
 // Tauri v2 with `withGlobalTauri: true`). The installer itself is
 // idempotent (no-ops when not in Tauri mode or when the namespaces
 // are already installed), so the hook stays transport-agnostic:
-// it never touches Tauri or Electron APIs directly, only
+// it never touches Tauri or predecessor APIs directly, only
 // `window.python` + the idempotent installer.
 import { installTauriBridge } from "@/lib/tauri-bridge";
 
@@ -101,7 +101,7 @@ function getBridgeReadyServerSnapshot(): boolean {
 }
 
 /**
- * Returns `true` once `window.python` is installed (by the Electron
+ * Returns `true` once `window.python` is installed (by the predecessor
  * preload script or by `installTauriBridge()`). Re-render-safe via
  * `useSyncExternalStore`: the snapshot is a stable boolean.
  *

@@ -252,7 +252,7 @@ pub(super) fn spawn_reader_task(
                         // Recording started: the sidecar published
                         // `bubble_show`, so the bubble OS window (created
                         // hidden) must be shown — the Tauri equivalent of
-                        // Electron's main-process show on record start.
+                        // the predecessor's main-process show on record start.
                         // Best-effort: a show failure must never break the
                         // event fan-out below (the bubble renderer still
                         // gets its `bubble:show` for content state).
@@ -281,7 +281,7 @@ pub(super) fn spawn_reader_task(
                         // DEFAULT delivery = the specific event (for direct
                         // listeners) AND the generic `python-event` envelope
                         // (for the usePython hook's onEvent catch-all,
-                        // matching the Electron path's
+                        // matching the predecessor path's
                         // ipcRenderer.on("python-event")). The ONLY exception
                         // is `bubble_level`, handled above by its typed-only
                         // fast path; the `is_high_rate_event_type` guard stays
@@ -303,13 +303,7 @@ pub(super) fn spawn_reader_task(
                                 .emit("python-event", python_event_envelope(emit_name, payload));
                         }
 
-                        // the legacy `electron_notification` →
-                        // `notification` alias block was REMOVED. The
-                        // Python sidecar now publishes `notification`
-                        // directly (and `electron_notification` is no
-                        // longer in `ALLOWED_EVENT_TYPES`, so legacy
-                        // frames are dropped earlier with a `[WS-READER]
-                        // dropping unknown event type:` log line).
+                        // Python sidecar publishes `notification` directly.
                     }
                     Ok(Message::Close(_)) => {
                         log::info!("[WS-READER] sidecar closed the WS");

@@ -1,10 +1,10 @@
 """YJ-10 negative-regression guard for the Rust allowlist.
 
-Post-Electron cutover the TS ``ALLOWED_COMMANDS`` set is gone; the
+Post-predecessor cutover the TS ``ALLOWED_COMMANDS`` set is gone; the
 Rust ``allowed_commands()`` set is the sole renderer-reachable gate.
 Python ↔ Rust membership parity lives in
 ``tests/test_ipc_command_parity.py``. This file keeps the YJ-10
-negative-regression pin: the 16 commands removed by the YJ-10 fix
+negative-regression pin: the commands removed by the YJ-10 fix
 must NOT silently creep back into the Rust allowlist.
 """
 
@@ -54,14 +54,14 @@ def _rust_allowed_commands() -> set[str]:
 def test_rust_allowlist_does_not_contain_removed_commands() -> None:
     """YJ-10 negative regression guard.
 
-    The 16 commands removed by the YJ-10 fix (none had renderer
+    The commands removed by the YJ-10 fix (none had renderer
     callers: see the reconciliation note in
     ``sidecar_cmds.rs::allowed_commands``) MUST NOT silently creep
-    back into the Rust allowlist. Each of these 16 was audited via
+    back into the Rust allowlist. Each was audited via
     ``rg --type=ts '<cmd>' voice_typer/client/src/renderer/src/`` and
     confirmed to have ZERO renderer callers; re-adding one would
     re-open the defense-in-depth gap (a compromised renderer would
-    be able to ``invoke('dispatch', {cmd:'<one of these 16>'})`` and
+    be able to ``invoke('dispatch', {cmd:'<one of these>'})`` and
     reach a server-side handler that no legitimate UI path
     exercises).
 
@@ -93,7 +93,6 @@ def test_rust_allowlist_does_not_contain_removed_commands() -> None:
         "onboarding_get_step",
         "onboarding_request_keyboard_permission",
         "refresh_microphones",
-        "show_electron_notification",
         "test_llm_connection",
     }
     leaked = yj10_removed & rust

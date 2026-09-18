@@ -3,8 +3,8 @@
 ; This file is `!include`d by Tauri v2's NSIS bundler ONLY
 ; (src-tauri/tauri.conf.json -> bundle.windows.nsis.installerHooks, must
 ; be an .nsh here, NOT the .bat: NSIS cannot `!include` a batch file).
-; The former electron-builder `nsis.include` wiring is gone with the
-; Electron host (removed 2026-09-17). It defines the
+; The former builder `nsis.include` wiring is gone with the
+; previous host (removed 2026-09-17). It defines the
 ; `customUnInstall` macro that NSIS runs during the uninstall phase,
 ; AFTER the main app files are removed but BEFORE the installer exits.
 ; We use it to clean up per-user artifacts that survive the file

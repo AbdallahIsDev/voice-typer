@@ -9,8 +9,8 @@ as long as the user-facing behavior is preserved.
 
 Mapping (meta-test in test_bugfix_regressions.py → behavioral test here):
 
-- ``test_electron_launch_sites_use_log_files_not_devnull``
-  → ``TestElectronLogFilesBehavioral::test_all_electron_launch_sites_call_log_files_helper``
+- ``test_legacy_launch_sites_use_log_files_not_devnull``
+  → ``TestLegacyLogFilesBehavioral::test_all_legacy_launch_sites_call_log_files_helper``
 - ``test_get_icon_path_looks_for_base_ico``
   → ``TestTrayIconBaseIcoBehavioral::test_get_icon_path_returns_ico_when_available``
 - ``test_check_accessibility_ipc_handler_exists``
@@ -35,7 +35,7 @@ import pytest
 # removed. ``crash_handler.py`` now gates the ``@ctypes.WINFUNCTYPE(...)``
 # decorator behind ``sys.platform == "win32"``, so the module imports
 # cleanly on Linux/macOS without any test-infrastructure shim.
-# ─── PORT 1: Electron launch sites call _electron_log_files() ────────────
+# ─── PORT 1: legacy launch sites call the log-files helper ────────────
 
 
 # ─── _get_icon_path returns .ico when available ──────────────────

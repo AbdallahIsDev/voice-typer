@@ -27,7 +27,7 @@ password). These tests therefore:
   - validate the CI workflow runs ``xcrun stapler validate`` (verification),
   - validate the signing identity env var is wired (``MAC_SIGNING_IDENTITY``
     per docs/migration/signing-guide.md + ADR-0020 §13.2, the same env
-    var the existing Electron build uses; the MIG-1.8 task spec referred
+    var the existing predecessor build uses; the MIG-1.8 task spec referred
     to this as ``MACOS_SIGNING_IDENTITY`` but the codebase + signing guide
     use ``MAC_SIGNING_IDENTITY``, so this test accepts EITHER name),
   - validate the notarization credentials env vars are wired (either
@@ -366,7 +366,7 @@ def test_workflow_references_signing_identity_env_var(workflow_text: str):
 
     ADR-0020 §13.2 + docs/migration/signing-guide.md 'Reused signing
     identities' table: the macOS signing identity is passed via the
-    ``MAC_SIGNING_IDENTITY`` env var (same env var the existing Electron
+    ``MAC_SIGNING_IDENTITY`` env var (same env var the existing predecessor
     build uses, no cert duplication in CI). The value format is:
 
         "Developer ID Application: Your Name (XXXXXXXXXX)"
@@ -374,7 +374,7 @@ def test_workflow_references_signing_identity_env_var(workflow_text: str):
     NOTE: the MIG-1.8 task spec referred to this env var as
     ``MACOS_SIGNING_IDENTITY``, but the codebase + signing-guide.md +
     ADR-0020 §13.2 all use ``MAC_SIGNING_IDENTITY`` (the existing
-    Electron-build env var name). This test accepts EITHER name to
+    predecessor-build env var name). This test accepts EITHER name to
     accommodate both conventions; the codebase currently uses
     ``MAC_SIGNING_IDENTITY``.
     """
@@ -384,7 +384,7 @@ def test_workflow_references_signing_identity_env_var(workflow_text: str):
         "tauri-macos-build.yml references NEITHER 'MAC_SIGNING_IDENTITY' "
         "NOR 'MACOS_SIGNING_IDENTITY' env var. ADR-0020 §13.2 + "
         "signing-guide.md mandate a Developer ID Application signing "
-        "identity env var (the existing Electron build uses "
+        "identity env var (the existing predecessor build uses "
         "'MAC_SIGNING_IDENTITY')."
     )
 

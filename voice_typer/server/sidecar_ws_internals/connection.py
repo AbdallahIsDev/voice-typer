@@ -111,7 +111,7 @@ def _get_ws_connection_semaphore(server: IPCServer) -> asyncio.Semaphore:
 async def _check_duplicate_auth(websocket, server: IPCServer, peer) -> bool:
     """enforce single-authenticated-connection invariant.
 
-    The host (Rust / Electron) uses respawn rather than reconnect —
+    The host (Rust / predecessor) uses respawn rather than reconnect —
     a second authenticated WS implies a protocol bug (stale socket
     in the host's connect loop, a race between supervisor respawn
     and the old sidecar's accept loop, etc.). Both connections
@@ -198,7 +198,7 @@ def _emit_ready_if_first(server: IPCServer) -> None:
     connection for this ``IPCServer`` instance.
 
     The Tauri host waits for this event before hydrating the UI
-    (mirrors the Electron path's ``ready`` push at
+    (mirrors the predecessor path's ``ready`` push at
     ``ipc_server.py:1899``). Using ``event_bus.publish`` (not
     ``server.push``) because the WS writer task subscribes to
     event_bus, ``server.push`` would go to the TCP path's

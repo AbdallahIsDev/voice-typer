@@ -12,7 +12,7 @@ and self-validating in one command:
 
 1. **Regenerate**, runs ``node generate-icons.mjs --tray`` (the mjs's
    tray-only mode), which writes exactly the 5 tray files into
-   ``src-tauri/icons/tray/`` without touching the Electron / server /
+   ``src-tauri/icons/tray/`` without touching the server /
    bundle-icon sets.
 
 2. **Validate the PNGs**, every expected file must exist, carry the

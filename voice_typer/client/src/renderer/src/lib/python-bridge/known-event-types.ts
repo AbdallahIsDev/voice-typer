@@ -116,6 +116,6 @@ export const KNOWN_EVENT_TYPES: ReadonlySet<string> = new Set([
 	"history_fts5_rebuild_failed",
 	// Clipboard paste safety (Secure Input / deferred paste):
 	"paste_deferred",
-	// Tray-unavailable fallback (Electron/headless path only):
+	// Tray-unavailable fallback (predecessor/headless path only):
 	"tray_fallback_notification",
 ]);

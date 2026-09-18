@@ -1,10 +1,10 @@
 """Shared login-child spawn recipe (BP-130).
 
 All five autostart spawn sites (Tauri host, Tauri focus probe, lean
-Electron focus, built Electron, npm run dev) shared the same shape:
+predecessor focus, built predecessor, npm run dev) shared the same shape:
 child env + sensitive-key audit + log-file/flags kwargs + Popen +
 pid log + parent handle close. The copies drifted, the
-built-Electron copy closed parent handles only on success, leaking
+built-predecessor copy closed parent handles only on success, leaking
 them whenever ``Popen`` raised. One recipe, try/except/finally;
 every site routes through it. Env construction and kwargs stay at
 the call sites (they genuinely differ per child).

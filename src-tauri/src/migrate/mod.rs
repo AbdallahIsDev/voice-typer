@@ -1,8 +1,8 @@
-//! One-time Electron `userData` → Tauri `<config_dir>` migration
+//! One-time predecessor `userData` → Tauri `<config_dir>` migration
 //! (ADR-0020 §8).
 //!
 //! Add `mod migrate;` to main.rs and call
-//! `migrate::migrate_electron_userdata_async(&app_handle).await` at
+//! `migrate::migrate_legacy_userdata_async(&app_handle).await` at
 //! the start of the Tauri `setup` closure's async spawn block, BEFORE
 //! the `spawn_sidecar` task.
 //!
@@ -10,11 +10,11 @@
 //! early-returns after the first successful run (or when there is
 //! nothing to do), so it is cheap and safe to call on every launch.
 //!
-//! Old Electron `userData` locations ( fix: probe all three in order,
+//! Old predecessor `userData` locations ( fix: probe all three in order,
 //! use the first that exists on disk):
 //!
-//! 1. `voice-typer-desktop`: Electron `package.json` `name` field (very
-//!    old Electron builds that never ran `setupUserData`, so Electron
+//! 1. `voice-typer-desktop`: predecessor `package.json` `name` field (very
+//!    old predecessor builds that never ran `setupUserData`, so predecessor
 //!    derived its default `userData` path from the package name).
 //! 2. `voice-typer`: `bootstrap.ts:52-67` `setupUserData` override path
 //!    via `app.setPath("userData", computeConfigDir())`. This is the SAME
@@ -67,10 +67,10 @@
 //! `migrate/` directory with focused submodules. Public API preserved
 //!: pure file move + `mod` declarations, no behavior change.
 //!
-//! - `mod.rs` (this file): entry points (`migrate_electron_userdata`,
-//!   `migrate_electron_userdata_async`) + `migrate_inner` orchestration
+//! - `mod.rs` (this file): entry points (`migrate_legacy_userdata`,
+//!   `migrate_legacy_userdata_async`) + `migrate_inner` orchestration
 //!   + re-exports.
-//! - `candidates.rs`: platform probe `electron_userdata_candidates`.
+//! - `candidates.rs`: platform probe `legacy_userdata_candidates`.
 //! - `sentinel.rs`: `write_sentinel_if_clean`.
 //! - `config_merge.rs`: `merge_config`, `MergeOutcome`,
 //!   `file_newer_than`, `backup_corrupt_config`. (Includes the fix
@@ -100,9 +100,9 @@ mod tests;
 // `use super::*;`) can reference them with the same paths the original
 // monolith used (e.g. `merge_config(...)`, `MergeOutcome::Copied`,
 // `write_sentinel_if_clean(...)`, `copy_missing_files(...)`,
-// `sidecar_path(...)`, `electron_userdata_candidates()`). Pure
+// `sidecar_path(...)`, `legacy_userdata_candidates()`). Pure
 // mechanical relocation: no behavior change.
-pub(crate) use candidates::electron_userdata_candidates;
+pub(crate) use candidates::legacy_userdata_candidates;
 pub(crate) use config_merge::{merge_config, MergeOutcome};
 pub(crate) use copy::{copy_missing_files, sidecar_path};
 pub(crate) use sentinel::write_sentinel_if_clean;
@@ -127,7 +127,7 @@ pub(crate) use sentinel::write_sentinel_if_clean;
 /// unit test, and the `spawn_blocking(move || migrate_inner(...)).await`
 /// plumbing pattern is exercised by
 /// `migrate_inner_runs_under_spawn_blocking_without_panic`.
-pub(crate) async fn migrate_electron_userdata_async(_app: &tauri::AppHandle) {
+pub(crate) async fn migrate_legacy_userdata_async(_app: &tauri::AppHandle) {
     // Compute `new_dir` on the calling task (cheap —
     // `config_dir()` is cached via `config_dir_cached`) so the
     // blocking closure only owns a `PathBuf`, not an `AppHandle`
@@ -157,31 +157,31 @@ pub(crate) async fn migrate_electron_userdata_async(_app: &tauri::AppHandle) {
     }
 }
 
-/// Body of the Electron → Tauri `config_dir` migration. Extracted
-/// from `migrate_electron_userdata` so the same logic is shared by the
+/// Body of the predecessor → Tauri `config_dir` migration. Extracted
+/// from `migrate_legacy_userdata` so the same logic is shared by the
 /// sync and async wrappers AND so it can be unit-tested without a
 /// Tauri `AppHandle` (the entry-point functions take one and are hard
 /// to construct in `#[cfg(test)]`). `new_dir` is the Tauri
-/// `config_dir` path; the function probes the old Electron
-/// `userData` candidates itself (see `electron_userdata_candidates`).
+/// `config_dir` path; the function probes the old predecessor
+/// `userData` candidates itself (see `legacy_userdata_candidates`).
 ///
 /// Idempotent and SAFE: never panics, never destroys data. Early-
 /// returns after the first successful run (sentinel marker present)
 /// or when there is nothing to do.
 fn migrate_inner(new_dir: &Path) {
-    //fix: use a sentinel file (.migrated-from-electron) as the
+    //fix: use a sentinel file (.migrated-from-legacy) as the
     // idempotency marker instead of checking config.json existence.
     //
     // The previous guard (`if new_dir.join("config.json").exists()`)
     // conflated "already migrated" with "target config.json exists," which
     // is true after the very first launch even when migration hasn't actually
-    // run. Users upgrading from Electron who launched Tauri once (even
+    // run. Users upgrading from predecessor who launched Tauri once (even
     // briefly) before the migration was wired would never get their old
-    // Electron config merged: silently losing their settings. The
+    // predecessor config merged: silently losing their settings. The
     // merge_config logic (newest-mtime-wins per key) was dead code in the
     // common case. The sentinel marker is touched ONLY after successful
     // migration, so merge_config can actually run when both configs exist.
-    let migration_marker = new_dir.join(".migrated-from-electron");
+    let migration_marker = new_dir.join(".migrated-from-legacy");
     if migration_marker.exists() {
         log::info!("[MIGRATE] already migrated (sentinel marker present)");
         return;
@@ -194,7 +194,7 @@ fn migrate_inner(new_dir: &Path) {
     // (source == target), so we skip it and continue probing. If no other
     // candidate exists, there's genuinely nothing to migrate and we bail
     // without writing the sentinel (so next launch re-probes cheaply).
-    let candidates = electron_userdata_candidates();
+    let candidates = legacy_userdata_candidates();
     if candidates.is_empty() {
         log::info!("[MIGRATE] nothing to do (could not resolve old userData dir, platform env vars missing)");
         return;
@@ -202,7 +202,7 @@ fn migrate_inner(new_dir: &Path) {
 
     let mut old_dir: Option<PathBuf> = None;
     for candidate in &candidates {
-        log::info!("[MIGRATE] probing electron userdata at: {:?}", candidate);
+        log::info!("[MIGRATE] probing legacy userdata at: {:?}", candidate);
         if candidate.as_os_str() == new_dir.as_os_str() {
             log::info!(
                 "[MIGRATE]   skipping {:?} (same as Tauri config_dir target, self-copy no-op)",
@@ -429,7 +429,7 @@ fn migrate_inner(new_dir: &Path) {
     // silently stranding models whose copy failed.
     //
     // Sentinel schema note (backward compatibility): the
-    // `.migrated-from-electron` marker is an EMPTY presence-only file
+    // `.migrated-from-legacy` marker is an EMPTY presence-only file
     //: every reader (the early-return guard above) checks existence,
     // never contents. There is no per-field payload to extend, so the
     // backward-compatible way to make non-critical model-copy

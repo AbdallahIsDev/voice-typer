@@ -1,17 +1,17 @@
 """Share-stats image export parity pins (MO-121).
 
-Electron served the Analytics/Dashboard share image through native
+predecessor served the Analytics/Dashboard share image through native
 main-process handlers (`main/ipc/stats-image-handlers.ts`); under Tauri
 only the reveal half existed (MO-120b), so Save-As degraded to a bare
 anchor download. These tests pin the Rust port's contract:
 
 - the command exists, is registered, and is main-window-gated;
-- the localized dialog title mirrors the Electron main locale key
+- the localized dialog title mirrors the predecessor main locale key
   `dialog.export.statsImage` (the Rust parity test pins the byte
   equality; this test pins that the KEY stays in all 8 locales);
 - the TS bridge installs `saveStatsImage` so the hook's anchor
   fallback is no longer the Tauri path;
-- the host-side payload validation constants mirror the Electron
+- the host-side payload validation constants mirror the predecessor
   handler's (25 MB cap, decoded-PNG signature).
 """
 
@@ -53,9 +53,9 @@ def test_save_stats_image_is_registered_and_gated() -> None:
     )
 
 
-def test_host_validation_mirrors_the_electron_handler() -> None:
+def test_host_validation_mirrors_the_stats_image_handler() -> None:
     source = _read(STATS_IMAGE_RS)
-    # 25 MB data-URL cap (Electron: MAX_PNG_DATA_URL_BYTES).
+    # 25 MB data-URL cap (predecessor: MAX_PNG_DATA_URL_BYTES).
     assert "25 * 1024 * 1024" in source
     # Decoded PNG signature check (not just the MIME prefix).
     assert "[0x89, 0x50, 0x4e, 0x47]" in source

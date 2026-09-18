@@ -20,7 +20,7 @@ check. The fix has two parts:
      compares against the manifest's ``sha256`` field. On mismatch
      (or empty ``sha256``: meaning the binary was not built in this
      dev tree), the helper logs an ERROR and the autostart launcher
-     falls back to spawning the Electron dev binary instead of an
+     falls back to spawning the predecessor dev binary instead of an
      untrusted Tauri binary.
 
  (2026-10): the manifest schema was extended so each binary

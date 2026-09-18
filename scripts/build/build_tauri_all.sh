@@ -425,6 +425,6 @@ esac
 echo "::endgroup::"
 
 echo "[build_tauri_all] DONE. ADR-0020 §15: NO auto-update manifest was generated."
-echo "[build_tauri_all] Tauri is the sole production host (Electron removed 2026-09-17)."
+echo "[build_tauri_all] Tauri is the sole production host."
 echo "[build_tauri_all] the platform's Phase 5 cutover gate is met (docs/migration/cutover-playbook.md)."
 exit 0

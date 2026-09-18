@@ -46,7 +46,7 @@ class TemplateMixin(ServiceMixinBase):
     # already persists to ``templates.json`` in the
     # Python config dir (``~/.voice-typer`` on POSIX,
     # ``%APPDATA%\voice-typer`` on Windows).  This file survives
-    # Electron userData resets and reinstalls.
+    # predecessor userData resets and reinstalls.
 
     def _template_manager(self) -> "TemplateManager":
         """Lazily obtain (or create) the app's TemplateManager."""

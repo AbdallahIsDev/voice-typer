@@ -31,7 +31,7 @@ pub(crate) fn logs_dir_path(config_dir: &std::path::Path) -> std::path::PathBuf 
 
 /// Open the Voice Typer log directory in the OS file manager.
 ///
-/// Mirrors the Electron `window:open-logs` IPC handler in
+/// Mirrors the predecessor `window:open-logs` IPC handler in
 /// `voice_typer/client/src/main/ipc/window-handlers.ts:57-76` which
 /// calls `shell.openPath(logDir)`. The Tauri path uses the OS-native
 /// open command via `std::process::Command`:
@@ -73,7 +73,7 @@ pub async fn open_logs(
     // hold a Tauri async-runtime worker thread for the duration of the
     // mkdir syscall (which can stall >100ms under a contended disk /
     // antivirus scan on Windows). Mirrors the pattern already used by
-    // `migrate::mod::migrate_electron_userdata` and
+    // `migrate::mod::migrate_legacy_userdata` and
     // `sidecar::supervisor::restart_loop`. `spawn_blocking` moves the
     // closure to the cached blocking pool; `.await` yields the calling
     // task until the closure completes.
@@ -116,7 +116,7 @@ pub async fn open_logs(
 
 /// Open an https URL in the user's default browser (MO-118).
 ///
-/// Replaces Electron's `shell.openExternal` route (see
+/// Replaces the predecessor's `shell.openExternal` route (see
 /// `platform::open_path::open_external_url` for the https-only rationale
 /// and the per-OS mechanics). The renderer's `ExternalLink` component /
 /// `openExternalUrl` helper invoke this instead of `window.open`, which
@@ -147,7 +147,7 @@ pub async fn open_external_url_command(
 }
 
 /// Reveal a file in the OS file manager (MO-120b): the Analytics /
-/// Dashboard share-image "Reveal" action. Mirrors Electron's
+/// Dashboard share-image "Reveal" action. Mirrors the predecessor's
 /// `shell.showItemInFolder`, which the renderer reaches through
 /// `window.window_.revealStatsImage`.
 ///
@@ -179,7 +179,7 @@ pub async fn reveal_path_command(
 /// path to `dispatch({cmd:'import_model', data:{path}})` to trigger
 /// the Python sidecar's import flow.
 ///
-/// Mirrors the Electron `model:import-dialog` IPC handler in
+/// Mirrors the predecessor `model:import-dialog` IPC handler in
 /// `voice_typer/client/src/main/ipc/window-handlers.ts:81-90` which
 /// calls `dialog.showOpenDialog({properties: ["openDirectory"]})`.
 /// The Tauri path uses `tauri-plugin-dialog`'s folder-picker API.
@@ -187,13 +187,13 @@ pub async fn reveal_path_command(
 /// The dialog title is localized from the renderer-pushed
 /// `SidecarState::host_locale` (see `super::dialog_titles`) so the
 /// native surface follows the app language instead of hardcoded
-/// English: byte-mirroring the Electron main process's
+/// English: byte-mirroring the predecessor main process's
 /// `dialog.selectModelFolder.title` string for every supported
 /// locale, with English as the fallback before the first push.
 ///
 /// Returns `{"canceled": true}` if the user dismissed the dialog, or
 /// `{"canceled": false, "path": "<folder>"}` on success. Matches the
-/// Electron handler's shape so `Models.tsx`'s import handler is
+/// predecessor handler's shape so `Models.tsx`'s import handler is
 /// unchanged on both runtimes.
 ///
 /// `window` is auto-injected by Tauri at runtime, the renderer's

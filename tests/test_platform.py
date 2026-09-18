@@ -22,7 +22,7 @@ from voice_typer.server.server_platform import (
 class TestAutostartCommand:
     def test_uses_autostart_launcher(self):
         """The autostart command must run autostart_launcher.py, which
-        spawns npm run dev (Electron dev mode) hidden, not the
+        spawns npm run dev (predecessor dev mode) hidden, not the
         standalone ``-m voice_typer`` tray app."""
         cmd = _autostart_command()
         assert "autostart_launcher.py" in cmd
@@ -463,8 +463,8 @@ class TestSetLnkAppUserModelId:
     """``_set_lnk_app_user_model_id``, toast-icon AUMID stamp on .lnk files.
 
     The property is written into the .lnk as a ``1SPS`` serialized
-    property-store block (the same byte layout Squirrel/electron-builder
-    produce and ``lnk-parser`` reads). The stamp is idempotent via a raw
+    property-store block (the same byte layout Windows installer tooling
+    produces and ``lnk-parser`` reads). The stamp is idempotent via a raw
     byte fast-path so the PowerShell C# helper only runs when the
     property is genuinely missing.
     """
@@ -683,7 +683,7 @@ class TestGetAutostartDirLinux:
 
 
 class TestAutostartCommandIncludesHidden:
-    """The autostart command must include --hidden so Electron starts
+    """The autostart command must include --hidden so predecessor starts
     with the dashboard hidden at login."""
 
     def test_includes_hidden_flag(self):
@@ -705,7 +705,7 @@ class TestShortcutTarget:
     def test_shortcut_arguments_reference_universal_launcher(self, monkeypatch):
         """The shortcut's arguments must point at autostart_launcher.py
         (not pythonw -m voice_typer, which starts backend-only without
-        Electron, causing the bubble overlay to never appear)."""
+        predecessor, causing the bubble overlay to never appear)."""
         from voice_typer.server.server_platform import _universal_launcher_path
 
         launcher = _universal_launcher_path()

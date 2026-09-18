@@ -3,11 +3,11 @@
  * RUNTIME-GATED DYNAMIC ``import()``, never a static top-level import.
  *
  * Background: the original code had ``import "./lib/tauri-bridge/install"``
- * as a static top-level import in both entrypoints. Under Electron the
+ * as a static top-level import in both entrypoints. Under predecessor the
  * preload script (``src/preload/index.ts:19-117``) already installs
  * ``window.python`` / ``window.bubble`` / ``window.window_`` via
  * ``contextBridge.exposeInMainWorld``, so the ``install.ts`` module
- * was shipped but never executed under Electron, pure bundle bloat.
+ * was shipped but never executed under predecessor, pure bundle bloat.
  *
  * The gate now lives in ONE shared module,
  * ``lib/tauri-bridge/ensure.ts`` (``ensureTauriBridgeInstalled()``) —
@@ -22,7 +22,7 @@
  *   }
  *
  * Vite emits ``install.ts`` as a SEPARATE async chunk, fetched only
- * when the renderer runs inside a Tauri WebView. Under Electron the
+ * when the renderer runs inside a Tauri WebView. Under predecessor the
  * gate is false and the chunk is never fetched.
  *
  * This test does a STATIC source analysis (reads the files as text and
@@ -59,7 +59,7 @@ describe("tauri-bridge install is a runtime-gated dynamic import", () => {
 			// The runtime gate is what makes the chunk "only fetched under
 			// Tauri". Without the gate, Vite would still code-split the
 			// chunk, but the ensure module would unconditionally fetch it
-			// (defeating the purpose under Electron).
+			// (defeating the purpose under predecessor).
 			expect(ENSURE_SRC).toMatch(/isTauri\(\)/);
 		});
 
@@ -94,7 +94,7 @@ describe("tauri-bridge install is a runtime-gated dynamic import", () => {
 				//   import "./lib/tauri-bridge/install";
 				// (whitespace between `import` and the string literal, NOT
 				// `import(`). This is the previous pattern that pulled the
-				// install graph into the Electron bundle. The `m` flag makes
+				// install graph into the predecessor bundle. The `m` flag makes
 				// `^` / `$` match line boundaries; the optional leading
 				// whitespace + optional trailing semicolon catch indented /
 				// semicolon-less variants.

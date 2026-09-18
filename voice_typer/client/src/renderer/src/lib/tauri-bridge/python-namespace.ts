@@ -3,7 +3,7 @@
 // ADR-0020 §6.3 (Phase 3 UI port): `window.python` installer for the
 // Tauri runtime.
 //
-// Contract preserved (identical on both Tauri and Electron paths):
+// Contract preserved (identical on both Tauri and predecessor paths):
 //   • `window.python.call({type, data}) → Promise<data>`, dispatches
 //     an IPC command to the Python sidecar. On Tauri this routes
 //     through `invoke('dispatch', {cmd: type, data})`; the Rust host
@@ -39,7 +39,7 @@ export function createPythonNamespace(tauri: TauriGlobal): PythonBridge {
 		// command (main.rs:484) forwards to the sidecar via WS, awaits
 		// the per-id response, and returns `response.data` on success
 		// or rejects with an error string on `type:"error"` (main.rs:515).
-		// The shape matches Electron's `sendToPython` which resolves
+		// The shape matches the predecessor's `sendToPython` which resolves
 		// with `msg.data` (index.ts:436).
 		call: (msg) =>
 			tauri.core.invoke("dispatch", {
@@ -49,7 +49,7 @@ export function createPythonNamespace(tauri: TauriGlobal): PythonBridge {
 
 		// The Rust host emits `python-event` with `{type, data}` envelope
 		// for every server-initiated event (main.rs:455). This matches
-		// Electron's `python-event` IPC channel.
+		// the predecessor's `python-event` IPC channel.
 		//
 		// Also listen for host events
 		// (`supervisor_relaunching`, `supervisor_reconnected`) and synthesize

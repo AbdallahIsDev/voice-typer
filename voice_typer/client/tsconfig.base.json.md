@@ -4,7 +4,7 @@
 
 `noUncheckedIndexedAccess: true` is **ENABLED** in `tsconfig.base.json`.
 This flag was enabled by upstream commit `a766c8cc` ("feat(client): add
-istanbul coverage, electron upgrade, usePython hardening") on 2026-08-01,
+istanbul coverage, predecessor upgrade, usePython hardening") on 2026-08-01,
 which addressed TX-38 by enabling the flag while explicitly accepting the
 ~204 resulting type errors as a trade-off ("the flag catches real bugs").
 

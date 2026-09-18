@@ -146,7 +146,7 @@ def _autostart_command() -> str:
       • if the app is already running → focuses its window via the
         single-instance lock and exits (idempotent re-login, etc.);
       • if not running → spawns ``npm run dev`` with ``VT_START_HIDDEN=1``,
-        so Electron starts its dashboard HIDDEN (tray + bubble still work)
+        so predecessor starts its dashboard HIDDEN (tray + bubble still work)
         instead of popping a window over the user's desktop at login.
 
     On Windows, prefers ``pythonw.exe`` (no console window) when
@@ -154,7 +154,7 @@ def _autostart_command() -> str:
     ``python.exe`` if ``pythonw.exe`` is absent.
 
     STARTUP-2: also passes ``--delay <N>`` so the launcher waits N
-    seconds before spawning Electron. This gives the prewarm task
+    seconds before spawning predecessor. This gives the prewarm task
     (which now fires at logon+0 s) a head start on warming the OS file
     cache, so the app's cold imports of torch/transformers hit RAM
     instead of contending with prewarm on disk.

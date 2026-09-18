@@ -166,9 +166,6 @@ const arMore = {
 	"about.creditsDescription": "Voice Typer مبني على أكتاف العمالقة.",
 	"about.creditsAuthorsLabel": "المؤلفون",
 	"about.creditsAuthorsValue": "AbdallahIsDev والمساهمون",
-	"about.creditsLibrariesLabel": "المكتبات الخارجية",
-	"about.creditsLibrariesValue":
-		"faster-whisper, CTranslate2, Electron, React, Radix UI, shadcn/ui",
 	"about.creditsFontsLabel": "الخطوط",
 	"about.creditsFontsValue": "Geist",
 	"about.creditsIconsLabel": "الأيقونات",

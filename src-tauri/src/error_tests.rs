@@ -280,7 +280,7 @@ fn test_server_variant_preserves_consent_fields_verbatim() {
     assert_eq!(parsed["data"]["consent_field"], "voice_biometric_consent");
     assert_eq!(parsed["data"]["engine_name"], "whisper");
     // `model_id: null` rides along as JSON null, the renderer maps
-    // null → undefined (same normalization as the Electron path).
+    // null → undefined (same normalization as the predecessor path).
     assert_eq!(parsed["data"]["model_id"], Value::Null);
     // Display is still the flat log string.
     assert_eq!(

@@ -1,23 +1,23 @@
-# Cutover Playbook: Electron → Tauri (ADR-0020 Phase 5)
+# Cutover Playbook: previous host → Tauri (ADR-0020 Phase 5)
 
-**Status**: **HISTORICAL — cutover completed 2026-09-17.** Electron was
-removed; Tauri is the sole desktop host. This playbook documents the
-per-platform procedure that was used. Do not re-apply the Electron
-rollback steps: the Electron source, `electron-builder.yml`, and the
-electron-builder CI jobs are gone. Installer production lives in
+**Status**: **HISTORICAL — cutover completed 2026-09-17.** The previous
+host was removed; Tauri is the sole desktop host. This playbook documents the
+per-platform procedure that was used. Do not re-apply the previous-host
+rollback steps: the previous-host source, the legacy builder config, and the
+previous-host packaging CI jobs are gone. Installer production lives in
 `.github/workflows/tauri-build.yml` + `tauri-*-build.yml`.
 
 This was the **per-platform cutover procedure** for flipping the
-default shipping Voice Typer app from Electron to Tauri. Cutover was
+default shipping Voice Typer app from predecessor to Tauri. Cutover was
 **per-platform**: Windows first, then macOS, then Linux.
 
 **Scope of this document**:
 - Cutover criteria per platform (what evidence is required to flip).
-- Cutover procedure (exact steps: which CI to enable, which electron-builder
+- Cutover procedure (exact steps: which CI to enable, which predecessor packaging
   target to disable, how to update release notes).
 - Rollback procedure (how to revert per-platform).
 - Per-platform cutover order.
-- Mixed-mode period (some users on Electron, some on Tauri) support handling.
+- Mixed-mode period (some users on predecessor, some on Tauri) support handling.
 
 **Out of scope**:
 - Per-platform build steps, see `tauri-build-runbook.md` + per-platform
@@ -30,7 +30,7 @@ default shipping Voice Typer app from Electron to Tauri. Cutover was
 
 ## Cutover criteria per platform
 
-A platform may be cut over (its default shipping app flipped from Electron
+A platform may be cut over (its default shipping app flipped from predecessor
 to Tauri) ONLY when **all** of the following are true on a real host for
 that platform's target arch(s):
 
@@ -61,7 +61,7 @@ that platform's target arch(s):
    "reconnecting…" state, the Rust supervisor respawns the sidecar, and
    dictation resumes within the backoff window. After repeated kills
    (5+), the host falls back to full-app relaunch via `AppHandle::restart()`.
-4. **No regressions** vs the Electron path on a side-by-side smoke test:
+4. **No regressions** vs the predecessor path on a side-by-side smoke test:
    - Tray menu opens + all items work.
    - Settings persist across restarts.
    - History (SQLite WAL) round-trips.
@@ -73,9 +73,9 @@ that platform's target arch(s):
      paste path.
 5. **Single-instance** verified: a second launch focuses the first window
    (Tauri `single-instance` plugin) on every platform.
-6. **Bundle size** within tolerance: Tauri installer ≤ Electron installer
+6. **Bundle size** within tolerance: Tauri installer ≤ predecessor installer
    + 50 MB (the sidecar is the same size; the savings is Chromium).
-7. **Startup latency** within tolerance: cold start ≤ Electron cold start
+7. **Startup latency** within tolerance: cold start ≤ predecessor cold start
    + 2 s (sidecar cold start is 2–5 s; prewarm mitigates this).
 8. **Signing + notarization** verified end-to-end (see `signing-guide.md`):
    - Windows: MSI + NSIS + sidecar exe Authenticode-signed; SmartScreen
@@ -115,11 +115,11 @@ for that version:
       events + successful respawn.
 - [ ] Side-by-side smoke test, screenshot or video.
 - [ ] Bundle size + startup latency measurements (with comparison to
-      the prior Electron release).
+      the prior predecessor release).
 - [ ] Signing verification: `signtool verify` (Win), `spctl --assess`
       (macOS), `dpkg -I` / `rpm -qpi` (Linux).
 - [ ] User acceptance sign-off (name + date + target arch + OS version).
-- [ ] Rollback plan confirmed: the prior Electron installer is still
+- [ ] Rollback plan confirmed: the prior predecessor installer is still
       downloadable from the same release page.
 
 ---
@@ -149,20 +149,21 @@ For the platform being cut over, in the same release tag (`v<version>`):
      sub-agents #5/#6/#7).
    - Change `if: false` → `if: true` (or remove the guard).
    - This makes the per-platform workflow run on tag push automatically.
-2. **Disable the electron-builder target for that platform.**
-   - File: `voice_typer/client/electron-builder.yml`.
-   - Comment out the platform's `target:` entries (e.g., on Windows
-     cutover, comment out the `win:` section's `target: [nsis]`).
-   - The Electron build PATH stays in the repo (reversible fallback) —
-     only the active target is disabled.
+2. **Disable the legacy packaging target for that platform (HISTORICAL).**
+    - File: the legacy client builder config (removed 2026-09-17; Tauri
+      `tauri.conf.json` + `tauri-*-build.yml` are the only pipeline now).
+    - Comment out the platform's `target:` entries (e.g., on Windows
+      cutover, comment out the `win:` section's `target: [nsis]`).
+    - The previous-host build path stayed in the repo through cutover
+      (reversible fallback) — only the active target was disabled.
 3. **Update the release notes** for `v<version>` with:
    - "Default shipping app on `<platform>` is now Tauri v2."
    - Link to the evidence trail filed in Step 1.
-   - Link to the prior Electron release (rollback path).
+   - Link to the prior predecessor release (rollback path).
    - "macOS / Linux users: no change this release" (if only Windows
      cut over).
 4. **Tag + push.** The CI builds the Tauri installer for the cut-over
-   platform + the Electron installer for the not-yet-cut-over platforms.
+   platform + the predecessor installer for the not-yet-cut-over platforms.
    Both are uploaded to the same release.
 
 ### Step 3: Post-flip monitoring (T+1 to T+14 days)
@@ -171,7 +172,7 @@ For the platform being cut over, in the same release tag (`v<version>`):
   regressions.
 - Monitor the auto-reported crash logs (if the user opts in, no PII).
 - After 14 days with no critical regressions, the platform is considered
-  "stable on Tauri" and the Electron fallback can be marked "legacy" in
+  "stable on Tauri" and the predecessor fallback can be marked "legacy" in
   the release notes (but NOT deleted from the repo).
 
 ---
@@ -179,31 +180,31 @@ For the platform being cut over, in the same release tag (`v<version>`):
 ## Rollback procedure (per platform)
 
 > **Rollback is per-platform.** Rolling back Windows does NOT roll back
-> macOS or Linux. The Electron code path stays intact on every platform
+> macOS or Linux. The predecessor code path stays intact on every platform
 > until that platform has been stable on Tauri for ≥ 1 release cycle.
 
 ### To roll back a platform that was just cut over:
 
-1. **Re-enable the electron-builder target for that platform.**
-   - File: `voice_typer/client/electron-builder.yml`.
-   - Uncomment the platform's `target:` entries commented out in Step 2.2.
+1. **Re-enable the legacy packaging target for that platform (HISTORICAL).**
+    - File: the legacy client builder config (removed 2026-09-17).
+    - Uncomment the platform's `target:` entries commented out in Step 2.2.
 2. **Disable the per-platform Tauri workflow's top-level `if:` guard.**
    - File: `.github/workflows/tauri-<platform>-build.yml`.
    - Change `if: true` → `if: false` (or restore the Phase-0-gate guard).
 3. **Tag a hotfix release** (`v<version>.<patch>`) with:
-   - "Rolling back `<platform>` to Electron due to <issue link>."
+   - "Rolling back `<platform>` to predecessor due to <issue link>."
    - "Tauri build for `<platform>` is still downloadable from this
      release as a beta: user feedback wanted."
-4. The CI now builds the Electron installer for the rolled-back platform
+4. The CI now builds the predecessor installer for the rolled-back platform
    again. The Tauri installer can still be built manually via the
    `workflow_dispatch` orchestrator for users who want to opt in.
 
 ### What does NOT change on rollback:
 
 - No data, config, or model loss. The Tauri build writes to the same
-  OS-specific data dir as the Electron build (`<config_dir>/voice-typer/`).
+  OS-specific data dir as the predecessor build (`<config_dir>/voice-typer/`).
 - The user's history DB, vocabulary, templates, automation, models, and
-  settings all carry over in both directions (Electron→Tauri→Electron).
+  settings all carry over in both directions (predecessor→Tauri→predecessor).
 - The Python sidecar is the same binary in both paths (Nuitka-compiled
   from the same `voice_typer/server/` tree).
 
@@ -220,7 +221,7 @@ Per ADR-0020 §"Migration Plan" + §"Phase 5, Validation & cutover":
 | 3rd | Linux | X11 first (mature), then Wayland (clipboard+Ctrl+V fallback for `enigo`); aarch64 may defer. | x86_64 X11 → x86_64 Wayland → aarch64. | Phase 0-L |
 
 **Each platform is independent.** Windows can ship Tauri while macOS still
-ships Electron, and the two are independently revertible. There is no
+ships predecessor, and the two are independently revertible. There is no
 "all-platforms cut over" milestone. The migration is complete when each
 platform has been stable on Tauri for ≥ 1 release cycle.
 
@@ -229,7 +230,7 @@ platform has been stable on Tauri for ≥ 1 release cycle.
 - **X11 before Wayland**: `enigo.text()` works on X11. On Wayland, the
   clipboard+Ctrl+V fallback replaces the user's clipboard temporarily
   (mitigated by `clipboard_snapshot.py` borrow/restore). Cut over X11
-  first; Wayland users stay on Electron until the Wayland UX is
+  first; Wayland users stay on predecessor until the Wayland UX is
   validated as acceptable.
 - **x86_64 before aarch64**: aarch64 Linux is less tested
   (`python-build-standalone` aarch64 + CTranslate2 aarch64 wheels +
@@ -240,13 +241,13 @@ platform has been stable on Tauri for ≥ 1 release cycle.
 
 ## Mixed-mode period
 
-During the transition, **some users are on Electron and some on Tauri**
+During the transition, **some users are on predecessor and some on Tauri**
 for the same platform. This is expected and supported. Both builds read
 + write the same data dir, so users can switch between them freely.
 
 ### How to tell which build a user is on
 
-> **Note (DOC-2):** the `runtime=tauri` / `runtime=electron` first-log-line
+> **Note (DOC-2):** the `runtime=tauri` / `runtime=predecessor` first-log-line
 > marker is a **planned future feature**, it is referenced by
 > `tests/tauri/mig19/test_linux_cutover.py` as the intended cutover
 > verification mechanism, but no code in `src-tauri/src/` or
@@ -263,35 +264,35 @@ runtime=tauri version=1.2.0 target=x86_64-pc-windows-msvc rustc=1.77.x
 or
 
 ```
-runtime=electron version=1.2.0 electron=28.x.x node=20.x.x
+runtime=predecessor version=1.2.0 predecessor=28.x.x node=20.x.x
 ```
 
 When implemented, support tickets MUST include this line. If the user
 cannot find it (or until the marker is implemented), the build can be
 identified by:
 - **Windows**: Task Manager shows `voice-typer-tauri.exe` (Tauri) vs
-  `Voice Typer.exe` (Electron). Tauri also spawns `python-sidecar-*.exe`;
-  Electron spawns `python.exe`.
+  `Voice Typer.exe` (the predecessor). Tauri also spawns `python-sidecar-*.exe`;
+  predecessor spawns `python.exe`.
 - **macOS**: Activity Monitor shows `voice-typer-tauri` (Tauri) vs
-  `Voice Typer` (Electron). The `.app` bundle name is the same, so use
+  `Voice Typer` (the predecessor). The `.app` bundle name is the same, so use
   the process name.
 - **Linux**: `ps aux | grep voice-typer` shows `voice-typer-tauri`
-  (Tauri) vs `voice-typer` (Electron).
+  (Tauri) vs `voice-typer` (the predecessor).
 
 ### Support ticket triage
 
-1. Identify the user's runtime (`runtime=tauri` vs `runtime=electron`
+1. Identify the user's runtime (`runtime=tauri` vs `runtime=predecessor`
    from the log first line once the marker is implemented; otherwise
    via the process-name heuristics above).
-2. If the user is on Electron: handle as a normal Electron support
+2. If the user is on predecessor: handle as a normal predecessor support
    ticket. Do NOT suggest they switch to Tauri unless their issue is
    "the app is too heavy" or "Chromium is conflicting with X".
 3. If the user is on Tauri:
-   - Check whether the issue reproduces on Electron (have the user
-     download the Electron installer from the same release page).
+   - Check whether the issue reproduces on predecessor (have the user
+     download the predecessor installer from the same release page).
    - If YES on both → it's a Python-sidecar issue (not a Tauri issue);
      file under the appropriate backend component.
-   - If NO on Electron only → it's a Tauri-specific regression; file
+   - If NO on predecessor only → it's a Tauri-specific regression; file
      under `tauri-host` and consider rollback per §"Rollback procedure".
 4. If the user is on a **beta Tauri build** (downloaded manually from
    the release page on a platform that hasn't cut over yet), make this
@@ -301,13 +302,13 @@ identified by:
 ### Release notes language during mixed-mode
 
 Every release during the transition MUST clearly state, per platform:
-- "Default shipping app: Electron" or "Default shipping app: Tauri".
+- "Default shipping app: predecessor" or "Default shipping app: Tauri".
 - "Alternative build available: Tauri (beta)" or
-  "Alternative build available: Electron (legacy fallback)".
+  "Alternative build available: predecessor (legacy fallback)".
 - A link to both installers on the release page.
 
 This prevents user confusion when a user on Tauri sees a release note
-about an Electron-specific fix (or vice versa).
+about an predecessor-specific fix (or vice versa).
 
 ---
 

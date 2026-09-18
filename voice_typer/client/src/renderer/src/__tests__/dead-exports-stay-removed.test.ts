@@ -84,9 +84,9 @@ describe("dead exports stay removed, renderer hooks/components", () => {
 });
 
 describe("dead exports stay removed, Rust host", () => {
-	// NOTE: the Electron main-process tree (src/main, including
+	// NOTE: the predecessor main-process tree (src/main, including
 	// tray_available.ts / refreshTrayAvailableCache) was deleted with
-	// the Electron shell; that assertion is gone with it.
+	// the predecessor shell; that assertion is gone with it.
 
 	it("export.rs has no allocation-returning csv_escape twin (production uses csv_escape_into)", () => {
 		const src = readFileSync(

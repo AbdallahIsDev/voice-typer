@@ -256,7 +256,7 @@ def test_spec_reads_tauri_sidecar_env_var(spec_text: str):
     ADR-0020 §4.5: when the env var is set, the spec produces a Tauri-
     compatible ``python-sidecar-<triple>`` binary (console on, no icon,
     no windowed UI). When unset, it produces the legacy ``VoiceTyper``
-    windowed exe for the Electron fallback path.
+    windowed exe for the predecessor fallback path.
 
     The "disables heartbeat, enables WS mode" behavior described in the
     task brief is the RUNTIME effect (the Rust host reads server_started
@@ -280,7 +280,7 @@ def test_spec_tauri_mode_enables_console_for_ws_handshake(spec_text: str):
     reads the ``server_started`` JSON from the sidecar's stdout pipe
     (this is the WS-mode bootstrap, the sidecar self-selects a port
     and reports it via stdout; the Rust host then opens the WS channel).
-    With ``console=False`` (the legacy Electron path) stdout is detached
+    With ``console=False`` (the legacy predecessor path) stdout is detached
     and the Tauri host would never receive the port. See spec docstring
     lines 48-52.
     """

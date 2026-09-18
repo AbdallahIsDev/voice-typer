@@ -837,7 +837,7 @@ class AudioPipeline:
         non-blocking ``queue.Queue`` and drained by a dedicated event
         worker thread (see ``capture.AudioCallbackDispatcher``). This
         keeps the audio worker thread off the IPC transport - a slow
-        TCP subscriber (or a blocked Electron renderer) can no longer
+        TCP subscriber (or a blocked predecessor renderer) can no longer
         stall the worker and cause ring-buffer overflows / dropped
         audio. ``put_nowait`` + ``queue.Full`` suppression so a
         backed-up event worker can never block the audio thread.

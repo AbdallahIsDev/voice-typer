@@ -7,7 +7,7 @@
 // `python-namespace.ts`), so N callers created 4N Tauri listeners —
 // and every event triggered all 4N callbacks only to be filtered
 // down to the (typically 1) matching caller by the
-// `if (event.type === type)` check. On Electron each subscription
+// `if (event.type === type)` check. On predecessor each subscription
 // adds one `python-event` IPC listener, so
 // N callers created N IPC listeners with the same fan-out waste.
 //
@@ -15,7 +15,7 @@
 // `window.python` instance and fan-outs to per-type subscribers
 // stored in a `Map<type, Set<entry>>`. This collapses the
 // N-listener multiplication: N callers share 1 subscription (4
-// Tauri listeners / 1 Electron IPC listener).
+// Tauri listeners / 1 predecessor IPC listener).
 //
 // The dispatcher is module-level (singleton). It is lazily set up
 // when the first subscriber registers (after the bridge is ready)

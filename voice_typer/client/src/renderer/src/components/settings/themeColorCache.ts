@@ -59,7 +59,7 @@ export const _themeColorCache = new Map<string, ThemeColorCacheEntry>();
 // process lifetime as before.
 //
 // Feature-detect ``addEventListener`` vs the legacy ``addListener``
-// (Safari < 14 / older Electron versions only exposed the latter).
+// (Safari < 14 / older predecessor versions only exposed the latter).
 
 if (typeof window !== "undefined" && typeof window.matchMedia === "function") {
 	try {
@@ -74,7 +74,7 @@ if (typeof window !== "undefined" && typeof window.matchMedia === "function") {
 		let remove: ((mq: MediaQueryList, handler: () => void) => void) | null =
 			null;
 		// addEventListener is the modern API (Safari 14+); some
-		// older Chromium/Electron versions only expose
+		// older Chromium/predecessor versions only expose
 		// ``addListener`` on MediaQueryList.  Feature-detect.
 		if (typeof mq.addEventListener === "function") {
 			mq.addEventListener("change", handler);

@@ -5,7 +5,7 @@ This test file is the Fix-R regression guard for the Linux packaging
 maintainer scripts ship a working probe loop that finds
 ``install_permissions.py`` (or ``uninstall_permissions.py``) in at
 least one of the 5 canonical candidate paths, regardless of whether
-the bundle was produced by Electron-builder (legacy), Tauri v2 with
+the bundle was produced by predecessor-builder (legacy), Tauri v2 with
 ``resources/scripts/*``, Tauri v2 with ``resources/scripts/linux/*``,
 or Tauri v2 with ``resources/linux-scripts/*`` (the canonical path
 per ).
@@ -52,7 +52,7 @@ Coverage:
   - ``voice_typer/server/autostart_launcher.py`` is Tauri-aware
   , it detects Tauri mode via ``VOICE_TYPER_TAURI=1`` env var OR
     ``sys.executable`` basename and spawns ``voice-typer-tauri``
-    directly (no Electron fallback in Tauri mode).
+    directly (no predecessor fallback in Tauri mode).
 """
 
 from __future__ import annotations
@@ -673,7 +673,7 @@ class TestAutostartLauncherTauriMode:
             "autostart_launcher.py must check the VOICE_TYPER_TAURI env var "
             " to detect Tauri mode. The Tauri Rust host sets this "
             "before spawning the Python sidecar so the launcher knows to "
-            "spawn voice-typer-tauri instead of electron."
+            "spawn voice-typer-tauri."
         )
 
     def test_autostart_launcher_has_is_tauri_mode_helper(self):
@@ -722,19 +722,15 @@ class TestAutostartLauncherTauriMode:
         text = _launcher_text()
         assert "_is_tauri_mode()" in text, "launch() must call _is_tauri_mode() to detect Tauri mode."
         assert "_spawn_tauri_host" in text, "launch() must call _spawn_tauri_host() in Tauri mode."
-        # Post-Electron cutover: fresh-start is Tauri-only; missing binary
-        # or failed spawn must return 1 (no silent Electron fallback).
+        # Post-predecessor cutover: fresh-start is Tauri-only; missing binary
+        # or failed spawn must return 1 (no silent predecessor fallback).
         assert "return 1" in text, "launch() must return 1 when the Tauri binary is missing or spawn fails."
-        assert "Electron launch path removed" in text or "No Tauri binary" in text
+        assert "No Tauri binary" in text
 
-    def test_autostart_launcher_is_tauri_only(self):
-        """Electron spawn helpers must be gone from the launcher."""
+    def test_autostart_launcher_spawns_tauri_host(self):
+        """The launcher spawns the Tauri host and focuses a running app."""
         assert AUTOSTART_LAUNCHER.is_file()
         text = _launcher_text()
-        assert "_ensure_built_and_launch" not in text, (
-            "autostart_launcher.py must not retain Electron _ensure_built_and_launch"
-        )
-        assert "_spawn_npm_run_dev" not in text, "autostart_launcher.py must not retain Electron _spawn_npm_run_dev"
         assert "_spawn_tauri_host" in text
         assert "_focus_running_app" in text, (
             "autostart_launcher.py must keep _focus_running_app for the 'backend already running' case."

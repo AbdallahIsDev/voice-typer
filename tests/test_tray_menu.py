@@ -36,7 +36,7 @@ def _make_fake_tray(hotkey="<f2>", state="idle", left_click="open_app"):
     tray._build_models_submenu = MagicMock(return_value=[])
     tray._build_microphones_submenu = MagicMock(return_value=[])
     tray._open_page = MagicMock()
-    tray.open_electron_window = MagicMock()
+    tray.open_app_window = MagicMock()
     tray._confirm_quit_while_recording = MagicMock()
     return tray
 

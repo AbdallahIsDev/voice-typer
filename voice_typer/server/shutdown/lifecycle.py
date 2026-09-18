@@ -138,15 +138,15 @@ def quit(controller: ShutdownController) -> None:  # noqa: A001, mirrors the met
     # ``_shutting_down`` check above (now True) rather than
     # block on _quit_lock.
 
-    # NOTIFY-ELECTRON: publish ``quit_app`` so the Electron frontend
+    # NOTIFY-HOST: publish ``quit_app`` so the predecessor frontend
     # closes its window IMMEDIATELY on shutdown paths that bypass
     # ``quit_app()``: the Win32 Ctrl+C handler, the POSIX
     # SIGINT/SIGTERM watcher, and any other direct ``quit()`` caller.
     # The tray/IPC paths already publish from ``quit_app()`` (which
     # stashes ``app._quit_app_published = True``); skipping here avoids
-    # a redundant second write. Without this, Ctrl+C left Electron's
+    # a redundant second write. Without this, Ctrl+C left the predecessor's
     # window open for the entire ``_do_cleanup()`` (seconds) and only
-    # force-killed it at the end via ``_teardown_electron``, the
+    # force-killed it at the end via ``_teardown_host_child``, the
     # perceived "Ctrl+C is slower than tray Quit" gap. ``quit_app`` is
     # in the IPC sender's ``_SHUTDOWN_ALLOWLIST``, so it is delivered
     # even after ``_shutting_down`` is set. Best-effort: a failed

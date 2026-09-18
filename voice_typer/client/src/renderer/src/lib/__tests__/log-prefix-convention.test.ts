@@ -3,7 +3,7 @@
  * PRODUCTION code must prefix its first string argument with
  * `[renderer:<module>]`.
  *
- * The renderer forwards console output to the Electron main-process log
+ * The renderer forwards console output to the predecessor main-process log
  * via `webContents.on("console-message")`, so a consistent prefix is what
  * lets operators grep a log line back to the emitting module. This scan
  * prevents the convention from silently regressing (mixed bare

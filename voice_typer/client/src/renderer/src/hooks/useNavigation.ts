@@ -95,7 +95,7 @@ function loadNavState(): NavState {
 				// tray-relaunch would capture the mic while the user cannot
 				// see the window, and `document.visibilityState` is not a
 				// reliable "window is shown" signal for a never-shown
-				// Electron window (`show: false` + skipTaskbar). Other
+				// predecessor window (`show: false` + skipTaskbar). Other
 				// pages restore normally. In-session navigation to
 				// Microphone is unaffected — this runs only at store init
 				// and `_resetNavigationForTest`.

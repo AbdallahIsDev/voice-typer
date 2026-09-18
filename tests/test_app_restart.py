@@ -287,15 +287,15 @@ class TestRestartAppInPlaceStandalone:
     """
 
     def test_standalone_restart_sets_in_place_flag(self, app, monkeypatch):
-        """In standalone mode (``_electron_pid`` set, Python spawned
-        Electron as a child), ``restart_app()`` must set
+        """In standalone mode (``_host_pid`` set, a host was spawned
+        as a child), ``restart_app()`` must set
         ``app._in_place_restart = True`` so the entrypoint loop knows to
         re-run the startup sequence instead of exiting."""
         spy_sys_exit = []
         _stub_restart_environment(app, monkeypatch, spy_sys_exit=spy_sys_exit)
 
-        # Standalone mode: Python spawned Electron as a child.
-        app._electron_pid = 12345
+        # Standalone mode: a host process was spawned as a child.
+        app._host_pid = 12345
         monkeypatch.setattr(app, "_do_cleanup", lambda: None)
 
         app.restart_app()
@@ -313,14 +313,14 @@ class TestRestartAppInPlaceStandalone:
         )
 
     def test_non_standalone_restart_does_not_set_in_place_flag(self, app, monkeypatch):
-        """In dev mode (no ``_electron_pid``, Electron spawned Python),
+        """In dev mode (no ``_host_pid``, the host spawned Python),
         ``restart_app()`` must NOT set ``_in_place_restart``: the old
-        out-of-process relaunch (sys.exit + Electron respawn) is the
+        out-of-process relaunch (sys.exit + host respawn) is the
         correct behaviour there."""
         spy_sys_exit = []
         _stub_restart_environment(app, monkeypatch, spy_sys_exit=spy_sys_exit)
 
-        app._electron_pid = None  # dev mode, Electron is the parent
+        app._host_pid = None  # dev mode, the host is the parent
         monkeypatch.setattr(app, "_do_cleanup", lambda: None)
 
         # The out-of-process path calls sys.exit(0) on the main thread.
@@ -335,11 +335,11 @@ class TestRestartAppInPlaceStandalone:
 
     def test_in_place_restart_runs_full_cleanup(self, app, monkeypatch):
         """The in-place path must still run the full ``_do_cleanup()``
-        (which kills the Electron child, stops hotkeys/tray, flushes DBs,
+        (which kills the tracked child, stops hotkeys/tray, flushes DBs,
         releases the mutex) so the re-initialized app starts clean."""
         _stub_restart_environment(app, monkeypatch, spy_sys_exit=[])
 
-        app._electron_pid = 12345  # standalone mode
+        app._host_pid = 12345  # standalone mode
         cleanup_calls = []
         monkeypatch.setattr(
             app,

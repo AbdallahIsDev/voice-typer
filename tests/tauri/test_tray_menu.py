@@ -4,7 +4,7 @@ Covers:
 - ``build_tray_menu_model`` produces well-formed MenuItem dicts (no pystray
   import required for the model path: ``TAURI_SIDECAR`` guarded).
 - ``publish_tray_menu`` emits a ``tray_menu`` event only under
-  ``TAURI_SIDECAR=1`` (Electron/pystray path untouched).
+  ``TAURI_SIDECAR=1`` (predecessor/pystray path untouched).
 - ``tray_click`` command dispatches to the correct action by id and returns
   ``unknown_tray_item`` for unknown ids.
 
@@ -945,11 +945,11 @@ def test_maybe_publish_registers_models_and_mic_dispatch(monkeypatch):
 
 
 def test_pystray_models_submenu_contract_unchanged(monkeypatch):
-    """Regression guard: the pystray (Electron) path is untouched.
+    """Regression guard: the pystray (the predecessor) path is untouched.
 
     ``build_models_menu_items`` still emits [model rows…] + separator +
     "More models..." with ``checked`` callables, the exact behavior the
-    Electron runtime has today.
+    predecessor runtime has today.
     """
     from voice_typer.server import tray_models
 
@@ -977,7 +977,7 @@ def test_pystray_models_submenu_contract_unchanged(monkeypatch):
         lambda: None,  # config_dir_fn (unused, data is stubbed)
         lambda name: None,
         lambda fn: fn,  # wrap_fn: identity
-        lambda: None,  # open_electron_window_fn
+        lambda: None,  # open_app_window_fn
         menu_item_class=_item_cls,
         menu_separator=sep,
     )

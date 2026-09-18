@@ -663,7 +663,7 @@ Findings covered
 - PLAT-008       dead validate_env_vars removed from platform_utils
 - PROD-005       duplicate _check_disk_space removed from asr_setup
 - RACE-008       daemon thread sites have rationale comments
-- RACE-009       Electron stdout/stderr routed to log files
+- RACE-009       host stdout/stderr routed to log files
 - AUDIO-MIC      device-change poller + IPC event
 - AUDIO-CLIP     real-time IPC event for clipping
 - PLAT-024       tray-mic.ico base ICO lookup
@@ -702,7 +702,7 @@ class TestAudioMicDeviceChangePoller:
     def test_load_microphones_pushes_ipc_event_on_change(self):
         """AUDIO-MIC: when ``load_microphones`` detects that the device
         set has changed (USB mic plugged/unplugged), it must push a
-        ``microphones_changed`` IPC event so the Electron renderer can
+        ``microphones_changed`` IPC event so the predecessor renderer can
         refresh its microphone dropdown without a manual "Refresh" click.
 
         RW-8: ported from a source-string meta-test (which inspected

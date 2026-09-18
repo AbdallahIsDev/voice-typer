@@ -191,7 +191,7 @@ export const GeneralSettingsSection = memo(function GeneralSettingsSection({
 				</SettingRow>
 			)}
 			{/*App Language selector, distinct from the spoken-language
-                                selector in Post-Processing. This controls the Electron UI
+                                selector in Post-Processing. This controls the app UI
                                 language via the i18n framework. The choice is persisted to
                                 localStorage so it survives restarts, and pushed to the
                                 Python backend so the tray menu labels also switch language. */}

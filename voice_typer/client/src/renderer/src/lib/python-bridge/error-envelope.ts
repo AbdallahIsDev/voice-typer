@@ -6,7 +6,7 @@
  * structured errors is the JSON-serialized envelope
  * ``{"type":"error","data":{"code":"...","message":"..."}}``
  * (see ``src-tauri/src/commands/sidecar_cmds/dispatch.rs``). The
- * Electron path resolves the SAME envelope shape as a successful value,
+ * predecessor path resolves the SAME envelope shape as a successful value,
  * which the ``type === "error"`` check in the ``call`` wrapper turns
  * into an ``Error`` with ``err.code`` stamped. This helper makes the
  * Tauri path behave identically, so callers branching on ``err.code``
@@ -18,7 +18,7 @@
  * (the ``VoiceTyperError`` passthrough, see ``src-tauri/src/error.rs``),
  * so every structured field the Python backend attaches to
  * ``data`` reaches this parser. The fields stamped onto the returned
- * ``Error`` mirror the Electron-path semantics in ``usePython.ts``
+ * ``Error`` mirror the predecessor-path semantics in ``usePython.ts``
  * EXACTLY (same non-empty-string / non-empty-array guards):
  *
  * - ``code``, non-empty string only.
@@ -28,10 +28,10 @@
  *   strings only, carried by ``client.consent_required`` envelopes so
  *   callers can deep-link to the exact Settings toggle. A JSON ``null``
  *   ``model_id`` is NOT stamped (stays ``undefined``), matching the
- *   Electron path's normalization.
+ *   predecessor path's normalization.
  * - ``legacy_code``, Tauri-only superset: the transitional alias the
  *   server emits alongside the canonical namespaced ``code`` (see the
- *   error-envelope contract doc). The Electron path does not surface
+ *   error-envelope contract doc). The predecessor path does not surface
  *   it (its envelopes resolve as values, not rejection strings), but
  *   stamping it here is harmless and lets Tauri-side callers observe
  *   both spellings during the migration window.
@@ -71,7 +71,7 @@ export function parseTauriErrorEnvelope(raw: string): Error | null {
 	}
 	// Multi-field validation failures: stamp the FULL ``errors`` list
 	// when present (non-empty array only) so batched saves don't
-	// require N fix-and-resubmit cycles. Mirrors the Electron path.
+	// require N fix-and-resubmit cycles. Mirrors the predecessor path.
 	const errs = Array.isArray(data.errors)
 		? (data.errors as string[])
 		: undefined;
@@ -79,7 +79,7 @@ export function parseTauriErrorEnvelope(raw: string): Error | null {
 		(err as { errors?: string[] }).errors = errs;
 	}
 	// Consent fields carried by ``client.consent_required`` envelopes.
-	// Same guards as the Electron path: non-empty strings only, so a
+	// Same guards as the predecessor path: non-empty strings only, so a
 	// JSON ``null`` model_id stays ``undefined`` on the thrown Error.
 	const consentField = data.consent_field;
 	const engineName = data.engine_name;

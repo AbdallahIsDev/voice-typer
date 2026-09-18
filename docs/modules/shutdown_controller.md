@@ -15,7 +15,7 @@ It is responsible for releasing all subsystems in the correct order, including:
 - Win32 mutex (release single-instance mutex)
 - Devnull file descriptors (close background FDs)
 
-(Electron-subprocess teardown existed on the retired Electron host; it is
+(predecessor-subprocess teardown existed on the retired predecessor host; it is
 now a no-op stub kept so historical call sites do not break.)
 
 ## Entry Points

@@ -502,7 +502,7 @@ def test_engine_handles_short_audio_with_one_segment(monkeypatch):
 # ─── Tests: build script structure (sanity) ──────────────────────────────────
 def test_build_script_targets_ipc_server_entry_point():
     """Nuitka must freeze ``ipc_server.py``, the Tauri sidecar entry
-    point, not ``main.py`` (the legacy Electron entry) or any other
+    point, not ``main.py`` (the legacy predecessor entry) or any other
     module. ADR-0020 §4.2 mandates this.
     """
     text = _read_build_script()

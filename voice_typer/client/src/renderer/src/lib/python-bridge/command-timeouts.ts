@@ -1,7 +1,7 @@
 // Per-command IPC timeout table for the renderer-side `call` wrapper.
 //
 // A blanket 120s `setTimeout` is applied to every IPC call by the
-// Electron main process's `sendToPython` (client/src/main/index.ts:
+// predecessor main process's `sendToPython` (client/src/main/index.ts:
 // 507-644) and by the Rust `dispatch` command (src-tauri/src/commands/
 // sidecar_cmds.rs:67-73 `dispatch_timeout_for` + util.rs:53
 // `DISPATCH_TIMEOUT_SECS = 120`). A `get_status` call that hangs takes
@@ -16,7 +16,7 @@
 //     (see the Rust hard-cap note below).
 //   - Unknown commands default to 30s (a reasonable middle ground).
 //
-// The underlying bridge promise may still resolve later (the Electron
+// The underlying bridge promise may still resolve later (the predecessor
 // main / Rust host's timer is still active on their side), but the
 // caller sees the renderer-side timeout rejection first.
 //

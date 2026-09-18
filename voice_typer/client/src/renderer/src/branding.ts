@@ -9,7 +9,7 @@
  * SYNC REQUIREMENT: the value of APP_NAME MUST be identical across all
  * three branding modules:
  *   1. voice_typer/server/branding.py        (Python backend)
- *   2. voice_typer/client/src/main/branding.ts (Electron main process)
+ *   2. voice_typer/client/src/main/branding.ts (predecessor main process)
  *   3. voice_typer/client/src/renderer/src/branding.ts (this file, renderer)
  *
  * Enforcement:

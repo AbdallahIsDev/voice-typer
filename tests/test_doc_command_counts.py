@@ -1,6 +1,6 @@
 """Doc-parity test: top-level docs must agree with the live command counts.
 
-Post-Electron cutover the IPC surface is two-way:
+Post-predecessor cutover the IPC surface is two-way:
 
     Python ``_COMMAND_REGISTRY``   : 75  (registry total)
     Rust host ``allowed_commands()``: 71  (registry − 4 host-dispatched)

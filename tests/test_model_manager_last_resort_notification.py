@@ -289,7 +289,7 @@ class TestLastResortNotificationSuppressed:
 
 
 class TestLastResortNotificationClickable:
-    """When a host (Electron/Tauri) is connected, the last-resort
+    """When a host (predecessor/Tauri) is connected, the last-resort
     notification is published as a ``notification`` event carrying a
     ``click_path`` so the host renders a CLICKABLE native toast that
     opens the Models page directly, pystray Win32 balloons cannot carry
@@ -299,7 +299,7 @@ class TestLastResortNotificationClickable:
     def test_live_transport_publishes_clickable_notification_event(self, monkeypatch):
         """With a live host transport, ``_on_last_resort_unloaded`` must
         publish a ``notification`` event whose data carries
-        ``click_path: "/models"`` (the Electron main-process handler
+        ``click_path: "/models"`` (the predecessor main-process handler
         wires ``Notification.on("click")`` → navigate) and must NOT
         fall back to the pystray balloon."""
         mm, app = _make_mm()

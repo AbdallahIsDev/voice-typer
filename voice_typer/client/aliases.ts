@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 //single source of truth for the renderer-side path aliases
 // (`@`, `#ui`, `#utils`) used by every Vite config in the client root.
 //
-// Previously `electron.vite.config.ts`, `electron.vite.renderer.ts`, and
+// Previously the predecessor Vite config, the predecessor renderer Vite config, and
 // `vitest.config.ts` each duplicated the same three `resolve(__dirname,
 // "src/renderer/src/...")` calls, a maintenance hazard where a path
 // change had to be applied in 3 places. Centralising here means a path

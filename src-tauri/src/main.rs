@@ -1,6 +1,6 @@
 //! Voice Typer: Tauri v2 host (ADR-0020 implementation).
 //!
-//! Rust shell for the sole desktop host (Electron main process removed
+//! Rust shell for the sole desktop host (predecessor main process removed
 //! 2026-09-17). Responsibilities:
 //! 1. Spawn the Python sidecar via Tauri's `externalBin` mechanism,
 //!    passing `VOICE_TYPER_IPC_TOKEN` + `TAURI_SIDECAR=1` env vars.
@@ -236,7 +236,7 @@ fn main() {
             // `sidecar::lifecycle` (re-exported via `crate::state`):
             // `relaunch_app` → full app restart; `quit_app` (tray Quit,
             // published by the Python sidecar) → shutdown flag +
-            // `app.exit(0)`. The one-time Electron→Tauri userData
+            // `app.exit(0)`. The one-time predecessor→Tauri userData
             // migration that
             // must precede the sidecar spawn runs inside the spawned
             // task below (ADR-0020 §8: see `sidecar::spawn`).

@@ -18,7 +18,7 @@
 #
 # Functionally identical to the Debian prerm, probes the same 5 canonical
 # candidate paths so the uninstall script is found regardless of which
-# installer produced the package (Tauri v2 .rpm, legacy Electron .rpm,
+# installer produced the package (Tauri v2 .rpm, legacy .rpm,
 # AppImage, manual install).
 
 set -e

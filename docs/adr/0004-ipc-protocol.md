@@ -2,11 +2,11 @@
 
 ## Status
 
-**Status: SUPERSEDED — Electron host removed 2026-09-17; Tauri is sole host (ADR-0020). Historical record only.**
+**Status: SUPERSEDED — predecessor host removed 2026-09-17; Tauri is sole host (ADR-0020). Historical record only.**
 
 The live transport is localhost WebSocket (`sidecar_ws.py` ↔
 `src-tauri/src/sidecar/ws.rs`). Historical TCP/JSON-lines details below
-describe the retired Electron path.
+describe the retired predecessor path.
 
 ## Date
 
@@ -14,7 +14,7 @@ describe the retired Electron path.
 
 ## Context
 
-The Electron frontend and Python backend need a communication channel. Options considered:
+The predecessor frontend and Python backend need a communication channel. Options considered:
 
 1. **stdin/stdout pipes**: simple but blocking; hard to handle bidirectional async messages.
 2. **HTTP REST API**: request/response only; server cannot push events (recording state
@@ -27,7 +27,7 @@ The Electron frontend and Python backend need a communication channel. Options c
 ## Decision
 
 We chose **local TCP socket with JSON protocol** (option 4). The Python backend listens
-on `127.0.0.1:0` (OS-assigned port), writes the port to a known file, and the Electron
+on `127.0.0.1:0` (OS-assigned port), writes the port to a known file, and the predecessor
 client reads the port and connects. Messages are newline-delimited JSON with a
 `{type, data, id}` envelope. The `id` field is required on the request/response channel
 (channel 1) and omitted on the push-event channel (channel 2). See

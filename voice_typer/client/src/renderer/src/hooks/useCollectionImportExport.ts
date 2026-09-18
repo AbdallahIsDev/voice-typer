@@ -137,7 +137,7 @@ export interface UseCollectionImportExportArgs<Row, Item> {
 	 *  rows ref, the page decides). */
 	getExportItems: (rows?: Row[]) => Promise<Item[]> | Item[];
 	/** Run the export via the IPC bridge. Returns `null` when the bridge
-	 *  is unavailable (running outside Electron) so the skeleton can
+	 *  is unavailable (running outside predecessor) so the skeleton can
 	 *  show the not-available toast instead of a silent dead control. */
 	exportFile: (
 		items: Item[],

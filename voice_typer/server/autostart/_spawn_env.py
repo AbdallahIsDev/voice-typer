@@ -1,8 +1,8 @@
 """Shared spawn-environment helpers for the autostart launcher.
 
-Extracted from ``_electron_build.py`` during the Electron/TCP
+Extracted from `the deleted predecessor build module` during the predecessor/TCP
 removal so the Tauri spawn paths keep the env-construction and
-sensitive-key audit primitives without pulling in Electron-specific
+sensitive-key audit primitives without pulling in predecessor-specific
 code.
 
 Callers:

@@ -97,4 +97,4 @@ class TestRecoveryStartupNotify:
         events = [c.args[0] for c in publish.call_args_list]
         notifications = [e for e in events if e.get("type") == "notification"]
         assert notifications
-        assert notifications[0]["type"] != "electron_notification"
+        assert notifications[0]["type"] == "notification"

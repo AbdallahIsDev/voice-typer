@@ -42,8 +42,8 @@ the Python backend. The authoritative count is enforced by CI (see
 `tests/test_ipc_command_parity.py`); update the count there if entries
 are added or removed.
 
-> Electron main and the TCP transport are gone (ADR-0020 cutover). The
-> former TypeScript `ALLOWED_COMMANDS` Set is deleted with Electron
+> predecessor main and the TCP transport are gone (ADR-0020 cutover). The
+> former TypeScript `ALLOWED_COMMANDS` Set is deleted with predecessor
 > main. The remaining two-way contract is: Python
 > `_COMMAND_REGISTRY` (`voice_typer/server/ipc/registry.py`,
 > re-exported by `ipc_server.py`) registers **75** handlers; the Rust

@@ -11,8 +11,8 @@ discarded the ``resp`` dict (which had ``id`` pre-populated), so
 validation rejections orphaned the pending request and the renderer
 would time out instead of resolving the rejection.
 
-Post-Electron / post-TCP: the former ``_accept_tcp`` pool-race pins
-and the Electron ``ALLOWED_COMMANDS`` coverage gate were deleted with
+Post-predecessor / post-TCP: the former ``_accept_tcp`` pool-race pins
+and the predecessor ``ALLOWED_COMMANDS`` coverage gate were deleted with
 the TS shell and TCP transport. Command parity lives in
 ``tests/test_ipc_command_parity.py`` (Python registry ↔ Rust allowlist).
 """

@@ -27,11 +27,11 @@ in task DE-2J:
   ``tray.stop()`` failed. The tray.stop() failure log is also
   escalated from DEBUG to ERROR.
 
-* **DE-53 (Medium)**, The ``_electron_pid`` read-terminate-clear
+* **DE-53 (Medium)**, The ``_host_pid`` read-terminate-clear
   sequence inside ``_do_cleanup`` is now guarded by a dedicated
-  ``_electron_pid_lock``. Pre-fix, two concurrent quit() callers (IPC
+  ``_host_pid_lock``. Pre-fix, two concurrent quit() callers (IPC
   + signal-watcher) could both read the same PID, both call
-  ``terminate_electron(pid)`` (racing with PID recycling on Windows),
+  the tracked child process (racing with PID recycling on Windows),
   and both clear the attribute, potentially clobbering a NEW PID
   installed by a concurrent ``restart_app()``.
 
@@ -46,7 +46,7 @@ in task DE-2J:
 
 These tests stub every external dependency (real ``VoiceTyperApp``,
 filesystem PID/devnull paths, Win32 kernel32, the ``event_bus`` /
-``level_monitor`` modules, the ``electron_launcher`` /
+``level_monitor`` modules, the ``the predecessor launcher`` /
 ``tray_window`` modules) so they run headless on Linux without
 touching real subsystems. They do NOT import ``voice_typer.server.app``
 (which has heavy import-time side effects), instead they construct a
@@ -91,7 +91,7 @@ class _FakeApp:
         self._shutting_down = False
         self._shutting_down_event = threading.Event()
         self._cleanup_done = False
-        self._electron_pid: int | None = None
+        self._host_pid: int | None = None
         self._mutex_handle = None
 
         # Subsystem collaborators (MagicMock so any attribute/method call
@@ -154,7 +154,7 @@ def fake_app(tmp_config_dir, monkeypatch):
     monkeypatch.setattr(_app_module, "is_windows", lambda: False, raising=False)
     # Patch the real host-termination function so the production
     # import path inside _do_cleanup hits the spy. The Tauri host
-    # replaces the deleted Electron launcher.
+    # replaces the deleted predecessor launcher.
     monkeypatch.setattr(
         "voice_typer.server.autostart.tauri_spawn.terminate_tauri",
         lambda pid: None,
@@ -556,7 +556,7 @@ class TestForceExitOnNonMainThread:
         )
 
 
-# _electron_pid lock ─────────────────────────────────────────
+# _host_pid lock ─────────────────────────────────────────
 
 
 # sd.stop() skipped on recorder.stop() timeout ───────────────

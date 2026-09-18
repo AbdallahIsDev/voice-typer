@@ -27,15 +27,12 @@
  * factory's result at first import, so a per-test flag read inside an
  * async `importOriginal` factory never re-evaluates.)
  *
- * This guard scans BOTH the renderer (`src/renderer/src`) and the
- * Electron main-process (`src/main`) test trees, the overlap existed
- * in both (e.g. src/main/__tests__/main-process-reliability-fixes.test.ts
- * overrode its hoisted electron/state/i18n/python/single_instance mocks
- * with per-describe vi.doMock factories). Scoped doMock use that does
- * NOT overlap a hoisted mock for the same path (stable page/layout
- * stubs, describe-scoped electron mocks with doUnmock cleanup) remains
- * legitimate and is not flagged. LIMITATION: the regexes match only
- * double/single-quoted paths, not backtick template literals.
+ * This guard scans the renderer test tree (`src/renderer/src`).
+ * Scoped doMock use that does NOT overlap a hoisted mock for the same
+ * path (stable page/layout stubs, describe-scoped mocks with doUnmock
+ * cleanup) remains legitimate and is not flagged. LIMITATION: the
+ * regexes match only double/single-quoted paths, not backtick template
+ * literals.
  */
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -44,7 +41,7 @@ import { describe, expect, it } from "vitest";
 
 const RENDERER_SRC = resolve(__dirname, "..", "..", ".."); // .../src/renderer/src
 const CLIENT_DIR = resolve(RENDERER_SRC, "..", "..", ".."); // .../client
-// Electron main/preload trees were deleted with the Electron shell;
+// predecessor main/preload trees were deleted with the predecessor shell;
 // keep only roots that still exist so the guard does not ENOENT.
 const MAIN_SRC = join(CLIENT_DIR, "src", "main");
 const PRELOAD_SRC = join(CLIENT_DIR, "src", "preload");

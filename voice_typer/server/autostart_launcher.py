@@ -14,7 +14,7 @@ re-exported below so existing import sites and monkeypatch targets
 
 Architecture
 ------------
-The launcher is **Tauri-only** (Electron host removed 2026-09-17):
+The launcher is **Tauri-only** (predecessor host removed 2026-09-17):
 
 - Detect the Tauri binary (``voice-typer-tauri``) at well-known
   install paths (or via the ``VT_TAURI_BINARY`` env override) and
@@ -329,7 +329,7 @@ def launch() -> int:
         # below still records the outcome + duration (C-CROSS-5).
         return 0
 
-    # Fresh start: Tauri path only (Electron removed).
+    # Fresh start: Tauri path only (predecessor removed).
     tauri_mode = _is_tauri_mode()
     tauri_bin = _tauri_binary() if tauri_mode else None
     log.info(
@@ -352,7 +352,7 @@ def launch() -> int:
         log.error("[AUTOSTART] Tauri mode detected but no binary resolvable; exiting 1")
         return 1
 
-    log.error("[AUTOSTART] No Tauri binary found; exiting 1 (Electron launch path removed)")
+    log.error("[AUTOSTART] No Tauri binary found; exiting 1 (predecessor launch path removed)")
     return 1
 
 

@@ -12,7 +12,7 @@
  * - `err.errors[]` stamping for multi-field validation failures.
  * - `err.consent_field` / `err.engine_name` / `err.model_id` stamping
  *   for `client.consent_required` envelopes (deep-link data), with the
- *   SAME guards the Electron path in `usePython.ts` applies (non-empty
+ *   SAME guards the predecessor path in `usePython.ts` applies (non-empty
  *   strings / arrays only; JSON `null` model_id stays `undefined`).
  * - `err.legacy_code`, the documented Tauri-only superset (the
  *   transitional alias the server emits alongside the canonical
@@ -84,7 +84,7 @@ describe("parseTauriErrorEnvelope, errors[] stamping (validation parity)", () =>
 		]);
 	});
 
-	it("does NOT stamp an empty errors array (Electron-path guard)", () => {
+	it("does NOT stamp an empty errors array", () => {
 		const err = parse(
 			JSON.stringify({
 				type: "error",
@@ -129,7 +129,7 @@ describe("parseTauriErrorEnvelope, consent fields (client.consent_required)", ()
 		expect(err?.model_id).toBe("large-v3");
 	});
 
-	it("maps a JSON null model_id to undefined (Electron-path normalization)", () => {
+	it("maps a JSON null model_id to undefined", () => {
 		const err = parse(
 			JSON.stringify({
 				type: "error",
@@ -240,7 +240,7 @@ describe("parseTauriErrorEnvelope, Rust passthrough byte fixtures", () => {
 });
 
 describe("parseTauriErrorEnvelope, cross-transport code parity", () => {
-	// The SAME fixture envelopes the Electron path resolves as values,
+	// The SAME fixture envelopes the predecessor path resolves as values,
 	// the Tauri path rejects as strings. Whatever the transport, the
 	// thrown Error must surface the SAME `.code` / `.errors` so callers
 	// branch identically on both runtimes.

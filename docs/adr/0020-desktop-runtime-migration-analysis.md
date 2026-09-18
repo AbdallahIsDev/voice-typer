@@ -2,14 +2,14 @@
 
 ## Status
 
-Accepted → **cutover complete (2026-09-17)**. Electron was removed;
+Accepted → **cutover complete (2026-09-17)**. predecessor was removed;
 Tauri v2 + Python sidecar is the sole desktop host on all supported
-platforms. Historical Electron notes below describe the migration
-contract as written; the Electron path is no longer in-tree.
+platforms. Historical predecessor notes below describe the migration
+contract as written; the predecessor path is no longer in-tree.
 
 ## Date
 
-2026-07-13 (decision): 2026-07-14 (updated to Sidecar-only, actionable migration plan), 2026-07-16 (cross-platform rewrite: verified against `AbdallahIsDev/voice-typer` `main`, reconciled with ADRs 0003/0007/0008/0009/0011/0014/0015/0016/0017/0018/0019, expanded to cover Windows + macOS + Linux + Wayland + Apple Silicon + Linux ARM64). **2026-09-17: cutover note — Electron host removed; Tauri sole host.**
+2026-07-13 (decision): 2026-07-14 (updated to Sidecar-only, actionable migration plan), 2026-07-16 (cross-platform rewrite: verified against `AbdallahIsDev/voice-typer` `main`, reconciled with ADRs 0003/0007/0008/0009/0011/0014/0015/0016/0017/0018/0019, expanded to cover Windows + macOS + Linux + Wayland + Apple Silicon + Linux ARM64). **2026-09-17: cutover note — predecessor host removed; Tauri sole host.**
 
 ---
 
@@ -19,9 +19,9 @@ This is a **migration contract**, not a high-level proposal. Every section is wr
 
 1. **Fixes the ADR cross-references.** The previous version cited "ADR-0009 (Prewarm & Autostart Architecture)". That is wrong. ADR-0009 is the **Audio Filter Chain Architecture**. The actual prewarm ADR is **ADR-0011**. Every reference has been re-verified against `docs/adr/`.
 2. **Fixes the source-file line references.** The previous version cited `prewarm.py:17` for the prewarm helper; `prewarm.py` no longer exists (it was decomposed into the `prewarm/` package, see `prewarm/pipeline.py` for the entrypoint `run` function), and line 17 was part of the module docstring anyway. References now point to **symbols** (function/class names), line numbers drift, and entire files get split into packages, so symbol names are the only stable anchor.
-3. **Adds full cross-platform coverage.** Voice Typer today ships on Windows, macOS, and Linux (X11 + Wayland), per `README.md`, `docs/PLATFORM_STATUS.md`, `pyproject.toml` classifiers, `electron-builder.yml`, the `scripts/linux/` postinst/prerm/udev/polkit set, and the `prewarm_scheduler_posix.py` module. The previous ADR's Nuitka flags, code-signing commands, paste logic, autostart, prewarm scheduling, and path resolution were Windows-only and would silently produce broken macOS/Linux builds. Each technical section now has a Windows / macOS / Linux sub-section.
-4. **Reconciles with the existing build assets.** The repo already contains `scripts/build/voice-typer.spec` (PyInstaller), `scripts/build/compile_native.sh` + `.ps1` (native hotkey binaries), `scripts/linux/{postinst,prerm,postinst.rpm,prerm.rpm,99-voice-typer.rules,00-voice-typer-capslock.conf,voice-typer.polkit,install_permissions.py,uninstall_permissions.py}`, and `voice_typer/client/electron-builder.yml` (NSIS + DMG x64/arm64 + AppImage/deb/rpm with notarization enabled). (The historical `scripts/build/installer.iss` Inno Setup script is no longer present in the source tree.) The migration must reuse or explicitly replace each of these, none were referenced by the previous ADR.
-5. **Reconciles with the existing ADRs.** Voice Typer has 20 prior ADRs (0000–0019). The previous ADR (ADR-0013) referenced 0002 (the *initial* Electron + Python ADR, superseded by ADR-0003. The current architecture), 0009 (wrong, actually audio filters), and 0011 (the actual prewarm ADR). The migration touches concerns governed by ADRs 0003, 0007, 0008, 0009 (real), 0011, 0014, 0015, 0016, 0017, 0018, 0019. Each is cited where relevant.
+3. **Adds full cross-platform coverage.** Voice Typer today ships on Windows, macOS, and Linux (X11 + Wayland), per `README.md`, `docs/PLATFORM_STATUS.md`, `pyproject.toml` classifiers, `legacy builder config`, the `scripts/linux/` postinst/prerm/udev/polkit set, and the `prewarm_scheduler_posix.py` module. The previous ADR's Nuitka flags, code-signing commands, paste logic, autostart, prewarm scheduling, and path resolution were Windows-only and would silently produce broken macOS/Linux builds. Each technical section now has a Windows / macOS / Linux sub-section.
+4. **Reconciles with the existing build assets.** The repo already contains `scripts/build/voice-typer.spec` (PyInstaller), `scripts/build/compile_native.sh` + `.ps1` (native hotkey binaries), `scripts/linux/{postinst,prerm,postinst.rpm,prerm.rpm,99-voice-typer.rules,00-voice-typer-capslock.conf,voice-typer.polkit,install_permissions.py,uninstall_permissions.py}`, and `voice_typer/client/legacy builder config` (NSIS + DMG x64/arm64 + AppImage/deb/rpm with notarization enabled). (The historical `scripts/build/installer.iss` Inno Setup script is no longer present in the source tree.) The migration must reuse or explicitly replace each of these, none were referenced by the previous ADR.
+5. **Reconciles with the existing ADRs.** Voice Typer has 20 prior ADRs (0000–0019). The previous ADR (ADR-0013) referenced 0002 (the *initial* predecessor + Python ADR, superseded by ADR-0003. The current architecture), 0009 (wrong, actually audio filters), and 0011 (the actual prewarm ADR). The migration touches concerns governed by ADRs 0003, 0007, 0008, 0009 (real), 0011, 0014, 0015, 0016, 0017, 0018, 0019. Each is cited where relevant.
 
 > **Plain English:** This is the rewritten migration plan. The old plan only really worked on Windows and got a few file references wrong. This version works on Windows, macOS, and Linux, fixes the references, and tells you exactly which existing build scripts and ADRs the migration interacts with.
 
@@ -29,10 +29,10 @@ This is a **migration contract**, not a high-level proposal. Every section is wr
 
 ## Context
 
-Voice Typer today is **Electron (React UI) + a separate Python backend + a separate prewarm helper**, effectively **three OS processes**, plus the Electron renderer GPU child:
+Voice Typer today is **predecessor (React UI) + a separate Python backend + a separate prewarm helper**, effectively **three OS processes**, plus the predecessor renderer GPU child:
 
-1. **Electron main process** (hosts the React UI). Source: `voice_typer/client/src/main/index.ts` (209 lines: wiring-only; logic in `./state/`, `./python/`, `./ipc/`, `./windows/`, `./bootstrap`). Entry: `package.json` `main: ./out/main/index.js`. Build: `electron-vite build` → `electron-builder` (NSIS on Windows, DMG on macOS x64+arm64, AppImage+deb+rpm on Linux).
-2. **Python backend**, `python -m voice_typer.server.ipc_server --port 9876` (see the file directly for the current size, earlier drafts of this ADR disagreed on the line count, and the module has continued to grow since). Spawned by `electron_launcher.py:launch_electron_frontend` (the inverse path: Python-as-parent, also exists) and reached over a local TCP socket on `127.0.0.1:9876`. Audio capture + ASR inference + tray + hotkeys + volume ducking + clipboard all live here. The IPC dispatch layer is `_COMMAND_REGISTRY` (locate by the `_COMMAND_REGISTRY = {` assignment near the top of `ipc_server.py`; 63 commands: see §2 IPC-1 reconciliation) → `_handle_<cmd>` mixins in `voice_typer/server/handlers/*`. Server-initiated events flow through `event_bus.publish(...)` (`event_bus.py`, the modern successor to `ipc_server._push_event_now`).
+1. **predecessor main process** (hosts the React UI). Source: `voice_typer/client/src/main/index.ts` (209 lines: wiring-only; logic in `./state/`, `./python/`, `./ipc/`, `./windows/`, `./bootstrap`). Entry: `package.json` `main: ./out/main/index.js`. Build: a Vite renderer bundle → NSIS on Windows, DMG on macOS x64+arm64, AppImage+deb+rpm on Linux.
+2. **Python backend**, `python -m voice_typer.server.ipc_server --port 9876` (see the file directly for the current size, earlier drafts of this ADR disagreed on the line count, and the module has continued to grow since). Spawned by the legacy host launcher (the inverse path: Python-as-parent, also exists) and reached over a local TCP socket on `127.0.0.1:9876`. Audio capture + ASR inference + tray + hotkeys + volume ducking + clipboard all live here. The IPC dispatch layer is `_COMMAND_REGISTRY` (locate by the `_COMMAND_REGISTRY = {` assignment near the top of `ipc_server.py`; 63 commands: see §2 IPC-1 reconciliation) → `_handle_<cmd>` mixins in `voice_typer/server/handlers/*`. Server-initiated events flow through `event_bus.publish(...)` (`event_bus.py`, the modern successor to `ipc_server._push_event_now`).
 3. **prewarm helper**, `prewarm/` package (entry point `prewarm/__main__.py`, dispatched to `prewarm/pipeline.py::run`). A standalone boot-time process that warms the OS file cache (~7 GB of torch + transformers + model weights) before the app's cold imports contend for disk. Kept intentionally separate per ADR-0011. Scheduling is platform-specific:
    - **Windows**: `task_scheduler.py` (708 lines) registers a `LogonTrigger` Scheduled Task (`schtasks`) with an HKCU `Run` registry-key fallback.
    - **macOS**: `prewarm_scheduler_posix.py` registers a LaunchAgent at `~/Library/LaunchAgents/com.voicetyper.prewarm.plist` with `RunAtLoad=true`.
@@ -42,30 +42,30 @@ The codebase is **already cross-platform**. The README explicitly states: "**Win
 
 Two pain points drive this migration:
 
-- **(A) IPC middleware dislike.** The UI ↔ Python path is Electron `ipcMain`/`ipcRenderer` (in `client/src/main/index.ts` and `client/src/preload/index.ts`) → TCP socket → Python `IPCServer._dispatch` → handler mixins. We want to remove the hand-rolled Electron `child_process.spawn` + `electron_launcher.py` relay layer (318 lines) and the `autostart_launcher.py` Electron-aware spawn logic (801 lines).
-- **(B) "Two things in Task Manager."** Electron + Python ship as two separate programs. We want **one application** the user launches (one icon/install), not two unrelated programs.
+- **(A) IPC middleware dislike.** The UI ↔ Python path is predecessor `ipcMain`/`ipcRenderer` (in `client/src/main/index.ts` and `client/src/preload/index.ts`) → TCP socket → Python `IPCServer._dispatch` → handler mixins. We want to remove the hand-rolled predecessor `child_process.spawn` + `legacy host launcher` relay layer (318 lines) and the `autostart_launcher.py` predecessor-aware spawn logic (801 lines).
+- **(B) "Two things in Task Manager."** predecessor + Python ship as two separate programs. We want **one application** the user launches (one icon/install), not two unrelated programs.
 
 This ADR adopts **Tauri v2 + a Python Sidecar** as the replacement desktop runtime, and records the ordered migration plan. The Python backend and React UI are kept substantially as-is; only the shell and the transport change. The migration is **per-platform incremental and reversible**: each platform has its own Phase 0 spike and its own cutover gate.
 
-> **Plain English:** Today the app is three running programs (the window, the speech brain in Python, and a pre-load helper). We are moving the *window* from Electron to a smaller Tauri program, and bundling the speech brain *next to* it as a "sidecar" that Tauri starts and manages. The user still sees one app. We keep Electron working the whole time, so if the new version misbehaves we just ship Electron again, nothing is lost. The migration happens one OS at a time: Windows first, then macOS, then Linux.
+> **Plain English:** Today the app is three running programs (the window, the speech brain in Python, and a pre-load helper). We are moving the *window* from predecessor to a smaller Tauri program, and bundling the speech brain *next to* it as a "sidecar" that Tauri starts and manages. The user still sees one app. We keep predecessor working the whole time, so if the new version misbehaves we just ship predecessor again, nothing is lost. The migration happens one OS at a time: Windows first, then macOS, then Linux.
 
 ---
 
 ## Decision
 
-**Adopt Tauri v2 + Python Sidecar as the desktop runtime, replacing Electron on all three platforms.** Keep the Python backend and React UI substantially as-is; only the shell + transport change.
+**Adopt Tauri v2 + Python Sidecar as the desktop runtime, replacing predecessor on all three platforms.** Keep the Python backend and React UI substantially as-is; only the shell + transport change.
 
 **Rationale (why Sidecar, not embedding Python in the app):** embedding Python directly inside the Rust/Tauri process (PyO3) would put the speech engine in the *same* process as the UI. For a continuous realtime-audio app that reintroduces a Global Interpreter Lock (GIL) freeze risk on the audio path, adds fragile native DLL/ABI linking (Windows MSVC, macOS .dylib @rpath, Linux glibc version constraints), and prevents crash isolation (a speech-engine crash would kill the whole app). The sidecar pattern keeps the speech engine in its own managed process, so the UI never freezes, crashes are isolated, and native loading stays standard.
 
-**Migration is incremental and reversible.** Electron is NOT removed. We build Tauri + Sidecar *alongside* Electron, port the UI/components to Tauri's WebView (WebView2 on Windows, WKWebView on macOS, webkit2gtk on Linux), implement the sidecar, then re-point the "wire" (UI → logic) from Electron→Python to Tauri→sidecar. At every phase the Electron app remains buildable, runnable, and shippable. Cutover is a packaging/default switch per platform, not a destructive change.
+**Migration is incremental and reversible.** predecessor is NOT removed. We build Tauri + Sidecar *alongside* predecessor, port the UI/components to Tauri's WebView (WebView2 on Windows, WKWebView on macOS, webkit2gtk on Linux), implement the sidecar, then re-point the "wire" (UI → logic) from predecessor→Python to Tauri→sidecar. At every phase the predecessor app remains buildable, runnable, and shippable. Cutover is a packaging/default switch per platform, not a destructive change.
 
 Three mandatory architecture rules:
 
 1. **Keep prewarm as a SEPARATE boot helper.** Do **not** merge it into the app. Prewarm remains a distinct, intentional boot-time process that warms the OS file cache. Net: **3 OS processes → 2 OS processes per session** (one Tauri app + one invisible boot helper). Preserves ADR-0011 (the actual prewarm ADR. The previous version of this document mis-cited ADR-0009, which is the Audio Filter Chain ADR).
 2. **Preserve the current streaming model.** Background chunking/streaming stays hidden from the user until dictation ends, then pastes at once. Unaffected by the runtime change.
-3. **Migration must stay reversible.** Electron code is untouched; the Tauri build is additive. Ability to ship/switch back to Electron at any time, with zero loss. **Per-platform**, not global: Windows can cutover while macOS still ships Electron.
+3. **Migration must stay reversible.** predecessor code is untouched; the Tauri build is additive. Ability to ship/switch back to predecessor at any time, with zero loss. **Per-platform**, not global: Windows can cutover while macOS still ships predecessor.
 
-> **Plain English (the three rules):** Rule 1. The pre-load helper stays its own little program so the model stays ready in RAM; we only swap the *window* technology. Rule 2. The way words are collected in the background and shown all at once does not change. Rule 3. We never delete or break Electron; the new app is added next to it, and we can go back whenever we want, one OS at a time.
+> **Plain English (the three rules):** Rule 1. The pre-load helper stays its own little program so the model stays ready in RAM; we only swap the *window* technology. Rule 2. The way words are collected in the background and shown all at once does not change. Rule 3. We never delete or break predecessor; the new app is added next to it, and we can go back whenever we want, one OS at a time.
 
 ### Locked implementation decisions (resolved in planning)
 
@@ -76,7 +76,7 @@ These choices were decided before the Phase 0 spike and are fixed for the build:
 - **Paste/keystroke injection: `enigo` + `tauri-plugin-clipboard-manager`.** The Rust bridge uses the **`enigo`** crate (cross-platform: Windows via `SendInput`, macOS via CGEvent, Linux via X11/XTest) for keystroke injection of transcribed text into the foreground window, **plus** `tauri-plugin-clipboard-manager` for the clipboard copy + `Ctrl+V`/`Cmd+V` long-text path. `enigo` is keyboard/mouse ONLY: it does NOT do toast notifications (see §6 of the Implementation Specification). The previous ADR's Win32-only focus-restore dance (`AttachThreadInput`, `SetForegroundWindow`, `GetForegroundWindow`) is the Windows implementation; macOS and Linux each need their own equivalent (see §6).
 - **Cooperative shutdown over the WebSocket**, not stdin/stdout. The Rust supervisor sends `{"type":"shutdown"}`; the sidecar releases the mic, acks, and exits. `kill_children` is the backstop only.
 - **Crash isolation (supervisor)** is a hard requirement before cutover on each platform: Rust respawns the sidecar only, shows "reconnecting…", with backoff 500 ms → 1 s → 2 s (cap 5 retries) then full-app relaunch. Treat supervisor as a label defined by this ADR, not an external task ID.
-- **Heartbeat is removed on BOTH sides** (replaces ADR-0018's TCP heartbeat watchdog). Under Tauri, Rust is the supervisor: it detects sidecar death via WS-close / process exit, so the app→backend heartbeat is redundant. This invalidates ADR-0018 for the Tauri build path; ADR-0018 stays in force for the Electron fallback path until that fallback is removed. See §10.
+- **Heartbeat is removed on BOTH sides** (replaces ADR-0018's TCP heartbeat watchdog). Under Tauri, Rust is the supervisor: it detects sidecar death via WS-close / process exit, so the app→backend heartbeat is redundant. This invalidates ADR-0018 for the Tauri build path; ADR-0018 stays in force for the predecessor fallback path until that fallback is removed. See §10.
 
 > **Honest process-model note:** post-migration the OS still runs **multiple processes**, Tauri host + Tauri WebView renderer child + Python sidecar + prewarm (3 → 2 net per session: one app + one boot helper). The user sees **one app** (one icon/install/start menu entry), but Task Manager / Activity Monitor / `ps` will show more than one entry. This migration resolves complaint (B) as "one app to launch", NOT "one OS process". Embedding Python (PyO3) was rejected precisely because it *would* yield one process but reintroduces GIL-freeze risk and kills crash isolation.
 
@@ -102,9 +102,9 @@ The sidecar is a **normal Python program** (your existing `ipc_server` / `handle
 
 ## Cross-Platform Capability Matrix (before → after)
 
-Verified against `docs/PLATFORM_STATUS.md` (last updated 2026-06-30) and the actual source tree. The "Today (Electron)" column reflects the shipping app; the "After (Tauri)" column reflects the target of this ADR. **Any cell where After is worse than Today is a regression that must be explicitly accepted or blocked.**
+Verified against `docs/PLATFORM_STATUS.md` (last updated 2026-06-30) and the actual source tree. The "Today (the predecessor)" column reflects the shipping app; the "After (Tauri)" column reflects the target of this ADR. **Any cell where After is worse than Today is a regression that must be explicitly accepted or blocked.**
 
-| Capability | Today (Electron) | After (Tauri) | Notes |
+| Capability | Today (the predecessor) | After (Tauri) | Notes |
 |---|---|---|---|
 | Global hotkey (native): Windows | `windows-key-listener.exe` (`WH_KEYBOARD_LL`) | **Keep native binary** (do NOT switch to `tauri-plugin-global-shortcut`) | Tauri's plugin lacks key suppression + modifier-only hotkeys. See §6.4. |
 | Global hotkey (native), macOS | `macos-key-listener` (Swift, `CGEvent` tap, **Fn/Globe key**) | **Keep native binary** | Tauri's plugin cannot detect Fn/Globe key. Accessibility permission still required. |
@@ -112,7 +112,7 @@ Verified against `docs/PLATFORM_STATUS.md` (last updated 2026-06-30) and the act
 | Global hotkey (legacy fallback) | `pynput` (Win32/Quartz/Xlib) | Remove (Tauri plugin is the new fallback) | Native binary remains primary; legacy fallback is rarely used. |
 | Key suppression (so hotkey doesn't reach foreground) | Win ✅ (hook returns non-zero) · macOS ✅ (CGEvent tap returns NULL) · Linux ❌ (evdev read-only) | Unchanged | Native binaries already handle this; Tauri plugin would regress Windows + macOS. |
 | Tray icon | `pystray` (Win32 / AppKit / GTK) | `tauri-plugin-tray` (Win32 / AppKit / GTK via `gtk-3.0`) | Tray menu structure (locale, dynamic items) must be preserved 1:1, see §6.5. |
-| Tray notifications | `Shell_NotifyIcon` / `NSUserNotificationCenter` / libnotify | `tauri-plugin-notification` (cross-platform backend) | `electron_notification` event renames; payload unchanged. |
+| Tray notifications | `Shell_NotifyIcon` / `NSUserNotificationCenter` / libnotify | `tauri-plugin-notification` (cross-platform backend) | `notification` event (canonical name); payload unchanged. |
 | Autostart: Windows | Task Scheduler `LogonTrigger` + HKCU Run key fallback | **Keep existing** `task_scheduler.py` (do NOT enable Tauri `autostart` plugin: avoids duplicate entries) | Per Phase 3 of the prior ADR; still correct. |
 | Autostart, macOS | LaunchAgent plist (`com.voicetyper.plist`) | **Keep existing** `server_platform._enable_autostart_macos()` | Tauri `autostart` plugin uses LaunchAgent too but with a different label; switching would orphan the old one. |
 | Autostart, Linux | `.desktop` in `~/.config/autostart/` | **Keep existing** `server_platform._enable_autostart_linux()` | Same rationale. |
@@ -132,9 +132,9 @@ Verified against `docs/PLATFORM_STATUS.md` (last updated 2026-06-30) and the act
 | Config file permissions | Win NTFS ACLs (default) · POSIX `0o600`/`0o700` | Unchanged | `config.py::_secure_atomic_write` stays in Python. |
 | IPC auth | TCP session token (ADR-0014, bearer-token literal-match, historically referred to as "HMAC"; see §3 ZR-56 reconciliation, first-frame `{"type":"auth","token":...}`) | WebSocket session token (same scheme, same env var `VOICE_TYPER_IPC_TOKEN`) | See §3. |
 | IPC rate limit | Per-connection rate limiter (ADR-0019, 200 burst / 60 sustained msg/s) | **Must port** to the WebSocket server side | ADR-0019 was written for TCP; the limiter logic in `ipc_server.py` must be reused on the WS accept path. See §10. |
-| Heartbeat watchdog | ADR-0018: Electron sends `heartbeat` every 5s, Python watchdog quits after 120s of silence | **Removed** on Tauri path (Rust supervisor replaces it). Stays on Electron fallback path. | See §2 + §10. |
-| Code signing: Windows | Authenticode (`signtool`) via electron-builder `WIN_CSC_LINK` | Authenticode (`signtool`) for both `python-sidecar-*.exe` and `prewarm-*.exe` + Tauri host | See §13. |
-| Code signing, macOS | Developer ID + notarization (`notarize: true` in `electron-builder.yml`) | Developer ID + notarization + stapling for the `.app` bundle and both sidecar exes | See §13. macOS notarization requires the sidecar exes to be signed **before** they enter the `.app` bundle. |
+| Heartbeat watchdog | ADR-0018: predecessor sends `heartbeat` every 5s, Python watchdog quits after 120s of silence | **Removed** on Tauri path (Rust supervisor replaces it). Stays on predecessor fallback path. | See §2 + §10. |
+| Code signing: Windows | Authenticode (`signtool`) via the predecessor's packaging config (`WIN_CSC_LINK`) | Authenticode (`signtool`) for both `python-sidecar-*.exe` and `prewarm-*.exe` + Tauri host | See §13. |
+| Code signing, macOS | Developer ID + notarization (`notarize: true` in `legacy builder config`) | Developer ID + notarization + stapling for the `.app` bundle and both sidecar exes | See §13. macOS notarization requires the sidecar exes to be signed **before** they enter the `.app` bundle. |
 | Code signing, Linux | None (deb/rpm are unsigned by default; AppImage is GPG-optional) | None (Tauri deb/rpm/AppImage also unsigned by default) | Optional: GPG-sign the .deb / .rpm. Out of scope for v1. |
 | Auto-update | **NOT IMPLEMENTED** today (`docs/auto-update-feature.md` is design-only: the file's own header says so) | `tauri-plugin-updater` (cross-platform: Windows replaces MSI, macOS replaces DMG, Linux replaces AppImage) | See §15. **Do not assume auto-update works today**, it does not. |
 | Diagnostics export | `export_diagnostics` command (redacted bundle) | Unchanged (stays in Python sidecar) | No change. |
@@ -142,13 +142,13 @@ Verified against `docs/PLATFORM_STATUS.md` (last updated 2026-06-30) and the act
 | Streaming dictation | `streaming.py` + `dictation_pipeline.py` | Unchanged (stays in Python sidecar) | No change. |
 | Models path | Win `%APPDATA%/voice-typer/models` · macOS `~/Library/Application Support/voice-typer/models` · Linux `$XDG_DATA_HOME/voice-typer/models` | Unchanged (`_paths.config_dir()` already handles this) | See §8. |
 | Logs path | `<config_dir>/logs/` (rotating) | Unchanged | See §11. |
-| WebView | Chromium (Electron-bundled, ~100 MB) | WebView2 (Win) / WKWebView (macOS, system) / webkit2gtk (Linux, system) | Tauri shell ~2–10 MB. CSS guardrails for webkit2gtk quirks. |
+| WebView | Chromium (predecessor-bundled, ~100 MB) | WebView2 (Win) / WKWebView (macOS, system) / webkit2gtk (Linux, system) | Tauri shell ~2–10 MB. CSS guardrails for webkit2gtk quirks. |
 
 ---
 
 ## Migration Plan (ordered, per-platform)
 
-The plan runs **Windows → macOS → Linux** in sequence. Each platform has its own Phase 0 gate. Phase 5 cutover is per-platform. The Electron fallback remains shippable on every platform throughout.
+The plan runs **Windows → macOS → Linux** in sequence. Each platform has its own Phase 0 gate. Phase 5 cutover is per-platform. The predecessor fallback remains shippable on every platform throughout.
 
 ### Phase 0: Spike (prove before building, per platform)
 
@@ -186,33 +186,33 @@ The plan runs **Windows → macOS → Linux** in sequence. Each platform has its
 
 ### Phase 2: Transport bridge (cross-platform)
 
-- Replace Electron's TCP IPC (`ipc_server --port 9876` + `electron_launcher` spawn) with a **localhost WebSocket** between Tauri (Rust) and the sidecar. Rust is the only bridge: UI `invoke('dispatch',{cmd,data})` → Rust → WebSocket `{"type":cmd,"data":...}` → sidecar `_COMMAND_REGISTRY` (`getattr(self,"_handle_<cmd>")`). The WebView never talks to Python directly.
+- Replace the predecessor's TCP IPC (`ipc_server --port 9876` + legacy-launcher spawn) with a **localhost WebSocket** between Tauri (Rust) and the sidecar. Rust is the only bridge: UI `invoke('dispatch',{cmd,data})` → Rust → WebSocket `{"type":cmd,"data":...}` → sidecar `_COMMAND_REGISTRY` (`getattr(self,"_handle_<cmd>")`). The WebView never talks to Python directly.
 - Port is **ephemeral `127.0.0.1:0`**, chosen by the sidecar and reported to Rust over stdout (see §1); auth is the existing **HMAC token** via `VOICE_TYPER_IPC_TOKEN`. Reuse `ipc_server._validate_dict_payload` (locate by `def _validate_dict_payload` in `voice_typer/server/ipc/validation.py`) + error codes (`invalid_payload`, `missing_field`, `invalid_field`).
 - JSON shapes (carried from `ipc_server.py`): request `{"type":<command>,"data":{...}}`; response `{"type":"result"|"error","data":{...},"code"?:<error_code>}`; sidecar→UI events flow over the same socket → Rust `app.emit(name,payload)`.
 - Map the existing handler registry (`handlers/*`) to sidecar commands; keep **one generic dispatch** to minimize Python changes.
-- Map Tauri events ↔ the current `event_bus.publish` / `ipc_server._push_event_now` event flow (see **Sidecar→UI Event Table** below) so UI updates behave unchanged. Rename Electron-specific events (`electron_notification` → native toast, `relaunch_electron` → Tauri app relaunch) without changing payloads.
+- Map sidecar events to native surfaces (`notification` → native toast, `relaunch_app` → Tauri app relaunch) without changing payloads.
 - **Port the per-connection rate limiter** (ADR-0019) from the TCP accept path to the WebSocket accept path. The limiter logic lives in `log_rate_limit.py`; the WS server must call it on every incoming frame.
 
 ### Phase 3: UI port to Tauri WebView (cross-platform)
 
-- Move the React UI from the Electron renderer to the Tauri webview; replace `ipcMain`/`contextBridge` calls (`client/src/preload/index.ts`) with Tauri `invoke`.
+- Move the React UI from the predecessor renderer to the Tauri webview; replace `ipcMain`/`contextBridge` calls (`client/src/preload/index.ts`) with Tauri `invoke`.
 - Port tray, **but keep the native hotkey binaries** (do NOT replace with `tauri-plugin-global-shortcut` See §6.4 for the feature-parity analysis), settings, and autostart UX to Tauri plugins (`tray`, `autostart`, `single-instance`).
 - Keep the same React components, only the shell bridge changes.
 - **WebView differences:** Windows uses WebView2 (Chromium-based, modern), macOS uses WKWebView (Safari-based, mostly modern), Linux uses webkit2gtk (Safari-ish, lags Chromium by 1–2 years). Audit the React UI for: CSS `backdrop-filter`, `:has()` selector, `grid-template-*` shorthand, `Array.at()`, `Object.has()`, `structuredClone()`. Add polyfills or guard with `@supports` where needed. The existing `client/csp-plugin.ts` CSP enforcer should be ported to Tauri's `tauri.conf.json` `app.security.csp` field: Tauri v2 enforces CSP at the WebView level.
 
 ### Phase 4: Wire swap + recovery (per platform)
 
-- Re-point the "wire" (UI → logic) from Electron→Python to Tauri→sidecar. Keep the Electron build path intact and runnable in parallel.
+- Re-point the "wire" (UI → logic) from predecessor→Python to Tauri→sidecar. Keep the predecessor build path intact and runnable in parallel.
 - Implement **crash isolation** (supervisor): a Rust supervisor respawns the sidecar on unexpected exit, shows a "reconnecting…" state, and falls back to full-app relaunch if respawn fails repeatedly.
 - Enable the `single-instance` plugin so only one app instance runs. **On Windows, also remove the `VoiceTyperSingleInstance` Win32 mutex from `app.py` (locate by `class VoiceTyperSingleInstance`)** when running under Tauri: the Tauri plugin already provides the mutex, and double-locking would block the second-instance focus path.
 
 ### Phase 5: Validation & cutover (per platform)
 
-**COMPLETED 2026-09-17.** Electron removed; Tauri is the sole host.
+**COMPLETED 2026-09-17.** predecessor removed; Tauri is the sole host.
 The steps below are the historical procedure that was executed.
 
 - Verify: one icon/install; UI never freezes (sidecar owns its own GIL); crash isolation works; prewarm still warms the cache; streaming unchanged; global hotkey + tray work.
-- Keep the Electron code path intact until satisfied; then make Tauri the default shipping app **for that platform**. Revert at any time by shipping the Electron build.
+- Keep the predecessor code path intact until satisfied; then make Tauri the default shipping app **for that platform**. Revert at any time by shipping the predecessor build.
 - **Cutover order:** Windows first (largest user base, smallest Tauri unknowns), then macOS (Apple Silicon + Intel), then Linux (X11 then Wayland).
 
 ---
@@ -227,7 +227,7 @@ The sidecar pushes UI events through `event_bus.publish(event)` (`event_bus.py`,
 
 | Event `type` | Source (file:symbol) | `data` payload | Notes |
 |---|---|---|---|
-| `ready` | `ipc_server.py` / `sidecar_ws.py` Locate by `{"type": "ready"}` `IPCServer.push` call | `{}` | emitted on server start (Electron defers window creation; Tauri should likewise defer UI hydration) |
+| `ready` | `ipc_server.py` / `sidecar_ws.py` Locate by `{"type": "ready"}` `IPCServer.push` call | `{}` | emitted on server start (predecessor defers window creation; Tauri should likewise defer UI hydration) |
 | `bubble_show` | `waveform_bubble_wiring.py` Locate by `event_bus.publish({"type": "bubble_show"})` | `{}` | show waveform bubble |
 | `bubble_hide` | `waveform_bubble_wiring.py` Locate by `event_bus.publish({"type": "bubble_hide"})` | `{}` | hide waveform bubble |
 | `bubble_level` | `waveform_bubble_wiring.py` Locate by `_push_bubble_level` | `{rms:float, peak:float}` | ~60 Hz source → Rust coalesce ≤30 Hz (see §9); delivered **TYPED-ONLY**, no generic `python-event` envelope duplicate (§9) |
@@ -243,18 +243,18 @@ The sidecar pushes UI events through `event_bus.publish(event)` (`event_bus.py`,
 | `recording_started` | `recording_controller.py` Locate by `event_bus.publish({"type": "recording_started"})` | `{}` | **added**: missed in earlier draft |
 | `recording_stopped` | `recording_controller.py` Locate by `event_bus.publish({"type": "recording_stopped"})` | `{}` | **added**: missed in earlier draft |
 | `download_progress` | `service.py` Locate by `event_bus.publish({"type": "download_progress"})` | `{model, progress(0-100), status, +optional downloaded_bytes, total_bytes, speed_bytes_per_sec, eta_seconds, paused, resumed}` | |
-| `electron_notification` | `system_handlers.py` + `startup_sequence.py` Locate by `event_bus.publish({"type": "notification"})` | `{title, message, duration_ms, critical}` | → **native toast** under Tauri (`tauri-plugin-notification`); the Python side now publishes this directly as `notification` (CR-8) |
+| `notification` | `system_handlers.py` + `startup_sequence.py` Locate by `event_bus.publish({"type": "notification"})` | `{title, message, duration_ms, critical}` | → **native toast** under Tauri (`tauri-plugin-notification`); the Python side now publishes this directly as `notification` (CR-8) |
 | `navigate` | `tray.py` Locate by `event_bus.publish({"type": "navigate"})` | `{path:str}` | tray → UI route |
 | `show_window` | `tray_window.py` Locate by `event_bus.publish({"type": "show_window"})` | `{}` | |
 | `quit_app` | `app.py` Locate by `event_bus.publish({"type": "quit_app"})` | `{}` | sidecar requests app quit |
-| `relaunch_electron` | `app.py` Locate by `event_bus.publish({"type": "relaunch_app"})` | `{}` | → **Tauri app relaunch** under Tauri; the Python side now publishes this directly as `relaunch_app` (canonical name) |
+| `relaunch_app` | `app.py` Locate by `event_bus.publish({"type": "relaunch_app"})` | `{}` | → **Tauri app relaunch** under Tauri; the Python side now publishes this directly as `relaunch_app` (canonical name) |
 | `paste_failed` | `dictation_pipeline.py` Locate by `event_bus.publish({"type": "paste_failed"})` | `{message:str, recovery_path:str\|null}` | **added 2026-07-18 (IPC-2)**: emitted when clipboard paste fails (NEW-UX-006); renderer shows a sonner toast with "Open recovery file" action when `recovery_path` is non-null. Tray notification is also fired for redundancy (visible when the user is on another app). |
 | `state_changed` | `ipc_server.py` Locate by `{"type": "state_changed"}` `IPCServer.push` call (ERR-017) | `{status:str, message:str}` | **added 2026-07-18 (IPC-2)**: emitted ONCE per TCP/WS client connect so the renderer immediately knows the current app state (was previously stale until the next state transition). NOT a command response. It is a server-initiated push on channel (2). |
 | `status_change` | `ipc_server.py` Locate by `{"type": "status_change"}` `IPCServer.push` call (`_hook_tray_set_state` wrapper) | `{status:str}` | **added 2026-07-18 (IPC-2)**: emitted on EVERY tray state transition (the wrapper monkey-patches `app.tray.set_state` in `IPCServer.start()`). Distinct from `state_changed`: `state_changed` is the connect-time snapshot with a `message` field; `status_change` is the per-transition signal with just `status`. NOT a command response: it is a server-initiated push on channel (2). |
 
 **Channel (1): command/response envelope** (not in the table above): requests `{"type":<command>,"data":{...}}` → responses `{"type":"result"|"error","data":{...},"code"?:<error_code>}`.
 
-**Renames under Tauri (payloads unchanged):** `electron_notification` → `notification` (Tauri emits via `tauri-plugin-notification`, which uses `NSUserNotificationCenter` on macOS, `Shell_NotifyIcon` / WinRT toast on Windows, libnotify on Linux); `relaunch_electron` → `relaunch_app` (Tauri `app.restart()`); `quit_app` → `quit_app` (Tauri `app.exit(0)`). All other event names and payloads are preserved 1:1. `heartbeat` is **removed from both sides**: see §2 + §10.
+**Canonical event names under Tauri (payloads unchanged):** `notification` (Tauri emits via `tauri-plugin-notification`, which uses `NSUserNotificationCenter` on macOS, `Shell_NotifyIcon` / WinRT toast on Windows, libnotify on Linux); `relaunch_app` (Tauri `app.restart()`); `quit_app` → `quit_app` (Tauri `app.exit(0)`). All other event names and payloads are preserved 1:1. `heartbeat` is **removed from both sides**: see §2 + §10.
 
 ---
 
@@ -304,7 +304,7 @@ Closes the gaps called out in review: port-bind direction, command table, token 
 
 **69 commands registered (verified against `ipc_server._COMMAND_REGISTRY` IPC-1 reconciliation; ZR-45 removed 14 stale entries that were never in the registry, plus the prior 71→61 reconciliation reflects the post-cleanup state; +2 restored 2026-08-14 for the Cache Status card, `get_prewarm_status` / `open_prewarm_log`, plan §6.3 addendum, `run_prewarm` stays retired)**; each maps to a `_handle_<cmd>` mixin in `handlers/*` (or, for the two IPC-server-resident handlers `heartbeat` and `relaunch_ack`, a method on `IPCServer` itself). Dispatch is generic: `getattr(self, _COMMAND_REGISTRY[cmd])` → `(data, resp)`. Request `{"type":<cmd>,"data":{...}}`; response `{"type":"result"|"error","data":{...},"code"?}`. Exact `data` fields per command are defined inside each `_handle_*` and re-validated by `ipc_server._validate_dict_payload` (locate by `def _validate_dict_payload` in `voice_typer/server/ipc/validation.py`): **that function is the source of truth for command-payload shape and must be ported 1:1, not redesigned or relaxed**; line numbers drift, so locate each handler by `def _handle_<cmd>` in `handlers/*`.
 
-> **IPC-1 reconciliation (2026-07-18):** the prior draft of this ADR stated "68 commands". That count predated PERF-005, which added `relaunch_ack` (the UI's ack that it received `relaunch_electron`, so `restart_app` can drop its fixed 300 ms sleep in favour of an event-driven wait bounded by a 2 s timeout). `relaunch_ack` is intentional and stays in the registry; the prior "68 commands" claim was stale. The 69th command is `relaunch_ack` Locate the registry entry by `relaunch_ack:` in `_COMMAND_REGISTRY` and the handler by `def _handle_relaunch_ack` (resident on `IPCServer`, not in `handlers/`).
+> **IPC-1 reconciliation (2026-07-18):** the prior draft of this ADR stated "68 commands". That count predated PERF-005, which added `relaunch_ack` (the UI's ack that it received `relaunch_app`, so `restart_app` can drop its fixed 300 ms sleep in favour of an event-driven wait bounded by a 2 s timeout). `relaunch_ack` is intentional and stays in the registry; the prior "68 commands" claim was stale. The 69th command is `relaunch_ack` Locate the registry entry by `relaunch_ack:` in `_COMMAND_REGISTRY` and the handler by `def _handle_relaunch_ack` (resident on `IPCServer`, not in `handlers/`).
 
 > **UX-23 reconciliation (2026-07-19):** `repaste_last` is the 70th registered command. Its handler (`_handle_repaste_last`) already existed in `handlers/repaste_handlers.py` and the renderer `ALLOWED_COMMANDS` set (`client/src/main/index.ts`) already permitted it, but the `_COMMAND_REGISTRY` dispatch route was missing: so renderer/tray calls silently failed with `unknown_command`. Added `"repaste_last": "_handle_repaste_last"` to the registry (no payload; reads the latest history entry server-side). This closes the UX-23 gap.
 
@@ -376,13 +376,13 @@ Closes the gaps called out in review: port-bind direction, command table, token 
 | `check_accessibility` | system_handlers | macOS accessibility check |
 | `set_tray_locale` | system_handlers | set tray locale |
 | `set_esc_cancel_paused` | system_handlers | pause ESC-cancel hotkey |
-| `show_electron_notification` | system_handlers | → **Tauri notification** (renamed) |
+| `show_notification` | system_handlers | → **Tauri notification** (renamed) |
 | `heartbeat` | ipc_server (RW-10 / ADR-0018) | liveness ping: **REMOVED** under Tauri (Rust owns liveness; see §10) |
-| `relaunch_ack` | ipc_server (PERF-005) | UI ack of `relaunch_electron` so `restart_app` can drop its fixed 300 ms sleep, **REMOVED** under Tauri (Rust owns the restart handshake) |
+| `relaunch_ack` | ipc_server (PERF-005) | UI ack of `relaunch_app` so `restart_app` can drop its fixed 300 ms sleep, **REMOVED** under Tauri (Rust owns the restart handshake) |
 
-> **`heartbeat` is removed from BOTH sides on the Tauri path.** The registry currently contains **69 commands** (incl. `heartbeat` Locate the registry entry by `heartbeat:` in `_COMMAND_REGISTRY`, handler `_handle_heartbeat` resident on `IPCServer`; and `relaunch_ack` Locate by `relaunch_ack:` in `_COMMAND_REGISTRY`, handler `_handle_relaunch_ack` resident on `IPCServer`, NOT in `handlers/`). The current Electron UI *still sends* `heartbeat` every 5 s (`client/src/main/index.ts`, ADR-0018) and `relaunch_ack` once per restart cycle (`client/src/main/python/relaunch-app.ts`). Under Tauri: (1) the Tauri UI port must **delete** the heartbeat interval (Rust is the supervisor. It detects death via WS-close / process exit, so no app→backend heartbeat is needed) and the `relaunch_ack` send (Rust owns the restart via `app.restart()`); (2) the Rust bridge must **not** forward `heartbeat` or `relaunch_ack` to Python (treat as no-op + debug log); (3) `_handle_heartbeat` and `_handle_relaunch_ack` stay in Python until the UI removal lands, so a stray frame never hits `_handle_unknown_command` and returns `unknown_command`. Verification task: `rg "heartbeat|relaunch_ack" voice_typer/client` → zero hits after the UI port. `show_electron_notification` renames to a Tauri notification emit. The 67 surviving commands (69 − `heartbeat` − `relaunch_ack`) keep their `data` schemas 1:1, enumerate each `_handle_*` payload from `handlers/*` (do NOT redesign); `_validate_dict_payload` re-validates on the sidecar.
+> **`heartbeat` is removed from BOTH sides on the Tauri path.** The registry currently contains **69 commands** (incl. `heartbeat` Locate the registry entry by `heartbeat:` in `_COMMAND_REGISTRY`, handler `_handle_heartbeat` resident on `IPCServer`; and `relaunch_ack` Locate by `relaunch_ack:` in `_COMMAND_REGISTRY`, handler `_handle_relaunch_ack` resident on `IPCServer`, NOT in `handlers/`). The predecessor UI *still sends* `heartbeat` every 5 s (`client/src/main/index.ts`, ADR-0018) and `relaunch_ack` once per restart cycle (`client/src/main/python/relaunch-app.ts`). Under Tauri: (1) the Tauri UI port must **delete** the heartbeat interval (Rust is the supervisor. It detects death via WS-close / process exit, so no app→backend heartbeat is needed) and the `relaunch_ack` send (Rust owns the restart via `app.restart()`); (2) the Rust bridge must **not** forward `heartbeat` or `relaunch_ack` to Python (treat as no-op + debug log); (3) `_handle_heartbeat` and `_handle_relaunch_ack` stay in Python until the UI removal lands, so a stray frame never hits `_handle_unknown_command` and returns `unknown_command`. Verification task: `rg "heartbeat|relaunch_ack" voice_typer/client` → zero hits after the UI port. `show_notification` renames to a Tauri notification emit. The 67 surviving commands (69 − `heartbeat` − `relaunch_ack`) keep their `data` schemas 1:1, enumerate each `_handle_*` payload from `handlers/*` (do NOT redesign); `_validate_dict_payload` re-validates on the sidecar.
 
-> **Note on ADR-0018 reconciliation:** ADR-0018 (Electron-Alive Heartbeat Watchdog) stays in force for the Electron fallback path. Under Tauri, Rust supervisor + WS-close detection + backoff) replaces the 120-second-heartbeat-timeout watchdog. The two paths are mutually exclusive per build: the Tauri build defines `TAURI_SIDECAR=1` (or equivalent) and the Python sidecar, on seeing that env var, **disables** the `_heartbeat_loop` thread at startup so the watchdog does not false-positive during a slow WS-only reconnect. The Electron build keeps ADR-0018 unchanged.
+> **Note on ADR-0018 reconciliation:** ADR-0018 (predecessor-Alive Heartbeat Watchdog) stays in force for the predecessor fallback path. Under Tauri, Rust supervisor + WS-close detection + backoff) replaces the 120-second-heartbeat-timeout watchdog. The two paths are mutually exclusive per build: the Tauri build defines `TAURI_SIDECAR=1` (or equivalent) and the Python sidecar, on seeing that env var, **disables** the `_heartbeat_loop` thread at startup so the watchdog does not false-positive during a slow WS-only reconnect. The predecessor build keeps ADR-0018 unchanged.
 
 ### 3. Bearer token lifecycle (cross-platform)
 
@@ -425,7 +425,7 @@ The Tauri `externalBin` mechanism resolves each binary by the Rust target triple
 | Linux x86_64 | `x86_64-unknown-linux-gnu` | `ubuntu-22.04` | `python-sidecar-x86_64-unknown-linux-gnu` |
 | Linux aarch64 | `aarch64-unknown-linux-gnu` | `ubuntu-22.04-arm` (when available) or cross-compile + qemu | `python-sidecar-aarch64-unknown-linux-gnu` |
 
-The prewarm binary follows the same pattern (`prewarm-<triple>[.exe]`). If you are not yet shipping Windows-on-ARM or Linux-ARM in the Electron build, defer those target triples to a follow-up, but document the deferral explicitly.
+The prewarm binary follows the same pattern (`prewarm-<triple>[.exe]`). If you are not yet shipping Windows-on-ARM or Linux-ARM in the predecessor build, defer those target triples to a follow-up, but document the deferral explicitly.
 
 #### 4.2 Windows Nuitka command
 
@@ -598,7 +598,7 @@ python -m nuitka --standalone --onefile \
 
 #### 6.1 Toast (notifications): cross-platform
 
-`electron_notification` → **`tauri-plugin-notification`**, NOT `enigo`. `enigo` is keystroke/mouse injection only. Add `notification:allow-notify` to capabilities. The Tauri notification plugin uses:
+Native notifications go through **`tauri-plugin-notification`**, NOT `enigo`. `enigo` is keystroke/mouse injection only. Add `notification:allow-notify` to capabilities. The Tauri notification plugin uses:
 - **Windows:** WinRT `ToastNotification` (Windows 10+) or `Shell_NotifyIcon` balloon (legacy fallback).
 - **macOS:** `NSUserNotificationCenter` (deprecated in macOS 11+) or `UNUserNotificationCenter` (requires bundle entitlement).
 - **Linux:** libnotify (`notify-send`).
@@ -635,7 +635,7 @@ The previous ADR said "Port tray, global hotkey, settings, and autostart UX to T
 
 **Decision: keep the native hotkey binaries, spawned by the Python sidecar (not by Tauri).** The existing `hotkeys/factory.py::create_hotkey_backend()` factory already handles binary discovery + spawn + fallback. The sidecar (post-migration) does exactly what the Python backend does today: spawn the native binary as a subprocess, parse its line-delimited stdout wire protocol (READY / FN_DOWN / KEY_DOWN / MOD_DOWN / etc.), and match against the registered hotkey. **Tauri does not touch the hotkey subsystem at all.** This preserves ADR-0007 + ADR-0008 unchanged.
 
-**macOS Accessibility permission flow (preserved):** the native `macos-key-listener` binary requires Accessibility (System Settings → Privacy & Security → Accessibility). ADR-0008 Gap 2 documents the zero-command onboarding flow: when the binary detects a missing Accessibility grant, the sidecar publishes `electron_notification` (→ `notification` under Tauri) with a deep-link to `x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility`. A 60s retry timer polls for the grant and auto-restarts the native backend. **This entire flow stays in the Python sidecar**, Tauri just forwards the notification event to the system toast. The `permissions.py` module and `check_accessibility` command (`system_handlers.py`) are unchanged.
+**macOS Accessibility permission flow (preserved):** the native `macos-key-listener` binary requires Accessibility (System Settings → Privacy & Security → Accessibility). ADR-0008 Gap 2 documents the zero-command onboarding flow: when the binary detects a missing Accessibility grant, the sidecar publishes `notification` (forwarded to the native toast under Tauri) with a deep-link to `x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility`. A 60s retry timer polls for the grant and auto-restarts the native backend. **This entire flow stays in the Python sidecar**, Tauri just forwards the notification event to the system toast. The `permissions.py` module and `check_accessibility` command (`system_handlers.py`) are unchanged.
 
 **Linux udev rule + input group (preserved):** the native `linux-key-listener` binary requires `input` group membership to read `/dev/input/event*`. The existing `scripts/linux/postinst` (and `postinst.rpm`) already install the udev rule `99-voice-typer.rules` and add the installing user to the `input` group via `usermod -aG input`. The Tauri `.deb`/`.rpm` packages must **reuse these postinst scripts verbatim**. They are not Tauri-specific. The `scripts/linux/install_permissions.py` script and the AppImage `pkexec` + `voice-typer.polkit` flow also stay unchanged.
 
@@ -738,10 +738,10 @@ Voice Typer today uses the platform-aware `_paths.config_dir()` (which delegates
 - Logs: `<config_dir>/logs/` (see §11).
 - History DB: `<config_dir>/history.db` (SQLite WAL, `0o600` on POSIX, NTFS ACLs on Windows).
 - Crash recovery: `<config_dir>/recovery.json`.
-- **Electron `userData` migration:** on first Tauri launch, if `<config_dir>` is absent but the old Electron `userData/voice-typer` exists, copy it once (config + models + history), one-time, idempotent. Off by default until validated.
-  - **Both exist (merge rule):** if both `<config_dir>` and the old Electron `userData/voice-typer` exist and differ, do **not** blindly overwrite: (a) `config.json` Merge key-by-key, **newest mtime wins** per key; (b) `models/` Copy only files **absent** from the target (never clobber a newer download); (c) `history.db` **Append**, never replace (history is append-only and irreplaceable); (d) log a summary of what was merged. Prevents silently destroying user data on a revert-then-relaunch.
+- **predecessor `userData` migration:** on first Tauri launch, if `<config_dir>` is absent but the old predecessor `userData/voice-typer` exists, copy it once (config + models + history), one-time, idempotent. Off by default until validated.
+  - **Both exist (merge rule):** if both `<config_dir>` and the old predecessor `userData/voice-typer` exist and differ, do **not** blindly overwrite: (a) `config.json` Merge key-by-key, **newest mtime wins** per key; (b) `models/` Copy only files **absent** from the target (never clobber a newer download); (c) `history.db` **Append**, never replace (history is append-only and irreplaceable); (d) log a summary of what was merged. Prevents silently destroying user data on a revert-then-relaunch.
   - **Ordering (write-conflict trap):** run the migration/merge **before** the sidecar starts. If the sidecar boots first it initializes a fresh empty `config.json` / `history.db`; the later merge then hits a file lock / write conflict or silently ignores the old data. Migrate → then spawn.
-  - **Per-platform `userData` location:** Electron's `app.getPath('userData')` is `%APPDATA%/Voice Typer` (Windows, with a space), `~/Library/Application Support/Voice Typer` (macOS, with a space), `~/.config/Voice Typer` (Linux, with a space). Note the **space** in the dir name, different from the Python side's `voice-typer` (hyphen). The migration code must handle both.
+  - **Per-platform `userData` location:** the predecessor's `app.getPath('userData')` is `%APPDATA%/Voice Typer` (Windows, with a space), `~/Library/Application Support/Voice Typer` (macOS, with a space), `~/.config/Voice Typer` (Linux, with a space). Note the **space** in the dir name, different from the Python side's `voice-typer` (hyphen). The migration code must handle both.
 
 ### 9. `bubble_level` throttling
 
@@ -758,7 +758,7 @@ Voice Typer today uses the platform-aware `_paths.config_dir()` (which delegates
   - **Malformed frames:** a WS frame that is not valid JSON (or fails `_validate_dict_payload`) must yield `{"type":"error","code":"invalid_payload","data":{...}}` and leave the connection open: the sidecar must **never** crash on a bad frame. The Rust client treats a non-`result`/`error` response as a protocol error, not a crash.
 - **supervisor state machine:** `running → (unexpected exit) → reconnecting (UI "reconnecting…") → respawn with backoff (500ms → 1s → 2s, cap 5 retries) → running | give up → full-app relaunch`. In-flight audio chunk on crash is discarded (next dictation re-opens capture); acceptable.
 - **Per-connection rate limiter (ADR-0019 port):** the existing limiter in `log_rate_limit.py` (200 burst / 60 sustained msg/s) was written for the TCP accept path. The WS server accept path must call the same limiter on every incoming frame. A client that exceeds the limit gets `{"type":"error","code":"rate_limited","data":{"retry_after_ms":...}}` and the connection stays open. **This is a hard porting requirement**. Without it, a misbehaving UI (or a buggy Rust bridge that re-sends on timeout) can DoS the sidecar's dispatch loop.
-- **Heartbeat removal (replaces ADR-0018 on Tauri path):** the `_heartbeat_loop` daemon thread in `ipc_server.py` and the `_handle_heartbeat` command are **disabled on the Tauri path** via an env-var check at sidecar startup (`TAURI_SIDECAR=1` → skip `_heartbeat_loop` start). They stay enabled on the Electron fallback path. The Rust supervisor's WS-close detection replaces the 120-second heartbeat timeout. See §2.
+- **Heartbeat removal (replaces ADR-0018 on Tauri path):** the `_heartbeat_loop` daemon thread in `ipc_server.py` and the `_handle_heartbeat` command are **disabled on the Tauri path** via an env-var check at sidecar startup (`TAURI_SIDECAR=1` → skip `_heartbeat_loop` start). They stay enabled on the predecessor fallback path. The Rust supervisor's WS-close detection replaces the 120-second heartbeat timeout. See §2.
 
 ### 11. Logging / diagnostics (cross-platform)
 
@@ -794,7 +794,7 @@ Voice Typer today uses the platform-aware `_paths.config_dir()` (which delegates
 - **`--onefile` self-extraction caveat:** Nuitka `--onefile` bundles an inner exe that extracts to a temp dir at runtime. **Only the outer `.exe` is signed**: the extracted inner exe is transient and not separately signed, which is fine; do not attempt to sign the inner payload. AV may briefly flag the temp extraction; that is expected and benign.
 - **Antivirus / SmartScreen QA note:** during `--onefile` self-extraction the inner exe briefly appears in a temp dir *unsigned*; procmon / AV consoles will show an "unsigned" child process. That is the expected transient stage, **not** a packaging bug, do not flag it in QA. The outer `.exe` is what is Authenticode-signed and what SmartScreen validates.
 - Sign both `python-sidecar-*` and `prewarm-*` exes before they enter the Tauri bundle; the bundler then signs the host + MSI.
-- **Match the existing `electron-builder.yml` config:** today the Windows build uses `WIN_CSC_LINK` / `CSC_LINK` env vars for the cert. The Tauri build should reuse the same cert + env vars to avoid cert duplication in CI.
+- **Match the existing `legacy builder config` config:** today the Windows build uses `WIN_CSC_LINK` / `CSC_LINK` env vars for the cert. The Tauri build should reuse the same cert + env vars to avoid cert duplication in CI.
 
 #### 13.2 macOS (Developer ID + notarization + stapling)
 
@@ -805,20 +805,20 @@ Voice Typer today uses the platform-aware `_paths.config_dir()` (which delegates
 5. The DMG is built from the stapled `.app`, then the DMG itself is signed + notarized + stapled.
 
 **Required `Info.plist` keys for the `.app`:**
-- `CFBundleIdentifier`: `com.voicetyper.desktop` (matches today's `electron-builder.yml` `appId`).
+- `CFBundleIdentifier`: `com.voicetyper.desktop` (matches today's `legacy builder config` `appId`).
 - `LSMinimumSystemVersion`: `13.0` (matches `PLATFORM_STATUS.md` minimum).
 - `LSUIElement`: `false` (the main app shows in the Dock; the sidecar sets `LSUIElement=true` separately).
 - `NSMicrophoneUsageDescription`: required for `sounddevice` to access the mic.
 - `NSUserNotificationsUsageDescription`: required for `tauri-plugin-notification` on macOS 11+.
 - **Hardened runtime** (`com.apple.security.cs.allow-jit` for CTranslate2 if it uses JIT; `com.apple.security.cs.disable-library-validation` if Nuitka's `--onefile` extracts unsigned dylibs at runtime: coordinate with Apple's notarization docs).
 
-**Match the existing `electron-builder.yml` config:** today the macOS build uses `MAC_SIGNING_IDENTITY` env var + `notarize: true` + `hardenedRuntime: true`. The Tauri build should reuse the same identity + notarization credentials.
+**Match the existing `legacy builder config` config:** today the macOS build uses `MAC_SIGNING_IDENTITY` env var + `notarize: true` + `hardenedRuntime: true`. The Tauri build should reuse the same identity + notarization credentials.
 
-**Apple Silicon + Intel:** build separately, produce two `.app` bundles, ship as two DMGs (or one universal DMG). The `electron-builder.yml` today ships `dmg` with `arch: [x64, arm64]` Two separate DMGs. Mirror this.
+**Apple Silicon + Intel:** build separately, produce two `.app` bundles, ship as two DMGs (or one universal DMG). The `legacy builder config` today ships `dmg` with `arch: [x64, arm64]` Two separate DMGs. Mirror this.
 
 #### 13.3 Linux (no signing by default)
 
-Linux packages are unsigned by default in both Electron (today) and Tauri. Optional improvements (out of scope for v1):
+Linux packages are unsigned by default in both predecessor (today) and Tauri. Optional improvements (out of scope for v1):
 - **GPG-sign the .deb**: `dpkg-sig --sign builder <deb>`. Users verify with `apt-key`.
 - **GPG-sign the .rpm**: `rpm --addsign <rpm>`. Users verify with `rpm --checksig`.
 - **AppImage GPG signature**: AppImage supports `zsync` + GPG; documented at the AppImage spec.
@@ -853,11 +853,11 @@ Linux packages are unsigned by default in both Electron (today) and Tauri. Optio
 
 ### 15. Auto-update (NOT IMPLEMENTED today, explicit non-goal for v1)
 
-The previous ADR did not address auto-update. **Today, auto-update is NOT IMPLEMENTED**, `docs/auto-update-feature.md`'s own header states: "STATUS: NOT IMPLEMENTED. This is a design-only spec. None of the referenced files exist." The `electron-builder.yml` does declare a `publish: github` config, but no code reads it.
+The previous ADR did not address auto-update. **Today, auto-update is NOT IMPLEMENTED**, `docs/auto-update-feature.md`'s own header states: "STATUS: NOT IMPLEMENTED. This is a design-only spec. None of the referenced files exist." The `legacy builder config` does declare a `publish: github` config, but no code reads it.
 
 **Under Tauri:** the `tauri-plugin-updater` is the cross-platform auto-updater (Windows replaces MSI via `nsis`; macOS replaces DMG via `sparkle`-style; Linux replaces AppImage via `AppImageUpdate`). It requires a `latest.json` manifest hosted at a stable URL + a signing keypair.
 
-**Decision: auto-update is out of scope for the v1 Tauri migration.** Ship the Tauri build as a manual-download release (matching today's Electron release model, there is no working auto-update today). Track auto-update as a separate follow-up ADR after the Tauri cutover stabilizes. Do NOT wire up `tauri-plugin-updater` in the v1 migration: it adds a signing-key distribution problem and a manifest-hosting problem that are orthogonal to the runtime migration.
+**Decision: auto-update is out of scope for the v1 Tauri migration.** Ship the Tauri build as a manual-download release (matching today's predecessor release model, there is no working auto-update today). Track auto-update as a separate follow-up ADR after the Tauri cutover stabilizes. Do NOT wire up `tauri-plugin-updater` in the v1 migration: it adds a signing-key distribution problem and a manifest-hosting problem that are orthogonal to the runtime migration.
 
 ### 16. New commands / events process
 
@@ -888,9 +888,9 @@ Do NOT silently add commands/events during implementation. Every addition widens
 
 #### §16 addendum 2026-09-16: stats-image export command
 
-- **Added (Tauri host command, not a Python sidecar IPC command):** `save_stats_image`. Electron served the Analytics/Dashboard share image through native main-process handlers (`main/ipc/stats-image-handlers.ts`): instant-save to the OS Downloads folder, a localized native Save-As dialog, and `shell.showItemInFolder` reveal. Only the reveal half existed under Tauri (`reveal_path_command`, MO-120b); Save-As and Downloads fell back to a bare anchor download, which the Tauri webview either blocks (CSP `default-src 'self'`) or saves to an opaque app-internal location with no localized dialog.
-- **Added surface:** `#[tauri::command] save_stats_image` in `src-tauri/src/commands/system_cmds/stats_image.rs`, registered in `main.rs`'s `generate_handler!` (24th command). Payload `{ dataUrl: string, defaultName?: string, mode?: "downloads" | "saveAs" }`. Returns Electron's handler shapes verbatim: success `{"success": true, "path": "<file>"}`; canceled dialog `{"success": false, "canceled": true}`; invalid payload / write failure `{"success": false, "error": "<msg>"}`.
-- **Validation rules:** the data URL must be a `data:image/png;base64,...` string capped at 25 MB (`MAX_PNG_DATA_URL_BYTES`, mirrors the Electron handler's cap; defends against a compromised renderer feeding a multi-GB base64 blob to `BASE64_STANDARD`); the DECODED bytes must carry the PNG signature `89 50 4E 47` (not just the MIME prefix); the filename stem is sanitized with the same traversal-neutral rules as Electron's `safePngFilename`; `require_main_window` runs FIRST (SEC-026: a compromised bubble renderer cannot write files or open save dialogs).
+- **Added (Tauri host command, not a Python sidecar IPC command):** `save_stats_image`. predecessor served the Analytics/Dashboard share image through native main-process handlers (`main/ipc/stats-image-handlers.ts`): instant-save to the OS Downloads folder, a localized native Save-As dialog, and `shell.showItemInFolder` reveal. Only the reveal half existed under Tauri (`reveal_path_command`, MO-120b); Save-As and Downloads fell back to a bare anchor download, which the Tauri webview either blocks (CSP `default-src 'self'`) or saves to an opaque app-internal location with no localized dialog.
+- **Added surface:** `#[tauri::command] save_stats_image` in `src-tauri/src/commands/system_cmds/stats_image.rs`, registered in `main.rs`'s `generate_handler!` (24th command). Payload `{ dataUrl: string, defaultName?: string, mode?: "downloads" | "saveAs" }`. Returns the predecessor's handler shapes verbatim: success `{"success": true, "path": "<file>"}`; canceled dialog `{"success": false, "canceled": true}`; invalid payload / write failure `{"success": false, "error": "<msg>"}`.
+- **Validation rules:** the data URL must be a `data:image/png;base64,...` string capped at 25 MB (`MAX_PNG_DATA_URL_BYTES`, mirrors the predecessor handler's cap; defends against a compromised renderer feeding a multi-GB base64 blob to `BASE64_STANDARD`); the DECODED bytes must carry the PNG signature `89 50 4E 47` (not just the MIME prefix); the filename stem is sanitized with the same traversal-neutral rules as the predecessor's `safePngFilename`; `require_main_window` runs FIRST (SEC-026: a compromised bubble renderer cannot write files or open save dialogs).
 - **Tests:** `src-tauri/src/commands/system_cmds/stats_image_tests.rs` (13 cases: MIME-prefix rejection, decoded-signature check, oversized-base64 rejection, traversal neutralization, `.png`/`.PNG` peel, non-colliding Downloads naming). This is a **Tauri host** command: it does NOT grow the Python sidecar frozen table (`_COMMAND_REGISTRY` / `EXPECTED_COMMANDS`) or the TS `ALLOWED_COMMANDS` set. The host-side frozen set is `tests/tauri/mig19/test_final_glue.py::EXPECTED_MAIN_RS_COMMANDS`, which grew 23 → 24 in the same commit. `tests/test_architecture_doc_accuracy.py` already pins 24 commands / 330 main.rs lines against the same `generate_handler!` list (two pins, one truth).
 
 ---
@@ -937,17 +937,17 @@ Do NOT silently add commands/events during implementation. Every addition widens
 
 ### Wins (keep)
 
-- **One app / one icon per platform.** Tauri host + sidecar bundle into one app, installed/launched/stopped together. The user launches **one app**, directly addresses complaint (B) as "one thing to open", not "one OS process". Process count: today's 3 (Electron + Python + prewarm) → 2 (Tauri app + prewarm).
-- **No hand-rolled launcher.** Tauri owns the Python lifecycle; the `electron_launcher.py` (318 lines) + `autostart_launcher.py` (801 lines) relay behind complaint (A) is removed. (Note: the Rust↔sidecar bridge is still a thin IPC layer, complaint (A) is addressed by removing Electron's `ipcMain`/`contextBridge` middleware, replaced by a single Tauri `invoke`→WebSocket path.)
+- **One app / one icon per platform.** Tauri host + sidecar bundle into one app, installed/launched/stopped together. The user launches **one app**, directly addresses complaint (B) as "one thing to open", not "one OS process". Process count: today's 3 (predecessor + Python + prewarm) → 2 (Tauri app + prewarm).
+- **No hand-rolled launcher.** Tauri owns the Python lifecycle; the `legacy host launcher` (318 lines) + `autostart_launcher.py` (801 lines) relay behind complaint (A) is removed. (Note: the Rust↔sidecar bridge is still a thin IPC layer, complaint (A) is addressed by removing predecessor's `ipcMain`/`contextBridge` middleware, replaced by a single Tauri `invoke`→WebSocket path.)
 - **No UI freeze.** The sidecar owns its own GIL, so continuous mic capture + inference never block the UI, matches today's smooth behavior.
 - **Crash isolation possible (supervisor).** A speech-engine crash can be recovered without killing the whole app. An upgrade over today's whole-app restart.
-- **Smaller shell.** Tauri exe ~2–10 MB using system WebView (WebView2 / WKWebView / webkit2gtk), vs Electron's ~100 MB+ bundled Chromium.
+- **Smaller shell.** Tauri exe ~2–10 MB using system WebView (WebView2 / WKWebView / webkit2gtk), vs the predecessor's ~100 MB+ bundled Chromium.
 - **Python stays Python.** No ML rewrite; the existing backend is bundled as a sidecar (Nuitka-compiled).
 - **Cross-platform parity preserved.** The native hotkey binaries (Win/macOS/Linux), the platform-specific autostart, the platform-specific prewarm schedulers, the Linux udev/polkit scripts, and the macOS Accessibility flow all stay unchanged. The migration does not regress any feature in the `PLATFORM_STATUS.md` matrix.
 
 ### Costs (documented, with mitigations)
 
-- **Installer size:** Python + CTranslate2 + model adds ~400 MB–1 GB. Mitigation: this is model/data weight, comparable to what the app already ships; far less than Electron + Chromium overhead overall.
+- **Installer size:** Python + CTranslate2 + model adds ~400 MB–1 GB. Mitigation: this is model/data weight, comparable to what the app already ships; far less than predecessor + Chromium overhead overall.
 - **Startup latency:** 2–5 s cold sidecar start. Mitigation: prewarm file-cache warming + background load. The existing `prewarm/` package + `prewarm_scheduler_posix.py` + `task_scheduler.py` already handle this: they keep working post-migration.
 - **Multiple processes in Task Manager** (app + sidecar + prewarm): this is expected and honest. The migration does NOT yield a single OS process. Mitigated by Tauri-managed lifecycle + `single-instance`; users perceive one app. Do not promise "one process" to the user.
 - **Lifecycle/PID bugs** (the child Python process must close cleanly or it lingers as a zombie / blocks reinstall): mitigated by four concrete measures, all to be applied:
@@ -957,18 +957,18 @@ Do NOT silently add commands/events during implementation. Every addition widens
    4. **Cooperative shutdown over WebSocket**: Rust sends `{"type":"shutdown"}`; sidecar releases the mic and exits gracefully, rather than being force-killed. `kill_children` is backstop only.
 - **Webview consistency:** WebView2 (Win) vs WKWebView (macOS) vs webkit2gtk (Linux), minor CSS/API guardrails. webkit2gtk lags Chromium by 1–2 years; audit the React UI for modern CSS/JS features (see Phase 3).
 - **Per-platform Nuitka build complexity:** six target triples × one Nuitka build each = six CI jobs. Each job takes ~5–15 minutes. Mitigation: cache Nuitka build artifacts in CI; only rebuild when `voice_typer/server/` changes.
-- **macOS notarization friction:** notarization adds ~5–10 minutes per arch to the release pipeline + requires Apple Developer account + careful entitlement management. Mitigation: reuse the existing `MAC_SIGNING_IDENTITY` + `notarize: true` CI config from `electron-builder.yml`.
+- **macOS notarization friction:** notarization adds ~5–10 minutes per arch to the release pipeline + requires Apple Developer account + careful entitlement management. Mitigation: reuse the existing `MAC_SIGNING_IDENTITY` + `notarize: true` CI config from `legacy builder config`.
 - **Wayland paste UX regression:** short-text injection via `enigo.text()` does not work on Wayland; the clipboard + `Ctrl+V` fallback replaces the user's clipboard temporarily. Mitigation: `clipboard_snapshot.py` borrow/restore logic (ADR-0012) preserves the original clipboard contents.
 
 ### Reversibility
 
-Electron code is untouched throughout the migration. The Tauri + Sidecar build is strictly additive. At any phase the Electron app remains the shippable fallback **per platform**; cutover is a packaging/default switch per OS. No data, config, or model loss on revert. **Reverting one platform does not revert the others**, Windows can ship Tauri while macOS still ships Electron, and the two are independently revertible.
+predecessor code is untouched throughout the migration. The Tauri + Sidecar build is strictly additive. At any phase the predecessor app remains the shippable fallback **per platform**; cutover is a packaging/default switch per OS. No data, config, or model loss on revert. **Reverting one platform does not revert the others**, Windows can ship Tauri while macOS still ships predecessor, and the two are independently revertible.
 
 ---
 
 ## Consequences
 
-The migration's consequences are itemized below as the "What stays / what moves / what is removed" scope boundary, followed by the "Risks / Open Questions" section. Positive consequences: leaner host shell (~2–10 MB Tauri exe vs ~100 MB+ Electron + Chromium), freeze-free UI (sidecar owns its own GIL), crash-isolation via a Rust supervisor, no hand-rolled launcher relay (`electron_launcher.py` removed on the Tauri path), and the user perceives one application (one icon/install) despite the multi-process runtime. Negative consequences: installer size grows by Python + CTranslate2 + model weight (~400 MB–1 GB), 2–5 s cold sidecar startup latency (mitigated by prewarm), multiple processes visible in Task Manager, lifecycle/PID cleanup complexity (mitigated by `kill_children` + cooperative WebSocket shutdown), and WebView2/WKWebView/webkit2gtk rendering differences (minor CSS/API guardrails). Neutral: per-platform incremental cutover (Windows → macOS → Linux), each gated on its own Phase 0 spike; Electron code is retained intact throughout as a reversible fallback; cutover is a packaging/default switch, not a destructive change.
+The migration's consequences are itemized below as the "What stays / what moves / what is removed" scope boundary, followed by the "Risks / Open Questions" section. Positive consequences: leaner host shell (~2–10 MB Tauri exe vs ~100 MB+ predecessor + Chromium), freeze-free UI (sidecar owns its own GIL), crash-isolation via a Rust supervisor, no hand-rolled launcher relay (`legacy host launcher` removed on the Tauri path), and the user perceives one application (one icon/install) despite the multi-process runtime. Negative consequences: installer size grows by Python + CTranslate2 + model weight (~400 MB–1 GB), 2–5 s cold sidecar startup latency (mitigated by prewarm), multiple processes visible in Task Manager, lifecycle/PID cleanup complexity (mitigated by `kill_children` + cooperative WebSocket shutdown), and WebView2/WKWebView/webkit2gtk rendering differences (minor CSS/API guardrails). Neutral: per-platform incremental cutover (Windows → macOS → Linux), each gated on its own Phase 0 spike; predecessor code is retained intact throughout as a reversible fallback; cutover is a packaging/default switch, not a destructive change.
 
 ## What stays / what moves / what is removed
 
@@ -976,7 +976,7 @@ To prevent an implementer from accidentally touching the wrong layer, here is th
 
 ### Stays in the Python sidecar (DO NOT REWRITE)
 
-These modules / behaviors are unchanged by the migration. They live in the Python sidecar exactly as they do today. The migration only changes the *shell* (Electron → Tauri) and the *transport* (TCP → WebSocket).
+These modules / behaviors are unchanged by the migration. They live in the Python sidecar exactly as they do today. The migration only changes the *shell* (predecessor → Tauri) and the *transport* (TCP → WebSocket).
 
 - `ipc_server.py` Dispatch layer (`_COMMAND_REGISTRY`, `_dispatch`, `_validate_dict_payload`). The listen/accept loop changes (TCP → WS server), but the dispatch + handler invocation is unchanged.
 - `event_bus.py` The publish/subscribe event bus. Unchanged.
@@ -985,7 +985,7 @@ These modules / behaviors are unchanged by the migration. They live in the Pytho
 - `recording/` package, `recording_controller.py`, `streaming.py`, `dictation_pipeline.py`, `transcription.py` Audio capture + ASR pipeline. Unchanged.
 - `audio_processor.py`, `audio_filters/*`, `audio_chain_builder.py`, `audio_presets.py` Audio filter chain (ADR-0009, the real one). Unchanged.
 - `vad.py`, `silero_vad.onnx` Voice activity detection. **Changed by the ONNX migration (ADR-0005, `PLAN_ONNX_INTEGRATION.md` §2):** `vad.py` now uses an `onnxruntime.InferenceSession` against the bundled `silero_vad.onnx` (replacing the legacy `torch.jit.load` + `silero_vad.jit` path). The hidden-state buffer is threaded across calls (`_state` numpy array, not torch tensors) so streaming chunk detection preserves context. The legacy `silero_vad.jit` artifact and the `--module-parameter=torch-disable-jit=no` Nuitka flag are retired at Phase 1c (see `plan-runtime-pack-split.md` §3.3).
-- `model_manager.py`, `model_registry.py`, `asr_registry.py`, `asr_setup.py`, `parakeet_engine.py`, `qwen_engine.py`, `cloud_engines.py` ASR engine management. Unchanged by the Electron→Tauri migration. **Subsequent ONNX migration:** `parakeet_engine.py` is rewritten (Phase 1b, `PLAN_ONNX_INTEGRATION.md` §3) from `transformers + torch` to `onnx_asr.Model(...)` (ORT backend). `qwen_engine.py` still uses `transformers + torch` until Phase 1d (deferred, see `PLAN_ONNX_INTEGRATION.md` §4). `cloud_engines.py` and `llm_polish.py` are unaffected (zero torch/transformers/onnxruntime imports: verified).
+- `model_manager.py`, `model_registry.py`, `asr_registry.py`, `asr_setup.py`, `parakeet_engine.py`, `qwen_engine.py`, `cloud_engines.py` ASR engine management. Unchanged by the predecessor→Tauri migration. **Subsequent ONNX migration:** `parakeet_engine.py` is rewritten (Phase 1b, `PLAN_ONNX_INTEGRATION.md` §3) from `transformers + torch` to `onnx_asr.Model(...)` (ORT backend). `qwen_engine.py` still uses `transformers + torch` until Phase 1d (deferred, see `PLAN_ONNX_INTEGRATION.md` §4). `cloud_engines.py` and `llm_polish.py` are unaffected (zero torch/transformers/onnxruntime imports: verified).
 - `config.py`, `config_validators.py`, `_paths.py` Config + path resolution. Unchanged.
 - `history_db.py` SQLite WAL history. Unchanged.
 - `crash_recovery.py`, `crash_handler.py`, `duck_crash_recovery.py` Crash recovery. Unchanged.
@@ -997,7 +997,7 @@ These modules / behaviors are unchanged by the migration. They live in the Pytho
 - `level_monitor.py`, `microphone_watcher.py`, `microphone_watcher_coreaudio.py`, `microphone_test.py` Microphone subsystem. Unchanged.
 - `permissions.py`, `security.py`, `_secrets.py`, `_security_attributes.py`, `log_rate_limit.py` Security + rate limiting. Unchanged.
 - `prewarm/` package, `task_scheduler.py`, `prewarm_scheduler_posix.py` Prewarm + scheduling (ADR-0011). **Stays in Python; `resolve_prewarm_exe()` is the only addition.**
-- `autostart_launcher.py`, `electron_launcher.py`, `_electron_build.py` **REMOVED on the Tauri path** (the Tauri host replaces them). Stays for the Electron fallback path.
+- `autostart_launcher.py`, `legacy host launcher`, `legacy build helpers` **REMOVED on the Tauri path** (the Tauri host replaces them). Stays for the predecessor fallback path.
 - `startup_sequence.py`, `startup_tasks.py`, `thread_registry.py`, `log.py`, `branding.py`, `container_detect.py`, `_lazy_import.py`, `providers.py`, `server_platform/` package, `platform_utils.py` Infrastructure. Unchanged.
 
 ### Moves to Rust (Tauri host)
@@ -1018,28 +1018,28 @@ These modules / behaviors are unchanged by the migration. They live in the Pytho
 - `VOICE_TYPER_IPC_TOKEN` env var injection at sidecar spawn.
 - `VOICE_TYPER_PREWARM_EXE` env var injection (points at `resourceDir/prewarm-<triple>`).
 - `VOICE_TYPER_NATIVE_DIR` env var injection (points at `resourceDir/native/`).
-- Electron `userData` → Tauri `<config_dir>` one-time migration (before sidecar spawn).
+- predecessor `userData` → Tauri `<config_dir>` one-time migration (before sidecar spawn).
 
 ### Moves to Tauri plugins
 
 - Tray icon: `pystray` → `tauri-plugin-tray`.
-- Toast: `electron_notification` event + `Shell_NotifyIcon` / `NSUserNotificationCenter` / libnotify → `tauri-plugin-notification`.
+- Toast: `notification` event + `Shell_NotifyIcon` / `NSUserNotificationCenter` / libnotify → `tauri-plugin-notification`.
 - Clipboard: `pyperclip` (Python) for the *paste transport* → `tauri-plugin-clipboard-manager` (Rust). `pyperclip` stays in Python for snapshot/restore.
 - Single-instance: Win32 mutex + POSIX lockfile → `tauri-plugin-single-instance`.
 
-### Removed on the Tauri path (stays on Electron fallback)
+### Removed on the Tauri path (stays on predecessor fallback)
 
-- `electron_launcher.py` (318 lines): the Electron spawn relay.
-- `autostart_launcher.py` (801 lines): the Electron-aware autostart launcher.
-- `_electron_build.py` Electron build helpers.
-- `client/src/main/index.ts` (209 lines, plus sibling modules under `client/src/main/{windows,python,ipc,bootstrap,state}/`): the Electron main process, refactored from the historical monolithic `index.ts` into multiple submodules. Replaced by Rust `main.rs` + Tauri plugins.
-- `client/src/preload/index.ts`, `client/src/preload/bubble.ts` Electron preload bridges. Replaced by Tauri `invoke`.
-- `client/electron-builder.yml` The Electron builder config. Replaced by Tauri `tauri.conf.json`.
-- `client/electron.vite.config.ts`, `client/electron.vite.main.ts`, `client/electron.vite.renderer.ts` Electron-specific Vite configs. Replaced by a single Vite config for the Tauri WebView.
-- `client/csp-plugin.ts` Electron CSP enforcer. Replaced by `tauri.conf.json` `app.security.csp`.
+- `legacy host launcher` (318 lines): the predecessor spawn relay.
+- `autostart_launcher.py` (801 lines): the predecessor-aware autostart launcher.
+- `legacy build helpers` predecessor build helpers.
+- `client/src/main/index.ts` (209 lines, plus sibling modules under `client/src/main/{windows,python,ipc,bootstrap,state}/`): the predecessor main process, refactored from the historical monolithic `index.ts` into multiple submodules. Replaced by Rust `main.rs` + Tauri plugins.
+- `client/src/preload/index.ts`, `client/src/preload/bubble.ts` predecessor preload bridges. Replaced by Tauri `invoke`.
+- `client/legacy builder config` The predecessor builder config. Replaced by Tauri `tauri.conf.json`.
+- `client/legacy vite.config.ts`, `client/legacy vite.main.ts`, `client/legacy vite.renderer.ts` predecessor-specific Vite configs. Replaced by a single Vite config for the Tauri WebView.
+- `client/csp-plugin.ts` predecessor CSP enforcer. Replaced by `tauri.conf.json` `app.security.csp`.
 - `scripts/build/installer.iss` Inno Setup script (no longer present in the source tree; was the legacy Windows installer). Replaced by Tauri's NSIS bundler.
 - `scripts/build/voice-typer.manifest` Windows app manifest. Tauri generates its own.
-- The `_handle_heartbeat` path in `ipc_server.py` Disabled via `TAURI_SIDECAR=1` env var (not deleted, so the Electron fallback still works).
+- The `_handle_heartbeat` path in `ipc_server.py` Disabled via `TAURI_SIDECAR=1` env var (not deleted, so the predecessor fallback still works).
 - The `VoiceTyperSingleInstance` Win32 mutex in `app.py` (locate by `class VoiceTyperSingleInstance`): disabled via `TAURI_SIDECAR=1` (Tauri's `single-instance` plugin replaces it).
 
 ### Kept verbatim (NOT Tauri-specific: reuse as-is)
@@ -1065,7 +1065,7 @@ These modules / behaviors are unchanged by the migration. They live in the Pytho
 5. **macOS notarization + entitlements** for the sidecar (which uses `pyobjc` + native dylibs) is the highest-risk unknown, Nuitka + `pyobjc` + hardened runtime + notarization has historical friction. Mitigation: Phase 0-M explicitly validates `faster-whisper` loads inside the notarized sidecar on both archs.
 6. **Wayland paste UX regression**, `enigo.text()` does not work on Wayland. Mitigation: clipboard + `Ctrl+V` fallback with `clipboard_snapshot.py` borrow/restore. User-facing doc must explain the clipboard-replacement behavior.
 7. **Linux ARM64 (aarch64-unknown-linux-gnu)**, the `python-build-standalone` aarch64 Linux builds + CTranslate2 aarch64 wheels + glibc pinning are less tested than x86_64. Mitigation: defer aarch64 Linux to a follow-up if Phase 0-L on x86_64 passes; document the deferral.
-8. **WebView2 / WKWebView / webkit2gtk CSS+JS differences**. The React UI was built for Chromium (Electron). Audit for webkit2gtk-specific quirks (notably: `backdrop-filter` is partial in webkit2gtk; `:has()` is supported only in webkit2gtk ≥ 2.40; `structuredClone` requires webkit2gtk ≥ 2.36). Mitigation: add `@supports` guards or polyfills.
+8. **WebView2 / WKWebView / webkit2gtk CSS+JS differences**. The React UI was built for Chromium (the predecessor). Audit for webkit2gtk-specific quirks (notably: `backdrop-filter` is partial in webkit2gtk; `:has()` is supported only in webkit2gtk ≥ 2.40; `structuredClone` requires webkit2gtk ≥ 2.36). Mitigation: add `@supports` guards or polyfills.
 9. **Auto-update is out of scope for v1** (see §15). Users upgrade by downloading the new release manually, same as today. Track auto-update as a separate follow-up ADR.
 10. **Tauri v2 maturity**: Tauri v2 was released in late 2024; some plugins (`tray`, `updater`) have had bugs in early 2.x releases. Mitigation: pin Tauri v2 to a known-stable minor version; monitor the Tauri issue tracker for sidecar / `externalBin` regressions.
 
@@ -1079,7 +1079,7 @@ These modules / behaviors are unchanged by the migration. They live in the Pytho
 - **Global hotkey:** KEEP native binaries (do NOT switch to `tauri-plugin-global-shortcut`). Tauri plugin regresses key suppression, modifier-only hotkeys, Fn/Globe key, and Wayland support.
 - **Tray:** port to `tauri-plugin-tray`, but menu structure stays in Python (emit `tray_menu` event, Rust renders).
 - **Prewarm scheduling:** stays platform-specific (Windows Task Scheduler, macOS LaunchAgent, Linux systemd user timer) via the existing `task_scheduler.py` + `prewarm_scheduler_posix.py`. Only the prewarm *binary* changes (`pythonw -m voice_typer.server.prewarm` → `prewarm-<triple>[.exe]` via `resolve_prewarm_exe`).
-- **Heartbeat:** removed on Tauri path (supervisor replaces ADR-0018). Stays on Electron fallback path. Disabled via `TAURI_SIDECAR=1` env var.
+- **Heartbeat:** removed on Tauri path (supervisor replaces ADR-0018). Stays on predecessor fallback path. Disabled via `TAURI_SIDECAR=1` env var.
 - **Auto-update:** out of scope for v1 (not implemented today).
 
 ---
@@ -1090,8 +1090,8 @@ These modules / behaviors are unchanged by the migration. They live in the Pytho
 
 - **ADR-0000**: ADR process.
 - **ADR-0001**: Record architecture decisions.
-- **ADR-0002**: Electron migration (the *first* Electron migration, from PyInstaller-only to Electron + Python).
-- **ADR-0003**: Electron + Python Architecture (Accepted). **The current architecture, retained as the reversible fallback.** (The previous version of this ADR mis-cited this as "ADR-0001".)
+- **ADR-0002**: predecessor migration (the *first* predecessor migration, from PyInstaller-only to predecessor + Python).
+- **ADR-0003**: predecessor + Python Architecture (Accepted). **The current architecture, retained as the reversible fallback.** (The previous version of this ADR mis-cited this as "ADR-0001".)
 - **ADR-0004**: IPC protocol.
 - **ADR-0005**: Silero VAD.
 - **ADR-0006**: Clipboard security.
@@ -1103,10 +1103,10 @@ These modules / behaviors are unchanged by the migration. They live in the Pytho
 - **ADR-0012**: Clipboard borrow/restore architecture. Preserved (clipboard_snapshot.py).
 - **ADR-0013**: Prior version of this desktop-runtime-migration ADR. **This document supersedes the analysis in ADR-0013 + the prior 0020 draft.**
 - **ADR-0014**: TCP IPC session-token auth. **Source of the HMAC token scheme, this ADR reuses `VOICE_TYPER_IPC_TOKEN` verbatim.**
-- **ADR-0015**: Electron command allowlist.
+- **ADR-0015**: predecessor command allowlist.
 - **ADR-0016**: Granular consent flags.
 - **ADR-0017**: Cloud URL allowlist + HTTPS.
-- **ADR-0018**: Electron-alive heartbeat watchdog. **Removed on the Tauri path (supervisor replaces it). Stays on the Electron fallback path. Disabled via `TAURI_SIDECAR=1` env var.**
+- **ADR-0018**: predecessor-alive heartbeat watchdog. **Removed on the Tauri path (supervisor replaces it). Stays on the predecessor fallback path. Disabled via `TAURI_SIDECAR=1` env var.**
 - **ADR-0019**: Per-connection rate limiter. **Must be ported from the TCP accept path to the WS accept path.**
 
 ### External references
@@ -1129,7 +1129,7 @@ These modules / behaviors are unchanged by the migration. They live in the Pytho
 
 - `voice_typer/server/ipc_server.py` (see the file directly: earlier drafts of this ADR disagreed on the line count, and the module has continued to grow since), `_COMMAND_REGISTRY` (locate by the `_COMMAND_REGISTRY = {` assignment near the top of the file; 69 commands, see §2 IPC-1 reconciliation), `_validate_dict_payload` (locate by `def _validate_dict_payload` in `voice_typer/server/ipc/validation.py` Extracted from `ipc_server.py` during the Phase 4.5 split), `_push_event_now` (locate by `def _push_event_now`), `push` (locate by `def push`), the `ready` emit (locate by the `{"type": "ready"}` `IPCServer.push` call site: also re-emitted from `sidecar_ws.py`), `_handle_heartbeat` (locate by `def _handle_heartbeat` Resident on `IPCServer`, not in `handlers/`), `_handle_relaunch_ack` (locate by `def _handle_relaunch_ack` Resident on `IPCServer`, not in `handlers/`).
 - `voice_typer/server/event_bus.py` (see the file directly): the publish/subscribe singleton. The module docstring's "Canonical event catalogue" section lists all 24 event names (IPC-2 reconciliation, 2026-07-18).
-- `voice_typer/server/electron_launcher.py` (318 lines), `launch_electron_frontend` (REMOVED on Tauri path).
+- `voice_typer/server/legacy host launcher` (318 lines), legacy frontend-launch entrypoint (REMOVED on Tauri path).
 - `voice_typer/server/autostart_launcher.py` (801 lines), `launch` (REMOVED on Tauri path).
 - `voice_typer/server/prewarm/` package, `run` (in `prewarm/pipeline.py`), `_already_warmed` and `_mark_warmed` (both in `prewarm/paths.py`). (The previous ADR's `prewarm.py:17` reference was wrong on two counts: line 17 was part of the module docstring, AND the monolithic `prewarm.py` has since been decomposed into the `prewarm/` package: locate the entrypoint by `def run` in `prewarm/pipeline.py`, not by line number.)
 - `voice_typer/server/task_scheduler.py` (see the file directly): Windows Task Scheduler registration (`_prewarm_command` Locate by `def _prewarm_command`; `_build_task_xml`; `_register_prewarm_registry`).
@@ -1142,22 +1142,22 @@ These modules / behaviors are unchanged by the migration. They live in the Pytho
 - `voice_typer/server/native_hotkeys/` package, `get_native_binary_path`, native binary subprocess management. (The historical `native_hotkeys.py` was split into a package, `base.py`, `binary_path.py`, `factory.py`, `linux_backend.py`, `mac_backend.py`, `modifiers.py`, `recorder.py`, `spec_parser.py`, `windows_backend.py`.)
 - `voice_typer/server/native/{windows-key-listener.c, macos-key-listener.swift, linux-key-listener.c}` The three native hotkey binaries (preserved by this ADR).
 - `voice_typer/server/app.py` (see the file directly), `VoiceTyperApp`. The `VoiceTyperSingleInstance` Win32 mutex (`"Local\\VoiceTyperSingleInstance"` Locate by `class VoiceTyperSingleInstance`) is disabled via `TAURI_SIDECAR=1` (single-instance enforcement is handled by Tauri's `tauri-plugin-single-instance` on the Tauri path). **Note: an earlier version of this ADR claimed `app.py:2086` for `VoiceTyperSingleInstance` That was wrong; line numbers drift, so the class is located by name, not line number.**
-- `voice_typer/client/src/main/index.ts` (209 lines, plus sibling modules under `voice_typer/client/src/main/{windows,python,ipc}/`): Electron main process, refactored from the historical monolithic `index.ts` into multiple submodules (REMOVED on Tauri path).
-- `voice_typer/client/electron-builder.yml` Electron builder config (Windows NSIS + macOS DMG x64/arm64 + Linux AppImage/deb/rpm with notarization). **Source of signing-config reuse for the Tauri build.**
+- `voice_typer/client/src/main/index.ts` (209 lines, plus sibling modules under `voice_typer/client/src/main/{windows,python,ipc}/`): predecessor main process, refactored from the historical monolithic `index.ts` into multiple submodules (REMOVED on Tauri path).
+- `voice_typer/client/legacy builder config` predecessor builder config (Windows NSIS + macOS DMG x64/arm64 + Linux AppImage/deb/rpm with notarization). **Source of signing-config reuse for the Tauri build.**
 - `scripts/build/voice-typer.spec` (382 lines): PyInstaller spec (fallback for Nuitka).
 - `scripts/build/compile_native.sh` (270 lines) + `scripts/build/compile_native.ps1` Native hotkey binary build.
 - `scripts/build/installer.iss` Inno Setup script (no longer present in the source tree; was the legacy Windows installer script before the Tauri migration removed it).
 - `scripts/build/voice-typer.manifest` Windows app manifest (REMOVED on Tauri path, Tauri generates its own).
 - `scripts/linux/{postinst,prerm,postinst.rpm,prerm.rpm,99-voice-typer.rules,00-voice-typer-capslock.conf,voice-typer.polkit,install_permissions.py,uninstall_permissions.py}` Linux packaging + permission scripts (REUSED verbatim by Tauri .deb/.rpm).
 - `docs/PLATFORM_STATUS.md` The 30-row feature × OS matrix. **Authoritative for what must not regress.**
-- `docs/ARCHITECTURE.md` The current (Electron) architecture overview.
+- `docs/ARCHITECTURE.md` The current (the predecessor) architecture overview.
 - `docs/auto-update-feature.md` Design-only (NOT IMPLEMENTED). **Do not assume auto-update works today.**
 - `.github/workflows/build.yml` CI matrix (`windows-2022`, `ubuntu-22.04`, `macos-13`, `macos-14`).
 
 ### Errata in the previous version of this ADR (fixed here)
 
 1. **"ADR-0009 (Prewarm & Autostart Architecture)"**, wrong. ADR-0009 is the Audio Filter Chain Architecture. The actual prewarm ADR is **ADR-0011**. Fixed throughout.
-2. **"ADR-0001 (Electron + Python Architecture)"**, wrong. ADR-0001 is "Record architecture decisions". The Electron + Python ADR is **ADR-0003**. Fixed.
+2. **"ADR-0001 (predecessor + Python Architecture)"**, wrong. ADR-0001 is "Record architecture decisions". The predecessor + Python ADR is **ADR-0003**. Fixed.
 3. **`prewarm.py:17`**: wrong line. Line 17 was part of the module docstring, and `prewarm.py` has since been decomposed into the `prewarm/` package (entrypoint `run` is now in `prewarm/pipeline.py`). Fixed to use the symbol name + the package layout.
 4. **"Prewarm is Windows-only" (implied)**: wrong. `prewarm_scheduler_posix.py` already implements macOS LaunchAgent + Linux systemd user timer scheduling. Fixed in §5 + the Capability Matrix.
 5. **"Port global hotkey to `tauri-plugin-global-shortcut`"**: wrong. The Tauri plugin regresses key suppression, modifier-only hotkeys, Fn/Globe key, and Wayland support. Fixed in §6.4, keep the native binaries.
@@ -1169,7 +1169,7 @@ These modules / behaviors are unchanged by the migration. They live in the Pytho
 11. **Missing auto-update discussion**. The previous ADR did not mention auto-update at all. Today auto-update is NOT IMPLEMENTED (`docs/auto-update-feature.md`'s own header says so). Fixed in §15.
 12. **Missing rate-limiter porting**: ADR-0019 (per-connection rate limiter) was not mentioned. The TCP-side limiter must be ported to the WS accept path. Fixed in §10.
 13. **Missing ADR-0018 reconciliation**. The previous ADR said "remove heartbeat" but did not reference ADR-0018 (the heartbeat watchdog ADR) or explain how the Rust supervisor replaces it. Fixed in §2 + §10.
-14. **Missing existing build assets**, `voice-typer.spec`, `installer.iss`, `compile_native.sh`, `electron-builder.yml`, `scripts/linux/*` were not referenced. Fixed in §4.5 + §13.3 + the "Kept verbatim" section.
+14. **Missing existing build assets**, `voice-typer.spec`, `installer.iss`, `compile_native.sh`, `legacy builder config`, `scripts/linux/*` were not referenced. Fixed in §4.5 + §13.3 + the "Kept verbatim" section.
 15. **`externalBin` naming**: the previous ADR only mentioned `python-sidecar-x86_64-pc-windows-msvc.exe`. macOS + Linux + ARM need their own target triples. Fixed in §4.1 + §7.
 
 ---

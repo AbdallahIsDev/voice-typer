@@ -7,7 +7,7 @@
  * listeners across 3 hooks + 1 component
  * (`useBubbleLifecycle` × 2, `useBubbleStateMachine` × 3,
  * `useAudioLevels` × 3, `useThemeSync` × 1, `Bubble.tsx` × 2). Each
- * subscription was a separate Electron IPC listener on the
+ * subscription was a separate predecessor IPC listener on the
  * BrowserWindow's `webContents`.
  *
  * Post-refactor, the bridge centralises the subscriptions into ONE

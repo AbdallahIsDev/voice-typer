@@ -15,7 +15,7 @@
 //! default level), so "the sidecar died on launch" had zero durable
 //! evidence.
 //!
-//! Electron kept this window observable by inheriting stdio
+//! predecessor kept this window observable by inheriting stdio
 //! (`stdio: "inherit"`). The Tauri host clears the child's env and
 //! pipes the streams, so the equivalent guarantee must be an explicit
 //! file tee, which is exactly what ADR-0020 §11 specifies and what the

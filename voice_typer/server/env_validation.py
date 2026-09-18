@@ -14,15 +14,15 @@ keys / model-download tokens (``HF_TOKEN``, ``HUGGING_FACE_HUB_TOKEN``,
 ``OPENAI_API_KEY``, ``ANTHROPIC_API_KEY``, ``GEMINI_API_KEY``,
 ``DEEPGRAM_API_KEY``, ``GROQ_API_KEY``) from ``os.environ`` at startup.
 The Tauri production path strips these via ``env_clear()`` in
-``src-tauri/src/sidecar/spawn.rs``; the Electron launcher strips them
-from the Electron FRONTEND child but NOT from the Python sidecar
+``src-tauri/src/sidecar/spawn.rs``; the predecessor launcher strips them
+from the predecessor FRONTEND child but NOT from the Python sidecar
 process itself. Standalone mode (``python -m voice_typer.server``)
 inherits the parent shell env verbatim, so a developer with
 ``HF_TOKEN`` exported in their shell would have huggingface_hub
 silently attach their personal HF token to model-download requests
 (``asr_setup.py:417`` calls ``snapshot_download()`` WITHOUT
 ``token=``). This validator closes that gap for the
-Electron-sidecar / standalone paths.
+predecessor-sidecar / standalone paths.
 """
 
 import logging
@@ -52,10 +52,10 @@ _PATH_VALUE_PATTERN = re.compile(r"^[^\0]+$")  # no null bytes
 # This list MUST stay in sync with the sensitive-env markers used by
 # ``autostart/_spawn_env.py`` for the child-inherit audit log.
 # The duplication is deliberate (env_validation is a low-level startup
-# module; importing electron_launcher would pull in ``_electron_build``
+# module; importing the predecessor launcher would pull in `the deleted predecessor build module`
 # and ``platform_utils`` at startup time, which is intentionally
 # avoided: see ``shutdown_controller.py:917`` and
-# ``ipc_server.py:2039`` which both lazy-import electron_launcher for
+# ``ipc_server.py:2039`` which both lazy-import the predecessor launcher for
 # the same reason). Drift is caught by
 # ``tests/test_env_validation_sensitive_env.py::TestSensitiveEnvNamesDriftDetection``.
 _SENSITIVE_ENV_NAMES = frozenset(
@@ -240,9 +240,9 @@ def _validate_env_vars() -> None:
     #  (P4-A1): strip well-known cloud-provider API keys / model
     # download tokens from ``os.environ``. The Tauri production path
     # already strips these via ``env_clear()`` in
-    # ``src-tauri/src/sidecar/spawn.rs``; the Electron launcher
-    # (``electron_launcher._strip_sensitive_env``) strips them from the
-    # Electron FRONTEND child only. NOT from the Python sidecar
+    # ``src-tauri/src/sidecar/spawn.rs``; the predecessor launcher
+    # (``the predecessor launcher._strip_sensitive_env``) strips them from the
+    # predecessor FRONTEND child only. NOT from the Python sidecar
     # process itself. Standalone mode (``python -m voice_typer.server``)
     # inherits the parent shell env verbatim. Closing this gap prevents
     # a developer's exported ``HF_TOKEN`` from being silently attached

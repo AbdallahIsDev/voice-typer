@@ -534,7 +534,7 @@ class TestQuitAppUsesSharedCleanup:
 
 class TestRelaunchAckEventDriven:
     """restart_app must wait on the ``relaunch_ack`` event from
-    Electron (bounded by a 2s timeout) instead of a fixed ``time.sleep(0.3)``
+    predecessor (bounded by a 2s timeout) instead of a fixed ``time.sleep(0.3)``
     that always blocks the tray thread for 300ms.
     """
 
@@ -557,7 +557,7 @@ class TestRelaunchAckEventDriven:
         assert server._relaunch_ack_event.is_set(), "relaunch_ack handler must set the ack event"
 
     def test_restart_app_waits_on_ack_event_not_fixed_sleep(self, app, monkeypatch):
-        """When Electron acks (event already set), restart_app must NOT call
+        """When predecessor acks (event already set), restart_app must NOT call
         the fixed 300ms sleep, it should return as soon as the event is
         observed, unblocking the tray thread.
         """
@@ -571,7 +571,7 @@ class TestRelaunchAckEventDriven:
                 self._relaunch_ack_event = threading.Event()
 
         fake = _FakeServer()
-        fake._relaunch_ack_event.set()  # Electron already acked
+        fake._relaunch_ack_event.set()  # predecessor already acked
         app._ipc_server = fake
 
         sleep_calls = []
@@ -646,7 +646,7 @@ class TestRestartAppReentryGuard:
     restart_app call (e.g. user double-clicks the tray restart item,
     or a tray restart races with a SIGTERM-triggered quit) would:
 
-    1. Re-push a duplicate ``relaunch_electron`` event to Electron.
+    1. Re-push a duplicate ``the legacy relaunch event name`` event to predecessor.
     2. Re-enter ``_do_cleanup()`` (mitigated by ``_cleanup_done`` but
        still wasteful, and the second ``sys.exit(0)`` could fire
        while the first call's finally blocks are still draining).

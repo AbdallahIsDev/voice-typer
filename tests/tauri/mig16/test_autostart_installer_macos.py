@@ -16,7 +16,7 @@ at ``~/Library/LaunchAgents/com.voicetyper.plist`` with:
 
   - ``Label`` = ``com.voicetyper``
   - ``ProgramArguments`` = ``[sys.executable, <repo>/voice_typer/server/autostart_launcher.py]``
-    (CURRENT, the legacy Python/Electron launcher path; see GAP-1 below)
+    (CURRENT, the legacy Python/predecessor launcher path; see GAP-1 below)
   - ``RunAtLoad`` = ``true``  (fires at login, NOT a Calendar/Event trigger)
   - ``KeepAlive`` = ``false`` (one-shot at login, not a daemon)
   - ``WorkingDirectory`` = ``$HOME`` (absolute, NOT ``~``, NEW-XPLAT-006)
@@ -35,7 +35,7 @@ KNOWN GAPS (report, do not fix)
 -------------------------------
 GAP-1 (ProgramArguments): The current plist's ``ProgramArguments`` points
 to ``sys.executable`` (Python) + ``autostart_launcher.py``, the legacy
-Electron/Python launch path. Phase 0-M sign-off (per the validation
+predecessor/Python launch path. Phase 0-M sign-off (per the validation
 runbook §6 + this test's "VALIDATE ON MACOS HOST" step 5) requires the
 plist to point at the Tauri host binary
 ``/Applications/Voice Typer.app/Contents/MacOS/voice-typer-tauri`` so
@@ -293,8 +293,8 @@ def test_plist_uses_run_at_load_true(darwin_platform):
 def test_plist_program_arguments_current_behavior_python_launcher(darwin_platform):
     """CURRENT BEHAVIOR (GAP-1): the plist's ``ProgramArguments`` is
       ``[sys.executable, <repo>/voice_typer/server/autostart_launcher.py]``
-    , the legacy Electron/Python launch path. This works for the dev
-      Electron app, but is NOT the production Tauri host launch path.
+    , the legacy predecessor/Python launch path. This works for the dev
+      predecessor app, but is NOT the production Tauri host launch path.
 
       This test PASSES on the current implementation and documents the gap.
       The companion test
@@ -335,7 +335,7 @@ def test_plist_program_arguments_current_behavior_python_launcher(darwin_platfor
     reason=(
         "MIG-1.6 GAP-1: _enable_autostart_macos() currently writes a plist "
         "whose ProgramArguments points to sys.executable (Python) + "
-        "autostart_launcher.py, the LEGACY Electron path. Phase 0-M "
+        "autostart_launcher.py, the LEGACY predecessor path. Phase 0-M "
         "sign-off requires the plist to point at the Tauri host binary "
         "(/Applications/Voice Typer.app/Contents/MacOS/voice-typer-tauri) "
         "so a user who installs the DMG auto-launches the *bundled* Tauri "
@@ -377,12 +377,12 @@ def test_plist_program_arguments_point_to_tauri_host_binary(darwin_platform):
     # Must NOT point at the Python interpreter (the legacy path).
     assert not any("python" in a.lower() for a in args), (
         f"ProgramArguments must NOT reference the Python interpreter (the "
-        f"legacy Electron launch path); got args={args!r}. A clean macOS "
+        f"legacy predecessor launch path); got args={args!r}. A clean macOS "
         f"install with only the DMG may not have a compatible Python."
     )
-    # Must NOT reference autostart_launcher.py (the legacy launcher).
+    # Must NOT reference autostart_launcher.py.
     assert not any("autostart_launcher.py" in a for a in args), (
-        f"ProgramArguments must NOT reference autostart_launcher.py (the legacy Electron launcher); got args={args!r}"
+        f"ProgramArguments must NOT reference autostart_launcher.py; got args={args!r}"
     )
 
 

@@ -148,7 +148,7 @@ Existing `build` job renamed to `build-windows`. Two new jobs: `build-macos`, `b
 Each job:
 - `needs: [test, client-build, version-check, build-native]`
 - Downloads its platform's native binary via `actions/download-artifact` from the `build-native` job
-- Runs PyInstaller + electron-builder for that platform
+- Runs PyInstaller + the predecessor packaging toolchain for that platform
 - Uploads the installer as a release artifact (on tag only)
 
 **Dependency graph** (one file, no cross-workflow artifacts):
@@ -345,7 +345,7 @@ def _retry_native_backend(self) -> None:
 | `scripts/linux/install_permissions.py` | Python script invoked by postinst AND by pkexec, does the actual system modifications |
 | `scripts/linux/uninstall_permissions.py` | Python script invoked by prerm: removes the modifications |
 | `scripts/linux/00-voice-typer-capslock.conf` | XKB config snippet that neutralizes Caps Lock |
-| `electron-builder.yml` | Updated to add Linux targets (`.deb`, `.rpm`, `AppImage`) |
+| legacy builder config | Updated to add Linux targets (`.deb`, `.rpm`, `AppImage`) |
 | `voice_typer/server/permissions.py` | Runtime permission checker + AppImage pkexec helper |
 
 ### C.3 The udev Rule
@@ -546,9 +546,9 @@ exit 0
 
 **Detecting AppImage vs installed package**: The Python runtime checks if `/usr/share/voice-typer/scripts/install_permissions.py` exists. If yes → it's an installed package, the postinst already ran, so this flow shouldn't be needed (but if it is, use pkexec). If no → it's an AppImage, bundle the install script via `pkg_resources` / `importlib.resources` and write it to a temp location before invoking pkexec.
 
-### C.10 electron-builder.yml Linux Targets
+### C.10 Legacy builder Linux targets
 
-**Additions to `voice_typer/client/electron-builder.yml`**:
+**Additions to the legacy client builder config**:
 
 ```yaml
 linux:
@@ -1045,7 +1045,7 @@ All four gaps are "done" when:
 |---|---|---|
 | `voice_typer/server/native_hotkeys/` package (historically `native_hotkeys.py`) | Add `_on_error_callback`, `_on_permanent_failure_callback`; signal adapter on failure | +30 |
 | `voice_typer/server/hotkeys/` package (historically `hotkeys.py`) | Extend `_NativeBackendAdapter` with state machine, swap logic, retry timer | +120 |
-| `voice_typer/client/electron-builder.yml` | Add Linux targets (deb, rpm, AppImage) + afterInstall/afterRemove hooks | +40 |
+| legacy client builder config | Add Linux targets (deb, rpm, AppImage) + afterInstall/afterRemove hooks | +40 |
 | `README.md` | Document zero-command setup per platform | +50 |
 | `docs/PLATFORM_STATUS.md` | Update Linux/macOS status | +20 |
 | `CHANGELOG.md` | Add entries for all 4 gaps | +30 |

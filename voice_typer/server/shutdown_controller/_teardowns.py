@@ -17,7 +17,7 @@ The standalone functions all take ``controller`` as their first
 positional argument so they can read ``controller._app`` and
 (in two cases) the shared synchronization state
 (``_recorder_teardown_done`` / ``_recorder_force_closed`` /
-``_electron_pid_lock``) initialized in ``__init__``.
+``_host_pid_lock``) initialized in ``__init__``.
 """
 
 from __future__ import annotations
@@ -160,11 +160,11 @@ class TeardownsMixin:
 
         abort_sounddevice_streams(self, sd_module)
 
-    def _teardown_electron(self) -> None:
-        """No-op: Electron subprocess teardown was removed with the Electron path.
+    def _teardown_host_child(self) -> None:
+        """No-op placeholder: the child-process teardown path no longer exists.
 
         Kept as a method so the sequenced teardown plan (which still
-        references ``controller._teardown_electron``) does not break.
+        references ``controller._teardown_host_child``) does not break.
         """
         return None
 

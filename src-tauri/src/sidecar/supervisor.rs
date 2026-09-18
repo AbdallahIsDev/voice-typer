@@ -142,7 +142,7 @@ pub(super) fn read_restart_counter() -> u32 {
 /// Persistence ownership: ``restart_counter.json`` is the TAURI-ONLY
 /// sidecar-respawn circuit breaker ({count, ts}, 10-minute staleness
 /// window, cleared on successful reconnect). It is intentionally
-/// INDEPENDENT of the Electron runtime's ``restart_history.json``
+/// INDEPENDENT of the predecessor runtime's ``restart_history.json``
 /// (voice_typer/client/src/main/python/relaunch-app.ts: an array of
 /// epoch-ms relaunch timestamps for the app-relaunch crash-loop
 /// breaker). The two runtimes never coexist and their schemas /

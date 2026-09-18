@@ -9,13 +9,13 @@
 //!    after the Settings edge-toggle clears them server-side).
 //! 2. **Consume**: `bubble_show` (`commands/bubble/commands.rs`)
 //!    restores the cached pair when it is still on-screen, mirroring
-//!    Electron's in-session restore in
+//!    the predecessor's in-session restore in
 //!    `voice_typer/client/src/main/windows/bubble/positioning.ts`.
 //! 3. **Persist**: the window-event hook in `main.rs` observes user
 //!    drags of the bubble window and writes the pair back through the
 //!    fire-and-forget dispatch path after a 500ms debounce. Programmatic
 //!    placements arm a suppression window so they are never mistaken for
-//!    drags (mirrors Electron's `suppressDurablePersistFor`).
+//!    drags (mirrors the predecessor's `suppressDurablePersistFor`).
 //!
 //! All state lives in process-global mutexes/atomics because the readers
 //! and writers run on different threads (WS reader task, event-loop
@@ -117,7 +117,7 @@ pub(crate) fn persisted_pos() -> Option<(i32, i32)> {
 const PERSISTED_COORDINATE_LIMIT: i32 = 100_000;
 
 /// True when `(x, y)` lies inside at least one attached monitor's work
-/// area (physical pixels): mirrors Electron's `isPositionOnAnyDisplay`.
+/// area (physical pixels): mirrors the predecessor's `isPositionOnAnyDisplay`.
 /// Best-effort: if the monitor list can't be read, fall back to a loose
 /// sanity range so a transient monitor-API failure doesn't strand the
 /// restore (the position came from the validated server config).

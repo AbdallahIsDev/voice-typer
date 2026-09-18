@@ -146,7 +146,7 @@ export function formatHotkey(hotkey: string): string {
 		.split("+")
 		.map((part) => part.replace(/[<>]/g, "").trim());
 	//re-detect platform on every call so a stale
-	// module-level detection (e.g. from Electron UA spoofing or
+	// module-level detection (e.g. from predecessor UA spoofing or
 	// headless mode) doesn't produce the wrong glyphs.
 	const isMac = detectPlatform() === "darwin";
 	const formattedParts = parts.map((key) => {
@@ -234,7 +234,7 @@ export function configHotkeyLabels(config: ConfigHotkeys): {
 export function formatHotkeyForPlatform(keys: string): string {
 	if (!keys) return keys;
 	// Re-detect on every call (same rationale as ``formatHotkey``: a
-	// stale module-level detection from Electron UA spoofing / headless
+	// stale module-level detection from predecessor UA spoofing / headless
 	// mode must not render the wrong glyphs).
 	if (detectPlatform() !== "darwin") return keys;
 	return keys

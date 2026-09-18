@@ -85,7 +85,7 @@ describe("PrewarmAndUpdates", () => {
 	// component. The previous implementation fired
 	// `fetch("https://api.github.com/...")` inside a mount-time
 	// `useEffect` (auto-fire), leaking the user's public IP, request
-	// timestamp, and Electron User-Agent to GitHub on EVERY Settings
+	// timestamp, and predecessor User-Agent to GitHub on EVERY Settings
 	// page open. A subsequent fix removed the auto-fire but kept the
 	// manual "Check for Updates" button (which still issued a fetch on
 	// click). C-DATA-1 now forbids both: the manual button has been

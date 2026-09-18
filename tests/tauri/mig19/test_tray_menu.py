@@ -30,8 +30,8 @@ records the actual decision taken for the v1 migration:
     / core tray-icon feature, ADR-0020 §6.5). The Python sidecar
     computes the menu structure and emits a `tray_menu` event; the Rust
     host renders it and routes clicks back via `dispatch({cmd:
-    'tray_click', data:{id}})` (pystray is the Electron-fallback path
-    only and is never used under Tauri)."
+    'tray_click', data:{id}})` (pystray is the legacy fallback path
+    only and is never used by the shipped host)."
 
 In other words: the Rust host renders the tray icon + menu via Tauri's
 built-in tray API (enabled by the ``tray-icon`` cargo feature). The
@@ -40,7 +40,7 @@ locale, and dynamic submenus and emits them as a ``tray_menu`` event),
 but the *rendering* + click-dispatch lives in the Rust host
 (``src-tauri/src/tray.rs``). This is the design the ADR-0020 §6.5
 anticipated and MIG-1.9 Phase 3 implemented, so the previously-planned
-"pystray owns the tray" fallback is only used on the Electron runtime.
+"pystray owns the tray" fallback is never used by the shipped host.
 
 This test file therefore validates BOTH halves of the contract: the
 menu structure/locale/dynamic items are preserved 1:1 by the sidecar
@@ -164,7 +164,7 @@ gate check):
     listens for the sidecar's ``tray_menu`` event, and routes clicks
     back via ``dispatch({cmd:'tray_click', data:{id}})``. The Python
     sidecar still owns the menu *logic* (it emits ``tray_menu``); pystray
-    is the Electron-fallback path only. This is documented in
+    is the legacy fallback path only. This is documented in
     ``src-tauri/capabilities/main-runtime.json``'s description field.
     See ``test_main_rs_sets_up_rust_host_tray``,
     ``test_tray_rs_routes_clicks_via_tray_click_dispatch``, and
@@ -993,7 +993,7 @@ def test_cargo_toml_tray_icon_feature_is_enabled(
     in the ``tauri`` dependency's feature list.
 
     The Python sidecar still computes the menu structure under Tauri
-    (the Electron fallback uses pystray); under Tauri the sidecar emits
+    (the predecessor fallback uses pystray); under Tauri the sidecar emits
     a ``tray_menu`` event and the Rust host renders it (see
     ``src-tauri/src/tray.rs``).
     """
@@ -1115,7 +1115,7 @@ def test_main_rs_tray_ownership_documented_in_capability(
     records that the Rust host OWNS the system tray (via the core
     ``tray-icon`` feature) and that the sidecar computes the menu
     structure and emits a ``tray_menu`` event (pystray is the
-    Electron-fallback path only). This justifies the ``core:tray:*``
+    predecessor-fallback path only). This justifies the ``core:tray:*``
     permissions granted to the Rust host.
     """
     description = capability_json.get("description", "")

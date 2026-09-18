@@ -3,7 +3,7 @@
 Owns the wiring between the ``WaveformBubble`` coordinator
 (``voice_typer.server.waveform``) and the IPC server's push-event
 bus. The bubble itself is a frameless, always-on-top ``BrowserWindow``
-owned by the Electron main process; this module emits push events
+owned by the predecessor main process; this module emits push events
 through ``voice_typer.server.event_bus`` so listeners don't need to hold
 a reference to the app or IPC server (avoids closure-capture bugs that
 broke the bubble on first run).
@@ -79,11 +79,11 @@ class WaveformBubbleWiring:
         chunk, 512-sample floor; a fixed 512 block used to make 48 kHz
         devices fire at ~94 Hz). Calling ``_push_event_now`` directly held the IPC
         server's ``_lock`` for ``json.dumps`` + ``socket.sendall``, which on
-        a slow Electron receive window stalled the audio thread and
+        a slow predecessor receive window stalled the audio thread and
         triggered xruns. The actual IPC send is therefore pushed to a
         background queue drained by a low-priority daemon thread.
 
-        The queue is bounded (``maxsize=64``) so a stuck Electron client
+        The queue is bounded (``maxsize=64``) so a stuck predecessor client
         can't cause unbounded memory growth on the Python side; when full,
         the audio thread drops the sample (the next one will pick up the
         latest smoothed level from ``update_level``'s low-pass filter).
@@ -92,7 +92,7 @@ class WaveformBubbleWiring:
     def __init__(self, app: VoiceTyperApp | Any) -> None:
         self._app = app
         # PERF-: dedicated queue + worker thread for bubble level
-        # pushes. Bounded so a stuck Electron client can't cause
+        # pushes. Bounded so a stuck predecessor client can't cause
         # unbounded memory growth on the Python side. Created lazily in
         # ``_wire_waveform_bubble`` (the original code created them
         # idempotently on first call via ``hasattr`` guards, we
@@ -114,7 +114,7 @@ class WaveformBubbleWiring:
         """Forward waveform bubble events to the IPC server.
 
         The bubble itself is a frameless, always-on-top ``BrowserWindow``
-        owned by the Electron main process.  We just emit push events;
+        owned by the predecessor main process.  We just emit push events;
         the IPC server is reached via the module-level hook in
         ``voice_typer.server.ipc_server`` so listeners don't need to
         hold a reference to the app or server (avoids closure-capture
@@ -140,7 +140,7 @@ class WaveformBubbleWiring:
             # ~94 Hz).
             # Calling _push_event_now directly was holding the IPC
             # server's _lock for json.dumps + socket.sendall, which on
-            # a slow Electron receive window stalled the audio thread
+            # a slow predecessor receive window stalled the audio thread
             # and triggered xruns.  We push the actual IPC send to a
             # background queue drained by a low-priority daemon thread.
             #
@@ -176,7 +176,7 @@ class WaveformBubbleWiring:
                 )
 
         # PERF-: dedicated queue + worker thread for bubble
-        # level pushes.  Bounded so a stuck Electron client can't
+        # level pushes.  Bounded so a stuck predecessor client can't
         # cause unbounded memory growth on the Python side.  Created
         # idempotently, if _wire_waveform_bubble is called twice
         # (e.g. in tests after a stop/start cycle), the existing
@@ -276,7 +276,7 @@ class WaveformBubbleWiring:
 
         def _push_bubble_config(cfg: Any) -> None:
             """push the bubble-relevant subset of config to the
-                        Electron bubble renderer so it can decide whether to show the
+                        predecessor bubble renderer so it can decide whether to show the
                         mic button (the bubble is sandboxed and receives NO get_config
                         otherwise). Emits a ``bubble_config`` event carrying the
                         bubble-behavior keys plus the theme triplet (``theme_mode``,
@@ -339,7 +339,7 @@ class WaveformBubbleWiring:
                         #
                         # These two keys also make this push event the
                         # durable-position transport to BOTH runtimes
-                        # (Electron main caches it from the forwarded frame;
+                        # (predecessor main caches it from the forwarded frame;
                         # the Tauri host's WS reader caches it from the same
                         # frame), so a Settings top/bottom toggle that clears
                         # them server-side propagates as a fresh push

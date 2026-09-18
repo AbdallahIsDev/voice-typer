@@ -1,6 +1,6 @@
 """Window-lifecycle parity pins for the Tauri host (MO-123 / MO-124).
 
-Two Electron behaviors the audit flagged as missing under Tauri:
+Two predecessor behaviors the audit flagged as missing under Tauri:
 
 - **MO-124**: close-to-tray must pair ``hide()`` with
   ``setSkipTaskbar(true)`` (and restore it on show), otherwise a
@@ -161,7 +161,7 @@ def test_window_close_pairs_skip_taskbar_with_hide() -> None:
     hide_block = source[source.index("api.prevent_close();") :]
     assert "set_skip_taskbar(true)" in hide_block, (
         "close-to-tray must call set_skip_taskbar(true) next to hide() "
-        "(Electron parity: a hidden window keeping a taskbar button reads as "
+        "(a hidden window keeping a taskbar button reads as "
         "a ghost entry)"
     )
     assert re.search(r"if let Err\(e\) = window\.set_skip_taskbar\(true\)", hide_block), (

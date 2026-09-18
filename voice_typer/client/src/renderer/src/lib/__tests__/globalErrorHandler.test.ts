@@ -15,7 +15,7 @@
  * identity. It also exercises the idempotency contract (second call
  * is a no-op) and the DOM-availability guard (skips cleanly when
  * `window.addEventListener` is missing, defensive, should never
- * happen in a real Electron renderer).
+ * happen in a real predecessor renderer).
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -145,7 +145,7 @@ describe("G4-CR-10: installGlobalErrorHandlers registers both listeners", () => 
  * Verify that dispatching a real `error` event triggers the installed
  * listener and produces a console.error trace. This is the integration
  * contract: the renderer needs the error to be visible in the
- * Electron main-process log (forwarded via webContents.on("console-message")).
+ * predecessor main-process log (forwarded via webContents.on("console-message")).
  */
 describe("G4-CR-10: installed listener logs to console.error", () => {
 	let consoleErrorSpy: ReturnType<typeof vi.spyOn>;

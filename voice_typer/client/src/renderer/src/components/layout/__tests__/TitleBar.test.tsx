@@ -19,7 +19,7 @@
  *   theme-agnostic, it scales whatever colors the active theme
  *   resolves, so light/dark/custom themes are all safe and the
  *   pure-white glyph pins stay untouched. Driven by the DOM
- *   `focus`/`blur` events on `window` (no IPC; fires in both Electron
+ *   `focus`/`blur` events on `window` (no IPC; fires in both predecessor
  *   Chromium and the Tauri webviews).
  * - : the close button hover is PLATFORM-CONVENTION-DEPENDENT:
  *   Windows uses the native red (`hover:bg-[#e81123]` + `dark:`
@@ -50,7 +50,7 @@
  * buttons).
  *
  * The WindowBridge is stubbed so the component can mount in jsdom
- * without the Electron preload present.
+ * without the predecessor preload present.
  */
 import { act, cleanup, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -1058,7 +1058,7 @@ describe("TitleBar, Tauri drag region (data-tauri-drag-region)", () => {
 		cleanup();
 	});
 
-	it("renders WITHOUT data-tauri-drag-region under Electron/jsdom (attribute is Tauri-only)", () => {
+	it("renders WITHOUT data-tauri-drag-region under jsdom (attribute is Tauri-only)", () => {
 		const { container } = renderWithProviders(
 			<TitleBar
 				onToggleSidebar={() => {}}
@@ -1070,7 +1070,7 @@ describe("TitleBar, Tauri drag region (data-tauri-drag-region)", () => {
 		);
 		const bar = container.querySelector(".drag-region");
 		expect(bar).toBeTruthy();
-		// Electron relies on the `-webkit-app-region: drag` CSS class
+		// predecessor relies on the `-webkit-app-region: drag` CSS class
 		// (index.css `.drag-region`); the `data-tauri-drag-region`
 		// attribute must NOT be present.
 		expect(bar?.getAttribute("data-tauri-drag-region")).toBeNull();

@@ -125,7 +125,7 @@ The main app (`autostart_launcher.py`) is triggered separately via the HKCU `Run
 | App launcher | HKCU Run key | `--delay 30` | `pythonw.exe autostart_launcher.py --hidden --delay 30` |
 | App launcher (fallback) | Task Scheduler | LogonTrigger | Same command, no `--delay` |
 
-The `--delay 30` flag makes the launcher sleep 30 seconds before spawning Electron, giving prewarm a head start on warming the cache.
+The `--delay 30` flag makes the launcher sleep 30 seconds before spawning predecessor, giving prewarm a head start on warming the cache.
 
 > **Plain English:** Your actual app also starts when you log in, but it waits 30 seconds before showing up. This wait is a heuristic. It gives the prewarm script time to load the big files into RAM first. Without this wait, the app would try to load files from disk at the same time as prewarm, and they'd fight over the disk.
 
@@ -157,9 +157,9 @@ T=2-47s prewarm: import torch + transformers (~45s cold)
 T=47-50s prewarm: read model.safetensors (2.4 GB, ~5s cold)
 T=50s   prewarm: writes sentinel, exits
         │
-T=30s   autostart_launcher: --delay 30 expires, spawns Electron
-T=30-32s Electron: cold start, loads main bundle
-T=32-35s Electron: spawns Python IPC server
+T=30s   autostart_launcher: --delay 30 expires, spawns predecessor
+T=30-32s predecessor: cold start, loads main bundle
+T=32-35s predecessor: spawns Python IPC server
 T=35-37s Python: cold import of app modules
 T=37-40s Python: model load from cache (~2s warm) → GPU transfer
 T=40s   App ready

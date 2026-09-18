@@ -258,7 +258,7 @@ describe.skip("Bubble draggable gate, RW-0 rewrite of test_bubble_respects_dragg
 
 //the keyboard-move handler tested above was DEAD CODE in
 // production (the bubble BrowserWindow was created with
-// `focusable: false` under Electron).  The Electron shell is gone;
+// `focusable: false` under predecessor).  The predecessor shell is gone;
 // the Tauri bubble window is defined in `src-tauri/tauri.conf.json`
 // (label "bubble": alwaysOnTop + skipTaskbar + decorations false).
 // The keyboard-move feature remains DELIBERATELY NOT RE-IMPLEMENTED
@@ -316,7 +316,7 @@ describe("BG-30: Bubble keyboard-move deliberately not implemented (mouse-drag-o
 		const src = fs.readFileSync(bubblePath, "utf-8");
 
 		// The comment block at the top of Bubble.tsx explicitly
-		// mentions `focusable: false` (historical Electron contract)
+		// mentions `focusable: false` (historical predecessor contract)
 		// and `bubble-window.ts` and the global-hotkey migration path.
 		expect(src).toMatch(/focusable:\s*false/i);
 		expect(src).toContain("bubble-window.ts");

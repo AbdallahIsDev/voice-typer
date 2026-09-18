@@ -290,7 +290,7 @@ def test_tauri_workflows_have_config_drift_failfast_gate() -> None:
     identity-parity class is auto-included, plus the
     ``test_gen_tauri_icons_stub.py`` bundle.icon↔git drift tests), but as a
     dedicated pre-build step a drift regression (e.g. an icon added to one
-    side only, or the Tauri identifier / Electron appId / productName /
+    side only, or the Tauri identifier / predecessor appId / productName /
     version drifting apart) dies in seconds instead of only after the whole
     test suite.
     """

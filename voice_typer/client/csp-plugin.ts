@@ -9,7 +9,7 @@
  * `frame-ancestors` is deliberately EXCLUDED from the meta CSP (and from
  * every policy below): the CSP spec only honors `frame-ancestors` when
  * delivered as an HTTP header, a `<meta>` occurrence is ignored AND
- * triggers a console warning. The Electron main process enforces it via
+ * triggers a console warning. The predecessor main process enforces it via
  * the HTTP-header CSP in `bootstrap.ts::_buildCsp` (onHeadersReceived),
  * which keeps the frame protection while the meta tag stays warning-free.
  *
@@ -32,7 +32,7 @@
  * browser. No renderer code path may issue any network request.
  *
  * Belt-and-suspenders: the onHeadersReceived HTTP-header CSP in
- * `main/bootstrap.ts::setupCsp()` still overrides the meta tag in Electron
+ * `main/bootstrap.ts::setupCsp()` still overrides the meta tag in predecessor
  * (HTTP headers take precedence over meta tags per the CSP spec). The
  * plugin's job is to ensure the meta tag is also strict in production, so
  * the meta tag is no longer a backdoor.
@@ -226,9 +226,9 @@ export function cspEmissionPlugin(): Plugin {
 		// gets the strict CSP.
 		apply: () => true,
 		configResolved(config) {
-			// electron-vite runs the renderer build with command='build' and
-			// mode='production' for `electron-vite build`, and command='serve'
-			// and mode='development' for `electron-vite dev`.
+			// predecessor-vite runs the renderer build with command='build' and
+			// mode='production' for the predecessor Vite build, and command='serve'
+			// and mode='development' for the predecessor Vite dev server.
 			isProduction = config.command === "build" && config.mode === "production";
 		},
 		resolveId(id) {

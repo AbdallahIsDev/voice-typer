@@ -458,7 +458,7 @@ describe("Settings, rewrite of test_settings_uses_shared_hook", () => {
 		vi.clearAllMocks();
 		mockCall.mockReset();
 		installPythonBridgeMock();
-		// Stub window.window_.openLogs to simulate the Electron main
+		// Stub window.window_.openLogs to simulate the predecessor main
 		// process successfully opening the log folder.  Settings.tsx's
 		// viewLogs() handler awaits this then calls showSnack(..., "success").
 		originalWindow_ = (window as unknown as { window_?: unknown }).window_;

@@ -14,8 +14,8 @@ file at ``<XDG_CONFIG_HOME or ~/.config>/autostart/voice-typer.desktop`` with:
   - ``Type=Application``
   - ``Name={APP_NAME}``  →  ``Voice Typer`` (from ``branding.APP_NAME``)
   - ``Comment=Background voice-to-text utility``
-  - ``Exec={_autostart_command()}``  →  the Python/Electron launcher path
-    (CURRENT, the legacy Electron/Python launch path; see GAP-1 below)
+  - ``Exec={_autostart_command()}``  →  the Python/predecessor launcher path
+    (CURRENT, the legacy predecessor/Python launch path; see GAP-1 below)
   - ``Icon=audio-input-microphone``  (CURRENT: see GAP-1 below)
   - ``Hidden=false``
   - ``NoDisplay=true``
@@ -75,7 +75,7 @@ KNOWN GAPS (report, do not fix)
 GAP-1 (Exec + Icon mismatch): The runtime .desktop file written by
 ``_enable_autostart_linux`` uses ``Exec=<python> <autostart_launcher.py>
 --hidden --delay N`` and ``Icon=audio-input-microphone`` (the legacy
-Electron/Python launcher path).  Phase 0-L sign-off (per the validation
+predecessor/Python launcher path).  Phase 0-L sign-off (per the validation
 runbook Step 5 + this test's "VALIDATE ON LINUX HOST" step 5) requires the
 autostart entry to point at the bundled Tauri host binary
 ``voice-typer-tauri`` and use the ``voice-typer`` icon (matching the
@@ -292,7 +292,7 @@ def test_autostart_desktop_file_has_required_fields(linux_platform):
     strict=True,
     reason=(
         "GAP-1: runtime _enable_autostart_linux writes Exec=<python launcher> "
-        "+ Icon=audio-input-microphone (legacy Electron/Python path) instead "
+        "+ Icon=audio-input-microphone (legacy predecessor/Python path) instead "
         "of Exec=voice-typer-tauri + Icon=voice-typer (the bundled Tauri "
         "host).  Phase 0-L sign-off requires the autostart entry to launch "
         "the installed Tauri app, not a stray Python interpreter.  Flips to "

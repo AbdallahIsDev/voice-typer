@@ -53,7 +53,7 @@ pub(crate) const PENDING_FULL_CODE: &str = "pending_full";
 
 // ALLOWED_COMMANDS allowlist (ADR-0015 defense-in-depth) ──────
 //
-// Mirrors the Electron renderer-side allowlist in
+// Mirrors the predecessor renderer-side allowlist in
 // `voice_typer/client/src/main/allowed-commands.ts` (the canonical
 // declaration: previously inline in `index.ts:79-191`, SEC-019). The
 // Tauri `dispatch` command is the only path from the webview to the Python
@@ -63,7 +63,7 @@ pub(crate) const PENDING_FULL_CODE: &str = "pending_full";
 // `invoke('dispatch', {cmd: 'quit_app'})` or
 // `invoke('dispatch', {cmd: 'set_config', data: {...}})`.
 //
-// The Electron path enforces `ALLOWED_COMMANDS` in
+// The predecessor path enforces `ALLOWED_COMMANDS` in
 // `voice_typer/client/src/main/python/send-to-python.ts:48-51`, this
 // Rust gate is the **defense-in-depth** equivalent (an attacker who
 // escapes the renderer sandbox cannot bypass it by talking to Rust
@@ -80,7 +80,7 @@ pub(crate) const PENDING_FULL_CODE: &str = "pending_full";
 //   - The Python test `tests/test_security_doc_command_count.py` (this
 //     fix adds a parity assertion that the Rust `ALLOWED_COMMANDS`
 //     set matches the TS set's command count + exact entries).
-//   - The TS test in `tests/test_electron_ipc_and_build.py` cross-checks
+//   - The TS test in `tests/test_host_ipc_and_build.py` cross-checks
 //     the renderer allowlist against the server command registry.
 //   - When adding/removing a command in TS, do the same here in the
 //     same PR.
@@ -95,7 +95,7 @@ static ALLOWED_COMMANDS: OnceLock<HashSet<&'static str>> = OnceLock::new();
 /// directly without going through `dispatch`.
 pub(crate) fn allowed_commands() -> &'static HashSet<&'static str> {
     ALLOWED_COMMANDS.get_or_init(|| {
-        // This list MUST mirror the Electron renderer's
+        // This list MUST mirror the predecessor renderer's
         // ALLOWED_COMMANDS in `voice_typer/client/src/main/allowed-commands.ts`
         // (canonical declaration: was previously inline
         // in `index.ts`). The Python test
@@ -121,7 +121,7 @@ pub(crate) fn allowed_commands() -> &'static HashSet<&'static str> {
         //   level_monitor_status, microphone_test_status,
         //   onboarding_get_model_catalog, onboarding_get_step,
         //   onboarding_request_keyboard_permission, refresh_microphones,
-        //   show_electron_notification, test_llm_connection.
+        //   the legacy notification command, test_llm_connection.
         // NOTE: `check_accessibility` is no longer part of the removed
         // set: it was RE-ADDED on 2026-08-10 (finding #919 part b):
         // the Settings → Troubleshooting UI now invokes it on macOS to
@@ -244,7 +244,7 @@ pub(crate) fn allowed_commands() -> &'static HashSet<&'static str> {
             "import_model",
             // `heartbeat` and `relaunch_ack` are intentionally
             // ABSENT from this Rust allowlist (they ARE in the TS
-            // allowlist: Electron's main process needs them to talk
+            // allowlist: the predecessor's main process needs them to talk
             // to the Python sidecar). The Rust host never routes
             // either command through this `dispatch` gate:
             //   - `heartbeat` is sent by the Rust-side heartbeat task

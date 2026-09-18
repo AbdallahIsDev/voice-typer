@@ -116,7 +116,7 @@ export function usePythonEvent<K extends PythonPushEvent["type"]>(
 	// `types/ipc/push_events.ts` (kept in sync manually, TS
 	// can't enumerate union members at runtime). When a `type`
 	// argument isn't in the set, emit a `console.warn` so the
-	// typo surfaces in the dev console (and the Electron
+	// typo surfaces in the dev console (and the predecessor
 	// main-process log via `webContents.on("console-message")`).
 	// The warning is dev-only, production builds skip the check
 	// (`import.meta.env.DEV` is `false` in production per Vite).

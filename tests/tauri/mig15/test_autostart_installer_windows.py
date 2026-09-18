@@ -432,7 +432,7 @@ def test_installer_creates_start_menu_and_desktop_shortcuts():
     defaults apply. Additionally, ``server_platform.create_launcher_shortcut()``
     creates runtime .lnk shortcuts (Desktop + Start Menu) pointing at the
     universal launcher (``autostart_launcher.py``), these are separate
-    from the installer shortcuts and exist so the legacy Electron path
+    from the installer shortcuts and exist so the legacy predecessor path
     also has Start Menu discoverability.
     """
     conf = json.loads(TAURI_CONF.read_text(encoding="utf-8"))

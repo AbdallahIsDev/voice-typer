@@ -40,7 +40,7 @@ worker's startup warm phase. The handler trio was re-registered in
 lockstep across all three allowlists (Python registry ↔ TS
 allowlist ↔ Rust allowlist) per the §6.4 IPC parity contract —
 pinned by ``tests/test_command_registry_parity.py`` and
-``tests/test_electron_ipc_and_build.py::TestAllowlistCorrectness::test_allowlist_matches_server_commands``.
+``tests/test_host_ipc_and_build.py::TestAllowlistCorrectness::test_allowlist_matches_server_commands``.
 """
 
 from voice_typer.server.handlers._base import HandlerBase

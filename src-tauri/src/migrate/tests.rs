@@ -8,7 +8,7 @@
     clippy::cast_possible_truncation
 )]
 
-//! Unit tests for the Electron → Tauri migration module.
+//! Unit tests for the predecessor → Tauri migration module.
 //!
 //! Moved verbatim from the original `migrate.rs` monolith as part of
 //! the Phase 4.5 split. No test logic changed, only the
@@ -143,7 +143,7 @@ fn atomic_copy_file_no_partial_on_missing_source() {
 //when `merge_config` encounters a corrupt source
 /// config.json (invalid JSON), it must back up the corrupt file
 /// to `<name>.corrupt-pre-migration.<ts>.bak` BEFORE treating it
-/// as Null. Without the backup, the user's old Electron settings
+/// as Null. Without the backup, the user's old predecessor settings
 /// would be silently dropped on the next migration pass.
 #[test]
 fn merge_config_backs_up_corrupt_source() {
@@ -505,7 +505,7 @@ fn copy_missing_files_all_success_reports_zero_failed() {
 fn write_sentinel_if_clean_writes_on_success() {
     let _scratch = ScratchDir::new("sentinel-success");
     let new_dir = _scratch.path().to_path_buf();
-    let sentinel = new_dir.join(".migrated-from-electron");
+    let sentinel = new_dir.join(".migrated-from-legacy");
     assert!(!sentinel.exists(), "sentinel must not exist before call");
 
     let written = write_sentinel_if_clean(&new_dir, 0);
@@ -532,7 +532,7 @@ fn write_sentinel_if_clean_writes_on_success() {
 fn write_sentinel_if_clean_skips_on_failure() {
     let _scratch = ScratchDir::new("sentinel-skip");
     let new_dir = _scratch.path().to_path_buf();
-    let sentinel = new_dir.join(".migrated-from-electron");
+    let sentinel = new_dir.join(".migrated-from-legacy");
     assert!(!sentinel.exists(), "sentinel must not exist before call");
 
     // Simulate 1 critical-step failure (e.g. history.db copy failed).
@@ -555,7 +555,7 @@ fn write_sentinel_if_clean_skips_on_failure() {
 fn write_sentinel_if_clean_skips_on_multiple_failures() {
     let _scratch = ScratchDir::new("sentinel-multi-fail");
     let new_dir = _scratch.path().to_path_buf();
-    let sentinel = new_dir.join(".migrated-from-electron");
+    let sentinel = new_dir.join(".migrated-from-legacy");
 
     let written = write_sentinel_if_clean(&new_dir, 3);
     assert!(
@@ -588,7 +588,7 @@ fn write_sentinel_if_clean_handles_write_error() {
     let written = write_sentinel_if_clean(&bogus_dir, 0);
     assert!(!written, "write to non-existent dir must return false");
     assert!(
-        !bogus_dir.join(".migrated-from-electron").exists(),
+        !bogus_dir.join(".migrated-from-legacy").exists(),
         "no sentinel must be left behind"
     );
 }
@@ -621,31 +621,31 @@ fn atomic_copy_uses_local_atomic_write_bytes_import() {
     );
 }
 
-// migrate_inner + migrate_electron_userdata_async ────────────────
+// migrate_inner + migrate_legacy_userdata_async ────────────────
 //
 // The migration logic lives in `migrate_inner(new_dir: &Path)` so it
-// is callable from the async wrapper `migrate_electron_userdata_async`
+// is callable from the async wrapper `migrate_legacy_userdata_async`
 // (the production entry point - called from `main.rs`'s setup closure;
-// the former sync wrapper `migrate_electron_userdata` was removed as
+// the former sync wrapper `migrate_legacy_userdata` was removed as
 // dead code once main.rs switched to the async variant).
 //
 // The two tests below pin the new behavior:
 //   1. `migrate_inner` short-circuits when the sentinel marker is
 //      already present (no env-var manipulation needed, the
-//      sentinel check runs BEFORE `electron_userdata_candidates()`
+//      sentinel check runs BEFORE `legacy_userdata_candidates()`
 //      reads any env vars).
 //   2. `migrate_inner` is callable from a `spawn_blocking` closure
-//      (the exact pattern `migrate_electron_userdata_async` uses
+//      (the exact pattern `migrate_legacy_userdata_async` uses
 //      internally) without panic and returns cleanly.
 
 /// `migrate_inner` must early-return without doing any fs work when
-/// the `.migrated-from-electron` sentinel marker is already present
+/// the `.migrated-from-legacy` sentinel marker is already present
 /// in `new_dir`. This is the idempotency short-circuit that makes
 /// the migration safe to call on every launch.
 ///
 /// We pre-create the sentinel before calling `migrate_inner` so the
 /// function returns at the FIRST guard (sentinel.exists() check) —
-/// BEFORE `electron_userdata_candidates()` is called. This means
+/// BEFORE `legacy_userdata_candidates()` is called. This means
 /// the test does NOT need to manipulate any env vars (HOME,
 /// APPDATA, XDG_CONFIG_HOME) and is safe to run in parallel with
 /// other tests.
@@ -654,11 +654,11 @@ fn migrate_inner_returns_early_when_sentinel_present() {
     let _scratch = ScratchDir::new("sentinel-shortcircuit");
     let new_dir = _scratch.path().to_path_buf();
     // Pre-create the sentinel marker so migrate_inner short-circuits.
-    std::fs::write(new_dir.join(".migrated-from-electron"), b"").unwrap();
+    std::fs::write(new_dir.join(".migrated-from-legacy"), b"").unwrap();
     // Drop a "decoy" file that the migration WOULD copy if it ran —
     // proves the short-circuit didn't proceed past the sentinel guard.
     // (If the migration proceeded, it would have created config.json
-    // from a candidate old Electron userData dir. By asserting no
+    // from a candidate old predecessor userData dir. By asserting no
     // config.json appears, we verify the short-circuit held.)
     assert!(
         !new_dir.join("config.json").exists(),
@@ -672,7 +672,7 @@ fn migrate_inner_returns_early_when_sentinel_present() {
     // The sentinel must still be present (migrate_inner must not
     // delete it on the early-return path).
     assert!(
-        new_dir.join(".migrated-from-electron").exists(),
+        new_dir.join(".migrated-from-legacy").exists(),
         "sentinel marker must still exist after early-return"
     );
     // No config.json should have been created (the migration did
@@ -685,7 +685,7 @@ fn migrate_inner_returns_early_when_sentinel_present() {
 
 /// `migrate_inner` runs unchanged when called from inside a
 /// `spawn_blocking` closure: the exact pattern
-/// `migrate_electron_userdata_async` uses to move the fs-heavy
+/// `migrate_legacy_userdata_async` uses to move the fs-heavy
 /// migration off the async runtime's worker threads.
 ///
 /// This test exercises the same `spawn_blocking(move || migrate_inner(...))`
@@ -706,14 +706,14 @@ async fn migrate_inner_runs_under_spawn_blocking_without_panic() {
     // Pre-create the sentinel so migrate_inner short-circuits
     // without needing env vars (which would be racy under parallel
     // test execution).
-    std::fs::write(new_dir.join(".migrated-from-electron"), b"").unwrap();
+    std::fs::write(new_dir.join(".migrated-from-legacy"), b"").unwrap();
     // Clone `new_dir` into the closure (the same move pattern used
-    // by `migrate_electron_userdata_async`).
+    // by `migrate_legacy_userdata_async`).
     let new_dir_for_closure = new_dir.clone();
 
     // Spawn migrate_inner on the blocking pool and await its
     // completion. This mirrors the exact shape of
-    // `migrate_electron_userdata_async`'s body:
+    // `migrate_legacy_userdata_async`'s body:
     //   tauri::async_runtime::spawn_blocking(move || migrate_inner(&new_dir)).await
     let join_result = tokio::task::spawn_blocking(move || {
         migrate_inner(&new_dir_for_closure);
@@ -731,7 +731,7 @@ async fn migrate_inner_runs_under_spawn_blocking_without_panic() {
     );
     // Sentinel must still be present (migrate_inner short-circuited).
     assert!(
-        new_dir.join(".migrated-from-electron").exists(),
+        new_dir.join(".migrated-from-legacy").exists(),
         "sentinel marker must still exist after spawn_blocking migration"
     );
 }

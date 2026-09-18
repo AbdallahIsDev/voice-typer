@@ -1145,7 +1145,7 @@ class TestUniversalOrPerArch:
     """Verify the binary is universal OR per-arch.
 
     ADR-0020 §Reversibility: cutover is per-arch, Apple Silicon can
-    ship Tauri while Intel still ships Electron. The native
+    ship Tauri while Intel still ships predecessor. The native
     ``macos-key-listener`` binary must run on BOTH archs.
 
     Two acceptable strategies:

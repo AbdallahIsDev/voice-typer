@@ -350,7 +350,7 @@ class TestSetupPolkitStablePath:
         stable_dir = tmp_path / "polkit-stable"
         stable_dir.mkdir()
         stable_path = stable_dir / "install_permissions.py"
-        # Pre-create a regular file (simulating a legacy Electron install).
+        # Pre-create a regular file (simulating a legacy predecessor install).
         stable_path.write_text("# legacy install_permissions.py\n")
         original_content = stable_path.read_text()
 
@@ -535,7 +535,7 @@ class TestRemovePolkitPolicies:
     """``_remove_polkit_policies()`` behavior (uninstall-time cleanup)."""
 
     def test_legacy_policy_dest_points_at_legacy_path(self, ip_module):
-        """The legacy constant targets the pre-Tauri Electron policy filename."""
+        """The legacy constant targets the pre-Tauri predecessor policy filename."""
         assert ip_module.LEGACY_POLKIT_POLICY_DEST.as_posix() == ("/usr/share/polkit-1/actions/org.voice-typer.policy")
 
     def test_removes_current_and_legacy_policies(self, ip_module, monkeypatch, tmp_path, capsys):

@@ -1,36 +1,31 @@
-"""Tauri ↔ Electron identity parity guard (identifier, productName, version).
+"""Tauri host identity guard (identifier, productName, version).
 
-The SAME app ships through two runtimes, the Electron shell
-(``voice_typer/client/``) and the Tauri host (``src-tauri/``), so the
+The app ships one desktop shell, the Tauri host (``src-tauri/``), and
 three identity fields must stay in lockstep across the configs that
 feed them:
 
-- ``identifier`` (tauri.conf.json) == ``appId`` (electron-builder.yml)
-, both become the macOS ``CFBundleIdentifier`` (plus the Windows
-  MSI/NSIS product identity, Android package-name root, etc.). The
-  documented invariant (``docs/migration/signing-guide.md`` +
-  ``docs/adr/0020``) is that the Tauri ``identifier`` "matches today's
-  ``electron-builder.yml`` ``appId``". Drift means one runtime ships a
-  different app identity than the other (broken upgrades, orphaned
+- ``identifier`` (tauri.conf.json) becomes the macOS
+  ``CFBundleIdentifier`` (plus the Windows MSI/NSIS product identity,
+  Android package-name root, etc.). The documented invariant
+  (``docs/migration/signing-guide.md`` + ``docs/adr/0020``) is that the
+  Tauri ``identifier`` stays stable across releases. Drift means an
+  upgrade ships a different app identity (broken upgrades, orphaned
   TCC/permission entries, duplicate dock/tray presence).
-- ``productName`` (tauri.conf.json) == ``productName``
-  (electron-builder.yml), the display name shown in the menu bar,
-  dock, Start menu, ``.app`` bundle name, etc. Note this is NOT
-  compared to ``package.json`` ``name``: npm names are conventionally
-  lowercase-hyphenated (``voice-typer-desktop``) and are not display
-  names.
-- ``version`` (tauri.conf.json) == ``version`` (package.json) —
-  electron-builder derives its version from package.json (there is no
-  top-level ``version`` in electron-builder.yml), so the version chain
+- ``productName`` (tauri.conf.json) is the display name shown in the
+  menu bar, dock, Start menu, ``.app`` bundle name, etc. Note this is
+  NOT compared to ``package.json`` ``name``: npm names are
+  conventionally lowercase-hyphenated (``voice-typer-desktop``) and are
+  not display names.
+- ``version`` (tauri.conf.json) == ``version`` (package.json) — the
+  Tauri config inherits the npm package version, so the version chain
   is tauri ↔ package.json. Drift shows two different version numbers
   to users / the updater.
 
 The Tauri CLI also emits a build-log WARNING when the identifier ends
 in ``.app`` (it collides with the macOS application-bundle extension,
-e.g. ``com.voicetyper.app``), and ``electron-builder``'s ``appId`` has
-the same hazard for the macOS ``CFBundleIdentifier``. This module
-fails fast if either value regresses to a ``.app`` suffix, so the
-warning can't silently come back.
+e.g. ``com.voicetyper.app``). This module fails fast if either value
+regresses to a ``.app`` suffix, so the warning can't silently come
+back.
 
 CI merges a per-arch config (``tauri.<os>-<arch>.conf.json``) over the
 base ``tauri.conf.json`` via ``--config``; a per-arch ``identifier`` /
@@ -53,7 +48,6 @@ from voice_typer.server.server_platform import macos_bundle_id as mbid
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 TAURI_CONF = PROJECT_ROOT / "src-tauri" / "tauri.conf.json"
-ELECTRON_BUILDER_YML = PROJECT_ROOT / "voice_typer" / "client" / "electron-builder.yml"
 PACKAGE_JSON = PROJECT_ROOT / "voice_typer" / "client" / "package.json"
 PER_ARCH_CONFIGS = sorted(PROJECT_ROOT.glob("src-tauri/tauri.*.conf.json"))
 

@@ -25,7 +25,7 @@ def _read(rel: str) -> str:
 class TestBubbleSupportsKeyboardArrowMove:
     """Bubble supports keyboard-based repositioning via arrow keys.
 
-    Post-Electron cutover: the main/preload channel pins were deleted
+    Post-predecessor cutover: the main/preload channel pins were deleted
     with the TS shell. The Tauri host owns ``bubble_move_by``
     (``src-tauri/src/commands/bubble/commands.rs``); this class pins
     the renderer type contract that still exists.
@@ -75,7 +75,7 @@ class TestDeleteModelRouteRemovesFiles:
         assert hasattr(IPCServer, "_handle_delete_model")
 
     def test_rust_allowlist_has_delete_model(self):
-        # Post-Electron: the renderer-callable gate is the Rust
+        # Post-predecessor: the renderer-callable gate is the Rust
         # allowed_commands() set (the TS ALLOWED_COMMANDS file is gone).
         from tests.test_security_doc_command_count import _allowed_commands_rust
 
@@ -145,7 +145,7 @@ class TestModelDownloadSupportsCancel:
         assert '"cancel_model_download": "_handle_cancel_model_download"' in registry_py
 
     def test_rust_allowlist_includes_cancel_model_download(self):
-        # Post-Electron: the renderer-callable gate is the Rust
+        # Post-predecessor: the renderer-callable gate is the Rust
         # allowed_commands() set.
         from tests.test_security_doc_command_count import _allowed_commands_rust
 

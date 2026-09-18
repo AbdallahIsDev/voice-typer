@@ -6,7 +6,7 @@
  * Previously the effect's only dependency was `[type]`, and the effect
  * body early-returned when `window.python` was undefined. So if the
  * bridge was installed late (e.g. by the Tauri `installTauriBridge()`
- * auto-install on first import, or by the Electron preload under slow
+ * auto-install on first import, or by the predecessor preload under slow
  * HMR), the subscription was never re-attempted and events were
  * silently dropped for the entire session.
  *
@@ -98,7 +98,7 @@ describe("useBridgeReady + usePythonEvent lazy subscription", () => {
 
 		// Simulate the bridge becoming available after ~50ms (e.g. the
 		// Tauri `installTauriBridge()` finishing its async setup, or
-		// the Electron preload completing under slow HMR).
+		// the predecessor preload completing under slow HMR).
 		setTimeout(() => {
 			(window as unknown as { python: PythonBridgeMock }).python = {
 				call: vi.fn(),

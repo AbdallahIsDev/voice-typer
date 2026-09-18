@@ -12,7 +12,7 @@ use super::{adopted_blocked_envelope, restart_blocked_envelope};
 use serde_json::json;
 
 /// A restart attempted while the host is shutting down is refused with
-/// the Electron-compatible envelope (so `useConnection.ts` shows the
+/// the predecessor-compatible envelope (so `useConnection.ts` shows the
 /// relaunch hint), never a silent success.
 #[test]
 fn test_restart_blocked_while_shutting_down() {
@@ -28,7 +28,7 @@ fn test_restart_allowed_while_running() {
 }
 
 /// MO-110: a restart in adopted-backend mode is refused with the same
-/// `adopted` reason Electron's `restart-backend.ts` returns (the backend
+/// `adopted` reason the predecessor's `restart-backend.ts` returns (the backend
 /// is our parent; respawning would double-spawn next to it).
 #[test]
 fn test_restart_blocked_in_adopted_mode() {

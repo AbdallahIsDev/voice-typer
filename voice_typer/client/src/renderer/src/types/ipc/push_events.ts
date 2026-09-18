@@ -311,34 +311,22 @@ export interface BubbleConfigEvent {
 
 // ── Lifecycle events (tray menu / shutdown flow) ───────────────────
 
-/** Tray "Open app", Python asks Electron to show + focus the dashboard.
- *  Routed by `handle-message.ts:68` → `showMainWindow()`. */
+/** Tray "Open app", Python asks the host to show + focus the dashboard. */
 export interface ShowWindowEvent {
 	type: "show_window";
 	data: Record<string, unknown>;
 }
 
-/** Tray "Quit", Python is about to force-exit; close Electron too.
- *  Routed by `handle-message.ts:74` → `app.quit()`. */
+/** Tray "Quit", Python is about to force-exit. */
 export interface QuitAppEvent {
 	type: "quit_app";
 	data: Record<string, unknown>;
 }
 
 /** Tray "Restart", Python's `restart_app()` pushes this BEFORE calling
- *  `sys.exit(0)`. Routed by `handle-message.ts:78` → `relaunchApp()`.
+ *  `sys.exit(0)`.
  *
- *   (addresses []): the wire event was renamed from
- *  `relaunch_electron` to `relaunch_app` on the Python+Tauri sides in
- *   The renderer type now models `relaunch_app` as the canonical
- *  event.
- *
- *  : the legacy `RelaunchElectronEvent` (type: "relaunch_electron")
- *  was DELETED, verified the Python side emits ONLY `relaunch_app` now
- *  (the `relaunch_electron` symbol survives only in historical comments
- *  in `voice_typer/server/app.py` and `voice_typer/server/ipc_server.py`,
- *  not as a wire event). The transition window for old sidecars has long
- *  since closed. */
+ *  The renderer type models `relaunch_app` as the canonical event. */
 export interface RelaunchAppEvent {
 	type: "relaunch_app";
 	data: Record<string, unknown>;
@@ -534,7 +522,7 @@ export interface DeviceLostEvent {
 //
 //(addresses []): these events are NOT emitted by the Python
 // backend, they are synthesized by the host bridge (Tauri Rust
-// `src-tauri/src/sidecar/supervisor.rs` or Electron main) when the transport
+// `src-tauri/src/sidecar/supervisor.rs` or predecessor main) when the transport
 // layer detects a disconnect and enters the reconnect loop. They
 // are members of `PythonPushEvent` so renderer code can subscribe via
 // `usePythonEvent("reconnecting", ...)` without an `as unknown as
@@ -870,11 +858,11 @@ export interface PasteDeferredEvent {
 /** Pushed by `tray.py::_drain_pending` when the native system-tray icon
  *  is unavailable and queued tray notifications cannot be shown, the
  *  renderer surfaces the fallback in-app banner instead (only the
- *  Electron/headless path emits this; the Tauri runtime routes tray
+ *  predecessor/headless path emits this; the Tauri runtime routes tray
  *  notifications through the `notification` event).
  *
  *  PAYLOAD: the Python emitter nests `title`/`message` under `data`
- *  (the canonical envelope, an earlier Electron-era root-level shape
+ *  (the canonical envelope, an earlier predecessor-era root-level shape
  *  was stripped by the event-protocol layer and delivered an empty
  *  payload). Both fields stay optional so the consumer degrades to
  *  the generic banner if a future emitter omits them. */
@@ -997,7 +985,7 @@ export type PythonPushEvent =
 //     {"type": "auth", "token": "<session-token>"}
 //
 // The token is an HMAC compared with `hmac.compare_digest` against the
-// `VOICE_TYPER_IPC_TOKEN` env var set by the Rust/Electron host at
+// `VOICE_TYPER_IPC_TOKEN` env var set by the Rust/predecessor host at
 // spawn (ADR-0020 §3). On mismatch the socket is closed immediately.
 //
 // the auth frame now carries an OPTIONAL

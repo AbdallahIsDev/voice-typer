@@ -52,7 +52,7 @@ Scope of this check (ADR-0020 §1 + §4.1 + §6.4 + §7 + §10 + §13.3 + §14):
    writes the OS-assigned port to stdout, the host NEVER chooses a
    fixed port. (ADR-0020 §1 "Ephemeral port, locked bind direction".)
    This is critical on Linux because two concurrent users on the same
-   host (e.g. a developer running both the Electron and Tauri builds)
+   host (e.g. a developer running both the predecessor and Tauri builds)
    must not collide on port 9876.
 
 7. The tests in this file do NOT spawn any real process, they read
@@ -121,7 +121,7 @@ References:
 - ADR-0020 §10, supervisor backoff schedule + cap (5 retries,
   doubling 500ms → 8s, then ``app.restart()``).
 - ADR-0020 §13.3, Linux unsigned packaging (.deb + .rpm + AppImage,
-  ``postinst``/``prerm`` reused from the Electron build verbatim).
+  ``postinst``/``prerm`` reused from the predecessor build verbatim).
 - ADR-0020 §14, dev-mode spawn fallback (out of scope for this Linux
   release-path check, but verified as a code path).
 - runbook §5 (X11 smoke) + §6 (Wayland smoke), host-side validation
@@ -356,13 +356,13 @@ def test_tauri_conf_prewarm_moved_into_worker_exe(tauri_conf) -> None:
 
 
 def test_tauri_conf_linux_bundle_uses_postinst_prerm(tauri_conf) -> None:
-    """ADR-0020 §13.3: Linux .deb + .rpm reuse the Electron postinst/prerm.
+    """ADR-0020 §13.3: Linux .deb + .rpm reuse the predecessor postinst/prerm.
 
     The Linux bundle config must wire the existing
     ``scripts/linux/postinst`` (udev rule + input group + Caps Lock
     neutralization + permissions-manifest) and ``scripts/linux/prerm``
     into the .deb + .rpm builds. These scripts are reused verbatim from
-    the Electron build (ADR-0020 §13.3 "Linux unsigned packaging —
+    the predecessor build (ADR-0020 §13.3 "Linux unsigned packaging —
     scripts reused verbatim"). The AppImage does NOT run postinst (it's
     a portable image, the user must manually run the udev setup, which
     is documented in the runbook).
@@ -386,7 +386,7 @@ def test_tauri_conf_linux_bundle_uses_postinst_prerm(tauri_conf) -> None:
     assert deb_post_install is not None, "bundle.linux.deb.postInstallScript must be set"
     assert deb_post_install.endswith("scripts/linux/postinst"), (
         f"bundle.linux.deb.postInstallScript must point at scripts/linux/postinst "
-        f"(reused verbatim from Electron per ADR-0020 §13.3), got {deb_post_install!r}"
+        f"(reused verbatim from predecessor per ADR-0020 §13.3), got {deb_post_install!r}"
     )
 
     assert "preRemoveScript" in deb, (
@@ -399,7 +399,7 @@ def test_tauri_conf_linux_bundle_uses_postinst_prerm(tauri_conf) -> None:
     assert deb_pre_remove is not None, "bundle.linux.deb.preRemoveScript must be set"
     assert deb_pre_remove.endswith("scripts/linux/prerm"), (
         f"bundle.linux.deb.preRemoveScript must point at scripts/linux/prerm "
-        f"(reused verbatim from Electron per ADR-0020 §13.3), got {deb_pre_remove!r}"
+        f"(reused verbatim from predecessor per ADR-0020 §13.3), got {deb_pre_remove!r}"
     )
 
     assert "postInstallScript" in rpm, (

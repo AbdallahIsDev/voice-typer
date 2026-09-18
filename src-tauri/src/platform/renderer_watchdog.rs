@@ -1,10 +1,10 @@
 //! Renderer / webview liveness watchdog (review.md MO-113).
 //!
-//! Electron logged every child-process abnormal exit
+//! predecessor logged every child-process abnormal exit
 //! (`child-process-gone`: GPU process crash, utility process crash,
 //! renderer OOM) from `bootstrap/runtime.ts` into the host log, which is
 //! the ONLY signal available when a window renders blank. After the
-//! Electron→Tauri cutover the Rust host had just a panic hook, so a
+//! predecessor→Tauri cutover the Rust host had just a panic hook, so a
 //! WebView2 renderer freeze / GPU crash left `voice-typer-rust.log`
 //! completely clean while the user stared at a blank or frozen window.
 //!
@@ -36,7 +36,7 @@
 //!   when heartbeats resume, so a long freeze cannot flood the log.
 //!
 //! This is telemetry only: nothing is killed, restarted, or spawned from
-//! here. It mirrors Electron's shape (log the abnormal condition, let the
+//! here. It mirrors the predecessor's shape (log the abnormal condition, let the
 //! user decide) without inventing process control that the platform
 //! cannot back.
 

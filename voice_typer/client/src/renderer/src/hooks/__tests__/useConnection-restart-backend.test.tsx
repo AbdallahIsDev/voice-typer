@@ -1,6 +1,6 @@
 /**
  * Tests for `useConnection` `handleRetryConnection`, the OPTION-A
- * escalation: probe first, and when the probe fails, ask the Electron
+ * escalation: probe first, and when the probe fails, ask the predecessor
  * main process to restart ONLY the Python backend (`backend:restart`
  * channel via `window.window_.restartBackend`).
  *

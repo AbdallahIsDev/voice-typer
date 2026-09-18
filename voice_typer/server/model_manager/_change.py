@@ -830,7 +830,7 @@ class ChangeMixin:
 
         NOTE: the renderer change (subscribing to
         ``asr_backend_load_failed`` and showing an error) is OUT OF
-        SCOPE for this fix, it lives in the Electron/renderer codebase.
+        SCOPE for this fix, it lives in the predecessor/renderer codebase.
         This method only emits the event; the renderer's matching
         listener must be added separately.
 

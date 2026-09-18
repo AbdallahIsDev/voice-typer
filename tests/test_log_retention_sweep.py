@@ -151,7 +151,7 @@ def test_mixed_ages_only_deletes_old(tmp_path: Path) -> None:
     recent2.write_text("recent2", encoding="utf-8")
     _set_mtime_days_ago(recent2, days=3)
 
-    old3 = _logs_dir(tmp_path) / "electron-main.log"
+    old3 = _logs_dir(tmp_path) / "legacy-host.log"
     old3.write_text("old3", encoding="utf-8")
     _set_mtime_days_ago(old3, days=8)
 

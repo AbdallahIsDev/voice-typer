@@ -220,7 +220,7 @@ describe("BG-52: doExport honours active search/favorites filter", () => {
 		// search_history + get_favorites are NEVER called without an active filter.
 		expect(searchHistoryCalls.length).toBe(0);
 		expect(getFavoritesCalls.length).toBe(0);
-		// The Electron bridge was invoked.
+		// The predecessor bridge was invoked.
 		expect(exportHistory).toHaveBeenCalledTimes(1);
 		// No filter toast fires when no filter is active.
 		expect(toast.info).not.toHaveBeenCalled();

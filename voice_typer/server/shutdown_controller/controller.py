@@ -49,7 +49,7 @@ class ShutdownController(CleanupMixin, SequencingMixin, TeardownsMixin, SignalsM
       ``app._crash_recovery`` (flush + shutdown),
       ``app.history_db`` (flush + close), ``app._bubble_level_worker_*``
       (daemon thread + queue sentinel), ``app.tray`` (pystray loop
-      break), ``app._electron_pid`` (subprocess terminate),
+      break), ``app._host_pid`` (child-process terminate),
       ``app._mutex_handle`` (Win32 named mutex CloseHandle).
     - Read platform helpers (``is_windows``) at call time from
       ``voice_typer.server.platform_utils`` so tests that monkeypatch
@@ -68,9 +68,7 @@ class ShutdownController(CleanupMixin, SequencingMixin, TeardownsMixin, SignalsM
     # crash_recovery) whose flush-bearing helpers
     # (``_teardown_history_db`` / ``_teardown_crash_recovery``) MUST run
     # before the hotkey / level_monitor / event_bus teardowns begin
-    # (flush-before-teardown guarantee: see
-    # ``tests/regressions/test_electron.py::TestShutdownControllerPhasesContract::
-    # test_flush_bearing_phases_run_first``). The remaining 11 entries
+    # (flush-before-teardown guarantee). The remaining 11 entries
     # are the parallel batch. The list is inspectable at runtime so
     # tests (and operators) can pin the decomposition.
     _PARALLEL_TEARDOWN_PHASE_NAMES: tuple[str, ...] = (
@@ -87,7 +85,7 @@ class ShutdownController(CleanupMixin, SequencingMixin, TeardownsMixin, SignalsM
         "_teardown_devnull_files",
         "_teardown_level_monitor",
         "_teardown_hotkeys",
-        "_teardown_electron",
+        "_teardown_host_child",
         "_teardown_event_bus",
     )
 
@@ -143,19 +141,19 @@ class ShutdownController(CleanupMixin, SequencingMixin, TeardownsMixin, SignalsM
         # ``_shutting_down`` check rather than blocking on _quit_lock.
         self._quit_lock: threading.Lock = threading.Lock()
 
-        # dedicated lock for the ``_electron_pid`` read-terminate-clear
-        # sequence inside ``_teardown_electron``. Two concurrent ``quit()``
+        # dedicated lock for the ``_host_pid`` read-terminate-clear
+        # sequence inside ``_teardown_host_child``. Two concurrent ``quit()``
         # callers (IPC + signal-watcher) could both read the same PID, both
-        # call ``terminate_electron(pid)`` (racing with PID recycling on
+        # terminate the same tracked child PID (racing with PID recycling on
         # Windows), and both clear the attribute, potentially clobbering a
         # NEW PID installed by a concurrent ``restart_app()``. This lock
         # serializes the read-terminate-clear critical section; the second
-        # caller observes ``_electron_pid is None`` (cleared by the first)
+        # caller observes ``_host_pid is None`` (cleared by the first)
         # and skips. Defense-in-depth: ``_do_cleanup``'s ``_cleanup_done``
         # guard already prevents double-entry, but this lock protects the
-        # electron path specifically even if a future caller bypasses
+        # predecessor path specifically even if a future caller bypasses
         # ``_quit_lock``.
-        self._electron_pid_lock: threading.Lock = threading.Lock()
+        self._host_pid_lock: threading.Lock = threading.Lock()
 
         # shared state between ``_teardown_recorder`` and
         # ``_teardown_sounddevice``. When ``recorder.stop()`` (or

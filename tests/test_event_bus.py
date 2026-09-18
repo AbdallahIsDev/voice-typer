@@ -880,7 +880,7 @@ class TestAsyncDispatch:
     """ZR-20: ``publish(event, async_dispatch=True)`` defers fan-out to
     the single-worker executor so non-RT publisher threads are not
     blocked by slow subscribers (e.g. ``IPCServer.push`` →
-    ``socket.sendall`` to a stalled Electron renderer).
+    ``socket.sendall`` to a stalled predecessor renderer).
 
     These tests pin:
     1. ``async_dispatch=True`` queues the event and returns immediately

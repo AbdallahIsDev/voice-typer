@@ -4,11 +4,11 @@
 //!
 //! - [`dialog_titles`]: the Rust-side locale→title lookup that
 //!   consumes the renderer-pushed `host_locale` at the native
-//!   dialog title sites (mirrors Electron's `mainT()` dialog
+//!   dialog title sites (mirrors the predecessor's `mainT()` dialog
 //!   strings).
 //! - [`dialogs`]: native OS-surface commands: `open_logs` (OS file
 //!   manager), `open_external_url_command` (https-only browser launch,
-//!   MO-118), `reveal_path_command` (Electron
+//!   MO-118), `reveal_path_command` (predecessor
 //!   `shell.showItemInFolder` parity, MO-120) + `open_model_import_dialog`
 //!   (native folder picker).
 //! - [`renderer_log`]: the `renderer_log_error` sink + its
@@ -21,7 +21,7 @@
 //! - [`locale`]: `set_host_locale` + its pure decision core.
 //! - [`stats_image`]: `save_stats_image`, the share-image
 //!   Downloads-instant-save + localized Save-As dialog (MO-121,
-//!   Electron `stats-image:save` parity).
+//!   predecessor `stats-image:save` parity).
 //!
 //! This file is the orchestrator only: submodule declarations + the
 //! crate-visible re-exports that keep every historical public name

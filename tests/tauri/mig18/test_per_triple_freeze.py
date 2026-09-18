@@ -531,12 +531,12 @@ def test_script_includes_ctranslate2_data_dir(script_texts: dict[str, str], plat
 def test_script_entry_point_is_ipc_server(script_texts: dict[str, str], platform: str):
     """The Nuitka entry point must be ``voice_typer/server/ipc_server.py``.
 
-    ADR-0020 §4, this is the same entry point used by the Electron path +
+    ADR-0020 §4, this is the same entry point used by the predecessor path +
     the dev sidecar; only the freeze tool changes.
     """
     assert "voice_typer/server/ipc_server.py" in script_texts[platform], (
         f"build_sidecar_{platform}.sh entry point must be "
-        "voice_typer/server/ipc_server.py (matches Electron + dev sidecar)."
+        "voice_typer/server/ipc_server.py (matches predecessor + dev sidecar)."
     )
 
 
@@ -696,7 +696,7 @@ def test_pyinstaller_fallback_spec_references_target_triple():
     text = PYINSTALLER_SPEC.read_text(encoding="utf-8")
     assert "VOICE_TYPER_TAURI_SIDECAR" in text, (
         "voice-typer.spec must check the VOICE_TYPER_TAURI_SIDECAR env var "
-        "to switch between the Tauri sidecar path + the legacy Electron path."
+        "to switch between the Tauri sidecar path + the legacy predecessor path."
     )
     # Must compute the triple for all three platforms (mirror target_triple_for).
     assert "pc-windows-msvc" in text, (

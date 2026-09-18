@@ -2,7 +2,7 @@
  * Pins the bubble entrypoint's observability installs (MO-102 + MO-105).
  *
  * The bubble is a SEPARATE BrowserWindow / JS context from the main
- * renderer. Under Electron the main process captured console output and
+ * renderer. Under predecessor the main process captured console output and
  * crashes from BOTH webviews; under Tauri each entrypoint must install
  * the shared sinks itself. `installGlobalErrorHandlers()` and
  * `installConsoleCapture()` are both idempotent and reuse the same
@@ -34,7 +34,7 @@ describe("bubble-main.tsx installs both host-log sinks", () => {
 	it("imports and calls installConsoleCapture (MO-105 bubble context)", () => {
 		// Previously only main.tsx installed the console sink; the bubble
 		// entrypoint's `console.warn`/`console.error` were lost under
-		// Tauri (separate JS context, no Electron console-message hook).
+		// Tauri (separate JS context, no predecessor console-message hook).
 		expect(BUBBLE_SRC).toMatch(
 			/import\s*\{\s*installConsoleCapture\s*\}\s*from\s*["']\.\/lib\/console-capture["']/,
 		);

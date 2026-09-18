@@ -206,7 +206,7 @@ export const TroubleshootingSettingsSection = memo(
 		// Reset a stale macOS Accessibility TCC entry: the backend runs
 		// `tccutil reset Accessibility <bundle-id>` (bundle ID resolved at
 		// runtime, so the command matches the actually-running host —
-		// Electron or Tauri) and re-opens System Settings so the user can
+		// predecessor or Tauri) and re-opens System Settings so the user can
 		// re-grant. The success toast surfaces the RUNTIME-RESOLVED
 		// command the backend actually ran (finding #127 part b /
 		// #919 part a) when the backend returned one.

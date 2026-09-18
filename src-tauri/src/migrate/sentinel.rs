@@ -1,4 +1,4 @@
-//! Sentinel marker management for the Electron → Tauri migration.
+//! Sentinel marker management for the predecessor → Tauri migration.
 //!
 //! Extracted from the original `migrate.rs` monolith as part of the
 //! Phase 4.5 split. Pure file move, no behavior change. See
@@ -6,7 +6,7 @@
 
 use std::path::Path;
 
-//write the `.migrated-from-electron` sentinel marker to
+//write the `.migrated-from-legacy` sentinel marker to
 /// `new_dir` ONLY if `migration_failed == 0`.
 ///
 /// Returns `true` if the sentinel was written (or already present from
@@ -17,7 +17,7 @@ use std::path::Path;
 /// the sentinel itself failed (transient I/O error, also retried on
 /// next launch).
 ///
-/// Extracted from `migrate_electron_userdata` so the gating logic is
+/// Extracted from `migrate_legacy_userdata` so the gating logic is
 /// unit-testable. The behavior we pin:
 ///
 /// - `migration_failed > 0` → sentinel NOT written, returns `false`.
@@ -38,7 +38,7 @@ pub(crate) fn write_sentinel_if_clean(new_dir: &Path, migration_failed: usize) -
         );
         return false;
     }
-    let migration_marker = new_dir.join(".migrated-from-electron");
+    let migration_marker = new_dir.join(".migrated-from-legacy");
     match std::fs::write(&migration_marker, "") {
         Ok(()) => {
             log::info!(

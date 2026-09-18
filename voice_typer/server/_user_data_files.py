@@ -108,15 +108,15 @@ _ONBOARDING_PROGRESS_MARKER: str = ".onboarding_progress"
 
 # Personal-data log files. These are not owned by a single Python
 # module (``voice-typer.log`` is written by ``log.py`` via
-# ``RotatingFileHandler``; ``prewarm.log`` by the prewarm sidecar;
-# ``electron-renderer-errors.log`` by the Electron host's
-# ``structuredLogger.ts``; ``voice-typer-rust.log`` is a defensive
-# legacy entry for the pre-migration Rust log filename). The names
-# mirror the entries previously inlined in ``PrivacyMixin`` so the two
-# inventories cannot drift.
+# ``RotatingFileHandler``; ``prewarm.log`` by the prewarm sidecar; the
+# renderer-error log name below is a legacy artifact name kept so an
+# upgrade that still carries it purges cleanly; ``voice-typer-rust.log``
+# is a defensive legacy entry for the pre-migration Rust log filename).
+# The names mirror the entries previously inlined in ``PrivacyMixin`` so
+# the two inventories cannot drift.
 _VOICE_TYPER_LOG: str = "voice-typer.log"
 _PREWARM_LOG: str = "prewarm.log"
-_RENDERER_ERRORS_LOG: str = "electron-renderer-errors.log"
+_RENDERER_ERRORS_LOG: str = "legacy-renderer-errors.log"
 _RUST_LOG: str = "voice-typer-rust.log"
 
 # Prewarm worker status file (O4: consolidated single JSON, canonical

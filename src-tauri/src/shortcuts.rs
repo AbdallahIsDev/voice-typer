@@ -1,6 +1,6 @@
-//! System-wide global shortcut registration (MO-125, Electron parity).
+//! System-wide global shortcut registration (MO-125, predecessor parity).
 //!
-//! Electron registered `CommandOrControl+Shift+D` via the
+//! predecessor registered `CommandOrControl+Shift+D` via the
 //! `globalShortcut` main-process module
 //! (`main/shortcuts/global-shortcuts.ts`) so the dictation bubble can
 //! be dismissed from anywhere — even when no app window has focus. The
@@ -9,7 +9,7 @@
 //! renderer never touches the plugin, so no capability grant is
 //! involved).
 //!
-//! The handler mirrors Electron's `dismissAndHideBubble` exactly:
+//! The handler mirrors the predecessor's `dismissAndHideBubble` exactly:
 //!
 //! 1. If the bubble is mid-recording/transcribing, cancel the in-flight
 //!    recording first (`toggle_dictation`, fire-and-forget — the
@@ -20,7 +20,7 @@
 //!    exact hide body the bubble's own '×' button uses), so the
 //!    keyboard path can never drift from the click path.
 //!
-//! Failure policy: registration is best-effort, mirroring Electron.
+//! Failure policy: registration is best-effort, mirroring predecessor.
 //! The OS may refuse the accelerator (already taken by another
 //! application); a failed registration logs a warning and the rest of
 //! the app keeps working — losing the global dismiss key is graceful
@@ -31,7 +31,7 @@
 //! `voice_typer/client/src/shared/dismiss-shortcut.ts`
 //! (`DISMISS_SHORTCUT.accelerator`), pinned by
 //! `tests/tauri/test_global_shortcut_parity.py` so the Rust registration
-//! and the Electron main process can never drift apart.
+//! and the predecessor main process can never drift apart.
 
 use tauri::Manager;
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
@@ -40,7 +40,7 @@ use crate::state::SidecarState;
 
 /// The bubble-dismiss accelerator in Tauri/global-hotkey form.
 ///
-/// `CmdOrCtrl+Shift+D` is the Electron spelling of the same binding
+/// `CmdOrCtrl+Shift+D` is the predecessor spelling of the same binding
 /// (`DISMISS_SHORTCUT.accelerator`); `CmdOrCtrl` maps to Ctrl on
 /// Windows/Linux and ⌘ on macOS, exactly what global-hotkey's
 /// `SUPER | SHIFT | KeyD`-style parse of `CommandOrControl` does.
@@ -62,7 +62,7 @@ fn parse_dismiss_shortcut() -> Result<Shortcut, String> {
 /// + window hide are the same calls the bubble '×' path makes).
 fn dismiss_bubble(app: &tauri::AppHandle) {
     let state: tauri::State<'_, std::sync::Arc<SidecarState>> = app.state();
-    // Cancel the in-flight recording FIRST (Electron's
+    // Cancel the in-flight recording FIRST (the predecessor's
     // `dismissAndHideBubble` ordering): hide alone would leave the mic
     // open with no visible indicator.
     //
@@ -72,7 +72,7 @@ fn dismiss_bubble(app: &tauri::AppHandle) {
     // send the fire-and-forget cancel and let the hide path be
     // idempotent — hiding an already-hidden window is a no-op, and
     // `toggle_dictation` with nothing in flight simply returns the
-    // current state. This matches Electron's behavior, which also
+    // current state. This matches the predecessor's behavior, which also
     // always toggled then hid.
     if let Err(e) = crate::commands::sidecar_cmds::dispatch_fire_and_forget(
         state.inner(),
@@ -92,7 +92,7 @@ fn dismiss_bubble(app: &tauri::AppHandle) {
 /// (called once from `main.rs`'s `setup`).
 ///
 /// Fires on key PRESS only (`ShortcutState::Pressed`), matching
-/// Electron's `globalShortcut` semantics (which registers on press, no
+/// the predecessor's `globalShortcut` semantics (which registers on press, no
 /// key-repeat re-entry: a held key repeats the OS-level accelerator,
 /// each repeat is one event — the same dedupe the sidecar's own
 /// dictation hotkey path applies).

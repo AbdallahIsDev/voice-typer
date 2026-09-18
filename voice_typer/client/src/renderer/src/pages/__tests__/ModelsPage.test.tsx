@@ -9,7 +9,7 @@
  * - No known models found → shows warning snackbar
  * - All models fail → shows error snackbar
  * - import_model IPC error → shows failure snackbar
- * - Outside Electron (no window_ API) → shows warning snackbar
+ * - Outside predecessor (no window_ API) → shows warning snackbar
  *
  * Additional coverage ():
  * - MDL-3: cancel produces no duplicate snackbar from `downloadModel`

@@ -1,4 +1,4 @@
-//! SQLite sidecar pathing + recursive file copy for the Electron →
+//! SQLite sidecar pathing + recursive file copy for the predecessor →
 //! Tauri migration.
 //!
 //! Extracted from the original `migrate.rs` monolith as part of the
@@ -74,7 +74,7 @@ fn copy_missing_recursive(src: &Path, dst: &Path, stats: &mut CopyStats) {
         let path = entry.path();
         //use `symlink_metadata` (NOT `metadata`) so we can
         // detect symlinks WITHOUT following them. A pre-planted symlink
-        // in the old Electron `models/` directory could otherwise point
+        // in the old predecessor `models/` directory could otherwise point
         // outside the config dir (e.g. `~/.ssh/id_rsa` or `/etc/shadow`)
         // and we'd happily copy its target into the new config dir,
         // silently exfiltrating sensitive files. The prior `path.is_dir()`

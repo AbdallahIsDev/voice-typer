@@ -3,8 +3,8 @@
 The host process that spawns the backend stamps two epoch markers into
 the backend's environment:
 
-- ``VOICE_TYPER_BOOT_EPOCH_MS``: set at host process start. Electron
-  stamps it at main-bundle eval time (≈ Electron process boot); the
+- ``VOICE_TYPER_BOOT_EPOCH_MS``: set at host process start. predecessor
+  stamps it at main-bundle eval time (≈ predecessor process boot); the
   Tauri host records it as the first statement of ``main``
   (``src-tauri/src/startup_timeline.rs``).
 - ``VOICE_TYPER_SPAWN_EPOCH_MS``: set immediately before the Python

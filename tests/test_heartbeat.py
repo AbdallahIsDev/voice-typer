@@ -1,6 +1,6 @@
-"""regression tests for the Electron-alive heartbeat watchdog.
+"""regression tests for the predecessor-alive heartbeat watchdog.
 
-If Electron crashes or is force-killed, the Python backend would
+If predecessor crashes or is force-killed, the Python backend would
 otherwise keep running with the mic stream open, hotkeys registered,
 volume ducked, and the single-instance mutex held.  The next launch
 hits ``ERROR_ALREADY_EXISTS`` and surfaces "Only one instance can
@@ -18,7 +18,7 @@ The fix adds:
      ``_do_cleanup()`` path from RW-3 (restores volume, flushes
      recovery, releases the mutex, closes PortAudio).
   3. A guard so the watchdog does NOT fire before the first heartbeat
-     has been received (so a slow Electron cold start doesn't trigger
+     has been received (so a slow predecessor cold start doesn't trigger
      a false-positive exit).
 
 These tests exercise:
@@ -122,7 +122,7 @@ class TestHeartbeatHandler:
     def test_dispatch_routes_heartbeat_to_handler(self, server: IPCServer) -> None:
         """``_dispatch({"type": "heartbeat"})`` invokes the handler.
 
-        This is the path that production uses, Electron's
+        This is the path that production uses, the predecessor's
         ``sendToPython({type: "heartbeat"})`` lands in ``_dispatch``
         via the TCP read loop.  Verifies the registry wiring.
         """
@@ -181,9 +181,9 @@ class TestHeartbeatWatchdog:
         yield
 
     def test_does_not_fire_before_first_heartbeat(self, server: IPCServer) -> None:
-        """The watchdog must NOT fire before Electron's first heartbeat.
+        """The watchdog must NOT fire before the predecessor's first heartbeat.
 
-        This is the critical guard: a slow Electron cold start (10+
+        This is the critical guard: a slow predecessor cold start (10+
         seconds for the torch import on first launch) must not cause
         the backend to exit prematurely.  ``_last_heartbeat_at`` is
         ``None`` until the first heartbeat lands, and the watchdog
@@ -202,7 +202,7 @@ class TestHeartbeatWatchdog:
     def test_does_not_fire_within_grace_period(self, server: IPCServer) -> None:
         """Within the grace period, the watchdog must not fire.
 
-        A heartbeat received recently means Electron is alive, even
+        A heartbeat received recently means predecessor is alive, even
         if we're 0.1s shy of the timeout, we're still inside it.
         """
         # Heartbeat at t=100.
@@ -224,7 +224,7 @@ class TestHeartbeatWatchdog:
 
         Mocks ``time.monotonic`` so we can simulate the timeout
         without waiting real seconds.  This is the core regression
-        test: a crashed Electron (no more heartbeats) must cause the
+        test: a crashed predecessor (no more heartbeats) must cause the
         backend to clean up and exit via the normal ``app.quit()``
         path.
         """

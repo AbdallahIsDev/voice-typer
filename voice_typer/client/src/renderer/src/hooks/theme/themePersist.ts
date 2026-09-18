@@ -63,7 +63,7 @@ export function flushPendingThemeSave(): void {
 			// here (via `.catch`), `void call(...)` alone discards the
 			// Promise without installing a rejection handler, which
 			// surfaces as an "unhandled promise rejection" warning in
-			// Electron (and can crash the renderer in strict modes).
+			// predecessor (and can crash the renderer in strict modes).
 			// Theme is local-only if backend unavailable, the warn is
 			// the entire recovery path.
 			void activeCall("set_config", pending).catch((e) => {

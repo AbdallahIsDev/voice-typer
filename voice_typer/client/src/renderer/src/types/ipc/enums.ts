@@ -152,7 +152,7 @@ export type ErrorCodes =
 
 // ── Python-call envelope error codes ──────────────────────────────
 //
-//the Electron main process's `python-call` IPC handler
+//the predecessor main process's `python-call` IPC handler
 // (`src/main/ipc/python-call-handler.ts`) stamps a structured `_code`
 // field on its `{_error, _code}` error envelope so the renderer can
 // branch on the failure class (timeout vs. not-connected vs.

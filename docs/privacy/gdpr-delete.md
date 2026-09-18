@@ -6,7 +6,7 @@
 This document was originally a v1 feature-gap outline; it is now the
 operational reference for what the GDPR Art. 17 ("Right to erasure")
 operation deletes (and what it cannot delete, see the "Log files"
-section below). Electron host logs are historical — the host is gone.
+section below). predecessor host logs are historical — the host is gone.
 
 `service.delete_all_personal_data()` erases every personal-data
 artifact the Python backend owns. Voice Typer is local-first: there
@@ -51,21 +51,21 @@ whether `delete_all_personal_data()` auto-deletes it.
 | Python prewarm (rotated) | `<config_dir>/prewarm.log.1`..`prewarm.log.5` | ✅ Yes: matched by `prewarm.log.*` glob (PI-6) (defensive: current builds never create backups). |
 | Rust host (Tauri) | `<config_dir>/logs/voice-typer.log` | ✅ Yes, `<config_dir>/logs/` is recursively removed via `shutil.rmtree` (PI-6). |
 | Rust host (Tauri, rotated) | `<config_dir>/logs/voice-typer.log.1`..`voice-typer.log.4` | ✅ Yes, same `shutil.rmtree` (PI-6) (defensive: current builds truncate in place). |
-| Electron main process (REMOVED) | `<userData>/electron-main.log` | N/A — Electron host deleted 2026-09-17. Leftover files from old installs, if any, are not written by the Tauri host; purge/GDPR cleanup may still remove known legacy names when present. |
-| Electron renderer errors (REMOVED) | `<userData>/electron-renderer-errors.log` | N/A — same as above. |
+| predecessor main process (REMOVED) | `<userData>/predecessor-main.log` | N/A — predecessor host deleted 2026-09-17. Leftover files from old installs, if any, are not written by the Tauri host; purge/GDPR cleanup may still remove known legacy names when present. |
+| Legacy renderer errors (REMOVED) | `<userData>/legacy-renderer-errors.log` | N/A — same as above. |
 
-### Electron logs gap (PI-6: HISTORICAL — host removed)
+### predecessor logs gap (PI-6: HISTORICAL — host removed)
 
-The Electron host and its main/renderer loggers were removed on
+The predecessor host and its main/renderer loggers were removed on
 2026-09-17 (ADR-0020 Phase 5). Live logs are the Python backend log and
 the Tauri Rust host log under `<config_dir>/`, both covered by
 `service.delete_all_personal_data()`. The paragraphs below are kept only
 as a historical note on the pre-cutover PI-6 gap.
 
-> Historical: Electron main process logs at `<userData>/electron-main.log`
-> and `<userData>/electron-renderer-errors.log` lived outside
+> Historical: predecessor main process logs at `<userData>/predecessor-main.log`
+> and the legacy renderer error log lived outside
 > `_config_dir()`, so the Python backend could not delete them. That
-> host path is gone; do not reintroduce Electron log writers.
+> host path is gone; do not reintroduce predecessor log writers.
 
 ## Suggested command surface
 
@@ -110,10 +110,10 @@ A robust implementation should:
 - Cloud-side deletion (no server-side personal data exists).
 - Secure-delete on CoW filesystems (requires per-filesystem
   detection; document instead).
-- Electron-side `deleteAllPersonalData` IPC handler + renderer
+- predecessor-side `deleteAllPersonalData` IPC handler + renderer
   button call site (PI-6 partial: the unlink helper exists in
   `voice_typer/client/src/main/logging/structuredLogger.ts` See
-  "Electron logs gap" above).
+  "predecessor logs gap" above).
 
 ## Related findings
 

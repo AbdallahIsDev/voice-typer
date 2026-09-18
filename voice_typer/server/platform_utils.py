@@ -87,8 +87,8 @@ def _set_windows_process_metadata(app_name: str) -> None:
          some Task Manager metadata columns (Product Name, Description).
 
     The system tray icon already uses the correct app icon (set by
-    TrayIcon).  The Electron process's AppUserModelID is set separately
-    in the Electron main process (index.ts).  The two are kept
+    TrayIcon).  The predecessor process's AppUserModelID is set separately
+    in the predecessor main process (index.ts).  The two are kept
     consistent by using the same ``abdallahisdev.VoiceTyper`` ID.
 
     Parameters
@@ -121,7 +121,7 @@ def _set_windows_process_metadata(app_name: str) -> None:
             )
 
         # 2. Set the AppUserModelID so Windows identifies this process
-        #    as belonging to Voice Typer.  Must match the Electron side
+        #    as belonging to Voice Typer.  Must match the predecessor side
         #    (``VoiceTyper`` in index.ts) for consistency.
         try:
             shell32 = ctypes.windll.shell32
@@ -131,7 +131,7 @@ def _set_windows_process_metadata(app_name: str) -> None:
             shell32.SetCurrentProcessExplicitAppUserModelID.restype = getattr(wintypes, "HRESULT", wintypes.LONG)
             # BRAND-: use just the app name (no "abdallahisdev." prefix)
             # so Windows notifications show "VoiceTyper" as the title instead
-            # of "abdallahisdev.VoiceTyper".  Matches the Electron side's
+            # of "abdallahisdev.VoiceTyper".  Matches the predecessor side's
             # ``app.setAppUserModelId("VoiceTyper")`` in index.ts.
             shell32.SetCurrentProcessExplicitAppUserModelID(app_name.replace(" ", ""))
         except (OSError, AttributeError, ValueError, TypeError):

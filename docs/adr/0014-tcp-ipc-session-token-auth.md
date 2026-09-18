@@ -2,10 +2,10 @@
 
 ## Status
 
-**Status: SUPERSEDED — Electron host removed 2026-09-17; Tauri is sole host (ADR-0020). Historical record only.**
+**Status: SUPERSEDED — predecessor host removed 2026-09-17; Tauri is sole host (ADR-0020). Historical record only.**
 
 Accepted for token auth itself; **transport narrowed 2026-09-17**: the
-Electron TCP client was removed. Token auth remains live on the Tauri WS
+predecessor TCP client was removed. Token auth remains live on the Tauri WS
 path (`src-tauri/src/util.rs::generate_token` +
 `src-tauri/src/sidecar/ws.rs` + `voice_typer/server/sidecar_ws.py`).
 The historical TCP/`client/src/main` material below is not a live path.
@@ -16,9 +16,9 @@ The historical TCP/`client/src/main` material below is not a live path.
 
 ## Context
 
-Voice Typer's Python backend exposes a TCP JSON-lines IPC server on `127.0.0.1:0` (OS-assigned port) and emits `{"event":"server_started","port":N}` JSON on stdout, which the host (Electron `voice_typer/client/src/main/python/tcp-connect.ts` OR Tauri `src-tauri/src/sidecar/ws.rs`) parses to discover the bound port. The fixed-port binding referenced in earlier drafts of this ADR is DEAD, the OS-assigned port + `server_started` handshake was introduced by ADR-0020 §4.1 to eliminate the port-collision class of startup failures. The host (Electron or Tauri) spawns the Python backend as a subprocess and communicates over this loopback TCP socket (or, in the Tauri WS path, over a loopback WebSocket).
+Voice Typer's Python backend exposes a TCP JSON-lines IPC server on `127.0.0.1:0` (OS-assigned port) and emits `{"event":"server_started","port":N}` JSON on stdout, which the host (predecessor `voice_typer/client/src/main/python/tcp-connect.ts` OR Tauri `src-tauri/src/sidecar/ws.rs`) parses to discover the bound port. The fixed-port binding referenced in earlier drafts of this ADR is DEAD, the OS-assigned port + `server_started` handshake was introduced by ADR-0020 §4.1 to eliminate the port-collision class of startup failures. The host (predecessor or Tauri) spawns the Python backend as a subprocess and communicates over this loopback TCP socket (or, in the Tauri WS path, over a loopback WebSocket).
 
-**Threat model:** any local process, malware, a browser extension, an IDE plugin, a debugger, or another Electron app, can connect to the OS-assigned loopback port and send IPC commands. Without authentication, a malicious local process could:
+**Threat model:** any local process, malware, a browser extension, an IDE plugin, a debugger, or another predecessor app, can connect to the OS-assigned loopback port and send IPC commands. Without authentication, a malicious local process could:
 
 - Invoke `quit_app` to kill the backend.
 - Invoke `set_config` to change the API key endpoint to an attacker-controlled server (SEC-002).
@@ -41,11 +41,11 @@ The IPC socket is designed as loopback-only (`127.0.0.1`), but loopback does not
 Implement **per-launch session token authentication** for the TCP/WS IPC channel:
 
 1. **Token generation (host side):** On each launch, the host generates a 256-bit random token.
-   - Electron host: `voice_typer/client/src/main/python/tcp-connect.ts` uses `crypto.randomBytes(32).toString("hex")`.
+   - predecessor host: `voice_typer/client/src/main/python/tcp-connect.ts` uses `crypto.randomBytes(32).toString("hex")`.
    - Tauri host: `src-tauri/src/util.rs::generate_token` uses the `rand` crate's `OsRng` to produce a 32-byte cryptographically random value, hex-encoded.
    Both hosts then set the `VOICE_TYPER_IPC_TOKEN` environment variable on the Python subprocess.
 
-2. **Token delivery (host → Python):** The token is passed to the Python subprocess via the `VOICE_TYPER_IPC_TOKEN` environment variable. Both the Electron `spawn()` call, the Tauri `Command::sidecar` invocation, and the standalone launcher (`electron_launcher.py`) set this variable.
+2. **Token delivery (host → Python):** The token is passed to the Python subprocess via the `VOICE_TYPER_IPC_TOKEN` environment variable. Both the previous host `spawn()` call, the Tauri `Command::sidecar` invocation, and the standalone launcher set this variable.
 
 3. **Auth handshake (TCP/WS connect):** The first JSON line the host client sends after connecting must be `{"type": "auth", "token": "<token>"}`. The Python server reads exactly one line before processing any other commands.
 
@@ -67,9 +67,9 @@ Implement **per-launch session token authentication** for the TCP/WS IPC channel
 - **No external dependencies:** Uses only `secrets` / `crypto.randomBytes` / `rand::OsRng` and `hmac.compare_digest`, all in the standard library.
 
 ### More difficult
-- **Standalone mode auth:** When the host spawns Python (the norm), the token is passed via environment variable. But when Python spawns the Electron frontend (standalone mode, `python -m voice_typer.server.ipc_server`), the token must be passed the other way, from Python to Electron. This is handled by `electron_launcher.generate_session_token()` setting `VOICE_TYPER_IPC_TOKEN` before spawning Electron.
+- **Standalone mode auth:** When the host spawns Python (the norm), the token is passed via environment variable. But when Python spawns the previous frontend (standalone mode, `python -m voice_typer.server.ipc_server`), the token must be passed the other way, from Python to the previous host. This is handled by the standalone launcher's `generate_session_token()` setting `VOICE_TYPER_IPC_TOKEN` before spawning the previous host.
 - **Token lifetime:** The token lives for the entire process lifetime. A long-running backend (hours) uses the same token. Rotating the token would require reconnecting all clients, which is not currently supported.
-- **Tauri ↔ Electron parity:** The token-generation + auth-frame-send logic is duplicated across the Electron (`tcp-connect.ts`) and Tauri (`util.rs` + `ws.rs`) hosts. A future refactor could extract a shared spec, but the two implementations are small enough (~50 LOC each) that the duplication is acceptable during the ADR-0020 mixed-mode period.
+- **Tauri ↔ previous-host parity:** The token-generation + auth-frame-send logic is duplicated across the previous host (`tcp-connect.ts`) and Tauri (`util.rs` + `ws.rs`) hosts. A future refactor could extract a shared spec, but the two implementations are small enough (~50 LOC each) that the duplication is acceptable during the ADR-0020 mixed-mode period.
 
 ### Risks
 - **Environment variable leakage:** The token is passed via `VOICE_TYPER_IPC_TOKEN` which is visible in `/proc/<pid>/environ` on Linux and `GetEnvironmentStrings` on Windows. A local attacker with process-inspection capabilities can read it. Mitigation: `hmac.compare_digest` prevents token reuse beyond the single connection, but the attacker could authenticate directly. Acceptable risk. The IPC socket is loopback-only, and any local process with debug privileges can already interact with the app in other ways.
@@ -79,10 +79,10 @@ Implement **per-launch session token authentication** for the TCP/WS IPC channel
 
 - `voice_typer/server/ipc_server.py:_accept_tcp` (lines 796-898): TCP accept + auth handshake.
 - `voice_typer/server/ipc_server.py:_handle_tcp_connection` (lines 870-898): auth validation.
-- `voice_typer/client/src/main/python/tcp-connect.ts` Electron host token generation (`IPC_TOKEN`) and auth line send.
+- `voice_typer/client/src/main/python/tcp-connect.ts` previous-host token generation (`IPC_TOKEN`) and auth line send.
 - `src-tauri/src/util.rs::generate_token` Tauri host token generation.
 - `src-tauri/src/sidecar/ws.rs` Tauri host auth frame send + port discovery.
-- `voice_typer/server/electron_launcher.py` Standalone mode token generation.
+- Standalone launcher module (removed with the previous host): standalone-mode token generation.
 - `docs/architecture/error-envelope-contract.md` Canonical `{type, data: {code, message}, id}` error-envelope contract.
 - `tests/test_e2e_pipeline.py` `TestAuthEnforcement` tests (wrong token, no auth line, stalled timeout).
 - SECURITY.md: SEC-018 documentation.

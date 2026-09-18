@@ -39,10 +39,10 @@ class TestUACFocus:
         # The tray_window module should handle this gracefully
         # (not crash, not raise an exception)
         try:
-            from voice_typer.server.tray_window import bring_electron_to_front
+            from voice_typer.server.tray_window import bring_app_to_front
 
             # This should not crash even when the foreground is a secure desktop
-            result = bring_electron_to_front()
+            result = bring_app_to_front()
             assert isinstance(result, bool)
         except ImportError:
             pytest.skip("tray_window module not available")
@@ -54,7 +54,7 @@ class TestUACFocus:
         S2-CR-61: the original test set up Win32 mocks but ended with
         ``assert True``, never invoking the SUT, so the mock setup was
         dead code and gave zero coverage. We now invoke
-        ``tray_window.bring_electron_to_front()`` against the same mocks
+        ``tray_window.bring_app_to_front()`` against the same mocks
         and assert (a) the return is a bool, (b) it returns ``False``
         (no matching window found under NULL foreground), and (c)
         ``GetForegroundWindow`` was actually called, proving the SUT
@@ -83,20 +83,20 @@ class TestUACFocus:
 
         # Invoke the SUT, this is the missing piece the original
         # ``assert True`` skipped.
-        result = tray_window.bring_electron_to_front()
+        result = tray_window.bring_app_to_front()
 
         # (a) The SUT must return a bool per its contract.
-        assert isinstance(result, bool), f"bring_electron_to_front must return a bool, got {type(result).__name__}"
+        assert isinstance(result, bool), f"bring_app_to_front must return a bool, got {type(result).__name__}"
         # (b) With NULL foreground HWND and no matching window title,
         # the SUT must report it could not bring anything to front.
         assert result is False, (
-            "bring_electron_to_front must return False when no matching "
+            "bring_app_to_front must return False when no matching "
             "window is found (NULL foreground / Winlogon secure desktop)."
         )
         # (c) The SUT must have actually consulted the Win32 foreground
         # state, otherwise the mock setup is dead code (false coverage).
         assert mock_user32.GetForegroundWindow.called, (
-            "bring_electron_to_front did not call GetForegroundWindow, "
+            "bring_app_to_front did not call GetForegroundWindow, "
             "the Win32 mock setup was not exercised by the SUT."
         )
 
@@ -106,16 +106,16 @@ class TestUACFocusCrossPlatform:
 
     @pytest.mark.skipif(
         sys.platform == "win32",
-        reason="Non-Windows path: bring_electron_to_front is a no-op when Win32 SetForegroundWindow is unavailable",
+        reason="Non-Windows path: bring_app_to_front is a no-op when Win32 SetForegroundWindow is unavailable",
     )
     def test_bring_to_front_on_non_windows_is_noop(self, monkeypatch):
-        """On non-Windows, bring_electron_to_front should be a safe no-op."""
+        """On non-Windows, bring_app_to_front should be a safe no-op."""
         try:
-            from voice_typer.server.tray_window import bring_electron_to_front
+            from voice_typer.server.tray_window import bring_app_to_front
 
             # On non-Windows, this is expected to be a no-op or use a
             # different mechanism. Either way, it should not crash.
-            result = bring_electron_to_front()
+            result = bring_app_to_front()
             assert isinstance(result, bool)
         except ImportError:
             # If the module doesn't exist on this platform, that's fine

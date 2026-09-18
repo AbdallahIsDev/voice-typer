@@ -10,7 +10,7 @@ Owns the restart / quit / relaunch-ack lifecycle of ``VoiceTyperApp``:
     - ``_wait_for_relaunch_ack``: bounded wait on the IPC server's
       ``relaunch_ack`` event (PERF-005: 0ms short-circuit when no IPC
       server attached).
-    - ``quit_app``: push ``quit_app`` event over TCP so Electron
+    - ``quit_app``: push ``quit_app`` event over TCP so predecessor
       quits cleanly, then guard-and-delegate to ``self._app.quit()``
       (the audited ``SystemExit`` path).
 
@@ -79,7 +79,7 @@ if TYPE_CHECKING:
 log = logging.getLogger("voice_typer.server.app")
 
 # The ``[QUIT] Quitting ...`` line must appear ONCE per process. A quit
-# can be triggered twice back-to-back (tray Quit + Electron's quit IPC,
+# can be triggered twice back-to-back (tray Quit + the predecessor's quit IPC,
 # or SIGTERM racing the tray quit) and the re-entry guard in
 # ``quit_app`` sits AFTER this log line (deliberately, the event push
 # must run first, F-06), so without this flag both calls logged the
@@ -141,7 +141,7 @@ class LifecycleController:
                 pystray loop, close devnull FDs, ``sys.exit(0)``).
 
                 Before cleanup, pushes a ``quit_app`` event over the TCP channel
-                so the Electron frontend knows to call ``app.quit()`` and shut
+                so the predecessor frontend knows to call ``app.quit()`` and shut
                 down cleanly (instead of being left orphaned with no backend).
 
         (F-06): the ``event_bus.publish({"type": "quit_app"})``
@@ -149,7 +149,7 @@ class LifecycleController:
                 guard. Pre-fix, the guard sat at the top of the method and a
                 double-quit (e.g. user clicks the tray Quit item twice, or
                 SIGTERM races with the tray quit) silently dropped the second
-                push, leaving Electron with no shutdown signal if the first
+                push, leaving predecessor with no shutdown signal if the first
                 push was lost in a TCP race. The fix pushes unconditionally on
                 every call and only guards the actual ``self._app.quit()`` call
                 so cleanup isn't run twice.
@@ -172,7 +172,7 @@ class LifecycleController:
         except Exception:
             log.debug("[QUIT] Could not discard recording", exc_info=True)
 
-        # 0. Notify Electron frontend over TCP so it can quit cleanly.
+        # 0. Notify predecessor frontend over TCP so it can quit cleanly.
         # this MUST run BEFORE the _shutting_down guard so a
         # double-quit still pushes the event (the first push may have
         # been lost in a TCP race; the second push is the safety net).
@@ -209,12 +209,12 @@ class LifecycleController:
     def restart_app(self) -> None:
         """TrayController protocol: restart the app.
 
-                Sends a ``relaunch_app`` event to Electron over the active
+                Sends a ``relaunch_app`` event to predecessor over the active
                 TCP channel, then exits the current instance via the clean
-                ``sys.exit(0)`` path. Electron's handler calls
+                ``sys.exit(0)`` path. the predecessor's handler calls
                 ``app.relaunch()`` + ``app.exit(0)``, which spawns a fresh
-                Electron process (which in turn spawns a fresh Python backend).
-                If the ``relaunch_app`` event is lost (TCP race), Electron's
+                predecessor process (which in turn spawns a fresh Python backend).
+                If the ``relaunch_app`` event is lost (TCP race), the predecessor's
                 ``pythonProcess.on("exit")`` handler sees exit code 0 and
                 triggers the same relaunch as a fallback: see
                 ``client/src/main/index.ts``.
@@ -255,32 +255,32 @@ class LifecycleController:
         log.info("[RESTART] Restarting %s...", APP_NAME)
 
         # ── STANDALONE IN-PLACE RESTART ────────────────────────────────
-        # In standalone/terminal mode Python spawned Electron as a child
-        # (`app._electron_pid` is set).  The user expectation is that
+        # In standalone/terminal mode a host process was spawned as a child
+        # (`app._host_pid` is set).  The user expectation is that
         # Restart keeps THIS process alive and re-initializes the app in
         # the same terminal/console. NOT that the process exits and a
-        # hidden backend is respawned by Electron (the old behaviour,
+        # hidden backend is respawned by the host (the old behaviour,
         # which detached the app from the terminal the user launched it
-        # in).  We detect standalone mode by the tracked Electron PID and
-        # branch: teardown everything (including killing the Electron
-        # child, we'll relaunch it), then signal the entrypoint loop to
+        # in).  We detect standalone mode by the tracked host PID and
+        # branch: teardown everything (including killing the tracked
+        # child, which we'll relaunch), then signal the entrypoint loop to
         # re-run the startup sequence instead of ``sys.exit(0)``.
-        _in_place_restart = vars(app).get("_electron_pid") is not None
+        _in_place_restart = vars(app).get("_host_pid") is not None
         if _in_place_restart:
             log.info(
                 "[RESTART] Standalone mode, in-place restart: tearing down and "
                 "re-initializing in the same terminal (PID=%s)",
-                app._electron_pid,
+                app._host_pid,
             )
             # Mark as restarting so the shared cleanup body can
             # distinguish restart from quit where needed, but signal the
-            # IN-PLACE variant so ``teardown_electron`` terminates the
-            # Electron child (it will be re-launched by the entrypoint
+            # IN-PLACE variant so ``teardown_host_child`` terminates the
+            # tracked child (it will be re-launched by the entrypoint
             # loop) and so the entrypoint loop knows to re-run.
             app._is_restarting = True
             app._in_place_restart = True
             # In standalone in-place mode we do NOT push ``relaunch_app``
-            # to Electron, the Electron child is going to be terminated
+            # to the host, the tracked child is going to be terminated
             # and re-launched by this same process, so there is no host
             # to ack the relaunch.
             app._shutting_down = True
@@ -303,12 +303,12 @@ class LifecycleController:
         # ── RESTART-FLAG ──────────────────────────────────────────────
         # Mark this shutdown as a RESTART (not a quit) so the shared
         # cleanup body can distinguish the two.  In STANDALONE mode
-        # Python spawned Electron as a child (`app._electron_pid` is
+        # a host process was spawned as a child (`app._host_pid` is
         # set); on a restart the ``relaunch_app`` event has already been
-        # pushed to Electron, which will respawn Python, so the
-        # cleanup MUST NOT kill the Electron child (that would leave
-        # nothing to relaunch).  In dev mode Electron is the parent and
-        # `app._electron_pid` is None, so the flag is inert there.
+        # pushed to the host, which will respawn Python, so the
+        # cleanup MUST NOT kill the tracked child (that would leave
+        # nothing to relaunch).  In dev mode the host is the parent and
+        # `app._host_pid` is None, so the flag is inert there.
         app._is_restarting = True
 
         # ── THEME-RESTART-FIX: save the config before push ───────────
@@ -337,14 +337,14 @@ class LifecycleController:
         # _shutting_down and if True, closes the TCP socket WITHOUT
         # writing the event, silently dropping it. This was the root
         # cause of the "restart does nothing" bug: the relaunch_app
-        # event was never received by Electron, so _relaunching stayed
+        # event was never received by predecessor, so _relaunching stayed
         # false, and the fallback exit handler also failed because the
         # Python process never actually exited (SystemExit was caught
         # by wrap_callback without tray.stop() breaking the loop).
         #
         # 1. Push relaunch_app BEFORE marking _shutting_down.
         # cleanup (this change): the published event name is now
-        # ``relaunch_app`` directly (no longer ``relaunch_electron``).
+        # ``relaunch_app`` directly (no longer ``the legacy relaunch event name``).
         # The Rust WS bridge no longer renames it (the rename arm in
         # ws.rs was dropped); main.rs listens for ``relaunch_app`` and
         # calls ``app.restart()``.
@@ -357,13 +357,13 @@ class LifecycleController:
             log.warning("[RESTART] failed to push relaunch_app: %s", e)
 
         # 2. NOW mark as shutting down, restore volume, and wait
-        #    (event-driven) for Electron to process the relaunch event
+        #    (event-driven) for predecessor to process the relaunch event
         #    before we close the socket. PERF-005: replaced the fixed
         #    time.sleep(0.3) with a bounded wait on the
-        #    ``relaunch_ack`` event that Electron sets when it receives
-        #    ``relaunch_electron``. This unblocks the (tray) calling
-        #    thread as soon as Electron acks, instead of always blocking
-        #    300ms; if no ack arrives (e.g. Electron already gone), we
+        #    ``relaunch_ack`` event that predecessor sets when it receives
+        #    ``the legacy relaunch event name``. This unblocks the (tray) calling
+        #    thread as soon as predecessor acks, instead of always blocking
+        #    300ms; if no ack arrives (e.g. predecessor already gone), we
         #    fall back to the original 300ms pause so behaviour is
         #    unchanged.
         app._shutting_down = True
@@ -403,7 +403,7 @@ class LifecycleController:
         #    silently lost on restart), stops recorder + mic watcher
         #    (so PortAudio streams don't leak across the restart), stops
         #    all three hotkey backends + the bubble level worker,
-        #    terminates any Electron subprocess we spawned, releases
+        #    terminates any predecessor subprocess we spawned, releases
         #    the single-instance mutex + PID file, and closes devnull
         #    streams.
         #
@@ -441,7 +441,7 @@ class LifecycleController:
         # so test spies that monkeypatch app._do_cleanup intercept.
         app._do_cleanup()
 
-        # 4. Exit cleanly, electron will relaunch us.
+        # 4. Exit cleanly, the host will relaunch us.
         # mirror ShutdownController.quit()'s threading-aware
         # exit. restart_app is invoked from the tray menu callback,
         # which runs on pystray's worker thread (NOT the main thread).

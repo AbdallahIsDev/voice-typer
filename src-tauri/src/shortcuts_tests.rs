@@ -1,5 +1,5 @@
 //! Unit tests for the global-shortcut module (MO-125, C-TEST-5 sibling
-//! file): the accelerator constant parses, matches the Electron
+//! file): the accelerator constant parses, matches the predecessor
 //! binding, and the press-edge gate is the only path that dismisses.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
@@ -29,7 +29,7 @@ fn test_parse_dismiss_shortcut_returns_the_same_binding() {
     assert_eq!(parsed, direct);
 }
 
-/// `CmdOrCtrl` is the Electron spelling; the Tauri constant must be the
+/// `CmdOrCtrl` is the predecessor spelling; the Tauri constant must be the
 /// same binding so the two runtimes register identical system-wide
 /// keys (cross-language pin:
 /// `tests/tauri/test_global_shortcut_parity.py` compares this constant

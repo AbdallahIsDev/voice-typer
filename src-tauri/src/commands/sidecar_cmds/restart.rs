@@ -1,7 +1,7 @@
 //! Sidecar-restart Tauri command (`restart_sidecar`): the renderer's
 //! "Lost connection → Retry" escalation (MO-120).
 //!
-//! Under Electron this is the `backend:restart` IPC channel
+//! Under predecessor this is the `backend:restart` IPC channel
 //! (`main/ipc/backend-restart-handler.ts` → `python/restart-backend.ts`):
 //! process-control only, no TCP command is sent, because the backend is
 //! dead by definition when the user clicks Retry after a failed probe.
@@ -12,7 +12,7 @@
 //! `supervisor_relaunching` events the automatic crash-recovery path
 //! already publishes. The renderer therefore needs no new event wiring.
 //!
-//! Return envelope mirrors Electron's `{ok, reason?}` so
+//! Return envelope mirrors the predecessor's `{ok, reason?}` so
 //! `useConnection.ts`'s existing escalation branch works unchanged on
 //! both runtimes. It resolves (never rejects) for domain failures: a
 //! rejected promise would surface as an unhandled rejection in the
@@ -38,17 +38,17 @@ fn restart_blocked_envelope(shutting_down: bool) -> Option<Value> {
 }
 
 /// Pure gate: in adopted-backend mode (the backend is our PARENT, MO-110)
-/// a restart must refuse, mirroring Electron's
+/// a restart must refuse, mirroring the predecessor's
 /// `restart-backend.ts` adopted check (`{ok: false, reason: "adopted"}`).
 /// The supervisor's adopted guard silently no-ops, which would misreport
 /// success; this gate gives the renderer the same explicit envelope
-/// Electron's users get.
+/// the predecessor's users get.
 fn adopted_blocked_envelope(adopted: bool) -> Option<Value> {
     adopted.then(|| json!({"ok": false, "reason": "adopted"}))
 }
 
 /// Decision core for [`restart_sidecar`]: run one supervisor respawn and
-/// map its result onto Electron's `{ok, reason?}` envelope. Split out so
+/// map its result onto the predecessor's `{ok, reason?}` envelope. Split out so
 /// the mapping is documented in one place (the command itself only adds
 /// the window guard).
 async fn restart_sidecar_inner(app: &tauri::AppHandle, state: &Arc<SidecarState>) -> Value {
@@ -76,7 +76,7 @@ async fn restart_sidecar_inner(app: &tauri::AppHandle, state: &Arc<SidecarState>
     }
 }
 
-/// Tauri command: restart the Python sidecar process (Electron
+/// Tauri command: restart the Python sidecar process (predecessor
 /// `backend:restart` parity).
 ///
 /// Main-window-only: the bubble renderer is a sandboxed webview (SEC-026)

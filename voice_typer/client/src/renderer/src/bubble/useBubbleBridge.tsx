@@ -14,7 +14,7 @@
  * listeners across 3 hooks + 1 component (`useBubbleLifecycle` × 2,
  * `useBubbleStateMachine` × 3, `useAudioLevels` × 3,
  * `useThemeSync` × 1, `Bubble.tsx` × 2). Each subscription was a
- * separate Electron IPC listener on the BrowserWindow's
+ * separate predecessor IPC listener on the BrowserWindow's
  * `webContents`; every event the main process emitted was
  * marshalled to N listeners even when only one of them cared about
  * that event. The bridge consolidates to 1 listener per event

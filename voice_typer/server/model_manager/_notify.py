@@ -258,7 +258,7 @@ class LastResortNotifyMixin:
 
         Always points the user at the Models page with the download
         instruction (the app never auto-downloads models). When a host
-        (Electron/Tauri) is connected, the notification is published as a
+        (predecessor/Tauri) is connected, the notification is published as a
         ``notification`` event carrying ``click_path: "/models"`` so the
         host renders a CLICKABLE native toast that opens the Models page
         on click (pystray Win32 balloons cannot carry click handlers);
@@ -285,10 +285,10 @@ class LastResortNotifyMixin:
             "notify.model_manager.last_resort_unloaded",
             backend=backend_name,
         )
-        # Prefer a CLICKABLE host notification: when an Electron (or
+        # Prefer a CLICKABLE host notification: when an predecessor (or
         # Tauri) host is connected, publish a ``notification`` event with
         # a ``click_path`` so the host renders a native toast whose click
-        # opens the Models page directly (the Electron main-process
+        # opens the Models page directly (the predecessor main-process
         # ``notification`` push handler wires ``Notification.on("click")``
         # → show window + broadcast ``navigate /models``). pystray Win32
         # balloons (the ``tray.notify`` fallback) cannot carry a click

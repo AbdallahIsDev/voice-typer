@@ -1,12 +1,13 @@
 """Tests for the Tauri-aware autostart launcher.
 
 These tests pin the contract that ``autostart_launcher.py`` spawns the
-Tauri binary (``voice-typer-tauri``) instead of ``electron .`` when a
-Tauri install is detected, without breaking the legacy Electron path
+Tauri binary (``voice-typer-tauri``) instead of the legacy host launch
+command when a
+Tauri install is detected, without breaking the legacy predecessor path
 used by dev checkouts and pre-cutover installs.
 
-The Tauri cutover removed the Electron ``node_modules/`` tree from
-production installs, so the legacy ``electron .`` / ``npm run dev``
+The Tauri cutover removed the predecessor ``node_modules/`` tree from
+production installs, so the legacy host-launch / ``npm run dev``
 paths silently fail in production. The launcher now detects the
 Tauri binary at well-known install paths (or via the
 ``VT_TAURI_BINARY`` env override) and spawns it directly; Tauri's
@@ -153,7 +154,7 @@ class TestTauriBinaryLookup:
 class TestIsTauriMode:
     """``_is_tauri_mode()`` decides whether to take the Tauri path.
 
-    Electron is removed: Tauri mode is ON whenever the env opt-in is
+    predecessor is removed: Tauri mode is ON whenever the env opt-in is
     set, the current executable is the Tauri host, or a Tauri binary
     is found at a known install path.
     """
@@ -178,7 +179,7 @@ class TestIsTauriMode:
 
     def test_tauri_binary_returns_true(self, monkeypatch):
         """A Tauri binary found at an install path is sufficient (no
-        Electron-node_modules suppression remains)."""
+        predecessor-node_modules suppression remains)."""
         monkeypatch.delenv("VT_TAURI_AUTOSTART", raising=False)
         monkeypatch.delenv("VOICE_TYPER_TAURI", raising=False)
         monkeypatch.setattr(sys, "executable", "C:/Python/python.exe")
@@ -207,7 +208,7 @@ class TestLaunchTauriApp:
 
     def test_spawns_tauri_binary_with_hidden_env(self, monkeypatch):
         """When ``hidden=True``, ``VT_START_HIDDEN=1`` must be set in the
-        child env (matches the Electron path's contract)."""
+        child env (matches the predecessor path's contract)."""
         captured = {}
 
         def fake_popen(cmd, env=None, **kwargs):
@@ -263,7 +264,7 @@ class TestFocusRunningAppTauriPath:
 
     def test_uses_tauri_path_when_in_tauri_mode(self, monkeypatch):
         """When ``_is_tauri_mode()`` is True, the Tauri binary is spawned
-        with ``VT_FOCUS_ONLY=1`` in the env (NOT the Electron lean spawn)."""
+        with ``VT_FOCUS_ONLY=1`` in the env (NOT the predecessor lean spawn)."""
         monkeypatch.setattr("voice_typer.server.autostart_launcher._is_tauri_mode", lambda: True)
         monkeypatch.setattr(
             "voice_typer.server.autostart_launcher._tauri_binary",
@@ -314,7 +315,7 @@ class TestFocusRunningAppTauriPath:
 
 class TestLaunchTauriFreshStart:
     """``launch()`` spawns the Tauri binary on a fresh start when in
-    Tauri mode, instead of falling through to ``electron .`` /
+    Tauri mode, instead of falling through to the legacy host launch /
     ``npm run dev``."""
 
     def test_tauri_mode_spawns_tauri_binary_with_hidden(self, monkeypatch):
@@ -366,7 +367,7 @@ class TestLaunchTauriFreshStart:
 
     def test_tauri_mode_exits_one_when_spawn_fails(self, monkeypatch):
         """If the Tauri spawn fails, the launcher exits 1. There is no
-        Electron fallback (Electron launch path removed)."""
+        predecessor fallback (predecessor launch path removed)."""
         monkeypatch.setattr(
             "voice_typer.server.autostart_launcher._is_port_open",
             lambda h, p: False,
@@ -408,7 +409,7 @@ class TestLaunchTauriFreshStart:
 
 class TestLaunchWithoutTauriModeExitsOne:
     """When ``_is_tauri_mode()`` is False and no Tauri binary is
-    resolvable, the launcher exits 1 (Electron path removed)."""
+    resolvable, the launcher exits 1 (predecessor path removed)."""
 
     def test_no_tauri_mode_exits_one(self, monkeypatch):
         monkeypatch.setattr(

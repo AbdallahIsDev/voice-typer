@@ -133,7 +133,7 @@ export default function App() {
 
 	// One-time startup hook to propagate the restored locale (read
 	// from localStorage at i18n module-init time) to BOTH the
-	// Electron main process (so native dialogs render in the user's
+	// predecessor main process (so native dialogs render in the user's
 	// language) AND the Python backend (so tray menu, tray tooltip,
 	// and OS notifications render in the user's language).
 	// Previously this propagation only happened on an explicit Settings
@@ -230,7 +230,7 @@ export default function App() {
 	// wiring-only.
 	useNavigateEvent({ navigate });
 	// MO-113: webview liveness beacon for the host's watchdog (the Tauri
-	// stand-in for Electron's `child-process-gone` telemetry).
+	// stand-in for the predecessor's `child-process-gone` telemetry).
 	useRendererHeartbeat();
 
 	// paste_failed toast, extracted to `usePasteFailedToast`.
@@ -273,7 +273,7 @@ export default function App() {
 	useMicPermissionRevokedToast(t);
 
 	// Tray-unavailable degraded mode (headless / tray-less systems;
-	// Electron/headless runtime only), the in-app banner for queued
+	// predecessor/headless runtime only), the in-app banner for queued
 	// tray notifications that could not be shown.
 	useTrayFallbackToast(t);
 

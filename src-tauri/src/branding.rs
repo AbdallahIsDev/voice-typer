@@ -2,7 +2,7 @@
 //!
 //! The brand literal `"Voice Typer"` was previously inlined at
 //! multiple Rust sites (`tray.rs::TRAY_TOOLTIP`, `tray.rs::empty_menu`'s
-//! placeholder label, `migrate::electron_userdata_candidates`'s defensive third probe).
+//! placeholder label, `migrate::legacy_userdata_candidates`'s defensive third probe).
 //! Each inline literal was a drift hazard, a future rename would
 //! have to find + touch every site, and there was no compiler-enforced
 //! single source of truth.
@@ -29,7 +29,7 @@
 //! `crate::branding::APP_NAME` path.
 
 /// The user-visible product name. Used for tray tooltips, toast
-/// notifications, and the legacy Electron userData directory name probe
+/// notifications, and the legacy predecessor userData directory name probe
 /// (where some ancient builds used the human-readable capitalized name
 /// with a space).
 ///

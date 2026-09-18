@@ -360,7 +360,7 @@ class OutputMixin:
                 send path (json.dumps + sendall + pending drain) ran under
                 ``self._lock``, which meant:
 
-                - Every other IPC dispatch command blocked while a slow Electron
+                - Every other IPC dispatch command blocked while a slow predecessor
         renderer drained its TCP receive buffer ().
                 - The audio-callback-spawned bubble_level worker could stall
                   inside ``sendall`` with no timeout, holding the lock and
@@ -426,7 +426,7 @@ class OutputMixin:
         if out is not None:
             # Stdin/stdout mode, used in tests and the legacy console
             # script.  Writes to a TextIO are typically fast (pipe to
-            # Electron parent), but still don't need the lock.
+            # predecessor parent), but still don't need the lock.
             out.write(line + "\n")
             out.flush()
             return
@@ -474,7 +474,7 @@ class OutputMixin:
                             del self._pending_tcp[:_dropped]
                 return
             # QUIT-CLEAN-001: if the app is shutting down, skip the TCP
-            # write for non-critical events.  Electron closes its end of
+            # write for non-critical events.  predecessor closes its end of
             # the socket as soon as it receives the ``quit_app`` event;
             # any subsequent push from the cleanup path (waveform bubble
             # worker, state-changed hooks, hotkey-backend teardown) would
@@ -483,11 +483,11 @@ class OutputMixin:
             # CRITICAL-CRITICAL: the ``relaunch_app`` event is the
             # EXCEPTION.  This event MUST be delivered even during
             # shutdown because it's the signal from restart_app() that
-            # tells the host (Tauri ``app.restart()`` / Electron
+            # tells the host (Tauri ``app.restart()`` / predecessor
             # ``app.relaunch() + app.exit(0)``) to relaunch before
             # the Python process exits.  Without it, the restart hangs.
             # cleanup: the published event name is ``relaunch_app``
-            # (no longer ``relaunch_electron``); the Rust WS bridge no
+            # (no longer ``the legacy relaunch event name``); the Rust WS bridge no
             # longer renames it.
             #
             # ``is True`` (rather than a truthiness check) is intentional:
@@ -554,7 +554,7 @@ class OutputMixin:
                     # shutdown short-circuit. The snapshot+clear at the
                     # top of ``_send`` removed them from ``_pending_tcp``;
                     # without this re-merge they would be dropped even
-                    # though a fresh reconnect (e.g. Electron restarting
+                    # though a fresh reconnect (e.g. predecessor restarting
                     # during shutdown) could still drain them. The
                     # critical shutdown events in ``_SHUTDOWN_ALLOWLIST``
                     # bypass this branch entirely and are written below.
@@ -804,7 +804,7 @@ class OutputMixin:
         # surface these at INFO level so the
         #    user can actually see what the app is doing.
         #
-        # 2. Brief disconnect during normal Electron use: the
+        # 2. Brief disconnect during normal predecessor use: the
         #    client is reconnecting.  INFO-level logging here
         #    is mildly noisy but bounded, the rate of push
         #    events is dominated by waveform bubbles which are
@@ -837,7 +837,7 @@ class OutputMixin:
             # type and a size hint so the operator can see drop rate
             # without leaking dictated content to the log file.
             #
-            # a disconnected Electron client during a
+            # a disconnected predecessor client during a
             # transcription (mic still recording, hotkeys still firing)
             # produces a steady stream of push events. The previous
             # unconditional ``log.info`` per drop could emit thousands

@@ -3,7 +3,7 @@ import { useCallback, useState } from "react";
 /**
  * ``useSessionStorage``, a ``useState``-shaped hook that persists its
  * value to ``sessionStorage`` so the value survives page navigation
- * within the same browser session (per-tab / per-Electron-window).
+ * within the same browser session (per-tab / per-predecessor-window).
  *
  * Mirrors the ``useState`` API: pass an initial value, get back a tuple
  * of ``[value, setValue]`` where ``setValue`` accepts either a plain

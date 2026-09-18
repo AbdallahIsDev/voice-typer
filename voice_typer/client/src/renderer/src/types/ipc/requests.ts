@@ -128,7 +128,7 @@ export interface ToggleDictationRequest {
 // quit_app), not from the renderer.
 //
 //confirmed that ``restart_app`` / ``quit_app`` are only
-// sent by the Electron main process (tray menu / before-quit), never
+// sent by the predecessor main process (tray menu / before-quit), never
 // by the renderer.  No ``RestartRequest`` type is needed in the
 // renderer's type union.
 
@@ -653,7 +653,7 @@ export type PythonRequest =
 //
 //``RestartResult`` was previously
 // removed for the same reason, ``restart_app`` / ``quit_app`` are not
-// sent from the renderer (only the Electron main process sends them),
+// sent from the renderer (only the predecessor main process sends them),
 // and the server returns ``{type: "ack", data: {}}`` for these.
 
 // ── Helper: map request type to its response data ─────────────────

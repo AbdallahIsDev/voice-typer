@@ -264,7 +264,7 @@ not enumerate the rewrites. These tests are mandatory:
 |---|---|---|
 | `tests/test_vad.py` | Mocks `torch.from_numpy`, `torch.zeros`, `torch.cat`, `torch.no_grad` | Rewrite mocks to use a fake `ort.InferenceSession` that returns fixed `(prob, state)` tuples. Verify state threading. |
 | `tests/test_vad_dtype_optimization.py` | Tests the `data_ptr()` no-clone invariant (torch-specific) | **Delete.** The invariant is unsatisfiable through ORT's allocator, ORT copies the input buffer. |
-| `tests/test_electron_ipc_and_build.py:498` | Source-greps `assert "torch.jit.load" in src` | Change to `assert "InferenceSession" in src` (or remove the assertion if it serves no purpose post-migration). |
+| `tests/test_host_ipc_and_build.py:498` | Source-greps `assert "torch.jit.load" in src` | Change to `assert "InferenceSession" in src` (or remove the assertion if it serves no purpose post-migration). |
 | `bench/bench_vad.py` | Uses real torch + real `silero_vad.jit` | Rewrite to use ORT + `silero_vad.onnx`. Keep the `--include-silero` flag for parity. |
 | `tests/conftest.py` (~190 lines of `mock_torch` plumbing) | `_FakeOutOfMemoryError`, `_FakeTensor`, `_build_mock_torch()` session fixture, `real_torch` marker | Strip VAD-specific torch mocks. Keep the fixture for Parakeet/Qwen until Phase 1c. |
 | `tests/regressions/test_gpu_memory_release.py` | Tests `torch.cuda.empty_cache()` (58 hits) | Either delete (purpose disappears) or repurpose to test `unload()` drops the ORT session. |
@@ -996,7 +996,7 @@ added (mirroring `tests/test_ipc_command_registry_sync.py`).
 
 - `tests/test_vad.py` passes with the ORT backend.
 - `tests/test_vad_dtype_optimization.py` deleted.
-- `tests/test_electron_ipc_and_build.py:498` updated.
+- `tests/test_host_ipc_and_build.py:498` updated.
 - `bench/bench_vad.py --include-silero` runs and reports latency ≤ the
   torch baseline (record the number in `bench/bench-baseline.json`).
 - `silero_vad.onnx` is bundled in the sidecar build (verify via

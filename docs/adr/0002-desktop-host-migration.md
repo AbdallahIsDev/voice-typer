@@ -1,11 +1,11 @@
-# ADR 0002: Electron + Python Architecture (Initial)
+# ADR 0002: predecessor + Python Architecture (Initial)
 
 ## Status
 
-**Status: SUPERSEDED — Electron host removed 2026-09-17; Tauri is sole host (ADR-0020). Historical record only.**
+**Status: SUPERSEDED — predecessor host removed 2026-09-17; Tauri is sole host (ADR-0020). Historical record only.**
 
-Also superseded by [ADR 0003](0003-electron-python-architecture.md), the
-"Refined" electron+Python architecture (ADR-0003) replaced this initial
+Also superseded by [ADR 0003](0003-desktop-host-python-architecture.md), the
+"Refined" predecessor+Python architecture (ADR-0003) replaced this initial
 design. This document is preserved for historical context.
 
 ## Date
@@ -26,12 +26,12 @@ The alternatives considered were:
    complex distribution.
 2. **Python + WebView** (pywebview): simpler but lacks process isolation; a crash in the
    renderer takes down the Python process.
-3. **Electron + Python IPC bridge**, full separation of concerns, each process can crash
+3. **predecessor + Python IPC bridge**, full separation of concerns, each process can crash
    independently, modern web UI with React.
 
 ## Decision
 
-We chose **Electron + Python IPC bridge** (option 3). The Electron frontend provides a
+We chose **predecessor + Python IPC bridge** (option 3). The predecessor frontend provides a
 modern, accessible UI using React + Tailwind CSS + shadcn/ui. The Python backend handles
 all audio recording, model loading, and transcription. Communication happens over a local
 TCP socket with a simple JSON protocol.
@@ -41,12 +41,12 @@ TCP socket with a simple JSON protocol.
 ### Positive
 - Clean separation: UI crashes don't lose in-progress transcriptions.
 - Modern UI: React, Tailwind, shadcn/ui give us a professional look with minimal effort.
-- Independent updates: the Electron app can be updated without touching the Python backend.
+- Independent updates: the predecessor app can be updated without touching the Python backend.
 - Accessibility: web-based UI inherits the browser's accessibility tree.
 
 ### Negative
-- Two processes to manage: the Electron app must discover and connect to the Python server.
+- Two processes to manage: the predecessor app must discover and connect to the Python server.
 - IPC overhead: JSON serialization over TCP adds ~1ms latency per message (acceptable for
   our use case).
-- Larger distribution: Electron adds ~80MB to the installer size.
+- Larger distribution: predecessor adds ~80MB to the installer size.
 - Complexity: developers need both Node.js and Python toolchains.

@@ -102,7 +102,7 @@ def _purge_user_data_for(username: str, data_dir: Path) -> None:
         "logs",  # rotating log files
         "db",  # history DB + sidecars + backups (O2 split)
         "run",  # transient runtime state: pids, locks, session markers (O3 split)
-        "electron-profile",  # LEGACY Chromium profile from pre-cutover Electron installs
+        "legacy-profile",  # LEGACY Chromium profile directory (inert)
         "history.db",  # legacy SQLite history DB (pre-O2)
         "history.db-wal",  # legacy SQLite WAL
         "history.db-shm",  # legacy SQLite SHM

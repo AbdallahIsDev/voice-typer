@@ -11,8 +11,8 @@
 //! - the pushed locale is normalized (primary subtag,
 //!   case-insensitive, `-` and `_` separators).
 //!
-//! Post-Electron cutover the Rust locale table is the sole source of
-//! host dialog titles (the Electron main-process locale JSONs are gone).
+//! Post-predecessor cutover the Rust locale table is the sole source of
+//! host dialog titles (the predecessor main-process locale JSONs are gone).
 
 use super::{localized_title, DialogTitle, SUPPORTED_LANGUAGES};
 

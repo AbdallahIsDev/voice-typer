@@ -1,10 +1,10 @@
 //! Host-locale storage: the `set_host_locale` Tauri command + its pure
-//! decision core. Mirrors Electron's `i18n:set-locale` IPC handler,
+//! decision core. Mirrors the predecessor's `i18n:set-locale` IPC handler,
 //! which keeps the pushed locale in the main process so the host can
 //! localize its native surfaces. The stored value is consumed by the
 //! native dialog title lookup in `super::dialog_titles` (folder
 //! picker + export save dialogs) and broadcast to the bubble webview
-//! (MO-119: Electron's `bubble:locale-changed` push, which keeps the
+//! (MO-119: the predecessor's `bubble:locale-changed` push, which keeps the
 //! dictation pill's language + RTL direction in sync with the main
 //! window without an app reload).
 
@@ -20,9 +20,9 @@ use crate::state::{lock, SidecarState};
 /// can pin the envelope contract without constructing a Tauri runtime
 /// or window. Validates the payload, stores it into
 /// `SidecarState::host_locale` (via the poison-safe [`lock`] helper),
-/// and returns the Electron-parity `{ok, error?}` envelope:
+/// and returns the predecessor-parity `{ok, error?}` envelope:
 /// - whitespace/empty locale → `{"ok": false, "error": "empty locale"}`
-///   (resolves instead of rejecting: byte-mirrors the Electron
+///   (resolves instead of rejecting: byte-mirrors the predecessor
 ///   `i18n:set-locale` handler's resolve-not-reject behavior)
 /// - otherwise → stores `Some(locale)` and returns `{"ok": true}`
 pub(crate) fn set_host_locale_core(locale: String, state: &Arc<SidecarState>) -> Value {
@@ -35,7 +35,7 @@ pub(crate) fn set_host_locale_core(locale: String, state: &Arc<SidecarState>) ->
 
 /// Broadcast a locale change to the bubble webview (MO-119).
 ///
-/// Electron's main process pushed `bubble:locale-changed` on every
+/// the predecessor's main process pushed `bubble:locale-changed` on every
 /// language switch (`windows/bubble/lifecycle.ts::
 /// notifyBubbleLocaleChanged`); the Tauri bubble renderer's
 /// `onLocaleChanged` listener has been wired for parity but the host
@@ -65,7 +65,7 @@ fn broadcast_locale_to_bubble(app: &tauri::AppHandle, locale: &str) {
 /// webview. The stored value feeds the locale→title lookup in
 /// `super::dialog_titles`, which localizes the native folder-picker and
 /// export save-dialog titles. Returns the same
-/// `{ok: boolean; error?: string}` promise shape as the Electron
+/// `{ok: boolean; error?: string}` promise shape as the predecessor
 /// preload's `window.window_.setLocale`, and never rejects for
 /// domain-level failures (an empty locale resolves with
 /// `ok: false`, see [`set_host_locale_core`]).

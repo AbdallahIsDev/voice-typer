@@ -16,7 +16,7 @@
 //
 // Why intercept the click anyway:
 //
-// - Under Electron the host intercepts `target="_blank"` /
+// - Under predecessor the host intercepts `target="_blank"` /
 //   `window.open` (`input-nav-guard.ts`) and `shell.openExternal`s the
 //   https URL, so the native behavior is already correct there.
 // - Under Tauri there is no host interception (CSP `default-src 'self'`

@@ -70,7 +70,7 @@ def _load_script_module(script_path: Path, module_name: str) -> ModuleType:
 
 # ─── Deprecated-script contract ────────────────────────────────────────
 # ``diagnose_f2.py`` and ``cublas_fallback.py`` were written against the
-# deleted ``voice_typer.app`` (Electron) module and now exit with a
+# deleted ``voice_typer.app`` (the predecessor) module and now exit with a
 # deprecation message. The slow test verifies that contract, if a
 # future refactor accidentally removes the deprecation notice, this
 # test fails immediately.

@@ -1,14 +1,14 @@
 """Resolve the macOS bundle identifier of the host app at runtime.
 
 The Python backend runs as a child process of the desktop host, the
-Electron app or the Tauri host: which on macOS is a ``*.app`` bundle.
+predecessor app or the Tauri host: which on macOS is a ``*.app`` bundle.
 The Accessibility re-grant notification (``startup_tasks.py``) tells the
 user to run ``tccutil reset Accessibility <bundle-id>``, and that bundle
 ID must be the REAL one of the currently-running host. Instead of
 hardcoding a bundle identifier, this module walks the parent-process
 chain from the backend up to the nearest ``*.app`` bundle and reads
 ``CFBundleIdentifier`` from its ``Contents/Info.plist``, so both the
-Electron and Tauri builds (and any future bundle-identifier change) show
+predecessor and Tauri builds (and any future bundle-identifier change) show
 the correct ``tccutil`` command without code edits.
 
 Resolution is best-effort: dev-mode runs (launched from a terminal with
@@ -150,7 +150,7 @@ def _resolve_host_bundle_id(start_pid: int | None = None) -> str | None:
     """Walk the process chain (``start_pid`` injectable for tests).
 
     ``start_pid`` defaults to the backend's own parent
-    (``os.getppid()``), the host app in both the Electron and Tauri
+    (``os.getppid()``), the host app in both the predecessor and Tauri
     spawn paths.
     """
     pid = os.getppid() if start_pid is None else start_pid

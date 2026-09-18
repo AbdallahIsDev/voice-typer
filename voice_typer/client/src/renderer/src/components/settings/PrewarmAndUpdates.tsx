@@ -59,7 +59,7 @@ const APP_VERSION = pkg.version as string;
 
 // Static anchor URL for the "View Changelog" button. This is NOT a
 // renderer-initiated network call, it is an `<a href>` element the
-// user explicitly clicks, which Electron routes to the system browser
+// user explicitly clicks, which predecessor routes to the system browser
 // (or a new BrowserWindow depending on config). The C-DATA-1 rule
 // forbids automated network calls from the production code path; a
 // user-clicked external link is the user's browser making the call,

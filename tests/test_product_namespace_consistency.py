@@ -3,7 +3,6 @@
 The canonical product root is ``com.voicetyper.*``:
 
 - ``src-tauri/tauri.conf.json`` ``identifier`` = ``com.voicetyper.desktop``
-- ``voice_typer/client/electron-builder.yml`` ``appId`` = ``com.voicetyper.desktop``
 - polkit action ``com.voicetyper.install-permissions`` (policy installed
   to ``/usr/share/polkit-1/actions/com.voicetyper.policy``)
 - macOS LaunchAgents ``com.voicetyper.plist`` / ``com.voicetyper.prewarm.plist``
@@ -11,7 +10,7 @@ The canonical product root is ``com.voicetyper.*``:
 
 Legacy / wrong roots that must NOT reappear:
 
-- ``org.voice-typer.*``, the pre-Tauri Electron polkit namespace.
+- ``org.voice-typer.*``, the pre-Tauri predecessor polkit namespace.
   Review finding #54 renamed it to ``com.voicetyper.*``; the legacy
   policy file is removed at install/upgrade time by
   ``install_permissions.py::_install_polkit_policy`` AND at uninstall
@@ -183,7 +182,7 @@ class TestProductNamespaceConsistency:
         assert not violations, (
             "Non-canonical product namespaces found. The canonical reverse-DNS "
             f"root is '{CANONICAL_ROOT}.*' (tauri.conf.json identifier, "
-            "electron-builder.yml appId, polkit action, macOS LaunchAgents, "
+            "polkit action, macOS LaunchAgents, "
             "keyring service name).\n" + "\n".join(f"  {rel}:{line}: {token}" for rel, line, token in violations) + "\n"
             "Fix: rename the token to the canonical com.voicetyper.* root (or, only "
             "for the legacy polkit artifacts the installer/uninstaller explicitly "

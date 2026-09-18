@@ -16,7 +16,7 @@
 /// Build the `main` window from its `tauri.conf.json` config entry,
 /// apply the platform frame + startup icon, and honor VT_START_HIDDEN.
 ///
-/// Custom-title-bar window construction (the Electron host that this
+/// Custom-title-bar window construction (the predecessor host that this
 /// layout originally mirrored was removed 2026-09-17). The window is NOT
 /// auto-created: `tauri.conf.json` declares it with `"create": false`
 /// and it is built here from that config so the FRAME can be

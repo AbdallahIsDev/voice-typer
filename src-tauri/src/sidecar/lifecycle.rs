@@ -210,7 +210,7 @@ pub(crate) fn on_relaunch_app(app_handle: &tauri::AppHandle, _event: tauri::Even
 /// The Python sidecar publishes `quit_app` when the user picks the tray
 /// "Quit" item (see `voice_typer/server/app_lifecycle.py::quit_app` —
 /// it pushes the event, then runs its own cleanup and exits).
-/// Electron's main process handles the same event by calling
+/// the predecessor's main process handles the same event by calling
 /// `app.quit()` (`client/src/main/python/handle-message.ts`); the Tauri
 /// host has no main process, so this listener is the equivalent:
 ///

@@ -1,11 +1,9 @@
 /**
- *  vitest rewrite, behavioral tests for renderer TS source files
- * that were previously covered by string-pattern Python tests in
- * `tests/test_electron_ipc_and_build.py` (Electron shell removed).
+ *  Behavioral tests for renderer TS source files plus project-metadata
+ * invariants that used to live in string-pattern Python tests.
  *
- * The Python file is the LARGEST of the 5  files (90 tests).
- * Sections 1–4 below cover the original PORT candidates that read
- * renderer TS/TSX source files and asserted on string patterns.
+ * Sections 1–4 cover renderer TS/TSX source files (export-handler
+ * wiring, restart-request removal, non-null-assertion absence).
  *
  * Sections 5–12 extend the rewrite to cover the remaining
  * string-pattern tests in the same Python file: build-config /
@@ -22,8 +20,8 @@
  * PORT candidates covered here (full list):
  *
  * Renderer TS source (Sections 1–4):
- *   - TestElectronExposesDataExportHandlers::test_window_bridge_type_includes_export_methods
- *   - TestElectronExposesDataExportHandlers::test_settings_has_export_buttons
+ *   - test_window_bridge_type_includes_export_methods
+ *   - test_settings_has_export_buttons
  *   - TestRestartRequestRemoved::test_restart_request_not_in_types
  *   - TestTypeScriptNonNullAssertions::test_history_no_non_null_assertion_on_path
  *   - TestTypeScriptNonNullAssertions::test_vocabulary_no_non_null_assertion_on_path
@@ -82,36 +80,9 @@
  *   - TestVersionReadsFromPackageMetadata::test_sync_versions_script_exists
  *   - TestChangelogHasCurrentTestCount::test_changelog_has_current_count
  *
- * KEEP in Python, REQUIRES-PYTHON-RUNNER (tests import Python modules
- * or introspect Python source via `inspect.getsource`; out of scope
- * for a TS-string rewrite):
- *   - TestSetConfigRejectsSensitiveAttrs::test_rejects_combined_sensitive_payload
- *   - TestUnknownIPCCommandCode::test_unknown_command_payload_has_code_field
- *   - TestEntryPointImportable::{test_ipc_server_main_importable,
- *     test_app_main_re_export_exists, test_dunder_main_imports_from_ipc_server}
- *   - TestGetVocabularyHandler (all 4 tests)
- *   - TestVoiceTyperAppSingleton (all 3 tests)
- *   - TestIPCDispatchInvalidData (all 5 tests)
- *   - TestExceptExceptionNotBaseException::test_main_catches_exception_not_baseexception
- *   - TestTypeIgnoreBugsFixed (all 5 tests)
- *   - TestVadStderrRedirect::test_vad_redirects_both_streams
- *   - TestMacOSAccessibilityCheck (both tests)
- *   - TestRestartAppStopsBackends::test_restart_calls_stop_on_all_three_backends
- *   - TestRestartFiltersEnvVarsWithAllowlist::test_app_uses_env_allowlist
- *   - TestVersionReadsFromPackageMetadata::test_version_uses_importlib_metadata
- *
- * The corresponding Python tests are skipped via `@pytest.mark.skip`
- * with a pointer back to this file. They are NOT deleted, they remain
- * as a fallback until CI verifies the vitest versions pass on all
- * platforms.
- *
- * Documented (NOT installed) deps for future agents who want to port
- * the REQUIRES-ELECTRON-RUNNER tests behaviorally:
- *   - `@vitest/electron` (or `playwright` + `@playwright/test`) —
- *     would let vitest spawn a real Electron main process so
- *     `ipcMain.handle("templates:export", ...)` can be invoked end-to-end.
- *     Today neither dep is in `voice_typer/client/package.json`; adding
- *     it is a follow-up.
+ * Behavior that needs a real Python runner (importing Python modules or
+ * introspecting Python source via `inspect.getsource`) stays in the
+ * pytest suite, that is out of scope for a TS-string test.
  */
 
 import {
@@ -535,7 +506,7 @@ describe("History export null-safe path handling (rewrite of test_history_no_non
 			return Promise.resolve({});
 		});
 
-		// Mock the Electron bridge: exportHistory succeeds but
+		// Mock the predecessor bridge: exportHistory succeeds but
 		// returns NO path. Before the null-safety fix this would
 		// crash on `result.path.split(...)` (cannot read split of
 		// undefined); after the fix the `?? ""` + `|| "untitled"`
@@ -1053,8 +1024,8 @@ describe("CI verifies version sync (rewrite of TestCiVerifiesVersionSync)", () =
 	});
 
 	it("version-check job runs sync_versions.py --check", () => {
-		// The Electron-era `MyAppVersion` / `$installerVersion` NSIS
-		// tokens are gone with electron-builder. The current CI gate is
+		// The old `MyAppVersion` / `$installerVersion` NSIS tokens are
+		// gone with the retired builder config. The current CI gate is
 		// `python scripts/build/sync_versions.py --check` inside the
 		// `version-check` job (see .github/workflows/build.yml).
 		const ci = readCiWorkflow();

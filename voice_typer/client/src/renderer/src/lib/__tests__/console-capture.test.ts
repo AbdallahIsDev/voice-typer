@@ -1,7 +1,7 @@
 /**
  * Tests for `lib/console-capture.ts` (MO-105).
  *
- * Pins the Electron console-routing contract under Tauri: WARN and ERROR
+ * Pins the predecessor console-routing contract under Tauri: WARN and ERROR
  * are forwarded to the host sink, INFO/DEBUG never are, the original
  * console behavior is preserved, and the forwarded volume is bounded.
  */

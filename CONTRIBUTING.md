@@ -53,10 +53,10 @@ locally.
 | **Linux (X11 or Wayland)** | `libxdo-dev` and `libxtst-dev` (Debian/Ubuntu: `sudo apt install libxdo-dev libxtst-dev`; Fedora: `sudo dnf install xdo-devel libXtst-devel`). Add your user to the `input` group so the native key listener can read `/dev/input/event*`: `sudo usermod -aG input $USER` then log out/in. See `scripts/linux/99-voice-typer.rules` and `scripts/linux/install_permissions.py` for the packaged udev/polkit story. |
 
 > **GPU users (optional):** if you want CUDA-accelerated transcription,
-> install the matching `torch` wheel *before* `pip install -e .` using
-> the `--index-url https://download.pytorch.org/whl/cu118` (or `cu121`)
-> flag. CPU-only installs work fine, `faster-whisper` and the optional
-> `qwen-asr` extra both fall back to CPU automatically.
+> install the GPU build of ONNX Runtime *before* `pip install -e .`
+> (`uv pip install onnxruntime-gpu`). CPU-only installs work fine,
+> `faster-whisper` and the ONNX backends both fall back to CPU
+> automatically.
 
 ---
 
@@ -194,10 +194,11 @@ uv pip compile --generate-hashes --universal --python-version 3.10 pyproject.tom
 
 > **Always use `--universal`.** A single-platform regeneration (e.g. on a
 > Linux box without the flag) bakes Linux-only wheels into the lock —
-> torch's 15 `nvidia-*` CUDA deps have no Windows wheels, so the
-> documented `uv pip install -e . -r requirements-lock.txt` dev-loop then
-> fails entirely on Windows at resolution time ("no wheels with a matching
-> platform tag"). `--universal` emits `; sys_platform == 'linux'` markers
+> the Windows-only and macOS-only wheels then have no Linux counterpart,
+> so the documented `uv pip install -e . -r requirements-lock.txt`
+> dev-loop fails entirely on the other platform at resolution time ("no
+> wheels with a matching platform tag"). `--universal` emits
+> `; sys_platform == 'linux'` markers
 > so the lock installs on every platform.
 
 #### Frontend: TypeScript pin policy
@@ -277,21 +278,21 @@ If a contributor previously ran `pre-commit install` and then
 core.hooksPath`), restore husky with `cd voice_typer/client && npm
 run prepare` (which re-runs `husky` and re-sets `core.hooksPath`).
 
-#### Why mypy no longer reinstalls torch (XS-35)
+#### Why mypy no longer reinstalls the ML dep set (XS-35)
 
 The mypy hook was previously a `mirrors-mypy` repo entry with
-`additional_dependencies: [numpy, torch, transformers, pydantic,
+`additional_dependencies: [numpy, transformers, pydantic,
 sounddevice, pystray]`. Pre-commit framework spun up an isolated
-venv for mypy and installed those deps on first invocation —
-torch alone is ~2GB and 5-10 min to install. This made
+venv for mypy and installed those deps on first invocation — the
+ML stack alone is ~2GB and 5-10 min to install. This made
 `pre-commit run mypy` unusable; developers universally
 `--no-verify`'d past it.
 
 The fix: mypy is now a LOCAL hook with `language: system` and
 `entry: python scripts/mypy_ratchet_check.py`. It reuses the project
-venv (which already has numpy, torch, transformers, pydantic,
+venv (which already has numpy, transformers, pydantic,
 sounddevice, pystray installed via `uv pip install -e ".[test,dev]"`).
-No torch reinstall, no isolated venv. The ratchet script runs mypy on
+No dependency reinstall, no isolated venv. The ratchet script runs mypy on
 the whole server scope and compares the error counts against
 `mypy-baseline.json` (mirroring the ruff ratchet), so pre-push blocks
 only NEW errors instead of failing on the ~700 baselined typing-debt
@@ -316,10 +317,10 @@ pre-commit run mypy --all-files   # requires project venv activated
 
 ### Tauri Development
 
-> **Note:** Tauri is the sole desktop host (Electron removed 2026-09-17,
+> **Note:** Tauri is the sole desktop host (predecessor removed 2026-09-17,
 > ADR-0020 Phase 5). See [README § Runtime Architecture](README.md#runtime-architecture)
 > and [ADR-0020](docs/adr/0020-desktop-runtime-migration-analysis.md).
-> Historical Electron notes live under `docs/migration/`.
+> Historical predecessor notes live under `docs/migration/`.
 
 The Tauri v2 + Python sidecar host lives in `src-tauri/`. The React renderer (`voice_typer/client/src/renderer/`) installs `window.python` / `window.bubble` / `window.window_` via `voice_typer/client/src/renderer/src/lib/tauri-bridge.ts` (Tauri's global `__TAURI__` API).
 
@@ -443,8 +444,7 @@ invocations on the GNU target.) These files are gitignored on purpose
 
 #### Cutover status
 
-Electron was removed 2026-09-17 (ADR-0020 Phase 5). Tauri is the sole
-desktop host. Historical migration notes:
+Tauri is the sole desktop host. Historical migration notes:
 
 - [`docs/migration/windows-validation-runbook.md`](docs/migration/windows-validation-runbook.md)
 - [`docs/migration/macos-validation-runbook.md`](docs/migration/macos-validation-runbook.md)
@@ -452,7 +452,6 @@ desktop host. Historical migration notes:
 - [`docs/migration/cutover-playbook.md`](docs/migration/cutover-playbook.md)
 - [`docs/migration/tauri-build-runbook.md`](docs/migration/tauri-build-runbook.md)
 - [`docs/migration/tauri-sidecar-bridge.md`](docs/migration/tauri-sidecar-bridge.md)
-- [`docs/migration/electron-decommission-checklist.md`](docs/migration/electron-decommission-checklist.md)
 
 ---
 
@@ -553,7 +552,6 @@ pytest tests/config/test_config_schema_migration.py::test_ipc_config_allowlist_i
 # Markers (see tests/conftest.py for the full list)
 pytest -m real_pynput      # tests that need the real pynput.keyboard listener
 pytest -m real_pil         # tests that need the real PIL.ImageDraw
-pytest -m real_torch       # tests that need the real torch.backends.mps (Apple Silicon)
 
 # Coverage report (HTML)
 pytest --cov=voice_typer --cov-report=html
@@ -613,7 +611,7 @@ Hooks (see `.pre-commit-config.yaml`): `ruff` (lint + format), `mypy`
 (server-only, `stages: [pre-push]` Runs `python
 scripts/mypy_ratchet_check.py` from the project venv so it reuses the
 deps already installed by `uv pip install -e ".[test,dev]"` instead
-of reinstalling torch in an isolated venv; the ratchet script runs
+of reinstalling the ML dep set in an isolated venv; the ratchet script runs
 mypy with the project's `[tool.mypy]` config and compares the error
 counts against `mypy-baseline.json`, blocking only NEW errors), `pre-commit-hooks` (trailing whitespace,
 end-of-file fixer, YAML/JSON validation, merge-conflict markers,
@@ -842,13 +840,6 @@ the resulting counts in lockstep. A new command is useless — or, worse,
 silently blocked — unless **all 10 touchpoints** below are updated
 together.
 
-> **Electron/TCP removal note (2026-09):** Electron main and the TCP
-> transport are gone. The former TS `ALLOWED_COMMANDS` Set is deleted
-> with Electron main; do not reintroduce it. The automated checker
-> `scripts/check_new_command.sh <cmd>` greps the remaining locations
-> and reports which are missing. Run it before opening a PR that adds
-> or renames a command.
-
 #### The 10 touchpoints (in update order)
 
 1. **Python `_COMMAND_REGISTRY`**, add `"<cmd>": "_handle_<cmd>"` to the
@@ -1065,9 +1056,6 @@ hand-rolling the React tree in component tests. Sibling files:
     listener (for tests that exercise the actual key dispatch path).
   - `@pytest.mark.real_pil` Use the real `PIL.ImageDraw` (for tests
     that render the tray icon bitmap).
-  - (`real_torch` was removed with PLAN_ONNX_INTEGRATION Phase 1c —
-    no consumer survived the ORT migration; construct explicit
-    fakes instead of re-registering it.)
 - **Slow tests:** anything genuinely slow (multi-second waits that
   cannot be shortened without weakening what they verify) carries
   `@pytest.mark.slow`. These are skipped by default; run them with
@@ -1247,10 +1235,6 @@ def test_uses_real_pynput(): ...
 
 @pytest.mark.real_pil
 def test_renders_tray_bitmap(): ...
-
-
-@pytest.mark.real_torch
-def test_exercises_real_mps(): ...
 ```
 
 When adding a new hardware-touching module, prefer extending this
@@ -1292,35 +1276,36 @@ def test_get_history_bounds_limit(monkeypatch):
 
 For tests that only need the registry or dispatch (no service
 behaviour), the lighter pattern used by
-`TestElectronNotificationFieldValidation` in
-`tests/test_bugfix_regressions.py` constructs `IPCServer.__new__(IPCServer)`
-and assigns `app` / `service` directly: bypasses the
-`VoiceTyperService` construction cost entirely.
+`TestShowNotificationEventName` in
+`tests/test_notification_event_name.py` builds a bare server via
+`make_bare_ipc_server` (see `tests/fixtures/ipc_test_helpers.py`):
+bypasses the `VoiceTyperService` construction cost entirely.
 
 #### 7.4.3 Push-event testing
 
-The IPC server fans out push events via the module-level
-`_push_event_registry`.  Two helpers, `_set_push_event(fn)` and
-`_clear_push_event(fn)` Let a test capture pushed events without
-spinning up a real TCP client:
+The notification path fans out push events via
+`voice_typer.server.event_bus.publish`. Patch it to capture pushed
+events without spinning up a real client:
 
 ```python
-from voice_typer.server.event_bus import subscribe, unsubscribe
+from unittest.mock import patch
 
-captured = []
+from tests.fixtures.ipc_test_helpers import make_bare_ipc_server
 
+server = make_bare_ipc_server()
+captured = {}
+resp = {}
+with patch(
+    "voice_typer.server.event_bus.publish",
+    lambda msg: captured.update(msg),
+):
+    server._handle_show_notification(
+        {"title": "Hi", "message": "Body", "duration_ms": 5000, "critical": True},
+        resp,
+    )
 
-def _capture(msg):
-    captured.append(msg)
-
-
-_set_push_event(_capture)
-try:
-    server._dispatch({"type": "show_electron_notification", "data": {"title": "Hi", "message": "Body"}, "id": "x"})
-finally:
-    _clear_push_event(_capture)
-
-assert any(m["type"] == "electron_notification" for m in captured)
+assert resp["type"] == "ack"
+assert captured.get("type") == "notification"
 ```
 
 For tests that patch the push hook at the source, target the

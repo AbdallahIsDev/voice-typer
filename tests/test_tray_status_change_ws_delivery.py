@@ -5,7 +5,7 @@ DEFECT (found by the 2026-08-31 headless e2e checklist): the tray
 via ``server.push``, the TCP-only path. In the Tauri ws-mode sidecar no
 TCP client ever exists, so ``status_change`` frames were never delivered
 to the renderer (the status pill lagged up to the 15 s ``get_status``
-health poll, while the Electron runtime received them live, the exact
+health poll, while the predecessor runtime received them live, the exact
 cross-runtime divergence this delivery contract targets).
 
 The fix publishes through ``event_bus`` (same rationale as the

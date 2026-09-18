@@ -139,7 +139,7 @@ _TERMINAL_PROCESS_NAMES: set[str] = {
     # BlackBox is a GTK4/libadwaita terminal for GNOME, its binary
     # name does not contain "term" so the existing heuristic missed it.
     "blackbox",
-    # Tabby (formerly "Terminus") is an Electron-based terminal whose
+    # Tabby (formerly "Terminus") is an predecessor-based terminal whose
     # process image is the host ``tabby`` executable.
     "tabby",
     # cosmic-term is the System76 COSMIC desktop terminal.

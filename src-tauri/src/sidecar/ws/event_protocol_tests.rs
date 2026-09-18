@@ -17,22 +17,13 @@ use serde_json::json;
 
 #[test]
 fn test_translate_event_name_relaunch_app_passes_through() {
-    // cleanup the `relaunch_electron` →
-    // `relaunch_app` rename arm was REMOVED. The Python sidecar
-    // publishes `relaunch_app` directly (see `app.py::restart_app`),
-    // and `main.rs::setup` listens for `relaunch_app` via
-    // `app.listen(...)`. Both `relaunch_app` and the legacy
-    // `relaunch_electron` (kept in the ALLOWED_EVENT_TYPES block-list
-    // for one release cycle so old Python sidecars don't get
-    // silently dropped) must pass through `translate_event_name`
-    // UNCHANGED: re-adding the rename arm would break the
-    // `test_ws_reader_does_not_rename_relaunch_app` parity test in
-    // `tests/tauri/mig19/test_wire_swap_recovery.py`.
+    // The Python sidecar publishes `relaunch_app` directly (see
+    // `app.py::restart_app`), and `main.rs::setup` listens for
+    // `relaunch_app` via `app.listen(...)`. It must pass through
+    // `translate_event_name` UNCHANGED: re-adding a rename arm would
+    // break the `test_ws_reader_forwards_event_names_unchanged` parity
+    // test in `tests/tauri/mig19/test_wire_swap_recovery.py`.
     assert_eq!(translate_event_name("relaunch_app"), "relaunch_app");
-    assert_eq!(
-        translate_event_name("relaunch_electron"),
-        "relaunch_electron"
-    );
 }
 
 #[test]
@@ -53,10 +44,6 @@ fn test_translate_event_name_unknown_passes_through() {
     assert_eq!(translate_event_name("bubble_level"), "bubble_level");
     assert_eq!(translate_event_name("notification"), "notification");
     assert_eq!(
-        translate_event_name("electron_notification"),
-        "electron_notification"
-    );
-    assert_eq!(
         translate_event_name("some_brand_new_event"),
         "some_brand_new_event"
     );
@@ -72,23 +59,97 @@ fn test_translate_event_name_bubble_level_not_renamed() {
     assert_eq!(translate_event_name("bubble_level"), "bubble_level");
 }
 
-// legacy event aliases removed from ALLOWED_EVENT_TYPES ─
-
+// allowlist exact-set pin ─────────────────────────────────────
+//
+// The allowlist must contain EXACTLY the canonical server-initiated
+// event set below, no more, no less. Pinning the full set (instead of
+// probing for individual absent names) keeps this test free of retired
+// names while preserving the property: a re-added retired name would
+// change the length and the set equality and fail here before the
+// cross-layer parity test in `tests/test_event_types_parity.py` runs.
 #[test]
-fn test_gt_e3_6_legacy_aliases_not_in_allowlist() {
-    // `relaunch_electron` and `electron_notification` were
-    // removed from `ALLOWED_EVENT_TYPES`. Old Python sidecars that
-    // still emit these legacy names will have their frames DROPPED
-    // by the WS reader's allowlist check.
-    assert!(
-        !ALLOWED_EVENT_TYPES.contains(&"relaunch_electron"),
-        "GT-E3-6: legacy `relaunch_electron` must NOT be in the allowlist"
+fn test_allowlist_is_exact_canonical_set() {
+    use std::collections::HashSet;
+    let expected: HashSet<&str> = [
+        "status_change",
+        "bubble_level",
+        "notification",
+        "relaunch_app",
+        "tray_menu",
+        "tray_state",
+        "supervisor_relaunching",
+        "supervisor_reconnected",
+        "crash_recovery",
+        "transcription_partial",
+        "transcription_final",
+        "transcription_interim",
+        "recording_state",
+        "vocabulary_suggestion",
+        "model_download_progress",
+        "audio_status",
+        "server_started",
+        "ready",
+        "quit_app",
+        "show_window",
+        "navigate",
+        "bubble_show",
+        "bubble_hide",
+        "bubble_config",
+        "bubble_set_state",
+        "recording_started",
+        "recording_stopped",
+        "config_changed",
+        "history_changed",
+        "consent_required",
+        "hotkey_capture_cancel",
+        "microphone_test_complete",
+        "microphones_changed",
+        "download_progress",
+        "parakeet_cpu_fallback",
+        "gpu_cpu_fallback",
+        "paste_failed",
+        "state_changed",
+        "error",
+        "mic_level",
+        "llm_polish_failed",
+        "text_enhancement_failed",
+        "device_lost",
+        "asr_backend_disabled",
+        "asr_last_resort_unloaded",
+        "audio_clip",
+        "dictation_lost",
+        "tray_fallback_notification",
+        "asr_backend_ready",
+        "asr_backend_load_failed",
+        "microphone_permission_revoked",
+        "microphone_disconnected",
+        "cloud_fallback_used",
+        "dictation_suppressed",
+        "history_corrupted",
+        "history_fts5_rebuild_failed",
+        "paste_deferred",
+        "offline_pack_download_started",
+        "offline_pack_download_progress",
+        "offline_pack_download_completed",
+        "offline_pack_download_failed",
+        "offline_pack_verified",
+        "offline_pack_missing",
+        "offline_pack_corrupt",
+        "offline_pack_ready",
+        "worker_started",
+        "worker_crashed",
+        "worker_unloaded",
+        "transcribe_offline",
+        "transcribe_offline_result",
+    ]
+    .into_iter()
+    .collect();
+    let actual: HashSet<&str> = ALLOWED_EVENT_TYPES.iter().copied().collect();
+    assert_eq!(
+        actual, expected,
+        "allowlist must equal the canonical set exactly"
     );
-    assert!(
-        !ALLOWED_EVENT_TYPES.contains(&"electron_notification"),
-        "GT-E3-6: legacy `electron_notification` must NOT be in the allowlist"
-    );
-    // Canonical names must still be present.
+    // Canonical names must still resolve through the gate.
     assert!(
         ALLOWED_EVENT_TYPES.contains(&"relaunch_app"),
         "canonical `relaunch_app` must remain in the allowlist"

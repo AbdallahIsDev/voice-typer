@@ -61,7 +61,7 @@ def _make_server() -> IPCServer:
 
 
 class TestHeartbeatWatchdog:
-    """``_check_heartbeat_timeout`` drives the Electron-alive watchdog.
+    """``_check_heartbeat_timeout`` drives the predecessor-alive watchdog.
 
     The daemon thread started by ``start()`` calls this every
     ``_HEARTBEAT_INTERVAL_SECONDS``; tests invoke it directly so they
@@ -69,9 +69,9 @@ class TestHeartbeatWatchdog:
     """
 
     def test_no_trip_when_first_heartbeat_never_arrived(self) -> None:
-        """A ``None`` ``_last_heartbeat_at`` means Electron has not yet
+        """A ``None`` ``_last_heartbeat_at`` means predecessor has not yet
         sent its first heartbeat. The watchdog must NOT fire, otherwise
-        a slow Electron cold start (10+ s for the torch import) would
+        a slow predecessor cold start (10+ s for the torch import) would
         cause a false-positive exit."""
         server = _make_server()
         assert server._last_heartbeat_at is None
@@ -329,7 +329,7 @@ class TestRelaunchAckCoordination:
     ) -> None:
         """When the ack arrives BEFORE the wait deadline, the wait
         returns True quickly, the tray thread is unblocked as soon as
-        Electron acks instead of always blocking the configured timeout."""
+        predecessor acks instead of always blocking the configured timeout."""
         server = _make_server()
 
         def _ack_after_short_delay() -> None:
@@ -611,7 +611,7 @@ class TestStdinIpcEnvVarGate:
     def test_tcp_mode_skips_stdin_thread_regardless_of_env_var(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """When ``_tcp_mode=True``, the stdin listener is never spawned
         regardless of the env var, TCP/WS is the authenticated path and
-        stdin is unused (inherited from Electron, connected to
+        stdin is unused (inherited from predecessor, connected to
         ``/dev/null`` or ``NUL``)."""
         import voice_typer.server.ipc_server as ipc_server_mod
         from voice_typer.server import event_bus

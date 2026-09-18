@@ -1,5 +1,5 @@
 /**
- * : Accessibility tests for the Electron UI.
+ * : Accessibility tests for the predecessor UI.
  *
  * The finding: Config UI not verified with screen reader. ARIA
  * attributes are present in code but never validated by automated

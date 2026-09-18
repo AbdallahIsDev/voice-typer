@@ -170,7 +170,7 @@ class TestIpcIntegration:
         """The hook imports ``usePython`` from ``@/hooks/usePython``.
 
         This is the transport-agnostic IPC bridge, same pattern as
-        ``useOfflinePackDownload``. The hook must NOT touch Tauri or Electron
+        ``useOfflinePackDownload``. The hook must NOT touch Tauri or predecessor
         APIs directly (see the contract at the top of ``usePython.ts``).
         """
         assert re.search(

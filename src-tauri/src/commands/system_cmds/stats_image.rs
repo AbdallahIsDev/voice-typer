@@ -1,6 +1,6 @@
 //! Share-stats image export command (MO-121): `save_stats_image`.
 //!
-//! Electron served the Analytics/Dashboard share image through native
+//! predecessor served the Analytics/Dashboard share image through native
 //! main-process handlers (`main/ipc/stats-image-handlers.ts`):
 //! instant-save to the OS Downloads folder, a localized native Save-As
 //! dialog, and `shell.showItemInFolder` reveal. Only the reveal half
@@ -15,14 +15,14 @@
 //! dependency to the host would widen the dependency surface for zero
 //! functional gain (see the command doc below).
 //!
-//! Payload validation mirrors the Electron handler byte-for-byte:
+//! Payload validation mirrors the predecessor handler byte-for-byte:
 //! the data URL must be a `data:image/png;base64,...` string, capped
 //! at 25 MB (the share image is a fixed 1200×630 card at 2× pixel
 //! ratio, typically 1–4 MB; the cap defends against a compromised
 //! renderer feeding a multi-GB base64 blob to `BASE64_STANDARD`), and
 //! the DECODED bytes must carry the PNG signature (not just the MIME
 //! prefix). The filename is sanitized with the same traversal-neutral
-//! rules as Electron's `safePngFilename`.
+//! rules as the predecessor's `safePngFilename`.
 
 use base64::Engine as _;
 use serde_json::{json, Value};
@@ -37,7 +37,7 @@ use crate::error::VoiceTyperError;
 use crate::util::atomic_write_bytes;
 
 /// Cap on the accepted PNG data-URL payload (25 MB, mirrors
-/// `MAX_PNG_DATA_URL_BYTES` in the Electron handler).
+/// `MAX_PNG_DATA_URL_BYTES` in the predecessor handler).
 pub(crate) const MAX_PNG_DATA_URL_BYTES: usize = 25 * 1024 * 1024;
 
 /// PNG file signature, validated on the DECODED bytes.
@@ -50,7 +50,7 @@ pub(crate) const PNG_DATA_URL_PREFIX: &str = "data:image/png;base64,";
 /// the MIME prefix, the payload size, and the decoded PNG signature.
 ///
 /// Pure function so the validation contract is unit-testable without a
-/// Tauri runtime (mirrors Electron's `decodePngDataUrl`).
+/// Tauri runtime (mirrors the predecessor's `decodePngDataUrl`).
 pub(crate) fn decode_png_data_url(data_url: &str) -> Option<Vec<u8>> {
     let b64 = data_url.strip_prefix(PNG_DATA_URL_PREFIX)?;
     if b64.is_empty() || b64.len() > MAX_PNG_DATA_URL_BYTES {
@@ -67,7 +67,7 @@ pub(crate) fn decode_png_data_url(data_url: &str) -> Option<Vec<u8>> {
 
 /// Make a filesystem-safe default filename: neutralize path traversal
 /// and separators, collapse whitespace, strip a `.png` extension, and
-/// guarantee the stem shape. Pure function (mirrors Electron's
+/// guarantee the stem shape. Pure function (mirrors the predecessor's
 /// `safePngFilename`).
 ///
 /// The stem (without `.png`) is returned because the save-dialog path
@@ -85,7 +85,7 @@ pub(crate) fn safe_png_stem(raw: Option<&str>) -> String {
             _ => c,
         })
         .collect();
-    // Collapse whitespace runs to single dashes (Electron's
+    // Collapse whitespace runs to single dashes (the predecessor's
     // `replace(/\s+/g, "-")`).
     let mut collapsed = String::with_capacity(sanitized.len());
     let mut in_ws = false;
@@ -139,7 +139,7 @@ fn non_colliding_png_path(dir: &std::path::Path, stem: &str) -> std::path::PathB
 /// `SHGetKnownFolderPath(FOLDERID_Downloads)` on Windows,
 /// `NSSearchPathForDirectoriesInDomains(.downloadsDirectory)` on macOS
 /// and `XDG_DOWNLOAD_DIR`/`~/Downloads` on Linux — the same directories
-/// Electron's `app.getPath("downloads")` resolves to. Falls back to
+/// the predecessor's `app.getPath("downloads")` resolves to. Falls back to
 /// the user's home dir when the OS refuses to name one (headless
 /// Linux without XDG user dirs).
 fn downloads_dir(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
@@ -155,10 +155,10 @@ fn downloads_dir(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
 /// - `mode: "downloads"` (default): instant-save to the OS Downloads
 ///   folder with a non-colliding name, no dialog.
 /// - `mode: "saveAs"`: localized native save dialog (title key
-///   `dialog.export.statsImage`, byte-identical to the Electron
+///   `dialog.export.statsImage`, byte-identical to the predecessor
 ///   handler's `mainT("dialog.export.statsImage")`).
 ///
-/// Return shapes mirror the Electron `stats-image:save` handler:
+/// Return shapes mirror the predecessor `stats-image:save` handler:
 /// success → `{"success": true, "path": "<file>"}`; a canceled dialog
 /// → `{"success": false, "canceled": true}` (silent no-op on the
 /// renderer side); invalid payload / write failure →

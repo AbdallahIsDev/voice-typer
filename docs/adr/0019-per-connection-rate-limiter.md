@@ -2,13 +2,13 @@
 
 ## Status
 
-**Status: SUPERSEDED — Electron host removed 2026-09-17; Tauri is sole host (ADR-0020). Historical record only.**
+**Status: SUPERSEDED — predecessor host removed 2026-09-17; Tauri is sole host (ADR-0020). Historical record only.**
 
 The rate limiter itself remains **live**: implemented in `voice_typer/server/ipc_server.py` (canonical;
 duplicate leaf copy at `voice_typer/server/ipc/rate_limiter.py` retained
 as the `_RateLimiter` class, instantiated per
 `IPCServer` process via `_get_rate_limiter(server)` and
-shared across all WS connections within that process. Electron/TCP
+shared across all WS connections within that process. predecessor/TCP
 context below is historical.
 
 ## Date
@@ -17,9 +17,9 @@ context below is historical.
 
 ## Context
 
-Voice Typer's IPC server accepts a single persistent TCP connection from the Electron frontend. Over this connection, the frontend sends JSON-lines commands and the backend responds with JSON-lines responses and push events.
+Voice Typer's IPC server accepts a single persistent TCP connection from the predecessor frontend. Over this connection, the frontend sends JSON-lines commands and the backend responds with JSON-lines responses and push events.
 
-**The problem:** A crash-looping or buggy Electron client can flood the IPC socket with thousands of malformed messages per second. Without rate limiting, this flood can:
+**The problem:** A crash-looping or buggy predecessor client can flood the IPC socket with thousands of malformed messages per second. Without rate limiting, this flood can:
 
 1. **Exhaust file descriptors:** Each incoming message is read and parsed. If the dispatcher cannot keep up, the TCP receive buffer fills, the client's send buffer fills, and eventually the OS runs out of socket buffer memory.
 
@@ -122,7 +122,7 @@ _RATE_LIMIT_SUSTAINED = 600  # Max msgs in any 10 s window
 ```
 
 These limits are intentionally generous:
-- A well-behaved Electron client sends 1-5 messages per second.
+- A well-behaved predecessor client sends 1-5 messages per second.
 - The burst allowance (200/s) accommodates batch operations like
   loading the Settings page (which may fetch `get_config`,
   `get_microphones`, `get_model_catalog`, etc. in quick succession).
@@ -200,7 +200,7 @@ not serialize dispatch.
 - **Graceful degradation:** The client receives structured error responses and can implement exponential backoff, rather than experiencing a silent connection drop.
 
 ### More difficult
-- **No client-side backoff (yet):** The Electron main process's `sendToPython()` does not currently implement backoff on "rate limit exceeded" responses. If the client hits the limit, the user sees IPC timeouts rather than graceful fallback. This is acceptable because hitting the limit indicates a bug in the client that should be fixed, not a normal operational condition.
+- **No client-side backoff (yet):** The predecessor main process's `sendToPython()` does not currently implement backoff on "rate limit exceeded" responses. If the client hits the limit, the user sees IPC timeouts rather than graceful fallback. This is acceptable because hitting the limit indicates a bug in the client that should be fixed, not a normal operational condition.
 - **Per-process budget (post-CR-11):** a single misbehaving connection consumes the budget for ALL connections in the same server process. Acceptable because Voice Typer has exactly one client per process; if a future multi-client mode is added, the limiter would need to move back to per-connection (with a separate cross-connection aggregate cap to prevent the reconnect-reset bypass that CR-11 fixed).
 
 ### Risks

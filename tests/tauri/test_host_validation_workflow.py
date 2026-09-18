@@ -36,9 +36,9 @@ class TestHostValidationWorkflowContract:
         text = _workflow_text()
         assert "VERSION" in text
         assert "PONG" in text
-        # Post-Electron cutover: kill-path contracts pin the surviving
+        # Post-predecessor cutover: kill-path contracts pin the surviving
         # signal-handler / timeout / native-binary surfaces, not the
-        # deleted Electron process-tree helpers.
+        # deleted predecessor process-tree helpers.
         assert "win32_console_handler" in text
         assert "KILL_PATH_CONTRACTS=PASS" in text
         assert "binaries.json" in text

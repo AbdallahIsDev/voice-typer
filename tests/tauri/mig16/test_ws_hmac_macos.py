@@ -13,7 +13,7 @@ in §9 below).
 Per ADR-0020 §Reversibility, Phase 0-M must pass on BOTH Apple Silicon
 (``aarch64-apple-darwin``) AND Intel (``x86_64-apple-darwin``). The
 two arches are independently revertible, Apple Silicon can ship Tauri
-while Intel still ships Electron. The WS auth path, however, is
+while Intel still ships predecessor. The WS auth path, however, is
 arch-agnostic: the same ``sidecar_ws.py`` source runs (Nuitka-compiled)
 in both per-arch binaries, and the auth protocol is byte-for-byte
 identical. The arch selection happens at the Tauri ``externalBin``

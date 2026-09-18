@@ -8,7 +8,7 @@ build path is Nuitka (see `scripts/build/nuitka_freeze.sh` + the per-platform
 single-file binary. This spec exists so a packaging failure on Nuitka does
 NOT block a release. PyInstaller is the safety net.
 
-Single output mode — Tauri sidecar (Electron packaging removed 2026-09-17):
+Single output mode — Tauri sidecar (legacy packaging removed 2026-09-17):
 
 Build (Windows):
     set VOICE_TYPER_TAURI_SIDECAR=1
@@ -41,10 +41,10 @@ from pathlib import Path
 
 block_cipher = None
 
-# ─── Mode selection: Tauri sidecar only (Electron removed 2026-09-17) ────
+# ─── Mode selection: Tauri sidecar only (previous host removed 2026-09-17) ────
 # Produce a Tauri-compatible `python-sidecar-<triple>` binary (console on,
 # onefile, triple-suffixed name). VOICE_TYPER_TAURI_SIDECAR defaults to 1
-# for this spec; the legacy Electron windowed-exe output path is gone.
+# for this spec; the legacy windowed-exe output path is gone.
 _TAURI_SIDECAR = os.environ.get("VOICE_TYPER_TAURI_SIDECAR", "1") != "0"
 
 # Compute the Rust target triple for the current platform, mirroring
@@ -69,7 +69,7 @@ _TRIPLE = {
     "linux": f"{_ARCH}-unknown-linux-gnu",
 }.get(sys.platform, f"{_ARCH}-unknown-{sys.platform}")
 
-# Tauri sidecar only (Electron packaging removed 2026-09-17):
+# Tauri sidecar only (legacy packaging removed 2026-09-17):
 # console on (Rust reads stdout for server_started JSON),
 # name includes the triple suffix, onefile mode.
 _EXE_NAME = f"python-sidecar-{_TRIPLE}"

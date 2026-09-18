@@ -2,7 +2,7 @@
 
 (Phase 4.5 spaghetti split): the notification concern
 was previously inlined on the ``TrayIcon`` class alongside pystray
-lifecycle, state queuing, menu building, and Electron window
+lifecycle, state queuing, menu building, and predecessor window
 management. This module owns the four notification-related operations:
 
   - :func:`notify`: respect the user's notifications-enabled toggle
@@ -225,7 +225,7 @@ def do_notify(tray: TrayIcon, title: str, message: str) -> None:
     # so route the toast through the ``notification`` event. The Rust host
     # (src-tauri/src/host_events.rs) listens for it and shows the native
     # toast via tauri-plugin-notification. The payload shape mirrors the
-    # ``show_electron_notification`` IPC publisher (system_handlers.py):
+    # ``show_notification`` IPC publisher (system_handlers.py):
     # ``{"title": ..., "message": ...}``.
     if tray._icon is None and is_tauri_sidecar():
         _publish_notification_event(title, message)
@@ -280,7 +280,7 @@ def on_parakeet_cpu_fallback(tray: TrayIcon, event: dict) -> None:
     # with the "(CPU fallback)" suffix. Best-effort, if the icon is
     # None (tray-unavailable path) ``_apply_state`` is a no-op.
     #
-    # Also publish the state to the Tauri/Electron side via
+    # Also publish the state to the Tauri/predecessor side via
     # ``_publish_tray_state`` so the renderer's tray indicator picks
     # up the "(CPU fallback)" tooltip suffix immediately. Mirrors the
     # pattern used by ``_on_elapsed_tick`` (tray.py: ``_apply_state``

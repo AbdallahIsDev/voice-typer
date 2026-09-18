@@ -22,7 +22,7 @@ import type { Page, WindowBridge } from "@/types/ipc";
 // VS Code, so the window is visible but inactive), and restore it to
 // full brightness on refocus. We mirror that using the DOM
 // `focus`/`blur` events on `window`, which fire in BOTH runtimes with
-// zero IPC / main-process code: Electron's Chromium, and the Tauri
+// zero IPC / main-process code: the predecessor's Chromium, and the Tauri
 // webviews (WebView2 on Windows, WKWebView on macOS, WebKitGTK on
 // Linux). The dim is CONTAINER OPACITY (see TitleBarInner), not a
 // specific dim color, so it scales whatever colors the active theme

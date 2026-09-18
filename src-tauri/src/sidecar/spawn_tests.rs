@@ -20,7 +20,7 @@
 //!   `.env_clear()` boundary so the sidecar's hidden-start privacy
 //!   gates (the recorder prewarm's mic-InputStream gate) see the same
 //!   launch state as the host window, otherwise the gate is inert on
-//!   the Tauri runtime (it only worked on Electron/dev, where the TS
+//!   the Tauri runtime (it only worked on predecessor/dev, where the TS
 //!   spawner spreads the full host env).
 //! - **Pre-existing `parse_server_started` + `is_shutting_down` tests**
 //!   (moved verbatim from the legacy inline `mod tests` block).
@@ -886,10 +886,10 @@ fn test_worker_spawn_stubs_exist() {
     // Reaching this line means both stub symbols resolved, the
     // Phase 2a scaffolding is in place.
 }
-/// MO-111 (Electron spawn-env parity): every `env_clear()` spawn path
+/// MO-111 (predecessor spawn-env parity): every `env_clear()` spawn path
 /// must re-add `KMP_DUPLICATE_LIB_OK=TRUE`.
 ///
-/// Electron's spawner always passed it for its console-less child; the
+/// the predecessor's spawner always passed it for its console-less child; the
 /// Intel OpenMP runtime aborts (silent stall or hard exit) at
 /// `import torch` when two OpenMP runtimes land in one process, and the
 /// Tauri spawn paths clear the host env, so the var must be set

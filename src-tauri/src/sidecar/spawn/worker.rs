@@ -127,7 +127,7 @@ pub(crate) async fn spawn_worker_release(
         .env_clear()
         .envs(passthrough_env_allowlist())
         .envs(worker_shared_env(token))
-        // MO-111 (Electron spawn-env parity): same OpenMP dual-runtime
+        // MO-111 (predecessor spawn-env parity): same OpenMP dual-runtime
         // workaround as the sidecar spawn paths (see `release_mode.rs`
         // for the full rationale) - the worker also imports torch and
         // can hit the dual-OpenMP abort on affected machines.

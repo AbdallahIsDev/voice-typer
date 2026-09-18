@@ -1,13 +1,12 @@
 r"""Tauri renderer-facing surface parity (static contract tests).
 
-Post-Electron / post-TCP the IPC surface is **two-way** (Python
+The IPC surface is **two-way** (Python
 ``_COMMAND_REGISTRY`` ↔ Rust ``allowed_commands()``). This module
 enumerates the renderer-facing surface that remains under Tauri —
 the ``PythonPushEvent`` union members the renderer types consume, the
 Tauri bridge namespaces, and the command allowlists — and asserts they
 agree with the Rust host + Python registry.
 
-Electron preload / main / TCP parsers were removed with those trees.
 Do not reintroduce a TypeScript ``ALLOWED_COMMANDS`` Set.
 
 Parity gaps that historically surfaced silently (e.g. ``setLocale``
@@ -32,7 +31,7 @@ import re
 from pathlib import Path
 
 # ── Project paths ────────────────────────────────────────────────────────
-# This file lives at tests/tauri/bridge_parity/test_electron_tauri_surface_parity.py.
+# This file lives at tests/tauri/bridge_parity/test_host_surface_parity.py.
 # parents[0] = bridge_parity/, parents[1] = tauri/, parents[2] = tests/,
 # parents[3] = <project root>.
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
@@ -87,7 +86,7 @@ HOST_SYNTHESIZED_PUSH_EVENTS: dict[str, str] = {
 # docstring too, and implementing a method under Tauri REQUIRES deleting
 # its entry (the staleness assertion fails while the entry survives).
 #
-# (Electron preload comparison removed with Electron main; this map now
+# (predecessor preload comparison removed with predecessor main; this map now
 # documents known Tauri gaps against the renderer's expected surface.)
 TAURI_MISSING_WINDOW_METHODS: dict[str, str] = {
     # Share-stats image clipboard copy is not implemented under Tauri
@@ -425,7 +424,7 @@ class TestTauriBridgeSurface:
     def test_window_namespace_methods_have_a_tauri_implementation_or_reviewed_exception(
         self,
     ):
-        # Without the Electron preload there is no external "expected
+        # Without the predecessor preload there is no external "expected
         # method list" to diff against; instead pin the reviewed gap set
         # so a newly implemented method must clear its exception entry.
         # The current Tauri window namespace must not be empty.

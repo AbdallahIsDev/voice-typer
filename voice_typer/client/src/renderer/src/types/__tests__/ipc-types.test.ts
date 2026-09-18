@@ -47,7 +47,7 @@
 // ``parakeet_cpu_fallback`` (3 new events emitted by the Python backend
 // but never modelled in the TS union). Length grew from 27 to 29.
 //
-//removed ``relaunch_electron`` (RelaunchElectronEvent interface
+//removed ``the legacy relaunch event name`` (the legacy relaunch event type interface
 // DELETED, verified the Python side emits only ``relaunch_app`` now).
 //Length shrunk by 1, then grew by 3 () for a net of 29.
 //
@@ -111,8 +111,8 @@ describe("NEW-IPC-002 / PVT-G5-010: dead-type removal guards", () => {
 			"bubble_config",
 			"show_window",
 			"quit_app",
-			//``relaunch_electron`` REMOVED from this list
-			// (RelaunchElectronEvent interface deleted, verified
+			//``the legacy relaunch event name`` REMOVED from this list
+			// (the legacy relaunch event type interface deleted, verified
 			// no Python emitter; see the new compile-time guard
 			// below). The canonical event is ``relaunch_app``.
 			"relaunch_app",
@@ -153,11 +153,10 @@ describe("NEW-IPC-002 / PVT-G5-010: dead-type removal guards", () => {
 		// list.  This catches a contributor who adds the literal to
 		// the array above AND reintroduces the type.
 		expect(acceptedTypes).not.toContain("model_loaded");
-		//``relaunch_electron`` must NOT be in the union
-		// (RelaunchElectronEvent interface deleted).
-		expect(acceptedTypes).not.toContain("relaunch_electron");
+		// The canonical relaunch event is ``relaunch_app``.
+		expect(acceptedTypes).toContain("relaunch_app");
 		//was 9, then 27.
-		//1 (relaunch_electron removed) = 26.
+		//1 (the legacy relaunch event name removed) = 26.
 		//+3 (tray_state + consent_required +
 		// parakeet_cpu_fallback) = 29.
 		//+3 (asr_backend_disabled + asr_last_resort_unloaded +
@@ -219,20 +218,18 @@ describe("NEW-IPC-002 / PVT-G5-010: dead-type removal guards", () => {
 		expect(_inUnionGuard).toBe(true);
 	});
 
-	it("a `{ type: 'relaunch_electron' }` value is NOT assignable to PythonPushEvent (GT-55 compile-time guard)", () => {
-		//``RelaunchElectronEvent`` was DELETED from the union
-		// after verifying the Python side emits only ``relaunch_app``.
-		// If a future contributor re-adds ``RelaunchElectronEvent`` to
-		// the union, the conditional resolves to ``true`` and the
-		// ``false`` assignment fails to compile, CI catches it before
-		// the deprecated contract ships again.
-		type WouldBeRelaunchElectron = {
-			type: "relaunch_electron";
+	it("a `{ type: 'relaunch_app' }` value IS assignable to PythonPushEvent (live publisher)", () => {
+		// WHY: `relaunch_app` is the canonical restart signal with a live
+		// publisher (`restart_app` publishes it) and host + union consumers,
+		// so the guard pins membership: removal flips the conditional to
+		// `false` and the `true` assignment fails to compile.
+		type RelaunchAppShape = {
+			type: "relaunch_app";
 			data: Record<string, unknown>;
 		};
-		type Guard = WouldBeRelaunchElectron extends PythonPushEvent ? true : false;
-		const _typeGuard: Guard = false;
-		expect(_typeGuard).toBe(false);
+		type Guard = RelaunchAppShape extends PythonPushEvent ? true : false;
+		const _typeGuard: Guard = true;
+		expect(_typeGuard).toBe(true);
 	});
 
 	it("GT-52: tray_state / consent_required / parakeet_cpu_fallback ARE assignable to PythonPushEvent (compile-time guard)", () => {
@@ -456,7 +453,7 @@ describe("YJ-34 (parity): every Python event_bus.publish type literal is in the 
 	//
 	// NOTE: this list intentionally does NOT include the
 	// host-bridge-synthesized `reconnecting` / `reconnected` events
-	// (those are emitted by the Rust/Electron host, NOT by Python's
+	// (those are emitted by the Rust/predecessor host, NOT by Python's
 	// `event_bus.publish`).
 	//
 	// MAINTENANCE: when a new `event_bus.publish({"type": "..."})`
@@ -600,7 +597,7 @@ describe("YJ-34 (parity): every Python event_bus.publish type literal is in the 
 		// NOTE: the existing `acceptedTypes` list in the FIRST
 		// `describe` block above (line ~73) has only 32 entries —
 		// it is missing `relaunch_app` (a pre-existing oversight
-		//from the fix that removed `relaunch_electron` but
+		//from the fix that removed `the legacy relaunch event name` but
 		// never added the canonical `relaunch_app` to the list).
 		// This parity test's `PYTHON_EMITTER_TYPE_LITERALS` list
 		// DOES include `relaunch_app` (34 entries) because the

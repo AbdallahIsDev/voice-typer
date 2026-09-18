@@ -7,7 +7,7 @@
 //( + ) invoke the Rust `export_history` /
 // `export_vocabulary` / `export_templates` / `export_config` commands
 // which use `tauri-plugin-dialog`'s save dialog. The return shape
-// matches the Electron preload exactly:
+// matches the predecessor preload exactly:
 //   - success → `{success: true, path: string}`
 //   - user canceled → `{success: false}` (no path, no error)
 //   - error → `{success: false, error: string}`
@@ -37,7 +37,7 @@ interface ExportResult {
 	error?: string;
 }
 
-/** Return shape preserved across all four export methods (Electron parity). */
+/** Return shape shared by all four export methods. */
 type ExportReturn = Promise<{
 	success: boolean;
 	path?: string;
@@ -66,7 +66,7 @@ function makeExportCommand(tauri: TauriGlobal, cmd: string) {
 				format ? { data, format } : { data },
 			);
 			if (result?.canceled) {
-				// User dismissed the save dialog, matches Electron's
+				// User dismissed the save dialog, matches the predecessor's
 				// `{success: false}` (no error, no path).
 				return { success: false };
 			}
@@ -117,7 +117,7 @@ export function createWindowNamespace(tauri: TauriGlobal): WindowBridge {
 		//invoke the Rust `export_history` command, which opens
 		// `tauri-plugin-dialog`'s save dialog and writes the file. The
 		// renderer call sites (History.tsx export button) are unchanged
-		// because the return shape matches Electron's `history:export`
+		// because the return shape matches the predecessor's `history:export`
 		// IPC handler (`{success, path?, error?}`).
 		exportHistory: makeExportCommand(tauri, "export_history"),
 
@@ -130,7 +130,7 @@ export function createWindowNamespace(tauri: TauriGlobal): WindowBridge {
 		// Invokes the Rust `export_templates` command (save-file dialog
 		// + JSON write). Same return-shape mapping as `exportHistory`.
 		// The renderer call site (Templates.tsx export button) is
-		// unchanged on both Electron and Tauri paths.
+		// unchanged on both predecessor and Tauri paths.
 		exportTemplates: makeExportCommand(tauri, "export_templates"),
 
 		// GDPR right-to-export for the full
@@ -187,7 +187,7 @@ export function createWindowNamespace(tauri: TauriGlobal): WindowBridge {
 		},
 
 		// Push the renderer's current locale to the Rust host so it can
-		// localize its native surfaces. Mirrors Electron's
+		// localize its native surfaces. Mirrors the predecessor's
 		// `i18n:set-locale` IPC handler (main-process storage); the
 		// Rust host stores the value in `SidecarState::host_locale` via
 		// the `set_host_locale` command and resolves the same
@@ -208,7 +208,7 @@ export function createWindowNamespace(tauri: TauriGlobal): WindowBridge {
 			}
 		},
 
-		//`openElectronLogs` removed from the WindowBridge interface
+		//`openPredecessorLogs` removed from the WindowBridge interface
 		// (dead code, the Rust host's `open_host_logs` command was
 		// deleted as dead code; the "View Logs" UX uses `open_logs`
 		// which opens the config root).
@@ -216,8 +216,6 @@ export function createWindowNamespace(tauri: TauriGlobal): WindowBridge {
 		//(Tauri parity,  / ): forward a
 		// renderer-caught error (e.g. React's `componentDidCatch` in
 		// `ErrorBoundary.tsx`) to the Rust host for persistence.
-		// Under Electron this routes via `renderer:log-error` IPC and
-		// the main process appends to `electron-renderer-errors.log`.
 		//
 		//implemented at `commands/system_cmds.rs::renderer_log_error`,
 		// registered in `main.rs:244-245` (`renderer_log_error`
@@ -234,7 +232,7 @@ export function createWindowNamespace(tauri: TauriGlobal): WindowBridge {
 		// failing persistence command must never crash the
 		// ErrorBoundary itself.
 		// MO-113: webview liveness heartbeat consumed by the Rust host's
-		// `platform::renderer_watchdog` (the Tauri stand-in for Electron's
+		// `platform::renderer_watchdog` (the Tauri stand-in for the predecessor's
 		// `child-process-gone` telemetry: no wry platform surfaces a
 		// renderer/GPU crash event, but a visible webview whose timers
 		// stopped beating is exactly the blank-window signal).
@@ -255,11 +253,11 @@ export function createWindowNamespace(tauri: TauriGlobal): WindowBridge {
 
 		// MO-120a: restart the Python sidecar from the "Lost connection"
 		// Retry escalation. Invokes the Rust `restart_sidecar` command
-		// (Electron `backend:restart` parity, `main/ipc/
+		// (predecessor `backend:restart` parity, `main/ipc/
 		// backend-restart-handler.ts`): process-control only, no TCP
 		// command is sent (the backend is dead by definition here). The
 		// command delegates to the supervisor's respawn path and returns
-		// the same `{ok, reason?}` envelope Electron's handler resolves,
+		// the same `{ok, reason?}` envelope the predecessor's handler resolves,
 		// so `useConnection.ts`'s escalation branch works unchanged. The
 		// invoke itself resolves (the command maps failures into the
 		// envelope); the catch is belt-and-braces for transport-level
@@ -279,7 +277,7 @@ export function createWindowNamespace(tauri: TauriGlobal): WindowBridge {
 			}
 		},
 
-		// MO-121: save the share-stats PNG through the host (Electron
+		// MO-121: save the share-stats PNG through the host (predecessor
 		// `stats-image:save` parity). `mode: "downloads"` instant-saves
 		// to the OS Downloads folder with a non-colliding name;
 		// `mode: "saveAs"` opens the localized native save dialog
@@ -322,7 +320,7 @@ export function createWindowNamespace(tauri: TauriGlobal): WindowBridge {
 		// which the Tauri webview either blocks (CSP `default-src
 		// 'self'`) or traps inside the app. The Rust
 		// `open_external_url_command` enforces the SAME https-only policy
-		// as Electron's `input-nav-guard.ts` and returns the shared
+		// as the predecessor's `input-nav-guard.ts` and returns the shared
 		// `{success, error?}` envelope.
 		openExternalUrl: async (url: string) => {
 			try {

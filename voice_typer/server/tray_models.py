@@ -426,7 +426,7 @@ def build_models_menu_items(
     config_dir_fn,
     controller_change_model_fn,
     wrap_fn,
-    open_electron_window_fn,
+    open_app_window_fn,
     menu_item_class=None,
     menu_separator=None,
     config_provider=None,
@@ -444,7 +444,7 @@ def build_models_menu_items(
             config_dir_fn: callable returning the config directory Path
             controller_change_model_fn: callable(name) to change the active model
             wrap_fn: callable wrapping a function for pystray's callback pattern
-            open_electron_window_fn: callable to open the Electron app
+            open_app_window_fn: callable to open the app window
             menu_item_class: pystray.MenuItem class (default: pystray.MenuItem)
             menu_separator: pystray.Menu.SEPARATOR (default: pystray.Menu.SEPARATOR)
     config_provider: optional live Config object. : when provided,
@@ -509,7 +509,7 @@ def build_models_menu_items(
     items.append(
         menu_item_class(
             more_models_text,
-            wrap_fn(open_electron_window_fn),
+            wrap_fn(open_app_window_fn),
         )
     )
     return items

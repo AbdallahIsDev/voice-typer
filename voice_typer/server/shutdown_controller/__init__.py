@@ -6,7 +6,7 @@ Owns the entire shutdown / cleanup lifecycle of ``VoiceTyperApp``:
       ``quit()``, ``restart_app()``, and ``_atexit_cleanup()``. 30+
       try/except blocks release every subsystem (recorder, hotkeys,
       history DB, crash recovery, bubble level worker, Win32 mutex,
-      Electron subprocess, devnull FDs, etc.).
+      predecessor subprocess, devnull FDs, etc.).
     - ``quit``: sets ``_shutting_down``, calls
       ``thread_registry.shutdown_all()``, delegates to ``_do_cleanup``,
       then ``sys.exit(0)`` (only when called from the main thread).

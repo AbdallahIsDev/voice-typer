@@ -282,7 +282,7 @@ function _cssColorToHexViaDOM(color: string): string | null {
  * Uses getComputedStyle(backgroundColor) which reliably resolves oklch(),
  * hsl(), rgb(), named colors, etc. to an rgba() string that the browser
  * engine can compute, unlike the canvas 2d context which may fail on
- * oklch() values in some Electron/Chromium versions.
+ * oklch() values in some predecessor/Chromium versions.
  *
  * Falls back to a manual oklch→sRGB→hex converter when the DOM approach
  * fails or returns transparent black (indicating the browser couldn't

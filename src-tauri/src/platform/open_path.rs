@@ -39,11 +39,11 @@ use std::path::Path;
 
 /// Open a filesystem path in the OS-native file manager. Best-effort:
 /// returns an error string on failure (the caller surfaces it to the
-/// UI). Mirrors Electron's ``shell.openPath()`` semantics.
+/// UI). Mirrors the predecessor's ``shell.openPath()`` semantics.
 ///
 /// Sibling helpers in this module: [`open_external_url`] (https-only, the
-/// replacement for Electron's ``shell.openExternal``) and
-/// [`reveal_path_in_file_manager`] (Electron's
+/// replacement for the predecessor's ``shell.openExternal``) and
+/// [`reveal_path_in_file_manager`] (the predecessor's
 /// ``shell.showItemInFolder``).
 ///
 /// pre-flight
@@ -127,7 +127,7 @@ pub(crate) fn open_path_in_file_manager(path: &Path) -> Result<(), String> {
 
 /// Open an https URL in the user's default browser.
 ///
-/// Electron routed every external link through `shell.openExternal` with
+/// predecessor routed every external link through `shell.openExternal` with
 /// a deny-rest policy (`windows/input-nav-guard.ts`: https only, the
 /// renderer's `target="_blank"` / `window.open` calls are intercepted).
 /// The Tauri host sets `plugins.shell.open = false` (C-TAURI-2) and the
@@ -197,7 +197,7 @@ pub(crate) fn open_external_url(url: &str) -> Result<(), String> {
     }
 }
 
-/// https-only predicate for [`open_external_url`], mirroring Electron's
+/// https-only predicate for [`open_external_url`], mirroring the predecessor's
 /// `input-nav-guard.ts` deny-rest policy. Pure so the security contract
 /// is unit-testable without spawning anything.
 ///
@@ -238,7 +238,7 @@ fn sanitize_for_error(value: &str) -> String {
 
 /// Reveal a file in the OS file manager (select it where the platform
 /// supports it), used by the Analytics share-image "Show in folder"
-/// action (MO-120b). Mirrors Electron's
+/// action (MO-120b). Mirrors the predecessor's
 /// `shell.showItemInFolder(path)`.
 ///
 /// - Windows: `explorer.exe /select,<path>` (Explorer selects the file).

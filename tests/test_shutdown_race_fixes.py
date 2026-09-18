@@ -112,7 +112,7 @@ class _FakeApp:
         self._shutting_down = False
         self._shutting_down_event = threading.Event()
         self._cleanup_done = False
-        self._electron_pid: int | None = None
+        self._host_pid: int | None = None
         self._mutex_handle = None
 
         self.recorder = MagicMock()
@@ -408,7 +408,7 @@ class TestTranscriptionThreadJoinBeforeDbClose:
     def test_sequenced_phase_runs_before_parallel_batch(self, controller, fake_app):
         """The sequenced critical teardowns (timers/recording, recorder,
         history_db, crash_recovery) must run BEFORE the parallel batch
-        (asr_models, hotkeys, electron, etc.).
+        (asr_models, hotkeys, host_child, etc.).
 
         We verify by recording the call order of representative helpers
         from each phase. The sequenced helpers must ALL complete before

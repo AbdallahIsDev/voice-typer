@@ -2,11 +2,11 @@
  * Regression tests for the  / d-review  fix in
  * `usePython.ts`.
  *
- * The gap: the Electron `python-call` IPC handler
+ * The gap: the predecessor `python-call` IPC handler
  * (`client/src/main/index.ts:1904-1918`) can resolve the pending
  * request with EITHER of two error-envelope shapes:
  *
- *   1. `{_error: "..."}` (string), Electron main-process synthetic
+ *   1. `{_error: "..."}` (string), predecessor main-process synthetic
  *      errors (backend-not-connected, sendToPython exceptions).
  *   2. `{type:"error", data:{code, message}}`, Python server
  *      unhandled-dispatch exceptions (`server/ipc_server.py:1044-1050`),
@@ -23,7 +23,7 @@
  * On Tauri these in-code checks are dead code (the Rust `dispatch`
  * command rejects the `invoke` promise on `type:"error"` before the
  * resolved value reaches JS), but the same `usePython.ts` bundle ships
- * under both hosts, these tests cover the Electron-path logic that
+ * under both hosts, these tests cover the predecessor-path logic that
  * the in-code guards implement.
  */
 import { cleanup, renderHook } from "@testing-library/react";
@@ -166,7 +166,7 @@ describe("usePython, NEW-IPC-107 error-envelope handling", () => {
 	});
 
 	it("throws an Error with the `_error` message on `{_error:{message}}` envelope (object form)", async () => {
-		// Defensive: the actual Electron code sends `_error` as a string,
+		// Defensive: the actual predecessor code sends `_error` as a string,
 		// but we accept the object form too so a future refactor of
 		// index.ts:1908/1911/1916 (e.g. switching to `{_error:{message}}`
 		// for richer error metadata) doesn't silently break callers.
@@ -181,10 +181,10 @@ describe("usePython, NEW-IPC-107 error-envelope handling", () => {
 		);
 	});
 
-	it("throws an Error with the `_error` string on `{_error:'...'}` envelope (actual Electron shape)", async () => {
-		// This is the real shape the Electron main process produces at
-		// index.ts:1908/1911/1916: `return { _error: "..." }` (string,
-		// not an object). The guard must handle this form correctly.
+	it("throws an Error with the `_error` string on `{_error:'...'}` envelope", async () => {
+		// This is the real envelope shape the backend can produce:
+		// `{ _error: "..." }` (a string, not an object). The guard must
+		// handle this form correctly.
 		installPythonMock(() =>
 			Promise.resolve({ _error: "Python backend is not connected" }),
 		);

@@ -1,6 +1,6 @@
 """Bubble-dismiss global shortcut pin (MO-125).
 
-Post-Electron cutover the Electron accelerator source is gone; the
+Post-predecessor cutover the predecessor accelerator source is gone; the
 Tauri host registers the binding Rust-side via
 ``tauri-plugin-global-shortcut``. These tests pin the Rust constant
 to the shared TS display constant so the two stay in lockstep.

@@ -15,7 +15,7 @@
 //!   dispatch helpers (`dispatch_inner`, `dispatch_frame`,
 //!   `dispatch_fire_and_forget`, `DispatchArgs`, per-command timeout
 //!   routing).
-//! - [`restart`]: the `restart_sidecar` Tauri command (Electron
+//! - [`restart`]: the `restart_sidecar` Tauri command (predecessor
 //!   `backend:restart` parity, MO-120): renderer-initiated restart of
 //!   the Python sidecar via the supervisor's respawn path.
 //! - [`shutdown`]: the `shutdown_sidecar` cooperative-shutdown Tauri

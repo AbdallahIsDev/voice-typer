@@ -5,7 +5,7 @@
 //! runtime.
 //!
 //! - [`clamp_resize_width`] / [`clamp_resize_height`] enforce the
-//!   Electron-parity pill bounds on `bubble_resize`.
+//!   predecessor-parity pill bounds on `bubble_resize`.
 //! - [`round_f64_to_u32_saturating`] / [`round_f64_to_i32_saturating`]
 //!   convert renderer-supplied `f64` measurements/deltas to integers
 //!   with fully-defined behavior on NaN / ±inf / out-of-range inputs.
@@ -15,7 +15,7 @@
 //!   ([`rect_contains_point`], [`edge_margin_physical`],
 //!   [`centered_x_in_work_area`], [`keyword_edge_y_in_work_area`],
 //!   [`bubble_position_in_work_area`]) implement the cursor-display
-//!   work-area placement of `bubble_set_position`, mirroring Electron's
+//!   work-area placement of `bubble_set_position`, mirroring the predecessor's
 //!   `centerOnActiveDisplay`
 //!   (`voice_typer/client/src/main/windows/bubble/positioning.ts`).
 //!   All arithmetic stays in PHYSICAL pixels end-to-end:
@@ -24,12 +24,12 @@
 //!   are physical pixels, and the command applies the result via
 //!   `PhysicalPosition`: so no logical↔physical conversion is needed
 //!   anywhere except the one intentional one in
-//!   [`edge_margin_physical`] (Electron expresses its edge margin in
+//!   [`edge_margin_physical`] (predecessor expresses its edge margin in
 //!   DIPs; we scale it per-monitor).
 //! - [`clamp_f64_to_i32`] is `#[cfg(test)]`-only: kept for the legacy
 //!   `parse_position` test contract.
 
-//bubble resize bounds: mirror Electron's
+//bubble resize bounds: mirror the predecessor's
 /// `MIN_BUBBLE_W` / `MAX_BUBBLE_W` / `MIN_BUBBLE_H` / `MAX_BUBBLE_H`
 /// in `voice_typer/client/src/main/ipc/bubble-handlers.ts:45-48` so a
 /// pill measurement (or a compromised sandboxed bubble) can't shrink the
@@ -195,7 +195,7 @@ pub(super) fn clamp_f64_to_i32(f: f64) -> i32 {
 // ─── Multi-monitor work-area placement (physical pixels) ─────────────
 
 /// Edge margin between the bubble and the work-area's top/bottom edge,
-/// expressed in LOGICAL (DIP) pixels. Mirrors Electron's hardcoded
+/// expressed in LOGICAL (DIP) pixels. Mirrors the predecessor's hardcoded
 /// `+ 48` / `- 48` offsets in `centerOnActiveDisplay` /
 /// `centerOnPrimaryDisplay`
 /// (`voice_typer/client/src/main/windows/bubble/positioning.ts:196-221`)
@@ -244,7 +244,7 @@ impl RectPx {
     /// Half-open so a cursor sitting EXACTLY on the shared vertical
     /// border of two side-by-side monitors resolves to exactly one
     /// monitor (the left one) instead of matching both, mirrors
-    /// Electron's `getDisplayMatching` rect-intersection semantics
+    /// the predecessor's `getDisplayMatching` rect-intersection semantics
     /// where a zero-area overlap loses.
     ///
     /// Saturating adds: a degenerate rect at `x = i32::MAX` can't wrap
@@ -263,7 +263,7 @@ impl RectPx {
 /// inside this monitor's FULL bounds?
 ///
 /// Full bounds: NOT the work area, because a cursor hovering over
-/// the taskbar/dock strip still belongs to that monitor; Electron's
+/// the taskbar/dock strip still belongs to that monitor; the predecessor's
 /// `getDisplayMatching` also matches against full display bounds.
 pub(super) fn rect_contains_point(rect: &RectPx, px: i32, py: i32) -> bool {
     rect.contains(px, py)
@@ -271,7 +271,7 @@ pub(super) fn rect_contains_point(rect: &RectPx, px: i32, py: i32) -> bool {
 
 /// Convert the [`EDGE_MARGIN_LOGICAL_PX`] DIP margin to PHYSICAL
 /// pixels for a monitor with the given scale factor, so a 150%-scaled
-/// display keeps the same visual gap as Electron's 48-DIP offset.
+/// display keeps the same visual gap as the predecessor's 48-DIP offset.
 ///
 /// - `scale_factor ≤ 0` clamps to 0 margin (degenerate report; a 0
 ///   margin still places the bubble INSIDE the work area, the edge
@@ -284,7 +284,7 @@ pub(super) fn edge_margin_physical(scale_factor: f64) -> i32 {
 }
 
 /// Centered top-left x for a bubble of `bubble_w` physical px inside
-/// the work area `wa`, mirroring Electron's
+/// the work area `wa`, mirroring the predecessor's
 /// `wa.x + (wa.width - BUBBLE_WIDTH) / 2`.
 ///
 /// The result is clamped to ≥ `wa.x` (NOT to absolute ≥0): on a
@@ -301,7 +301,7 @@ pub(super) fn centered_x_in_work_area(wa: &RectPx, bubble_w: i32) -> i32 {
 }
 
 /// Top-left y for `"top"` / `"bottom"` edge placement inside the work
-/// area `wa`, mirroring Electron's `centerOnActiveDisplay`:
+/// area `wa`, mirroring the predecessor's `centerOnActiveDisplay`:
 /// - `"top"` → `wa.y + margin`
 /// - `"bottom"` → `wa.y + wa.height - bubble_h - margin`, clamped to
 ///   ≥ `wa.y` (a bubble taller than the work area minus two margins
@@ -345,7 +345,7 @@ pub(super) fn keyword_edge_y_in_work_area(
 /// This is the single entry point `bubble_set_position` calls once per
 /// invocation after resolving the cursor's monitor.
 ///
-/// Mirrors Electron's `centerOnActiveDisplay`
+/// Mirrors the predecessor's `centerOnActiveDisplay`
 /// (`voice_typer/client/src/main/windows/bubble/positioning.ts:211-222`)
 /// except that the bubble dimensions come from the LIVE window's
 /// measured `outer_size()` (physical px) rather than compile-time

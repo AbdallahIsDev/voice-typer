@@ -16,7 +16,7 @@ constants that the IPC dispatcher consults at runtime:
   bypasses the per-server ``_dispatch_lock`` for these so a
   long-running state-mutating handler (e.g. ``download_model``) does
   not block a quick status poll from a second authenticated connection
-(). KEPT after the Electron/TCP removal: the WS dispatch path still
+(). KEPT after the predecessor/TCP removal: the WS dispatch path still
   consults this set; do not delete it as "TCP-only".
 - data:`_PYTHON_ONLY_COMMANDS`: frozenset of commands that are
   intentionally absent from the Rust renderer allowlist (). These
@@ -71,7 +71,7 @@ The following command-name strings were at various points in the
 codebase history members of :data:`_COMMAND_REGISTRY` and were
 subsequently REMOVED. Each removal was coordinated across the Python
 registry and the Rust ``allowed_commands()`` array (the TS
-``ALLOWED_COMMANDS`` Set is retired with Electron main). The regression guard in
+``ALLOWED_COMMANDS`` Set is retired with predecessor main). The regression guard in
 ``tests/test_dead_code_stays_removed.py`` pins the removals so they
 cannot silently re-appear. Brief context for each removal:
 
@@ -96,7 +96,7 @@ cannot silently re-appear. Brief context for each removal:
   endpoint.
 - ``test_llm_connection``: the renderer's Settings page now uses
   the service-layer method directly (not over IPC).
-- ``export_diagnostics``, ``show_electron_notification``, the Tauri
+- ``export_diagnostics``, ``show_notification``, the Tauri
   host now handles each via a dedicated Rust command
   (``export_diagnostics`` and the tray-notification path
   respectively) rather than bridging through Python IPC.
@@ -142,7 +142,7 @@ from __future__ import annotations
 # set is intentionally minimal, only commands whose handler bodies are
 # pure reads (no recorder / config / model / history mutation).
 #
-# MO-86 decision (Lane C, Electron/TCP removal): KEEP this frozenset.
+# MO-86 decision (Lane C, predecessor/TCP removal): KEEP this frozenset.
 # The WS dispatcher (`ipc/dispatcher.py::_dispatch`) still consults it
 # for lock bypass; it is NOT TCP-only. Expanding membership to every
 # confirmed pure-read ``get_*`` handler is tracked as MO-86 (audit each
@@ -203,7 +203,7 @@ _INSTANT_CONTROL_COMMANDS: frozenset[str] = frozenset(
 # host-dispatched delta that is purely host-internal; the full delta
 # (including heartbeat/relaunch_ack) is pinned by
 # ``tests/test_ipc_command_parity.py::HOST_DISPATCHED_COMMANDS``.
-# There is no TypeScript ``ALLOWED_COMMANDS`` anymore (Electron main
+# There is no TypeScript ``ALLOWED_COMMANDS`` anymore (predecessor main
 # deleted with the Tauri cutover).
 _PYTHON_ONLY_COMMANDS: frozenset[str] = frozenset({"shutdown", "tray_click"})
 
@@ -219,8 +219,8 @@ _PYTHON_ONLY_COMMANDS: frozenset[str] = frozenset({"shutdown", "tray_click"})
 # relaunch_ack which the host sends via ``dispatch_inner``). Most
 # handlers live in voice_typer/server/handlers/ (one mixin module per
 # domain); a few are resident on IPCServer / in ipc/, `heartbeat`
-# (, ADR-0018 Electron-alive watchdog), `relaunch_ack` (PERF-005, ack of
-# `relaunch_electron` so `restart_app` can drop its fixed 300 ms
+# (, ADR-0018 predecessor-alive watchdog), `relaunch_ack` (PERF-005, ack of
+# `the legacy relaunch event name` so `restart_app` can drop its fixed 300 ms
 # sleep), `transcribe_offline` and `check_offline_pack_update`, because
 # they touch IPC-server-owned state (`_last_heartbeat_at`,
 # `_relaunch_ack_event`) and don't belong to any domain mixin. The earlier "68 commands" claim in ADR-0020 §2
@@ -411,13 +411,13 @@ _COMMAND_REGISTRY: dict[str, str] = {
     # the busy flag and tray state immediately, bypassing the normal
     # 3×90s watchdog timeout.
     "force_cancel_transcription": "_handle_force_cancel_transcription",
-    # Electron-alive heartbeat.  Electron's main process
+    # predecessor-alive heartbeat.  the predecessor's main process
     # sends this every 5 seconds; the backend's heartbeat-watchdog
     # daemon thread calls ``app.quit()`` if 9 consecutive heartbeats
-    # are missed (45s timeout) so a crashed/force-killed Electron
+    # are missed (45s timeout) so a crashed/force-killed predecessor
     # doesn't strand the backend with the mic open + mutex held.
     "heartbeat": "_handle_heartbeat",
-    # Electron acks receipt/processing of ``relaunch_electron``
+    # predecessor acks receipt/processing of ``the legacy relaunch event name``
     # so restart_app can drop its fixed 300ms sleep in favour of an
     # event-driven wait (bounded by a 2s timeout).
     "relaunch_ack": "_handle_relaunch_ack",

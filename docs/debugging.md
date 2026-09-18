@@ -30,10 +30,10 @@ the app.
 | `VOICE_TYPER_PREWARM_EXE` | path | Override the prewarm binary path (frozen `prewarm-<triple>[.exe]`). Bypasses `resolve_prewarm_exe()`. |
 | `TAURI_SIDECAR` | `1` | Marks the process as running under the Tauri host. Skips ADR-0018 heartbeat-watchdog thread (supervisor owns liveness instead) and the Win32 single-instance mutex (Tauri `single-instance` plugin owns it). |
 
-### Frontend (historical Electron env vars)
+### Frontend (historical predecessor env vars)
 
-> **Note (Electron removed 2026-09-17):** these env vars were read by the
-> deleted Electron main process and are **ignored under the Tauri v2
+> **Note (predecessor removed 2026-09-17):** these env vars were read by the
+> deleted predecessor main process and are **ignored under the Tauri v2
 > host** (ADR-0020). Window lifecycle + DevTools gating is controlled by
 > the Rust host's `tauri.conf.json` and capability files. Listed only so
 > old shell scripts / docs that still set them do not look mysterious.
@@ -41,8 +41,8 @@ the app.
 | Env var | Values | Effect |
 |---|---|---|
 | `VT_START_HIDDEN` | `1` | Live under Tauri too: create the main window hidden + skip-taskbar. Second-instance attempt shows it. Used by autostart to launch silently at login. |
-| `NODE_ENV` | `production` / `development` | Historical Electron/Vite convention. Not read by the Tauri host. |
-| `ELECTRON_DISABLE_SECURITY_WARNINGS` | `true` | Historical Electron console-warning mute. Not read by the Tauri host. |
+| `NODE_ENV` | `production` / `development` | Historical predecessor/Vite convention. Not read by the Tauri host. |
+| (removed) predecessor console-warning mute | `true` | Historical only; not read by the Tauri host. |
 
 ### Frontend (Vite / Tauri renderer)
 
@@ -182,8 +182,8 @@ give you a `send(cmd)` / `recv()` pair.
 
 ### "App won't start"
 
-The live host is Tauri. Check the Tauri path below. (The former Electron
-host path is removed; do not follow deleted `electron-main.log` guidance.)
+The live host is Tauri. Check the Tauri path below. (The former predecessor
+host path is removed; do not follow deleted `predecessor-main.log` guidance.)
 
 #### Tauri host (sole production path, ADR-0020)
 

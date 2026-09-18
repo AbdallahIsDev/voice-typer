@@ -43,9 +43,6 @@ Source of truth files (only these may contain the literal string):
 2. `voice_typer/client/src/renderer/src/branding.ts`
 3. `src-tauri/src/branding.rs`
 
-(The former Electron main-process `voice_typer/client/src/main/branding.ts`
-was deleted with the Electron host 2026-09-17 — do not recreate it.)
-
 ## Pinned Action Versions: DO NOT DOWNGRADE
 
 All GitHub Actions are pinned to Node 24-compatible versions (see the comment
@@ -131,9 +128,7 @@ deprecated transitive deps still pulled by Vite/Tailwind/vitest tooling
 (for example `@hono/node-server`, `postcss`, `nanoid`, `browserslist`).
 These eliminate deprecation warnings and security vulnerabilities. Do not
 remove or downgrade them. See the `//overrides_note` comment in package.json
-for full rationale. Electron-only overrides (`@electron/asar`,
-`@electron/get`, `electron-winstaller`) were removed with the Electron host
-(2026-09-17 cutover) — do not reintroduce them.
+for full rationale.
 
 ## Critical contracts (read before editing IPC / security surfaces)
 
@@ -200,7 +195,7 @@ then `cargo tauri dev`, which boots the Rust host and the Python sidecar
 over WebSocket (`--ws`). The first `get_config` round-trip from the
 renderer establishes the IPC bridge: if you see a "Lost connection"
 screen for >5s on cold start, the Python backend is still booting
-(model warmup). There is no Electron main process.
+(model warmup).
 
 ## Test patterns
 
@@ -636,8 +631,7 @@ Tauri host connects over WS, auth works, startup logs are clean, no
 regressions. **Not optional**, last item on the to-do list; the session
 isn't complete until this passes. Record the result in `worklog.md`
 (`## Validation Performed`) with a platform qualifier and screenshots where
-captured. Electron + TCP are gone — do not test or document them as live
-paths.
+captured.
 
 ---
 
@@ -812,7 +806,7 @@ Applies to: All agents, all modes.
 
 ```
 C-BRAND-1
-Rule: Do NOT hardcode the app-name display string anywhere, always use the dynamic branding constant: Python `APP_NAME` (`voice_typer/server/branding.py`), TS renderer `APP_NAME` (`src/renderer/src/branding.ts`), Rust `crate::branding::APP_NAME`. Locale files (`renderer/src/i18n/translations/*.json`) MUST use the `{appName}` placeholder token, never a literal brand string, not even in `en.json`. (The Electron main-process branding.ts and `main/i18n/locales/*.json` were deleted with the Electron host 2026-09-17; do not recreate them.) Prose comments describing the app must also avoid the literal brand. This does NOT apply to internal identifiers (types like `VoiceTyperConfig`, mutex/binary names like `VoiceTyperSingleInstance` / `VoiceTyper.exe`). Those are OS/API identifiers, not the user-facing brand, and must not be renamed.
+Rule: Do NOT hardcode the app-name display string anywhere, always use the dynamic branding constant: Python `APP_NAME` (`voice_typer/server/branding.py`), TS renderer `APP_NAME` (`src/renderer/src/branding.ts`), Rust `crate::branding::APP_NAME`. Locale files (`renderer/src/i18n/translations/*.json`) MUST use the `{appName}` placeholder token, never a literal brand string, not even in `en.json`. Prose comments describing the app must also avoid the literal brand. This does NOT apply to internal identifiers (types like `VoiceTyperConfig`, mutex/binary names like `VoiceTyperSingleInstance` / `VoiceTyper.exe`). Those are OS/API identifiers, not the user-facing brand, and must not be renamed.
 Rationale: An agent hardcoded the brand inside locale files (dozens of literal strings across all 8 `i18n/translations/*.json`) plus crash-dialog titles, HTML `<title>` tags, and backend error messages. `scripts/check_branding.py` (BRAND-001) deliberately EXEMPTS renderer translations and comment lines, so those literals bypass CI enforcement. A future product rename becomes a hundreds-of-strings edit instead of a one-constant change. The `{appName}` placeholder pattern already exists in main-process locales; renderer locales must adopt the same pattern.
 Applies to: All agents, all modes. Enforced in CI by `scripts/check_branding.py` for non-locale, non-comment code.
 ```
@@ -1390,13 +1384,6 @@ Applies to: All agents, all modes, all sub-agents.
 C-PERSIST-3
 Rule: Do NOT remove `recovery.json`. It is an ACTIVE crash-recovery store for the last `MAX_RECOVERY_ENTRIES` UNPASTED transcriptions (`voice_typer/server/crash_recovery.py`, `CrashRecovery`): the dictation pipeline calls `add()` (gated by `config.crash_recovery_enabled`), startup calls `check_on_startup()` to notify the user of recovered text, and diagnostics export reads it. An empty `{"entries": []}` is the NORMAL state (nothing pending), not a signal of obsolescence.
 Rationale: Audited 2026-08-22, the recovery mechanism is live end-to-end (pipeline write → startup check → tray notify).
-Applies to: All agents, all modes, all sub-agents.
-```
-
-```
-C-PERSIST-4
-Rule: Do NOT merge `restart_history.json` and `restart_counter.json`. They are two INDEPENDENT per-runtime restart mechanisms with different schemas, semantics, and lifecycles: `restart_history.json` was the ELECTRON-only production app-relaunch crash-loop breaker (array of epoch-ms timestamps, 60s window, cap 3; the Electron host and `voice_typer/client/src/main/python/relaunch-app.ts` are removed — do not revive the file under Tauri); `restart_counter.json` is the TAURI-only sidecar-respawn circuit breaker (`{"count", "ts"}` with a 10-minute staleness window, cleared on successful reconnect; `src-tauri/src/sidecar/supervisor.rs`). The two runtimes never coexist and neither reads the other's file, merging them would force two independent circuit breakers to share one incompatible schema.
-Rationale: Audited 2026-08-22, the two files complement rather than duplicate; a merge would break both circuit breakers and lose per-runtime semantics.
 Applies to: All agents, all modes, all sub-agents.
 ```
 

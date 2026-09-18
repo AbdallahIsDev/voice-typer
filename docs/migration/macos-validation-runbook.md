@@ -17,7 +17,7 @@
 
 **Time estimate**: 3-5 hours per arch (first run; subsequent runs ~30-45 min with cached deps).
 
-**Per-arch**: Phase 0-M MUST pass on BOTH Apple Silicon (`aarch64-apple-darwin`) AND Intel (`x86_64-apple-darwin`). The two arches are independently revertible per ADR-0020 §Reversibility. You can ship Apple Silicon Tauri while Intel still ships Electron.
+**Per-arch**: Phase 0-M MUST pass on BOTH Apple Silicon (`aarch64-apple-darwin`) AND Intel (`x86_64-apple-darwin`). The two arches are independently revertible per ADR-0020 §Reversibility. You can ship Apple Silicon Tauri while Intel still ships predecessor.
 
 ---
 
@@ -362,7 +362,7 @@ tail -f "$HOME/Library/Application Support/voice-typer/logs/voice-typer.log"
 
 **VALIDATE ON MACOS HOST**
 
-The 9-point gate below is the heart of Phase 0-M. **All 9 must pass on BOTH Apple Silicon AND Intel.** Cutover is per-arch, Apple Silicon can ship Tauri while Intel still ships Electron (ADR-0020 §Reversibility).
+The 9-point gate below is the heart of Phase 0-M. **All 9 must pass on BOTH Apple Silicon AND Intel.** Cutover is per-arch, Apple Silicon can ship Tauri while Intel still ships predecessor (ADR-0020 §Reversibility).
 
 Gate point 1 (Sidecar spawn via externalBin) was verified in Step 5 above. The remaining 8 points (2-9) follow as Steps 6.1 through 6.8 below; Step 6.9 is the single-instance gate point.
 
@@ -880,7 +880,7 @@ The Tauri `bundle.macOS.entitlements` config in `tauri.conf.json` should point a
 
 ---
 
-## Step 8: Rollback to Electron
+## Step 8: Rollback to predecessor
 
 **VALIDATE ON MACOS HOST**
 
@@ -895,27 +895,27 @@ launchctl unload "$HOME/Library/LaunchAgents/com.voicetyper.prewarm.plist" 2>/de
 rm -f "$HOME/Library/LaunchAgents/com.voicetyper.prewarm.plist"
 
 # 3. The user data at ~/Library/Application Support/voice-typer/ stays intact
-#    (it's shared with the Electron fallback). Confirm:
+#    (it's shared with the predecessor fallback). Confirm:
 ls -la "$HOME/Library/Application Support/voice-typer/"
 # Expected: config.json, models/, history.db, logs/, etc.
 
-# 4. Reinstall the Electron build from the prior release DMG.
-#    (See voice_typer/client/electron-builder.yml for the Electron .dmg path.)
+# 4. Reinstall the previous-host build from the prior release DMG.
+#    (See the legacy builder config for the previous-host .dmg path.)
 ```
 
-**Pass criteria**: After uninstall, `~/Library/LaunchAgents/com.voicetyper.prewarm.plist` is gone, `~/Library/Application Support/voice-typer/` is intact, and the Electron build launches with the same config + history + models.
+**Pass criteria**: After uninstall, `~/Library/LaunchAgents/com.voicetyper.prewarm.plist` is gone, `~/Library/Application Support/voice-typer/` is intact, and the predecessor build launches with the same config + history + models.
 
 ---
 
 ## Step 8.5: Autostart LaunchAgent orphan-on-uninstall (packaging gap, low severity)
 
-**Context.** At runtime, `voice_typer/server/server_platform/autostart_macos.py:_enable_autostart_macos` writes a per-user LaunchAgent plist at `~/Library/LaunchAgents/com.voicetyper.plist` (chmod 0o600, `launchctl load`'d). When the user uninstalls the app by dragging the `.app` bundle from `/Applications` to the Trash: the standard macOS uninstall flow, there is no uninstall hook to remove that plist (the `dmg:` format that `electron-builder` uses for macOS does NOT support `afterRemove` / `uninstallerHooks`). The plist is therefore orphaned: on next login `launchd` tries to spawn the (now-deleted) Python interpreter listed in the plist's `ProgramArguments`, fails silently, and logs to `~/Library/Logs/voice-typer-autostart.log`.
+**Context.** At runtime, `voice_typer/server/server_platform/autostart_macos.py:_enable_autostart_macos` writes a per-user LaunchAgent plist at `~/Library/LaunchAgents/com.voicetyper.plist` (chmod 0o600, `launchctl load`'d). When the user uninstalls the app by dragging the `.app` bundle from `/Applications` to the Trash: the standard macOS uninstall flow, there is no uninstall hook to remove that plist (the `dmg:` format that the predecessor packaging toolchain uses for macOS does NOT support `afterRemove` / `uninstallerHooks`). The plist is therefore orphaned: on next login `launchd` tries to spawn the (now-deleted) Python interpreter listed in the plist's `ProgramArguments`, fails silently, and logs to `~/Library/Logs/voice-typer-autostart.log`.
 
-**Cross-platform comparison** (kept in `voice_typer/client/electron-builder.yml` as 1-2 line summaries; full context here):
+**Cross-platform comparison** (kept in the legacy builder config as 1-2 line summaries; full context here):
 
 | Platform | Autostart mechanism | Uninstall cleanup status |
 |----------|---------------------|--------------------------|
-| Windows (NSIS) | `HKCU\Software\Microsoft\Windows\CurrentVersion\Run\com.voicetyper.autostart_<hash>` + Scheduled Task `com.voicetyper.autostart<hash>` (pre-rename bare forms: `VoiceTyper_<hash>` Run key + `VoiceTyperAutostart<hash>` task; prewarm task `com.voicetyper.prewarm` / legacy `VoiceTyperPrewarm`) | **HANDLED**, `scripts/windows/uninstaller.nsh` (wired via `nsis.include` in `electron-builder.yml`) enumerates + deletes every `VoiceTyper*` / `com.voicetyper*` Run key + scheduled task (incl. the prewarm task under both names). Belt-and-suspenders sweep via `scripts/windows/uninstall.bat` → `uninstall_permissions.py` → `_unregister_all_voicetyper_runkeys` / `_unregister_all_voicetyper_tasks`. |
+| Windows (NSIS) | `HKCU\Software\Microsoft\Windows\CurrentVersion\Run\com.voicetyper.autostart_<hash>` + Scheduled Task `com.voicetyper.autostart<hash>` (pre-rename bare forms: `VoiceTyper_<hash>` Run key + `VoiceTyperAutostart<hash>` task; prewarm task `com.voicetyper.prewarm` / legacy `VoiceTyperPrewarm`) | **HANDLED**, `scripts/windows/uninstaller.nsh` (wired via `nsis.include` in the legacy builder config) enumerates + deletes every `VoiceTyper*` / `com.voicetyper*` Run key + scheduled task (incl. the prewarm task under both names). Belt-and-suspenders sweep via `scripts/windows/uninstall.bat` → `uninstall_permissions.py` → `_unregister_all_voicetyper_runkeys` / `_unregister_all_voicetyper_tasks`. |
 | Linux (deb/rpm) | `~/.config/autostart/voice-typer.desktop` | **HANDLED**, `scripts/linux/prerm` (line 38-57) and `scripts/linux/prerm.rpm` (line 40-58) remove the `.desktop` entry for every non-system user on uninstall (`$1 = 0`), not on upgrade (`$1 = 1`). |
 | macOS (dmg) | `~/Library/LaunchAgents/com.voicetyper.plist` | **GAP** (low severity, S5-CR-83), the `dmg:` format has no uninstall hook. The Python runtime DOES clean up its own LaunchAgent when the user explicitly disables autostart in Settings → General (see `_disable_autostart_macos`); the orphan scenario only occurs when the user uninstalls WITHOUT first disabling autostart. |
 
@@ -925,11 +925,11 @@ ls -la "$HOME/Library/Application Support/voice-typer/"
 2. `launchctl remove com.voicetyper` (legacy fallback)
 3. `rm -f ~/Library/LaunchAgents/com.voicetyper.plist`
 
-Lighter-weight alternative: document the cleanup in the README / macOS install guide and surface a "Disable autostart before uninstalling" notice in the Settings → General panel. Either way, add a regression test in `voice_typer/client/src/main/__tests__/electron-builder-yml.test.ts` asserting the `extraResources` entry for the `.command` script is present (once the script is added).
+Lighter-weight alternative: document the cleanup in the README / macOS install guide and surface a "Disable autostart before uninstalling" notice in the Settings → General panel. Either way, add a regression test for the Tauri bundle resources asserting the `extraResources` entry for the `.command` script is present (once the script is added).
 
 **Why the gap is low severity.** The orphan LaunchAgent fails silently, `launchd` logs the spawn failure to `~/Library/Logs/voice-typer-autostart.log` and moves on; it does NOT block login or spawn crash loops. The user is not visibly impacted. The plist is a single 1 KB file that a future reinstall (which re-writes it via `_enable_autostart_macos`) silently overwrites. The Python runtime's `_disable_autostart_macos` is the user-facing "off switch" and works correctly independent of this packaging gap.
 
-**Tracking.** S5-CR-83 (sub-agent 12) documented this gap; the Windows + Linux sides were closed by S2-CR-69 (sub-agent 8), `scripts/windows/uninstaller.nsh` + `scripts/linux/prerm` But the macOS side remains open pending the `.command` script. See the `mac:` section comment in `voice_typer/client/electron-builder.yml` for the per-file pointer.
+**Tracking.** S5-CR-83 (sub-agent 12) documented this gap; the Windows + Linux sides were closed by S2-CR-69 (sub-agent 8), `scripts/windows/uninstaller.nsh` + `scripts/linux/prerm` But the macOS side remains open pending the `.command` script. See the `mac:` section comment in the legacy builder config for the per-file pointer.
 
 ---
 
@@ -1010,9 +1010,9 @@ echo "Wrote $REPORT"
 | §6.8 | Single-instance (gate point 9) | Second launch forwards to first; only 1 main + 1 sidecar process |
 | §6.9 | New Rust commands (export_history, export_vocabulary, bubble_*) | All 8 new commands dispatch + log correctly; bubble appears + hides; exports write valid JSON |
 | §7 | Codesign + notarize + staple (BOTH arches) | `.app` + `.dmg` pass `xcrun stapler validate`; Gatekeeper accepts on clean Mac |
-| §8 | Rollback | Uninstall + Electron reinstall preserves user data |
+| §8 | Rollback | Uninstall + predecessor reinstall preserves user data |
 
-**All 9 gate points (§6.1-§6.9) must pass on BOTH Apple Silicon AND Intel before the macOS Tauri cutover.** §7 (signing/notarization) is required for distribution but optional for local validation. §8 (rollback) verifies the safety net. Electron remains the fallback until all gate points pass. Cutover is per-arch, Apple Silicon can ship Tauri while Intel still ships Electron.
+**All 9 gate points (§6.1-§6.9) must pass on BOTH Apple Silicon AND Intel before the macOS Tauri cutover.** §7 (signing/notarization) is required for distribution but optional for local validation. §8 (rollback) verifies the safety net. predecessor remains the fallback until all gate points pass. Cutover is per-arch, Apple Silicon can ship Tauri while Intel still ships predecessor.
 
 ---
 

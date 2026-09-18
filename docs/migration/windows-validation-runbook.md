@@ -321,7 +321,7 @@ The flags below are the **authoritative** Nuitka command from ADR-0020
   filename MUST end with the target triple + `.exe` for Tauri's
   `externalBin` to select it at runtime.
 - Entry point: `voice_typer/server/ipc_server.py` (the same entrypoint
-  used by the Electron path + the dev sidecar, only the freeze tool
+  used by the predecessor path + the dev sidecar, only the freeze tool
   changes).
 
 ```powershell
@@ -636,7 +636,7 @@ Each gate item below has:
 - **Pass criteria** (unambiguous boolean).
 
 Record each result in the §9 results table. **All 9 must pass** before
-Windows Tauri cutover (ADR-0020 Phase 5-W). Electron remains the
+Windows Tauri cutover (ADR-0020 Phase 5-W). predecessor remains the
 shippable fallback until all 9 pass.
 
 ### §6.1 Sidecar spawn via `externalBin`
@@ -1200,7 +1200,7 @@ an "Unknown Publisher" warning):
 
 For production: obtain a real Authenticode cert from a CA. Store the
 PFX base64-encoded in the `WIN_CSC_LINK` GitHub secret + its password
-in `WIN_CSC_KEY_PASSWORD` (matching `electron-builder.yml`).
+in `WIN_CSC_KEY_PASSWORD` (matching the legacy builder config).
 
 ### §7.2 Sign the sidecar + prewarm exes
 
@@ -1265,12 +1265,12 @@ the temp extraction; that is expected and benign, NOT a packaging bug.
 
 ---
 
-## §8 Rollback to Electron
+## §8 Rollback to predecessor
 
 **VALIDATE ON WINDOWS HOST** ADR-0020 mandates the migration stays
 reversible per-platform. If any of §6.1–§6.9 fails and cannot be
 fixed within the validation window, roll back to the existing
-Electron build: the Electron code is untouched by the Tauri migration
+predecessor build: the predecessor code is untouched by the Tauri migration
 (no source files shared; Tauri is purely additive).
 
 ### §8.1 Uninstall the Tauri build
@@ -1293,24 +1293,24 @@ The Tauri uninstaller removes:
   "Uninstall cleanup per platform")
 
 **NOTE**: The Tauri install shares the `%APPDATA%\voice-typer\` config
-dir with the Electron build: config.json, models/, history.db, logs/
-are PRESERVED on uninstall (matches the Electron behavior; data is
-never deleted on uninstall). The Electron app picks up the same
+dir with the predecessor build: config.json, models/, history.db, logs/
+are PRESERVED on uninstall (matches the predecessor behavior; data is
+never deleted on uninstall). The predecessor app picks up the same
 config + models on next launch.
 
-### §8.2 Verify the Electron build still ships
+### §8.2 Verify the predecessor build still ships
 
 **VALIDATE ON WINDOWS HOST** From the repo root:
 
 ```powershell
 **VALIDATE ON WINDOWS HOST** cd voice_typer\client
 **VALIDATE ON WINDOWS HOST** npm run build        # builds main + preload + renderer
-**VALIDATE ON WINDOWS HOST** npx electron-builder --win --x64
+**VALIDATE ON WINDOWS HOST** run the predecessor packaging tool (`--win --x64` equivalent)
 **VALIDATE ON WINDOWS HOST** cd ..\..
 # Output: dist/VoiceTyper Setup <ver>.exe (NSIS installer)
 ```
 
-Install + launch the Electron build, it should pick up the same
+Install + launch the predecessor build, it should pick up the same
 `%APPDATA%\voice-typer\` config + models + history as the Tauri build
 (no data loss on revert).
 
@@ -1888,7 +1888,7 @@ binaries; the human validator runs §6 against them.
 | §6.8 Native listener | §6.4 | `voice_typer/server/native_hotkeys/` package |
 | §6.9 Single-instance | §12 | `src-tauri/src/main.rs:744` (plugin init) |
 | §7 Code signing | §13.1 | `docs/migration/signing-guide.md` |
-| §8 Rollback | Reversibility | (Electron build) |
+| §8 Rollback | Reversibility | (predecessor build) |
 | §10.1 Export History | §16 (new commands) | (Sub-agent A: `main.rs` `export_history`) |
 | §10.2 Export Vocabulary | §16 (new commands) | (Sub-agent A: `main.rs` `export_vocabulary`) |
 | §10.3 Bubble window | §9 + §16 | `src-tauri/tauri.conf.json:29-39` (bubble window decl) |

@@ -44,8 +44,7 @@ use std::sync::OnceLock;
 //: without these, the host would silently drop `ready`, `bubble_show`,
 // `history_changed`, etc. and break startup / bubble UI / history UI.
 // Keep both blocks in sync with the server's `event_bus.publish`
-// call sites. Drop the legacy `electron_notification` alias after
-// one release cycle with no rolling-upgrade traffic.
+// call sites.
 pub(super) const ALLOWED_EVENT_TYPES: &[&str] = &[
     // spec list (verbatim) ──
     "status_change",
@@ -148,14 +147,14 @@ pub(super) const ALLOWED_EVENT_TYPES: &[&str] = &[
     // degraded. Adding it here lets the frame through to the
     // renderer's `usePythonEvent("tray_fallback_notification", ...)`
     // handler. PAYLOAD: the Python emitter nests title/message under
-    // `data` (tray.py `_drain_pending`: fixed; the old Electron-era
+    // `data` (tray.py `_drain_pending`: fixed; the old predecessor-era
     // root-level shape was stripped by the reader's `data`
     // extraction), so the renderer consumer receives the real
     // title/message and only falls back to the generic
     // tray-unavailable banner when both are absent. Note the Tauri
     // runtime never hits this path (its tray notifications route
     // through the `notification` event via
-    // tray_notifications.do_notify); only the Electron/headless path
+    // tray_notifications.do_notify); only the predecessor/headless path
     // emits it.
     "state_changed",
     "error",
@@ -257,13 +256,6 @@ pub(super) const ALLOWED_EVENT_TYPES: &[&str] = &[
     // passes through).
     "transcribe_offline", // request: slim core → worker (also in command allowlists)
     "transcribe_offline_result", // push: worker → slim core → renderer
-                          // legacy aliases `relaunch_electron` and
-                          // `electron_notification` REMOVED. The Python sidecar has published
-                          // the canonical `relaunch_app` and `notification` event names for
-                          // more than one release cycle; the rolling-upgrade grace period is
-                          // over. Old sidecars that still emit the legacy names will now have
-                          // those frames DROPPED by the `ALLOWED_EVENT_TYPES` allowlist
-                          // (logged at `[WS-READER] dropping unknown event type:`).
 ];
 
 // O(1) lookup set for the inbound-frame hot path. `bubble_level`
@@ -335,7 +327,7 @@ pub(crate) fn python_event_envelope(emit_name: &str, payload: Value) -> Value {
 
 // translate Python-sidecar event names to the renderer's
 /// canonical event names. The Python sidecar publishes some events
-/// under snake_case names inherited from the Electron era (e.g.
+/// under snake_case names (e.g.
 /// `bubble_set_state`) that the renderer expects as kebab-case
 /// `bubble:*` (matching the `bubble:show`, `bubble:hide` events
 /// already documented in ADR-0020 §6.3). Unknown event names pass
@@ -351,20 +343,15 @@ pub(crate) fn python_event_envelope(emit_name: &str, payload: Value) -> Value {
 /// module split.
 pub(crate) fn translate_event_name(event_type: &str) -> &str {
     match event_type {
-        // cleanup the `relaunch_electron` →
-        // `relaunch_app` rename arm was REMOVED here, the Python
-        // sidecar now publishes the event under the canonical
-        // `relaunch_app` name directly (see `app.py::restart_app`),
-        // so it passes through unchanged. `main.rs::setup` registers
-        // `app.listen("relaunch_app", ...)` which calls
+        // The Python sidecar publishes the event under the canonical
+        // `relaunch_app` passes through unchanged. `main.rs::setup`
+        // registers `app.listen("relaunch_app", ...)` which calls
         // `app.restart()`. The renderer-side parity tests in
         // `tests/tauri/mig19/test_wire_swap_recovery.py`
-        // (`test_ws_reader_does_not_rename_relaunch_app`) lock this
-        // in: re-adding the arm will fail that test.
+        // (`test_ws_reader_forwards_event_names_unchanged`) pin this.
         //
         // bubble lifecycle events. The Python sidecar
-        // still publishes these under the snake_case names that the
-        // Electron bridge used; the Tauri renderer's `bubble.ts`
+        // publishes these under snake_case names; the Tauri renderer's `bubble.ts`
         // preload + `bubble-runtime.json` capability file use the
         // kebab-case `bubble:*` names. Without this translation the
         // events would be emitted under names the renderer never

@@ -19,7 +19,7 @@ use std::os::unix::fs::PermissionsExt;
 /// OR larger than [`crate::util::LOG_SIZE_FALLBACK_BYTES`] (25 MB).
 ///
 /// Mirrors the Python `_sweep_stale_logs`
-/// (`voice_typer/server/log/__init__.py`) and the Electron
+/// (`voice_typer/server/log/__init__.py`) and the predecessor
 /// `sweepStaleLogs` (`client/src/main/logging/rotation.ts`).
 ///
 /// Scope: every regular file in the directory EXCEPT `*.lock` files —
@@ -92,7 +92,7 @@ pub(crate) fn sweep_stale_logs(logs_dir: &std::path::Path) {
 /// writer, so it is never filtered by the WARN-default file level.
 ///
 /// **Level contract (2026-09-16, MO-114):** the FILE sink defaults to
-/// WARN/ERROR (Electron production parity, where WARN+ went to the host
+/// WARN/ERROR (predecessor production parity, where WARN+ went to the host
 /// file and INFO to stdout); `VOICE_TYPER_RUST_INFO_LOG=1` opts the file
 /// back up to INFO. The STDERR sink keeps INFO. An explicit `RUST_LOG`
 /// (or truthy `VOICE_TYPER_DEBUG` → Debug) overrides both.
@@ -117,7 +117,7 @@ pub(crate) fn init_file_logger(config_dir: &std::path::Path) -> Result<(), Strin
     // of the three-tier cleanup design. Runs BEFORE the writer opens
     // `voice-typer-rust.log` so a stale/oversized active file is removed
     // and a fresh one created for this session. Mirrors the Python
-    // `_sweep_stale_logs` and the Electron `sweepStaleLogs`. Best-effort:
+    // `_sweep_stale_logs` and the predecessor `sweepStaleLogs`. Best-effort:
     // every error is swallowed: a sweep failure must never block logger
     // init.
     sweep_stale_logs(&logs_dir);
@@ -169,9 +169,9 @@ pub(crate) fn init_file_logger(config_dir: &std::path::Path) -> Result<(), Strin
                 None
             }
         });
-    // FILE sink default: WARN/ERROR only, mirroring the Electron
+    // FILE sink default: WARN/ERROR only, mirroring the predecessor
     // production contract (its host file was WARN+ with INFO on stdout
-    // unless `VOICE_TYPER_ELECTRON_INFO_LOG=1`). INFO is opt-in through
+    // unless `VOICE_TYPER_LEGACY_INFO_LOG=1`). INFO is opt-in through
     // `VOICE_TYPER_RUST_INFO_LOG=1` (a separate 1 MiB lifecycle file was
     // deliberately NOT mirrored: one file keeps rotation + support
     // bundling single-source, see MO-108/MO-114 in review.md).

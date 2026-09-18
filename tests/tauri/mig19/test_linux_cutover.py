@@ -1,22 +1,32 @@
-"""MIG-1.9 Phase 5: Linux cutover validation.
+"""MIG-1.9 Phase 5: Linux packaging contract (Tauri host only).
 
-Validates the Linux portion of the Electron → Tauri cutover plan per
-ADR-0020 Phase 5 + ``docs/migration/cutover-playbook.md``. Linux is the
-3rd platform to cut over (after Windows + macOS). The Linux cutover has
-**two display-server dimensions** (X11 first, then Wayland: `enigo.text()`
-works on X11; Wayland needs the clipboard+Ctrl+V fallback) and **two arch
-dimensions** (x86_64 first, then aarch64, aarch64 may defer per
-ADR-0020 Risk #7). The cutover is **reversible**: the Electron build path
-stays intact and shippable on every platform throughout, Tauri is
-strictly additive until the platform's cutover gate (Phase 0-L) is met.
+The project ships exactly ONE desktop shell: the Tauri Rust host. This
+module pins the live Linux packaging contract:
+
+  - ``.github/workflows/tauri-linux-build.yml`` builds the Linux host
+    with ``cargo tauri build --target <triple>`` for both ``x86_64`` and
+    ``aarch64`` (``fail-fast: false``), uploading the ``.deb`` +
+    ``.AppImage`` artifacts; ``.rpm`` is produced via the
+    ``bundle.linux.rpm`` config in ``tauri.conf.json``.
+  - The Linux ``build`` job is gated to
+    ``workflow_dispatch`` / ``workflow_call`` (never a plain
+    ``if: true``), so the 30-60 min x2-arch bundle build does not fire
+    on every push/PR touching ``src-tauri/**`` (ADR-0020 §15).
+  - ``.github/workflows/tauri-build.yml`` runs the fail-fast config-drift
+    gate once as a ``validate`` job before fanning out, and its
+    ``build-linux`` job passes the ``target``/``sign`` inputs through.
+
+The Linux cutover has **two display-server dimensions** (X11 first, then
+Wayland: ``enigo.text()`` works on X11; Wayland needs the
+clipboard+Ctrl+V fallback) and **two arch dimensions** (x86_64 first,
+then aarch64, aarch64 may defer per ADR-0020 Risk #7).
 
 These tests run on any platform (Linux sandbox included), they only read
-static files (``cutover-playbook.md``, ``tauri-linux-build.yml``,
-``electron-builder.yml``, ``tauri.conf.json``). The actual end-to-end
-cutover validation (install .deb/.rpm/AppImage on a real X11 + Wayland
-host, dictate text, verify the ``runtime=tauri`` log line, rollback to
-Electron) can only be performed on a real Linux display host: see the
-"VALIDATE ON LINUX HOST" block below.
+static files (``tauri-linux-build.yml``, ``tauri-build.yml``,
+``tauri.conf.json``). The actual end-to-end validation (install
+.deb/.rpm/AppImage on a real X11 + Wayland host, dictate text, verify the
+``runtime=tauri`` log line) can only be performed on a real Linux display
+host: see the "VALIDATE ON LINUX HOST" block below.
 
 VALIDATE ON LINUX HOST (X11 + Wayland + both archs):
     # ────────────────────────────────────────────────────────────────────
@@ -29,8 +39,8 @@ VALIDATE ON LINUX HOST (X11 + Wayland + both archs):
             sudo dpkg -i bundle/deb/*.deb                       # .deb
             sudo dnf install -y bundle/rpm/*.rpm                # .rpm
             chmod +x bundle/appimage/*.AppImage && ./bundle/appimage/*.AppImage   # AppImage
-    3.  Verify the runtime is Tauri (NOT Electron):
-            ps aux | grep voice-typer    # → 'voice-typer-tauri' (Tauri) vs 'voice-typer' (Electron)
+    3.  Verify the runtime is Tauri:
+            ps aux | grep voice-typer    # → 'voice-typer-tauri'
             head -1 ~/.config/voice-typer/voice-typer.log   # → run=tauri version=... target=x86_64-unknown-linux-gnu
     4.  Launch the app, grant mic permission, toggle dictation via the
         global hotkey, dictate text into a foreground window
@@ -42,59 +52,45 @@ VALIDATE ON LINUX HOST (X11 + Wayland + both archs):
     6.  Verify crash isolation: ``kill -9 $(pgrep -f python-sidecar)``
         → UI shows "reconnecting…"; Rust supervisor respawns the sidecar;
         dictation resumes within the backoff window.
-    7.  Verify rollback to Electron (reversible fallback):
-            sudo apt remove voice-typer   # OR: sudo dnf remove voice-typer
-            # Download the Electron .deb/.rpm/AppImage from the same release page.
-            sudo dpkg -i voice-typer-<ver>-linux-x86_64.deb
-            ps aux | grep voice-typer      # → 'voice-typer' (Electron, NOT 'voice-typer-tauri')
-            head -1 ~/.config/voice-typer/voice-typer.log   # → 'runtime=electron ...'
-            # Verify history DB / vocabulary / templates / settings persisted across rollback.
 
     # ────────────────────────────────────────────────────────────────────
     # x86_64 Wayland host (Ubuntu 22.04 OR Fedora 40 with Wayland session)
     # ────────────────────────────────────────────────────────────────────
-    8.  Repeat steps 1-7 on a Wayland session
+    7.  Repeat steps 1-6 on a Wayland session
         (``echo $XDG_SESSION_TYPE`` → ``wayland``).
-    9.  Verify the clipboard+Ctrl+V fallback path replaces ``enigo.text()``
+    8.  Verify the clipboard+Ctrl+V fallback path replaces ``enigo.text()``
         on Wayland: dictate text → text is injected via clipboard
         borrow/restore (``clipboard_snapshot.py``). The user's prior
         clipboard contents MUST be restored after the paste.
-    10. Verify wl-clipboard is installed + on PATH:
+    9.  Verify wl-clipboard is installed + on PATH:
             which wl-copy wl-paste
 
     # ────────────────────────────────────────────────────────────────────
     # aarch64 host (native ARM Linux OR qemu-system-aarch64)
     # ────────────────────────────────────────────────────────────────────
-    11. Repeat steps 1-7 on aarch64 (Raspberry Pi 4/5, Ampere Altra, or
+    10. Repeat steps 1-6 on aarch64 (Raspberry Pi 4/5, Ampere Altra, or
         ``qemu-system-aarch64``):
             cd src-tauri
             cargo tauri build --target aarch64-unknown-linux-gnu
             sudo dpkg -i target/aarch64-unknown-linux-gnu/release/bundle/deb/*.deb
         If ``python-build-standalone`` aarch64 + CTranslate2 aarch64 wheels +
         glibc pinning prove unstable (ADR-0020 Risk #7), DEFER aarch64 —
-        x86_64 Linux can cut over independently per the playbook's
-        "Linux sub-order" section.
+        x86_64 Linux ships independently per the "Linux sub-order"
+        section.
 
     Expected: all three installers (.deb, .rpm, AppImage) install cleanly
     on X11 + Wayland + both archs; ``enigo.text()`` works on X11;
-    clipboard+Ctrl+V fallback works on Wayland; rollback to Electron
-    restores the prior runtime without data loss (history DB / vocabulary
-    / templates / settings / models all carry over in both directions).
+    clipboard+Ctrl+V fallback works on Wayland.
 
 References:
 - ADR-0020 §"Migration Plan" + §"Phase 5, Validation & cutover"
   + §"Reversibility", docs/adr/0020-desktop-runtime-migration-analysis.md
-- docs/migration/cutover-playbook.md, per-platform cutover procedure
-  (Linux section: "Linux sub-order (X11 before Wayland, x86_64 before
-  aarch64)")
 - docs/migration/linux-validation-runbook.md, Phase 0-L 9-point gate
 - .github/workflows/tauri-linux-build.yml, Phase 0-L Linux CI build
   (matrix: x86_64 + aarch64; uploads .deb + .AppImage; .rpm is built via
   ``cargo tauri build`` + ``bundle.linux.rpm`` config but has NO explicit
   upload step: see implementation-gap note in
   ``test_ci_workflow_builds_rpm_via_bundle_config``)
-- voice_typer/client/electron-builder.yml, Electron fallback config
-  (Linux ``target: [AppImage, deb, rpm]`` stays intact for rollback)
 """
 
 from __future__ import annotations
@@ -108,23 +104,13 @@ import pytest
 # ─── Path resolution ─────────────────────────────────────────────────────────
 # tests/tauri/mig19/test_linux_cutover.py → parents[3] = voice-typer project root
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
-DOCS_MIGRATION = PROJECT_ROOT / "docs" / "migration"
-CUTOVER_PLAYBOOK = DOCS_MIGRATION / "cutover-playbook.md"
 WORKFLOWS = PROJECT_ROOT / ".github" / "workflows"
 TAURI_LINUX_BUILD_YML = WORKFLOWS / "tauri-linux-build.yml"
 TAURI_BUILD_YML = WORKFLOWS / "tauri-build.yml"
-ELECTRON_BUILDER_YML = PROJECT_ROOT / "voice_typer" / "client" / "electron-builder.yml"
 TAURI_CONF = PROJECT_ROOT / "src-tauri" / "tauri.conf.json"
 
 
 # ─── Module-scoped fixtures (read each static file once) ─────────────────────
-
-
-@pytest.fixture(scope="module")
-def playbook_text() -> str:
-    """Read ``cutover-playbook.md`` once per module."""
-    assert CUTOVER_PLAYBOOK.is_file(), f"cutover playbook missing: {CUTOVER_PLAYBOOK}"
-    return CUTOVER_PLAYBOOK.read_text()
 
 
 @pytest.fixture(scope="module")
@@ -171,107 +157,6 @@ def tauri_conf() -> dict:
     return json.loads(TAURI_CONF.read_text())
 
 
-# ─── Helpers ─────────────────────────────────────────────────────────────────
-
-
-def _extract_linux_block(yml_text: str) -> str:
-    """Extract the top-level ``linux:`` block from electron-builder.yml.
-
-    The block starts at ``^linux:`` and runs until the next column-0 token
-    (a top-level key like ``deb:`` / ``rpm:`` or a column-0 comment like
-    ``# GAP-3:``). All lines inside the block start with whitespace.
-    """
-    m = re.search(
-        r"^linux:\s*\n((?:[ \t]+.*\n|[ \t]*\n)+)",
-        yml_text,
-        re.MULTILINE,
-    )
-    assert m, "could not extract top-level 'linux:' block from electron-builder.yml"
-    return m.group(1)
-
-
-def _extract_linux_target_entries(yml_text: str) -> list[str]:
-    """Extract the ``target:`` list entries from the ``linux:`` block.
-
-    Supports both the multi-line form (``target:\\n  - AppImage\\n  - deb``)
-    and the inline form (``target: [AppImage, deb, rpm]``).
-    """
-    linux_block = _extract_linux_block(yml_text)
-    # Multi-line form first (what the current electron-builder.yml uses).
-    multi = re.search(
-        r"^[ \t]+target:[ \t]*\n((?:[ \t]+-[ \t]+\S[^\n]*\n)+)",
-        linux_block,
-        re.MULTILINE,
-    )
-    if multi:
-        return re.findall(r"^[ \t]+-[ \t]+(\S+)", multi.group(1), re.MULTILINE)
-    # Inline form: target: [AppImage, deb, rpm]
-    inline = re.search(r"^[ \t]+target:[ \t]*\[([^\]]+)\]", linux_block, re.MULTILINE)
-    if inline:
-        return [t.strip() for t in inline.group(1).split(",") if t.strip()]
-    return []
-
-
-# ─── Tests: cutover playbook documents Linux cutover (X11 + Wayland + both archs) ──
-
-
-def test_playbook_documents_linux_in_cutover_order(playbook_text: str) -> None:
-    """The cutover-playbook must list Linux as the 3rd platform in the order table."""
-    assert "Linux" in playbook_text, "playbook must mention Linux"
-    # The per-platform cutover order table lists Linux as 3rd.
-    assert re.search(r"^\|\s*3rd\s*\|\s*Linux\b", playbook_text, re.MULTILINE), (
-        "playbook must list Linux as the 3rd platform in the cutover order table"
-    )
-
-
-def test_playbook_documents_x11_and_wayland(playbook_text: str) -> None:
-    """Linux cutover must document BOTH X11 and Wayland display-server dimensions."""
-    assert "X11" in playbook_text, "playbook must mention X11 for the Linux cutover"
-    assert "Wayland" in playbook_text, "playbook must mention Wayland for the Linux cutover"
-    # The "Linux sub-order" section explicitly addresses X11 before Wayland.
-    assert "X11 before Wayland" in playbook_text, "playbook must document the X11-before-Wayland cutover sub-order"
-
-
-def test_playbook_documents_both_archs(playbook_text: str) -> None:
-    """Linux cutover must document BOTH x86_64 and aarch64 arch dimensions."""
-    assert "x86_64" in playbook_text, "playbook must mention x86_64 for Linux"
-    assert "aarch64" in playbook_text, "playbook must mention aarch64 for Linux"
-    # The sub-order explicitly addresses x86_64 before aarch64.
-    assert "x86_64 before aarch64" in playbook_text, (
-        "playbook must document the x86_64-before-aarch64 cutover sub-order"
-    )
-
-
-def test_playbook_documents_phase_0_l_gate(playbook_text: str) -> None:
-    """Linux cutover gate must reference Phase 0-L (the Linux Phase 0 spike)."""
-    assert "Phase 0-L" in playbook_text, "playbook must reference Phase 0-L as the Linux cutover gate"
-    # The cutover order table's "Phase 0 gate" column for Linux must be
-    # "Phase 0-L".
-    linux_row = re.search(r"^\|\s*3rd\s*\|\s*Linux\b.*$", playbook_text, re.MULTILINE)
-    assert linux_row, "could not find Linux row in cutover order table"
-    assert "Phase 0-L" in linux_row.group(0), (
-        f"Linux row in cutover order table must list 'Phase 0-L' as the gate; got: {linux_row.group(0)!r}"
-    )
-
-
-def test_playbook_has_linux_suborder_section(playbook_text: str) -> None:
-    """The playbook must have a dedicated 'Linux sub-order' section.
-
-    That section details the X11-before-Wayland + x86_64-before-aarch64
-    ordering + the aarch64 deferral escape hatch (ADR-0020 Risk #7).
-    """
-    assert "Linux sub-order" in playbook_text, (
-        "playbook must have a 'Linux sub-order' section detailing the X11/Wayland + arch ordering"
-    )
-    # The sub-order section must mention the aarch64 deferral escape hatch.
-    sub_idx = playbook_text.index("Linux sub-order")
-    sub_section = playbook_text[sub_idx : sub_idx + 1200]
-    assert "aarch64" in sub_section, "Linux sub-order section must mention aarch64"
-    assert "Defer" in sub_section or "defer" in sub_section, (
-        "Linux sub-order section must document the aarch64 deferral escape hatch"
-    )
-
-
 # ─── Tests: CI workflow builds .deb + .rpm + AppImage ────────────────────────
 
 
@@ -312,10 +197,10 @@ def test_ci_workflow_builds_rpm_via_bundle_config(tauri_conf: dict) -> None:
     CI workflow does NOT have an explicit "Upload .rpm artifact" step —
     the .rpm IS produced by the build but is NOT uploaded as a CI
     artifact. This is an **implementation gap** (see the final report):
-    the playbook's hard-criteria §8 requires ".deb + .rpm install
-    cleanly", so the CI workflow should upload .rpm alongside .deb +
-    .AppImage. The ``tauri.conf.json`` ``bundle.linux.rpm`` config IS
-    the source of truth for which formats ``cargo tauri build`` produces.
+    the release criteria require ".deb + .rpm install cleanly", so the CI
+    workflow should upload .rpm alongside .deb + .AppImage. The
+    ``tauri.conf.json`` ``bundle.linux.rpm`` config IS the source of truth
+    for which formats ``cargo tauri build`` produces.
     """
     bundle = tauri_conf.get("bundle", {})
     assert "linux" in bundle, "tauri.conf.json missing 'bundle.linux'"
@@ -359,9 +244,6 @@ def test_ci_workflow_builds_rpm_via_bundle_config(tauri_conf: dict) -> None:
         pytest.fail(f"bundle.targets must be a string or list; got {type(targets).__name__}")
 
 
-# ─── Tests: Electron fallback preserved (Linux AppImage/deb/rpm in electron-builder.yml) ──
-
-
 def test_ci_workflow_documents_phase_0_l_gate(linux_workflow_text: str) -> None:
     """The Linux CI workflow must document the Phase 0-L gate + display-host requirement."""
     assert "Phase 0-L" in linux_workflow_text, (
@@ -380,7 +262,7 @@ def test_ci_workflow_documents_phase_0_l_gate(linux_workflow_text: str) -> None:
 def test_ci_workflow_documents_x11_and_wayland(linux_workflow_text: str) -> None:
     """The Linux CI workflow must document BOTH X11 AND Wayland (Phase 0-L gate)."""
     # The workflow header comments explain the Phase 0-L gate. Per the
-    # cutover playbook, the gate requires Phase 0-L to pass on a real
+    # release criteria, the gate requires Phase 0-L to pass on a real
     # Linux display host running X11 + Wayland.
     assert "X11" in linux_workflow_text, (
         "tauri-linux-build.yml must mention X11 (Phase 0-L gate requires X11 validation)"
@@ -433,15 +315,15 @@ def test_ci_workflow_has_gate_status_block_with_9_runbook_checks(
 def test_ci_workflow_enabled_for_phase_0_l_validation(linux_workflow_text: str) -> None:
     """The Linux CI workflow's build job must be enabled for dispatch/orchestrator runs.
 
-    Per ADR-0020 Phase 5 + the cutover playbook, the per-platform Tauri
-    workflow is enabled for Phase 0-L validation once it is ready to
-    exercise: the bundle ``build`` job runs on ``workflow_dispatch`` /
-    the tauri-build.yml orchestrator's ``workflow_call`` ONLY, NEVER on
-    push/PR. A plain ``if: true`` would also fire the 30-60 min x2-arch
-    bundle build on every push/PR touching ``src-tauri/**`` (the workflow
-    has live push/PR triggers for the smoke-cargo-check job), which
-    contradicts ADR-0020 §15, so the gate is the event conditional, not
-    ``if: false`` and not ``if: true``.
+    Per ADR-0020 Phase 5, the per-platform Tauri workflow is enabled for
+    Phase 0-L validation once it is ready to exercise: the bundle
+    ``build`` job runs on ``workflow_dispatch`` / the tauri-build.yml
+    orchestrator's ``workflow_call`` ONLY, NEVER on push/PR. A plain
+    ``if: true`` would also fire the 30-60 min x2-arch bundle build on
+    every push/PR touching ``src-tauri/**`` (the workflow has live
+    push/PR triggers for the smoke-cargo-check job), which contradicts
+    ADR-0020 §15, so the gate is the event conditional, not ``if: false``
+    and not ``if: true``.
     """
     assert "if: false" not in linux_workflow_text, (
         "tauri-linux-build.yml still has an `if: false` job guard, the bundle "
@@ -542,9 +424,9 @@ def test_orchestrator_runs_pre_dispatch_drift_gate_before_fan_out(
 def test_ci_workflow_matrix_includes_both_archs(linux_workflow_text: str) -> None:
     """The Linux CI workflow matrix must include BOTH x86_64 AND aarch64.
 
-    ADR-0020 §"Reversibility" + the cutover playbook's "Linux sub-order"
-    section mandate that x86_64 + aarch64 are independent (aarch64 may
-    defer if unstable). The CI matrix must build both in parallel with
+    ADR-0020 §"Reversibility" + the "Linux sub-order" section mandate
+    that x86_64 + aarch64 are independent (aarch64 may defer if
+    unstable). The CI matrix must build both in parallel with
     ``fail-fast: false`` so an aarch64 failure doesn't hide an x86_64
     success.
     """
@@ -580,85 +462,4 @@ def test_ci_workflow_documents_aarch64_cross_compile(linux_workflow_text: str) -
     )
     assert "binfmt" in linux_workflow_text.lower(), (
         "tauri-linux-build.yml must document the binfmt_misc registration for aarch64"
-    )
-
-
-# ─── Tests: cutover is reversible ────────────────────────────────────────────
-
-
-def test_playbook_documents_rollback_procedure(playbook_text: str) -> None:
-    """The playbook must document a per-platform rollback procedure."""
-    assert "Rollback procedure" in playbook_text, "playbook must have a 'Rollback procedure' section"
-    assert "Rollback is per-platform" in playbook_text, (
-        "playbook must state that rollback is per-platform (Linux rollback does NOT roll back Windows/macOS)"
-    )
-
-
-def test_playback_documents_electron_fallback_preserved(playbook_text: str) -> None:
-    """The playbook must state the Electron path stays intact (reversible fallback).
-
-    Cutover is marked HISTORICAL (Electron source removed); the playbook
-    still documents that the pre-cutover code path was kept intact on
-    every platform and that rollback used the prior Electron installer.
-    """
-    text_lower = playbook_text.lower()
-    assert "intact" in text_lower, (
-        "playbook must state the Electron code path stays intact (reversible fallback language)"
-    )
-    assert "reversible fallback" in text_lower, (
-        "playbook Step 2.2 must call out 'reversible fallback' for the Electron path"
-    )
-
-
-def test_playbook_documents_data_persistence_on_rollback(playbook_text: str) -> None:
-    """The playbook must document that data persists across rollback (no data loss).
-
-    The "What does NOT change on rollback" section must call out: history
-    DB, vocabulary, templates, automation, models, settings, all carry
-    over in both directions (Electron→Tauri→Electron). This is the
-    reversibility guarantee that lets a Linux user flip back to Electron
-    without losing their dictation history.
-    """
-    assert "What does NOT change on rollback" in playbook_text, (
-        "playbook must have a 'What does NOT change on rollback' section"
-    )
-    no_change_idx = playbook_text.index("What does NOT change on rollback")
-    # Take the next ~1000 chars to capture the bullet list.
-    section = playbook_text[no_change_idx : no_change_idx + 1000].lower()
-    for required in ("history", "vocabulary", "templates", "settings", "models"):
-        assert required in section, f"playbook rollback section must mention '{required}' persists across rollback"
-
-
-def test_playbook_documents_rollback_steps(playbook_text: str) -> None:
-    """The rollback procedure must enumerate the re-enable + disable + hotfix steps.
-
-    Per the playbook "To roll back a platform that was just cut over":
-    1. Re-enable the electron-builder target for that platform.
-    2. Disable the per-platform Tauri workflow's top-level ``if:`` guard.
-    3. Tag a hotfix release.
-    """
-    assert "Re-enable the electron-builder target" in playbook_text, (
-        "playbook rollback step 1 must say 'Re-enable the electron-builder target'"
-    )
-    assert "Disable the per-platform Tauri workflow" in playbook_text, (
-        "playbook rollback step 2 must say 'Disable the per-platform Tauri workflow'"
-    )
-    assert "hotfix" in playbook_text.lower(), "playbook rollback step 3 must mention tagging a hotfix release"
-
-
-def test_playbook_documents_mixed_mode_support(playbook_text: str) -> None:
-    """The playbook must document mixed-mode support (Electron + Tauri coexist).
-
-    During the transition, some Linux users are on Electron and some on
-    Tauri, both builds read + write the same data dir, so users can
-    switch freely. The playbook must document how to tell which build a
-    user is on (Linux: ``ps aux | grep voice-typer`` shows
-    ``voice-typer-tauri`` vs ``voice-typer``).
-    """
-    assert "Mixed-mode" in playbook_text or "mixed-mode" in playbook_text, (
-        "playbook must have a 'Mixed-mode period' section"
-    )
-    assert "voice-typer-tauri" in playbook_text, (
-        "playbook must document the Linux process-name difference "
-        "('voice-typer-tauri' for Tauri vs 'voice-typer' for Electron)"
     )

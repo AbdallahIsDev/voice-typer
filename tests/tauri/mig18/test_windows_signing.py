@@ -221,12 +221,12 @@ def test_workflow_uses_win_csc_link_secret(workflow_text: str):
 
     ADR-0020 §13.1 + signing-guide.md §"Reused signing identities":
     the Windows build reuses the existing ``WIN_CSC_LINK`` secret
-    (the Authenticode PFX cert, base64-encoded) from the Electron
+    (the Authenticode PFX cert, base64-encoded) from the predecessor
     build. This avoids cert duplication in CI.
     """
     assert "WIN_CSC_LINK" in workflow_text, (
         "tauri-windows-build.yml must consume the WIN_CSC_LINK secret "
-        "(Authenticode PFX cert, reused from the Electron build per "
+        "(Authenticode PFX cert, reused from the predecessor build per "
         "signing-guide.md §'Reused signing identities')."
     )
     assert "secrets.WIN_CSC_LINK" in workflow_text, (
@@ -566,7 +566,7 @@ def test_signing_guide_exists_and_documents_windows_authenticode():
     # The WIN_CSC_LINK env var must be documented.
     assert "WIN_CSC_LINK" in text, (
         "signing-guide.md must document the WIN_CSC_LINK env var "
-        "(Authenticode PFX cert path, reused from the Electron build)."
+        "(Authenticode PFX cert path, reused from the predecessor build)."
     )
 
 

@@ -134,7 +134,7 @@ function HelpOverlayInner({
 						},
 						{
 							// OS-global bubble-dismiss accelerator, registered in
-							// the Electron main process, rendered from the same
+							// the predecessor main process, rendered from the same
 							// catalog entry so the overlay can't drift from it.
 							keys: SHORTCUTS.dismissBubble.keys,
 							desc: t(SHORTCUTS.dismissBubble.labelKey),

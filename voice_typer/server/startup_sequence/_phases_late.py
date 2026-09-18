@@ -601,7 +601,7 @@ class LatePhases:
     def _phase_8_finalize_and_signal(self) -> StageResult:
         """Phase 8, restart detection + bubble show + startup-complete log.
 
-        After-restart: auto-opens the Electron window so it appears
+        After-restart: auto-opens the app window so it appears
         fresh once the new instance is fully ready (the
         ``VOICE_TYPER_RESTART`` env var is set by ``restart_app``
         before launching the new process). Then, when the user's
@@ -617,15 +617,15 @@ class LatePhases:
         no-model hole (see below).
         """
         app = self._app
-        # After restart: auto-open the Electron window so it appears fresh
+        # After restart: auto-open the app window so it appears fresh
         # once the new instance is fully ready.  The VOICE_TYPER_RESTART
         # env var is set by restart_app() before launching the new process.
         if os.environ.get("VOICE_TYPER_RESTART"):
-            log.info("[STARTUP] Restart detected -- opening Electron window")
+            log.info("[STARTUP] Restart detected -- opening app window")
             try:
-                app.tray.open_electron_window()
+                app.tray.open_app_window()
             except Exception as e:
-                log.warning("[STARTUP] Failed to open Electron window after restart: %s", e)
+                log.warning("[STARTUP] Failed to open app window after restart: %s", e)
 
         # Show the bubble at startup if always_visible mode is enabled AND
         # bubble_show_on_startup is True (user's preference in Settings).

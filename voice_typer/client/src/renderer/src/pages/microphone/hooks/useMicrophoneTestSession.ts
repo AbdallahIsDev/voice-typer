@@ -545,7 +545,7 @@ export function useMicrophoneTestSession({
 			}, 250);
 			testTimerRef.current = tickInterval;
 		} catch (err) {
-			// The Electron path surfaces the backend's
+			// The predecessor path surfaces the backend's
 			// ``client.consent_required`` envelope as a thrown Error
 			// with ``code`` preserved (see usePython.call's
 			// ``type:"error"`` handling). Detect it and surface the

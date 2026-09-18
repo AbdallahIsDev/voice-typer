@@ -1,6 +1,6 @@
 //! OS power-event handling for the Tauri host (MO-126).
 //!
-//! Electron bridged `powerMonitor` suspend/resume/on-battery
+//! predecessor bridged `powerMonitor` suspend/resume/on-battery
 //! (`client/src/main/power.ts`). Tauri/wry expose no equivalent
 //! (`RunEvent::Resumed` is the winit Android/desktop event-loop resume,
 //! NOT OS sleep/wake — verified against docs.rs tauri 2.11.5).

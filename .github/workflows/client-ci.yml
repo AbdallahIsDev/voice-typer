@@ -81,8 +81,8 @@ jobs:
       # WR-16: build the renderer before tests so a broken build config /
       # dead import surfaces here instead of only in the much slower
       # tauri-* workflows. package.json `build` is `vite build --config
-      # vite.tauri.config.ts` (Electron electron-vite build retired with
-      # the 2026-09-17 Electron removal). Previously this workflow only
+      # vite.tauri.config.ts` (predecessor vite build retired with
+      # the 2026-09-17 cutover). Previously this workflow only
       # ran typecheck + lint + test — a build-time error in the vite
       # config would land on the Tauri release workflow and block a
       # release instead of being caught at PR time.

@@ -434,7 +434,7 @@ class ConfigHandlersMixin(HandlerBase):
             # ``bubble_position`` is included because the handler above
             # clears the persisted bubble_x/bubble_y pair whenever the edge
             # preference changes, the repush carries the cleared pair to
-            # BOTH runtimes (Electron main + Tauri host cache it from this
+            # BOTH runtimes (predecessor main + Tauri host cache it from this
             # frame) so an in-flight durable position doesn't survive the
             # toggle. ``text_size`` is included so a UI text-size change
             # re-pushes the bubble config subset (which now carries

@@ -531,7 +531,7 @@ class TestDoCleanupWaitsOnEvent:
             "_teardown_devnull_files",
             "_teardown_level_monitor",
             "_teardown_hotkeys",
-            "_teardown_electron",
+            "_teardown_host_child",
             "_teardown_event_bus",
         ]:
             setattr(controller, name, MagicMock())
@@ -595,7 +595,7 @@ class TestDoCleanupWaitsOnEvent:
             "_teardown_devnull_files",
             "_teardown_level_monitor",
             "_teardown_hotkeys",
-            "_teardown_electron",
+            "_teardown_host_child",
             "_teardown_event_bus",
         ]:
             setattr(controller, name, MagicMock())
@@ -686,7 +686,7 @@ class TestDoCleanupWaitsOnEvent:
             "_teardown_devnull_files",
             "_teardown_level_monitor",
             "_teardown_hotkeys",
-            "_teardown_electron",
+            "_teardown_host_child",
             "_teardown_event_bus",
         ]:
             setattr(controller, name, MagicMock())

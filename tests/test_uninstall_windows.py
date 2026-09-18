@@ -10,15 +10,15 @@ errors.
 Pre-fix (S2-CR-69 PARTIAL state): only Linux had the cleanup
 (``scripts/linux/uninstall_permissions.py`` + prerm) and macOS had
 ``scripts/macos/uninstall.sh``. Windows had ``deleteAppDataOnUninstall:
-true`` in electron-builder.yml (which only removes the AppData
-directory, NOT the registry / Task Scheduler entries) and a
+true`` in the predecessor's packaging config (which only removes the
+AppData directory, NOT the registry / Task Scheduler entries) and a
 deferred-comment block in the ``nsis:`` section saying the fix
 "needed a .nsh file that was NOT yet in this repo's file tree".
 
 Post-fix (this commit):
   1. ``scripts/windows/uninstaller.nsh`` (existing, added by an
-     earlier wave) is now WIRED via ``nsis.include`` in
-     electron-builder.yml. The .nsh does the native NSIS registry
+     earlier wave) is now WIRED via ``nsis.include`` in the Tauri NSIS
+     bundler config. The .nsh does the native NSIS registry
      + schtasks sweep.
 2. ``scripts/windows/uninstall_permissions.py`` (NEW), Python
       equivalent, invoked by the .bat wrapper, which calls the
@@ -64,8 +64,8 @@ Test matrix
   - main() with mocked helpers returns 0.
   - --purge flag triggers _purge_user_data.
   - VOICE_TYPER_PURGE=1 env var triggers _purge_user_data.
-- electron-builder.yml + tauri.conf.json wiring:
-  - electron-builder.yml has ``nsis.include`` pointing at an existing
+- tauri.conf.json wiring:
+  - ``bundle.windows.nsis.installerHooks`` points at an existing
     .nsh file.
   - tauri.conf.json has ``bundle.windows.webviewInstallMode`` set.
   - tauri.conf.json has ``bundle.windows.nsis.installerHooks`` set
@@ -85,7 +85,6 @@ from unittest.mock import MagicMock
 import pytest
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
-ELECTRON_BUILDER_YML = REPO_ROOT / "voice_typer" / "client" / "electron-builder.yml"
 TAURI_CONF_JSON = REPO_ROOT / "src-tauri" / "tauri.conf.json"
 UNINSTALL_PERMISSIONS_PY = REPO_ROOT / "scripts" / "windows" / "uninstall_permissions.py"
 UNINSTALL_BAT = REPO_ROOT / "scripts" / "windows" / "uninstall.bat"
@@ -592,7 +591,7 @@ class TestUninstallPermissionsScript:
 
 
 # ---------------------------------------------------------------------------
-# Wiring: electron-builder.yml + tauri.conf.json + file existence
+# Wiring: tauri.conf.json + file existence
 # ---------------------------------------------------------------------------
 
 
@@ -702,9 +701,9 @@ class TestWiring:
 
     def test_uninstaller_nsh_exists(self):
         """scripts/windows/uninstaller.nsh must exist (the NSIS custom
-        uninstaller macro wired by electron-builder.yml nsis.include)."""
+        uninstaller macro wired by the Tauri NSIS installer hooks)."""
         assert UNINSTALLER_NSH.is_file(), (
-            f"{UNINSTALLER_NSH} does not exist, electron-builder.yml's "
+            f"{UNINSTALLER_NSH} does not exist, the NSIS installer hook's "
             "nsis.include points at a non-existent file. See S2-CR-69."
         )
 

@@ -105,7 +105,7 @@ use futures_util::future::FutureExt;
 
 // ─── Sidecar spawn + stdout handshake (ADR-0020 §1) ───────────────────
 
-/// MO-110 (Electron parity, P1-1.2): adopted-backend mode. When the
+/// MO-110 (predecessor parity, P1-1.2): adopted-backend mode. When the
 /// host was launched BY an already-running Python backend (the
 /// standalone `VoiceTyper` CLI flow), the backend exports
 /// `VT_PYTHON_PORT` + `VT_IPC_TOKEN` into the host's env. In that case
@@ -114,7 +114,7 @@ use futures_util::future::FutureExt;
 /// paths become safe no-ops (the backend is our parent; killing it
 /// takes the app down).
 ///
-/// Electron implements the same contract at `start-python.ts`
+/// predecessor implements the same contract at `start-python.ts`
 /// (P1-1.2: skip spawn, connect directly) with `restart-backend.ts`
 /// (adopted mode → refuse) and `stop-python.ts` (null
 /// `pythonProcess` → no-op) completing the no-kill/no-restart
@@ -258,7 +258,7 @@ pub(crate) async fn initialize_sidecar(
     // (VT_PYTHON_PORT + VT_IPC_TOKEN in the host env), connect to IT
     // instead of spawning a second backend. No child handle is
     // installed (state.child stays None) so every kill/stop/respawn
-    // path is a safe no-op, exactly like Electron's null
+    // path is a safe no-op, exactly like the predecessor's null
     // `pythonProcess` in the same mode. The supervisor must also stay
     // out of the way: a respawn would spawn a SECOND backend next to
     // our parent, hence the `adopted` flag below guards the fallback.
@@ -323,8 +323,8 @@ pub(crate) async fn initialize_sidecar(
 /// Extracted verbatim from `main.rs` (pure move, no behavior change)
 /// so the host entrypoint stays wiring-only (C-ARCH-1). Sequence:
 ///
-/// 1. Run the one-time Electron→Tauri migration
-///    (`migrate::migrate_electron_userdata_async`) on the async
+/// 1. Run the one-time predecessor→Tauri migration
+///    (`migrate::migrate_legacy_userdata_async`) on the async
 ///    runtime's blocking pool: fs-heavy, 5-30s on first launch, so
 ///    this task is not stalled, and so `initialize_sidecar` boots the
 ///    sidecar against already-migrated data (ADR-0020 §8).
@@ -345,11 +345,11 @@ pub(crate) async fn initialize_sidecar(
 /// bridge this back through `tauri::async_runtime::block_on` /
 /// std::thread + block_on, see AGENTS.md C-TOKIO-1.
 pub(crate) async fn initialize_sidecar_guarded(app_handle: tauri::AppHandle) {
-    // ADR-0020 §8: run the one-time Electron→Tauri migration on the
+    // ADR-0020 §8: run the one-time predecessor→Tauri migration on the
     // blocking pool (fs-heavy, 5-30s on first launch) so this async
     // task is not stalled. MUST run before initialize_sidecar so the
     // sidecar boots against already-migrated data.
-    crate::migrate::migrate_electron_userdata_async(&app_handle).await;
+    crate::migrate::migrate_legacy_userdata_async(&app_handle).await;
     let state: tauri::State<'_, Arc<crate::state::SidecarState>> = app_handle.state();
     let state = state.inner().clone();
     // See the C-TOKIO-1 guard on this function: `catch_unwind` on the

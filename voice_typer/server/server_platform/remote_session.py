@@ -63,7 +63,7 @@ log = logging.getLogger(__name__)
 #   ``TERM_PROGRAM=Hyper`` inside its remoting shell (a quirk of the
 #   CRD host-side shell wrapper). Other terminals (iTerm2, GNOME
 #   Terminal) set ``TERM_PROGRAM`` too, but only CRD sets it to
-#   ``"Hyper"`` (which is also the name of an Electron-based terminal
+#   ``"Hyper"`` (which is also the name of an predecessor-based terminal
 #   emulator, false positive risk is low because Hyper users on a
 #   local desktop don't typically rely on ``is_remote_session``-gated
 #   behavior).

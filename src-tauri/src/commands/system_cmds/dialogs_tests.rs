@@ -27,7 +27,7 @@ fn test_logs_dir_path_appends_logs_leaf_to_config_dir() {
         PathBuf::from("/Users/alice/Library/Application Support/voice-typer"),
         // Linux: $XDG_DATA_HOME/voice-typer (default ~/.local/share/voice-typer)
         PathBuf::from("/home/alice/.local/share/voice-typer"),
-        // Legacy Electron dir (still resolved when it exists)
+        // Legacy predecessor dir (still resolved when it exists)
         PathBuf::from("/home/alice/.voice-typer"),
         // VOICE_TYPER_CONFIG_DIR override
         PathBuf::from("/home/alice/custom-config"),

@@ -410,7 +410,7 @@ describe("useMicrophoneTestSession, biometric consent required (GDPR Art. 9)", (
 	});
 
 	it("opens the consent gate when the IPC throws an Error with code client.consent_required", async () => {
-		// Electron path: the ``type:"error"`` envelope is thrown as an
+		// predecessor path: the ``type:"error"`` envelope is thrown as an
 		// Error with ``code`` preserved by ``usePython.call``. The hook
 		// must detect ``code === "client.consent_required"`` and open
 		// the consent gate instead of the generic failure toast.

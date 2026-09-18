@@ -58,7 +58,7 @@ export const FADEOUT_DURATION_MS = 150;
  * The shared Tailwind `className` for `BubbleMicButton`,
  * `BubbleStopButton`, and `BubbleDismissButton`. The three affordances
  * must render pixel-identically (same sizing, same hover palette, same
- * `no-drag` opt-out so clicks bubble through the Electron
+ * `no-drag` opt-out so clicks bubble through the predecessor
  * `-webkit-app-region: drag` region) so they read as siblings of one
  * pill.
  *

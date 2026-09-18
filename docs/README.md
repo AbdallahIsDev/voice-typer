@@ -41,7 +41,7 @@ audiences: [`README.md`](../README.md), [`CONTRIBUTING.md`](../CONTRIBUTING.md),
 | [migration/macos-validation-runbook.md](migration/macos-validation-runbook.md) | 9-point Phase 0-M validation gate (macOS, both arches). |
 | [migration/linux-validation-runbook.md](migration/linux-validation-runbook.md) | 9-point Phase 0-L validation gate (Linux X11 + Wayland, both arches). |
 | [migration/signing-guide.md](migration/signing-guide.md) | Windows Authenticode + macOS Developer ID/notarization + Linux signing story. |
-| [migration/cutover-playbook.md](migration/cutover-playbook.md) | Per-platform cutover criteria + rollback procedure for the Electron → Tauri migration. |
+| [migration/cutover-playbook.md](migration/cutover-playbook.md) | Per-platform cutover criteria + rollback procedure for the predecessor → Tauri migration. |
 
 ## For security reviewers
 

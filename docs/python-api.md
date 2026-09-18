@@ -132,8 +132,8 @@ Removed / renamed fields (documented for searchability, do NOT re-add):
 - `clipboard_clear_delay_seconds` → removed in ADR-0010 §8.2 (was dead
   code: only read by the deleted `schedule_clipboard_clear`).
 - `check_updates` → never existed on `Config` (auto-update is not a
-  Python config flag; the historical Electron `electron-updater` path
-  was removed with the Electron host 2026-09-17. See
+  Python config flag; the historical predecessor `predecessor-updater` path
+  was removed with the predecessor host 2026-09-17. See
   `docs/auto-update-feature.md` for the current design).
 - `voice_activity` recording mode → never implemented; the enum is
   `{toggle, push_to_talk}` only.
@@ -180,7 +180,7 @@ Python backend.
   binds `127.0.0.1:0`, prints `{"event":"server_started","port":N}`, and
   the Rust host connects with a bearer-token auth handshake.
   Historical TCP JSON-lines on `127.0.0.1:9876` served the retired
-  Electron host; that path is removed.
+  predecessor host; that path is removed.
 - **Framing:** Newline-delimited JSON (WS TEXT frames carrying the same
   JSON-line messages)
 - **Auth:** Per-connection token. The **first** message on a connection must be a JSON `auth` object whose `token` field matches the `VOICE_TYPER_IPC_TOKEN` env var (constant-time comparison via `hmac.compare_digest`). Once the handshake succeeds, subsequent messages on that authenticated connection bypass the token check and go straight to dispatch. See `SEC-018` in `SECURITY.md` for the threat model.

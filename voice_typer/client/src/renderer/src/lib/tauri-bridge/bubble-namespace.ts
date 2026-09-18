@@ -8,7 +8,7 @@
 // `signalReady`, `setPosition`, `setDraggable`, `moveBy`) invoke Rust
 //window-management commands added in  Each fires-and-forgets —
 // the return type is `void` per the `MainRendererBubbleMutators`
-// contract, matching the Electron preload (which uses `ipcRenderer.send`,
+// contract, matching the predecessor preload (which uses `ipcRenderer.send`,
 // also void). The Rust commands update the bubble BrowserWindow state
 // asynchronously.
 //
@@ -21,7 +21,7 @@
 // the bubble renderer's `window.bubble` exposes the full
 // `BubbleWindowBubble` (`MainRendererBubbleMutators &
 // BubbleEventSubscriptions & BubbleWindowExtras`). This mirrors the
-// Electron preload's split (`preload/index.ts` vs `preload/bubble.ts`)
+// predecessor preload's split (`preload/index.ts` vs `preload/bubble.ts`)
 // and prevents a compromised main renderer from invoking
 // `bubble_resize` / `bubble_toggle_dictation` directly (SEC-026).
 //
@@ -36,7 +36,7 @@
 //
 // `hideComplete` moved from the shared mutators to
 // `BubbleWindowExtras` (bubble-only). Only the bubble renderer's
-// exit-animation handler should invoke it. The Electron preload's
+// exit-animation handler should invoke it. The predecessor preload's
 // exposure of `hideComplete` on main was removed in the same fix.
 //
 // The previous version inlined a 12-line race-safe subscribe block 6×
@@ -50,7 +50,7 @@
 // call now ends with `.catch((err) => console.warn("[renderer:bubble-namespace] ...",
 // err))` instead of the previous `void invoke(...)` form which
 // discarded rejections. A broken bubble host previously failed
-// invisibly; failures now surface in the Electron main-process log
+// invisibly; failures now surface in the predecessor main-process log
 // (forwarded via webContents.on("console-message")). The corresponding
 // observability fix for the `bubble_level` listener SUBSCRIBE promise
 // (and every other listener in this namespace) lives in
@@ -97,7 +97,7 @@ function detectWindowLabel(tauri: TauriGlobal): "main" | "bubble" {
  * subset on the main window (omitting `onSetState` / `onConfig` /
  * `resizeTo` / `toggleDictation` / `hideComplete` AND the event
  * subscriptions `onLevel` / `onShow` / `onHide` / `onDraggable`),
- * mirroring the Electron preload's split (`preload/index.ts` exposes
+ * mirroring the predecessor preload's split (`preload/index.ts` exposes
  * only the 5 shared mutators; `preload/bubble.ts` adds the bubble-only
  * methods + event subscriptions). The label is detected via
  * `tauri.window.getCurrentWindow().label` when no parameter is passed.
@@ -140,7 +140,7 @@ export function createBubbleNamespace(
 	// event subscriptions are added below for the bubble window.
 	const mutators: MainRendererBubbleMutators = {
 		//show the bubble BrowserWindow. Fire-and-forget —
-		// matches Electron's `ipcRenderer.send("bubble:show-from-renderer")`.
+		// matches the predecessor's `ipcRenderer.send("bubble:show-from-renderer")`.
 		//log failures instead of silent drop.
 		show: () => {
 			tauri.core
@@ -151,7 +151,7 @@ export function createBubbleNamespace(
 		},
 
 		//signal that the bubble renderer has mounted and is
-		// ready to receive `bubble_level` events. Matches Electron's
+		// ready to receive `bubble_level` events. Matches the predecessor's
 		// `ipcRenderer.send("bubble:ready")`.
 		signalReady: () => {
 			tauri.core
@@ -199,7 +199,7 @@ export function createBubbleNamespace(
 		},
 
 		//toggle whether the bubble window can be dragged.
-		// Matches Electron's `ipcRenderer.send("bubble:draggable", draggable)`.
+		// Matches the predecessor's `ipcRenderer.send("bubble:draggable", draggable)`.
 		setDraggable: (draggable: boolean) => {
 			tauri.core
 				.invoke("bubble_set_draggable", { draggable })
@@ -287,9 +287,9 @@ export function createBubbleNamespace(
 				callback,
 			),
 
-		//Locale-change push (both-runtime parity with the Electron
+		//Locale-change push (both-runtime parity with the predecessor
 		// preload's `onLocaleChanged`, same `bubble:locale-changed`
-		// event name + same string payload). Under Electron the main
+		// event name + same string payload). Under predecessor the main
 		// process sends the channel directly
 		// (`notifyBubbleLocaleChanged` in windows/bubble/lifecycle.ts).
 		// The Tauri host does not yet broadcast a locale event to the
@@ -328,7 +328,7 @@ export function createBubbleNamespace(
 		// events pushed by the Rust WS reader task (sidecar/ws.rs
 		// `translate_event_name` translates the Python sidecar's
 		// `bubble_set_state` event to the renderer's `bubble:set-state`
-		// name). Matches Electron's `ipcRenderer.on("bubble:set-state",
+		// name). Matches the predecessor's `ipcRenderer.on("bubble:set-state",
 		// handler)` in preload/bubble.ts:64-71.
 		onSetState: (callback: (payload: string) => void) =>
 			makeListener<string>(
@@ -342,7 +342,7 @@ export function createBubbleNamespace(
 		//auto-resize the bubble BrowserWindow to exactly fit the
 		// pill content (eliminates the transparent dead zone around the
 		// bubble that blocks clicks to the windows underneath). Matches
-		// Electron's `ipcRenderer.send("bubble:resize", {width, height})`
+		// the predecessor's `ipcRenderer.send("bubble:resize", {width, height})`
 		// in preload/bubble.ts:100-102. Fire-and-forget, the Rust
 		// `bubble_resize` command updates the window size asynchronously.
 		resizeTo: (width: number, height: number) => {
@@ -364,7 +364,7 @@ export function createBubbleNamespace(
 		// dedicated `bubble_toggle_dictation` command which forwards the
 		// `toggle_dictation` envelope to the sidecar via the WS bridge
 		// (fire-and-forget, the bubble learns the new state via the
-		// `bubble:set-state` event). Matches Electron's
+		// `bubble:set-state` event). Matches the predecessor's
 		// `ipcRenderer.send("bubble:toggle-dictation")` in
 		// preload/bubble.ts:120-122.
 		toggleDictation: () => {
@@ -381,7 +381,7 @@ export function createBubbleNamespace(
 		// notify the host that the bubble's exit animation has
 		// finished and the window can be hidden. Only the bubble
 		// renderer's exit-animation handler should invoke this, the
-		// main renderer has no equivalent lifecycle. Matches Electron's
+		// main renderer has no equivalent lifecycle. Matches the predecessor's
 		// `ipcRenderer.send("bubble:hidden")` in preload/bubble.ts.
 		hideComplete: () => {
 			tauri.core
@@ -401,7 +401,7 @@ export function createBubbleNamespace(
 		// the window becomes invisible) then hides the window
 		// unconditionally. Gated by `require_bubble_window` on the
 		// Rust side (SEC-016, only the bubble window may dismiss
-		// itself). Matches Electron's
+		// itself). Matches the predecessor's
 		// `ipcRenderer.send("bubble:dismiss")` in preload/bubble.ts
 		// (routed to `hideBubbleWindow()` in bubble-handlers.ts).
 		dismiss: () => {

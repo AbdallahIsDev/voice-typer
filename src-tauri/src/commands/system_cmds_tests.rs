@@ -207,10 +207,10 @@ fn test_redact_config_secrets_non_object_root() {
 
 //set_host_locale ────────────────────────────────────────
 //
-// Pins the locale-storage contract mirrored from Electron's
+// Pins the locale-storage contract mirrored from the predecessor's
 // `i18n:set-locale` IPC handler: bare-string payload in,
 // `{ok: bool, error?}` envelope out, and domain-level failures
-// RESOLVE (ok:false) instead of rejecting, matching the Electron
+// RESOLVE (ok:false) instead of rejecting, matching the predecessor
 // handler's resolve-not-reject behavior.
 //
 // The command wrapper's `require_main_window(&window)` guard needs a

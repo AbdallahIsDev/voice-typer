@@ -491,7 +491,7 @@ def build_parallel_plan(
         ("teardown_devnull_files", controller._teardown_devnull_files, 10.0, None, False),
         ("teardown_level_monitor", controller._teardown_level_monitor, 10.0, None, False),
         ("teardown_hotkeys", controller._teardown_hotkeys, 10.0, None, False),
-        ("teardown_electron", controller._teardown_electron, 10.0, None, False),
+        ("teardown_host_child", controller._teardown_host_child, 10.0, None, False),
         ("teardown_event_bus", controller._teardown_event_bus, 10.0, None, False),
     ]
     parallel_items: list[tuple[str, object, float, str | None, bool]] = []

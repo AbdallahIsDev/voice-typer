@@ -19,12 +19,9 @@ as :mod:`._teardowns`). The delegate indirection is kept so:
     logoff/shutdown events to ``controller._do_fast_cleanup()``.
 
 The free functions are imported at MODULE level (not inside the
-methods), the static AST contract in
-``tests/regressions/test_electron.py::TestShutdownControllerPhasesContract``
-asserts ``_do_cleanup`` contains ZERO dynamic imports, and the import
-is acyclic in both directions (the extracted modules depend only on
-stdlib + leaf utility modules, never on ``shutdown_controller`` at
-module load time).
+methods) to keep the import acyclic in both directions (the extracted
+modules depend only on stdlib + leaf utility modules, never on
+``shutdown_controller`` at module load time).
 """
 
 from __future__ import annotations

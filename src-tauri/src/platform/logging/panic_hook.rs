@@ -7,9 +7,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-// ── Crash-loop breaker (Electron parity, review.md MO-107) ──────────
+// ── Crash-loop breaker (predecessor parity, review.md MO-107) ──────────
 //
-// The Electron main process killed itself after
+// The predecessor main process killed itself after
 // [`PANIC_BREAKER_MAX`] uncaught exceptions inside
 // [`PANIC_BREAKER_WINDOW_SECS`] (`bootstrap/error-handlers.ts`), so a
 // process that is stuck in a crash loop cannot spin forever spawning
@@ -28,7 +28,7 @@ use std::time::{Duration, Instant};
 /// Panics inside [`PANIC_BREAKER_WINDOW_SECS`] that trip the breaker.
 pub(crate) const PANIC_BREAKER_MAX: usize = 5;
 
-/// Rolling window the breaker counts panics over (Electron: 60 s).
+/// Rolling window the breaker counts panics over (predecessor: 60 s).
 pub(crate) const PANIC_BREAKER_WINDOW_SECS: u64 = 60;
 
 /// Rolling timestamps of recent host panics (newest last). Only ever
@@ -111,7 +111,7 @@ pub(crate) static PANIC_HOOK_REENTRY: AtomicBool = AtomicBool::new(false);
 ///
 /// crash-loop breaker: after [`PANIC_BREAKER_MAX`] panics inside
 /// [`PANIC_BREAKER_WINDOW_SECS`] the hook logs a `[PANIC-BREAKER]`
-/// line and exits the host with code 1 (Electron parity, MO-107). The
+/// line and exits the host with code 1 (predecessor parity, MO-107). The
 /// counting is `#[cfg(not(test))]`-safe: the policy function is unit
 /// tested, the exit is compiled out of test builds.
 pub fn install_panic_hook() {
@@ -154,7 +154,7 @@ pub fn install_panic_hook() {
         let payload_redacted = redact_pii(payload);
         eprintln!("[PANIC] {} -- {}", location, payload_redacted);
         log::error!("panic at {} -- {}", location, payload_redacted);
-        // Crash-loop breaker (Electron parity, MO-107): count this panic
+        // Crash-loop breaker (predecessor parity, MO-107): count this panic
         // inside the rolling window and, once the threshold is reached,
         // emit one final breadcrumb and let the host die instead of
         // looping. The counting itself never panics: a poisoned lock
@@ -177,7 +177,7 @@ pub fn install_panic_hook() {
             // Flush so the final breadcrumb is on disk before exit.
             log::logger().flush();
             // Exiting from inside a panic hook is deliberate here: the
-            // Electron host did the same (kill the process) and a
+            // predecessor host did the same (kill the process) and a
             // crash-looping host is worse than a dead one. Under
             // `cfg(test)` the exit is compiled away (the Rust suite
             // fires real panics through this hook on purpose) while the

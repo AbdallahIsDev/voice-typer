@@ -6,11 +6,11 @@ These tests pin the GROUP-2 fixes applied to
 * **XV-7 (High)**: ``_do_cleanup`` groups the independent middle
   teardowns (cancel-timers, recorder, level_monitor, restore_volume,
   hotkeys, crash_recovery, history_db, waveform_wiring, sounddevice,
-  electron, pid_file, mutex_handle, devnull_files, event_bus) into a
+  host_child, pid_file, mutex_handle, devnull_files, event_bus) into a
   ``concurrent.futures.ThreadPoolExecutor`` with a shared 10 s deadline.
   ``ipc_server.stop`` and ``tray.stop`` remain as sequential bookends.
 
-* **XV-8 (Medium)**, Electron termination is wrapped in
+* **XV-8 (Medium)**, predecessor termination is wrapped in
   ``_run_with_timeout(timeout=5.0)``; the legacy tray_window fallback
   path now does SIGTERM → 2 s wait → SIGKILL on POSIX.
 
@@ -85,7 +85,7 @@ class _FakeApp:
         self._shutting_down = False
         self._shutting_down_event = threading.Event()
         self._cleanup_done = False
-        self._electron_pid: int | None = None
+        self._host_pid: int | None = None
         self._mutex_handle = None
 
         self.recorder = MagicMock()
@@ -199,7 +199,7 @@ class TestParallelTeardownBatch:
             "_teardown_history_db",
             "_teardown_waveform_wiring",
             "_teardown_sounddevice",
-            "_teardown_electron",
+            "_teardown_host_child",
             "_teardown_pid_file",
             "_teardown_mutex_handle",
             "_teardown_devnull_files",
@@ -230,7 +230,7 @@ class TestParallelTeardownBatch:
         , were moved to a sequenced critical phase BEFORE the parallel
           batch so the transcription thread join completes BEFORE the DB
           close + ASR model unload; ``_teardown_hotkeys`` and
-          ``_teardown_electron`` remain in the parallel batch and are
+          ``_teardown_host_child`` remain in the parallel batch and are
           independent, no Event dependencies). We make each helper
           sleep 0.3 s by patching the controller's bound methods
           directly and RECORD EACH HELPER'S EXECUTION WINDOW.
@@ -263,12 +263,12 @@ class TestParallelTeardownBatch:
         # the parallel batch invokes ``self._teardown_hotkeys`` etc.
         # directly, not via the app).
         controller._teardown_hotkeys = MagicMock(side_effect=_make_slow_teardown("hotkeys"))
-        controller._teardown_electron = MagicMock(side_effect=_make_slow_teardown("electron"))
+        controller._teardown_host_child = MagicMock(side_effect=_make_slow_teardown("host_child"))
 
         controller._do_cleanup()
 
         # Both instrumented helpers must have run.
-        assert set(windows) == {"hotkeys", "electron"}, (
+        assert set(windows) == {"hotkeys", "host_child"}, (
             f"XV-7: expected both instrumented teardowns to run; got windows for {sorted(windows)}."
         )
 
@@ -277,12 +277,12 @@ class TestParallelTeardownBatch:
         # concurrent runs overlap by ~the full sleep length on ANY
         # hardware, so this cannot flake with runner load.
         h0, h1 = windows["hotkeys"]
-        e0, e1 = windows["electron"]
+        e0, e1 = windows["host_child"]
         overlap = min(h1, e1) - max(h0, e0)
         assert overlap > 0.15, (
             f"XV-7: teardown helpers did not run concurrently, window "
             f"overlap {overlap:.3f}s (hotkeys={windows['hotkeys']}, "
-            f"electron={windows['electron']}). Two 0.3s helpers that "
+            f"host_child={windows['host_child']}). Two 0.3s helpers that "
             f"overlap prove the ThreadPoolExecutor batch is concurrent; "
             f"sequential execution would show overlap <= 0."
         )
@@ -345,7 +345,7 @@ class TestParallelTeardownBatch:
         )
 
 
-# Electron termination timeout + SIGKILL escalation ────────────
+# predecessor termination timeout + SIGKILL escalation ────────────
 
 
 # tray.stop() timeout fallback ────────────────────────────────

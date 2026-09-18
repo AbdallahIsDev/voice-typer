@@ -17,7 +17,7 @@ This module pins the wiring so a future regression (someone removes
 the mixin or the registry entry without coordinating across the three
 sources of truth) is caught immediately, rather than only by the
 slower cross-file parity tests in ``test_security_doc_command_count``
-and ``test_electron_ipc_and_build``.
+and ``test_host_ipc_and_build``.
 
 C-DATA-1 (offline guarantee) compliance
 ---------------------------------------

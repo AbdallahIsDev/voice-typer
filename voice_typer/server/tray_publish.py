@@ -110,7 +110,7 @@ def compute_tooltip(tray: TrayIcon, state: AppState, message: str) -> str:
 
 def publish_tray_state(tray: TrayIcon) -> None:
     """ADR-0020 §6.5: push icon+tooltip to Tauri (emit tray_state event
-    instead of mutating pystray Icon). No-op on Electron/pystray.
+    instead of mutating pystray Icon). No-op on predecessor/pystray.
     Best-effort (hot path).
 
     Suppress redundant publishes, the cache key is the

@@ -165,15 +165,12 @@ class PrivacyMixin(ServiceMixinBase):
         "prewarm.log.*",
         "crash_diagnostics.*.txt",
         "python_crash.*.txt",
-        # Electron renderer-error log rotated backups. The current
-        # structured-logger implementation does NOT rotate this file
-        # (see ``structuredLogger.ts:207``: "single file, but the glob
-        # ``electron-renderer-errors.log*`` also catches any future
-        # rotation"), but a future change may add a rotating handler —
-        # this glob ensures rotated backups (if/when they exist) are
-        # swept up by the GDPR delete / export walk alongside the
-        # canonical file above.
-        "electron-renderer-errors.log.*",
+        # Rotated backups of the renderer-error log. Nothing rotates
+        # that file today (single file, no rotating handler), but the
+        # glob ensures rotated backups (if/when they exist) are swept
+        # up by the GDPR delete / export walk alongside the canonical
+        # file above.
+        "legacy-renderer-errors.log.*",
         # voice-typer-diagnostics-*.zip contains PII
         "voice-typer-diagnostics-*.zip",
         # gdpr-export-*.zip contains user full personal data
@@ -251,13 +248,12 @@ class PrivacyMixin(ServiceMixinBase):
     #   * ``python_crash.*.txt``              : Python excepthook marker
     #   * ``logs/`` (subdir). Rust host rotating logs
     #
-    # Electron-logs gap: ``<userData>/electron-main.log`` and
-    # ``<userData>/electron-renderer-errors.log`` live in a DIFFERENT
-    # directory (Electron's ``app.getPath("userData")``) that the Python
-    # backend cannot reach from ``_config_dir()``.  The Electron host
-    # must expose a ``deleteAllPersonalData`` IPC handler that unlinks
-    # those files; this Python method cannot do it.  See
-    # ``docs/privacy/gdpr-delete.md`` "Log files" section.
+    # Log-directory gap: the host-owned log files
+    # (``<userData>/…``) live in a DIFFERENT
+    # directory (the OS-level per-user app-data dir) that the Python
+    # backend cannot reach from ``_config_dir()``, so they are not part
+    # of this walk.  See ``docs/privacy/gdpr-delete.md`` "Log files"
+    # section.
     #
     # Model weights (``<config_dir>/models/`` and
     # ``<config_dir>/huggingface/``) are explicitly EXCLUDED, they
@@ -336,7 +332,7 @@ class PrivacyMixin(ServiceMixinBase):
         """Shared exists→rmtree→record recipe for the GDPR subdirectory steps.
 
         Single implementation behind :meth:`_gdpr_rmtree_rust_logs`,
-        :meth:`_gdpr_rmtree_db_dir`, :meth:`_gdpr_rmtree_electron_profile`,
+        :meth:`_gdpr_rmtree_db_dir`, :meth:`_gdpr_rmtree_predecessor_profile`,
         and :meth:`_gdpr_rmtree_crash_archive` (previously four ~40-line
         copies of the same shape). Best-effort: a missing directory is a
         silent no-op; any failure (``OSError`` including
@@ -489,20 +485,18 @@ class PrivacyMixin(ServiceMixinBase):
         PrivacyMixin._gdpr_rmtree_dir(Path(config_dir) / "db", erased, failed, label="db")
 
     @staticmethod
-    def _gdpr_rmtree_electron_profile(config_dir: "os.PathLike[str] | str", erased: list, failed: dict) -> None:
-        """Remove the Electron/Chromium profile subdirectory.
+    def _gdpr_rmtree_predecessor_profile(config_dir: "os.PathLike[str] | str", erased: list, failed: dict) -> None:
+        """Remove the legacy Chromium profile subdirectory.
 
-        ``<config_dir>/electron-profile/`` is where the Electron host's
-        Chromium profile lives (caches, Local Storage, Network state,
-        Crashpad) since ``bootstrap.ts`` pins
-        ``app.setPath("userData", …)`` to it. Local Storage / Network
-        state can hold personal data, so GDPR Art. 17 erasure removes
-        the whole subdir.
+        That subdirectory is the legacy Chromium profile dir (caches,
+        Local Storage, Network state, Crashpad) left behind by the retired
+        desktop host. Local Storage / Network state can hold personal
+        data, so GDPR Art. 17 erasure removes the whole subdir.
 
         Delegates to the shared :meth:`_gdpr_rmtree_dir` recipe.
         """
 
-        PrivacyMixin._gdpr_rmtree_dir(Path(config_dir) / "electron-profile", erased, failed, label="Electron profile/")
+        PrivacyMixin._gdpr_rmtree_dir(Path(config_dir) / "legacy-profile", erased, failed, label="legacy profile/")
 
     @staticmethod
     def _gdpr_rmtree_crash_archive(config_dir: "os.PathLike[str] | str", erased: list, failed: dict) -> None:
@@ -924,7 +918,7 @@ class PrivacyMixin(ServiceMixinBase):
         # config-file mutation serialization, not arbitrary file IO).
         self._gdpr_rmtree_rust_logs(config_dir, erased, failed)
         self._gdpr_rmtree_db_dir(config_dir, erased, failed)
-        self._gdpr_rmtree_electron_profile(config_dir, erased, failed)
+        self._gdpr_rmtree_predecessor_profile(config_dir, erased, failed)
 
         # Acquire ``self._app._config_mutation_lock`` for the
         # remainder of the GDPR delete sequence (unlink personal files +

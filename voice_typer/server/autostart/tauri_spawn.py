@@ -97,11 +97,9 @@ def _tauri_binary() -> str | None:
     """Return the path to the installed Voice Typer Tauri binary, or ``None``.
 
     The Tauri cutover ships a native binary (built from
-    ``src-tauri/Cargo.toml`` → ``voice-typer-tauri``) instead of the
-    Electron ``node_modules/`` tree. This helper locates that binary
-    so the autostart launcher can spawn it directly at login, without
-    it, the launcher would try ``electron .`` against a missing
-    ``node_modules/`` and autostart-at-login would silently break.
+    ``src-tauri/Cargo.toml`` → ``voice-typer-tauri``). This helper
+    locates that binary so the autostart launcher can spawn it directly
+    at login; without it, autostart-at-login would silently break.
 
     Lookup order:
 
@@ -120,7 +118,7 @@ def _tauri_binary() -> str | None:
 
     Returns ``None`` in dev checkouts and CI environments where the
     Tauri binary hasn't been installed system-wide; the launcher then
-    falls back to the legacy Electron path.
+    falls back to the legacy predecessor path.
     """
     env_path = os.environ.get("VT_TAURI_BINARY")
     if env_path and Path(env_path).is_file():
@@ -161,16 +159,7 @@ def _is_tauri_mode() -> bool:
       when registering the launcher entry under a Tauri install), OR
     - the basename of ``sys.executable`` contains ``voice-typer-tauri``
       (we are already running inside the Tauri sidecar process), OR
-    - a Tauri binary is found at a known install path AND the Electron
-      dev binary (``node_modules/electron/dist/electron``) is NOT
-      present locally.
-
-    The third condition ensures dev checkouts that DO ship a local
-    Electron ``node_modules`` tree keep using the Electron path even
-    when the user has also installed the Tauri binary system-wide —
-    the developer's intent is to exercise the Electron build, not the
-    installed Tauri binary. In production Tauri installs (no
-    ``node_modules/`` shipped), the Tauri binary wins.
+    - a Tauri binary is found at a known install path.
     """
     from voice_typer.server import autostart_launcher as _pkg
 
@@ -185,9 +174,7 @@ def _is_tauri_mode() -> bool:
     exe_basename = os.path.basename(sys.executable).lower()
     if "voice-typer-tauri" in exe_basename:
         return True
-    # Tauri binary exists → prefer it. The Electron-node_modules
-    # heuristic is gone (Electron removed); a present client tree no
-    # longer suppresses Tauri mode.
+    # Tauri binary exists → Tauri mode.
     return _pkg._tauri_binary() is not None
 
 
@@ -343,13 +330,11 @@ def _spawn_tauri_host(binary: str, hidden: bool = False) -> subprocess.Popen | N
         The Tauri app's ``tauri-plugin-single-instance`` plugin (declared
         in ``src-tauri/tauri.conf.json``) handles the focus / fresh-start
         distinction itself: a second spawn of the same binary causes the
-        first instance to be focused and the second to exit. So unlike the
-        Electron path (which spawns a LEAN electron with ``VT_FOCUS_ONLY=1``
-        to trigger ``requestSingleInstanceLock``), here we always spawn the
-        full Tauri binary, the single-instance plugin does the rest.
+        first instance to be focused and the second to exit. So we always
+        spawn the full Tauri binary, the single-instance plugin does the rest.
 
         Returns the child process on success, or ``None`` on failure (the
-    caller logs and exits 1, no silent Electron fallback per ).
+    caller logs and exits 1, no silent predecessor fallback).
     """
     from voice_typer.server import autostart_launcher as _pkg
 
@@ -364,7 +349,7 @@ def _spawn_tauri_host(binary: str, hidden: bool = False) -> subprocess.Popen | N
         )
         return None
     # ``_launcher_child_env`` force-disables ANSI colour + npm notices
-    # (the child's output is redirected to the electron/tauri log files).
+    # (the child's output is redirected to the host log files).
     env = _launcher_child_env()
     if hidden:
         env["VT_START_HIDDEN"] = "1"
@@ -388,8 +373,7 @@ def launch_tauri_frontend_standalone(binary: str, *, port: int, token: str) -> i
     (``ipc/entrypoint.py``): the user ran ``voice-typer`` from a
     terminal, the backend picked a port + generated a token, and the
     frontend host must connect to US instead of spawning its own
-    backend. The adopt contract is the SAME env trio the Electron
-    launcher exports (``electron_launcher.launch_electron_frontend``):
+    backend. The adopt contract is the env trio the launcher exports:
 
     - ``VT_PYTHON_PORT``: the port this backend is listening on.
     - ``VT_IPC_TOKEN``: the session token the host must send as the
@@ -403,7 +387,7 @@ def launch_tauri_frontend_standalone(binary: str, *, port: int, token: str) -> i
     same as autostart) before spawning.
 
     Returns the child PID on success, ``None`` on failure (the caller
-    falls back to the Electron launcher path).
+    falls back to the predecessor launcher path).
     """
     from voice_typer.server import autostart_launcher as _pkg
 

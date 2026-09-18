@@ -59,7 +59,6 @@ REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 # truth at build time.
 PYPROJECT = REPO_ROOT / "pyproject.toml"
 PACKAGE_JSON = REPO_ROOT / "voice_typer" / "client" / "package.json"
-ELECTRON_BUILDER = REPO_ROOT / "voice_typer" / "client" / "electron-builder.yml"
 # WR-20: also sync the Tauri v2 host (src-tauri/) so the Rust shell +
 # Tauri config report the same version as the Python package.
 TAURI_CONF_JSON = REPO_ROOT / "src-tauri" / "tauri.conf.json"
@@ -127,39 +126,6 @@ def write_package_json_version(version: str) -> None:
         return  # no top-level version field, don't inject
     with PACKAGE_JSON.open("w", encoding="utf-8", newline="") as f:
         f.write(new_text)
-
-
-def read_electron_builder_version() -> str | None:
-    """Read the explicit version from electron-builder.yml.
-
-    Returns None if the file doesn't exist OR if it has no ``version:``
-    field (which is valid, electron-builder inherits from package.json
-    when no explicit version is set).
-    """
-    if not ELECTRON_BUILDER.exists():
-        return None
-    text = ELECTRON_BUILDER.read_text(encoding="utf-8")
-    m = re.search(r"^version:\s*([^\s]+)", text, re.MULTILINE)
-    return m.group(1).strip().strip('"').strip("'") if m else None
-
-
-def write_electron_builder_version(version: str) -> None:
-    """Only write if a version field already exists.
-
-    If the file has no explicit ``version:`` field, electron-builder
-    inherits from package.json: which is already synced separately.
-    Don't inject a redundant field.
-    """
-    text = ELECTRON_BUILDER.read_text(encoding="utf-8")
-    if not re.search(r"^version:\s*[^\s]+", text, re.MULTILINE):
-        return
-    new_text = re.sub(
-        r"^(version:\s*)[^\s]+",
-        rf"\g<1>{version}",
-        text,
-        flags=re.MULTILINE,
-    )
-    ELECTRON_BUILDER.write_text(new_text, encoding="utf-8")
 
 
 def read_tauri_conf_version() -> str | None:

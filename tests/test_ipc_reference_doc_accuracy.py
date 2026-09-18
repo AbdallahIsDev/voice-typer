@@ -113,7 +113,7 @@ def _push_event_types() -> set[str]:
     # WS-transport ``AuthFrame`` and ``ProtocolVersionMismatchError``
     # interfaces (which declare their own ``type: "auth"`` and
     # ``type: "error"`` literals) are not counted as push events.
-    # The historical-comment mention of ``type: "relaunch_electron"``
+    # The historical-comment mention of ``type: "the legacy relaunch event name"``
     # lives in a ``*`` JSDoc line above this marker, so slicing here
     # also drops that.
     cutoff_markers = [
@@ -131,8 +131,8 @@ def _push_event_types() -> set[str]:
             cutoff = min(cutoff, idx)
     body = src[:cutoff]
     # Strip JSDoc / line-comment lines so historical mentions of
-    # deleted types (e.g. ``*  : the legacy RelaunchElectronEvent
-    # (type: "relaunch_electron")``) are not picked up as live type
+    # deleted types (e.g. ``*  : the legacy the legacy relaunch event type
+    # (type: "the legacy relaunch event name")``) are not picked up as live type
     # literals. Only lines that begin with whitespace + ``type: "..."``
     # (inside an interface body, indented) count as real declarations.
     live_lines = [line for line in body.splitlines() if not line.lstrip().startswith(("*", "//", "/*"))]
@@ -267,7 +267,7 @@ def test_ipc_reference_doc_mentions_host_only_commands() -> None:
 
 
 def test_ipc_reference_doc_removed_section_lists_known_dead_commands() -> None:
-    """The 'Removed / never-existed commands' section lists the 16 dead names.
+    """The 'Removed / never-existed commands' section lists the 15 dead names.
 
     These are commands that appeared in older drafts of the doc but
     were never in ``_COMMAND_REGISTRY``. The section exists so
@@ -293,7 +293,6 @@ def test_ipc_reference_doc_removed_section_lists_known_dead_commands() -> None:
         "onboarding_get_step",
         "onboarding_request_keyboard_permission",
         "refresh_microphones",
-        "show_electron_notification",
         "test_llm_connection",
     }
     missing_from_section = expected_dead - removed_section

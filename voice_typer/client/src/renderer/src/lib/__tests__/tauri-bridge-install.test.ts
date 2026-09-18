@@ -17,7 +17,7 @@
  *     side effect through the shared gate module
  *     `lib/tauri-bridge/ensure.ts` (`ensureTauriBridgeInstalled()`),
  *     which dynamically imports `./install` ONLY when running inside
- *     a Tauri WebView (Electron entrypoints never load the module).
+ *     a Tauri WebView (predecessor entrypoints never load the module).
  *   • Pure consumers of the named exports import `@/lib/tauri-bridge`
  *     alone and get no mutation.
  *
@@ -28,8 +28,8 @@
  *   2. Importing `@/lib/tauri-bridge` alone does NOT install the
  *      namespaces (negative control, proves the side effect was
  *      actually moved, not duplicated).
- *   3. Importing `@/lib/tauri-bridge/install` is a no-op in Electron
- *      mode (when `window.__TAURI__` is absent) so the Electron
+ *   3. Importing `@/lib/tauri-bridge/install` is a no-op in predecessor
+ *      mode (when `window.__TAURI__` is absent) so the predecessor
  *      preload-installed namespaces are left untouched.
  *
  * The test mirrors the structure of `tauri-bridge-detection.test.ts`
@@ -201,29 +201,29 @@ describe("tauri-bridge install side-effect module (split)", () => {
 		expect(w.window_).toBeUndefined();
 	});
 
-	it("importing @/lib/tauri-bridge/install is a no-op in Electron mode (does not override existing namespaces)", async () => {
-		// Simulate the Electron preload having already installed the
-		// three namespaces via contextBridge.exposeInMainWorld.
-		const electronPython = {
+	it("importing @/lib/tauri-bridge/install is a no-op when the bridge namespaces are already installed", async () => {
+		// Simulate an already-installed bridge having exposed the
+		// three namespaces on `window`.
+		const predecessorPython = {
 			call: vi.fn(() => Promise.resolve({ type: "result", data: {} })),
 			onEvent: vi.fn(() => () => {}),
 		};
-		const electronBubble = { onLevel: vi.fn(() => () => {}) };
-		const electronWindow = { minimize: vi.fn() };
+		const predecessorBubble = { onLevel: vi.fn(() => () => {}) };
+		const predecessorWindow = { minimize: vi.fn() };
 		const w = window as unknown as WindowBridgeState;
-		w.python = electronPython;
-		w.bubble = electronBubble;
-		w.window_ = electronWindow;
-		// Ensure no Tauri global is present (Electron path).
+		w.python = predecessorPython;
+		w.bubble = predecessorBubble;
+		w.window_ = predecessorWindow;
+		// Ensure no Tauri global is present (predecessor path).
 		delete w.__TAURI__;
 
 		await import("@/lib/tauri-bridge/install");
 
-		// The Electron-installed namespaces must be untouched (same
+		// The predecessor-installed namespaces must be untouched (same
 		// referential identity, not replaced, not wrapped).
-		expect(w.python).toBe(electronPython);
-		expect(w.bubble).toBe(electronBubble);
-		expect(w.window_).toBe(electronWindow);
+		expect(w.python).toBe(predecessorPython);
+		expect(w.bubble).toBe(predecessorBubble);
+		expect(w.window_).toBe(predecessorWindow);
 	});
 
 	it("production entrypoints source-assert the shared gated-install module", async () => {
@@ -235,14 +235,14 @@ describe("tauri-bridge install side-effect module (split)", () => {
 		// `await` at top level. This catches a future regression where
 		// someone reverts to a static `import "./lib/tauri-bridge/install"`
 		// (or inlines an ungated import into an entrypoint) and the
-		// install graph gets pulled back into the initial Electron
+		// install graph gets pulled back into the initial predecessor
 		// renderer bundle.
 		//
 		// The contract is a RUNTIME-GATED DYNAMIC import so Vite emits
 		// install.ts as a separate async chunk only fetched under Tauri.
 		// The preload script (`src/preload/index.ts:19-117`) installs the
-		// Electron namespaces via `contextBridge.exposeInMainWorld`, so
-		// the gated import is a no-op under Electron.
+		// predecessor namespaces via `contextBridge.exposeInMainWorld`, so
+		// the gated import is a no-op under predecessor.
 		//
 		// We read the sources (rather than importing the entrypoints)
 		// to avoid booting React inside a unit test.
@@ -276,7 +276,7 @@ describe("tauri-bridge install side-effect module (split)", () => {
 			// `import "./lib/tauri-bridge/install"` (whitespace between
 			// `import` and the string literal, NOT `import(`) MUST be
 			// absent, that's the previous pattern that pulled the
-			// install graph into the Electron bundle. A static NAMED
+			// install graph into the predecessor bundle. A static NAMED
 			// import from the install module is the same regression via
 			// a different syntax.
 			expect(src).not.toMatch(
@@ -294,7 +294,7 @@ describe("tauri-bridge install side-effect module (split)", () => {
 	});
 
 	it("SEC-026: bubble window gets ONLY window.bubble, no python / window_ namespaces", async () => {
-		// The bubble renderer is a sandboxed window (SEC-026): Electron's
+		// The bubble renderer is a sandboxed window (SEC-026): the predecessor's
 		// preload never exposed `window.python` / `window.window_` to it,
 		// and the Rust host's window-guard rejects any `dispatch` from a
 		// non-main window. The Tauri bridge must mirror that split —

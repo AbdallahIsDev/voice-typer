@@ -9,7 +9,7 @@
 // ADR-0020 §6.3 (Phase 3 UI port): the bridge namespaces
 // (`window.python` / `window.bubble` / `window.window_`) must exist
 // BEFORE the React app mounts so `usePython` and other hooks
-// initialize against a live bridge. Under Electron the preload script
+// initialize against a live bridge. Under predecessor the preload script
 // (`src/preload/index.ts`) already installs the namespaces via
 // `contextBridge.exposeInMainWorld`, so the install is a no-op there.
 //
@@ -18,11 +18,11 @@
 // import below is a RUNTIME-GATED DYNAMIC import, NOT a static
 // top-level import: a static `import "./lib/tauri-bridge/install"`
 // would pull the whole install graph into the eagerly-loaded renderer
-// bundle even under Electron, where it is never needed. Gated on
+// bundle even under predecessor, where it is never needed. Gated on
 // `isTauri()` (`./detect.ts`, the `window.__TAURI__?.core?.invoke`
 // check), the bundler emits `install.ts` as a SEPARATE async chunk
 // that is fetched ONLY when the renderer actually runs inside a
-// Tauri WebView. Under Electron the gate is false and the chunk is
+// Tauri WebView. Under predecessor the gate is false and the chunk is
 // never fetched.
 //
 // This module MUST stay dependency-light: it may import `./detect`
@@ -44,7 +44,7 @@ import { isTauri } from "./detect";
 
 /**
  * Ensure the Tauri bridge is installed before the caller's React tree
- * mounts. No-op under Electron (the preload script owns the
+ * mounts. No-op under predecessor (the preload script owns the
  * namespaces there); under Tauri it fetches the install chunk and
  * runs `installTauriBridge()` before resolving. Safe to call from
  * both entrypoints, `installTauriBridge()` is idempotent.

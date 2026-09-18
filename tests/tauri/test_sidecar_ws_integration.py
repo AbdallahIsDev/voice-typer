@@ -10,7 +10,7 @@ a real `websockets` client, exercising the full round-trip:
 5. client receives the response
 
 The entire `websockets` library is required. Skip the file if it's
-not installed (the v1 Electron-only build path doesn't need it).
+not installed (the v1 predecessor-only build path doesn't need it).
 """
 
 from __future__ import annotations

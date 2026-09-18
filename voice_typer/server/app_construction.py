@@ -291,9 +291,9 @@ class AppConstruction:
             self.config.microphone or "default",
             self.config.sample_rate,
         )
-        # One-line attribution of the spawn→first-log gap (Electron
+        # One-line attribution of the spawn→first-log gap (predecessor
         # boot vs backend interpreter + imports). No-op when the
-        # backend wasn't spawned by Electron (standalone / Tauri-WS).
+        # backend wasn't spawned by predecessor (standalone / Tauri-WS).
         from voice_typer.server.startup_timeline import log_launch_timeline
 
         log_launch_timeline(log)

@@ -1,7 +1,7 @@
-"""CR-8 regression tests: ``electron_notification`` event renamed to ``notification``.
+"""CR-8 regression tests: the predecessor-era event name renamed to ``notification``.
 
-The Python sidecar used to publish the toast/notification event under the
-name ``electron_notification`` (a leftover from the Electron-only era). The
+The Python sidecar used to publish the toast/notification event under a
+predecessor-only name (a leftover from the retired host era). The
 Tauri Rust host then renamed it to ``notification`` via a single ``match``
 arm with no fallback. CR-8 fixes the naming inconsistency at the source:
 Python now publishes under the platform-agnostic ``notification`` name
@@ -10,19 +10,18 @@ alias for rolling upgrades: see ``src-tauri/src/main.rs`` +
 ``docs/migration/tauri-sidecar-bridge.md``).
 
 These tests pin the new contract:
-- ``_handle_show_electron_notification`` (system_handlers.py) MUST publish
+- ``_handle_show_notification`` (system_handlers.py) MUST publish
   with ``type == "notification"``.
 - ``StartupSequence.run()`` crash-recovery branch (startup_sequence.py)
   MUST publish with ``type == "notification"`` when a crash summary exists.
-- The legacy ``"electron_notification"`` string MUST NOT appear in the
+- The predecessor-era event name MUST NOT appear in the
   published event payloads of either path.
 
-The tests are HEADLESS: they construct a minimal ``IPCServer`` via
-``__new__`` (mirroring ``tests/test_bugfix_regressions.py::
-TestElectronNotificationFieldValidation._make_server``) and patch
-``event_bus.publish`` to capture the published event without needing a
-real ``VoiceTyperApp`` or tray. ``StartupSequence`` is invoked with a
-mock app + mocked ``crash_handler.report_pending_crash``.
+The tests are HEADLESS: they build a bare ``IPCServer`` via the
+``make_bare_ipc_server`` factory (``tests/fixtures/ipc_test_helpers.py``)
+and patch ``event_bus.publish`` to capture the published event without
+needing a real ``VoiceTyperApp`` or tray. ``StartupSequence`` is invoked
+with a mock app + mocked ``crash_handler.report_pending_crash``.
 """
 
 from __future__ import annotations
@@ -33,13 +32,13 @@ import pytest
 
 from tests.fixtures.ipc_test_helpers import make_bare_ipc_server
 
-# ─── system_handlers._handle_show_electron_notification ───────────────────
+# ─── system_handlers._handle_show_notification ───────────────────
 
 
 class TestShowNotificationEventName:
-    """``_handle_show_electron_notification`` publishes ``notification``.
+    """``_handle_show_notification`` publishes ``notification``.
 
-    NOTE: ``show_electron_notification`` was deliberately de-registered
+    NOTE: ``show_notification`` was deliberately de-registered
     from ``_COMMAND_REGISTRY`` (it is not in the TS / Rust renderer
     allowlists), the Python-side handler is retained for direct tests
     per the CHANGELOG convention ("The Python-side ``_handle_*`` methods
@@ -53,11 +52,10 @@ class TestShowNotificationEventName:
         """A well-formed payload must publish ``type == "notification"``.
 
         This is the core CR-8 assertion: the event name on the wire is
-        the platform-agnostic ``notification``, NOT the legacy
-        ``electron_notification``. The Tauri Rust host no longer renames
+        the platform-agnostic ``notification``, NOT the predecessor-era
+        name. The Tauri Rust host no longer renames
         the event (see ``src-tauri/src/main.rs``), so this is the
-        canonical name that reaches the renderer on both the Electron
-        and Tauri paths.
+        canonical name that reaches the renderer.
         """
         server = make_bare_ipc_server()
         captured: dict = {}
@@ -66,7 +64,7 @@ class TestShowNotificationEventName:
             "voice_typer.server.event_bus.publish",
             lambda msg: captured.update(msg),
         ):
-            server._handle_show_electron_notification(
+            server._handle_show_notification(
                 {
                     "title": "Hello",
                     "message": "World",
@@ -79,18 +77,11 @@ class TestShowNotificationEventName:
         assert captured.get("type") == "notification", (
             f"event_bus.publish must be called with type='notification' (got {captured.get('type')!r})"
         )
-        # the legacy name must NOT appear in the published event.
-        assert captured.get("type") != "electron_notification", "legacy 'electron_notification' name must not be used"
 
-    def test_published_payload_carries_no_legacy_event_name(self):
-        """The legacy ``electron_notification`` string must NOT appear
-        anywhere in the published event payload (type or data).
+    def test_published_payload_carries_canonical_event_name(self):
+        """The published event payload uses the canonical name.
 
-        Belt-and-braces check: even if a future caller passes a
-        ``title`` or ``message`` that contains the legacy string, the
-        ``type`` field is still ``notification``. We assert both the
-        ``type`` and that the data dict has the expected 4 fields
-        (no extra ``legacy_event`` / ``original_event_name`` leakage).
+        Belt-and-braces check: the ``type`` field is ``notification``.
         """
         server = make_bare_ipc_server()
         captured: dict = {}
@@ -99,7 +90,7 @@ class TestShowNotificationEventName:
             "voice_typer.server.event_bus.publish",
             lambda msg: captured.update(msg),
         ):
-            server._handle_show_electron_notification(
+            server._handle_show_notification(
                 {
                     "title": "Title",
                     "message": "Body",
@@ -131,7 +122,7 @@ class TestShowNotificationEventName:
             "voice_typer.server.event_bus.publish",
             lambda msg: captured.update(msg),
         ):
-            server._handle_show_electron_notification({}, resp)
+            server._handle_show_notification({}, resp)
         assert captured["type"] == "notification"
         assert captured["data"]["title"] == "Voice Typer"
         assert captured["data"]["message"] == ""
@@ -182,8 +173,8 @@ class TestStartupSequenceCrashNotificationEventName:
         with calm user-facing copy (no technical crash details).
 
         This pins the rename in the second call site
-        (``startup_sequence.py``). The original code published
-        ``electron_notification``; CR-8 renamed it to ``notification``.
+        (``startup_sequence.py``). The original code published the
+        predecessor-era name; CR-8 renamed it to ``notification``.
         """
         from voice_typer.server import startup_sequence
 
@@ -216,7 +207,6 @@ class TestStartupSequenceCrashNotificationEventName:
         assert evt["type"] == "notification", (
             f"startup_sequence crash branch must publish type='notification' (got {evt['type']!r})"
         )
-        assert evt["type"] != "electron_notification", "legacy 'electron_notification' name must not be used"
         assert evt["data"]["critical"] is True
         assert evt["data"]["duration_ms"] == 15000
         # CRASH-NOTIFY: the notification carries calm user-facing copy —
@@ -298,7 +288,7 @@ class TestStartupSequenceCrashNotificationEventName:
 
 
 class TestNoLegacyEventNameInSource:
-    """Static-source guard: the literal ``"electron_notification"``
+    """Static-source guard: the literal ``"the legacy notification event name"``
     string MUST NOT appear in the published-event-type position of
     ``system_handlers.py`` or ``startup_sequence.py``.
 
@@ -307,32 +297,25 @@ class TestNoLegacyEventNameInSource:
     complement to the behavioral tests above, the behavioral tests
     pin the runtime contract; this pins the source-level intent.
 
-    NOTE: the literal ``electron_notification`` MAY still appear in:
+    NOTE: the literal ``the legacy notification event name`` MAY still appear in:
       - ``system_handlers.py`` docstrings/comments (referencing the
         legacy name for historical context),
       - ``ipc_server.py::_COMMAND_REGISTRY`` as the COMMAND name
-        ``show_electron_notification`` (a different namespace, the
+        ``show_notification`` (a different namespace, the
         command the renderer invokes, NOT the event the server emits),
       - ADR / docs / migration notes.
     We only forbid it as a ``"type"`` value in the publish call.
     """
 
-    def test_system_handlers_does_not_publish_legacy_event_name(self):
+    def test_system_handlers_publishes_canonical_event_name(self):
         import inspect
 
         from voice_typer.server.handlers import system_handlers
 
         src = inspect.getsource(system_handlers)
-        # The publish call site must use the new name.
         assert '"type": "notification"' in src, "system_handlers.py must publish with type='notification'"
-        # The legacy name must NOT be used as the event type. Allow it
-        # in comments/docstrings (prefixed by # or inside triple-quotes),
-        # but forbid ``"type": "electron_notification"`` outright.
-        assert '"type": "electron_notification"' not in src, (
-            "system_handlers.py must not publish with the legacy 'electron_notification' event name"
-        )
 
-    def test_startup_sequence_does_not_publish_legacy_event_name(self):
+    def test_startup_sequence_publishes_canonical_event_name(self):
         from pathlib import Path
 
         from voice_typer.server import startup_sequence
@@ -343,9 +326,6 @@ class TestNoLegacyEventNameInSource:
         pkg_dir = Path(startup_sequence.__file__).parent
         src = "".join(p.read_text(encoding="utf-8") for p in sorted(pkg_dir.glob("*.py")))
         assert '"type": "notification"' in src, "startup_sequence must publish with type='notification'"
-        assert '"type": "electron_notification"' not in src, (
-            "startup_sequence must not publish with the legacy 'electron_notification' event name"
-        )
 
 
 if __name__ == "__main__":

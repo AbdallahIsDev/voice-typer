@@ -166,7 +166,7 @@ fn test_format_error_payload_is_canonical_line() {
     assert!(!line.contains('\n'), "single line: {line}");
 }
 
-/// The renderers send the Electron-era `kind` field name (both
+/// The renderers send the predecessor-era `kind` field name (both
 /// `globalErrorHandler` and the console capture). It MUST render as the
 /// `scope=` fragment instead of being dropped as an unknown field, and
 /// the explicit `level` must still select the tag, this is the exact

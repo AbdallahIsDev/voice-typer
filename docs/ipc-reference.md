@@ -12,7 +12,7 @@ Auto-generated reference for the Voice Typer IPC protocol.
 > authoritative references; if this doc disagrees with any of them, the
 > source files win.
 
-## Two-allowlist contract (post-Electron / post-TCP)
+## Two-allowlist contract (post-predecessor / post-TCP)
 
 Every IPC command must exist in the places below to be reachable from
 the renderer:
@@ -30,7 +30,7 @@ the renderer:
    `types/ipc/` subpackage): TypeScript unions that give the renderer
    compile-time type safety for the request/response shapes.
 
-The TypeScript `ALLOWED_COMMANDS` Set is **gone** (Electron main deleted
+The TypeScript `ALLOWED_COMMANDS` Set is **gone** (predecessor main deleted
 with the Tauri cutover). Do not reintroduce it.
 
 The parity tests `tests/test_ipc_command_parity.py` and
@@ -77,7 +77,7 @@ in `allowed_commands()` (renderer-reachable); "—" means host-dispatched
 | Command | Handler | Allowlist | Notes |
 |---------|---------|-----------|-------|
 | `reset_macos_accessibility` | `_handle_reset_macos_accessibility` | ✓ | Finding #127 part b: Settings → Troubleshooting "Reset Accessibility Permission" button. Runs `tccutil reset Accessibility <bundle-id>` (bundle ID resolved at runtime via `macos_bundle_id.py` Never hardcoded) and re-opens System Settings → Privacy & Security → Accessibility. `ack` → `{ok, command, error}`. |
-| `reset_linux_permissions` | `_handle_reset_linux_permissions` | ✓ | Finding #127 part b (Linux sibling), Settings → Troubleshooting "Reset Linux Permission" button. Clears a stale polkit authorization (`auth_admin_keep` is cached ~5 min by polkitd, see finding #134) by restarting the polkit daemon via `pkexec systemctl restart polkit` / `polkitd` / `service polkit restart`; `pkaction` enumerates the Voice Typer action (`com.voicetyper.install-permissions` The only namespace the app ships since finding #54; the legacy pre-Tauri Electron policy is removed at install/upgrade time) and `pkcheck` verifies the post-reset state. pkexec exit 126 (auth dismissed) is reported as such. `ack` → `{ok, command, error, actions, checks}`. |
+| `reset_linux_permissions` | `_handle_reset_linux_permissions` | ✓ | Finding #127 part b (Linux sibling), Settings → Troubleshooting "Reset Linux Permission" button. Clears a stale polkit authorization (`auth_admin_keep` is cached ~5 min by polkitd, see finding #134) by restarting the polkit daemon via `pkexec systemctl restart polkit` / `polkitd` / `service polkit restart`; `pkaction` enumerates the Voice Typer action (`com.voicetyper.install-permissions` The only namespace the app ships since finding #54; the legacy pre-Tauri predecessor policy is removed at install/upgrade time) and `pkcheck` verifies the post-reset state. pkexec exit 126 (auth dismissed) is reported as such. `ack` → `{ok, command, error, actions, checks}`. |
 | `check_accessibility` | `_handle_check_accessibility` | ✓ | Finding #919 part b: RE-ADDED 2026-08-10. Settings → Troubleshooting probes the macOS Accessibility grant on mount; on a confirmed stale grant (`AXIsProcessTrusted()` False) the `accessibility_status` response carries `suggest_reset: true` + the runtime `reset_command` string (`tccutil reset Accessibility <bundle-id>`, bundle ID resolved via `macos_bundle_id.py` Never hardcoded) so the section can surface it next to the "Reset Accessibility Permission" button. Was removed in the GT-32 stale-entry cleanup (no renderer caller); re-wired through the registry + TS + Rust allowlists in lockstep. `accessibility_status` → `{granted, platform, reason?, suggest_reset?, reset_command?}`. |
 | `undo_last` | `_handle_undo_last` | ✓ |  |
 
@@ -202,9 +202,7 @@ this page find the canonical "this command does not exist" answer:
 `level_monitor_status`, `microphone_test_status`,
 `onboarding_get_model_catalog`, `onboarding_get_step`,
 `onboarding_request_keyboard_permission`,
-`refresh_microphones`, `show_electron_notification` (deleted Electron-era
-command; the live notification push is the `notification` event),
-`test_llm_connection`.
+`refresh_microphones`, `test_llm_connection`.
 
 > Note: `check_accessibility` was previously listed here (removed in the
 > GT-32 cleanup) but was RE-ADDED on 2026-08-10 (finding #919 part b) —
@@ -223,7 +221,7 @@ command; the live notification push is the `notification` event),
 The corresponding host-side workflows (vocabulary automation pipeline,
 GDPR export/delete, diagnostics export, LLM
 connection test, onboarding step / model-catalog reads, microphone
-refresh, Electron notification, RMS / audio-status reads, microphone
+refresh, predecessor notification, RMS / audio-status reads, microphone
 test status, level monitor status) are all handled
 by dedicated service modules invoked directly by the host (not via
 the IPC `dispatch` path) or by renderer-reachable substitutes listed

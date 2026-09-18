@@ -1,7 +1,7 @@
 """SECURITY.md allowlist-count guard + Python↔Rust command parity.
 
 Finding 5 originally pinned the SECURITY.md "N commands" count against
-the Electron TS ``ALLOWED_COMMANDS`` Set. Electron main and the TCP
+the predecessor TS ``ALLOWED_COMMANDS`` Set. predecessor main and the TCP
 transport are gone: the IPC surface is now **two** allowlists.
 
 - Python ``_COMMAND_REGISTRY`` (`voice_typer/server/ipc/registry.py`)

@@ -221,7 +221,7 @@ struct RendererLogPayload {
     level: Option<String>,
     // `kind` is the field name both renderer callers actually use
     // (`globalErrorHandler` + the console capture), inherited from the
-    // Electron-era payload. Accept it as an alias so it renders as the
+    // predecessor-era payload. Accept it as an alias so it renders as the
     // `scope=` fragment instead of being silently dropped by serde's
     // unknown-field tolerance (E9/P4: the sender's advertised field and
     // the receiver's expected field must agree).

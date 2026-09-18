@@ -2,7 +2,7 @@
 //
 // MO-118: the ONE helper every external https link routes through.
 //
-// Under Electron, bare `<a target="_blank">` anchors and `window.open`
+// Under predecessor, bare `<a target="_blank">` anchors and `window.open`
 // calls are intercepted by `setWindowOpenHandler` +
 // `will-navigate`(`input-nav-guard.ts`), which `shell.openExternal`s the
 // https URLs and denies the rest. The Tauri webview has no such host-side
@@ -19,7 +19,7 @@
 // The helper still falls back to the classic browser behavior when the
 // bridge is absent (tests, bubble runtime, or a future runtime that
 // omits the namespace): the anchor default / `window.open` is the only
-// thing available there, and it is exactly what Electron's guard used to
+// thing available there, and it is exactly what the predecessor's guard used to
 // allow anyway for https.
 
 /** Result envelope, mirrors the other `window.window_` helpers. */

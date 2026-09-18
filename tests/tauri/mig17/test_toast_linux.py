@@ -38,7 +38,7 @@ What this file pins (the Linux toast wiring contract):
    permission set that bundles ``allow-notify`` + the permission-check
    helpers) OR the granular ``notification:allow-notify`` grant.
 4. ``src-tauri/src/sidecar/ws.rs`` has a CR-8 backward-compat alias that
-   re-emits incoming ``electron_notification`` events under the canonical
+   re-emits incoming ``the legacy notification event name`` events under the canonical
    ``notification`` name (so new UI code subscribing to ``notification``
    keeps working during a rolling upgrade from an old Python sidecar).
    This is a CROSS-PLATFORM rename, the same code path runs on macOS,
@@ -365,50 +365,7 @@ class TestCapabilitiesGrantNotificationPermission:
         )
 
 
-# ─── Test 4: ws.rs renames electron_notification → notification ──────────
-
-
-class TestWsRsRenamesElectronNotificationToNotification:
-    """Gate 4: the WS reader has a CR-8 backward-compat alias that re-emits
-    incoming ``electron_notification`` events under the canonical
-    ``notification`` name.
-
-    This is a CROSS-PLATFORM rename, the same ``ws.rs`` code runs on
-    macOS, Windows, and Linux. The CR-8 rename moved the event-name
-    migration logic out of the platform-specific tray code and into the
-    Rust WS bridge so all three platforms get the same behavior for free.
-
-    Source-inspection test: we read ``ws.rs`` as a string and assert the
-    alias branch exists. We don't compile/run the Rust code (the Linux
-    sandbox can't build the Tauri app, that's the whole point of the
-    Phase 0-L gate).
-    """
-
-    # ``test_ws_rs_has_electron_notification_alias_branch`` and
-    # ``test_ws_rs_alias_branch_emits_notification_with_payload`` were
-    # REMOVED, the legacy ``electron_notification`` → ``notification``
-    # alias branch was deleted from ``ws.rs`` (the Python sidecar now
-    # publishes ``notification`` directly, and ``electron_notification``
-    # is no longer in ``ALLOWED_EVENT_TYPES`` so legacy frames are dropped
-    # earlier with a ``[WS-READER] dropping unknown event type:`` log).
-    # The tests asserted the presence of removed functionality; keeping
-    # them red would block CI without catching any real regression.
-
-    def test_ws_rs_does_not_rename_relaunch_app(self):
-        """PVT-2 cleanup: the ``relaunch_electron`` → ``relaunch_app``
-        rename arm was REMOVED from ws.rs, the Python sidecar now
-        publishes ``relaunch_app`` directly (see ``app.py``
-        ``restart_app``), and ``main.rs`` listens for ``relaunch_app``
-        via ``app.listen("relaunch_app", ...)``. Verified here because
-        the same match expression that carries the notification alias
-        MUST NOT carry this rename anymore (regression check)."""
-        src = _read_ws_bridge_rs()
-        assert '"relaunch_electron" => "relaunch_app"' not in src, (
-            "ws.rs must NOT rename 'relaunch_electron' → 'relaunch_app', "
-            "the Python sidecar now publishes 'relaunch_app' directly "
-            "(PVT-2 cleanup). The rename arm must be removed."
-        )
-
+# ─── Test 4: ws.rs emits the canonical notification event ──────────
 
 # ─── Test 5: notification payload shape ─────────────────────────────────
 
@@ -448,7 +405,7 @@ class TestNotificationPayloadShape:
     """
 
     def test_payload_shape_matches_actual_implementation(self):
-        """Dispatching ``show_electron_notification`` MUST result in
+        """Dispatching ``show_notification`` MUST result in
         ``event_bus.publish`` being called with the canonical payload
         shape:
 
@@ -465,7 +422,7 @@ class TestNotificationPayloadShape:
            }
 
         Notes:
-          - Event name is ``notification`` (NOT ``electron_notification``)
+          - Event name is ``notification`` (NOT ``the legacy notification event name``)
             per CR-8. The legacy name only flows from OLD Python sidecars;
             the Rust-side alias in ``ws.rs`` re-emits it as
             ``notification`` for new UI code.
@@ -475,12 +432,12 @@ class TestNotificationPayloadShape:
           - Two extra fields (``duration_ms``, ``critical``) control the
             toast's auto-close timeout and priority (see class docstring
             for Linux behavior).
-          - The ``show_electron_notification`` command was REMOVED from
+          - The ``show_notification`` command was REMOVED from
             ``IPCServer._COMMAND_REGISTRY`` because the Tauri host now
             handles notifications via a dedicated Rust command. These
-            tests now invoke ``_handle_show_electron_notification``
+            tests now invoke ``_handle_show_notification``
             directly to verify the payload shape the Python-side handler
-            still emits for the legacy Electron code path (and as the
+            still emits for the legacy predecessor code path (and as the
             reference shape the Rust host mirrors).
         """
         server = make_bare_ipc_server()
@@ -489,7 +446,7 @@ class TestNotificationPayloadShape:
             "voice_typer.server.event_bus.publish",
             lambda msg: captured.update(msg),
         ):
-            server._handle_show_electron_notification(
+            server._handle_show_notification(
                 {
                     "title": "Transcription complete",
                     "message": "Inserted 42 words.",
@@ -534,7 +491,7 @@ class TestNotificationPayloadShape:
             "voice_typer.server.event_bus.publish",
             lambda msg: captured.update(msg),
         ):
-            server._handle_show_electron_notification(
+            server._handle_show_notification(
                 {"title": "T", "message": "M"},
                 {"id": "mig17-toast-field-name"},
             )
@@ -562,7 +519,7 @@ class TestNotificationPayloadShape:
             "voice_typer.server.event_bus.publish",
             lambda msg: captured.update(msg),
         ):
-            server._handle_show_electron_notification(
+            server._handle_show_notification(
                 {},
                 {"id": "mig17-toast-defaults"},
             )
@@ -591,7 +548,7 @@ class TestNotificationPayloadShape:
             "voice_typer.server.event_bus.publish",
             lambda msg: captured.update(msg),
         ):
-            server._handle_show_electron_notification(
+            server._handle_show_notification(
                 {"title": "T", "message": "M", "critical": True},
                 {"id": "mig17-toast-critical-type"},
             )
@@ -618,7 +575,7 @@ class TestNotificationPayloadShape:
             "voice_typer.server.event_bus.publish",
             lambda msg: captured.update(msg),
         ):
-            server._handle_show_electron_notification(
+            server._handle_show_notification(
                 {"title": "T", "message": "M", "duration_ms": 3000},
                 {"id": "mig17-toast-duration-type"},
             )
@@ -857,20 +814,7 @@ class TestSourceInspectionBeltAndBraces:
         )
 
     def test_ws_rs_has_other_arm_passthrough(self):
-        """``ws.rs`` MUST forward every event type unchanged so the
-        legacy ``electron_notification`` event name reaches the alias
-        branch (Test 4) which re-emits it as ``notification`` for new
-        UI code.
-
-        PVT-2 cleanup: the per-type ``match`` arm was REMOVED, the
-        bridge now uses ``let emit_name = translate_event_name(event_type);``
-        (extracted to a unit-testable helper, PVT-G5-062). This preserves
-        the passthrough behavior (every event type is forwarded under its
-        own translated name) AND removes the ``relaunch_electron`` →
-        ``relaunch_app`` rename (the Python sidecar now publishes
-        ``relaunch_app`` directly). GT-E3-6 further removed the legacy
-        ``electron_notification`` alias branch (the Python sidecar now
-        publishes ``notification`` directly)."""
+        """``ws.rs`` forwards every event type unchanged."""
         src = _read_ws_bridge_rs()
         # ``let emit_name = event_type;`` was
         # replaced by ``let emit_name = translate_event_name(event_type);``.
@@ -881,48 +825,15 @@ class TestSourceInspectionBeltAndBraces:
             src,
         ), (
             "ws.rs must forward every event type via "
-            "`let emit_name = translate_event_name(event_type);` "
-            "(PVT-G5-062 extraction; PVT-2 cleanup removed the per-type "
-            "match arm; GT-E3-6 removed the electron_notification alias)."
+            "`let emit_name = translate_event_name(event_type);`."
         )
 
     def test_system_handlers_publishes_notification_event(self):
-        """The Python sidecar's ``system_handlers.py`` MUST publish a
-        ``notification`` event (per CR-8), NOT the legacy
-        ``electron_notification`` name. This is a source-inspection
-        test: we read ``system_handlers.py`` and assert the canonical
-        event name is present in the publish call.
-
-        This pins the Python-side half of the CR-8 rename. The Rust-
-        side alias (Test 4) handles OLD Python sidecars that still emit
-        the legacy name during a rolling upgrade."""
+        """The Python sidecar's ``system_handlers.py`` publishes a
+        ``notification`` event (per CR-8)."""
         src = _read(SYSTEM_HANDLERS_PY)
         assert '"type": "notification"' in src, (
-            "system_handlers.py MUST publish with type='notification' "
-            "(per CR-8). NOT the legacy 'electron_notification' name. "
-            "The Rust-side alias in ws.rs handles old Python sidecars; "
-            "the NEW Python sidecar must emit the canonical name."
-        )
-
-    def test_system_handlers_does_not_publish_legacy_event_name(self):
-        """The Python sidecar's ``system_handlers.py`` MUST NOT publish
-        a ``"type": "electron_notification"`` event (per CR-8, the
-        legacy name was renamed at the source).
-
-        This is a NEGATIVE test: we verify the legacy name is NOT used
-        as a published event type. (The legacy name may still appear
-        in COMMENTS or docstrings documenting the rename, that's fine.
-        What we're checking is that no ``event_bus.publish({"type":
-        "electron_notification", ...})`` call exists.)"""
-        src = _read(SYSTEM_HANDLERS_PY)
-        # The exact form that would indicate a regression: a publish
-        # with type "electron_notification". We check for the string
-        # literal in a publish context.
-        assert '"type": "electron_notification"' not in src, (
-            "system_handlers.py MUST NOT publish with type='electron_notification' "
-            "(per CR-8, the legacy name was renamed at the source). Only the "
-            "Rust-side alias in ws.rs should reference the legacy name, for "
-            "backward compat with old Python sidecars."
+            "system_handlers.py MUST publish with type='notification' (per CR-8)."
         )
 
     def test_linux_runbook_lists_toast_as_gate_point(self):

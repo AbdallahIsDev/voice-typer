@@ -5,7 +5,7 @@
 //     ``get_history`` / ``get_favorites`` / ``search_history`` until
 //     the backend returns an empty page or the row cap is hit,
 //     aggregates the rows, then invokes the preload bridge
-//     ``window.window_.exportHistory(rows, format)`` so the Electron
+//     ``window.window_.exportHistory(rows, format)`` so the predecessor
 //     main process / Tauri Rust host can show a native save dialog
 //     and write the file with SEC-015 CSV formula-injection defense).
 //

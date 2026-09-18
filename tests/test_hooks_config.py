@@ -154,7 +154,7 @@ def test_contributing_documents_mypy_local_hook() -> None:
     assert "language: system" in text, (
         "CONTRIBUTING.md should mention that mypy uses `language: system` to reuse the project venv (XS-35)."
     )
-    assert "torch" in text.lower(), "CONTRIBUTING.md should mention torch in the mypy rationale (XS-35)."
+    assert "ML dep set" in text, "CONTRIBUTING.md should document the XS-35 rationale (no ML-dep reinstall)."
 
 
 # ── XS-35: mypy local hook + pre-push scope ──────────────────────────────
@@ -171,7 +171,7 @@ def _find_hook(cfg: dict, hook_id: str) -> dict:
 def test_mypy_hook_is_local_with_language_system() -> None:
     """The mypy hook must be a ``local`` hook with ``language: system``
     so it reuses the project venv instead of creating an isolated venv
-    and reinstalling torch (XS-35)."""
+    and reinstalling the ML dep set (XS-35)."""
     cfg = yaml.safe_load(PRE_COMMIT_CONFIG.read_text())
     mypy_hook = _find_hook(cfg, "mypy")
     assert mypy_hook["language"] == "system", (

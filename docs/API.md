@@ -63,7 +63,7 @@ Removed / renamed fields (documented for searchability, do NOT re-add):
 - `clipboard_clear_delay_seconds` → removed in ADR-0010 §8.2 (was dead
   code: only read by the deleted `schedule_clipboard_clear`).
 - `check_updates` → never existed on `Config` (auto-update is not a
-  Python config flag; historical Electron `electron-updater` path
+  Python config flag; historical predecessor `predecessor-updater` path
   removed 2026-09-17).
 - `voice_activity` recording mode → never implemented; the enum is
   `{toggle, push_to_talk}` only.

@@ -155,7 +155,7 @@ pub(crate) fn passthrough_env_allowlist() -> Vec<(std::ffi::OsString, std::ffi::
 /// contract (while the app started hidden, no microphone InputStream
 /// may be opened: opening one lights the OS mic indicator even though
 /// the user has not shown the UI) would never fire on the Tauri
-/// runtime, silently regressing the Electron-runtime behavior where
+/// runtime, silently regressing the predecessor-runtime behavior where
 /// the TS spawner spreads the full host env.
 ///
 /// Semantics:

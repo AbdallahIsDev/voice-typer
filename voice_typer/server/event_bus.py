@@ -19,7 +19,7 @@ handlers/config_handlers, handlers/system_handlers, tray_window) call
 The IPC server (``voice_typer.server.ipc_server.IPCServer``) calls
 ``subscribe(self.push)`` on ``start()`` and ``unsubscribe(self.push)``
 on ``stop()`` so that every published event is forwarded to the
-connected Electron renderer over TCP (or to stdout in stdin/stdout
+connected predecessor renderer over TCP (or to stdout in stdin/stdout
 mode).
 
 Other transports (CLI, gRPC, future WebSocket) can subscribe the same
@@ -81,8 +81,8 @@ Events emitted via ``event_bus.publish`` (the modern path):
   total_bytes, speed_bytes_per_sec, eta_seconds, paused, resumed}``.
 * ``notification``: request a renderer toast. Payload: ``{title, message,
   duration_ms, critical}``. (Canonical name, previously emitted as
-``electron_notification``;  renamed the wire event on the Python
-  side so both the Electron and Tauri paths consume the same name.)
+``the legacy notification event name``;  renamed the wire event on the Python
+  side so both the predecessor and Tauri paths consume the same name.)
 * ``navigate``: tray → UI route change. Payload: ``{path:str}``.
 * ``show_window``: show the main window. Payload: ``{}``.
 * ``quit_app``: sidecar requests app quit. Payload: ``{}``.
@@ -91,12 +91,12 @@ Events emitted via ``event_bus.publish`` (the modern path):
   shows a sonner toast with "Open recovery file" action.
   Payload: ``{message:str, recovery_path:str|null}``.
 * ``tray_menu``: serialized menu model pushed
-  to the Tauri sidecar host only (``TAURI_SIDECAR=1``). On Electron/
+  to the Tauri sidecar host only (``TAURI_SIDECAR=1``). On predecessor/
   pystray the native menu is the single source of truth and this is
   a no-op. Payload: ``{items:[<menu node dict>]}``.
 * ``tray_state``: tray icon name + tooltip
   pushed to the Tauri sidecar host only (``TAURI_SIDECAR=1``). On
-  Electron/pystray the ``TrayIcon`` is updated directly so emitting
+  predecessor/pystray the ``TrayIcon`` is updated directly so emitting
   a parallel event would double-publish. Payload: ``{icon:str?,
   tooltip:str?}`` (at least one field present).
 * ``consent_required``: emitted by ``service/model.py``
@@ -638,7 +638,7 @@ _lock = threading.RLock()
 # (sounddevice's PortAudio callback, or the in-process "audio-worker"
 # thread that drives the callback), synchronous fan-out to every
 # subscriber can glitch capture, a slow subscriber (json.dumps +
-# socket.sendall to a stalled Electron renderer) blocks the RT loop.
+# socket.sendall to a stalled predecessor renderer) blocks the RT loop.
 # Detect the audio thread by name and defer to a single-worker
 # ThreadPoolExecutor so the RT thread returns in microseconds.
 _RT_THREAD_NAME_PREFIXES: tuple[str, ...] = (
@@ -650,7 +650,7 @@ _deferred_executor_lock = threading.Lock()
 
 # bound the deferred-publish queue. ``ThreadPoolExecutor`` uses
 # an unbounded ``SimpleQueue`` internally; a slow subscriber (stalled
-# socket.sendall to the Electron renderer) at 60 Hz ``bubble_level``
+# socket.sendall to the predecessor renderer) at 60 Hz ``bubble_level``
 # fan-out would queue 36,000 tasks over 10 minutes, unbounded memory
 # growth under backpressure. The counter tracks in-flight deferred
 # tasks; when it exceeds ``_DEFERRED_QUEUE_MAX`` new submissions are
@@ -802,7 +802,7 @@ def _deliver_deferred(event, resolvers):
 # no-client path buffers silently, while unrelated subscribers (e.g. the
 # tray's parakeet-cpu-fallback listener) accept every event without
 # raising. Callers that must know whether the event actually went over
-# the wire to a live host client (``tray_window.open_electron_window``)
+# the wire to a live host client (``tray_window.open_app_window``)
 # register a zero-arg probe here; :func:`has_live_transport` reports
 # whether any registered probe currently has a live client.
 _transport_probes: list[typing.Any] = []
@@ -932,7 +932,7 @@ def publish(event: dict, *, async_dispatch: bool = False) -> bool:
             block on slow IPC writes: e.g. the transcription thread
             calling ``publish({"type": "transcription_final", ...})``
             would otherwise block on ``IPCServer.push`` →
-            ``socket.sendall`` to a stalled Electron renderer (seconds of
+            ``socket.sendall`` to a stalled predecessor renderer (seconds of
             latency if the renderer is paused in the debugger).
 
             When ``False`` (default), subscribers are called synchronously

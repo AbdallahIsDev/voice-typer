@@ -31,7 +31,7 @@ updating the dedicated tests:
 
 The tests are intentionally cheap (file reads + substring checks) so
 they can run on every CI job without spinning up PortAudio, the model
-loader, or the Electron renderer.
+loader, or the predecessor renderer.
 """
 
 from __future__ import annotations

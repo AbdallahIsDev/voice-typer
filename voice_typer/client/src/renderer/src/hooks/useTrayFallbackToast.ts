@@ -11,7 +11,7 @@
 //
 // PAYLOAD: the emitter nests ``title``/``message`` under ``data`` (the
 // canonical envelope, root-level fields are stripped by the
-// event-protocol layer, which is why an earlier Electron-era root-level
+// event-protocol layer, which is why an earlier predecessor-era root-level
 // shape delivered an empty payload). Both fields stay optional so the
 // banner still renders the generic degraded-mode copy if a future
 // emitter omits them.

@@ -1,11 +1,11 @@
 /**
  * Renderer console capture (review.md MO-105).
  *
- * Electron captured BOTH of its webviews' console output in the main
+ * predecessor captured BOTH of its webviews' console output in the main
  * process (`windows/renderer-telemetry.ts` + `windows/bubble/console-forwarder.ts`),
  * with this level routing:
  *
- * | Chromium level | Electron action |
+ * | Chromium level | predecessor action |
  * |---|---|
  * | 0 (VRB) | dropped (too noisy) |
  * | 1 (INFO) | host stdout only, never the file |

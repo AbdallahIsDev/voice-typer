@@ -168,11 +168,11 @@ export function useConnection({
 						//surface get_status failures to the
 						// renderer console instead of silently swallowing
 						// them so a hung backend probe is observable in
-						// the Electron main-process log.
+						// the predecessor main-process log.
 						.catch((err) =>
 							console.warn("[renderer:useConnection] get_status failed:", err),
 						);
-					// Send saved bubble_position to the Electron main process
+					// Send saved bubble_position to the predecessor main process
 					// so it persists across restarts (main process initializes to 'top')
 					const pos = cfg?.bubble_position;
 					if (pos === "bottom" || pos === "top") {
@@ -186,7 +186,7 @@ export function useConnection({
 					}
 					// Show the bubble at startup if always_visible + show_on_startup is enabled.
 					// This is a reliable fallback in case the TCP push event from Python's
-					// _do_startup arrives before Electron is fully ready to render the bubble.
+					// _do_startup arrives before predecessor is fully ready to render the bubble.
 					const behavior = cfg?.bubble_behavior;
 					const showOnStartup = cfg?.bubble_show_on_startup;
 					if (behavior === "always_visible" && showOnStartup !== false) {
@@ -268,7 +268,7 @@ export function useConnection({
 	//use ``get_status`` (lightweight, returns only state +
 	// xrun counter) instead of ``get_config`` (serializes the entire
 	//config dict). The heartbeat (5s backend→frontend check)
-	// detects Electron crashes; this renderer→backend check detects
+	// detects predecessor crashes; this renderer→backend check detects
 	// backend crashes.  Together they provide bidirectional crash
 	// detection without config serialization churn.
 	//
@@ -285,7 +285,7 @@ export function useConnection({
 	//the previous 60s interval was too coarse, a dead
 	// backend could sit undetected for up to a minute before the
 	//user saw any feedback (the backend→frontend heartbeat
-	// only catches ELECTRON crashes, not Python-side crashes). The
+	// only catches host crashes, not Python-side crashes). The
 	// 15s interval catches a dead backend within ~15s of the last
 	// successful probe, which is the threshold at which users
 	// perceive "the app is hung" and start clicking around. The
@@ -636,7 +636,7 @@ export function useConnection({
 	// succeed against a dead process, and the renderer had NO way to
 	// recreate the backend.
 	//
-	// The fix: when the probe fails, ask the Electron main process to
+	// The fix: when the probe fails, ask the predecessor main process to
 	// restart ONLY the Python backend (`window.window_.restartBackend`,
 	// the `backend:restart` IPC channel). The main process kills the
 	// old sidecar (SIGTERM→SIGKILL fallback, exit listeners stripped)

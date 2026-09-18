@@ -89,7 +89,7 @@ export function useTemplateImportExport({
 
 	// The GDPR export IPC bridge. Returns null when the bridge (or its
 	// exportTemplates member) is unavailable, e.g. running outside
-	// Electron, so the skeleton shows the not-available toast instead
+	// predecessor, so the skeleton shows the not-available toast instead
 	// of a silent dead control. The cast mirrors the local alias above
 	// (the declared type doesn't carry the format arg yet).
 	const exportFile = useCallback((items: Template[], format: ExportFormat) => {

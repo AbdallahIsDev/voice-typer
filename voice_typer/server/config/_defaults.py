@@ -71,14 +71,14 @@ def _default_hotkey_for_platform() -> str:
 # so it is derived from the canonical ``*_FILENAME`` constants owned
 # by each artifact's module. ``_USER_DATA_DIRS`` is still defined
 # inline here because the five entries (``logs``, ``huggingface``,
-# ``crashes``, ``native_logs``, ``electron-profile``) are stable
-# directory names owned by several modules (no single canonical
-# constant exists for each).
+# ``crashes``, ``native_logs``, and the legacy Chromium profile dir
+# listed below) are stable directory names owned by several modules (no
+# single canonical constant exists for each).
 _USER_DATA_DIRS: tuple[str, ...] = (
     "logs",
     "db",  # history.db + -wal/-shm sidecars + corrupt/pre-migration backups (O2)
     "huggingface",  # HF model cache (potentially GB-sized)
     "crashes",
     "native_logs",
-    "electron-profile",  # Electron/Chromium profile (caches, Local Storage)
+    "legacy-profile",  # LEGACY Chromium profile directory (caches, Local Storage)
 )

@@ -150,11 +150,11 @@ def test_dispatch_command_does_not_forward_heartbeat(monkeypatch):
     This is a documentation test, the actual gating is in Rust (main.rs
     doesn't have a heartbeat path at all). Here we verify the Python
     side: the _COMMAND_REGISTRY still contains `heartbeat` (so the
-    Electron fallback path works), but the heartbeat watchdog thread
+    predecessor fallback path works), but the heartbeat watchdog thread
     is disabled under TAURI_SIDECAR=1.
     """
     from voice_typer.server import ipc_server
 
-    # The registry must still contain heartbeat (Electron fallback).
+    # The registry must still contain heartbeat (predecessor fallback).
     assert "heartbeat" in ipc_server.IPCServer._COMMAND_REGISTRY
     assert ipc_server.IPCServer._COMMAND_REGISTRY["heartbeat"] == "_handle_heartbeat"

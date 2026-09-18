@@ -72,8 +72,8 @@ One log per process, under the data directory: `%APPDATA%\voice-typer\voice-type
 ## Runtime Architecture
 
 Voice Typer runs on a **single desktop host: Tauri v2 + Python sidecar**.
-The Electron host was removed on 2026-09-17 (ADR-0020 Phase 5 cutover;
-historical Electron path documented in
+The predecessor host was removed on 2026-09-17 (ADR-0020 Phase 5 cutover;
+historical predecessor path documented in
 [ADR-0020](docs/adr/0020-desktop-runtime-migration-analysis.md) and
 [docs/migration/](docs/migration/)).
 

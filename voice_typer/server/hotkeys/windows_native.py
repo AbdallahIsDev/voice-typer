@@ -319,7 +319,7 @@ class WindowsNativeHotkey(HotkeyBackend):
                 # ESC-CANCEL-DELIVERY (regression fix): ESC is a *system key*
                 # (VK_ESCAPE) that arrives as WM_SYSKEYDOWN. In the real world
                 # it is routinely intercepted by the foreground window (the
-                # Electron renderer, which uses ESC to close dialogs/overlays)
+                # predecessor renderer, which uses ESC to close dialogs/overlays)
                 # and/or already claimed by another process via RegisterHotKey
                 # (ERROR_HOTKEY_ALREADY_REGISTERED / 1409). In both cases the
                 # GetAsyncKeyState async-key state is NEVER set for ESC, so a

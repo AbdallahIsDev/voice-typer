@@ -334,7 +334,7 @@ def test_model_path_resolves_to_xdg_data_home_on_linux(monkeypatch, tmp_path):
     ``is_macos()`` returns True.
 
     ADR-0020 §8 mandates this path for both Linux arches, the Tauri
-    build writes to the same location the Electron build did, so the
+    build writes to the same location the predecessor build did, so the
     Rollback procedure preserves user data.
     """
     # Force Linux platform detection. ``config._config_dir`` calls

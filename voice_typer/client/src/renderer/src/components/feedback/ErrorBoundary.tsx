@@ -33,12 +33,11 @@
 //     Settings → Reset to Defaults flow but is callable from the
 //     error UI without needing the Settings page to render.
 //
-// ``componentDidCatch`` forwards the caught error to the
-// main process for explicit persistence in
-// ``electron-renderer-errors.log`` (separate from the
-// ``console-message`` path so React's ``componentStack`` is
-// preserved, ``console.error`` serializes ``errorInfo`` to a string
-// and loses the structured component-tree trace).
+// ``componentDidCatch`` forwards the caught error to the host for
+// explicit persistence in the host file log (separate from the console
+// path so React's ``componentStack`` is preserved: ``console.error``
+// serializes ``errorInfo`` to a string and loses the structured
+// component-tree trace).
 
 import { Alert02Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -106,33 +105,25 @@ export class ErrorBoundary extends Component<
 	}
 
 	componentDidCatch(error: Error, errorInfo: ErrorInfo): void {
-		// Log to console for debugging. The main-window
-		// `console-message` handler persists level>=3
-		// (ERROR) console output to `electron-renderer-errors.log`
-		// so this `console.error` automatically lands in the file
-		//, the previous comment claiming "the renderer process's
-		// console is captured by Electron's main process and
-		// written to the log file" was misleading because the
-		// console-message handler only re-emitted to the terminal
-		// (lost when the terminal closed); it did NOT persist to
-		// disk before the console-message persistence path landed.
+		// Log to console for debugging. The host does NOT capture the
+		// webview console into the file log, so this `console.error`
+		// only reaches DevTools; the explicit `logError` forward below
+		// is what persists the crash to the host log.
 		console.error(
 			"[renderer:ErrorBoundary] Caught render error:",
 			error,
 			errorInfo,
 		);
 
-		// Forward the caught error to the main process
-		// for explicit persistence in `electron-renderer-errors.log`
-		// (separate from the console-message path so React's
-		// `componentStack` is preserved, the console.error above
-		// serializes `errorInfo` to a string, losing the structured
-		// component tree trace). The IPC call is fire-and-forget:
-		// if the preload doesn't expose `logError` (Tauri mode) or
-		// the main process is unreachable, the `.catch` swallow is
-		// acceptable because the console.error above already
-		// surfaced the error to the dev-tools + main-process
-		// console forwarding path.
+		// Forward the caught error to the host for explicit
+		// persistence in the host file log (separate from the console
+		// path so React's `componentStack` is preserved: the
+		// console.error above serializes `errorInfo` to a string,
+		// losing the structured component tree trace). The call is
+		// fire-and-forget: if the bridge doesn't expose `logError` or
+		// the host is unreachable, the `.catch` swallow is acceptable
+		// because the console.error above already surfaced the error
+		// to DevTools.
 		try {
 			window.window_
 				?.logError?.({
@@ -256,7 +247,7 @@ export class ErrorBoundary extends Component<
 		const payload = lines.join("\n");
 		try {
 			// ``navigator.clipboard.writeText`` is available in all
-			// modern Chromium builds (Electron included).  Fall back
+			// modern Chromium builds (predecessor included).  Fall back
 			// to a textarea-select hack if it throws (e.g. clipboard
 			// API denied by a sandboxed context).
 			if (navigator?.clipboard?.writeText) {

@@ -1,7 +1,7 @@
 """Tests for IPC infrastructure, build tooling, CI, package metadata,
 and type-safety fixes.
 
-Post-Electron cutover: the Electron main/preload source pins were
+Post-predecessor cutover: the predecessor main/preload source pins were
 deleted with the TS shell. Remaining tests here cover the Python
 IPC/service layer only. Renderer-callable command parity lives in
 ``tests/test_ipc_command_parity.py`` (Python registry ↔ Rust allowlist).

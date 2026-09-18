@@ -22,7 +22,7 @@ has its own focused home.  It owns:
 * The pre-built ``_VALIDATOR_*`` instances used inside
   :data:`IPC_CONFIG_ALLOWLIST`.
 * :data:`IPC_CONFIG_ALLOWLIST`: the explicit, reviewed map of fields
-  the Electron renderer is permitted to mutate via the IPC
+  the predecessor renderer is permitted to mutate via the IPC
   ``set_config`` command, together with their per-field validators.
 
 The :data:`IPC_CONFIG_ALLOWLIST` is a NON-NEGOTIABLE security contract
@@ -143,7 +143,7 @@ NOISE_SUPPRESSION_METHODS: frozenset[str] = frozenset({"rnnoise", "gtcrn", "none
 # use of paid API keys.
 #
 # `IPC_CONFIG_ALLOWLIST` is the explicit, reviewed list of fields the
-# Electron renderer is permitted to mutate via `set_config`, together
+# predecessor renderer is permitted to mutate via `set_config`, together
 # with per-field validators.  Anything not in this map is silently
 # dropped (preserving the existing "unknown field" contract from
 # `test_ignores_unknown_fields_without_crashing`).
@@ -353,7 +353,7 @@ IPC_CONFIG_ALLOWLIST: dict[str, FieldSpec] = {
     # primary display anchors (0,0); the lower bound leaves ~12x headroom
     # beyond a wall of 8K displays). The upper bound still rejects absurd
     # values that would place the bubble off-screen. On-screen validity
-    # is enforced at RESTORE time by the hosts (Electron's
+    # is enforced at RESTORE time by the hosts (the predecessor's
     # isPositionOnAnyDisplay / the Tauri work-area check), not here —
     # a coordinate can be temporarily off-screen when a monitor is
     # unplugged and must survive that transient state.

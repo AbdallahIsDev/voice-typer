@@ -4,7 +4,7 @@
 	"description": "Tauri desktop shell for Voice Typer",
 	"private": true,
 	"//engines_note": "Node 24 is the CURRENT TARGET. Do NOT downgrade to Node 20 (deprecated on GitHub Actions 2025-09-19). If a newer LTS is available, bump this comment AND the engines.node AND .nvmrc AND all .github/workflows/*.yml files together. Node 20 deprecation also causes [DEP0040] punycode DeprecationWarning noise in CI logs.",
-	"//overrides_note": "Force-upgrades for transitive deps pulled by the remaining vite/tailwind/vitest/shadcn tooling chain. As of 2026-08-04, `npm audit` reports 0 vulnerabilities after overrides. Electron-only overrides (@electron/asar, @electron/get, undici, @xmldom/xmldom, js-yaml) were removed with the Electron shell.",
+	"//overrides_note": "Force-upgrades for transitive deps pulled by the remaining vite/tailwind/vitest/shadcn tooling chain. As of 2026-08-04, `npm audit` reports 0 vulnerabilities after overrides. Overrides that existed only for the retired desktop host's packaging helpers were removed with it — do not reintroduce them (see AGENTS.md, `## npm Overrides: DO NOT REMOVE`).",
 	"engines": {
 		"node": ">=24"
 	},

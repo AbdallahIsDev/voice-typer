@@ -30,8 +30,8 @@
  * tag at runtime (CSP spec: HTTP headers win). This test pins the
  * meta tag itself so it stays in lockstep with the HTTP-header policy
  * and is no longer a backdoor if the HTTP-header route ever fails to
- * fire (e.g. an Electron upgrade changes file:// header handling, or
- * the page is opened outside Electron).
+ * fire (e.g. an predecessor upgrade changes file:// header handling, or
+ * the page is opened outside predecessor).
  *
  * Platform: Linux sandbox / Windows host / macOS host (pure static
  * file read, no DOM, no jsdom). Validation:

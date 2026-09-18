@@ -12,7 +12,7 @@ Windows Startup folder as a tertiary mechanism. The Startup folder
 always honored by Windows Explorer at login and requires no special
 permissions, it's the most reliable fallback.
 
-The .bat sets ``VT_START_HIDDEN=1`` (so the Tauri app / Electron
+The .bat sets ``VT_START_HIDDEN=1`` (so the Tauri app / predecessor
 launcher starts hidden) and spawns the autostart command via
 ``start "" /B`` (no console window flash). The file is named
 ``com.voicetyper.autostart_<hash>.bat`` to match the Run-key naming

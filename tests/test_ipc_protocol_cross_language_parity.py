@@ -164,7 +164,7 @@ def test_ts_push_events_protocol_version_matches_python() -> None:
     """The TS ``IPC_PROTOCOL_VERSION`` constant in push_events.ts MUST
     equal the Python ``IPC_PROTOCOL_VERSION``. The TS constant is the
     renderer's compile-time reference for the auth-frame contract; any
-    future Electron-side auth-frame construction (e.g. the Electron
+    future predecessor-side auth-frame construction (e.g. the predecessor
     fallback path) references this constant instead of bare-coding the
     integer.
     """

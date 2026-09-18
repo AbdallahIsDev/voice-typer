@@ -29,7 +29,7 @@ class TestAccessibilityIpcEndpointExists:
     """PLAT-030.
 
     The finding: macOS Accessibility check exists but no IPC endpoint
-    for the Electron UI to query. Fix: added ``check_accessibility``
+    for the predecessor UI to query. Fix: added ``check_accessibility``
     IPC handler that returns ``{granted, platform}``.
 
     Stale-test refresh + re-registration: the ``check_accessibility``

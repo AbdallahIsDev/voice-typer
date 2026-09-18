@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted → **partially superseded by the Electron/TCP removal (ADR-0020
+Accepted → **partially superseded by the predecessor/TCP removal (ADR-0020
 cutover, 2026-09)**. The deliberate WS-vs-TCP asymmetry no longer
 exists as a live dual-transport concern: TCP is gone. The WS handshake
 remains warn-and-continue by original design (a blind reject would turn
@@ -28,7 +28,7 @@ differently to skew:
   "defense-in-depth, not a security gate").
 - **TCP** (`voice_typer/server/ipc/transport_tcp.py`): sent a structured
   `server.protocol_version_mismatch` error envelope and **closed** the socket.
-  **(retired with Electron/TCP removal — Lane B)**
+  **(retired with predecessor/TCP removal — Lane B)**
 
 The WS check was added as advisory; the TCP check was added later as a hard
 rejection. The two were never reconciled while both transports lived.
@@ -72,4 +72,4 @@ Rust supervisor's refused-connection path is a full respawn loop.
 - `voice_typer/server/sidecar_ws_internals/handshake.py` (advisory check)
 - `voice_typer/server/ipc/protocol_version.py` (single source of truth)
 - `tests/test_sidecar_ws_protocol_version.py`
-- ADR-0020 (single-transport Tauri world; Electron/TCP removal)
+- ADR-0020 (single-transport Tauri world; predecessor/TCP removal)

@@ -17,8 +17,8 @@ UE-1 and UE-2):
     to Python's default handler with no cleanup). The event is
     cleared after each wakeup so a subsequent signal re-arms the
     watcher.
-  * **UE-1-F6**: ``_teardown_electron`` adds a Windows ctypes
-    ``TerminateProcess`` fallback when ``terminate_electron`` times
+  * **UE-1-F6**: ``_teardown_host_child`` adds a Windows ctypes
+    ``TerminateProcess`` fallback when the child terminate times
     out (pre-fix the Windows branch was a silent no-op on timeout —
     the POSIX branch had SIGKILL escalation, but Windows had none).
   * **UE-1-F7**: ``signal_watcher_loop`` ``except`` block writes a
@@ -51,8 +51,8 @@ _SIGNAL_HANDLERS_PATH = os.path.join(
     "server",
     "signal_handlers.py",
 )
-# Electron teardown source-inspection path removed with
-# shutdown/teardowns/electron.py (Electron path deleted).
+# The predecessor teardown source-inspection path was removed along with
+# the predecessor host tree.
 
 
 def _src(path: str) -> str:
@@ -332,7 +332,7 @@ class TestSignalWatcherLoopSurvivesMultipleSignals:  # noqa: N801
             controller._stop.set()
 
 
-# Windows TerminateProcess fallback tests removed with the Electron path.
+# Windows TerminateProcess fallback tests removed with the predecessor path.
 
 
 # signal_watcher_loop stderr fallback write ──────────────

@@ -31,7 +31,7 @@ from pathlib import Path
 # Centralized log-retention constants.  Mirror the Rust-side
 # ``LOG_MAX_BYTES`` in ``src-tauri/src/util.rs``.
 # All Python logging handlers that write log files (the main
-# voice-typer.log, the prewarm.log, and the Electron-build log) MUST
+# voice-typer.log, the prewarm.log, and the predecessor-build log) MUST
 # import the size cap from here instead of inlining ``5 * 1024 * 1024``
 # so a future bump edits ONE file.  See
 # ``voice_typer/server/_log_constants.py`` for the three-tier rationale.
@@ -93,7 +93,7 @@ def get_logs_dir(config_dir: Path) -> Path:
 
     ``<config_dir>/logs``: shared by the Python processes (via
     :func:`get_log_file_path`), the Rust host (``voice-typer-rust.log``,
-    see ``src-tauri/src/platform/logging.rs``), and the Electron /
+    see ``src-tauri/src/platform/logging.rs``), and the predecessor /
     Tauri stdout+stderr redirects. The directory may not exist yet —
     :func:`setup_logging` creates it.
     """
@@ -186,12 +186,11 @@ def _sweep_stale_logs(config_dir: Path) -> None:
     so the next process can acquire the flock. This covers Python-owned
     logs (``voice-typer.log``, ``worker.log``, ``prewarm.log``,
     ``startup-error.log``, ``voice-typer-crash-buffer.log``) AND the
-    host-owned logs (``electron-main.log``, ``electron-runtime.log``,
-    ``voice-typer-rust.log`` + rotations). Files locked by another live
-    process (e.g. the Electron host's logs in dev/Tauri mode, where the
-    host started first) fail the unlink, skipped silently; their owner
+    host-owned logs (``voice-typer-rust.log`` + rotations, plus any
+    legacy host log files still on disk). Files locked by another live
+    process (e.g. the Rust host's logs in dev mode, where the host
+    started first) fail the unlink, skipped silently; their owner
     sweeps them at its own startup (mirrored in
-    ``client/src/main/logging/rotation.ts`` and
     ``src-tauri/src/platform/logging.rs``).
 
     Best-effort, any error is logged at DEBUG and swallowed so a single
@@ -551,8 +550,7 @@ def setup_logging(
         Accepted for backwards compatibility. NO LONGER forces coloured
         stderr output: ANSI colours are gated on
         ``sys.stderr.isatty()`` so ``--port`` runs whose stderr is
-        redirected to a file (the Electron launcher's
-        ``electron-stderr.log``) stay plain and grep-friendly, while a
+        redirected to a file stay plain and grep-friendly, while a
         terminal ``--port`` run still gets colours (a terminal IS a
         TTY, so the old ``or port_mode`` was redundant for the case it
         was designed for).
@@ -863,10 +861,9 @@ def setup_logging(
         # reaches *some* sink even when the file write fails.
         # Colors follow the STREAM, not the launch mode. The legacy
         # ``or port_mode`` forced ANSI escapes whenever ``--port`` was in
-        # argv, and the Electron TCP path (``python -m ipc_server
-        # --port N`` with stderr redirected to electron-stderr.log) IS
-        # such a run, so every backend line landed in the log file with
-        # raw escape codes. Colors now require a real TTY: redirected
+        # argv, so a run whose stderr was redirected to a file landed
+        # every backend line in the log file with raw escape codes.
+        # Colors now require a real TTY: redirected
         # output (launcher log files, pipes, CI) stays plain while
         # terminal runs keep the palette.
         do_color = bool(sys.stderr is not None and sys.stderr.isatty())

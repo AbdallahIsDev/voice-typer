@@ -2,7 +2,7 @@
 
 USER-VISIBLE DEFECT (Windows host report, 2026-08-30): inside the Tauri
 app the Microphone page is completely empty, no microphones are listed
-— while the same machine's Electron app and the OS list them fine.
+— while the same machine's predecessor app and the OS list them fine.
 
 ROOT CAUSE (code-verified):
 
@@ -20,7 +20,7 @@ process ever populates the microphone registry: ``get_microphones``
 serves ``app._microphones`` verbatim and therefore always answers
 ``[]``. The renderer's empty-list retry backoff (1/2/4/8 s in
 ``useMicrophoneData.ts``) exhausts and the page stays permanently
-empty. The Electron host spawns the backend WITHOUT ``--ws`` (TCP
+empty. The predecessor host spawns the backend WITHOUT ``--ws`` (TCP
 ``--port`` path), ``app.start()`` runs, phase 6 populates the list,
 and the page works, the exact divergence the user reported.
 
@@ -165,7 +165,7 @@ class TestWsSidecarMicPopulation:
         PortAudio enumeration WORKS in this process (fake sounddevice
         lists 2 devices), the IPC server is fully started, and the
         entrypoint's ws branch now launches the same startup background
-        work (``app.start`` on a daemon thread) that the Electron path
+        work (``app.start`` on a daemon thread) that the predecessor path
         runs, so the phase-6 ``load_microphones`` task populates
         ``app._microphones`` and the handler serves the devices. This
         test replicates that launch exactly (startup background work

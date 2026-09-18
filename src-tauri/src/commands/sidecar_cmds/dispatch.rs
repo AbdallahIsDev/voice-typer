@@ -528,7 +528,7 @@ async fn dispatch_frame(
         Ok(Ok(mut response)) => {
             // ADR-0020 §2: if the response is a `type:"error"` envelope,
             // surface it as a Rust error so the webview's `invoke()`
-            // rejects (the Electron path silently treated
+            // rejects (the predecessor path silently treated
             // `type:"error"` as success, surfacing it as a rejection is
             // the host-side fix).
             if response.get("type").and_then(|t| t.as_str()) == Some("error") {
@@ -665,7 +665,7 @@ pub async fn dispatch(
     require_main_window(&window)?;
 
     // Enforce the ALLOWED_COMMANDS allowlist BEFORE forwarding the
-    // command to the Python sidecar over WS. This mirrors the Electron
+    // command to the Python sidecar over WS. This mirrors the predecessor
     // renderer-side gate (SEC-019 / ADR-0015) and is the
     // defense-in-depth backstop for a compromised-renderer attack
     // (XSS in the WebView → `invoke('dispatch', {cmd:'<arbitrary>'})`).

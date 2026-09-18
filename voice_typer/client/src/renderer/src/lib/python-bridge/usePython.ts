@@ -8,7 +8,7 @@
 import { useCallback } from "react";
 // Import the `PythonCallErrorCode` union so the renderer can narrow
 // `result._code` against the typed union. The canonical declaration
-// lives in the Electron main process's `python-call-handler.ts`
+// lives in the predecessor main process's `python-call-handler.ts`
 // (outside the web tsconfig's `include` scope, a cross-boundary import
 // would fail `tsc --noEmit` with `TS6307`). The renderer-side mirror
 // lives in `types/ipc/enums.ts` (this file's import below); the two
@@ -102,11 +102,11 @@ export function usePython() {
 				// Race the underlying bridge call against a per-command
 				// timeout so a hung trivial command (e.g. `get_status`) surfaces
 				// an error in seconds instead of the prior blanket 120s timeout
-				// imposed by the Electron main / Rust host. The underlying
+				// imposed by the predecessor main / Rust host. The underlying
 				// promise may still resolve later; the caller sees the timeout
 				// rejection first.
 				//
-				// Tauri/Electron error-envelope normalization. On
+				// Tauri/predecessor error-envelope normalization. On
 				// Tauri v2, `invoke` rejects with a RAW STRING (not an Error)
 				// when the Rust `dispatch` command returns an Err, the host's
 				// `e.to_string()` becomes the rejection value verbatim. Callers
@@ -121,7 +121,7 @@ export function usePython() {
 				// The catch ALSO swallows the post-rejection envelope checks
 				// below, on Tauri the await throws before we ever inspect the
 				// resolved value (the in-code `_error`/`type:"error"` checks
-				// are Electron-path-only, see the comment below).
+				// are predecessor-path-only, see the comment below).
 				let result: Record<string, unknown>;
 				try {
 					result = (await withCommandTimeout(
@@ -136,7 +136,7 @@ export function usePython() {
 					// message}}` envelope (sidecar_cmds/dispatch.rs). Parse it
 					// so `err.code` is stamped and callers that branch on the
 					// failure class work on Tauri exactly as they do on
-					// Electron (previously the whole JSON string became the
+					// predecessor (previously the whole JSON string became the
 					// message and `code` was dropped, so
 					// `err.code === "command_timeout"` checks silently fell
 					// through on Tauri).
@@ -148,21 +148,21 @@ export function usePython() {
 					throw new Error("unknown IPC error");
 				}
 				// Handle BOTH error
-				// envelope shapes that can flow back over the Electron
+				// envelope shapes that can flow back over the predecessor
 				// path, surfacing each as a real JS Error so callers
 				// using `try { await python.call(...) } catch (e) {}`
 				// see failures instead of silently treating the error
 				// envelope as a successful result (which previously left
 				// callers reading `undefined` from data fields).
 				//
-				//   1. `{_error: "..."}`, Electron main-process synthetic
+				//   1. `{_error: "..."}`, predecessor main-process synthetic
 				//      errors (index.ts:1908/1911/1916): backend-not-
 				//      connected and sendToPython exceptions. `_error` is
-				//      a STRING in the actual Electron code; we also
+				//      a STRING in the actual predecessor code; we also
 				//      accept `{message: "..."}` defensively.
 				//   2. `{type:"error", data:{code, message}}`, Python
 				//      server unhandled-dispatch exceptions
-				//      (ipc_server.py:1044-1050). The Electron main
+				//      (ipc_server.py:1044-1050). The predecessor main
 				//      process resolves the pending request with this
 				//      object verbatim (it does NOT translate it into
 				//      `{_error: ...}`).
@@ -172,7 +172,7 @@ export function usePython() {
 				// `invoke` promise on `type:"error"` (and never produces
 				// `{_error:...}`), so `await api.call(...)` throws before
 				// we ever inspect the resolved value. The checks below
-				// are therefore Electron-path-only, DEAD CODE on Tauri,
+				// are therefore predecessor-path-only, DEAD CODE on Tauri,
 				// but harmless (and the unified error shape keeps
 				// caller-facing behavior consistent across both runtimes).
 				// Errors on Tauri propagate as-is from the Rust rejection
@@ -302,7 +302,7 @@ export function usePython() {
 	// App.tsx (which probes the backend via ``get_config``).
 	//
 	// If a future caller needs to distinguish "bridge installed" from
-	// "bridge missing" (e.g. running outside Electron), they can do
+	// "bridge missing" (e.g. running outside predecessor), they can do
 	// ``const api = window.python`` and
 	// check ``!!api`` directly.  We don't expose a misleading flag.
 	return { call };

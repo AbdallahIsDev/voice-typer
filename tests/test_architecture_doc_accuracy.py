@@ -239,7 +239,7 @@ def test_gp94_tauri_command_count_in_doc_matches_code():
         "open_model_import_dialog",
         "renderer_log_error",
         "set_host_locale",
-        # 2026-09-16 Electron-parity additions (review.md MO-118 / MO-120 /
+        # 2026-09-16 predecessor-parity additions (review.md MO-118 / MO-120 /
         # MO-113 / MO-121): https-only external-link launch, reveal-in-file-manager,
         # the renderer's backend-restart escalation, the webview
         # liveness heartbeat feeding the renderer watchdog, and the
@@ -295,7 +295,7 @@ def test_gp94_main_rs_line_count_is_385():
 
     Updated 2026-08-26: main.rs grew from 385 → 389 lines, the
     ``set_host_locale`` command registration (renderer i18n push parity
-    with the Electron ``i18n:set-locale`` channel; body lives in
+    with the predecessor ``i18n:set-locale`` channel; body lives in
     ``commands/system_cmds.rs``, state field in ``state.rs``). Still
     wiring-only. Doc + test pin updated in lockstep.
 
@@ -343,7 +343,7 @@ def test_gp94_main_rs_line_count_is_385():
     live in ``sidecar/spawn/worker.rs``). Still wiring-only. Doc +
     test pin updated in lockstep.
 
-    Updated 2026-09-16 (Electron-parity + MO-121/125): main.rs grew
+    Updated 2026-09-16 (predecessor-parity + MO-121/125): main.rs grew
     from 279 → 305 (renderer_heartbeat + HeartbeatState manage,
     open_external_url_command / reveal_path_command / restart_sidecar
     registrations) then 305 → 320 (`save_stats_image` registration +
@@ -351,12 +351,16 @@ def test_gp94_main_rs_line_count_is_385():
     setup; bodies in ``commands/system_cmds/stats_image.rs`` +
     ``platform/shortcuts.rs``). Still wiring-only. Doc + test pin
     updated in lockstep.
+
+    Updated 2026-09-18: pin corrected 330 → 329. The file is 329
+    lines at HEAD; the 330 pin was miscounted when written, no code
+    changed. Doc + test pin updated in lockstep.
     """
     doc = _read(ARCH_DOC)
-    assert "330 lines" in doc, "Doc must claim '330 lines' for main.rs."
+    assert "329 lines" in doc, "Doc must claim '329 lines' for main.rs."
     actual = sum(1 for _ in _read(MAIN_RS).splitlines())
-    assert actual == 330, (
-        f"src-tauri/src/main.rs must be 330 lines (actual: {actual}). Update the doc + this test together."
+    assert actual == 329, (
+        f"src-tauri/src/main.rs must be 329 lines (actual: {actual}). Update the doc + this test together."
     )
     # Stale counts must NOT be in the doc.
     assert "274 lines" not in doc, "Stale '274 lines' must be removed from doc."
@@ -376,6 +380,7 @@ def test_gp94_main_rs_line_count_is_385():
     assert "413 lines" not in doc, "Stale '413 lines' must be removed from doc."
     assert "434 lines" not in doc, "Stale '434 lines' must be removed from doc."
     assert "342 lines" not in doc, "Stale '342 lines' must be removed from doc."
+    assert "330 lines" not in doc, "Stale '330 lines' must be removed from doc."
 
 
 # ─── package-style module paths ───────────────────────────────────────

@@ -29,7 +29,7 @@ case "$1" in
         # Find the install_permissions.py script.
         # Probe ALL 5 canonical candidate paths so the script is found
         # regardless of which installer produced the package (Tauri v2
-        # .deb, legacy Electron .deb, AppImage, manual install).
+        # .deb, legacy .deb, AppImage, manual install).
         # The probe order is: polkit-stable path first (so re-installs
         # short-circuit), then Tauri v2 resource paths, then legacy paths.
         INSTALL_SCRIPT=""
@@ -59,7 +59,7 @@ case "$1" in
         # Install the polkit-stable symlink so the polkit policy resolves
         # to the actually-installed script. Skip if INSTALL_SCRIPT already
         # equals POLKIT_STABLE_PATH (avoids clobbering an existing regular
-        # file at the polkit-stable path: e.g. legacy Electron installs
+        # file at the polkit-stable path: e.g. legacy installs
         # that physically place the script there).
         if [ "$INSTALL_SCRIPT" != "$POLKIT_STABLE_PATH" ]; then
             mkdir -p "$(dirname "$POLKIT_STABLE_PATH")"

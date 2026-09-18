@@ -458,7 +458,7 @@ class TestPushEventsInTsAllowlists:
 # renderer subscribes to them via ``usePythonEvent``) AND in the TS
 # ``KNOWN_EVENT_TYPES`` runtime Set, but they are NOT published by the
 # Python sidecar, they are synthesized by the host bridge (Tauri
-# Rust ``src-tauri/src/sidecar/supervisor.rs`` or Electron main) when
+# Rust ``src-tauri/src/sidecar/supervisor.rs`` or predecessor main) when
 # the transport layer detects a disconnect and enters the reconnect
 # loop. The Rust ``ALLOWED_EVENT_TYPES`` slice correctly EXCLUDES
 # them (the slice is the gate for Python-sidecar→renderer frames

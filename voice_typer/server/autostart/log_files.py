@@ -33,7 +33,7 @@ def _tauri_log_files() -> dict:
 
 
 def _close_log_files(sk: dict) -> None:
-    """Close Electron log file handles in the parent process.
+    """Close predecessor log file handles in the parent process.
 
     Called after ``subprocess.Popen`` to close the parent's copies of
     the stdout/stderr log files.  The child process has inherited the

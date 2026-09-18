@@ -2811,11 +2811,11 @@ class TestRegistryExtraction:
         # The registry holds ALL commands: the 73 forwarded ones (the
         # allowlist in allowed-commands.ts, pinned in SECURITY.md) plus
         # the 2 python-only commands (shutdown, tray_click) that never
-        # cross the Electron bridge. The count is deliberately pinned
+        # cross the predecessor bridge. The count is deliberately pinned
         # here and in SECURITY.md, update all sources of truth
         # together. Adding a command to the registry WITHOUT the TS
         # allowlist fails the parity test
-        # (test_electron_ipc_and_build.py::test_allowlist_matches_server_commands).
+        # (test_host_ipc_and_build.py::test_allowlist_matches_server_commands).
         # get_download_queue (pending-download FIFO queue snapshot —
         # hydrates the renderer's queue chips on mount; live updates
         # flow via download_progress) brought it to 75.

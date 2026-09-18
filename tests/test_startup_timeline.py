@@ -1,6 +1,6 @@
 """Tests for :mod:`voice_typer.server.startup_timeline`.
 
-The host process stamps ``VOICE_TYPER_BOOT_EPOCH_MS`` (Electron at
+The host process stamps ``VOICE_TYPER_BOOT_EPOCH_MS`` (predecessor at
 main-bundle eval; the Tauri host as the first statement of ``main``)
 and ``VOICE_TYPER_SPAWN_EPOCH_MS`` (right before spawning the Python
 backend) into the backend's environment.

@@ -31,7 +31,7 @@ use serde_json::{json, Value};
 
 // ── Multi-monitor work-area placement (bubble_set_position) ────────
 //
-// `bubble_set_position` resolves the CURSOR's monitor (Electron-parity
+// `bubble_set_position` resolves the CURSOR's monitor (predecessor-parity
 // `centerOnActiveDisplay`) and places the bubble within that monitor's
 // WORK AREA in physical pixels. The pure helpers below are unit-tested
 // here without a Tauri runtime; these tests replace the former
@@ -108,13 +108,13 @@ fn test_rect_px_new_saturates_huge_dimensions() {
 // ── Edge margin (DIP → per-monitor physical) ───────────────────────
 
 #[test]
-fn test_edge_margin_physical_scale_one_matches_electron_48() {
+fn test_edge_margin_physical_scale_one_matches_baseline_48() {
     assert_eq!(edge_margin_physical(1.0), 48);
 }
 
 #[test]
 fn test_edge_margin_physical_scales_with_scale_factor() {
-    // 150% / 200% displays keep the same VISUAL gap as Electron's
+    // 150% / 200% displays keep the same VISUAL gap as the predecessor's
     // 48-DIP offset.
     assert_eq!(edge_margin_physical(1.5), 72);
     assert_eq!(edge_margin_physical(2.0), 96);
@@ -167,7 +167,7 @@ fn test_centered_x_clamped_to_workarea_left_when_bubble_wider() {
 #[test]
 fn test_keyword_edge_y_top_adds_margin_to_workarea_top() {
     // Primary display, taskbar irrelevant for "top": y = wa.y + 48
-    // (mirrors Electron `Math.round(wa.y + 48)`).
+    // (mirrors predecessor `Math.round(wa.y + 48)`).
     assert_eq!(
         keyword_edge_y_in_work_area("top", &wa_primary(), 80, 48).unwrap(),
         48
@@ -183,7 +183,7 @@ fn test_keyword_edge_y_top_adds_margin_to_workarea_top() {
 }
 
 #[test]
-fn test_keyword_edge_y_bottom_mirrors_electron_formula() {
+fn test_keyword_edge_y_bottom_mirrors_documented_formula() {
     // y = wa.y + wa.height - bubble_h - margin = 1040 - 80 - 48 = 912.
     assert_eq!(
         keyword_edge_y_in_work_area("bottom", &wa_primary(), 80, 48).unwrap(),
@@ -228,8 +228,8 @@ fn test_keyword_edge_y_unknown_keyword_error_contract_preserved() {
 // ── Composed placement (what the command calls) ─────────────────────
 
 #[test]
-fn test_bubble_position_in_work_area_electron_parity_pin() {
-    // Exact numbers Electron's centerOnActiveDisplay produces for the
+fn test_bubble_position_in_work_area_predecessor_parity_pin() {
+    // Exact numbers the predecessor's centerOnActiveDisplay produces for the
     // reference scenario (1920×1080 display, 40px taskbar, 320×80
     // pill, 48-DIP margin): centered-x 800, top 48, bottom 912.
     // Cross-host divergence here is a UX regression, pin both edges.
@@ -599,13 +599,13 @@ fn test_compute_move_by_new_pos_both_axes_overflow_reports_x_first() {
 //
 // The pre-fix code passed width/height (u32) straight to set_size
 // with only an 8K (7680) upper cap, no MIN bound, and inconsistent
-// with Electron's 40-400 × 24-200 pill bounds. The post-fix code
+// with the predecessor's 40-400 × 24-200 pill bounds. The post-fix code
 // (a) accepts `f64` at the FFI boundary (the TS bridge forwards
 // `number`), (b) rounds to `u32` with a saturating cast via
 // `round_f64_to_u32_saturating` (NaN/negative → 0, ±inf/huge →
 // u32::MAX), and (c) clamps both dimensions to the SAME
 // MIN_BUBBLE_W/MAX_BUBBLE_W/MIN_BUBBLE_H/MAX_BUBBLE_H bounds
-// Electron uses (`bubble-handlers.ts:45-48`) so both hosts produce
+// predecessor uses (`bubble-handlers.ts:45-48`) so both hosts produce
 // identical resize behavior.
 
 #[test]
@@ -675,7 +675,7 @@ fn test_clamp_resize_height_u32_max_clamped_to_200() {
 }
 
 #[test]
-fn test_resize_bounds_match_electron_constants() {
+fn test_resize_bounds_match_predecessor_constants() {
     //pin the cross-host bound-parity contract.
     assert_eq!(MIN_BUBBLE_W, 40);
     assert_eq!(MIN_BUBBLE_H, 24);

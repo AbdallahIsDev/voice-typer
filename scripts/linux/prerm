@@ -15,7 +15,7 @@ case "$1" in
     remove|deconfigure)
         # Probe ALL 5 canonical candidate paths so the uninstall script is
         # found regardless of which installer produced the package (Tauri
-        # v2 .deb, legacy Electron .deb, AppImage, manual install).
+        # v2 .deb, legacy .deb, AppImage, manual install).
         UNINSTALL_SCRIPT=""
         for candidate in \
             "/usr/share/voice-typer/scripts/uninstall_permissions.py" \

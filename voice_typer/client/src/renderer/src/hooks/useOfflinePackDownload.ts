@@ -50,12 +50,12 @@
 // The hook only depends on `usePythonEvent`, which goes through the
 // module-level dispatcher that subscribes to `window.python.onEvent`.
 // The `window.python` namespace is installed by EITHER:
-//   - the Electron preload script (`src/preload/index.ts`), OR
+//   - the predecessor preload script (`src/preload/index.ts`), OR
 //   - the Tauri bridge auto-installer (`lib/tauri-bridge/install.ts`)
 // at module-load time. `usePythonEvent`'s `useBridgeReady` hook polls
 // `window.python` presence and re-subscribes when the bridge comes
 // online late (Tauri timing edge), so this hook works identically
-// under both runtimes. We do NOT touch Tauri or Electron APIs
+// under both runtimes. We do NOT touch Tauri or predecessor APIs
 // directly, see the contract documented at the top of
 // `hooks/usePython.ts`.
 //

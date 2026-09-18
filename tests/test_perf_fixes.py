@@ -17,7 +17,7 @@ Covers GROUP-2 fixes that the comprehensive review labelled XV-1 .. XV-6:
   instead of re-querying PortAudio on every call.
 * XV-6: ``autostart_launcher._wait_for_ipc_ready`` provides a bounded
   (5 s deadline) port-readiness poll that replaces the previous fixed
-  ``time.sleep(2)`` after spawning a fresh backend / Electron / Tauri
+  ``time.sleep(2)`` after spawning a fresh backend / predecessor / Tauri
   child.
 """
 
@@ -184,7 +184,7 @@ class TestMicrophonesCacheEmptyList:
 class TestWaitForIpcReady:
     """XV-6: ``_wait_for_ipc_ready`` provides a bounded (5 s deadline)
     port-readiness poll that replaces the previous fixed
-    ``time.sleep(2)`` after spawning a fresh backend / Electron / Tauri
+    ``time.sleep(2)`` after spawning a fresh backend / predecessor / Tauri
     child.
 
     Contract:

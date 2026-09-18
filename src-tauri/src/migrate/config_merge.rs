@@ -1,4 +1,4 @@
-//! JSON `config.json` merge logic for the Electron → Tauri migration.
+//! JSON `config.json` merge logic for the predecessor → Tauri migration.
 //!
 //! Extracted from the original `migrate.rs` monolith as part of the
 //! Phase 4.5 split. Pure file move, no behavior change
@@ -49,7 +49,7 @@ pub(crate) enum MergeOutcome {
 /// OOM) would leave `config.json` truncated/corrupt. Since `migrate.rs`
 /// runs BEFORE the Python sidecar spawns, the sidecar would boot against
 /// a corrupt config and fall back to defaults, permanently losing the
-/// user's migrated Electron config. The atomic write ensures the target
+/// user's migrated predecessor config. The atomic write ensures the target
 /// is either fully-old or fully-new, never partial.
 ///
 /// The merge loop CONSUMES `old_val` (moves the owned
@@ -60,7 +60,7 @@ pub(crate) enum MergeOutcome {
 /// applied to `new_val`: `base` takes ownership of the target's map
 /// instead of borrowing `as_object()` and deep-cloning every entry —
 /// `new_val` is equally owned here and equally never read after the
-/// base map is extracted. For users with multi-MB Electron configs
+/// base map is extracted. For users with multi-MB predecessor configs
 /// this drops 2×N deep-clone allocations per migration (first-launch-
 /// only cost, but the pattern is also more idiomatic, future
 /// copy-paste won't replicate the clone).
@@ -93,7 +93,7 @@ pub(crate) fn merge_config(old: &Path, new: &Path) -> Result<MergeOutcome, Strin
     // back up the corrupt file to `<path>.corrupt-pre-migration.<ts>.bak`
     // so the user can recover their settings manually. Without the
     // backup, a corrupt `config.json` would be silently dropped on
-    // the next migration pass: the user's old Electron settings
+    // the next migration pass: the user's old predecessor settings
     // vanish with no recovery path.
     let old_val: serde_json::Value = match serde_json::from_str(&old_txt) {
         Ok(v) => v,

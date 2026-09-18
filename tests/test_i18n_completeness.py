@@ -143,7 +143,7 @@ ALLOWED_UNTRANSLATED = {
     "about.creditsAuthorsValue",  # "AbdallahIsDev and contributors"
     "about.creditsFontsValue",  # "Geist"
     "about.creditsIconsValue",  # "Hugeicons"
-    "about.creditsLibrariesValue",  # "faster-whisper, CTranslate2, Electron, ..."
+    "about.creditsLibrariesValue",  # "faster-whisper, CTranslate2, predecessor, ..."
     # notify.*_title keys, notification titles that are just the app
     # name placeholder ("{appName}"). The app name is a brand noun
     # (same rationale as app.name) and the value carries no translatable

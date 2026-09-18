@@ -15,7 +15,7 @@
 //
 // Social targets (WhatsApp / Telegram / X / Facebook): the platform
 // share-composer URLs do NOT support attaching an image from a desktop
-// web/Electron context, every platform's web intent is text/URL-only.
+// web/predecessor context, every platform's web intent is text/URL-only.
 // Each social button therefore uses the graceful fallback: copy the
 // image to the clipboard, open the platform's composer in the OS
 // browser (routed through the main process's `setWindowOpenHandler` →

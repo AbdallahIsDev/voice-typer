@@ -174,7 +174,7 @@ pub(crate) struct SidecarState {
     /// `notified()` call: no race window.
     pub(crate) shutdown_notify: Notify,    /// Locale pushed by the main-window renderer via the
     /// `set_host_locale` command (`window.window_.setLocale(locale)`
-    /// in the Tauri bridge). Mirrors Electron's `i18n:set-locale`
+    /// in the Tauri bridge). Mirrors the predecessor's `i18n:set-locale`
     /// main-process storage, where the pushed locale localizes native
     /// dialogs (single-instance error, critical-error dialog,
     /// model-folder picker, export save-as dialogs). The host may
@@ -190,7 +190,7 @@ pub(crate) struct SidecarState {
     /// standalone CLI flow). In this mode `state.child` stays `None`
     /// (all kill/stop paths are naturally no-ops) and the supervisor
     /// MUST NOT respawn (spawning would create a second backend next
-    /// to our parent). Mirrors Electron's adopted-mode checks at
+    /// to our parent). Mirrors the predecessor's adopted-mode checks at
     /// `restart-backend.ts` / `stop-python.ts`.
     pub(crate) adopted_backend: AsyncMutex<bool>,
     /// MO-126: host is in OS suspend. Set by

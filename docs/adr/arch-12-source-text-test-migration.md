@@ -149,7 +149,7 @@ Status legend: ✅ done (this wave) · ⏳ in-progress · ⏳ pending · ⏭️ 
 | `tests/test_clipboard_error_handling.py` | 1→0 | ✅ done | Behavioral via `importlib.reload(clip_mod)` + log capture. |
 | `tests/test_model_operations.py` | 1→0 | ✅ done | Behavioral via `Path.rglob` spy. |
 | `tests/regressions/audio_test.py` | 22 | ⏳ pending | Large file: chip away next. |
-| `tests/test_electron_ipc_and_build.py` | 13 | ⏳ pending | |
+| `tests/test_host_ipc_and_build.py` | 13 | ⏳ pending | |
 | `tests/test_capture_worker_lifecycle.py` | 12 | ⏳ pending | |
 | `tests/test_sidecar_ws_handle_connection_split.py` | 11 | ⏳ pending | |
 | `tests/test_recording_and_audio.py` | 11 | ⏳ pending | |

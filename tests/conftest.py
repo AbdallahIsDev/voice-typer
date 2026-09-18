@@ -87,10 +87,6 @@ from tests.fixtures.cache_resets import clear_caches
 #     ``mock_heavy_imports`` fixture EVICTS these collection-time
 #     mocks (by ``__spec__`` detection) for marked tests: see the
 #     ``real_pynput`` branch in that fixture.
-#   - Phase 1c (PLAN_ONNX_INTEGRATION.md §5.1, §2.4): the
-#     ``real_torch`` marker was REMOVED, no test used it, and the
-#     only consumer (``tests/test_vad_dtype_optimization.py``) was
-#     deleted per §2.4.
 #   - ``tests/test_pystray_icon_handle_regression.py::_load_real_pystray``
 #     evicts ``sys.modules["pystray"]`` itself before importing the
 #     real package and restores the mock in ``finally``.
@@ -219,14 +215,6 @@ def pytest_configure(config):
         "markers",
         "real_pil: opt out of the PIL mock (use real PIL for image tests)",
     )
-    # Phase 1c (PLAN_ONNX_INTEGRATION.md §5.1, §2.4): the ``real_torch``
-    # marker was REMOVED. No test ever used it (the only consumer,
-    # ``tests/test_vad_dtype_optimization.py``, was deleted per §2.4
-    # because the ``data_ptr()`` no-clone invariant is unsatisfiable
-    # through ORT's allocator). The session-scoped
-    # ``_FakeOutOfMemoryError`` / ``_FakeTensor`` / ``_build_mock_torch``
-    # plumbing was also stripped: see the comment block above
-    # ``mock_heavy_imports_session`` for the full rationale.
     config.addinivalue_line(
         "markers",
         "slow: marks tests as slow (deselect with '-m \"not slow\"')",
@@ -367,8 +355,6 @@ def winfunctype_alias(monkeypatch):
 #
 #   - pynput marker branch (``real_pynput`` opts out of the pynput mock)
 #   - PIL marker branch (``real_pil`` opts out + evicts stale mocks)
-#   - torch marker branch (``real_torch`` opts out + evicts the session
-#     torch mock so a real ``torch.backends.mps`` import succeeds)
 #   - ``atexit.register`` patch (per-test, imports ``voice_typer.server.app``)
 #   - ``force_pynput_hotkey_backend`` patch (per-test, imports
 #     ``voice_typer.server.hotkeys``)
@@ -426,14 +412,10 @@ def winfunctype_alias(monkeypatch):
 class _FakeOutOfMemoryError(Exception):
     """DEPRECATED, kept only for backward-compat with tests that import it.
 
-    Phase 1c (PLAN_ONNX_INTEGRATION.md §5.1, §2.4): the
-    ``_FakeOutOfMemoryError`` / ``_FakeTensor`` / ``_build_mock_torch``
-    plumbing is no longer used by the session fixture (which now
-    installs a plain ``MagicMock(name="mock_torch")``). The class is
-    retained at module level so any out-of-scope test that imports
-    ``_FakeOutOfMemoryError`` directly (rather than going through the
-    ``torch.cuda.OutOfMemoryError`` attribute) does not break at
-    collection time. Tests that need OOM semantics should construct a
+    The session fixture installs a plain ``MagicMock`` as the mocked
+    framework module, so this class is retained at module level purely so
+    a test that imports it directly does not break at collection time.
+    Tests that need OOM semantics should construct a
     ``RuntimeError("CUDA out of memory")`` and rely on
     :func:`voice_typer.server.asr_utils.is_oom_error` (which inspects
     the exception *message*, not its class hierarchy).
@@ -443,32 +425,20 @@ class _FakeOutOfMemoryError(Exception):
 class _FakeTensor:
     """DEPRECATED, kept only for backward-compat with tests that import it.
 
-    See :class:`_FakeOutOfMemoryError` for the Phase 1c rationale. The
-    session fixture no longer installs this class at
-    ``mock_torch.Tensor``: ``isinstance(x, mock_torch.Tensor)`` now
-    raises ``TypeError`` (MagicMock attributes are not types), which is
-    the correct semantics for a mock torch (nothing is ever a real
-    torch tensor under this fixture).
+    The session fixture also assigns this class as ``Tensor`` on the
+    mocked framework module: scipy's ``array_api_compat`` probes
+    ``issubclass(cls, <framework>.Tensor)`` at import time and that probe
+    needs a REAL class, not a MagicMock attribute.
     """
 
 
 def _build_mock_torch() -> MagicMock:
     """DEPRECATED, returns a plain ``MagicMock``, retained for backward-compat.
 
-    Phase 1c (PLAN_ONNX_INTEGRATION.md §5.1, §2.4): this helper previously
-    installed real ``_FakeOutOfMemoryError`` / ``_FakeTensor`` classes
-    at ``mock_torch.cuda.OutOfMemoryError`` / ``mock_torch.Tensor`` so
-    ``isinstance`` checks would not raise ``TypeError``. The OOM class
-    was only consumed by the old ``isinstance(exc,
-    torch.cuda.OutOfMemoryError)`` check in ``transcription.py``, that
-    check is now :func:`voice_typer.server.asr_utils.is_oom_error`,
-    which inspects the exception message. The ``_FakeTensor`` class
-    was only needed by scipy's ``array_api_compat`` ``isinstance(x,
-    torch.Tensor)`` check, no longer on the hot path after the ORT
-    migration. The session fixture now installs a plain
-    ``MagicMock(name="mock_torch")`` directly. This function is
-    retained (and now just returns a plain MagicMock) so any
-    out-of-scope test that calls ``_build_mock_torch()`` directly does
+    The helper previously attached real exception / tensor stand-ins to
+    the mock it returned; the OOM classifier and tensor ``isinstance``
+    checks it existed for are gone (see :class:`_FakeOutOfMemoryError`).
+    It is retained so any out-of-scope test that calls it directly does
     not break at collection time.
     """
     return MagicMock(name="mock_torch")
@@ -492,15 +462,6 @@ def mock_heavy_imports_session():
     running multiple pytest invocations in the same interpreter (e.g.
     via ``pytest.main()`` in a notebook).
 
-    The ``real_torch`` eviction branch is REMOVED. It used to let tests
-    marked ``@pytest.mark.real_torch`` evict the session torch mock
-    (mirroring the ``real_pil`` eviction pattern) so they could import
-    real ``torch``; Phase 1c of PLAN_ONNX_INTEGRATION.md (§5.1, §2.4)
-    removed the branch, the marker registration, and its only consumer
-    (``tests/test_vad_dtype_optimization.py``, deleted). No test uses
-    the marker anymore: see the comment inside
-    ``mock_heavy_imports`` below for the full rationale.
-
     Per-test local overrides of ``mock_heavy_imports`` (in
     ``tests/test_shutdown_plan.py``, ``tests/test_volume_lifecycle.py``,
     etc.) do NOT shadow this session fixture, they shadow only the
@@ -523,20 +484,9 @@ def mock_heavy_imports_session():
         mp.setitem(sys.modules, "pystray", MagicMock())
         mp.setitem(sys.modules, "pyperclip", MagicMock())
 
-        # ``torch.backends``, ``torch.backends.mps`` etc. are
-        # auto-created child mocks, no explicit per-submodule setitem
-        # is needed. ``transformers`` is also mocked because the
-        # parakeet_engine + noise_suppressor paths lazily import it.
-        #
-        # Phase 1c (PLAN_ONNX_INTEGRATION.md §5.1, §2.4): the previous
-        # ``_build_mock_torch()`` helper (which installed real
-        # ``_FakeOutOfMemoryError`` / ``_FakeTensor`` classes at
-        # ``mock_torch.cuda.OutOfMemoryError`` / ``mock_torch.Tensor``)
-        # is now a no-op, it returns a plain ``MagicMock``. The OOM
-        # class was only consumed by the old ``isinstance(exc,
-        # torch.cuda.OutOfMemoryError)`` check in ``transcription.py``
-        # (now :func:`voice_typer.server.asr_utils.is_oom_error`,
-        # which inspects the exception message).
+        # The mocked framework module and ``transformers`` are installed
+        # because the parakeet_engine + noise_suppressor paths lazily
+        # import them.
         #
         # ``mock_torch.Tensor`` MUST stay a REAL class (not a MagicMock
         # attribute): scipy.signal imports ``array_api_compat``, whose
@@ -544,8 +494,7 @@ def mock_heavy_imports_session():
         # at import time, a MagicMock attribute is not a class and
         # raises ``TypeError``, breaking ``import scipy.signal`` under
         # the suite (regression seen 2026-08-14 in
-        # tests/test_audio_pipeline_regressions.py after the Phase 1c
-        # torch-mock simplification).
+        # tests/test_audio_pipeline_regressions.py).
         mock_torch = MagicMock(name="mock_torch")
         mock_torch.Tensor = _FakeTensor
         mp.setitem(sys.modules, "torch", mock_torch)
@@ -602,8 +551,6 @@ def mock_heavy_imports(monkeypatch, request):
       - ``real_pynput`` marker branch (opt out of the pynput mock).
       - ``real_pil`` marker branch (opt out + evict stale PIL mocks
         that test modules may have installed at collection time).
-      - ``real_torch`` marker branch (opt out + evict the session
-        torch mock so a real ``torch.backends.mps`` import succeeds).
       - ``atexit.register`` patch (prevents production atexit handlers
         from polluting test output).
       - ``force_pynput_hotkey_backend`` patch (uniform PynputHotkey
@@ -682,19 +629,6 @@ def mock_heavy_imports(monkeypatch, request):
             monkeypatch.setitem(sys.modules, "PIL.ImageDraw", _real_pil_imagedraw)
         except ImportError:
             pass  # PIL not available, tests will skip
-
-    # Phase 1c (PLAN_ONNX_INTEGRATION.md §5.1, §2.4): the per-test
-    # ``real_torch`` marker branch was REMOVED. The marker is no
-    # longer registered (see ``pytest_configure`` above), no test
-    # uses it, and the only consumer (``tests/test_vad_dtype_optimization.py``)
-    # was deleted per §2.4. The session-scoped torch mock is now a
-    # plain ``MagicMock`` (no ``_FakeOutOfMemoryError`` /
-    # ``_FakeTensor`` classes), sufficient for the remaining torch
-    # consumers (Qwen engine, parakeet_engine until Phase 1c rewrite).
-    # Tests that need to assert OOM behaviour now construct their own
-    # ``RuntimeError("CUDA out of memory")`` and rely on
-    # :func:`voice_typer.server.asr_utils.is_oom_error` (which inspects
-    # the exception message, not the class hierarchy).
 
     # Prevent atexit handler from polluting test output. :
     # previously this was wrapped in ``contextlib.suppress(Exception)``,
@@ -1029,8 +963,8 @@ def _drain_test_thread_registry_workers():
     those daemon threads would otherwise spin for the entire run, the
     crash dump of a rare native heap corruption (``0xc0000374``) showed
     ``tests/test_thread_registry.py``'s ``_run`` thread still alive at
-    crash time, alongside real-torch VAD inference and history_db file
-    copies. The kill-switch is checked BEFORE ``never_exit`` so stuck
+    crash time, alongside VAD inference and history_db file copies. The
+    kill-switch is checked BEFORE ``never_exit`` so stuck
     workers can be terminated between tests.
 
     Mirrors the WeakSet-registry pattern of the other drain fixtures.
@@ -1054,11 +988,9 @@ def _drain_thread_registries():
     that build a real app (the ``app`` fixture, ``app_for_startup``,
     and ~20 direct ``VoiceTyperApp()`` constructions) never join those
     threads. Under xdist a worker lives for the WHOLE suite, so leaked
-    preload threads accumulate; if one wakes during a
-    ``@pytest.mark.real_torch`` test window (which evicts the session
-    torch mock), it loads REAL torch + the real Silero model and runs
-    inference concurrently with history_db file copies, the rare native
-    heap corruption (``0xc0000374``) seen in crash dumps.
+    preload threads accumulate; if one wakes while history_db file copies
+    are in flight it runs VAD inference concurrently with them, the rare
+    native heap corruption (``0xc0000374``) seen in crash dumps.
 
     This fixture is the catch-all: it drains every live registry (and
     therefore every registered thread, vad-preload, bubble-level

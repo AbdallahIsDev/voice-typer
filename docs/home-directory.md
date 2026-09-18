@@ -81,11 +81,11 @@ on-disk name.
 | macOS | `~/Library/Application Support/voice-typer/logs/voice-typer-rust.log` |
 | Linux | `$XDG_DATA_HOME/voice-typer/logs/voice-typer-rust.log` (falls back to `~/.local/share/voice-typer/logs/voice-typer-rust.log`) |
 
-The Electron host and its crash logs (`electron-crashes.log`,
-`electron-main.log`) were removed with the Electron cutover
-(2026-09-17). A leftover `electron-profile/` directory on disk is a
+The predecessor host and its crash logs (`predecessor-crashes.log`,
+`predecessor-main.log`) were removed with the predecessor cutover
+(2026-09-17). A leftover legacy browser-profile directory on disk is a
 legacy Chromium profile; it is inert and cleaned on uninstall purge /
-GDPR delete when present.
+GDPR delete when present (see the uninstall script for the exact dirname).
 
 This design is:
 
@@ -116,7 +116,7 @@ This design is:
 ├── voice-typer.log              # Python backend log (single file, truncates in place at 5 MiB)
 ├── logs/
 │   └── voice-typer.log          # Tauri Rust host log (single file, truncates in place at 5 MB)
-├── electron-profile/            # LEGACY only: Chromium profile left by pre-cutover Electron installs (inert)
+├── legacy-profile/               # LEGACY only: Chromium profile left by pre-cutover installs (inert, see uninstall script for exact dirname)
 ├── vocabulary.json  # User vocabulary overrides (merged with bundled defaults)
 ├── voice-typer-corrections.json # User text-corrections overrides (optional; merged with bundled)
 └── crash_recovery/
@@ -149,10 +149,10 @@ Python virtual environment created by the installer or first-run setup. Contains
   - **Torch migration note (2026-08-13)**: `torch` is being removed from the slim core's dependency list as part of the ONNX migration (`PLAN_ONNX_INTEGRATION.md` §2/§3). VAD now uses `onnxruntime` (ADR-0005) and Parakeet uses `onnx-asr`. Torch may remain installed transiently for the Qwen engine until Phase 1d; see `pyproject.toml` for the canonical dep list.
 - CLI entry point (`voice-typer`)
 
-### `electron-profile/` (LEGACY)
+### Legacy browser profile (LEGACY)
 
-Leftover Chromium profile from pre-cutover Electron installs
-(`Cache/`, `GPUCache/`, `Local Storage/`, …). The Electron host and
+Leftover Chromium profile from pre-cutover installs
+(`Cache/`, `GPUCache/`, `Local Storage/`, …). The predecessor host and
 `client/src/main/bootstrap.ts` that pinned userData there are **removed**
 (2026-09-17). The directory is inert if present; safe to delete while the
 app is closed. Removed on uninstall purge and GDPR erasure; not included
@@ -278,7 +278,7 @@ For an AI agent tasked with implementing the folder structure recommendations:
   - Runs pip install from bundled requirements
   - Writes initial `config.json`
   - Creates desktop shortcut (or let the Python backend handle this)
-- [ ] Do NOT reference deleted `electron-builder.yml`; Tauri NSIS hooks only
+- [ ] Do NOT reference the deleted legacy builder config; Tauri NSIS hooks only
 - [ ] Bundle Python embeddable + pip requirements inside the installer
 
 ### 6. Model download UX

@@ -18,7 +18,7 @@ These tests pin the contract of the extraction:
 3. ``_do_cleanup`` is idempotent via the ``_cleanup_done`` flag.
 4. ``_do_cleanup`` calls shutdown on each subsystem (recording, hotkeys,
    recorder, tray, history_db, _crash_recovery, _thread_registry,
-   _bubble_level_worker_*, _electron_pid).
+   _bubble_level_worker_*, _host_pid).
 5. ``_install_signal_handlers`` registers SIGTERM/SIGINT handlers on POSIX.
 6. ``_atexit_cleanup`` is safe to call multiple times.
 7. ``_atexit_cleanup`` short-circuits when ``_shutting_down`` is True
@@ -62,7 +62,7 @@ class _FakeApp:
         self._shutting_down = False
         self._shutting_down_event = threading.Event()
         self._cleanup_done = False
-        self._electron_pid: int | None = None
+        self._host_pid: int | None = None
         self._mutex_handle = None
         # Stashed by ``quit_app()`` after it publishes ``quit_app`` so
         # ``quit()`` (which publishes it itself for the Ctrl+C / signal
@@ -266,9 +266,9 @@ class TestQuitCallsDoCleanupAndExits:
         """``quit()`` must publish the ``quit_app`` event over the TCP
         channel when the caller did NOT go through ``quit_app()`` (the
         Win32 Ctrl+C handler / POSIX signal watcher call ``quit()``
-        directly). This makes Electron close its window immediately on
+        directly). This makes predecessor close its window immediately on
         every shutdown path (not just the tray menu) instead of being
-        force-killed by ``_teardown_electron`` seconds later."""
+        force-killed by ``_teardown_host_child`` seconds later."""
         fake_app._do_cleanup = MagicMock()
         monkeypatch.setattr(sys, "exit", lambda code=0: None)
         pushed = []
@@ -501,7 +501,7 @@ class TestDoCleanupSubsystemCoverage:
         """PVT-G5-003: ``tray.stop()`` MUST be the LAST step in
         ``_do_cleanup()`` (after ``event_bus.shutdown()``). Previously
         it was step 13 of 19, which broke the pystray loop on the main
-        thread before the remaining cleanups (sd.stop, electron
+        thread before the remaining cleanups (sd.stop, host-child
         terminate, PID file clear, CloseHandle, devnull close,
         event_bus.shutdown) could finish, the daemon TCP worker
         thread running ``_do_cleanup()`` was killed mid-cleanup when
@@ -569,7 +569,7 @@ class TestDoCleanupSubsystemCoverage:
         controller._do_cleanup()
         assert close_calls == [True]
 
-    # Electron subprocess termination test removed with the Electron path.
+    # predecessor subprocess termination test removed with the predecessor path.
 
     def test_stops_bubble_level_worker_when_present(self, controller, fake_app):
         """When the bubble level worker is wired, ``_do_cleanup`` must

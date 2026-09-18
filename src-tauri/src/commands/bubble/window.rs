@@ -33,7 +33,7 @@ pub(crate) fn wants_bubble_show(event_type: &str) -> bool {
 /// recording-start trigger: when the sidecar's config carries a
 /// persisted `bubble_x` / `bubble_y` pair that still lies on an
 /// attached monitor, place the window there before showing (mirrors
-/// Electron's show-time placement). Without a cached pair the window
+/// the predecessor's show-time placement). Without a cached pair the window
 /// keeps its last keyword-centered position.
 ///
 /// The restore is a PROGRAMMATIC placement: suppress the debounced

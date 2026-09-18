@@ -13,7 +13,7 @@ import type { Template } from "./types";
 //Templates are persisted by the Python backend to
 // ``voice-typer-templates.json`` in the user's voice-typer config
 // directory (``~/.voice-typer`` on POSIX, ``%APPDATA%\voice-typer``
-// on Windows).  This file survives Electron userData resets and
+// on Windows).  This file survives predecessor userData resets and
 // reinstalls, so templates are no longer lost on app data wipe.
 //
 // localStorage is now used ONLY as a one-time migration source: if
@@ -141,7 +141,7 @@ export async function saveTemplates(
 
 /**
  * Generate a stable UUID for a row.  Uses the Web Crypto API
- * (`crypto.randomUUID`) which is available in Electron's renderer
+ * (`crypto.randomUUID`) which is available in the predecessor's renderer
  * (Chromium) and in jsdom (Node ≥ 19).  Falls back to a
  * `Math.random`-based pseudo-ID if `crypto.randomUUID` is unavailable
  * (older runtimes / sandboxed tests) so the React key is still unique

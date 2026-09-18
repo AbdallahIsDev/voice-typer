@@ -22,7 +22,7 @@ import { installTauriBridge } from "./index";
 // Auto-install when this module is imported. Both `main.tsx` (main
 // window) and `bubble-main.tsx` (bubble window) import this module at
 // the top so the bridge is ready before the React app mounts. In
-// Electron mode `installTauriBridge` is a no-op (preload already
+// predecessor mode `installTauriBridge` is a no-op (preload already
 // installed the namespaces).
 installTauriBridge();
 

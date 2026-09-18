@@ -97,7 +97,7 @@ class TestNoAutoUpdateFetchOnSettingsMount:
          ``https://api.github.com/repos/AbdallahIsDev/voice-typer/releases/latest``
          inside a ``useEffect`` on every mount of the Settings section.
          This leaked the user's public IP, request timestamp, and
-         Electron User-Agent on every Settings page open (the fix).
+         predecessor User-Agent on every Settings page open (the fix).
       2. The the fix removed the auto-firing ``useEffect`` but
          KEPT the manual "Check for Updates" button (``handleManualCheck``)
          which still issued a renderer ``fetch()`` on explicit user click.
@@ -179,7 +179,7 @@ class TestNoAutoUpdateFetchOnSettingsMount:
             assert not github_pattern.search(body), (
                 f"PrewarmAndUpdates.tsx useEffect #{idx} fetches the "
                 f"GitHub releases API on mount, regression: this leaks "
-                f"the user's public IP + Electron User-Agent on every "
+                f"the user's public IP + app User-Agent on every "
                 f"Settings page open. C-DATA-1 forbids any network call "
                 f"in the production code path."
             )

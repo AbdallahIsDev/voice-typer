@@ -244,7 +244,7 @@ def do_fast_cleanup(controller) -> None:
 
     Critical path: crash_recovery.flush, history_db.flush,
     recorder.stop, _clear_backend_pid_file, mutex CloseHandle/release.
-    Non-critical steps (tray.stop, Electron terminate, hotkey stop,
+    Non-critical steps (tray.stop, predecessor terminate, hotkey stop,
     level_monitor, waveform worker, event_bus, devnull) are SKIPPED.
 
     UNCONDITIONAL FLUSHES: the critical cleanup steps below run

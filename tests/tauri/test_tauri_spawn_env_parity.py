@@ -1,6 +1,6 @@
-"""Pin the Tauri sidecar/worker spawn env against Electron parity regressions.
+"""Pin the Tauri sidecar/worker spawn env against predecessor parity regressions.
 
-MO-111: Electron always passed ``KMP_DUPLICATE_LIB_OK=TRUE`` to its
+MO-111: predecessor always passed ``KMP_DUPLICATE_LIB_OK=TRUE`` to its
 console-less Python child (the Intel OpenMP runtime aborts at
 ``import torch`` when two OpenMP runtimes land in one process). The
 Tauri spawn paths ``.env_clear()`` the host env, so the var must be
@@ -29,21 +29,21 @@ def _spawn_source(name: str) -> str:
 def test_release_sidecar_spawn_sets_kmp_duplicate_lib_ok() -> None:
     src = _spawn_source("release_mode.rs")
     assert f'.env("{KMP_VAR}", "{KMP_VALUE}")' in src, (
-        "release sidecar spawn must set KMP_DUPLICATE_LIB_OK=TRUE (Electron spawn-env parity, MO-111)"
+        "release sidecar spawn must set KMP_DUPLICATE_LIB_OK=TRUE (predecessor spawn-env parity, MO-111)"
     )
 
 
 def test_dev_sidecar_spawn_sets_kmp_duplicate_lib_ok() -> None:
     src = _spawn_source("dev_mode.rs")
     assert f'.env("{KMP_VAR}", "{KMP_VALUE}")' in src, (
-        "dev sidecar spawn must set KMP_DUPLICATE_LIB_OK=TRUE (Electron spawn-env parity, MO-111)"
+        "dev sidecar spawn must set KMP_DUPLICATE_LIB_OK=TRUE (predecessor spawn-env parity, MO-111)"
     )
 
 
 def test_worker_release_spawn_sets_kmp_duplicate_lib_ok() -> None:
     src = _spawn_source("worker.rs")
     assert src.count(f'.env("{KMP_VAR}", "{KMP_VALUE}")') >= 2, (
-        "BOTH worker spawn paths (release + dev) must set KMP_DUPLICATE_LIB_OK=TRUE (Electron spawn-env parity, MO-111)"
+        "BOTH worker spawn paths (release + dev) must set KMP_DUPLICATE_LIB_OK=TRUE (MO-111)"
     )
 
 

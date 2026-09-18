@@ -11,9 +11,9 @@ Covers the 6 system-level IPC handlers defined in
   ack echoing the locale.
 - ``_handle_set_esc_cancel_paused``, sets the keyboard ownership
   state, returns ack with ``paused`` flag.
-- ``_handle_show_electron_notification``, validates ``title``,
+- ``_handle_show_notification``, validates ``title``,
   ``message``, ``duration_ms``, ``critical`` fields and publishes an
-  ``electron_notification`` event.
+  ``the legacy notification event name`` event.
 
 Each test calls the handler directly with a fresh ``resp={}`` dict
 and asserts on the returned dict (or, for handlers that return
@@ -542,7 +542,7 @@ class TestResetLinuxPermissions:
         ``com.voicetyper.install-permissions`` action registration is
         surfaced and pkcheck'd to ``not_authorized`` (the cleared state).
 
-        The legacy (pre-Tauri Electron) action is NOT enumerated: the
+        The legacy (pre-Tauri predecessor) action is NOT enumerated: the
         legacy policy file is removed at install/upgrade time (see
         install_permissions.py), so no current install registers it."""
         monkeypatch.setattr(
@@ -993,8 +993,8 @@ class TestSetEscCancelPaused:
         assert "ownership exploded" not in resp["data"]["message"]
 
 
-class TestShowElectronNotification:
-    """``_handle_show_electron_notification``, validates 4 fields and publishes."""
+class TestShowNotificationHandler:
+    """``_handle_show_notification``, validates 4 fields and publishes."""
 
     def test_happy_path_publishes_event_and_returns_ack(self, ipc_server, monkeypatch):
         """Valid 4-field payload → event published + ``{type: ack}`` returned."""
@@ -1002,7 +1002,7 @@ class TestShowElectronNotification:
 
         # Subscribe to the event bus.  event_bus.publish is a
         # synchronous broadcast, so the subscriber sees the event
-        # before _handle_show_electron_notification returns.
+        # before _handle_show_notification returns.
         from voice_typer.server import event_bus
 
         def _subscriber(evt):
@@ -1010,7 +1010,7 @@ class TestShowElectronNotification:
 
         event_bus.subscribe(_subscriber)
         try:
-            resp = ipc_server._handle_show_electron_notification(
+            resp = ipc_server._handle_show_notification(
                 {
                     "title": "Hello",
                     "message": "World",
@@ -1025,7 +1025,7 @@ class TestShowElectronNotification:
         assert resp["type"] == "ack"
         assert len(captured) == 1
         evt = captured[0]
-        # the event type was renamed from "electron_notification"
+        # the event type was renamed from "the legacy notification event name"
         # to the platform-agnostic "notification" so the Tauri Rust host
         # doesn't need to rename it on the way through.
         assert evt["type"] == "notification"
@@ -1043,13 +1043,13 @@ class TestShowElectronNotification:
         payloads with the namespaced ``client.invalid_payload`` code
         (DE-36) and a ``"data must be an object"`` message.
         """
-        resp = ipc_server._handle_show_electron_notification("not-a-dict", {})
+        resp = ipc_server._handle_show_notification("not-a-dict", {})
         assert resp["type"] == "error"
         assert resp["data"]["code"] == "client.invalid_payload"
 
     def test_invalid_title_type_returns_invalid_field(self, ipc_server):
         """``title`` not a string → ``code: invalid_field, field: title``."""
-        resp = ipc_server._handle_show_electron_notification({"title": 123, "message": "x"}, {})
+        resp = ipc_server._handle_show_notification({"title": 123, "message": "x"}, {})
         assert resp["type"] == "error"
         assert resp["data"]["code"] == "client.invalid_field"
         assert resp["data"]["field"] == "title"
@@ -1062,7 +1062,7 @@ class TestShowElectronNotification:
         escalating a misbehaving caller's notification to critical.
         The current handler rejects non-bool values explicitly.
         """
-        resp = ipc_server._handle_show_electron_notification({"critical": "false"}, {})
+        resp = ipc_server._handle_show_notification({"critical": "false"}, {})
         assert resp["type"] == "error"
         assert resp["data"]["code"] == "client.invalid_field"
         assert resp["data"]["field"] == "critical"
@@ -1074,7 +1074,7 @@ class TestShowElectronNotification:
         exclusion, ``True`` would sneak through as ``duration_ms: 1``
         if a caller swapped the ``critical`` and ``duration_ms`` fields.
         """
-        resp = ipc_server._handle_show_electron_notification({"duration_ms": True}, {})
+        resp = ipc_server._handle_show_notification({"duration_ms": True}, {})
         assert resp["type"] == "error"
         assert resp["data"]["code"] == "client.invalid_field"
         assert resp["data"]["field"] == "duration_ms"
@@ -1092,7 +1092,7 @@ class TestShowElectronNotification:
         event_bus.subscribe(captured.append)
         try:
             huge_ms = 25 * 60 * 60 * 1000  # 25 hours
-            resp = ipc_server._handle_show_electron_notification({"duration_ms": huge_ms}, {})
+            resp = ipc_server._handle_show_notification({"duration_ms": huge_ms}, {})
         finally:
             event_bus.unsubscribe(captured.append)
 
@@ -1109,7 +1109,7 @@ class TestShowElectronNotification:
             "voice_typer.server.handlers.system_handlers.event_bus.publish",
             lambda *_a, **_k: (_ for _ in ()).throw(RuntimeError("subscriber boom")),
         )
-        resp = ipc_server._handle_show_electron_notification({"title": "Hi", "message": "x"}, {})
+        resp = ipc_server._handle_show_notification({"title": "Hi", "message": "x"}, {})
         assert resp["type"] == "error"
         assert resp["data"]["code"] == "server.internal_error"
         assert resp["data"]["message"] == "internal error"

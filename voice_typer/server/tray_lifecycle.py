@@ -84,7 +84,7 @@ def subscribe_host_ready_republish(tray: TrayIcon) -> None:
     every fresh host connection into a menu+state replay. This covers
     both the startup race and supervisor respawns/reconnects. Safe
     under Tauri only (guarded by the same ``TAURI_SIDECAR`` gate as
-    ``publish_tray_menu``); on Electron this subscriber is never
+    ``publish_tray_menu``); on predecessor this subscriber is never
     registered.
     """
     try:
@@ -174,11 +174,11 @@ def run(tray: TrayIcon) -> None:
         # ``[FATAL] app.start() raised`` - the WHOLE backend (IPC
         # server, hotkeys, recorder) crashed. Degrade to the
         # tray-unavailable blocking path instead: the app stays
-        # usable via hotkey + IPC server + Electron window, and
+        # usable via hotkey + IPC server + predecessor window, and
         # ``stop()`` releases the ``_run_event``.
         log.warning(
             "[TRAY] Tray event loop failed at runtime - degrading to "
-            "tray-unavailable mode. Hotkey, IPC server, and Electron "
+            "tray-unavailable mode. Hotkey, IPC server, and predecessor "
             "window continue to work; tray icon + notifications are "
             "disabled.",
             exc_info=True,

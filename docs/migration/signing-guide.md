@@ -9,7 +9,7 @@ and the audit results confirming `tauri-plugin-updater` is not wired.
 **Scope**:
 - Windows: Authenticode signing of the Nuitka sidecar exe + prewarm exe +
   MSI/NSIS installer. Reuses the existing `WIN_CSC_LINK` / `CSC_LINK`
-  env vars from `voice_typer/client/electron-builder.yml`.
+  env vars from `voice_typer/client/legacy builder config`.
 - macOS: Developer ID Application signing + `notarytool` notarization +
   `stapler` stapling of the `.app` + `.dmg`. Reuses the existing
   `MAC_SIGNING_IDENTITY` + `APPLE_ID` + `APPLE_TEAM_ID` env vars.
@@ -29,18 +29,18 @@ and the audit results confirming `tauri-plugin-updater` is not wired.
 ## Reused signing identities (no cert duplication)
 
 To avoid cert duplication in CI, the Tauri build reuses the same signing
-identities + env vars as the existing Electron build. Source of truth:
-`voice_typer/client/electron-builder.yml` + `.github/workflows/build.yml`.
+identities + env vars as the existing predecessor build. Source of truth:
+`voice_typer/client/legacy builder config` + `.github/workflows/build.yml`.
 
 | Platform | Env vars | Source in repo | Reuse for Tauri |
 |----------|------------|----------------|-----------------|
-| Windows | `WIN_CSC_LINK` / `CSC_LINK` | `electron-builder.yml` `win.signAndEditExecutable: true` + comment block | Pass to `signtool sign` for the sidecar + prewarm + MSI. |
+| Windows | `WIN_CSC_LINK` / `CSC_LINK` | `legacy builder config` `win.signAndEditExecutable: true` + comment block | Pass to `signtool sign` for the sidecar + prewarm + MSI. |
 | Windows | `WIN_CSC_KEY_PASSWORD` / `CSC_KEY_PASSWORD` | (cert password secret in GitHub) | Same. |
-| macOS | `MAC_SIGNING_IDENTITY` | `electron-builder.yml` `mac.identity: ${env.MAC_SIGNING_IDENTITY}` | Pass to `codesign --sign` for the sidecar + `.app`. |
+| macOS | `MAC_SIGNING_IDENTITY` | `legacy builder config` `mac.identity: ${env.MAC_SIGNING_IDENTITY}` | Pass to `codesign --sign` for the sidecar + `.app`. |
 | macOS | `APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID` | `.github/workflows/build.yml` (existing macOS job) | Pass to `xcrun notarytool submit`. |
 
 > **CI secret rotation**: rotating any of these secrets for the Tauri
-> build rotates them for the Electron build too (same secret name). This
+> build rotates them for the predecessor build too (same secret name). This
 > is intentional: one cert per platform, not one per runtime.
 
 ---
@@ -67,10 +67,10 @@ Per ADR-0020 §13.1:
 | **EV (Extended Validation)** | Immediate reputation: no SmartScreen warning from day one. Requires hardware token (USB HSM) or cloud HSM. | ~$400/yr | Recommended for the first Tauri release on Windows to avoid the SmartScreen reputation build-up period. |
 
 > **Reuse the existing cert**: the `WIN_CSC_LINK` secret in CI is
-> already configured for the Electron build. If it's an OV cert, the
+> already configured for the predecessor build. If it's an OV cert, the
 > Tauri build inherits the reputation build-up burden (the cert's
 > reputation is per-cert, not per-binary, so the same cert on the
-> Tauri exe benefits from the Electron exe's prior reputation). If
+> Tauri exe benefits from the predecessor exe's prior reputation). If
 > it's an EV cert, no reputation build-up is needed.
 
 ### Signing command (sidecar + prewarm exes)
@@ -187,7 +187,7 @@ Per ADR-0020 §13.2:
 
 | Key | Value | Why |
 |-----|-------|-----|
-| `CFBundleIdentifier` | `com.voicetyper.desktop` | Matches today's `electron-builder.yml` `appId`. |
+| `CFBundleIdentifier` | `com.voicetyper.desktop` | Matches today's `legacy builder config` `appId`. |
 | `LSMinimumSystemVersion` | `13.0` | Matches `PLATFORM_STATUS.md` minimum. |
 | `LSUIElement` | `false` | Main app shows in Dock. (Sidecar sets `LSUIElement=true` separately.) |
 | `NSMicrophoneUsageDescription` | (required) | `sounddevice` mic access. |
@@ -299,7 +299,7 @@ xcrun stapler validate "$DMG"
 ### Apple Silicon + Intel
 
 Per ADR-0020 §13.2: build separately, produce two `.app` bundles, ship
-as two DMGs (or one universal DMG). The existing `electron-builder.yml`
+as two DMGs (or one universal DMG). The existing `legacy builder config`
 ships `dmg` with `arch: [x64, arm64]` Two separate DMGs. Mirror this
 for Tauri:
 
@@ -326,7 +326,7 @@ bash scripts/build/build_tauri_all.sh macos aarch64-apple-darwin
 Linux desktop apps have **no certificate authority** comparable to
 Windows Authenticode or macOS Developer ID. The distro package managers
 (`apt`, `dnf`) verify GPG signatures on the **repository** level, not
-on individual packages. Today's Electron build (`electron-builder.yml`)
+on individual packages. Today's predecessor build (`legacy builder config`)
 ships unsigned `.deb` / `.rpm` / AppImage; the Tauri build matches this.
 
 ### Optional GPG-signing (out of scope for v1)
@@ -367,13 +367,13 @@ reused verbatim for the Tauri `.deb` / `.rpm` bundles:
 | `scripts/linux/voice-typer.polkit` | polkit policy for AppImage `pkexec`. | Used by the AppImage launcher. |
 
 > **Do NOT modify these scripts for the Tauri build.** They are shared
-> with the Electron fallback path. Per ADR-0020 §"Kept verbatim".
+> with the predecessor fallback path. Per ADR-0020 §"Kept verbatim".
 
 ### Cross-reference
 
 - Sub-agent #7's Linux validation runbook: `linux-validation-runbook.md`
   (per-platform runbook: owned by sub-agent #7).
-- `voice_typer/client/electron-builder.yml` `deb`/`rpm` sections: existing
+- `voice_typer/client/legacy builder config` `deb`/`rpm` sections: existing
   `afterInstall`/`afterRemove` wiring (the Tauri `bundle.linux.deb/rpm`
   config mirrors these).
 
@@ -385,7 +385,7 @@ reused verbatim for the Tauri `.deb` / `.rpm` bundles:
 
 Per ADR-0020 §15: **auto-update is out of scope for the v1 Tauri
 migration.** Ship the Tauri build as a manual-download release (matching
-today's Electron release model: there is no working auto-update today).
+today's predecessor release model: there is no working auto-update today).
 Track auto-update as a separate follow-up ADR after the Tauri cutover
 stabilizes. Do **NOT** wire up `tauri-plugin-updater` in the v1 migration.
 
@@ -398,7 +398,7 @@ replaces AppImage via `AppImageUpdate`). It requires:
 1. A `latest.json` manifest hosted at a stable URL.
 2. A signing keypair (private key in CI, public key in the app).
 
-Both are orthogonal to the runtime migration (Electron → Tauri) and add
+Both are orthogonal to the runtime migration (predecessor → Tauri) and add
 a signing-key distribution problem + a manifest-hosting problem. The v1
 migration is scoped to the runtime swap only.
 
@@ -426,9 +426,9 @@ and are intentionally NOT modified by this audit:
 |------|-------|-----------------------------|--------|
 | `docs/adr/0020-desktop-runtime-migration-analysis.md` | 136, 631, 807, 809, 991 | Authoritative spec: §15 explicitly decides NOT to wire `tauri-plugin-updater`. The reference at line 631 is inside an EXAMPLE `tauri.conf.json` snippet (showing what the config WOULD look like if updater were wired, for context, not as a build target). | No action: the ADR is the source of truth for the no-updater decision. |
 | `docs/adr/0013-desktop-runtime-migration-analysis.md` | 133, 146, 147 | The PRIOR (superseded) ADR: references `updater` as a hypothetical option. ADR-0020 supersedes ADR-0013. | No action: superseded ADR. |
-| `docs/API.md` | 123 | Mentions `electron-updater` (Electron's auto-updater, not Tauri's) in a comment about a config flag. | No action: Electron-side reference. |
+| `docs/API.md` | 123 | Mentions `predecessor-updater` (the predecessor's auto-updater, not Tauri's) in a comment about a config flag. | No action: predecessor-side reference. |
 | `docs/auto-update-feature.md` | 10, 28, 58-67, 180-186 | Design-only spec for the (not-implemented) auto-update feature. The file's own header states: "STATUS: NOT IMPLEMENTED." | No action: design doc only. |
-| `voice_typer/client/electron-builder.yml` | 8 | Comment about `auto-updater` (Electron's). | No action: Electron-side config; the `publish: github` block is not consumed by any code today (per ADR-0020 §15). |
+| `voice_typer/client/legacy builder config` | 8 | Comment about `auto-updater` (predecessor's). | No action: predecessor-side config; the `publish: github` block is not consumed by any code today (per ADR-0020 §15). |
 
 #### Conclusion
 
@@ -466,7 +466,7 @@ the signing commands in the appropriate order. The top-level
 through to the per-platform workflows when the user selects it.
 
 For the env var names to use in CI, see §"Reused signing identities"
-above: they are the same names the existing Electron build uses, so
+above: they are the same names the existing predecessor build uses, so
 no new secrets need to be created.
 
 ---

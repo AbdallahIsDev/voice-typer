@@ -6,7 +6,7 @@
 //! stall threshold while the main window is visible and un-minimized, and
 //! logs an ERROR when the webview stops executing timers.
 //!
-//! This is the Tauri equivalent of Electron's `child-process-gone`
+//! This is the Tauri equivalent of the predecessor's `child-process-gone`
 //! telemetry (review.md MO-113): no Tauri/wry platform surfaces a
 //! renderer/GPU crash event, but "the visible renderer stopped running"
 //! is exactly the blank-window condition support needs in the log.

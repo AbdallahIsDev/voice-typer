@@ -91,9 +91,9 @@ def _notify_consent_gate(title: str, message: str) -> bool:
 
     pystray Win32 balloons (``tray.notify_safety``) cannot carry click
     handlers, clicking them does nothing, so a refused recording
-    leaves the user with no path to fix it. When a live Electron /
+    leaves the user with no path to fix it. When a live predecessor /
     Tauri host is connected, publish a ``notification`` event carrying
-    ``click_consent_field`` (the voice-biometric field): the Electron
+    ``click_consent_field`` (the voice-biometric field): the predecessor
     main-process ``notification`` handler wires ``Notification.on("click")``
     → show window + broadcast ``navigate {path:"/settings",
     consent_field}``, so clicking the toast lands the user on the
@@ -383,7 +383,7 @@ class RecordingLifecycle:
         return without recording (consent refused, or the consent check
         itself failed and we fail CLOSED per GDPR Art. 9).
 
-        The config field and Electron UI toggle existed previously, but
+        The config field and predecessor UI toggle existed previously, but
         the audio pipeline never checked the flag: meaning the consent
         was a UI decoration with zero enforcement. The default is False,
         the user MUST opt in via the Settings UI before any recording

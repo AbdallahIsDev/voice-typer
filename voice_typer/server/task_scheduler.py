@@ -16,7 +16,7 @@ that the autostart path (``server_platform/autostart.py`` /
 ``autostart_windows.py``) reuses:
 
 - :data:`_APP_AUTOSTART_DELAY_SECONDS`: delay the autostart launcher
-  waits before spawning Electron, so the just-launched app doesn't
+  waits before spawning predecessor, so the just-launched app doesn't
   contend with the logon I/O storm (prewarm warms from inside the
   worker now, so the delay stays small).
 - :func:`is_supported`: True on Windows when ``schtasks.exe`` is
@@ -41,7 +41,7 @@ from voice_typer.server.platform_utils import is_windows
 log = logging.getLogger(__name__)
 
 # STARTUP-2: delay the app's autostart_launcher waits before spawning
-# Electron, so the just-launched app doesn't contend with the logon I/O
+# predecessor, so the just-launched app doesn't contend with the logon I/O
 # storm (Explorer, AV scan, other autostart entries faulting pages at
 # once). Kept small on purpose: prewarm is a worker startup phase now
 # (it warms the OS file cache from INSIDE the backend process after it

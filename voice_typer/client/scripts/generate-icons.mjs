@@ -16,7 +16,6 @@ const svgPath = resolve(__dirname, "logo.svg");
 
 const sizes = {
 	favicon: [16, 32, 48],
-	electron: [512],
 	ico: [16, 24, 32, 48, 64, 128, 256],
 	tray: [16, 24, 32, 48, 64],
 };
@@ -38,8 +37,8 @@ const sizes = {
 //     chrome AND the static default (bundle/exe icons, shortcuts,
 //     Task Manager / Alt+Tab when the app is closed).
 //   - darkSvg , chip DARK_CHIP + glyph DARK_GLYPH: dark-mode chrome.
-//     Consumed by the Electron nativeTheme swap and the Tauri
-//     ``theme_icon.rs`` window-icon swap while the app runs.
+//     Consumed by the Tauri ``theme_icon.rs`` window-icon swap while
+//     the app runs.
 //   - tray glyph, the logo WITHOUT the background chip and WITHOUT
 //     the indicator dot (just the glyph): the tray/notification mark
 //     (user decision: the tray shows the bare icon, no background
@@ -209,7 +208,7 @@ async function generateIcons(svg, label, suffix) {
 	const resourcesDir = resolve(clientDir, "resources");
 	const publicDir = resolve(clientDir, "src", "renderer", "public");
 
-	// Electron resources
+	// Bundle / app resources
 	await sharp(Buffer.from(svg))
 		.resize(512, 512)
 		.png()
@@ -322,7 +321,7 @@ print("ICO generated")
  * state palette.
  *
  * Standalone function so the tray set can be regenerated WITHOUT
- * touching the Electron / server / bundle-icon sets (``node
+ * touching the server / bundle-icon sets (``node
  * generate-icons.mjs --tray``), the repeatable wrapper
  * ``scripts/build/generate_tray_icons.py`` calls exactly this path.
  * The four state names + palette MUST stay in sync with
@@ -435,7 +434,7 @@ async function main() {
 
 	// --tray: regenerate ONLY the Tauri tray state icons and exit.
 	// Used by scripts/build/generate_tray_icons.py so a tray-icon
-	// change is repeatable without touching the Electron / server /
+	// change is repeatable without touching the server /
 	// bundle-icon sets.
 	if (process.argv.includes("--tray")) {
 		await generateTauriTrayIcons(tauriIconsDir);

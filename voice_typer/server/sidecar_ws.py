@@ -52,7 +52,7 @@ Why a separate module (not a flag on ipc_server.py)?
   asyncio websockets). Putting them in the same function would be a
   parallel-systems hazard.
 - This module is additive: the TCP path stays intact for the
-  Electron fallback, the WS path is opt-in via ``--ws`` on
+  predecessor fallback, the WS path is opt-in via ``--ws`` on
   ``ipc_server.py`` (which delegates here).
 - The dispatch + handler mixins are 100% reused, only the transport
   changes (per ADR-0020 §2).
@@ -102,7 +102,7 @@ detection mechanisms:
    hangs that keep the TCP/WS socket open but don't respond to
    dispatches, a scenario the WS-close-only detection misses.
 
-Together these replace the Electron path's 120-second-heartbeat-
+Together these replace the predecessor path's 120-second-heartbeat-
 timeout watchdog with a faster, more accurate liveness probe.
 
 Module layout
@@ -175,13 +175,13 @@ from voice_typer.server.ipc.validation import ErrorCodes
 
 # websockets is a hard new dep under ADR-0020 §14. Import lazily
 # inside run() so the module imports cleanly without the dep
-# installed (e.g. on the Electron-only build path); the runtime
+# installed (e.g. on the predecessor-only build path); the runtime
 # check produces a clean ImportError with an actionable message.
 #
 # The typed close-exception classes
 # (``ConnectionClosedOK`` / ``ConnectionClosedError``) are imported
 # lazily at the top of ``_handle_connection`` (NOT at module top) so
-# this module still imports cleanly on the Electron-only build path.
+# this module still imports cleanly on the predecessor-only build path.
 # ``_handle_connection`` is only called by ``serve()`` which is set
 # up by ``run()`` AFTER the lazy websockets import there has already
 # succeeded, so the inner import is guaranteed to succeed at runtime.
@@ -836,7 +836,7 @@ def run(server: IPCServer) -> int:
     _force_line_buffered_stdout()
 
     # Local import so the module imports cleanly without `websockets`
-    # installed (the Electron-only build path doesn't need it).
+    # installed (the predecessor-only build path doesn't need it).
     try:
         import websockets  # noqa: F401, imported for availability probe
         from websockets.asyncio.server import serve

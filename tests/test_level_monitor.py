@@ -118,7 +118,7 @@ def _isolate_test_recordings_dir(tmp_path, monkeypatch):
     per-user config dir and returns small ``{"path", "bytes"}`` refs,
     and ``start_test_recording`` purges every ``*.wav`` in that
     directory (keep-only-latest). Production is single-owner: one app
-    instance (Electron single-instance lock + Python mutex) owns the
+    instance (predecessor single-instance lock + Python mutex) owns the
     directory, so purge-vs-read never overlaps. Under
     ``pytest -n auto --dist=loadgroup`` that assumption is violated by
     the test environment itself: unmarked tests schedule per nodeid

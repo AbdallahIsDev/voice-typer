@@ -74,7 +74,7 @@ export interface ShortcutDef extends InAppShortcut {
 	 * listener in `useGlobalKeyboardShortcuts` (or another renderer
 	 * handler, e.g. useNavigation's Alt+arrows / App's "?"); "server"
 	 * = the backend hotkey engine (pynput), e.g. the dictation keys
-	 * Esc / Tab / Space / Enter; "main" = an Electron main-process
+	 * Esc / Tab / Space / Enter; "main" = an predecessor main-process
 	 * OS-global accelerator (`globalShortcut`, works without app
 	 * focus). Server/main-handled entries must NOT carry
 	 * `eventKeys`, the renderer never dispatches them, and the
@@ -193,7 +193,7 @@ export const SHORTCUTS = {
 		category: "dictation",
 	},
 	dismissBubble: {
-		// OS-global accelerator registered in the Electron main process
+		// OS-global accelerator registered in the predecessor main process
 		// (`shortcuts/global-shortcuts.ts`). The binding is defined ONCE
 		// in the cross-process shared constant
 		// (`src/shared/dismiss-shortcut.ts`): this catalog consumes the

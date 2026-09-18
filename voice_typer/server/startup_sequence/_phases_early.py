@@ -257,7 +257,7 @@ class EarlyPhases:
         handler on silent SEH exceptions, archives them for support,
         and, only when the previous session genuinely ended
         abnormally (the ``session_active`` marker is still present) —
-        surfaces a calm user-facing recovery toast + Electron
+        surfaces a calm user-facing recovery toast + predecessor
         notification. Also sweeps stale corrupt-quarantine /
         pre-migration backup files (30-day retention) and stale
         ``.tmp`` atomic-write leftovers (5-min retention).
@@ -320,9 +320,9 @@ class EarlyPhases:
                     except Exception as exc:
                         log.debug("[STARTUP] Could not show crash notification: %s", exc)
                     # Also publish an event to the in-process event bus so
-                    # the Electron frontend can show an in-app notification
+                    # the predecessor frontend can show an in-app notification
                     # (toast / snackbar) if the UI window is open.
-                    # event name was renamed from "electron_notification"
+                    # event name was renamed from "the legacy notification event name"
                     # to the platform-agnostic "notification": the Tauri
                     # Rust host passes the event through unchanged (the old
                     # rename match arm was removed). A Rust-side backward-

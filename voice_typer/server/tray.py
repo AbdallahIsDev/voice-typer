@@ -2,7 +2,7 @@
 
 Phase 2 minimal right-click menu: Start Dictation (hotkey) / Models /
 Restart / Quit. Left-click + "Open App" launches (or focuses) the
-Electron app; all settings / history / templates live in the Electron
+desktop app; all settings / history / templates live in the app
 window only.
 
 Module-split history, each concern lives in its own satellite module;
@@ -239,7 +239,7 @@ class TrayIcon:
         if os.environ.get("VOICE_TYPER_NO_TRAY") == "1":
             log.info(
                 "[TRAY] VOICE_TYPER_NO_TRAY=1 set, skipping tray icon creation. "
-                "The app remains usable via the global hotkey and the Electron window."
+                "The app remains usable via the global hotkey and the app window."
             )
             self._icon = None
             self._tray_unavailable = True
@@ -251,7 +251,7 @@ class TrayIcon:
             log.warning(
                 "[TRAY] Linux Wayland session without StatusNotifierItem detected "
                 "(common on Sway/Hyprland/dwl/river). Tray icon will not be created. "
-                "The app remains usable via the global hotkey and the Electron window."
+                "The app remains usable via the global hotkey and the app window."
             )
             self._icon = None
             self._tray_unavailable = True
@@ -369,7 +369,7 @@ class TrayIcon:
         """Show a notification if notifications are enabled (delegate).
 
         This body does NOT publish via the event bus (double-toast
-        guard); that path lives in the show_electron_notification IPC
+        guard); that path lives in the show_notification IPC
         handler. The pystray toast path lives in tray_notifications.
         """
         from voice_typer.server.tray_notifications import notify as _notify
@@ -431,7 +431,7 @@ class TrayIcon:
            pystray ICON subsystem), so the user can grep their log
            for the notification after-the-fact.
         2. Publishes a ``tray_fallback_notification`` event via the
-           event bus so the Electron renderer can surface the
+           event bus so the renderer can surface the
            notification as a toast. CROSS-LAYER GATE: the
            ACTUAL gate is the Tauri host's ``ALLOWED_EVENT_TYPES``
            slice at ``src-tauri/src/sidecar/ws.rs:80-150``, the
@@ -476,7 +476,7 @@ class TrayIcon:
             # Payload shape: title/message nested under ``data`` —
             # the canonical push-event envelope. The renderer's
             # ``useTrayFallbackToast`` reads ``event.data.title`` /
-            # ``event.data.message``; the old Electron-era root-level
+            # ``event.data.message``; the older root-level
             # fields were stripped by the event-protocol layer, so the
             # delivered payload arrived empty.
             with contextlib.suppress(Exception):
@@ -542,13 +542,13 @@ class TrayIcon:
     # ─── Window management (delegates to tray_window.py) ──────────────
 
     @staticmethod
-    def _bring_electron_to_front() -> bool:
-        from voice_typer.server.tray_window import bring_electron_to_front
+    def _bring_app_to_front() -> bool:
+        from voice_typer.server.tray_window import bring_app_to_front
 
-        return bring_electron_to_front()
+        return bring_app_to_front()
 
-    def open_electron_window(self) -> None:
-        from voice_typer.server.tray_window import open_electron_window as _open
+    def open_app_window(self) -> None:
+        from voice_typer.server.tray_window import open_app_window as _open
 
         _open()
 
@@ -579,7 +579,7 @@ class TrayIcon:
         """
         from voice_typer.server.tray_window import open_page
 
-        self.open_electron_window()
+        self.open_app_window()
         return open_page("/microphone")
 
     def _confirm_quit_while_recording(self) -> None:
@@ -624,7 +624,7 @@ class TrayIcon:
 
     def _maybe_publish_tray_menu(self) -> bool:
         """ADR-0020 §6.5: push serialized tray menu to Tauri (delegate);
-        no-op on Electron/pystray."""
+        no-op on the pystray runtime."""
         from voice_typer.server.tray_menu import maybe_publish_tray_menu
 
         return maybe_publish_tray_menu(self)

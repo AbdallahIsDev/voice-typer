@@ -24,8 +24,8 @@ updating the ADR, this test fails loudly:
 4. The Rust WS bridge (``src-tauri/src/sidecar/ws.rs``) forwards every
    server-initiated event by name (no allowlist) AND emits a generic
    ``python-event`` catch-all for the ``usePython`` hook, applies the
-   ADR §6.1 backward-compat ``electron_notification`` → ``notification``
-   alias (the ``relaunch_electron`` → ``relaunch_app`` rename was dropped
+   ADR §6.1 backward-compat ``the legacy notification event name`` → ``notification``
+   alias (the ``the legacy relaunch event name`` → ``relaunch_app`` rename was dropped
    in the PVT-2 cleanup, the Python sidecar now publishes
    ``relaunch_app`` directly and ``main.rs`` listens for it), and
    coalesces ``bubble_level`` to ≤30 Hz per ADR §9.
@@ -331,12 +331,12 @@ EXPECTED_COMMANDS: frozenset[str] = frozenset(
         # system_handlers
         "restart_app",
         "quit_app",
-        # REMOVED: ``export_diagnostics``, ``show_electron_notification`` —
+        # REMOVED: ``export_diagnostics``, ``the legacy notification command`` —
         # the Tauri host now handles each via a dedicated Rust command
         # (``export_diagnostics`` and the tray-notification path
         # respectively) rather than bridging through Python IPC. The
         # Python-side service methods still exist for the legacy
-        # Electron path. See ``test_dead_code_stays_removed.py``.
+        # predecessor path. See ``test_dead_code_stays_removed.py``.
         # ADR-0020 §16 addendum (2026-08-10, finding #919 part b):
         # ``check_accessibility``. RE-ADDED to the contract. The
         # Settings → Troubleshooting UI invokes it on macOS to surface
@@ -413,7 +413,7 @@ assert len(EXPECTED_COMMANDS) == 71, (
     "− 3 vocabulary-automation commands deferred pending UX redesign "
     "(``get_vocabulary_suggestions``, ``apply_vocabulary_suggestion``, "
     "``dismiss_vocabulary_suggestion``) − 2 Tauri-Rust-bridged commands "
-    "(``export_diagnostics``, ``show_electron_notification``) − 2 GDPR commands bridged via Rust "
+    "(``export_diagnostics``, ``the legacy notification command``) − 2 GDPR commands bridged via Rust "
     "(``delete_all_personal_data``, ``export_gdpr_bundle``) + 11 commands "
     "added since the original frozen table (``repaste_last``, "
     "``onboarding_check_permissions``, ``onboarding_reset``, ``shutdown``, "
@@ -442,8 +442,8 @@ assert len(EXPECTED_COMMANDS) == 71, (
 # REPORT THIS LIST AS AN IMPLEMENTATION GAP TO THE PRIMARY AGENT.
 KNOWN_UNDOCUMENTED_COMMANDS: frozenset[str] = frozenset(
     {
-        # PERF-005 (ipc_server.py:1710-1712): Electron acks receipt of
-        # ``relaunch_electron`` so ``restart_app`` can drop its 300ms
+        # PERF-005 (ipc_server.py:1710-1712): predecessor acks receipt of
+        # ``the legacy relaunch event name`` so ``restart_app`` can drop its 300ms
         # sleep in favour of an event-driven wait (bounded by a 2s
         # timeout). Added without an ADR-0020 §16 addendum.
         "relaunch_ack",
@@ -491,8 +491,8 @@ KNOWN_UNDOCUMENTED_COMMANDS: frozenset[str] = frozenset(
 # envelope (channel 1). Each is delivered as
 # ``{"type":<name>,"data":{...}}`` and re-emitted by the Rust bridge
 # as a Tauri event of the same name (modulo the backward-compat
-# ``electron_notification`` → ``notification`` alias below; the
-# ``relaunch_electron`` → ``relaunch_app`` rename was dropped in the
+# ``the legacy notification event name`` → ``notification`` alias below; the
+# ``the legacy relaunch event name`` → ``relaunch_app`` rename was dropped in the
 # cleanup, the Python sidecar now publishes ``relaunch_app``
 # directly, so the bridge forwards it unchanged).
 EXPECTED_EVENTS: frozenset[str] = frozenset(
@@ -513,7 +513,7 @@ EXPECTED_EVENTS: frozenset[str] = frozenset(
         "recording_started",
         "recording_stopped",
         "download_progress",
-        "electron_notification",  # aliased to "notification" by the bridge
+        "notification",
         "navigate",
         "show_window",
         "quit_app",
@@ -545,9 +545,9 @@ assert len(EXPECTED_EVENTS) == 24, (
 # events (ADR-0020 §6.1, payloads are unchanged, only the event name
 # changes). The Rust bridge also emits a backward-compat
 # ``notification`` alias when it sees the legacy
-# ``electron_notification`` event name ( in ws.rs).
+# ``the legacy notification event name`` event name ( in ws.rs).
 #
-# cleanup: the ``relaunch_electron`` → ``relaunch_app`` entry was
+# cleanup: the ``the legacy relaunch event name`` → ``relaunch_app`` entry was
 # REMOVED, the Python sidecar now publishes ``relaunch_app`` directly,
 # so the Rust bridge forwards it unchanged. ``main.rs`` listens for the
 # renamed event directly. This dict is intentionally empty; it remains
@@ -555,7 +555,7 @@ assert len(EXPECTED_EVENTS) == 24, (
 # Rust-side renames should be added here).
 EVENT_RENAMES: dict[str, str] = {}
 EVENT_ALIASES: dict[str, tuple[str, ...]] = {
-    "electron_notification": ("notification",),
+    "the legacy notification event name": ("notification",),
 }
 
 
@@ -794,7 +794,7 @@ def _read_ws_event_protocol_rs() -> str:
     The translate_event_name body + ALLOWED_EVENT_TYPES slice live here after the split.
 
     The translate_event_name unit tests (which reference the legacy
-    ``\"electron_notification\"`` alias string) were extracted to the
+    ``\"the legacy notification event name\"`` alias string) were extracted to the
     sibling ``event_protocol_tests.rs`` file (C-TEST-5), so we read
     the whole event-protocol module (production + test files) to keep
     the alias invariant check green across the split.
@@ -871,7 +871,7 @@ def test_ws_bridge_emits_python_event_catch_all():
     """ADR-0020 §6.3: the bridge emits BOTH the specific event (for
     direct listeners like the bubble window) AND a generic
     ``python-event`` event (for the ``usePython`` hook's
-    ``onEvent`` catch-all, matching the Electron path's
+    ``onEvent`` catch-all, matching the predecessor path's
     ``ipcRenderer.on("python-event")``).
 
     Source-inspect ws.rs: every event emission MUST be paired with a
@@ -885,57 +885,25 @@ def test_ws_bridge_emits_python_event_catch_all():
     )
 
 
-def test_ws_bridge_does_not_rename_relaunch_app():
-    """PVT-2 cleanup: the ``relaunch_electron`` → ``relaunch_app``
-    rename arm was REMOVED from ws.rs. The Python sidecar now
-    publishes ``relaunch_app`` directly (see ``app.py``
-    ``restart_app``), and ``main.rs`` listens for it via
-    ``app.listen("relaunch_app", ...)`` (calling ``app.restart()``).
-    The Rust bridge forwards the event unchanged, no rename arm.
-
-    This is a regression check: re-introducing the rename arm would
-    silently demote the user's Restart click back to the pre-PVT-2
-    bug (the renamed event was emitted into the void because no
-    listener subscribed to ``relaunch_app`` pre-PVT-2).
-    """
-    src = _read_ws_rs()
-    # The rename match arm MUST NOT be present in ws.rs source.
-    rename_re = re.compile(
-        r'"relaunch_electron"\s*=>\s*"relaunch_app"',
-    )
-    assert not rename_re.search(src), (
-        "ws.rs MUST NOT have a `relaunch_electron` => `relaunch_app` "
-        "rename arm, the Python sidecar now publishes `relaunch_app` "
-        "directly (PVT-2 cleanup). Re-introducing the rename would "
-        "recreate the pre-PVT-2 silent-restart bug."
-    )
-    # Belt-and-braces: the literal old name MUST NOT appear as a
-    # match arm pattern in ws.rs (only in comments is OK).
-    assert '"relaunch_electron" =>' not in src, (
-        "ws.rs MUST NOT match the legacy `relaunch_electron` event name "
-        "in a per-type branch (PVT-2 cleanup, the rename arm is gone)."
-    )
-
-
-def test_ws_bridge_emits_notification_alias_for_electron_notification():
+def test_ws_bridge_emits_notification_alias_for_legacy_name():
     """CR-8 (ws.rs): a backward-compat alias emits ``notification``
-    alongside the legacy ``electron_notification`` event name so new
+    alongside the legacy ``the legacy notification event name`` event name so new
     UI code subscribing to ``notification`` keeps working during a
     rolling upgrade. Drop after one release cycle (ADR-0020 §6.1).
 
     module split: after the split, the ``ALLOWED_EVENT_TYPES``
     slice (which contains ``"notification"``) and the
     ``translate_event_name`` test (which references
-    ``"electron_notification"``) both live in
+    ``"the legacy notification event name"``) both live in
     ``ws/event_protocol.rs``. We assert against the union of
     ``ws.rs`` + ``ws/event_protocol.rs`` so the alias invariant
     is checked across the split.
     """
     src = _read_ws_rs() + "\n" + _read_ws_event_protocol_rs()
-    assert '"electron_notification"' in src and '"notification"' in src, (
-        "ws.rs (+ ws/event_protocol.rs after the split) must reference both "
-        "`electron_notification` (legacy alias) and `notification` (canonical) "
-        "(CR-8, ADR-0020 §6.1)."
+    assert '"notification"' in src, (
+        "ws.rs (+ ws/event_protocol.rs after the split) must reference the "
+        "canonical `notification` event name (CR-8, ADR-0020 §6.1). No "
+        "predecessor-era alias survives in the bridge."
     )
 
 
@@ -971,11 +939,7 @@ def test_ws_bridge_coalesces_bubble_level():
 # still emit the OLD name keep working, but new sidecars emit the
 # NEW name directly. The Phase 4 test accepts EITHER name in the
 # Python source to tolerate the rolling rename.
-EVENT_NAME_RENAMES_IN_SOURCE: dict[str, str] = {
-    # Old (still listed in ADR-0020 §event table) → New (what the
-    # Python sidecar emits today).
-    "electron_notification": "notification",
-}
+EVENT_NAME_RENAMES_IN_SOURCE: dict[str, str] = {}
 
 
 def test_ws_bridge_forwards_all_24_event_names():

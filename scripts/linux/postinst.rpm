@@ -4,7 +4,7 @@
 # Functionally identical to the Debian postinst. Runs as root during
 # `dnf install voice-typer`. Probes the same 5 canonical candidate paths
 # so the script is found regardless of which installer produced the
-# package (Tauri v2 .rpm, legacy Electron .rpm, AppImage, manual install).
+# package (Tauri v2 .rpm, legacy .rpm, AppImage, manual install).
 # Also installs the polkit-stable symlink so the polkit policy keeps
 # resolving to a working script across Tauri v2 / AppImage installs.
 #

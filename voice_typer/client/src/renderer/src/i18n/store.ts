@@ -275,7 +275,7 @@ export function registerTranslations(
  *     ``t()`` stops falling back to English after a runtime locale
  *     switch (previously the import was only triggered at module init
  *     for the restored/detected locale).
- *   - : pushes the locale to the Electron main process via
+ *   - : pushes the locale to the predecessor main process via
  *     ``window.window_.setLocale?.(locale)`` so native dialogs render
  *     in the user's selected language.
  *   - : pushes the locale + renderer-known tray-menu labels to the
@@ -287,7 +287,7 @@ export function registerTranslations(
  * during module-init), so ``setLocale`` must NOT crash when
  * ``window.window_`` / ``window.python`` is undefined or when the IPC
  * promise rejects. The ``setLocale`` push resolves on both runtimes:
- * Electron keeps the locale in its main process, and the Tauri host
+ * predecessor keeps the locale in its main process, and the Tauri host
  * stores it in ``SidecarState::host_locale``.
  */
 export function setLocale(locale: Locale): void {

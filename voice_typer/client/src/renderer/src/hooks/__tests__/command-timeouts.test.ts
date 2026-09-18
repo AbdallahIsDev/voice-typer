@@ -2,7 +2,7 @@
  * Unit tests for the per-command timeout table ().
  *
  * : previously a blanket 120s `setTimeout` was applied to every
- * IPC call (in the Electron main's `sendToPython` and the Rust
+ * IPC call (in the predecessor main's `sendToPython` and the Rust
  * `dispatch` command). A `get_status` call that hangs took 120s to
  * surface an error; the 120s timer was created even for trivial
  * commands.

@@ -148,7 +148,7 @@ class TestPushEventNow:
         server.stop()
 
     def test_show_window_message_reaches_push(self, server, monkeypatch):
-        """The show_window message type used by tray.open_electron_window
+        """The show_window message type used by tray.open_app_window
         should be pushable through _push_event_now."""
         server._send = MagicMock()
         server.start()

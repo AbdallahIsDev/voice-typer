@@ -8,8 +8,8 @@
  * `node:fs` and regex out the APP_NAME literal, mirroring the approach
  * used by `scripts/check_branding.py`.
  *
- * (The Electron main-process `src/main/branding.ts` was deleted with
- * the Electron shell; parity is now renderer ↔ server only.)
+ * (The predecessor main-process `src/main/branding.ts` was deleted with
+ * the predecessor shell; parity is now renderer ↔ server only.)
  *
  * Python-side parity: a separate Python test (e.g. in
  * `voice_typer/server/tests/`) would need to import `branding.py` and

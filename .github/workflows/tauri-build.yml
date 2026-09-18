@@ -18,7 +18,7 @@
 # only (`workflow_dispatch`) — it is NOT triggered on push or tag, and it
 # does NOT emit a `latest.json` updater manifest. Releases are
 # manual-download only. This workflow is now THE installer pipeline
-# (Electron packaging retired 2026-09-17; the former electron-builder
+# (Legacy packaging retired 2026-09-17; the former builder
 # jobs in build.yml were removed).
 # `validate` job below runs the same fail-fast config-drift gate as the
 # per-platform workflows (identifier↔appId parity, bundle.icon↔git
@@ -385,4 +385,4 @@ jobs:
 
       - name: Cutover reminder
         run: |
-          echo "::notice::Tauri build run complete. Per ADR-0020 §15, no auto-update manifest was generated. Tauri is the sole production host (Electron removed 2026-09-17)."
+          echo "::notice::Tauri build run complete. Per ADR-0020 §15, no auto-update manifest was generated. Tauri is the sole production host."

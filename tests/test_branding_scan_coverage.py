@@ -11,8 +11,8 @@ needs literal "Voice Typer" strings in its productName/title fields
 * The productName / title fields are allowlisted as a documented
   "build-config literal" exception to C-BRAND-1, they are NOT flagged.
 * A clean build-config file (only productName / title literals) passes.
-* The deleted ``voice_typer/client/electron-builder.yml`` is NOT a
-  scan target (Electron host removed 2026-09-17); do not reintroduce it.
+* The deleted legacy client builder config is NOT a
+  scan target (previous host removed 2026-09-17); do not reintroduce it.
 
 A second gap (found when the bubble aria fallbacks shipped with the
 brand embedded inside LONGER string literals): the scanner's literal
@@ -22,7 +22,7 @@ The substring-in-literal tests below pin the scanner's second pattern
 plus the exemptions it must keep intact (comments, renderer locale
 files, the source-of-truth branding files, APP_NAME-composed lines).
 The substring pattern's scope is ALL non-test .ts/.tsx under
-``voice_typer/client/src/`` (renderer tree; the Electron main/preload
+``voice_typer/client/src/`` (renderer tree; the predecessor main/preload
 trees are deleted), and the test-file exemption stays.
 """
 
@@ -145,21 +145,21 @@ def test_tauri_conf_json_is_scanned(tmp_path):
         assert '"title":' not in v, f"title should be allowlisted but was flagged: {v!r}"
 
 
-def test_electron_builder_yml_is_not_a_scan_target(tmp_path):
-    """Deleted electron-builder.yml is NOT scanned (Electron host removed).
+def test_deleted_builder_yml_is_not_a_scan_target(tmp_path):
+    """Deleted legacy builder config is NOT scanned (previous host removed).
 
     Writing that path must not cause a branding violation: the scanner
     no longer lists it in SCAN_DIRS / BUILD_CONFIG_FILES.
     """
     root = _make_fake_project_root(tmp_path)
     (root / "voice_typer" / "client").mkdir(parents=True)
-    (root / "voice_typer" / "client" / "electron-builder.yml").write_text(
+    (root / "voice_typer" / "client" / "legacy-builder.yml").write_text(
         'description: "Voice Typer"\n',
         encoding="utf-8",
     )
     result = _run_check_branding(root)
     assert result.returncode == 0, (
-        f"deleted electron-builder.yml must not be scanned; "
+        f"deleted legacy builder config must not be scanned; "
         f"got rc={result.returncode}.\nstdout:\n{result.stdout}\n"
         f"stderr:\n{result.stderr}"
     )

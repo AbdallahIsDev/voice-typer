@@ -30,7 +30,7 @@ def _kwargs(handle):
 
 
 def test_popen_raise_still_closes_parent_handles(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The built-Electron leak: Popen-raise must still close handles."""
+    """The built-predecessor leak: Popen-raise must still close handles."""
     handle = _FakeHandle()
 
     def _boom(cmd, **kwargs):

@@ -1,8 +1,8 @@
-"""Electron window management for the system tray.
+"""App window management for the system tray.
 
 #13: Extracted from tray.py to separate concerns:
 - Win32 window focus (EnumWindows/AttachThreadInput/SetForegroundWindow)
-- Electron app launch (build-first, dev fallback)
+- Window focus fallbacks (macOS AppleScript, Linux wmctrl/xdotool)
 
 (Phase 4.5 spaghetti split): extended with the
 remaining window-management + quit-confirmation concerns that were
@@ -10,7 +10,7 @@ still inlined on ``TrayIcon``:
 
   - :func:`open_page`: publish a ``navigate`` event so the renderer
     opens the given route (Settings / History / Help / Models).
-  - :func:`open_models_page`: open the Electron window and navigate
+  - :func:`open_models_page`: open the app window and navigate
     to ``/models``.
   - :func:`confirm_quit_while_recording`: quit immediately via the
     controller (the old confirmation dialog was removed; crash
@@ -36,43 +36,43 @@ if TYPE_CHECKING:
 
 log = logging.getLogger("voice_typer.server.tray_window")
 
-# Track the PID of the Electron subprocess we launched
+# Track the PID of the host process we launched
 # so quit() can terminate it explicitly as a safety net.
-_electron_pid: int | None = None
+_host_pid: int | None = None
 
 
-def set_electron_pid(pid: int) -> None:
-    """Store the PID of the Electron subprocess for cleanup on shutdown."""
-    global _electron_pid
-    _electron_pid = pid
+def set_host_pid(pid: int) -> None:
+    """Store the PID of the host process for cleanup on shutdown."""
+    global _host_pid
+    _host_pid = pid
 
 
-def get_electron_pid() -> int | None:
-    """Return the PID of the Electron subprocess, if tracked."""
-    return _electron_pid
+def get_host_pid() -> int | None:
+    """Return the PID of the host process, if tracked."""
+    return _host_pid
 
 
-def _electron_process_is_running() -> bool:
-    """Return True if a Voice Typer Electron process appears to be alive.
+def _host_process_is_running() -> bool:
+    """Return True if a Voice Typer host process appears to be alive.
 
     Checks in order:
-    1. The tracked ``_electron_pid`` (set when *this* backend launched
-       Electron), via the cross-platform ``_is_pid_alive`` helper.
+    1. The tracked ``_host_pid`` (set when *this* backend launched
+       the host process), via the cross-platform ``_is_pid_alive`` helper.
     2. A ``pgrep -f <APP_NAME>`` process-table match (macOS/Linux) —
-       catches an Electron launched by another backend instance or a
+       catches a host process launched by another backend instance or a
        manual start.
 
-    Used by :func:`open_electron_window` to avoid spawning a DUPLICATE
-    Electron process when the window-focus fallback fails.
+    Used by :func:`open_app_window` to avoid spawning a DUPLICATE
+    host process when the window-focus fallback fails.
     """
     from voice_typer.server.backend_pid import _is_pid_alive
 
-    pid = _electron_pid
+    pid = _host_pid
     if pid is not None and pid > 0 and _is_pid_alive(pid):
         return True
     if not is_windows():
         # pgrep -f matches the full command line, so it finds the
-        # Electron process regardless of which backend spawned it.
+        # host process regardless of which backend spawned it.
         try:
             completed = subprocess.run(
                 ["pgrep", "-f", APP_NAME],
@@ -86,18 +86,18 @@ def _electron_process_is_running() -> bool:
     return False
 
 
-def _bring_electron_to_front_macos() -> bool:
+def _bring_app_to_front_macos() -> bool:
     """Bring the Voice Typer window to front on macOS via AppleScript.
 
      ``tell application "<name>" to activate`` asks the running app to
-     activate (the Electron app registers its bundle name with
+     activate (the app registers its bundle name with
      LaunchServices, so this resolves to the running instance). Returns
      True if the AppleScript succeeded.
 
      Previously the macOS/Linux paths had NO focus helper at all
-    , ``bring_electron_to_front`` returned False outside Windows, so a
+    : ``bring_app_to_front`` returned False outside Windows, so a
      transient TCP blip fell straight through to spawning a DUPLICATE
-     Electron process.
+     duplicate app process.
     """
     if is_windows():
         return False
@@ -108,7 +108,7 @@ def _bring_electron_to_front_macos() -> bool:
             timeout=5.0,
         )
         if completed.returncode == 0:
-            log.info("[TRAY] Electron window activated via AppleScript")
+            log.info("[TRAY] App window activated via AppleScript")
             return True
         log.debug(
             "[TRAY] osascript activate failed (rc=%s): %s",
@@ -121,7 +121,7 @@ def _bring_electron_to_front_macos() -> bool:
         return False
 
 
-def _bring_electron_to_front_linux() -> bool:
+def _bring_app_to_front_linux() -> bool:
     """Bring the Voice Typer window to front on Linux via wmctrl/xdotool.
 
     Tries ``wmctrl -a <name>`` first (X11 window manager control;
@@ -140,15 +140,15 @@ def _bring_electron_to_front_linux() -> bool:
         try:
             completed = subprocess.run(tool_cmd, capture_output=True, timeout=5.0)
             if completed.returncode == 0:
-                log.info("[TRAY] Electron window activated via %s", tool_cmd[0])
+                log.info("[TRAY] App window activated via %s", tool_cmd[0])
                 return True
         except Exception as exc:
             log.debug("[TRAY] %s failed: %s", tool_cmd[0], exc)
     return False
 
 
-def bring_electron_to_front() -> bool:
-    """Find an existing Voice Typer Electron window and bring it to front.
+def bring_app_to_front() -> bool:
+    """Find an existing Voice Typer window and bring it to front.
 
     Returns True if a window was found and focused, False otherwise.
 
@@ -156,13 +156,13 @@ def bring_electron_to_front() -> bool:
     - macOS: AppleScript ``activate`` on the running app.
     - Linux: ``wmctrl -a`` / ``xdotool ... windowactivate``.
 
-    Extracted from TrayIcon._bring_electron_to_front() per #13;
+    Extracted from TrayIcon._bring_app_to_front() per #13;
     extended with the macOS/Linux focus helpers that were
     previously missing.
     """
     if not is_windows():
         # macOS / Linux focus paths.
-        return _bring_electron_to_front_macos() or _bring_electron_to_front_linux()
+        return _bring_app_to_front_macos() or _bring_app_to_front_linux()
     try:
         import ctypes
         from ctypes import wintypes
@@ -221,27 +221,27 @@ def bring_electron_to_front() -> bool:
         if target_tid != our_tid:
             ctypes.windll.user32.AttachThreadInput(our_tid, target_tid, False)
 
-        log.info("[TRAY] Electron window brought to front")
+        log.info("[TRAY] App window brought to front")
         return True
     except Exception as exc:
-        log.warning("[TRAY] Failed to bring Electron window to front: %s", exc)
+        log.warning("[TRAY] Failed to bring app window to front: %s", exc)
         return False
 
 
-def open_electron_window() -> None:
-    """Open (or focus) the Electron dashboard window.
+def open_app_window() -> None:
+    """Open (or focus) the dashboard window.
 
     Primary path (1 hop): push ``show_window`` over the TCP channel that
-    is always up between us (the backend) and our parent Electron
-    process.  Electron's ``showMainWindow()`` then shows + focuses the
+    is always up between us (the backend) and our parent host
+    process.  The host then shows + focuses the
     dashboard (creating it lazily if autostart started it hidden).
 
     Fallback: if the push doesn't land (TCP momentarily down, or this
-    backend was started standalone without Electron), use the Win32
-    ``bring_electron_to_front`` focus path, then finally launch
-    Electron dev mode as a last resort.
+    backend was started standalone without a host), use the Win32
+    ``bring_app_to_front`` focus path.
+    The host owns its own window lifecycle.
 
-    Extracted from TrayIcon.open_electron_window() per #13.
+    Extracted from TrayIcon.open_app_window() per #13.
     """
     # 1. Primary: push show_window over TCP.  Cheap, cross-platform,
     #    and works whether the window is hidden (close-to-tray) or
@@ -259,7 +259,7 @@ def open_electron_window() -> None:
         log.debug("[TRAY] show_window push raised, trying Win32 focus")
 
     # ``event_bus.publish`` returns True when ANY in-process subscriber
-    # accepted the event: which does NOT prove Electron received it:
+    # accepted the event: which does NOT prove the host received it:
     # the IPC transport's push() swallows write failures (it buffers to
     # ``_pending_tcp`` and marks the client dead instead of raising) and
     # the no-client path buffers silently, while unrelated subscribers
@@ -269,7 +269,7 @@ def open_electron_window() -> None:
     # focus path so the window still appears.
     #
     # BP-160: a HALF-OPEN socket defeats even the probe, the kernel
-    # accepts the write (no error, client stays "live") while Electron
+    # accepts the write (no error, client stays "live") while the host
     # never receives the frame, so the push is silently lost and no
     # fallback runs. On Windows the native focus below is pure ctypes
     # (EnumWindows + ShowWindow, microseconds, no subprocess), so it
@@ -281,20 +281,20 @@ def open_electron_window() -> None:
     delivered = published and live
     if delivered:
         log.info(
-            "[TRAY] Tray icon left-click: show_window request sent to Electron "
-            "over IPC, Electron will show, raise and focus the dashboard window"
+            "[TRAY] Tray icon left-click: show_window request sent to host "
+            "over IPC, the host will show, raise and focus the dashboard window"
         )
     else:
-        log.info("[TRAY] no live Electron transport, trying Win32 focus")
+        log.info("[TRAY] no live host transport, trying Win32 focus")
 
     # 2. Native focus: insurance on Windows (see BP-160 note above),
     #    fallback elsewhere.
     focused = False
     if is_windows() or not delivered:
         try:
-            focused = bring_electron_to_front()
+            focused = bring_app_to_front()
         except Exception:
-            log.debug("[TRAY] bring_electron_to_front raised", exc_info=True)
+            log.debug("[TRAY] bring_app_to_front raised", exc_info=True)
             focused = False
     log.info(
         "[TRAY] open window request settled live=%s focused=%s%s",
@@ -310,13 +310,13 @@ def open_electron_window() -> None:
     # 3. Duplicate-launch gate: if the focus helpers above failed
     #    but we KNOW a host process is still alive, do NOT spawn a
     #    duplicate.
-    if _electron_process_is_running():
+    if _host_process_is_running():
         log.warning("[TRAY] App appears to be running but window focus failed, skipping duplicate launch")
         return
 
-    # Electron launch path removed. The Tauri host manages its own
-    # window lifecycle; the backend only publishes show_window events.
-    log.info("[TRAY] No live transport and focus failed; cannot launch frontend from backend (Electron removed)")
+    # The host manages its own window lifecycle; this backend only
+    # publishes show_window events.
+    log.info("[TRAY] No live transport and focus failed; cannot launch a frontend from the backend")
 
 
 def open_page(path: str) -> None:
@@ -324,9 +324,9 @@ def open_page(path: str) -> None:
 
     (): generalization of :func:`open_models_page` so any
         in-app route can be opened from the tray menu (Settings / History /
-        Help). Does NOT open the Electron window itself, callers that need
+        Help). Does NOT open the app window itself, callers that need
         the window open (e.g. :func:`open_models_page`) call
-        :func:`open_electron_window` first, then :func:`open_page`.
+        :func:`open_app_window` first, then :func:`open_page`.
 
     extracted from ``TrayIcon._open_page`` as a
         pure module-level function (no instance state needed, just
@@ -345,10 +345,10 @@ def open_page(path: str) -> None:
 
 
 def open_models_page(tray: "TrayIcon") -> None:
-    """Open the Electron window and navigate to the Models page.
+    """Open the app window and navigate to the Models page.
 
         Called from the tray menu's "More models..." item. Opens/focuses
-        the Electron window (same as :func:`open_electron_window`) and then
+        the app window (same as :func:`open_app_window`) and then
         delegates to :func:`open_page` with ``'/models'`` so the renderer
         navigates to the Models page instead of staying on whatever page
         was last open.
@@ -364,7 +364,7 @@ def open_models_page(tray: "TrayIcon") -> None:
             tray: The ``TrayIcon`` instance (used to access the
                 ``_open_page`` delegate).
     """
-    open_electron_window()
+    open_app_window()
     tray._open_page("/models")
 
 

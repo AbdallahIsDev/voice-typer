@@ -4,7 +4,7 @@
 
 **Scope**: Linux X11 + Wayland, both `x86_64-unknown-linux-gnu` and `aarch64-unknown-linux-gnu`. Cross-arch (aarch64) packages can be built on an x86_64 host using `python-build-standalone` + `qemu-user-static`, but the smoke tests MUST run on the matching arch.
 
-**Reversibility**: Electron remains the shippable Linux fallback until ALL 9 points pass on BOTH X11 AND Wayland. Per ADR-0020 §"Reversibility", reverting one platform does NOT revert the others, Linux Tauri cutover is independent of Windows / macOS.
+**Reversibility**: predecessor remains the shippable Linux fallback until ALL 9 points pass on BOTH X11 AND Wayland. Per ADR-0020 §"Reversibility", reverting one platform does NOT revert the others, Linux Tauri cutover is independent of Windows / macOS.
 
 ---
 
@@ -39,7 +39,7 @@
 | §6 Install + smoke test on Wayland | Step 6 | "Step 6: Install + smoke test on Wayland" |
 | §7 9-point validation gate | Steps 5–14 (each gate point maps to a Step) + "9-Point Validation Gate Summary" | see summary table at end |
 | §8 Linux unsigned packaging (.deb + .AppImage, reuse scripts/linux/postinst/prerm) | Step 13 + "Linux unsigned packaging" section | "Step 13, `.deb` and `.AppImage` build with the existing `postinst`/`prerm` scripts" + "Linux unsigned packaging (ADR-0020 §13.3)" |
-| §9 Rollback to Electron | "Rollback" section | "Rollback" |
+| §9 Rollback to predecessor | "Rollback" section | "Rollback" |
 | §10 Capturing results | "Capture results" section | "Capture results" |
 
 Bonus operational steps not in the spec §0–§10 list (but referenced by the spec's "Validation steps for new Rust commands" requirement):
@@ -550,7 +550,7 @@ kill $FIRST_PID 2>/dev/null || true
 
 **VALIDATE ON LINUX DISPLAY HOST (run on BOTH X11 and Wayland sessions).**
 
-ADR-0020 §16 + MIG-1.1/1.2 added these new Tauri commands that did NOT exist in the Electron IPC layer. Each must be smoke-tested on Linux because the Tauri host's `tauri-plugin-dialog` save dialog and the bubble window's `tauri::WebviewWindow` API behave differently from their Electron equivalents.
+ADR-0020 §16 + MIG-1.1/1.2 added these new Tauri commands that did NOT exist in the predecessor IPC layer. Each must be smoke-tested on Linux because the Tauri host's `tauri-plugin-dialog` save dialog and the bubble window's `tauri::WebviewWindow` API behave differently from their predecessor equivalents.
 
 ### 15.1 `export_history` (MIG-1.1)
 
@@ -644,7 +644,7 @@ The 9 mandatory checks (per ADR-0020 §"Phase 0 validation gate", Phase 0-L). **
 | 8 | Native `linux-key-listener` toggles dictation on X11 (XRecord) + Wayland (libinput/evdev) | Step 12 | F8 starts/stops recording on BOTH session types; `ps aux \| grep linux-key-listener` shows the process |
 | 9 | Single-instance (lockfile at `<config_dir>/.single-instance.lock`): second launch focuses first, no zombie sidecar | Step 14 | Second instance exits within 2s; `ps aux \| grep python-sidecar \| wc -l` returns `1` after second launch |
 
-**All 9 must pass on BOTH X11 AND Wayland before the Linux Tauri cutover.** Electron remains the fallback until all 9 pass on both session types.
+**All 9 must pass on BOTH X11 AND Wayland before the Linux Tauri cutover.** predecessor remains the fallback until all 9 pass on both session types.
 
 **Bonus checks** (recommended but not blocking for Phase 0-L):
 - `.deb` + `.rpm` build with `postinst`/`prerm` scripts (Step 13).
@@ -675,7 +675,7 @@ ADR-0020 §4.1 mandates both `x86_64-unknown-linux-gnu` AND `aarch64-unknown-lin
 
 ## Linux unsigned packaging (ADR-0020 §13.3)
 
-Linux packages are unsigned by default in both Electron (today) and Tauri. The `scripts/linux/postinst`, `prerm`, `postinst.rpm`, `prerm.rpm` scripts are reused verbatim: they install the udev rule, add the user to the `input` group, configure Caps Lock neutralization, and write a manifest at `/var/lib/voice-typer/permissions-manifest.json`.
+Linux packages are unsigned by default in both predecessor (today) and Tauri. The `scripts/linux/postinst`, `prerm`, `postinst.rpm`, `prerm.rpm` scripts are reused verbatim: they install the udev rule, add the user to the `input` group, configure Caps Lock neutralization, and write a manifest at `/var/lib/voice-typer/permissions-manifest.json`.
 
 **Wire into Tauri's `bundle.linux` config** (in `src-tauri/tauri.conf.json`):
 
@@ -706,7 +706,7 @@ Linux packages are unsigned by default in both Electron (today) and Tauri. The `
 
 ## Rollback
 
-If any of the 9 checks fail and you need to revert to the Electron build on Linux:
+If any of the 9 checks fail and you need to revert to the predecessor build on Linux:
 
 1. `sudo apt-get remove -y voice-typer` (removes the Tauri `.deb`).
 2. Remove the systemd user timer (the prerm should have done this, but verify):
@@ -720,9 +720,9 @@ If any of the 9 checks fail and you need to revert to the Electron build on Linu
    sudo rm -f /etc/udev/rules.d/99-voice-typer.rules
    sudo udevadm control --reload-rules
    ```
-4. Install the Electron `.deb`/`.AppImage` from the previous release. The user's data at `~/.local/share/voice-typer/` (config, models, history) is preserved. The Tauri build writes to the same `_paths.config_dir()` location per ADR-0020 §8.
+4. Install the predecessor `.deb`/`.AppImage` from the previous release. The user's data at `~/.local/share/voice-typer/` (config, models, history) is preserved. The Tauri build writes to the same `_paths.config_dir()` location per ADR-0020 §8.
 
-No data loss on revert. The Electron app picks up the same config + models + history DB.
+No data loss on revert. The predecessor app picks up the same config + models + history DB.
 
 ---
 
@@ -741,4 +741,4 @@ After running the runbook, capture the following artifacts for the migration rec
 9. `dpkg-deb -e` + `dpkg-deb -c` output for the `.deb` (proves the postinst/prerm scripts + udev rule are in the package).
 10. The `cargo tauri build` stdout (proves the Rust host compiled + bundled successfully).
 
-File these in `docs/migration/phase-0-l-results.md` (create if missing) for the migration decision record. Electron remains the shippable fallback until all 9 checks pass on both X11 and Wayland, on both x86_64 and aarch64.
+File these in `docs/migration/phase-0-l-results.md` (create if missing) for the migration decision record. predecessor remains the shippable fallback until all 9 checks pass on both X11 and Wayland, on both x86_64 and aarch64.

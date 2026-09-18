@@ -308,14 +308,11 @@ def user_data_dir() -> Path:
 
         The Linux uninstaller's ``--purge`` flag
         (``scripts/linux/uninstall_permissions.py --purge``) and the
-        Windows NSIS installer's ``deleteAppDataOnUninstall: true`` option
-        (``voice_typer/client/electron-builder.yml``) both delete this
-        directory on uninstall. The deletion is OPT-IN on Linux (the
-        ``--purge`` flag is off by default so users who reinstall keep
-        their models); on Windows it's opt-OUT (NSIS's
-        ``deleteAppDataOnUninstall`` is on by default per the
-        electron-builder docs, but the user is prompted to confirm during
-        uninstall).
+        Windows NSIS uninstaller both delete this directory on uninstall.
+        The deletion is OPT-IN on Linux (the ``--purge`` flag is off by
+        default so users who reinstall keep their models); on Windows it's
+        opt-OUT (the NSIS uninstall flow removes the app-data directory,
+        but the user is prompted to confirm during uninstall).
 
         Semantically equivalent to :func:`config_dir` (both return
         ``_config_dir()``); the alias exists so uninstallers / factory-

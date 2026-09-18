@@ -1,16 +1,16 @@
 //! Launch-timeline epoch markers for the Python sidecar's startup log.
 //!
-//! Host-parity with the Electron main process (ADR-0020 migration
+//! Host-parity with the predecessor main process (ADR-0020 migration
 //! follow-up): the sidecar's `voice_typer/server/startup_timeline.py`
 //! derives the one-line "[STARTUP] Launch timeline: …" attribution
 //! from two environment markers stamped by the host that spawned it:
 //!
 //! - [`BOOT_EPOCH_ENV`]: epoch milliseconds at host process start
-//!   (Electron sets it at main-bundle eval; the Tauri host records it
+//!   (predecessor sets it at main-bundle eval; the Tauri host records it
 //!   as the first statement of `main`).
 //! - [`SPAWN_EPOCH_ENV`]: epoch milliseconds immediately before the
 //!   Python sidecar process is spawned (fresh on EVERY spawn,
-//!   including supervisor respawns: mirrors Electron's
+//!   including supervisor respawns: mirrors the predecessor's
 //!   `start-python.ts`, which re-stamps it per spawn).
 //!
 //! The Python side treats absent markers as "skip the line"

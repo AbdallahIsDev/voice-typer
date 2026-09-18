@@ -239,7 +239,7 @@ class TestNormalModeRunsAllHelpers:
         ctrl = ShutdownController.__new__(ShutdownController)
         ctrl._app = fake_app
         ctrl._quit_lock = threading.Lock()
-        ctrl._electron_pid_lock = threading.Lock()
+        ctrl._host_pid_lock = threading.Lock()
         ctrl._recorder_teardown_done = threading.Event()
         ctrl._recorder_force_closed = False
         # Spy on all helpers.
@@ -257,7 +257,7 @@ class TestNormalModeRunsAllHelpers:
             "_teardown_restore_volume",
             "_teardown_waveform_wiring",
             "_teardown_devnull_files",
-            "_teardown_electron",
+            "_teardown_host_child",
             "_teardown_event_bus",
         ]:
             setattr(ctrl, name, MagicMock())
@@ -274,7 +274,7 @@ class TestNormalModeRunsAllHelpers:
         ctrl._teardown_devnull_files.assert_called_once()
         ctrl._teardown_level_monitor.assert_called_once()
         ctrl._teardown_hotkeys.assert_called_once()
-        ctrl._teardown_electron.assert_called_once()
+        ctrl._teardown_host_child.assert_called_once()
         ctrl._teardown_event_bus.assert_called_once()
 
         # Sequenced phase helpers MUST have been called.

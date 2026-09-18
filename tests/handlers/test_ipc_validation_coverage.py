@@ -41,7 +41,7 @@ The remaining 50+ handlers either (a) already had
 domain-specific validator that is MORE rigorous than
 ``_validate_dict_payload`` (``set_config`` via
 ``validate_config_update``; ``save_vocabulary`` via the inline
-1 MiB / 1024-char caps; ``show_electron_notification`` via the
+1 MiB / 1024-char caps; ``show_notification`` via the
 4-field per-type check; ``apply_vocabulary_suggestion`` /
 ``dismiss_vocabulary_suggestion`` via the
 ``original`` + ``corrected`` string check), or (c) are no-field poll
@@ -427,7 +427,7 @@ class TestToggleDictationValidation:
 
         This preserves the contract that ``{"id": 1, "type":
         "toggle_dictation"}`` (no ``data`` key) returns ``ack`` —
-        every existing Electron caller and test that omits ``data``
+        every existing predecessor caller and test that omits ``data``
         depends on this.
         """
         resp = ipc_server._handle_toggle_dictation(None, {})
@@ -462,7 +462,7 @@ class TestToggleDictationValidation:
 # ``Bearer ...``, 20+ char bare tokens) from both ``str(exc)`` and
 # the formatted traceback BEFORE they land in the log.
 #
-# - **DE-42**: ``system_handlers: _handle_show_electron_notification``
+# - **DE-42**: ``system_handlers: _handle_show_notification``
 # enforces ``max_value_len`` on ``title`` / ``message`` but performs
 # no control-character sanitization. The fix rejects any char in the
 # Unicode ``Cc`` / ``Cf`` categories except ``\\t`` (ANSI escapes,
@@ -671,7 +671,7 @@ class TestScrubTraceback:
 
 
 # ────────────────────────────────────────────────────────────────────────────
-# control-char rejection in _handle_show_electron_notification
+# control-char rejection in _handle_show_notification
 # ────────────────────────────────────────────────────────────────────────────
 
 
@@ -680,7 +680,7 @@ class TestControlCharRejection:
 
     def test_ansi_escape_in_title_is_rejected(self, ipc_server):
         """An ANSI color escape (``\\x1b[31m``) in ``title`` → invalid_field."""
-        resp = ipc_server._handle_show_electron_notification(
+        resp = ipc_server._handle_show_notification(
             {"title": "\x1b[31mRed Title\x1b[0m", "message": "ok"},
             {},
         )
@@ -690,7 +690,7 @@ class TestControlCharRejection:
 
     def test_newline_in_title_is_rejected(self, ipc_server):
         """A newline (``\\n``) in ``title`` → invalid_field."""
-        resp = ipc_server._handle_show_electron_notification(
+        resp = ipc_server._handle_show_notification(
             {"title": "line1\nline2", "message": "ok"},
             {},
         )
@@ -700,7 +700,7 @@ class TestControlCharRejection:
 
     def test_terminal_bell_in_message_is_rejected(self, ipc_server):
         """A terminal bell (``\\x07``) in ``message`` → invalid_field."""
-        resp = ipc_server._handle_show_electron_notification(
+        resp = ipc_server._handle_show_notification(
             {"title": "ok", "message": "beep\x07beep"},
             {},
         )
@@ -716,7 +716,7 @@ class TestControlCharRejection:
         " until deletion"`` may render as "noitaced un..." backwards).
         The Cf category catches this.
         """
-        resp = ipc_server._handle_show_electron_notification(
+        resp = ipc_server._handle_show_notification(
             {"title": "alert\u202eevah", "message": "ok"},
             {},
         )
@@ -726,7 +726,7 @@ class TestControlCharRejection:
 
     def test_zero_width_joiner_in_message_is_rejected(self, ipc_server):
         """A ZWJ (``\\u200d``) in ``message`` → invalid_field (Cf category)."""
-        resp = ipc_server._handle_show_electron_notification(
+        resp = ipc_server._handle_show_notification(
             {"title": "ok", "message": "a\u200db"},
             {},
         )
@@ -736,7 +736,7 @@ class TestControlCharRejection:
 
     def test_bom_in_title_is_rejected(self, ipc_server):
         """A Byte Order Mark (``\\ufeff``) in ``title`` → invalid_field."""
-        resp = ipc_server._handle_show_electron_notification(
+        resp = ipc_server._handle_show_notification(
             {"title": "\ufeffHello", "message": "ok"},
             {},
         )
@@ -757,7 +757,7 @@ class TestControlCharRejection:
         sub = captured.append
         event_bus.subscribe(sub)
         try:
-            resp = ipc_server._handle_show_electron_notification(
+            resp = ipc_server._handle_show_notification(
                 {"title": "ok", "message": "col1\tcol2"},
                 {},
             )
@@ -774,7 +774,7 @@ class TestControlCharRejection:
         sub = captured.append
         event_bus.subscribe(sub)
         try:
-            resp = ipc_server._handle_show_electron_notification(
+            resp = ipc_server._handle_show_notification(
                 {"title": "Hello World", "message": "Just a normal message."},
                 {},
             )

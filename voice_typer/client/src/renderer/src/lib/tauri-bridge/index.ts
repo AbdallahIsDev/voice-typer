@@ -40,46 +40,46 @@
 //     an IPC command to the Python sidecar. On Tauri this routes
 //     through `invoke('dispatch', {cmd: type, data})`; the Rust host
 //     forwards it over WS to the sidecar and returns `response.data`.
-//     On Electron this routes through `ipcRenderer.invoke('python-call')`;
+//     On predecessor this routes through `ipcRenderer.invoke('python-call')`;
 //     the main process forwards it over TCP and resolves with `msg.data`.
 //     Both paths reject on `type:"error"` envelopes (Rust at main.rs:515,
-//     Electron at index.ts:428).
+//     predecessor at index.ts:428).
 //   • `window.python.onEvent(callback) → () => void`, subscribes to
 //     all server-initiated events. On Tauri this listens to the
 //     `python-event` Tauri event (emitted by main.rs:455 with
-//     `{type, data}` envelope). On Electron this listens to the
+//     `{type, data}` envelope). On predecessor this listens to the
 //     `python-event` IPC channel.
 //   • `window.bubble.onLevel(callback)`, bubble audio level stream.
 //     On Tauri this listens to the `bubble_level` Tauri event (coalesced
-//     to ≤30 Hz by main.rs:427-442). On Electron this listens to the
+//     to ≤30 Hz by main.rs:427-442). On predecessor this listens to the
 //     `bubble:level` IPC channel.
 //   • `window.window_.minimize/maximize/close/isMaximized`, window
-//     controls. On Tauri these use the core window API. On Electron
+//     controls. On Tauri these use the core window API. On predecessor
 //     these route through `ipcRenderer.invoke`.
 //
 //The error-envelope guard in `usePython.ts` is
-// Electron-path-only in practice:
-//   - The `_error` field check catches Electron's not-connected /
+// predecessor-path-only in practice:
+//   - The `_error` field check catches the predecessor's not-connected /
 //     send-exception envelopes (`{_error: "..."}` from index.ts:1908/
 //     1911/1916). The Tauri Rust host never produces `{_error:...}`.
 //   - The `type:"error"` check catches the Python server's unhandled-
 //     dispatch envelope (`{type:"error", data:{code, message}}` from
-//     ipc_server.py:1044-1050), which the Electron main process passes
+//     ipc_server.py:1044-1050), which the predecessor main process passes
 //     through verbatim. On Tauri the Rust `dispatch` command
 //     (main.rs:954-965) rejects the `invoke` promise on `type:"error"`
 //     BEFORE the resolved value reaches JS, so this branch is dead
 //     code on Tauri (errors surface via promise rejection instead).
 //   - Both paths return `data` directly on success, Tauri unwraps
-//     `response.data` in Rust; Electron unwraps `msg.data` at
+//     `response.data` in Rust; predecessor unwraps `msg.data` at
 //     `handle-message.ts:68` before resolving. `usePython` returns
-//     `result as T` after the (Electron-only) error-envelope checks
+//     `result as T` after the (predecessor-only) error-envelope checks
 //     pass, so the success shape is consistent across runtimes.
 //
 // The previous "works on both paths" framing was false: on Tauri BOTH
 // in-code checks are unreachable (the `await api.call(...)` throws
 // first). They remain in the source because the same `usePython.ts`
 // bundle ships under both hosts, they're harmless no-ops on Tauri and
-// load-bearing on Electron.
+// load-bearing on predecessor.
 
 import { createBubbleNamespace } from "./bubble-namespace";
 import { getTauri, isTauri } from "./detect";
@@ -91,7 +91,7 @@ import { createWindowNamespace } from "./window-namespace";
  * Tauri's global API. Idempotent, safe to call multiple times.
  *
  * This is the Phase 3 UI port (ADR-0020 §6.3): the React renderer code
- * (including `usePython.ts`) is unchanged on both Electron and Tauri
+ * (including `usePython.ts`) is unchanged on both predecessor and Tauri
  * paths because the bridge namespaces have identical shapes.
  *
  * Public API: preserved verbatim from the pre-split monolith. Callers
@@ -103,7 +103,7 @@ import { createWindowNamespace } from "./window-namespace";
  */
 export function installTauriBridge(): void {
 	if (!isTauri()) {
-		// Electron path, preload already installed the namespaces.
+		// predecessor path, preload already installed the namespaces.
 		return;
 	}
 	if (window.python && window.bubble && window.window_) {
@@ -129,7 +129,7 @@ export function installTauriBridge(): void {
 		tauriWindow.label === "bubble" ? "bubble" : "main";
 
 	// SEC-026 (Tauri parity with preload/bubble.ts): the BUBBLE window is
-	// a sandboxed renderer, Electron's preload never exposed
+	// a sandboxed renderer, the predecessor's preload never exposed
 	// `window.python` / `window.window_` to it, and the Rust host's
 	// window-guard rejects any `dispatch` from a non-main window anyway.
 	// Installing the python namespace here made the bubble fire guaranteed

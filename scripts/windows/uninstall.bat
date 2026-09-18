@@ -22,7 +22,7 @@ REM   - Legacy pre-rename names (VoiceTyperAutostart<hash>,
 REM     VoiceTyperPrewarm) from installs that predate the com.voicetyper.*
 REM     namespace rename.
 REM
-REM Wiring (Tauri-only, Electron host removed 2026-09-17):
+REM Wiring (Tauri-only, previous host removed 2026-09-17):
 REM   src-tauri/tauri.conf.json -> bundle.windows.nsis.installerHooks
 REM   points at scripts/windows/tauri-installer-hooks.nsh which
 REM   `!include`s uninstaller.nsh. Tauri v2's NSIS installerHooks are
@@ -31,7 +31,7 @@ REM   `!include` a batch file (makensis aborts with "Invalid command:
 REM   @echo"). The .nsh performs the native sweep directly, so this .bat
 REM   is NOT part of the live Tauri uninstall path. It remains for
 REM   manual/belt-and-suspenders cleanup and historical installer docs.
-REM   Do NOT reintroduce electron-builder.yml nsis.include wiring.
+REM   Do NOT reintroduce legacy builder nsis.include wiring.
 REM
 REM Python-first strategy: try the Python script first (preferred - it
 REM shares parsing/logging with the production autostart_windows.py). If

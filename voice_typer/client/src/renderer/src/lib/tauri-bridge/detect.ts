@@ -10,7 +10,7 @@
 //      (see tauri.conf.json). We deliberately avoid pulling in
 //      `@tauri-apps/api` as a dep to keep the renderer bundle lean.
 //   2. `isTauri()`, single source of truth for "are we inside a Tauri
-//      WebView?". Returns false under Electron (where the preload script
+//      WebView?". Returns false under predecessor (where the preload script
 //      already installed the three namespaces via `contextBridge`).
 //   3. `makeListener()`, race-safe subscribe/unlisten factory that
 //      eliminates the 8× listener boilerplate previously duplicated across
@@ -60,10 +60,10 @@ export interface TauriGlobal {
 /**
  * Returns true if the renderer is running inside a Tauri WebView
  * (`window.__TAURI__` is present with `core.invoke`). When false, the
- * Electron preload has already installed the bridge namespaces.
+ * predecessor preload has already installed the bridge namespaces.
  *
  * Defensive against partial / future Tauri globals that lack the invoke
- * method, those are treated as Electron (no-op), not crashed on. This
+ * method, those are treated as predecessor (no-op), not crashed on. This
  * is the contract asserted by `tauri-bridge-detection.test.ts:196`.
  */
 export function isTauri(): boolean {
@@ -128,7 +128,7 @@ export function makeListener<T>(
 	// promise rejection. Without this catch the rejection would
 	// bubble up as a "Tauri error" in the renderer console with
 	// no contextualising prefix; with it, the failure is tagged
-	// with the bridge identity so the Electron main-process log
+	// with the bridge identity so the predecessor main-process log
 	// (forwarded via ``webContents.on("console-message")``)
 	// surfaces a clear diagnostic. The cancellation logic in the
 	// ``.then`` block is unaffected: a rejected subscribe never

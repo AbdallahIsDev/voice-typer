@@ -3,7 +3,7 @@
 The Tauri spawn paths (``_spawn_tauri_host`` and the Tauri branch of
 ``_focus_running_app``) previously called ``subprocess.Popen([binary],
 env=env)`` with NO platform-specific spawn flags.  Contrast with the
-Electron spawn paths (``_launch_electron_built`` and the Electron
+legacy spawn paths (the retired built-host launcher and the legacy
 branch of ``_focus_running_app``) which both call
 ``sk.update(_spawn_flags(hidden=hidden))`` and pass ``**sk`` to Popen.
 
@@ -11,17 +11,17 @@ This left two gaps:
 
 * **Windows**: the Tauri binary could flash a console window during
   autostart-at-login (the user is logging in, not clicking a shortcut,
-  so a flashing console is jarring).  The Electron path prevents this
+  so a flashing console is jarring).  The predecessor path prevents this
   via ``CREATE_NO_WINDOW`` (``0x08000000``) when ``hidden=True``.
 * **POSIX**: the Tauri child was spawned in the launcher's session /
   process group, so if the launcher was a session leader (typical under
   systemd user units or cron-launched sessions), the child would receive
   ``SIGHUP`` when the launcher exited, killing the Tauri app the
-  launcher just spawned.  The Electron path avoids this via
+  launcher just spawned.  The predecessor path avoids this via
   ``start_new_session=True``.
 
 These tests pin the contract that both Tauri spawn paths now mirror the
-Electron paths by calling ``_spawn_flags(hidden=...)`` and passing the
+predecessor paths by calling ``_spawn_flags(hidden=...)`` and passing the
 result to :class:`subprocess.Popen`.
 
 They also pin the clean-log env contract: both spawn paths pass
@@ -114,14 +114,14 @@ class TestSpawnTauriHostSpawnFlags:
         assert captured.get("creationflags") == 0x08000000
         # start_new_session is POSIX-only, must NOT be set on Windows.
         assert "start_new_session" not in captured
-        # stdout/stderr redirection is present (mirror of _electron_log_files).
+        # stdout/stderr redirection is present (mirror of the legacy log-files helper).
         assert "stdout" in captured
         assert "stderr" in captured
 
     def test_windows_not_hidden_omits_creationflags(self, monkeypatch, _stub_tauri_log_files):
         """On Windows with ``hidden=False`` (e.g. desktop shortcut),
         no ``creationflags`` is set, the Tauri binary gets normal
-        process creation (matches the Electron ``hidden=False`` path
+        process creation (matches the predecessor ``hidden=False`` path
         which leaves creation flags unset so the child can create its
         own console if needed)."""
         monkeypatch.setattr(sys, "platform", "win32")
@@ -206,12 +206,12 @@ class TestSpawnTauriHostSpawnFlags:
         # Rust host must NOT duplicate its rotating-file stream into
         # tauri-stderr.log (the file is for crash/early diagnostics).
         assert captured_env.get("RUST_LOG_STDERR") == "0"
-        # npm banner notices suppressed (mirror of the Electron env).
+        # npm banner notices suppressed (mirror of the predecessor env).
         assert captured_env.get("npm_config_loglevel") == "silent"
 
     def test_spawn_failure_returns_none_and_closes_logs(self, monkeypatch, _stub_tauri_log_files):
         """A spawn failure is logged, log files are closed, and ``None``
-        is returned, mirrors the Electron spawn-failure contract."""
+        is returned, mirrors the predecessor spawn-failure contract."""
         monkeypatch.setattr(sys, "platform", "linux")
 
         def boom(cmd, env=None, **kwargs):
@@ -235,7 +235,7 @@ class TestFocusRunningAppTauriSpawnFlags:
     def test_windows_focus_probe_passes_no_creationflags(self, monkeypatch, _stub_tauri_log_files):
         """On Windows, the Tauri focus probe runs with ``hidden=False``
         (the user clicked a shortcut and expects to see the focused
-        window), so no ``creationflags`` is set, matches the Electron
+        window), so no ``creationflags`` is set, matches the predecessor
         focus path."""
         monkeypatch.setattr(sys, "platform", "win32")
         monkeypatch.setattr("voice_typer.server.autostart_launcher._is_tauri_mode", lambda: True)
@@ -357,7 +357,7 @@ class TestFocusRunningAppTauriSpawnFlags:
 class TestTauriLogFilesHelper:
     """``_tauri_log_files()`` returns a dict with stdout/stderr/stdin
     keys suitable for unpacking into Popen, mirroring
-    ``_electron_log_files()``."""
+    the legacy log-files helper."""
 
     def test_returns_devnull_on_failure(self, monkeypatch, tmp_path):
         """When the config dir is unwritable, ``_tauri_log_files``

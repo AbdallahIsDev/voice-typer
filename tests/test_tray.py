@@ -2,13 +2,13 @@
 
 Phase 2: Minimal right-click menu:
 - Start Dictation (hotkey)
-- Open App (Electron)
+- Open App (the predecessor)
 - Models
 - Restart
 - Quit
 
-Left-click "Open App" launches the Electron app (or focuses it if already running).
-All settings, history, templates, etc. live in the Electron window only.
+Left-click "Open App" launches the predecessor app (or focuses it if already running).
+All settings, history, templates, etc. live in the predecessor window only.
 """
 
 import sys
@@ -270,12 +270,12 @@ class TestTrayMenuHasMinimalOptions:
         )
 
     def test_no_advanced_submenu(self, tray):
-        """Advanced settings are in Electron app, not tray menu."""
+        """Advanced settings are in predecessor app, not tray menu."""
         labels = _menu_labels(tray)
         assert "Advanced" not in labels
 
     def test_no_hotkey_submenu(self, tray):
-        """Hotkey config is in Electron app, not tray menu."""
+        """Hotkey config is in predecessor app, not tray menu."""
         labels = _menu_labels(tray)
         assert "Hotkey" not in labels
 
@@ -505,7 +505,7 @@ class TestDrainPending:
     1. Logs each notification at WARNING level (Python rotating file
        logger is always available, separate process from pystray).
     2. Publishes a ``tray_fallback_notification`` event via the event
-       bus so the Electron renderer can surface it as a toast.
+       bus so the predecessor renderer can surface it as a toast.
     3. Clears the queue (notification preserved via logs + Tauri
        channel, cannot be lost).
     4. Wraps the publish in ``contextlib.suppress(Exception)`` so a
@@ -1433,7 +1433,7 @@ class TestNotificationTruncation:
 #
 # 1. **tray_notifications.on_parakeet_cpu_fallback** must call
 # ``tray._publish_tray_state()`` after ``_apply_state`` so the
-# Tauri/Electron renderer's tray indicator picks up the
+# Tauri/predecessor renderer's tray indicator picks up the
 # "(CPU fallback)" tooltip suffix immediately. Pre-fix, only the
 # pystray Icon got the suffix (via ``_apply_state``); the Tauri
 # host stayed stale until the next ``_on_elapsed_tick`` (1 s later)

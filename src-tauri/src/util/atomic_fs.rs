@@ -15,7 +15,7 @@ use std::path::Path;
 
 /// Write `contents` to `path` atomically (temp + fsync + rename).
 ///
-/// Originally implemented in `migrate.rs` for the Electron→Tauri
+/// Originally implemented in `migrate.rs` for the predecessor→Tauri
 //config migration; promoted from `fn` to `pub(crate) fn` in
 /// so the supervisor (`supervisor.rs::write_restart_counter`) could reuse
 /// it for atomic persistence of the restart counter. Previously the
@@ -26,7 +26,7 @@ use std::path::Path;
 /// bypassing the circuit breaker on the next launch.
 ///
 /// Moved here because it is a generic fs-write helper that has nothing
-/// to do with Electron migration; two non-migration callers
+/// to do with predecessor migration; two non-migration callers
 /// (`sidecar/supervisor.rs`, `commands/export.rs`) import it from
 /// `crate::util` instead of `crate::migrate`.
 pub(crate) fn atomic_write_bytes(path: &Path, contents: &[u8]) -> Result<(), String> {
@@ -117,7 +117,7 @@ pub(crate) fn atomic_write_bytes(path: &Path, contents: &[u8]) -> Result<(), Str
 // these two helpers previously lived in `migrate.rs` next to
 //the (now-removed) `atomic_write_bytes` impl.  already moved
 // `atomic_write_bytes` here because it's a generic fs-write helper
-// with no coupling to Electron-migration logic; the same reasoning
+// with no coupling to predecessor-migration logic; the same reasoning
 // applies to `atomic_copy` / `atomic_copy_file`, they're generic
 // fs-copy helpers. Co-locating all three atomic-fs helpers in
 // `util.rs` lets the `migrate.rs` callers reach them via a single

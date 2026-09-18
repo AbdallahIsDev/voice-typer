@@ -318,7 +318,7 @@ class AppProtocol(Protocol):
         ...
 
     def restart_app(self) -> None:
-        """Restart the application (signals Electron to relaunch)."""
+        """Restart the application (signals predecessor to relaunch)."""
         ...
 
     def quit_app(self) -> None:
@@ -326,8 +326,8 @@ class AppProtocol(Protocol):
 
         Called by :meth:`ServiceProtocol.quit`.  Distinguished from
         :meth:`quit` below: ``quit_app`` pushes a ``quit_app`` IPC
-        event to Electron first, while ``quit`` skips that (used by
-        the heartbeat watchdog when Electron is already dead).
+        event to predecessor first, while ``quit`` skips that (used by
+        the heartbeat watchdog when predecessor is already dead).
         """
         ...
 
@@ -335,10 +335,10 @@ class AppProtocol(Protocol):
         """Run the audited cleanup path and exit.
 
         Called directly by the heartbeat watchdog in
-        ``ipc_server.py:_check_heartbeat_timeout`` when Electron has
+        ``ipc_server.py:_check_heartbeat_timeout`` when predecessor has
         stopped sending heartbeats.  ``quit_app`` delegates here
-        after notifying Electron; the watchdog skips the notification
-        because Electron is already gone.
+        after notifying predecessor; the watchdog skips the notification
+        because predecessor is already gone.
         """
         ...
 

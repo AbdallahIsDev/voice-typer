@@ -18,7 +18,7 @@ hide path. These tests verify:
 
 XA-6-1 / XA-6-13 (Bubble Stop / Retry button) are TypeScript / React
 changes validated via `tsc --noEmit` (no Python test needed).
-XA-6-4 / XA-6-5 / XA-6-20 are Electron main-process TypeScript
+XA-6-4 / XA-6-5 / XA-6-20 are predecessor main-process TypeScript
 changes validated via `tsc --noEmit`.
 """
 

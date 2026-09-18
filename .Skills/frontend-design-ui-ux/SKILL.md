@@ -140,7 +140,7 @@ re-implement its components."* The building is delegated to the agent; this skil
 | Criteria | Target Agent |
 |----------|-------------|
 | Server-side rendering / SEO / App Router / Server Actions | `nextjs-senior-engineer` |
-| Pure SPA / client-only / CLI web UI / Electron-Tauri | `react-vite-tailwind-engineer` |
+| Pure SPA / client-only / CLI web UI / Tauri | `react-vite-tailwind-engineer` |
 | Static site with no SSR | Either (ask user) |
 | Unclear | Ask user |
 

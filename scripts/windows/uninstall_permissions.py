@@ -79,10 +79,10 @@ VALIDATE ON WINDOWS HOST:
   4. Verify both autostart entries exist:
        reg query HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run | findstr com.voicetyper
        schtasks /query /tn "com.voicetyper.autostart*" /v /fo LIST
-  5. Uninstall via "Add or remove programs" (the NSIS uninstaller
-     includes ``uninstaller.nsh`` via Tauri
-     ``bundle.windows.nsis.installerHooks`` /
-     ``tauri-installer-hooks.nsh``; electron-builder.yml is gone).
+   5. Uninstall via "Add or remove programs" (the NSIS uninstaller
+      includes ``uninstaller.nsh`` via Tauri
+      ``bundle.windows.nsis.installerHooks`` /
+      ``tauri-installer-hooks.nsh``; the legacy builder config is gone).
   6. Verify both autostart entries are gone:
        reg query HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run | findstr com.voicetyper
          (Expected: no matches; pre-rename VoiceTyper* entries also gone)
@@ -154,7 +154,7 @@ def _purge_user_data() -> None:
         "logs",  # rotating log files
         "db",  # history DB + sidecars + backups (O2 split)
         "run",  # transient runtime state: pids, locks, session markers (O3 split)
-        "electron-profile",  # LEGACY Chromium profile from pre-cutover Electron installs
+        "legacy-profile",  # LEGACY Chromium profile directory (inert)
         "history.db",  # legacy SQLite history DB (pre-O2)
         "history.db-wal",  # legacy SQLite WAL
         "history.db-shm",  # legacy SQLite SHM

@@ -255,7 +255,7 @@ class TestTeardownAsrModelsDynamic:
 
         fake_app = _FakeApp()
         # ``ShutdownController.__init__`` reads attributes off ``app``
-        # (e.g. ``app._electron_pid_lock``), use ``__new__`` to bypass
+        # (e.g. ``app._host_pid_lock``), use ``__new__`` to bypass
         # ``__init__`` and set just the attributes the helper needs.
         ctrl = ShutdownController.__new__(ShutdownController)
         ctrl._app = fake_app

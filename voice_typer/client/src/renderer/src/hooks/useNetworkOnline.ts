@@ -18,7 +18,7 @@
 //     Rust surface (no extra `tauri-plugin-network` dependency in
 //     `src-tauri/`).
 //   - The `online` / `offline` browser events are stable, well-
-//     documented, and fire on both Electron (Chromium) and Tauri v2
+//     documented, and fire on both predecessor (Chromium) and Tauri v2
 //     (WebView2 / WKWebView), no platform-specific code needed.
 //   - The renderer already has the `call` IPC bridge (via
 //     `usePython()`); re-using it avoids a second transport.
@@ -65,8 +65,8 @@
 // Like `useOfflinePackDownload`, this hook depends only on `usePython` (which
 // goes through the module-level dispatcher that subscribes to
 // `window.python.onEvent`). The `window.python` namespace is installed
-// by EITHER the Electron preload script OR the Tauri bridge auto-
-// installer at module-load time. We do NOT touch Tauri or Electron
+// by EITHER the predecessor preload script OR the Tauri bridge auto-
+// installer at module-load time. We do NOT touch Tauri or predecessor
 // APIs directly.
 
 import { useCallback, useEffect, useRef, useState } from "react";

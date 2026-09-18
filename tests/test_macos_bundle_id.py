@@ -2,7 +2,7 @@
 
 The Accessibility re-grant notification in ``startup_tasks.py`` must
 show ``tccutil reset Accessibility <bundle-id>`` with the REAL bundle
-ID of the currently-running host app (Electron or Tauri), never a
+ID of the currently-running host app (predecessor or Tauri), never a
 hardcoded value. The resolver walks the parent-process chain from the
 Python backend up to the nearest ``*.app`` bundle and reads
 ``CFBundleIdentifier`` from its ``Contents/Info.plist``.

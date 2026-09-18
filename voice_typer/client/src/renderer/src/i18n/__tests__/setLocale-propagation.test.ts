@@ -10,7 +10,7 @@
  *     `t()` stops falling back to English after a runtime locale
  *     switch (previously the import was only triggered at module init
  *     for the restored/detected locale).
- *   - : pushes the locale to the Electron main process via
+ *   - : pushes the locale to the predecessor main process via
  *     `window.window_.setLocale(locale)` (the re-added `i18n:set-locale`
  *     IPC) so native dialogs (file pickers, error boxes, single-instance
  *     message) render in the user's selected language.
@@ -158,7 +158,7 @@ describe("NH-2: setLocale kicks off ensureLocaleLoaded for non-English locales",
 	});
 });
 
-describe("NH-3: setLocale pushes the locale to the Electron main process", () => {
+describe("NH-3: setLocale pushes the locale to the host", () => {
 	let windowBridge: WindowBridgeMock;
 
 	beforeEach(() => {

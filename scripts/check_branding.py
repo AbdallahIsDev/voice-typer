@@ -88,7 +88,7 @@ RUST_BRANDING_FILE = Path("src-tauri/src/branding.rs")
 # "Voice Typer" string in its productName/title field: see
 # BUILD_CONFIG_FILES + the _is_build_config_literal allowlist below for
 # the documented "build-config literal" exception to C-BRAND-1.
-# (electron-builder.yml was deleted with the Electron host 2026-09-17;
+# (the legacy builder config was deleted with the predecessor host 2026-09-17;
 # do not reintroduce it as a scan target.)
 SCAN_DIRS = [
     "voice_typer/server",
@@ -176,7 +176,7 @@ _TEST_FILE_SUFFIXES = (".test.ts", ".test.tsx", ".spec.ts", ".spec.tsx")
 # identifier fields, comments) is still flagged. Adding a new build-
 # config file to this allowlist requires updating the audit trail in
 # worklog.md citing the field that legitimately needs the literal.
-# (electron-builder.yml was deleted with the Electron host 2026-09-17.)
+# (the legacy builder config was deleted with the predecessor host 2026-09-17.)
 BUILD_CONFIG_FILES = frozenset(
     {
         "src-tauri/tauri.conf.json",

@@ -60,7 +60,7 @@ describe("SHORTCUTS catalog, single source of truth", () => {
 	it("dismissBubble.keys is sourced from the shared cross-process constant", async () => {
 		// The dismiss-bubble binding is defined ONCE in
 		// `src/shared/dismiss-shortcut.ts`, the accelerator form is
-		// consumed by the Electron main process
+		// consumed by the predecessor main process
 		// (`main/shortcuts/global-shortcuts.ts`), the display form by
 		// this catalog. Pinning the equality here (plus the main-side
 		// runtime pin in `global-shortcuts.test.ts` and the source

@@ -7,7 +7,7 @@ use super::should_hide_to_tray;
 fn main_window_hides_to_tray_when_not_shutting_down() {
     assert!(
         should_hide_to_tray("main", false, true),
-        "main window X click with no shutdown in flight and a tray present must hide to tray (Electron parity)"
+        "main window X click with no shutdown in flight and a tray present must hide to tray (legacy parity)"
     );
 }
 
@@ -16,7 +16,7 @@ fn main_window_does_not_hide_when_no_tray() {
     assert!(
         !should_hide_to_tray("main", false, false),
         "main window close must flow through to app exit when no tray exists (Linux Wayland without SNI: \
-         hiding would strand the user; Electron's isLinuxWaylandWithoutSni() guard)"
+         hiding would strand the user; legacy isLinuxWaylandWithoutSni() guard)"
     );
 }
 

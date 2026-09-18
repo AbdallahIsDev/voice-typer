@@ -2,14 +2,14 @@
 # ``voice_typer/server/ipc_server.py`` god-module (Phase 4.5 split).
 """Per-connection rate limiter (RELIABILITY-006 + ).
 
-A crash-looping or buggy Electron client can flood the IPC socket with
+A crash-looping or buggy predecessor client can flood the IPC socket with
 thousands of malformed messages per second, exhausting file descriptors
 and starving the tray thread.  :class:`_RateLimiter` is a sliding-window
 per-connection limiter: each connection gets a bounded number of
 messages per window.  Over-budget messages are dropped (with an error
 response) rather than dispatched.
 
-The limits are intentionally generous, a well-behaved Electron client
+The limits are intentionally generous, a well-behaved predecessor client
 sends maybe 1-5 msg/s.
 
 RELIABILITY-006-: ``burst`` (200) is the hard per-second cap; a
@@ -39,7 +39,7 @@ budgets.  This is deliberate and MUST NOT be removed without a
 redesign that proves heartbeat liveness under flood:
 
 * The heartbeat is the only keep-alive that prevents the Python
-  backend from outliving a crashed/force-killed Electron host (the
+  backend from outliving a crashed/force-killed predecessor host (the
   ``_heartbeat_loop`` daemon calls ``app.quit()`` after
   ``_HEARTBEAT_TIMEOUT_SECONDS`` of missed heartbeats).  If a
   compromised or buggy renderer floods cheap commands at ≥200 msg/s,
@@ -187,7 +187,7 @@ COMMAND_COSTS: dict[str, int] = {
 }
 DEFAULT_COST = 1
 
-# write timeout for TCP sendall.  A stalled Electron
+# write timeout for TCP sendall.  A stalled predecessor
 # renderer (e.g. GC pause, dev-tools inspection, or a busy main thread)
 # can stop draining its TCP receive buffer.  Without a timeout, sendall
 # blocks indefinitely, holding the IPC lock (pre-) or
@@ -198,16 +198,16 @@ DEFAULT_COST = 1
 # next reconnect.
 _TCP_WRITE_TIMEOUT_SECONDS = 2.0
 
-# Electron-alive heartbeat ─────────────────────────────────────
+# predecessor-alive heartbeat ─────────────────────────────────────
 #
-# If Electron crashes or is force-killed, the Python backend keeps
+# If predecessor crashes or is force-killed, the Python backend keeps
 # running with the mic stream open, hotkeys registered, volume ducked,
 # and the single-instance mutex held.  The next launch hits
 # ``ERROR_ALREADY_EXISTS`` and surfaces "Only one instance can run",
 # forcing the user to manually kill ``python.exe``.
 #
 # The heartbeat mechanism works as follows:
-#   1. Electron connects via TCP and starts sending ``heartbeat`` IPC
+#   1. predecessor connects via TCP and starts sending ``heartbeat`` IPC
 #      commands every 5 seconds (see ``client/src/main/index.ts``).
 #   2. The ``_handle_heartbeat`` handler updates
 #      ``self._last_heartbeat_at = time.monotonic()``.
@@ -219,7 +219,7 @@ _TCP_WRITE_TIMEOUT_SECONDS = 2.0
 #      mutex, closes PortAudio).
 #
 # The watchdog only fires AFTER the first heartbeat has been received,
-# so the backend doesn't exit prematurely during a slow Electron cold
+# so the backend doesn't exit prematurely during a slow predecessor cold
 # start (10+ seconds for the torch import + window creation).  The
 # cold-start tolerance is provided by the ``_last_heartbeat_at is None``
 # guard in ``_check_heartbeat_timeout``: NOT by the timeout value
@@ -228,14 +228,14 @@ _TCP_WRITE_TIMEOUT_SECONDS = 2.0
 # The timeout was 120.0s (24 missed heartbeats), which is 4× the
 # Rust-side equivalent (``src-tauri/src/sidecar/ws.rs``: 10s interval,
 # 15s response timeout, 3 consecutive misses → 30-45s before supervisor
-# respawn).  A crashed Electron left the Python backend running with
+# respawn).  A crashed predecessor left the Python backend running with
 # the mic stream open, hotkeys registered, volume ducked, and the
 # single-instance mutex held for the full 120s before cleanup fired.
 # Reduced to 45s (9 missed heartbeats), 3× the Rust-side 15s response
 # timeout, giving a wide safety margin against transient GC pauses or
 # main-thread stalls in the renderer while no longer leaving a crashed
-# Electron's resources held for 2 full minutes.  The watchdog only
-# fires after the first heartbeat, so slow Electron cold starts (which
+# the predecessor's resources held for 2 full minutes.  The watchdog only
+# fires after the first heartbeat, so slow predecessor cold starts (which
 # never send a heartbeat before the timeout would fire) are still
 # safe.
 # bumped from 5.0s to 15.0s to reduce idle CPU wakeups on laptops

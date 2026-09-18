@@ -19,7 +19,7 @@
 import type { TauriGlobal } from "@/lib/tauri-bridge";
 import type { PythonBridge, WindowBridge } from "./bridge";
 
-// ── Bubble bridge API (exposed by Electron preload for the bubble overlay) ─
+// ── Bubble bridge API (exposed by predecessor preload for the bubble overlay) ─
 //
 // The ``WindowBubble`` interface was split into three
 // composable types so the main renderer's `window.bubble` (typed as
@@ -47,7 +47,7 @@ import type { PythonBridge, WindowBridge } from "./bridge";
 // ``hideComplete`` was moved from the main-renderer subset to
 // ``BubbleWindowExtras``, only the bubble renderer's exit-animation
 // handler should invoke it, and exposing it on the main renderer was
-// a leaky abstraction (no main-renderer caller exists). The Electron
+// a leaky abstraction (no main-renderer caller exists). The predecessor
 // preload's exposure of `hideComplete` on main was removed in the same
 // fix.
 //
@@ -68,8 +68,8 @@ import type { PythonBridge, WindowBridge } from "./bridge";
  * "hide-complete" because the main renderer doesn't own the bubble's
  * exit-animation lifecycle.
  *
- * All fields are optional because the Electron preload exposes them
- * conditionally (some are Tauri-only and don't exist under Electron).
+ * All fields are optional because the predecessor preload exposes them
+ * conditionally (some are Tauri-only and don't exist under predecessor).
  * The Tauri bridge in `tauri-bridge/bubble-namespace.ts` always
  * installs them on both windows.
  */
@@ -78,7 +78,7 @@ export interface MainRendererBubbleMutators {
 	//narrow the shared TS type from `string` to the
 	// `"top" | "bottom"` literal union so the type system catches a
 	// typo'd `setPosition("left")` at compile time across the
-	// renderer + Tauri bridge (the Electron preload
+	// renderer + Tauri bridge (the predecessor preload
 	// `_bubble-channels.ts:101` already narrowed this; the shared
 	// type now matches). The Rust `bubble_set_position` command keeps
 	// `String` at the boundary (defense-in-depth, it validates the
@@ -89,7 +89,7 @@ export interface MainRendererBubbleMutators {
 	// drifted from the impl, which made positional-call mistakes
 	// (e.g. `setPosition(undefined, "bottom")`) invisible to the
 	// type system. Renaming the type param aligns the contract with
-	// the impl and with the Electron preload's
+	// the impl and with the predecessor preload's
 	// `setPosition(position: "top" | "bottom")` signature.
 	setPosition?: (position: "top" | "bottom") => void;
 	setDraggable?: (v: boolean) => void;
@@ -126,7 +126,7 @@ export interface BubbleEventSubscriptions {
 	onDraggable: (cb: (draggable: boolean) => void) => () => void;
 	// Locale-change push (main → bubble). The main process forwards the
 	// user's UI locale when it changes (`notifyBubbleLocaleChanged` in
-	// windows/bubble/lifecycle.ts under Electron; the `bubble:config`
+	// windows/bubble/lifecycle.ts under predecessor; the `bubble:config`
 	// push carries `locale` under Tauri). Payload is the bare locale
 	// code ("en" / "ar" / …) so the bubble can flip `dir`/`lang` and
 	// re-render without a reload.
@@ -137,7 +137,7 @@ export interface BubbleEventSubscriptions {
  * Mutator methods exposed ONLY by the bubble window's
  * preload (`preload/bubble.ts`). The main renderer's preload does NOT
  * expose these, they're the bubble-window-only extensions that mirror
- * the Electron preload's split.
+ * the predecessor preload's split.
  *
  * - `onSetState` / `resizeTo` / `toggleDictation` / `onConfig` were
  *   already bubble-only in the prior `BubbleWindowBubble` type
@@ -170,7 +170,7 @@ export interface BubbleWindowExtras {
 	// (always_visible mode only, the dismiss button is hidden in
 	// show_on_record mode). The bubble preload's `dismiss()` method
 	// sends the `bubble:dismiss` IPC; the main-process handler (in
-	// bubble-handlers.ts under Electron) routes to
+	// bubble-handlers.ts under predecessor) routes to
 	// `hideBubbleWindow()`. Under Tauri, the `bubble_dismiss` Rust
 	// command (mirror of `bubble_hide_complete`) emits `bubble:hide`
 	// then hides the window unconditionally; gated by
@@ -178,7 +178,7 @@ export interface BubbleWindowExtras {
 	//
 	//Non-optional (): the Tauri bridge now implements
 	// `dismiss` via `invoke("bubble_dismiss")` in
-	// `bubble-namespace.ts`, and the Electron preload has always
+	// `bubble-namespace.ts`, and the predecessor preload has always
 	// exposed it. The prior optional-typing (`dismiss?: () => void`)
 	// was a workaround for the missing Tauri command, the
 	// dismiss-button click handler in `Bubble.tsx` tolerated the
@@ -196,7 +196,7 @@ export interface BubbleWindowExtras {
  * subscriptions) + `BubbleWindowExtras` (bubble-only mutators).
  *
  * All fields from `MainRendererBubbleMutators` remain optional (the
- * Electron preload may not install all of them under all configs).
+ * predecessor preload may not install all of them under all configs).
  * Fields from `BubbleEventSubscriptions` and `BubbleWindowExtras` are
  * required (the bubble renderer's components rely on them).
  */
@@ -209,14 +209,14 @@ export type BubbleWindowBubble = MainRendererBubbleMutators &
 //     (mutators only, no event subscriptions, no bubble-only extras)
 //   - Bubble window (``Bubble.tsx``): ``bubble?: BubbleWindowBubble`` (cast)
 //
-// `python` and `window_` are exposed by the Electron preload
+// `python` and `window_` are exposed by the predecessor preload
 // (`preload/index.ts`) and the Tauri bridge installer
 // (`tauri-bridge/python-namespace.ts` / `tauri-bridge/window-namespace.ts`).
 // They're optional because some test harnesses and SSR-like render
 // paths construct `window` without the preload having run.
 // `__TAURI__` is the global API surface injected by `tauri::Builder`
 // when `app.withGlobalTauri = true` (see tauri.conf.json). It is absent
-// under Electron, where the preload script installs the `python` /
+// under predecessor, where the preload script installs the `python` /
 // `bubble` / `window_` namespaces via `contextBridge` instead. Declaring
 // it here (rather than re-casting `window as unknown as { __TAURI__?: ... }`
 // at every call site, previously duplicated in detect.ts) gives the

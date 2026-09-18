@@ -37,21 +37,21 @@ pub(crate) const APP_SLUG: &str = "voice-typer";
 /// dead param was flagged by and is now removed; all 3 callers
 /// (`main.rs`, `system_cmds.rs`, `migrate.rs`) updated.
 ///
-/// # No Electron userData merge under Tauri
+/// # No predecessor userData merge under Tauri
 ///
 /// ADR-0020 §8 mentions an optional one-time migration from the old
-/// Electron `userData/voice-typer` directory to `<config_dir>` on
-/// first Tauri launch. Under Tauri there is **no Electron main
+/// predecessor `userData/voice-typer` directory to `<config_dir>` on
+/// first Tauri launch. Under Tauri there is **no predecessor main
 /// process**, so the `userData/voice-typer` dir is created only by the
-/// PRIOR Electron install on the user's machine, IF one exists. The
-/// migration step IS implemented (see `crate::migrate::migrate_electron_userdata`)
+/// PRIOR predecessor install on the user's machine, IF one exists. The
+/// migration step IS implemented (see `crate::migrate::migrate_legacy_userdata`)
 /// and runs from `main.rs::setup` BEFORE the sidecar spawns. It probes
-/// the three legacy Electron `userData` names (`voice-typer-desktop`,
+/// the three legacy predecessor `userData` names (`voice-typer-desktop`,
 /// `voice-typer`, `Voice Typer`) under the platform's `userData` base,
 /// picks the first that exists, and merges per ADR-0020 §8 rules:
 /// newest-mtime-wins for `config.json`, append-only for `history.db`,
 /// copy-only-absent for `models/`. The merge is idempotent and guarded
-/// by a `.migrated-from-electron` sentinel file so it only runs once.
+/// by a `.migrated-from-legacy` sentinel file so it only runs once.
 /// the prior doc here said "migration is a no-op and is
 /// intentionally NOT implemented here": that was stale; the
 /// migration IS implemented in `migrate.rs` and has been running since
@@ -60,7 +60,7 @@ pub(crate) const APP_SLUG: &str = "voice-typer";
 /// # Python-side `VoiceTyperSingleInstance` Win32 mutex
 ///
 /// The Python side's `VoiceTyperSingleInstance` Win32 named mutex
-/// (acquired in `app.py` on Windows to prevent duplicate Electron
+/// (acquired in `app.py` on Windows to prevent duplicate predecessor
 /// instances) is **disabled when `TAURI_SIDECAR=1` is set**, the
 /// Python sidecar detects the env var and skips the mutex acquire so
 /// it doesn't double-lock against the Tauri-side
@@ -100,10 +100,10 @@ fn config_dir_cached() -> &'static std::path::Path {
         // On Windows read USERPROFILE first, then fall back to HOME.
         // The legacy `~/.voice-typer` migration check inside
         // `config_dir_from_env` uses `home` to probe for a leftover
-        // `%USERPROFILE%\.voice-typer` dir from prior Electron
+        // `%USERPROFILE%\.voice-typer` dir from prior predecessor
         // installs: if we only read `HOME` (which is usually unset
         // on Windows), the legacy check silently no-ops on Windows
-        // and users upgrading from the Electron app lose their
+        // and users upgrading from the predecessor app lose their
         // config / history (split-brain: Tauri writes to the platform
         // default while the Python sidecar reads from `~/.voice-typer`).
         // Mirrors the Python side's `_config_dir()` order which uses
@@ -229,7 +229,7 @@ pub(crate) fn config_dir_from_env(
     }
 
     // legacy ~/.voice-typer check. Python's _config_dir() and
-    // Electron's computeConfigDir() both check this first; the Tauri
+    // the predecessor's computeConfigDir() both check this first; the Tauri
     // host must do the same so the host and Python sidecar agree on
     // the config dir for users upgrading from a legacy install.
     // Without this check, Tauri writes log files / single-instance

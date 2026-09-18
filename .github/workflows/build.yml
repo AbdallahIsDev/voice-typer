@@ -61,14 +61,14 @@ permissions:
 
 jobs:
   # ──────────────────────────────────────────────────────────────────────
-  # ELECTRON PACKAGING RETIRED (2026-09-17 cutover, ADR-0020 Phase 5).
+  # LEGACY PACKAGING RETIRED (2026-09-17 cutover, ADR-0020 Phase 5).
   # The former build-windows / build-macos / build-linux / build-macos-universal
-  # jobs (PyInstaller + electron-builder NSIS / DMG / deb / rpm / AppImage) are
+  # jobs (PyInstaller + legacy-builder NSIS / DMG / deb / rpm / AppImage) are
   # REMOVED. Installer production now lives exclusively in tauri-build.yml and
   # the per-platform tauri-*-build.yml workflows. This workflow keeps the
   # quality gates (test, client typecheck/lint/build, version/branding/drift,
   # native-listener compile, pre-commit, audit).
-  # C-CI-2: this delta is Electron-retirement-only; no nuitka pin, timeout,
+  # C-CI-2: this delta is cutover-retirement-only; no nuitka pin, timeout,
   # matrix, CLCACHE, signing gate, or Tauri artifact name was touched.
   # ──────────────────────────────────────────────────────────────────────
   test:
@@ -689,7 +689,7 @@ jobs:
   # Product-namespace drift check: the repo-wide reverse-DNS guard
   # (tests/test_product_namespace_consistency.py) scans every tracked
   # text file for non-`com.voicetyper.*` product namespaces (legacy
-  # pre-Tauri Electron polkit artifacts, wrong spellings, misspelled
+  # pre-Tauri polkit artifacts, wrong spellings, misspelled
   # roots). Runs as its own fast job (mirroring icons-drift) so a
   # stray legacy / misspelled namespace dies in ~1 min instead of only
   # surfacing at the end of the full test suite. The guard is ALSO part
@@ -955,7 +955,7 @@ jobs:
   # Tauri installer workflows (tauri-*-build.yml) can download them and
   # bundle them into the sidecar/installer resources.
   #
-  # Electron packaging jobs (build-windows / build-macos / build-linux /
+  # Legacy packaging jobs (build-windows / build-macos / build-linux /
   # build-macos-universal) were REMOVED at the 2026-09-17 Tauri cutover.
   # The two macOS legs still pass `--arch x86_64` / `--arch arm64`
   # explicitly so `compile_native.sh` invokes `swiftc -target

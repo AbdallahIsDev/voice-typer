@@ -7,7 +7,7 @@ single-instance subsystem's Tauri-mode gating:
   ``os.kill(pid, 0)`` / Windows ``OpenProcess``).
 - :func:`_backend_pid_file`: the ``<config_dir>/run/backend.pid`` path
   (belt-and-suspenders companion to the single-instance mutex on the
-  Electron path; the authoritative "is a backend running?" source for
+  predecessor path; the authoritative "is a backend running?" source for
   the autostart launcher on every runtime).
 - :func:`_clear_backend_pid_file`: best-effort removal on shutdown
   (teardowns, the shutdown watchdog, and atexit).
@@ -39,7 +39,7 @@ log = logging.getLogger(__name__)
 def _backend_pid_file() -> Path:
     """Return the path to the backend PID file (``<config_dir>/run/backend.pid``).
 
-    Written after the single-instance mutex is acquired (Electron path)
+    Written after the single-instance mutex is acquired (predecessor path)
     or after the backend binds its IPC port, removed by
     :func:`_clear_backend_pid_file` during shutdown. Used as a
     belt-and-suspenders check: on Windows the named mutex is the

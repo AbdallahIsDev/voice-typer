@@ -2,9 +2,9 @@
 
 ``voice_typer.server._paths.IPC_TOKEN_ENV_VAR`` is the single source of
 truth for the env-var name that carries the per-launch session token
-from the host (Electron / Tauri) to the Python sidecar. Prior to WN-12
+from the host (predecessor / Tauri) to the Python sidecar. Prior to WN-12
 the bare literal ``"VOICE_TYPER_IPC_TOKEN"`` was duplicated across 7+
-files (``electron_launcher.py``, ``env_validation.py``,
+files (``the predecessor launcher.py``, ``env_validation.py``,
 ``ipc/entrypoint.py``, ``ipc/transport_tcp.py``, ``sidecar_ws.py``,
 plus docstrings / comments / test docs). A typo in any of those would
 silently break IPC auth, the host sets X, the sidecar reads Y, every
@@ -38,14 +38,14 @@ from voice_typer.server._paths import IPC_TOKEN_ENV_VAR
 def test_ipc_token_env_var_constant_is_canonical() -> None:
     """The canonical constant must match the historical literal exactly.
 
-    Renaming the env var is a breaking change (Electron main + Tauri
+    Renaming the env var is a breaking change (predecessor main + Tauri
     Rust host + every test in the suite would need a coordinated
     update). Keep the value stable; coordinate any future rename via
     a deprecation shim across the host and sidecar.
     """
     assert IPC_TOKEN_ENV_VAR == "VOICE_TYPER_IPC_TOKEN", (
         f"IPC_TOKEN_ENV_VAR changed to {IPC_TOKEN_ENV_VAR!r}, this is a "
-        f"breaking change requiring coordinated Electron + Tauri host + "
+        f"breaking change requiring coordinated predecessor + Tauri host + "
         f"sidecar updates. Revert or add the migration shim."
     )
 

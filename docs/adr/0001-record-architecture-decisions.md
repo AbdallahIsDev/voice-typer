@@ -13,7 +13,7 @@ repeated discussions and potential reverts of intentional choices.
 
 Voice Typer is a cross-platform desktop application combining a Python backend
 (speech recognition, model management, clipboard control) with an
-Electron/React frontend. The architecture has evolved through multiple rounds
+predecessor/React frontend. The architecture has evolved through multiple rounds
 of forensic review and remediation, making it especially important to document
 why certain patterns were chosen.
 

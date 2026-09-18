@@ -68,7 +68,7 @@ export default defineConfig(({ command }) => ({
 		outDir: path.resolve(__dirname, "out/renderer"),
 		emptyOutDir: true,
 		// Multi-page: the bubble window loads bubble.html from the
-		// same dist. Mirrors the former electron.vite.renderer.ts inputs.
+		// same dist. Mirrors the former the predecessor renderer Vite config inputs.
 		rollupOptions: {
 			input: {
 				index: path.resolve(__dirname, "src/renderer/index.html"),

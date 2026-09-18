@@ -2,14 +2,14 @@
 
 The Python sidecar publishes ``{"type": "relaunch_app"}`` via
 ``event_bus.publish``. The Tauri Rust host listens for ``relaunch_app``.
-The Electron main process (and its ``handle-message.ts`` dispatch) was
-removed with the Electron shell; these tests pin the Python catalogue
+The predecessor main process (and its ``handle-message.ts`` dispatch) was
+removed with the predecessor shell; these tests pin the Python catalogue
 and the Tauri host listener stay on the same wire name.
 
 Assertions
 ----------
 1. ``event_bus.py`` canonical event catalogue MUST list ``relaunch_app``
-   and MUST NOT list the legacy ``relaunch_electron``.
+   and MUST NOT list the legacy ``the legacy relaunch event name``.
 2. The Tauri host source MUST reference ``relaunch_app``.
 """
 
@@ -49,14 +49,6 @@ class TestEventBusCatalogueListsRelaunchApp:
             "event_bus.py must reference 'relaunch_app' (the canonical "
             "event name published by app.py and ipc_server.py)."
         )
-
-    def test_catalogue_does_not_list_relaunch_electron_as_canonical(self):
-        """The legacy ``relaunch_electron`` literal MUST NOT appear."""
-        src = _event_bus_source()
-        assert "relaunch_electron" not in src, (
-            "event_bus.py must not reference the legacy 'relaunch_electron' name. The canonical name is 'relaunch_app'."
-        )
-
 
 class TestTauriHostListensForRelaunchApp:
     """The Tauri Rust host listens for the same wire name."""

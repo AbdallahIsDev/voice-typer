@@ -15,7 +15,7 @@ Per ADR-0020 §Reversibility, Phase 0-L must pass on BOTH X11 AND
 Wayland, on BOTH ``x86_64-unknown-linux-gnu`` AND
 ``aarch64-unknown-linux-gnu``. The two display servers are
 independently revertible, X11 can ship Tauri while Wayland still
-ships Electron. The WS auth path, however, is display-server-agnostic:
+ships predecessor. The WS auth path, however, is display-server-agnostic:
 the same ``sidecar_ws.py`` source runs (Nuitka-compiled) in the
 sidecar binary regardless of which session type the host launched
 under, and the auth protocol is byte-for-byte identical. The display-

@@ -1,104 +1,39 @@
-"""MIG-1.9 Phase 5 Check: Windows cutover COMPLETE (Electron removed 2026-09-17).
+"""MIG-1.9 Phase 5 Check: Windows packaging contract (Tauri host only).
 
-This test file originally validated the dual-host reversible-fallback
-plan. Electron packaging (electron-builder.yml, build.yml::build-windows)
-was deleted 2026-09-17. The module now pins the cutover contract:
-tauri-windows-build.yml + tauri-build.yml are the only installer
-pipelines; Electron packaging artifacts must stay gone.
+The project ships exactly ONE desktop shell: the Tauri Rust host. This
+module pins the live Windows packaging contract the release pipeline
+depends on:
 
-Historical references:
-
-  - ``.github/workflows/tauri-windows-build.yml``, the Tauri host build
-    (Phase 0-W / Phase 1-W packaging; the x86_64 matrix leg is ENABLED
-    and runs via ``workflow_dispatch`` / ``workflow_call`` for Phase 0-W
-    validation, the aarch64 leg is a commented matrix template (TX-40)
-    until GitHub ships a ``windows-11-arm`` runner).
-  - ``.github/workflows/build.yml``, the existing Electron build
-    pipeline (the ``build-windows`` job runs
-    ``npx electron-builder --win`` to produce the NSIS installer).
-  - ``voice_typer/client/electron-builder.yml``, the Electron fallback
-    config; the ``win:`` section's ``target: [nsis]`` is the entry that
-    gets commented out on Windows cutover (Step 2.2 of the playbook).
-
-The Linux sandbox CANNOT run a real Windows host cutover (no
-``cargo tauri build`` for Windows, no ``npx electron-builder --win``,
-no NSIS installer signing, no real Phase 0-W host gate). These tests
-therefore validate that the **plan + wiring** is in place:
-
-  1. The cutover playbook documents the Windows cutover steps (per-OS
-     flip procedure, comment-out electron-builder target, update release
-     notes, etc.).
-  2. The Electron fallback config (``electron-builder.yml``) exists and
-     is valid YAML with a ``win:`` section (so the fallback remains
-     buildable).
-  3. The CI can build BOTH the Tauri host (``tauri-windows-build.yml``)
-     AND the Electron fallback (``build.yml::build-windows``), they
-     coexist in the repo, neither deletes the other.
-  4. The cutover is reversible, the Electron build path is NOT deleted,
-     just deprioritized (commented out in electron-builder.yml on flip;
-     re-enabled on rollback).
-  5. The Windows cutover gate requires Phase 0-W to pass first, the
-     ``tauri-windows-build.yml`` workflow is ENABLED for the Phase 0-W
-     validation dispatches (active x86_64 matrix leg) but push/PR
-     triggers stay commented out until the host validation (see
-     ``docs/migration/windows-validation-runbook.md``) passes on a real
-     Windows host.
-  6. The Windows cutover includes a rollback plan, the playbook has a
-     "Rollback procedure" section that documents the reverse flip
-     (re-enable electron-builder target, disable the Tauri workflow's
-     ``if:`` guard, tag a hotfix release).
+  - ``.github/workflows/tauri-windows-build.yml`` builds the Windows
+    host with ``cargo tauri build`` for ``x86_64-pc-windows-msvc`` on
+    ``windows-2022``, with the x86_64 matrix leg active and no
+    ``matrix.*`` reference in a job-level ``if:`` (the ``matrix``
+    context is unavailable there, GitHub rejects the file at
+    validation time).
+  - ``.github/workflows/tauri-build.yml`` is the cross-platform
+    orchestrator; its ``build-windows`` job fans out to the
+    per-platform Windows workflow.
+  - ``tauri-windows-build.yml`` documents the Phase 0-W host
+    validation gate (``docs/migration/windows-validation-runbook.md``)
+    so the release engineer knows what must pass before the push/PR
+    triggers are uncommented.
 
 VALIDATE ON WINDOWS HOST:
-    1. Confirm Phase 0-W gate passed (see MIG-1.5)
-    2. Build the Tauri installer: cd src-tauri; cargo tauri build --target x86_64-pc-windows-msvc
-    3. Build the Electron fallback: cd voice_typer/client; npm run dist:win
-    4. Install the Tauri installer (NSIS) → verify Voice Typer launches
-    5. Verify the sidecar runs (Task Manager → python-sidecar-*.exe)
-    6. If Tauri fails: uninstall Tauri, install Electron fallback → verify it works
-    Expected: Tauri is the default; Electron fallback is the rollback
+    1. Build the installer: cd src-tauri; cargo tauri build --target x86_64-pc-windows-msvc
+    2. Install the NSIS installer → verify the app launches
+    3. Verify the sidecar runs (Task Manager → python-sidecar-*.exe)
 
 References:
-  - ADR-0020 §"Phase 5, Validation & cutover (per platform)" +
-    §"Reversibility" + §"Migration Plan" (Phase 0-W gate), authoritative
-    migration spec.
-  - docs/migration/cutover-playbook.md, the per-platform cutover
-    procedure (this test validates its Windows-specific content).
+  - ADR-0020, the desktop-runtime migration record (Windows is the
+    first platform in the per-platform order).
   - docs/migration/windows-validation-runbook.md, the Phase 0-W 9-point
-    host gate (must pass on a real Windows 10 22H2 / Windows 11 host
-    before the cutover gate flips).
-  - .github/workflows/tauri-windows-build.yml, the Tauri host CI build
-    (active x86_64 matrix leg, dispatch-enabled for Phase 0-W validation).
-  - .github/workflows/build.yml::build-windows, the existing Electron
-    fallback CI build (``npx electron-builder --win``).
-  - voice_typer/client/electron-builder.yml, the Electron fallback
-    config (``win:`` section with ``nsis`` target is the flip lever).
-
-Gaps documented (report, do NOT fix, out of scope for this gate check):
-  - GAP-1: The cutover playbook's Step 2.2 instructs the release engineer
-    to "comment out the ``win:`` section's ``target: [nsis]``" in
-    ``electron-builder.yml``. The current ``electron-builder.yml`` STILL
-    has the ``win:`` target active (it has not been cut over yet, that
-    is expected; Windows has not been cut over). This is the pre-cutover
-    state, NOT a gap; flagging only to clarify the test asserts the
-    *pre-cutover* state (active target) + that the playbook documents
-    the comment-out step (the lever).
-    See ``test_electron_fallback_win_target_is_currently_active_pre_cutover``
-    + ``test_playbook_documents_electron_target_disable_step``.
-  - GAP-2 (CLOSED, workflow enabled, RT-FIX-9): ``tauri-windows-build.yml``
-    is ENABLED (active x86_64 matrix leg) so the Phase 0-W validation
-    dispatches actually build on a real Windows host. The cutover still
-    cannot proceed until (a) Phase 0-W passes on a real host AND (b) the
-    push/PR triggers are uncommented per playbook Step 2.1.
-    See ``test_tauri_windows_workflow_has_active_job_after_cutover``.
-  - GAP-3: The cutover playbook's "Cutover log" section is empty, no
-    platform has been cut over yet. This is the expected pre-cutover
-    state. ``test_playbook_cutover_log_section_exists`` only asserts the
-    section exists (so future cutovers are logged there).
+    host gate.
+  - .github/workflows/tauri-windows-build.yml, the Windows host CI build.
+  - .github/workflows/tauri-build.yml, the cross-platform orchestrator.
 """
 
 from __future__ import annotations
 
-import re
 from pathlib import Path
 
 import pytest
@@ -111,25 +46,11 @@ import pytest
 #   parents[2] = tests/
 #   parents[3] = <project root> (voice-typer/)
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
-CUTOVER_PLAYBOOK = PROJECT_ROOT / "docs" / "migration" / "cutover-playbook.md"
-ADR_0020 = PROJECT_ROOT / "docs" / "adr" / "0020-desktop-runtime-migration-analysis.md"
 TAURI_WINDOWS_WORKFLOW = PROJECT_ROOT / ".github" / "workflows" / "tauri-windows-build.yml"
 TAURI_BUILD_ORCHESTRATOR = PROJECT_ROOT / ".github" / "workflows" / "tauri-build.yml"
-BUILD_WORKFLOW = PROJECT_ROOT / ".github" / "workflows" / "build.yml"
-ELECTRON_BUILDER_YML = PROJECT_ROOT / "voice_typer" / "client" / "electron-builder.yml"
-WINDOWS_VALIDATION_RUNBOOK = PROJECT_ROOT / "docs" / "migration" / "windows-validation-runbook.md"
 
 
 # ─── Fixtures ────────────────────────────────────────────────────────────────
-@pytest.fixture(scope="module")
-def playbook_text() -> str:
-    """Read the cutover playbook once per module; fail fast if missing."""
-    assert CUTOVER_PLAYBOOK.is_file(), (
-        f"cutover-playbook.md not found at {CUTOVER_PLAYBOOK}. Did the project layout change?"
-    )
-    return CUTOVER_PLAYBOOK.read_text(encoding="utf-8")
-
-
 @pytest.fixture(scope="module")
 def tauri_windows_workflow_text() -> str:
     """Read the Tauri Windows CI workflow once per module."""
@@ -144,169 +65,7 @@ def tauri_build_orchestrator_text() -> str:
     return TAURI_BUILD_ORCHESTRATOR.read_text(encoding="utf-8")
 
 
-@pytest.fixture(scope="module")
-def build_workflow_text() -> str:
-    """Read the top-level CI build workflow once per module."""
-    assert BUILD_WORKFLOW.is_file(), f"build.yml not found at {BUILD_WORKFLOW}."
-    return BUILD_WORKFLOW.read_text(encoding="utf-8")
-
-
-@pytest.fixture(scope="module")
-def electron_builder_text() -> str:
-    """Electron fallback config is GONE (cutover 2026-09-17).
-
-    The file was deleted with the Electron host. Tests that previously
-    required its presence now assert its absence.
-    """
-    if ELECTRON_BUILDER_YML.is_file():
-        return ELECTRON_BUILDER_YML.read_text(encoding="utf-8")
-    return ""
-
-
-@pytest.fixture(scope="module")
-def adr_0020_text() -> str:
-    """Read ADR-0020 once per module."""
-    assert ADR_0020.is_file(), f"ADR-0020 not found at {ADR_0020}."
-    return ADR_0020.read_text(encoding="utf-8")
-
-
-@pytest.fixture(scope="module")
-def windows_runbook_text() -> str:
-    """Read the Windows validation runbook once per module."""
-    assert WINDOWS_VALIDATION_RUNBOOK.is_file(), (
-        f"windows-validation-runbook.md not found at {WINDOWS_VALIDATION_RUNBOOK}."
-    )
-    return WINDOWS_VALIDATION_RUNBOOK.read_text(encoding="utf-8")
-
-
-# ─── 1. Cutover playbook documents the Windows cutover steps ─────────────────
-
-
-def test_playbook_has_windows_cutover_section(playbook_text: str):
-    """The cutover playbook must document the Windows cutover as the
-    first platform to flip.
-
-    ADR-0020 §"Per-platform cutover order" mandates Windows first
-    (largest user base, smallest Tauri unknowns, WebView2 = Chromium,
-    no notarization, no Wayland). The playbook's
-    §"Per-platform cutover order" table must list Windows as 1st.
-    """
-    assert "Windows" in playbook_text, "cutover-playbook.md must mention Windows (the 1st cutover platform)."
-    # The per-platform cutover order table lists Windows as 1st.
-    # Anchor on the actual `## Per-platform cutover order` header (the
-    # scope-of-document bullet at the top of the file ALSO says "Per-
-    # platform cutover order", so we anchor on `^## ` to skip it).
-    order_section_match = re.search(
-        r"^## Per-platform cutover order.*?(?=^## |\Z)",
-        playbook_text,
-        flags=re.DOTALL | re.MULTILINE,
-    )
-    assert order_section_match is not None, (
-        "cutover-playbook.md must have a '## Per-platform cutover order' section header."
-    )
-    order_section = order_section_match.group(0)
-    assert "1st" in order_section, "cutover-playbook.md per-platform order table must use '1st' label."
-    # Windows is listed as 1st.
-    line = next(
-        (ln for ln in order_section.splitlines() if "1st" in ln),
-        "",
-    )
-    assert "Windows" in line, f"cutover-playbook.md must list Windows as the 1st cutover platform (line: {line!r})."
-
-
-def test_playbook_documents_electron_target_disable_step(playbook_text: str):
-    """The playbook must document Step 2.2, disable the electron-builder
-    target for the platform being cut over.
-
-    Per the playbook §"Step 2, Flip the default (T-0 release)" item 2,
-    the release engineer comments out the platform's ``target:`` entries
-    in ``electron-builder.yml`` (on Windows, the ``win:`` section's
-    ``target: [nsis]``). This is the cutover lever, it must be
-    documented.
-    """
-    assert "electron-builder.yml" in playbook_text, (
-        "cutover-playbook.md must reference electron-builder.yml (the file "
-        "whose win: target is commented out on cutover)."
-    )
-    # The playbook instructs commenting out the win: target.
-    assert "comment out" in playbook_text.lower() or "disable" in playbook_text.lower(), (
-        "cutover-playbook.md must instruct the release engineer to "
-        "comment out / disable the electron-builder target on cutover."
-    )
-    # Windows-specific: the playbook must mention the `win:` section.
-    assert "win:" in playbook_text or "win " in playbook_text.lower(), (
-        "cutover-playbook.md must reference the win: section of electron-builder.yml for the Windows cutover."
-    )
-
-
-def test_playbook_documents_tauri_workflow_if_guard_flip(playbook_text: str):
-    """The playbook must document Step 2.1, enable the per-platform
-    Tauri workflow's ``if:`` guard (``if: false`` → ``if: true``).
-
-    Per the playbook §"Step 2, Flip the default" item 1, the release
-    engineer flips ``if: false`` → ``if: true`` (or removes the guard)
-    on ``.github/workflows/tauri-<platform>-build.yml``. On Windows,
-    this is ``tauri-windows-build.yml``.
-    """
-    assert "tauri-" in playbook_text, (
-        "cutover-playbook.md must reference the per-platform Tauri "
-        "workflow file (.github/workflows/tauri-<platform>-build.yml)."
-    )
-    assert "if: false" in playbook_text, (
-        "cutover-playbook.md must mention the `if: false` guard that "
-        "gates the per-platform Tauri workflow until the cutover."
-    )
-    assert "if: true" in playbook_text, "cutover-playbook.md must mention flipping the guard to `if: true` on cutover."
-
-
-def test_playbook_documents_release_notes_update_step(playbook_text: str):
-    """The playbook must document Step 2.3, update the release notes
-    to announce the per-platform cutover + link the rollback path.
-    """
-    assert "release notes" in playbook_text.lower(), "cutover-playbook.md must document the release notes update step."
-    # The release notes must mention the rollback path (the prior
-    # Electron installer is still downloadable from the same release).
-    assert "rollback" in playbook_text.lower(), (
-        "cutover-playbook.md must reference the rollback path in the release notes update step."
-    )
-
-
-def test_playbook_documents_evidence_trail(playbook_text: str):
-    """The playbook must document the evidence trail that must be filed
-    before the flip (runbook checklist, log, side-by-side smoke
-    test, bundle size + startup latency, signing verification, user
-    acceptance sign-off, rollback plan confirmed).
-    """
-    assert "Evidence trail" in playbook_text, (
-        "cutover-playbook.md must have an 'Evidence trail' section listing what must be filed before the cutover flip."
-    )
-    # Required evidence items.
-    for required in (
-        "user acceptance",
-        "signing",
-        "supervisor",
-        "smoke",
-        "rollback",
-    ):
-        assert required.lower() in playbook_text.lower(), (
-            f"cutover-playbook.md evidence trail must mention '{required}'."
-        )
-
-
-# ─── 2. Electron fallback is REMOVED (cutover 2026-09-17) ────────────────────
-
-
-def test_electron_builder_yml_removed(electron_builder_text: str):
-    """electron-builder.yml must be gone (Electron host removed)."""
-    assert not ELECTRON_BUILDER_YML.is_file(), "electron-builder.yml must not exist (Electron host removed 2026-09-17)."
-
-
-def test_electron_builder_yml_win_section_gone(electron_builder_text: str):
-    """No win: section survives without the file."""
-    assert electron_builder_text == "" or not re.search(r"^win:", electron_builder_text, flags=re.MULTILINE)
-
-
-# ─── 3. CI workflow builds the Tauri host only (Electron fallback removed) ──
+# ─── Windows host build ─────────────────────────────────────────────────────
 
 
 def test_tauri_windows_workflow_exists(tauri_windows_workflow_text: str):
@@ -314,7 +73,7 @@ def test_tauri_windows_workflow_exists(tauri_windows_workflow_text: str):
 
     ``.github/workflows/tauri-windows-build.yml`` is the CI workflow
     that builds the Tauri host (NSIS + MSI installers) for Windows.
-    Without it, the Tauri host cannot be built in CI for the cutover.
+    Without it, the Tauri host cannot be built in CI.
     """
     assert "tauri-windows-build" in tauri_windows_workflow_text, (
         "tauri-windows-build.yml must reference its own workflow name."
@@ -330,10 +89,10 @@ def test_tauri_windows_workflow_targets_msvc(
     """The Tauri Windows build workflow must target
     ``x86_64-pc-windows-msvc``.
 
-    Per ADR-0020 §"Phase 0-W (Windows)" + the cutover playbook's
-    per-platform table, the Windows cutover is x86_64 first (aarch64
-    follows). The Tauri build must produce an installer for that
-    target triple.
+    Per ADR-0020 §"Phase 0-W (Windows)" + the per-platform table, the
+    Windows release is x86_64 first (aarch64 follows once GitHub ships
+    a ``windows-11-arm`` runner). The Tauri build must produce an
+    installer for that target triple.
     """
     assert "x86_64-pc-windows-msvc" in tauri_windows_workflow_text, (
         "tauri-windows-build.yml must target x86_64-pc-windows-msvc (the Phase 0-W target triple)."
@@ -348,9 +107,8 @@ def test_tauri_build_orchestrator_calls_windows_workflow(
 
     ``.github/workflows/tauri-build.yml`` is the cross-cutting
     orchestrator that fans out to the per-platform workflows. It must
-    call ``tauri-windows-build.yml`` so that flipping the Windows
-    workflow's ``if:`` guard actually causes the Windows installer to
-    be built on tag dispatch.
+    call ``tauri-windows-build.yml`` so a dispatch actually produces the
+    Windows installer.
     """
     assert "tauri-windows-build.yml" in tauri_build_orchestrator_text, (
         "tauri-build.yml orchestrator must call tauri-windows-build.yml (the per-platform Windows workflow)."
@@ -361,71 +119,24 @@ def test_tauri_build_orchestrator_calls_windows_workflow(
     )
 
 
-def test_electron_windows_build_job_removed_from_ci(build_workflow_text: str):
-    """Cutover complete: the Electron packaging jobs are GONE from build.yml.
-
-    ``build.yml::build-windows`` / ``build-macos`` / ``build-linux`` /
-    ``build-macos-universal`` (electron-builder) were removed 2026-09-17.
-    Installer production is tauri-build.yml + tauri-*-build.yml only.
-    Comments may still mention the retirement; the JOB KEYS and the
-    ``electron-builder`` RUN commands must not.
-    """
-    # Job keys must not reappear as top-level jobs.
-    for job in ("build-windows", "build-macos", "build-linux", "build-macos-universal"):
-        assert not re.search(rf"^  {job}:\s*$", build_workflow_text, flags=re.MULTILINE), (
-            f"build.yml must not define the Electron packaging job `{job}`."
-        )
-    # No step may invoke electron-builder.
-    assert "electron-builder --" not in build_workflow_text, (
-        "build.yml must not invoke electron-builder (Electron packaging retired)."
-    )
-
-
-def test_ci_builds_tauri_only_for_windows(
-    tauri_windows_workflow_text: str,
-    build_workflow_text: str,
-):
-    """The repo's CI builds the Tauri host only (Electron fallback removed)."""
+def test_ci_builds_tauri_host_for_windows(tauri_windows_workflow_text: str):
+    """The repo's CI builds the Tauri host."""
     assert "cargo tauri build" in tauri_windows_workflow_text, (
         "Tauri host build path (tauri-windows-build.yml) must invoke `cargo tauri build`."
     )
-    assert "electron-builder --" not in build_workflow_text, (
-        "build.yml must not retain the Electron fallback build path."
-    )
-
-
-# ─── 4. Cutover completed (Electron removed 2026-09-17) ─────────────────────
-
-
-def test_playbook_marks_electron_path_historical(playbook_text: str):
-    """The playbook must record that cutover completed and Electron is gone."""
-    assert "HISTORICAL" in playbook_text or "completed 2026-09-17" in playbook_text, (
-        "cutover-playbook.md must record cutover completion / historical status."
-    )
-
-
-def test_electron_builder_yml_removed_not_preserved():
-    """Electron fallback config is deleted (cutover 2026-09-17)."""
-    assert not ELECTRON_BUILDER_YML.is_file(), "electron-builder.yml must not exist (Electron host removed)."
-
-
-# ─── 5. Windows cutover gate requires Phase 0-W to pass first ────────────────
 
 
 def test_tauri_windows_workflow_has_active_job_after_cutover(
     tauri_windows_workflow_text: str,
 ):
-    """The Tauri Windows workflow's job must be active (runnable) after the
-    matrix-refactor gate cleanup.
+    """The Tauri Windows workflow's job must be active (runnable).
 
-    GAP-2 in the module docstring. ``tauri-windows-build.yml`` was
-    originally disabled (``if: false`` on the job) so it did NOT run
-    on push or PR until the Phase 0-W host validation gate (see
-    ``docs/migration/windows-validation-runbook.md``) had passed on a
-    real Windows 10 22H2 / Windows 11 host.
-
-    RT-FIX-9 (2026-07-24): the cutover was flipped, the workflow ran
-    on every push / PR with ``if: true``.
+    ``tauri-windows-build.yml`` was originally disabled (``if: false``
+    on the job) so it did NOT run on push or PR until the Phase 0-W host
+    validation gate (see ``docs/migration/windows-validation-runbook.md``)
+    had passed on a real Windows 10 22H2 / Windows 11 host. The workflow
+    is now enabled and runs via ``workflow_dispatch`` /
+    ``workflow_call``.
 
     The matrix refactor parameterized the job over ``matrix.target``
     (x86_64 active + aarch64 scaffold). An early revision gated the
@@ -461,12 +172,6 @@ def test_tauri_windows_workflow_has_active_job_after_cutover(
     )
 
 
-# alias the legacy pre-cutover test name to the new
-# post-cutover assertion so any external test-selection scripts that
-# reference the old name still resolve.
-test_tauri_windows_workflow_has_phase0w_if_false_guard = test_tauri_windows_workflow_has_active_job_after_cutover
-
-
 def test_tauri_windows_workflow_references_validation_runbook(
     tauri_windows_workflow_text: str,
 ):
@@ -482,160 +187,4 @@ def test_tauri_windows_workflow_references_validation_runbook(
         "tauri-windows-build.yml must reference "
         "docs/migration/windows-validation-runbook.md (the Phase 0-W "
         "host validation gate procedure)."
-    )
-
-
-def test_playbook_requires_phase_0_w_for_windows_cutover(playbook_text: str):
-    """The cutover playbook's hard criteria must require Phase 0-W
-    to pass on a real Windows host before the Windows cutover.
-
-    Per the playbook §"Cutover criteria per platform" item 1: "Phase 0
-    spike passes on a real host for that platform (see the per-platform
-    runbook for the 9-point gate)." The Phase 0-W gate (9 points) is
-    documented in ``windows-validation-runbook.md``.
-    """
-    assert "Phase 0" in playbook_text, "cutover-playbook.md must reference Phase 0 (the per-platform spike gate)."
-    # The hard criteria section must mention "real host".
-    assert "real host" in playbook_text.lower(), (
-        "cutover-playbook.md cutover criteria must require Phase 0 to pass on a 'real host' (not just CI)."
-    )
-    # The per-platform order table must list Phase 0-W as the Windows gate.
-    assert "Phase 0-W" in playbook_text, (
-        "cutover-playbook.md must reference Phase 0-W (the Windows-specific "
-        "spike gate) in the per-platform cutover order table."
-    )
-
-
-def test_playbook_phase_0_w_runbook_referenced(
-    playbook_text: str,
-    windows_runbook_text: str,
-):
-    """The cutover playbook must reference the Phase 0-W per-platform
-    runbook, and that runbook must exist + document the 9-point gate.
-    """
-    # Playbook mentions per-platform runbooks.
-    assert "runbook" in playbook_text.lower(), (
-        "cutover-playbook.md must reference the per-platform runbooks (windows-validation-runbook.md, etc.)."
-    )
-    # The Windows runbook must document the 9-point gate.
-    assert "9-point" in windows_runbook_text or "9 point" in windows_runbook_text, (
-        "windows-validation-runbook.md must document the 9-point Phase 0-W host validation gate."
-    )
-
-
-# ─── 6. Windows cutover includes a rollback plan ─────────────────────────────
-
-
-def test_playbook_has_rollback_procedure_section(playbook_text: str):
-    """The cutover playbook must have a 'Rollback procedure' section.
-
-    Per ADR-0020 §"Reversibility" + the playbook's own scope
-    statement, the rollback procedure is part of the cutover plan.
-    Without it, a failed cutover cannot be reverted.
-    """
-    assert "Rollback procedure" in playbook_text, "cutover-playbook.md must have a 'Rollback procedure' section."
-
-
-def test_playbook_rollback_is_per_platform(playbook_text: str):
-    """The rollback procedure must be per-platform (rolling back Windows
-    does NOT roll back macOS or Linux).
-
-    Per the playbook §"Rollback procedure": "Rolling back Windows does
-    NOT roll back macOS or Linux." This is the per-platform
-    reversibility guarantee from ADR-0020 §"Reversibility".
-    """
-    # Anchor on the actual `## Rollback procedure` header (the
-    # scope-of-document bullet at the top of the file ALSO says
-    # "Rollback procedure (how to revert per-platform)", so we anchor
-    # on `^## ` to skip it).
-    rollback_match = re.search(
-        r"^## Rollback procedure.*?(?=^## |\Z)",
-        playbook_text,
-        flags=re.DOTALL | re.MULTILINE,
-    )
-    assert rollback_match is not None, "cutover-playbook.md must have a '## Rollback procedure' section header."
-    rollback_section = rollback_match.group(0)
-    assert "per-platform" in rollback_section.lower(), (
-        "cutover-playbook.md rollback procedure must be explicitly per-platform."
-    )
-    assert "Windows" in rollback_section, (
-        "cutover-playbook.md rollback procedure must mention Windows (a per-platform rollback example)."
-    )
-
-
-def test_playbook_rollback_steps_documented(playbook_text: str):
-    """The rollback procedure must document the reverse flip steps:
-    (1) re-enable the electron-builder target, (2) disable the Tauri
-    workflow's ``if:`` guard, (3) tag a hotfix release.
-    """
-    rollback_match = re.search(
-        r"^## Rollback procedure.*?(?=^## |\Z)",
-        playbook_text,
-        flags=re.DOTALL | re.MULTILINE,
-    )
-    assert rollback_match is not None, "cutover-playbook.md must have a '## Rollback procedure' section header."
-    rollback_section = rollback_match.group(0)
-    # Step 1: re-enable electron-builder target.
-    assert "electron-builder" in rollback_section, (
-        "cutover-playbook.md rollback must reference electron-builder.yml (re-enable the platform's target)."
-    )
-    # Step 2: disable the Tauri workflow's `if:` guard.
-    assert "if: false" in rollback_section, (
-        "cutover-playbook.md rollback must restore the `if: false` guard on the per-platform Tauri workflow."
-    )
-    # Step 3: tag a hotfix release.
-    assert "hotfix" in rollback_section.lower(), "cutover-playbook.md rollback must instruct tagging a hotfix release."
-
-
-def test_playbook_cutover_log_section_exists(playbook_text: str):
-    """The cutover playbook must have a 'Cutover log' section so future
-    cutovers (and rollbacks) are tracked.
-
-    GAP-3 in the module docstring. The section is currently empty (no
-    platform has been cut over yet): that is the expected pre-cutover
-    state. This test only asserts the section EXISTS so future cutovers
-    have a place to be logged.
-    """
-    assert "Cutover log" in playbook_text, (
-        "cutover-playbook.md must have a 'Cutover log' section where "
-        "each cutover + rollback is recorded (currently empty, "
-        "expected pre-cutover state)."
-    )
-
-
-# ─── 7. ADR-0020 Phase 5 + Reversibility cross-check ─────────────────────────
-
-
-def test_adr_0020_phase_5_documents_per_platform_cutover(
-    adr_0020_text: str,
-):
-    """ADR-0020 §"Phase 5, Validation & cutover (per platform)" must
-    document the per-platform cutover + cutover order (Windows first).
-    """
-    assert "Phase 5" in adr_0020_text, "ADR-0020 must have a Phase 5 section."
-    assert "cutover" in adr_0020_text.lower(), "ADR-0020 Phase 5 must discuss the cutover."
-    assert "Windows first" in adr_0020_text, "ADR-0020 must state 'Windows first' as the cutover order."
-
-
-def test_adr_0020_reversibility_section_exists(adr_0020_text: str):
-    """ADR-0020 must have a 'Reversibility' section that mandates the
-    Electron code path stays intact (per-platform).
-    """
-    assert "Reversibility" in adr_0020_text, "ADR-0020 must have a 'Reversibility' section."
-    reversibility_match = re.search(
-        r"### Reversibility.*?(?=^### |^## |\Z)",
-        adr_0020_text,
-        flags=re.DOTALL | re.MULTILINE,
-    )
-    assert reversibility_match is not None, "ADR-0020 must have a '### Reversibility' subsection."
-    reversibility = reversibility_match.group(0)
-    # Electron code must stay intact (not removed).
-    assert "Electron code is untouched" in reversibility, (
-        "ADR-0020 Reversibility must state 'Electron code is untouched' "
-        "(the per-platform reversible fallback guarantee)."
-    )
-    # Reverting one platform must NOT revert the others.
-    assert "does not revert the others" in reversibility.lower(), (
-        "ADR-0020 Reversibility must state that reverting one platform "
-        "does NOT revert the others (per-platform independence)."
     )

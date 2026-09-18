@@ -42,12 +42,13 @@ repos:
   # XS-35: mypy is a LOCAL hook with `language: system` so it reuses the
   # project venv (`.venv/bin/python -m mypy`) instead of creating a
   # fresh venv via mirrors-mypy. The previous mirrors-mypy config
-  # declared `additional_dependencies: [numpy, torch, transformers,
-  # pydantic, sounddevice, pystray]`, which caused pre-commit to spin
-  # up an isolated venv and reinstall torch (~2GB, 5-10 min) on the
-  # first `pre-commit run mypy` invocation. With `language: system`,
-  # mypy uses the deps already installed by `uv pip install -e
-  # ".[test,dev]"` — no torch reinstall, no isolated venv, ~5s cold.
+  # declared `additional_dependencies: [numpy, transformers, pydantic,
+  # sounddevice, pystray]`, which caused pre-commit to spin
+  # up an isolated venv and reinstall the whole dep set (~2GB,
+  # 5-10 min) on the first `pre-commit run mypy` invocation. With
+  # `language: system`, mypy uses the deps already installed by
+  # `uv pip install -e ".[test,dev]"` — no dependency reinstall, no
+  # isolated venv, ~5s cold.
   #
   # mypy is at `stages: [pre-push]` so it does NOT run on every commit.
   # Contributors who want mypy on every commit can run

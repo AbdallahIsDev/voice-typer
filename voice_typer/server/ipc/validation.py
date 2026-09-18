@@ -49,7 +49,7 @@ optional rules that the previous inline checks in live handlers
 - ``clamp_range`` (tuple ``(lo, hi)``): coerce a numeric value to
   ``max(lo, min(value, hi))`` instead of rejecting out-of-range
   values (historical example: ``duration_ms`` on the retained
-  Rust-mirror ``_handle_show_electron_notification``; that command is
+  Rust-mirror ``_handle_show_notification``; that command is
   NOT registered in ``_COMMAND_REGISTRY`` — do not cite it as a live
   IPC example).
 """
@@ -355,7 +355,7 @@ class FieldRule(TypedDict, total=False):
     # declared type didn't include ``type(None)``), forcing callers
     # to pre-coerce ``None`` to the default with 8 lines of inline
     # code (historical example: the retained Rust-mirror
-    # ``_handle_show_electron_notification``). Set
+    # ``_handle_show_notification``). Set
     # ``none_to_default=False`` to restore the strict pre-
     # behavior (only ABSENT fields get the default).
     none_to_default: bool
@@ -635,7 +635,7 @@ def _validate_dict_payload(
             # as ABSENT and substitute the default. This removes the
             # 8-line pre-coercion workaround historically needed by
             # handlers such as the retained Rust-mirror
-            # ``_handle_show_electron_notification`` (which manually
+            # ``_handle_show_notification`` (which manually
             # converted ``{"title": null}`` to ``{"title": APP_NAME}``
             # before calling this helper). Opt out per-field with
             # ``none_to_default=False`` for the rare case where

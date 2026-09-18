@@ -83,8 +83,7 @@ Pairs guarded here:
    the loader would fail-closed for that platform despite a built binary.
 
 10. The version string in ``pyproject.toml`` ↔ ``package.json`` ↔
-    ``src-tauri/tauri.conf.json`` ↔ ``src-tauri/Cargo.toml`` (↔
-    ``electron-builder.yml`` when it carries an explicit version). One
+    ``src-tauri/tauri.conf.json`` ↔ ``src-tauri/Cargo.toml``. One
     version across every layer, a bump that touches only one file
     silently ships mismatched app/installer/update metadata; the same
     lockstep also protects the Tauri workflows' "fail early" check
@@ -97,10 +96,10 @@ Pairs guarded here:
     commits only one file breaks the Pair-10 lockstep mid-release.
 
 12. The update feed: NO auto-update is the pinned contract today
-    (ADR-0020 §15, the electron ``publish:`` block was removed and
+    (ADR-0020 §15, the predecessor ``publish:`` block was removed and
     ``tauri-plugin-updater`` is intentionally unconfigured). If a feed
-    config or ``latest.json`` ever appears (electron ``publish:`` or a
-    Tauri ``plugins.updater`` block), its referenced version must equal
+    config or ``latest.json`` ever appears (a Tauri ``plugins.updater``
+    block), its referenced version must equal
     ``tauri.conf.json``'s, the guard below fails on any feed whose
     version drifts, and fails on any unlicensed feed config appearing
     without the parity wiring.
@@ -542,7 +541,7 @@ class TestTauriNsisInstallerHooks:
       bundling stage runs (latent until the bundler is actually exercised
     , the Windows workflow is dispatch-only). The correct target is the
       repo's existing ``scripts/windows/uninstaller.nsh`` (defines the
-      ``customUnInstall`` macro shared with electron-builder).
+      ``customUnInstall`` macro).
     """
 
     def test_installer_hooks_points_at_nsh_not_bat(self) -> None:
@@ -858,8 +857,8 @@ class TestBubbleWindowLoadsBubbleHtml:
         the same script ``tauri.conf.json`` beforeDevCommand /
         beforeBuildCommand runs; without a ``bubble`` rollup input the
         config's ``"url": "bubble.html"`` 404s in the packaged app.
-        Post-Electron cutover the renderer build is Vite via
-        ``vite.tauri.config.ts`` (the Electron vite renderer config is
+        Post-predecessor cutover the renderer build is Vite via
+        ``vite.tauri.config.ts`` (the predecessor vite renderer config is
         gone).
         """
         src = (PROJECT_ROOT / "voice_typer" / "client" / "vite.tauri.config.ts").read_text(encoding="utf-8")
@@ -876,7 +875,7 @@ class TestBubbleWindowHasNoShadow:
     Tauri v2 ``WindowConfig.shadow`` defaults to ``true``. On an
     UNDECORATED window on Windows, a enabled shadow renders a 1px white
     border (rounded-corner variant on Windows 11) — exactly the light
-    outer frame the user sees around the pill. Electron's bubble sets
+    outer frame the user sees around the pill. the predecessor's bubble sets
     ``hasShadow: false`` (``client/src/main/windows/bubble/lifecycle.ts``).
     The pill's own ``border-border/5`` (Bubble.tsx) is the shared
     unified-border design system and is NOT the cause — do not restyle it.
@@ -911,7 +910,7 @@ class TestBubbleWindowHasNoShadow:
     def test_show_bubble_window_does_not_call_set_focus(self) -> None:
         """Focus-steal audit (secondary): the show path must not grab focus.
 
-        Electron's bubble is ``focusable: false``. Tauri's
+        the predecessor's bubble is ``focusable: false``. Tauri's
         ``WindowConfig.focusable`` defaults to ``true``. The show path
         (``show_bubble_window``) only calls ``window.show()`` and
         ``set_position`` — it never calls ``set_focus``. Whether
@@ -969,14 +968,6 @@ def _is_git_tracked(path: Path) -> bool:
 def _read_cargo_version(path: Path) -> str:
     data = tomllib.loads(path.read_text(encoding="utf-8"))
     return data["package"]["version"]
-
-
-def _read_electron_builder_version(path: Path) -> str | None:
-    """electron-builder.yml only carries an explicit version when
-    ``version:`` is present (it otherwise inherits package.json's)."""
-    text = path.read_text(encoding="utf-8")
-    m = re.search(r"^version:\s*([^\s]+)", text, re.MULTILINE)
-    return m.group(1).strip().strip('"').strip("'") if m else None
 
 
 class TestVersionLockstep:
@@ -1089,13 +1080,12 @@ class TestReleaseBumpWorkflow:
 class TestUpdateFeedParity:
     """Any committed update feed must carry tauri.conf.json's version.
 
-    ADR-0020 §15 pins NO auto-update wiring: the electron ``publish:``
-    block was removed (electron-builder.yml documents why) and no Tauri
-    ``plugins.updater`` configuration exists, so no feed manifest is
-    committed today. The contract pinned here is the FORWARD GUARD: the
-    moment any ``latest.json`` / ``latest.yml`` feed record IS committed
-    (electron-builder auto-update or Tauri's static updater feed), its
-    ``version`` MUST equal ``src-tauri/tauri.conf.json``'s, the updater
+    ADR-0020 §15 pins NO auto-update wiring: the predecessor ``publish:``
+    block was removed and no Tauri ``plugins.updater`` configuration
+    exists, so no feed manifest is committed today. The contract pinned
+    here is the FORWARD GUARD: the moment any ``latest.json`` /
+    ``latest.yml`` feed record IS committed (a Tauri static updater
+    feed), its ``version`` MUST equal ``src-tauri/tauri.conf.json``'s, the updater
     must never reference a release version that drifts from the app's
     own version, or clients would be rolled to a mismatched binary.
     """

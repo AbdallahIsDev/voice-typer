@@ -1,6 +1,6 @@
 /**
  * One-command Tauri dev environment, the Tauri equivalent of
- * `npm run dev` (Electron).
+ * `npm run dev`.
  *
  * Usage (from voice_typer/client):
  *

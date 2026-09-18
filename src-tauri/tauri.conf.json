@@ -32,7 +32,10 @@
         "center": true,
         "hiddenTitle": true,
         "titleBarStyle": "Overlay",
-        "trafficLightPosition": { "x": 12, "y": 10 },
+        "trafficLightPosition": {
+          "x": 12,
+          "y": 10
+        },
         "visible": true,
         "create": false,
         "label": "main",

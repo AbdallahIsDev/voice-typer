@@ -9,7 +9,7 @@
 //! removed when `bubble_set_position` moved to cursor-monitor
 //! work-area placement: its full-screen-bounds geometry (y=0 for
 //! "top", screen_h - bubble_h for "bottom", primary monitor only) no
-//! longer matched the Electron-parity behavior. The keyword →
+//! longer matched the predecessor-parity behavior. The keyword →
 //! coordinate mapping now lives in `math::bubble_position_in_work_area`
 //! (with the identical `"position must be \"top\" or \"bottom\""`
 //! error contract), and the multi-monitor resolution lives in

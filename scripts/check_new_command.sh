@@ -8,9 +8,9 @@
 # missing. It also verifies that the doc count references (touchpoints 7-10)
 # match the actual counts in the source files.
 #
-# Post-Electron / post-TCP contract (2026-09): Python `_COMMAND_REGISTRY` +
-# Rust `allowed_commands()` only. The former TS `ALLOWED_COMMANDS` Set is
-# deleted with Electron main — do not reintroduce it.
+# Post-cutover / post-TCP contract (2026-09): Python `_COMMAND_REGISTRY` +
+# Rust `allowed_commands()` only. The former TS `ALLOWED_COMMANDS` Set was
+# deleted with the predecessor main process — do not reintroduce it.
 #
 # Exit codes:
 #   0, all 10 touchpoints present, doc counts in sync

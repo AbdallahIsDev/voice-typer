@@ -7,7 +7,7 @@ import type { StorybookConfig } from "@storybook/react-vite";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-// Storybook 9 configuration for the voice-typer Electron renderer.
+// Storybook 9 configuration for the voice-typer predecessor renderer.
 //
 // Note: `@storybook/addon-essentials` was merged into the `storybook`
 // core package in v9 (controls, actions, docs, viewport, highlight all
@@ -16,7 +16,7 @@ const __dirname = dirname(__filename);
 // Storybook toolbar.
 //
 // `viteFinal` injects the same path aliases (`@`, `#ui`, `#utils`)
-// that `vite.config.ts` and `electron.vite.config.ts` use for the
+// that `vite.config.ts` and the predecessor Vite config use for the
 // renderer so existing components can be imported unchanged.
 const config: StorybookConfig = {
 	stories: ["../src/renderer/src/**/*.stories.@(ts|tsx|mdx)"],

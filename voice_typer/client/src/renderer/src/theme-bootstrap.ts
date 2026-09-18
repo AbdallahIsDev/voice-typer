@@ -36,7 +36,7 @@
 // warm by the time the user opens Settings and switches themes. This
 // is a background pre-fetch, it does NOT block the initial paint or
 // React mount. Under offline conditions (C-DATA-1) the chunks are
-// served from the local .asar (Electron) or dist (Tauri), so the
+// served from the local .asar (the predecessor) or dist (Tauri), so the
 // pre-fetch completes without network access.
 //
 // After this module runs, ``useTheme`` may re-apply the theme once the
@@ -46,7 +46,7 @@
 // post-backend theme-application effect is suppressed on the first
 // mount to avoid a second flash.
 //
-// This module is safe to import in any context (Electron renderer,
+// This module is safe to import in any context (predecessor renderer,
 // Vitest with jsdom, SSR).  All DOM access is guarded with
 // ``typeof document !== "undefined"`` and localStorage access is
 // wrapped in try/catch.
@@ -219,7 +219,7 @@ await applyBootstrapTheme();
 // preset (already loaded above) is an instant no-op here.
 //
 // Under offline conditions (C-DATA-1) the chunks are served from the
-// local .asar (Electron) or dist (Tauri), so the pre-fetch completes
+// local .asar (the predecessor) or dist (Tauri), so the pre-fetch completes
 // without network access. If a fetch fails (e.g. a chunk file is
 // missing from a corrupted install), loadThemePreset catches the
 // error internally and leaves the entry with empty light/dark, the

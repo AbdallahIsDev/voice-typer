@@ -74,7 +74,7 @@ class _FakeApp:
         self._shutting_down = False
         self._shutting_down_event = threading.Event()
         self._cleanup_done = False
-        self._electron_pid: int | None = None
+        self._host_pid: int | None = None
         self._mutex_handle = None
 
         self.recorder = MagicMock()
@@ -152,7 +152,7 @@ def controller(fake_app):
         "_teardown_devnull_files",
         "_teardown_level_monitor",
         "_teardown_hotkeys",
-        "_teardown_electron",
+        "_teardown_host_child",
         "_teardown_event_bus",
     ]
     for name in teardown_method_names:
@@ -345,7 +345,7 @@ class TestDoCleanupCallOrder:
             "_teardown_devnull_files",
             "_teardown_level_monitor",
             "_teardown_hotkeys",
-            "_teardown_electron",
+            "_teardown_host_child",
             "_teardown_event_bus",
         ]
         for name in parallel_names:

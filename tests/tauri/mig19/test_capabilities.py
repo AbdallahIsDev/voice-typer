@@ -32,8 +32,8 @@ Scope of this check (ADR-0020 §7 "Tauri config + capabilities"):
    sidecar child on crash / shutdown to prevent zombie processes).
 
 5. The capability grants **``notification:allow-notify``** (or
-   ``notification:default``), ADR-0020 §6.1 routes the existing
-   ``electron_notification`` event through
+   ``notification:default``), ADR-0020 §6.1 routes the ``notification``
+   event through
    ``tauri-plugin-notification`` (WinRT ToastNotification /
    NSUserNotificationCenter / libnotify). Without this grant, the
    toast path silently no-ops.
@@ -443,7 +443,7 @@ def test_grants_notification_permission(
 ) -> None:
     """ADR-0020 §6.1 + §7: ``notification:allow-notify`` granted.
 
-    The ``electron_notification`` event routes through
+    The ``the legacy notification event name`` event routes through
     ``tauri-plugin-notification`` (WinRT ToastNotification /
     NSUserNotificationCenter / libnotify). Without this grant, the
     toast path silently no-ops, the user sees no notification and

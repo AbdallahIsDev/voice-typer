@@ -19,11 +19,11 @@ What this file pins (the toast wiring contract):
    ``notification:*`` permission (the least-privilege gate; Tauri v2
    ships zero permissions by default, so this MUST be explicit).
 4. ``src-tauri/src/sidecar/ws.rs`` has a CR-8 backward-compat alias that
-   re-emits incoming ``electron_notification`` events under the canonical
+   re-emits incoming ``the legacy notification event name`` events under the canonical
    ``notification`` name (so new UI code subscribing to ``notification``
    keeps working during a rolling upgrade from an old Python sidecar).
 5. ``src-tauri/src/sidecar/ws.rs`` ALSO emits the legacy
-   ``electron_notification`` event unchanged (pass-through via the
+   ``the legacy notification event name`` event unchanged (pass-through via the
    ``other => other`` match arm + the generic ``python-event`` envelope)
    so old UI listeners keep working during the same rolling upgrade.
 6. The Python sidecar's notification path publishes via
@@ -37,9 +37,9 @@ IMPLEMENTATION GAP (reported, not fixed)
 The task description for this gate check specified:
 
   - "Test that the Python ``tray.notify()`` path emits the
-    ``electron_notification`` event via ``event_bus.publish``"
+    ``the legacy notification event name`` event via ``event_bus.publish``"
   - "Test that the notification payload shape is
-    ``{"type":"electron_notification","data":{"title":"...","body":"..."}}``"
+    ``{"type":"the legacy notification event name","data":{"title":"...","body":"..."}}``"
 
 The ACTUAL implementation diverges on both points (per CR-8, which
 renamed the event at the source):
@@ -48,15 +48,15 @@ renamed the event at the source):
     it calls pystray's ``self._icon.notify(message, title)`` directly
     (which itself shows a native OS toast via pystray's Win10
     ``ToastNotification`` backend on Windows). The ``event_bus.publish``
-    path for notifications is the ``show_electron_notification`` IPC
+    path for notifications is the ``show_notification`` IPC
     command, handled in
     ``voice_typer/server/handlers/system_handlers.py::
-    _handle_show_electron_notification``.
+    _handle_show_notification``.
   - The published payload shape is
     ``{"type": "notification", "data": {"title": "...", "message": "...",
     "duration_ms": int, "critical": bool}}``, i.e. the event name is
-    ``notification`` (NOT ``electron_notification``) and the body field
-    is ``message`` (NOT ``body``). The legacy ``electron_notification``
+    ``notification`` (NOT ``the legacy notification event name``) and the body field
+    is ``message`` (NOT ``body``). The legacy ``the legacy notification event name``
     name is only emitted by an OLD Python sidecar; the Rust-side alias
     in ``ws.rs`` re-emits it as ``notification`` for new UI code.
 
@@ -71,8 +71,8 @@ VALIDATE ON WINDOWS HOST:
 3. Verify a Windows toast notification appears (bottom-right corner on
    Win10/11)
 4. Check log for:
-   - "[EVENT] electron_notification emitted: title='...' body='...'"
-   - "[WS] renamed electron_notification → notification"
+   - "[EVENT] the legacy notification event name emitted: title='...' body='...'"
+   - "[WS] renamed the legacy notification event name → notification"
 Expected: toast appears within 1s; title + body match the event payload
 """
 
@@ -257,20 +257,18 @@ class TestCapabilitiesGrantNotificationPermission:
         )
 
 
-# ─── Test 4: ws.rs renames electron_notification → notification ──────────
+# ─── Test 4: ws.rs emits the canonical notification event ──────────
 
 
-class TestWsRsRenamesElectronNotificationToNotification:
+class TestWsRsNotificationEventName:
     """Gate 4: the WS reader emits the canonical ``notification`` event
       to the webview.
 
-      CR-8 reconciliation: the ``electron_notification`` →
-      ``notification`` rename was moved INTO the Python sidecar (it now
-      publishes ``notification`` directly), so the Rust-side alias branch
-      was REMOVED from ``ws.rs``: see the removal comment in the reader
-      task. The canonical event reaches the webview through the generic
-      specific-event emit (``translate_event_name`` passes unknown events
-    , including ``notification``, through unchanged).
+      The Python sidecar publishes ``notification`` directly, so the
+      Rust bridge has no rename arm for it. The canonical event reaches
+      the webview through the generic specific-event emit
+      (``translate_event_name`` passes unknown events, including
+      ``notification``, through unchanged).
 
       Source-inspection test: we read ``ws.rs`` as a string and assert the
       current wiring. We don't compile/run the Rust code (the Linux
@@ -286,7 +284,7 @@ class TestWsRsRenamesElectronNotificationToNotification:
         name directly per CR-8).
 
         This is the current wiring: no special-case alias branch for
-        ``electron_notification`` exists anymore (it was removed with
+        ``the legacy notification event name`` exists anymore (it was removed with
         the CR-8 source-side rename), so the canonical event relies on
         the generic pass-through.
         """
@@ -316,13 +314,12 @@ class TestWsRsRenamesElectronNotificationToNotification:
         )
 
 
-# ─── Test 5: ws.rs emits legacy electron_notification for backward compat ─
+# ─── Test 5: ws.rs emits the specific event name for direct listeners ─────
 
 
-class TestWsRsEmitsLegacyElectronNotificationForBackwardCompat:
-    """Gate 5: ``ws.rs`` also emits the legacy ``electron_notification``
-    event unchanged (so old UI listeners keep working during the rolling
-    upgrade)."""
+class TestWsRsEmitsSpecificEventForDirectListeners:
+    """Gate 5: ``ws.rs`` emits the specific (translated) event name so
+    direct listeners keep firing, alongside the generic envelope."""
 
     def test_ws_rs_passes_through_event_types_via_translate_arm(self):
         """``translate_event_name``'s ``other => other`` arm passes ANY
@@ -331,11 +328,11 @@ class TestWsRsEmitsLegacyElectronNotificationForBackwardCompat:
         directly (per CR-8). The specific-event emit then carries that
         name to the webview.
 
-        This is the current wiring: the ``relaunch_electron`` →
-        ``relaunch_app`` rename arm was REMOVED (Python publishes
-        ``relaunch_app`` directly) and the ``electron_notification`` →
-        ``notification`` alias branch was REMOVED for the same reason —
-        unknown events pass through ``translate_event_name`` unchanged.
+        This is the current wiring: the retired alias arms (the legacy
+        relaunch-event name → ``relaunch_app``, the legacy
+        notification-event name → ``notification``) were REMOVED —
+        Python publishes the canonical names directly, and unknown
+        events pass through ``translate_event_name`` unchanged.
         """
         src = _read_ws_bridge_rs()
         # The current form (from the reader task):
@@ -349,7 +346,7 @@ class TestWsRsEmitsLegacyElectronNotificationForBackwardCompat:
 
     def test_ws_rs_emits_specific_event_with_emit_name(self):
         """``ws.rs`` MUST emit the specific event (using ``emit_name``)
-        so direct listeners like ``appWindow.on('electron_notification')``
+        so direct listeners like ``appWindow.on('notification')``
         keep firing. The generic ``python-event`` envelope is NOT
         sufficient, direct listeners don't subscribe to that."""
         src = _read_ws_bridge_rs()
@@ -357,8 +354,8 @@ class TestWsRsEmitsLegacyElectronNotificationForBackwardCompat:
         #   let _ = app_for_reader.emit(emit_name, payload.clone());
         assert "emit(emit_name" in src, (
             "ws.rs must emit the specific event using `emit_name` (the "
-            "result of the match arm), this is what carries the legacy "
-            "'electron_notification' name through to direct UI listeners."
+            "result of the match arm), this is what carries the "
+            "specific event name through to direct UI listeners."
         )
 
     def test_ws_rs_also_emits_python_event_envelope(self):
@@ -380,12 +377,12 @@ class TestWsRsEmitsLegacyElectronNotificationForBackwardCompat:
 #
 # IMPLEMENTATION GAP (reported, not fixed):
 #   The task description said "Test that the Python tray.notify() path
-#   emits the electron_notification event via event_bus.publish". The
+#   emits the the legacy notification event name event via event_bus.publish". The
 #   actual implementation does NOT do that, tray.notify() calls
 #   pystray's _icon.notify(message, title) directly (which itself shows
 #   a native OS toast on Windows via pystray's Win10 ToastNotification
 #   backend). The event_bus.publish path for notifications is the
-#   show_electron_notification IPC command, handled in system_handlers.py.
+#   show_notification IPC command, handled in system_handlers.py.
 #   We pin the ACTUAL behavior here and document the gap.
 
 
@@ -433,7 +430,7 @@ class TestTrayNotifyPath:
         double-toast (pystray native + webview toast).
 
         The ``event_bus.publish`` path for notifications lives in the
-        ``show_electron_notification`` IPC handler (see
+        ``show_notification`` IPC handler (see
         :class:`TestIpcHandlerPublishesNotificationViaEventBus`).
         """
         src = _read(TRAY_PY)
@@ -453,7 +450,7 @@ class TestTrayNotifyPath:
             "tray.py::notify() must NOT call event_bus.publish, it uses "
             "pystray's _icon.notify() directly. (The event_bus.publish "
             "path for notifications lives in system_handlers.py::"
-            "_handle_show_electron_notification, NOT in tray.py.)"
+            "_handle_show_notification, NOT in tray.py.)"
         )
 
 
@@ -461,29 +458,29 @@ class TestTrayNotifyPath:
 #
 # This is the ACTUAL event_bus.publish path for notifications. The task
 # spec attributed it to tray.notify(); the actual implementation puts
-# it in the show_electron_notification IPC handler. We pin the actual
+# it in the show_notification IPC handler. We pin the actual
 # behavior here.
 
 
 class TestIpcHandlerPublishesNotificationViaEventBus:
-    """Gate 6 (actual event_bus path): the ``show_electron_notification``
+    """Gate 6 (actual event_bus path): the ``show_notification``
     IPC handler publishes via ``event_bus.publish``.
 
     The handler lives in
     ``voice_typer/server/handlers/system_handlers.py::
-    _handle_show_electron_notification``. It validates the input dict,
+    _handle_show_notification``. It validates the input dict,
     then publishes a ``notification`` event (per CR-8, renamed from
-    the legacy ``electron_notification``) with the title/message/
+    the legacy ``the legacy notification event name``) with the title/message/
     duration_ms/critical fields.
 
     Note: per CR-8, the published event name is ``notification`` (NOT
-    ``electron_notification``). The Rust-side alias in ``ws.rs`` handles
+    ``the legacy notification event name``). The Rust-side alias in ``ws.rs`` handles
     old Python sidecars that still emit the legacy name during a rolling
     upgrade.
     """
 
     def test_ipc_handler_publishes_notification_event_via_event_bus(self):
-        """``_handle_show_electron_notification`` MUST result in
+        """``_handle_show_notification`` MUST result in
         ``event_bus.publish`` being called with ``type == "notification"``.
 
         This is the canonical Python-side toast path: the handler
@@ -491,7 +488,7 @@ class TestIpcHandlerPublishesNotificationViaEventBus:
         the WS bridge ferries back to the webview, which then calls the
         notification plugin.
 
-        NOTE: the ``show_electron_notification`` IPC command was REMOVED
+        NOTE: the ``show_notification`` IPC command was REMOVED
         from the dispatch registry (it is handled directly by dedicated
         Tauri/Rust commands), so this test invokes the retained handler
         directly, the same pattern used by
@@ -503,7 +500,7 @@ class TestIpcHandlerPublishesNotificationViaEventBus:
             "voice_typer.server.event_bus.publish",
             lambda msg: captured.update(msg),
         ):
-            resp = server._handle_show_electron_notification(
+            resp = server._handle_show_notification(
                 {
                     "title": "Hello",
                     "message": "World",
@@ -517,26 +514,20 @@ class TestIpcHandlerPublishesNotificationViaEventBus:
             f"event_bus.publish must be called with type='notification' (per CR-8). Got: {captured.get('type')!r}"
         )
 
-    def test_ipc_handler_does_not_publish_legacy_event_name(self):
-        """The published event MUST NOT use the legacy
-        ``electron_notification`` name (per CR-8).
-
-        The Rust-side alias in ``ws.rs`` is what handles old Python
-        sidecars that still emit the legacy name during a rolling
-        upgrade, the NEW Python sidecar must NOT emit it.
-        """
+    def test_ipc_handler_publishes_canonical_event_name(self):
+        """The published event uses the canonical name (per CR-8)."""
         server = make_bare_ipc_server()
         captured: dict = {}
         with patch(
             "voice_typer.server.event_bus.publish",
             lambda msg: captured.update(msg),
         ):
-            server._handle_show_electron_notification(
+            server._handle_show_notification(
                 {"title": "T", "message": "B"},
                 {},
             )
-        assert captured.get("type") != "electron_notification", (
-            "Python sidecar must publish with type='notification', NOT the legacy 'electron_notification' name."
+        assert captured.get("type") == "notification", (
+            "Python sidecar must publish with type='notification'."
         )
 
 
@@ -544,13 +535,13 @@ class TestIpcHandlerPublishesNotificationViaEventBus:
 #
 # IMPLEMENTATION GAP (reported, not fixed):
 #   The task description said the payload shape is
-#   ``{"type":"electron_notification","data":{"title":"...","body":"..."}}``.
+#   ``{"type":"the legacy notification event name","data":{"title":"...","body":"..."}}``.
 # The ACTUAL shape (per  + the validation logic in
-#   system_handlers.py::_handle_show_electron_notification) is:
+#   system_handlers.py::_handle_show_notification) is:
 #     {"type": "notification",
 #      "data": {"title": "...", "message": "...",
 #               "duration_ms": int, "critical": bool}}
-#   i.e. event name is ``notification`` (NOT ``electron_notification``)
+#   i.e. event name is ``notification`` (NOT ``the legacy notification event name``)
 #   and the body field is ``message`` (NOT ``body``). We pin the ACTUAL
 #   shape here.
 
@@ -559,7 +550,7 @@ class TestNotificationPayloadShape:
     """Gate 7 (as-implemented): the published notification payload shape.
 
     IMPLEMENTATION GAP: the task spec expected
-    ``{"type":"electron_notification","data":{"title":"...","body":"..."}}``;
+    ``{"type":"the legacy notification event name","data":{"title":"...","body":"..."}}``;
     the actual shape is
     ``{"type":"notification","data":{"title":"...","message":"...",
     "duration_ms":int,"critical":bool}}``. We pin the actual shape.
@@ -582,7 +573,7 @@ class TestNotificationPayloadShape:
            }
 
         Notes on the divergence from the task spec:
-          - Event name is ``notification`` (NOT ``electron_notification``)
+          - Event name is ``notification`` (NOT ``the legacy notification event name``)
             per CR-8.
           - Body field is ``message`` (NOT ``body``), this is the
             field name the renderer's notification handler reads.
@@ -595,7 +586,7 @@ class TestNotificationPayloadShape:
             "voice_typer.server.event_bus.publish",
             lambda msg: captured.update(msg),
         ):
-            server._handle_show_electron_notification(
+            server._handle_show_notification(
                 {
                     "title": "Transcription complete",
                     "message": "Inserted 42 words.",
@@ -633,7 +624,7 @@ class TestNotificationPayloadShape:
             "voice_typer.server.event_bus.publish",
             lambda msg: captured.update(msg),
         ):
-            server._handle_show_electron_notification(
+            server._handle_show_notification(
                 {"title": "T", "message": "M"},
                 {},
             )
@@ -659,7 +650,7 @@ class TestNotificationPayloadShape:
             "voice_typer.server.event_bus.publish",
             lambda msg: captured.update(msg),
         ):
-            server._handle_show_electron_notification({}, {})
+            server._handle_show_notification({}, {})
         assert captured["type"] == "notification"
         # APP_NAME is "Voice Typer" per voice_typer/server/branding.py.
         assert captured["data"]["title"] == "Voice Typer"

@@ -60,7 +60,7 @@ References:
     "Phase 1 Packaging Status" section (the authoritative status table
     for "is the pipeline scaffolded?").
   - ``docs/migration/cutover-playbook.md``, per-platform cutover
-    criteria (do NOT flip the default shipping app from Electron to
+    criteria (do NOT flip the default shipping app from predecessor to
     Tauri until a platform's Phase 5 cutover gate passes).
 
 Gaps documented (report, do NOT fix, out of scope for this glue test):

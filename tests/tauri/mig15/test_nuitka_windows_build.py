@@ -426,12 +426,12 @@ def test_script_resolves_site_packages(script_text: str):
 def test_script_entry_point_is_ipc_server(script_text: str):
     """The Nuitka entry point must be ``voice_typer/server/ipc_server.py``.
 
-    This is the same entry point used by the Electron path + the dev
+    This is the same entry point used by the predecessor path + the dev
     sidecar, only the freeze tool changes (ADR-0020 §4.2).
     """
     assert "voice_typer/server/ipc_server.py" in script_text, (
         "build_sidecar_windows.sh entry point must be "
-        "voice_typer/server/ipc_server.py (matches Electron + dev sidecar)."
+        "voice_typer/server/ipc_server.py (matches predecessor + dev sidecar)."
     )
 
 

@@ -14,17 +14,17 @@ use crate::error::VoiceTyperError;
 
 /// GDPR right-to-export for templates. Opens a save-file dialog (JSON
 /// only: no CSV filter and no CSV shape for templates) and writes the
-/// data as pretty-printed JSON. Mirrors the Electron `templates:export`
+/// data as pretty-printed JSON. Mirrors the predecessor `templates:export`
 /// IPC handler in
 /// `voice_typer/client/src/main/ipc/export-handlers.ts`.
 ///
 /// The dialog title follows the renderer-pushed `host_locale` (see
-/// `super::dialog_titles`), byte-mirroring the Electron main
+/// `super::dialog_titles`), byte-mirroring the predecessor main
 /// process's `dialog.export.templates` string per locale.
 ///
 /// Returns the same `{success, path?, canceled?, error?}` shape as
 /// `export_history` / `export_vocabulary` so the renderer's mapping
-/// (Tauri `canceled:true` → Electron `{success:false}` parity) works
+/// (Tauri `canceled:true` → predecessor `{success:false}` parity) works
 /// identically.
 ///
 /// `window` is auto-injected by Tauri at runtime, the renderer's
@@ -59,12 +59,12 @@ pub async fn export_templates(
 /// path regresses, the Rust host still scrubs obvious secret-shaped
 /// keys (api_key / secret / token / password / passwd / pwd /
 /// credential / auth, case-insensitive substring match) before writing
-/// the JSON to disk. Mirrors the Electron `config:export` IPC handler.
+/// the JSON to disk. Mirrors the predecessor `config:export` IPC handler.
 ///
 /// Same return shape as `export_templates`.
 ///
 /// The dialog title follows the renderer-pushed `host_locale` (see
-/// `super::dialog_titles`), byte-mirroring the Electron main
+/// `super::dialog_titles`), byte-mirroring the predecessor main
 /// process's `dialog.export.config` string per locale.
 ///
 /// `window` is auto-injected by Tauri at runtime, the renderer's

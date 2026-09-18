@@ -8,8 +8,7 @@ The React bridge behind ``usePython`` routes through the Tauri host:
                   OR reject with `server error [<code>]: <msg>` on
                   `type:"error"` envelopes.
 
-Electron preload / main-process bridge modules were removed with the
-Electron shell. These tests pin the Tauri bridge source contract only.
+These tests pin the Tauri bridge source contract only.
 
 It does NOT spawn a real Tauri runtime (that is the host-validation step).
 """

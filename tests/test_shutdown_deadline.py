@@ -7,7 +7,7 @@ These tests pin three findings fixed in ``_do_cleanup``:
 * **(High)**: ``_do_cleanup`` now has an overall 20s deadline
   (``deadline = time.monotonic() + 20.0``). When the remaining budget
   drops below 5s, non-critical teardowns (hotkeys, level_monitor,
-  waveform, electron, event_bus, asr_models, restore_volume,
+  waveform, host_child, event_bus, asr_models, restore_volume,
   sounddevice, devnull_files, timers_and_recording) are SKIPPED and
   only critical flushes (history_db, crash_recovery, recorder.stop,
   mutex, PID file) plus the late ``tray.stop`` bookend run. Skipped
@@ -84,7 +84,7 @@ class _FakeApp:
         self._shutting_down = False
         self._shutting_down_event = threading.Event()
         self._cleanup_done = False
-        self._electron_pid: int | None = None
+        self._host_pid: int | None = None
         self._mutex_handle = None
 
         self.recorder = MagicMock()
@@ -160,7 +160,7 @@ class TestOverallDeadline:
         """When the 20s deadline is near (< 5s remaining) at the start
         of the parallel batch, NON-CRITICAL helpers
         (asr_models/restore_volume/waveform/sounddevice/devnull/level_monitor/
-        hotkeys/electron/event_bus) are SKIPPED, while CRITICAL helpers
+        hotkeys/host_child/event_bus) are SKIPPED, while CRITICAL helpers
         (pid_file, mutex_handle) still run.
 
         We mock ``time.monotonic`` so the FIRST call (which computes
@@ -201,7 +201,7 @@ class TestOverallDeadline:
             ("_teardown_devnull_files", "teardown_devnull_files"),
             ("_teardown_level_monitor", "teardown_level_monitor"),
             ("_teardown_hotkeys", "teardown_hotkeys"),
-            ("_teardown_electron", "teardown_electron"),
+            ("_teardown_host_child", "teardown_host_child"),
             ("_teardown_event_bus", "teardown_event_bus"),
         ]
         for attr_name, desc in all_teardowns:
@@ -256,7 +256,7 @@ class TestOverallDeadline:
             "teardown_devnull_files",
             "teardown_level_monitor",
             "teardown_hotkeys",
-            "teardown_electron",
+            "teardown_host_child",
             "teardown_event_bus",
         }
         for name in non_critical:
@@ -295,7 +295,7 @@ class TestOverallDeadline:
             ("_teardown_devnull_files", "teardown_devnull_files"),
             ("_teardown_level_monitor", "teardown_level_monitor"),
             ("_teardown_hotkeys", "teardown_hotkeys"),
-            ("_teardown_electron", "teardown_electron"),
+            ("_teardown_host_child", "teardown_host_child"),
             ("_teardown_event_bus", "teardown_event_bus"),
         ]
         for attr_name, desc in all_teardowns:
@@ -333,7 +333,7 @@ class TestOverallDeadline:
             "_teardown_devnull_files",
             "_teardown_level_monitor",
             "_teardown_hotkeys",
-            "_teardown_electron",
+            "_teardown_host_child",
             "_teardown_event_bus",
         ]:
             setattr(controller, name, MagicMock())
@@ -374,7 +374,7 @@ class TestOverallDeadline:
             name in combined
             for name in (
                 "teardown_hotkeys",
-                "teardown_electron",
+                "teardown_host_child",
                 "teardown_event_bus",
                 "teardown_asr_models",
             )
@@ -437,7 +437,7 @@ class TestSequentialHistoryAndCrashRecovery:
             "_teardown_devnull_files",
             "_teardown_level_monitor",
             "_teardown_hotkeys",
-            "_teardown_electron",
+            "_teardown_host_child",
             "_teardown_event_bus",
         ]:
             setattr(controller, name, MagicMock())
@@ -514,7 +514,7 @@ class TestSequentialHistoryAndCrashRecovery:
             "_teardown_devnull_files",
             "_teardown_level_monitor",
             "_teardown_hotkeys",
-            "_teardown_electron",
+            "_teardown_host_child",
             "_teardown_event_bus",
         ]:
             setattr(controller, name, MagicMock())

@@ -1258,26 +1258,23 @@ def test_supervisor_respawn_inner_swaps_child_handle_under_lock(supervisor_sourc
 def test_ws_reader_emits_python_event_alias_for_backward_compat(ws_source: str) -> None:
     """ADR-0020 §6.3: the WS reader must emit BOTH the specific event
     (e.g. ``bubble_level``) AND the generic ``python-event`` (for the
-    usePython hook's onEvent catch-all, matching the Electron path's
+    usePython hook's onEvent catch-all, matching the predecessor path's
     ipcRenderer.on('python-event'))."""
     assert '"python-event"' in ws_source, (
         "WS reader must emit 'python-event' as the generic catch-all event "
-        "(ADR-0020 §6.3, mirrors Electron's ipcRenderer.on('python-event'))"
+        "(ADR-0020 §6.3, the renderer's generic catch-all channel)"
     )
 
 
-def test_ws_reader_does_not_rename_relaunch_app(ws_source: str, ws_event_protocol_source: str) -> None:
-    """PVT-2 cleanup: the WS reader MUST NOT rename ``relaunch_electron``
-    → ``relaunch_app``. The Python sidecar now publishes ``relaunch_app``
-    directly (see ``app.py`` ``restart_app``), so the Rust bridge forwards
-    it unchanged via the direct ``let emit_name = event_type;`` pass-through.
-    ``main.rs`` listens for ``relaunch_app`` via ``app.listen("relaunch_app",
-    ...)`` (calling ``app.restart()``).
+def test_ws_reader_forwards_event_names_unchanged(
+    ws_source: str, ws_event_protocol_source: str
+) -> None:
+    """The WS reader forwards event names through ``translate_event_name``.
 
-    This is a regression check: re-introducing the rename arm would
-    recreate the pre-PVT-2 silent-restart bug (the renamed event was
-    emitted into the void because no listener subscribed to
-    ``relaunch_app`` pre-PVT-2).
+    The Python sidecar publishes ``relaunch_app`` directly (see ``app.py``
+    ``restart_app``), and ``main.rs`` listens for it via
+    ``app.listen("relaunch_app", ...)`` (calling ``app.restart()``). The
+    reader therefore carries no per-type rename arm for it.
 
     FZ-24 module split: ``translate_event_name``'s body moved from
     ``ws.rs`` into ``ws/event_protocol.rs``. The call site
@@ -1285,22 +1282,6 @@ def test_ws_reader_does_not_rename_relaunch_app(ws_source: str, ws_event_protoco
     ``ws.rs`` (inside ``spawn_reader_task``); the ``other => other``
     match arm lives in ``ws/event_protocol.rs``. This test now reads
     BOTH files so the invariant is checked across the split."""
-    # The rename match arm MUST NOT be present in ws.rs source.
-    rename_re = re.compile(
-        r'"relaunch_electron"\s*=>\s*"relaunch_app"',
-    )
-    assert not rename_re.search(ws_source), (
-        "ws.rs MUST NOT have a `relaunch_electron` => `relaunch_app` "
-        "rename arm, the Python sidecar now publishes `relaunch_app` "
-        "directly (PVT-2 cleanup). Re-introducing the rename would "
-        "recreate the pre-PVT-2 silent-restart bug."
-    )
-    # Belt-and-braces: the literal old name MUST NOT appear as a
-    # match arm pattern in ws.rs (only in comments is OK).
-    assert '"relaunch_electron" =>' not in ws_source, (
-        "ws.rs MUST NOT match the legacy `relaunch_electron` event name "
-        "in a per-type branch (PVT-2 cleanup, the rename arm is gone)."
-    )
     # (2026-07-24): ws.rs was refactored, the prior
     # ``let emit_name = event_type;`` direct assignment was replaced
     # by ``let emit_name = translate_event_name(event_type);``

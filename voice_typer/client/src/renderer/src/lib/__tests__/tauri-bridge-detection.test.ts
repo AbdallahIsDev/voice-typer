@@ -4,7 +4,7 @@
  * ADR-0020 §6.3: `tauri-bridge.ts` auto-installs `window.python`,
  * `window.bubble`, and `window.window_` using Tauri's global
  * `__TAURI__` API when running inside a Tauri WebView, and is a no-op
- * in Electron mode (where the Electron preload already installed the
+ * in predecessor mode (where the predecessor preload already installed the
  * same namespaces via `contextBridge.exposeInMainWorld`).
  *
  * These tests verify the three contract guarantees the renderer relies
@@ -12,7 +12,7 @@
  * both runtimes:
  *  1. In Tauri mode, `window.python.call({type, data})` routes to
  *     `invoke('dispatch', {cmd: type, data})`.
- *  2. In Electron mode, the module is a no-op, it does NOT override
+ *  2. In predecessor mode, the module is a no-op, it does NOT override
  *     the namespaces the preload installed.
  *  3. In Tauri mode, `window.bubble.onLevel(cb)` registers a Tauri
  *     event listener on the `bubble_level` channel.
@@ -163,20 +163,20 @@ describe("tauri-bridge detection", () => {
 		});
 	});
 
-	it("is a no-op in Electron mode (does not override existing window.python)", async () => {
-		// Simulate the Electron preload having already installed the
-		// three namespaces via contextBridge.exposeInMainWorld.
-		const electronPython = {
+	it("is a no-op when the bridge namespaces are already installed (does not override window.python)", async () => {
+		// Simulate an already-installed bridge having exposed the
+		// three namespaces on `window`.
+		const predecessorPython = {
 			call: vi.fn(() => Promise.resolve({ type: "result", data: {} })),
 			onEvent: vi.fn(() => () => {}),
 		};
-		const electronBubble = { onLevel: vi.fn(() => () => {}) };
-		const electronWindow = { minimize: vi.fn() };
+		const predecessorBubble = { onLevel: vi.fn(() => () => {}) };
+		const predecessorWindow = { minimize: vi.fn() };
 		const w = window as unknown as WindowBridgeState;
-		w.python = electronPython;
-		w.bubble = electronBubble;
-		w.window_ = electronWindow;
-		// Ensure no Tauri global is present (Electron path).
+		w.python = predecessorPython;
+		w.bubble = predecessorBubble;
+		w.window_ = predecessorWindow;
+		// Ensure no Tauri global is present (predecessor path).
 		delete w.__TAURI__;
 
 		// Importing the install side-effect module triggers
@@ -186,10 +186,10 @@ describe("tauri-bridge detection", () => {
 		await import("@/lib/tauri-bridge");
 		await import("@/lib/tauri-bridge/install");
 
-		// The Electron-installed namespaces must be untouched.
-		expect(w.python).toBe(electronPython);
-		expect(w.bubble).toBe(electronBubble);
-		expect(w.window_).toBe(electronWindow);
+		// The predecessor-installed namespaces must be untouched.
+		expect(w.python).toBe(predecessorPython);
+		expect(w.bubble).toBe(predecessorBubble);
+		expect(w.window_).toBe(predecessorWindow);
 	});
 
 	it("registers a Tauri event listener for window.bubble.onLevel in Tauri mode", async () => {
@@ -222,7 +222,7 @@ describe("tauri-bridge detection", () => {
 
 	it("does not install anything when window.__TAURI__ is present but lacks core.invoke", async () => {
 		// Defensive: a partial / future Tauri global without the invoke
-		// method should be treated as Electron (no-op), not crash.
+		// method should be treated as predecessor (no-op), not crash.
 		(window as unknown as { __TAURI__?: unknown }).__TAURI__ = {
 			event: { listen: vi.fn() },
 		};

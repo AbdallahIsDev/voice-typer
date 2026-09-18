@@ -17,8 +17,8 @@ Scope (ADR-0020 §7 + §15):
    Tauri bundles or serves, regardless of the directory ``tauri dev`` /
    ``tauri build`` was invoked from.
 
-2. **``app.security`` block**: ``csp`` is set and reproduces the
-   Electron CSP's core directives (``default-src 'self'``,
+2. **``app.security`` block**: ``csp`` is set and carries the core
+   directives (``default-src 'self'``,
    ``img-src 'self' data:``, ``style-src 'self' 'unsafe-inline'``,
    ``script-src 'self'``). ``capabilities`` references the
    ``main-runtime`` + ``bubble-runtime`` capability files (per ADR-0020 §7's
@@ -26,9 +26,8 @@ Scope (ADR-0020 §7 + §15):
 
 3. **No auto-update (ADR-0020 §15).** ``tauri-plugin-updater`` MUST
    NOT appear in ``Cargo.toml`` and the ``updater`` plugin entry MUST
-   NOT appear in ``tauri.conf.json``'s ``plugins`` block. The v1
-   Tauri migration ships as a manual download (same model as today's
-   Electron build); auto-update is a follow-up ADR.
+   NOT appear in ``tauri.conf.json``'s ``plugins`` block. The app
+   ships as a manual download; auto-update is a follow-up ADR.
 
 4. **Plugin chain in ``main.rs``**, registers ``shell``,
    ``notification``, ``clipboard-manager``, ``single-instance`` (first
@@ -142,12 +141,12 @@ _MAIN_RS = _TAURI_DIR / "src" / "main.rs"
 _CARGO_TOML = _TAURI_DIR / "Cargo.toml"
 _CLIENT_PACKAGE_JSON = _REPO_ROOT / "voice_typer" / "client" / "package.json"
 
-#: ADR-0020 §7: the renderer build output (electron-vite renderer-only
+#: ADR-0020 §7: the renderer build output (predecessor-vite renderer-only
 #: build → out/renderer/). beforeDevCommand + beforeBuildCommand must
 #: populate this dir before Tauri bundles or serves the webview.
-#: NOTE: ``dist/`` is the electron-builder INSTALLER output dir, the
-#: renderer build never emits there, so frontendDist must point at
-#: ``out/renderer`` (the electron-vite renderer output).
+#: NOTE: ``dist/`` is NOT the renderer output (the renderer build never
+#: emits there), so frontendDist must point at ``out/renderer`` (the
+#: renderer-only build output).
 EXPECTED_FRONTEND_DIST = "../voice_typer/client/out/renderer"
 
 #: ADR-0020 §7: Vite dev server default port (1420, Vite's
@@ -178,16 +177,16 @@ EXPECTED_HOOK_CWD = "../voice_typer/client"
 EXPECTED_CAPABILITY_IDENTIFIER = "main-runtime"
 EXPECTED_BUBBLE_CAPABILITY_IDENTIFIER = "bubble-runtime"
 
-#: ADR-0020 §7 + the Electron CSP (client/src/main/bootstrap.ts setupCsp).
+#: ADR-0020 §7 + the predecessor CSP (client/src/main/bootstrap.ts setupCsp).
 #: The Tauri CSP must reproduce at least these four core directives:
 #:   - default-src 'self'          (no cross-origin loads)
 #:   - img-src 'self' data:        (inline data-URI icons)
 #:   - style-src 'self' 'unsafe-inline'   (Tailwind / styled-jsx inlines)
 #:   - script-src 'self'           (NO 'unsafe-eval', NO 'unsafe-inline')
-#: The Electron CSP additionally carries font-src / media-src /
-#: connect-src / frame-ancestors / form-action / base-uri directives
-#: that the Tauri CSP currently omits: see the implementation-gap
-#: note attached to test_tauri_conf_security_csp_matches_electron_subset.
+#: The CSP additionally carries font-src / media-src / connect-src /
+#: frame-ancestors / form-action / base-uri directives that the Tauri
+#: CSP currently omits: see the implementation-gap note attached to
+#: test_tauri_conf_security_csp_has_core_directives.
 EXPECTED_CSP_CORE_DIRECTIVES = [
     "default-src 'self'",
     "img-src 'self' data:",
@@ -239,7 +238,7 @@ EXPECTED_MAIN_RS_COMMANDS = [
     # main.rs's generate_handler! list; the command lives in
     # commands/bubble/commands.rs. Added to the §16 contract when the
     # bubble-dismiss IPC channel landed (the renderer's bubble window
-    # routes dismiss via the Rust command, not the Electron-only
+    # routes dismiss via the Rust command, not the predecessor-only
     # `bubble:dismiss` IPC channel).
     "bubble_dismiss",
     # system-level window_ commands.
@@ -254,27 +253,27 @@ EXPECTED_MAIN_RS_COMMANDS = [
     # renderer-side error log sink.
     "renderer_log_error",
     # host-side locale storage (renderer i18n push; parity with the
-    # Electron-only `i18n:set-locale` main-process channel). The command
+    # predecessor-only `i18n:set-locale` main-process channel). The command
     # lives in commands/system_cmds.rs and stores into SidecarState.
     "set_host_locale",
-    # Electron-parity host surfaces added by the 2026-09-16 audit
+    # predecessor-parity host surfaces added by the 2026-09-16 audit
     # (review.md MO-118 / MO-120 / MO-113). Each is main-window-only
-    # (SEC-026) and each replaces an Electron main-process capability
+    # (SEC-026) and each replaces an predecessor main-process capability
     # that would otherwise be lost at the Tauri cutover:
     #   - `open_external_url_command`: `shell.openExternal` (https-only),
     #     the route every help / feedback / changelog / share link uses.
     #   - `reveal_path_command`: `shell.showItemInFolder`.
     #   - `restart_sidecar`: the renderer's "Lost connection → Retry"
-    #     escalation (Electron `backend:restart`).
+    #     escalation (predecessor `backend:restart`).
     #   - `renderer_heartbeat`: webview liveness beacon feeding the
-    #     host's renderer watchdog (Electron `child-process-gone`
+    #     host's renderer watchdog (predecessor `child-process-gone`
     #     telemetry, which no Tauri/wry platform surfaces).
     "open_external_url_command",
     "reveal_path_command",
     "restart_sidecar",
     "renderer_heartbeat",
     # Share-stats PNG export (review.md MO-121, ADR-0020 §16 addendum
-    # 2026-09-16). Replaces Electron `main/ipc/stats-image-handlers.ts`
+    # 2026-09-16). Replaces predecessor `main/ipc/stats-image-handlers.ts`
     # Save-As + Downloads instant-save (the reveal half is
     # `reveal_path_command` above). Main-window-only (SEC-026 via
     # `require_main_window`); payload is a `data:image/png;base64,...`
@@ -344,9 +343,8 @@ def test_tauri_conf_frontend_dist_points_to_renderer_build_output(
     ``frontendDist`` in production builds. The path is relative to
     ``src-tauri/`` (the location of tauri.conf.json), so
     ``../voice_typer/client/out/renderer`` resolves to the
-    electron-vite renderer-only build output (``npm run build:renderer``
-    emits ``voice_typer/client/out/renderer/``, NOT ``dist/``, which is
-    the electron-builder installer output dir).
+    renderer-only build output (``npm run build:renderer`` emits
+    ``voice_typer/client/out/renderer/``, NOT ``dist/``).
     """
     build = tauri_conf.get("build", {})
     assert "frontendDist" in build, (
@@ -391,8 +389,8 @@ def test_package_json_defines_build_renderer_script(
 
     Tauri's ``beforeDevCommand`` + ``beforeBuildCommand`` invoke this
     npm script to populate ``frontendDist`` before serving / bundling.
-    The script builds only the React renderer (not the Electron main
-    process) via electron-vite's ``--config`` flag, the Electron
+    The script builds only the React renderer (not the predecessor main
+    process) via predecessor-vite's ``--config`` flag, the predecessor
     main-process build artefacts are not consumed by Tauri.
     """
     scripts = client_package_json.get("scripts", {})
@@ -404,11 +402,11 @@ def test_package_json_defines_build_renderer_script(
     assert isinstance(script_value, str) and script_value, (
         f"package.json:scripts.{EXPECTED_RENDERER_BUILD_SCRIPT} must be a non-empty string; got {script_value!r}"
     )
-    # The script must invoke a build tool (electron-vite or vite), not
+    # The script must invoke a build tool (predecessor-vite or vite), not
     # just `echo` or `true`, so the renderer out/renderer/ is actually populated.
-    assert re.search(r"\b(electron-vite|vite)\b.*\bbuild\b", script_value), (
+    assert re.search(r"\b(predecessor-vite|vite)\b.*\bbuild\b", script_value), (
         f"package.json:scripts.{EXPECTED_RENDERER_BUILD_SCRIPT} must invoke a "
-        f"Vite-family build (electron-vite or vite build); got {script_value!r}"
+        f"Vite-family build (predecessor-vite or vite build); got {script_value!r}"
     )
 
 
@@ -490,7 +488,7 @@ def test_tauri_conf_before_build_command_runs_renderer_build(tauri_conf) -> None
     )
 
 
-# ─── Test 4: app.security.csp is set + matches Electron CSP subset ────
+# ─── Test 4: app.security.csp is set + matches predecessor CSP subset ────
 
 
 def test_tauri_conf_security_csp_is_set(tauri_conf) -> None:
@@ -512,18 +510,17 @@ def test_tauri_conf_security_csp_is_set(tauri_conf) -> None:
     assert isinstance(csp, str) and csp, f"app.security.csp must be a non-empty string; got {csp!r}"
 
 
-def test_tauri_conf_security_csp_matches_electron_subset(tauri_conf) -> None:
-    """ADR-0020 §7: the Tauri CSP must reproduce the Electron CSP's core directives.
+def test_tauri_conf_security_csp_has_core_directives(tauri_conf) -> None:
+    """ADR-0020 §7: the Tauri CSP must carry the core directives.
 
-    The Electron build's CSP (``client/src/main/bootstrap.ts::setupCsp``)
-    carries these core directives that the Tauri CSP MUST also carry:
+    These four core directives MUST be present:
 
       - ``default-src 'self'``          (no cross-origin loads)
       - ``img-src 'self' data:``        (inline data-URI icons)
       - ``style-src 'self' 'unsafe-inline'``   (Tailwind inlines)
       - ``script-src 'self'``           (NO 'unsafe-eval', NO 'unsafe-inline')
 
-    The Electron CSP additionally carries ``font-src``, ``media-src``,
+    The CSP additionally carries ``font-src``, ``media-src``,
     ``connect-src 'self' https://api.github.com``, ``frame-ancestors 'none'``,
     ``form-action 'none'``, ``base-uri 'self'``. The current Tauri CSP
     omits those extras: that is a known implementation gap (tracked
@@ -535,12 +532,12 @@ def test_tauri_conf_security_csp_matches_electron_subset(tauri_conf) -> None:
     for directive in EXPECTED_CSP_CORE_DIRECTIVES:
         assert directive in csp, (
             f"app.security.csp must contain {directive!r} (one of the four "
-            f"core Electron CSP directives); full CSP was: {csp!r}"
+            f"core CSP directives); full CSP was: {csp!r}"
         )
 
     # CR-SEC: script-src must NOT allow 'unsafe-eval' or 'unsafe-inline'
-    # , those are the two script-injection footguns. The Electron CSP
-    # also forbids them; the Tauri CSP must do the same.
+    # , those are the two script-injection footguns. The CSP must forbid
+    # both.
     assert "'unsafe-eval'" not in csp, (
         f"app.security.csp must NOT contain 'unsafe-eval' (script injection footgun); full CSP was: {csp!r}"
     )
@@ -600,7 +597,7 @@ def test_cargo_toml_has_no_updater_plugin(cargo_toml_source, forbidden_token) ->
     (ADR-0020 §15). The ``tauri-plugin-updater`` crate adds a signing-
     key distribution problem + a manifest-hosting problem that are
     orthogonal to the runtime migration. Ship the Tauri build as a
-    manual-download release (matching today's Electron release
+    manual-download release (matching today's predecessor release
     model, there is no working auto-update today, see
     ``docs/auto-update-feature.md``'s "STATUS: NOT IMPLEMENTED"
     header). Track auto-update as a separate follow-up ADR.
@@ -672,8 +669,8 @@ def test_main_rs_registers_required_plugin(main_rs_source, plugin_crate) -> None
         python processes on double-launch)
       - ``tauri_plugin_shell`` (ADR-0020 §4.1, spawns the python-sidecar
         externalBin)
-      - ``tauri_plugin_notification`` (replaces Electron's
-        show_electron_notification, ADR-0020 §6)
+      - ``tauri_plugin_notification`` (replaces the predecessor's
+        the legacy notification command, ADR-0020 §6)
       - ``tauri_plugin_clipboard_manager`` (paste fallback path when
         enigo can't reach the focused window, ADR-0020 §6.2)
       - ``tauri_plugin_dialog`` (MIG-1.1, save-file dialog for the

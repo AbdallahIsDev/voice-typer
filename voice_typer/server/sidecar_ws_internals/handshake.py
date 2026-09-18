@@ -164,7 +164,7 @@ async def _authenticate(websocket) -> bool:
     # still be able to authenticate (the version negotiation is
     # defense-in-depth, not a security gate). A blind reject would send
     # the Rust supervisor into its refused-connection respawn loop
-    # (ADR-0022; the Electron/TCP reject path is retired with TCP).
+    # (ADR-0022; the predecessor/TCP reject path is retired with TCP).
     host_protocol = first.get("protocol_version")
     if host_protocol is not None:
         try:

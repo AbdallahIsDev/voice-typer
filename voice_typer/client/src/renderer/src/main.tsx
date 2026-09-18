@@ -11,7 +11,7 @@ import "./index.css";
 // React app mounts so `window.python` / `window.bubble` / `window.window_`
 // are available when `usePython` and other hooks initialize. The runtime
 // gate (Tauri-only dynamic import, separate async chunk, never fetched
-// under Electron where the preload already installed the namespaces) and
+// under predecessor where the preload already installed the namespaces) and
 // its full rationale live in `./lib/tauri-bridge/ensure`, the single
 // shared copy of a gate this entrypoint previously duplicated from
 // `bubble-main.tsx`. Top-level await guarantees ordering, the
@@ -39,7 +39,7 @@ await ensureTauriBridgeInstalled();
 // for the defensive guard).
 installGlobalErrorHandlers();
 
-// MO-105: console capture. Under Electron the main process listened to
+// MO-105: console capture. Under predecessor the main process listened to
 // each webview's `console-message` and routed WARN/ERROR into the host
 // log; Tauri has no such listener, so `console.warn` / `console.error`
 // from UI code that never reached React's boundary left no trace in

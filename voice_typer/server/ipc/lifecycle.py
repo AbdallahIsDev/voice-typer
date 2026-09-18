@@ -230,7 +230,7 @@ class LifecycleMixin:
         # the TCP socket enforces the VOICE_TYPER_IPC_TOKEN handshake.
         # The stdin listener is only for the legacy stdin/stdout IPC mode
         # (``_tcp_mode`` is False). In TCP mode stdin is unused (inherited
-        # from Electron, connected to /dev/null or NUL).
+        # from predecessor, connected to /dev/null or NUL).
         #
         #  (High): the unauthenticated stdin IPC path is gated
         # behind ``VOICE_TYPER_ALLOW_STDIN_IPC=1``. When ``_tcp_mode`` is
@@ -272,10 +272,10 @@ class LifecycleMixin:
                 self._stdin_thread = None
         else:
             self._stdin_thread = None
-        # start the Electron-alive heartbeat watchdog.  Daemon
+        # start the predecessor-alive heartbeat watchdog.  Daemon
         # thread so it doesn't block shutdown.  The thread refuses to
         # fire ``app.quit()`` until the first heartbeat lands, so a
-        # slow Electron cold start (10+ seconds for torch import)
+        # slow predecessor cold start (10+ seconds for torch import)
         # doesn't trigger a false-positive exit.
         # ADR-0020 §2 + §10: under the Tauri sidecar path
         # (TAURI_SIDECAR=1), the Python-side heartbeat watchdog
@@ -543,11 +543,11 @@ class LifecycleMixin:
     # ── Heartbeat watchdog () ───────────────────────────────────────
 
     def _heartbeat_loop(self) -> None:
-        """daemon thread that watches for Electron heartbeat timeouts.
+        """daemon thread that watches for predecessor heartbeat timeouts.
 
         Wakes every ``_HEARTBEAT_INTERVAL_SECONDS`` (5s) and calls
         :meth:`_check_heartbeat_timeout`.  When the timeout fires
-        (9 missed heartbeats = 45s without a heartbeat from Electron;
+        (9 missed heartbeats = 45s without a heartbeat from predecessor;
         reduced from 120s/24 misses to align with the Rust-side
         ~30-45s supervisor respawn window), the loop returns —
         ``app.quit()`` has already been triggered, which runs the
@@ -573,12 +573,12 @@ class LifecycleMixin:
         Returns ``True`` when ``app.quit()`` was called, ``False``
         otherwise.  The ``False`` cases are:
 
-        - ``_last_heartbeat_at is None``: Electron has not yet sent
+        - ``_last_heartbeat_at is None``: predecessor has not yet sent
           its first heartbeat.  The watchdog must NOT fire here, or a
-          slow Electron cold start (10+ seconds for the torch import)
+          slow predecessor cold start (10+ seconds for the torch import)
           would cause a false-positive exit.
         - ``now - last <= _HEARTBEAT_TIMEOUT_SECONDS``: the most
-          recent heartbeat is fresh enough; Electron is still alive.
+          recent heartbeat is fresh enough; predecessor is still alive.
 
         The ``True`` case calls ``self.app.quit()``: which runs the
         shared ``_do_cleanup()`` cleanup path () so the mic
@@ -603,16 +603,16 @@ class LifecycleMixin:
         """
         last = self._last_heartbeat_at
         if last is None:
-            # No heartbeat yet. Electron hasn't connected.  Don't
+            # No heartbeat yet. predecessor hasn't connected.  Don't
             # fire.  This is the critical guard that prevents a false
-            # positive during a slow Electron cold start.
+            # positive during a slow predecessor cold start.
             return False
         now = time.monotonic()
         if now - last <= _HEARTBEAT_TIMEOUT_SECONDS:
             return False
         log.warning(
-            "[HEARTBEAT] No heartbeat from Electron in %.1fs (>%0.1fs) "
-            "— backend will quit (Electron likely crashed or was "
+            "[HEARTBEAT] No heartbeat from predecessor in %.1fs (>%0.1fs) "
+            "— backend will quit (predecessor likely crashed or was "
             "force-killed)",
             now - last,
             _HEARTBEAT_TIMEOUT_SECONDS,
@@ -692,13 +692,13 @@ class LifecycleMixin:
     def _handle_heartbeat(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope:
         """Handle the ``heartbeat`` IPC command ().
 
-        Electron's main process sends this every 5 seconds (see
+        the predecessor's main process sends this every 5 seconds (see
         ``client/src/main/index.ts``) once the TCP connection is
         established.  The handler updates ``_last_heartbeat_at`` so
-        the :meth:`_heartbeat_loop` daemon thread knows Electron is
+        the :meth:`_heartbeat_loop` daemon thread knows predecessor is
         still alive.
 
-        The response is a trivial ``heartbeat_ack``: Electron does
+        The response is a trivial ``heartbeat_ack``: predecessor does
         not act on it (the heartbeat is fire-and-forget), but
         returning a well-formed response keeps the IPC dispatcher's
         ``result.setdefault('data', {})`` path happy and lets
@@ -709,12 +709,12 @@ class LifecycleMixin:
         return resp
 
     def _handle_relaunch_ack(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:
-        """PERF-005: Electron ack that it has received and is processing the
-        ``relaunch_electron`` request.
+        """PERF-005: predecessor ack that it has received and is processing the
+        ``the legacy relaunch event name`` request.
 
         ``restart_app`` waits on ``self._relaunch_ack_event`` (bounded by a
         2s timeout) instead of a fixed ``time.sleep(0.3)``, so the tray
-        thread is unblocked as soon as Electron acks, rather than always
+        thread is unblocked as soon as predecessor acks, rather than always
         blocking 300ms.  The handler returns ``None`` (no response body):
         restart_app owns the socket teardown, and any response write races
         the imminent shutdown, so there is nothing meaningful to return.
@@ -723,7 +723,7 @@ class LifecycleMixin:
         return None
 
     def wait_for_relaunch_ack(self, timeout: float) -> bool:
-        """Wait for Electron's ``relaunch_ack`` signal (PERF-005).
+        """Wait for the predecessor's ``relaunch_ack`` signal (PERF-005).
 
         Public wrapper around the private ``_relaunch_ack_event`` so
         :class:`voice_typer.server.app.VoiceTyperApp` does not have to

@@ -60,7 +60,7 @@ def _a11y_regrant_message(bundle_id: str | None) -> str:
     When the HOST app's bundle ID can be resolved at runtime (see
     ``resolve_host_bundle_id``), the message includes the exact
     ``tccutil reset Accessibility <bundle-id>`` command for the
-    currently-running runtime (Electron or Tauri). When it cannot be
+    currently-running runtime (predecessor or Tauri). When it cannot be
     resolved (dev-mode run without an ``.app`` in the process chain),
     fall back to the generic System Settings walkthrough, a wrong
     bundle ID in a ``tccutil`` command is worse than no command.
@@ -348,7 +348,7 @@ def ensure_desktop_shortcut(app: AppProtocol) -> None:
 
     Also migrates away the legacy backend-only ``Voice Typer.bat`` that
     pointed at ``pythonw -m voice_typer`` (which started the backend
-    with no Electron, so the bubble overlay never worked).  That .bat
+    with no predecessor, so the bubble overlay never worked).  That .bat
     is removed so the user is left with only the correct universal
     launcher shortcut.
     """
@@ -555,7 +555,7 @@ def load_microphones(app: AppProtocol, shutdown_event: threading.Event | None = 
     AUDIO-MIC: detects device changes by comparing the new list against
     the cached one. When the set of device IDs changes (USB mic
     plugged/unplugged), pushes a ``microphones_changed`` IPC event so
-    the Electron renderer can refresh its microphone dropdown without
+    the predecessor renderer can refresh its microphone dropdown without
     a manual "Refresh" click. The comparison is done via ``old_ids``
     and ``new_ids`` sets.
     """
@@ -593,7 +593,7 @@ def load_microphones(app: AppProtocol, shutdown_event: threading.Event | None = 
         # AUDIO-MIC: detect device changes by comparing the new
         # list against the cached one. If the set of device IDs
         # changed (USB mic plugged/unplugged), notify the UI via
-        # IPC push event so the Electron renderer can refresh its
+        # IPC push event so the predecessor renderer can refresh its
         # microphone dropdown without a manual "Refresh" click.
         app_mics = app_microphones(app)
         old_ids = {m["id"] for m in app_mics} if app_mics else set()
@@ -791,7 +791,7 @@ def start_accessibility_pulse(app: AppProtocol, initial_state: bool) -> None:
                     with contextlib.suppress(Exception):
                         if _version_changed:
                             # Resolve the HOST app's bundle ID at runtime:
-                            # both the Electron and Tauri builds work, and a
+                            # both the predecessor and Tauri builds work, and a
                             # future bundle-identifier change needs no code
                             # edit here. If resolution fails (dev-mode run),
                             # ``_a11y_regrant_message`` falls back to the

@@ -116,7 +116,7 @@ export function useVocabularyImportExport({
 	);
 
 	// The GDPR export IPC bridge. Returns null when the bridge is
-	// unavailable (running outside Electron) so the skeleton shows the
+	// unavailable (running outside predecessor) so the skeleton shows the
 	// not-available toast instead of a silent dead control.
 	const exportFile = useCallback(
 		(items: VocabularyEntry[], format: ExportFormat) => {

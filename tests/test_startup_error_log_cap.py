@@ -30,7 +30,7 @@ appends) by simulating two consecutive failures and checking the
 final file size matches ONE traceback, not two.
 
 Because ``main()`` is a long entry-point function with many side
-effects (process metadata, single-instance lock, Electron launcher,
+effects (process metadata, single-instance lock, predecessor launcher,
 etc.), we test the diagnostic-write behavior in isolation by
 extracting the relevant code path into a small helper that we
 exercise directly.  The tests use ``tmp_path`` + ``monkeypatch`` to

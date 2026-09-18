@@ -356,7 +356,7 @@
 	background-clip: content-box;
 }
 
-/* Custom title bar drag regions (Electron). The strip itself is a drag
+/* Custom title bar drag regions. The strip itself is a drag
    region, the buttons opt out so they remain clickable. */
 .drag-region {
 	-webkit-app-region: drag;

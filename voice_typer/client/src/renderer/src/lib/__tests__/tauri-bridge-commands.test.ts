@@ -12,7 +12,7 @@
  *
  *   (locale push):
  *   - `window.window_.setLocale(locale)` → `invoke('set_host_locale', { locale })`
- *     (Electron `i18n:set-locale` parity, the Rust host stores the
+ *     (predecessor `i18n:set-locale` parity, the Rust host stores the
  *      value in `SidecarState::host_locale`)
  *
  *   (bubble commands):
@@ -31,9 +31,9 @@
  * global with `vi.fn()` and assert each bridge method invokes it with
  * the expected command name and argument envelope.
  *
- * The test also verifies the Electron-mode no-op contract: when
- * `window.__TAURI__` is absent (Electron runtime), the bridge MUST NOT
- * override the namespaces already installed by the Electron preload
+ * The test also verifies the predecessor-mode no-op contract: when
+ * `window.__TAURI__` is absent (predecessor runtime), the bridge MUST NOT
+ * override the namespaces already installed by the predecessor preload
  * (`window.python`, `window.bubble`, `window.window_`). This is the
  * Phase 3 UI port invariant, the renderer code is identical on both
  * paths because the bridge auto-installs the right namespace.
@@ -212,7 +212,7 @@ describe("tauri-bridge commands (MIG-1.1 + MIG-1.2)", () => {
 		});
 	});
 
-	it("exportHistory maps Rust `{canceled: true}` to `{success: false}` (Electron parity)", async () => {
+	it("exportHistory maps Rust `{canceled: true}` to `{success: false}` (host parity)", async () => {
 		const stub = makeTauriStub();
 		(window as unknown as WindowBridgeState).__TAURI__ = stub;
 
@@ -223,7 +223,7 @@ describe("tauri-bridge commands (MIG-1.1 + MIG-1.2)", () => {
 		stub.core.invoke.mockResolvedValueOnce({ canceled: true });
 		const result = await windowBridge?.exportHistory?.([], "json");
 
-		// Electron's `history:export` IPC handler returns
+		// the predecessor's `history:export` IPC handler returns
 		// `{success: false}` (no path, no error) when the user
 		// dismisses the save dialog. The Tauri bridge must map
 		// `{canceled: true}` to the same shape so the renderer
@@ -232,7 +232,7 @@ describe("tauri-bridge commands (MIG-1.1 + MIG-1.2)", () => {
 		expect(result).toEqual({ success: false });
 	});
 
-	it("exportHistory maps Rust throw to `{success: false, error}` (Electron parity)", async () => {
+	it("exportHistory maps Rust throw to `{success: false, error}` (host parity)", async () => {
 		const stub = makeTauriStub();
 		(window as unknown as WindowBridgeState).__TAURI__ = stub;
 
@@ -426,9 +426,9 @@ describe("tauri-bridge commands (MIG-1.1 + MIG-1.2)", () => {
 	});
 
 	it("bubble.onLocaleChanged subscribes to the 'bubble:locale-changed' event", async () => {
-		// Locale-change push parity with the Electron preload: the
+		// Locale-change push parity with the predecessor preload: the
 		// bubble-window-only `onLocaleChanged` must listen on the same
-		// kebab-case event name the Electron channel uses, and forward
+		// kebab-case event name the predecessor channel uses, and forward
 		// the bare locale string payload to the callback. Bubble-only
 		// (like dismiss), so the stub must report `label: "bubble"`.
 		const stub = makeTauriStub();
@@ -517,16 +517,16 @@ describe("tauri-bridge commands (MIG-1.1 + MIG-1.2)", () => {
 		expect(result).toEqual({ ok: false, error: "command unavailable" });
 	});
 
-	//Electron-mode no-op (Phase 3 UI port invariant) ──
+	//predecessor-mode no-op (Phase 3 UI port invariant) ──
 
-	it("is a no-op in Electron mode (does not override existing window.python/bubble/window_)", async () => {
-		// Simulate the Electron preload having already installed the
-		// three namespaces via contextBridge.exposeInMainWorld.
-		const electronPython = {
+	it("is a no-op when the bridge namespaces are already installed (does not override window.python/bubble/window_)", async () => {
+		// Simulate an already-installed bridge having exposed the
+		// three namespaces on `window`.
+		const predecessorPython = {
 			call: vi.fn(() => Promise.resolve({ type: "result", data: {} })),
 			onEvent: vi.fn(() => () => {}),
 		};
-		const electronBubble = {
+		const predecessorBubble = {
 			onLevel: vi.fn(() => () => {}),
 			show: vi.fn(),
 			signalReady: vi.fn(),
@@ -535,7 +535,7 @@ describe("tauri-bridge commands (MIG-1.1 + MIG-1.2)", () => {
 			moveBy: vi.fn(),
 			hideComplete: vi.fn(),
 		};
-		const electronWindow = {
+		const predecessorWindow = {
 			minimize: vi.fn(),
 			exportHistory: vi.fn(() =>
 				Promise.resolve({ success: true, path: "/tmp/x.json" }),
@@ -545,10 +545,10 @@ describe("tauri-bridge commands (MIG-1.1 + MIG-1.2)", () => {
 			),
 		};
 		const w = window as unknown as WindowBridgeState;
-		w.python = electronPython;
-		w.bubble = electronBubble;
-		w.window_ = electronWindow;
-		// Ensure no Tauri global is present (Electron path).
+		w.python = predecessorPython;
+		w.bubble = predecessorBubble;
+		w.window_ = predecessorWindow;
+		// Ensure no Tauri global is present (predecessor path).
 		delete w.__TAURI__;
 
 		// Importing the install side-effect module triggers
@@ -558,10 +558,10 @@ describe("tauri-bridge commands (MIG-1.1 + MIG-1.2)", () => {
 		await import("@/lib/tauri-bridge");
 		await import("@/lib/tauri-bridge/install");
 
-		// The Electron-installed namespaces must be untouched (same
+		// The predecessor-installed namespaces must be untouched (same
 		// referential identity, not replaced, not wrapped).
-		expect(w.python).toBe(electronPython);
-		expect(w.bubble).toBe(electronBubble);
-		expect(w.window_).toBe(electronWindow);
+		expect(w.python).toBe(predecessorPython);
+		expect(w.bubble).toBe(predecessorBubble);
+		expect(w.window_).toBe(predecessorWindow);
 	});
 });

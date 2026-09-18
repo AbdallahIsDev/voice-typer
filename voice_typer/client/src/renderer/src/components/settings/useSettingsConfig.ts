@@ -410,7 +410,7 @@ export function useSettingsConfig(): UseSettingsConfigResult {
 	//
 	// A `beforeunload` listener covers the close-to-tray / window-
 	// close / app-quit path (the React unmount cleanup does NOT
-	// fire on `beforeunload`, Electron tears down the renderer
+	// fire on `beforeunload`, predecessor tears down the renderer
 	// process directly).  The listener calls the same flush path
 	// so a pending edit isn't dropped when the user quits the app
 	// mid-debounce.  Fire-and-forget: the IPC layer queues the

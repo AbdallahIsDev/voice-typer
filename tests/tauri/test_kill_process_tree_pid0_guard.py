@@ -18,7 +18,7 @@ group; ``getpgid(0)`` returns the caller's own pgid).
 
 These checks are static (read-the-source) so they run in the sandbox
 without needing a real process tree, and they fail with a clear message
-in the Electron test suite if the guard is ever removed, instead of the
+in the predecessor test suite if the guard is ever removed, instead of the
 CI job being silently killed by the Rust test itself.
 """
 

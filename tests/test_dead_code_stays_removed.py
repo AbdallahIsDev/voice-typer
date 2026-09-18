@@ -158,7 +158,7 @@ The ``pyproject.toml`` previously declared
 ``"voice_typer.server" = ["assets/fonts/hgi-stroke-rounded.ttf"]`` as
 package-data, but:
 - The file (1.9 MB) was never loaded by any Python source file.
-- The new Electron app uses ``@hugeicons/react`` from npm instead.
+- The new predecessor app uses ``@hugeicons/react`` from npm instead.
 - The ``assets/icons/`` directory referenced 19 SVG files that were
   also unused.
 
@@ -459,7 +459,7 @@ never invoked by any IPC route or UI button.  The fix:
 2. Adds an IPC route ``test_llm_connection`` that delegates to the
    service method.
 3. Adds ``test_llm_connection`` to the renderer's IPC command
-   allowlist so the Electron main process will forward it.
+   allowlist so the predecessor main process will forward it.
 """
 
 
@@ -598,7 +598,7 @@ class TestRendererAllowlist:
     ``test_llm_connection``, the IPC command was removed from
     ``_COMMAND_REGISTRY`` and the renderer no longer invokes it.
 
-    Post-Electron cutover: the TS ``ALLOWED_COMMANDS`` set is gone;
+    Post-predecessor cutover: the TS ``ALLOWED_COMMANDS`` set is gone;
     the Rust ``allowed_commands()`` set is the sole renderer-reachable
     gate.
     """

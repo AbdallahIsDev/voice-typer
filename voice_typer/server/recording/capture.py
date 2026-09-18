@@ -849,7 +849,7 @@ class AudioCallbackDispatcher:
 
         IPC event worker thread main loop. Consumes events from
         ``_event_queue`` and calls ``event_bus.publish`` so the IPC
-        transport (TCP / stdout) can forward them to the Electron
+        transport (TCP / stdout) can forward them to the predecessor
         renderer. This thread is the SINGLE consumer, the audio worker
         thread is the single producer, so no locks are needed on the
         queue (``queue.Queue`` is already thread-safe for MPSC).

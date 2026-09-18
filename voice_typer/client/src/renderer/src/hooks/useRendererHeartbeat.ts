@@ -2,7 +2,7 @@
  * useRendererHeartbeat, feeds the host's webview liveness watchdog
  * (review.md MO-113).
  *
- * Electron logged `child-process-gone` (GPU / renderer crashes) from the
+ * predecessor logged `child-process-gone` (GPU / renderer crashes) from the
  * main process. No Tauri/wry platform surfaces an equivalent renderer
  * crash event, so the host watches whether this renderer's JavaScript is
  * still RUNNING: a lightweight `renderer_heartbeat` invoke every

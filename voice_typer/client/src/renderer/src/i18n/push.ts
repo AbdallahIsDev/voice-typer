@@ -1,7 +1,7 @@
 // Cross-boundary IPC push helpers + tray-label resolver.
 //
 // ``setLocale`` (in ``./store``) calls these pushers after the locale
-// mutates so the Electron main process and the Python sidecar both
+// mutates so the predecessor main process and the Python sidecar both
 // learn about the locale switch and can localise their native surfaces
 // (main-process dialogs, system-tray menu items).
 //
@@ -414,7 +414,7 @@ export function trayLabelsForLocale(): Record<string, string> {
 }
 
 /**
- * Best-effort push of the current locale to the Electron main process
+ * Best-effort push of the current locale to the predecessor main process
  * via the ``window.window_.setLocale(locale)`` IPC bridge (registered
  * in ``main/ipc/window-handlers.ts`` as the ``i18n:set-locale``
  * handler). The main process uses the pushed locale to localise native
@@ -422,8 +422,8 @@ export function trayLabelsForLocale(): Record<string, string> {
  * picker, export save-as dialogs).
  *
  * No-op when the bridge is missing (module-init scenario where neither
- * the Electron preload nor the Tauri bridge has installed ``window_``
- * yet). Under both runtimes the push is a plain resolve: Electron
+ * the predecessor preload nor the Tauri bridge has installed ``window_``
+ * yet). Under both runtimes the push is a plain resolve: predecessor
  * stores the locale in its main process, and the Tauri host stores it
  * in ``SidecarState::host_locale`` via the ``set_host_locale``
  * command. Rejections and sync throws are caught and logged via

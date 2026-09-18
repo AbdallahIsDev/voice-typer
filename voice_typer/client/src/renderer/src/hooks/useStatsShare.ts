@@ -141,7 +141,7 @@ export function computeShareStats(
 
 /**
  * Trigger a browser-style download of a PNG data URL via an anchor
- * element. Used as the fallback path when the Electron bridge is
+ * element. Used as the fallback path when the predecessor bridge is
  * unavailable (Tauri runtime, plain web dev).
  */
 export function triggerAnchorDownload(dataUrl: string, filename: string): void {
@@ -160,7 +160,7 @@ export function triggerAnchorDownload(dataUrl: string, filename: string): void {
  *
  * Capture returns the PNG as a `data:image/png;base64,…` URL. The
  * platform operations (instant save to Downloads, native Save As
- * dialog, clipboard write, reveal in folder) run in the Electron main
+ * dialog, clipboard write, reveal in folder) run in the predecessor main
  * process via the `window.window_.saveStatsImage` /
  * `copyStatsImage` / `revealStatsImage` bridge. When the bridge is
  * unavailable (Tauri / browser), the actions degrade to an anchor
@@ -266,7 +266,7 @@ export function useStatsShare(options?: UseStatsShareOptions) {
 
 	/** Capture + instant-save to the OS Downloads folder (no dialog).
 	 * Returns the saved file path, or `null` on failure. Falls back to
-	 * an anchor download when the Electron bridge is unavailable. */
+	 * an anchor download when the predecessor bridge is unavailable. */
 	const downloadImage = useCallback(
 		async (filename = STATS_IMAGE_FILENAME): Promise<string | null> => {
 			const dataUrl = await captureImage();

@@ -10,10 +10,10 @@ import "./index.css";
 // ADR-0020 §6.3 (Phase 3 UI port): install the Tauri bridge BEFORE the
 // bubble React app mounts so `window.bubble` is available. The runtime
 // gate (Tauri-only dynamic import, separate async chunk, never fetched
-// under Electron where the bubble preload already installed the
+// under predecessor where the bubble preload already installed the
 // namespace) and its full rationale live in `./lib/tauri-bridge/ensure` —
 // the single shared copy of a gate this entrypoint previously duplicated
-// from `main.tsx`. In Electron mode the gate is false and this is a
+// from `main.tsx`. In predecessor mode the gate is false and this is a
 // no-op. Top-level await guarantees ordering, the
 // `ReactDOM.createRoot().render()` call below does not run until the
 // bridge is installed, so the `window.bubble?.signalReady` call further
@@ -40,7 +40,7 @@ await ensureTauriBridgeInstalled();
 installGlobalErrorHandlers();
 
 // MO-105: the bubble is a SEPARATE BrowserWindow / JS context from the
-// main renderer. Under Electron the main process captured console
+// main renderer. Under predecessor the main process captured console
 // output from BOTH webviews; under Tauri each entrypoint must install
 // the shared sink itself. `installConsoleCapture()` is idempotent and
 // reuses the same `window_.logError` path as main.tsx — no new bridge
@@ -65,7 +65,7 @@ if (!bubbleRootEl)
 // BrowserWindow itself stays alive, leaving a stuck invisible overlay
 // that intercepts clicks. Rendering null on error makes the overlay
 // visually disappear (and the ErrorBoundary logs the caught error to
-// the renderer console, which Electron surfaces in the diagnostic log).
+// the renderer console, which predecessor surfaces in the diagnostic log).
 ReactDOM.createRoot(bubbleRootEl).render(
 	<React.StrictMode>
 		<ErrorBoundary fallback={null}>

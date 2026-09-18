@@ -55,8 +55,8 @@ class TestSubprocessCrashRecoveryHandler:
     def test_exit_handler_logic_exists(self):
         """Tauri host must reap/kill the Python sidecar on host exit.
 
-        Post-Electron cutover the pythonProcess.on('exit') handler lives
-        in the Rust supervisor, not Electron main. Pin the supervisor
+        Post-predecessor cutover the pythonProcess.on('exit') handler lives
+        in the Rust supervisor, not predecessor main. Pin the supervisor
         spawn/respawn wiring so a sidecar cannot outlive the host.
         """
         supervisor = (
@@ -109,9 +109,9 @@ class TestSidecarCrashDetectionBehavioral:
 
     NOTE: This test exercises the OS-level subprocess-exit detection
     contract that ``pythonProcess.on('exit')`` in start-python.ts
-    relies on. A full Electron-side behavioral test (spawning the
-    actual Electron main process + Python sidecar together) is
-    deferred, it requires a running Electron app and is too heavy
+    relies on. A full predecessor-side behavioral test (spawning the
+    actual predecessor main process + Python sidecar together) is
+    deferred, it requires a running predecessor app and is too heavy
     for unit-test CI. This test provides the behavioral coverage at
     the subprocess level.
     """

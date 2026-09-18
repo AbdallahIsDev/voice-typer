@@ -222,16 +222,16 @@ def test_setup_logging_attaches_stream_handler_without_tty(tmp_path: Path, monke
 
 
 def test_port_mode_with_redirected_stderr_uses_plain_formatter(tmp_path: Path, monkeypatch) -> None:
-    """A ``--port`` run with a NON-TTY stderr (the Electron launcher
-    redirects the backend's stderr to ``electron-stderr.log``) must use
+    """A ``--port`` run with a NON-TTY stderr (the launcher
+    redirects the backend's stderr to a log file) must use
     the plain ``_FileFormatter`` on the stream handler, no ANSI escape
     codes in the log file.
 
     Regression: ``do_color = sys.stderr.isatty() or port_mode`` forced
-    colours whenever ``--port`` was in argv, and the Electron TCP path
+    colours whenever ``--port`` was in argv, and the predecessor TCP path
     (``python -m ipc_server --port N``) IS such a run, so every backend
-    line landed in ``electron-stderr.log`` with raw ``\x1b[...`` codes
-    mixed with the Electron + Vite output. Colors now require a real
+    line landed in that log file with raw ``\x1b[...`` codes
+    mixed with the predecessor + Vite output. Colors now require a real
     TTY; redirected output stays plain.
     """
 

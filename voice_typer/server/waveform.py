@@ -1,7 +1,7 @@
-"""Waveform visualization bubble. Electron-side overlay controller.
+"""Waveform visualization bubble. predecessor-side overlay controller.
 
 The bubble itself is a small, frameless, always-on-top ``BrowserWindow``
-that the Electron main process creates on demand.  This module owns the
+that the predecessor main process creates on demand.  This module owns the
 state and the listener wiring on the Python side:
 
 - ``show()`` / ``hide()`` notify listeners that the bubble should
@@ -11,7 +11,7 @@ state and the listener wiring on the Python side:
   live waveform that responds to the user's voice.
 
 The listeners (registered by ``app.py``) forward these events through
-the IPC server so Electron can drive the renderer.
+the IPC server so predecessor can drive the renderer.
 """
 
 import contextlib
@@ -25,7 +25,7 @@ log = logging.getLogger(__name__)
 class WaveformBubble:
     """State + listener registry for the waveform bubble overlay.
 
-    The actual UI is rendered by the Electron renderer process.  This
+    The actual UI is rendered by the predecessor renderer process.  This
     class is a thin coordinator that:
 
     - tracks whether the bubble should currently be visible

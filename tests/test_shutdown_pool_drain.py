@@ -214,7 +214,7 @@ class _FakeAppForDoCleanup:
         self._shutting_down = False
         self._shutting_down_event = threading.Event()
         self._cleanup_done = False
-        self._electron_pid: int | None = None
+        self._host_pid: int | None = None
         self._mutex_handle = None
 
         # Subsystem collaborators (MagicMock so any attribute/method call

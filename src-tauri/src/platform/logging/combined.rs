@@ -64,7 +64,7 @@ pub(crate) struct CombinedLogger {
     /// sinks, that is decided by [`Self::file_level`] inside `log`.
     pub(crate) level_filter: log::LevelFilter,
     /// Level gate for the FILE sink only. The file defaults to
-    /// WARN/ERROR (mirroring the Electron production contract, where the
+    /// WARN/ERROR (mirroring the predecessor production contract, where the
     /// host file carried WARN+ and INFO went to stdout unless an opt-in
     /// env var was set), so the default support log stays small and
     /// rotation-friendly; INFO can be opted back in with

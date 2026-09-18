@@ -69,7 +69,7 @@ import os  # noqa: F401  (re-exported: tests patch vt_log.os.name)
 # Centralized log-retention constants.  Mirror the Rust-side
 # ``LOG_MAX_BYTES`` in ``src-tauri/src/util.rs``.
 # All Python logging handlers that write log files (the main
-# voice-typer.log, the prewarm.log, and the Electron-build log) MUST
+# voice-typer.log, the prewarm.log, and the predecessor-build log) MUST
 # import the size cap from here instead of inlining ``5 * 1024 * 1024``
 # so a future bump edits ONE file.  See
 # ``voice_typer/server/_log_constants.py`` for the three-tier rationale.

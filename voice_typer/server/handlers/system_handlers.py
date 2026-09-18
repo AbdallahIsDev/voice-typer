@@ -1,5 +1,5 @@
 """System IPC handler mixin: restart_app, quit_app, check_accessibility,
-set_tray_locale, show_electron_notification.
+set_tray_locale, show_notification.
 
 extracted verbatim from ``voice_typer/server/ipc_server.py``.
 The methods are mixed into :class:`IPCServer` via multiple inheritance and
@@ -18,7 +18,7 @@ implementation, redaction, log tail, model hashes).
 Troubleshooting invokes it to surface the stale-grant ``tccutil``
 reset command. Do not treat it as dead.
 
-``_handle_show_electron_notification`` is intentionally NOT in
+``_handle_show_notification`` is intentionally NOT in
 ``_COMMAND_REGISTRY`` or the renderer allowlist. It is retained as the
 Rust-mirror reference shape for the host toast/notification path
 (``src-tauri`` dialogs / tray notification). Tests in
@@ -49,7 +49,7 @@ from voice_typer.server.platform_utils import is_linux, is_macos
 def _has_control_chars(value) -> bool:
     """Return True if *value* contains a Unicode Cc/Cf control char.
 
-    (session-DE): used by ``_handle_show_electron_notification``
+    (session-DE): used by ``_handle_show_notification``
         to reject control characters in ``title`` / ``message``. The Cc
         category covers ANSI escapes (``\\x1b``), terminal bell
         (``\\x07``), newline (``\\n``), carriage return (``\\r``), and
@@ -75,7 +75,7 @@ def _enumerate_polkit_actions() -> list[str]:
 
     Surfaces the ``com.voicetyper.install-permissions`` action (the only
     namespace the app ships, finding #54 renamed it from the legacy
-    pre-Tauri Electron root, and ``install_permissions.py`` removes the
+    pre-Tauri predecessor root, and ``install_permissions.py`` removes the
     legacy policy file (``LEGACY_POLKIT_POLICY_DEST``) at install/upgrade
     time, so no current install registers the old action ID).
     Enumerating the legacy action here would be vestigial: the legacy
@@ -221,7 +221,7 @@ class SystemHandlersMixin(HandlerBase):
         (vs. "open System Settings" CTA when the user has not granted
         permission).
 
-        ``_handle_show_electron_notification`` enforces ``max_value_len``
+        ``_handle_show_notification`` enforces ``max_value_len``
         rules on ``title`` (256) and ``message`` (4096) so a misbehaving
         caller can't push a multi-MB notification body that the OS
         notification API would silently truncate or refuse to display.
@@ -313,7 +313,7 @@ class SystemHandlersMixin(HandlerBase):
         macOS Accessibility permission check.
                 Returns ``{"granted": bool, "platform": "macos"|"windows"|"linux"}``.
                 On non-macOS platforms, always returns granted=True (no
-                accessibility permission required). The Electron UI uses
+                accessibility permission required). The predecessor UI uses
                 this to show a persistent warning banner on macOS when
                 the permission is missing, and to gate the onboarding
                 wizard's "Grant Accessibility" step.
@@ -490,7 +490,7 @@ class SystemHandlersMixin(HandlerBase):
         The bundle ID is resolved at RUNTIME from the host app's
         ``Contents/Info.plist`` (``resolve_host_bundle_id``, walks the
         parent-process chain to the nearest ``*.app``), so both the
-        Electron and Tauri builds reset the entry for the actually
+        predecessor and Tauri builds reset the entry for the actually
         running host and a future bundle-identifier change needs no code
         edit. Mirrors the a11y re-grant notification in
         ``startup_tasks.py`` (finding #127 part b).
@@ -862,19 +862,19 @@ class SystemHandlersMixin(HandlerBase):
             pre_coerce=False,
         )
 
-    def _handle_show_electron_notification(
+    def _handle_show_notification(
         self, data: object | None, resp: ResponseEnvelope
     ) -> ResponseEnvelope | None:
-        """Handle the ``show_electron_notification`` IPC command.
+        """Handle the ``show_notification`` IPC command.
 
         NOT registered in ``_COMMAND_REGISTRY`` / renderer allowlist.
         Retained as the Rust-mirror reference for the host toast /
         notification path. Direct-call tests pin this contract; do not
         delete without updating those suites and the Rust twin.
 
-        Push a notification to the Electron UI for
+        Push a notification to the predecessor UI for
                 persistent/critical messages that need longer display
-                than the OS-default ~5s tray notification. The Electron
+                than the OS-default ~5s tray notification. The predecessor
                 Notification API supports a ``duration`` parameter (via
                 setTimeout auto-close) and can show a toast/banner that
                 stays until dismissed.
@@ -1024,7 +1024,7 @@ class SystemHandlersMixin(HandlerBase):
                 # The helper's non-dict path returns ``code:
                 # "invalid_payload"`` with the ``"data must be an
                 # object"`` message, different from the pre-
-                # handler-specific ``"show_electron_notification
+                # handler-specific ``"show_notification
                 # requires data: object"``. The test was updated to
                 # assert on ``code`` instead of the message text.
                 return error
@@ -1057,7 +1057,7 @@ class SystemHandlersMixin(HandlerBase):
 
             event_bus.publish(
                 {
-                    # renamed from "electron_notification" to the
+                    # renamed from "the legacy notification event name" to the
                     # platform-agnostic "notification": the Tauri Rust
                     # host no longer renames the event (it passes through
                     # unchanged), and a Rust-side backward-compat alias
@@ -1069,7 +1069,7 @@ class SystemHandlersMixin(HandlerBase):
                     #
                     # Optional click targets: ``click_path`` (a page
                     # path like "/models") and ``click_consent_field``
-                    # (a Settings consent row, the Electron host's
+                    # (a Settings consent row, the predecessor host's
                     # notification click handler broadcasts navigate
                     # {path:"/settings", consent_field} so the user
                     # lands on the EXACT toggle). Only the fields the
@@ -1090,7 +1090,7 @@ class SystemHandlersMixin(HandlerBase):
             return {"type": "ack"}
 
         return self._wrap(
-            cmd_name="show_electron_notification",
+            cmd_name="show_notification",
             resp_type="ack",
             data=data,
             resp=resp,

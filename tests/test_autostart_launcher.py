@@ -4,7 +4,7 @@ Covers:
   - Port-open path (app already running → focus existing)
   - Port-closed path (app not running → fresh start)
   - --hidden flag → VT_START_HIDDEN=1
-  - VT_FOCUS_ONLY env var for lean electron focus probe
+  - VT_FOCUS_ONLY env var for lea predecessor focus probe
   - _is_port_open helper
   - _focus_running_app helper
   - PID file writing
@@ -188,7 +188,7 @@ class TestLaunchPortClosedPath:
     """When the backend port is closed, launch starts a fresh Tauri instance."""
 
     def test_fails_gracefully_without_tauri_mode(self, monkeypatch, tmp_path):
-        """No Tauri mode + no Tauri binary → exit 1 (Electron path removed)."""
+        """No Tauri mode + no Tauri binary → exit 1 (predecessor path removed)."""
         monkeypatch.setattr(
             "voice_typer.server.autostart_launcher._is_port_open",
             lambda h, p: False,

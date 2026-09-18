@@ -375,16 +375,15 @@ def _create_lnk_shortcut(
 
 
 # AppUserModelID stamped onto the launcher shortcuts so Windows toast
-# notifications resolve to the Voice Typer icon instead of the Electron
-# default (electron.exe). Must match the Electron side's
-# ``app.setAppUserModelId("VoiceTyper")`` (bootstrap.ts) and the Python
-# side's ``SetCurrentProcessExplicitAppUserModelID`` (platform_utils.py)
-# , all three compute the same value: APP_NAME with spaces removed.
+# notifications resolve to the Voice Typer icon. Must match the value the
+# Python side sets via ``SetCurrentProcessExplicitAppUserModelID``
+# (platform_utils.py); both compute the same value: APP_NAME with spaces
+# removed.
 _APP_USER_MODEL_ID = APP_NAME.replace(" ", "")
 
 # System.AppUserModel.ID, the property key Windows reads off the
 # Start Menu shortcut to attribute toast notifications to an app and
-# pick its icon (electronjs.org/docs/latest/tutorial/notifications).
+# pick its icon (the Win32 ``System.AppUserModel.ID`` property).
 _APP_USER_MODEL_ID_FMTID = "9F4C2855-9F79-4B39-A8D0-E1D42DE1D5F3"
 _APP_USER_MODEL_ID_PID = 5
 
@@ -631,12 +630,12 @@ def create_launcher_shortcut() -> Path | None:
     Both shortcuts point at the **universal launcher** (autostart_launcher.py)
     WITHOUT ``--hidden``, so a user click:
       • if the app is already running → focuses its window (via the
-        Electron single-instance lock), no second instance;
-      • if not running → starts Electron + backend with the dashboard visible.
+        predecessor single-instance lock), no second instance;
+      • if not running → starts predecessor + backend with the dashboard visible.
 
     This fixes the old bug where the desktop shortcut ran the backend ONLY
     (``pythonw -m voice_typer``), which meant the bubble overlay never
-    appeared and Electron never connected to that process.
+    appeared and predecessor never connected to that process.
 
     Skips any shortcut that already exists and points at the same target,
     avoiding wasteful .lnk overwrites on every startup.
@@ -673,7 +672,7 @@ def create_launcher_shortcut() -> Path | None:
         # Windows toast notifications attribute their icon via the Start
         # Menu shortcut's System.AppUserModel.ID. Existing shortcuts (from
         # before the AUMID stamp was added) lack the property, so toasts
-        # fall back to the Electron default icon, stamp idempotently.
+        # fall back to the predecessor default icon, stamp idempotently.
         _set_lnk_app_user_model_id(existing_desktop)
     else:
         if _create_lnk_shortcut(

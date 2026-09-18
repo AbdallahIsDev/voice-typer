@@ -440,7 +440,7 @@ def main() -> None:
     # In standalone/terminal mode (``voice-typer`` from a terminal without
     # ``--port`` or ``--ws``), the user expects Restart to keep THIS
     # process alive and re-initialize the app in the same terminal/console
-    # , NOT to exit and let a hidden backend be respawned by Electron.
+    # , NOT to exit and let a hidden backend be respawned by predecessor.
     # The loop below runs once for a normal start/quit and re-runs for
     # each in-place restart.  For non-standalone modes (``--port`` /
     # ``--ws``) the loop body executes once and then exits via
@@ -533,13 +533,13 @@ def main() -> None:
             server = build_ipc_server(app)
             #  ``main()`` NEVER uses the
             # unauthenticated stdin/stdout IPC path. The three launch modes are:
-            #   1. ``--port N``       : explicit TCP, Electron connects over the
+            #   1. ``--port N``       : explicit TCP, predecessor connects over the
             #                            network with a session token.
             #   2. ``--ws``           : Tauri sidecar WebSocket (also
             #                            token-authenticated via env var).
             #   3. standalone (neither flag), auto-pick a port, set a session
             #                            token, start TCP, and launch the
-            #                            Electron frontend to connect back. The
+            #                            predecessor frontend to connect back. The
             #                            Python process is the parent; stdin is
             #                            the user's terminal (or /dev/null when
             #                            launched by a desktop launcher).
@@ -557,7 +557,7 @@ def main() -> None:
         # of the TCP server. The WS server binds 127.0.0.1:0, prints the
         # `server_started` JSON to stdout, and accepts authenticated WS
         # connections from the Tauri Rust host. The TCP / standalone paths
-        # below are unchanged for the Electron fallback.
+        # below are unchanged for the predecessor fallback.
         if ws_mode:
             import threading
 
@@ -574,7 +574,7 @@ def main() -> None:
             # omitted, the dict-path consumers gate on a non-empty
             # list) and never registers dictation hotkeys. Run the full
             # app.start() on a daemon thread so the sidecar behaves
-            # like the Electron backend: tray.start() takes the
+            # like the predecessor backend: tray.start() takes the
             # TAURI_SIDECAR=1 branch (no pystray icon; bg_work
             # launched on its own daemon thread), signal-handler
             # installation from a non-main thread is
@@ -620,7 +620,7 @@ def main() -> None:
                 log.warning("[IPC] sidecar_ws.run exited with code %d", _ws_exit)
             sys.exit(_ws_exit)
         else:
-            # TCP transport and Electron standalone spawn were removed.
+            # TCP transport and predecessor standalone spawn were removed.
             # The only supported transport is --ws (Tauri sidecar).
             log.error(
                 "[IPC] No transport specified. The TCP transport was removed; "
@@ -679,7 +679,7 @@ def main() -> None:
         #      instance set ``_in_place_restart = True`` before cleanup,
         #      and the process MUST stay alive.  Loop back and
         #      re-initialize (fresh mutex, fresh logging session, fresh
-        #      VoiceTyperApp, fresh IPC server, re-launch Electron) in
+        #      VoiceTyperApp, fresh IPC server, re-launch predecessor) in
         #      the SAME process so the terminal window stays attached.
         #   2. Normal quit / ``--port`` / ``--ws`` modes, break the
         #      loop and let the process exit (``--ws`` already exits via
@@ -689,14 +689,13 @@ def main() -> None:
         # NOTE: read via ``vars(app)`` (instance dict), NOT ``getattr``
         # , a ``MagicMock`` test app auto-creates truthy attributes on
         # any ``getattr``, which would make the loop think an in-place
-        # restart was requested and spin forever (the exact trap
-        # documented in ``shutdown/teardowns/electron.py``).
+        # restart was requested and spin forever.
         if not vars(app).get("_in_place_restart", False):
             break
         log.info("[RESTART] In-place restart, re-initializing app in the same process")
         # Loop back: the next iteration re-acquires the single-instance
         # mutex, re-stages logging, constructs a fresh VoiceTyperApp,
-        # starts a fresh IPC server, and re-launches Electron.
+        # starts a fresh IPC server, and re-launches predecessor.
     # Keep mutex alive by referencing it until exit
     _ = _single_instance_mutex
 

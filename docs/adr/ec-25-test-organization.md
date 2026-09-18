@@ -27,7 +27,7 @@ pinned. The largest Python catch-alls at the time of this audit:
 
 (Three TS catch-alls are also flagged —
 `ux-components-behavior.test.tsx` (1815 lines, 11 components),
-`electron-ipc-build-behavior.test.tsx` (1339 lines, 28 concerns),
+`host-ipc-build-behavior.test.tsx` (1339 lines, 28 concerns),
 `pages-improvements.test.tsx` (898 lines, 9 pages): these are
 out of scope for this Python-only sub-agent and will be split in a
 later wave by a TS-scoped agent.)
@@ -230,7 +230,7 @@ here so the next wave's sub-agent has a ready work-queue:
 | File                                                                  |  Lines | Component count |
 |-----------------------------------------------------------------------|-------:|----------------:|
 | `voice_typer/client/src/renderer/src/__tests__/ux-components-behavior.test.tsx`   | 1815 | 11 |
-| `voice_typer/client/src/renderer/src/__tests__/electron-ipc-build-behavior.test.tsx` | 1339 | 28 |
+| `voice_typer/client/src/renderer/src/__tests__/host-ipc-build-behavior.test.tsx` | 1339 | 28 |
 | `voice_typer/client/src/renderer/src/__tests__/pages-improvements.test.tsx`       |  898 |  9 |
 
 These TS catch-alls should be split by a TS-scoped sub-agent in a

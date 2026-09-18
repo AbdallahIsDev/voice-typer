@@ -607,7 +607,7 @@ fn test_combined_logger_log_format_is_clean() {
     // sequences into its output streams. The Python launcher redirects
     // the host's stderr to `tauri-stderr.log`; if the logger ever
     // colorized, the file would fill with `\x1b[...m` codes (the same
-    // mess the Electron logs had pre-cleanup). Both the file line and
+    // mess the predecessor logs had pre-cleanup). Both the file line and
     // the stderr line are built from the same plain `ts LEVEL msg`
     // format, so asserting the file content pins the stderr sink too.
     assert!(
@@ -2367,7 +2367,7 @@ fn test_rotating_queue_byte_gate_drops_non_error_keeps_error() {
 
 #[test]
 fn test_combined_logger_file_level_gate_suppresses_info_keeps_warn() {
-    // Production defaults the FILE sink to WARN/ERROR (Electron
+    // Production defaults the FILE sink to WARN/ERROR (predecessor
     // production parity: WARN+ to the host file, INFO to stdout unless
     // opted in), while the global gate stays at the more verbose
     // terminal level. Pin BOTH halves: an INFO record is filtered out of

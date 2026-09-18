@@ -19,7 +19,7 @@
  *
  * Both listeners:
  *   - log to ``console.error`` with a ``[renderer:globalErrorHandler]`` prefix so the
- *     message is visible in the Electron main-process console
+ *     message is visible in the predecessor main-process console
  *     (forwarded via ``webContents.on("console-message")``) and in
  *     DevTools;
  *   - show a generic localized toast via ``sonner.toast.error`` so
@@ -60,7 +60,7 @@ import { toast } from "sonner";
 //hoist the i18n import to module scope. The previous
 // implementation used ``require("../i18n/i18n")`` inside the
 // ``_genericUserMessage`` helper, but ``require`` is undefined in
-// Electron renderer processes under ``contextIsolation: true`` +
+// predecessor renderer processes under ``contextIsolation: true`` +
 // ``nodeIntegration: false``, the call always threw and the catch
 // block silently fell back to the hardcoded English string. Importing
 // ``t`` as a top-level ESM binding is the renderer-safe equivalent:
@@ -159,10 +159,9 @@ function _buildLogErrorPayload(
 /**
  * Persist a generic renderer crash to the host log (MO-102).
  *
- * Under Electron the `console.error` calls below are enough — the main
- * process tees console output into ``electron-runtime.log``. Under
- * Tauri there is NO console capture (the bridge does dispatch/listen
- * only), so a crash that fires outside React's boundary previously left
+ * The `console.error` calls below only reach DevTools: the host does
+ * NOT capture the webview console (the bridge does dispatch/listen
+ * only), so a crash that fires outside React's boundary would leave
  * zero file trace in a release install (no DevTools). This forwards the
  * error through ``window.window_.logError`` (the same sink React's
  * ``ErrorBoundary`` uses), best-effort: the promise is swallowed so a
@@ -402,7 +401,7 @@ export function installGlobalErrorHandlers(): void {
 	) {
 		// Not a browser environment (e.g. Node SSR or a test runner
 		// without a real DOM). Skip, the renderer always runs in a
-		// real browser (Electron Chromium), so this is defensive.
+		// real browser (predecessor Chromium), so this is defensive.
 		return;
 	}
 

@@ -30,7 +30,7 @@ use super::window::{hide_bubble_window, show_bubble_window};
 // sequence (`bubble-main.tsx:38` → `window.bubble.signalReady()`) to
 // signal that the bubble page is mounted and ready to receive
 // `bubble_level` events. Only the bubble window has a legitimate
-// reason to invoke it: this mirrors the Electron main process's
+// reason to invoke it: this mirrors the predecessor main process's
 // `assertFromBubble` gate (`bubble-handlers.ts:249-254`, SEC-016). A
 // compromised main renderer (or any other window) MUST NOT be able to
 // spoof a readiness signal. (The other bubble control commands in
@@ -66,7 +66,7 @@ use super::window::{hide_bubble_window, show_bubble_window};
 ///
 /// The WS reader task invokes the same shared body when the sidecar
 /// publishes `bubble_show` on recording start, so the bubble OS window
-/// appears under Tauri exactly as Electron's main process showed it.
+/// appears under Tauri exactly as the predecessor's main process showed it.
 #[tauri::command]
 pub async fn bubble_show(app: tauri::AppHandle) -> Result<(), VoiceTyperError> {
     // Shared body with the WS reader's recording-start trigger
@@ -79,7 +79,7 @@ pub async fn bubble_show(app: tauri::AppHandle) -> Result<(), VoiceTyperError> {
 /// ready to receive `bubble_level` events (ADR-0020 §9).
 ///
 /// **Bubble-window gate:** this command is gated on the calling window
-/// being the bubble window. It mirrors the Electron main process's
+/// being the bubble window. It mirrors the predecessor main process's
 /// `assertFromBubble` gate (`bubble-handlers.ts:249-254`, SEC-016):
 /// the bubble renderer is the only legitimate caller. The boot
 /// sequence in `bubble-main.tsx:38` invokes `window.bubble.signalReady()`
@@ -91,7 +91,7 @@ pub async fn bubble_signal_ready(
     window: tauri::Window,
 ) -> Result<(), VoiceTyperError> {
     // Only the bubble window may signal bubble readiness (mirrors
-    // Electron's assertFromBubble in bubble-handlers.ts). Returns the
+    // the predecessor's assertFromBubble in bubble-handlers.ts). Returns the
     // canonical JSON error envelope so the renderer's reject path
     // handles it identically to a server-side rejection.
     crate::commands::require_bubble_window(&window)?;
@@ -116,12 +116,12 @@ pub async fn bubble_signal_ready(
 /// keyword directly and resolves it to absolute PHYSICAL coordinates
 /// server-side: centered horizontally within the CURSOR monitor's work
 /// area, y = work-area top + margin for `"top"`, y = work-area bottom -
-/// bubble_h - margin for `"bottom"` (mirroring Electron's
+/// bubble_h - margin for `"bottom"` (mirroring the predecessor's
 /// `centerOnActiveDisplay`; see [`resolve_cursor_monitor`] for the
 /// monitor-resolution order and the sibling `math` helpers for the
 /// geometry contracts).
 ///
-/// Electron's in-session saved-position validation
+/// the predecessor's in-session saved-position validation
 /// (`isPositionOnAnyDisplay` / `savedBubblePos` in `positioning.ts`) is
 /// a RENDERER-side concern on this host, the bubble renderer applies
 /// its last-position by invoking this command with a keyword, so the
@@ -144,7 +144,7 @@ pub async fn bubble_signal_ready(
 /// can at worst move itself off-screen (an annoyance, not a security
 /// boundary: the bubble is sandboxed per SEC-026).
 /// Resolve the monitor the bubble should appear on: the display the
-/// CURSOR is currently on (multi-monitor aware, mirrors Electron's
+/// CURSOR is currently on (multi-monitor aware, mirrors the predecessor's
 /// `getActiveDisplay()` in
 /// `voice_typer/client/src/main/windows/bubble/positioning.ts:171-186`),
 /// falling back to the primary monitor when the cursor's display can't
@@ -161,14 +161,14 @@ pub async fn bubble_signal_ready(
 ///    macOS axis bug, fixed upstream in tao 0.18 / PR #711; kept as a
 ///    cheap belt-and-suspenders fallback). Full bounds, NOT work area:
 ///    a cursor hovering the taskbar strip still belongs to that
-///    monitor, matching Electron's `getDisplayMatching`.
+///    monitor, matching the predecessor's `getDisplayMatching`.
 /// 3. `primary_monitor()` → `Err("no primary monitor available")` if
 ///    the OS reports none (same error string as before).
 ///
 /// All coordinates stay PHYSICAL end-to-end: `cursor_position` is
 /// physical, monitor bounds/work areas are physical, and the result is
 /// applied with `PhysicalPosition::set_position`, the only unit
-/// conversion in the whole path is the Electron-parity edge margin
+/// conversion in the whole path is the predecessor-parity edge margin
 /// ([`super::math::edge_margin_physical`], DIP → per-monitor physical).
 fn resolve_cursor_monitor(app: &tauri::AppHandle) -> Result<tauri::window::Monitor, String> {
     if let Ok(cursor) = app.cursor_position() {
@@ -225,7 +225,7 @@ pub async fn bubble_set_position(
     //: verified against the vendored tauri-runtime source). Placing
     // within the work area keeps the bubble clear of the taskbar on the
     // "bottom" edge and of top-docked bars on the "top" edge, matching
-    // Electron's use of `display.workArea`.
+    // the predecessor's use of `display.workArea`.
     let wa = monitor.work_area();
     let wa_rect = RectPx::new(wa.position.x, wa.position.y, wa.size.width, wa.size.height);
     let bubble_size = window.outer_size().map_err(|e| e.to_string())?;
@@ -234,7 +234,7 @@ pub async fn bubble_set_position(
     // pattern) can't silently wrap negative on absurd dimensions.
     let bubble_w = i32::try_from(bubble_size.width).unwrap_or(i32::MAX);
     let bubble_h = i32::try_from(bubble_size.height).unwrap_or(i32::MAX);
-    // Electron expresses its edge offset in DIPs (`wa.y + 48`); scale
+    // predecessor expresses its edge offset in DIPs (`wa.y + 48`); scale
     // it to this monitor's physical pixels so the visual gap matches
     // across scale factors.
     let margin = edge_margin_physical(monitor.scale_factor());
@@ -424,7 +424,7 @@ pub async fn bubble_hide_complete(
 /// renderer's exit-animation-complete signal. Both route through the
 /// same [`super::window::hide_bubble_window`] helper so the hide behavior is identical.
 ///
-/// Mirrors the Electron `bubble:dismiss` IPC handler in
+/// Mirrors the predecessor `bubble:dismiss` IPC handler in
 /// `voice_typer/client/src/main/ipc/bubble-handlers.ts:299-302` which
 /// routes to `hideBubbleWindow()`. The same path used by every other
 /// hide trigger (timeout fallback, set_config, etc.).
@@ -454,12 +454,12 @@ pub async fn bubble_dismiss(
 // Tauri commands: bubble window extensions ────────────────
 //
 // The Tauri bridge was missing 3 bubble-window methods that the
-// Electron bubble preload (`voice_typer/client/src/preload/bubble.ts`)
+// predecessor bubble preload (`voice_typer/client/src/preload/bubble.ts`)
 // exposes: `resizeTo`, `onSetState`, `toggleDictation`. Without these,
 // the bubble renderer's mic button (toggleDictation) is dead, the
 // state label (onSetState) never updates, and the pill content has a
 // transparent dead zone around it (resizeTo is never called to fit the
-// window to the pill). These commands restore parity with the Electron
+// window to the pill). These commands restore parity with the predecessor
 // preload surface so the same `Bubble.tsx` component works on both
 // runtimes.
 
@@ -470,7 +470,7 @@ pub async fn bubble_dismiss(
 /// windows underneath (the BrowserWindow is 240×80 initially; the pill
 /// content is typically smaller).
 ///
-/// Mirrors the Electron `bubble:resize` IPC handler in
+/// Mirrors the predecessor `bubble:resize` IPC handler in
 /// `voice_typer/client/src/main/ipc/bubble-handlers.ts:183-197` which
 /// calls `BrowserWindow.setSize(width, height)` after clamping to the
 /// `MIN_BUBBLE_W`/`MAX_BUBBLE_W`/`MIN_BUBBLE_H`/`MAX_BUBBLE_H` bounds.
@@ -497,15 +497,15 @@ pub async fn bubble_dismiss(
 /// **Size bounds:** the prior Rust code capped both dimensions
 /// to `BUBBLE_RESIZE_MAX_DIM` (7680 = 8K UHD), well above any
 /// legitimate pill content measurement but INCONSISTENT with
-/// Electron's `MIN_BUBBLE_W=40` / `MAX_BUBBLE_W=400` /
+/// the predecessor's `MIN_BUBBLE_W=40` / `MAX_BUBBLE_W=400` /
 /// `MIN_BUBBLE_H=24` / `MAX_BUBBLE_H=200` pill bounds in
 /// `bubble-handlers.ts:45-48`. A Tauri-hosted bubble could be resized
-/// to 1000×500 while an Electron-hosted one would clamp to 400×200 —
+/// to 1000×500 while an predecessor-hosted one would clamp to 400×200 —
 /// a cross-host UX divergence and a SEC-016 phishing-overlay-regression
 /// (a compromised sandboxed bubble could grow itself to nearly
 /// fullscreen on the Tauri host). The fix reconciles the bounds: Rust
 /// now applies the SAME `MIN_BUBBLE_W`/`MAX_BUBBLE_W`/
-/// `MIN_BUBBLE_H`/`MAX_BUBBLE_H` bounds as Electron (see the constants
+/// `MIN_BUBBLE_H`/`MAX_BUBBLE_H` bounds as predecessor (see the constants
 /// in `math.rs`) so both hosts produce identical resize behavior.
 #[tauri::command]
 pub async fn bubble_resize(
@@ -522,7 +522,7 @@ pub async fn bubble_resize(
     let w = round_f64_to_u32_saturating(width);
     let h = round_f64_to_u32_saturating(height);
     // Clamp both dimensions to the same MIN/MAX
-    // bounds Electron uses (`bubble-handlers.ts::clampBubbleSize`). The
+    // bounds predecessor uses (`bubble-handlers.ts::clampBubbleSize`). The
     // downstream `clamp_resize_width` / `clamp_resize_height` reduce
     // any NaN/negative/0/+/u32::MAX to the pill range.
     let capped_w = clamp_resize_width(w);
@@ -559,7 +559,7 @@ pub async fn bubble_resize(
 /// subscription to `status_change` is the source of truth for the
 /// toggle's effect on the rest of the UI.
 ///
-/// Mirrors the Electron `bubble:toggle-dictation` IPC handler in
+/// Mirrors the predecessor `bubble:toggle-dictation` IPC handler in
 /// `voice_typer/client/src/main/index.ts` which calls
 /// `python.call({type: 'toggle_dictation'})`.
 ///

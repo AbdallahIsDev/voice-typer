@@ -41,7 +41,7 @@ export {
 // ────────────────────────────────────────────────────────────────────
 
 // Detect platform from navigator.userAgent (renderer process).
-// In Electron, process.platform is also available via the preload bridge
+// In predecessor, process.platform is also available via the preload bridge
 // but navigator.userAgent is sufficient for UI filtering.
 const PLATFORM: "darwin" | "win32" | "linux" | "unknown" = (() => {
 	if (typeof navigator === "undefined") return "unknown";
@@ -268,7 +268,7 @@ export function getModifierCodeMap(isMac: boolean): Record<string, string> {
  * every call. The list is small (<5 entries) and the platform check
  * is a single ``navigator.userAgent`` regex, so calling this on every
  * render is cheap and avoids the staleness problem when the initial
- * platform detection was wrong (Electron UA spoofing, headless mode).
+ * platform detection was wrong (predecessor UA spoofing, headless mode).
  */
 export function getSingleKeyPresets(): { value: string; label: string }[] {
 	// Re-detect platform on every call so the Fn option appears iff

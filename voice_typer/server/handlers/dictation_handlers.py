@@ -37,7 +37,7 @@ class DictationHandlersMixin(HandlerBase):
             # Pre-coerce ``None`` (the value ``msg.get("data")``
             # returns when the ``data`` key is absent, as in
             # ``{"id": 1, "type": "toggle_dictation"}``: a common
-            # shape in existing tests and Electron callers that omit
+            # shape in existing tests and predecessor callers that omit
             # the ``data`` key for no-arg commands) to ``{}`` so the
             # validation passes cleanly. Without this pre-coercion,
             # every existing caller that omits ``data`` would get

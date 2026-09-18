@@ -160,7 +160,7 @@ class VoiceTyperApp(AppLazyHub, AppDictation, AppAdmin, AppRecordingInit, AppCon
     # - hotkey backends → HotkeyDispatcher (`self.hotkeys`)
     # - model-load fields → ModelManager (`self.models`)
     # - streaming session/thread → RecordingController
-    # - shutdown / electron / ESC → this class (`_init_state_flags`)
+    # - shutdown / host / ESC → this class (`_init_state_flags`)
 
     def _init_hotkeys_and_locks(self) -> None:
         """Construct HotkeyDispatcher, busyness/mic coordinators, and the
@@ -202,7 +202,7 @@ class VoiceTyperApp(AppLazyHub, AppDictation, AppAdmin, AppRecordingInit, AppCon
         self.config.set_mutation_lock(self._config_mutation_lock)
 
     def _init_state_flags(self) -> None:
-        """Declare shutdown/electron/restart/esc flags + timer wiring."""
+        """Declare shutdown/host/restart/esc flags + timer wiring."""
         # _model_load_attempted / _model_load_thread / _pending_dictation live
         # in ModelManager, callers use self.models.<field> directly.
         self._shutting_down = False  # True once quit() starts
@@ -222,10 +222,10 @@ class VoiceTyperApp(AppLazyHub, AppDictation, AppAdmin, AppRecordingInit, AppCon
         # _atexit_cleanup() delegate to the same body without double-flushing
         # history_db / double-stopping the recorder / double-closing handles.
         self._cleanup_done: bool = False
-        # PID of the Electron subprocess we launched in standalone mode (None
-        # when Electron spawned us or standalone launch failed); quit()
+        # PID of the host process we launched in standalone mode (None when
+        # the host spawned us or a standalone launch failed); quit()
         # terminates it explicitly during shutdown.
-        self._electron_pid: int | None = None
+        self._host_pid: int | None = None
         # True when restart_app() runs in standalone mode and the process must
         # stay alive to re-initialize in the same console (the entrypoint loop
         # re-runs the startup sequence after app.start() returns).
@@ -291,7 +291,7 @@ class VoiceTyperApp(AppLazyHub, AppDictation, AppAdmin, AppRecordingInit, AppCon
     def _wire_waveform_bubble(self) -> None:
         """Delegate to WaveformBubbleWiring.
 
-        The bubble window is owned by the Electron main process; we emit push
+        The bubble window is owned by the predecessor main process; we emit push
         events via the ipc_server module-level hook (no closure capture).
         """
         self.waveform_wiring._wire_waveform_bubble()
@@ -379,7 +379,7 @@ class VoiceTyperApp(AppLazyHub, AppDictation, AppAdmin, AppRecordingInit, AppCon
 # _ensure_single_instance / _backend_pid_file / _write_backend_pid_file /
 # _clear_backend_pid_file / _is_pid_alive / _read_stale_backend_pid` keeps
 # working (production: autostart launcher + autostart/pid_file; tests:
-# test_app_cleanup, test_electron_launcher, test_feature_hardening_regressions,
+# test_app_cleanup, test_the predecessor launcher, test_feature_hardening_regressions,
 # test_waveform_bubble). Source pins read THIS module for the mutex name
 # "Local\\VoiceTyperSingleInstance" and _create_restrictive_security_attributes
 # (tests/regressions/test_security.py, tests/test_security_hardening.py) —

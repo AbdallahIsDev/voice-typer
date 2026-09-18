@@ -10,7 +10,7 @@ use super::shutdown::shutdown_sidecar;
 
 /// Close-to-tray predicate: the main window hides instead of closing
 /// when the app is NOT shutting down AND a tray actually exists
-/// (mirrors Electron `main-window.ts`: `if (!app.isQuitting &&
+/// (mirrors predecessor `main-window.ts`: `if (!app.isQuitting &&
 /// !isLinuxWaylandWithoutSni()) { event.preventDefault();
 /// window.hide(); }`):
 ///
@@ -22,7 +22,7 @@ use super::shutdown::shutdown_sidecar;
 ///   would strand the user (no tray icon, no Dock entry, no
 ///   second-instance path to bring it back), so the close flows
 ///   through to app exit instead. This is the Tauri equivalent of
-///   Electron's `isLinuxWaylandWithoutSni()` guard.
+///   the predecessor's `isLinuxWaylandWithoutSni()` guard.
 ///
 /// Extracted as a pure predicate so the close-to-tray semantics are
 /// unit-testable without a live `tauri::Window` (mirrors the
@@ -38,7 +38,7 @@ fn should_hide_to_tray(label: &str, shutting_down: bool, tray_available: bool) -
 /// `main.rs`'s inline closure so the host entrypoint stays wiring-only
 /// (C-).
 ///
-/// Close-to-tray (Electron parity): the X button HIDES the main window;
+/// Close-to-tray (predecessor parity): the X button HIDES the main window;
 /// the process (tray icon, Python backend, bubble) stays alive. Full
 /// quit only happens via the tray "Quit" menu item → `quit_app` event
 /// → `state::on_quit_app` → host exit.
@@ -71,7 +71,7 @@ pub(crate) fn on_main_window_close(
                 state.shutting_down.load(Ordering::SeqCst),
                 state.tray_available.load(Ordering::SeqCst),
             ) {
-                // Close-to-tray (Electron parity): prevent the close and
+                // Close-to-tray (predecessor parity): prevent the close and
                 // hide the window. The sidecar keeps running, nothing is
                 // torn down, and the hidden window can be re-shown via the
                 // tray left-click / Dock / second-instance handlers.
@@ -79,10 +79,10 @@ pub(crate) fn on_main_window_close(
                     "[WINDOW] main window close requested: hiding to tray (sidecar stays running)"
                 );
                 api.prevent_close();
-                // MO-124 (Electron parity): `hide()` alone leaves the
+                // MO-124 (predecessor parity): `hide()` alone leaves the
                 // taskbar button behind, so a "hidden" app kept a ghost
                 // entry the user could click to bring back an invisible
-                // window. Electron's close handler pairs
+                // window. the predecessor's close handler pairs
                 // `hide()` + `setSkipTaskbar(true)`
                 // (`windows/window-events.ts`), and the show side
                 // restores it. The counterpart lives in the ONE shared

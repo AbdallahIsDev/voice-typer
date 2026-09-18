@@ -184,7 +184,7 @@ def build_tray_menu_model(
     ``more_models`` row opens the app window on the Models page via
     ``on_open_models``. Settings/History/Help quick shortcuts are
     wired via the ``on_open_*`` callbacks and mirror the pystray-side
-    shortcuts that open the Electron window on the corresponding route.
+    shortcuts that open the app window on the corresponding route.
     """
     id_map: dict[str, Callable] = {}
     items: list[dict] = []
@@ -319,7 +319,7 @@ def build_tray_menu_model(
     items.append(_sep())
 
     # Settings / History / Help quick shortcuts. Each opens the
-    # Electron window on the corresponding route, mirrors the
+    # app window on the corresponding route, mirrors the
     # pystray-side builder so both runtimes expose the same shortcuts.
     if on_open_settings is not None:
         items.append(_item("settings", localize("settings"), callback=on_open_settings))
@@ -342,7 +342,7 @@ def publish_tray_menu(model: list[dict]) -> bool:
 
     ADR-0020 §6.5 / §16: the serialized menu model is only pushed to the
     event bus when running under the Tauri sidecar (``TAURI_SIDECAR=1``).
-    On the Electron/pystray runtime this is a no-op so the native pystray
+    On the pystray runtime this is a no-op so the native pystray
     menu (built by :func:`build_menu_for_tray`) remains the single source of truth
     and we never double-publish.
 
@@ -366,7 +366,7 @@ def publish_tray_state(
 
     ADR-0020 §6.5: the icon name + tooltip are only pushed to the event
     bus when running under the Tauri sidecar (``TAURI_SIDECAR=1``). On
-    the Electron/pystray runtime this is a no-op, the pystray ``Icon``
+    the pystray runtime this is a no-op, the pystray ``Icon``
     object is updated directly by ``TrayIcon._apply_state`` so emitting
     a parallel event would double-publish.
 
@@ -424,7 +424,7 @@ def publish_tray_state(
 #     still pass, the delegate keeps the exact signature.
 #
 # The lambdas captured by :func:`build_menu_for_tray` consult
-# ``tray._open_page`` / ``tray.open_electron_window`` / etc. via
+# ``tray._open_page`` / ``tray.open_app_window`` / etc. via
 # attribute lookup at CALL TIME (not at capture time), so tests that
 # do ``monkeypatch.setattr(tray, "_open_page", fake)`` before invoking
 # the menu callback keep working.
@@ -461,7 +461,7 @@ def build_menu_for_tray(tray) -> tuple:
     via ``set_state``).
 
     About, Diagnostics, and Show Last Notification have been removed
-    from the tray menu (they remain available in the Electron app).
+    from the tray menu (they remain available in the desktop app).
     """
     # serialize the check-then-build-then-cache sequence against
     # concurrent invalidate_menu_cache() calls (which set the flag False
@@ -487,7 +487,7 @@ def build_menu_for_tray(tray) -> tuple:
         items.append(
             pystray.MenuItem(
                 _("open_app"),
-                wrap_callback(tray.open_electron_window),
+                wrap_callback(tray.open_app_window),
                 default=open_app_default,
             )
         )
@@ -546,7 +546,7 @@ def build_menu_for_tray(tray) -> tuple:
         items.append(pystray.Menu.SEPARATOR)
 
         # Settings / History / Help quick shortcuts. Each opens
-        # the Electron window on the corresponding route via tray._open_page
+        # the app window on the corresponding route via tray._open_page
         # (delegate to tray_window.open_page).
         for label_key, path in (
             ("settings", "/settings"),
@@ -725,7 +725,7 @@ def _models_submenu_data(tray, controller) -> list:
 
 def maybe_publish_tray_menu(tray) -> bool:
     """ADR-0020 §6.5 / §16: push the serialized tray menu to the Tauri
-    sidecar host (no-op on the Electron/pystray runtime).
+    sidecar host (no-op on the pystray runtime).
 
      extracted from ``TrayIcon._maybe_publish_tray_menu``.
 
@@ -742,7 +742,7 @@ def maybe_publish_tray_menu(tray) -> bool:
     ``tray_menu`` event never reached the Rust host and the tray menu
     stayed frozen at the empty placeholder. The guard is now removed;
     ``publish_tray_menu`` itself guards on ``TAURI_SIDECAR=1`` so the
-    Electron runtime (where ``_icon`` IS set) is unaffected, the
+    pystray runtime (where ``_icon`` IS set) is unaffected, the
     publish is a no-op there anyway.
     """
     controller = tray._controller
@@ -775,7 +775,7 @@ def maybe_publish_tray_menu(tray) -> bool:
     model, _id_map = build_tray_menu_model(
         hotkey=hotkey,
         toggle_dictation=controller.toggle_dictation,
-        open_app=tray.open_electron_window,
+        open_app=tray.open_app_window,
         force_cancel_transcription=lambda: controller.recording._force_recover_from_stuck_transcription(force=True),
         is_transcribing=lambda: (
             getattr(tray._state, "name", "") == "TRANSCRIBING" or getattr(tray._state, "value", "") == "TRANSCRIBING"

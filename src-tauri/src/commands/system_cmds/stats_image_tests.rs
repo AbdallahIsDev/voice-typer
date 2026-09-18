@@ -55,7 +55,7 @@ fn test_empty_base64_payload_is_rejected() {
 #[test]
 fn test_non_png_bytes_are_rejected_by_signature() {
     // Valid base64, wrong magic bytes (the MIME prefix alone must not
-    // be trusted — same reason Electron validated the decoded bytes).
+    // be trusted — same reason predecessor validated the decoded bytes).
     let fake = base64::engine::general_purpose::STANDARD.encode(b"GIF89a_not_a_png");
     assert!(decode_png_data_url(&format!("{PNG_DATA_URL_PREFIX}{fake}")).is_none());
 }

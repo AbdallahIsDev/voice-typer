@@ -128,9 +128,9 @@ POLKIT_STABLE_PATH = POLKIT_STABLE_DIR / "install_permissions.py"
 POLKIT_POLICY_SOURCE = Path(__file__).resolve().parent / "voice-typer.polkit"
 POLKIT_POLICY_DEST = Path("/usr/share/polkit-1/actions/com.voicetyper.policy")
 
-# Legacy polkit policy filename from the pre-Tauri (Electron) era, when
+# Legacy polkit policy filename from the pre-Tauri era, when
 # the action ID + filename used the ``org.voice-typer.*`` RDNN root.
-# Upgraded systems that installed the legacy Electron package may still
+# Upgraded systems that installed the legacy package may still
 # have this file at ``/usr/share/polkit-1/actions/org.voice-typer.policy``.
 # ``_install_polkit_policy`` removes it on every install/upgrade run (so
 # the upgrade itself converges the system) and the uninstaller removes
@@ -231,7 +231,7 @@ def _install_polkit_policy() -> None:
 
     Also removes the legacy ``org.voice-typer.policy`` (see
     ``LEGACY_POLKIT_POLICY_DEST``) so an UPGRADE from a pre-Tauri
-    Electron install converges on the ``com.voicetyper.*`` namespace at
+    install converges on the ``com.voicetyper.*`` namespace at
     install time, the legacy file is inert (pkexec matches by
     ``exec.path``, not action ID) but must not linger. The removal runs
     BEFORE the idempotent-match early return so a no-op install still
@@ -243,7 +243,7 @@ def _install_polkit_policy() -> None:
         return
 
     # Converge upgraded systems on the com.voicetyper.* namespace: a
-    # legacy org.voice-typer.policy from a pre-Tauri Electron install
+    # legacy org.voice-typer.policy from a pre-Tauri install
     # defines the old action ID and would otherwise linger until
     # uninstall. Tolerant of absence / OSError (non-fatal).
     _remove_polkit_policy_file(LEGACY_POLKIT_POLICY_DEST)
@@ -287,7 +287,7 @@ def _remove_polkit_policies() -> None:
 
     Removes the current ``com.voicetyper.policy`` (installed by
     ``_install_polkit_policy``) and the legacy ``org.voice-typer.policy``
-    (installed by the pre-Tauri Electron installer, which used the
+    (installed by the pre-Tauri installer, which used the
     ``org.voice-typer.*`` RDNN root). Removing the legacy file ensures
     upgraded systems fully converge on the ``com.voicetyper.*``
     namespace after uninstall.
@@ -406,8 +406,8 @@ def setup_polkit_stable_path() -> None:
         # Use ``ln -sfn`` semantics: force, symbolic, no-deref so
         # re-runs and upgrades don't leave dangling links.
         try:
-            # If the polkit-stable path is a regular file (e.g. legacy
-            # Electron install physically placed the script there),
+            # If the polkit-stable path is a regular file (e.g. a legacy
+            # install physically placed the script there),
             # don't clobber it, leave the existing regular file in
             # place. This matches the postinst's guard.
             if POLKIT_STABLE_PATH.is_file() and not POLKIT_STABLE_PATH.is_symlink():
@@ -1217,7 +1217,7 @@ def uninstall() -> None:
         log(f"Removed {XKB_CONF_PATH}")
 
     # Remove the polkit policy files (current + legacy). The legacy
-    # ``org.voice-typer.policy`` may linger from pre-Tauri Electron
+    # ``org.voice-typer.policy`` may linger from pre-Tauri
     # installs, removing it converges the polkit actions directory on
     # the ``com.voicetyper.*`` namespace. Runs before the backup
     # restoration so a failure here can't skip the rest of the cleanup

@@ -52,11 +52,10 @@ export interface WindowBridge {
 	) => Promise<{ success: boolean; path?: string; error?: string }>;
 	openLogs?: () => Promise<{ success: boolean; error?: string }>;
 	//forward a renderer-caught error (e.g. from React's
-	// `componentDidCatch`) to the main process for persistence in
-	// `electron-renderer-errors.log`. The sandboxed renderer can't
-	// write to userData directly, only the main process can.
-	// Optional so the Tauri bridge (which has no main-process file
-	// system access) can omit it without breaking the type contract.
+	// `componentDidCatch`) to the host for persistence in the host file
+	// log. The sandboxed renderer can't write to userData directly.
+	// Optional so a bridge without that capability can omit it without
+	// breaking the type contract.
 	// MO-113: webview liveness beacon. The Rust host's
 	// `renderer_heartbeat` command stamps the receipt; the watchdog
 	// reports a stall when beats stop while the main window is visible.
@@ -66,7 +65,7 @@ export interface WindowBridge {
 		// `level` selects the log level on both runtimes (`"warn"` →
 		// the WARN line, anything else → ERROR, the fail-loud default).
 		// The console capture (MO-105) passes the captured method's own
-		// name; the Rust `renderer_log_error` command and the Electron
+		// name; the Rust `renderer_log_error` command and the predecessor
 		// `renderer:log-error` handler both route on it, so a captured
 		// `console.warn` is never promoted to an error.
 		level?: string;
@@ -83,7 +82,7 @@ export interface WindowBridge {
 	//native folder picker for HuggingFace model imports. Was
 	// missing from the type, Models.tsx accessed it via a runtime cast.
 	// Declared optional because the Tauri bridge installs it but the
-	// legacy Electron preload also installs it (so the type is satisfied
+	// legacy predecessor preload also installs it (so the type is satisfied
 	// on both paths).
 	openModelImportDialog?: () => Promise<{
 		canceled: boolean;
@@ -141,7 +140,7 @@ export interface WindowBridge {
 	// / `target="_blank"` anchors, which are blocked or trapped under
 	// Tauri (CSP `default-src 'self'`, `plugins.shell.open = false` per
 	// C-TAURI-2). The host enforces the SAME https-only policy as
-	// Electron's `input-nav-guard.ts` (deny rest). Optional: the
+	// the predecessor's `input-nav-guard.ts` (deny rest). Optional: the
 	// sandboxed bubble window does not install the namespace.
 	openExternalUrl?: (url: string) => Promise<{
 		success: boolean;

@@ -1,6 +1,6 @@
 """Two-way IPC command parity: Python registry ↔ Rust allowlist + SECURITY.md.
 
-Post-Electron / post-TCP the IPC surface collapses to TWO allowlists:
+Post-predecessor / post-TCP the IPC surface collapses to TWO allowlists:
 
 1. **Python** ``_COMMAND_REGISTRY`` (`voice_typer/server/ipc/registry.py`)
    — the backend dispatch table. Every inbound command the sidecar can
@@ -10,7 +10,7 @@ Post-Electron / post-TCP the IPC surface collapses to TWO allowlists:
    ``invoke('dispatch', ...)`` for names in this set (defense-in-depth
    backstop, CR-4 / SEC-019).
 
-There is no TypeScript ``ALLOWED_COMMANDS`` anymore (Electron main is
+There is no TypeScript ``ALLOWED_COMMANDS`` anymore (predecessor main is
 gone). Host-only / host-dispatched commands stay in the Python registry
 but intentionally OUT of the Rust allowlist:
 

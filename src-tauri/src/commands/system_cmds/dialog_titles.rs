@@ -12,10 +12,10 @@
 //!   [`ExportTemplates`] / [`ExportConfig`] via
 //!   `system_cmds/export.rs`).
 //!
-//! This mirrors what Electron's main process does with `mainT()` +
+//! This mirrors what the predecessor's main process does with `mainT()` +
 //! the `i18n:set-locale` push: the main process keeps the pushed
 //! locale and uses it to localize its own native surfaces. The
-//! translation strings are byte-mirrors of the Electron main-process
+//! translation strings are byte-mirrors of the predecessor main-process
 //! locale files (`voice_typer/client/src/main/i18n/locales/*.json`,
 //! keys `dialog.selectModelFolder.title` and `dialog.export.*`) so
 //! the two runtimes present identical native dialog titles, the
@@ -103,7 +103,7 @@ pub(crate) fn localized_title_for(kind: DialogTitle, app: &tauri::AppHandle) -> 
 /// guaranteeing a usable title on every code path.
 ///
 /// Non-English strings are genuine translations (byte-mirrors of
-/// the Electron main-process locale files), never English pasted
+/// the predecessor main-process locale files), never English pasted
 /// into a non-English locale.
 pub(crate) fn localized_title(kind: DialogTitle, locale: Option<&str>) -> &'static str {
     let lang = primary_language(locale);
@@ -149,7 +149,7 @@ pub(crate) fn localized_title(kind: DialogTitle, locale: Option<&str>) -> &'stat
             "zh" => "导出模板",
             _ => "Export Templates",
         },
-        // MO-121: byte-mirrors the Electron main-process locale key
+        // MO-121: byte-mirrors the predecessor main-process locale key
         // `dialog.export.statsImage`, which the old
         // `stats-image-handlers.ts` passed to `dialog.showSaveDialog`.
         DialogTitle::ExportStatsImage => match lang.as_str() {
@@ -187,7 +187,7 @@ fn primary_language(locale: Option<&str>) -> String {
 }
 
 // Unit tests for the lookup (all locales per kind, fallbacks,
-// normalization, and byte-parity with the Electron main-process
+// normalization, and byte-parity with the predecessor main-process
 // locale files) live in the sibling `dialog_titles_tests.rs` file
 // (C-TEST-5: keeps production source free of inline test code,
 // matching the `commands/bubble/tests.rs` pattern). The module is

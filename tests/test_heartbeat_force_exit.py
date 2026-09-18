@@ -177,12 +177,12 @@ def test_force_exit_thread_NOT_scheduled_when_timeout_does_not_fire(  # noqa: N8
 def test_force_exit_thread_NOT_scheduled_before_first_heartbeat(  # noqa: N802
     server: IPCServer,
 ) -> None:
-    """No force-exit thread before Electron's first heartbeat (slow cold-start guard).
+    """No force-exit thread before the predecessor's first heartbeat (slow cold-start guard).
 
     Mirrors the existing guard: ``_last_heartbeat_at`` is ``None``
     until the first heartbeat lands. The watchdog refuses to fire, and
     therefore refuses to schedule the force-exit thread, so a slow
-    Electron cold start doesn't cause a spurious process exit.
+    predecessor cold start doesn't cause a spurious process exit.
     """
     assert server._last_heartbeat_at is None
 

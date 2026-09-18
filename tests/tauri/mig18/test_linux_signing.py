@@ -292,7 +292,7 @@ def test_rpm_depends_includes_python3(tauri_conf: dict) -> None:
 def test_linux_unsigned_by_default_in_build_script() -> None:
     """``build_tauri_all.sh`` must default to ``DO_SIGN=0`` (no signing).
 
-    ADR-0020 §13.3: "Linux packages are unsigned by default in both Electron
+    ADR-0020 §13.3: "Linux packages are unsigned by default in both predecessor
     (today) and Tauri." The build orchestrator must not enable any signing
     unless the operator explicitly passes ``--sign``. The Linux branch of the
     signing block must explicitly state it is unsigned by default.
