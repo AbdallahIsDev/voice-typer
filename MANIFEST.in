@@ -74,6 +74,6 @@ include voice_typer/server/model_hashes.json
 # voice_typer/server/assets *` + two `include voice_typer/server/assets/*.png`
 # / `*.ico` lines silently matched nothing.
 # WR-19: also removed `recursive-include voice_typer/client/build *` —
-# the electron-vite build output directory is `voice_typer/client/out/`
+# the Vite renderer build output directory is `voice_typer/client/out/`
 # (not `build/`), and the renderer is built separately by CI / Tauri,
 # not shipped with the Python sdist.

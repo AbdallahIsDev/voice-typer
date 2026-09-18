@@ -14,34 +14,14 @@ re-exported below so existing import sites and monkeypatch targets
 
 Architecture
 ------------
-The launcher supports two production shapes:
+The launcher is **Tauri-only** (Electron host removed 2026-09-17):
 
-- **Tauri** (post-cutover): a native binary (``voice-typer-tauri``)
-  built from ``src-tauri/Cargo.toml``. The launcher detects the
-  Tauri binary at well-known install paths (or via the
-  ``VT_TAURI_BINARY`` env override) and spawns it directly. Tauri's
-  ``tauri-plugin-single-instance`` plugin handles focus / fresh-start
-  deduplication, so the launcher does not need a separate lean binary
-  for the focus path (unlike Electron).
+- Detect the Tauri binary (``voice-typer-tauri``) at well-known
+  install paths (or via the ``VT_TAURI_BINARY`` env override) and
+  spawn it directly. Tauri's ``tauri-plugin-single-instance`` plugin
+  handles focus / fresh-start deduplication.
 
-- **Electron** (legacy / dev): the launcher uses a **build-first**
-  strategy: if the Electron app has been built (``out/main/index.js``
-  exists), it runs ``electron .`` directly, no Vite dev server, no
-  HMR watcher, just the compiled production bundles. If the build
-  output is missing, it runs ``npm run build`` first, then
-  ``electron .``. ``npm run dev`` is used ONLY as a last-resort
-  fallback when the build fails or when the user explicitly passes
-  ``--dev``.
-
-Tauri mode takes precedence over the Electron paths when a Tauri
-binary is found at a known install path AND the Electron dev binary
-(``node_modules/electron/dist/electron``) is NOT present locally —
-i.e. production Tauri installs (which don't ship the
-``node_modules/`` tree). Dev checkouts that DO ship Electron keep
-using the Electron path so developers can exercise the Electron
-build. The ``VT_TAURI_AUTOSTART=1`` env var forces Tauri mode
-regardless of the local Electron tree (used by the autostart
-registration when it knows it is registering under a Tauri install).
+- If no Tauri binary is resolvable, exit 1 (no fallback host).
 
 This means the app starts faster and uses less memory in normal use;
 the Vite dev server is exclusively for development.

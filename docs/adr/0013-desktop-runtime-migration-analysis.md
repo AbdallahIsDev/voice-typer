@@ -2,6 +2,8 @@
 
 ## Status
 
+**Status: SUPERSEDED — Electron host removed 2026-09-17; Tauri is sole host (ADR-0020). Historical record only.**
+
 Superseded by [ADR-0020](0020-desktop-runtime-migration-analysis.md): see ADR-0020 for the current authoritative migration analysis.
 
 ## Date

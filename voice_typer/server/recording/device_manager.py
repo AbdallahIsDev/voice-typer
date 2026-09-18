@@ -204,8 +204,7 @@ class DeviceManager:
             # Watcher is best-effort, the 30s TTL cache covers the
             # case where the watcher fails to start.
             log.warning(
-                "[RECORDING] mic device watcher failed to start, "
-                "falling back to 5s TTL polling for the session",
+                "[RECORDING] mic device watcher failed to start, falling back to 5s TTL polling for the session",
                 exc_info=True,
             )
             self._mic_watcher = None
@@ -640,24 +639,24 @@ class DeviceManager:
     def _effective_device_check_interval_s(self) -> float:
         """Return the effective health-checker interval for the current device.
 
-         BT devices (Bluetooth HFP/HSP headsets, hands-free devices, or
-         any device whose native sample rate is 8/16 kHz, the HFP/HSP
-         narrowband signature) get ``_device_check_interval_s_bt``
-         (default 5 s). Everything else gets ``_device_check_interval_s``
-         (default 30 s). The BT classification is done via
-         ``_get_max_retries_for_device`` (which checks the BT keywords +
-         8/16 kHz signature) on ``_build_device_info_for_retry_policy``,
-         which prefers the device-list cache / the previous cycle's
-         stashed default-input probe over a live PortAudio RPC.
+        BT devices (Bluetooth HFP/HSP headsets, hands-free devices, or
+        any device whose native sample rate is 8/16 kHz, the HFP/HSP
+        narrowband signature) get ``_device_check_interval_s_bt``
+        (default 5 s). Everything else gets ``_device_check_interval_s``
+        (default 30 s). The BT classification is done via
+        ``_get_max_retries_for_device`` (which checks the BT keywords +
+        8/16 kHz signature) on ``_build_device_info_for_retry_policy``,
+        which prefers the device-list cache / the previous cycle's
+        stashed default-input probe over a live PortAudio RPC.
 
-         Cost: at most one ``sd.query_devices`` per loop iteration on
-         the System Default path (the default-change probe, whose
-         result is stashed for the next cycle's classification); zero
-         on the concrete-device path when the device-list cache is warm.
+        Cost: at most one ``sd.query_devices`` per loop iteration on
+        the System Default path (the default-change probe, whose
+        result is stashed for the next cycle's classification); zero
+        on the concrete-device path when the device-list cache is warm.
 
-         Best-effort: if the query fails or the device info is None,
-         returns the default 30 s interval (can't tell if the device
-         is BT).
+        Best-effort: if the query fails or the device info is None,
+        returns the default 30 s interval (can't tell if the device
+        is BT).
         """
         try:
             # ``allow_live_default_fallback=False``: on the System
@@ -701,8 +700,9 @@ class DeviceManager:
     def _check_default_input_device_changed(self, current_info: dict | None = None) -> None:
         """Detect OS default input device change when ``config.microphone is None``.
 
-        Queries ``sd.query_devices(kind="input")`` (which PortAudio
-        resolves to the OS default input) and compares its ``index``
+        Resolves through the canonical host-API view first so the
+        baseline tracks the same WASAPI default the stream opened (not
+        the raw MME-biased PortAudio default). Compares its ``index``
         to ``_stream_open_default_input_index``. On the first
         successful query, captures the baseline (lazily —
         ``record_stream_open_default_input_index`` may not have been
@@ -723,11 +723,10 @@ class DeviceManager:
         recording is still active before scheduling the handler.
         """
         if current_info is None:
-            try:
-                current_info = sd.query_devices(kind="input")
-            except Exception:
+            current_info = self._cached_device_info(None)
+            if current_info is None:
                 log.debug(
-                    "[RECORDING] sd.query_devices(kind='input') failed; "
+                    "[RECORDING] canonical + raw default query failed; "
                     "skipping default-input-device change check this cycle",
                     exc_info=True,
                 )
@@ -1180,7 +1179,7 @@ class DeviceManager:
                     # BT-classified default device tightens to 5 s from
                     # the second cycle onward.
                     return None
-                return sd.query_devices(kind="input")
+                return self._cached_device_info(None)
             return self._cached_device_info(current)
         except Exception:
             return None
@@ -1237,6 +1236,30 @@ class DeviceManager:
         self._host_api_cache[host_api_index] = name
         return name
 
+    def _canonical_default_index(self) -> int | None:
+        """Return the canonical default input index, or ``None``.
+
+        Thin wrapper over
+        :func:`server_platform.microphone_list.get_canonical_default_index`
+        so every recorder default-device lookup (sample-rate probe,
+        prewarm, restart, health-checker baseline) shares one resolution
+        path. ``None`` means the canonical view has no usable default
+        (empty enumeration / query error / ambiguous same-name twins);
+        callers fall back to the raw PortAudio default in that case.
+        """
+        try:
+            from voice_typer.server.server_platform.microphone_list import (
+                get_canonical_default_index as _canonical_default,
+            )
+
+            result = _canonical_default()
+            return int(result) if result is not None else None
+        except (TypeError, ValueError):
+            return None
+        except Exception:
+            log.debug("[RECORDING] canonical default index lookup failed", exc_info=True)
+            return None
+
     def _cached_device_info(self, device: int | None) -> dict | None:
         """Look up the cached device info dict for ``device``.
 
@@ -1249,8 +1272,10 @@ class DeviceManager:
         live query fail, callers must handle ``None`` gracefully
         (same as the pre-fix ``sd.query_devices`` exception path).
 
-        For ``device=None`` (system default input), the cache cannot
-        resolve which physical device is the OS default, so we fall
+        For ``device=None`` (system default input), resolve through the
+        canonical host-API view first so the sample-rate probe and the
+        stream open agree with the UI list (WASAPI on Windows). Only
+        when the canonical view has no usable default does this fall
         through to the live ``sd.query_devices(kind="input")`` query
         (preserves the pre-fix behavior for the OS-default path).
 
@@ -1259,6 +1284,11 @@ class DeviceManager:
         list or other shape; callers contract is dict-or-None).
         """
         if device is None:
+            canonical = self._canonical_default_index()
+            if canonical is not None:
+                resolved = self._cached_device_info(canonical)
+                if resolved is not None:
+                    return resolved
             try:
                 info = sd.query_devices(kind="input")
             except Exception:
@@ -1303,14 +1333,9 @@ class DeviceManager:
             # the canonical lookup fails (no default flag / query error)
             # so behavior is never worse than before.
             try:
-                from voice_typer.server.server_platform.microphone_list import list_microphones
-
-                for mic in list_microphones():
-                    if mic.get("default"):
-                        try:
-                            return [int(mic["index"])]
-                        except (KeyError, TypeError, ValueError):
-                            break
+                canonical = self._canonical_default_index()
+                if canonical is not None:
+                    return [canonical]
             except Exception:
                 log.debug(
                     "[RECORDING] canonical default lookup failed, using OS default",

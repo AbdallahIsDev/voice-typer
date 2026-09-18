@@ -1,6 +1,7 @@
 //! Voice Typer: Tauri v2 host (ADR-0020 implementation).
 //!
-//! Rust shell replacing the Electron main process. Responsibilities:
+//! Rust shell for the sole desktop host (Electron main process removed
+//! 2026-09-17). Responsibilities:
 //! 1. Spawn the Python sidecar via Tauri's `externalBin` mechanism,
 //!    passing `VOICE_TYPER_IPC_TOKEN` + `TAURI_SIDECAR=1` env vars.
 //! 2. Open a WebSocket client to `ws://127.0.0.1:N` and perform the
@@ -174,8 +175,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             dispatch,
             shutdown_sidecar,
-            // renderer-initiated sidecar restart (Electron
-            // `backend:restart` parity, MO-120).
+            // renderer-initiated sidecar restart (MO-120).
             restart_sidecar,
             export_history,
             export_vocabulary,
@@ -193,23 +193,22 @@ fn main() {
             //system-level window_ commands.
             open_logs,
             // external https links (MO-118) + reveal-in-file-manager
-            // (MO-120b): Electron's shell.openExternal /
-            // shell.showItemInFolder parity under Tauri.
+            // (MO-120b).
             open_external_url_command,
             reveal_path_command,
             open_model_import_dialog,
             export_templates,
             export_config,
             // Share-image Downloads-save + localized Save-As dialog
-            // (Electron `stats-image:save` parity, MO-121).
+            // (MO-121).
             save_stats_image,
             //renderer_log_error sink.
             renderer_log_error,
             //renderer-pushed locale for host-side native-surface
-            // localization (Electron `i18n:set-locale` parity).
+            // localization (set_host_locale).
             set_host_locale,
             //renderer liveness heartbeat feeding the webview watchdog
-            // (Electron `child-process-gone` parity, MO-113).
+            // (MO-113).
             renderer_heartbeat,
         ])
         .setup(|app| {
@@ -233,11 +232,12 @@ fn main() {
                     .map(|n| n.to_string_lossy().to_string())
                     .unwrap_or_else(|| platform::paths::APP_SLUG.into())
             );
-            // Electron-parity lifecycle events, bodies in
+            // Lifecycle events, bodies in
             // `sidecar::lifecycle` (re-exported via `crate::state`):
             // `relaunch_app` → full app restart; `quit_app` (tray Quit,
             // published by the Python sidecar) → shutdown flag +
-            // `app.exit(0)`. The Electron→Tauri userData migration that
+            // `app.exit(0)`. The one-time Electron→Tauri userData
+            // migration that
             // must precede the sidecar spawn runs inside the spawned
             // task below (ADR-0020 §8: see `sidecar::spawn`).
             let restart_handle = app.handle().clone();
@@ -255,17 +255,17 @@ fn main() {
             // main-window close handler can pick hide-to-tray vs. a
             // real close (rationale in `state.rs`).
             crate::tray::create_tray_and_mark_state(app.handle());
-            // Electron-parity host events: `show_window` (tray "Open
+            // Host events: `show_window` (tray "Open
             // App") + `notification` (native toast), bodies in
             // `host_events.rs`.
             crate::host_events::setup(app.handle());
-            // System-wide bubble-dismiss accelerator (MO-125,
-            // Electron `globalShortcut` parity). Best-effort: an OS
+            // System-wide bubble-dismiss accelerator (MO-125).
+            // Best-effort: an OS
             // refusal only costs the keyboard dismiss path, the
             // bubble's '×' button still works.
             crate::shortcuts::register_bubble_dismiss(app.handle());
-            // Renderer liveness watchdog (MO-113): Electron logged
-            // `child-process-gone`; Tauri/wry exposes no such event, so
+            // Renderer liveness watchdog (MO-113): Tauri/wry exposes no
+            // host crash event, so
             // the host watches the renderer's heartbeat instead and logs
             // a stall while the window is visible.
             crate::platform::renderer_watchdog::spawn_watchdog(app.handle());
@@ -315,8 +315,7 @@ fn main() {
                 // + bounded-time `block_on` (see `sidecar::lifecycle`).
                 crate::state::on_host_exit(app_handle);
             }
-            // macOS Dock-icon activation (Electron `app.on("activate")`
-            // parity, MO-112): macOS keeps the process alive after the
+            // macOS Dock-icon activation (MO-112): macOS keeps the process alive after the
             // last window is closed (tray / Dock), so a Dock click must
             // bring the dashboard back instead of doing nothing. The
             // shared routine recreates the window when it is gone and

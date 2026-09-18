@@ -2,16 +2,17 @@
 
 The original scanner only walked ``voice_typer/server``,
 ``voice_typer/client/src``, ``src-tauri/src``, and two top-level
-Python files. It missed the two build-config files that legitimately
-need literal "Voice Typer" strings in their productName/title fields
-(``src-tauri/tauri.conf.json`` and ``voice_typer/client/electron-builder.yml``).
-These tests pin the new behavior:
+Python files. It missed the live build-config file that legitimately
+needs literal "Voice Typer" strings in its productName/title fields
+(``src-tauri/tauri.conf.json``). These tests pin the current behavior:
 
-* Both build-config files ARE scanned (a non-allowlisted literal in
-  them is flagged).
+* The live build-config file IS scanned (a non-allowlisted literal in
+  it is flagged).
 * The productName / title fields are allowlisted as a documented
   "build-config literal" exception to C-BRAND-1, they are NOT flagged.
 * A clean build-config file (only productName / title literals) passes.
+* The deleted ``voice_typer/client/electron-builder.yml`` is NOT a
+  scan target (Electron host removed 2026-09-17); do not reintroduce it.
 
 A second gap (found when the bubble aria fallbacks shipped with the
 brand embedded inside LONGER string literals): the scanner's literal
@@ -21,11 +22,8 @@ The substring-in-literal tests below pin the scanner's second pattern
 plus the exemptions it must keep intact (comments, renderer locale
 files, the source-of-truth branding files, APP_NAME-composed lines).
 The substring pattern's scope is ALL non-test .ts/.tsx under
-``voice_typer/client/src/`` (main, preload, shared, renderer), the
-renderer-only scope was widened after the last blocking legacy
-literal (``src/main/single_instance.ts``) was migrated to
-``${APP_NAME}``; the main/preload/shared tests below pin the widened
-boundary, and the test-file exemption stays.
+``voice_typer/client/src/`` (renderer tree; the Electron main/preload
+trees are deleted), and the test-file exemption stays.
 """
 
 from __future__ import annotations
@@ -147,63 +145,37 @@ def test_tauri_conf_json_is_scanned(tmp_path):
         assert '"title":' not in v, f"title should be allowlisted but was flagged: {v!r}"
 
 
-def test_electron_builder_yml_is_scanned(tmp_path):
-    """A non-allowlisted literal in electron-builder.yml IS flagged.
+def test_electron_builder_yml_is_not_a_scan_target(tmp_path):
+    """Deleted electron-builder.yml is NOT scanned (Electron host removed).
 
-    The YAML ``description`` field is NOT in the productName/title
-    allowlist, so a quoted literal ``"Voice Typer"`` value there must
-    be flagged. This proves the file is actually being scanned (the
-    original scanner never looked at voice_typer/client/electron-builder.yml
-    AND did not include .yml/.yaml in EXTENSIONS).
+    Writing that path must not cause a branding violation: the scanner
+    no longer lists it in SCAN_DIRS / BUILD_CONFIG_FILES.
     """
     root = _make_fake_project_root(tmp_path)
     (root / "voice_typer" / "client").mkdir(parents=True)
     (root / "voice_typer" / "client" / "electron-builder.yml").write_text(
-        "productName: Voice Typer\n"  # allowlisted (also unquoted → wouldn't match regex anyway)
-        'title: "Voice Typer"\n'  # allowlisted
-        'description: "Voice Typer"\n'  # NOT allowlisted → flagged
-        '# comment: "Voice Typer"\n',  # YAML comment → skipped
+        'description: "Voice Typer"\n',
         encoding="utf-8",
     )
     result = _run_check_branding(root)
-    assert result.returncode == 1, (
-        f"expected exit 1 (description literal must be flagged); "
+    assert result.returncode == 0, (
+        f"deleted electron-builder.yml must not be scanned; "
         f"got rc={result.returncode}.\nstdout:\n{result.stdout}\n"
         f"stderr:\n{result.stderr}"
     )
-    violations = _violation_lines(result)
-    assert len(violations) == 1, (
-        f"expected exactly 1 violation (description only); got {len(violations)}:\n{violations}"
-    )
-    assert 'description: "Voice Typer"' in violations[0]
-    # The allowlisted productName / title lines must NOT appear in
-    # the violations list. We check for the YAML-key prefixes that
-    # would be present if those lines were flagged.
-    for v in violations:
-        assert "productName:" not in v, f"productName should be allowlisted but was flagged: {v!r}"
-        # Match the YAML key prefix `title:`, careful not to match
-        # the substring inside `description:` (which does NOT contain
-        # `title:`, verified: "description" has no "title" substring).
-        assert not v.startswith("title:"), f"title should be allowlisted but was flagged: {v!r}"
 
 
 def test_build_config_allowlist_only_passes(tmp_path):
     """A clean build-config file (only productName / title literals) passes.
 
-    Both tauri.conf.json and electron-builder.yml, when they contain
-    ONLY the allowlisted productName / title fields, must exit 0.
-    This proves the allowlist actually exempts those fields (not just
-    that the scanner skipped the files entirely).
+    ``tauri.conf.json`` with ONLY the allowlisted productName / title
+    fields must exit 0. This proves the allowlist actually exempts those
+    fields (not just that the scanner skipped the files entirely).
     """
     root = _make_fake_project_root(tmp_path)
     (root / "src-tauri").mkdir(parents=True)
     (root / "src-tauri" / "tauri.conf.json").write_text(
         '{\n  "productName": "Voice Typer",\n  "title": "Voice Typer"\n}\n',
-        encoding="utf-8",
-    )
-    (root / "voice_typer" / "client").mkdir(parents=True)
-    (root / "voice_typer" / "client" / "electron-builder.yml").write_text(
-        'productName: Voice Typer\ntitle: "Voice Typer"\n',
         encoding="utf-8",
     )
     result = _run_check_branding(root)
@@ -217,9 +189,8 @@ def test_build_config_allowlist_only_passes(tmp_path):
 def test_real_project_branding_scan_passes():
     """Smoke test: running the scanner against the REAL project root exits 0.
 
-    Guards against an allowlist that is too narrow (e.g. forgets the
-    YAML form) and would flag the real electron-builder.yml /
-    tauri.conf.json in CI.
+    Guards against an allowlist that is too narrow and would flag the
+    real tauri.conf.json in CI.
     """
     repo_root = Path(__file__).resolve().parent.parent
     result = _run_check_branding(repo_root)

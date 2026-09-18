@@ -29,13 +29,13 @@ The version lives in two places that **must stay in sync**:
 | File | Field | Notes |
 |------|-------|-------|
 | `pyproject.toml` | `version` | PEP 621: the Python package version. |
-| `voice_typer/client/package.json` | `version` | The Electron app version (used by electron-builder for the NSIS / DMG / deb / rpm metadata). |
+| `voice_typer/client/package.json` | `version` | The client app version (used by Tauri for the NSIS / DMG / deb / rpm metadata). |
 
 Use `scripts/build/sync_versions.py` to keep the version in sync. The
 workflow is: **edit `pyproject.toml`** (the single source of truth)
 **then run `--apply`** to propagate the new version to every other
 file (`voice_typer/__init__.py`, `voice_typer/client/package.json`,
-`voice_typer/client/electron-builder.yml`, `src-tauri/tauri.conf.json`,
+`tauri-binaries.json`, `src-tauri/tauri.conf.json`,
 `src-tauri/Cargo.toml`).
 
 ```bash
@@ -48,8 +48,8 @@ git diff pyproject.toml voice_typer/client/package.json src-tauri/Cargo.toml
 The Tauri host (`src-tauri/Cargo.toml` + `src-tauri/tauri.conf.json`)
 tracks the same version. `sync_versions.py` syncs the Tauri files by
 default (see `--apply` in `scripts/build/sync_versions.py --help`);
-the Tauri stack is additive during the migration (see ADR-0020) so
-releases ship from the Electron stack until cutover.
+the Tauri stack is the sole shipping stack since the 2026-09-17 cutover
+(see ADR-0020) so releases ship from the Tauri stack.
 
 ## 2. CHANGELOG
 
@@ -114,7 +114,7 @@ The tag push triggers `.github/workflows/build.yml` which:
 
 1. Runs the full test suite on Windows / macOS / Linux.
 2. Builds native hotkey binaries (Swift on macOS, C on Windows, C on Linux).
-3. Builds the Electron installer per platform (NSIS / DMG / deb / rpm / AppImage).
+3. Builds the Tauri installer per platform (NSIS / DMG / deb / rpm / AppImage).
 4. Generates SHA-256 checksums via `scripts/generate_checksums.py`.
 5. Uploads artifacts to the GitHub Release created from the tag.
 
@@ -175,9 +175,8 @@ The following CI jobs must be green for a release to ship:
 - `client-ci.yml` Frontend-only lint / typecheck / test.
 - `populate-hashes.yml` Model hash manifest regeneration (run only
   when model files change).
-- `tauri-*-build.yml` Tauri stack builds (additive during ADR-0020
-  migration; failures here do not block an Electron release but should
-  be investigated before cutover).
+- `tauri-*-build.yml` Tauri stack builds (the installer pipeline;
+  failures here block a release).
 
 The husky `pre-push` hook (`.husky/pre-push`) is lean by design: it
 runs the cached client typecheck + the mypy ratchet only, no pytest
@@ -187,9 +186,8 @@ any release push). Do not bypass it for release pushes.
 ## 10. Signing
 
 Code signing + notarization is **wired on both runtime paths**, gated on
-repo secrets / workflow inputs (Electron: `build.yml` +
-`electron-builder.yml` env vars; Tauri: `sign=true` workflow input +
-the same secrets). The authoritative reference for the Tauri v2 builds
+repo secrets / workflow inputs (Tauri: `sign=true` workflow input +
+the signing secrets). The authoritative reference for the Tauri v2 builds
 lives at [`docs/migration/signing-guide.md`](docs/migration/signing-guide.md)
 (Windows Authenticode, macOS Developer ID + `notarytool` + `stapler`,
 Linux unsigned-by-default). Update that guide when certs or notarization
@@ -208,7 +206,7 @@ matrix.
 
 The user-facing workaround depends on whether the build is signed:
 
-### (a) Signed release builds (signed Electron + future signed Tauri)
+### (a) Signed release builds (signed Tauri)
 
 When a signed + notarized + stapled build ships, **no workaround is
 needed**: Gatekeeper accepts the stapled ticket and the app launches on

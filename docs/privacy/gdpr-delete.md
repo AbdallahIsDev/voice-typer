@@ -6,7 +6,7 @@
 This document was originally a v1 feature-gap outline; it is now the
 operational reference for what the GDPR Art. 17 ("Right to erasure")
 operation deletes (and what it cannot delete, see the "Log files"
-section below for the Electron-side gap).
+section below). Electron host logs are historical — the host is gone.
 
 `service.delete_all_personal_data()` erases every personal-data
 artifact the Python backend owns. Voice Typer is local-first: there
@@ -51,29 +51,21 @@ whether `delete_all_personal_data()` auto-deletes it.
 | Python prewarm (rotated) | `<config_dir>/prewarm.log.1`..`prewarm.log.5` | ✅ Yes: matched by `prewarm.log.*` glob (PI-6) (defensive: current builds never create backups). |
 | Rust host (Tauri) | `<config_dir>/logs/voice-typer.log` | ✅ Yes, `<config_dir>/logs/` is recursively removed via `shutil.rmtree` (PI-6). |
 | Rust host (Tauri, rotated) | `<config_dir>/logs/voice-typer.log.1`..`voice-typer.log.4` | ✅ Yes, same `shutil.rmtree` (PI-6) (defensive: current builds truncate in place). |
-| Electron main process | `<userData>/electron-main.log` | ❌ **No**: lives in Electron's `app.getPath("userData")` (a DIFFERENT directory from `config_dir`). The Python backend cannot delete files in `userData`. |
-| Electron renderer errors | `<userData>/electron-renderer-errors.log` | ❌ **No**: same as above. |
+| Electron main process (REMOVED) | `<userData>/electron-main.log` | N/A — Electron host deleted 2026-09-17. Leftover files from old installs, if any, are not written by the Tauri host; purge/GDPR cleanup may still remove known legacy names when present. |
+| Electron renderer errors (REMOVED) | `<userData>/electron-renderer-errors.log` | N/A — same as above. |
 
-### Electron logs gap (PI-6: known limitation)
+### Electron logs gap (PI-6: HISTORICAL — host removed)
 
-Electron main process logs at `<userData>/electron-main.log` and
-`<userData>/electron-renderer-errors.log` are **NOT deleted** by
-`service.delete_all_personal_data()`. They live in Electron's
-`app.getPath("userData")` directory, which is a DIFFERENT directory
-from the Python backend's `_config_dir()` The Python backend
-cannot reach into `userData` to unlink files.
+The Electron host and its main/renderer loggers were removed on
+2026-09-17 (ADR-0020 Phase 5). Live logs are the Python backend log and
+the Tauri Rust host log under `<config_dir>/`, both covered by
+`service.delete_all_personal_data()`. The paragraphs below are kept only
+as a historical note on the pre-cutover PI-6 gap.
 
-The Electron host must expose a `deleteAllPersonalData` IPC handler
-that unlinks these files. The renderer's "Erase all my data" button
-should call BOTH the Python service's `delete_all_personal_data` AND
-this Electron-side cleaner. **(PI-6 partial: the unlink helper
-`deleteElectronPersonalDataLogs()` is implemented in
-`voice_typer/client/src/main/logging/structuredLogger.ts` and
-re-exported from the `logging/` barrel: the IPC handler wiring +
-renderer button call site remain future work.)**
-
-Per XZ-LOG-03 the Electron loggers have no PII redaction, so
-dictated-text fragments may be present in these files.
+> Historical: Electron main process logs at `<userData>/electron-main.log`
+> and `<userData>/electron-renderer-errors.log` lived outside
+> `_config_dir()`, so the Python backend could not delete them. That
+> host path is gone; do not reintroduce Electron log writers.
 
 ## Suggested command surface
 

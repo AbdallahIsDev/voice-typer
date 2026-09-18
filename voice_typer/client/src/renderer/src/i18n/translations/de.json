@@ -1362,7 +1362,7 @@
 		"decrease": "Verringern",
 		"microphoneQualityPreset": "Mikrofon-Qualitätsvoreinstellung",
 		"noiseSuppressionMethod": "Rauschunterdrückungsmethode",
-		"importNotAvailableOutsideElectron": "Import außerhalb von Electron nicht verfügbar",
+		"importNotAvailable": "Import ohne Desktop-App nicht verfügbar.",
 		"transcriptionComplete": "Transkription abgeschlossen.",
 		"moreInfoAbout": "Weitere Informationen über {label}",
 		"toggleSidebarWithShortcut": "Seitenleiste umschalten ({shortcut})",

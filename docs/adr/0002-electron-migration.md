@@ -2,8 +2,10 @@
 
 ## Status
 
-Superseded by [ADR 0003](0003-electron-python-architecture.md), the
-"Refined" electron+Python architecture (ADR-0003) replaces this initial
+**Status: SUPERSEDED — Electron host removed 2026-09-17; Tauri is sole host (ADR-0020). Historical record only.**
+
+Also superseded by [ADR 0003](0003-electron-python-architecture.md), the
+"Refined" electron+Python architecture (ADR-0003) replaced this initial
 design. This document is preserved for historical context.
 
 ## Date

@@ -125,11 +125,23 @@ def run(tray: TrayIcon) -> None:
     already published to Tauri via _publish_tray_state).
     """
     if tray._tray_unavailable and tray._icon is None:
-        log.info(
-            "[TRAY] Tray unavailable, main thread blocking on Event "
-            "(stop() will release, pending queues drained every 60s). "
-            "Hotkey + IPC server still active."
-        )
+        try:
+            from voice_typer.server.tray_types import is_tauri_sidecar as _is_sidecar
+        except Exception:
+            _is_sidecar = lambda: False  # noqa: E731
+        if _is_sidecar():
+            log.info(
+                "[TRAY] TAURI_SIDECAR=1, native tray owned by Rust host; "
+                "main thread blocking on Event "
+                "(stop() will release, pending queues drained every 60s). "
+                "Hotkey + IPC server still active."
+            )
+        else:
+            log.info(
+                "[TRAY] Tray unavailable, main thread blocking on Event "
+                "(stop() will release, pending queues drained every 60s). "
+                "Hotkey + IPC server still active."
+            )
         while not tray._run_event.wait(timeout=60):
             tray._drain_pending()
         return

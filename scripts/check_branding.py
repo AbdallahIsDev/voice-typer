@@ -61,7 +61,6 @@ BRANDING_FILES = frozenset(
     {
         "voice_typer/server/branding.py",
         "voice_typer/client/src/renderer/src/branding.ts",
-        "voice_typer/client/src/main/branding.ts",
         "src-tauri/src/branding.rs",
     }
 )
@@ -82,14 +81,15 @@ RUST_BRANDING_FILE = Path("src-tauri/src/branding.rs")
 # exempt (see BRANDING_FILES); other Rust files using the literal would
 # be flagged with a hint to `use crate::branding::APP_NAME;`.
 #
-# The two build-config files (tauri.conf.json, electron-builder.yml)
-# are listed individually rather than via their parent directories so
-# the scanner does not pick up unrelated noise (Cargo.toml, package.json,
-# vite configs, capabilities JSON, icons dir, etc.). These files
-# LEGITIMATELY need literal "Voice Typer" strings in their
-# productName/title fields: see BUILD_CONFIG_FILES + the
-# _is_build_config_literal allowlist below for the documented
-# "build-config literal" exception to C-BRAND-1.
+# The live build-config file (tauri.conf.json) is listed individually
+# rather than via its parent directory so the scanner does not pick up
+# unrelated noise (Cargo.toml, package.json, vite configs, capabilities
+# JSON, icons dir, etc.). This file LEGITIMATELY needs a literal
+# "Voice Typer" string in its productName/title field: see
+# BUILD_CONFIG_FILES + the _is_build_config_literal allowlist below for
+# the documented "build-config literal" exception to C-BRAND-1.
+# (electron-builder.yml was deleted with the Electron host 2026-09-17;
+# do not reintroduce it as a scan target.)
 SCAN_DIRS = [
     "voice_typer/server",
     "voice_typer/client/src",
@@ -97,7 +97,6 @@ SCAN_DIRS = [
     "voice_typer/__init__.py",
     "voice_typer/__main__.py",
     "src-tauri/tauri.conf.json",
-    "voice_typer/client/electron-builder.yml",
     # C-BRAND-1: scan the GitHub Actions workflows (`.github/workflows/*.yml`)
     # so a future hardcoded app name in CI (tray toast titles, signtool
     # descriptions, artifact names) is caught the same way Python/TS/Rust
@@ -105,16 +104,15 @@ SCAN_DIRS = [
     # allowlisted below (see _is_workflow_build_artifact) because the
     # bundled `.app` / `.dmg` filenames are derived from
     # `productName` at Tauri-build time, the same narrow exception as
-    # the tauri.conf.json / electron-builder.yml `productName` field.
+    # the tauri.conf.json `productName` field.
     ".github/workflows",
 ]
 
 # ── File extensions to check ─────────────────────────────────────────
 # include `.rs` so Rust source files are scanned, and `.json` so
-# main-process locale files (i18n/locales/*.json) cannot smuggle in a
-# hardcoded app name (they must use the `{appName}` placeholder, which
-# `_withAppName` in main/i18n.ts substitutes with APP_NAME).
-# `.yml` / `.yaml` are included so electron-builder.yml is scanned.
+# locale files (renderer `i18n/translations/*.json`) cannot smuggle in a
+# hardcoded app name (they must use the `{appName}` placeholder).
+# `.yml` / `.yaml` are included so workflow files are scanned.
 EXTENSIONS = frozenset({".py", ".ts", ".tsx", ".html", ".rs", ".json", ".yml", ".yaml"})
 
 # ── Skip binary/exempt dirs ──────────────────────────────────────────
@@ -166,31 +164,29 @@ _TEST_PATH_SEGMENT = "__tests__"
 _TEST_FILE_SUFFIXES = (".test.ts", ".test.tsx", ".spec.ts", ".spec.tsx")
 
 # ── Build-config files (documented "build-config literal" exception) ──
-# tauri.conf.json and electron-builder.yml are read by Tauri /
-# electron-builder BEFORE the app boots, at that point no JS / Python /
-# Rust code runs, so the branding constant (APP_NAME) is NOT yet
-# available. These two files therefore LEGITIMATELY require literal
-# "Voice Typer" strings in their `productName` and `title` fields
-# (Tauri uses productName for the bundle name + window titles;
-# electron-builder uses productName for the artifact / installer name).
+# tauri.conf.json is read by Tauri BEFORE the app boots, at that point
+# no JS / Python / Rust code runs, so the branding constant (APP_NAME)
+# is NOT yet available. This file therefore LEGITIMATELY requires a
+# literal "Voice Typer" string in its `productName` and `title` fields
+# (Tauri uses productName for the bundle name + window titles).
 #
 # This is a narrow, documented exception to C-BRAND-1, it applies ONLY
-# to the `productName` and `title` keys in these two files. Every other
-# literal "Voice Typer" reference in these files (descriptions, paths,
+# to the `productName` and `title` keys in this file. Every other
+# literal "Voice Typer" reference (descriptions, paths,
 # identifier fields, comments) is still flagged. Adding a new build-
 # config file to this allowlist requires updating the audit trail in
 # worklog.md citing the field that legitimately needs the literal.
+# (electron-builder.yml was deleted with the Electron host 2026-09-17.)
 BUILD_CONFIG_FILES = frozenset(
     {
         "src-tauri/tauri.conf.json",
-        "voice_typer/client/electron-builder.yml",
     }
 )
 
 # The set of JSON / YAML keys whose value is allowlisted as a build-
-# config literal. Both productName (Tauri + electron-builder) and
-# title (Tauri window titles) are required by the bundler / window
-# manager at config-parse time, before any branding constant can run.
+# config literal. productName (Tauri) and title (Tauri window titles)
+# are required by the bundler / window manager at config-parse time,
+# before any branding constant can run.
 _BUILD_CONFIG_LITERAL_KEYS = ("productName", "title")
 
 
@@ -250,7 +246,7 @@ def _to_rel_str(filepath: Path) -> str:
 def _is_build_config_literal(rel_str: str, line: str) -> bool:
     """Return True if a line is an allowlisted build-config literal.
 
-    Build-config files (``tauri.conf.json``, ``electron-builder.yml``)
+    Build-config files (``tauri.conf.json``)
     require literal ``APP_NAME`` strings in their ``productName`` and
     ``title`` fields because these values are read by the bundler /
     window-manager BEFORE the app boots, the branding constant is not
@@ -348,7 +344,7 @@ def check_file(filepath: Path) -> list[tuple[int, str]]:
             continue
 
         # Build-config literal exception: productName / title in
-        # tauri.conf.json + electron-builder.yml legitimately need the
+        # tauri.conf.json legitimately need the
         # literal brand (see BUILD_CONFIG_FILES docstring).
         if _is_build_config_literal(rel_str, line):
             continue

@@ -1362,7 +1362,7 @@
 		"decrease": "减少",
 		"microphoneQualityPreset": "麦克风质量预设",
 		"noiseSuppressionMethod": "降噪方法",
-		"importNotAvailableOutsideElectron": "在 Electron 外部不可用导入",
+		"importNotAvailable": "未连接桌面应用，无法导入。",
 		"transcriptionComplete": "转写完成。",
 		"moreInfoAbout": "关于 {label} 的更多信息",
 		"toggleSidebarWithShortcut": "切换侧边栏 ({shortcut})",

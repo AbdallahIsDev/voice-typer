@@ -53,7 +53,7 @@
 #            zombie sidecar
 # All 9 pending — host validation has not run yet; tick each off in the
 # runbook as it passes on a real Linux display host. Tauri is the sole
-# host (Electron removed 2026-09-17, ADR-0020 Phase 5).
+# Tauri-only production host (Electron removed 2026-09-17, ADR-0020 Phase 5).
 # =============================================================================
 
 name: Tauri Linux build (Phase 0-L)

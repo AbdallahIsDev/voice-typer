@@ -30,7 +30,7 @@
       Same shape + comments as `index.html`'s inline script (kept
       in sync). The strict CSP meta tag below forbids inline scripts;
       the production build must add a `sha256-...` hash for this block
-      to the CSP `script-src` directive (electron-vite's html plugin
+      to the CSP `script-src` directive (the Vite HTML plugin
       computes the hash at build time). In dev, `cspEmissionPlugin`
       rewrites the CSP to permit `unsafe-inline` for `script-src`.
   -->
@@ -61,7 +61,7 @@
   <!--
       Content Security Policy for the bubble window.
       Same hardening as index.html.  This meta tag is the STRICT production
-      CSP, cspEmissionPlugin (electron.vite.config.ts) rewrites it at serve
+      CSP, the CSP plugin in vite.tauri.config.ts rewrites it at serve
       time to add 'unsafe-eval' + 'unsafe-inline' for Vite HMR.  The bubble
       renders waveform data only; no remote resources are ever needed.
 
@@ -73,7 +73,7 @@
       NOTE: `frame-ancestors 'none'` is intentionally NOT in this meta
       tag, the CSP spec ignores `frame-ancestors` delivered via <meta>
       (only HTTP headers honor it) and the browser logs a console warning
-      for it. It is enforced via the HTTP-header CSP set by the Electron
+      for it. It is enforced via the CSP set by the Tauri
       main process (`bootstrap.ts::_buildCsp` → onHeadersReceived).
     -->
   <meta http-equiv="Content-Security-Policy"

@@ -7,8 +7,8 @@ REM   - HKCU\Software\Microsoft\Windows\CurrentVersion\Run\com.voicetyper.autost
 REM     (per-install hash of the install path - see
 REM     _run_key_name in autostart_windows.py). Pre-rename installs used
 REM     VoiceTyper_<hash>; both forms are swept. This is a REGISTRY
-REM     value, NOT a file, so deleteAppDataOnUninstall in
-REM     electron-builder.yml does NOT remove it.
+REM     value, NOT a file, so file-removal during NSIS uninstall does
+REM     NOT remove it.
 REM   - Task Scheduler tasks named "com.voicetyper.autostart<hash>"
 REM     (the fallback autostart mechanism when the Run key fails).
 REM   - Task Scheduler task named "com.voicetyper.prewarm" (the prewarm
@@ -22,22 +22,16 @@ REM   - Legacy pre-rename names (VoiceTyperAutostart<hash>,
 REM     VoiceTyperPrewarm) from installs that predate the com.voicetyper.*
 REM     namespace rename.
 REM
-REM Wired in two places:
-REM   1. voice_typer/client/electron-builder.yml -> nsis.include points
-REM      at scripts/windows/uninstaller.nsh which defines the
-REM      customUnInstall macro. The .nsh does its OWN native NSIS
-REM      registry + schtasks cleanup (faster, no Python dependency at
-REM      uninstall time) and then optionally calls this .bat as a
-REM      belt-and-suspenders second sweep (the .nsh's native loop and
-REM      the Python script use different code paths; if either has a
-REM      bug, the other catches it).
-REM   2. src-tauri/tauri.conf.json -> bundle.windows.nsis.installerHooks
-REM      points at scripts/windows/uninstaller.nsh (NOT this .bat):
-REM      Tauri v2's NSIS installerHooks are `!include`d into the
-REM      generated installer.nsi, and NSIS cannot `!include` a batch
-REM      file (makensis aborts with "Invalid command: @echo"). The .nsh
-REM      performs the native sweep directly, so this .bat is NOT part
-REM      of the Tauri uninstall path.
+REM Wiring (Tauri-only, Electron host removed 2026-09-17):
+REM   src-tauri/tauri.conf.json -> bundle.windows.nsis.installerHooks
+REM   points at scripts/windows/tauri-installer-hooks.nsh which
+REM   `!include`s uninstaller.nsh. Tauri v2's NSIS installerHooks are
+REM   `!include`d into the generated installer.nsi, and NSIS cannot
+REM   `!include` a batch file (makensis aborts with "Invalid command:
+REM   @echo"). The .nsh performs the native sweep directly, so this .bat
+REM   is NOT part of the live Tauri uninstall path. It remains for
+REM   manual/belt-and-suspenders cleanup and historical installer docs.
+REM   Do NOT reintroduce electron-builder.yml nsis.include wiring.
 REM
 REM Python-first strategy: try the Python script first (preferred - it
 REM shares parsing/logging with the production autostart_windows.py). If

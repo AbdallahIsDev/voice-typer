@@ -1362,7 +1362,7 @@
 		"decrease": "घटाएँ",
 		"microphoneQualityPreset": "माइक्रोफ़ोन गुणवत्ता प्रीसेट",
 		"noiseSuppressionMethod": "शोर दमन विधि",
-		"importNotAvailableOutsideElectron": "Electron के बाहर आयात उपलब्ध नहीं है",
+		"importNotAvailable": "डेस्कटॉप ऐप के बिना आयात उपलब्ध नहीं है।",
 		"transcriptionComplete": "ट्रांसक्रिप्शन पूर्ण।",
 		"moreInfoAbout": "{label} के बारे में और जानकारी",
 		"toggleSidebarWithShortcut": "साइडबार टॉगल करें ({shortcut})",

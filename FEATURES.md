@@ -26,33 +26,28 @@ Last updated: 2026-06-22
 | **VOICE2TYPE** | 39 | Rust | Native Win32 | Windows | SiliconFlow/Groq cloud + local Whisper |
 | **thinkur** | 23 | Swift | Native Xcode | macOS | Apple Speech Framework |
 | **MoFA-IME** | 4 | Rust | Native Rust | macOS | Whisper + Qwen GGUF (llama.cpp) |
-| **Voice Typer (ours)** | — | Python + TypeScript | Electron | Win/Mac/Linux | faster-whisper (ctranslate2), Qwen3-ASR, Parakeet TDT v3, cloud (OpenAI/Groq/Deepgram) |
+| **Voice Typer (ours)** | — | Python + TypeScript + Rust | Tauri | Win/Mac/Linux | faster-whisper (ctranslate2), Qwen3-ASR, Parakeet TDT v3, cloud (OpenAI/Groq/Deepgram) |
 
 ---
 
-## Architecture: Electron runtime (current default)
+## Architecture: Tauri runtime (sole host, cutover 2026-09-17)
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│                   Electron Shell                        │
+│              Tauri v2 Rust Host (src-tauri/src/)        │
+│  · Single-instance plugin                               │
+│  · Spawns Nuitka-frozen sidecar + runtime-pack worker   │
+│  · WebSocket client to sidecar (bearer-token auth)      │
+│  · Renderer dispatch allowlist (SEC-019)                │
+│  · Native tray + window mgmt + supervisor               │
+│  · Per-session auth token                               │
 │  ┌──────────────────────────────────────────────────┐   │
-│  │              Main Process (main/index.ts)        │   │
-│  │  · Single-instance lock                          │   │
-│  │  · Spawns Python backend via pythonw             │   │
-│  │  · TCP IPC bridge (port 9876)                    │   │
-│  │  · 64 allowed IPC commands (allowlist)           │   │
-│  │  · Periodic health check (60s)                   │   │
-│  │  · Per-session auth token                        │   │
-│  │  · Event nonce verification                      │   │
-│  └──────────────┬───────────────────────────────────┘   │
-│                 │                                       │
-│  ┌──────────────▼───────────────────────────────────┐   │
-│  │           Preload Bridge (preload/index.ts)      │   │
+│  │           tauri-bridge (renderer)                │   │
 │  │  window.python · window.bubble · window.window_  │   │
 │  └──────────────┬───────────────────────────────────┘   │
 │                 │                                       │
 │  ┌──────────────▼───────────────────────────────────┐   │
-│  │              React Renderer                      │   │
+│  │              React Renderer (WebView)            │   │
 │  │  · Dashboard window (frameless)                  │   │
 │  │  · Bubble window (always-on-top)                 │   │
 │  │  · 9 pages (Home, History, Templates, etc.)      │   │
@@ -60,7 +55,7 @@ Last updated: 2026-06-22
 │  │  · Dark/light/system theme via CSS vars          │   │
 │  └──────────────────────────────────────────────────┘   │
 └──────────────────────┬──────────────────────────────────┘
-                       │ TCP (port 9876)
+                       │ WebSocket (ephemeral loopback port)
 ┌──────────────────────▼──────────────────────────────────┐
 │                  Python Backend                         │
 │  voice_typer/server/                                    │
@@ -115,19 +110,18 @@ Last updated: 2026-06-22
                        │ {"event":"server_started"}
 ┌──────────────────────▼──────────────────────────────────┐
 │                  Python Backend                         │
-│  · Same voice_typer/server/ stack as the Electron       │
-│    runtime; transport is sidecar_ws.py (WebSocket)      │
-│    instead of the TCP IPC server                        │
+│  · voice_typer/server/ stack; transport is              │
+│    sidecar_ws.py (localhost WebSocket)                  │
 │  · Second WS hop: sidecar (client) → runtime-pack       │
 │    worker (voice-typer-worker-<triple>) for offline     │
 │    ASR via the transcribe_offline command               │
 └─────────────────────────────────────────────────────────┘
 ```
 
-The Electron stack remains the default shipping app until each
-platform's Tauri cutover completes ([ADR-0020](docs/adr/0020-desktop-runtime-migration-analysis.md));
-see [README → Runtime Architecture](README.md#runtime-architecture) for
-the dual-runtime overview and developer environment variables.
+Tauri is the sole production host ([ADR-0020](docs/adr/0020-desktop-runtime-migration-analysis.md),
+cutover complete 2026-09-17). Electron packaging, TCP IPC, and
+`client/src/main` are removed; historical notes live under
+`docs/adr/` + `docs/migration/`.
 
 ---
 
@@ -190,9 +184,9 @@ Pipeline order: Transcribe → Text Cleanup → Vocabulary → Templates → LLM
 | 34 | Transcription history (SQLite) | ✅ | WAL mode, schema versioning, migrations |
 | 35 | History search | ✅ | Free-text search, filtered by date range, limit bounding |
 | 36 | History favorites | ✅ | Star toggle, filter by favorites |
-| 37 | History export (JSON + CSV) | ✅ | Save dialog via Electron IPC |
+| 37 | History export (JSON + CSV) | ✅ | Save dialog via Tauri `dialog:allow-save` (`export_history`) |
 | 38 | History clear all (with confirmation) | ✅ | Confirmation dialog |
-| 39 | Vocabulary export (JSON + CSV) | ✅ | Save dialog via Electron IPC |
+| 39 | Vocabulary export (JSON + CSV) | ✅ | Save dialog via Tauri `dialog:allow-save` (`export_vocabulary`) |
 
 ### Window Management
 
@@ -202,7 +196,7 @@ Pipeline order: Transcribe → Text Cleanup → Vocabulary → Templates → LLM
 | 41 | Bubble window (always-on-top) | ✅ | Frameless, skip-taskbar, focusable:false, visibleOnFullScreen |
 | 42 | Close-to-tray (X button hides, doesn't quit) | ✅ | `preventDefault` on close event |
 | 43 | Hidden startup mode (`VT_START_HIDDEN=1`) | ✅ | Creates window hidden + skipTaskbar; second-instance shows it |
-| 44 | Single-instance guard | ✅ | Electron `requestSingleInstanceLock`; Python named mutex (dual enforcement) |
+| 44 | Single-instance guard | ✅ | Tauri `single-instance` plugin; Python named mutex on standalone/headless paths |
 | 45 | Custom title bar with min/max/close | ✅ | TitleBar component with maximize state tracking |
 | 46 | Collapsible sidebar | ✅ | w-12 / w-55 toggle, Ctrl+B shortcut |
 | 47 | Bubble drag-to-move | ✅ | IPC-based delta positioning |
@@ -237,7 +231,7 @@ Pipeline order: Transcribe → Text Cleanup → Vocabulary → Templates → LLM
 | 61 | Launch at login | ✅ | Windows Registry `HKCU\Run` |
 | 62 | Fast startup (cache prewarming) | ✅ | Worker warm-imports the ONNX runtime stack at boot (no torch/transformers, torch was removed 2026-08-15) |
 | 63 | Desktop shortcut creation on first run | ✅ | Creates Voice Typer.lnk |
-| 64 | Build-first launch strategy | ✅ | `autostart_launcher.py` builds then launches Electron; port-availability check for idempotency |
+| 64 | Launch strategy | ✅ | Tauri host + Nuitka sidecar externalBin; autostart detects the Tauri binary |
 
 ### UI Pages
 
@@ -296,8 +290,8 @@ Pipeline order: Transcribe → Text Cleanup → Vocabulary → Templates → LLM
 
 | # | Feature | Status | Notes |
 |---|---|---|---|---|
-| 74 | electron-vite build system | ✅ | Vite 7 for main/preload/renderer |
-| 75 | electron-builder packaging | ✅ | NSIS installer (electron-builder.yml) |
+| 74 | Vite renderer build | ✅ | `vite.tauri.config.ts` (Tauri WebView renderer) |
+| 75 | Tauri packaging | ✅ | NSIS / DMG / deb / rpm via `cargo tauri build` + `src-tauri/tauri.conf.json` |
 | 76 | Python backend bundled as pip package | ✅ | setuptools, installed via pip |
 | 77 | CI build pipeline (GitHub Actions) | ✅ | `.github/workflows/build.yml` |
 | 78 | Diagnostics scripts | ✅ | F2 hotkey test, CUDA fallback, runtime proof |

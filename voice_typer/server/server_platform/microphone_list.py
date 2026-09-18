@@ -511,6 +511,62 @@ def list_microphones() -> list[dict]:
     return result
 
 
+def get_canonical_default_index() -> int | None:
+    """Return the PortAudio index of the canonical default input device.
+
+    Prefers the ``default``-flagged entry in :func:`list_microphones`
+    (the canonical host-API view: WASAPI on Windows, Core Audio on
+    macOS, PulseAudio on Linux). When the canonical list carries no
+    default flag (the preferred host API reports no default input
+    device), falls back to the name twin of the raw PortAudio default:
+    the raw default's display name is matched exactly against the
+    canonical names, with an additional prefix rule for the Windows
+    MME 31-character truncation (a truncated raw name that is an
+    unambiguous prefix of exactly one canonical name resolves to it).
+    Ambiguous matches (several same-name devices) resolve to ``None``
+    rather than guessing a physical unit. Returns ``None`` when no
+    live device matches (empty enumeration / query error / system
+    default requested but unresolvable).
+    """
+    try:
+        mics = list_microphones()
+    except Exception:
+        return None
+    for mic in mics:
+        try:
+            if mic.get("default"):
+                return int(mic["index"])
+        except (KeyError, TypeError, ValueError):
+            continue
+    try:
+        import sounddevice as sd
+
+        raw = sd.query_devices(kind="input")
+    except Exception:
+        return None
+    if not isinstance(raw, dict):
+        return None
+    raw_name = raw.get("name", "")
+    raw_name = raw_name.strip() if isinstance(raw_name, str) else ""
+    if not raw_name:
+        return None
+    exact = [m for m in mics if m.get("name") == raw_name]
+    if len(exact) == 1:
+        try:
+            return int(exact[0]["index"])
+        except (KeyError, TypeError, ValueError):
+            return None
+    if len(exact) > 1:
+        return None
+    prefixed = [m for m in mics if isinstance(m.get("name"), str) and m["name"].startswith(raw_name)]
+    if len(prefixed) == 1 and len(raw_name) >= 31:
+        try:
+            return int(prefixed[0]["index"])
+        except (KeyError, TypeError, ValueError):
+            return None
+    return None
+
+
 def find_microphone_by_name(partial_name: str) -> dict | None:
     """Find a microphone whose name contains *partial_name* (case-insensitive)."""
     lower = partial_name.lower()

@@ -63,6 +63,18 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
+#: Guards the one-time ``[HISTORY] FTS5 startup rebuild succeeded
+#: (skipped, ...)`` debug line per DB path. Mirrors the
+#: ``_announced_db_paths`` dedup in ``history_db_internals.schema``:
+#: without it a second construction for the same path in one process
+#: logs the skip twice within milliseconds.
+_announced_fts5_skip_paths: set[str] = set()
+
+
+def _reset_fts5_skip_paths() -> None:
+    """Test seam, clear the per-path FTS5-skip log guard."""
+    _announced_fts5_skip_paths.clear()
+
 
 def _writer_loop(db: HistoryDB) -> None:
     """Drain the write queue serially on a single connection.
@@ -317,9 +329,13 @@ def _fts5_startup_rebuild(db: HistoryDB, conn: sqlite3.Connection) -> None:
     # rebuild to run at least once on a fresh DB to establish a
     # clean baseline post-V3-migration.
     if flag_value == "0":
-        log.debug(
-            "[HISTORY] FTS5 startup rebuild succeeded (skipped, previous rebuild succeeded, no failure recorded since)"
-        )
+        key = str(getattr(db, "db_path", ""))
+        if key not in _announced_fts5_skip_paths:
+            _announced_fts5_skip_paths.add(key)
+            log.debug(
+                "[HISTORY] FTS5 startup rebuild succeeded "
+                "(skipped, previous rebuild succeeded, no failure recorded since)"
+            )
         return
 
     try:

@@ -1362,7 +1362,7 @@
 		"decrease": "Уменьшить",
 		"microphoneQualityPreset": "Предустановка качества микрофона",
 		"noiseSuppressionMethod": "Метод подавления шума",
-		"importNotAvailableOutsideElectron": "Импорт недоступен вне Electron",
+		"importNotAvailable": "Импорт недоступен без настольного приложения.",
 		"transcriptionComplete": "Транскрипция завершена.",
 		"moreInfoAbout": "Подробнее о {label}",
 		"toggleSidebarWithShortcut": "Переключить боковую панель ({shortcut})",

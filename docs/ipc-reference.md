@@ -202,7 +202,8 @@ this page find the canonical "this command does not exist" answer:
 `level_monitor_status`, `microphone_test_status`,
 `onboarding_get_model_catalog`, `onboarding_get_step`,
 `onboarding_request_keyboard_permission`,
-`refresh_microphones`, `show_electron_notification`,
+`refresh_microphones`, `show_electron_notification` (deleted Electron-era
+command; the live notification push is the `notification` event),
 `test_llm_connection`.
 
 > Note: `check_accessibility` was previously listed here (removed in the
@@ -301,7 +302,7 @@ list: events not in the union fall through to the `string` overload of
 | `dictation_suppressed` | `DictationSuppressedEvent` | `{ duration: number, recorded_rms: number, reason: string }` A dictation was suppressed before transcription (typed in the union; renderer consumer optional). |
 | `history_corrupted` | `HistoryCorruptedEvent` | `{ path: string, db_path: string, recovered_count: number }` History DB corruption was detected and recovered (typed in the union; renderer consumer optional). |
 | `paste_deferred` | `PasteDeferredEvent` | `{ reason: string, message?: string }` Paste was deferred (e.g. clipboard safety validation held it back; typed in the union; renderer consumer optional). |
-| `tray_fallback_notification` | `TrayFallbackNotificationEvent` | `{ title?: string, message?: string }` Tray notification fallback path fired (Electron/headless runtime only); generic toast consumer. |
+| `tray_fallback_notification` | `TrayFallbackNotificationEvent` | `{ title?: string, message?: string }` Tray notification fallback path fired (headless / pystray-only runtimes; Tauri host owns the tray). Generic toast consumer. |
 
 ## Server-only push events (string-overload, not in the typed union)
 
@@ -359,7 +360,7 @@ side, see [`docs/migration/tauri-sidecar-bridge.md`](migration/tauri-sidecar-bri
 - [python-api.md](./python-api.md): Python class API reference
   (`VoiceTyperApp`, `Recorder`, `IpcServer`, etc.).
 - [ARCHITECTURE.md](./ARCHITECTURE.md): high-level architecture
-  overview (renderer <-> Electron main <-> Python backend <-> Rust host).
+  overview (renderer <-> Tauri host <-> Python sidecar).
 - [modules/sidecar_ws.md](./modules/sidecar_ws.md): Tauri sidecar
   WebSocket transport module reference.
 - [migration/tauri-sidecar-bridge.md](./migration/tauri-sidecar-bridge.md) —

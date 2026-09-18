@@ -214,6 +214,57 @@ class TestTooltipCheapness:
         assert len(calls) == 1
 
 
+class TestConcurrentSingleFlight:
+    """Concurrent checks for the SAME key probe exactly once.
+
+    Startup runs the tray menu build and the Models status poll on
+    concurrent threads; both ask about the same repo within the same
+    second. Without single-flight both miss the empty store and both
+    run the snapshot probe (duplicate HF probe + duplicate probe-miss
+    log). With it, the waiter serves the owner's verdict.
+    """
+
+    def test_concurrent_checks_probe_once(self, tmp_path: Path):
+        import threading
+
+        calls: list[str] = []
+        release = threading.Event()
+
+        def probe(repo_id: str) -> bool:
+            calls.append(repo_id)
+            assert release.wait(timeout=30.0), "probe must be released by the test"
+            return True
+
+        repo_dir = _make_repo(tmp_path, "org/repo")
+        _set_mtime(repo_dir, 1_700_000_000_000_000_000)
+
+        barrier = threading.Barrier(8)
+        results: list[bool] = []
+
+        def worker() -> None:
+            barrier.wait(timeout=30.0)
+            results.append(ma.is_available("org/repo", tmp_path, probe=probe))
+
+        threads = [threading.Thread(target=worker) for _ in range(8)]
+        for t in threads:
+            t.start()
+        try:
+            # Let every worker block inside the probe (or join it), then
+            # release the single owner exactly once.
+            deadline = time.monotonic() + 30.0
+            while time.monotonic() < deadline and len(calls) < 1:
+                time.sleep(0.01)
+            assert len(calls) >= 1, "at least one probe must start"
+            release.set()
+            for t in threads:
+                t.join(timeout=30.0)
+                assert not t.is_alive(), "worker thread wedged"
+        finally:
+            release.set()
+        assert results == [True] * 8
+        assert calls == ["org/repo"], f"expected exactly 1 probe, got {len(calls)}"
+
+
 class TestMonotonicHygiene:
     """Entries much older than the freshness window re-probe even when
     the mtime matches (bounds trust in a stale filesystem view)."""

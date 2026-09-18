@@ -16,6 +16,23 @@ from voice_typer.server.native_hotkeys._constants import (
 
 log = logging.getLogger(__name__)
 
+# Known-good diagnostic lines emitted by the native binaries via their
+# diagnostic logger to stderr (merged into stdout by the parent's
+# ``stderr=STDOUT`` pipe). They carry a timestamp+pid prefix, e.g.
+# ``2026-09-18T12:00:00.000 [1234] windows-key-listener starting;
+# spec=<f2>; log_file=...``. They are not wire-protocol events, so the
+# table dispatch above never matches them. Match by substring (the
+# prefix varies per boot) and acknowledge at debug without hitting the
+# "Unrecognized" fallback below. The markers are deliberately
+# cross-platform: the Linux/macOS binaries emit the same startup,
+# stdin-reader, and READY-emitted shapes with their own binary name.
+_KNOWN_DIAGNOSTIC_MARKERS: tuple[str, ...] = (
+    "starting; spec=",
+    "stdin reader thread started (PING/PONG enabled)",
+    "keyboard hook installed",
+    "READY emitted; version=",
+)
+
 
 class _ReaderMixin:
     # Human-readable backend name used in log messages. Provided by the
@@ -210,6 +227,11 @@ class _ReaderMixin:
                     handler(payload)
                 else:
                     handler(payload, down=down_flag)
+                return
+
+        for marker in _KNOWN_DIAGNOSTIC_MARKERS:
+            if marker in line:
+                log.debug("[NATIVE-HOTKEY] %s binary diagnostic: %s", self.platform_name, line)
                 return
 
         log.debug("[NATIVE-HOTKEY] Unrecognized line from %s: %r", self.platform_name, line)

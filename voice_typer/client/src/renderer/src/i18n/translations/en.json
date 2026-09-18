@@ -1371,7 +1371,7 @@
 		"decrease": "Decrease",
 		"microphoneQualityPreset": "Microphone Quality Preset",
 		"noiseSuppressionMethod": "Noise Suppression Method",
-		"importNotAvailableOutsideElectron": "Import not available outside Electron",
+		"importNotAvailable": "Import is not available without the desktop app.",
 		"toggleSidebarWithShortcut": "Toggle sidebar ({shortcut})",
 		"transcriptionPasted": "Pasted: {text}",
 		"collapseSubmenu": "Collapse {label} submenu",

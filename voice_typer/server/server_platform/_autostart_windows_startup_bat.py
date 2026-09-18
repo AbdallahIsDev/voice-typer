@@ -163,7 +163,7 @@ def _is_app_autostart_startup_registered() -> bool:
             bat_path.unlink()
         return False
     log.debug(
-        "[AUTOSTART] Startup .bat registered with valid command: %s",
+        "[AUTOSTART] Startup .bat check: present with valid command: %s (read-only, no write)",
         target_cmd,
     )
     return True

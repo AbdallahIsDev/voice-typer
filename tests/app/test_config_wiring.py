@@ -258,7 +258,7 @@ class TestExternalCorrectionsWiring:
 class TestSettingsWindowIntegration:
     # ARCH-DEAD-SETTINGS: the show_settings / SettingsWindow tests were
     # removed when voice_typer.server.settings was deleted. The tkinter
-    # settings UI is fully replaced by the Electron frontend; no
+    # settings UI is fully replaced by the Tauri host/frontend; no
     # production code path constructs a SettingsWindow or calls
     # show_settings / open_settings.
 
@@ -295,10 +295,11 @@ class TestSettingsWindowIntegration:
         assert app.hotkeys._hotkey_backend is new_backend
 
     def test_restart_app_does_not_spawn_subprocess(self, app, monkeypatch):
-        """fix-restart-tcp: restart_app() must NOT spawn a replacement
-        subprocess.  Electron's exit handler is the sole spawner; if
-        Python also spawns one, the two new processes race for port
-        9876 (one binds, one crashes with EADDRINUSE), TCP bounces
+        """restart_app() must NOT spawn a replacement
+        subprocess.  The Tauri host's exit/restart path is the sole
+        spawner; if
+        Python also spawns one, the two new processes race for the
+        sidecar port (one binds, one crashes), the WS transport bounces
         between them, and the renderer sees cascading "Error: Timeout"
         plus a false "downloading model" screen.
 
@@ -327,7 +328,7 @@ class TestSettingsWindowIntegration:
         # pre-warm the cache BEFORE mocking ``subprocess.Popen`` so
         # the probe's library-probing subprocess calls aren't captured
         # by the assertion below. These are benign OS library probes,
-        # NOT replacement backend/Electron spawns.
+        # NOT replacement backend/host spawns.
         from voice_typer.server import credential_store
 
         with contextlib.suppress(Exception):
@@ -355,7 +356,7 @@ class TestSettingsWindowIntegration:
             app.restart_app()
 
         # fix-restart-tcp: the port-race risk is a REPLACEMENT backend /
-        # Electron spawn (two processes fighting over port 9876).
+        # host spawn (two processes fighting over port 9876).
         # restart_app() itself must not spawn one. Benign OS utilities
         # that run as a side effect of config-dir setup / resource
         # probing (``icacls`` ACL enforcement on the fresh temp config
@@ -367,19 +368,19 @@ class TestSettingsWindowIntegration:
             if not (args and args[0] and args[0][0] in ("icacls", "lscpu"))
         ]
         assert replacement_spawns == [], (
-            "restart_app must NOT spawn a replacement backend/Electron "
-            f"subprocess (port-race); got: {replacement_spawns}"
+            f"restart_app must NOT spawn a replacement backend/host subprocess (port-race); got: {replacement_spawns}"
         )
 
     def test_restart_app_pushes_restart_ack_event(self, app, monkeypatch):
-        """fix-restart-tcp: restart_app() must push a ``relaunch_electron``
-        event over the TCP channel BEFORE exiting.  Electron listens
-        for this event to call app.relaunch() + app.exit(0), which
-        spawns a fresh Electron process (and in turn a fresh Python
+        """restart_app() must push a ``relaunch_app``
+        event over the IPC transport BEFORE exiting.  The Tauri host
+        listens for this event to call ``app.restart()`` (production)
+        or respawn the sidecar (dev), which
+        spawns a fresh host process (and in turn a fresh Python
         backend).  This replaces the old ``restart_ack`` design which
-        tried to keep Electron alive while swapping only the Python
-        backend, that design had multiple race conditions (TCP close
-        racing with restart_ack delivery, tcpSocket set before connect
+        tried to keep the previous host alive while swapping only the Python
+        backend, that design had multiple race conditions (transport close
+        racing with restart_ack delivery, socket set before connect
         causing auth failures, _restarting flag cleared too early)
         that produced cascading "Error: Timeout" and "Python socket
         closed" errors.  The full-relaunch approach eliminates all of

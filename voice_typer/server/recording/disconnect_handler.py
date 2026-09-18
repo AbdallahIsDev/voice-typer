@@ -404,6 +404,17 @@ class DisconnectHandler:
         # ``device=None`` if no same-named device is found.
         _restart_device = None
         _configured_device = recorder._devices._resolve_device()
+        if _configured_device is None:
+            try:
+                canonical_candidates = recorder._devices._same_physical_microphone_candidates(None)
+            except Exception:
+                canonical_candidates = [None]
+            if canonical_candidates and canonical_candidates[0] is not None:
+                _restart_device = canonical_candidates[0]
+                log.info(
+                    "[RECORDING] Restart: using canonical default device index %s",
+                    _restart_device,
+                )
         if _configured_device is not None:
             _named_candidates = recorder._devices._same_physical_microphone_candidates(_configured_device)
             # BT headsets that drop and reconnect within the

@@ -78,6 +78,19 @@ def snapshot_dir(config_dir: Path | str, repo_id: str) -> Path:
 _store: dict[tuple[str, str, tuple[str, ...]], tuple[bool, tuple[Any, ...], float]] = {}
 _LOCK = threading.Lock()
 
+# Single-flight guard: at startup the tray menu build and the Models
+# status poll ask about the SAME repo concurrently, both miss the empty
+# store and both run the snapshot probe (duplicate HF probe + duplicate
+# probe-miss log within one second). While one thread owns the probe for
+# a key, waiters block on its event and then serve the stored verdict
+# instead of re-probing. Always guarded by ``_LOCK``.
+_IN_FLIGHT: dict[tuple[str, str, tuple[str, ...]], threading.Event] = {}
+
+# Bound on waiting for an in-flight probe owned by another thread. Real
+# local-only probes finish in milliseconds; the timeout is deadlock
+# insurance only (a wedged owner must not wedge every waiter forever).
+_IN_FLIGHT_WAIT_S = 30.0
+
 # Override hook for the in-flight-download check (tests replace it;
 # production lazily resolves ``asr_setup.is_download_active`` once).
 _download_active_impl: Callable[[], bool] | None = None
@@ -144,17 +157,42 @@ def is_available(
     key = (repo_id, str(cfg), tuple(str(d) for d in watch))
     check_probe = probe if probe is not None else _default_probe
 
-    now = time.monotonic()
-    with _LOCK:
-        entry = _store.get(key)
-        if entry is not None and not _download_in_flight():
-            verdict, fingerprint, ts = entry
-            if (now - ts) < _FRESHNESS_MAX_AGE_S and fingerprint == _fingerprint(watch):
-                return verdict
-    verdict = bool(check_probe(repo_id))
+    # Join-or-own loop: serve a fresh verdict, join an in-flight probe
+    # for this key, or become the probe owner. Bounded so a wedged
+    # owner degrades to a duplicate probe, never a hang.
+    event: threading.Event | None = None
+    for _ in range(3):
+        now = time.monotonic()
+        with _LOCK:
+            entry = _store.get(key)
+            if entry is not None and not _download_in_flight():
+                verdict, fingerprint, ts = entry
+                if (now - ts) < _FRESHNESS_MAX_AGE_S and fingerprint == _fingerprint(watch):
+                    return verdict
+            event = _IN_FLIGHT.get(key)
+            if event is None:
+                event = threading.Event()
+                _IN_FLIGHT[key] = event
+                break
+        # Another thread owns the probe for this key: wait for its
+        # verdict instead of running the snapshot probe twice.
+        event.wait(timeout=_IN_FLIGHT_WAIT_S)
+    else:
+        event = None
+    try:
+        verdict = bool(check_probe(repo_id))
+    except Exception:
+        with _LOCK:
+            if event is not None and _IN_FLIGHT.get(key) is event:
+                del _IN_FLIGHT[key]
+                event.set()
+        raise
     fingerprint = _fingerprint(watch)
     with _LOCK:
         _store[key] = (verdict, fingerprint, time.monotonic())
+        if event is not None and _IN_FLIGHT.get(key) is event:
+            del _IN_FLIGHT[key]
+            event.set()
     return verdict
 
 

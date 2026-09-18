@@ -2,11 +2,12 @@
 
 ## Status
 
-**Historical (Electron removed 2026-09-17).** `allowed-commands.ts`
-was deleted with the Electron main process. The renderer→host surface
-is now the Tauri `dispatch` command + Rust `allowlist.rs`. Do not
-reintroduce the TS `ALLOWED_COMMANDS` Set. Preserved for the SEC-019
-rationale (renderer-compromised → arbitrary IPC).
+**Status: SUPERSEDED — Electron host removed 2026-09-17; Tauri is sole host (ADR-0020). Historical record only.**
+
+`allowed-commands.ts` was deleted with the Electron main process. The
+renderer→host surface is now the Tauri `dispatch` command + Rust
+`allowlist.rs`. Do not reintroduce the TS `ALLOWED_COMMANDS` Set.
+Preserved for the SEC-019 rationale (renderer-compromised → arbitrary IPC).
 
 ## Date
 

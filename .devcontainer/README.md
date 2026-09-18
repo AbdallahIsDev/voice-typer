@@ -14,7 +14,7 @@ Voice Typer includes a dev container configuration for VS Code Remote - Containe
 The container (`Dockerfile.dev`) is based on the official Python 3.12 image and includes:
 
 - **Python 3.12** — for the backend (`voice_typer/server/`)
-- **Node.js 20** — for the Electron client (`voice_typer/client/`)
+- **Node.js 24** — for the Tauri client (`voice_typer/client/`)
 - **System dependencies** — PortAudio, X11 libs, etc. for audio/hotkey support
 - **Zsh** with common utilities (oh-my-zsh, history, etc.)
 
@@ -30,7 +30,7 @@ cd voice_typer/client && npm ci        # Install Node deps
 After this completes, you can start development immediately:
 
 ```bash
-# Start the Electron app in dev mode (starts both Python backend + Electron)
+# Start the app in dev mode (starts both Python backend + Tauri host)
 cd voice_typer/client && npm run dev
 
 # Run Python tests
@@ -70,7 +70,7 @@ The container configures:
 ## Limitations
 
 - **Audio devices**: The container doesn't have access to the host's microphone. Audio-dependent tests will fail; use `@pytest.mark.skip` for those.
-- **GUI apps**: Electron's GUI won't display inside the container without X11 forwarding. The dev container is best for running tests, linting, and type checking — run `npm run dev` on your host machine for GUI testing.
+- **GUI apps**: The app GUI won't display inside the container without X11 forwarding. The dev container is best for running tests, linting, and type checking — run `npm run dev` on your host machine for GUI testing.
 - **Docker performance**: On macOS/Windows, Docker's file system can be slow with large `node_modules/`. The container uses a named volume for `node_modules` to mitigate this.
 
 ## Troubleshooting

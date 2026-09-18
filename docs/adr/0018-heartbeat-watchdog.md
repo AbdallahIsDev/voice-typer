@@ -2,12 +2,14 @@
 
 ## Status
 
-Accepted: implemented in `voice_typer/server/ipc_server.py:_heartbeat_loop`, `_check_heartbeat_timeout`, `_handle_heartbeat`, and `client/src/main/index.ts` heartbeat interval.
+**Status: SUPERSEDED — Electron host removed 2026-09-17; Tauri is sole host (ADR-0020). Historical record only.**
 
-> **Note (ADR-0020):** under the Tauri build path (`TAURI_SIDECAR=1`), the
+Historically accepted: implemented in `voice_typer/server/ipc_server.py:_heartbeat_loop`, `_check_heartbeat_timeout`, `_handle_heartbeat`, and the deleted Electron `client/src/main/index.ts` heartbeat interval.
+
+> **Note (ADR-0020 cutover):** under the Tauri host (`TAURI_SIDECAR=1`), the
 > `_heartbeat_loop` thread is **NOT** started: the Rust supervisor
-> replaces this watchdog via WS-close / process-exit detection. This ADR
-> remains in force only for the Electron fallback path.
+> owns liveness via WS-close / process-exit detection. The Electron
+> fallback path this ADR described is gone.
 
 ## Date
 

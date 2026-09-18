@@ -57,21 +57,21 @@ class TestCriticalNotificationsBypassToggle:
         assert "if err is not None:" in src
         assert "if err is not None and self.config.show_notifications" not in src
 
-    def test_crash_recovery_stays_silent(self):
-        """Recovered-transcription notice must NOT pop a system toast.
+    def test_crash_recovery_notifies_user(self):
+        """Recovered-transcription notice must reach the user.
 
-        User decision: recovery is silent, the entries are already in
-        History (the pipeline writes history_db + the recovery buffer
-        in parallel), so the toast only distracts at startup. The log
-        line is the trail. Fails if anyone re-adds a notify call in
-        the recovery branch.
+        The recovery store persists unpasted transcriptions across a
+        crash, and the startup check must surface them through the
+        safety toast path (which routes to the Rust-owned native toast
+        under Tauri) plus a notification event with a History deep
+        link. A log-only branch leaves recoverable text invisible.
         """
         src = _read_ux018(STARTUP_SEQUENCE_PY)
         assert "unpasted transcriptions from previous session" in src
         idx = src.index("unpasted transcriptions from previous session")
-        block = src[idx - 200 : idx + 800]
-        assert "notify_safety(" not in block
-        assert "tray.notify(" not in block
+        block = src[idx - 200 : idx + 1500]
+        assert "notify_safety(" in block
+        assert '"click_path": "/history"' in block or "'/history'" in block or "/history" in block
 
     def test_wayland_hotkeys_missing_uses_notify_safety(self):
         src = _read_ux018(STARTUP_SEQUENCE_PY)

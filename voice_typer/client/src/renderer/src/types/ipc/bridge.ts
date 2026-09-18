@@ -92,35 +92,32 @@ export interface WindowBridge {
 	}>;
 	// Push the renderer's current locale to the host process so it can
 	// localise native dialogs (single-instance error, critical-error
-	// dialog, model-folder picker, export save-as dialogs). Registered
-	// in `main/ipc/window-handlers.ts` as the `i18n:set-locale` IPC
-	// handler (Electron) and implemented by the Tauri bridge as the
+	// dialog, model-folder picker, export save-as dialogs). Implemented
+	// by the Tauri bridge as the
 	// `set_host_locale` command (stored in `SidecarState::host_locale`).
 	// Optional because not every runtime context installs `window_`
 	// (the sandboxed bubble window omits the namespace entirely).
 	setLocale?: (locale: string) => Promise<unknown>;
-	//Restart the Python backend process only (Electron stays alive).
+	// Restart the Python sidecar process only (the Tauri host stays up
+	// in dev; production uses host-owned restart).
 	// Used by the "Lost connection" Retry escalation AFTER a plain
-	// reconnect probe fails. Electron preload always installs it; the
-	// Tauri bridge installs it too since MO-120a (`restart_sidecar`
-	// command = Electron's `backend:restart` IPC handler parity), so
-	// one-click backend recovery works on both runtimes.
+	// reconnect probe fails. The Tauri bridge installs it
+	// (`restart_sidecar` command), so
+	// one-click backend recovery works.
 	restartBackend?: () => Promise<{
 		ok: boolean;
 		reason?: string;
 	}>;
 	// Share-stats image platform operations. The renderer captures the
-	// PNG data URL itself; these bridge to the Electron main process for
+	// PNG data URL itself; these bridge to the Tauri host for
 	// filesystem / clipboard / shell access a sandboxed renderer cannot
 	// use. Optional (the anchor-download / navigator.clipboard fallbacks
 	// stay for runtimes that omit them):
 	//   - saveStatsImage: mode "downloads" = instant save to the OS
 	//     Downloads folder (no dialog); mode "saveAs" = native save dialog.
 	//   - copyStatsImage: put the PNG on the OS clipboard.
-	//   - revealStatsImage: reveal a saved PNG in the OS file manager.
-	//     Since MO-120b the Tauri bridge installs it too
-	//     (`reveal_path_command` = Electron's `shell.showItemInFolder`),
-	//     so the previously-silent "Show in folder" button works there.
+	//   - revealStatsImage: reveal a saved PNG in the OS file manager
+	//     (`reveal_path_command`).
 	saveStatsImage?: (
 		dataUrl: string,
 		defaultName: string,

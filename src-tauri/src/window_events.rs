@@ -17,7 +17,7 @@ use tauri::{Manager, WindowEvent};
 
 /// Route one window event to the module that owns its concern.
 pub(crate) fn handle(window: &tauri::Window, event: &WindowEvent) {
-    // Close-to-tray (ADR-0020 §10 + Electron parity): the main
+    // Close-to-tray (ADR-0020 §10): the main
     // window's X button hides the window (prevent_close + hide)
     // unless a deliberate shutdown is in flight; the bubble
     // window closes normally. The branch logic lives in

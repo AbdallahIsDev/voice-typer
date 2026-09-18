@@ -210,6 +210,46 @@ class TestFetchRemoteManifest:
         result = fetch_remote_manifest(fake_manifest_url, http_get=fake_http_get)
         assert result is None
 
+    def test_http_404_is_info_not_warning(self, fake_manifest_url: str, caplog):
+        """A 404 (no pack release published yet) is the expected
+        fresh-install state: None + INFO, never WARNING, no traceback."""
+
+        def fake_http_get(url, *, max_bytes=MAX_MANIFEST_BYTES):
+            raise RuntimeError(f"unexpected HTTP status 404 for {url}")
+
+        with caplog.at_level("INFO", logger="voice_typer.server.service.update_check"):
+            assert fetch_remote_manifest(fake_manifest_url, http_get=fake_http_get) is None
+        assert not any(r.levelname == "WARNING" and "[UPDATE]" in r.message for r in caplog.records), (
+            f"404 must not warn; got: {[(r.levelname, r.message) for r in caplog.records]!r}"
+        )
+        assert any("[UPDATE]" in r.message and r.levelname == "INFO" for r in caplog.records), (
+            f"expected INFO-level UPDATE record; got: {[(r.levelname, r.message) for r in caplog.records]!r}"
+        )
+        assert "Traceback" not in caplog.text
+
+    def test_http_error_404_object_is_info(self, fake_manifest_url: str, caplog):
+        """The real ``urllib.error.HTTPError`` (``.code == 404``) also maps to INFO."""
+        import urllib.error
+
+        def fake_http_get(url, *, max_bytes=MAX_MANIFEST_BYTES):
+            raise urllib.error.HTTPError(url, 404, "Not Found", {}, None)  # type: ignore[arg-type]
+
+        with caplog.at_level("INFO", logger="voice_typer.server.service.update_check"):
+            assert fetch_remote_manifest(fake_manifest_url, http_get=fake_http_get) is None
+        assert not any(r.levelname == "WARNING" and "[UPDATE]" in r.message for r in caplog.records)
+
+    def test_non_404_network_error_stays_warning(self, fake_manifest_url: str, caplog):
+        """Genuine outages (DNS/timeout) keep WARNING so they stay visible."""
+
+        def fake_http_get(url, *, max_bytes=MAX_MANIFEST_BYTES):
+            raise OSError("simulated DNS failure")
+
+        with caplog.at_level("INFO", logger="voice_typer.server.service.update_check"):
+            assert fetch_remote_manifest(fake_manifest_url, http_get=fake_http_get) is None
+        assert any(r.levelname == "WARNING" and "[UPDATE]" in r.message for r in caplog.records), (
+            f"non-404 failure must warn; got: {[(r.levelname, r.message) for r in caplog.records]!r}"
+        )
+
     def test_returns_none_on_invalid_json(self, fake_manifest_url: str):
         """A non-JSON response → None."""
 
@@ -545,6 +585,38 @@ class TestCheckOfflinePackUpdate:
         assert result["update_available"] is False
         assert result["download_triggered"] is False
         assert "error" in result
+
+    def test_missing_manifest_404_returns_fetch_failed_without_download(
+        self,
+        fake_manifest_url: str,
+        fake_event_bus,
+        fake_config_with_consent,
+        monkeypatch,
+    ):
+        """A 404 with consent given → ``fetch_failed``, no download, no
+        consent dialog: the consent-gated flow simply waits until a
+        manifest is actually published."""
+        monkeypatch.setattr(update_check, "_local_offline_pack_version", lambda root=None: None)
+
+        def fake_http_get(url, *, max_bytes=MAX_MANIFEST_BYTES):
+            raise RuntimeError(f"unexpected HTTP status 404 for {url}")
+
+        def fail_on_trigger(**kwargs):
+            raise AssertionError("no download may trigger when the manifest is absent")
+
+        monkeypatch.setattr(update_check, "_trigger_background_download", fail_on_trigger)
+
+        result = check_offline_pack_update(
+            fake_config_with_consent,
+            fake_event_bus.bus,  # type: ignore[arg-type]
+            http_get=fake_http_get,
+            manifest_url=fake_manifest_url,
+        )
+
+        assert result["success"] is False
+        assert result["reason"] == "fetch_failed"
+        assert result["download_triggered"] is False
+        assert result.get("consent_required", False) is False
 
     def test_trigger_download_false_skips_download(
         self,

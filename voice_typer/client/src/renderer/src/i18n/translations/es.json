@@ -1363,7 +1363,7 @@
 		"decrease": "Disminuir",
 		"microphoneQualityPreset": "Preset de calidad de micrófono",
 		"noiseSuppressionMethod": "Método de supresión de ruido",
-		"importNotAvailableOutsideElectron": "Importación no disponible fuera de Electron",
+		"importNotAvailable": "Importación no disponible sin la aplicación de escritorio.",
 		"moreInfoAbout": "Más información sobre {label}",
 		"toggleSidebarWithShortcut": "Alternar barra lateral ({shortcut})",
 		"transcriptionPasted": "Pegado: {text}",

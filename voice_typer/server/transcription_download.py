@@ -42,6 +42,25 @@ from voice_typer.server.asr_errors import (
 log = logging.getLogger("voice_typer.server.transcription")
 
 
+def _is_expected_offline_probe_error(exc: BaseException) -> bool:
+    """True when *exc* is the routine offline cache-miss from a local-only probe.
+
+    ``snapshot_download(..., local_files_only=True)`` raises
+    :class:`huggingface_hub.errors.EntryNotFoundError` (most commonly its
+    ``IncompleteSnapshotError`` / ``LocalEntryNotFoundError`` subclasses) or
+    :class:`huggingface_hub.errors.CacheNotFound` when the cache simply does
+    not hold the snapshot. On a fresh install that is the expected state, not
+    a fault, so callers log it as one concise line WITHOUT a traceback.
+    Anything else (permissions, schema drift, hub bugs) keeps ``exc_info``
+    so it stays diagnosable.
+    """
+    try:
+        from huggingface_hub.errors import CacheNotFound, EntryNotFoundError
+    except ImportError:
+        return False
+    return isinstance(exc, (EntryNotFoundError, CacheNotFound))
+
+
 def _resolve_whisper_repo_id(model_size: str) -> str:
     """Resolve HF repo for a whisper ``model_size`` via MODEL_REGISTRY.
 
@@ -97,8 +116,11 @@ def probe_cache(
             allow_patterns=allow_patterns,
             local_files_only=True,
         )
-    except Exception:
-        log.debug("[MODEL] HF cache probe failed, will attempt download", exc_info=True)
+    except Exception as exc:
+        if _is_expected_offline_probe_error(exc):
+            log.debug("[MODEL] HF cache probe miss for %s: %s", repo_id, exc)
+        else:
+            log.debug("[MODEL] HF cache probe failed, will attempt download", exc_info=True)
         return None, False
 
     from voice_typer.server.security import verify_model_integrity
@@ -224,9 +246,13 @@ def whisper_size_cached(engine, model_size: str) -> bool:
         # Cannot probe, allow the load attempt (WhisperModel will
         # surface its own error if the files are missing).
         return True
-    except Exception:
-        # Cache miss (or local probe failure), never auto-download.
-        log.debug("[MODEL] whisper_size_cached probe miss for %s", model_size, exc_info=True)
+    except Exception as exc:
+        # Cache miss (or local probe failure), never auto-download. The
+        # routine offline miss logs one concise line with no traceback.
+        if _is_expected_offline_probe_error(exc):
+            log.debug("[MODEL] whisper_size_cached probe miss for %s: %s", model_size, exc)
+        else:
+            log.debug("[MODEL] whisper_size_cached probe miss for %s", model_size, exc_info=True)
         return False
 
 
@@ -286,8 +312,12 @@ def is_model_snapshot_complete(repo_id: str) -> bool:
             local_files_only=True,
         )
         return True
-    except Exception:
+    except Exception as exc:
         # Incomplete snapshot (missing files), cache-schema mismatch, or
         # hf unavailable, the honest status answer is "not downloaded".
-        log.debug("[MODEL] is_model_snapshot_complete probe miss for %s", repo_id, exc_info=True)
+        # The routine offline miss logs one concise line with no traceback.
+        if _is_expected_offline_probe_error(exc):
+            log.debug("[MODEL] is_model_snapshot_complete probe miss for %s: %s", repo_id, exc)
+        else:
+            log.debug("[MODEL] is_model_snapshot_complete probe miss for %s", repo_id, exc_info=True)
         return False

@@ -483,7 +483,7 @@ def _is_app_autostart_task_registered() -> bool:
             )
             return False
         log.debug(
-            "[AUTOSTART] Task Scheduler task registered with valid command: %s",
+            "[AUTOSTART] Task Scheduler task check: present with valid command: %s (read-only, no write)",
             command_path,
         )
         return True

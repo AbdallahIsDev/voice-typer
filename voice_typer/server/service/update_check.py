@@ -384,6 +384,20 @@ def _http_get_manifest(url: str, *, max_bytes: int = MAX_MANIFEST_BYTES, timeout
         return b"".join(chunks).decode("utf-8", errors="replace")
 
 
+def _is_missing_manifest_404(exc: BaseException) -> bool:
+    """True when *exc* is an HTTP 404 from the manifest fetch.
+
+    Covers both shapes the transport produces: ``urllib.error.HTTPError``
+    (carries ``.code == 404``; it subclasses ``URLError`` → ``OSError``)
+    and the ``RuntimeError("unexpected HTTP status 404 ...")`` raised by
+    :func:`_http_get_manifest` for non-200 statuses.
+    """
+    if getattr(exc, "code", None) == 404:
+        return True
+    text = str(exc)
+    return "HTTP Error 404" in text or "HTTP status 404" in text
+
+
 # ── Manifest fetch + parse ──────────────────────────────────────────────
 
 
@@ -442,11 +456,21 @@ def fetch_remote_manifest(
         # Strip the scheme so the line stays short; host + path are the
         # diagnostic payload. ``exc`` leads because the failure KIND
         # (404 vs timeout vs DNS) is the first thing to know.
-        log.warning(
-            "[UPDATE] Manifest fetch failed (%s): %s",
-            exc,
-            url.split("://", 1)[-1],
-        )
+        # A 404 is the EXPECTED fresh-install state (no pack release
+        # published yet), not a fault: INFO, no traceback. Anything
+        # else keeps WARNING so real outages stay visible.
+        if _is_missing_manifest_404(exc):
+            log.info(
+                "[UPDATE] remote pack manifest not published yet (%s): %s",
+                exc,
+                url.split("://", 1)[-1],
+            )
+        else:
+            log.warning(
+                "[UPDATE] Manifest fetch failed (%s): %s",
+                exc,
+                url.split("://", 1)[-1],
+            )
         return None
 
     # Parse + validate via the shared schema validator (the SAME

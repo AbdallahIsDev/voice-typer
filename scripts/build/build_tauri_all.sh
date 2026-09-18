@@ -260,7 +260,7 @@ if [[ "$SKIP_SIDECAR" -eq 0 ]]; then
     echo "::endgroup::"
 fi
 
-# ─── Phase 1b: build the React renderer (shared between Electron + Tauri) ───
+# ─── Phase 1b: build the React renderer (Tauri) ───
 # The subshell is wrapped in `|| { ...; exit 2; }` (Phase 1a's sequential
 # pattern): under `set -e` a bare failing subshell aborts the script with
 # npm's raw exit code BEFORE any diagnostic or documented exit code is
@@ -425,6 +425,6 @@ esac
 echo "::endgroup::"
 
 echo "[build_tauri_all] DONE. ADR-0020 §15: NO auto-update manifest was generated."
-echo "[build_tauri_all] Do NOT flip the default shipping app from Electron to Tauri until"
+echo "[build_tauri_all] Tauri is the sole production host (Electron removed 2026-09-17)."
 echo "[build_tauri_all] the platform's Phase 5 cutover gate is met (docs/migration/cutover-playbook.md)."
 exit 0

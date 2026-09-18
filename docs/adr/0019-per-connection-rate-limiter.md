@@ -2,11 +2,14 @@
 
 ## Status
 
-Accepted: implemented in `voice_typer/server/ipc_server.py` (canonical;
+**Status: SUPERSEDED — Electron host removed 2026-09-17; Tauri is sole host (ADR-0020). Historical record only.**
+
+The rate limiter itself remains **live**: implemented in `voice_typer/server/ipc_server.py` (canonical;
 duplicate leaf copy at `voice_typer/server/ipc/rate_limiter.py` retained
 as the `_RateLimiter` class, instantiated per
 `IPCServer` process via `_get_rate_limiter(server)` and
-shared across all TCP / WS connections within that process.
+shared across all WS connections within that process. Electron/TCP
+context below is historical.
 
 ## Date
 

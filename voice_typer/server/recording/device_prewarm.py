@@ -213,6 +213,13 @@ class DevicePrewarm:
         def _do_open() -> None:
             try:
                 device = recorder._devices._resolve_device()
+                if device is None:
+                    try:
+                        canonical = recorder._devices._canonical_default_index()
+                    except Exception:
+                        canonical = None
+                    if canonical is not None:
+                        device = canonical
                 candidate_sr, _dev_info = recorder._devices._resolve_effective_sample_rate(device)
                 prewarm_stream = sd.InputStream(
                     samplerate=candidate_sr,
@@ -313,10 +320,9 @@ class DevicePrewarm:
     def _cached_default_input_channels(self) -> int:
         """Channel count for the OS-default input (``device=None``).
 
-        Resolves the OS default's index with ONE default-device lookup
-        (``sd.query_devices(kind="input")``: the same resolution the
-        device health checker uses; NOT a full device enumeration), then
-        reads the channel count from the cached device-list entry. The
+        Resolves the OS default's index through the canonical host-API
+        view first (same WASAPI default the stream opens), then reads
+        the channel count from the cached device-list entry. The
         result is memoized against the device-list cache's timestamp so
         repeated lookups within one device-list generation cost zero
         PortAudio calls (a TTL refresh or an OS device-event
@@ -333,11 +339,26 @@ class DevicePrewarm:
             return 1
         if stamp and self._default_channels_stamp == stamp and self._default_channels_cache is not None:
             return self._default_channels_cache
+        default_index: int | None = None
+        default_info: Any = None
         try:
-            default_info = sd.query_devices(kind="input")
+            canonical = self._recorder._devices._canonical_default_index()
         except Exception:
-            return 1
-        default_index = default_info.get("index")
+            canonical = None
+        if canonical is not None:
+            default_index = canonical
+            try:
+                default_info = self._recorder._devices._cached_device_info(canonical)
+            except Exception:
+                default_info = None
+        if default_index is None:
+            try:
+                default_info = sd.query_devices(kind="input")
+            except Exception:
+                return 1
+            if isinstance(default_info, dict):
+                maybe_index = default_info.get("index")
+                default_index = maybe_index if isinstance(maybe_index, int) else None
         count: int | None = None
         if isinstance(default_index, int):
             for info in devices:
@@ -353,7 +374,7 @@ class DevicePrewarm:
             # no downgrade vs the pre-fix authoritative query.
             try:
                 count = int(default_info.get("max_input_channels", 1) or 1)
-            except (TypeError, ValueError):
+            except (AttributeError, TypeError, ValueError):
                 count = 1
         if stamp:
             self._default_channels_cache = count

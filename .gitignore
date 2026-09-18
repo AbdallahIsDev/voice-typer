@@ -7,10 +7,10 @@ node_modules/
 .agents/*
 .claude/*
 
-# Electron/Vite build outputs — never commit these.
+# Vite/Tauri client build outputs — never commit these.
 # They're regenerated on every `npm run build` and bloat the repo.
 # NOTE: `csp-plugin.ts` at the client root is a SOURCE file (tracked,
-# imported by electron.vite.config.ts), NOT a build output — do not add
+# imported by vite.tauri.config.ts), NOT a build output — do not add
 # it here. It is covered by tsconfig.node.json explicitly.
 voice_typer/client/out/
 voice_typer/client/src/renderer/dist/
@@ -21,8 +21,6 @@ voice_typer/client/src/renderer/dist/
 /build/
 /dist/
 *.tsbuildinfo
-# electron-vite cached transpiled config (auto-generated from electron.vite.config.ts)
-voice_typer/client/electron.vite.config.*.mjs
 # Runtime/debug output
 *.log
 runtime_log*.txt

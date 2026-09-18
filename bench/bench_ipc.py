@@ -2,7 +2,7 @@
 """IPC subsystem benchmark.
 
 Measures four aspects of the in-process IPC / event-bus / rate-limiter
-stack so the CI ratchet can catch regressions in the Electron↔Python
+stack so the CI ratchet can catch regressions in the IPC
 control plane:
 
 1. **Auth handshake latency** (cold + warm), the cost of validating a

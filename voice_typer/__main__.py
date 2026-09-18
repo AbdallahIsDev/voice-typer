@@ -14,8 +14,8 @@ script (pyproject.toml ``[project.scripts]``).  The two serve
 different purposes:
 
 - ``voice-typer`` console script → ``voice_typer.server.ipc_server:main``
-  , spawned by Electron as the backend subprocess (TCP IPC mode, no
-  CLI arg parsing, --port only).
+  , spawned by the Tauri host as the sidecar subprocess (WebSocket IPC,
+  `--ws`, no CLI arg parsing).
 
 - ``python -m voice_typer`` (this file) → user-facing CLI with
   --help, --version, --debug, --no-tray, --quiet, --config flags.

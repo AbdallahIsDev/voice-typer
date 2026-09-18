@@ -16,19 +16,18 @@
 /// Build the `main` window from its `tauri.conf.json` config entry,
 /// apply the platform frame + startup icon, and honor VT_START_HIDDEN.
 ///
-/// Custom-title-bar parity with Electron's main window (see
-/// `main-window.ts` for the Electron side). The window is NOT
+/// Custom-title-bar window construction (the Electron host that this
+/// layout originally mirrored was removed 2026-09-17). The window is NOT
 /// auto-created: `tauri.conf.json` declares it with `"create": false`
 /// and it is built here from that config so the FRAME can be
 /// platform-conditional:
 ///   - macOS: keep native decorations + the traffic lights
 ///     (`titleBarStyle: Overlay` + `trafficLightPosition` from
-///     config): Electron's `hiddenInset` equivalent. The renderer
+///     config). The renderer
 ///     omits its custom window buttons on macOS and reserves the
 ///     traffic-light gutter.
 ///   - Windows/Linux: fully frameless (`decorations: false`), the
-///     renderer draws the custom title bar + window controls,
-///     mirroring Electron's `frame: false`.
+///     renderer draws the custom title bar + window controls.
 ///
 /// Panics (via `expect`, mirroring the pre-extraction `main.rs`
 /// invariants) only on config-level defects: a missing `main` window
@@ -38,8 +37,8 @@
 /// Takes an `&AppHandle` (rather than `&App`) so the SAME builder can run
 /// from `host_events::show_main_window` when the window no longer exists
 /// (macOS: the last window can be closed while the process stays alive,
-/// and the Dock-activate path must bring it back, Electron's `activate`
-/// parity, MO-112). `main.rs` passes `app.handle()` at startup.
+/// and the Dock-activate path must bring it back; MO-112). `main.rs`
+/// passes `app.handle()` at startup.
 pub(crate) fn bootstrap_main_window(app: &tauri::AppHandle) {
     let main_window_config = app
         .config()
@@ -60,11 +59,11 @@ pub(crate) fn bootstrap_main_window(app: &tauri::AppHandle) {
     // `theme_icon.rs`.
     crate::theme_icon::apply_startup(&main_window);
     // Respect VT_START_HIDDEN=1 (set by autostart_launcher when
-    // launched with --hidden). Electron honors it via START_HIDDEN in
-    // the main process; Tauri previously ignored it, so a background
+    // launched with --hidden). Tauri honors it here by hiding the
+    // window immediately + skip_taskbar, otherwise a background
     // autostart would briefly flash the window and the renderer's
     // persisted "microphone" page would activate the mic indicator
-    // while hidden. Hide immediately and set skip_taskbar.
+    // while hidden.
     if std::env::var("VT_START_HIDDEN").as_deref() == Ok("1") {
         if let Err(e) = main_window.hide() {
             log::warn!("[SETUP] hide main window for VT_START_HIDDEN failed: {}", e);

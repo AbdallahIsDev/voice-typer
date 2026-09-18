@@ -65,12 +65,12 @@ log (below).
 
 ### Tauri Rust host log
 
-When running under the Tauri runtime (ADR-0020), the Rust host writes
+When running under the Tauri runtime (ADR-0020, sole host), the Rust host writes
 its own log at `<DATA_DIR>/logs/voice-typer-rust.log` (single-file
 policy: it is truncated in place at 5 MB, numbered backups are never
 created — see `src-tauri/src/platform/logging/init.rs:135-149`). The
 basename is `voice-typer-rust` (distinct from the Python current log
-`logs/voice-typer.log`) so the two hosts never collide on disk or in
+`logs/voice-typer.log`) so the two processes never collide on disk or in
 the diagnostics zip; the bundle ships the file under this same
 on-disk name.
 
@@ -81,8 +81,11 @@ on-disk name.
 | macOS | `~/Library/Application Support/voice-typer/logs/voice-typer-rust.log` |
 | Linux | `$XDG_DATA_HOME/voice-typer/logs/voice-typer-rust.log` (falls back to `~/.local/share/voice-typer/logs/voice-typer-rust.log`) |
 
-Electron crash logs (when running under the Electron host) land at
-`<userData>/electron-crashes.log`.
+The Electron host and its crash logs (`electron-crashes.log`,
+`electron-main.log`) were removed with the Electron cutover
+(2026-09-17). A leftover `electron-profile/` directory on disk is a
+legacy Chromium profile; it is inert and cleaned on uninstall purge /
+GDPR delete when present.
 
 This design is:
 
@@ -113,7 +116,7 @@ This design is:
 ├── voice-typer.log              # Python backend log (single file, truncates in place at 5 MiB)
 ├── logs/
 │   └── voice-typer.log          # Tauri Rust host log (single file, truncates in place at 5 MB)
-├── electron-profile/            # Electron/Chromium profile (caches, Local Storage, Network state)
+├── electron-profile/            # LEGACY only: Chromium profile left by pre-cutover Electron installs (inert)
 ├── vocabulary.json  # User vocabulary overrides (merged with bundled defaults)
 ├── voice-typer-corrections.json # User text-corrections overrides (optional; merged with bundled)
 └── crash_recovery/
@@ -146,16 +149,14 @@ Python virtual environment created by the installer or first-run setup. Contains
   - **Torch migration note (2026-08-13)**: `torch` is being removed from the slim core's dependency list as part of the ONNX migration (`PLAN_ONNX_INTEGRATION.md` §2/§3). VAD now uses `onnxruntime` (ADR-0005) and Parakeet uses `onnx-asr`. Torch may remain installed transiently for the Qwen engine until Phase 1d; see `pyproject.toml` for the canonical dep list.
 - CLI entry point (`voice-typer`)
 
-### `electron-profile/`
-Electron/Chromium browser profile for the desktop host, caches
-(`Cache/`, `GPUCache/`, `Code Cache/`, `Crashpad/`, …), `Local Storage/`,
-`Network/`, `Session Storage/`, `Preferences`, `DIPS`, `blob_storage/`.
-Pinned there by `voice_typer/client/src/main/bootstrap.ts`
-(`app.setPath("userData", <DATA_DIR>/electron-profile)` so the browser-
-engine noise stays out of the data-dir root while both sides still share
-one data root for uninstall/factory-reset. Safe to delete while the app
-is closed: Electron recreates it. Removed on uninstall purge and GDPR
-erasure; not included in GDPR export bundles.
+### `electron-profile/` (LEGACY)
+
+Leftover Chromium profile from pre-cutover Electron installs
+(`Cache/`, `GPUCache/`, `Local Storage/`, …). The Electron host and
+`client/src/main/bootstrap.ts` that pinned userData there are **removed**
+(2026-09-17). The directory is inert if present; safe to delete while the
+app is closed. Removed on uninstall purge and GDPR erasure; not included
+in GDPR export bundles. The live Tauri host does not recreate it.
 
 ### `vocabulary.json` and `voice-typer-corrections.json`
 User-defined vocabulary and correction files. Read by `VocabularyManager` and `configure_corrections()` respectively to build replacement maps for `clean_transcribed_text()`. Both are optional: the app ships with bundled defaults (`voice_typer/server/corrections.json`) that are merged with the user file.
@@ -214,19 +215,19 @@ When a user launches the app for the first time (no `<DATA_DIR>` exists yet):
 7. `create_launcher_shortcut()` creates desktop shortcut + `<DATA_DIR>/icon.ico`
 8. `models/` junction/symlink → `huggingface/hub/` is created if missing
 
-### Electron frontend (first window)
-1. IPC connection established (10 retries, 1s apart)
+### Tauri frontend (first window)
+1. WS connection established (host supervises; `get_config` round-trip hydrates UI)
 2. `get_config` call populates Settings UI
 3. `get_microphones` populates mic selector
 4. `get_history` + `get_today_stats` populate History page
 5. StatusBar shows connection state and recording state
 
-### NSIS installer (`electron-builder`), TBD
+### NSIS installer (Tauri), TBD
 Currently the installer does NOT create `<DATA_DIR>`. The Python backend creates it on first launch. Options:
 
 - **Option A** (current, simple): Python backend creates everything on first run. No installer changes needed.
-- **Option B** (recommended for v1 release): NSIS post-install script runs `python -m voice_typer.server.setup` which creates the folder structure + venv + base config. Slower install but faster first launch.
-- **Option C**: Electron main process runs setup before spawning Python.
+- **Option B** (recommended for v1 release): Tauri NSIS post-install script (`scripts/windows/tauri-installer-hooks.nsh`) runs setup that creates the folder structure + venv + base config. Slower install but faster first launch.
+- **Option C**: RUST host runs setup before spawning the Python sidecar.
 
 See "Implementation Checklist" below for what an AI agent should build for Option B/C.
 
@@ -270,14 +271,14 @@ For an AI agent tasked with implementing the folder structure recommendations:
 - [ ] If not, write a copy of this document (or a condensed user-facing version)
 - [ ] The README should list every folder/file with a short description and tell the user not to delete model files manually
 
-### 5. NSIS installer setup (electron-builder)
-- [ ] Add an NSIS script in `voice_typer/client/build/installer.nsh` that:
+### 5. NSIS installer setup (Tauri)
+- [ ] Add an NSIS script wired via `src-tauri/tauri.conf.json` → `bundle.windows.nsis.installerHooks` (composed by `scripts/windows/tauri-installer-hooks.nsh`) that:
   - Creates `$PROFILE\.voice-typer\` and subfolders
   - Runs `python -m venv $PROFILE\.voice-typer\venv`
   - Runs pip install from bundled requirements
   - Writes initial `config.json`
   - Creates desktop shortcut (or let the Python backend handle this)
-- [ ] Reference the NSIS script in `electron-builder.yml` under `nsis.include`
+- [ ] Do NOT reference deleted `electron-builder.yml`; Tauri NSIS hooks only
 - [ ] Bundle Python embeddable + pip requirements inside the installer
 
 ### 6. Model download UX

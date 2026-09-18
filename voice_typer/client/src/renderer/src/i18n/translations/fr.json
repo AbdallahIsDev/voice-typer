@@ -943,7 +943,7 @@
 		"decrease": "Diminuer",
 		"microphoneQualityPreset": "Préréglage de qualité du microphone",
 		"noiseSuppressionMethod": "Méthode de suppression du bruit",
-		"importNotAvailableOutsideElectron": "Importation non disponible en dehors d'Electron",
+		"importNotAvailable": "Importation indisponible sans l'application de bureau.",
 		"transcriptionComplete": "Transcription terminée.",
 		"moreInfoAbout": "Plus d'infos sur {label}",
 		"toggleSidebarWithShortcut": "Basculer la barre latérale ({shortcut})",

@@ -131,8 +131,10 @@ Removed / renamed fields (documented for searchability, do NOT re-add):
 - `paste_enabled` → renamed to `paste_on_stop`.
 - `clipboard_clear_delay_seconds` → removed in ADR-0010 §8.2 (was dead
   code: only read by the deleted `schedule_clipboard_clear`).
-- `check_updates` → never existed on `Config` (the auto-update flow is
-  driven by Electron's `electron-updater`, not a Python config flag).
+- `check_updates` → never existed on `Config` (auto-update is not a
+  Python config flag; the historical Electron `electron-updater` path
+  was removed with the Electron host 2026-09-17. See
+  `docs/auto-update-feature.md` for the current design).
 - `voice_activity` recording mode → never implemented; the enum is
   `{toggle, push_to_talk}` only.
 - `model` → renamed to `model_size` (the IPC `set_config` allowlist key
@@ -168,13 +170,19 @@ Handles copying text to clipboard and pasting into the focused application.
 
 **Module:** `voice_typer.server.ipc_server`
 
-TCP-based IPC server for communication between the Electron frontend and the
+IPC command dispatcher for communication between the desktop host and the
 Python backend.
 
 ### Protocol
 
-- **Transport:** TCP on `127.0.0.1:9876` (loopback only). The port defaults to `9876` and `_pick_available_port()` in `voice_typer/server/ipc_server.py` falls forward to `9877`, `9878`, … (up to 100 tries) if `9876` is already taken by another Voice Typer instance, in practice the default install binds `9876`. The Tauri sidecar path uses an ephemeral localhost WebSocket instead, see `voice_typer/server/sidecar_ws.py` and ADR-0020.
-- **Framing:** Newline-delimited JSON
+- **Transport (live):** localhost WebSocket under the Tauri host
+  (`voice_typer/server/sidecar_ws.py`, `TAURI_SIDECAR=1`). The sidecar
+  binds `127.0.0.1:0`, prints `{"event":"server_started","port":N}`, and
+  the Rust host connects with a bearer-token auth handshake.
+  Historical TCP JSON-lines on `127.0.0.1:9876` served the retired
+  Electron host; that path is removed.
+- **Framing:** Newline-delimited JSON (WS TEXT frames carrying the same
+  JSON-line messages)
 - **Auth:** Per-connection token. The **first** message on a connection must be a JSON `auth` object whose `token` field matches the `VOICE_TYPER_IPC_TOKEN` env var (constant-time comparison via `hmac.compare_digest`). Once the handshake succeeds, subsequent messages on that authenticated connection bypass the token check and go straight to dispatch. See `SEC-018` in `SECURITY.md` for the threat model.
 
 ### Key Endpoints

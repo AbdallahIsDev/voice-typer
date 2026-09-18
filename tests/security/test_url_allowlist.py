@@ -1,6 +1,6 @@
 """URL allowlist tests split out of ``tests/test_security_fixes.py``.
 
-Domain: G4-M-55 (``extend_url_allowlist`` emits a WARNING-level audit
+Domain: G4-M-55 (``extend_url_allowlist`` emits an INFO-level audit
 log) + G4-M-56 (``assert_url_allowed`` gains an opt-in
 ``allow_loopback_http`` kwarg so HTTP loopback is no longer accepted
 by default).
@@ -45,33 +45,39 @@ def _reset_url_allowlist_extensions():
 
 
 class TestExtendUrlAllowlistAuditLog:
-    """G4-M-55: ``extend_url_allowlist`` emits a WARNING-level audit
+    """G4-M-55: ``extend_url_allowlist`` emits an INFO-level audit
     log on every call so operators can trace every runtime expansion
-    of the trusted-host set back to its origin."""
+    of the trusted-host set back to its origin. Routine extensions
+    (pack GitHub hosts, self-hosted endpoints) are expected traffic,
+    so INFO, never WARNING."""
 
     def test_warning_emitted_with_hosts(self, caplog):
-        """G4-M-55: a WARNING is emitted with the hosts being added."""
+        """G4-M-55: an INFO record is emitted with the hosts being added."""
         try:
-            with caplog.at_level("WARNING", logger="voice_typer.server.security.url_allowlist"):
+            with caplog.at_level("INFO", logger="voice_typer.server.security.url_allowlist"):
                 extend_url_allowlist(
                     ["audit-test.example.com"],
                     caller="test_g4_m_55_warning_emitted",
                 )
-            # The WARNING must mention the URL-Allowlist extension.
-            assert any("[URL-Allowlist]" in r.message and r.levelname == "WARNING" for r in caplog.records), (
-                f"expected WARNING-level URL-Allowlist log; got: {caplog.records!r}"
+            # The INFO record must mention the URL-Allowlist extension.
+            assert any("[URL-Allowlist]" in r.message and r.levelname == "INFO" for r in caplog.records), (
+                f"expected INFO-level URL-Allowlist log; got: {caplog.records!r}"
             )
             # The host must be in the log message.
             assert any("audit-test.example.com" in r.message for r in caplog.records), (
                 f"host must be in the log message; got: {caplog.records!r}"
             )
+            # And no WARNING may be emitted for a routine extension.
+            assert not any(r.levelname == "WARNING" and "[URL-Allowlist]" in r.message for r in caplog.records), (
+                f"routine extension must not warn; got: {caplog.records!r}"
+            )
         finally:
             _secrets._user_extensions.discard("audit-test.example.com")
 
     def test_warning_includes_caller(self, caplog):
-        """G4-M-55: the WARNING includes the caller identifier."""
+        """G4-M-55: the INFO record includes the caller identifier."""
         try:
-            with caplog.at_level("WARNING", logger="voice_typer.server.security.url_allowlist"):
+            with caplog.at_level("INFO", logger="voice_typer.server.security.url_allowlist"):
                 extend_url_allowlist(
                     ["caller-test.example.com"],
                     caller="explicit-caller-id",
@@ -83,9 +89,9 @@ class TestExtendUrlAllowlistAuditLog:
 
     def test_warning_auto_detects_caller_when_not_passed(self, caplog):
         """G4-M-55: when ``caller=None``, the caller is auto-detected
-        via ``inspect.stack()`` and included in the WARNING."""
+        via ``inspect.stack()`` and included in the INFO record."""
         try:
-            with caplog.at_level("WARNING", logger="voice_typer.server.security.url_allowlist"):
+            with caplog.at_level("INFO", logger="voice_typer.server.security.url_allowlist"):
                 # Don't pass caller, auto-detection should kick in.
                 extend_url_allowlist(["auto-caller.example.com"])
             joined = " ".join(r.message for r in caplog.records)
@@ -101,11 +107,10 @@ class TestExtendUrlAllowlistAuditLog:
 
     def test_info_emitted_for_empty_input(self, caplog):
         """YJ-44: a no-op call (empty hosts iterable) emits an INFO
-        audit record, not a WARNING. WARNING is reserved for the
-        security-relevant case (actual hosts being added). The no-op
-        case is still audited (so operators can trace every attempt to
-        extend the allowlist) but demoted to INFO to avoid WARNING
-        spam when callers pass an empty iterable defensively."""
+        audit record, not a WARNING. Both the no-op and the routine
+        host-addition cases log at INFO (routine extensions are
+        expected traffic); WARNING is never used for allowlist
+        expansion so boot logs stay quiet."""
         with caplog.at_level("INFO", logger="voice_typer.server.security.url_allowlist"):
             extend_url_allowlist([], caller="test-empty-input")
         # An INFO record with the URL-Allowlist tag must be emitted.

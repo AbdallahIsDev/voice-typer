@@ -51,7 +51,8 @@ class LastResortNotifyMixin:
                 "state.model_manager.model_not_downloaded",
                 backend=backend_name,
             )
-        log.warning("[MODEL] %s load refused: %s", backend_name, exc)
+        log_method = log.info if no_model_selected else log.warning
+        log_method("[MODEL] %s load refused: %s", backend_name, exc)
         try:
             self._app.tray.set_state(AppState.ERROR, reason)
             self._app.tray.notify(

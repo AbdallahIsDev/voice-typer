@@ -2,10 +2,13 @@
 
 ## Status
 
-Accepted, **transport narrowed 2026-09-17**: the Electron TCP client was
-removed. Token auth remains on the Tauri WS path
-(`src-tauri/src/util.rs::generate_token` +
+**Status: SUPERSEDED — Electron host removed 2026-09-17; Tauri is sole host (ADR-0020). Historical record only.**
+
+Accepted for token auth itself; **transport narrowed 2026-09-17**: the
+Electron TCP client was removed. Token auth remains live on the Tauri WS
+path (`src-tauri/src/util.rs::generate_token` +
 `src-tauri/src/sidecar/ws.rs` + `voice_typer/server/sidecar_ws.py`).
+The historical TCP/`client/src/main` material below is not a live path.
 
 ## Date
 

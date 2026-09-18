@@ -3,7 +3,7 @@
  *
  * Covers:
  * - Import Model button renders with correct label
- * - Click opens the Electron folder dialog (window_.openModelImportDialog)
+ * - Click opens the desktop folder dialog (window_.openModelImportDialog)
  * - Cancel dialog → no IPC call, no snackbar
  * - Successful import → calls import_model IPC, shows success snackbar
  * - No known models found → shows warning snackbar
@@ -265,7 +265,7 @@ describe("ModelsPage, Import Model flow", () => {
 		).toBeTruthy();
 	});
 
-	it("opens the Electron folder dialog when clicked", async () => {
+	it("opens the desktop folder dialog when clicked", async () => {
 		mockDialogResult({ canceled: false, path: "/tmp/models" });
 
 		await renderPage();
@@ -286,7 +286,7 @@ describe("ModelsPage, Import Model flow", () => {
 		});
 	});
 
-	it("shows a warning when clicked outside Electron (no window_ API)", async () => {
+	it("shows a warning when clicked without the desktop host bridge (no window_ API)", async () => {
 		// Ensure window_ is NOT defined
 		removeDialogMock();
 
@@ -299,7 +299,7 @@ describe("ModelsPage, Import Model flow", () => {
 
 		await waitFor(() => {
 			expect(showSnack).toHaveBeenCalledWith(
-				"Import not available outside Electron",
+				"Import is not available without the desktop app.",
 				"warning",
 			);
 		});

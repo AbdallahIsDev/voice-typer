@@ -12,7 +12,7 @@
 ;
 ; ${__FILEDIR__} resolves the nested includes relative to THIS file, so
 ; they work regardless of where the generated installer.nsi lives
-; (NSIS >= 3.0). This file is Tauri-only, electron-builder's
-; nsis.include still points at uninstaller.nsh directly.
+; (NSIS >= 3.0). This file is Tauri-only. The former electron-builder
+; nsis.include path is gone with the Electron host (removed 2026-09-17).
 !include "${__FILEDIR__}\uninstaller.nsh"
 !include "${__FILEDIR__}\installer-hooks.nsh"

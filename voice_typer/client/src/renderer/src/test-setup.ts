@@ -26,10 +26,12 @@ import { cleanup } from "@testing-library/react";
 import { afterEach } from "vitest";
 
 import { __resetIpcCacheForTests } from "@/lib/ipcCache";
+import { __resetPythonSingleFlightForTests } from "@/lib/python-bridge/usePython";
 
 afterEach(() => {
 	cleanup();
 	__resetIpcCacheForTests();
+	__resetPythonSingleFlightForTests();
 	if (typeof localStorage !== "undefined") {
 		localStorage.clear();
 	}

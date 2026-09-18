@@ -17,7 +17,7 @@
 #   make lint         # ruff + biome
 #   make format       # ruff format + biome format
 #   make typecheck    # TypeScript + mypy + ruff (run in parallel)
-#   make build        # production build (Electron renderer + main)
+#   make build        # production build (Tauri renderer)
 #   make bench        # all bench/bench_*.py --json (CI perf ratchet input)
 #
 # Notes:
@@ -98,7 +98,7 @@ typecheck: ## TypeScript + mypy ratchet + ruff IN PARALLEL, fail-closed (any chi
 	fi; \
 	echo "typecheck: all checks passed (tsc + mypy ratchet + ruff)"
 
-build: ## Build the app (Electron renderer + main)
+build: ## Build the app (Tauri renderer)
 	cd voice_typer/client && npm run build
 
 build-tauri: ## Build the Tauri v2 host (sidecar + prewarm + native + cargo tauri build)

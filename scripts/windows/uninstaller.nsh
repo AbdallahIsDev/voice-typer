@@ -1,10 +1,10 @@
 ; Voice Typer. NSIS uninstaller customization (CR-69 + CR-70).
 ;
-; This file is `!include`d by electron-builder's generated installer.nsi
-; (via the `nsis.include` config option in electron-builder.yml) AND by
-; Tauri v2's NSIS bundler (src-tauri/tauri.conf.json ->
-; bundle.windows.nsis.installerHooks, must be an .nsh here, NOT the
-; .bat: NSIS cannot `!include` a batch file). It defines the
+; This file is `!include`d by Tauri v2's NSIS bundler ONLY
+; (src-tauri/tauri.conf.json -> bundle.windows.nsis.installerHooks, must
+; be an .nsh here, NOT the .bat: NSIS cannot `!include` a batch file).
+; The former electron-builder `nsis.include` wiring is gone with the
+; Electron host (removed 2026-09-17). It defines the
 ; `customUnInstall` macro that NSIS runs during the uninstall phase,
 ; AFTER the main app files are removed but BEFORE the installer exits.
 ; We use it to clean up per-user artifacts that survive the file
@@ -34,12 +34,12 @@
 ;
 ;   CR-70: remove the per-user data directory at %APPDATA%\voice-typer
 ;          (settings JSON, history DB, downloaded vocabularies, etc.).
-;          Note: `deleteAppDataOnUninstall: true` in the `nsis:` block
-;          of electron-builder.yml ALSO removes %APPDATA%\<productName>,
-;          but we keep the explicit RMDir here as a belt-and-suspenders
-;          guarantee (the appName may be renamed via `productName` while
-;          our Python backend hardcodes `voice-typer` as the data dir
-;          name: see voice_typer/server/_paths.py).
+;          Note: Tauri NSIS may also remove the product data dir via
+;          its own uninstall config, but we keep the explicit RMDir
+;          here as a belt-and-suspenders guarantee (the appName may be
+;          renamed via `productName` while our Python backend hardcodes
+;          `voice-typer` as the data dir name: see
+;          voice_typer/server/_paths.py).
 ;
 ; HuggingFace cache (CR-70): the HF cache lives at
 ; %USERPROFILE%\.cache\huggingface on Windows. It can grow to multiple
@@ -47,11 +47,8 @@
 ; for other HF-based apps. To remove it manually:
 ;     rmdir /s /q "%USERPROFILE%\.cache\huggingface"
 ;
-; Reference: https://docs.electron.build/configuration/nsis#custom-hooks
-;
 ; VALIDATE ON WINDOWS HOST:
-;   1. Build the installer:
-;         cd voice_typer/client && npm run build:win
+;   1. Build the installer via the Tauri workflow / `cargo tauri build`.
 ;   2. Install the resulting *-setup.exe.
 ;   3. Launch Voice Typer → enable autostart via Settings.
 ;   4. Verify both autostart entries exist:
@@ -148,9 +145,8 @@
   Pop $0  ; exit code, best-effort, discard
 
   ; ─── CR-70: per-user data directory cleanup ────────────────────────
-  ; Belt-and-suspenders: deleteAppDataOnUninstall: true in the nsis:
-  ; block of electron-builder.yml also removes %APPDATA%\<productName>,
-  ; but productName may be "Voice Typer" (with a space) while the Python
+  ; Belt-and-suspenders: Tauri NSIS may also remove product data, but
+  ; productName may be "Voice Typer" (with a space) while the Python
   ; backend uses "voice-typer" (hyphenated, lowercase) as the data dir
   ; name. We explicitly remove the latter to guarantee the data dir is
   ; purged regardless of productName / data-dir name drift.

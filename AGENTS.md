@@ -32,16 +32,19 @@ app name can be changed in ONE place and propagate everywhere automatically.
 If you are an AI agent and feel tempted to inline the value, **DON'T**.
 
 - **Python:** `from voice_typer.server.branding import APP_NAME`
-- **TypeScript (main):** `import { APP_NAME } from './branding'`
 - **TypeScript (renderer):** `import { APP_NAME } from '../branding'`
+- **Rust (host):** `use crate::branding::APP_NAME;`
 
 This is enforced by `scripts/check_branding.py` in CI. Violations will fail
 the build. The check is NOT optional and must NOT be disabled or bypassed.
 
 Source of truth files (only these may contain the literal string):
 1. `voice_typer/server/branding.py`
-2. `voice_typer/client/src/main/branding.ts`
-3. `voice_typer/client/src/renderer/src/branding.ts`
+2. `voice_typer/client/src/renderer/src/branding.ts`
+3. `src-tauri/src/branding.rs`
+
+(The former Electron main-process `voice_typer/client/src/main/branding.ts`
+was deleted with the Electron host 2026-09-17 — do not recreate it.)
 
 ## Pinned Action Versions: DO NOT DOWNGRADE
 
@@ -809,7 +812,7 @@ Applies to: All agents, all modes.
 
 ```
 C-BRAND-1
-Rule: Do NOT hardcode the app-name display string anywhere, always use the dynamic branding constant: Python `APP_NAME` (`voice_typer/server/branding.py`), TS main `APP_NAME` (`src/main/branding.ts`), TS renderer `APP_NAME` (`src/renderer/src/branding.ts`), Rust `crate::branding::APP_NAME`. Locale files (BOTH `renderer/src/i18n/translations/*.json` AND `main/i18n/locales/*.json`) MUST use the `{appName}` placeholder token (runtime-substituted, as `_withAppName` in `main/i18n.ts` already does), never a literal brand string, not even in `en.json`. Prose comments describing the app must also avoid the literal brand. This does NOT apply to internal identifiers (types like `VoiceTyperConfig`, mutex/binary names like `VoiceTyperSingleInstance` / `VoiceTyper.exe`). Those are OS/API identifiers, not the user-facing brand, and must not be renamed.
+Rule: Do NOT hardcode the app-name display string anywhere, always use the dynamic branding constant: Python `APP_NAME` (`voice_typer/server/branding.py`), TS renderer `APP_NAME` (`src/renderer/src/branding.ts`), Rust `crate::branding::APP_NAME`. Locale files (`renderer/src/i18n/translations/*.json`) MUST use the `{appName}` placeholder token, never a literal brand string, not even in `en.json`. (The Electron main-process branding.ts and `main/i18n/locales/*.json` were deleted with the Electron host 2026-09-17; do not recreate them.) Prose comments describing the app must also avoid the literal brand. This does NOT apply to internal identifiers (types like `VoiceTyperConfig`, mutex/binary names like `VoiceTyperSingleInstance` / `VoiceTyper.exe`). Those are OS/API identifiers, not the user-facing brand, and must not be renamed.
 Rationale: An agent hardcoded the brand inside locale files (dozens of literal strings across all 8 `i18n/translations/*.json`) plus crash-dialog titles, HTML `<title>` tags, and backend error messages. `scripts/check_branding.py` (BRAND-001) deliberately EXEMPTS renderer translations and comment lines, so those literals bypass CI enforcement. A future product rename becomes a hundreds-of-strings edit instead of a one-constant change. The `{appName}` placeholder pattern already exists in main-process locales; renderer locales must adopt the same pattern.
 Applies to: All agents, all modes. Enforced in CI by `scripts/check_branding.py` for non-locale, non-comment code.
 ```
@@ -1392,7 +1395,7 @@ Applies to: All agents, all modes, all sub-agents.
 
 ```
 C-PERSIST-4
-Rule: Do NOT merge `restart_history.json` and `restart_counter.json`. They are two INDEPENDENT per-runtime restart mechanisms with different schemas, semantics, and lifecycles: `restart_history.json` is the ELECTRON-only production app-relaunch crash-loop breaker (array of epoch-ms timestamps, 60s window, cap 3; `voice_typer/client/src/main/python/relaunch-app.ts`); `restart_counter.json` is the TAURI-only sidecar-respawn circuit breaker (`{"count", "ts"}` with a 10-minute staleness window, cleared on successful reconnect; `src-tauri/src/sidecar/supervisor.rs`). The two runtimes never coexist and neither reads the other's file, merging them would force two independent circuit breakers to share one incompatible schema.
+Rule: Do NOT merge `restart_history.json` and `restart_counter.json`. They are two INDEPENDENT per-runtime restart mechanisms with different schemas, semantics, and lifecycles: `restart_history.json` was the ELECTRON-only production app-relaunch crash-loop breaker (array of epoch-ms timestamps, 60s window, cap 3; the Electron host and `voice_typer/client/src/main/python/relaunch-app.ts` are removed — do not revive the file under Tauri); `restart_counter.json` is the TAURI-only sidecar-respawn circuit breaker (`{"count", "ts"}` with a 10-minute staleness window, cleared on successful reconnect; `src-tauri/src/sidecar/supervisor.rs`). The two runtimes never coexist and neither reads the other's file, merging them would force two independent circuit breakers to share one incompatible schema.
 Rationale: Audited 2026-08-22, the two files complement rather than duplicate; a merge would break both circuit breakers and lose per-runtime semantics.
 Applies to: All agents, all modes, all sub-agents.
 ```

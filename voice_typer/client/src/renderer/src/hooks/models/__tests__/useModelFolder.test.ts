@@ -5,7 +5,7 @@
  *   - diskInfo + modelsFolderSupported stay at their constant null/false values
  *     (the optional probes were removed, see the hook's docstring)
  *   - handleImportModel bails out (info-level snackbar) when window.window_
- *     is unavailable (e.g. outside Electron), covers the "outside-Electron"
+ *     is unavailable (e.g. without the desktop host bridge), covers the "outside-host"
  *     permission/error path
  *   - handleImportModel surfaces a warning snack when no models are found
  *     in the picked folder (success=true, found.length=0)
@@ -61,7 +61,7 @@ function makeHookArgs() {
 	};
 }
 
-/** Stub `window.window_.openModelImportDialog`, the Electron folder picker. */
+/** Stub `window.window_.openModelImportDialog`, the host folder picker. */
 function setOpenModelImportDialog(
 	impl: () => Promise<{ canceled: boolean; path: string | null }>,
 ) {
@@ -106,7 +106,7 @@ describe("useModelFolder, initial state (phantom probes removed)", () => {
 });
 
 describe("useModelFolder, handleImportModel error paths", () => {
-	it("bails out with a warning snack when window.window_ is unavailable (outside Electron)", async () => {
+	it("bails out with a warning snack when window.window_ is unavailable (no desktop host bridge)", async () => {
 		// No window.window_ stub installed, simulates running outside
 		// Electron (e.g. in a browser dev shell or a test environment
 		// without the preload bridge).
@@ -119,7 +119,7 @@ describe("useModelFolder, handleImportModel error paths", () => {
 		});
 
 		expect(showSnackMock).toHaveBeenCalledWith(
-			"a11y.importNotAvailableOutsideElectron",
+			"a11y.importNotAvailable",
 			"warning",
 		);
 		// IPC never invoked (we bailed before reaching the IPC call).

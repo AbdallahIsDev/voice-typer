@@ -146,10 +146,9 @@ def _init_encryption(db: HistoryDB, conn: sqlite3.Connection) -> None:
                 _ENCRYPTION_STATUS_MEANINGS.get(db._encryption_status, "unrecognized status"),
             )
         else:
-            log.debug(
-                "[HISTORY] at-rest encryption status: %s (already initialized, repeat)",
-                db._encryption_status,
-            )
+            # Idempotent re-entry stays silent: the repeat line doubled
+            # every startup when two threads raced the lazy construction.
+            pass
         if dek is not None and db._has_plaintext_rows(conn):
             # Legacy rows exist alongside the active key, encrypt
             # them in bounded background batches (never blocks

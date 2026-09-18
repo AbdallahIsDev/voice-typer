@@ -26,13 +26,13 @@
       BEFORE the first React paint; the strict CSP meta tag below
       forbids inline scripts, so the production build must add a
       'sha256-...' hash for this block to the CSP `script-src`
-      directive (electron-vite's html plugin computes the hash at
-      build time).  In dev, cspEmissionPlugin (see comment below)
+      directive (the Vite HTML plugin computes the hash at
+      build time).  In dev, the CSP plugin in vite.tauri.config.ts
       rewrites the CSP to permit 'unsafe-inline' for script-src so the
       inline block runs.
 
       NOTE: the script must NOT throw if localStorage is unavailable
-      (Electron sandboxed frames, Tauri webview restrictions).  All
+      (Tauri webview restrictions).  All
       access is wrapped in try/catch and falls back silently to
       lang="en" / dir="ltr".
   -->
@@ -68,11 +68,11 @@
 
   <!--
       Content Security Policy.  Restricts resource loading
-      to the app's own origin (Electron's file:// or http://localhost:5173
+      to the app's own origin (the app origin (Tauri asset protocol or http://localhost:1420)
       in dev).  No remote scripts, no remote styles.
 
       This meta tag is the STRICT production CSP.  The cspEmissionPlugin in
-      electron.vite.config.ts rewrites it at serve time to a permissive CSP
+      vite.tauri.config.ts rewrites it at serve time to a permissive CSP
       that adds 'unsafe-eval' and 'unsafe-inline' for script-src (Vite HMR +
       React Refresh preamble + eval sourcemaps) and ws://localhost:* to
       connect-src for the HMR websocket.  The production build leaves this
@@ -99,7 +99,7 @@
       NOTE: `frame-ancestors 'none'` is intentionally NOT in this meta
       tag, the CSP spec ignores `frame-ancestors` delivered via <meta>
       (only HTTP headers honor it) and the browser logs a console warning
-      for it. It is enforced via the HTTP-header CSP set by the Electron
+      for it. It is enforced via the CSP set by the Tauri
       main process (`bootstrap.ts::_buildCsp` → onHeadersReceived).
     -->
   <meta http-equiv="Content-Security-Policy"

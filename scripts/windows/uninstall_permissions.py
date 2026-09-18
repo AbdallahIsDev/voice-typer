@@ -73,16 +73,16 @@ Exit codes:
         to native reg.exe / PowerShell in this case.
 
 VALIDATE ON WINDOWS HOST:
-  1. Build the installer:
-       cd voice_typer/client && npm run build:win
+  1. Build the installer via the Tauri workflow / ``cargo tauri build``.
   2. Install the resulting *-setup.exe.
   3. Launch Voice Typer -> enable autostart via Settings.
   4. Verify both autostart entries exist:
        reg query HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run | findstr com.voicetyper
        schtasks /query /tn "com.voicetyper.autostart*" /v /fo LIST
-  5. Uninstall via "Add or remove programs" (the NSIS uninstaller calls
-     this script via the .bat wrapper, which is wired through
-     ``nsis.include`` in electron-builder.yml).
+  5. Uninstall via "Add or remove programs" (the NSIS uninstaller
+     includes ``uninstaller.nsh`` via Tauri
+     ``bundle.windows.nsis.installerHooks`` /
+     ``tauri-installer-hooks.nsh``; electron-builder.yml is gone).
   6. Verify both autostart entries are gone:
        reg query HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run | findstr com.voicetyper
          (Expected: no matches; pre-rename VoiceTyper* entries also gone)
@@ -154,7 +154,7 @@ def _purge_user_data() -> None:
         "logs",  # rotating log files
         "db",  # history DB + sidecars + backups (O2 split)
         "run",  # transient runtime state: pids, locks, session markers (O3 split)
-        "electron-profile",  # Electron/Chromium profile
+        "electron-profile",  # LEGACY Chromium profile from pre-cutover Electron installs
         "history.db",  # legacy SQLite history DB (pre-O2)
         "history.db-wal",  # legacy SQLite WAL
         "history.db-shm",  # legacy SQLite SHM

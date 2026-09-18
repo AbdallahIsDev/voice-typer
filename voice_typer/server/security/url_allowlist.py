@@ -105,15 +105,17 @@ def extend_url_allowlist(
         ``"cloud_engines"``, ``"config.load"``). When ``None`` (default),
         the caller is auto-detected via :func:`inspect.stack`, the
         caller's module name + function name + line number. Used in the
-        WARNING-level audit log so operators can trace every allowlist
+        INFO-level audit log so operators can trace every allowlist
         extension back to its origin.
 
-    Every call emits a ``WARNING``-level audit log of the form
+    Every call emits an ``INFO``-level audit log of the form
     ``[URL-Allowlist] extended by <caller> with hosts: <hosts>``. This
     surfaces every runtime expansion of the trusted-host set in normal
     logs, so a malicious or buggy config file that adds an
     attacker-controlled host is visible without grepping for the
-    specific ``extend_url_allowlist`` call site.
+    specific ``extend_url_allowlist`` call site. Routine extensions
+    (e.g. the pack downloader's GitHub hosts on every boot) are
+    expected traffic, not warnings.
     """
     # capture the caller for audit logging. Auto-detect via
     # inspect.stack() when the caller didn't pass an explicit identifier.
@@ -141,13 +143,12 @@ def extend_url_allowlist(
         if host:
             normalized.append(host)
 
-    # calibrate the audit log level. WARNING is reserved for the
-    # security-relevant case (actual hosts being added). When the call is
-    # a no-op (empty iterable, or every host filtered out), demote to INFO
-    # , operators still get an audit trail but no longer see WARNING spam
-    # for every empty extend call.
+    # Routine allowlist extensions (GitHub pack hosts on every boot,
+    # user-configured self-hosted endpoints) are expected traffic, so
+    # the audit record logs at INFO with the hosts visible. The no-op
+    # case below stays INFO as well.
     if normalized:
-        log.warning(
+        log.info(
             "[URL-Allowlist] extended by %s with hosts: %s",
             caller,
             normalized,

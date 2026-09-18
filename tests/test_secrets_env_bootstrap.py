@@ -147,11 +147,11 @@ class TestLoadEnvAllowlistExtensions:
 
 class TestLoadEnvAllowlistExtensionsAuditLog:
     def test_audit_log_emitted_with_env_caller(self, monkeypatch, caplog):
-        """When hosts are added, a WARNING is emitted whose message
+        """When hosts are added, an INFO record is emitted whose message
         includes the env-var caller identifier (so operators can
         trace env-var-driven allowlist extensions in production logs)."""
         monkeypatch.setenv(ENV_VAR, "my-vllm.lan")
-        with caplog.at_level("WARNING", logger="voice_typer.server._secrets"):
+        with caplog.at_level("INFO", logger="voice_typer.server.security.url_allowlist"):
             _load_env_allowlist_extensions()
         joined = " ".join(r.message for r in caplog.records)
         assert "[URL-Allowlist]" in joined

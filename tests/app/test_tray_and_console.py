@@ -19,7 +19,7 @@ class TestTrayControllerProtocolCompliance:
     # from TrayController protocol, no caller existed.  The public
     # methods are now just the ones the tray menu actually invokes.
     # ARCH-DEAD-SETTINGS: show_settings / open_settings removed along
-    # with voice_typer.server.settings; the Electron frontend owns the
+    # with voice_typer.server.settings; the Tauri host/frontend owns the
     # settings UI now.
     REQUIRED_PUBLIC_METHODS = [
         "toggle_dictation",

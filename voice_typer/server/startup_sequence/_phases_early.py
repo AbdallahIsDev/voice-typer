@@ -193,37 +193,58 @@ class EarlyPhases:
         # the model is always hot before the first recording; the
         # recorder-init construction path no longer arms a duplicate
         # worker.
+        #
+        # Skip the preload entirely when VAD is disabled (all audio
+        # enhancements off, raw recording mode): nothing consumes the
+        # Silero session then (dictation gates on vad_enabled, mic-test
+        # quality uses RMS/peak metrics, transcription uses the ASR
+        # engine), so preloading only wastes ~0.1s + 2MB and contradicts
+        # the "[RECORDING] VAD disabled" line. Re-enable lazily loads
+        # via compute_vad_prob, and mid-session disable unloads.
         try:
             from voice_typer.server import vad
 
-            def _vad_preload_worker() -> None:
-                try:
-                    vad.preload()
-                except Exception:
-                    log.debug("[STARTUP] vad.preload() failed", exc_info=True)
+            _vad_enabled = True
+            try:
+                from voice_typer.server.vad_processor import VadProcessor
 
-            # Register with the app's thread registry (mirroring what
-            # the former ``VoiceTyperApp._preload_vad_model`` helper did
-            # before its removal) so ``shutdown_all()`` joins it
-            # cleanly. Under the test suite, an unregistered preload
-            # thread would otherwise outlive its test and, if it woke
-            # during a ``real_torch`` window, load real torch + the
-            # real Silero model concurrently with other tests' native
-            # work, contributing to rare heap corruption.
-            registry = getattr(app, "_thread_registry", None)
-            if registry is not None and hasattr(registry, "spawn_and_register"):
-                registry.spawn_and_register(
-                    "vad-preload-startup",
-                    _vad_preload_worker,
-                    daemon=True,
-                    join_timeout=2.0,
-                )
+                _vad_probe = VadProcessor.__new__(VadProcessor)
+                _vad_enabled = bool(_vad_probe.compute_vad_enabled(getattr(app, "config", None)))
+            except Exception:
+                _vad_enabled = True
+                log.debug("[STARTUP] VAD-enabled probe failed, preloading anyway", exc_info=True)
+            if not _vad_enabled:
+                log.debug("[STARTUP] VAD disabled by config, skipping Silero preload")
             else:
-                threading.Thread(
-                    target=_vad_preload_worker,
-                    name="vad-preload-startup",
-                    daemon=True,
-                ).start()
+
+                def _vad_preload_worker() -> None:
+                    try:
+                        vad.preload()
+                    except Exception:
+                        log.debug("[STARTUP] vad.preload() failed", exc_info=True)
+
+                # Register with the app's thread registry (mirroring what
+                # the former ``VoiceTyperApp._preload_vad_model`` helper did
+                # before its removal) so ``shutdown_all()`` joins it
+                # cleanly. Under the test suite, an unregistered preload
+                # thread would otherwise outlive its test and, if it woke
+                # during a ``real_torch`` window, load real torch + the
+                # real Silero model concurrently with other tests' native
+                # work, contributing to rare heap corruption.
+                registry = getattr(app, "_thread_registry", None)
+                if registry is not None and hasattr(registry, "spawn_and_register"):
+                    registry.spawn_and_register(
+                        "vad-preload-startup",
+                        _vad_preload_worker,
+                        daemon=True,
+                        join_timeout=2.0,
+                    )
+                else:
+                    threading.Thread(
+                        target=_vad_preload_worker,
+                        name="vad-preload-startup",
+                        daemon=True,
+                    ).start()
         except Exception:
             log.debug("[STARTUP] could not spawn vad-preload thread", exc_info=True)
 
@@ -548,14 +569,30 @@ class EarlyPhases:
             try:
                 unpasted = app._crash_recovery.check_on_startup()
                 if unpasted:
-                    # Silent by design (user decision): the recovered
-                    # entries are already in History (the dictation
-                    # pipeline writes every transcription to history_db
-                    # AND the recovery buffer in parallel), so a
-                    # "Recovered N transcriptions" toast adds no
-                    # information and only distracts at startup. The
-                    # log line below is the diagnostic trail.
-                    log.info("[STARTUP] Found %d unpasted transcriptions from previous session", len(unpasted))
+                    count = len(unpasted)
+                    log.info("[STARTUP] Found %d unpasted transcriptions from previous session", count)
+                    body = f"Found {count} unpasted transcriptions from previous session. Open History to review them."
+                    try:
+                        app.tray.notify_safety(APP_NAME, body)
+                    except Exception:
+                        log.debug("[STARTUP] Could not show recovery notification")
+                    try:
+                        from voice_typer.server import event_bus
+
+                        event_bus.publish(
+                            {
+                                "type": "notification",
+                                "data": {
+                                    "title": APP_NAME,
+                                    "message": body,
+                                    "duration_ms": 15000,
+                                    "critical": False,
+                                    "click_path": "/history",
+                                },
+                            }
+                        )
+                    except Exception:
+                        log.debug("[STARTUP] Could not publish recovery event to frontend")
             except Exception:
                 # M-67: promote debug→warning so the failure surfaces in
                 # the default log; include the traceback so operators can
@@ -581,9 +618,24 @@ class EarlyPhases:
 
         retention_stop_event = _threading.Event()
 
+        # Resolve the lazy history database once on this thread BEFORE
+        # spawning the background retention worker. The lazy accessor
+        # has no lock, so letting the worker thread (apply_retention)
+        # and this thread (schedule_periodic_retention below) race the
+        # first access constructs two instances for the same path and
+        # doubles every init line (schema INFO + repeat, FTS5 skip,
+        # encryption status). Caching the instance here makes the
+        # worker reuse it.
+        try:
+            _history_db = app.history_db
+        except Exception:
+            _history_db = None
+            log.debug("[STARTUP] history_db pre-resolve failed, worker will retry", exc_info=True)
+
         def _apply_retention_bg(stop_event: _threading.Event) -> None:
             try:
-                app.history_db.apply_retention(
+                target = _history_db if _history_db is not None else app.history_db
+                target.apply_retention(
                     retention_days=app.config.history_retention_days,
                     max_entries=app.config.history_max_entries,
                     retention_count=app.config.history_retention_count,
@@ -645,7 +697,8 @@ class EarlyPhases:
         # to 500) takes effect on the next sweep without requiring an
         # app restart. Best-effort, failures are logged + swallowed.
         try:
-            app.history_db.schedule_periodic_retention(
+            _periodic_target = _history_db if _history_db is not None else app.history_db
+            _periodic_target.schedule_periodic_retention(
                 interval_s=600.0,
                 app=app,
                 retention_days=app.config.history_retention_days,

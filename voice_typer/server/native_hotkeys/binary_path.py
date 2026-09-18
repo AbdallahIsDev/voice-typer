@@ -43,9 +43,45 @@ import logging
 import os
 import platform
 import sys
+import threading
 from pathlib import Path
 
 log = logging.getLogger(__name__)
+
+# Per-process verification cache: maps ``(resolved path, size, mtime_ns)``
+# to True for binaries whose SHA-256 has already been verified in this
+# process. The dispatcher builds one backend per hotkey role (dictation /
+# ESC / repaste) and each build verifies the same file, so a single boot
+# hashed + logged "Checksum OK" once per role. The key carries size and
+# mtime so a file replaced on disk misses the cache and is re-verified
+# before first use. Only successful verifications are cached; failures
+# (mismatch, unreadable, missing manifest entry) are re-checked every
+# time so a fixed manifest or restored file recovers without a restart.
+# Guarded by a lock because backends can verify from different threads
+# (main-thread registration vs watchdog respawn). No background thread
+# is used here, so no daemon-thread rationale applies.
+_VERIFIED_CACHE: dict[tuple[str, int, int], bool] = {}
+_VERIFIED_CACHE_LOCK = threading.Lock()
+
+
+def _verified_cache_key(path: Path) -> tuple[str, int, int] | None:
+    """Return the cache key for ``path`` or None if it cannot be stated."""
+    try:
+        stat_result = path.stat()
+    except OSError:
+        return None
+    try:
+        resolved = str(path.resolve())
+    except OSError:
+        resolved = str(path)
+    return (resolved, stat_result.st_size, stat_result.st_mtime_ns)
+
+
+def clear_verified_cache() -> None:
+    """Clear the per-process verification cache (tests only)."""
+    with _VERIFIED_CACHE_LOCK:
+        _VERIFIED_CACHE.clear()
+
 
 # Legacy (non-arch-suffixed) names, kept as a backward-compat fallback
 # for bundles that still ship the old single-arch binary under the
@@ -558,6 +594,11 @@ def verify_native_binary_or_skip(path: Path) -> bool:
             path,
         )
         return True
+    cache_key = _verified_cache_key(path)
+    if cache_key is not None:
+        with _VERIFIED_CACHE_LOCK:
+            if _VERIFIED_CACHE.get(cache_key) is True:
+                return True
     expected = get_expected_sha256(path.name)
     if expected is None:
         # FAIL CLOSED. Previously this branch silently trusted
@@ -584,4 +625,13 @@ def verify_native_binary_or_skip(path: Path) -> bool:
             path.name,
         )
         return False
-    return verify_native_binary(path, expected)
+    verified = verify_native_binary(path, expected)
+    if verified and cache_key is not None:
+        # Only cache when the file was stable across the hash: re-stat
+        # and require the key to be unchanged, otherwise the bytes we
+        # hashed may differ from the file now on disk.
+        fresh_key = _verified_cache_key(path)
+        if fresh_key is not None and fresh_key == cache_key:
+            with _VERIFIED_CACHE_LOCK:
+                _VERIFIED_CACHE[cache_key] = True
+    return verified

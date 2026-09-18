@@ -103,9 +103,9 @@ class TestQuitAppCleanShutdown:
 
         assert quit_called == [True], "quit_app must call self.quit()"
 
-    def test_quit_app_notifies_electron_first(self, app, monkeypatch):
+    def test_quit_app_notifies_host_first(self, app, monkeypatch):
         """Before any cleanup, quit_app pushes a quit_app event over IPC
-        so the Electron frontend can call app.quit() and shut down
+        so the Tauri host/frontend can call app.quit() and shut down
         cleanly (instead of being orphaned)."""
         pushed = []
         monkeypatch.setattr(
@@ -396,13 +396,13 @@ class TestAppQuitAppAlwaysPushesEvent:
     """APP-10: ``quit_app`` previously checked ``_shutting_down`` at the
     TOP of the method, BEFORE pushing the ``quit_app`` event. On a
     double-quit, the second call early-returned without pushing —
-    leaving Electron with no shutdown signal if the first push was lost
+    leaving the Tauri host with no shutdown signal if the first push was lost
     in a TCP race. The fix pushes unconditionally and only guards the
     actual ``self.quit()`` call."""
 
     def test_quit_app_pushes_event_even_when_already_shutting_down(self, app, monkeypatch):
         """When _shutting_down is already True, quit_app must STILL
-        push the quit_app event to event_bus (so Electron is notified
+        push the quit_app event to event_bus (so the Tauri host is notified
         even on a double-quit). Only self.quit() is skipped."""
         pushed = []
         monkeypatch.setattr(
@@ -422,7 +422,7 @@ class TestAppQuitAppAlwaysPushesEvent:
 
         assert pushed == [{"type": "quit_app"}], (
             "APP-10: quit_app must push the quit_app event EVEN WHEN "
-            "_shutting_down is already True (so Electron is notified on "
+            "_shutting_down is already True (so the Tauri host is notified on "
             "a double-quit). Got pushes: " + repr(pushed)
         )
         assert quit_calls == [], (

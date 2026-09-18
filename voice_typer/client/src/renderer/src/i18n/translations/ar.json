@@ -1362,7 +1362,7 @@
 		"decrease": "تقليل",
 		"microphoneQualityPreset": "إعداد جودة الميكروفون",
 		"noiseSuppressionMethod": "طريقة قمع الضوضاء",
-		"importNotAvailableOutsideElectron": "الاستيراد غير متاح خارج Electron",
+		"importNotAvailable": "الاستيراد غير متاح بدون تطبيق سطح المكتب.",
 		"transcriptionComplete": "اكتمل التدوين.",
 		"moreInfoAbout": "مزيد من المعلومات حول {label}",
 		"toggleSidebarWithShortcut": "تبديل الشريط الجانبي ({shortcut})",

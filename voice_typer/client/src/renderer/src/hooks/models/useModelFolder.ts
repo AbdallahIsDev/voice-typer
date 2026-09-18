@@ -25,7 +25,8 @@
  *     state.
  *
  * And the two actions that drive them:
- *   • `handleImportModel`, opens the Electron folder picker, fires
+ *   • `handleImportModel`, opens the host folder picker
+ *     (`window.window_.openModelImportDialog`), fires
  *     the `import_model` IPC with the picked path, surfaces success /
  *     warning / error snacks, and re-runs `loadConfig` to reconcile the
  *     local model list with the freshly-imported entries.
@@ -94,7 +95,7 @@ export function useModelFolder({
 		// re-declaring the bridge shape inline.
 		const api = window.window_;
 		if (!api?.openModelImportDialog) {
-			showSnack(t("a11y.importNotAvailableOutsideElectron"), "warning");
+			showSnack(t("a11y.importNotAvailable"), "warning");
 			return;
 		}
 		let result: { canceled?: boolean; path?: string };

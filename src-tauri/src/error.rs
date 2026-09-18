@@ -154,8 +154,8 @@ pub(crate) enum VoiceTyperError {
     PendingFull,
 
     /// The renderer dispatched a command that is not in
-    /// `ALLOWED_COMMANDS` (defense-in-depth gate, mirrors the Electron
-    /// renderer-side allowlist).
+    /// the Rust host allowlist (`allowlist.rs`; SEC-019
+    /// defense-in-depth gate).
     #[error("{}", disallowed_command_envelope())]
     DisallowedCommand,
 

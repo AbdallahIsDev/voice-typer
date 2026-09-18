@@ -286,10 +286,10 @@ dependencies = [
     # wheel our CI matrix needs.
     "pyrnnoise>=0.4,<1.0; platform_machine != 'arm64' or sys_platform != 'darwin'",
     # ADR-0020 §14: websockets is required for the Tauri sidecar
-    # transport. The Electron path uses raw TCP and does not need this
-    # dep, but it is small (~200 KB) and pure-Python, so it's safe to
-    # install everywhere. Lazy-imported in sidecar_ws.py so the
-    # Electron-only path doesn't pay the import cost.
+    # transport. The retired Electron path used raw TCP and did not need
+    # this dep, but it is small (~200 KB) and pure-Python, so it's safe
+    # to install everywhere. Lazy-imported in sidecar_ws.py so
+    # non-WebSocket paths don't pay the import cost.
     "websockets>=12.0,<14.0",
     # keyring is used by credential_store.py to store API keys
     # (OpenAI / Groq / Deepgram / LLM) in the OS-native credential
@@ -519,7 +519,7 @@ test_command = "pytest -x -q tests/test_text_cleanup.py tests/config tests/test_
 
 [tool.setuptools.packages.find]
 include = ["voice_typer*"]
-# WR-19: exclude voice_typer.client (the JS/TS Electron/Tauri frontend)
+# WR-19: exclude voice_typer.client (the JS/TS Tauri frontend)
 # from Python packaging, the directory contains no .py files but the
 # `voice_typer*` glob would otherwise match it, producing bogus wheel
 # manifest entries and "package init file not found" setuptools warnings.
@@ -527,8 +527,8 @@ exclude = ["voice_typer.client*"]
 
 # NEW-DEAD-003: removed the dead HugeIcons font reference (the
 # ``assets/fonts/*.ttf`` entry, ~1.9 MB).  The file was referenced as
-# package-data but no Python source file ever loaded it, the new
-# Electron app uses ``@hugeicons/react`` from npm instead.  The
+# package-data but no Python source file ever loaded it, the app uses
+# ``@hugeicons/react`` from npm instead.  The
 # ``assets/icons/`` directory referenced 19 SVG files that were also
 # unused; that directory doesn't even exist in the current source
 # tree (likely removed in an earlier refactor but the package-data
@@ -725,7 +725,7 @@ filterwarnings = [
 #   `[project].requires-`  | >=3.10       | The project's stated support
 #   `python`               |              | window (3.10-3.14). Users on
 #                          |              | 3.10/3.11 must be able to
-#                          |              | install + run the Electron path.
+#                          |              | install + run the app.
 #   `[tool.ruff].target-`  | py310        | Lint at the LOWEST supported
 #   `version`              |              | version so syntax we accept
 #                          |              | (PEP 604 unions, etc.) is

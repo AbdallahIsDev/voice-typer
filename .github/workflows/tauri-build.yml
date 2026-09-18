@@ -134,16 +134,16 @@ jobs:
       - name: Set up uv
         uses: astral-sh/setup-uv@v7
 
-      # Minimal install (pytest + the two non-stdlib imports the drift
-      # tests need: yaml for electron-builder.yml, filelock for the icons
-      # module's serialize fixture) — mirrors the macOS workflow pattern.
+      # Minimal install (pytest + the two non-stdlib packages the drift
+      # gate needs: pyyaml for workflow/config YAML parsing, filelock for
+      # the icons module's serialize fixture) — mirrors the macOS workflow pattern.
       - name: Install Python deps (fail-fast config drift gate)
         run: uv pip install --system pytest pyyaml filelock
 
       # Fail-fast gate: version lockstep BEFORE any platform build — every
-      # versioned file (pyproject.toml / package.json / electron-builder.yml
-      # / src-tauri/tauri.conf.json / src-tauri/Cargo.toml) must carry the
-      # SAME version. The release bump commits them together (RELEASING.md §4
+      # versioned file (pyproject.toml / voice_typer/client/package.json
+      # / src-tauri/tauri.conf.json / src-tauri/Cargo.toml /
+      # tauri-binaries.json) must carry the SAME version. The release bump commits them together (RELEASING.md §4
       # + drift Pair 11), so a bump that touched only one file breaks CI in
       # seconds here, not after a 30-60 min build. sync_versions.py is
       # stdlib-only (regex/tomllib fallback) — safe in this minimal env.
@@ -385,4 +385,4 @@ jobs:
 
       - name: Cutover reminder
         run: |
-          echo "::notice::Tauri build run complete. Per ADR-0020 §15, no auto-update manifest was generated. Per ADR-0020 Phase 5, do NOT flip the default shipping app from Electron to Tauri on any platform until that platform's cutover gate is met (see docs/migration/cutover-playbook.md)."
+          echo "::notice::Tauri build run complete. Per ADR-0020 §15, no auto-update manifest was generated. Tauri is the sole production host (Electron removed 2026-09-17)."

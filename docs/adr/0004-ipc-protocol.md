@@ -2,7 +2,11 @@
 
 ## Status
 
-Accepted
+**Status: SUPERSEDED — Electron host removed 2026-09-17; Tauri is sole host (ADR-0020). Historical record only.**
+
+The live transport is localhost WebSocket (`sidecar_ws.py` ↔
+`src-tauri/src/sidecar/ws.rs`). Historical TCP/JSON-lines details below
+describe the retired Electron path.
 
 ## Date
 

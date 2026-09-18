@@ -153,7 +153,7 @@ class TestWaitForRelaunchAckTimeout:
     helper MUST wait at most ``timeout`` seconds and then return
     ``False``.
 
-    This pins the bounded-wait contract: a dead host ( Electron
+    This pins the bounded-wait contract: a dead host (Tauri
     already gone, WS torn down) does not block the tray callback
     thread indefinitely, the wait times out and cleanup proceeds.
     """
@@ -291,12 +291,12 @@ class TestRestartAppNonMainThread:
 
 
 class TestQuitAppPushesEventBeforeDelegate:
-    """F-06: ``quit_app`` MUST push the ``quit_app`` event over the TCP
-    channel BEFORE calling ``self._app.quit()`` (the audited cleanup
+    """F-06: ``quit_app`` MUST push the ``quit_app`` event over the IPC
+    transport BEFORE calling ``self._app.quit()`` (the audited cleanup
     path). Pre-fix, the re-entry guard sat at the top of the method
-    and a double-quit silently dropped the second push, leaving
-    Electron with no shutdown signal if the first push was lost in a
-    TCP race.
+    and a double-quit silently dropped the second push, leaving the
+    Tauri host with no shutdown signal if the first push was lost in a
+    transport race.
     """
 
     def test_quit_app_pushes_event_before_quit_delegate(
@@ -371,7 +371,7 @@ class TestQuitAppPushesEventBeforeDelegate:
 # is NOT wrapped in try/except, so an exception propagates and the
 # final ``sys.exit(0)`` is never reached. The restart "completes" in
 # the sense that matters to the USER: the ``relaunch_app`` event was
-# already pushed (so Electron WILL relaunch a fresh process) and
+# already pushed (so the Tauri host WILL relaunch a fresh process) and
 # ``_shutting_down`` was already signalled (so the dispatch gate
 # rejects new requests) BEFORE ``_do_cleanup`` ran. We pin that
 # happens-before ordering here.
@@ -381,7 +381,7 @@ class TestRestartAppCleanupRaises:
     """When ``app._do_cleanup()`` raises mid-restart, the restart
     sequence's PRE-cleanup side effects must already have completed:
 
-      1. The ``relaunch_app`` event was pushed (Electron will relaunch
+      1. The ``relaunch_app`` event was pushed (the Tauri host will relaunch
          a fresh process, the user's "Restart" tray click works
          end-to-end even though Python-side cleanup blew up).
       2. ``_shutting_down`` / ``_shutting_down_event`` were set so the
@@ -417,7 +417,7 @@ class TestRestartAppCleanupRaises:
         assert relaunch_pushes, (
             "restart_app must push the relaunch_app event BEFORE calling "
             "_do_cleanup, the user's Restart click must still trigger "
-            "Electron relaunch even when cleanup blows up."
+            "host relaunch even when cleanup blows up."
         )
         assert stub_app._shutting_down is True, (
             "_shutting_down must be set before _do_cleanup so the dispatch "

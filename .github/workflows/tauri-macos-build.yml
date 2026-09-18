@@ -591,7 +591,8 @@ jobs:
         # that got bundled into the "universal" .dmg. Now we lipo-create
         # the two per-arch listener artifacts built by build-aarch64 +
         # build-x86_64 into a guaranteed-2-arch universal binary, matching
-        # the build-macos-universal job in build.yml (the Electron path).
+        # Native listener artifacts come from build-native in build.yml.
+
         run: |
           set -euo pipefail
           mkdir -p src-tauri/bin src-tauri/resources src-tauri/resources/native
@@ -709,9 +710,9 @@ jobs:
 
       # The universal job needs pytest for the config drift gate below —
       # unlike the arch jobs it does not install the project's [dev,test]
-      # deps. Minimal install (pytest + the two non-stdlib imports the
-      # drift tests need: yaml for electron-builder.yml, filelock for the
-      # icons module's serialize fixture).
+      # deps. Minimal install (pytest + the two non-stdlib packages the
+      # drift gate needs: pyyaml for workflow/config YAML parsing,
+      # filelock for the icons module's serialize fixture).
       - name: Install Python deps (fail-fast config drift gate)
         run: uv pip install --system pytest pyyaml filelock
 

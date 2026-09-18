@@ -1,16 +1,15 @@
 //! Host-side handlers for sidecar events that have no renderer
-//! consumer (ADR-0020 §6.5 / Electron parity).
+//! consumer (ADR-0020 §6.5).
 //!
 //! The WS reader forwards every allowlisted server event to the
 //! renderer as a Tauri event, but some events are consumed by the
-//! ELECTRON MAIN process today (`handle-message.ts`) and had no Tauri
-//! counterpart:
+//! Rust host itself (they used to have no Tauri listener):
 //!
 //! - `show_window`: published by `tray_window.py` when the tray's
-//!   "Open App" action (or a left-click focus redirect) fires. Under
-//!   Electron the main process calls `showMainWindow()`; under Tauri
-//!   nobody listened, so the tray's "Open App" entry was a no-op
-//!   whenever the Win32 focus fallback could not reach the window.
+//!   "Open App" action (or a left-click focus redirect) fires. The
+//!   host calls [`show_main_window`]; without this listener the tray's
+//!   "Open App" entry was a no-op whenever the Win32 focus fallback
+//!   could not reach the window.
 //!
 //! [`show_main_window`] is also the shared raise-to-front entry point
 //! every OTHER "bring the dashboard back" path routes through
@@ -19,10 +18,9 @@
 //! - `notification`: published by `system_handlers.py` /
 //!   `model_manager.py` / `parakeet_engine.py` /
 //!   `tray_notifications.py` (the Tauri runtime never creates a pystray
-//!   icon, so its toasts must surface here). Under Electron the main
-//!   process shows a native `Notification`; under Tauri the plugin was
-//!   registered but no listener existed, so toasts were silently
-//!   dropped.
+//!   icon, so its toasts must surface here). The host shows a native
+//!   toast via `tauri-plugin-notification`; without a host listener,
+//!   toasts would be silently dropped.
 //!
 //! Both listener bodies are kept off the hot path: the payloads are
 //! tiny and low-frequency. Window/notification OS calls run on the
@@ -34,9 +32,8 @@ use tauri::{AppHandle, Emitter, Listener, Manager};
 /// Payload of the server `notification` event
 /// (`{"type":"notification","data":{"title":...,"message":...}}`).
 ///
-/// MO-117: the click-routing fields Electron consumed
-/// (`handle-message.ts`) are now parsed here too so a toast click can
-/// drive the same navigation the Electron toast did:
+/// MO-117: click-routing fields are parsed here so a toast click can
+/// drive host-side navigation:
 ///
 /// - `click_path`: navigate the main window to a page (e.g.
 ///   `/models`).
@@ -48,10 +45,8 @@ use tauri::{AppHandle, Emitter, Listener, Manager};
 ///
 /// The click broadcast uses the same `navigate` Tauri event the
 /// renderer's `usePythonEvent("navigate", ...)` hook consumes (the WS
-/// reader translates server events to the same names, and the
-/// electron main process broadcast `{type: "navigate", data: ...}`
-/// over `python-event`; the renderer consumes the DATA shape, which
-/// is what we emit).
+/// reader translates server events to the same names; the renderer
+/// consumes the DATA shape, which is what we emit).
 #[derive(Debug, Clone, Deserialize)]
 struct NotificationPayload {
     #[serde(default)]
@@ -121,9 +116,8 @@ fn navigate_payload(payload: &NotificationPayload) -> serde_json::Value {
 ///
 /// MO-117: when the payload carries `click_path` /
 /// `click_consent_field`, the click routes through
-/// [`show_main_window`] + a `navigate` Tauri-event broadcast (mirrors
-/// Electron's `notif.on("click", ...)` in `handle-message.ts`:
-/// show the window FIRST so the `navigate` listener is live, then
+/// [`show_main_window`] + a `navigate` Tauri-event broadcast (show the
+/// window FIRST so the `navigate` listener is live, then
 /// broadcast). `duration_ms > 0` schedules an auto-close; 0/absent
 /// persists until the OS or user dismisses.
 fn show_notification(app: &AppHandle, payload: &NotificationPayload) {
@@ -198,8 +192,7 @@ pub(crate) fn show_main_window(app: &AppHandle) {
             // closed (tray / Dock), so the dock-activate path can arrive
             // with NO window at all. Rebuild it through the same
             // bootstrap the app uses at startup (`window_bootstrap`),
-            // then raise it, Electron's `activate` handler created the
-            // window in exactly this situation.
+            // then raise it.
             log::info!("[HOST-EVENTS] main window not found: recreating it");
             crate::window_bootstrap::bootstrap_main_window(&app);
             match app.webview_windows().get("main") {
@@ -213,8 +206,7 @@ pub(crate) fn show_main_window(app: &AppHandle) {
 /// Raise one existing main window: clear the hidden-launch taskbar skip,
 /// unminimize, show, momentarily force always-on-top so the OS foreground
 /// lock cannot swallow the raise, focus, then drop the always-on-top
-/// flag. Mirrors Electron's `showMainWindow()` sequence
-/// (`main-window.ts`).
+/// flag.
 fn raise_main_window(window: &tauri::WebviewWindow) {
     // Clear skip_taskbar if the window was started hidden
     // (VT_START_HIDDEN=1). Without this the window would show
@@ -229,8 +221,7 @@ fn raise_main_window(window: &tauri::WebviewWindow) {
     // foreground lock (Windows refuses SetForegroundWindow from
     // a background process and only flashes the taskbar), so the
     // dashboard stayed buried behind other apps' windows. The
-    // momentary always-on-top raise below mirrors Electron's
-    // `showMainWindow()` (main-window.ts): lift, focus, drop.
+    // momentary always-on-top raise below: lift, focus, drop.
     if let Err(e) = window.unminimize() {
         log::warn!("[HOST-EVENTS] main window unminimize failed: {}", e);
     }

@@ -843,11 +843,11 @@ def init_schema(
             _CURRENT_SCHEMA_VERSION,
         )
     else:
-        log.debug(
-            "[HISTORY] History database initialized: %s (schema v%d, repeat)",
-            db.db_path,
-            _CURRENT_SCHEMA_VERSION,
-        )
+        # Idempotent re-entry (second construction for the same path
+        # in one process) stays silent: the repeat line added no
+        # information and doubled every startup when two threads raced
+        # the lazy construction.
+        _announced_db_paths.add(key)
     with contextlib.suppress(Exception):
         cursor.close()
     return conn

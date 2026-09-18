@@ -110,9 +110,8 @@ pub(crate) struct SidecarState {
     /// desktop where the tray could not be created (e.g. Linux Wayland
     /// without StatusNotifierItem support), hiding the last window
     /// would strand the user with no tray icon, no Dock entry, and no
-    /// second-instance path to bring the window back (Electron's
-    /// close handler guards the same case with
-    /// `isLinuxWaylandWithoutSni()`). When `false`, the close flows
+    /// second-instance path to bring the window back. When `false`,
+    /// the close flows
     /// through to a real close → last-window-close → app exit.
     pub(crate) tray_available: AtomicBool,
     /// Respawn serialization flag. Set when a respawn is in flight
