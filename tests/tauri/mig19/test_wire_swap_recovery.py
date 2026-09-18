@@ -1266,9 +1266,7 @@ def test_ws_reader_emits_python_event_alias_for_backward_compat(ws_source: str) 
     )
 
 
-def test_ws_reader_forwards_event_names_unchanged(
-    ws_source: str, ws_event_protocol_source: str
-) -> None:
+def test_ws_reader_forwards_event_names_unchanged(ws_source: str, ws_event_protocol_source: str) -> None:
     """The WS reader forwards event names through ``translate_event_name``.
 
     The Python sidecar publishes ``relaunch_app`` directly (see ``app.py``

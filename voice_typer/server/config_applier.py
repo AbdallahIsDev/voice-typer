@@ -78,8 +78,7 @@ def _maybe_notify_acl_enforcement_failure(app: Any) -> None:
     try:
         notify(
             APP_NAME,
-            "Could not lock down config file permissions. "
-            "API keys may be readable by other users on this PC.",
+            "Could not lock down config file permissions. API keys may be readable by other users on this PC.",
         )
     except Exception:
         log.debug("[CONFIG] tray.notify for ACL failure also failed", exc_info=True)

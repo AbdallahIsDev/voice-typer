@@ -862,9 +862,7 @@ class SystemHandlersMixin(HandlerBase):
             pre_coerce=False,
         )
 
-    def _handle_show_notification(
-        self, data: object | None, resp: ResponseEnvelope
-    ) -> ResponseEnvelope | None:
+    def _handle_show_notification(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:
         """Handle the ``show_notification`` IPC command.
 
         NOT registered in ``_COMMAND_REGISTRY`` / renderer allowlist.

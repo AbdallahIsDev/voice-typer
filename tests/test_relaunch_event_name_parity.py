@@ -50,6 +50,7 @@ class TestEventBusCatalogueListsRelaunchApp:
             "event name published by app.py and ipc_server.py)."
         )
 
+
 class TestTauriHostListensForRelaunchApp:
     """The Tauri Rust host listens for the same wire name."""
 

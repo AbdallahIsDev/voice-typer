@@ -531,8 +531,7 @@ def test_tauri_conf_security_csp_has_core_directives(tauri_conf) -> None:
     csp = tauri_conf.get("app", {}).get("security", {}).get("csp", "")
     for directive in EXPECTED_CSP_CORE_DIRECTIVES:
         assert directive in csp, (
-            f"app.security.csp must contain {directive!r} (one of the four "
-            f"core CSP directives); full CSP was: {csp!r}"
+            f"app.security.csp must contain {directive!r} (one of the four core CSP directives); full CSP was: {csp!r}"
         )
 
     # CR-SEC: script-src must NOT allow 'unsafe-eval' or 'unsafe-inline'

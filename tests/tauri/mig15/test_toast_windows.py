@@ -262,18 +262,18 @@ class TestCapabilitiesGrantNotificationPermission:
 
 class TestWsRsNotificationEventName:
     """Gate 4: the WS reader emits the canonical ``notification`` event
-      to the webview.
+    to the webview.
 
-      The Python sidecar publishes ``notification`` directly, so the
-      Rust bridge has no rename arm for it. The canonical event reaches
-      the webview through the generic specific-event emit
-      (``translate_event_name`` passes unknown events, including
-      ``notification``, through unchanged).
+    The Python sidecar publishes ``notification`` directly, so the
+    Rust bridge has no rename arm for it. The canonical event reaches
+    the webview through the generic specific-event emit
+    (``translate_event_name`` passes unknown events, including
+    ``notification``, through unchanged).
 
-      Source-inspection test: we read ``ws.rs`` as a string and assert the
-      current wiring. We don't compile/run the Rust code (the Linux
-      sandbox can't build the Tauri app, that's the whole point of the
-      Phase 0-W gate).
+    Source-inspection test: we read ``ws.rs`` as a string and assert the
+    current wiring. We don't compile/run the Rust code (the Linux
+    sandbox can't build the Tauri app, that's the whole point of the
+    Phase 0-W gate).
     """
 
     def test_ws_rs_uses_translate_event_name_for_specific_events(self):
@@ -526,9 +526,7 @@ class TestIpcHandlerPublishesNotificationViaEventBus:
                 {"title": "T", "message": "B"},
                 {},
             )
-        assert captured.get("type") == "notification", (
-            "Python sidecar must publish with type='notification'."
-        )
+        assert captured.get("type") == "notification", "Python sidecar must publish with type='notification'."
 
 
 # ─── Test 8: notification payload shape ─────────────────────────────────

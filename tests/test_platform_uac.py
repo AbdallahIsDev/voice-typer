@@ -96,8 +96,7 @@ class TestUACFocus:
         # (c) The SUT must have actually consulted the Win32 foreground
         # state, otherwise the mock setup is dead code (false coverage).
         assert mock_user32.GetForegroundWindow.called, (
-            "bring_app_to_front did not call GetForegroundWindow, "
-            "the Win32 mock setup was not exercised by the SUT."
+            "bring_app_to_front did not call GetForegroundWindow, the Win32 mock setup was not exercised by the SUT."
         )
 
 

@@ -366,6 +366,7 @@ class TestWsRsNotificationEventName:
             "not just an empty event, otherwise the macOS banner renders blank."
         )
 
+
 # ─── Test 5: notification payload shape ─────────────────────────────────
 
 
@@ -880,17 +881,14 @@ class TestSourceInspectionBeltAndBraces:
         ``translate_event_name``."""
         src = _read_ws_bridge_rs()
         assert re.search(r"let\s+emit_name\s*=\s*translate_event_name\s*\(\s*event_type\s*\)\s*;", src), (
-            "ws.rs must forward every event type via "
-            "`let emit_name = translate_event_name(event_type);`."
+            "ws.rs must forward every event type via `let emit_name = translate_event_name(event_type);`."
         )
 
     def test_system_handlers_publishes_notification_event(self):
         """The Python sidecar's ``system_handlers.py`` publishes a
         ``notification`` event (per CR-8)."""
         src = _read(SYSTEM_HANDLERS_PY)
-        assert '"type": "notification"' in src, (
-            "system_handlers.py MUST publish with type='notification' (per CR-8)."
-        )
+        assert '"type": "notification"' in src, "system_handlers.py MUST publish with type='notification' (per CR-8)."
 
     def test_macos_runbook_lists_toast_as_gate_point(self):
         """The macOS runbook MUST list the toast notification check as
