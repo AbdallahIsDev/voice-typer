@@ -89,7 +89,16 @@ class SettingsController:
                 )
             label = mic_name if mic_name else "System Default"
 
-            if app.recorder.recording:
+            try:
+                active_recorder = app.recorder
+            except Exception as exc:
+                log.warning(
+                    "[CONFIG] Prior recorder build failed (%s); continuing microphone change",
+                    type(exc).__name__,
+                )
+                active_recorder = None
+
+            if active_recorder is not None and active_recorder.recording:
                 log.info("[CONFIG] Microphone changed to %s; applying after active recording", label)
                 app.tray.notify(APP_NAME, i18n.t("notify.settings_controller.mic_next_recording", label=label))
                 return

@@ -1,11 +1,14 @@
 # extracted from the original
-"""TCP transport helpers: port picker and line-IO wrapper.
+"""Test-support socket helpers: port picker and line-IO wrapper.
 
-Phase 4.5 / , extracted from the original ``ipc_server.py``
-god-module.  Contains the TCP port picker (used by standalone mode to
-auto-pick a free port for the backend's TCP server) and the
-:class:`_TCPLineIO` wrapper that turns a TCP socket into a text-mode
-line-based IO (``write()`` / ``flush()`` / ``readline()`` / ``__iter__``).
+Phase 4.5 split, extracted from the original ``ipc_server.py``
+god-module. The production TCP listener was removed (now ``--ws``
+only: event_bus → sidecar_ws → Tauri host); these helpers survive
+SOLELY for the test suite, which injects sockets into
+``OutputMixin._send``. Not imported by any production path.
+Contains the port picker and the :class:`_TCPLineIO` wrapper that
+turns a socket into text-mode line-based IO (``write()`` /
+``flush()`` / ``readline()`` / ``__iter__``).
 """
 
 import contextlib
@@ -23,22 +26,19 @@ log = logging.getLogger("voice_typer.server.ipc_server")
 def _pick_available_port(start: int = IPC_PORT, max_tries: int = 100) -> tuple[int, socket.socket]:
     """Return ``(port, bound_socket)`` for the first TCP port >= ``start`` free on 127.0.0.1.
 
-        P1-1.2: used by standalone mode to auto-pick a port for the backend's
-        TCP server.  Starts at the default IPC port (9876) and increments
-        until a free port is found (capped at ``max_tries`` attempts).  Falls
-        back to an OS-assigned ephemeral port (port=0) if every port in the
-        range is busy: this guarantees the function never fails.
+        Test-support only: no production caller remains (the TCP listener
+        was removed; the live transport is event_bus → sidecar_ws).
+        Starts at the default IPC port and increments until a free port
+        is found (capped at ``max_tries`` attempts). Falls back to an
+        OS-assigned ephemeral port (port=0) if every port in the range
+        is busy: this guarantees the function never fails.
 
-    fix: the BOUND socket is returned alongside the port number so
-        the caller can pass it through to :meth:`IPCServer.start_tcp` (which
-        accepts either an ``int`` for backward compatibility or a
-        ``(port, sock)`` tuple for the no-race-window gold-standard path).
-        The previous probe-then-bind pattern closed the probe socket before
-        the real ``bind()`` in ``_accept_tcp``, opening a (small but real)
-        race window where another local process could grab the port.  By
-        handing the already-bound socket to ``start_tcp``, the kernel
-        guarantees no other process can claim that port between probe and
-        listen.
+    fix: the BOUND socket is returned alongside the port number so a
+        test caller can hand an already-bound socket to the injected
+        client instead of probe-then-bind (which closed the probe
+        socket before the real ``bind()``, opening a race window where
+        another local process could grab the port).
+
 
         The returned socket has ``SO_REUSEADDR`` set and is bound to
         ``127.0.0.1:port`` but NOT yet listening, the caller is expected to
@@ -75,8 +75,9 @@ def _pick_available_port(start: int = IPC_PORT, max_tries: int = 100) -> tuple[i
 class _TCPLineIO:
     """Wraps a TCP socket as a text-mode line-based IO.
 
-    Provides ``write()`` + ``flush()`` (like TextIO) and
-    ``readline()`` + ``__iter__`` (like a line reader).
+    Test-support only (see module docstring): production pushes flow
+    via event_bus → sidecar_ws. Provides ``write()`` + ``flush()``
+    (like TextIO) and ``readline()`` + ``__iter__`` (like a reader).
     """
 
     def __init__(self, conn: socket.socket) -> None:
