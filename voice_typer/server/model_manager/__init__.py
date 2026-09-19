@@ -1,8 +1,4 @@
-"""ModelManager package - ASR backend lifecycle owner.
-
-Facade preserving the historical
-``voice_typer.server.model_manager`` import path; implementation
-is split into concern mixins composed in :mod:`.manager`."""
+"""ModelManager package - ASR backend lifecycle owner."""
 
 from .manager import ModelManager
 

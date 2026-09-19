@@ -61,9 +61,6 @@ from __future__ import annotations
 import logging
 
 # single source of truth for the IPC handler logger name.
-# Keep this name in sync with the dispatcher's logger
-# (``voice_typer/server/ipc_server.py``) so handler and dispatcher log
-# records are emitted under the same logger in ``voice-typer.log``.
 log = logging.getLogger("voice_typer.server.ipc_server")
 
 __all__ = ["log"]

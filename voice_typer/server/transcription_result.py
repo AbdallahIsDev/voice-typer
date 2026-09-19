@@ -54,21 +54,12 @@ from voice_typer.server.vad_policy import decide_vad_filter
 np = lazy_module("numpy")
 
 # Silero-VAD tuning passed to BOTH faster-whisper decode loops (batch
-# ``transcribe_unlocked`` + streaming-words ``transcribe_words_unlocked``).
-# faster-whisper consumes the mapping read-only (``VadOptions(**vad_parameters)``
-# , verified against faster-whisper 1.2.1), so ONE shared module-level dict
-# is safe; it was previously duplicated as an identical ``dict(...)`` literal
-# inside each loop. Keep the values identical across both call sites by
-# construction: never re-assign per call, never mutate the shared dict.
 _VAD_PARAMETERS: Final[dict[str, int]] = {
     "min_silence_duration_ms": 500,
     "speech_pad_ms": 200,
 }
 
 # Use the ``transcription`` logger name so log records emitted from this
-# extracted module are captured by tests that filter by
-# ``logger="voice_typer.server.transcription"`` (the historical logger
-# name when this code lived inline in ``transcription.py``).
 log = logging.getLogger("voice_typer.server.transcription")
 
 
@@ -140,7 +131,6 @@ def transcribe_unlocked(
     # Log audio statistics for diagnostics
     duration = len(audio) / _WHISPER_SAMPLE_RATE
     # reuse pre-computed stats when provided (avoids
-    # 1-3 ms + 3× 1.9 MB transient memory per dictation).
     if audio_stats is not None:
         rms, peak, silence_pct = audio_stats
     else:
@@ -148,10 +138,6 @@ def transcribe_unlocked(
         peak = float(np.max(np.abs(audio)))
         silence_pct = float(np.sum(np.abs(audio) < 0.001) / audio.size * 100)
     # Duration-aware VAD policy: trim once here when the recording is
-    # already known-clean so the engine-side Silero rescan can be
-    # skipped; short/long/uncertain audio keeps historical behavior
-    # (no trim, filter ON). ``duration`` is recomputed below so the log
-    # line and the hallucination gate describe the decoded audio.
     audio, use_vad_filter, _trim_offset_s = decide_vad_filter(
         audio,
         _WHISPER_SAMPLE_RATE,
@@ -174,11 +160,6 @@ def transcribe_unlocked(
         )
 
     # NOTE: ``best_of`` is deliberately NOT passed, faster-whisper only
-    # honors it when sampling with non-zero temperature, and the pinned
-    # ``temperature=0.0`` (greedy decoding, no fallback-temperature retries)
-    # made the forwarded config knob a silent no-op. ``temperature=0.0``
-    # itself MUST stay: faster-whisper's default is a fallback gradient
-    # (``[0.0, 0.2, ...]``) that would change decoding behavior.
     segments, info = engine._model.transcribe(
         audio,
         beam_size=engine.beam_size,
@@ -198,20 +179,8 @@ def transcribe_unlocked(
     avg_logprobs = []
     no_speech_probs = []
     # Reset the renderer-facing quality summary at the START of each
-    # transcription so a stale summary from a previous dictation can
-    # never be attributed to this one (e.g. when the segment loop is
-    # cut short by an abort and collects no numeric stats).
     engine.last_quality_summary = None
     # hoist the per-segment ``log_transcriptions`` flag and
-    # ``redact_pii`` import OUT of the segment loop. Pre-fix, the
-    # ``getattr(engine.config, 'log_transcriptions', False)`` ran once
-    # per segment and the ``from voice_typer.server.security import
-    # redact_pii`` ran an ``importlib`` cache lookup per segment
-    # (whenever the flag was True). For a 100+ segment long-form
-    # dictation with ``log_transcriptions=True``, the redundant
-    # attribute access + import lookups added ~1ms of pure overhead
-    # before any actual regex work. Hoisting computes the flag once
-    # and reuses the imported function for every segment.
     _log_transcriptions_flag = engine.config is not None and getattr(engine.config, "log_transcriptions", False)
     _redact_pii = None
     if _log_transcriptions_flag:
@@ -221,14 +190,6 @@ def transcribe_unlocked(
             _redact_pii = None
     for seg in segments:
         # Check the abort token BETWEEN segment iterations. The
-        # ``segments`` generator yields one segment at a time, with
-        # each ``next()`` call driving a ctranslate2 decoding step
-        # (typically 0.5-3s per segment). Checking here lets the
-        # ESC / watchdog cancel path break out of the loop within
-        # one segment of being signalled, bounded latency instead
-        # of waiting for the full audio to decode. ``request_abort()``
-        # also best-effort calls ``ctranslate2.Translator.interrupt()``
-        # so the CURRENT segment's C-level call returns promptly.
         if engine._abort_event.is_set():
             log.info(
                 "[TRANSCRIBE] Abort requested, stopping segment loop early (completed %d segments, %d text parts)",
@@ -251,36 +212,12 @@ def transcribe_unlocked(
         if seg.text.strip():
             text_parts.append(seg.text.strip())
             # gate the per-segment DEBUG log by
-            # ``log_transcriptions`` and apply ``redact_pii`` when
-            # enabled. Pre-fix, raw segment text was logged whenever
-            # DEBUG logging was active, leaking any PII the user
-            # dictated even though the operator had not opted into
-            # transcription logging.
-            #
-            # When ``log_transcriptions`` is False (the default), we
-            # emit NO segment DEBUG log at all, not even a char-count
-            # summary. The regression tests pin this
-            # contract: any "[TRANSCRIBE] Segment" DEBUG record while
-            # the flag is off is treated as a PII leak (the very
-            # presence of a segment-timing log can confirm a segment
-            # was decoded at a given timestamp, which is metadata the
-            # user did not opt into). Operators who need segment-level
-            # diagnostics flip ``log_transcriptions=True`` (which then
-            # routes the text through ``redact_pii``).
             _seg_text = seg.text.strip()
             if _log_transcriptions_flag and _redact_pii is not None:
                 try:
                     _safe_seg_text = _redact_pii(_seg_text)
                 except Exception:
                     # fall back to a redacted marker only, do NOT
-                    # log the raw text even truncated. The opt-in ``log_transcriptions`` flag is a
-                    # privacy backstop the user explicitly enabled, and
-                    # a ``redact_pii`` failure (import failure / regex
-                    # bug) means PII cannot be guaranteed masked.
-                    # Truncating to 80 chars does NOT redact, an
-                    # 80-char window can still contain an email address,
-                    # phone number, or SSN fragment. Emit a marker +
-                    # the segment boundaries and skip the DEBUG log.
                     log.warning(
                         "[TRANSCRIBE] Segment: [%.1fs - %.1fs] "
                         "<redaction-engine-failed, segment text NOT "
@@ -311,10 +248,6 @@ def transcribe_unlocked(
     )
 
     # Compact quality summary for the dictation pipeline → renderer
-    # (``transcription_final`` payload). Built from the stats already
-    # collected above, a handful of float ops per dictation, never
-    # on the paste path. ``None`` when the loop collected no numeric
-    # segment stats so downstream consumers omit the field.
     engine.last_quality_summary = build_quality_summary(avg_logprobs, no_speech_probs)
 
     result = " ".join(text_parts).strip()
@@ -374,9 +307,6 @@ def transcribe_words_unlocked(
     from voice_typer.server.streaming import WordTiming
 
     # Same duration-aware VAD policy as the batch path (stats are
-    # computed inside the policy, streaming chunks carry none). The
-    # trim offset is added back below: word timings are relative to the
-    # passed audio, so a trimmed lead-in must not shift them.
     audio, use_vad_filter, trim_offset_s = decide_vad_filter(
         audio,
         _WHISPER_SAMPLE_RATE,
@@ -385,7 +315,6 @@ def transcribe_words_unlocked(
     )
 
     # Same ``best_of`` reasoning as ``transcribe_unlocked`` above: a no-op
-    # under the pinned ``temperature=0.0``, so it is not forwarded.
     segments, _info = engine._model.transcribe(
         audio,
         beam_size=engine.beam_size,
@@ -402,13 +331,6 @@ def transcribe_words_unlocked(
     segment_count = 0
     for seg in segments:
         # Check the abort token BETWEEN segment iterations,
-        # mirroring the batch path (``transcribe_unlocked`` above).
-        # ``segments`` is a generator that yields one segment at a
-        # time, with each ``next()`` call driving a ctranslate2
-        # decoding step. Without this check, an ESC / watchdog
-        # cancel during streaming word-timestamp transcription would
-        # only take effect after the full audio finished decoding —
-        # unbounded latency instead of within-one-segment latency.
         if engine._abort_event.is_set():
             log.info(
                 "[TRANSCRIBE] Abort requested, stopping streaming "

@@ -51,9 +51,6 @@ class BusyFlag:
         self._lock = lock
         self._active_name_provider = active_name_provider
         # The set is keyed by backend NAME (not the backend object) so
-        # a backend that was unregistered + re-registered under the
-        # same name (e.g. via ``change_model``) doesn't carry over a
-        # stale busy state.
         self._busy_backends: set[str] = set()
 
     def is_busy(self, name: str | None = None) -> bool:

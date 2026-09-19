@@ -10,10 +10,6 @@ from __future__ import annotations
 import logging
 
 # ``_run_with_timeout`` is looked up DYNAMICALLY from
-# :mod:`voice_typer.server.shutdown_controller` at call time so tests
-# that ``monkeypatch.setattr(...shutdown_controller._run_with_timeout, ...)
-# still take effect (mirrors the convention documented in
-# ``shutdown_controller.py``'s module docstring).
 from voice_typer.server import shutdown_controller as _sc  # noqa: F401
 
 

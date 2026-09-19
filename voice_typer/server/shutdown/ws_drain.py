@@ -1,27 +1,4 @@
-"""WS dispatch + encode pool drain (extracted from ``shutdown_controller``).
-
-Houses the body of :meth:`ShutdownController._drain_ws_dispatch_pool` —
-the early bookend of ``_do_cleanup`` that stops the IPC server and
-drains / cancels in-flight WS dispatch requests AND in-flight WS frame
-encodes BEFORE any subsystem teardown, concurrently, in a single
-``_run_parallel_with_timeout`` batch.
-
-The controller keeps a thin delegate on :class:`CleanupMixin`
-(``shutdown_controller/_cleanup.py``) so the instance-method API used by
-``do_cleanup`` (``controller._drain_ws_dispatch_pool(app)``) and by tests
-continues to work, same convention as
-:mod:`voice_typer.server.shutdown.teardowns`.
-
-Patch-path note: ``_run_parallel_with_timeout`` is imported at module
-level from :mod:`voice_typer.server._timeout_utils`, the same binding
-strategy the body had in ``shutdown_controller/_cleanup.py``. Tests that
-spy on the early-bookend batch patch THIS module's binding
-(``voice_typer.server.shutdown.ws_drain._run_parallel_with_timeout``).
-
-The logger keeps the pre-extraction name
-(``voice_typer.server.shutdown_controller``) so log records emitted by the
-moved body land on the same logger as before.
-"""
+"""WS dispatch + encode pool drain (extracted from ``shutdown_controller``)."""
 
 from __future__ import annotations
 
@@ -36,30 +13,7 @@ log = logging.getLogger("voice_typer.server.shutdown_controller")
 
 
 def drain_ws_dispatch_pool(controller, app) -> None:
-    """Early bookend: stop the IPC server + drain the WS dispatch + encode pools.
-
-    Extracted from ``_do_cleanup``. Stops the IPC server
-    EARLY so inbound requests can't resurrect torn-down subsystems,
-    and drains / cancels in-flight WS dispatch requests and WS frame
-    encodes BEFORE any subsystem teardown, concurrently, in a single
-    ``_run_parallel_with_timeout`` batch. They touch disjoint pools
-    (the TCP worker pool, the WS dispatch pool, and the WS encode
-    pool), so parallelisation is safe. ``_shutting_down`` is already
-    True (set by ``quit()`` before calling ``_do_cleanup``), so the
-    ``sidecar_ws._make_dispatch`` ``dispatch`` coroutine is already
-    rejecting NEW requests. Best-effort, failures here don't prevent
-    the rest of cleanup from running.
-
-    Preserves the ``if join_thread.is_alive():`` drain-timeout
-    branch (pinned by
-    ``tests/test_shutdown_fast_path.py::TestOsExitOnStuckWsDrain::
-    test_ws_drain_timeout_branch_exists``).
-
-    ``controller`` is unused in the body (the drain only touches
-    ``app``) but kept for API symmetry with the other extracted
-    shutdown functions, mirroring ``run_plan``'s ``controller``
-    parameter.
-    """
+    """Early bookend: stop the IPC server + drain the WS dispatch + encode pools."""
     try:
         ipc_server = getattr(app, "_ipc_server", None)
         ws_pool = getattr(ipc_server, "_ws_dispatch_pool", None) if ipc_server is not None else None
@@ -67,26 +21,12 @@ def drain_ws_dispatch_pool(controller, app) -> None:
         early_items: list[tuple[str, Callable[[], object], float]] = []
         if ipc_server is not None:
             # PERF-SHUTDOWN-002: the ipc_server.stop budget was 5.0s
-            # pre-quit-latency-fix. ``stop()`` gates its pool drains
-            # on ``app._shutting_down`` (always True on this path),
-            # so it returns in milliseconds; 2.0s is now a generous
-            # hard ceiling that still bounds teardown if a future
-            # regression re-introduces a blocking path.
             early_items.append(("ipc_server.stop", ipc_server.stop, 2.0))
 
         if ws_pool is not None and hasattr(ws_pool, "shutdown"):
 
             def _drain_ws_pool() -> None:
                 # ``shutdown(wait=False, cancel_futures=True)`` only
-                # cancels QUEUED (not-yet-started) tasks; RUNNING handlers
-                # continue. Without a bounded join, teardown races any
-                # in-flight WS handler that touches the recorder /
-                # history_db / crash_recovery subsystems. Spawn a
-                # daemon-thread ``shutdown(wait=True)`` and join the
-                # spawner with a bounded deadline, 4.5s, deliberately
-                # UNDER this item's 5.0s parallel budget (see below).
-                # If the drain doesn't complete within the join, log
-                # + proceed.
                 ws_pool.shutdown(wait=False, cancel_futures=True)
                 log.debug("[SHUTDOWN] WS dispatch pool shut down (cancel_futures=True)")
                 join_thread = threading.Thread(
@@ -96,19 +36,9 @@ def drain_ws_dispatch_pool(controller, app) -> None:
                 )
                 join_thread.start()
                 # 4.5s, deliberately UNDER this item's 5.0s parallel
-                # budget: the inner join must expire BEFORE the outer
-                # ``_run_parallel_with_timeout`` cutoff, otherwise the
-                # two identical deadlines race and the diagnostic
-                # WARNING can lose (observed on loaded CI runners:
-                # outer timeout fired first, the item was abandoned,
-                # and the WARNING never landed).
                 join_thread.join(timeout=4.5)
                 if join_thread.is_alive():
                     # Name BOTH bounds honestly (mirrors the encode-pool
-                    # WARNING below): the inner join is 4.5s (deliberately
-                    # under the item's 5.0s parallel budget so this
-                    # WARNING always wins the deadline race), "5s" alone
-                    # misreports which bound expired.
                     log.warning(
                         "[SHUTDOWN] ws_dispatch_pool did not drain within "
                         "its 4.5s join (5.0s budget), proceeding anyway"
@@ -121,14 +51,6 @@ def drain_ws_dispatch_pool(controller, app) -> None:
 
             def _drain_encode_pool() -> None:
                 # The WS frame-encode pool must be drained for the same
-                # reason as the dispatch pool: CPython >=3.9
-                # ThreadPoolExecutor workers are non-daemon and get
-                # joined via ``atexit``: a queued near-cap encode would
-                # otherwise delay process exit and race the subsystem
-                # teardown batch. ``shutdown_encode_pool`` cancels
-                # QUEUED encodes and drops the server/singleton refs;
-                # the bounded daemon-thread join below then waits for
-                # any RUNNING encode, mirroring the dispatch-pool item.
                 shutdown_encode_pool(ipc_server)
                 log.debug("[SHUTDOWN] WS encode pool shut down (cancel_futures=True)")
                 join_thread = threading.Thread(
@@ -138,58 +60,24 @@ def drain_ws_dispatch_pool(controller, app) -> None:
                 )
                 join_thread.start()
                 # 1.8s inner join, deliberately UNDER this item's 2.0s
-                # parallel budget (same outer/inner deadline pairing as
-                # the dispatch-pool item above: the inner join must
-                # expire first so the diagnostic WARNING lands).
                 join_thread.join(timeout=1.8)
                 if join_thread.is_alive():
                     # Name BOTH bounds honestly: the inner join is 1.8s
-                    # (deliberately under the item's 2.0s parallel budget
-                    # so this WARNING always wins the deadline race) —
-                    # "2s" alone misreports which bound expired.
                     log.warning(
                         "[SHUTDOWN] ws_encode_pool did not drain within its 1.8s join (2.0s budget), proceeding anyway"
                     )
 
             # Early + bounded (~2s): encodes are pure CPU
-            # (json.dumps + .encode, ~2.2ms per 1MiB frame), so a
-            # healthy pool drains in milliseconds; the 2s ceiling only
-            # bounds a pathological backlog.
             early_items.append(("ws_encode_pool.drain", _drain_encode_pool, 2.0))
 
         if early_items:
             _run_parallel_with_timeout(early_items)
 
         # explicit ``threading.Event`` coordination between the WS
-        # dispatch path and ``_do_cleanup``. The pool's ``shutdown(wait=True)``
-        # (run above) only guarantees that the ThreadPoolExecutor drained
-        # its worker queue, it does NOT guarantee that the per-dispatch
-        # coroutine body finished its DB write (the WS ``dispatch``
-        # coroutine may still be in its ``await loop.run_in_executor``
-        # unwind / result-serialisation tail when the pool reports drained).
-        # ``sidecar_ws._make_dispatch`` clears ``_ws_drained_event`` on
-        # entry to each dispatch and sets it when the in-flight count drops
-        # to zero (after the dispatch body fully returns, including the
-        # post-Future unwind). We wait on that Event here, bounded by 2s,
-        # BEFORE allowing the parallel teardown batch to proceed. If the
-        # wait times out, we log and proceed (the in-flight handler is on
-        # its own).
         if ipc_server is not None:
             ws_drained_event = getattr(ipc_server, "_ws_drained_event", None)
             if ws_drained_event is not None:
                 # Skip the 2s wait when the WS pool is already idle
-                # (``_ws_inflight_count == 0``). The
-                # ``sidecar_ws._make_dispatch`` lazily attaches
-                # ``_ws_inflight_count`` (an int, initially 0) on
-                # first dispatch; before any dispatch has ever
-                # fired, the attribute is missing —
-                # ``getattr(..., 0)`` falls back to 0 and the wait
-                # is skipped (no in-flight handler can race DB
-                # teardown when the pool has never been used).
-                # When ``_ws_inflight_count > 0``, the original 2s
-                # bounded wait is kept so an in-flight handler
-                # gets its bounded window to finish its DB write
-                # before ``_teardown_history_db`` starts.
                 ws_inflight = getattr(ipc_server, "_ws_inflight_count", 0)
                 if ws_inflight == 0:
                     log.debug(
@@ -202,8 +90,6 @@ def drain_ws_dispatch_pool(controller, app) -> None:
                     if not drained:
                         in_flight = getattr(ipc_server, "_ws_inflight_count", 0)
                         # drain-timeout branch, log at WARNING and
-                        # proceed (never block) so an in-flight write can't
-                        # stall shutdown.
                         log.warning(
                             "[SHUTDOWN] WS dispatch drain Event did not "
                             "fire in 2s, %s in-flight handlers may race DB "

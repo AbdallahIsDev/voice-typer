@@ -27,8 +27,6 @@ import sys
 import threading
 
 # Keep the historical logger name so ``caplog.at_level(...,
-# logger="voice_typer.server.log")`` still captures these diagnostics
-# after the module split.
 log = logging.getLogger("voice_typer.server.log")
 
 _emit_reentrancy = threading.local()
@@ -86,9 +84,6 @@ def _quiet_handler_error(handler: logging.Handler, record: logging.LogRecord) ->
         pass
 
 
-# ── Session filter ────────────────────────────────────────────────────
-
-
 class _SessionFilter(logging.Filter):
     """Inject ``session_id`` and ``component`` attributes into every record.
 
@@ -102,8 +97,6 @@ class _SessionFilter(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
         if not hasattr(record, "session_id"):
             # Late package lookup so writes to
-            # ``voice_typer.server.log._session_id`` (setup_logging /
-            # test fixture restore) are observed here.
             import voice_typer.server.log as _log_pkg
 
             record.session_id = getattr(_log_pkg, "_session_id", "")
@@ -134,25 +127,9 @@ class _BubbleLevelExclusionFilter(logging.Filter):
 
     def filter(self, record: logging.LogRecord) -> bool:
         # cheap path, WARNING+ records are always kept (no
-        # ``getMessage()`` call) so a legitimate
-        # ``"bubble_level handler crashed"``-style error is never
-        # dropped from the file. The expensive substring match only
-        # runs for DEBUG / INFO records, which is the level the
-        # high-frequency bubble push is emitted at, so the
-        # noise-suppression behaviour is preserved while protecting
-        # diagnostic error lines.
         if record.levelno >= logging.WARNING:
             return True
         # hybrid check. ``record.msg`` is the raw template
-        # string (no %-format substitution), checking it first avoids
-        # the ``getMessage()`` call on every DEBUG/INFO record. Fall
-        # back to ``getMessage()`` only when the record carries
-        # positional args (i.e. the marker could appear in the
-        # substituted output but not the template). The hot path is a
-        # literal ``"bubble_level"`` log call with no args, so the
-        # cheap ``in record.msg`` check covers it; the fallback
-        # preserves correctness for callers that interpolate the
-        # marker via ``%s``.
         if not record.args:
             return self._MARKER not in record.msg
         return self._MARKER not in record.getMessage()
@@ -183,39 +160,23 @@ class _FlushingStreamHandler(logging.StreamHandler):
     """
 
     # One-shot diagnostic guard: a genuinely broken stream (write
-    # failure) is reported once, never per-line.
     _flushed_once: bool = False
 
     def emit(self, record: logging.LogRecord) -> None:  # noqa: D401
         try:
             # Write the record directly instead of delegating to the
-            # stock ``StreamHandler.emit``: the stock path calls
-            # ``self.flush()`` inside its own try/except and routes a
-            # flush exception (WinError 1 on Windows consoles) to
-            # ``handleError``, which would emit a spurious "console
-            # degraded" diagnostic on every launch.
             self.stream.write(self.format(record) + self.terminator)
         except OSError as exc:
             # On Windows, ``write()`` on a console handle with
-            # ``write_through=True`` or ``line_buffering=True`` can raise
-            # ``ERROR_INVALID_FUNCTION`` (WinError 1, winerror=1) even
-            # when the data WAS written, the raise comes from the
-            # underlying flush, not a lost write.  Treat WinError 1
-            # on Windows as benign (silent); any other OSError is a
-            # genuinely broken stream.
             if os.name == "nt" and getattr(exc, "winerror", None) == 1:
                 return
             self._handle_broken_stream()
             return
         except Exception:
             # Only reach here when the WRITE itself failed, a genuinely
-            # broken stream (closed fd, EPIPE, etc.).  Emit one
-            # diagnostic and keep the handler alive so later writes
-            # still reach the buffer.
             self._handle_broken_stream()
             return
         # Best-effort: with ``line_buffering=True`` each newline already
-        # flushes; this is belt-and-suspenders and never raised.
         with contextlib.suppress(Exception):
             self.flush()
 
@@ -302,10 +263,6 @@ class _SecureTruncatingFileHandler(logging.handlers.RotatingFileHandler):
                 if self.shouldRollover(record):
                     if lock_fd is not None:
                         # Lock already held: truncate inline without
-                        # re-acquiring (a second acquire on a new fd
-                        # would self-conflict on Windows). Re-check
-                        # first, another process may have truncated
-                        # while we acquired.
                         if self._rotation_needed():
                             self._truncate_locked()
                     else:
@@ -317,7 +274,6 @@ class _SecureTruncatingFileHandler(logging.handlers.RotatingFileHandler):
                             )
             except Exception:
                 # ``shouldRollover`` itself failed (e.g. broken stream) —
-                # still try to write the record.
                 pass
             logging.FileHandler.emit(self, record)
         except RecursionError:
@@ -414,33 +370,14 @@ class _SecureTruncatingFileHandler(logging.handlers.RotatingFileHandler):
                 os.write(fd, b"\0")
                 os.lseek(fd, 0, os.SEEK_SET)
                 # ``msvcrt.locking(LK_LOCK)`` blocks ~10s then raises
-                # ``PermissionError`` (an ``OSError`` subclass) if it cannot
-                # acquire the byte-range lock. The previous ``contextlib.suppress``
-                # silently swallowed that, returning ``fd`` as if the lock was
-                # held, two processes racing rotation could both pass. We now
-                # retry once with ``LK_NBLCK`` (non-blocking), if the holder
-                # released the byte during the ~10s block, we grab it
-                # instantly; if not, we fail CLOSED (close fd, return None)
-                # so the caller's ``_rotation_needed()`` short-circuit kicks
-                # in and no rotation is attempted without the inter-process
-                # lock. Fail-closed prevents two concurrent rotations from
-                # clobbering each other's rename / re-open, which previously
-                # could truncate voice-typer.log.
                 try:
                     msvcrt.locking(fd, msvcrt.LK_LOCK, 1)
                 except OSError:
                     # LK_LOCK timed out, try a single non-blocking acquire.
-                    # If the holder released in the meantime, we succeed
-                    # silently (lock is now held, no warning needed).
                     try:
                         msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
                     except OSError:
                         # Both LK_LOCK (10s blocking) and LK_NBLCK (instant)
-                        # failed, the byte range is contended. Fail CLOSED:
-                        # close the fd so it is not leaked, return None so
-                        # ``doRollover`` skips rotation (no rotation without
-                        # the inter-process lock). Log at WARNING (not DEBUG)
-                        # so the operator can see the persistent contention.
                         log.warning(
                             "[LOG-SETUP] Windows rotation lock acquire failed "
                             "(LK_LOCK timed out, LK_NBLCK retry also failed), "
@@ -453,12 +390,6 @@ class _SecureTruncatingFileHandler(logging.handlers.RotatingFileHandler):
                 return fd
         except Exception as exc:
             # log only the exception class name. ``str(exc)``
-            # can include the lock file path (which contains the user's
-            # home directory), leaking it to stderr/debug logs is a
-            # minor PII/privacy leak. The class name (e.g.
-            # ``PermissionError``, ``OSError``) is enough for an
-            # operator to diagnose the failure mode without exposing
-            # the on-disk path layout.
             log.debug(
                 "[LOG-SETUP] inter-process rotation lock acquire failed (%s); falling back to racy rotation",
                 type(exc).__name__,
@@ -509,32 +440,10 @@ class _SecureTruncatingFileHandler(logging.handlers.RotatingFileHandler):
         on Windows) lock acquisition.
         """
         # Truncate in place. ``seek(0)`` first so the file position
-        # is at the start; ``truncate(0)`` empties it. The next
-        # ``emit`` appends from position 0. The file keeps its
-        # identity (same path/inode), so the inter-process lock file
-        # (``<name>.lock``) and any open handles stay valid.
-        #
-        # ``stream`` is ``TextIOWrapper | None`` per typeshed (None
-        # when the file failed to open, e.g. disk full / perms). A
-        # None stream cannot be truncated, skip the truncate (the
-        # base ``FileHandler.emit`` raises ``RuntimeError`` on a
-        # None stream, surfaced as ONE concise stderr line by
-        # ``handleError``) rather than crashing inside the
-        # inter-process rotation lock.
         if self.stream is not None:
             self.stream.seek(0)
             self.stream.truncate(0)
         # Belt-and-suspenders: chmod INSIDE the lock so even if a
-        # caller bypassed the umask (or a future refactor swapped
-        # the open mode), the file is still re-locked to 0o600
-        # before any other process can observe it.
-        #
-        # Logged (not silently suppressed) so an operator can see
-        # when the chmod fails: e.g. on NFS with root-squash, on a
-        # read-only filesystem, or under a SELinux policy that
-        # denies chmod. Log only the exception class name (not
-        # ``str(exc)``, which can include the log file path →
-        # home-directory leak).
         if os.name == "posix":
             try:
                 os.chmod(self.baseFilename, 0o600)
@@ -549,16 +458,6 @@ class _SecureTruncatingFileHandler(logging.handlers.RotatingFileHandler):
 
     def doRollover(self) -> None:  # noqa: D401, N802
         # Single-file policy: when the active log exceeds ``maxBytes``,
-        # TRUNCATE it in place (empty the file) and keep writing to the
-        # SAME path.  Numbered backups (``voice-typer.log.1`` ...) are
-        # NEVER created, the file on disk is always exactly one file.
-        #
-        # Short-circuit on the file-size pre-check: if the active log
-        # file is under the size cap, no truncation is needed.  We do
-        # this BEFORE acquiring the inter-process lock so the no-op path
-        # doesn't acquire + release it.  The check is duplicated AFTER
-        # lock acquisition in case another process truncated while we
-        # were acquiring the lock.
         if not self._rotation_needed():
             return
         lock_fd = self._acquire_rotation_lock()

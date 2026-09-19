@@ -1,13 +1,4 @@
-"""Localization for tray menu labels.
-
-Extracted from ``tray.py`` to separate the i18n concern (locale state +
-label dicts + translation function) from the TrayIcon class.
-
-This module is the canonical home for tray i18n. ``tray.py`` re-exports
-the public symbols via ``# noqa: F401`` for backward compat with tests
-that monkeypatch ``voice_typer.server.tray.set_tray_locale`` /
-``voice_typer.server.tray.get_tray_locale``.
-"""
+"""Tray i18n string helpers."""
 
 from voice_typer.server.branding import APP_NAME
 from voice_typer.server.i18n import DEFAULT_LOCALE
@@ -63,13 +54,6 @@ _TRAY_LABELS_ES: dict[str, str] = {
 }
 
 # server-side tray i18n only supported 2 of 8 locales (en, es).
-# Switching to any of ar/de/fr/hi/ru/zh fell back to English. These dicts
-# provide the fallback so the tray menu, notifications, and tooltip state
-# messages are localized even before the renderer pushes its full label
-# dict via the set_tray_locale IPC. The renderer's push (which includes
-# the 50+ notify.* and state.* keys from i18n.py) still takes precedence
-# via register_tray_labels() merging, these dicts are the floor, not
-# the ceiling.
 _TRAY_LABELS_AR: dict[str, str] = {
     "app_name": APP_NAME,
     "toggle_dictation": "بدء الإملاء",
@@ -235,12 +219,7 @@ _tray_locale: str = DEFAULT_LOCALE
 
 
 def set_tray_locale(locale: str) -> None:
-    """Set the tray menu locale.
-
-    Falls back to English if the locale is not supported.
-    After calling this, the tray menu must be rebuilt for the new
-    labels to take effect.
-    """
+    """Set the tray menu locale."""
     global _tray_locale
     _tray_locale = locale if locale in _TRAY_LABELS_LOCALES else "en"
 
@@ -251,28 +230,9 @@ def get_tray_locale() -> str:
 
 
 def register_tray_labels(locale: str, labels: dict[str, str]) -> None:
-    """Register translated tray-menu labels for a locale, merging with existing.
-
-    Called on every ``set_tray_locale`` IPC from the renderer. To avoid
-    rebuilding the merged dict (and growing the per-locale allocation)
-    on every call, even when the renderer pushes the SAME labels
-    repeatedly (e.g. on each locale switch back to an already-populated
-    locale), the merge is short-circuited when the new ``labels`` are
-    a no-op: every key in ``labels`` is already present in the existing
-    locale dict with an identical value. In that case the existing
-    dict is reused as-is (no new dict allocated, no reference swap).
-
-    When the labels DO change (new key, or changed value), the merge
-    proceeds as before: ``{**existing, **labels}`` produces a fresh
-    dict and replaces the locale entry.
-    """
+    """Called on every ``set_tray_locale`` IPC from the renderer. To avoid"""
     existing = _TRAY_LABELS_LOCALES.get(locale, {})
     # Short-circuit: if every key in `labels` is already in `existing`
-    # with the same value, the merge would be a no-op, skip the dict
-    # allocation + reference swap. This caps the per-call cost at
-    # O(len(labels)) comparisons instead of O(len(existing) + len(labels))
-    # for the merge, and avoids churning the locale dict reference
-    # (which the tray menu may be iterating on another thread).
     if existing:
         changed = False
         for key, value in labels.items():
@@ -286,11 +246,7 @@ def register_tray_labels(locale: str, labels: dict[str, str]) -> None:
 
 
 def _(key: str) -> str:
-    """Return the localized tray label for the given key.
-
-    Looks up the key in the current locale's label dict, falling back
-    to English, then to the key itself.
-    """
+    """Return the localized tray label for the given key."""
     labels = _TRAY_LABELS_LOCALES.get(_tray_locale, _TRAY_LABELS_EN)
     if key in labels:
         return labels[key]

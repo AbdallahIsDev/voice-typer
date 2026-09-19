@@ -23,8 +23,6 @@ from voice_typer.server.native_hotkeys._constants import (
 from voice_typer.server.native_hotkeys._core import SubprocessHotkeyBackend
 
 # Re-export get_native_binary_path so tests that patch
-# ``voice_typer.server.native_hotkeys.base.get_native_binary_path``
-# keep resolving (the binary_path module is the canonical owner).
 from voice_typer.server.native_hotkeys.binary_path import get_native_binary_path  # noqa: F401
 
 # Re-export log so ``base.log`` resolves (used by test_retry_regressions).

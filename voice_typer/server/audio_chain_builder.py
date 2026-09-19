@@ -1,4 +1,4 @@
-"""Filter chain builder, constructs a FilterChain from config."""
+"""Audio filter-chain builder."""
 
 from __future__ import annotations
 
@@ -27,32 +27,7 @@ def build_chain(
     *,
     quiet: bool = False,
 ) -> FilterChain:
-    """Build a FilterChain from the current config.
-
-    Chain order (ADR 0009 §2.1):
-        Notch → HighPass → NoiseSuppressor → NoiseGate → EQ → Compressor → Limiter
-
-    The NotchFilter is optional and runs FIRST, ahead of the
-    high-pass, so mains hum (50/60 Hz) is stripped before any other
-    stage sees the signal. Every filter except the limiter is only
-    included if its enable flag is True (the limiter, when enabled,
-    is always last: brick-wall safety net). Filters whose library is
-    missing will set is_degraded=True on the chain.
-
-    Args:
-        config: Config-like object with noise_filter_* attributes.
-        sample_rate: audio sample rate in Hz.
-        quiet: when True, suppress the ``[AUDIO-CHAIN] Built chain``
-            INFO line and the NoiseSuppressor backend-init lines
-            (passed through to :class:`NoiseSuppressor`). Used when
-            the chain is built for a SECONDARY consumer (the
-            level-monitor processor), the primary dictation chain
-            already logged the same build for the same config, so a
-            second build would otherwise repeat every line.
-
-    Returns:
-        A FilterChain ready to process audio.
-    """
+    """Build a FilterChain from the current config."""
     filters: list[AudioFilter] = []
 
     # 1. Notch filter (optional, before high-pass to remove hum early)
@@ -97,7 +72,6 @@ def build_chain(
                 release_ms=config.noise_filter_gate_release_ms,
                 sample_rate=sample_rate,
                 # opt-in adaptive calibration, gate samples the first
-                # ~500ms of audio to estimate noise floor and derives thresholds.
                 adaptive=getattr(config, "noise_filter_gate_adaptive", False),
             )
         )
@@ -148,18 +122,7 @@ def build_chain(
 
 
 def build_chain_from_dict(config_dict: dict, sample_rate: int = WHISPER_SAMPLE_RATE) -> FilterChain:
-    """Build a FilterChain from a config dict (for testing).
-
-    Like :func:`build_chain` but accepts a plain dict instead of a
-    Config object. Missing keys use the canonical defaults declared on
-    class:`voice_typer.server.config.Config`: previously this
-    function shadowed ``Config`` defaults with a parallel ``_DEFAULTS``
-    dict that drifted whenever a default was bumped on ``Config`` (e.g.
-    ``noise_filter_gate_hold_ms`` 150 → 200 in ADR 0007 §5). The dict
-    path now constructs a real ``Config()`` and applies the overrides
-    via ``setattr`` so there is exactly one source of truth for each
-    default.
-    """
+    """Build a FilterChain from a config dict (for testing)."""
 
     from voice_typer.server.config import Config
 

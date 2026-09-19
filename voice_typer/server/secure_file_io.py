@@ -1,15 +1,4 @@
-"""Backward-compat shim, code moved to ``voice_typer.server.security``.
-
-The secure atomic file-I/O helpers + ``PersistedJSON`` moved to
-:mod:`voice_typer.server.security.file_io`. This module re-exports every
-name the codebase and tests reference so existing import sites (including
-``voice_typer.server.config``'s re-export and the lazy
-``PersistedJSON.save`` import of ``config._secure_atomic_write``) keep
-working unchanged.
-
-New code should import from ``voice_typer.server.security.file_io``
-directly.
-"""
+"""Backward-compat shim, code moved to ``voice_typer.server.security``."""
 
 import time  # noqa: F401, re-exported for tests that monkeypatch secure_file_io.time
 

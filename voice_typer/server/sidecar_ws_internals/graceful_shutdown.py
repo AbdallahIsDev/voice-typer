@@ -1,19 +1,4 @@
-"""Graceful WS shutdown. Close-all-connections + server hook installer.
-
-Extracted verbatim from :mod:`voice_typer.server.sidecar_ws`
-(``_graceful_close_all_conns`` + ``_attach_ws_graceful_shutdown``);
-the canonical module re-exports both names so
-``sidecar_ws._attach_ws_graceful_shutdown(server)`` and the
-``server.ws_graceful_shutdown`` / wrapped ``server.stop`` contract
-keep working unchanged (``tests/test_sidecar_ws.py`` drives the
-installer directly through the canonical attribute).
-
-The shutdown budget constants (``_WS_GRACEFUL_CLOSE_HANDSHAKE_SECONDS``,
-``_WS_DISPATCH_DRAIN_TIMEOUT_SECONDS``) stay in the canonical module —
-they are part of sidecar_ws's constant surface, and are resolved here
-at CALL time (never at import time) so the canonical module can import
-this leaf at its own module top without a cycle.
-"""
+"""Graceful WS shutdown. Close-all-connections + server hook installer."""
 
 from __future__ import annotations
 
@@ -26,9 +11,6 @@ if TYPE_CHECKING:  # pragma: no cover - type-checker-only
     from voice_typer.server.ipc_server import IPCServer
 
 # Same logger object as the canonical module (``logging.getLogger`` is
-# idempotent per name). Keeps every log record's ``name`` attribute
-# byte-identical to the pre-split output, several tests pin
-# ``caplog.at_level(..., logger="voice_typer.server.sidecar_ws")``.
 log = logging.getLogger("voice_typer.server.sidecar_ws")
 
 
@@ -52,11 +34,6 @@ async def _graceful_close_all_conns(server: IPCServer) -> None:
     frame from reaching the other (still-alive) peer.
     """
     # Resolve the handshake budget from the canonical module at CALL
-    # time (a module-top import would be circular: sidecar_ws imports
-    # this leaf at its own module top). Call-time resolution also
-    # preserves the pre-split patch seam exactly, an assignment to
-    # ``sidecar_ws._WS_GRACEFUL_CLOSE_HANDSHAKE_SECONDS`` is observed
-    # here, just as it was when this body lived in that module.
     from voice_typer.server import sidecar_ws as _canonical
 
     conns = list(getattr(server, "_ws_authenticated_conns", set()))
@@ -69,8 +46,6 @@ async def _graceful_close_all_conns(server: IPCServer) -> None:
                 exc_info=True,
             )
     # Allow time for the WS close handshake to complete on the wire
-    # before ``loop.stop()`` fires: see
-    # ``_WS_GRACEFUL_CLOSE_HANDSHAKE_SECONDS`` for the rationale.
     await asyncio.sleep(_canonical._WS_GRACEFUL_CLOSE_HANDSHAKE_SECONDS)
 
 
@@ -118,16 +93,6 @@ def _attach_ws_graceful_shutdown(server: IPCServer) -> None:
     server._ws_graceful_shutdown_installed = True
 
     # Initialize the WS-state attributes ONLY if they are not already
-    # set. Tests (and a future caller) may pre-populate these before
-    # calling ``_attach_ws_graceful_shutdown``; the install must not
-    # overwrite existing state. ``getattr(..., None)`` returns None for
-    # an unset attribute on a real IPCServer, and returns a MagicMock
-    # child on a MagicMock test double, both are "already set" from
-    # the install's perspective, so we preserve them. The
-    # ``_make_real_server_for_graceful_shutdown`` test helper explicitly
-    # pre-sets these to real ``set()`` instances before calling install.
-    # All attributes are declared on ``IPCServer.__init__``, so the
-    # assignments below need no type-ignore suppression.
     if getattr(server, "_ws_authenticated_conns", None) is None:
         server._ws_authenticated_conns = set()
     if getattr(server, "_ws_dispatch_futures", None) is None:
@@ -166,19 +131,11 @@ def _attach_ws_graceful_shutdown(server: IPCServer) -> None:
         was never entered (e.g. the server ran in TCP-only mode).
         """
         # Resolve the shutdown budgets from the canonical module at
-        # CALL time (module-top import would be circular). This keeps
-        # the pre-split patch seam: assignments to
-        # ``sidecar_ws._WS_GRACEFUL_CLOSE_HANDSHAKE_SECONDS`` /
-        # ``sidecar_ws._WS_DISPATCH_DRAIN_TIMEOUT_SECONDS`` are
-        # observed here exactly as they were pre-split.
         from voice_typer.server import sidecar_ws as _canonical
 
         loop = getattr(server, "_ws_loop", None)
 
         # 1. Send close(1001, "going away") to each authenticated conn
-        #    + sleep for the close-handshake budget. The whole close
-        #    pass is one coroutine scheduled on the WS loop so the
-        #    individual ``ws.close()`` calls run on the correct loop.
         if loop is not None and not loop.is_closed():
             try:
                 close_future = asyncio.run_coroutine_threadsafe(
@@ -186,10 +143,6 @@ def _attach_ws_graceful_shutdown(server: IPCServer) -> None:
                     loop,
                 )
                 # Bounded-wait: handshake sleep (0.5 s) + per-conn
-                # close calls + slack. If the close pass hangs (e.g. a
-                # wedged peer's ``ws.close()`` blocks), abandon it and
-                # proceed to the drain + loop stop, the host's hard
-                # timeout will force-kill the process anyway.
                 close_future.result(
                     timeout=(
                         _canonical._WS_GRACEFUL_CLOSE_HANDSHAKE_SECONDS
@@ -206,10 +159,6 @@ def _attach_ws_graceful_shutdown(server: IPCServer) -> None:
             log.debug("[SIDECAR-WS] no WS loop reference (or loop closed), skipping close pass")
 
         # 2. Bounded-wait for in-flight dispatch futures. Each future
-        #    gets its own timeout so one stuck handler cannot block
-        #    the whole drain. The set is snapshotted to avoid
-        #    mutation-during-iteration if a dispatch completes and
-        #    discards itself from the set while we iterate.
         futures = list(getattr(server, "_ws_dispatch_futures", set()))
         for future in futures:
             try:
@@ -222,14 +171,6 @@ def _attach_ws_graceful_shutdown(server: IPCServer) -> None:
                 )
 
         # 3. Stop the WS loop. ``call_soon_threadsafe`` is the only
-        #    documented thread-safe way to schedule a callback on a
-        #    running loop from a non-loop thread. ``loop.stop`` causes
-        #    ``loop.run_forever()`` (in :func:`run`) to return.
-        #    Flag the request FIRST: ``run()`` checks
-        #    ``_ws_graceful_stop_requested`` to translate asyncio's
-        #    "Event loop stopped before Future completed" RuntimeError
-        #    into a clean INFO exit instead of a spurious ERROR
-        #    traceback + exit code 1 (2026-08-30 tray-Restart noise).
         with contextlib.suppress(Exception):
             server._ws_graceful_stop_requested = True
         if loop is not None and not loop.is_closed():
@@ -246,19 +187,6 @@ def _attach_ws_graceful_shutdown(server: IPCServer) -> None:
     server.ws_graceful_shutdown = ws_graceful_shutdown  # type: ignore[attr-defined]
 
     # Install ``ws_graceful_shutdown`` as an EXPLICIT stop hook (the
-    # ``_ws_stop_hook`` slot declared on ``IPCServer.__init__``) instead
-    # of REPLACING the bound ``stop`` method at instance level. The
-    # ``LifecycleMixin.stop`` implementation calls the hook FIRST (best-
-    # effort: exceptions logged at DEBUG, teardown continues) and then
-    # runs the original TCP teardown. Same ordering contract as the old
-    # instance-level ``stop`` wrapper, ``ws_graceful_shutdown`` runs
-    # BEFORE the TCP teardown: without mutating the class surface (a
-    # monkeypatched/instance-replaced ``stop`` created a hidden call
-    # chain invisible to the type checker).
-    # The hook is looked up DYNAMICALLY at call time by ``stop`` so tests
-    # that replace ``server.ws_graceful_shutdown`` post-install still
-    # observe the replacement; the hook closure itself only references
-    # the server object.
     def _stop_hook() -> None:
         try:
             # Dynamic lookup: see comment above.

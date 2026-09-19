@@ -42,37 +42,8 @@ from typing import Any
 log = logging.getLogger("voice_typer.server.config_sanitizer")
 
 
-# ``SECRET_CONFIG_FIELDS`` is now STRUCTURALLY DERIVED from
-# ``credential_store.PROVIDER_TO_CONFIG_FIELD.values()`` at import time
-# (not a hand-maintained frozenset). Previously the two lists were
-# maintained independently, if a contributor added a new provider to
-# ``PROVIDER_TO_CONFIG_FIELD`` (e.g. ``"mistral": "mistral_api_key"``)
-# but forgot to add the matching entry to ``SECRET_CONFIG_FIELDS``,
-# the sanitizer would echo the new API key in plaintext over the
 # loopback IPC socket (SEC-003 regression). The structural link makes
-# the invariant self-enforcing.
-#
-# The import is lazy (function-local) inside the ``_derive_secret_fields``
-# helper below to avoid a circular import at module load:
-# ``credential_store`` imports from ``voice_typer.server.config`` (which
-# re-exports from here) inside ``migrate_secrets_to_keyring``. Importing
-# ``credential_store`` at module top would pull in ``config`` → this
-# module → ``credential_store`` → ``config``. The function-local import
-# breaks the cycle (the import only fires when ``_derive_secret_fields()``
-# is called during this module's top-level execution, by which point
-# ``config``'s import is not yet in flight on this call stack).
-#
-# We compute it eagerly at import time so it's available as a module
-# attribute (and so import-time typos in ``PROVIDER_TO_CONFIG_FIELD``
-# surface immediately).
-#
-# FAIL-CLOSED: the helper does NOT fall back to a hardcoded literal
-# frozenset on import failure. A silent fallback to a stale 5-field
-# set would leave any newly added provider's API key un-redacted and
 # echoed in plaintext over IPC (SEC-003 regression). Instead the helper
-# logs ``CRITICAL`` and re-raises, the application refuses to start
-# with broken secret redaction, which is the intended fail-closed
-# behavior.
 def _derive_secret_fields() -> frozenset[str]:
     """Derive SECRET_CONFIG_FIELDS from credential_store (fail-closed).
 
@@ -100,11 +71,7 @@ def _derive_secret_fields() -> frozenset[str]:
 
         return frozenset(PROVIDER_TO_CONFIG_FIELD.values())
     except Exception as exc:
-        # Fail-closed: do NOT fall back to a hardcoded literal set.
-        # A silent fallback would mask a broken install / sandbox and
-        # could leave newly added provider API keys un-redacted over
         # IPC (SEC-003 regression). Re-raise so the breakage is loud
-        # and immediate at startup.
         log.critical(
             "[CONFIG-SANITIZER] Failed to import PROVIDER_TO_CONFIG_FIELD "
             "from credential_store, secret field redaction may be "
@@ -118,16 +85,8 @@ def _derive_secret_fields() -> frozenset[str]:
 SECRET_CONFIG_FIELDS: frozenset[str] = _derive_secret_fields()
 
 # underscore-prefixed alias kept for backward compat with
-# ``crash_recovery.py`` (which imports ``_SECRET_CONFIG_FIELDS`` for its
-# own config.json redaction path) and with
-# :mod:`voice_typer.server.ipc.history_bounds` (which re-exports it
-# under the underscore name). The two names refer to the SAME frozenset
-# object, alias, not a copy, so adding a field to one automatically
-# updates the other.
 _SECRET_CONFIG_FIELDS: frozenset[str] = SECRET_CONFIG_FIELDS
 
-# Sentinel returned in place of a secret value.  The renderer treats
-# this as "key is set, do not display", it must NOT treat this as the
 # actual key value (which would be a regression of SEC-003).
 REDACTED_SENTINEL = "<redacted>"
 
@@ -173,10 +132,6 @@ def _redact_load_warning(warning: object) -> str:
     """
     text = str(warning)
     # Truncate FIRST so a multi-megabyte ``custom_theme`` dict dump
-    # doesn't get passed through the regex redaction pipeline before
-    # being cut down. The truncation point is generous (200 chars
-    # covers any realistic single-line warning) and adds an ellipsis
-    # so the renderer can show "warning was truncated" UI feedback.
     if len(text) > 200:
         text = text[:200] + "…"
     try:
@@ -185,18 +140,8 @@ def _redact_load_warning(warning: object) -> str:
         text = redact_pii(text)
     except Exception:
         # If the redaction pipeline itself raises (e.g. a regex
-        # catastrophic backtracking on a pathological input, or the
-        # security module is partially imported in a test sandbox),
-        # fall back to the truncated text. NEVER raise from the
-        # sanitizer, that would prevent the entire config payload
-        # from reaching the renderer, which is strictly worse than
-        # shipping an under-redacted warning.
         log.debug("[CONFIG-SANITIZER] redact_pii on load warning failed", exc_info=True)
     # Belt-and-suspenders: also strip any home-directory prefix
-    # that slipped past ``redact_pii`` (which only handles PII
-    # patterns, not filesystem paths). ``_redact_home_path`` is a
-    # no-op when the path doesn't start with the configured home
-    # so innocuous enum strings pass through untouched.
     try:
         from voice_typer.server._secrets import _redact_home_path
 
@@ -253,51 +198,19 @@ def sanitize_config_for_ipc(config: Any) -> dict[str, Any]:
     malformed API key echoed back in an error message).
     """
     # ``dataclasses.asdict`` returns a deep-copied dict of ONLY
-    # the declared dataclass fields. ``ClassVar`` fields (e.g.
-    # ``_mutation_lock``) and plain instance attributes set in
-    # ``__post_init__`` (``_last_saved_bytes``) are EXCLUDED
-    # automatically, they're not in ``Config.__dataclass_fields__``.
-    # Regression guard
-    # (tests/test_config_sanitizer.py::TestNoTransientAttributesLeaked)
-    # pins this behavior for ``_last_saved_bytes`` and the
-    # ``_mutation_lock`` ClassVar: the sanitizer must NOT leak
-    # them to the IPC boundary, a same-user local process that
-    # calls ``get_config`` should not learn about prior config
-    # writes or schema-version migration details.
-    #
-    # ``last_load_warnings`` is the ONE deliberate exception. It's a
-    # plain instance attribute set in ``__post_init__`` + ``load()``,
-    # so ``dataclasses.asdict`` excludes it. We surface it (as a
-    # redacted list) so the renderer can act on warnings that arose
-    # during the just-completed load (display a "Config loaded with
-    # N warnings" toast, highlight the offending field, etc.). The
-    # raw values can embed field contents (e.g. an invalid
-    # ``asr_backend='invalid_backend'`` is included verbatim in the
-    # warning message), so each entry is run through
-    # :func:`_redact_load_warning` (truncate + PII/URL/secret
-    # redaction) before transmission.
     out: dict[str, Any] = dataclasses.asdict(config)
     for k in SECRET_CONFIG_FIELDS:
         if k in out:
             v = out[k]
             out[k] = REDACTED_SENTINEL if v else v
     # ``last_load_warnings`` is a list of strings (set in
-    # ``Config.load()`` and its sub-paths). Default to an empty
-    # list so the renderer can always rely on the key being
-    # present and iterable, even on a fresh ``Config()`` (where
-    # ``__post_init__`` initialises the attribute to ``None``).
     raw_warnings = getattr(config, "last_load_warnings", None) or []
     # Build a NEW list (not a slice) so the caller can't mutate
-    # the in-memory ``config`` instance's state via the returned
-    # dict's reference.
     out["last_load_warnings"] = [_redact_load_warning(w) for w in raw_warnings]
     return out
 
 
 # underscore-prefixed alias for backward compat with
-# :mod:`voice_typer.server.ipc.history_bounds` and any external importer
-# that already uses the underscore form. Same callable object, alias,
-# not a wrapper.
 _sanitize_config_for_ipc = sanitize_config_for_ipc
 
 

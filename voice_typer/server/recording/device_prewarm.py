@@ -44,15 +44,9 @@ from voice_typer.server._audio_constants import _AUDIO_BLOCKSIZE
 from voice_typer.server._lazy_import import lazy_module
 
 # PERF-COLDSTART-001: lazy import, sounddevice loads the PortAudio C
-# library at import time. The lazy proxy re-resolves ``sys.modules`` on
-# every attribute access, so test patches of the form
-# ``monkeypatch.setattr(recording.sd, "InputStream", fake)`` (which
-# mutate the real ``sounddevice`` module) propagate here automatically.
 sd = lazy_module("sounddevice")
 
 # All submodules use the package-level logger so log records propagate
-# to ``caplog.at_level(..., logger="voice_typer.server.recording")`` in
-# tests.
 log = logging.getLogger("voice_typer.server.recording")
 
 
@@ -83,19 +77,8 @@ class DevicePrewarm:
 
     def __init__(self, recorder: Any) -> None:
         # Collaborator back-reference. Typed ``Any`` to avoid a circular
-        # import (``recorder`` imports this module at module top to
-        # construct this class in ``RecorderInitMixin``).
         self._recorder = recorder
-        # Memoized channel count for the OS-DEFAULT input device
-        # (``device=None`` / ``config.microphone: null``, the
         # fresh-install majority per C-MIC-1). Keyed on the device-list
-        # cache's timestamp (a new device-list generation, TTL refresh
-        # or OS device-event invalidation, forces a re-resolve), so
-        # repeated default-path lookups cost zero PortAudio calls while
-        # the prewarmed device-list cache is warm. Benign-race
-        # semantics match the device-list cache itself (attribute
-        # assignments; concurrent callers may redundantly resolve and
-        # write the same value).
         self._default_channels_cache: int | None = None
         self._default_channels_stamp: float | None = None
 
@@ -136,10 +119,6 @@ class DevicePrewarm:
             except Exception:
                 log.debug("[RECORDING] device cache pre-warm failed", exc_info=True)
             # Warm the canonical enumeration's TTL cache as well: the
-            # start() path resolves the System Default through
-            # ``list_microphones`` (canonical WASAPI default), and a
-            # cold cache there would put a 50-200 ms PortAudio query on
-            # the hotkey critical path. Best-effort, same as above.
             try:
                 from voice_typer.server.server_platform.microphone_list import list_microphones
 
@@ -147,26 +126,12 @@ class DevicePrewarm:
             except Exception:
                 log.debug("[RECORDING] canonical mic-list pre-warm failed", exc_info=True)
             # Phase 2: briefly open + start + stop + close an InputStream
-            # against the configured mic. This is the actual "warm"
-            # operation, the device-list cache only avoids query RPCs,
-            # not the open/start cost. See ``prewarm_input_stream`` for
-            # the rationale and timeout guard.
-            #
-            # Hidden-start gate: an InputStream open lights the OS mic
-            # indicator while the user has not shown the app. Skip the
-            # stream-open phase; the first real dictation ``start()``
-            # warms PortAudio with its own stream open (recovered by the
-            # normal start() candidate loop if the cold open fails).
             if _started_hidden():
                 log.info(
                     "[RECORDING] Input stream prewarm skipped: app started hidden. PortAudio warms on first dictation",
                 )
                 return
             # Routed through ``recorder._prewarm_input_stream()`` (the
-            # documented Recorder delegator). NOT this collaborator's
-            # method directly, so the class-level test patch
-            # (``monkeypatch.setattr(Recorder, "_prewarm_input_stream", ...)``)
-            # keeps intercepting the prewarm probe.
             self._recorder._prewarm_input_stream()
 
         threading.Thread(
@@ -175,10 +140,6 @@ class DevicePrewarm:
             daemon=True,
         ).start()
         # the prewarm thread is intentionally NOT routed through
-        # ``recorder._spawn_device_thread`` because it's spawned from
-        # ``__init__`` (before ``_thread_registry`` could be wired by a
-        # caller) and is a one-shot best-effort daemon. The disconnect-path
-        # spawns ARE routed through the helper for registry + single-flight.
 
     def prewarm_input_stream(self, *, timeout_s: float = 2.0) -> None:
         """Briefly open + start + stop + close an InputStream to warm PortAudio.
@@ -227,20 +188,11 @@ class DevicePrewarm:
                     dtype="float32",
                     device=device,
                     # No callback, the stream is opened only to warm
-                    # PortAudio's device state and validate permissions.
-                    # Passing ``callback=None`` makes sounddevice use an
-                    # internal no-op callback (PortAudio still
-                    # initializes the stream + allocates buffers).
                     callback=None,
                     blocksize=_AUDIO_BLOCKSIZE,
                     latency="low",
                 )
-                # ``start()`` sits INSIDE the try so a start failure
-                # still reaches the finally's close(): if it raised
-                # outside, a constructor-opened-but-never-started
-                # stream handle would leak (the OS mic indicator stays
                 # lit, the C-BG-1 privacy concern, on the visible-
-                # launch prewarm path).
                 try:
                     prewarm_stream.start()
                     prewarm_stream.stop()
@@ -264,10 +216,7 @@ class DevicePrewarm:
             daemon=True,
         )
         worker.start()
-        # Bound the wait so a stuck device doesn't stall the prewarm
         # thread (which itself is a daemon, the wait is defensive
-        # against the rare case where the prewarm thread was joined
-        # by a caller that expected it to terminate quickly).
         if not result["done"].wait(timeout=timeout_s):
             log.info(
                 "[RECORDING] Input stream prewarm timed out after %.1fs "
@@ -312,8 +261,6 @@ class DevicePrewarm:
                     return int(info.get("max_input_channels", 1) or 1)
         except (KeyError, TypeError, ValueError, AttributeError, OSError):
             # PortAudio query failed, device dict shape drift, or
-            # ``_devices`` not yet initialized. Fall back to 1 channel
-            # (PortAudio's default).
             pass
         return 1
 
@@ -335,7 +282,6 @@ class DevicePrewarm:
             stamp = self._recorder._devices._device_list_cache_time
         except (KeyError, TypeError, ValueError, AttributeError, OSError):
             # Same failure envelope as the explicit-device path: fall
-            # back to 1 channel (PortAudio's default).
             return 1
         if stamp and self._default_channels_stamp == stamp and self._default_channels_cache is not None:
             return self._default_channels_cache
@@ -370,8 +316,6 @@ class DevicePrewarm:
                     break
         if count is None:
             # Cache miss (cold cache / hot-plug race) or a deformed
-            # device dict: use the resolved device dict's own count —
-            # no downgrade vs the pre-fix authoritative query.
             try:
                 count = int(default_info.get("max_input_channels", 1) or 1)
             except (AttributeError, TypeError, ValueError):

@@ -1,23 +1,4 @@
-"""Runtime pack downloader service. Phase 2b (plan-runtime-pack-split.md §4.5–4.9, §8).
-
-A SEPARATE consent-gated downloader for the ML **runtime pack**
-(worker exe + onnxruntime + ctranslate2 + engines).
-
-Package layout (each module owns one lifecycle; this ``__init__`` is a
-pure re-export surface so every historical import path keeps working):
-
-* :mod:`.core` — schema, constants, paths, manifest validation,
-  integrity verification, macOS signing.
-* :mod:`.gates` — disk space / consent / SSRF / proxy pre-download gates.
-* :mod:`.lock` — dual-instance pack lock (§8.13).
-* :mod:`.install` — extract → verify → atomic swap (§8.3).
-* :mod:`.download` — HTTP download with resume (§8.1, §8.7, §8.9).
-* :mod:`.checksum` — background checksum (§8.16).
-* :mod:`.events` — IPC event family + best-effort publish.
-
-See the original module docstring history in git for the full §8 edge-case
-catalogue and the platform path table.
-"""
+"""Runtime pack downloader service. Phase 2b (plan-runtime-pack-split.md §4.5–4.9, §8)."""
 
 from __future__ import annotations
 

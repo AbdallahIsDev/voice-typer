@@ -1,8 +1,4 @@
-"""Microphone watcher. Windows WM_DEVICECHANGE implementation.
-
-Provides :class:`_WindowsMixin` (mixed into ``MicrophoneDeviceWatcher``)
-with the hidden-window ``GetMessageW`` pump and ``WM_QUIT`` posting.
-"""
+"""Microphone watcher. Windows WM_DEVICECHANGE implementation."""
 
 from __future__ import annotations
 
@@ -15,10 +11,6 @@ log = logging.getLogger(__name__)
 class _WindowsMixin:
     if TYPE_CHECKING:
         # Method provided by ``_core.py`` in the composed
-        # ``MicrophoneDeviceWatcher`` MRO; a TYPE_CHECKING-only stub
-        # keeps this mixin type-checkable standalone without shadowing
-        # the real implementation at runtime (same pattern as
-        # model_manager's ``ChangeMixin`` sibling-method stubs).
         def _invoke_callback(self) -> None: ...
 
     def _run_windows(self) -> None:

@@ -56,12 +56,7 @@ from typing import Any
 __all__ = ["log_rate_limited", "reset"]
 
 
-# ── Module-level state ────────────────────────────────────────────────
 # A single dict + lock is simpler and faster than per-logger state.  The
-# dict is bounded in practice because the keys are (logger_name, msg)
-# pairs and there are only a handful of distinct rate-limited call sites;
-# if a future caller uses an unbounded set of dynamic messages it should
-# pass an explicit ``key=`` to bucket them.
 
 _RATE_LIMIT_LOCK = threading.Lock()
 """Guards all access to :data:`_RATE_LIMIT_COUNTS` and the summary-state
@@ -209,22 +204,8 @@ def log_rate_limited(
         count = _RATE_LIMIT_COUNTS.get(counter_key, 0) + 1
         _RATE_LIMIT_COUNTS[counter_key] = count
         # mark this key as most-recently-used so the LRU
-        # eviction policy evicts the LEAST-recently-used key when the
-        # dict hits the cap.  ``OrderedDict.__setitem__`` does NOT move
-        # an existing key to the end automatically, so this explicit
-        # call is what makes the LRU semantics work.
         _RATE_LIMIT_COUNTS.move_to_end(counter_key)
         # cap the dict size.  Eviction signals caller misuse
-        # (dynamic messages without an explicit ``key=``); we count
-        # the evictions here and log a WARNING after releasing the
-        # lock so the I/O doesn't block other callers.
-        # the two  summary dicts are keyed by the same
-        # ``counter_key`` tuple, prune their entries for the evicted
-        # key here too, otherwise a caller that drives >1024 distinct
-        # dynamic messages would leak summary state forever (the
-        # summary dicts were never bounded).  ``popitem(last=False)``
-        # returns the (key, value) pair so we can clean up the
-        # correlated dicts in O(1) per eviction.
         evicted_count = 0
         while len(_RATE_LIMIT_COUNTS) > _MAX_COUNTERS:
             evicted_key, _ = _RATE_LIMIT_COUNTS.popitem(last=False)
@@ -242,59 +223,18 @@ def log_rate_limited(
         )
 
     # ``every_n <= 0`` means "never log on the Nth" (only the 1st logs
-    # at the configured level).  ``every_n == 1`` means every call is an
-    # Nth, so every call logs at *level* (no rate-limiting).  The
-    # ``every_n >= 1`` guard also short-circuits the modulo, avoiding a
-    # ZeroDivisionError when ``every_n == 0``.
     should_log_at_level = count == 1 or (every_n >= 1 and count % every_n == 0)
     if should_log_at_level:
         logger.log(level, msg, *args, exc_info=exc_info, **kwargs)
         return
 
     # Suppressed occurrence: log at DEBUG without exc_info.  :
-    # the previous implementation did ``rendered = msg % args`` eagerly
-    # before the ``logger.debug`` call, defeating the lazy-formatting
-    # guarantee that ``logging`` provides (the framework only renders
-    # the format string when the level is enabled).  On hot paths where
-    # DEBUG is disabled (the default), the eager ``msg % args`` was
-    # pure waste, at high suppression counts (audio worker at ~16 Hz,
-    # ~960/min) it showed up as measurable CPU.  We now build a single
-    # format string and pass ``*args, count`` as positional %-format
-    # args.  The logging framework defers the actual ``%`` substitution
-    # until it has confirmed DEBUG is enabled, so the cost is zero when
-    # DEBUG is off.
-    #
-    # Two branches preserve the pre-fix behaviour for callers that pass
-    # a literal ``%`` in *msg* without any *args* (e.g. ``"100% done"``):
-    # the no-args path uses ``"%s (suppressed occurrence %d)"`` with
-    # *msg* as a literal ``%s`` substitution, so a literal ``%`` in
-    # *msg* is NOT re-interpreted as a format spec.  The with-args
-    # path concatenates *msg* with the suffix and relies on *msg*
-    # already being a valid format string (the pre-fix ``msg % args``
-    # required the same).
     if args:
         logger.debug(msg + " (suppressed occurrence %d)", *args, count)
     else:
         logger.debug("%s (suppressed occurrence %d)", msg, count)
 
     # periodic INFO summary so chronic suppressed-occurrence
-    # conditions surface at INFO level (the file-handler default), not
-    # just at DEBUG (which is only visible when VOICE_TYPER_DEBUG=1).
-    # Tracked per ``counter_key`` so each error class gets its own
-    # summary cadence.  The first suppressed occurrence seeds the
-    # deadline (``_RATE_LIMIT_NEXT_SUMMARY_DEADLINE`` is set to
-    # ``now + 60s``); once ``now >= next_summary_deadline`` AND at
-    # least one occurrence has fired since the last summary, emit an
-    # INFO line through the module logger and reset the per-key delta.
-    #
-    # the deadline advances by ``_SUMMARY_INTERVAL_SECONDS`` from
-    # the PREVIOUS deadline on each fire (NOT reset to ``now + 60s``).
-    # This anchors the cadence to a fixed 60s grid rooted at the seed
-    # time, so a fire at ``t=61`` (deadline was 60) advances the next
-    # deadline to ``t=120`` (not ``t=121``).  Without this, a slow
-    # caller that only checks in once per minute would have its deadline
-    # drift forward by up to a minute per fire, eventually skipping
-    # windows entirely.
     now = time.monotonic()
     summary_delta = 0
     summary_key: str | None = None
@@ -304,34 +244,16 @@ def log_rate_limited(
         next_deadline = _RATE_LIMIT_NEXT_SUMMARY_DEADLINE.get(counter_key)
         if next_deadline is None:
             # Seed the timer on the first suppressed occurrence so the
-            # first 60-second window starts ticking from now.
             _RATE_LIMIT_NEXT_SUMMARY_DEADLINE[counter_key] = now + _SUMMARY_INTERVAL_SECONDS
         elif now >= next_deadline and delta > 0:
             summary_delta = delta
             summary_key = counter_key[1]
             # Advance the deadline by 60s from the PREVIOUS deadline
-            # (NOT ``now + 60s``) so the cadence stays anchored to the
-            # original seed-time grid and doesn't drift.
             _RATE_LIMIT_NEXT_SUMMARY_DEADLINE[counter_key] = next_deadline + _SUMMARY_INTERVAL_SECONDS
             _RATE_LIMIT_SUPPRESSED_SINCE_SUMMARY[counter_key] = 0
 
     if summary_key is not None:
         # Log outside the lock to avoid holding it during I/O.  Route
-        # through the module logger so the summary is always visible
-        # regardless of the caller's logger level.  Use %s (not %r) so
-        # the summary_key is not repr()'d into inner quotes -- makes the
-        # line grep-friendly.
-        #
-        # the summary severity tracks the caller's configured
-        # ``level`` (clamped to >= INFO so the summary always surfaces
-        # at the file handler's default level).  Pre- the summary
-        # was hardcoded at INFO, so an ERROR-rate-limited path that
-        # fired 1000x in 60s surfaced an INFO summary -- losing the
-        # severity signal that operators' alerting rules key on
-        # (``level>=ERROR``).  ``max(logging.INFO, level)`` preserves
-        # the historical INFO baseline for callers that rate-limit
-        # DEBUG/INFO messages while escalating the summary to the
-        # caller's severity for WARNING/ERROR/CRITICAL paths.
         summary_level = max(logging.INFO, level)
         _log.log(
             summary_level,

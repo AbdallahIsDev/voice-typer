@@ -1,5 +1,4 @@
 # extracted from the original
-# ``voice_typer/server/ipc_server.py`` god-module (Phase 4.5 split).
 """Shared IPC payload validation + error-envelope helpers.
 
 validates an IPC ``data`` argument against a declarative
@@ -55,43 +54,12 @@ optional rules that the previous inline checks in live handlers
 """
 
 # ``TypedDict`` is needed for the schema + error-envelope type
-# contracts declared below. Imported at module load (not under
-# ``TYPE_CHECKING``) so the TypedDicts are real runtime classes that
-# introspection tests can reference.
 import json
 from collections.abc import Callable as _Callable
 from typing import TypedDict
 
 
 # canonical namespaced error-code registry.
-#
-# Every ``code`` field stamped on an IPC error envelope SHOULD come
-# from this set. The registry is the single source of truth so the
-# renderer's ``usePython.ts`` switch statement can be generated /
-# audited against it (see ``tests/test_error_codes_registry.py`` for
-# the contract test that asserts every emitted ``"code": "..."``
-# literal in the server tree is either registered here or is a
-# documented legacy alias).
-#
-# Naming convention:
-# - ``client.*``: the request was malformed / invalid / unauthorized.
-#   The renderer can fix the request and retry (e.g. highlight the
-#   invalid field, prompt the user for the missing value).
-# - ``server.*``: the server could not process a well-formed request.
-#   The renderer surfaces a generic "something went wrong" message and
-#   logs the detail for support.
-#
-# Legacy non-namespaced aliases (``internal_error``, ``shutting_down``,
-# ``unknown_command``, ``unknown_tray_item``, ``auth_failed``,
-# ``rate_limited``, ``invalid_payload``, ``invalid_field``,
-# ``missing_field``, ``model_switch_failed``, ``payload_too_large``)
-# are still registered in :class:`LegacyErrorCodes` (and the
-# :data:`LEGACY_ERROR_CODES` frozenset) so the contract test can audit
-# which bare-form codes the wire may still carry (e.g. from the Rust
-# host's pre-dispatch rejection paths). The previous per-envelope
-# ``legacy_code`` field was REMOVED once the renderer migrated fully
-# to the namespaced ``code`` form (``rg "legacy_code"
-# voice_typer/client/src/`` returns zero hits).
 class ErrorCodes:
     """Namespaced IPC error code constants (single source of truth).
 
@@ -108,23 +76,12 @@ class ErrorCodes:
     INVALID_PAYLOAD = "client.invalid_payload"
     PAYLOAD_TOO_LARGE = "client.payload_too_large"
     # ``duplicate_entry`` is emitted by ``save_vocabulary`` when the
-    # incoming data would create a duplicate vocabulary correction
-    # (same wrong phrase, case-insensitive) that does not already
-    # exist in the current state. Client-originated: the user can fix
-    # the entry (or the imported file) and retry. The renderer
-    # surfaces the localized "This correction already exists" message
-    # instead of a generic save failure.
     DUPLICATE_ENTRY = "client.duplicate_entry"
     RATE_LIMITED = "client.rate_limited"
     PATH_NOT_ALLOWED = "client.path_not_allowed"
     NOT_FOUND = "client.not_found"
     AUTH_FAILED = "client.auth_failed"
     # Structured consent error, the renderer surfaces a consent
-    # dialog (deep-linked to the exact toggle in Settings via the
-    # structured ``engine_name`` / ``consent_field`` fields)
-    # instead of a generic error toast. Emitted by
-    # ``handlers/_base.py`` when a cloud/LLM engine requires
-    # biometric-data consent that the user has not yet granted.
     CONSENT_REQUIRED = "client.consent_required"
     # Server-originated errors (5xx analog).
     INTERNAL_ERROR = "server.internal_error"
@@ -136,38 +93,14 @@ class ErrorCodes:
     UNKNOWN_TRAY_ITEM = "server.unknown_tray_item"
     SERVER_NOT_FOUND = "server.not_found"
     # ``max_connections_reached`` is emitted by ``sidecar_ws.py`` when
-    # a new client attempts to connect after the per-process
-    # connection cap has been hit (so the server has to reject
-    # rather than risk resource exhaustion). The renderer surfaces
-    # this as a transient "server busy" toast with a 5 s retry.
     MAX_CONNECTIONS_REACHED = "server.max_connections_reached"
     # ``duplicate_connection`` is emitted by ``sidecar_ws.py`` when
-    # an existing client (matched by IP+token) attempts a second
-    # concurrent connection, the new one is rejected, the existing
-    # one is preserved, and the renderer logs a diagnostic.
     DUPLICATE_CONNECTION = "server.duplicate_connection"
     # ``not_initialized`` is the namespaced form of the
-    # legacy un-prefixed ``not_initialized`` code (used by handlers that
-    # need to signal "this subsystem is not yet ready", e.g.
-    # vocabulary_automation). Mirrors the legacy alias for backward
-    # compat while bringing it under the namespaced registry.
     NOT_INITIALIZED = "server.not_initialized"
     # structured consent-required envelope emitted by the
-    # IPC dispatcher when a ``ConsentRequiredError`` is raised by
-    # a cloud/LLM handler. Distinct from ``client.consent_required``
-    # above (which is emitted by ``handlers/_base.py``); this form
-    # is the dispatcher-level wrapper around the typed exception
-    # and carries ``provider`` + ``scope`` fields so the renderer
-    # can deep-link to the exact Settings toggle.
     SERVER_CONSENT_REQUIRED = "server.consent_required"
     # Typed cloud/LLM exception hierarchy, distinct codes for
-    # each cloud error category so the renderer can distinguish
-    # "API key invalid" (user must re-enter) from "rate limited"
-    # (backoff) from "transient network" (auto-retry) from "missing
-    # config" (open Settings). See ``voice_typer/server/asr_errors.py``
-    # for the typed exception classes and
-    # ``voice_typer/server/handlers/_base.py`` for the isinstance
-    # mapping.
     CLOUD_AUTH_FAILED = "server.cloud_auth_failed"
     CLOUD_RATE_LIMITED = "server.cloud_rate_limited"
     CLOUD_SERVER_ERROR = "server.cloud_server_error"
@@ -175,25 +108,9 @@ class ErrorCodes:
     CLOUD_CONFIG_ERROR = "server.cloud_config_error"
     CLOUD_ENGINE_ERROR = "server.cloud_engine_error"
     # recording-pipeline exception hierarchy, distinct codes
-    # for resample failures (audio cannot be converted to the target
-    # sample rate) and resample-unavailable (scipy not installed). See
-    # ``voice_typer/server/recording/exceptions.py`` for the typed
-    # exception classes and ``voice_typer/server/handlers/_base.py``
-    # for the isinstance mapping. The renderer surfaces a targeted
-    # "audio pipeline misconfiguration" / "install scipy for better
-    # audio quality" message instead of the generic
-    # ``server.internal_error`` toast.
     RECORDING_RESAMPLE_FAILED = "server.recording_resample_failed"
     RECORDING_RESAMPLE_UNAVAILABLE = "server.recording_resample_unavailable"
     # IPC wire-protocol version negotiation. Emitted by the TCP auth
-    # handshake in the sidecar-WS path when an
-    # inbound auth frame carries an explicit ``protocol_version`` that
-    # does not match the server's :data:`IPC_PROTOCOL_VERSION`. The
-    # check runs BEFORE the token check so a stale client gets a
-    # structured rejection (with both client and server version numbers
-    # in the payload) instead of an opaque ``auth_failed``. See the
-    # protocol_version module for the full versioning
-    # contract.
     PROTOCOL_VERSION_MISMATCH = "server.protocol_version_mismatch"
 
 
@@ -222,29 +139,9 @@ class LegacyErrorCodes:
     HANDLER_ERROR = "handler_error"
     NOT_INITIALIZED = "not_initialized"
     # Rust-host-only dispatch-cap codes emitted by the Tauri
-    # `#[tauri::command]` layer in `src-tauri/src/commands/sidecar_cmds/`
-    # (allowlist.rs `PENDING_FULL_CODE` / dispatch.rs `"data_too_large"`)
-    # BEFORE the dispatch reaches the Python sidecar. Listed here so
-    # `ALL_ERROR_CODES` (the "every code the wire may carry" union) and
-    # the renderer's TS `ErrorCodes` parity stay in lockstep.
     PENDING_FULL = "pending_full"
     DATA_TOO_LARGE = "data_too_large"
     # Rust-host-only codes: emitted by the Tauri `#[tauri::command]`
-    # layer in `src-tauri/src/commands/sidecar_cmds.rs` (and the
-    # `require_main_window` guard in `commands/mod.rs`) BEFORE the
-    # dispatch reaches the Python sidecar. The Python server NEVER
-    # emits these, they live in `LEGACY_ERROR_CODES` (not the
-    # namespaced `ERROR_CODES` registry) because they are wire-format
-    # codes the renderer must recognise, not codes the Python side
-    # produces. The canonical Rust string constants
-    # `DISALLOWED_COMMAND_CODE` / `DISALLOWED_WINDOW_CODE` mirror these
-    # values; the cross-layer parity guard in
-    # `tests/test_error_codes_registry.py::TestTsErrorCodesParity`
-    # asserts both codes are present in the renderer's TS
-    # `ErrorCodes` union so the error-envelope switch can branch on
-    # them. Keeping the values here (rather than only in Rust) lets
-    # `ALL_ERROR_CODES` be the single source of truth for "every code
-    # the wire may carry".
     DISALLOWED_COMMAND = "disallowed_command"
     DISALLOWED_WINDOW = "disallowed_window"
     SIDECAR_DISCONNECTED = "sidecar_disconnected"
@@ -261,31 +158,15 @@ def _class_str_values(cls: type) -> frozenset[str]:
 
 
 # namespaced error codes, the canonical form for new emitters.
-# Derived from :class:`ErrorCodes` so the class is the single source of
-# truth. This registry is the single source of truth for the renderer's
-# ``ErrorCodes`` union (see
-# ``voice_typer/client/src/renderer/src/types/ipc.ts``) and for the
-# contract test in ``tests/test_error_codes_registry.py``.
 ERROR_CODES: frozenset[str] = _class_str_values(ErrorCodes)
 
 # legacy non-namespaced aliases still emitted by some paths for
-# backward compat (TCP ``shutting_down``, dispatcher ``internal_error``,
-# handler ``handler_error``, etc.). New emitters MUST use the namespaced
-# form above. Derived from :class:`LegacyErrorCodes`.
 LEGACY_ERROR_CODES: frozenset[str] = _class_str_values(LegacyErrorCodes)
 
 # convenience union for validation / contract tests. Every
-# ``code`` value emitted on the wire MUST be in this set (the contract
-# test asserts this). Use ``ALL_ERROR_CODES`` for membership checks;
-# prefer ``ERROR_CODES`` for new emitters.
 ALL_ERROR_CODES: frozenset[str] = ERROR_CODES | LEGACY_ERROR_CODES
 
 # Maximum serialized payload size for a single IPC response, derived from
-# the transport-layer frame caps (``_TCP_MAX_OUTBOUND_BYTES`` in
-# ``ipc/sender.py`` and ``_MAX_FRAME_BYTES`` in ``sidecar_ws.py``, both
-# 1 MiB).  The 64 KiB headroom below the 1 MiB cap covers the response
-# envelope (``type``/``data``/``id`` JSON framing) so the serialized
-# data payload stays comfortably under the transport-layer limit.
 MAX_EXPORT_PAYLOAD_BYTES: int = 1 * 1024 * 1024 - 64 * 1024
 
 
@@ -323,13 +204,6 @@ def _enforce_payload_size_cap(
 
 
 # Typed schema for the declarative validation rule dict consumed
-# by :func:`_validate_dict_payload`. ``total=False`` because every rule
-# key is optional except ``type`` (and even ``type`` may be omitted in
-# the rare case where a field is being declared only for ``default`` /
-# ``clamp_range`` / ``max_value_len`` purposes). The loose ``object``
-# value types preserve the prior ``Any``-style flexibility, call
-# sites build these dicts inline at every handler, and tightening the
-# value types further would require touching all 12+ schemas.
 
 
 class FieldRule(TypedDict, total=False):
@@ -348,66 +222,16 @@ class FieldRule(TypedDict, total=False):
     clamp_range: tuple[int | float, int | float]
     max_payload_bytes: int
     # when ``True`` (the implicit default for backwards
-    # compat), an explicit ``None`` value for this field is treated
-    # the same as an ABSENT field, the ``default`` rule fires and
-    # the field is populated with ``rules["default"]``. Pre-
-    # a present ``None`` failed the ``type`` check (assuming the
-    # declared type didn't include ``type(None)``), forcing callers
-    # to pre-coerce ``None`` to the default with 8 lines of inline
-    # code (historical example: the retained Rust-mirror
-    # ``_handle_show_notification``). Set
-    # ``none_to_default=False`` to restore the strict pre-
-    # behavior (only ABSENT fields get the default).
     none_to_default: bool
     # opt-in bool rejection. When ``True``, a value that is a
-    # ``bool`` instance is rejected with an ``invalid_field`` error
-    # EVEN IF ``bool`` would otherwise pass the ``type`` check via
-    # the int-subclass loophole (``isinstance(True, int)`` is
-    # ``True`` in Python because ``bool`` subclasses ``int``).
-    # Without this rule, a schema declaring ``type: (int, str)``
-    # silently accepts ``{"limit": true}`` and the value is later
-    # coerced to ``1`` by ``int(True)``: a type confusion that
-    # masks a caller bug (the renderer probably meant to send an
-    # integer but sent a boolean toggle state by mistake).
-    #
-    # The rule is opt-in (default ``False``) for backward compat:
-    # the 8+ already-validated handlers intentionally rely on the
-    # bool-as-int subclass loophole (see the
-    # ``test_bool_limit_accepted_due_to_int_subclass`` contract
-    # pin in ``tests/handlers/test_ipc_validation_coverage.py``).
-    # Flipping the default would be a behavior change for those
-    # handlers; instead, schemas that want strict bool rejection
-    # (e.g. numeric pagination fields where a bool is never
-    # meaningful) set ``reject_bool=True`` explicitly. The rule
-    # is a no-op when ``bool`` is itself in the declared
-    # ``type`` tuple (e.g. ``type: (bool, int)``), in that case
-    # the schema explicitly accepts bools and the rule would
-    # contradict the schema's intent.
     reject_bool: bool
 
 
 # A schema is a mapping from field name to its rule dict. Used as
-# the second parameter to :func:`_validate_dict_payload`.
 Schema = dict[str, FieldRule]
 
 
-# ── Per-schema max_payload_bytes cache ────────────────────────────────
-#
 # The whole-payload size cap (``max_payload_bytes``) can be declared
-# per-field in a schema. When the top-level keyword argument is not
-# supplied, the helper scans every field rule and uses the MINIMUM
-# declared cap (most restrictive). That scan was previously O(n) per
-# call and ran on every IPC message, a wasted re-scan for schemas
-# that are typically module-level constants (stable across calls).
-#
-# The cache below memoizes the scan result keyed by ``id(schema)`` +
-# a lightweight fingerprint (field count + sorted field names). The
-# fingerprint guards against ``id`` reuse: if a schema dict is
-# garbage-collected and a different schema reuses its ``id``, the
-# fingerprint mismatch forces a recompute instead of returning a
-# stale cap. The cache is bounded by FIFO eviction so per-call inline
-# schemas (which get a fresh ``id`` each call) cannot grow it without
-# limit.
 _MAX_PAYLOAD_BYTES_CACHE_MAX = 1024
 _MAX_PAYLOAD_BYTES_CACHE: dict[int, tuple[tuple[int, tuple[str, ...]], int | None]] = {}
 _MAX_PAYLOAD_BYTES_CACHE_SEEN: set[int] = set()
@@ -442,16 +266,6 @@ def _schema_effective_max_payload_bytes(schema: Schema) -> int | None:
 
 
 # Typed contract for the IPC error envelope. The TS side has a
-# matching ``ErrorEvent`` interface (``ipc.ts:119-152``); these
-# TypedDicts are the Python-side mirror so the ad-hoc dict literals
-# constructed at the 6+ emitter sites have a documented shape.
-#
-# ``ErrorData`` is ``total=False`` because emitters selectively
-# include only the keys relevant to the specific error code (e.g.
-# ``field`` is only present for ``invalid_field`` / ``missing_field``;
-# ``command`` is only present for ``unknown_command``). The previous
-# ``legacy_code`` key was removed once the renderer migrated to the
-# namespaced ``code`` form.
 class ErrorData(TypedDict, total=False):
     code: str
     message: str
@@ -575,40 +389,15 @@ def _validate_dict_payload(
             "type": "error",
             "data": {
                 # emit the namespaced ``client.invalid_payload``
-                # as the primary ``code``. The renderer has migrated
-                # fully to the namespaced form (``rg "legacy_code"
-                # voice_typer/client/src/`` returns zero hits), so
-                # the per-envelope ``legacy_code`` alias was removed.
-                # reference the constant on ``ErrorCodes``
-                # (single source of truth) instead of a bare string
-                # literal, so a typo surfaces at import time and the
-                # contract test stays in sync with emitters.
                 "code": ErrorCodes.INVALID_PAYLOAD,
                 "message": "data must be an object",
             },
         }
 
     # + : ``max_payload_bytes`` is a whole-payload rule.
-    # The top-level keyword argument takes precedence (the recommended
-    # way for new schemas); if not provided, scan ALL fields for the
-    # per-field ``max_payload_bytes`` rule and use the MINIMUM value
-    # (most restrictive). The previous implementation iterated
-    # schema.items() and BROKE after the first field that declared
-    # the rule, a second field's value was silently ignored, and
-    # the effective cap depended on dict iteration order (insertion
-    # order in py3.7+). The minimum-across-all-fields approach is
-    # backward-compatible (single-field schemas behave identically)
-    # AND removes the fragility. The cap is checked ONCE before the
-    # per-field loop, exactly as before.
     effective_max_bytes = max_payload_bytes
     if effective_max_bytes is None:
         # Scan all field rules for a per-field ``max_payload_bytes``
-        # cap and use the MINIMUM (most restrictive) declared value.
-        # Previously the helper broke after the first field that
-        # declared the rule, silently ignoring any subsequent field's
-        # value. The scan is now memoized per schema object (see
-        # ``_schema_effective_max_payload_bytes``) so repeated calls
-        # with the same schema skip the ``schema.values()`` walk.
         effective_max_bytes = _schema_effective_max_payload_bytes(schema)
     if effective_max_bytes is not None:
         payload_size = len(json.dumps(data))
@@ -618,7 +407,6 @@ def _validate_dict_payload(
                 "type": "error",
                 "data": {
                     # namespaced form (canonical).
-                    # use ErrorCodes constant.
                     "code": ErrorCodes.INVALID_PAYLOAD,
                     "message": (f"payload too large ({payload_size} bytes; max {effective_max_bytes})"),
                 },
@@ -629,30 +417,12 @@ def _validate_dict_payload(
         if field_name in data:
             value = data[field_name]
             # if the field is explicitly ``None`` AND the
-            # rule opts in (``none_to_default`` defaults to True for
-            # backward compat with the renderer's pre-coercion
-            # behavior) AND a ``default`` is declared, treat ``None``
-            # as ABSENT and substitute the default. This removes the
-            # 8-line pre-coercion workaround historically needed by
-            # handlers such as the retained Rust-mirror
-            # ``_handle_show_notification`` (which manually
-            # converted ``{"title": null}`` to ``{"title": APP_NAME}``
-            # before calling this helper). Opt out per-field with
-            # ``none_to_default=False`` for the rare case where
-            # ``None`` is a meaningful value (e.g. nullable foreign
-            # keys).
             if value is None and rules.get("none_to_default", True) and "default" in rules:
                 validated[field_name] = rules["default"]
                 continue
             expected_type = rules.get("type")
             if expected_type is not None and not isinstance(value, expected_type):
                 # format the expected-type name for the error
-                # message.  ``expected_type`` may be a single type
-                # (``str``) or a tuple of types (``(str, type(None))``)
-                # , the latter is the standard ``isinstance`` idiom for
-                # "any of these types".  A tuple has no ``__name__``,
-                # so format the names of all the allowed types and
-                # join them with ``|`` (e.g. ``"str|NoneType"``).
                 if isinstance(expected_type, tuple):
                     expected_name = "|".join(t.__name__ for t in expected_type)
                 else:
@@ -662,34 +432,20 @@ def _validate_dict_payload(
                     "type": "error",
                     "data": {
                         # namespaced form (canonical).
-                        # use ErrorCodes constant.
                         "code": ErrorCodes.INVALID_FIELD,
                         "field": field_name,
                         "message": f"'{field_name}' must be of type {expected_name}, got {type(value).__name__}",
                     },
                 }
             # opt-in bool rejection. ``bool`` subclasses
-            # ``int`` in Python, so ``isinstance(True, (int, str))`` is
-            # ``True``: a schema declaring ``type: (int, str)``
-            # silently accepts ``{"limit": true}`` and the value is
-            # later coerced to ``1`` by ``int(True)``. This is a type
-            # confusion that masks a caller bug. Schemas that want
-            # strict bool rejection set ``reject_bool=True``; the rule
-            # is a no-op when ``bool`` is itself in the declared
-            # ``type`` tuple (e.g. ``type: (bool, int)``) because in
-            # that case the schema explicitly accepts bools.
             if (
                 rules.get("reject_bool", False)
                 and isinstance(value, bool)
                 # if ``bool`` is in the declared type tuple, the
-                # schema explicitly accepts bools, skip the rejection
-                # (the rule would contradict the schema's intent).
                 and not (isinstance(expected_type, tuple) and bool in expected_type)
                 and expected_type is not bool
             ):
                 # format the expected-type name for the error
-                # message (same idiom as the isinstance check
-                # above).
                 if isinstance(expected_type, tuple):
                     expected_name = "|".join(t.__name__ for t in expected_type)
                 elif expected_type is None:
@@ -701,7 +457,6 @@ def _validate_dict_payload(
                     "type": "error",
                     "data": {
                         # namespaced form (canonical).
-                        # use ErrorCodes constant.
                         "code": ErrorCodes.INVALID_FIELD,
                         "field": field_name,
                         "message": (
@@ -712,8 +467,6 @@ def _validate_dict_payload(
                     },
                 }
             # per-value length cap. Only applies to string
-            # values; non-string values pass through (the type check
-            # above already rejected wrong-type values).
             max_value_len = rules.get("max_value_len")
             if max_value_len is not None and isinstance(value, str) and len(value) > max_value_len:
                 return None, {
@@ -721,15 +474,12 @@ def _validate_dict_payload(
                     "type": "error",
                     "data": {
                         # namespaced form (canonical).
-                        # use ErrorCodes constant.
                         "code": ErrorCodes.INVALID_FIELD,
                         "field": field_name,
                         "message": (f"'{field_name}' value too long ({len(value)} > {max_value_len})"),
                     },
                 }
             # clamp_range. Coerce numeric values into [lo, hi].
-            # Booleans are a subclass of int, skip them so
-            # ``critical: True`` isn't accidentally coerced to 1.
             clamp_range = rules.get("clamp_range")
             if clamp_range is not None and isinstance(value, int | float) and not isinstance(value, bool):
                 lo, hi = clamp_range
@@ -741,7 +491,6 @@ def _validate_dict_payload(
                 "type": "error",
                 "data": {
                     # namespaced form (canonical).
-                    # use ErrorCodes constant.
                     "code": ErrorCodes.MISSING_FIELD,
                     "field": field_name,
                     "message": f"Missing required field '{field_name}'",
@@ -806,8 +555,6 @@ __all__ = [
     "LEGACY_ERROR_CODES",
     "ALL_ERROR_CODES",
     # Single-source-of-truth code constants (). Emitters should
-    # reference these (e.g. ``ErrorCodes.INVALID_PAYLOAD``) instead of
-    # bare string literals so typos surface at import time.
     "ErrorCodes",
     "LegacyErrorCodes",
     # Typed contract exports.
@@ -821,31 +568,13 @@ __all__ = [
 ]
 
 # canonical home for the ResponseEnvelope type alias and
-# CommandHandler callable alias. Previously these lived in
-# ipc_server.py (lines ~135 and ~138); moved here so handler modules
-# and tests can import them from the validation module without
-# triggering a circular import (ipc_server.py imports from this module).
-# ipc_server.py now imports these from here (re-export).
-# ``ResponseEnvelope`` is the canonical shape of every IPC frame pushed
-# or dispatched: a dict with at least ``type`` (str) and optional
-# ``data``, ``id``.
 ResponseEnvelope = dict[str, object]
 
 # ``CommandHandler`` is the signature every ``_handle_*`` method follows:
-# ``(data, resp) -> resp | None``.
 CommandHandler = _Callable[[object | None, ResponseEnvelope], ResponseEnvelope | None]
 del _Callable
 
 # previously a SECOND top-level ``__all__ = [...]`` literal
-# appeared here, which SILENTLY REPLACED the first ``__all__`` (the one
-# above that lists ``_validate_dict_payload`` / ``ErrorCodes`` / etc.).
-# Any consumer that did ``from voice_typer.server.ipc.validation import *``
-# only got ``CommandHandler`` + ``ResponseEnvelope``, every other
-# public name (the validation helper, the error-code registry, the
-# TypedDicts) was silently dropped from the star-import surface, and
-# ``"_validate_dict_payload" in validation.__all__`` returned ``False``.
-# Use ``+=`` so the  /  additions are APPENDED to the existing
-# export list rather than replacing it.
 __all__ += [
     "CommandHandler",
     "ResponseEnvelope",

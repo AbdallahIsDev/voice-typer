@@ -1,12 +1,4 @@
-"""Core ASR backend registry, typed contracts + backend CRUD + load fallback.
-
-Composes :class:`~voice_typer.server.asr.circuit_breaker.CircuitBreaker`
-(failure counters + disabled-set + subscribers) and
-:class:`~voice_typer.server.asr.busy_flag.BusyFlag` (per-backend busy flag)
-on the shared ``self._lock`` so registry + breaker + busy operations are
-mutually atomic; the :class:`~voice_typer.server.asr_registry.AsrBackendRegistry`
-subclass adds the backward-compat wrappers + state-exposing properties.
-"""
+"""ASR engine registry helpers."""
 
 from __future__ import annotations
 
@@ -29,23 +21,12 @@ log = logging.getLogger(__name__)
 ProgressCallback = Callable[[str], None]
 
 # Hard ceiling for a single model-load call. The documented window is
-# 5-50s; 120s is a deadline so a hung GPU/disk load cannot block the
-# calling thread forever.
 MODEL_LOAD_TIMEOUT_SECONDS = 120
 
 
 @runtime_checkable
 class AsrBackend(Protocol):
-    """Structural contract for an ASR backend registered with the registry.
-
-    A ``Protocol`` (not an ABC) so the four real backends do NOT need a common
-    base class; ``@runtime_checkable`` so tests can ``isinstance``-check. This
-    is a STATIC type-check contract: ``register``/``get`` accept any object at
-    runtime and the pipeline guards optional members (``request_abort`` /
-    ``clear_abort``) with ``hasattr`` (see ``dictation_pipeline/orchestrator.py``
-    + ``transcribe_step.py``). It documents which members the registry and IPC
-    layer rely on, and makes pyrefly flag a backend that forgets one.
-    """
+    """layer rely on, and makes pyrefly flag a backend that forgets one."""
 
     is_loaded: bool
 
@@ -76,20 +57,13 @@ class AsrBackend(Protocol):
         ...
 
     def transcribe_with_fallback(self, audio: np.ndarray, *args: object, **kwargs: object) -> str:
-        """Transcribe ``audio`` (float PCM samples) to text (possibly empty).
-        All four concrete engines accept ``np.ndarray``, ``bytes`` was a
-        Protocol bug that would type-check but crash at runtime."""
+        """Transcribe ``audio`` (float PCM samples) to text (possibly empty)."""
         ...
 
 
 @runtime_checkable
 class ConfigProtocol(Protocol):
-    """Structural contract for the Config object passed to the registry.
-
-    ``disabled_backends`` is declared here AND on the real ``Config`` dataclass;
-    :meth:`RegistryCore.__init__` still falls back to ``getattr(config,
-    "disabled_backends", None)`` so legacy configs without the field keep working.
-    """
+    """Structural contract for the Config object passed to the registry."""
 
     asr_backend: str
     model_size: str
@@ -102,29 +76,15 @@ class ConfigProtocol(Protocol):
 
 
 class RegistryCore:
-    """Core ASR backend registry, backend CRUD + load/fallback orchestration.
-
-    ``_backends`` is guarded by ``self._lock`` (a reentrant lock); the
-    CRUD + fallback methods hold it only around dict ops —
-    ``backend.load(...)`` runs OUTSIDE the lock so a slow GPU/disk load
-    doesn't block readers. Composes :class:`CircuitBreaker` +
-    :class:`BusyFlag` (both on ``self._lock``); the facade subclass
-    :class:`~voice_typer.server.asr_registry.AsrBackendRegistry` supplies
-    the backward-compat wrappers (``_record_success`` etc.) via MRO, and
-    ``patch.object(registry, "_record_success")`` patches the instance
-    attribute so call sites honour the patch.
-    """
+    """Core ASR backend registry, backend CRUD + load/fallback orchestration."""
 
     def __init__(self, config: ConfigProtocol) -> None:
         self._config: ConfigProtocol = config
         self._backends: dict[str, AsrBackend] = {}
         self._lock = threading.RLock()
         # Compose the circuit breaker + busy flag with the shared lock
-        # so registry + breaker + busy operations are mutually atomic.
         self._breaker = CircuitBreaker(config, self._lock)
         self._busy = BusyFlag(self._lock, lambda: self.active_name)
-
-    # ── backend CRUD ────────────────────────────────────────────────
 
     def register(self, name: str, backend: AsrBackend) -> None:
         """Register a backend by name (e.g. 'whisper', 'qwen', 'parakeet')."""
@@ -153,10 +113,7 @@ class RegistryCore:
         return getattr(backend, "is_loaded", True)
 
     def get_active(self) -> AsrBackend | None:
-        """Return the ready configured backend, else whisper, else None
-        fail-loud when only unloaded remains (one-shot notification +
-        event still fire, latch resets on recovery).
-        """
+        """Return the ready configured backend, else whisper, else None"""
         name = getattr(self._config, "asr_backend", "whisper")
         notify_last_resort = False
         try:
@@ -177,8 +134,6 @@ class RegistryCore:
                     if b is not None:
                         if not self._is_ready(b):
                             # Fail-loud: None so callers take not-ready
-                            # path (toggle reloads, pipeline raises).
-                            # Latch: WARNING once, DEBUG repeats.
                             first = self._breaker.should_notify_last_resort()
                             if first:
                                 notify_last_resort = True
@@ -198,15 +153,10 @@ class RegistryCore:
             return None
         finally:
             # Fire subscribers OUTSIDE the lock so a subscriber callback
-            # can safely re-enter the registry without deadlock.
             if notify_last_resort:
                 self._breaker.fire_last_resort_subscribers(name)
 
-    # ── load orchestration ──────────────────────────────────────────
-    #
     # ``load_active`` lives on the facade (patched via
-    # ``patch("voice_typer.server.asr_registry.log")``); the fallback
-    # methods below stay here.
 
     def _load_with_timeout(
         self,
@@ -214,13 +164,7 @@ class RegistryCore:
         label: str,
         progress_callback: ProgressCallback,
     ) -> AsrBackend | None:
-        """Run ``backend.load`` under the ``MODEL_LOAD_TIMEOUT_SECONDS``
-        deadline. Returns the backend on success, or None on TIMEOUT
-        after a best-effort unload (RACE: the abandoned daemon worker
-        may still be loading, the unload is best-effort only). A
-        timeout is a transient stall, not a permanent failure, so the
-        circuit breaker is never tripped here (a retry may succeed).
-        """
+        """Run ``backend.load`` under the ``MODEL_LOAD_TIMEOUT_SECONDS``"""
         result = _run_with_timeout(
             f"{label}.load",
             lambda: backend.load(progress_callback=progress_callback),
@@ -241,17 +185,7 @@ class RegistryCore:
         return None
 
     def load_with_fallback(self, progress_callback: ProgressCallback | None = None) -> AsrBackend | None:
-        """Load the configured backend; on failure, fall back to whisper.
-
-        ``backend.load()`` runs OUTSIDE the lock (5-50s, bounded by the
-        hard timeout above) so a slow load doesn't block readers; on
-        failure the backend's ``unload()`` releases partial resources.
-        Each PRIMARY load failure increments the circuit-breaker
-        counter (reset on success); after ``_MAX_CONSECUTIVE_FAILURES``
-        the primary is disabled and we go straight to whisper. The
-        failed primary stays registered (F-09) so later calls retry it
-        and can trip the breaker.
-        """
+        """Load the configured backend; on failure, fall back to whisper."""
         _cb = progress_callback or (lambda msg: None)
         name = self.active_name
 
@@ -273,11 +207,6 @@ class RegistryCore:
                     # TIMEOUT, helper already unloaded; fall through.
                 except (ModelNotDownloadedError, ModelIntegrityError) as exc:
                     # Not a transient failure, the user hasn't downloaded
-                    # the model (or integrity check failed); the app never
-                    # downloads automatically. No circuit-breaker record
-                    # (a retry won't help) and NO whisper fallback (it
-                    # would hide the missing download). Re-raise so the
-                    # caller can surface the "open Models and download" UI.
                     log.warning(
                         "[ASR_REGISTRY] %s backend refused to load: %s, "
                         "model not downloaded / integrity check failed. "
@@ -304,8 +233,6 @@ class RegistryCore:
                             name,
                         )
                     # F-09: do NOT unregister. Keep it in _backends so
-                    # subsequent calls retry (and increment the failure
-                    # counter toward the disable threshold).
 
         # If the primary IS whisper and it failed, no separate fallback.
         if name == "whisper":
@@ -316,12 +243,6 @@ class RegistryCore:
             whisper = self._backends.get("whisper")
         if whisper is None:
             # Cold boot with a non-whisper primary, construct whisper
-            # with the configured model size (the user's chosen model,
-            # or empty if none was selected). The old hardcoded "tiny"
-            # fallback was removed because the tiny model is being
-            # phased out; the caller's ``fallback_to_whisper`` (ModelManager)
-            # will find the first actually-installed model if this
-            # fails.
             fallback_size = getattr(self._config, "model_size", "")
             log.info(
                 "[ASR_REGISTRY] whisper backend not registered, constructing with "
@@ -345,15 +266,12 @@ class RegistryCore:
                 if self._load_with_timeout(whisper, "whisper fallback", _cb) is not None:
                     log.info("[ASR_REGISTRY] loaded fallback backend: whisper")
                     # Do NOT call _record_success("whisper"), whisper is
-                    # a FALLBACK; but DO clear the last-resort latch so a
-                    # future fall-through re-notifies.
                     self._breaker.clear_last_resort_notified()
                     return whisper
                 # TIMEOUT, helper already unloaded; fall through.
             except Exception:
                 log.exception("[ASR_REGISTRY] whisper fallback also failed")
                 # Do NOT call _record_failure("whisper"), the breaker
-                # tracks the user's configured backend, not the fallback.
                 try:
                     whisper.unload()
                     log.info("[ASR_REGISTRY] unloaded failed fallback backend: whisper")
@@ -371,19 +289,7 @@ class RegistryCore:
         name: str | None = None,
         **kwargs: object,
     ) -> str:
-        """Wrap the backend's ``transcribe_with_fallback`` with the busy flag.
-
-        Callers SHOULD use this entry point (not
-        ``active.transcribe_with_fallback(...)``) so the per-backend
-        busy flag is set/cleared atomically, ``ModelManager`` can then
-        reject new dictation while the active backend is stuck in a
-        C-level ctranslate2 call. The ``name`` keyword selects the
-        backend (default: the active one); all other args/kwargs are
-        forwarded unchanged. Returns the transcript (possibly empty); if
-        the named backend is not registered, logs a warning and returns
-        "" (fail-loud at the selection layer: ``get_active`` returns
-        None when no loaded backend remains).
-        """
+        """Wrap the backend's ``transcribe_with_fallback`` with the busy flag."""
         target = name if name is not None else self.active_name
         with self._lock:
             backend = self._backends.get(target) if target else None

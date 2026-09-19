@@ -1,9 +1,4 @@
-"""Audio quality analysis: clipping, low volume, high noise detection.
-
-Analyzes audio during and after recording to detect quality issues
-that would degrade transcription accuracy. Produces warnings that
-can be shown as notifications or in the microphone diagnostics screen.
-"""
+"""Audio quality analysis: clipping, low volume, high noise detection."""
 
 from __future__ import annotations
 
@@ -12,16 +7,6 @@ import math
 from dataclasses import dataclass, field
 
 # (PERF-COLDSTART-001): numpy is ~250-335ms cumulative on cold start
-# and is only touched on the first audio chunk (>=1s after dictation
-# begins). Defer the real import to first attribute access via the same
-# ``lazy_module`` proxy already used for ``sounddevice`` and ``pystray``.
-# The proxy re-resolves ``sys.modules`` on every access, so production
-# ``np.array(...)`` calls and test ``monkeypatch.setattr(np, "array", ...)``
-# both work unchanged. ``from __future__ import annotations`` above is
-# REQUIRED so the ``np.ndarray`` annotations below stay as unevaluated
-# strings (PEP 563); otherwise the module-level def of ``analyze_chunk``
-# would resolve ``np.ndarray`` via the proxy and trigger the eager import
-# we are trying to avoid.
 from voice_typer.server._audio_constants import AUDIO_CLIPPING_THRESHOLD, AUDIO_LOW_VOLUME_RMS
 from voice_typer.server._lazy_import import lazy_module
 
@@ -30,8 +15,6 @@ np = lazy_module("numpy")
 log = logging.getLogger(__name__)
 
 # Block size (elements) for the float64 sum-of-squares
-# accumulation in ``analyze_full_audio``: bounds the transient fp64
-# scratch buffer to ~8 MB regardless of recording length.
 _SUMSQ_BLOCK_ELEMENTS = 1 << 20
 
 
@@ -76,41 +59,22 @@ class AudioQualityAnalyzer:
     HIGH_NOISE_THRESHOLD = 0.5  # Noise ratio above this = too noisy
 
     # EMA smoothing factor for the per-chunk RMS accumulator.
-    # 0.05 = ~20-chunk effective window (at 16 Hz chunk rate that's ~1.25s
-    # of audio), long enough to suppress transient dips (e.g. a single
-    # quiet consonant), short enough to surface a sustained low-input
-    # condition within ~3s.
     RMS_EMA_ALPHA: float = 0.05
 
     # number of consecutive chunks with EMA below
-    # LOW_VOLUME_THRESHOLD before the "low input level" warning fires.
-    # At 16 Hz chunk rate, 50 chunks ≈ 3.1s of sustained low input.
     LOW_VOLUME_SUSTAINED_CHUNKS: int = 50
 
     def __init__(self):
         self._clip_count: int = 0
         self._peak: float = 0.0
         # 17-C-: _rms_values was a write-only list, appended to on
-        # every audio chunk (via app.py:_on_audio_quality_chunk) but never
-        # read by any production code or test. analyze_full_audio()
-        # recomputes RMS from the full audio array. Removed to eliminate
-        # ~1-3 MB of wasted memory per 20-min recording + ~112K unnecessary
-        # list.append() calls on the audio hot path.
         self._chunk_count: int = 0
 
         # per-chunk RMS exponential moving average. The live
-        # quality callback (AudioQualityController._on_audio_quality_chunk)
-        # already receives a precomputed ``rms`` value from
-        # AudioProcessor._run_quality_check, previously that value was
-        # dropped on the floor (only ``peak`` was used for clipping
-        # detection). The EMA surfaces sustained low-input-level
-        # conditions without recomputing RMS from the raw chunk.
         self._rms_ema: float = 0.0
         # Counter of consecutive chunks where EMA < LOW_VOLUME_THRESHOLD.
-        # Reset to 0 on recovery (EMA rises back above threshold).
         self._low_volume_chunks: int = 0
         # Latch: once the warning fires for an episode, suppress repeats
-        # until EMA recovers. Avoids log spam during a long quiet passage.
         self._low_volume_warned: bool = False
 
     def reset(self) -> None:
@@ -119,37 +83,12 @@ class AudioQualityAnalyzer:
         self._peak = 0.0
         self._chunk_count = 0
         # reset the RMS EMA + low-volume tracking so a new
-        # recording session starts with a clean slate.
         self._rms_ema = 0.0
         self._low_volume_chunks = 0
         self._low_volume_warned = False
 
     def update_live_rms(self, rms: float) -> str | None:
-        """Feed a per-chunk RMS value into the EMA accumulator.
-
-        called from the live quality callback
-                (:meth:`AudioQualityController._on_audio_quality_chunk`) which
-                already has ``rms`` computed by
-                :meth:`AudioProcessor._run_quality_check`: avoids recomputing
-                RMS from the raw chunk on the PortAudio audio thread.
-
-                Updates ``self._rms_ema`` (exponential moving average,
-                ``alpha = RMS_EMA_ALPHA``) and tracks consecutive chunks where
-                the EMA is below :attr:`LOW_VOLUME_THRESHOLD`. Once
-                :attr:`LOW_VOLUME_SUSTAINED_CHUNKS` is reached, returns a single
-                warning string (and latches so subsequent chunks in the same
-                low-volume episode don't re-fire).
-
-                Args:
-                    rms: per-chunk RMS amplitude (linear, 0.0–1.0).
-
-                Returns:
-                    Warning string if a new low-volume episode crossed the
-                    sustained threshold, else ``None``. Callers (the controller)
-                    log the warning at WARNING level, does NOT raise a tray
-                    notification (the post-recording report handles user-facing
-                    warnings via :meth:`analyze_full_audio`).
-        """
+        """Feed a per-chunk RMS value into the EMA accumulator."""
         # EMA update: alpha * new + (1 - alpha) * prev.
         self._rms_ema = self.RMS_EMA_ALPHA * float(rms) + (1.0 - self.RMS_EMA_ALPHA) * self._rms_ema
         if self._rms_ema < self.LOW_VOLUME_THRESHOLD:
@@ -159,34 +98,13 @@ class AudioQualityAnalyzer:
                 return "low input level, increase mic gain"
         else:
             # Recovery: reset the counter and unlatch the warning so a
-            # future low-volume episode can fire again.
             self._low_volume_chunks = 0
             self._low_volume_warned = False
         return None
 
     def analyze_chunk(self, chunk: np.ndarray) -> str | None:
-        """Analyze a single audio chunk during recording.
-
-        RETAINED FOR TESTS / DIAGNOSTICS ONLY. Production code
-                (the live per-chunk callback in
-                :class:`AudioQualityController`) does NOT call this method --
-                it mirrors the accumulator logic inline (cheaper, no numpy work
-                since the AudioProcessor already computed `(rms, peak)`). This
-                method is preserved so unit tests and external diagnostics can
-                exercise the per-chunk peak/clipping accumulator in isolation,
-                and so the historical API contract is honoured. Do NOT add new
-                production callers -- prefer :meth:`update_live_rms` (EMA
-                path) or :meth:`analyze_full_audio` (post-recording report).
-
-                Returns a warning string if an immediate issue is detected,
-                or None if everything is fine.
-        """
+        """Analyze a single audio chunk during recording."""
         # REC-3: dead no-op expression removed. The previous line
-        # ``float(np.sqrt(np.mean(np.square(chunk), dtype=np.float64)))``
-        # computed an RMS value but never assigned it to anything, the
-        # result was discarded, wasting CPU on every chunk (~16 Hz) for
-        # no effect. ``analyze_full_audio`` is the path that actually
-        # computes RMS for the quality report.
         peak = float(np.max(np.abs(chunk)))
 
         self._chunk_count += 1
@@ -207,11 +125,6 @@ class AudioQualityAnalyzer:
         """Analyze the complete audio after recording stops.
 
         Returns a comprehensive quality report with all detected issues.
-
-        Uses the same allocation-free reduction style as
-        ``AudioProcessor._run_quality_check``: ``ravel()`` view +
-        ``max``/``min`` peak (no ``np.abs`` copy) + ``np.dot``
-        sum-of-squares (no ``np.square`` copy).
         """
         report = AudioQualityReport()
 
@@ -221,15 +134,6 @@ class AudioQualityAnalyzer:
 
         flat = audio.ravel()
         # Keep float64 accumulation like the previous
-        # ``dtype=np.float64`` formulas without allocating a full-length
-        # float64 copy of the recording. ``mean(dtype=np.float64)``
-        # reduces into a scalar directly; the sum of squares is
-        # accumulated over ~1M-element blocks so the transient fp64
-        # buffer stays bounded (~8 MB) even for hour-long recordings.
-        # Plain fp32 ``np.dot(flat, flat)`` (the hot-path idiom) was NOT
-        # good enough here: variance = E[x²] − mean² cancels large terms,
-        # and fp32 sdot drifts ~2e-4 relative at 3M samples, enough to
-        # wobble the noise_ratio threshold.
         size = int(flat.size)
         mean = float(flat.mean(dtype=np.float64))
         sumsq = 0.0
@@ -238,8 +142,6 @@ class AudioQualityAnalyzer:
             sumsq += float(np.dot(block, block))
         rms = math.sqrt(max(sumsq / size, 0.0))
         # Peak without the np.abs temporary: max(max, −min) is the same
-        # value for any array containing both signs, and for all-one-sign
-        # arrays too.
         peak = max(float(flat.max()), -float(flat.min()))
 
         # Check clipping
@@ -259,9 +161,6 @@ class AudioQualityAnalyzer:
             report.warnings.append(f"Low volume: RMS={rms:.6f}. Increase microphone gain or move closer to mic.")
 
         # Check high noise (using variance as noise indicator)
-        # High noise = high variance relative to RMS (signal is noisy, not clean speech)
-        # The clamp guards the tiny negative value fp rounding can produce
-        # for a near-constant signal (mathematically variance >= 0).
         variance = max(sumsq / size - mean * mean, 0.0)
         if rms > 0:
             noise_ratio = variance / (rms * rms)
@@ -298,13 +197,7 @@ class AudioQualityAnalyzer:
 
     @property
     def rms_ema(self) -> float:
-        """exponential moving average of per-chunk RMS.
-
-        Read-only accessor so callers (tests, diagnostics UI, log
-        scrapers) can observe the smoothed RMS without recomputing it.
-        Updated by :meth:`update_live_rms` from the live quality
-        callback.
-        """
+        """exponential moving average of per-chunk RMS."""
         return self._rms_ema
 
     @property

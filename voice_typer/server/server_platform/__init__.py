@@ -1,96 +1,8 @@
-"""Platform-specific adapters: autostart, microphone listing, volume backend.
-
-Phase 4.5 / : this file was previously a 1,264-line god-module
-(``voice_typer/server/server_platform.py``); it has been split into a
-package with one module per concern:
-
-- :func:`is_remote_session` (PLAT-RDP), :mod:`.remote_session`
-- :func:`_is_non_mic_device` (microphone filter), :mod:`.remote_session`
-- :func:`_sd_dev_as_dict` / :func:`list_microphones` /
-  :func:`find_microphone_by_name` / :func:`find_microphone_by_id`
-  (microphone listing), :mod:`.microphone_list`
-- :func:`get_volume_backend` (platform volume backend factory) —
-  :mod:`.volume_factory`
-- :func:`_desktop_quote` / :func:`_autostart_command` /
-  :func:`get_autostart_dir` / :func:`enable_autostart` /
-  :func:`disable_autostart` / :func:`is_autostart_enabled` /
-  :func:`_install_hash_suffix` (cross-platform autostart facade) —
-  :mod:`.autostart`
-- :func:`_enable_autostart_windows` / :func:`_disable_autostart_windows`
-  / :func:`_is_autostart_windows` / :func:`_app_autostart_command_and_args`
-  / :func:`_build_app_autostart_task_xml` /
-  :func:`_register_app_autostart_task` /
-  :func:`_unregister_app_autostart_task` /
-  :func:`_is_app_autostart_task_registered` / :func:`_run_key_name` /
-  :func:`_register_app_autostart_runkey` /
-  :func:`_unregister_app_autostart_runkey` /
-  :func:`_is_app_autostart_runkey_registered` (Windows Task Scheduler
-  + HKCU Run key), :mod:`.autostart_windows`
-- :func:`_enable_autostart_macos` / :func:`_disable_autostart_macos` /
-  :func:`_os_uid` / :func:`_is_autostart_macos` (macOS LaunchAgent) —
-  :mod:`.autostart_macos`
-- :func:`_enable_autostart_linux` / :func:`_disable_autostart_linux` /
-  :func:`_is_autostart_linux` (Linux ``.desktop`` entry) —
-  :mod:`.autostart_linux`
-- :func:`_generate_icon_ico` / :func:`_universal_launcher_path` /
-  :func:`_start_menu_programs_dir` / :func:`_ps_single_quote` /
-  :func:`_build_powershell_lnk_script` / :func:`_create_lnk_shortcut` /
-  :func:`create_launcher_shortcut` (Windows desktop shortcut) —
-  :mod:`.desktop_shortcut`
-- :func:`is_windows` / :func:`is_macos` / :func:`is_linux`
-  (backwards-compat shim re-exported from :mod:`.platform_flags`,
-  which itself re-exports from :mod:`voice_typer.server.platform_utils`)
-
-This ``__init__.py`` re-exports every public name that the original
-module exposed so existing imports of the form
-``from voice_typer.server.server_platform import X`` keep working
-without modification.
-
-Canonical test-patch contract
------------------------------
-Tests patch the OWNING submodule's attribute; production code resolves
-names through module-object attribute reads (or plain module-global
-lookups for names defined in the calling module itself) at call time:
-
-- A submodule calls names defined IN ITSELF directly (``X()``), a
-  module-global lookup, patchable via
-  ``monkeypatch.setattr(<submodule>, "X", ...)``.
-- For names owned by a SIBLING submodule, the caller binds that module
-  once at import time (e.g. ``from . import autostart as _autostart_mod``
-  in :mod:`.autostart_windows`) and reads ``_autostart_mod.X()`` at call
-  time, so patches on the owning submodule propagate.
-- This package re-exports every public name so existing imports of the
-  form ``from voice_typer.server.server_platform import X`` keep working
-  without modification.
-
-The stdlib modules ``sys`` / ``os`` / ``subprocess`` / ``Path`` /
-``contextlib`` / ``Any`` are imported (and re-exported) at the top of
-this ``__init__.py`` so that tests using
-``monkeypatch.setattr("voice_typer.server.server_platform.sys.executable", ...)``
-or ``monkeypatch.setattr("voice_typer.server.server_platform.subprocess.run", ...)``
-resolve the dotted path to the real stdlib module and the patch
-propagates to all callers (every submodule imports the same stdlib
-module object).
-
-``inspect.getsource`` compatibility
------------------------------------
-- Function-level checks like ``inspect.getsource(enable_autostart)``
-  continue to work because every function is genuinely defined in its
-  respective submodule (its ``__module__`` is
-  ``voice_typer.server.server_platform.<submodule>``).
-- Module-level checks like ``inspect.getsource(server_platform)`` read
-  this ``__init__.py``'s source; source-string checks that pin the
-  autostart task-name f-string read :mod:`.autostart` instead (the
-  constant lives there).
-"""
+"""Platform-specific adapters: autostart, microphone listing, volume backend."""
 
 from __future__ import annotations
 
-# ─── Top-of-module imports ──────────────────────────────────────────────
 # These are re-exported so that tests using
-# ``monkeypatch.setattr("voice_typer.server.server_platform.sys.X", ...)``
-# / ``.subprocess.X`` / ``.Path.X`` resolve the dotted path to the real
-# stdlib module / class and the patch propagates to all callers.
 import contextlib  # noqa: F401
 import logging
 import os  # noqa: F401
@@ -107,12 +19,7 @@ if TYPE_CHECKING:  # pragma: no cover - type-checker-only
 
 log = logging.getLogger(__name__)
 
-# ─── Public API re-exports ──────────────────────────────────────────────
 # Each name below is genuinely defined in a sibling submodule.  We import
-# it here so ``from voice_typer.server.server_platform import X`` keeps
-# working.  Submodules resolve cross-module names through the OWNING
-# submodule's module object at call time, so test patches on the owning
-# submodule take effect.
 from .autostart import (  # noqa: E402
     _autostart_command,
     _desktop_quote,
@@ -255,8 +162,6 @@ __all__ = [
     "is_macos",
     "is_linux",
     # module-level constants / proxies (re-exported so test patches of
-    # ``voice_typer.server.server_platform.sys.X`` etc. resolve to the
-    # real stdlib module objects).
     "SYSTEM",
     "log",
     "APP_NAME",

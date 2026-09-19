@@ -15,12 +15,6 @@ from .base import HotkeyBackend, log
 
 
 #  patch-target: tests do ``patch("voice_typer.server.hotkeys.is_macos")``
-# (and is_windows / is_linux).  For the patch to take effect on calls
-# made from *this* submodule, the bare ``is_macos()`` references must
-# resolve to the package-level binding (which is what the patch
-# replaces).  We therefore expose them as thin wrappers that delegate
-# to the package's binding at call time, rather than capturing the
-# function object at import time.
 def is_macos() -> bool:
     return _hotkeys_pkg.is_macos()
 
@@ -53,66 +47,32 @@ class PynputHotkey(HotkeyBackend):
     """
 
     # watchdog poll interval. 30s is short enough that a dead
-    # listener is caught within a user-noticeable window, but long
-    # enough that the watchdog itself adds negligible CPU (one
-    # ``is_alive()`` check per 30s = ~0.0001% CPU).
     _WATCHDOG_POLL_INTERVAL_SECONDS: float = 30.0
 
     # max consecutive restart failures before surfacing a tray
-    # notification. 5 attempts × 30s = ~2.5min of retrying before the
-    # user is told to restart, long enough to ride out transient X
-    # server restarts / window manager reloads, short enough that the
-    # user isn't left hanging if pynput is genuinely broken.
     _WATCHDOG_MAX_FAILURES: int = 5
 
     def __init__(self, hotkey_str: str):
         super().__init__(hotkey_str)
         self._listener = None
         # initialize the fallback flag here so that ``diagnose()``
-        # and other accessors don't raise ``AttributeError`` if a caller
-        # inspects the backend before ``_start_fallback()`` has run (which
-        # is the normal path when ``GlobalHotKeys`` succeeds). The value
-        # is flipped to True inside ``_start_fallback()`` exactly as
-        # before, so the runtime semantics are unchanged.
         self._fallback: bool = False
         # the redundant redeclarations of
-        # ``self._on_release_callback`` and ``self._toggle_on_keyup``
-        # that used to live here have been deleted —
-        # ``super().__init__(hotkey_str)`` already initializes both
-        # (see ``HotkeyBackend.__init__`` in base.py). The previous
-        # redeclarations were no-ops that could mask a future base-class
-        # refactor.
-        # the callback passed to ``start()`` is stored so the
-        # watchdog can restart the listener with the SAME callback
-        # (preserving the dictation/ESC/repaste wiring). Without this,
-        # a restart would create a new listener with no callback →
-        # the hotkey fires but nothing happens.
         self._user_callback: Callable[[], None] | None = None
         # the watchdog thread. Daemon so it doesn't block
-        # process exit. Created in ``start()``, joined in ``stop()``.
         self._watchdog_thread: threading.Thread | None = None
         # stop event for the watchdog. Set in ``stop()`` so the
-        # watchdog exits its poll loop promptly.
         self._watchdog_stop_event = threading.Event()
         # consecutive restart-failure counter. Reset to 0 on a
-        # successful restart. When it reaches ``_WATCHDOG_MAX_FAILURES``,
-        # the watchdog surfaces a tray notification and stops retrying
-        # (the user must restart Voice Typer manually).
         self._watchdog_failure_count: int = 0
 
     def start(self, callback: Callable[[], None]) -> None:
         # store the callback so the watchdog can restart the
-        # listener with the same callback. Set BEFORE ``_start_listener``
-        # so a fast watchdog tick (unlikely but possible) sees it.
         self._user_callback = callback
         self._watchdog_stop_event.clear()
         self._watchdog_failure_count = 0
         self._start_listener(callback)
         # arm the watchdog AFTER the initial start so we don't
-        # double-start the listener (the watchdog's first poll is 30s
-        # out, by which point the initial start has either succeeded
-        # or the listener is already dead and the watchdog will catch
-        # it on the first poll).
         self._start_watchdog()
 
     def _start_listener(self, callback: Callable[[], None]) -> bool:
@@ -129,10 +89,6 @@ class PynputHotkey(HotkeyBackend):
         it so the watchdog can re-invoke it.
         """
         # On Linux/macOS, use pynput's event-driven Listener
-        # instead of polling. The Listener receives key events from the
-        # OS, so it uses zero CPU while idle and has zero latency.
-        # On Windows, the WindowsNativeHotkey backend is preferred (uses
-        # GetAsyncKeyState in a tight 1ms-polling loop).
         from pynput.keyboard import GlobalHotKeys, Key, KeyCode, Listener
 
         log.info("Registering hotkey via pynput: %r -> callback", self.hotkey_str)
@@ -141,9 +97,6 @@ class PynputHotkey(HotkeyBackend):
             self._listener = GlobalHotKeys({self.hotkey_str: callback})
             self._listener.start()
             # was 0.5s, the listener thread reaches
-            # "alive" state within a few ms. 50ms is enough on the
-            # slowest machines. With 3 hotkeys (toggle, PTT, repaste)
-            # this saves ~1.4s of startup time.
             time.sleep(0.05)
             alive = self._listener.is_alive()
             log.info(
@@ -160,8 +113,6 @@ class PynputHotkey(HotkeyBackend):
             log.exception("[HOTKEY] GlobalHotKeys failed; trying fallback Listener")
 
             # On macOS, pynput failure usually means the
-            # Accessibility permission is missing. Show a user-friendly
-            # guide so the user knows how to fix it.
             if is_macos():
                 log.warning(
                     f"[HOTKEY] macOS: pynput keyboard listener failed. "
@@ -215,10 +166,6 @@ class PynputHotkey(HotkeyBackend):
         """
         while not self._watchdog_stop_event.is_set():
             # Sleep in small increments so stop() can interrupt promptly.
-            # Cap each increment at 0.5s so a long poll interval (30s)
-            # doesn't make stop() wait the full 30s, but ALSO respect
-            # short intervals (tests use 0.02s) so the poll fires on
-            # schedule.
             deadline = time.monotonic() + self._WATCHDOG_POLL_INTERVAL_SECONDS
             while time.monotonic() < deadline:
                 remaining = max(0.0, deadline - time.monotonic())
@@ -228,8 +175,6 @@ class PynputHotkey(HotkeyBackend):
                 if self._watchdog_stop_event.wait(timeout=wait_for):
                     return
             # Poll the listener. ``self._listener`` may be None if
-            # the initial start failed AND the fallback failed, in
-            # that case the watchdog attempts a restart on each tick.
             listener = self._listener
             alive = listener is not None and bool(_safe_is_alive(listener))
             if alive:
@@ -245,7 +190,6 @@ class PynputHotkey(HotkeyBackend):
             callback = self._user_callback
             if callback is None:
                 # No callback yet. Start() hasn't been called or
-                # completed. Skip this tick; the next one will retry.
                 continue
             log.warning(
                 "[HOTKEY] pynput listener died (alive=%s), attempting restart (attempt %d/%d)",
@@ -254,7 +198,6 @@ class PynputHotkey(HotkeyBackend):
                 self._WATCHDOG_MAX_FAILURES,
             )
             # Stop the (possibly half-dead) listener before restarting
-            # so we don't leak threads.
             self._stop_listener()
             ok = self._start_listener(callback)
             if ok and _safe_is_alive(self._listener):
@@ -270,8 +213,6 @@ class PynputHotkey(HotkeyBackend):
                 if self._watchdog_failure_count >= self._WATCHDOG_MAX_FAILURES:
                     self._surface_watchdog_failure_notification()
                     # Stop retrying, the user must restart manually.
-                    # The watchdog thread exits; ``is_alive()`` will
-                    # return False until the user restarts Voice Typer.
                     return
 
     def _surface_watchdog_failure_notification(self) -> None:
@@ -284,14 +225,11 @@ class PynputHotkey(HotkeyBackend):
         if tray is not None:
             with contextlib.suppress(Exception):
                 # ``notify_safety`` bypasses the user's notification
-                # toggle (this is a safety-critical message, the
-                # hotkey is dead and the user needs to know).
                 notify_safety = getattr(tray, "notify_safety", None)
                 if callable(notify_safety):
                     notify_safety(APP_NAME, message)
                 else:
                     # Fall back to ``notify`` if ``notify_safety``
-                    # isn't available (older tray implementations).
                     notify = getattr(tray, "notify", None)
                     if callable(notify):
                         notify(APP_NAME, message)
@@ -305,24 +243,14 @@ class PynputHotkey(HotkeyBackend):
             raise RuntimeError(f"Cannot parse hotkey {self.hotkey_str!r} for fallback")
 
         # for composite hotkeys (tuple), extract BOTH the
-        # modifier keys and the target key.  Previously the fallback
-        # listener only matched on the target key, ignoring modifiers —
-        # so ``<ctrl>+<f2>`` would fire on bare ``<f2>``.  We now track
-        # which modifier keys are currently held (via the pynput
-        # on_press/on_release events) and require ALL of them to be held
-        # before firing the callback.
         if isinstance(target, tuple):
             modifier_keys, match_key = target
         else:
             modifier_keys, match_key = (), target
 
         # Track currently-held modifier keys so we can check the full
-        # composite state before firing.
         held_modifiers = set()
         # track whether the matched key is currently held down
-        # so we can fire the on_release callback exactly once per
-        # press-release cycle (pynput fires repeated on_press events
-        # while a key is held).
         held = {"value": False}
 
         def on_press(key):
@@ -336,8 +264,6 @@ class PynputHotkey(HotkeyBackend):
                 if not held["value"]:
                     held["value"] = True
                     # Push-to-talk starts recording on press; toggle mode
-                    # with toggle_on_keyup defers to release. Otherwise
-                    # (legacy toggle, e.g. repaste) fire on press.
                     if self._on_release_callback is not None:
                         log.info(
                             "[HOTKEY FALLBACK] Matched key: %s (PTT press)",
@@ -346,7 +272,6 @@ class PynputHotkey(HotkeyBackend):
                         callback()
                     elif getattr(self, "_toggle_on_keyup", False):
                         # Defer to release so holding the key never
-                        # starts-then-stops recording.
                         pass
                     else:
                         log.info(
@@ -359,15 +284,9 @@ class PynputHotkey(HotkeyBackend):
 
         def on_release(key):
             # track modifier releases so the held_modifiers
-            # set stays accurate.
             if modifier_keys and key in modifier_keys:
                 held_modifiers.discard(key)
             # invoke the on_release callback (used by
-            # push-to-talk mode) when the matched key is released, or
-            # fire the toggle on release when toggle_on_keyup is set.
-            # The check ``held["value"]`` ensures we only fire on the
-            # transition from held -> released, not on every spurious
-            # release event pynput may emit.
             if key == match_key and held["value"]:
                 held["value"] = False
                 if self._on_release_callback is not None:
@@ -404,15 +323,11 @@ class PynputHotkey(HotkeyBackend):
 
     def stop(self) -> None:
         # signal the watchdog to exit BEFORE stopping the
-        # listener so the watchdog doesn't see the listener die and
-        # attempt a restart during shutdown.
         self._watchdog_stop_event.set()
         if self._listener is not None:
             log.info("[HOTKEY] Stopping pynput hotkey listener")
             self._stop_listener()
         # Join the watchdog thread so stop() returns cleanly. The
-        # watchdog checks ``_watchdog_stop_event`` every 0.5s, so a
-        # 2s join is ample.
         if self._watchdog_thread is not None:
             with contextlib.suppress(Exception):
                 self._watchdog_thread.join(timeout=2.0)
@@ -506,10 +421,6 @@ def _parse_hotkey_to_pynput(hotkey_str, key, key_code):
         return None
 
     # Single-modifier special case (preserves the prior behaviour where
-    # a 1-part spec like ``<alt>`` returns ``key.alt`` directly rather
-    # than ``(modifiers, target)``). For multi-modifier specs with no
-    # main key (e.g. ``<ctrl>+<shift>``), pynput cannot match without a
-    # target key, return None, matching the previous behaviour.
     if not parsed.keys:
         if len(parsed.modifiers) == 1:
             mod_key = _to_pynput_modifier(parsed.modifiers[0])

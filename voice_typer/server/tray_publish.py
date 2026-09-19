@@ -45,9 +45,6 @@ if TYPE_CHECKING:
 log = logging.getLogger("voice_typer.server.tray")
 
 # ADR-0020 §6.5: maps internal AppState → logical icon name accepted by
-# the Tauri Rust host's tray_state listener (whitelists
-# "idle" | "recording" | "transcribing" | "error"). LOADING/CANCELLING
-# fall back to a neighboring state (no dedicated asset).
 _APP_STATE_TO_ICON_NAME: dict[AppState, str] = {
     AppState.IDLE: "idle",
     AppState.RECORDING: "recording",
@@ -67,12 +64,6 @@ def compute_tooltip(tray: TrayIcon, state: AppState, message: str) -> str:
         title += f" | {message}"
     elif state != AppState.IDLE:
         # Localized AppState label (``state.recording`` etc.) so the
-        # fallback suffix follows the renderer locale like the
-        # per-call messages do, the renderer pushes localized values
-        # for ``state.<value>`` via ``set_tray_locale``
-        # (``trayLabelsForLocale`` maps them to ``trayState.*``).
-        # English output is byte-identical (en registry value == the
-        # raw enum value).
         title += f" | {_i18n_t('state.' + state.value)}"
     if tray._cpu_fallback_active:
         title += " (CPU fallback)"
@@ -80,14 +71,6 @@ def compute_tooltip(tray: TrayIcon, state: AppState, message: str) -> str:
         elapsed = time.monotonic() - tray._recording_started_at
         title += f" ({tray._format_elapsed(elapsed)})"
     # Model name suffix, only when the configured model is ACTUALLY
-    # on disk. A stale ``model_size`` (selected before the model was
-    # deleted / never downloaded) must not be advertised next to
-    # "Loading model..." or an ERROR message, that misleads the user
-    # into thinking the named model is being (or failed being) loaded.
-    # The probe consults the shared availability store (BP-158): one
-    # stat when nothing changed, a re-probe only on layout change or
-    # explicit invalidation, cheap enough for the 1 s tick, and the
-    # publish dedup below still suppresses identical tooltips.
     if tray._config:  # model name
         from voice_typer.server.tray_models import is_active_model_downloaded
 
@@ -98,11 +81,6 @@ def compute_tooltip(tray: TrayIcon, state: AppState, message: str) -> str:
     if hotkey:
         title += f" ({hotkey})"
     # Win32 ``NOTIFYICONDATAW.szTip`` has a 128-char limit (127 +
-    # NUL), truncate to 127 chars (with a trailing ``…`` if
-    # truncated) so the OS layer doesn't silently cut the tooltip.
-    # ``…`` is a single codepoint (U+2026), so ``title[:126] + "…"``
-    # is exactly 127 chars. Deterministic for the same input, so
-    # the ``_last_published`` dedup tuple stays stable.
     if len(title) > 127:
         title = title[:126] + "…"
     return title
@@ -134,16 +112,8 @@ def publish_tray_state(tray: TrayIcon) -> None:
     icon_name = _APP_STATE_TO_ICON_NAME.get(tray._state, "idle")
     tooltip = compute_tooltip(tray, tray._state, tray._message)
     # ``_publish_lock`` serializes the check-then-publish-then-cache
-    # sequence so two concurrent callers (the 1s elapsed-recording
-    # tick vs a state-change IPC) cannot both pass the cache check
-    # and both emit. Held ONLY across the tuple comparison + the
-    # publish (NOT across ``compute_tooltip`` or the icon-name
-    # lookup, which are pure and may run concurrently).
     with tray._publish_lock:
         # identical last-published state → skip the emit
-        # entirely (redundant tray_state events cause the Tauri
-        # host to re-run tray.set_icon / tray.set_tooltip, which on
-        # Windows is a DestroyIcon / LoadIcon round-trip per call).
         if tray._last_published == (icon_name, tooltip):
             return
         try:
@@ -155,12 +125,8 @@ def publish_tray_state(tray: TrayIcon) -> None:
                 exc_info=True,
             )
             # Do NOT cache a failed publish, the next call must
-            # retry.
             return
         # Only cache a successful publish (best-effort
-        # publish_tray_state returns False instead of raising on
-        # the sidecar-disconnected path, a False return must NOT
-        # suppress the next retry).
         if ok:
             tray._last_published = (icon_name, tooltip)
 
@@ -191,7 +157,6 @@ def apply_state(tray: TrayIcon, state: AppState, message: str) -> None:
     the icon's setter.
     """
     # Call-time lookup: tests rebind ``tray_module._make_icon``;
-    # resolving through the module object keeps the patch effective.
     from voice_typer.server import tray as _tray_mod
 
     with tray._icon_lock:
@@ -203,21 +168,6 @@ def apply_state(tray: TrayIcon, state: AppState, message: str) -> None:
                 tray._icon.icon = _tray_mod._make_icon(state)
             except OSError as exc:
                 # pystray Windows DestroyIcon stale-handle
-                # bug (WinError 1402) during rapid icon updates, clear the
-                # private _icon_handle so pystray re-creates it next call
-                # (pystray pinned to >=0.19,<0.20 in pyproject.toml).
-                #
-                # if a future pystray release (0.20+) removes or
-                # renames the private ``_icon_handle`` attribute, the
-                # workaround becomes a silent no-op, the OSError is
-                # still raised on every icon update but the workaround
-                # can't fire, so WinError 1402 resurfaces for users with
-                # no diagnostic surface. Log a WARNING in that case so
-                # the silent workaround failure shows up in diagnostics
-                # (the regression test
-                # ``tests/test_pystray_icon_handle_regression.py`` guards
-                # this exact attribute via ``hasattr(pystray.Icon,
-                # "_icon_handle")``).
                 if hasattr(tray._icon, "_icon_handle"):
                     tray._icon._icon_handle = None
                 else:
@@ -234,5 +184,4 @@ def apply_state(tray: TrayIcon, state: AppState, message: str) -> None:
                     )
             tray._last_applied_state = state
         # Tooltip is UNCONDITIONAL, elapsed mm:ss must stay live on the
-        # 1s recording tick even when the icon was skipped.
         tray._icon.title = compute_tooltip(tray, state, message)

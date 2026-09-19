@@ -14,9 +14,4 @@ class ModelMixin(
     DeleteImportMixin,
     DownloadsMixin,
 ):
-    """Model-domain service methods.
-
-    Covers download/delete/import/status, per-download cancellation
-    ( / SERVICE-1), dependency probes, and the HuggingFace
-    consent gate ( / ).
-    """
+    """Model-domain service methods."""

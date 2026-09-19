@@ -1,11 +1,4 @@
-"""Limiter (brick-wall, OBS-style).
-
-Vectorized with the same two-parallel-IIR + max trick as the
-Compressor (see ``compressor.py``). The brick-wall behavior comes
-from ``slope = 1.0`` (infinity:1 ratio) so gain_db = threshold_db -
-env_db, clamped <= 0 -- when env >= ceiling, gain_db = threshold_db -
-env_db <= 0 and output is held at the ceiling.
-"""
+"""Limiter (brick-wall, OBS-style)."""
 
 from __future__ import annotations
 
@@ -27,12 +20,7 @@ _ATTACK_TIME_SECONDS: float = 0.001  # 1 ms (matches OBS limiter-filter.c)
 
 
 class Limiter(AudioFilter):
-    """Brick-wall limiter (OBS-style).
-
-    A compressor with ``slope=1.0`` (infinity:1 ratio) and 1ms attack.
-    Absolutely refuses to let any sample exceed the ceiling. Prevents
-    transient clicks/pops from saturating downstream stages.
-    """
+    """Brick-wall limiter (OBS-style)."""
 
     def __init__(
         self,
@@ -48,44 +36,20 @@ class Limiter(AudioFilter):
         self._release_coeff = one_pole_coeff(self._sample_rate, release_ms / 1000.0)
         self._envelope: float = 0.0
         # pre-allocate the b/a coefficient arrays and the zi
-        # state buffer in __init__ so process() does not allocate
-        # fresh Python lists + 1-element ndarrays per call. The b/a
-        # arrays are constant after __init__; the zi buffer is
-        # overwritten with the current envelope before each lfilter
-        # call (lfilter accepts zi as the initial state and does not
-        # mutate the caller's array, it returns the final state as a
-        # new array via the second tuple element, which we discard).
         self._attack_b = np.array([1.0 - self._attack_coeff], dtype=np.float64)
         self._attack_a = np.array([1.0, -self._attack_coeff], dtype=np.float64)
         self._release_b = np.array([1.0 - self._release_coeff], dtype=np.float64)
         self._release_a = np.array([1.0, -self._release_coeff], dtype=np.float64)
         self._zi_buf = np.zeros(1, dtype=np.float64)
         # pre-allocated float64 working buffer for the
-        # safe_env -> env_db -> gain_db pipeline. Lazy-resized to the
-        # largest chunk seen so the first call allocates and subsequent
-        # calls reuse. Eliminates 3 fresh array allocations per chunk.
         self._env_db_buf: np.ndarray | None = None
         # pre-allocated float64 gain buffer + float64/float32 output
-        # buffers for the final gain stage (mirror compressor). Before
-        # this, the gain stage allocated ~7 fresh arrays per chunk
-        # (``gain_db / 20.0``, ``np.power(...)``, ``np.where(...)``,
-        # ``samples.astype(float64)``, ``* gain``, ``.astype(float32)``).
-        # The limiter has no ``output_gain`` (brick-wall gain is 1.0), so
-        # the ``np.copyto(gain, 1.0, where=~above_floor)`` replaces the
-        # ``np.where(above_floor, gain, 1.0)``. Lazy-resized to the largest
-        # chunk seen (mirror ``_env_db_buf``).
         self._gain_buf: np.ndarray | None = None
         self._output_f64_buf: np.ndarray | None = None
         self._output_f32_buf: np.ndarray | None = None
 
     def process(self, audio: np.ndarray, sample_rate: int) -> np.ndarray | None:
         # Debug-only guard: the envelope-follower coefficients
-        # (``_attack_coeff`` / ``_release_coeff``) are derived from
-        # ``self._sample_rate``; feeding audio at a different rate
-        # shifts the attack/release ballistics (a 1 ms attack built
-        # at 16 kHz actually responds in ~333 µs when fed 48 kHz
-        # audio). Python strips this assert under ``-O``; in debug
-        # builds a mismatch surfaces as an ``AssertionError``.
         assert sample_rate == self._sample_rate, (
             f"{type(self).__name__} built at {self._sample_rate} Hz, called with {sample_rate} Hz"
         )
@@ -101,9 +65,6 @@ class Limiter(AudioFilter):
         abs_x = np.abs(samples).astype(np.float64)
 
         # reuse the pre-allocated zi buffer. Set the initial
-        # state to the current envelope, then pass the buffer to
-        # lfilter. lfilter reads but does not mutate the caller's zi
-        # array (it returns the final state as a new array).
         self._zi_buf[0] = self._envelope
         attack_env, _ = _get_lfilter()(
             self._attack_b,
@@ -119,19 +80,15 @@ class Limiter(AudioFilter):
             zi=self._zi_buf,
         )
         # in-place element-wise maximum into attack_env (avoids
-        # one fresh allocation per chunk).
         env = np.maximum(attack_env, release_env, out=attack_env)
 
         above_floor = env > 1e-10
         # reuse a pre-allocated buffer for the safe_env / env_db
-        # gain_db pipeline, 3 ops collapsed into a single buffer.
         if self._env_db_buf is None or self._env_db_buf.shape[0] < n:
             cap = max(n, 1024)
             self._env_db_buf = np.empty(cap, dtype=np.float64)
         env_db = self._env_db_buf[:n]
         # safe_env = where(above_floor, env, 1.0), np.where has no out=
-        # kwarg, so use np.copyto with a where= mask + a scalar fill on
-        # the below-floor slots. Avoids one fresh allocation per chunk.
         np.copyto(env_db, env, where=above_floor)
         env_db[~above_floor] = 1.0
         np.log10(env_db, out=env_db)
@@ -142,9 +99,6 @@ class Limiter(AudioFilter):
         np.minimum(env_db, 0.0, out=env_db)
         gain_db = env_db
         # gain = np.power(10.0, gain_db / 20.0), computed in-place into
-        # the pre-allocated ``_gain_buf``. Replaces 2 fresh allocations
-        # (divide, power) with in-place ufuncs. The limiter has no
-        # ``output_gain`` scalar multiply (brick-wall gain is 1.0).
         if self._gain_buf is None or self._gain_buf.shape[0] < n:
             cap = max(n, 1024)
             self._gain_buf = np.empty(cap, dtype=np.float64)
@@ -154,19 +108,9 @@ class Limiter(AudioFilter):
         np.divide(gain_db, 20.0, out=gain)
         np.power(10.0, gain, out=gain)
         # np.where(above_floor, gain, 1.0), np.where has no out= kwarg
-        # and allocates a fresh array. ``np.copyto`` with a ``where=`` mask
-        # overwrites the below-floor slots in-place, producing the same
-        # result without the allocation. Above-floor slots retain the
-        # computed gain; below-floor slots are set to 1.0 (passthrough).
         np.copyto(gain, 1.0, where=~above_floor)
 
         # output = (samples.astype(float64) * gain).astype(float32),
-        # computed in-place via the pre-allocated f64 + f32 buffers
-        # (mirror compressor). ``np.multiply(float32, float64, out=float64,
-        # casting='same_kind')`` promotes the float32 input to float64
-        # internally (exact upcast) and writes the float64 product into
-        # ``_output_f64_buf``. Then ``np.copyto(float32, float64,
-        # casting='same_kind')`` rounds to float32 (same as ``.astype``).
         output_f64 = self._output_f64_buf[:n]
         np.multiply(samples, gain, out=output_f64, casting="same_kind")
         output = self._output_f32_buf[:n]
@@ -177,17 +121,9 @@ class Limiter(AudioFilter):
     def reset(self) -> None:
         self._envelope = 0.0
         # zero the pre-allocated dB-domain working buffer so the
-        # last chunk's envelope samples do not linger in process memory
-        # until the numpy allocator reuses the block. Guarded for None
-        # because ``_env_db_buf`` is lazy-allocated on the first
-        # ``process()`` call.
         if self._env_db_buf is not None:
             self._env_db_buf.fill(0)
         # zero the gain + output buffers for the same privacy rationale
-        # (mirror compressor). ``_gain_buf`` holds the per-sample limiter
-        # gain; ``_output_f64_buf`` / ``_output_f32_buf`` hold the filtered
-        # audio output. Guarded for None because they are lazy-allocated
-        # on the first ``process()`` call.
         for buf in (self._gain_buf, self._output_f64_buf, self._output_f32_buf):
             if buf is not None:
                 buf.fill(0)

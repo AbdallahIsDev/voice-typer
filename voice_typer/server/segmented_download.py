@@ -1,44 +1,4 @@
-"""Segmented (multi-connection) HTTP Range downloader for large model files.
-
-WHY THIS EXISTS: ``snapshot_download`` fetches each file over a SINGLE
-HTTP connection. On high-latency / per-connection-throttled / lossy
-links that single stream stalls well below line rate (the classic "starts
-at 10 MB/s, drops to 500 kB/s" symptom). This module downloads ONE large
-file as N concurrent byte-range segments, the aria2 / ADM approach —
-on the standard HTTP path (NOT xet), so the pause/cancel transfer gate
-keeps working and no native code is involved.
-
-Design principles (E3/E13, a reusable subsystem, not a service hack):
-
-- **Pure engine.** No imports from the service layer, tray, or config.
-  The caller supplies ``gate_check`` (pause-block / abort-raise, e.g.
-  :func:`asr_setup.check_download_gate`), a progress callback, and an
-  ``opener_factory`` seam. Everything else is stdlib (``urllib``,
-  ``threading``), no new dependencies, frozen-app safe.
-- **Crash-safe resume (ADM semantics).** Per-segment part files + an
-  atomic JSON state file record completion. A kill -9 mid-download
-  resumes finished segments and re-fetches only the rest, strictly
-  better than huggingface_hub 1.26's cache path, which discards
-  partial-file progress on failure (process-unique tmp names).
-- **Never trusts the network.** The assembled file MUST match
-  ``expected_sha256`` (the manifest pin) or nothing is returned —
-  poisoned parts are deleted, never installed.
-- **Failover, not failure.** Any condition this engine cannot handle
-  (unknown size, Range ignored, repeated 429/5xx, sha mismatch) raises
-  :class:`SegmentedDownloadError` so the caller falls back to the
-  classic single-stream path. A download the classic path could
-  complete must never fail because of this module.
-
-Threading model: one worker thread per active segment
-(``ThreadPoolExecutor``); a shared lock guards byte counters and state
-writes. ``gate_check`` runs on every ~1 MiB wire chunk in every worker,
-so pause/cancel engage within milliseconds.
-
-Cross-platform notes: paths are ``pathlib`` throughout; the only
-platform-sensitive call is the cache-layout symlink, which degrades to
-a copy when symlinks are unavailable (Windows without privilege) —
-mirroring ``huggingface_hub``'s own fallback.
-"""
+"""Segmented (multi-connection) HTTP Range downloader for large model files."""
 
 from __future__ import annotations
 
@@ -63,15 +23,12 @@ from voice_typer.server.branding import APP_NAME
 
 log = logging.getLogger(__name__)
 
-# ── Tunables ──────────────────────────────────────────────────────────
 
 #: Files at/above this size are worth segmenting (below it the extra
-#: handshakes cost more than parallelism gains).
 SEGMENT_THRESHOLD_BYTES = 200 * 1024 * 1024
 #: Target bytes per segment; segment count = ceil(size / target), capped.
 SEGMENT_TARGET_BYTES = 256 * 1024 * 1024
 #: Upper bound on concurrent Range connections (politeness: HF's own
-#: client opens ~8 across files; per-file parallelism stays below that).
 MAX_SEGMENTS = 6
 #: Wire read size, also the pause/cancel checkpoint granularity.
 READ_CHUNK_BYTES = 1024 * 1024
@@ -91,12 +48,7 @@ ProgressCb = Callable[[int, int], None]  # (bytes_done, total_size)
 
 
 class SegmentedDownloadError(Exception):
-    """The segmented path cannot complete this file.
-
-    Not a user-facing failure: callers fall back to the classic
-    single-stream download, which has no new failure modes. Carries the
-    reason for the log.
-    """
+    """The segmented path cannot complete this file."""
 
 
 @dataclass(frozen=True)
@@ -118,12 +70,7 @@ def plan_segments(
     segment_target: int = SEGMENT_TARGET_BYTES,
     max_segments: int = MAX_SEGMENTS,
 ) -> list[SegmentRange]:
-    """Split ``total_size`` bytes into contiguous, gapless ranges.
-
-    Segment count is ``ceil(total / target)`` capped at ``max_segments``
-    (the last segment absorbs the remainder). A file smaller than one
-    target yields a single whole-file range.
-    """
+    """Split ``total_size`` bytes into contiguous, gapless ranges."""
     if total_size <= 0:
         raise SegmentedDownloadError(f"cannot plan segments for size {total_size}")
     uncapped = -(-total_size // segment_target)
@@ -132,7 +79,6 @@ def plan_segments(
     start = 0
     if count < uncapped:
         # Capped (huge file): split evenly so no single tail segment
-        # dwarfs the rest and idles the other workers.
         base, extra = divmod(total_size, count)
         for i in range(count):
             length = base + (1 if i < extra else 0)
@@ -146,8 +92,6 @@ def plan_segments(
         start = end + 1
     return ranges
 
-
-# ── State file (crash-safe resume) ────────────────────────────────────
 
 _STATE_VERSION = 1
 
@@ -215,15 +159,10 @@ def state_matches(
     ):
         return False
     # An ETag change means the server-side file changed, stale parts
-    # must not be trusted. (Both None counts as a match.)
     return state.get("etag") == etag
 
 
-# ── Transport seam ────────────────────────────────────────────────────
-#
 # The engine talks HTTP only through an ``opener`` object with
-# ``.open(request, timeout=...)`` (urllib-compatible). Tests inject a
-# fake; production builds a urllib opener with proxy support.
 
 
 def build_opener(
@@ -243,13 +182,7 @@ def build_opener(
 
 
 class _NoAutoRedirectHandler(urllib.request.HTTPRedirectHandler):
-    """Disable urllib's automatic redirect following.
-
-    The engine resolves redirects MANUALLY (single hop chain) so it can
-    strip the Authorization header when the host changes (the HF resolve
-    URL 302-redirects to a presigned CDN URL that needs no auth, and
-    must never receive our token) and enforce https-only targets.
-    """
+    """Disable urllib's automatic redirect following."""
 
     def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: ANN001, ANN202
         return None
@@ -268,14 +201,7 @@ def resolve_download(
     timeout_s: float = REQUEST_TIMEOUT_S,
     opener_factory: Callable[[], Any] | None = None,
 ) -> tuple[str, int | None, str | None]:
-    """Resolve ``url`` to (final_url, total_size, etag).
-
-    Follows up to ``MAX_REDIRECTS`` hops manually (https-only, auth
-    stripped on host change). Size comes from HEAD's Content-Length;
-    when HEAD is unsupported or lengthless, a ``bytes=0-0`` Range probe
-    is used. ``total_size`` is ``None`` only when the server reveals no
-    length at all (caller must fall back to single-stream).
-    """
+    """Resolve ``url`` to (final_url, total_size, etag)."""
     from urllib.parse import urlparse
 
     opener = opener_factory() if opener_factory else build_opener(None, user_agent=f"{APP_NAME}/segmented-downloader")
@@ -362,16 +288,8 @@ def _is_transient_http(status: int) -> bool:
     return status == 429 or 500 <= status <= 599
 
 
-# ── Segment fetch ─────────────────────────────────────────────────────
-
-
 class _RangeUnsupportedError(SegmentedDownloadError):
-    """Server answered 200 to a Range request for a partial segment.
-
-    A subclass of :class:`SegmentedDownloadError` so callers fall back
-    to the classic single-stream path, which handles Range-less servers
-    natively.
-    """
+    """Server answered 200 to a Range request for a partial segment."""
 
 
 def _body_matches_segment(resp: Any, seg: SegmentRange) -> bool:
@@ -385,13 +303,7 @@ def _body_matches_segment(resp: Any, seg: SegmentRange) -> bool:
 
 
 def _sleep_interruptible(delay_s: float, gate_check: GateCheck | None) -> None:
-    """Sleep, but wake promptly for cancel (and park on pause).
-
-    A plain ``time.sleep`` would deafen the transfer to cancel for the
-    whole backoff. Looping through the gate keeps abort latency at
-    ~0.2 s; on pause the sleep simply extends (correct, nothing should
-    happen while paused).
-    """
+    """Sleep, but wake promptly for cancel (and park on pause)."""
     deadline = time.monotonic() + max(0.0, delay_s)
     while True:
         if gate_check is not None:
@@ -413,14 +325,7 @@ def _fetch_segment(
     gate_check: GateCheck | None,
     on_bytes: Callable[[int], None],
 ) -> int:
-    """Fetch one segment with resume + retry. Returns bytes written.
-
-    Resumes from the existing part-file size via ``Range``. Retries
-    transient failures (429/5xx/timeouts/drops) with backoff; raises
-    :class:`_RangeUnsupported` when the server ignores Range (caller
-    restarts the whole file single-stream); ENOSPC and other local
-    errors propagate unwrapped (never retried).
-    """
+    """Fetch one segment with resume + retry. Returns bytes written."""
     offset = part_path.stat().st_size if part_path.exists() else 0
     if offset > seg.length:
         # Torn state (part longer than its segment), restart it.
@@ -447,7 +352,6 @@ def _fetch_segment(
                     continue
                 if status == 416:
                     # Range unsatisfiable: our offset is likely already
-                    # complete (another attempt finished it), re-check.
                     if part_path.exists() and part_path.stat().st_size >= seg.length:
                         return 0
                     offset = 0
@@ -456,8 +360,6 @@ def _fetch_segment(
                     continue
                 if status == 200 and (offset > 0 or not _body_matches_segment(resp, seg)):
                     # Server ignored Range: only acceptable when the body
-                    # IS the whole segment (single-segment file). Anything
-                    # else cannot be spliced, fail over to classic.
                     raise _RangeUnsupportedError("server ignored Range request (HTTP 200)")
                 if status not in (200, 206):
                     raise SegmentedDownloadError(f"unexpected HTTP {status}")
@@ -476,7 +378,6 @@ def _fetch_segment(
                         on_bytes(len(chunk))
                 if got < expected:
                     # Truncated stream (dropped connection): resume on
-                    # the next attempt from the grown part file.
                     offset = part_path.stat().st_size
                     last_error = SegmentedDownloadError(f"truncated segment {seg.index}: got {got}/{expected}")
                     continue
@@ -488,13 +389,9 @@ def _fetch_segment(
             _sleep_interruptible(RETRY_BACKOFF_S[min(attempt, len(RETRY_BACKOFF_S) - 1)], gate_check)
         except Exception as e:  # noqa: BLE001, transport errors retried uniformly
             # NOTE: ModelDownloadAborted is a BaseException, so it is NOT
-            # caught here, aborts unwind immediately, never retried.
             last_error = e
             _sleep_interruptible(RETRY_BACKOFF_S[min(attempt, len(RETRY_BACKOFF_S) - 1)], gate_check)
     raise SegmentedDownloadError(f"segment {seg.index} failed after {SEGMENT_ATTEMPTS} attempts: {last_error}")
-
-
-# ── Orchestrator ──────────────────────────────────────────────────────
 
 
 def download_file_segmented(
@@ -514,24 +411,7 @@ def download_file_segmented(
     opener_factory: Callable[[], Any] | None = None,
     timeout_s: float = REQUEST_TIMEOUT_S,
 ) -> Path:
-    """Download one file as concurrent Range segments; return the
-    assembled, sha-verified temp file path.
-
-    ``expected_sha256`` is REQUIRED (``TypeError``/``ValueError`` when
-    missing/empty): only files with a manifest pin may take this path —
-    unpinned files stay on the classic download. The returned file is
-    byte-exact per the pin; the caller moves it into place.
-
-    Resume: part files + ``<filename>.state.json`` in ``scratch_dir``
-    survive kills/cancels; a re-run with identical
-    (url, etag, total, sha) skips finished segments and resumes partial
-    ones. Mismatched state is discarded (fresh start).
-
-    Raises :class:`SegmentedDownloadError` for anything this engine
-    cannot handle (callers fall back to classic); lets
-    ``ModelDownloadAborted`` (cancel) and ``OSError`` (disk-full)
-    propagate unwrapped.
-    """
+    """Download one file as concurrent Range segments; return the"""
     if expected_sha256 is None:
         raise TypeError("expected_sha256 is required for segmented downloads")
     if not expected_sha256:
@@ -542,7 +422,6 @@ def download_file_segmented(
     segments = plan_segments(total_size, segment_target=segment_target, max_segments=max_segments)
     if num_segments is not None and total_size >= num_segments:
         # Explicit segment count (tests + callers that already know the
-        # right granularity): re-derive the target so the count holds.
         segments = plan_segments(
             total_size,
             segment_target=max(1, -(-total_size // num_segments)),
@@ -618,9 +497,6 @@ def download_file_segmented(
                     mark_done(futures[fut].index)
             except BaseException:
                 # Be polite: don't leave not-started work queued behind
-                # a failure. Running workers finish/abort on their own
-                # (gate raises on cancel; errors fail fast); the
-                # executor join then returns promptly.
                 for f in futures:
                     f.cancel()
                 raise
@@ -628,8 +504,6 @@ def download_file_segmented(
     assembled = scratch_dir / f"{_safe_filename(filename)}.assembled.tmp"
     _assemble_and_verify(scratch_dir, filename, segments, expected_sha256, assembled)
     # Success: resume state + parts are now redundant. Remove them so a
-    # later retry cannot trust stale parts. The verified bytes live on
-    # in the returned file; the caller moves it into place.
     _discard_resume_state(scratch_dir, filename, state_path)
     return assembled
 
@@ -649,12 +523,7 @@ def _reconcile_state(
     segments: list[SegmentRange],
     saved: list[dict[str, Any]],
 ) -> list[bool]:
-    """Validate saved completion flags against on-disk part sizes.
-
-    A segment counts as done only when flagged done AND its part file
-    holds exactly the segment's bytes; over-long parts are truncated
-    away (torn writes), short parts resume.
-    """
+    """Validate saved completion flags against on-disk part sizes."""
     by_index = {int(s.get("index", -1)): s for s in saved if isinstance(s, dict)}
     done: list[bool] = []
     for seg in segments:
@@ -705,9 +574,6 @@ def _assemble_and_verify(
         )
 
 
-# ── File planning (which files take the segmented path) ───────────────
-
-
 @dataclass(frozen=True)
 class PlannedFile:
     """One repo file routed to the segmented engine."""
@@ -753,16 +619,6 @@ def plan_segmented_files(
     """Decide which repo files take the segmented path.
 
     Returns the list of big, pinned files (empty list = everything is
-    small, use classic for all) or ``None`` when planning itself is
-    impossible (listing failed, sizes unknown), the caller then uses
-    the classic whole-repo path, i.e. today's behavior.
-
-    A file qualifies iff: it matches ``allow_patterns``, its size is
-    known and ≥ ``threshold_bytes``, the manifest pins a sha256 for it,
-    a blob id is known, AND pin == blob_id (LFS content hash, guards
-    against manifest/tree drift; mismatch falls back to classic).
-
-    NEVER raises.
     """
     try:
         entries = list_files() if list_files is not None else _default_list_files(repo_id, revision)
@@ -793,9 +649,6 @@ def plan_segmented_files(
         return None
 
 
-# ── Multi-file phase runner (service integration) ─────────────────────
-
-
 def run_segmented_phase(
     *,
     model_name: str,
@@ -809,21 +662,7 @@ def run_segmented_phase(
     headers: dict[str, str] | None = None,
     proxies: dict[str, str] | None = None,
 ) -> None:
-    """Fetch every planned big file sequentially with live progress.
-
-    Runs AFTER the classic snapshot phase finished the small files (so
-    the classic run already wrote the tree cache + refs behavior is
-    untouched). Per file: resolve → segmented fetch (crash-safe resume
-    from prior attempts) → sha-verified assembly → blob + snapshot-link
-    placement. Calls ``progress_cb(cumulative_done, big_total)`` per
-    wire chunk and ``file_cb(filename, index, total)`` at each file
-    start (either may be ``None``).
-
-    Raises :class:`SegmentedDownloadError` (caller falls back to the
-    classic full download) or propagates the gate's
-    ``ModelDownloadAborted`` (caller maps to cancelled). Scratch state
-    is removed on full success; left in place otherwise for resume.
-    """
+    """Fetch every planned big file sequentially with live progress."""
     from huggingface_hub import hf_hub_url
 
     big_total = sum(p.size for p in seg_plan)
@@ -874,11 +713,7 @@ def run_segmented_phase(
         with lock:
             base[0] += plan.size
     # Best-effort scratch cleanup (ignore_errors already suppresses;
-    # leftovers are harmless, the next run reconciles by part size).
     shutil.rmtree(repo_scratch, ignore_errors=True)
-
-
-# ── HF cache layout writer ────────────────────────────────────────────
 
 
 def install_blob_into_hf_cache(
@@ -890,19 +725,7 @@ def install_blob_into_hf_cache(
     blob_sha256: str,
     assembled_path: str | Path,
 ) -> Path:
-    """Place a verified file into the HF hub cache layout and return the
-    snapshot file path.
-
-    Writes ``blobs/<sha256>`` (atomic rename) + ``snapshots/<commit>/
-    <filename>`` (relative symlink, copied when symlinks are
-    unavailable, mirroring huggingface_hub's own fallback). Refs/tree
-    bookkeeping stays owned by the classic ``snapshot_download`` run
-    that must precede segmented files (it lists the full tree and writes
-    the tree cache).
-
-    The caller MUST self-verify afterwards with the local-only snapshot
-    probe; on any doubt it falls back to the classic full download.
-    """
+    """Place a verified file into the HF hub cache layout and return the"""
     cache = Path(cache_dir)
     blobs_dir = cache / "blobs"
     blobs_dir.mkdir(parents=True, exist_ok=True)
@@ -922,7 +745,6 @@ def install_blob_into_hf_cache(
         os.symlink(rel, snap_file)
     except OSError:
         # Windows without symlink privilege (or any symlink failure):
-        # duplicate the bytes like huggingface_hub does.
         try:
             if snap_file.is_symlink() or snap_file.exists():
                 snap_file.unlink()

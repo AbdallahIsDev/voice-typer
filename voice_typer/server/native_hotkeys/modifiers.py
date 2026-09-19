@@ -1,24 +1,4 @@
-"""Modifier name canonicalisation helpers.
-
-Split out from the original ``native_hotkeys.py`` god-file in Phase 4.5
-().
-
-This module owns:
-
-- :data:`_MOD_CANONICAL_MAP`: wire-protocol modifier name →
-  canonical lowercase form (collapses ``Cmd``/``Win``/``Super`` to
-  ``"cmd"`` for cross-platform matching).
-- :func:`_canonical_modifier`: wire-protocol name → canonical.
-- :func:`_canonical_modifier_name_for_token`: hotkey-spec token →
-  canonical.
-- :func:`_modifier_to_token`: wire-protocol name → spec token
-  (used by the recorder to rebuild a spec from captured events).
-- :func:`_key_name_to_token`: wire-protocol key name → spec token
-  (reverse of :func:`._normalize_key_name`).
-"""
-
-
-# ─── Modifier name canonicalization ───────────────────────────────────────
+"""Modifier name canonicalisation helpers."""
 
 _MOD_CANONICAL_MAP = {
     # NSEvent / macOS modifiers
@@ -35,7 +15,6 @@ _MOD_CANONICAL_MAP = {
 
 def _canonical_modifier(wire_name: str) -> str | None:
     """Convert a wire-protocol modifier name (e.g. 'Win', 'Super', 'Cmd')
-    to a canonical lowercase form ('ctrl', 'shift', 'alt', 'cmd').
 
     Returns None if the name is not a recognized modifier.
     """
@@ -49,7 +28,6 @@ def _canonical_modifier_name_for_token(token: str) -> str | None:
         "ctrl": "ctrl",
         "shift": "shift",
         "alt": "alt",
-        "altgr": "alt",  # treat AltGr as Alt for matching purposes
         "cmd": "cmd",
         "win": "cmd",
         "super": "cmd",

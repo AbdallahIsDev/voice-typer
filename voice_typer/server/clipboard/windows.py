@@ -30,16 +30,6 @@ from ctypes import wintypes
 from voice_typer.server import clipboard as _cb
 
 # the per-submodule `log = logging.getLogger(...)` definition that
-# used to live here was removed because it was unused, every log call in
-# this module routes through `_cb.log` (the package-level logger imported
-# above as `_cb`). Defining a separate `log` here would shadow the
-# package logger and risk future contributors adding `log.info(...)`
-# calls that bypass the `_cb.log` patch surface used by tests
-# (`tests/test_clipboard.py` patches `voice_typer.server.clipboard.log`).
-# The `import logging` was also removed (no remaining references).
-
-
-# Win32Clipboard abstraction ─────────────────────────────
 
 
 class Win32Clipboard:
@@ -86,9 +76,6 @@ class Win32Clipboard:
                 ctypes.windll.user32.CloseClipboard()
             except (OSError, AttributeError):
                 # narrowed from bare ``except Exception: pass``.
-                # CloseClipboard is a Win32 ctypes call; ``OSError`` covers
-                # Win32 API failures and ``AttributeError`` covers a
-                # missing ctypes function pointer on stripped builds.
                 _cb.log.debug("clipboard cleanup failed", exc_info=True)
             self._opened = False
         return False  # don't suppress exceptions
@@ -101,9 +88,6 @@ class Win32Clipboard:
             return bool(ctypes.windll.user32.EmptyClipboard())
         except (OSError, AttributeError):
             # narrowed from bare ``except Exception: return False``.
-            # EmptyClipboard is a Win32 ctypes call; ``OSError`` covers
-            # Win32 API failures and ``AttributeError`` covers a missing
-            # ctypes function pointer on stripped builds.
             _cb.log.debug("[CLIPBOARD] EmptyClipboard failed", exc_info=True)
             return False
 
@@ -121,9 +105,6 @@ class Win32Clipboard:
                 return user32.GetClipboardSequenceNumber()
         except (OSError, AttributeError):
             # narrowed from bare ``except Exception: pass``.
-            # GetClipboardSequenceNumber is a Win32 ctypes call;
-            # ``OSError`` covers Win32 API failures and
-            # ``AttributeError`` covers a missing function pointer.
             _cb.log.debug("clipboard sequence-number query failed", exc_info=True)
         return 0
 
@@ -138,45 +119,16 @@ def _win32_empty_clipboard() -> None:
         return
     try:
         # Look up Win32Clipboard via the package so test patches like
-        # ``patch.object(clip_mod, "Win32Clipboard", side_effect=...)``
-        # take effect.
         with _cb.Win32Clipboard() as clip:
             clip.empty()
     except (OSError, AttributeError):
         # narrowed from bare ``except Exception: pass``. The
-        # protected block opens, empties, and closes the clipboard via
-        # Win32 ctypes (OpenClipboard / EmptyClipboard / CloseClipboard);
-        # ``OSError`` covers Win32 API failures and ``AttributeError``
-        # covers a missing ctypes function pointer.
         _cb.log.debug("clipboard cleanup failed", exc_info=True)
 
 
-# Win32 clipboard-monitor exclusion ──────────────────
-#
 # ``ExcludeClipboardContentFromMonitorProcessing`` is a registered
-# clipboard format (a Win32 "private" format identified by name, not
-# by a numeric constant) introduced in Windows 10 19041 (May 2020
-# Update). When a clipboard owner sets a value for this format on the
-# clipboard alongside the actual content, the Windows clipboard
-# history service (and any third-party clipboard monitor that
-# respects the format. Microsoft PowerToys' Clipboard Manager, the
-# Win+V history pane, MDM-managed clipboard roviders) skips the
-# current clipboard content entirely. The dictated text the user
-# just pasted is NOT added to the clipboard history, NOT synced
-# across devices via Cloud Clipboard, and NOT indexed by Windows
-# Search, closing a privacy leak where dictated content (which can
-# be passwords, financial data, medical notes, etc.) was retained
-# by the OS clipboard history long after the paste completed.
-#
-# The format's data payload is opaque. Windows only checks for
-# presence of the format on the clipboard, not its content. A
-# 1-byte payload is sufficient (matches the documented usage in
-# Microsoft's clipboard format reference and the Chromium / Edge
-# implementation that uses this format for the same purpose).
 
 # Win32 constants used by the exclusion helper below. Kept private to
-# this module, they are not part of the public surface and are only
-# referenced by ``_win32_exclude_clipboard_from_monitoring``.
 _GMEM_MOVEABLE = 0x0002
 
 
@@ -211,9 +163,6 @@ def _win32_exclude_clipboard_from_monitoring() -> bool:
         kernel32 = ctypes.windll.kernel32
 
         # Register the named format. ``RegisterClipboardFormatW``
-        # returns a UINT format id (>0) on success, 0 on failure. The
-        # format id is stable per session, repeated calls with the
-        # same name return the same id (cheap to call on every copy).
         fmt = user32.RegisterClipboardFormatW("ExcludeClipboardContentFromMonitorProcessing")
         if not fmt:
             _cb.log.debug(
@@ -223,10 +172,6 @@ def _win32_exclude_clipboard_from_monitoring() -> bool:
             return False
 
         # Allocate a 1-byte global memory block. The payload content is
-        # irrelevant, Windows only checks for presence of the format on
-        # the clipboard. ``GlobalAlloc`` with GMEM_MOVEABLE returns a
-        # HGLOBAL that ``SetClipboardData`` takes ownership of (the
-        # clipboard frees it when the format is replaced).
         h_global = kernel32.GlobalAlloc(_GMEM_MOVEABLE, 1)
         if not h_global:
             _cb.log.debug(
@@ -236,14 +181,6 @@ def _win32_exclude_clipboard_from_monitoring() -> bool:
             return False
 
         # ``SetClipboardData`` takes ownership of the HGLOBAL, do NOT
-        # ``GlobalFree`` it on success (the clipboard owns it). On
-        # failure, ``SetClipboardData`` returns NULL and ownership
-        # stays with us, so we free it to avoid a handle leak.
-        #
-        # Open the clipboard via the ``Win32Clipboard`` context manager
-        # so ``CloseClipboard`` is guaranteed (and so test patches on
-        # ``clip_mod.Win32Clipboard`` take effect, the existing test
-        # pattern in ``tests/clipboard/win32/``).
         with _cb.Win32Clipboard() as clip:
             if not clip._opened:
                 _cb.log.debug("[CLIPBOARD] OpenClipboard failed, cannot set monitor-exclusion tag")
@@ -258,17 +195,11 @@ def _win32_exclude_clipboard_from_monitoring() -> bool:
                     kernel32.GetLastError(),
                 )
                 # SetClipboardData failed → we still own the HGLOBAL;
-                # free it to avoid a handle leak.
                 kernel32.GlobalFree(h_global)
                 return False
         return True
     except (OSError, AttributeError):
         # narrowed from bare ``except Exception: pass``. The protected
-        # block does Win32 ctypes calls (RegisterClipboardFormatW /
-        # GlobalAlloc / SetClipboardData / GlobalFree) which raise
-        # ``OSError`` on Win32 failures and ``AttributeError`` on a
-        # missing ctypes function pointer (stripped builds, headless
-        # test environments that mock ``ctypes.windll`` partially).
         _cb.log.debug(
             "[CLIPBOARD] _win32_exclude_clipboard_from_monitoring failed",
             exc_info=True,
@@ -276,24 +207,9 @@ def _win32_exclude_clipboard_from_monitoring() -> bool:
         return False
 
 
-# Win32 SendInput Ctrl+V helper ──────────────────────────
-
 # Win32 INPUT / KEYBDINPUT structures defined inline via
-# ``ctypes.Structure`` (previously imported from ``pynput._util.win32``,
-# a private submodule that may break across pynput releases without
-# notice). Only the keyboard branch is needed, mouse/hardware input
-# structs from the Win32 INPUT union are omitted to keep the surface
-# small. The definitions mirror the Win32 SDK:
-#   https://learn.microsoft.com/en-us/windows/win32/api/winuser/ns-winuser-input
-#
-# Public names (``INPUT``, ``KEYBDINPUT``, ``InputUnion``) match the
-# previous pynput._util.win32 import surface so downstream code and
-# tests with their own ctypes Structure stubs can swap them in
-# unchanged.
 
 # ULONG_PTR is pointer-sized: 4 bytes on 32-bit Windows, 8 bytes on
-# 64-bit. ``wintypes`` does not export it directly; select the right
-# width by ``sizeof(c_void_p)``.
 _ULONG_PTR = ctypes.c_uint64 if ctypes.sizeof(ctypes.c_void_p) == 8 else ctypes.c_uint32
 
 
@@ -308,7 +224,6 @@ class KEYBDINPUT(ctypes.Structure):
         ("dwExtraInfo", _ULONG_PTR),
     )
     # KEYBDINPUT.KEYUP constant from pynput._util.win32
-    # (Win32 KEYEVENTF_KEYUP = 0x0002).
     KEYUP = 0x0002
 
 
@@ -324,13 +239,9 @@ class INPUT(ctypes.Structure):
     _fields_ = (
         ("type", wintypes.DWORD),
         # Named ``ki`` to match the production code's
-        # ``InputUnion(ki=KEYBDINPUT(...))`` construction. The C
-        # struct has an anonymous union here; ctypes requires a
-        # name to address the union member.
         ("ki", InputUnion),
     )
     # INPUT.KEYBOARD constant from pynput._util.win32
-    # (Win32 INPUT_KEYBOARD = 1).
     KEYBOARD = 1
 
 
@@ -394,10 +305,6 @@ def _send_ctrl_v_win32(
             pynput Controller fallback path.
     """
     # structs are defined inline at the top of this module
-    # (no longer imported from pynput._util.win32, a private submodule).
-    # ``SendInput`` is resolved via ``ctypes.windll.user32`` at call time
-    # so test patches like ``patch("ctypes.windll", create=True)`` take
-    # effect.
     send_input = _resolve_send_input()
 
     vk_control = 0x11
@@ -425,25 +332,6 @@ def _send_ctrl_v_win32(
     result = send_input(4, ctypes.byref(events), ctypes.sizeof(INPUT))
     if result != 4:
         # (revised): SendInput returns the number of events
-        # successfully inserted. Values 1..3 mean SOME but not all of
-        # the Ctrl+V keystroke events were delivered, e.g. result=2
-        # means Ctrl-down + V-down happened but V-up + Ctrl-up did not.
-        #
-        # The previous code fell back to pynput._safe_key_press() in
-        # this case, which would deliver ANOTHER full Ctrl+V sequence
-        # , causing a DOUBLE-PASTE if the partial SendInput already
-        # pasted the clipboard content (e.g. result=2 with Ctrl-down +
-        # V-down is enough to trigger paste in most apps).
-        #
-        # Fix: when result is in [1, 3], we DO NOT fall back to pynput.
-        # Instead we log the partial failure and synthesize the missing
-        # KEYUP events explicitly to release any stuck modifiers, then
-        # return without paste. The caller can retry the full paste
-        # sequence on the next hotkey press.
-        #
-        # When result == 0 (complete failure), no events were delivered,
-        # so falling back to the pynput path (via ``fallback``) is safe
-        # (no double-paste risk).
         _cb.log.warning(
             "[CLIPBOARD] SendInput returned %d (expected 4), "
             "this may be caused by UIPI blocking if the target is elevated.",
@@ -451,8 +339,6 @@ def _send_ctrl_v_win32(
         )
         if 1 <= result <= 3:
             # Partial success, synthesize KEYUP for any keys that may
-            # be stuck down (Ctrl and/or V) to avoid leaving the
-            # keyboard in a wedged state.
             _cb.log.error(
                 "[CLIPBOARD] SendInput partial success (%d/4 events), "
                 "NOT falling back to pynput to avoid double-paste. "
@@ -461,7 +347,6 @@ def _send_ctrl_v_win32(
             )
             try:
                 # Best-effort: send both KEYUP events; harmless if the
-                # key wasn't actually down.
                 release_events = (INPUT * 2)(
                     INPUT(
                         INPUT.KEYBOARD,
@@ -480,11 +365,6 @@ def _send_ctrl_v_win32(
             return False  # paste did not complete cleanly; do not proceed
 
         # result == 0: TOTAL failure, zero events delivered. Still
-        # invoke the pynput fallback (harmless single attempt; may help
-        # non-UIPI transient failures), but return False: delivery is
-        # unverifiable and under UIPI the fallback is equally blocked
-        # while reporting nothing. Returning True here caused silent
-        # dictation loss (success log + restore wiped the clipboard).
         _cb.log.warning(
             "[CLIPBOARD] SendInput returned 0 (no events delivered, UIPI may be blocking); "
             "attempting pynput fallback, delivery unverified",
@@ -497,17 +377,7 @@ def _send_ctrl_v_win32(
     return True
 
 
-# Win32 SendInput Shift+Insert helper ─────────────────────
-#
 # (Low): mirror of ``_send_ctrl_v_win32`` for the Windows terminal
-# paste keystroke. Terminal emulators (Windows Terminal, conhost, cmd.exe,
-# pwsh.exe) bind paste to Shift+Insert rather than Ctrl+V, Ctrl+V is
-# either unmapped (legacy conhost) or interpreted as the literal ``^V``
-# control byte (cmd.exe / PowerShell). The Windows terminal branch in
-# ``ClipboardManager.paste`` routes here when ``self._keyboard is None``
-# (pynput unavailable) so terminal paste does not silently no-op on
-# headless / sandboxed hosts where pynput fails to import or to attach
-# to a keyboard controller.
 
 
 def _send_shift_insert_win32(
@@ -535,7 +405,6 @@ def _send_shift_insert_win32(
     send_input = _resolve_send_input()
 
     # VK_SHIFT = 0xA0 (the left shift virtual key, matching pynput's
-    # ``Key.shift``); VK_INSERT = 0x2D (per Win32 SDK).
     vk_shift = 0xA0
     vk_insert = 0x2D
 
@@ -567,9 +436,6 @@ def _send_shift_insert_win32(
         )
         if 1 <= result <= 3:
             # Partial success, synthesize KEYUP for any keys that may
-            # be stuck down (Shift and/or Insert) to avoid leaving the
-            # keyboard in a wedged state. Same rationale as the Ctrl+V
-            # partial-success path above.
             _cb.log.error(
                 "[CLIPBOARD] SendInput(Shift+Insert) partial success (%d/4 events), "
                 "NOT falling back to pynput to avoid double-paste. "
@@ -603,8 +469,6 @@ def _send_shift_insert_win32(
             return False
 
         # result == 0: TOTAL failure (same contract as the Ctrl+V
-        # helper above: fallback attempted, delivery unverified → False
-        # so the caller keeps the text instead of restoring over it).
         _cb.log.warning(
             "[CLIPBOARD] SendInput(Shift+Insert) returned 0 (no events delivered, UIPI may be blocking); "
             "attempting pynput fallback, delivery unverified",

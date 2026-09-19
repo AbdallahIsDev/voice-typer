@@ -1,9 +1,4 @@
-"""Microphone watcher, macOS polling implementation.
-
-Provides :class:`_MacOSMixin` (mixed into ``MicrophoneDeviceWatcher``)
-with the ``sounddevice.query_devices()`` polling loop and the
-``CoreAudioMicrophoneWatcher`` construction attempt.
-"""
+"""Microphone watcher, macOS polling implementation."""
 
 from __future__ import annotations
 
@@ -16,12 +11,6 @@ log = logging.getLogger(__name__)
 
 class _MacOSMixin:
     # Members provided by the composed ``MicrophoneDeviceWatcher``
-    # (``_core.py`` ``__init__``): cross-mixin attribute access is
-    # runtime-valid but pyrefly cannot see it on a standalone mixin.
-    # Annotations only, no values, so no runtime attribute is created
-    # and the runtime MRO is unaffected (same pattern as
-    # dictation_pipeline's mixin declarations and model_manager's
-    # ``ChangeMixin``).
     _stop_event: threading.Event
     _poll_interval: float
     _idle_poll_interval_s: float
@@ -30,10 +19,6 @@ class _MacOSMixin:
 
     if TYPE_CHECKING:
         # Methods provided by the sibling mixins in the composed MRO;
-        # TYPE_CHECKING-only stubs keep this mixin type-checkable
-        # standalone without shadowing the real implementations at
-        # runtime (same pattern as model_manager's ``ChangeMixin``
-        # sibling-method stubs).
         def _invoke_callback(self) -> None: ...
 
         @staticmethod

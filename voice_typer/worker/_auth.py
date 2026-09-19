@@ -1,31 +1,4 @@
-"""Auth handshake for the worker WS server (master plan §7.2).
-
-This module is an intentional extraction from ``voice_typer/worker/__main__.py``
-per E3 (no spaghetti entry files). The auth handshake is a focused
-concern: read the first WS frame, validate the bearer token via the
-shared :func:`voice_typer.server.ipc.auth.tokens_equal` helper (which
-wraps ``hmac.compare_digest``), and on rejection emit an
-``auth_failed`` envelope + close the socket with code 1008.
-
-The contract mirrors :mod:`voice_typer.server.ipc.auth` and the
-slim-core sidecar's ``sidecar_ws._authenticate`` (ADR-0020 §3 /
-ADR-0014) so the host's respawn scheduler can branch on
-``code == "auth_failed"`` uniformly across both transports.
-
-Auth model (master plan §7.2, same as the slim-core sidecar):
-
-This is a **one-shot bearer-token** check, NOT an HMAC scheme.
-``hmac.compare_digest`` is used purely as a constant-time *comparison*
-helper (no key derivation, no signing, no per-message MAC, no nonce /
-replay protection: same as the slim-core sidecar, see
-:mod:`voice_typer.server.ipc.auth`). Compensating controls:
-
-- **Loopback-only bind**: ``127.0.0.1:0``: never exposed to the network.
-- **Ephemeral port**: chosen by the OS at worker startup and reported to
-  the host over stdout; not predictable ahead of time.
-- **Per-launch token rotation**: the host generates a fresh token via
-  ``secrets.token_bytes(32)`` on every worker spawn.
-"""
+"""Worker WS auth helpers."""
 
 from __future__ import annotations
 

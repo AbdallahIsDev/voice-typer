@@ -30,79 +30,27 @@ from voice_typer.server._paths import IPC_TOKEN_ENV_VAR as _IPC_TOKEN_ENV_VAR
 log = logging.getLogger(__name__)
 
 
-# ── API key redaction ─────────────────────────────────────────────────────
-#
 # A "redactable" secret is any string that looks like an API key or
-# bearer token.  We match conservatively: the patterns below cover
-# the common provider prefixes (sk-, sk-or-, sk-proj-, Bearer, Token)
-# and generic long hex/base64 strings that are at least 20 chars long.
-# Short strings (<20) are not redacted to avoid mangling ordinary
-# words in exception messages.
-#
-# the generic threshold was lowered from 32 to 20 to match
-# ``_MIN_REDACT_LEN``. See the comment on ``_KEY_PATTERNS[-1]`` below
-# for the rationale.
 
 # Order matters: more-specific patterns (with a captured prefix like
-# "Bearer " or "sk-") are applied first, so the prefix is preserved
-# in the output.  The generic 20+ char alphanumeric pattern is applied
-# last as a catch-all.
 _KEY_PATTERNS = [
     # Authorization headers (case-insensitive). Keep "Bearer " / "Token "
-    # prefix in output, redact the rest.
     re.compile(r"(Bearer\s+)[A-Za-z0-9_\-\.=]+", re.IGNORECASE),
     re.compile(r"(Token\s+)[A-Za-z0-9_\-\.=]+", re.IGNORECASE),
     # OpenAI-style keys: sk- followed by 8+ word chars.  Replace the
-    # entire run (sk- and everything after that's still word-char).
     re.compile(r"sk-[A-Za-z0-9_\-]+"),
     # Groq-style keys: gsk- followed by 8+ word chars.  Added back
-    # ( reviewer feedback) so short 12-19 char gsk_ values are
-    # redacted even when they don't reach the 20-char generic threshold.
     re.compile(r"gsk_[A-Za-z0-9_\-]+"),
     # Generic long alphanumeric run (>= 20 chars).  This catches
-    # bare hex/base64 keys that don't match a known prefix.  Uses
-    # \b to avoid partial-word matches inside longer words.
-    #
-    # threshold lowered from 32 to 20 to match
-    # ``_MIN_REDACT_LEN``. Pre-fix, a 20-31 char bare token (e.g. a
-    # 24-char GitLab PAT, a 20-char GitHub PAT, a 24-char Slack
-    # legacy token) fell through the generic pattern AND was already
-    # past the 20-char ``_MIN_REDACT_LEN`` early-exit guard, so it
-    # was returned UNREDACTED. Aligning the regex threshold with the
-    # length guard closes the gap: any bare alphanumeric run long
-    # enough to plausibly be a secret (>= 20 chars) is now redacted.
-    #
-    # (High): the negative lookbehind/lookahead on ``/`` and ``\\``
-    # prevents false-positive redaction of 20+ char filesystem path
-    # components (e.g. POSIX usernames like ``username_with_long_name``,
-    # pytest tmp_path components like ``test_banner_includes_file_path0``,
-    # macOS app-support subdirs). A run flanked by a path delimiter is
-    # semantically a path component, not a bare secret.
     re.compile(r"(?<![/\\])\b[A-Za-z0-9_\-]{20,}\b(?![/\\])"),
 ]
 
 # Labeled-value shield patterns (see ``redact_api_keys``): exact
-# ``sha256=`` label + exactly 64 hex chars (file digests for the
-# integrity-audit copy-paste flow); ``thread=`` label + a short
-# identifier-shaped token (code-defined thread names in lifecycle
-# tracing, e.g. ``ThreadPoolExecutor-0_0``).
-#
-# ``{64}`` with a trailing hex lookahead (not ``{64,}``): a longer
-# hex run must NOT partially match (a 65-hex secret would otherwise
-# leak its first 64 chars), it falls through to the generic catch-all
-# and redacts. Symmetrically the thread value must NOT be exactly 64
-# hex chars (fail closed: a hash-shaped value stays redacted even
-# behind the ``thread=`` label).
 _HASH_LABEL_RE = re.compile(r"sha256=[0-9a-fA-F]{64}(?![0-9a-fA-F])")
 _THREAD_LABEL_RE = re.compile(r"thread=(?![0-9a-fA-F]{64}(?![0-9a-fA-F]))([A-Za-z0-9_.\-]{1,64})(?![A-Za-z0-9_.\-])")
 
 
 # Caches for the public-vocabulary sets (see
-# ``_public_config_field_names`` / ``_public_ipc_command_names``):
-# resolved once, first redaction call wins. A ``None`` cache would
-# retry a failed import on every call; resolve to (possibly empty)
-# frozenset exactly once instead, redaction must stay fail-closed AND
-# allocation-free on the hot path.
 _PUBLIC_CONFIG_FIELD_NAMES_CACHE: frozenset[str] | None = None
 _PUBLIC_IPC_COMMAND_NAMES_CACHE: frozenset[str] | None = None
 
@@ -155,29 +103,7 @@ def _public_config_field_names() -> frozenset[str]:
     return cached
 
 
-# ── Public env-var name whitelist ────────────────────────────────────────
-#
 # Env-var NAMES are public (documented in docs, ADRs, source code, and
-# ``spawn.rs``). Redacting them provides ZERO security benefit and HURTS
-# operability, operators can't tell which env var is misconfigured from a
-# log line like ``[ENV] Invalid value for ***=<redacted>``. Only VALUES
-# should be redacted; the name must survive.
-#
-# This whitelist is the PRIMARY guard: any token that exactly matches a
-# name in this set is left untouched by the generic 20+ char alphanumeric
-# pattern (the last entry in ``_KEY_PATTERNS``). The Bearer/Token/sk-/gsk_
-# prefix patterns are unaffected because env-var names never carry those
-# prefixes.
-#
-# Keep this list in sync with:
-#   - ``voice_typer/server/env_validation.py`` (validated env vars)
-#   - ``voice_typer/server/_paths.py`` (``IPC_TOKEN_ENV_VAR``)
-#   - ``voice_typer/server/_secrets.py`` (``_ENV_TRUSTED_HOSTS_VAR``)
-#   - ``src-tauri/src/sidecar/spawn.rs`` (Tauri host → Python sidecar env)
-#   - ``voice_typer/server/logging_setup.py`` / ``log/__init__.py``
-# A drift-detection guard is provided by the
-# ``test_public_env_var_names_not_redacted`` regression test in
-# ``tests/test_secrets.py``.
 _PUBLIC_ENV_VAR_NAMES: frozenset[str] = frozenset(
     {
         # Voice Typer config / runtime
@@ -203,10 +129,6 @@ _PUBLIC_ENV_VAR_NAMES: frozenset[str] = frozenset(
         # Tauri host contract
         "TAURI_SIDECAR",
         # Cloud-provider API key env-var names (the NAMES are public —
-        # the VALUES are stripped from os.environ at startup by
-        # ``env_validation._SENSITIVE_ENV_NAMES``; logging the NAME in a
-        # "stripped because it was set" warning is the documented
-        # operator diagnostic).
         "OPENAI_API_KEY",
         "ANTHROPIC_API_KEY",
         "GEMINI_API_KEY",
@@ -216,37 +138,8 @@ _PUBLIC_ENV_VAR_NAMES: frozenset[str] = frozenset(
 )
 
 # a previous defense-in-depth heuristic
-# (``_ENV_VAR_NAME_RE``) treated ANY 20+ char UPPERCASE_WITH_UNDERSCORES
-# token as an env-var NAME and left it un-redacted, even when it wasn't
-# in the explicit whitelist. That introduced a silent redaction
-# downgrade: real all-caps base64-style secret VALUES (e.g.
-# ``SECRET_TOKEN_LIKE_THING_0123456789``) also match the env-var NAME
-# shape and leaked into logs / diagnostic bundles verbatim.
-#
-# There is NO safe syntactic name-vs-value discriminator, the shapes
-# are identical. Only the explicit ``_PUBLIC_ENV_VAR_NAMES`` whitelist
-# above exempts a token from redaction. A non-whitelisted env var that
-# gets logged IS masked, which is the correct failure direction for a
-# redaction helper.
 
 # explicit flag / key=value forms for secret-bearing keywords.
-#
-# These patterns are deliberately more specific than the catch-all
-# 32+ char pattern: they require an explicit secret-bearing keyword
-# (``token``, ``key``, ``secret``, ``password``, etc.) so they fire
-# on short values that the generic pattern would miss (e.g.
-# ``--token=abc`` is 12 chars, well under the 32-char generic
-# threshold, but is unambiguously a secret-bearing flag).
-#
-# Covers three forms:
-#   1. ``--token=abc123``  (long flag, ``=`` delimiter)
-#   2. ``--token abc123``  (long flag, space delimiter)
-#   3. ``token=abc123``    (bare ``key=value``, e.g. env vars /
-#      config files / URL query params)
-#
-# Single-letter short flags (``-t abc123``) are deliberately NOT
-# matched, too ambiguous (could be any of dozens of CLI options
-# that happen to share a letter with a secret flag).
 _SECRET_KEYWORDS = (
     "token",
     "apikey",
@@ -269,60 +162,17 @@ _SECRET_KEYWORDS = (
     "private_key",
     "private-key",
     # Bare ``key=`` is included last in the alternation so longer
-    # keywords (``api_key=``) win when present, Python's ``re``
-    # alternation is leftmost-greedy, so we order from most-specific
-    # to least-specific. ``\b`` prevents matching inside larger
-    # words like ``monkey=`` or ``hotkey=``.
     "key",
 )
 _KEYWORD_ALT = "|".join(re.escape(k) for k in _SECRET_KEYWORDS)
 
-# Pattern A: long-flag form. Captures the prefix (``--token=`` or
-# ``--token ``) in group 1 and the secret value in group 2. The
-# replacement keeps the prefix and redacts the value.
-#
 # SEC-9 fix (PIR-SEC-1): the ``--`` prefix and the ``(?:=|\s+)``
-# delimiter must be OUTSIDE the keyword alternation so they apply to
-# EVERY alternative, not just the last one. The previous form
-# ``(--token|apikey|...|key(?:=|\s+))`` parsed as an alternation
-# where only the LAST branch (``key``) carried the delimiter, so
-# ``--token=abc`` failed to match (the ``=`` was consumed by the
-# ``[^\s=]+`` group's negation, leaving no value to capture), and
-# bare keywords like ``password`` matched as a prefix without any
-# delimiter at all, greedily consuming the rest of the line as the
-# "value" (e.g. ``password@host:port`` → ``password***`` instead of
-# being left alone for the URL-redaction pass).
 _FLAG_VALUE_PATTERN = re.compile(rf"(?i)(--(?:{_KEYWORD_ALT})(?:=|\s+))([^\s=]+)")
 
-# Pattern B: bare ``key=value`` form (no ``--`` prefix). Captures the
-# prefix (``token=``) in group 1 and the value in group 2. ``\b``
-# ensures the keyword isn't part of a larger word (e.g. ``monkey=``
-# does NOT match ``key=``).
-#
 # SEC-9 fix (PIR-SEC-1): the ``=`` must be INSIDE capture group 1 so
-# the ``_flag_sub`` replacement preserves it in the output
-# (``password=hunter2`` → ``password=***``, not ``password***``).
-# The previous form ``\b({_KEYWORD_ALT})=([^\s=]+)`` left the ``=``
-# outside the group, so the replacement dropped it, every test
-# asserting ``password=***`` / ``--token=***`` / etc. failed.
-#
-# The keyword alternation is wrapped in a non-capturing group
-# ``(?:{_KEYWORD_ALT})`` BEFORE the ``=`` so the ``=`` applies to
-# EVERY alternative, not just the last one. Without the inner
-# non-capturing group, Python's regex engine parses
-# ``(token|...|key=)`` as an alternation where only the LAST branch
-# (``key``) carries the ``=``: leaving ``token``, ``password``,
-# etc. as bare keyword matches (with no delimiter constraint) that
-# greedily consume the rest of the line as the "value"
-# (e.g. ``secret-value`` matched as ``secret`` + ``-value``
-# instead of ``token=abc123-secret-value`` matched as
-# ``token=`` + ``abc123-secret-value``).
 _BARE_KEY_VALUE_PATTERN = re.compile(rf"(?i)\b((?:{_KEYWORD_ALT})=)([^\s=]+)")
 
 # Ordered list: pattern A (flag form) runs before pattern B (bare
-# form) so a value redacted by A isn't re-matched by B on the
-# resulting ``***`` (harmless if it does, but this avoids needless
-# regex work).
 _FLAG_KEY_PATTERNS = [_FLAG_VALUE_PATTERN, _BARE_KEY_VALUE_PATTERN]
 
 
@@ -336,7 +186,6 @@ def _flag_sub(m: re.Match[str]) -> str:
 
 
 # Minimum length below which we don't bother redacting, too likely
-# to be an ordinary word.
 _MIN_REDACT_LEN = 20
 
 
@@ -397,28 +246,13 @@ def redact_secret(value: object, *, aggressive: bool = False) -> str:
     if not isinstance(value, str):
         value = str(value)
     # SEC-9: apply the specific flag / key=value patterns first so
-    # they fire even on short inputs (e.g. ``--token=abc`` is 12
-    # chars but unambiguously a secret-bearing flag).
     redacted = value
     for pat in _FLAG_KEY_PATTERNS:
         redacted = pat.sub(_flag_sub, redacted)
     # Early-exit for short strings: skip the more-generic patterns
-    # that could false-positive on ordinary short text. The flag
-    # patterns above are specific enough to have already run.
-    #
-    # the ``aggressive`` opt-in bypasses this guard for
-    # contexts where bare short secrets are plausible (e.g. the crash
-    # excepthook path that dumps arbitrary object repr()). When
-    # ``aggressive=True``, fall through to ``redact_api_keys`` even
-    # for short inputs.
     if not aggressive and len(value) < _MIN_REDACT_LEN:
         return redacted
     # delegate the API-key-pattern application to the shared
-    # ``redact_api_keys`` helper so the canonical "what an API-key-like
-    # substring looks like" knowledge lives in exactly one place
-    # (``_KEY_PATTERNS`` above). ``credential_store._redact_sensitive``
-    # also calls ``redact_api_keys`` (with a different replacement
-    # string) for its IPC-bound keyring-exception redaction.
     return redact_api_keys(redacted)
 
 
@@ -487,27 +321,14 @@ def redact_api_keys(text: str, *, replacement: str = "***") -> str:
     """
 
     # hoisted _sub out of the loop (was re-created per pattern per call
-    # , 4 function objects per call instead of 1). `replacement` is constant
-    # for the whole call, so standard closure capture works correctly.
     def _sub(m: re.Match[str]) -> str:
         if m.lastindex:
             # Pattern has a prefix group (e.g. "Bearer ").  Keep
-            # the prefix, redact the rest.
             return m.group(1) + replacement
         # No prefix group, redact the whole match.
         return replacement
 
     # Labeled-value shields (see ``_HASH_LABEL_RE`` /
-    # ``_THREAD_LABEL_RE``): some log lines carry non-secret values
-    # that LOOK secret-shaped (64-hex file digests labeled ``sha256=``
-    # for the integrity-audit copy-paste flow; code-defined thread
-    # names labeled ``thread=`` in lifecycle tracing). Redacting them
-    # destroys the diagnostic while protecting nothing, so they are
-    # parked under inert placeholders for the pattern passes below
-    # and restored after. Both exemptions are label-anchored AND
-    # shape-bounded with fail-closed edges (overlong hex still
-    # redacts). Placeholders (``KEPTnnnnX``) are short bare tokens
-    # matching no pattern (no 20+ run, no secret keyword, no prefix).
     shields: list[str] = []
 
     def _shield(m: re.Match[str]) -> str:
@@ -518,19 +339,6 @@ def redact_api_keys(text: str, *, replacement: str = "***") -> str:
     text = _THREAD_LABEL_RE.sub(_shield, text)
 
     # Generic 20+ char alphanumeric pattern (last entry in
-    # ``_KEY_PATTERNS``): skip redaction for tokens that are PUBLIC
-    # env-var NAMES. Env-var names are documented in docs / ADRs /
-    # source code and carry zero secret value; redacting them
-    # destroys operability (operators can't tell which env var is
-    # misconfigured from ``[ENV] Invalid value for ***=<redacted>``).
-    # Only the VALUES are redacted (via the call-site ``=<redacted>``
-    # convention in ``env_validation.py`` and via the
-    # ``_FLAG_KEY_PATTERNS`` / Bearer / Token / sk- / gsk_ patterns
-    # here when a value follows a secret-bearing keyword).
-    #
-    # The prefix patterns (Bearer / Token / sk- / gsk_) are
-    # unaffected, env-var names never carry those prefixes, so they
-    # can be applied with the plain ``_sub`` callback.
     generic_pat = _KEY_PATTERNS[-1]
 
     def _generic_sub(m: re.Match[str]) -> str:
@@ -538,12 +346,6 @@ def redact_api_keys(text: str, *, replacement: str = "***") -> str:
         if token in _PUBLIC_ENV_VAR_NAMES:
             return token
         # Config field NAMES are public schema vocabulary (same
-        # rationale as env-var names above): ``voice_biometric_consent
-        # is False`` must not render as ``*** is False``. IPC command
-        # NAMES are public protocol vocabulary for the same reason:
-        # ``[IPC] pause_model_download called`` must not render as
-        # ``[IPC] *** called``. Values are unaffected (a separate
-        # token after ``=`` / whitespace / quotes).
         if token in _public_config_field_names():
             return token
         if token in _public_ipc_command_names():
@@ -600,11 +402,6 @@ def redact_url(url: str) -> str:
             netloc = f"{netloc}:{parsed.port}"
         url = parsed._replace(netloc=netloc).geturl()
     # chain through redact_secret so query-string / path
-    # fragment secrets (?key=sk-…, ?access_token=…, ?api_key=…) are
-    # also masked. Pre-fix only the userinfo component was stripped,
-    # leaving query-string API keys verbatim. ``aggressive=True``
-    # bypasses the short-string guard so short bare secrets in the
-    # query string are caught too.
     return redact_secret(url, aggressive=True)
 
 
@@ -682,9 +479,6 @@ def _redact_home_path(path: str | os.PathLike[str]) -> str:
             continue
         home_norm = os.path.normpath(home)
         # ``os.path.normpath`` collapses ``//`` → ``/`` on POSIX and
-        # ``C:\\`` → ``C:\\`` on Windows, but does NOT change case. On
-        # Windows we compare case-insensitively because NTFS path
-        # components can vary by case (``Users`` vs ``users``).
         if os.name == "nt":
             if s_norm.lower().startswith(home_norm.lower()):
                 return "~" + s_norm[len(home_norm) :]
@@ -741,7 +535,6 @@ def redact_for_export(text: str) -> str:
         guarantees exactly that.
     """
     # Lazy import through the package namespace keeps test monkeypatches
-    # of ``voice_typer.server.security.redact_pii`` effective at call time.
     from voice_typer.server.security import redact_pii
 
     return redact_secret(redact_pii(text), aggressive=True)
@@ -750,44 +543,10 @@ def redact_for_export(text: str) -> str:
 # ─── SEC-009: PII Redaction Filter ──────────────────────────────────────
 
 # fast-path trigger for ``_redact_text``.  The redaction pass
-# runs 8-12 regex substitutions unconditionally on every log record,
-# even though the vast majority of records contain no PII / secret
-# pattern.  This single ``re.Pattern.search`` is a *necessary* condition
-# for ANY of the redaction patterns (``PIIRedactionFilter._PATTERNS``,
-# ``_secrets._KEY_PATTERNS``, ``_secrets._FLAG_KEY_PATTERNS`` whose
-# value is ≥20 chars, and the URL-credential branch gated on ``"@"``)
-# to match, so a miss here means we can return the input unchanged
-# without running any of the heavier substitutions.
-#
-# Trigger breakdown (each is necessary for at least one pattern):
-#   - ``@``     : email pattern (``\b[\w.+-]+@[\w-]+\.[\w.-]+\b``) and
-#                  the URL-credential branch (``redact_url``).
-#   - ``+``     : international phone pattern (``\+\d{1,3}…``).
-#   - ``\d{3,}``: US phone, SSN, credit-card, and every realistic IBAN
-#                  (every country's BBAN format includes 3+ consecutive
-#                  digits).
-#   - ``Bearer``: ``_KEY_PATTERNS[0]``.
-#   - ``Token`` : ``_KEY_PATTERNS[1]``.
-#   - ``sk-``   : ``_KEY_PATTERNS[2]``.
-#   - ``key=``  : bare ``key=`` flag form (``_BARE_KEY_VALUE_PATTERN``
-#                  with keyword ``key``); also a substring of ``--key=``
-#                  and other ``--<keyword>=`` flag forms whose keyword
-#                  ends in ``key`` (e.g. ``--api_key=``, ``--api-key=``).
-#   - ``[A-Za-z0-9_\-]{20,}``: the generic 20+ char bare-token pattern
-#                  (``_KEY_PATTERNS[3]``); also catches any flag form
-#                  whose *value* is 20+ chars (the common production
-#                  case, real API keys are long).
-# the 20+ char alternation uses negative lookbehind/lookahead on
-# path delimiters so filesystem path components are not false-positive
-# redacted (mirrors the fix in _secrets._KEY_PATTERNS[-1]).
 _FAST_TRIGGER = re.compile(r"[@+]|\d{3,}|Bearer|Token|sk-|key=|(?<![/\\])[A-Za-z0-9_\-]{20,}(?![/\\])|[\x00-\x1f\x7f]")
 
 
 # Cache for the home-path-substring regex, keyed by the resolved home
-# dir string.  The home dir is resolved via ``os.path.expanduser("~")``
-# at call time (so tests that monkeypatch ``HOME`` / ``USERPROFILE`` see
-# the expected result); the cache is invalidated automatically when the
-# resolved home dir changes between calls.
 _HOME_PATH_RE_CACHE: tuple[tuple[str, ...], list[re.Pattern[str]]] | None = None
 
 
@@ -810,11 +569,6 @@ def _redact_home_path_in_text(text: str) -> str:
     """
     global _HOME_PATH_RE_CACHE
     # Candidate homes: the explicit ``HOME`` override first (honoured on
-    # every platform, ``ntpath.expanduser`` ignores ``HOME`` on Windows,
-    # so a simulated / Git-Bash ``HOME`` alone would silently defeat the
-    # redaction) plus the platform-resolved home (``USERPROFILE`` on
-    # Windows). Both are redacted so an override AND the real home are
-    # protected.
     homes = _resolve_home_dirs()
     if not homes:
         return text
@@ -826,12 +580,6 @@ def _redact_home_path_in_text(text: str) -> str:
             if not home or home == "~":
                 continue
             # Match the home dir followed by a path separator and any
-            # subsequent non-whitespace characters.  The ``[/\\]`` after
-            # the home dir ensures we do not partially match a longer
-            # path (e.g. ``/home/alice`` inside ``/home/alice2``).
-            # Trailing punctuation (commas, parens) may be included in
-            # the match but is preserved by ``_redact_home_path`` which
-            # only swaps the home prefix for ``~``.
             patterns.append(re.compile(re.escape(home) + r"[/\\]\S*", flags))
         _HOME_PATH_RE_CACHE = (key, patterns)
     for pattern in _HOME_PATH_RE_CACHE[1]:
@@ -840,15 +588,6 @@ def _redact_home_path_in_text(text: str) -> str:
 
 
 # HU-15: C0 control characters (plus DEL) that must be escaped before
-# a log message is emitted. A raw ``\n`` / ``\r`` in dictated text (or
-# any user-influenced log payload) lets an attacker forge a second log
-# line that visually appears as a legitimate ERROR/CRITICAL record;
-# raw ANSI escapes (``\x1b``) let them paint arbitrary terminal
-# colours. ``\t`` is included so column alignment can't be disturbed by
-# a hostile payload. The escape lives in ``_redact_text`` so EVERY log
-# record passing through ``PIIRedactionFilter`` gets the scrub, not
-# just the transcription-text call sites (which are gated by the
-# ``config.log_transcriptions`` opt-in).
 _CONTROL_CHAR_RE = re.compile(r"[\x00-\x1f\x7f]")
 
 
@@ -914,31 +653,11 @@ def _redact_text(text: str, *, escape_control_chars: bool = True) -> str:
     PII / URL-credential trigger).
     """
     # step 0, redact the home-directory prefix unconditionally.
-    # This MUST run before the fast-path check below: a bare path like
-    # ``/home/alice/.voice-typer/foo.log`` carries no fast-path trigger
-    # (no ``@`` / ``+`` / 3+ consecutive digits / ``Bearer`` / ``Token``
-    # / ``sk-`` / ``key=`` / 20+ char token) so the trigger scan would
-    # return the input unchanged and the username would leak to
-    # ``voice-typer.log``.  ``_redact_home_path_in_text`` handles paths
-    # embedded inside larger sentences (the common log-message case).
     text = _redact_home_path_in_text(text)
     # fast path, no trigger means no pattern can match, so
-    # skip the substitution loop entirely.  ``str`` input only; the
-    # ``PIIRedactionFilter.filter`` call site always passes the
-    # already-stringified ``record.getMessage()`` / traceback text.
     if not _FAST_TRIGGER.search(text):
         return text
     # HU-15: escape C0 control chars BEFORE the PII patterns so a
-    # dictated phrase like ``"Hello\n[CRITICAL] fake"`` cannot forge a
-    # second log line, the raw newline becomes the literal two-char
-    # sequence ``\n`` in the emitted text (and raw ANSI escapes become
-    # ``\x1b``). Runs after the fast-path gate, which now includes the
-    # control-char class, so control-char-free lines still
-    # short-circuit without paying for the substitution loop.
-    # ``escape_control_chars=False`` opts out (used by the traceback
-    # path: see ``PIIRedactionFilter.filter``) so structurally
-    # multi-line content like formatted tracebacks keeps its line
-    # breaks instead of collapsing to one line.
     if escape_control_chars:
         text = _escape_control_chars(text)
     for pattern, replacement in PIIRedactionFilter._PATTERNS:
@@ -1012,23 +731,10 @@ class PIIRedactionFilter(logging.Filter):
         # Email addresses
         (re.compile(r"\b[\w.+-]+@[\w-]+\.[\w.-]+\b"), "[EMAIL]"),
         # IBAN (international bank account number): 2-letter country
-        # code, 2 check digits, then 10-30 BBAN chars (alnum).
-        # Examples: ``GB82WEST12345698765432``, ``DE89370400440532013000``.
-        # covers all 80+ IBAN-using jurisdictions; the
-        # country-code + check-digit prefix keeps false positives
-        # negligible. MUST run before phone patterns so the digit
-        # portion of an IBAN isn't mis-matched as a phone number.
         (re.compile(r"\b[A-Z]{2}\d{2}[A-Z0-9]{10,30}\b"), "[IBAN]"),
         # Phone numbers (US-style: 555-123-4567, 5551234567, 555.123.4567)
         (re.compile(r"\b\d{3}[-.]?\d{3}[-.]?\d{4}\b"), "[PHONE]"),
         # International phone numbers (E.164-ish and common domestic
-        # formats with country code): ``+1 (415) 555-2671``,
-        # ``+44 20 7946 0958``, ``+86 10 1234 5678``.
-        # added because the US-only pattern above missed the
-        # common ``+<country-code> <subscriber>`` form used by every
-        # non-US locale. The regex requires a ``+`` prefix to
-        # distinguish from bare digit sequences (e.g. US ABA routing
-        # numbers, zip codes) that happen to match the digit count.
         (re.compile(r"\+\d{1,3}[\s-]?\(?\d{1,4}\)?[\s-]?\d{3,4}[\s-]?\d{3,4}\b"), "[PHONE]"),
         # SSN-like patterns
         (re.compile(r"\b\d{3}-\d{2}-\d{4}\b"), "[SSN]"),
@@ -1037,50 +743,18 @@ class PIIRedactionFilter(logging.Filter):
     ]
 
     def filter(self, record: logging.LogRecord) -> bool:
-        # Idempotence guard: this filter instance is attached to BOTH the
         # file handler and the stderr handler (SEC-003, every sink must
-        # be filtered). Python's logging fires handler filters once per
-        # handler on the SAME LogRecord object, so the second pass would
-        # re-run the full redaction scan on already-redacted text —
-        # roughly a third of per-line logging cost, because the
-        # ``\d{3,}`` fast-trigger rarely short-circuits on operational
-        # lines (ports, durations, PIDs). ``record.redacted_msg`` is set
-        # unconditionally by every full pass below, so a set attribute
-        # proves this record was already scrubbed; redaction is
-        # idempotent, so skipping the second scan is byte-identical.
         if getattr(record, "redacted_msg", None) is not None:
             return True
 
         msg = record.getMessage()
         msg = _redact_text(msg)
-        # store the redacted message on ``record.redacted_msg`` so
-        # downstream structured consumers (metrics exporters, a future
-        # MemoryHandler ring buffer that re-emits to a structured backend)
-        # can read the redacted version WITHOUT having to re-format
-        # ``record.msg`` / ``record.args``. The existing text/JSON
-        # formatters continue to consult ``record.msg`` (mutated below)
-        # for backward compat, the new attribute is purely additive.
-        #
-        # We ALSO keep the legacy ``record.msg = msg`` / ``record.args = ()``
         # mutation (the original SEC-009 behavior) because the existing
-        # text/JSON formatters and tests rely on ``record.msg`` carrying
-        # the redacted text. Future structured consumers should prefer
-        # ``record.redacted_msg`` (always set when the filter runs); the
-        # legacy ``record.msg`` mutation is preserved as the "text path"
-        # so a no-code-change upgrade is possible.
         record.redacted_msg = msg
         record.msg = msg
         record.args = ()
 
         # pre-format and redact the traceback so exceptions
-        # whose ``str(exc)`` carries an API key don't leak the key via
-        # the formatted traceback.  ``record.exc_text`` is consulted
-        # by :meth:`logging.Formatter.format` (which only re-formats
-        # ``exc_info`` when ``exc_text`` is unset), so caching the
-        # redacted version here is sufficient, no Formatter subclass
-        # required.  ``record.exc_info`` itself is left intact for
-        # structured-logging consumers that introspect the actual
-        # exception object.
         if record.exc_info:
             try:
                 tb_text = "".join(_traceback.format_exception(*record.exc_info))
@@ -1088,10 +762,6 @@ class PIIRedactionFilter(logging.Filter):
                 tb_text = ""
             if tb_text:
                 # escape_control_chars=False: tracebacks keep their
-                # structural newlines (multi-line readability). Their
-                # line breaks come from Python's traceback formatter,
-                # not from user-controlled payloads, so the HU-15 log-
-                # forging vector does not apply here.
                 record.exc_text = _redact_text(tb_text, escape_control_chars=False)
         return True
 
@@ -1162,74 +832,21 @@ def redact_pii(text: str) -> str:
         Text with PII patterns replaced by redaction tokens.
     """
     # step 0, redact the home-directory prefix unconditionally.
-    # This MUST run before the PII / secret / URL passes: a bare path
-    # like ``/home/alice/.voice-typer/foo.log`` carries no fast-path
-    # trigger and no PII token, so the downstream passes would leave
-    # the OS username intact, leaking it to the cloud LLM
-    # (``llm_polish.py``), diagnostic bundle (``redact_for_export``),
-    # hallucination filter, and config sanitizer. Mirrors the same
-    # step in :func:`_redact_text`.
     text = _redact_home_path_in_text(text)
     for pattern, replacement in PIIRedactionFilter._PATTERNS:
         text = pattern.sub(replacement, text)
     # also redact API keys / bearer tokens (idempotent on
-    # already-redacted text, the ``<prefix>***`` mask doesn't match
-    # the secret patterns).
     text = redact_secret(text)
     # also strip URL userinfo. Gated on ``"@" in text`` for
-    # the same perf reason as ``_redact_text``, the vast majority of
-    # inputs carry no ``@`` so the comparatively expensive
-    # ``urllib.parse.urlparse`` call is skipped.
     if "@" in text:
         text = redact_url(text)
     return text
 
 
-# The standalone ``_redact_pii`` helper that previously lived
-# here was a DUPLICATE of ``redact_pii`` above (lines 114-140) with
-# slightly different regex patterns and replacement tokens. Having two
-# parallel implementations of the same logic was a maintenance hazard
-# (Q5: parallel systems; Q10: not clean): see FORENSIC_REVIEW_COMPLETE.md
 # → SEC-009.
-#
-# Additionally, the ``_redact_pii`` regex patterns contained literal
-# backspace characters (``\x08``) where word-boundary ``\b`` was
-# intended, the function would never have matched anything in practice.
-#
-# The single canonical implementation is ``redact_pii(text)`` (above)
-# and the ``PIIRedactionFilter`` class (also above) which uses the same
-# compiled patterns. Use one of those two APIs for any new call site.
 
 
-# ─── PIIRedactionFilter on logging.lastResort ───────────────────────
-#
-# By default Python's logging module uses a "last resort" handler, a
-# StreamHandler writing to ``sys.stderr`` at WARNING level, when a
-# logger has no handlers configured anywhere in its ancestor chain.
-# Third-party libraries (``keyring``, ``urllib3``, ``websockets``,
-# ``asyncio``) typically do NOT call ``basicConfig`` or attach their
-# own handlers, so their WARNING/ERROR output flows through
-# ``logging.lastResort`` directly to stderr.
-#
-# Pre-fix, ``logging.lastResort`` had NO PII-redaction filter
-# attached. A buggy keyring backend that logged a credential value, or
-# a urllib3 exception whose message echoed a request URL with an API
-# key in the query string, would land in stderr (and any captured
 # stderr buffer) unredacted, defeating the SEC-009 /  redaction
-# that protects the rotating-file handler.
-#
-# The fix: replace ``logging.lastResort`` with a ``StreamHandler``
-# carrying the same ``PIIRedactionFilter`` used by the file/console
-# handlers in :func:`voice_typer.server.log.setup_logging`. This way
-# third-party logger output is subject to the same PII / secret
-# scrubbing as Voice Typer's own loggers.
-#
-# The function is idempotent and safe to call multiple times: it
-# always replaces ``lastResort`` with a fresh handler (no duplicate
-# filters accumulate). It runs at module import time so the protection
-# is in place as soon as :mod:`voice_typer.server.security` is loaded,
-# which happens early in app startup via the logging-setup import
-# chain.
 
 
 def install_lastresort_pii_filter() -> logging.Handler:
@@ -1261,9 +878,4 @@ def install_lastresort_pii_filter() -> logging.Handler:
 
 
 # Install at import time so the protection is in place as soon as the
-# security module is loaded, typically during
-# :func:`voice_typer.server.log.setup_logging`, which runs early in
-# app startup. Tests that want to assert the install happened can
-# re-invoke ``install_lastresort_pii_filter()`` or just inspect
-# ``logging.lastResort.filters`` directly.
 install_lastresort_pii_filter()

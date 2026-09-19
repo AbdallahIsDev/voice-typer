@@ -1,24 +1,4 @@
-"""Level worker thread for the level_monitor package ().
-
- (c-review PERF-03): the PortAudio callback previously ran
-the FULL filter chain (may include RNNoise, 5–50 ms per chunk on CPU),
-allocated squared + abs arrays for RMS/peak, and appended
-``indata.copy()`` to two test lists, all under ``_monitor_lock``.
-That violated the ~32 ms PortAudio deadline whenever the level monitor
-was active.
-
-The callback now does ONLY ``deque.append((indata.copy(), status))``
-+ ``Event.set()`` (~10 µs). All heavy work runs on the dedicated
-worker thread defined here (``_level_worker_loop``) that drains the
-ring buffer under ``_monitor_lock``: the same pattern used by
-``recording.py``'s audio callback since
-
-the worker's backstop ``wait()`` timeout was raised from 50 ms
-to 250 ms, the stop path already calls
-``_level_worker_wake_event.set()`` so stop latency is unaffected; the
-timeout only governs the "missed wakeup" recovery interval (a rare
-edge case). 250 ms cuts idle wakeups 5× with no functional change.
-"""
+"""Microphone level-monitor worker thread."""
 
 from __future__ import annotations
 
@@ -40,44 +20,17 @@ if TYPE_CHECKING:
 log = logging.getLogger("voice_typer.server.level_monitor")
 
 # How many ring-buffer chunks the level worker drains between
-# stop-event checks. Mirrors ``recording/capture.py``'s proven pattern:
-# without this, the drain loop burns up to ~3.2 s of solid CPU
-# (64 chunks × ~50 ms RNNoise each) before noticing a stop signal,
-# delaying ``_stop_level_worker``'s join past its 1.0 s timeout and
-# producing a misleading "did not exit within 1s" ERROR for a worker
-# that is simply draining. Checking every 4 chunks bounds the stop
-# latency to ~200 ms while keeping the per-iteration ``is_set()`` +
-# GIL-yield overhead negligible.
 _DRAIN_STOP_CHECK_INTERVAL = 4
 
 # Thread-registry names for the two long-lived daemons. Exported so
-# tests and app-level wiring can reference them without re-stringifying.
 LEVEL_WORKER_NAME = "level-monitor-worker"
 MIC_LEVEL_WORKER_NAME = "level-monitor-mic-level-worker"
 # Join timeouts used when registering with ThreadRegistry. Matches the
-# join timeout ``_stop_level_worker`` / ``_stop_mic_level_worker``
-# already use, so ``shutdown_all()`` waits the same amount of time.
 _WORKER_JOIN_TIMEOUT_S = 1.0
 
 
 def set_thread_registry(registry: Any | None) -> None:
-    """Install a central ThreadRegistry for shutdown coordination.
-
-    When called BEFORE either worker is started, the next
-    ``_ensure_level_worker_running`` / ``_ensure_mic_level_worker_running``
-    call will register the new worker.
-
-    When called AFTER a worker is already running, nothing retroactively
-    registers the live thread (mirrors the buffer-clear contract: the
-    setter is expected to run during app construction, before any
-    monitoring starts). Passing ``None`` clears the registry; subsequent
-    worker starts will not register.
-
-    Lives here (not in ``monitoring.py``) so both workers share one
-    registry pointer via ``_state._thread_registry`` and one public
-    setter. ``reset_for_tests`` wipes the pointer along with the rest of
-    the session state; tests that need a registry set it after reset.
-    """
+    """Install a central ThreadRegistry for shutdown coordination."""
     _state._thread_registry = registry
 
 
@@ -108,80 +61,19 @@ def _unregister_from_thread_registry(name: str) -> None:
         registry.unregister(name)
 
 
-# ─── : per-burst level-worker error counter ───────────────────────
 # ``_level_worker_loop`` catches ``Exception`` from ``_process_level_chunk``
-# at DEBUG so a single bad chunk doesn't kill the worker. Previously a
-# sustained failure mode (corrupted RNNoise model, numpy mismatch, filter
-# misconfiguration) was completely silent at default log levels, the
-# level bar would freeze with no WARNING / ERROR breadcrumb.  mirrors
-# the ``_dropped_level_chunks`` 5-second throttle pattern (which lives on
-# ``_state`` for test-poke compat): ``_level_worker_errors`` accumulates
-# per-chunk failures and is logged + reset every 5s (if >0); if the
-# per-second rate exceeds ``_LEVEL_WORKER_ERROR_RATE_THRESHOLD``, the log
-# escalates from WARNING to ERROR (operator-visible signal that the
-# filter chain is broken and the level bar is effectively frozen).
-#
-# These globals live on ``worker.py`` (not ``_state``) so the disjoint
-# fix for  stays within ``worker.py``. The worker thread is the
-# ONLY writer; ``int`` / ``float`` read + reset is atomic under
-# CPython's GIL, so no lock is needed (same rationale as
-# ``_dropped_level_chunks``). Tests in ``tests/test_level_monitor*.py``
-# access them via ``worker._level_worker_errors`` etc. (NOT via
-# ``lm._level_worker_errors``, which would require routing through the
-# package's custom ``_LevelMonitorModule`` ``__getattr__``).
 _level_worker_errors: int = 0
 _last_worker_error_log_time: float = 0.0
 _level_worker_error_window_start: float = 0.0
 _LEVEL_WORKER_ERROR_LOG_THROTTLE_SEC: float = 5.0
 _LEVEL_WORKER_ERROR_RATE_THRESHOLD: float = 10.0
 
-# ─── cumulative dropped-chunks counter ──────────────────────
 # ``_state._dropped_level_chunks`` is a per-burst delta: the RT callback
-# increments it on ring-buffer overflow, and the worker thread drains it
-# to 0 every 5s after logging. That makes it useless for cumulative
-# telemetry, a test that snapshots it before/after a single overflow
-# can flake if the worker drains between the snapshot and the check
-# (exactly the regression in
-# ``test_dropped_chunks_counter_incremented_on_ring_buffer_overflow``).
-#
-# This counter is the cumulative sibling: it is incremented by the
-# worker (NEVER by the RT callback) at the same time it drains the
-# per-burst counter, and it is NEVER reset in production. It survives
-# the 5s throttle and the worker's drain cycle, so it's the correct
-# field for "how many chunks has this process dropped since
-# ``start_monitoring`` was first called" telemetry.
-#
-# Module-level global (NOT on ``_state``) for two reasons:
-#   1. ``_state.py`` is outside this fix's owned files, so adding a new
-#      field to ``_State.__init__`` would require editing it. A worker.py
-#      global mirrors the existing ``_level_worker_errors`` pattern.
-#   2. ``_state.reset_for_tests`` wipes ``_state.__dict__`` (via
-#      ``__dict__.clear()``), which would silently evict any attribute
-#      added externally. A worker.py module-level global survives
-#      ``reset_for_tests`` and is reset explicitly by
-#      ``_reset_worker_error_state_for_tests`` (extended below) so test
-#      isolation is preserved.
-#
-# Tests access it via ``worker._total_dropped_level_chunks`` (mirroring
-# ``worker._level_worker_errors``). It is ALSO surfaced via
-# ``get_level_diagnostics()["total_dropped_level_chunks"]`` for any IPC
-# caller that wants the cumulative count alongside the per-burst delta.
 _total_dropped_level_chunks: int = 0
 
 
 def _reset_worker_error_state_for_tests() -> None:
-    """Reset the  per-burst error counter to its post-import defaults.
-
-    Mirrors ``_state.reset_for_tests`` for the worker-error sub-state.
-    Test fixtures call this between tests so a sustained-error test
-    doesn't leak its counter into a later test. Safe to call from any
-    thread (GIL-atomic int/float writes).
-
-    Also resets the cumulative ``_total_dropped_level_chunks``
-    counter so a drop-heavy test doesn't leak its total into the next
-    test's assertions. Production code NEVER resets this counter, only
-    this test-only helper does.
-    """
+    """Reset the  per-burst error counter to its post-import defaults."""
     global _level_worker_errors, _last_worker_error_log_time, _level_worker_error_window_start
     global _total_dropped_level_chunks
     _level_worker_errors = 0
@@ -191,32 +83,14 @@ def _reset_worker_error_state_for_tests() -> None:
 
 
 def _ensure_level_worker_running() -> None:
-    """Start the level worker thread if it isn't already running.
-
-    Idempotent: if a worker from a previous ``start_monitoring`` call is
-    still alive (e.g. test fixtures that reset module state without
-    calling ``stop_monitoring``), reuse it, the worker checks
-    ``_monitor_active`` inside its loop. Called from ``start_monitoring``
-    after the stream is opened + ``_monitor_active`` is set.
-
-    The worker is a daemon so it never blocks process exit;
-    ``stop_monitoring`` signals it via ``_level_worker_stop_event`` for
-    clean shutdown.
-    """
+    """Start the level worker thread if it isn't already running."""
     if _state._level_worker_thread is not None and _state._level_worker_thread.is_alive():
         # Worker still alive from a previous start_monitoring call —
-        # reuse it. Clear the stop event in case stop_monitoring was
-        # called and then start_monitoring was called again.
         _state._level_worker_stop_event.clear()
         return
     _state._level_worker_stop_event.clear()
     _state._level_worker_wake_event.clear()
     # Clear the ring buffer of any stale chunks from a previous session
-    # (mirrors ``recording/capture.py``: the previous worker has been
-    # stopped, so any chunks left in the buffer are orphans from a
-    # closed stream and must not bleed into the fresh worker's first
-    # iteration). Done BEFORE the thread is spawned so the new worker
-    # starts with an empty queue.
     _state._level_ring_buffer.clear()
     _state._level_worker_thread = threading.Thread(
         target=_level_worker_loop,
@@ -225,9 +99,6 @@ def _ensure_level_worker_running() -> None:
     )
     _state._level_worker_thread.start()
     # Register with the central ThreadRegistry (if one was set) so
-    # ``shutdown_all()`` can signal + join this worker even if the
-    # level_monitor teardown step is skipped under a shutdown deadline.
-    # Best-effort: a failing register() must not prevent monitoring.
     _register_with_thread_registry(
         LEVEL_WORKER_NAME,
         _state._level_worker_thread,
@@ -236,23 +107,7 @@ def _ensure_level_worker_running() -> None:
 
 
 def _stop_level_worker() -> None:
-    """Signal the level worker thread to stop and join it (best-effort).
-
-    Called from ``stop_monitoring``. Safe to call when the worker isn't
-    running (no-op). Joins with a short timeout so a stuck worker
-    doesn't block the caller, the worker is a daemon so it'll exit
-    when the process does.
-
-    If the worker fails to exit within the 1-second join timeout, the
-    thread slot (``_level_worker_thread``) is LEFT OCCUPIED. This
-    prevents ``_ensure_level_worker_running`` from spawning a duplicate
-    worker that would race the stuck thread for ``_level_ring_buffer``
-    pops (SPSC contract violation) and double-publish ``mic_level``
-    events. The stop event + ring-buffer clear below are skipped in
-    that case so the stuck worker still has a consistent view if it
-    eventually drains; the next ``_ensure_level_worker_running`` call
-    will reuse the (still-alive) thread instead of starting a new one.
-    """
+    """Signal the level worker thread to stop and join it (best-effort)."""
     thread = _state._level_worker_thread
     if thread is None:
         return
@@ -262,14 +117,6 @@ def _stop_level_worker() -> None:
         thread.join(timeout=1.0)
         if thread.is_alive():
             # Worker did not exit within the 1-second join timeout —
-            # likely stuck inside a long ``process_chunk`` call
-            # (RNNoise on a stalled CPU, a numpy deadlock, or a
-            # garbage-collection pause longer than 1 s). Leave the slot
-            # occupied so ``_ensure_level_worker_running`` reuses this
-            # thread instead of spawning a duplicate worker that would
-            # race it for the ring buffer (SPSC) and double-publish
-            # ``mic_level`` events. The operator-visible ERROR log
-            # surfaces the stuck worker so it isn't silently leaked.
             log.error(
                 "[LEVEL-MON] level worker thread did not exit within the "
                 "1s join timeout, leaving _level_worker_thread slot "
@@ -279,66 +126,20 @@ def _stop_level_worker() -> None:
             return
     _state._level_worker_thread = None
     # Clear the ring buffer after the worker has been joined so any
-    # chunks the worker didn't drain (e.g. because stop_monitoring was
-    # called between the worker's last drain and its exit) don't bleed
-    # into the next session's fresh worker. Mirrors the pattern in
-    # ``recording/capture.py``.
     _state._level_ring_buffer.clear()
     # Clear the stop event so the next _ensure_level_worker_running call
-    # can reuse the (now-stopped) thread slot for a fresh worker.
     _state._level_worker_stop_event.clear()
     # Remove the registry entry so a subsequent spawn re-registers
-    # cleanly without the "Re-registering name" warning. Safe when the
-    # worker was never registered (unregister is a no-op for unknown
-    # names) and when no registry is installed.
     _unregister_from_thread_registry(LEVEL_WORKER_NAME)
 
 
 def _level_worker_loop() -> None:
-    """Level worker thread main loop.
-
-    Consumes chunks from the SPSC ring buffer
-    (``_level_ring_buffer``) and runs the heavy processing pipeline
-    (filter chain via ``_level_processor``, RMS/peak smoothing, test
-    chunk accumulation + quality metrics). This thread is the SINGLE
-    consumer, the PortAudio callback is the single producer, so no
-    locks are needed for the ring buffer access
-    (``collections.deque`` append/popleft are atomic under CPython's
-    GIL for SPSC).
-
-    The shared monitor/test state (``_monitor_level``, ``_test_chunks``,
-    etc.) IS protected by ``_monitor_lock`` because
-    ``get_level()`` / ``stop_test_recording()`` read it from other
-    threads.
-
-    Shutdown: exits when ``_level_worker_stop_event`` is set. The
-    drain loop checks the stop event every
-    ``_DRAIN_STOP_CHECK_INTERVAL`` chunks so a stop during a long
-    catch-up drain is noticed within ~200 ms (mirrors
-    ``recording/capture.py``); remaining in-flight chunks are
-    sacrificed on stop (best-effort drain).
-
-    the backstop ``wait()`` timeout was 50 ms (pre-refactor).
-    Raised to 250 ms, the stop path already calls
-    ``_level_worker_wake_event.set()`` so stop latency is unaffected;
-    the timeout only governs the "missed wakeup" recovery interval
-    (a rare edge case when the audio device underflows or stalls).
-    250 ms cuts idle wakeups 5× with no functional change.
-    """
+    """Level worker thread main loop."""
     # ``global`` declarations for the per-burst error counter
-    # (defined at module top). Hoisted to the function header for
-    # readability. Python treats ``global`` as function-scoped
-    # regardless of where in the function the statement appears.
-    # ``_total_dropped_level_chunks`` is also declared global so
-    # the drain-block below can ``+=`` it (the worker is the ONLY
-    # writer in production; ``int +=`` is GIL-atomic on CPython).
     global _level_worker_errors, _last_worker_error_log_time, _level_worker_error_window_start
     global _total_dropped_level_chunks
     while True:
         # Wait for work or stop signal. : raised from 50 ms to
-        # 250 ms, the timeout only governs the missed-wakeup recovery
-        # interval (stop latency is unaffected because ``_stop_level_worker``
-        # calls ``_level_worker_wake_event.set()``).
         if not _state._level_worker_stop_event.is_set():
             _state._level_worker_wake_event.wait(
                 timeout=_state._LEVEL_WORKER_BACKSTOP_TIMEOUT_SEC,
@@ -346,17 +147,6 @@ def _level_worker_loop() -> None:
         _state._level_worker_wake_event.clear()
 
         # Drain all available chunks. Each chunk is processed by
-        # _process_level_chunk which does the heavy lifting.
-        #
-        # Check the stop event every ``_DRAIN_STOP_CHECK_INTERVAL``
-        # chunks so a stop signal during a long catch-up drain (the ring
-        # buffer holds up to 64 chunks ≈ 2 s of audio, each chunk can
-        # take ~50 ms under RNNoise → up to 3.2 s of solid CPU) is
-        # noticed within ~200 ms instead of burning the full drain.
-        # On stop we bail out immediately (sacrificing in-flight chunks,
-        # the same accepted trade-off as the recording worker's
-        # best-effort drain). ``time.sleep(0)`` yields the GIL to reduce
-        # CPU burn on long drains. Mirrors ``recording/capture.py``.
         _drain_count = 0
         while True:
             try:
@@ -367,21 +157,6 @@ def _level_worker_loop() -> None:
                 _process_level_chunk(*chunk_data)
             except Exception:
                 # Log and continue, a single bad chunk must NOT kill
-                # the worker (otherwise all subsequent level updates are
-                # lost until the next start_monitoring).
-                #
-                # previously this branch ONLY logged at DEBUG, so
-                # a sustained failure mode (corrupted RNNoise model,
-                # numpy mismatch, filter misconfiguration) was completely
-                # silent at default log levels, the level bar would
-                # freeze with no operator-visible breadcrumb. We now
-                # also increment ``_level_worker_errors`` (module-level
-                # counter, declared ``global`` at the top of this
-                # function) and surface it via the throttled
-                # WARNING/ERROR block below (mirrors
-                # ``_dropped_level_chunks``). The per-chunk DEBUG log is
-                # retained so a full traceback is still available at
-                # DEBUG level for diagnosis.
                 if _level_worker_error_window_start == 0.0:
                     _level_worker_error_window_start = time.monotonic()
                 _level_worker_errors += 1
@@ -393,23 +168,10 @@ def _level_worker_loop() -> None:
             if _drain_count % _DRAIN_STOP_CHECK_INTERVAL == 0:
                 if _state._level_worker_stop_event.is_set():
                     # Bail out of the drain early (sacrifice in-flight
-                    # chunks) but ``break`` rather than ``return`` so
-                    # the post-drain bookkeeping below still runs: the
-                    # dropped-chunks / error-throttle counters must be
-                    # folded into their cumulative totals even on a
-                    # stop, and the trailing ``if stop: return`` then
-                    # exits cleanly.
                     break
                 time.sleep(0)  # yield GIL to reduce CPU burn
 
         # throttled log of dropped chunks. The counter is
-        # incremented in the PortAudio callback (RT thread) when the
-        # ring buffer overflows; we log it every 5s (if >0) and reset.
-        # ``int`` read + reset is atomic under CPython's GIL, so no
-        # lock is needed here. The 5s throttle prevents log spam under
-        # sustained overload (e.g. RNNoise taking 50ms/chunk on a slow
-        # CPU -> 100% drop rate -> would otherwise log on every 50ms
-        # iteration = 20 logs/sec).
         if _state._dropped_level_chunks > 0:
             now = time.monotonic()
             if (now - _state._last_drop_log_time) >= 5.0:
@@ -417,18 +179,8 @@ def _level_worker_loop() -> None:
                 _state._dropped_level_chunks = 0
                 _state._last_drop_log_time = now
                 # Accumulate the per-burst drop count into the
-                # cumulative counter BEFORE resetting the per-burst
-                # delta. The cumulative counter is NEVER reset in
-                # production (only by the test-only
-                # ``_reset_worker_error_state_for_tests`` helper), so
-                # it gives IPC callers a stable "drops since
-                # ``start_monitoring`` first ran" total, independent
-                # of the 5s throttle cycle that resets the per-burst
-                # delta. ``int += int`` is GIL-atomic on CPython, so
-                # no lock is needed (the worker is the ONLY writer).
                 _total_dropped_level_chunks += dropped
                 # Re-arm the RT-callback one-shot latch so the
-                # next burst of drops surfaces its first-drop warning.
                 _state._first_drop_warning_emitted = False
                 log.warning(
                     "[LEVEL-MON] %d audio chunks dropped in the last ~5s "
@@ -439,16 +191,6 @@ def _level_worker_loop() -> None:
                 )
 
         # throttled log of per-chunk processing errors. Mirrors
-        # the ``_dropped_level_chunks`` 5-second throttle pattern above:
-        # the counter is incremented in the drain loop's ``except``
-        # branch when ``_process_level_chunk`` raises; we log it every
-        # 5s (if >0) and reset. The per-second rate (errors / window
-        # elapsed since the first error of this burst) selects WARNING
-        # vs ERROR, a rate above
-        # ``_LEVEL_WORKER_ERROR_RATE_THRESHOLD`` (default 10/sec, i.e.
-        # >60% of chunks failing at the ~16 Hz block rate) escalates to
-        # ERROR so a frozen level bar surfaces at default log levels
-        # instead of being silently swallowed at DEBUG.
         if _level_worker_errors > 0:
             now = time.monotonic()
             if (now - _last_worker_error_log_time) >= _LEVEL_WORKER_ERROR_LOG_THROTTLE_SEC:
@@ -456,13 +198,9 @@ def _level_worker_loop() -> None:
                 window_start = _level_worker_error_window_start
                 if window_start == 0.0:
                     # Defensive: errors > 0 implies the drain-loop
-                    # ``except`` branch set this. Fall back to ``now``
-                    # so the rate computation doesn't divide by zero.
                     window_start = now
                 elapsed = max(now - window_start, 1e-6)
                 # Reset before logging so a concurrent error (the
-                # worker is the only writer; this is GIL-safe) doesn't
-                # double-count into the next window.
                 _level_worker_errors = 0
                 _level_worker_error_window_start = 0.0
                 _last_worker_error_log_time = now
@@ -492,50 +230,12 @@ def _level_worker_loop() -> None:
                     )
 
         # idle-timeout auto-stop. If no IPC ``get_level`` poll
-        # has been received in ``_state._LEVEL_IDLE_TIMEOUT_SEC``
-        # seconds (default 60.0), auto-stop the stream. The tray bubble
-        # is likely hidden; the level bar isn't visible. The next
-        # ``start_monitoring`` / ``get_level`` poll will re-start it.
-        # This prevents the RNNoise filter chain from pegging a core
-        # when the frontend forgot to call ``level_monitor_stop``.
-        # Lazy import to avoid a top-level circular dependency
-        # (monitoring.py imports worker.py for _ensure_level_worker_running).
         from .monitoring import _idle_timeout_auto_stop
 
         if _idle_timeout_auto_stop():
             # idle-timeout closed the stream. Exit the worker
-            # loop so the thread terminates, eliminates the 4 Hz idle
-            # wakeups (250 ms backstop ``wait()`` timeout × forever)
-            # that would otherwise drain the battery on an idle laptop
-            # (~345k idle wakeups/day). The next ``start_monitoring``
-            # call spawns a fresh worker via
-            # ``_ensure_level_worker_running`` (thread creation is
-            # ~1 ms, negligible vs. the 60 s idle window).
-            #
-            # Race-safety: clear ``_level_worker_thread`` BEFORE
-            # returning so a concurrent ``start_monitoring`` call's
-            # ``_ensure_level_worker_running`` sees "no worker" and
-            # spawns a fresh one. Relying solely on ``is_alive()``
-            # would race: between this point and the thread actually
-            # exiting, ``is_alive()`` is still True, so
-            # ``_ensure_level_worker_running`` would mistakenly reuse
-            # the exiting thread and the new stream's chunks would have
-            # no consumer (frozen level bar).
-            #
-            # SPSC safety: at this point the worker has already exited
-            # its drain loop above (the last ``_level_ring_buffer.popleft()``
-            # call is long past) and is past the last shared-state
-            # write. Clearing the slot here cannot cause a duplicate
-            # consumer because the new worker (if spawned) is the only
-            # thread popping from ``_level_ring_buffer``; this thread is
-            # about to exit and will never pop again. The
-            # ``_ensure_level_worker_running`` clear of the ring buffer
-            # (on fresh-worker spawn) eliminates any residual chunks
-            # from the closed stream so the new worker starts clean.
             _state._level_worker_thread = None
             # Natural exit: drop the registry entry so ``shutdown_all()``
-            # doesn't try to join a thread that already finished, and so
-            # the next spawn re-registers cleanly.
             _unregister_from_thread_registry(LEVEL_WORKER_NAME)
             return
 
@@ -578,10 +278,6 @@ def _process_level_chunk(indata: np.ndarray, status: Any) -> None:
         log.debug("[LEVEL-MON] PortAudio status: %s", status)
 
     # snapshot shared state under the lock (quick). The heavy
-    # computation below reads these but doesn't write them; re-checking
-    # ``_monitor_active`` and ``_test_mode`` under the lock at write
-    # time guards against a concurrent stop_monitoring() /
-    # stop_test_recording() that flips the flags while we're computing.
     with _state._monitor_lock:
         active = _state._monitor_active
         test_mode = _state._test_mode
@@ -589,69 +285,36 @@ def _process_level_chunk(indata: np.ndarray, status: Any) -> None:
         return
 
     # -- Heavy work OUTSIDE the lock --
-    # ``_level_processor.process_chunk`` can take 5-50 ms
-    # (RNNoise on CPU). Holding ``_monitor_lock`` during that time
-    # would block ``get_level()`` (called by the IPC handler on the
-    # main thread) and ``stop_test_recording()`` -- visible as a frozen
-    # level bar / mic-test-stop latency. The lock is acquired only for
-    # the shared-state writes below.
     flat = indata.ravel()
     rms: float | None = None
     peak: float | None = None
     raw_rms_for_quality: float | None = None
     raw_peak_for_quality: float | None = None
     # filtered audio to append to ``_test_filtered_chunks``
-    # under the lock. Populated ONLY when a live processor is active
-    # and returned non-None (otherwise the post-hoc filter at stop
-    # time handles the "after" WAV). Computed outside the lock (the
-    # ``.copy()`` is cheap, 512 float32 = 2 KB).
     filtered_chunk_for_test: np.ndarray | None = None
     if len(flat) > 0:
         # Lightweight level-bar mode. When ``_level_bar_filtered``
-        # is False (default) AND ``_test_mode`` is False, SKIP the
-        # filter chain, compute RMS/peak on RAW audio only. The filter
-        # chain (which may include RNNoise, 5-50 ms per chunk on CPU)
-        # is wasted work for the cosmetic level bar (the user just
-        # wants to see "is the mic picking up sound?"), and running it
-        # at 31-94 Hz pegs a core for a non-functional visualization.
-        #
-        # The filter chain STILL runs when ``_test_mode`` is True (the
-        # test's "after" WAV needs the filtered audio) OR when the user
-        # has explicitly opted in via ``_level_bar_filtered = True``.
         processor = _state._level_processor
         run_filter_chain = processor is not None and (test_mode or _state._level_bar_filtered)
         if run_filter_chain:
             filtered = processor.process_chunk(indata.reshape(-1, 1))
             # ``process_chunk`` may return ``None`` to pass-through
-            # (e.g. when the filter chain is disabled at runtime).
             flat_filtered = filtered.ravel() if filtered is not None else flat
             if flat_filtered.size > 0:
                 rms = float(np.sqrt(np.dot(flat_filtered, flat_filtered) / flat_filtered.size))
             else:
                 rms = 0.0
             # capture the filtered audio for the test's
-            # "after" WAV so stop_test_recording doesn't need to
-            # re-run the filter chain synchronously (7-70s block).
-            # ``flat_filtered`` may be a view of ``filtered`` (fresh
-            # array) or of ``indata`` (when ``filtered is None``);
-            # ``.copy()`` defends against both aliasing the RT
-            # callback's reusable buffer and the post-stop mutation
-            # of a transient array.
             if test_mode and filtered is not None:
                 filtered_chunk_for_test = flat_filtered.copy()
         else:
             # No live processor, OR cosmetic-bar-only mode: use the raw
-            # flat block for both RMS and peak (no extra allocation
-            # needed, no filter chain cost).
             flat_filtered = flat
             rms = float(np.sqrt(np.dot(flat, flat) / flat.size)) if flat.size > 0 else 0.0
         # Allocation-free peak: max(abs(x)) is computed as max(max(x), -min(x))
-        # so no temporary ``np.abs`` array is allocated per chunk.
         peak = max(float(flat_filtered.max()), -float(flat_filtered.min())) if flat_filtered.size > 0 else 0.0
 
         # compute test-quality metrics from RAW audio outside
-        # the lock too (np.sqrt/mean/square on a 512-sample block is
-        # cheap but still RT-relevant under load).
         if test_mode:
             if flat.size > 0:
                 raw_rms_for_quality = float(np.sqrt(np.dot(flat, flat) / flat.size))
@@ -661,10 +324,6 @@ def _process_level_chunk(indata: np.ndarray, status: Any) -> None:
                 raw_peak_for_quality = 0.0
 
     # -- Shared-state writes UNDER the lock (quick) --
-    # only the writes to ``_monitor_level``, ``_monitor_peak``,
-    # ``_test_raw_chunks`` (append), ``_test_filtered_chunks`` (append),
-    # and the quality-metric lists are lock-protected. These are all
-    # O(1) -- the heavy work is done.
     with _state._monitor_lock:
         if not _state._monitor_active:
             return  # monitor stopped while we were computing
@@ -679,21 +338,12 @@ def _process_level_chunk(indata: np.ndarray, status: Any) -> None:
             _state._monitor_peak *= 0.85
 
         # If a test recording is active, also accumulate audio.
-        # ``_test_raw_chunks`` holds the RAW audio ("before" WAV).
-        # ``_test_filtered_chunks`` holds the FILTERED audio
-        # ("after" WAV), populated only when a live processor was
-        # active for this chunk. ``_test_chunks`` is NOT populated
-        # (kept as a backward-compat shim).
         if _state._test_mode and len(flat) > 0:
             # Track quality metrics from RAW audio (not filtered)
-            # so the quality report reflects the true mic input
-            # independent of any active filter settings.
             if raw_rms_for_quality is not None:
                 _state._test_raw_chunks.append(indata.copy())
                 _state._test_rms_history.append(raw_rms_for_quality)
             # append the filtered chunk (if captured) so
-            # stop_test_recording can build the "after" WAV without
-            # re-running the filter chain synchronously.
             if filtered_chunk_for_test is not None:
                 _state._test_filtered_chunks.append(filtered_chunk_for_test)
             if raw_peak_for_quality is not None:
@@ -706,23 +356,12 @@ def _process_level_chunk(indata: np.ndarray, status: Any) -> None:
             _state._consecutive_zero_chunks += 1
             if _state._consecutive_zero_chunks >= _state._LEVEL_ZERO_CHUNK_DISCONNECT_THRESHOLD:
                 # Local import to avoid a top-level circular dependency
-                # (monitoring.py imports worker.py for _ensure_level_worker_running).
                 from .monitoring import _emit_device_lost
 
                 _emit_device_lost("zero_chunks")
         else:
             _state._consecutive_zero_chunks = 0
         # Push the DISPLAY values, not the raw chunk values. The
-        # ``mic_level`` push event replaced the 10 Hz
-        # ``microphone_test_get_level`` poll on the Microphone page, and
-        # that poll returned the EMA-smoothed level scaled by
-        # ``_LEVEL_DISPLAY_GAIN`` (see ``monitoring.get_level``). Pushing
-        # the raw instantaneous RMS here made every push frame 8x smaller
-        # than the poll value the UI was built against, the live meter
-        # collapsed to ~0% for normal speech levels right after the
-        # one-shot fallback poll seeded it with the scaled first read.
-        # Mirror ``get_level`` exactly: same smoothed state, same gain,
-        # same 1.0 cap.
         if _state._monitor_active and rms is not None and peak is not None:
             from .monitoring import _push_mic_level
 

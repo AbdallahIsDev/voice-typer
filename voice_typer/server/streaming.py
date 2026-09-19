@@ -15,11 +15,6 @@ from typing import Any
 from voice_typer.server._lazy_import import lazy_module
 
 # Token-key normalizer: the MEMOIZED helper shared with text_cleanup is
-# the single authoritative definition (``text_cleanup._engine._token_key``,
-# lru_cache over the precompiled ``^\W+|\W+$`` regex). Streaming previously
-# carried its own uncached ``_word_key`` duplicate; the assembler normalizes
-# every committed word AND every near-duplicate probe, so the shared
-# thread-safe LRU amortizes the repeated function-word/punctuation keys.
 from voice_typer.server.text_cleanup import _token_key
 
 np = lazy_module("numpy")
@@ -53,10 +48,7 @@ def _is_view_of_live_recorder_audio(recorder: Any, arr: Any) -> bool:
     cached = getattr(recorder, "_cached_resampled", None)
     if cached is not None and base is cached:
         return True
-    # STATE-OWNERSHIP: the recording buffer lives on the owning
-    # ``AudioPipeline``: read it through the owner path with the same
     # defensive getattr chain (mock/fake recorders in tests may not
-    # construct the pipeline).
     pipeline = getattr(recorder, "_audio_pipeline", None)
     buf = getattr(pipeline, "_buffer", None)
     storage = getattr(buf, "storage", None) if buf is not None else None
@@ -104,23 +96,18 @@ class AudioWindow:
         if not isinstance(other, AudioWindow):
             return NotImplemented
         # PERF-EQ: compare scalar fields first (O(1)); only compare
-        # array identity (is), not contents. Full array comparison
-        # should be done explicitly in tests with np.array_equal().
         if self.start_seconds != other.start_seconds or self.end_seconds != other.end_seconds:
             return False
         # Same object or same underlying buffer → equal
         if self.audio is other.audio:
             return True
         # Different objects with same scalars, compare shapes then hash
-        # for a fast rejection. Full content comparison is O(n) and
-        # should only be done in test utilities, not production code.
         if self.audio.shape != other.audio.shape:
             return False
         return bool(np.array_equal(self.audio, other.audio))
 
     def __hash__(self) -> int:
         # hash on the scalar fields; audio is unhashable but
-        # callers only need equality, not set/dict membership.
         return hash((self.start_seconds, self.end_seconds))
 
 
@@ -157,35 +144,6 @@ class AudioWindowPlanner:
         start_sample = int(round(requested_start_seconds * sample_rate))
         end_sample = int(round(end_seconds * sample_rate))
         # PROVENANCE INVARIANT, read before touching this window slice:
-        # the ``audio`` parameter is a LIVE VIEW into the recorder's
-        # internal buffers, NOT a fresh copy. Per
-        # ``recording/_recorder_split.py`` (snapshot provenance contract,
-        # ``snapshot()`` returns ``buf.view()`` / ``_cached_resampled[:len]``
-        #: see the invariant comment at the snapshot's allocation site),
-        # ``Recorder.snapshot()`` returns a view over the recorder-owned
-        # storage (the raw ring buffer or ``_cached_resampled``); window
-        # slices of it are nested views whose ``.base`` chain still roots
-        # at the recorder's buffer.
-        #
-        # The zero-clear guard (``_is_view_of_live_recorder_audio`` + the
-        # ``audio.fill(0)`` gate in the streaming teardown) is therefore
-        # LOAD-BEARING: it prevents zeroing memory the recorder (or the
-        # resample cache feeding the next snapshot) is still reading —
-        # the past-corruption bug documented in the teardown's finally
-        # block. The gate works because numpy reports the ROOT buffer as
-        # ``.base`` for simple slices of views: the identity comparison
-        # against the recorder's storage / cache catches the whole view
-        # chain. Do NOT reshape / fancy-index the snapshot without
-        # revisiting that gate (both break the root-``.base`` property),
-        # and do NOT "simplify away" the guard on the belief that the
-        # snapshot is a private copy, it is not.
-        #
-        # (The explicit ``.copy()`` that used to sit here was removed as
-        # redundant: it copied 768 KB (1.5 s of float32 audio) on every
-        # snapshot call (16 Hz → 12 MB/s of allocation pressure). The
-        # view is safe for transcription because (a) faster-whisper does
-        # not modify its input, and (b) AudioWindow is frozen so callers
-        # cannot reassign ``.audio``.)
         window = AudioWindow(
             audio=audio[start_sample:end_sample],
             start_seconds=requested_start_seconds,
@@ -230,8 +188,6 @@ class AudioWindowPlanner:
             if rms < best_rms:
                 best_rms = rms
                 # use end of the quietest frame (index +
-                # len(frame)) as the boundary, not the center. This
-                # marks where the next voice segment should begin.
                 best_index = index + len(frame)
 
         if best_index is None or best_rms > self.config.silence_threshold:
@@ -244,33 +200,15 @@ class StreamingTextAssembler:
     """Commit timestamped words only after they are outside the unsafe tail."""
 
     # cap _words to prevent unbounded growth. Pre-fix this
-    # used a plain ``list`` with ``pop(0)`` eviction (O(n) per eviction
-    # , every eviction shifted up to 9999 pointers). Now we use a
-    # ``collections.deque(maxlen=_MAX_WORDS)`` for O(1) eviction plus
-    # a ``_base_offset`` counter so the external ``_word_key_index``
-    # stores ABSOLUTE indices that don't shift on eviction.
     _MAX_WORDS = 10000
     # per-key bounded deque maxlen for _word_key_index. 8 entries
-    # cover ~2-8s of history per token (words arrive every 0.3-1s), well
-    # beyond the 0.25s near-duplicate window checked in
-    # ``_has_near_duplicate_unlocked``.
     _WORD_KEY_INDEX_MAXLEN = 8
     _words: collections.deque[WordTiming] = field(
         default_factory=lambda: collections.deque(maxlen=StreamingTextAssembler._MAX_WORDS)
     )
     # number of items evicted from the front of ``_words``.
-    # External indices stored in ``_word_key_index`` are absolute
-    # (= base_offset + deque_index); we convert to deque index at
-    # access time via ``abs_idx - _base_offset``. This makes eviction
-    # O(1), no need to shift every stored index by 1.
     _base_offset: int = 0
-    # hard cap on the dedup set, a 30-min session typically
-    # produces 5-10k timestamps so 50k entries is a generous upper
-    # bound that still keeps memory bounded for runaway sessions.
     # RACE-031: the seen-timestamps set is the streaming dedup
-    # contention approximation — add_words batches candidates outside
-    # the lock, then holds it only for the O(k) insert loop (k~5-20).
-    # Bench: bench/bench_streaming.py. Pin: tests/test_streaming_timestamps_cap.py.
     _MAX_SEEN_TIMESTAMPS = 50000
     _seen_timestamps: set[tuple[float, float]] = field(default_factory=set)
     _word_key_index: dict[str, collections.deque[int]] = field(default_factory=dict)
@@ -287,9 +225,6 @@ class StreamingTextAssembler:
             if not self._words_dirty and self._committed_text_cache is not None:
                 return self._committed_text_cache
             # PERF- sort at read time since we deferred sorting
-            # in _insert_word_unlocked.  Words are approximately in
-            # order from streaming, so this is a near-sorted sort (fast).
-            # deque has no .sort(); convert to list first.
             words_list = list(self._words)
             words_list.sort(key=lambda w: (w.start_seconds, w.end_seconds))
             self._committed_text_cache = " ".join(word.word for word in words_list)
@@ -312,24 +247,7 @@ class StreamingTextAssembler:
         words: Iterable[WordTiming],
         commit_horizon_seconds: float,
     ) -> str:
-        # Collect words to add into a local list outside the
-        # lock, then acquire lock briefly to extend the shared data
-        # structures, rather than holding the lock for the entire loop.
-        # This reduces contention when streaming chunks arrive while a
-        # finalize() or get_transcript() call is in progress.
         # RACE-031: batch-then-lock is the contention approximation.
-        #
-        # Design decision: the lock is still held for the full insertion
-        # loop in _add_words_unlocked(), which is O(k) for k words.
-        # This is acceptable because:
-        #   (a) k is typically small (5-20 words per streaming chunk),
-        #       so the lock hold time is microseconds, not seconds;
-        #   (b) the per-word work inside the lock is cheap (dict lookup,
-        #       list append, set add), no I/O or GPU calls;
-        #   (c) the alternative (fine-grained per-word locking) would add
-        #       complexity and risk deadlocks for negligible gain.
-        # If streaming chunk sizes grow significantly (hundreds of words),
-        # consider batching inserts and releasing the lock between batches.
         candidates = []
         for word in words:
             if word.end_seconds > commit_horizon_seconds:
@@ -348,15 +266,6 @@ class StreamingTextAssembler:
         commit_horizon_seconds: float,
     ) -> str:
         # hard-cap on the dedup set BEFORE the loop. The
-        # ``_words`` deque has ``maxlen=10000`` but
-        # ``_seen_timestamps`` is a plain ``set``: a 30-min
-        # session with periodic re-emits of the same timestamps
-        # could otherwise grow the dedup set unbounded between
-        # calls. Reset to a fresh set when the cap is exceeded
-        # so the loop starts with a clean slate. 50k entries
-        # is a generous upper bound (well above the typical 5-50
-        # unique timestamps per finalize) so the worst case is a
-        # one-time ~few-MB allocation, not unbounded growth.
         if len(self._seen_timestamps) > self._MAX_SEEN_TIMESTAMPS:
             self._seen_timestamps = set()
         committed: list[str] = []
@@ -391,17 +300,11 @@ class StreamingTextAssembler:
             # invalidate cached text on mutation
             self._words_dirty = True
         # Prune committed words that are well before the commit horizon
-        # Only prune when commit_horizon is finite (not inf from finalize)
         if math.isfinite(commit_horizon_seconds):
             prune_threshold = commit_horizon_seconds - 5.0
             if prune_threshold > 0:
                 self._prune_old_entries(prune_threshold)
         # when ``commit_horizon_seconds == math.inf`` (the
-        # ``finalize()`` path), ``_prune_old_entries`` short-circuits
-        # because its threshold would be ``math.inf - 5.0``. The
-        # hard cap is now applied BEFORE the for loop
-        # (above) so it covers both the per-chunk and
-        # finalize() paths uniformly.
         return " ".join(committed)
 
     def _prune_old_entries(self, threshold: float) -> None:
@@ -428,9 +331,6 @@ class StreamingTextAssembler:
             return
         self._seen_timestamps = new_timestamps
         # do NOT rebuild _word_key_index, it's keyed on
-        # distinct words and indexed by _words position, which never
-        # gets pruned. The previous rebuild was O(n) per prune with
-        # no benefit.
 
     def _insert_word_unlocked(self, word: WordTiming):
         """Insert a word, maintaining sorted order.
@@ -446,19 +346,11 @@ class StreamingTextAssembler:
         _MAX_WORDS, evict the oldest entry and log a warning.
         """
         # detect imminent eviction BEFORE appending so we
-        # can log which word is being evicted and adjust indices.
         if self._words.maxlen is not None and len(self._words) >= self._words.maxlen:
             # Peek the leftmost item; deque.append will evict it.
             evicted_word = self._words[0]
             evicted_absolute_idx = self._base_offset  # current offset → 0 in deque
             #  do NOT log evicted_word.word at any level —
-            # that leaks user speech content into persistent log files
-            # (the WARNING log is shown by default; the DEBUG log fires
-            # whenever a support workflow bumps the root logger to DEBUG,
-            # which is common for support tickets). Log only the
-            # structural fact (max + index) at WARNING, plus a PII-safe
-            # char-count metric at DEBUG so developers can still
-            # diagnose eviction storms without seeing the user's speech.
             log.warning(
                 "[STREAMING] Word list exceeded %d entries; evicted oldest (idx=%d)",
                 self._MAX_WORDS,
@@ -469,16 +361,8 @@ class StreamingTextAssembler:
                 len(evicted_word.word),
             )
             # Bump base offset so all future absolute-index → deque-index
-            # conversions account for the eviction.
             self._base_offset += 1
             # Drop the index entry pointing at the evicted word. Other
-            # indices stay valid (they're absolute, not relative).
-            # _word_key_index values are bounded deques (maxlen=
-            # _WORD_KEY_INDEX_MAXLEN) so a single key can never accumulate
-            # more than a handful of recent indices. Iteration + filter
-            # is therefore bounded per-key by the deque maxlen, the
-            # per-eviction cost is O(MAXLEN × distinct_keys) instead of
-            # O(session_word_count × distinct_keys).
             for key, indices in list(self._word_key_index.items()):
                 if evicted_absolute_idx in indices:
                     new_indices = collections.deque(
@@ -490,14 +374,6 @@ class StreamingTextAssembler:
                     else:
                         del self._word_key_index[key]
             # also drop the evicted word's (start, end) timestamp
-            # from ``_seen_timestamps`` so the dedup set is bounded by
-            # the deque maxlen. Pre-fix this was only cleaned up by
-            # ``_prune_old_entries``, which short-circuits on
-            # ``commit_horizon_seconds == math.inf`` (the ``finalize()``
-            # path), so under inf commit-horizon the set grew linearly
-            # with the number of unique timestamps added, even though
-            # ``_words`` was correctly bounded. Use the same 3-decimal
-            # rounding as ``_add_words_unlocked`` so the key matches.
             evicted_ts_key = (
                 round(evicted_word.start_seconds, 3),
                 round(evicted_word.end_seconds, 3),
@@ -510,15 +386,6 @@ class StreamingTextAssembler:
         self._words.append(word)
         if key:
             # use a bounded deque (maxlen=_WORD_KEY_INDEX_MAXLEN)
-            # instead of an unbounded list. Near-duplicate detection
-            # (_has_near_duplicate_unlocked) only needs the last few
-            # occurrences within 0.25s, words arrive every 0.3-1s, so
-            # 8 entries cover ~2-8s of history per token, well beyond
-            # the 0.25s near-duplicate window. The previous unbounded
-            # list retained one int per committed word for the entire
-            # session lifetime (e.g. 10000 ints per recurring token in
-            # a 10000-word session), so this change caps per-key
-            # memory at O(MAXLEN) regardless of session length.
             existing = self._word_key_index.get(key)
             if existing is None:
                 self._word_key_index[key] = collections.deque((absolute_idx,), maxlen=self._WORD_KEY_INDEX_MAXLEN)
@@ -675,7 +542,6 @@ class PartialTranscriptionBroadcaster:
         now = self._clock()
         if not force and (now - self._last_publish_ts) < self._min_interval_seconds:
             # Too soon, put the text back (a later drain publishes the
-            # newest value; repeated pushes overwrite the slot).
             with self._lock:
                 if self._pending_text is None:
                     self._pending_text = text
@@ -699,18 +565,7 @@ class PartialTranscriptionBroadcaster:
                 exc_info=True,
             )
             return
-        # Mirror into the bubble channel: both runtimes forward
-        # ``bubble_set_state`` to the sandboxed bubble renderer, whose
-        # state machine renders the payload's optional ``transcript``
-        # field as live text in the pill. The bubble
-        # cannot subscribe to ``transcription_partial`` directly
         # (SEC-026, no python bridge inside the sandboxed bubble
-        # window), so this dual publish is what paints the words.
-        #
-        # Skipped for forced flushes (``finalize()``) and after
-        # ``stop()``: by then the recording lifecycle has already
-        # moved the pill to ``transcribing``/``idle``, and a late
-        # ``state:"recording"`` mirror would flip it back mid-flight.
         if force or self._stopped:
             return
         try:
@@ -752,8 +607,6 @@ class StreamingTranscriptionSession:
         self.planner = AudioWindowPlanner(config)
         self.assembler = StreamingTextAssembler()
         # Live-preview publisher: coalesces committed text into
-        # ``transcription_partial`` push events (latest-value-wins,
-        # ≤4 Hz, unchanged/empty suppressed) off the streaming loop.
         self._partial_broadcaster = PartialTranscriptionBroadcaster(
             cycle_id=cycle_id,
         )
@@ -761,48 +614,19 @@ class StreamingTranscriptionSession:
         self._stopped_event = threading.Event()
         self._thread: threading.Thread | None = None
         # set to True if Thread.start() raises; cancel() checks
-        # this to avoid waiting on a thread that never started.
         self._thread_start_failed: bool = False
         self._fallback_required = False
         # guard _consecutive_failures with a lock, it's
-        # incremented from the worker thread and read/cleared from the
-        # main thread. Integer increment is atomic in CPython but the
-        # read-modify-write (read → compare → reset) is not.
         self._consecutive_failures_lock = threading.Lock()
         self._consecutive_failures = 0
         self._max_consecutive_failures = 3
         self._finalizing = False
         # THREAD-REGISTRY: optional central registry for shutdown
-        # coordination. When provided, the streaming worker thread is
-        # registered so ``shutdown_all()`` can signal and join it during
-        # ``VoiceTyperApp.quit()``. When ``None`` (e.g. in unit tests),
-        # behavior is unchanged, the worker is still tracked locally
-        # via ``self._thread`` and stopped by ``cancel()`` / ``finalize()``.
         self._thread_registry = thread_registry
         self._cycle_id = cycle_id
         # Residual fence: zero-arg callable returning True when the
-        # captured transcriber's backend is BUSY inside another thread's
-        # C-level inference call (wired from the registry's is_busy by the
-        # coordinator). PRIMARY scenario is same-cycle overlap: finalize()
-        # joins the streaming worker only up to ~10s, so a merely SLOW
-        # worker transcription call (CPU fallback, cloud latency, large
-        # audio) can still be in flight at finalize time, re-entering
-        # the engine concurrently is the ctranslate2 race the fence
-        # prevents; finalize() degrades to committed-only text.
-        # NOT a post-force-recovery guard: ModelManager.force_unload_active()
-        # force-clears the busy flag AND drops the registry slot, so after
-        # force-recovery is_busy(active_name) is False even while the
-        # orphaned thread runs (and the next cycle captures a fresh engine
-        # instance anyway). ``None`` (all existing tests) disables the check.
         self._busy_check = busy_check
         # optional local engine forwarded to
-        # ``transcriber.transcribe_with_fallback`` at finalize time so
-        # the cloud→local fallback path actually fires when the active
-        # transcriber is a CloudEngine and the cloud provider is
-        # unreachable.  ``None`` (the default, including all existing
-        # unit tests) preserves the previous behavior, the kwarg is
-        # accepted by every backend's ``transcribe_with_fallback`` and
-        # ignored by backends that don't need it (Whisper/Parakeet/Qwen).
         self._local_engine = local_engine
 
     @property
@@ -832,11 +656,6 @@ class StreamingTranscriptionSession:
         self._cancel_event.clear()
         self._stopped_event.clear()
         # ``finalize()`` sets ``self._finalizing = True`` to gate
-        # the worker's per-iteration short-circuit, but never reset it.
-        # A session that was finalized and then re-started (e.g. mic
-        # toggle: stop→finalize→start) would inherit the stale flag and
-        # the worker would skip transcription on every loop iteration.
-        # Reset here so each fresh ``start()`` begins from a clean slate.
         self._finalizing = False
         self._thread_start_failed = False
         try:
@@ -848,28 +667,19 @@ class StreamingTranscriptionSession:
             self._thread.start()
         except (RuntimeError, OSError) as exc:
             # RuntimeError: "can't start new thread" (out of resources)
-            # OSError: out of file descriptors
             log.exception("[STREAMING] Failed to start worker thread: %s", exc)
             self._thread_start_failed = True
             self._thread = None
             # Signal cancelled so any pending cancel() / finalize()
-            # doesn't hang waiting on a thread that never started.
             self._stopped_event.set()
             return
         # THREAD-REGISTRY: register the freshly-started worker so the
-        # central registry can signal/join it on shutdown. The join
-        # timeout matches the worst-case cancel() / finalize() path.
         if self._thread_registry is not None and self._thread is not None:
             self._thread_registry.register(
                 name="StreamingTranscription",
                 thread=self._thread,
                 stop_event=self._cancel_event,
                 # PERF- reduced from 10.0s to 5.0s. The thread
-                # is a daemon (set above) and dies on process exit
-                # anyway; the join is only for clean in-process drain
-                # during ``cancel(blocking=True)`` / ``finalize()``.
-                # 5s is ample for ctranslate2 inference to wrap up a
-                # final chunk and exit the worker loop.
                 join_timeout=5.0,
             )
 
@@ -893,32 +703,18 @@ class StreamingTranscriptionSession:
         if blocking and thread is not None and thread.is_alive():
             thread.join(timeout=timeout)
             # THREAD-REGISTRY: remove the entry after a blocking join
-            # so a subsequent start() re-registers cleanly. If the
-            # thread didn't exit in time, leave the entry in place so
-            # shutdown_all() can still attempt to join it.
             if self._thread_registry is not None and not thread.is_alive():
                 self._thread_registry.unregister("StreamingTranscription")
 
     def finalize(self, full_audio: np.ndarray) -> str:
         """Return final transcript, using batch fallback if streaming is unsafe."""
         self._finalizing = True
-        # finalize genuinely needs to wait for the worker so
-        # the assembler state is consistent. Pass blocking=True.
-        # cancel(blocking=True) already joins the worker for up
-        # to 10s. The previous second `_stopped_event.wait(timeout=10.0)`
-        # only fired when the first join already failed, adding up to
-        # 10s of UI-thread freeze cannot help a stuck thread exit.
         # Replaced with a short 1.0s defensive wait (covers the rare
-        # race where cancel's join returns but the thread hasn't yet
-        # set _stopped_event).
         self.cancel(blocking=True)
         thread = self._thread
         if thread is not None and thread.is_alive():
             self._stopped_event.wait(timeout=1.0)
         # Land the last pending partial BEFORE the final result is
-        # computed, so the bubble's live preview never trails the final
-        # text. ``flush()`` publishes inline (bypasses the throttle) and
-        # is safe even though the worker thread already stopped.
         self._partial_broadcaster.flush()
         self._partial_broadcaster.stop()
         return self._finalize_impl(full_audio)
@@ -931,30 +727,10 @@ class StreamingTranscriptionSession:
             return False
 
         #  (historical): the pre-fix code held references to
-        # the snapshot + window so they could be zeroed in the
-        # ``finally`` block below even when an exception fired
-        # mid-transcription.  removed the zeroing (see the
-        # finally-block comment for why), but the explicit local
-        # bindings are kept so the function body remains readable and
-        # so a future maintainer can re-introduce a safe variant
-        # (e.g. copying the snapshot into a fresh array before
-        # zeroing the copy) without restructuring the function.
         audio: np.ndarray | None = None
         window: AudioWindow | None = None
         try:
             # skip the snapshot allocation entirely when the
-            # recorder hasn't accumulated enough NEW audio since the
-            # last emitted window. The streaming thread polls at 4 Hz;
-            # without this guard each poll called ``snapshot()`` which
-            # (even with the segment-list cache) materializes a numpy
-            # view + the planner's per-call bookkeeping. The
-            # ``current_duration_seconds`` property is a O(1) scalar
-            # read (``len(self._buffer) / sample_rate``) with NO array
-            # copy, so this guard is cheaper than the snapshot it
-            # skips. Only applies once at least one window has been
-            # emitted (``_last_window_end_seconds`` is None before the
-            # first window, in that case we always need a snapshot to
-            # decide whether the first chunk is big enough).
             last_end = self.planner._last_window_end_seconds
             if (
                 last_end is not None
@@ -980,8 +756,6 @@ class StreamingTranscriptionSession:
             with self._consecutive_failures_lock:
                 self._consecutive_failures = 0
             # Live preview: offer the freshly grown committed text to the
-            # coalescing broadcaster (it suppresses empty/unchanged texts
-            # itself, so this is a cheap no-op when nothing new committed).
             self._partial_broadcaster.push(self.assembler.committed_text)
             return True
         except Exception as exc:
@@ -998,53 +772,6 @@ class StreamingTranscriptionSession:
             return False
         finally:
             # the pre-fix ``_secure_clear_audio(audio)`` /
-            # ``_secure_clear_audio(window.audio)`` calls have been
-            # REMOVED. The recorder hands out a VIEW
-            # (``_cached_resampled[:]``) of the shared concat cache,
-            # not a fresh array, so zeroing the snapshot was:
-            #
-            #   (a) Destructive for correctness in the 1-segment case:
-            #       ``_ensure_resampled_concat`` keeps
-            #       ``_cached_resampled`` pointing at ``segments[0]``
-            #       directly, so ``snapshot.fill(0)`` zeroed
-            #       ``segments[0]``. The next ``snapshot()`` returned
-            #       the zeroed segment → silent transcription windows.
-            #
-            #   (b) Ineffective for privacy in the 2+ segment case:
-            #       zeroing the snapshot zeroed only the concat
-            #       result (a transient ``np.concatenate(segments)``).
-            #       ``_cached_resampled_concat_dirty`` was already
-            #       ``False`` (set when ``_ensure_resampled_concat``
-            #       last ran), so the next ``snapshot()`` returned the
-            #       zeroed concat directly, silent transcription
-            #       windows. If a new chunk arrived in between, the
-            #       dirty flag would be ``True`` and the next
-            #       ``_ensure_resampled_concat`` would rebuild from
-            #       the (unzeroed) segments list, overwriting the
-            #       zeroed concat, so the privacy clear was a no-op.
-            #
-            # The secure-clear responsibility for the segment list
-            # (the actual primary storage, ~115 MB of dictated audio
-            # for a 30-min session) belongs to ``secure_clear_caches``
-            # at ``stop()`` / ``discard()`` time, fixed in
-            # The local ``audio`` / ``window`` bindings go out of
-            # scope when the function returns, releasing the view
-            # references and letting the GC reclaim the view objects
-            # (NOT the underlying cache, which is owned by the
-            # recorder and cleared at stop()/discard() time).
-            #
-            # Test contract: the test passes a
-            # ``recorder.snapshot.return_value`` that is a fresh
-            # ``np.ndarray`` (NOT a view of the recorder cache). To
-            # honor the test contract without breaking the
-            # production view-safety, the zero is gated on the
-            # snapshot NOT being a view over live recorder audio
-            # (i.e. the test's fresh-array scenario). The check is
-            # ``_is_view_of_live_recorder_audio`` (see its docstring for
-            # the provenance anchors), ``numpy.ndarray.base`` returns
-            # the underlying object for a view (``None`` for an owning
-            # array). Mock recorders without real caches always take
-            # the unconditional-zero path.
             try:
                 if audio is not None and audio.size > 0 and not _is_view_of_live_recorder_audio(self.recorder, audio):
                     audio.fill(0)
@@ -1054,42 +781,10 @@ class StreamingTranscriptionSession:
                         waudio.fill(0)
             except (OSError, ValueError, AttributeError):
                 # secure-clear is best-effort: a partial zero doesn't
-                # block the function from returning. The dictation
-                # pipeline's own secure-clear at session end handles
-                # the canonical cleanup path.
                 pass
 
     def _finalize_impl(self, full_audio: np.ndarray) -> str:
         # Residual fence: if the captured transcriber's backend is
-        # BUSY in another thread's C-level inference call, do NOT enter
-        # the engine, concurrent calls on one ctranslate2 model are not
-        # thread-safe (crash / silent corruption). Degrade to whatever the
-        # streaming assembler already committed so paste output stays
-        # coherent.
-        #
-        # PRIMARY firing scenario: same-cycle overlap. finalize()'s join
-        # of the streaming worker is bounded (~10s cancel timeout), so a
-        # merely SLOW worker transcription call (CPU fallback, cloud
-        # latency, large audio) can still be running when finalize
-        # proceeds; the registry wrapper holds the busy flag set around
-        # that call (asr/registry.py transcribe_with_fallback) and this
-        # check converts that genuine concurrent-entry race into returning
-        # committed text. Known trade-off: tail words since the last
-        # committed partial are intentionally sacrificed in favor of not
-        # racing the engine.
-        #
-        # Also defence-in-depth against ANY other in-flight engine entry
-        # at finalize time. The check is TOCTOU-racy by design (see
-        # ``BusyFlag.is_busy``'s docstring): defence-in-depth gate, not
-        # strict mutual exclusion.
-        #
-        # NOT a post-force-recovery guard: watchdog force-recovery goes
-        # through ModelManager.force_unload_active(), which force-clears
-        # the busy flag AND unregisters the backend slot, after
-        # force-recovery is_busy(active_name) is False even while the
-        # orphaned thread runs, and the next cycle captures a FRESH engine
-        # instance anyway (object-safe vs the orphan). Force-recovery
-        # safety is structural; see tests/test_forced_recovery_engine_ejection.py.
         busy_check = getattr(self, "_busy_check", None)
         if busy_check is not None:
             try:
@@ -1116,47 +811,6 @@ class StreamingTranscriptionSession:
             snapshot_last_committed_time = self.assembler.last_committed_time
 
         # the pre-fix ``_secure_clear_audio(full_audio)`` call
-        # in the ``finally`` block below has been REMOVED. ``full_audio``
-        # is the post-stop transcription array (the result of
-        # ``recorder.stop()``, which is a fresh ``np.concatenate`` of
-        # the snapshotted buffer chunks. NOT a view of the recorder's
-        # shared concat cache), so zeroing it is in principle safe.
-        # However:
-        #
-        #   (a) The secure-clear responsibility for the segments list
-        #       (the primary storage during recording) belongs to
-        #       ``secure_clear_caches`` at ``stop()`` / ``discard()``
-        #       time, fixed in  By the time ``finalize()``
-        #       runs, ``stop()`` has already cleared the segments.
-        #
-        #   (b) Keeping the call would leave ``_secure_clear_audio``
-        #       with a single in-tree caller, conflicting with the
-        #       "deprecated, retained for source-level backward
-        #       compatibility" status the helper now carries.
-        #
-        # The pre-fix comment (kept for reference) was:
-        #
-        #    SEC-audit-008: zero ``full_audio`` once we no
-        #   longer need it.  We capture the caller's array reference up
-        #   front, drive all the existing tail-merge / batch-fallback
-        #   paths, and zero the buffer in a ``finally`` so the guarantee
-        #   holds regardless of which return branch fires.  Mirrors
-        #   ``dictation_pipeline.py:337-346``'s ``self._audio.fill(0)``
-        #   pattern.
-        #
-        # The ``full_audio`` array is now released via normal Python
-        # GC when the caller (``DictationPipeline.run``) drops its
-        # ``self._audio`` reference in the finally block at
-        # ``dictation_pipeline.py:426`` (``self._audio = None``).
-        #
-        # Honor the test contract, zero the
-        # caller-supplied ``full_audio`` in-place after using it for
-        # the tail-merge / batch-fallback path. Mirrors the batch
-        # path in ``dictation_pipeline.py`` (the batch
-        # ``_audio.fill(0)`` is called in that module's
-        # ``finally``). ``full_audio`` is a fresh array (the
-        # post-``recorder.stop()`` concat result, NOT a view of the
-        # recorder's shared cache), so the in-place zero is safe.
         try:
             return self._finalize_impl_inner(
                 full_audio,
@@ -1165,11 +819,6 @@ class StreamingTranscriptionSession:
             )
         finally:
             # Zero the buffer in
-            # the finally so the privacy guarantee holds
-            # regardless of which return branch fires. Best-effort:
-            # a partial zero doesn't block the function from
-            # returning. The dictation pipeline's own secure-clear
-            # at session end handles the canonical cleanup path.
             try:
                 if full_audio is not None and full_audio.size > 0:
                     full_audio.fill(0)
@@ -1184,17 +833,12 @@ class StreamingTranscriptionSession:
     ) -> str:
         if not snapshot_committed_text:
             # forward the optional local_engine (cloud→local
-            # fallback) wired at session construction time.
             return self.transcriber.transcribe_with_fallback(full_audio, local_engine=self._local_engine)
         if self._fallback_required:
             # forward the optional local_engine (cloud→local
-            # fallback) wired at session construction time.
             return self.transcriber.transcribe_with_fallback(full_audio, local_engine=self._local_engine)
 
         # PERF- if the streaming thread's last committed word is
-        # within 1.5s of the end of the audio, skip the final tail re-
-        # transcription, the streaming thread already captured it.
-        # This saves 2-3s of serial transcription after stop.
         full_audio_duration = len(full_audio) / self.sample_rate
         try:
             if snapshot_last_committed_time >= full_audio_duration - 1.5:
@@ -1206,10 +850,6 @@ class StreamingTranscriptionSession:
                 return snapshot_committed_text
         except Exception:
             # Tail re-transcribe is best-effort, if the snapshot
-            # extraction or timing calc fails, fall through to the
-            # normal path (no tail re-transcribe). Log at debug so
-            # the failure is diagnosable. Previously a silent
-            # ``except Exception: pass``.
             log.debug("[STREAMING] tail re-transcribe skip check failed", exc_info=True)
 
         try:
@@ -1234,7 +874,6 @@ class StreamingTranscriptionSession:
         except Exception as exc:
             log.exception("[STREAMING] Final tail merge failed: %s", exc)
             # forward the optional local_engine (cloud→local
-            # fallback) wired at session construction time.
             return self.transcriber.transcribe_with_fallback(full_audio, local_engine=self._local_engine)
 
     def _run(self):
@@ -1244,9 +883,6 @@ class StreamingTranscriptionSession:
                 self._cancel_event.wait(self.poll_interval_seconds)
         finally:
             # No more windows will be processed. Stop the partial-text
-            # publisher worker so a cancelled session never leaks its
-            # thread. ``finalize()`` flushes any pending text before
-            # this point is reached on the stop path.
             self._partial_broadcaster.stop()
             self._stopped_event.set()
 

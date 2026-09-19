@@ -1,10 +1,4 @@
-"""Logging configuration extracted from ``voice_typer/server/app.py`` (REF-3).
-
-Re-exported from ``app.py`` as ``_setup_logging`` so existing callers
-(``voice_typer.server.ipc_server.main``,
-``voice_typer.server.prewarm.run``, and tests that monkeypatch
-``voice_typer.server.app._setup_logging``) keep working unchanged.
-"""
+"""Process logging bootstrap; C-LOG-1 line format + session= once on first line."""
 
 import logging
 import os
@@ -18,29 +12,11 @@ from voice_typer.server.env_validation import _validate_env_vars
 log = logging.getLogger(__name__)
 
 # Deferred startup-banner state. ``_setup_logging()`` stages the banner
-# values (session id, resolved log file, root level, JSON/debug/quiet
-# flags) here, and ``_emit_startup_banner()``: called later, from
-# ``VoiceTyperApp.__init__`` right AFTER the ``APP starting`` line, emits
-# the ``[STARTUP] logging initialized`` banner and installs the crash
-# handler.  Emitting both AFTER the ``starting`` banner keeps the startup
-# log ordered as: ``APP starting`` → ``[STARTUP] logging initialized`` →
-# ``[CRASH] Windows VEH installed``.
 _startup_banner_state: dict[str, object] | None = None
 
 
 def _setup_logging():
-    """Configure logging (delegates to ``log.setup_logging``).
-
-    Structure overview:
-          1. Redirect stdin/stdout/stderr to devnull under pythonw.exe
-          2. One-time legacy config migration
-          3. Generate session ID for structured logging
-    4. Set up RotatingFileHandler ()
-          5. Apply session + PII redaction filters
-          6. Fix stderr encoding for Unicode
-          7. Optional colored stderr StreamHandler
-    8. : VOICE_TYPER_QUIET env var for reduced verbosity
-    """
+    """Configure logging (delegates to ``log.setup_logging``)."""
     from voice_typer.server.log import setup_logging as _setup_logging_shared
 
     # One-time migration from legacy platform config dir
@@ -56,10 +32,6 @@ def _setup_logging():
     port_mode = "--port" in sys.argv
 
     # The 8-char session id anchors this process's session. It is
-    # printed ONCE in the banner below (the first line of the session)
-    # so every subsequent line implicitly belongs to this session
-    # without repeating the id on each line (C-LOG-1 keeps per-line
-    # output clean; the banner is the single mention).
     _session_id = _setup_logging_shared(
         config_dir,
         debug=debug,
@@ -76,11 +48,6 @@ def _setup_logging():
     warn_if_in_container()
 
     # Stage the startup-banner state and configure the crash handler's
-    # config dir. The ``[STARTUP] logging initialized`` banner itself and
-    # the crash-handler install are DEFERRED to ``_emit_startup_banner()``,
-    # called from ``VoiceTyperApp.__init__`` right AFTER the ``APP
-    # starting`` line so the startup log reads ``APP starting`` →
-    # ``[STARTUP] logging initialized`` → ``[CRASH] Windows VEH installed``.
     global _startup_banner_state
     _startup_banner_state = {
         "config_dir": config_dir,
@@ -92,41 +59,22 @@ def _setup_logging():
 
 
 def _emit_startup_banner() -> None:
-    """Emit the ``[STARTUP] logging initialized`` banner and install the
-    crash handler.
-
-    Called from ``VoiceTyperApp.__init__`` after the ``APP starting``
-    banner so the startup log is ordered ``APP starting`` → banner → VEH.
-    """
+    """Called from ``VoiceTyperApp.__init__`` after the ``APP starting``"""
     global _startup_banner_state
     state = _startup_banner_state
     if state is None:
         # ``_setup_logging()`` has not run (e.g. direct app construction
-        # in a test without the entrypoint). Nothing to emit.
         return
     _startup_banner_state = None
 
     _raw_config_dir = state["config_dir"]
     # ``_startup_banner_state`` is a ``dict[str, object]``, restore the
-    # declared ``Path | None`` type staged by ``_setup_logging`` so the
-    # ``get_log_file_path`` call below typechecks (the isinstance guard
-    # also defends against a malformed staged value).
     config_dir: Path | None = _raw_config_dir if isinstance(_raw_config_dir, Path) else None
     debug = bool(state["debug"])
     quiet = bool(state["quiet"])
     _session_id = state["session_id"]
 
     # emit a startup banner so operators can see at a glance
-    # which logging configuration took effect (file path, root level,
-    # JSON mode, debug flag, quiet flag).  Logged at INFO so
-    # it appears in the rotating file log under the default
-    # configuration (file handler sits at INFO per ).  The
-    # session id is included exactly ONCE here, as the trailing
-    # ``session=`` field of the banner, the very first line of the
-    # session, so it is never repeated per-line (C-LOG-1).
-    # use get_log_file_path() instead of hardcoded literal so the
-    # banner reflects the actual log file (voice-typer.log for main,
-    # prewarm.log for the prewarm process).
     from voice_typer.server.log import get_log_file_path
 
     _log_file = get_log_file_path(config_dir)
@@ -136,25 +84,12 @@ def _emit_startup_banner() -> None:
         "yes",
     )
     # Report the level that actually gates what lands in the log file —
-    # the rotating file handler's level, not the ``voice_typer`` logger
-    # level, which ``setup_logging`` pins at DEBUG unconditionally (the
-    # handler is the real gate; the logger stays at DEBUG so child
-    # loggers can emit DEBUG records when ``VOICE_TYPER_DEBUG=1`` is
-    # set). Pre-fix the banner read the logger level, so every default
-    # run printed ``level=DEBUG, debug=False``: accurate internals but
-    # contradictory-looking, and it implied DEBUG records were being
-    # written when the file handler was actually filtering them to INFO.
-    # The file handler is added to the ``voice_typer`` logger first
-    # (log/setup_logging), so the first handler with a level is it.
     _root_level = logging.WARNING
     for _handler in logging.getLogger("voice_typer").handlers:
         if _handler.level != logging.NOTSET:
             _root_level = _handler.level
             break
     # in quiet mode, the voice_typer logger is at WARNING. The banner
-    # is logged at INFO, which is BELOW WARNING, the logger-level filter
-    # would drop it before any handler is consulted. Log at WARNING when
-    # quiet=True so the banner survives the filter and is written to disk.
     _banner_level = logging.WARNING if quiet else logging.INFO
     log.log(
         _banner_level,
@@ -168,15 +103,6 @@ def _emit_startup_banner() -> None:
     )
 
     # One-time PII heads-up when debug logging is enabled.
-    # DEBUG-level records routinely carry low-level context (absolute
-    # paths, device names, hostnames, IPC frame dumps) that the
-    # PIIRedactionFilter intentionally does NOT blanket-scrub (its
-    # patterns target secrets/PII classes, not free-form debug text).
-    # Warn ONCE per session, in the log file itself, so anyone the user
-    # sends the log to is warned before reading it, and so the user is
-    # reminded at every debug-mode startup that the file is not
-    # share-by-default material. WARNING level so it survives the
-    # handler-level gate in every configuration.
     if debug:
         log.warning(
             "[STARTUP] Debug logging is enabled (VOICE_TYPER_DEBUG=1), "
@@ -186,7 +112,5 @@ def _emit_startup_banner() -> None:
             "VOICE_TYPER_DEBUG for everyday use."
         )
 
-    # ── Windows VEH + Python excepthook: capture silent crashes ─────
     # Install BEFORE any C extensions load so the handler catches
-    # crashes inside ctranslate2 / faster-whisper / sounddevice.
     _crash_handler.install_crash_handler()

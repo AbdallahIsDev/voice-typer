@@ -1,22 +1,4 @@
-"""Logging formatters for the Voice Typer logging framework.
-
-Extracted from the original monolithic ``log.py`` (logging-package
-split). Contains:
-
-- :func:`_iso_timestamp`: ISO 8601 timestamp with milliseconds + tz
-- :data:`_TOPIC_COLOR` / :data:`_TOPIC_KEYWORDS`, colour tables
-- :func:`_infer_topic` / :func:`_extract_topic`, topic-prefix helpers
-- :func:`_append_exception_text`: shared traceback-appending helper
-- :class:`_ColorFormatter`: ANSI-coloured terminal formatter (default)
-- :class:`_FileFormatter`: plain-text file formatter (default)
-- :class:`_JsonFormatter`: structured JSON formatter (opt-in,
-  ``VOICE_TYPER_LOG_JSON=1``)
-
-The formatters depend on :func:`get_correlation_id` (in
-:mod:`voice_typer.server.log.correlation`) for the JSON correlation-id
-field. Importing it from the sibling ``correlation`` module (rather
-than from the parent ``log`` package) avoids a circular import.
-"""
+"""Logging formatters for the Voice Typer logging framework."""
 
 from __future__ import annotations
 
@@ -33,32 +15,15 @@ def _iso_timestamp(
     utc: bool = False,
     include_date: bool = True,
 ) -> str:
-    """Return a clean timestamp.
-
-    Text output (the default) is a clean, space-separated local
-    timestamp with seconds precision, ``2026-08-08  22:18:59``, with
-    TWO spaces between the date and the time, no millisecond fraction,
-    no ``T`` separator, and no timezone offset, so it reads naturally
-    in the file and on the terminal.  The terminal formatter passes
-    ``include_date=False`` to get the time only (``22:18:59``), the
-    date is deliberately kept out of console output.
-
-    Pass ``utc=True`` for the JSON formatter, which emits a
-    Z-suffixed UTC timestamp with millis (``2026-08-08T22:18:59.172Z``)
-    that log aggregators expect, that path is unchanged and keeps the
-    millisecond fraction + date.
-    """
+    """Return a clean timestamp."""
     if utc:
         ct = time.gmtime(record.created)
         base = time.strftime("%Y-%m-%dT%H:%M:%S", ct)
         return f"{base}.{int(record.msecs):03d}Z"
     ct = time.localtime(record.created)
     # seconds-only precision (no millis); two spaces between the date
-    # and the time in the file format (the terminal shows time only).
     return time.strftime("%Y-%m-%d  %H:%M:%S" if include_date else "%H:%M:%S", ct)
 
-
-# ── Shared colour tables ──────────────────────────────────────────────
 
 #: ANSI 256-colour codes keyed by topic label.
 _TOPIC_COLOR: dict[str, str] = {
@@ -224,17 +189,7 @@ _TOPIC_KEYWORDS: dict[str, list[str]] = {
 
 
 def _infer_topic(msg: str) -> str | None:
-    """Guess a topic label from *msg* content keywords.
-
-    First match wins, narrower keywords should come first in each list.
-
-    previously this was an O(N*K) linear scan that called
-    ``msg.lower()`` once and then ran ~80 ``kw in lower`` substring
-    checks per INFO record. The precompiled alternation regex below
-    performs the same first-match-wins lookup in a single pass over the
-    string. The regex is built once at import time from
-    :data:`_TOPIC_KEYWORDS` so it stays in sync with the keyword table.
-    """
+    """Guess a topic label from *msg* content keywords."""
     if not msg:
         return None
     m = _TOPIC_KEYWORDS_REGEX.search(msg)
@@ -244,11 +199,7 @@ def _infer_topic(msg: str) -> str | None:
 
 
 def _build_topic_keywords_regex():
-    """compile a single named-group alternation regex from
-    :data:`_TOPIC_KEYWORDS`. First-match-wins is preserved by emitting
-    each topic's keywords in their declared order, and topics in their
-    declared order -- Python's ``re`` alternation is leftmost-first.
-    """
+    """compile a single named-group alternation regex from"""
     import re
 
     parts: list[str] = []
@@ -256,8 +207,6 @@ def _build_topic_keywords_regex():
         if not keywords:
             continue
         # Sort each topic's keywords by length descending so the longer
-        # (more specific) phrases win over their prefixes within the
-        # same topic (e.g. "transcription thread" before "transcrib").
         ordered = sorted(keywords, key=len, reverse=True)
         group = "|".join(re.escape(kw) for kw in ordered if kw)
         if not group:
@@ -283,28 +232,12 @@ def _extract_topic(msg: str) -> tuple[str | None, str]:
     return None, msg
 
 
-# ── Colour formatters ─────────────────────────────────────────────────
-
-
 def _append_exception_text(
     formatter: logging.Formatter,
     record: logging.LogRecord,
     line: str,
 ) -> str:
-    """append ``exc_text`` / ``stack_info`` to a formatted log line.
-
-    Python's stock ``logging.Formatter.format`` does this; custom
-    overrides that skip ``super().format()`` must replicate it or
-    ``log.exception(...)`` / ``log.error(..., exc_info=True)`` lose
-    their tracebacks, the single most important diagnostic field for
-    remote triage. ``PIIRedactionFilter`` (when attached to the handler)
-    has already cached a *redacted* traceback in ``record.exc_text``;
-    we honour it to avoid re-running the (potentially expensive)
-    traceback formatting and to preserve the PII scrub.
-
-    Shared by :class:`_ColorFormatter`, :class:`_FileFormatter`, and
-    :class:`_JsonFormatter` (DRY, Rule 24).
-    """
+    """append ``exc_text`` / ``stack_info`` to a formatted log line."""
     if record.exc_info and not record.exc_text:
         record.exc_text = formatter.formatException(record.exc_info)
     if record.exc_text:
@@ -319,25 +252,10 @@ def _append_exception_text(
 
 
 class _ColorFormatter(logging.Formatter):
-    """ANSI-coloured formatter for stderr (terminal output).
-
-    Design
-    ------
-    - Clean time-only timestamp (``HH:MM:SS``, no date) dimmed to
-      recede visually, the date lives only in the log file
-    - INFO level label omitted (redundant on ~every line)
-    - WARN / ERR / FATAL full-line coloured with level label
-    - Lines with ``[TOPIC]`` prefix coloured by topic
-    - Lines without prefix infer topic from content keywords
-    """
+    """ANSI-coloured formatter for stderr (terminal output)."""
 
     _DIM = "38;5;242"  # grey
     # LOG-COLOR-FIX: WARN was 38;5;214 (orange #FFAF00) which
-    # 256→16-color quantization on Windows conhost maps to bright-red,
-    # making WARN look red and ERROR look yellow by comparison, the
-    # inversion the user reported. Changed to 38;5;226 (pure yellow
-    # #FFFF00) which quantizes to bright-yellow slot 14 on Windows
-    # conhost, matching the standard WARN=yellow / ERROR=red convention.
     _LVL_COLOR = {
         logging.WARNING: "38;5;226",  # pure yellow (#FFFF00)
         logging.ERROR: "38;5;196",  # pure red (#FF0000)
@@ -362,7 +280,6 @@ class _ColorFormatter(logging.Formatter):
             line = f"\033[{c}m{ts}  {sym:<5} {msg}\033[0m"
         else:
             # INFO, dim timestamp, no level label,
-            # message coloured by topic.
             prefix = f"\033[{self._DIM}m{ts}\033[0m"
             tc = _TOPIC_COLOR.get(topic) if topic else None
             if tc is None and not topic:
@@ -373,9 +290,6 @@ class _ColorFormatter(logging.Formatter):
             line = f"{prefix}  {body}"
 
         # append exception traceback. ``PIIRedactionFilter``
-        # pre-formats and redacts the traceback into ``record.exc_text``
-        # before any formatter runs, so we honour it here. Plain text
-        # (no ANSI) so the traceback is readable on every terminal.
         line = _append_exception_text(self, record, line)
         return line
 
@@ -431,102 +345,38 @@ class _FileFormatter(logging.Formatter):
         label = self._LVL_LABEL.get(record.levelno, "INFO")
         line = f"{ts}  {label:<5} {msg}"
         # append the (already PII-redacted) traceback so
-        # ``log.exception(...)`` / ``log.error(..., exc_info=True)``
-        # records keep their diagnostic stack trace in the file.
         line = _append_exception_text(self, record, line)
         return line
 
 
 class _JsonFormatter(logging.Formatter):
-    """Structured JSON formatter , opt-in via ``VOICE_TYPER_LOG_JSON=1``.
-
-    Emits one JSON object per line with a flat, stable schema so log
-    aggregation tools can index and query fields directly instead of
-    regex-matching free-text.  Schema::
-
-        {
-          "ts": "2026-07-15 12:34:56",
-          "level": "INFO",
-          "component": "voice_typer.server.recording",
-          "session_id": "a3f1b2c4",     # 8-char per-process hex ID ("" if _SessionFilter has not run)
-          "thread": "MainThread",        # name of the emitting thread
-          "task": "transcribe-cycle",    # Python 3.12+ asyncio task name, present only when set
-          "topic": "RECORDING",          # present only if a [TOPIC] prefix exists
-          "correlation_id": "#7",         # present only when a correlation id is in scope
-          "message": "Microphone opened (rate=16000)"
-        }
-
-    Design notes
-    ------------
-    - ``message`` is the *redacted* text: the PIIRedactionFilter mutates
-      ``record.msg`` (and caches redacted ``record.exc_text``) before any
-      formatter runs (the filter is attached to the handler), so the JSON
-      output is already PII-scrubbed, the same guarantee as the text
-      formatters.  No secret can reach the JSON line that couldn't reach
-      the text line.
-    - ``session_id`` is read from ``record.session_id`` (injected by
-      ``_SessionFilter``) and is always present in the payload, empty
-      string when the filter has not run, so aggregators can query
-      ``session_id != ""`` to find correlated lines without
-      ``KeyError``-prone ``.get()`` fallbacks.
-    - ``thread`` is the emitting thread name (always present).
-      ``task`` is the Python 3.12+ asyncio task name, omitted entirely
-      when not in scope (synchronous call sites) so the common case
-      stays compact.
-    - ``correlation_id`` is read from the :func:`get_correlation_id`
-      contextvar, not from the record, so handlers that set it (IPC
-      dispatch, dictation pipeline) don't need to thread it onto every
-      ``log.info`` call.  It is omitted entirely when empty, keeping
-      single-line records compact for the common (no-correlation) case.
-    - ``topic`` is extracted from the ``[TOPIC]`` prefix when present;
-      messages with no explicit prefix (and no inferred topic) simply
-      omit it.  We deliberately do NOT run the keyword-inference used by
-      the colour formatter. JSON consumers filter on ``component`` /
-      structured fields, and guessing a topic from free text would add
-      noise and be impossible to query consistently.
-    - No ANSI escapes, ever.  Output is ``json.dumps`` with
-      ``ensure_ascii=False`` so Unicode (e.g. transcriptions, non-ASCII
-      device names) is preserved as readable UTF-8, and ``sort_keys`` is
-      avoided so the field order above is stable.
-    """
+    """Structured JSON formatter , opt-in via ``VOICE_TYPER_LOG_JSON=1``."""
 
     def format(self, record: logging.LogRecord) -> str:
         payload: dict[str, object] = {
             # ISO 8601 UTC with millis + ``Z`` suffix so log
-            # aggregators get a parseable, timezone-aware timestamp
-            # (no manual tz inference needed for cross-timezone tickets).
             "ts": _iso_timestamp(record, utc=True),
             "level": record.levelname,
             "component": getattr(record, "component", record.name),
             # emit ``session_id`` so JSON aggregators can group
-            # lines by process session (empty string when ``_SessionFilter``
-            # has not run, present-but-empty keeps the schema flat).
             "session_id": getattr(record, "session_id", ""),
             # emit the emitting thread name so threaded pipelines
-            # (transcription thread, prewarm pipeline, IPC workers) can be
-            # distinguished in structured consumers.
             "thread": getattr(record, "threadName", ""),
             "message": record.getMessage(),
         }
         # Python 3.12+ asyncio task name, omitted when not in scope so
-        # synchronous call sites keep the payload compact.
         task_name = getattr(record, "taskName", None)
         if task_name:
             payload["task"] = task_name
         # Topic prefix (e.g. "[HOTKEY]"), purely structural convenience.
-        # ``payload["message"]`` is already a ``str`` (from
-        # ``record.getMessage()``), so no coercion is needed.
         topic, _ = _extract_topic(payload["message"])
         if topic:
             payload["topic"] = topic
         # Correlation id from the execution context (IPC request id /
-        # dictation cycle id).  Omitted when not in scope.
         correlation_id = get_correlation_id()
         if correlation_id:
             payload["correlation_id"] = correlation_id
         # include the (PII-redacted) traceback so JSON aggregators
-        # can index / alert on stack traces. ``PIIRedactionFilter`` has
-        # already cached the redacted text in ``record.exc_text``.
         if record.exc_info and not record.exc_text:
             record.exc_text = self.formatException(record.exc_info)
         if record.exc_text:

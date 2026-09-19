@@ -23,9 +23,6 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 
-# ── Disk space (§8.8) ────────────────────────────────────────────────────
-
-
 def check_offline_pack_disk_space(pack_dir: Path, *, required_mb: int = OFFLINE_PACK_REQUIRED_MB) -> None:
     """Raise :class:`RuntimeError` if *pack_dir* has less than *required_mb* free.
 
@@ -57,9 +54,6 @@ def check_offline_pack_disk_space(pack_dir: Path, *, required_mb: int = OFFLINE_
     )
 
 
-# ── Consent gate (§8.4) ──────────────────────────────────────────────────
-
-
 def require_offline_pack_consent(config: Config | None, *, version: str | None = None) -> None:
     """Raise :class:`PackConsentRequiredError` if consent is missing.
 
@@ -86,9 +80,6 @@ def require_offline_pack_consent(config: Config | None, *, version: str | None =
     raise OfflinePackConsentRequiredError(version=version)
 
 
-# ── SSRF (§8.6) ──────────────────────────────────────────────────────────
-
-
 def assert_offline_pack_url_allowed(url: str) -> None:
     """SSRF gate for the pack download URL.
 
@@ -109,10 +100,6 @@ def assert_offline_pack_url_allowed(url: str) -> None:
     )
 
     # Add GitHub hosts to the runtime allowlist (idempotent). This is
-    # NOT a bypass of the SSRF defense, the IP-literal blocklist +
-    # DNS-rebinding check inside ``assert_url_allowed`` still run.
-    # ``extend_url_allowlist`` is the documented production path for
-    # trusted third-party hosts (see ``url_allowlist.py:85``).
     github_hosts = {"github.com", "objects.githubusercontent.com", "codeload.github.com"}
     if not github_hosts.issubset(get_url_allowlist()):
         extend_url_allowlist(github_hosts, caller="pack_downloader")

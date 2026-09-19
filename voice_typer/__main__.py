@@ -1,28 +1,8 @@
-"""Entry point for `python -m voice_typer`.
+"""python -m voice_typer entrypoint.
 
-Adds CLI argument parsing for --help, --version, --debug.
-Adds operational flags --no-tray, --quiet, --config.
-Standardized exit codes:
-  0 = clean exit
-  1 = crash / runtime error
-  2 = port conflict
-  3 = duplicate instance
-  4 = bad CLI args
-
-this is NOT a duplicate of the ``voice-typer`` console
-script (pyproject.toml ``[project.scripts]``).  The two serve
-different purposes:
-
-- ``voice-typer`` console script → ``voice_typer.server.ipc_server:main``
-  , spawned by the Tauri host as the sidecar subprocess (WebSocket IPC,
-  `--ws`, no CLI arg parsing).
-
-- ``python -m voice_typer`` (this file) → user-facing CLI with
-  --help, --version, --debug, --no-tray, --quiet, --config flags.
-  Used by developers and power users to run the app from the
-  terminal with diagnostic options.
-
-Both are intentional; removing either would break a real use case.
+NOT a duplicate of voice_typer.server.app.main: this module serves
+different purposes — CLI flag parsing (--debug/--quiet/--no-tray/--config)
+plus environment hand-off — then delegates to the server app entrypoint.
 """
 
 import argparse

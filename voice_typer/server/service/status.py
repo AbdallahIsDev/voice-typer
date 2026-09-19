@@ -1,9 +1,4 @@
-"""Status / health-check domain mixin for VoiceTyperService.
-
-Extracted verbatim from the original ``service.py`` god class
-split. Read-only queries that surface app state
-(tray status, xruns, audio filter chain, volume backend).
-"""
+"""Service status/metrics mixin."""
 
 import logging
 import time
@@ -15,76 +10,25 @@ from voice_typer.server.service._base import ServiceMixinBase
 
 if TYPE_CHECKING:
     # ``StatusResponse`` is a TypedDict defined in
-    # ``voice_typer/server/service/__init__.py`` (which imports this
-    # mixin via ``from voice_typer.server.service.status import
-    # StatusMixin``). Importing it at runtime would create a circular
-    # import, so we resolve the forward-reference annotation only under
-    # ``TYPE_CHECKING`` (pyrefly / mypy) and leave the runtime annotation
-    # as a string.
     from voice_typer.server.service import StatusResponse
 
 log = logging.getLogger(__name__)
 
 
 class StatusMixin(ServiceMixinBase):
-    """Status / health-check service methods.
-
-    These are read-only queries over ``self._app`` state; they don't
-    mutate config or trigger side effects.
-    """
+    """Status / health-check service methods."""
 
     # notify-once guard for volume_ducker.initialize failures.
-    # The status endpoint is polled ~every 2s; log first occurrence at
-    # WARNING, subsequent at DEBUG.
     _volume_ducker_init_warned: bool = False
 
     # Per-instance cache for :meth:`get_volume_backend_status`.
-    #
-    # The status endpoint is polled every ~2s by the renderer; the
-    # previous implementation called ``ducker.initialize()`` on every
-    # poll. ``initialize()`` is idempotent (it short-circuits on
-    # ``self._initialized``), but each call still acquires the ducker's
-    # internal lock and re-reads ``self._backend`` / ``self._ready`` /
-    # ``self.supports_per_session``: wasted work that adds up across
-    # thousands of polls. We now compute the status dict ONCE (on the
-    # first call), cache it here, and return the cached value on
-    # subsequent polls within the ``_VOLUME_BACKEND_STATUS_TTL_S``
-    # window; past the TTL the status is recomputed (the cache used
-    # to live for the process lifetime, freezing the Settings
-    # display even after a mid-session dependency install). An explicit
-    # ``_force_refresh=True`` call still bypasses the cache immediately.
-    #
-    # ``None`` means "no cache yet" (the very first poll); a dict
-    # value means "cached status from a previous successful poll". The
-    # cache is per-instance (each :class:`VoiceTyperService` gets its
-    # own) because the underlying ``_volume_ducker`` is also
-    # per-instance. Class-level default of ``None`` is safe, it is
-    # an immutable singleton, so the class-attribute fallback doesn't
-    # leak state across instances (the first ``self.X = {...}``
-    # assignment shadows the class attribute with an instance
-    # attribute on the same ``self``).
     _volume_backend_status_cache: dict[str, object] | None = None
 
     # TTL for the volume-backend status cache (fixes the
-    # "frozen until restart" display). The cache previously lived for
-    # the process lifetime: ``_force_refresh`` had no production caller,
-    # so a mid-session dependency install (pyobjc-framework-CoreAudio on
-    # macOS) could never surface. A 30s TTL keeps the 2s poll cheap
-    # (initialize() runs at most once per TTL window) while making the
-    # display self-heal, mirroring the ``_OFFLINE_PACK_STATUS_TTL_S``
-    # pattern in this class. The explicit ``_force_refresh=True`` path
-    # is unchanged (tests + any future Refresh button still bypass).
     _VOLUME_BACKEND_STATUS_TTL_S = 30.0
     _volume_backend_status_cached_at: float = 0.0
 
-    # ── Status ──────────────────────────────────────────────────
-
     # Offline-pack state cache for :meth:`_get_offline_pack_status`.
-    # The status endpoint is polled ~every 2s; the pack scan (``iterdir``
-    # + ``pack-manifest.json`` parse) must not run on every poll. The pack
-    # only appears/disappears via download or AV-deletion, both rare vs.
-    # the poll rate, so a 15s TTL cache is safe (mirrors the
-    # ``_volume_backend_status_cache`` pattern in this class).
     _OFFLINE_PACK_STATUS_TTL_S = 15.0
     _pack_status_cache: dict[str, object] | None = None
     _pack_status_cached_at: float = 0.0
@@ -93,14 +37,6 @@ class StatusMixin(ServiceMixinBase):
         """Cheap, cached offline-pack state for the degradation matrix (§8.10).
 
         Returns ``{"installed_version": <str|None>, "available": bool,
-        "consent_granted": bool}``. Never raises, a broken pack root
-        yields ``available: False`` (fail-safe: the renderer shows the
-        "offline engine unavailable" state rather than a false ready).
-
-        ``installed_version`` comes from
-        ``update_check._local_offline_pack_version`` (existence check —
-        no SHA-256 hashing; the full checksum runs in the background at
-        launch via ``BackgroundChecksum``, §8.16).
         """
         now = time.monotonic()
         cached = self._pack_status_cache
@@ -126,29 +62,10 @@ class StatusMixin(ServiceMixinBase):
         return state
 
     def get_status(self) -> "StatusResponse":
-        """Return the current app state plus audio-quality telemetry.
-
-        previously returned only the tray state string. The
-                xrun counter was tracked in the recorder but never reached the
-                IPC layer, so the UI couldn't warn the user of degraded audio.
-                We now return a dict with ``status``, ``xruns_since_start``,
-                ``offline_pack`` (Phase 2d degradation matrix, §8.10),
-                and other useful fields.
-        """
+        """Return the current app state plus audio-quality telemetry."""
         app = self._app
         status_str = app.tray.state.value
         # The tray-tooltip reason accompanying the current state (e.g.
-        # "No speech model is selected. Open Models to choose one." when
-        # AppState.ERROR was set by a refused model load).
-        # This MUST travel with ``status`` in every status-carrying
-        # response/push (get_status, state_changed, status_change) so
-        # the renderer can update the Home page's ERROR pill and its
-        # red description line from ONE authoritative pair instead of
-        # letting them diverge (see the invariant comment on
-        # applyStatusWithReason in the renderer's useConnection.ts).
-        # Defensive coercion: test doubles may expose a non-str
-        # ``_message`` attribute, degrade to "" rather than leaking a
-        # repr() into the IPC payload.
         message = ""
         try:
             raw_message = getattr(app.tray, "_message", "")
@@ -171,10 +88,6 @@ class StatusMixin(ServiceMixinBase):
         except Exception:
             log.debug("[SERVICE] could not read loaded_via", exc_info=True)
         # expose the resolved config directory so the About page's
-        # "Config Directory" diagnostic resolves to a real path. The
-        # renderer previously expected a ``config_dir`` field here that
-        # the backend never sent, so the About page showed a permanent
-        # "Loading…" placeholder.
         config_dir = ""
         try:
             config_dir = str(app.config.config_dir)
@@ -189,52 +102,8 @@ class StatusMixin(ServiceMixinBase):
             "offline_pack": self._get_offline_pack_status(),
         }
 
-    # Volume / Model status () ────────────────────────
-
     def get_volume_backend_status(self, *, _force_refresh: bool = False) -> dict[str, object]:
-        """Return the volume ducking backend status.
-
-        Performance contract: the renderer polls this method every ~2s.
-        ``ducker.initialize()`` is invoked at most ONCE per instance
-        (on the first call, when the cache is empty); subsequent polls
-        return the cached status dict without re-running
-        ``initialize()``. ``initialize()`` is idempotent on
-        :class:`VolumeDucker` (it short-circuits on
-        ``self._initialized``), but the call still acquires the ducker's
-        internal lock and re-reads backend attributes, wasted work
-        across thousands of polls.
-
-        Cache invalidation: the cached ``backend_name`` /
-        ``is_available`` / ``supports_per_session`` / ``backend`` values
-        are refreshed on a 30s TTL (``_VOLUME_BACKEND_STATUS_TTL_S`` —
-        the ``_force_refresh`` parameter predates the TTL; it remains
-        for tests and any future explicit "Refresh" button, bypassing
-        the cache immediately). The TTL is what lets the documented
-        recovery case surface mid-session (the user installs
-        ``pyobjc-framework-CoreAudio``: the macOS backend switches
-        from osascript to CoreAudio within one TTL window) without a
-        restart. The default ``_force_refresh=False`` is the 2s status
-        poll path.
-
-        Note: ``_force_refresh`` is prefixed with an underscore because
-        it is NOT wired through the IPC ``get_volume_backend_status``
-        handler (the handler calls this method with no arguments, so
-        the default ``False`` applies, the poll path uses the TTL,
-        not the force flag). No ``refresh_volume_backend`` IPC command
-        exists; the TTL made it unnecessary.
-
-        Args:
-            _force_refresh: When ``True``, bypass the cache, re-run
-                ``ducker.initialize()``, and refresh the cached status.
-                Default ``False`` (use cache).
-
-        Returns:
-            A dict with ``available``, ``name``,
-            ``supports_per_session``, and ``backend`` keys (plus a
-            ``reason`` key on failure). The returned dict is a shallow
-            copy of the cache so callers can freely mutate it without
-            corrupting the cached state.
-        """
+        """Return the volume ducking backend status."""
         ducker = getattr(self._app, "_volume_ducker", None)
         if ducker is None:
             return {
@@ -244,10 +113,6 @@ class StatusMixin(ServiceMixinBase):
             }
 
         # Fast path: serve from cache when available and the caller
-        # didn't ask for a refresh. Returning a copy so callers can't
-        # mutate our cached dict (the IPC handler adds ``is_windows``
-        # to the returned dict: without a copy that would leak into
-        # the cache and show up on the next poll).
         cache = self._volume_backend_status_cache
         cache_fresh = (time.monotonic() - self._volume_backend_status_cached_at) < self._VOLUME_BACKEND_STATUS_TTL_S
         if cache is not None and not _force_refresh and cache_fresh:
@@ -255,13 +120,6 @@ class StatusMixin(ServiceMixinBase):
 
         try:
             # Trigger initialize() so the backend name reflects
-            # the actual platform backend (not "disabled"
-            # merely because nothing has ducked yet).
-            #
-            # On the default poll path this branch runs at most ONCE
-            # per instance (the cache is populated below and the next
-            # poll takes the fast path above). With _force_refresh=True
-            # the cache is bypassed and initialize() is re-invoked.
             init_ok = False
             try:
                 ducker.initialize()
@@ -270,7 +128,6 @@ class StatusMixin(ServiceMixinBase):
                 init_ok = True
             except Exception:
                 # notify-once, log first failure at WARNING,
-                # subsequent at DEBUG (status endpoint polled ~every 2s).
                 if not StatusMixin._volume_ducker_init_warned:
                     log.warning(
                         "[SERVICE] volume_ducker.initialize failed - subsequent failures will be logged at DEBUG",
@@ -289,24 +146,12 @@ class StatusMixin(ServiceMixinBase):
                 "backend": type(ducker).__name__,
             }
             # Cache the status only when initialize() succeeded OR
-            # the caller explicitly asked for a refresh. On the default
-            # poll path with a failed initialize(), we DON'T cache so
-            # the next poll retries initialize(): this preserves the
-            # previous "retry every poll until init succeeds" behaviour
-            # for users who install a missing dependency mid-session
-            # without clicking the Refresh button. When the caller
-            # passes _force_refresh=True, we cache the best-effort
-            # status regardless of init outcome (the user explicitly
-            # asked for the current state).
             if init_ok or _force_refresh:
                 self._volume_backend_status_cache = status
                 self._volume_backend_status_cached_at = time.monotonic()
             return dict(status)
         except Exception as exc:
             # redact exc string before returning to IPC layer.
-            # Sister methods (delete_model, test_llm_connection, etc.) all
-            # call redact_secret(redact_url(str(exc))) to avoid leaking
-            # secrets / URLs / file paths via the renderer.
             log.warning(
                 "[SERVICE] get_volume_backend_status failed: %s",
                 redact_secret(redact_url(str(exc))),
@@ -319,18 +164,7 @@ class StatusMixin(ServiceMixinBase):
             }
 
     def get_audio_status(self) -> dict:
-        """Return the audio filter chain status (ADR 0007).
-
-        Wraps access to ``self._app._audio_processor`` so the IPC
-        ``get_audio_status`` handler doesn't tunnel through two
-        private attributes (``self.service._app._audio_processor``).
-
-        Returns a dict with ``filter_chain``, ``degraded``,
-        ``degraded_reasons``, ``latency_ms``, ``vad_backend``, and
-        ``sample_rate``.  When the audio processor is absent (e.g.
-        during early startup or in test fixtures), a safe default
-        status is returned.
-        """
+        """Return the audio filter chain status (ADR 0007)."""
         app = self._app
         processor = getattr(app, "_audio_processor", None)
         if processor is not None:

@@ -1,33 +1,4 @@
-"""IPC server leaf-submodule package, validation, rate-limiting, history bounds.
-
-Phase 4.5 /  began a split of the original ``ipc_server.py``
-god-module into a package with one module per concern.  The split was
-abandoned mid-way and the parallel ``server.py`` / ``main.py`` /
-``process_meta.py`` / ``push_events.py`` implementations became dead
-code ().  This package now contains ONLY the leaf submodules that
-are actually imported by the handler mixins:
-
-- :func:`extract_auth_token` / :func:`tokens_equal` (shared WS
-  auth-handshake helpers), :mod:`.auth`
-- :func:`_validate_dict_payload` (IPC payload validation), :mod:`.validation`
-- :class:`_RateLimiter` + :func:`_get_rate_limiter` (per-connection
-  rate limiter), :mod:`.rate_limiter`
-- :func:`_bound_history_limit` / :func:`_bound_history_offset` /
-  :func:`_sanitize_config_for_ipc` (history bounds + config sanitizer) —
-  :mod:`.history_bounds`
-
-The live ``IPCServer`` class, ``main`` entry point,
-``_set_process_metadata`` and ``_push_event_now`` all live in the
-canonical ``voice_typer.server.ipc_server`` module (the shim that
-retains the full implementation).  This package does NOT re-export
-them, import them from ``voice_typer.server.ipc_server`` directly.
-
-This ``__init__.py`` eagerly imports the leaf submodules so callers
-that do ``from voice_typer.server.ipc.validation import ...`` (the
-handler mixins) get the canonical objects.  No lazy loading is needed
-because none of the surviving submodules trigger the handler-mixin
-import cycle that the original split was working around.
-"""
+"""IPC package: auth, validation, rate-limit, history bounds leaves."""
 
 # Eagerly import leaf submodules, these don't trigger handler imports.
 from .auth import extract_auth_token, tokens_equal

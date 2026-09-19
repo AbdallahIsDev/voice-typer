@@ -57,33 +57,13 @@ from voice_typer.server._busyness import BusynessCoordinator
 from voice_typer.server._microphone_registry import MicrophoneRegistry
 
 # Tests capture lazy-init failures at this logger name, see module
-# docstring.
 log = logging.getLogger("voice_typer.server.app")
 
 
 # Sentinel for the lazily-built ``recorder`` / ``recording`` backings.
-# ``None`` is a legitimate test-set value, so a distinct sentinel
-# distinguishes "not built yet" from "explicitly None".
 _RECORDER_MISSING: object = object()
 
 # Sentinel + TTL for the lazy ``@property`` accessors that wrap controller
-# construction in ``try/except Exception`` (``undo``, ``audio_quality``,
-# ``_duck_crash_recovery``, ``_volume_ducker``, ``history_db``).
-#
-# ``None`` is the *initial* state ("not yet attempted construction"), so it
-# cannot also represent "construction already failed", without a distinct
-# sentinel, every subsequent access would re-enter the ``try`` block and
-# re-attempt construction + re-log the WARNING (the ``audio_quality``
-# property is on a ~94 Hz hot path; a single failure spams ~94 warnings/sec
-# for the entire recording session). ``_LAZY_FAILED`` is cached in the
-# backing on failure alongside a ``_<prop>_failed_at`` monotonic
-# timestamp; the getter returns ``None`` silently (no log, no construction
-# re-attempt) until ``RETRY_TTL_SECONDS`` elapses, then clears the sentinel
-# and retries construction (transient failures can recover). This is the
-# canonical E8 exception-clause case ("Define a sentinel only when None is
-# itself a meaningful value"), ``None`` IS meaningful (initial state), so
-# the failure state needs a distinct marker. Mirrors the
-# ``_RECORDER_MISSING`` precedent in this module.
 _LAZY_FAILED: object = object()
 RETRY_TTL_SECONDS: float = 30.0
 
@@ -124,7 +104,6 @@ class _LazyAudioProcessorProxy:
 
     def __init__(self, app: Any) -> None:
         # Bypass our own __setattr__ (which would delegate to the wrapped
-        # AudioProcessor) when storing state on the proxy itself.
         object.__setattr__(self, "_app_ref", weakref.ref(app))
         object.__setattr__(self, "_real", None)
         object.__setattr__(self, "_wired", False)
@@ -135,13 +114,8 @@ class _LazyAudioProcessorProxy:
             app = object.__getattribute__(self, "_app_ref")()
             if app is None:
                 # The owning VoiceTyperApp was garbage-collected —
-                # should never happen in normal operation because the
-                # Recorder (which holds the proxy) is owned by the app.
-                # Defensive: raise AttributeError so the caller sees a
-                # clear failure rather than a None dereference.
                 raise AttributeError("_LazyAudioProcessorProxy: owning VoiceTyperApp was garbage-collected")
             # Deferred import. AudioProcessor pulls in the
-            # ``audio_filters`` package (scipy.signal.butter, RNNoise).
             from voice_typer.server.audio_processor import AudioProcessor
 
             real = AudioProcessor(
@@ -150,10 +124,6 @@ class _LazyAudioProcessorProxy:
             )
             object.__setattr__(self, "_real", real)
         # Wire the quality callback ONCE, immediately after construction
-        # (whether just-constructed or pre-existing). The ``_wired`` flag
-        # guards against re-wiring on every access (which would replace
-        # the callback if a later caller manually called
-        # ``set_quality_callback`` with a different cb).
         wired = object.__getattribute__(self, "_wired")
         if not wired:
             app = object.__getattribute__(self, "_app_ref")()
@@ -170,23 +140,10 @@ class _LazyAudioProcessorProxy:
 
     def __getattr__(self, name: str) -> Any:
         # __getattr__ is only called when the attribute is not found via
-        # normal lookup (i.e. for anything that isn't _app_ref / _real /
-        # _wired / a class attribute). Every wrapped-processor attribute
-        # goes through here.
         return getattr(self._resolve(), name)
 
 
-# ─── LazyProperty: the shared sentinel+TTL accessor skeleton ──────────
-#
 # Five accessors (``undo`` / ``audio_quality`` / ``_duck_crash_recovery``
-# / ``_volume_ducker`` / ``history_db``) used to carry five verbatim
-# copies of the same getter/setter skeleton. The per-property
-# differences are constructor arguments below: the backing attribute,
-# a deferred-import factory, the WARNING log label, and (``history_db``
-# only) the shutdown-time guard. All heavy imports stay INSIDE the
-# factories so the module-top import graph is unchanged (the deferred
-# imports are the whole point of the lazy accessors, see
-# ``tests/test_app_lazy_properties.py::TestDeferredImportsInLazyGetters``).
 
 
 def _build_undo(app: Any) -> Any:
@@ -203,11 +160,6 @@ def _build_audio_quality(app: Any) -> Any:
 
 def _build_duck_crash_recovery(app: Any) -> Any:
     # Deferred import, duck_crash_recovery pulls in platform-specific
-    # volume backends (pyobjc on macOS, ctypes-coreaudio on Windows).
-    # Deferred to first access (which only happens when volume ducking
-    # is enabled). The app-module helper does the call-time indirection
-    # so patches on ``config._config_dir`` propagate (imported here
-    # rather than duplicated, single source of truth).
     from voice_typer.server.app import _resolve_config_dir
     from voice_typer.server.duck_crash_recovery import DuckCrashRecovery
 
@@ -216,8 +168,6 @@ def _build_duck_crash_recovery(app: Any) -> Any:
 
 def _build_volume_ducker(app: Any) -> Any:
     # Deferred import, ``volume_ducker`` pulls in platform-specific
-    # volume backends (pyobjc on macOS, ctypes on Windows). Deferred to
-    # first access (which only happens when volume ducking is enabled).
     from voice_typer.server.volume_ducker import VolumeDucker
 
     return VolumeDucker(
@@ -228,8 +178,6 @@ def _build_volume_ducker(app: Any) -> Any:
 
 def _build_history_db(app: Any) -> Any:
     # Resolve ``HistoryDB`` through the app module at call time so the
-    # documented monkeypatch seam (``voice_typer.server.app.HistoryDB``)
-    # keeps intercepting construction: see the module docstring.
     from voice_typer.server import app as _app_module
 
     return _app_module.HistoryDB()
@@ -280,8 +228,6 @@ class LazyProperty:
     ) -> None:
         self._backing_attr = backing_attr
         # The timestamp attribute is derived from the backing name —
-        # ``_undo_backing`` → ``_undo_failed_at``,
-        # ``_duck_crash_recovery_backing`` → ``_duck_crash_recovery_failed_at``.
         self._failed_at_attr = backing_attr[: -len("_backing")] + "_failed_at"
         self._factory = factory
         self._log_label = log_label
@@ -332,22 +278,7 @@ class AppLazyHub:
     accessors live here.
     """
 
-    # ─── Legacy private-state back-compat properties ──────────────────
-    #
     # The raw state objects live in the coordinators constructed in
-    # ``__init__`` (``_busyness`` / ``_microphone_registry``); these
-    # read/write views keep every historical consumer of
-    # ``app._busy_event`` / ``app._lock`` / ``app._microphones``
-    # working unchanged. Setters rebind INTO the coordinator (never
-    # shadowing it) so ``monkeypatch.setattr(app, "_busy_event", ...)``
-    # style injection and plain ``app._microphones = [...]`` rebinding
-    # keep their pre-extraction semantics.
-    #
-    # Declared here (not inferred from the ``__init__`` assignments)
-    # because ``__init__`` is unannotated, mypy does not treat
-    # assignments inside an untyped function body as attribute
-    # declarations, so without these the delegating properties below
-    # read the coordinators as ``Any``.
     _busyness: BusynessCoordinator
     _microphone_registry: MicrophoneRegistry
 
@@ -384,42 +315,11 @@ class AppLazyHub:
     def _microphones(self, mics: list[dict]) -> None:
         self._microphone_registry.replace(mics)
 
-    # ─── Lazy @property accessors ─────────────────────────────────────
-    #
     # Each property has both a getter (constructs on first access if
-    # the backing is None) and a setter (stores directly into the
-    # backing so existing tests that inject mocks via
-    # ``app.<attr> = MagicMock()`` keep working transparently —
-    # assignment bypasses the lazy construction).
-    #
-    # Construction failures (e.g. a corrupt ``templates.json``) are
-    # logged at WARNING level with ``exc_info=True`` (mirrors the
-    # pre- eager-init failure-logging contract). The backing is then
-    # set to the ``_LAZY_FAILED`` sentinel (NOT ``None``) plus a
-    # ``_<prop>_failed_at`` monotonic timestamp, subsequent accesses
-    # within ``RETRY_TTL_SECONDS`` (30s) return ``None`` silently (no
-    # log, no construction re-attempt) so the per-chunk hot path
-    # (``audio_quality`` at ~94 Hz) does not spam ~94 warnings/sec for
-    # the entire recording session. After the TTL elapses the sentinel
-    # is cleared and construction is retried (transient failures can
-    # recover). The WARNING fires exactly once per fresh failure
-    # (per TTL window), not on every access. ``None`` IS a meaningful
-    # value here (the initial "not yet attempted" state, and the value
-    # returned by the getter to callers while the sentinel is in TTL),
-    # so the sentinel qualifies for the E8 exception clause ("Define a
-    # sentinel only when None is itself a meaningful value"), mirrors
-    # the existing ``_RECORDER_MISSING`` precedent in this module.
 
     @property
     def _template_manager(self):
         # Return the backing directly. Construction is the caller's
-        # responsibility: see ``service/template.py``'s lazy fallback
-        # which constructs via ``TemplateManager()`` and assigns back
-        # via the setter below. Returning ``None`` when uninitialised
-        # lets tests verify the lazy contract without triggering
-        # eager ``TemplateManager()`` construction on ``__init__``
-        # (TemplateManager reads ``templates.json`` from disk; that's
-        # hundreds of ms on a cold start).
         return self._template_manager_backing
 
     @_template_manager.setter
@@ -429,13 +329,6 @@ class AppLazyHub:
     @property
     def _vocabulary_manager(self):
         # Return the backing directly. Construction is the caller's
-        # responsibility: see ``service/vocabulary.py``'s lazy
-        # fallback which constructs via ``VocabularyManager()`` and
-        # assigns back via the setter below. Returning ``None`` when
-        # uninitialised lets tests verify the lazy contract without
-        # triggering eager ``VocabularyManager()`` construction on
-        # ``__init__`` (VocabularyManager reads ``vocabulary.json``
-        # from disk; that's hundreds of ms on a cold start).
         return self._vocabulary_manager_backing
 
     @_vocabulary_manager.setter
@@ -466,14 +359,6 @@ class AppLazyHub:
         backing = self._clipboard_backing
         if backing is None:
             # Deferred import, the clipboard package eagerly imports
-            # ``pyperclip`` + the platform backends (``.windows`` /
-            # ``.linux``, which pull in pywin32 / pynput) and the
-            # ``manager`` submodule imports ``config`` at module top
-            # (~13 ms of the cold-start import chain, measured). The
-            # clipboard is only touched at dictation-stop paste time,
-            # so the class import is deferred to first access, mirrors
-            # the existing deferred-import pattern (undo, audio_quality,
-            # _volume_ducker).
             from voice_typer.server.clipboard import ClipboardManager
 
             backing = ClipboardManager(
@@ -491,9 +376,6 @@ class AppLazyHub:
         backing = self._waveform_bubble_backing
         if backing is None:
             # Deferred import, ``voice_typer.server.waveform``
-            # transitively imports numpy, which is ~250-335ms on cold
-            # start. Deferred to first access (which only happens when
-            # the bubble is actually shown).
             from voice_typer.server.waveform import WaveformBubble
 
             backing = WaveformBubble()
@@ -518,23 +400,7 @@ class AppLazyHub:
     def waveform_wiring(self, value) -> None:
         self._waveform_wiring_backing = value
 
-    # ─── Lazy recorder / recording properties (background build) ──────
-    #
     # ``recorder`` / ``recording`` are built on a background thread in
-    # ``__init__`` so the multi-second construction cost
-    # (numpy/scipy/sounddevice + PortAudio init) never blocks the tray /
-    # IPC startup. The getters block only if the background build is
-    # still in flight (brief); the setters let tests inject mocks
-    # transparently (assignment bypasses the lazy build).
-    #
-    # Backing type declared here (same pattern as ``_busyness`` /
-    # ``_microphone_registry`` above): the sentinel assignment lives in
-    # the ``AppRecordingInit`` builder, which sits AFTER this class in
-    # the MRO: without an explicit annotation mypy cannot determine
-    # the attribute's type when it processes this class's properties.
-    # The honest type is ``Any``: the setters accept test mocks, the
-    # getters return the built Recorder / RecordingController, and the
-    # sentinel object itself, matching the ``Any``-typed accessors.
     _recorder_backing: Any
     _recording_backing: Any
     _recorder_build_ready: threading.Event
@@ -546,11 +412,6 @@ class AppLazyHub:
         if backing is not _RECORDER_MISSING:
             return backing
         # Shutdown guard (mirrors ``history_db``): if the app is already
-        # quitting and the background build never finished, return None
-        # instead of blocking the teardown path on the still-in-flight
-        # build. Shutdown teardowns check ``app.recorder is not None``,
-        # so a never-built recorder is skipped cleanly; a built recorder
-        # is returned by the fast path above.
         if self._shutting_down_event.is_set():
             return None
         self._recorder_build_ready.wait()
@@ -560,10 +421,6 @@ class AppLazyHub:
         if backing is not _RECORDER_MISSING:
             return backing
         # The background build was short-circuited by a ``recorder``
-        # setter (test mock injection) before it could build the real
-        # Recorder, never construct one eagerly here (that would
-        # re-introduce the multi-second startup stall). Return None;
-        # callers treat a missing recorder the same as an unbuilt one.
         return None
 
     @recorder.setter
@@ -586,11 +443,6 @@ class AppLazyHub:
         if backing is not _RECORDER_MISSING:
             return backing
         # The background build was short-circuited by a ``recorder``
-        # setter (test mock injection) so ``_recording_backing`` was
-        # never populated. Construct the controller on demand to
-        # preserve the long-standing contract that ``app.recording`` is
-        # always a RecordingController (RecordingController is cheap to
-        # build, no audio/numpy imports, so this adds no startup cost).
         from voice_typer.server.recording_controller import RecordingController
 
         backing = RecordingController(self)
@@ -602,17 +454,7 @@ class AppLazyHub:
         self._recording_backing = value
         self._recorder_build_ready.set()
 
-    # ─── Lazy controller / volume-subsystem properties ────────────────
-    #
     # ``undo`` (UndoRepasteController), ``audio_quality``
-    # (AudioQualityController), ``_duck_crash_recovery``
-    # (DuckCrashRecovery), and ``_volume_ducker`` (VolumeDucker) used
-    # to be constructed eagerly in ``__init__``. They are now
-    # auto-constructing lazy accessors, declared once as
-    # ``LazyProperty`` descriptors (first access triggers construction
-    # and caches the instance in the backing attribute). Tests that
-    # inject mocks via ``app.<attr> = MagicMock()`` use the setter (the
-    # descriptor's ``__set__``), which bypasses the lazy construction.
 
     undo = LazyProperty("_undo_backing", _build_undo, "UndoRepasteController")
 
@@ -630,18 +472,7 @@ class AppLazyHub:
         "VolumeDucker",
     )
 
-    # ─── lazy AudioProcessor property ───────────────────────────
-    #
     # ``AudioProcessor`` construction is deferred to first attribute
-    # access via a ``_LazyAudioProcessorProxy``. The proxy transparently
-    # constructs the real ``AudioProcessor`` on the first
-    # ``process_chunk`` / ``set_sample_rate`` / ``rebuild_from_config``
-    # call (i.e. on the first recording or the first config-driven
-    # rebuild). The proxy also wires ``set_quality_callback`` after
-    # construction.
-    #
-    # Tests that inject mocks via ``app._audio_processor = MagicMock()``
-    # use the setter, which bypasses the proxy entirely.
 
     @property
     def _audio_processor(self):
@@ -655,18 +486,7 @@ class AppLazyHub:
     def _audio_processor(self, value) -> None:
         self._audio_processor_backing = value
 
-    # ─── lazy HistoryDB property ────────────────────────────────
-    #
     # ``HistoryDB()`` construction is deferred to first access (the
-    # eager ``__init__`` construction used to block for up to
-    # ``_WRITER_READY_TIMEOUT`` (30s) waiting for the writer thread's
-    # schema-init). Shares the ``LazyProperty`` sentinel+TTL skeleton;
-    # ``shutdown_guard=True`` adds the ``_shutting_down_event`` checks
-    # that prevent the shutdown teardown path
-    # (``shutdown/teardowns/history_db.py``) from triggering lazy
-    # construction via its ``if app.history_db is not None:`` check, a
-    # never-dictated session would otherwise pay the 30s writer-ready
-    # wait on quit just to immediately close the DB it never used.
     history_db = LazyProperty(
         "_history_db_backing",
         _build_history_db,

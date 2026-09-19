@@ -1,7 +1,4 @@
-"""Parakeet TDT v3 ASR engine package.
-
-Facade preserving the historical ``voice_typer.server.parakeet_engine``
-import path (also the dotted string in ``asr_registry._BACKEND_SPECS``)."""
+"""Parakeet TDT v3 ASR engine package."""
 
 from ._constants import (
     _CHUNK_OVERLAP_SECONDS,

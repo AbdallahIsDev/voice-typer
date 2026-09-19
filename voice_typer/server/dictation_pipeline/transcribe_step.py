@@ -1,20 +1,4 @@
-"""Transcription step mixin for ``DictationPipeline``.
-
-Originally defined inline as ``DictationPipeline._transcribe`` /
-``_handle_empty_transcription`` / ``_hide_or_idle_bubble`` /
-``_check_resources_throttled`` / ``_check_resources`` in the
-2077-LOC ``dictation_pipeline.py`` monolith. Extracted here as a
-mixin so the orchestrator can compose it with the other step mixins
-(text / enhancement / storage / paste) into the final
-``DictationPipeline`` class.
-
-NO behavior change, the method bodies, signatures, error handling,
-and side effects are identical to the pre-split versions. The
-``TranscribeStage`` in ``dictation_stages`` calls
-``ctx.pipeline._transcribe()``; ``EmptyCheckStage`` calls
-``ctx.pipeline._handle_empty_transcription()``. Both reach this
-mixin via the composed class's MRO.
-"""
+"""Transcription stage for the dictation pipeline."""
 
 from __future__ import annotations
 
@@ -33,53 +17,22 @@ from voice_typer.server.tray_types import AppState
 
 if TYPE_CHECKING:
     # Type-only import to avoid the import cycle (the orchestrator is
-    # constructed with the owning ``VoiceTyperApp``). At runtime,
-    # ``_app`` is whatever object ``DictationPipeline.__init__``
-    # received (a ``VoiceTyperApp`` in production, mocks in tests).
     from voice_typer.server.app import VoiceTyperApp
 
     # Real class (helpers.py), imported for annotation only. The
-    # runtime lookup of ``_AbortWatcher`` stays lazy through the
-    # package namespace so the test-time monkeypatch keeps working.
     from voice_typer.server.dictation_pipeline.helpers import _AbortWatcher
 
 # NOTE: ``_AbortWatcher`` is intentionally NOT imported at module level
-# here. Tests monkeypatch ``voice_typer.server.dictation_pipeline._AbortWatcher``
-# (the re-exported symbol on the package ``__init__`` namespace); a
-# top-level ``from ...helpers import _AbortWatcher`` would bind the
-# original class into this module's namespace and bypass the patch.
-# ``_transcribe`` resolves ``_AbortWatcher`` lazily through the package
-# namespace at call time so the test-time patch takes effect.
 
 log = logging.getLogger(__name__)
 
 
 class _TranscribeStepMixin:
-    """Mixin: transcription + empty-handling + resource-probe step methods.
-
-    Provides the methods consumed by ``TranscribeStage`` and
-    ``EmptyCheckStage`` in ``dictation_stages.build_default_stages``:
-
-      * :meth:`_hide_or_idle_bubble`: shared bubble teardown helper
-        (also called from the orchestrator's error path and the paste
-        step's clipboard-failure path; lives here because it is most
-        tightly coupled to the empty-transcription UX path).
-      * :meth:`_check_resources_throttled`: throttled wrapper around
-        the resource probe; called from the orchestrator's pre-flight.
-      * :meth:`_check_resources`: direct (unthrottled) probe; called
-        by tests and exposed for parity with the pre-split API.
-      * :meth:`_transcribe`: Step 1: get the transcript from the
-        active streaming session or ASR backend.
-      * :meth:`_handle_empty_transcription`: Step 2: handle the "no
-        speech detected" case with the UX-silence-grace logic.
+    """* :meth:`_check_resources_throttled`: throttled wrapper around
+    * :meth:`_check_resources`: direct (unthrottled) probe; called
     """
 
     # Declared here so the standalone mixin type-checks (mypy cannot
-    # see the ``_OrchestratorMixin.__init__`` assignments through the
-    # composed MRO). ``_OrchestratorMixin.__init__`` still owns the
-    # runtime initialization. Annotations only, no values, so no
-    # runtime attribute is created and the runtime MRO is unaffected
-    # (same pattern as ``_StorageStepMixin._app``).
     _app: VoiceTyperApp
     _cycle_id: str
     _audio: Any
@@ -89,24 +42,8 @@ class _TranscribeStepMixin:
     _last_resources_check_ts: float
     _resources_check_interval: float
 
-    # ── Pipeline steps ────────────────────────────────────────────
-
     def _hide_or_idle_bubble(self, log_label: str = "bubble hide/set idle") -> None:
-        """Hide the waveform bubble or set it to idle (always_visible mode).
-
-        Centralizes the 4-site pattern of choosing between
-        ``set_state("idle")`` (when ``bubble_behavior == "always_visible"``)
-        and ``hide()`` (otherwise), wrapped in a best-effort try/except so
-        a bubble teardown failure doesn't mask the real transcription
-        result. The fallback log message is parameterised so each call
-        site can be traced in logs.
-
-        Called from:
-        - the error-recovery timer (error → idle transition)
-        - the empty-transcription handler
-        - the clipboard-failure path (paste failed, text saved to recovery)
-        - the success path (paste complete)
-        """
+        """Hide the waveform bubble or set it to idle (always_visible mode)."""
         try:
             if self._app.config.bubble_behavior == "always_visible":
                 self._app._waveform_bubble.set_state("idle")
@@ -117,21 +54,7 @@ class _TranscribeStepMixin:
 
     def _check_resources_throttled(self) -> None:
         """Throttled wrapper around _check_resources.
-
         Delegates to ``resource_probe.check_resources_throttled`` (extracted
-        to a sibling helper module, the body was self-contained with no
-        instance-state dependencies). Preserves the throttle state on
-        ``self._last_resources_check_ts`` for backward compat with tests.
-
-        A fresh ``DictationPipeline`` is constructed per dictation cycle
-        (see ``recording_lifecycle``), so instance-only state resets to
-        ``0.0`` every time and the 60s throttle never fires (every cycle
-        logs the full probe, even seconds apart). The last-check
-        timestamp is therefore shared on the owning app object
-        (``_shared_resources_check_ts``) so consecutive cycles within
-        the interval skip the probe. Instance state is still updated
-        for backward compat; apps without the shared slot (tests using
-        ``__new__``) fall back to instance-only throttling.
         """
         from voice_typer.server.resource_probe import check_resources_throttled
 
@@ -158,18 +81,8 @@ class _TranscribeStepMixin:
             log.debug("[PIPELINE] failed to persist shared resources-check timestamp", exc_info=True)
 
     def _check_resources(self) -> None:
-        """Pre-flight health check before transcription.
-
-        Delegates to ``resource_probe.check_resources`` (extracted to a
-        sibling helper module, the body was a 185-LOC self-contained
-        probe with no instance-state dependencies, flagged as a DEFERRED
-        refactor by the original docstring).
-
-        Failures in the probe (e.g. ``psutil`` / ``ctypes`` / ``torch``
-        not importable, ``shutil.disk_usage`` / ``os.statvfs`` raising)
+        """Delegates to ``resource_probe.check_resources`` (extracted to a
         are logged at DEBUG level by the delegated ``check_resources``
-        and do NOT abort the pipeline, the user may still succeed with
-        low resources, and the DEBUG lines aid post-crash triage.
         """
         from voice_typer.server.resource_probe import check_resources
 
@@ -179,58 +92,12 @@ class _TranscribeStepMixin:
         """Step 1: Get transcription via streaming finalize or direct.
 
         Returns the transcript from the active streaming session (if one
-        is open) or the active ASR backend (Whisper / Parakeet / Qwen /
-        Cloud) via ``transcribe_with_fallback``.
-
-        ``active`` is captured ONCE at the top and reused
-        for both the transcribe call and the ``device_info`` read
-        below. Pre-fix, a second ``active_transcriber()`` call after
-        the transcribe was both redundant (the backend rarely changes
-        mid-cycle) and racy (a concurrent ``set_active_backend`` could
-        swap the backend between the two calls, so ``device_info``
-        reported the wrong device for the result just produced).
-
-        ``backend_was_loaded`` is captured BEFORE the transcribe
-        call. If the engine returns empty AND ``backend_was_loaded`` is
-        False, raise ``BackendNotLoadedError``: this bypasses
-        ``EmptyCheckStage`` (the exception propagates out of
-        ``TranscribeStage`` and is caught by ``run()``'s generic
-        ``except Exception`` block) so the user sees a friendly
-        "model not loaded" message instead of the ambiguous "No speech
-        detected" toast that ``_handle_empty_transcription`` would
-        produce.
         """
         #  capture the active transcriber ONCE, the
-        # previous code made a second ``active_transcriber()`` call
-        # after the transcribe to refresh ``device_info`` (redundant +
-        # racy vs. a concurrent ``set_active_backend``). Reuse this
-        # same local for ``device_info`` below. Also capture
-        # ``is_loaded`` BEFORE the transcribe call so the empty-result
-        # path can distinguish "engine returned empty" from "engine was
-        # never loaded" (a backend that is not loaded can return "" from
-        # ``transcribe_with_fallback`` without raising, ).
         active = self._app.models.active_transcriber()
         backend_was_loaded = bool(getattr(active, "is_loaded", False))
 
         # Clear any stale abort from a previous cycle before starting
-        # inference. ``clear_abort()`` is a no-op on engines that
-        # don't expose the abort API (e.g. a test stub); the
-        # ``hasattr`` guard makes this safe. After clearing, install
-        # an ``_AbortWatcher`` that polls ``recording._cancelled_cycle_ids``
-        # every 100ms and calls ``active.request_abort()`` when the
-        # cycle is cancelled. The watcher bridges the recording
-        # controller's cancel path (ESC / watchdog) to the engine's
-        # abort API so inference actually stops instead of running to
-        # completion while the late result is dropped by the paste
-        # guard. The watcher is stopped in the ``finally`` block below.
-        #
-        # Resolve ``_AbortWatcher`` through the package namespace at
-        # call time so tests that monkeypatch
-        # ``voice_typer.server.dictation_pipeline._AbortWatcher`` (the
-        # re-export on the package ``__init__``) take effect, a
-        # top-level ``from ...helpers import _AbortWatcher`` would
-        # bind the original class into this module's namespace and
-        # bypass the patch.
         from voice_typer.server import dictation_pipeline as _dp_pkg
 
         _abort_watcher_cls = _dp_pkg._AbortWatcher
@@ -244,22 +111,10 @@ class _TranscribeStepMixin:
 
         try:
             #  sibling: pop_streaming_session() atomically owns the
-            # session AND clears the slot under a SINGLE lock acquisition.
-            # If finalize() raises below, the slot is already clear, the
-            # next dictation cycle starts with a clean slot rather than
-            # re-entering the stale session. We never write back to the
-            # slot (a concurrent _start_streaming_session_if_enabled could
-            # install a NEW session that a set_streaming_session(None) would
-            # clobber: see ).
             session = self._app.recording.pop_streaming_session()
             if session is not None:
                 log.info("[STREAMING] Finalizing streaming transcript (cycle=%s)", self._cycle_id)
                 # Annotated so the batch-branch Any return (from the
-                # Any-typed engine ``transcribe_with_fallback``) cannot
-                # leak through to this function's ``str`` return.
-                # Copy before finalize: the session zeroes ``full_audio``
-                # in place, a streaming-empty batch retry below needs
-                # intact samples.
                 try:
                     import numpy as _np
 
@@ -302,22 +157,6 @@ class _TranscribeStepMixin:
                             text = ""
             else:
                 # When ``active_transcriber()`` returned None AND
-                # there is no streaming session to finalize, the batch
-                # path would dereference ``None.transcribe_with_fallback``
-                # and raise ``AttributeError``: masking the real cause
-                # (no ASR backend registered, e.g. the model was unloaded
-                # mid-cycle by a concurrent ``change_model`` and no
-                # streaming session captured the audio). Raise a friendly
-                # ``BackendNotLoadedError`` instead so ``run()``'s generic
-                # ``except Exception`` block surfaces "model not loaded"
-                # via ``_friendly_transcription_error`` (which has an
-                # ``isinstance(exc, BackendNotLoadedError)`` branch with a
-                # distinct, actionable message (see ). The
-                # streaming path above is intentionally NOT guarded:
-                # when a streaming session exists, ``session.finalize()``
-                # produces the text without needing ``active`` (the
-                # streaming worker captured the audio before the backend
-                # was unloaded).
                 if active is None:
                     raise BackendNotLoadedError(
                         "No ASR backend is registered, wait for the model "
@@ -326,56 +165,14 @@ class _TranscribeStepMixin:
                         engine_name="<none>",
                     )
                 # pass the pre-computed audio stats so the
-                # transcription engine doesn't recompute RMS/peak/silence_pct
-                # on the same audio array (saves 1-3 ms + 3× 1.9 MB transient
-                # memory per dictation).
 
                 # a-review Finding 8: previously this call was wrapped in a
-                # broad ``try/except TypeError`` to handle backends that
-                # didn't yet accept ``audio_stats``. That catch was too
-                # broad, a ``TypeError`` raised inside the function body
-                # (``None.lower()``, bad indexing, etc.) was also caught
-                # and the retry either failed the same way (confusing
-                # trace) or masked the original bug. All four backends
-                # (Whisper/Parakeet/Qwen/Cloud) now accept ``audio_stats``
-                # as a keyword argument, so the fallback is no longer
-                # needed.
 
                 # When the active backend is a CloudEngine, look
-                # up the local whisper engine from the model registry and
-                # pass it as ``local_engine=``.  This makes the cloud→local
-                # fallback path actually fire when the cloud provider is
-                # unreachable, previously the ``local_engine=`` parameter
-                # existed but NO caller passed it, so the fallback was dead
-                # code (transcription failed outright when the cloud was
-                # down).  When the active backend is already a local engine
-                # (Whisper/Parakeet/Qwen), ``local_engine`` is left as None.
                 local_engine = None
                 if isinstance(active, CloudEngine):
                     local_engine = _lookup_local_whisper(self._app)
                 # Route through the registry's busy-flag wrapper so
-                # the per-backend busy flag is set/cleared atomically
-                # (). Pre-fix, the pipeline called
-                # ``active.transcribe_with_fallback(...)`` directly,
-                # bypassing ``AsrBackendRegistry.transcribe_with_fallback``
-                # (asr_registry.py:951-997), the  busy flag was dead
-                # code in production, so
-                # ``ModelManager.ensure_active_engine_loaded`` could not
-                # reject new dictation requests when the active backend
-                # was stuck in a C-level ctranslate2 call (which can hold
-                # GPU + GIL for 5-30 min). When a backend hung, the user's
-                # F2 started a new dictation on top of the stuck one.
-                #
-                # We use ``busy_context`` directly, the same primitive
-                # the wrapper uses internally at asr_registry.py:996-997
-                # (``with self.busy_context(target): return
-                # backend.transcribe_with_fallback(...)``), because the
-                # active backend was already captured above via
-                # ``active_transcriber()``; the wrapper's internal lookup
-                # would be redundant. ``busy_context`` is the exact
-                # primitive that ``ensure_active_engine_loaded`` reads
-                # via ``is_busy`` to reject new dictation requests when
-                # the active backend is busy.
                 registry = self._app.models.registry
                 with registry.busy_context(registry.active_name):
                     text = active.transcribe_with_fallback(
@@ -384,14 +181,6 @@ class _TranscribeStepMixin:
                         local_engine=local_engine,
                     )
                     # Capture the engine's compact quality summary (mean /
-                    # min logprob + no-speech prob stats the Whisper
-                    # segment loop already collected). Duck-typed via
-                    # getattr so engines without per-segment confidence
-                    # stats (Parakeet / Qwen / cloud, test stubs) leave
-                    # ``None``: the renderer omits the low-confidence
-                    # affordance when the field is absent. Same-thread
-                    # read immediately after the call: no locking, no
-                    # recomputation, no paste-path latency.
                     self._quality_summary = getattr(active, "last_quality_summary", None)
         finally:
             if abort_watcher is not None:
@@ -399,41 +188,15 @@ class _TranscribeStepMixin:
                     abort_watcher.stop()
 
         # PERF-015: refresh the LRU timestamp for the active backend
-        # so it isn't evicted as least-recently-used after a successful
-        # transcribe. touch_active_model() is guarded internally and safe to
-        # call when no backend is active.
         with contextlib.suppress(Exception):
             self._app.models.touch_active_model()
 
         # reuse the captured ``active`` local for device_info
-        # instead of calling ``active_transcriber()`` a second time. If
-        # ``active`` is None (backend was unloaded mid-cycle by a
-        # concurrent ``set_active_backend`` / ``change_model``), fall
-        # back to the literal "Parakeet ASR" string, matching the
-        # pre-fix behavior for the ``active is None`` edge case.
         self._device_info = (
             active.device_info if active is not None and hasattr(active, "device_info") else "Parakeet ASR"
         )
 
         # Empty-transcription diagnostic: when the engine returns an
-        # empty string without raising, the downstream
-        # ``_handle_empty_transcription`` will suppress the user-facing
-        # notification for short recordings, leaving the user with no
-        # feedback at all. Surface a single consolidated log line with
-        # every signal we have (duration, RMS, backend type, audio
-        # stats, streaming vs batch path, ``is_loaded`` state) so the
-        # empty result is traceable from the log file. This does NOT
-        # change behavior; it only makes the existing silent-failure
-        # path visible to developers diagnosing the "finish dictation
-        # → nothing transcribed" symptom.
-        #
-        # include ``backend_is_loaded`` in the warning so
-        # operators can distinguish the three failure modes that all
-        # collapse to empty output: (1) genuine silence, (2) unloaded
-        # backend returned "", (3) cloud provider returned 200 with
-        # empty body. Pre-fix all three were indistinguishable from the
-        # log, the only signal was "backend was empty". The
-        # ``backend_is_loaded`` field makes case (2) traceable.
         if not text:
             backend_name = type(active).__name__ if active is not None else "<none>"
             stats_repr = (
@@ -454,25 +217,6 @@ class _TranscribeStepMixin:
                 "streaming" if session is not None else "batch",
             )
             # if the backend was not loaded when we entered
-            # ``_transcribe``, the empty output is overwhelmingly likely
-            # caused by the unloaded backend (``transcribe_with_fallback``
-            # on an unloaded Whisper/Parakeet/Qwen typically returns ""
-            # without raising). Raise a distinct error so the run()'s
-            # generic ``except Exception`` block surfaces a friendly
-            # "model not loaded" message instead of falling through to
-            # ``_handle_empty_transcription`` (which would show the
-            # ambiguous "No speech detected" toast, same as the user
-            # who said nothing). This is the intended observability
-            # improvement: the user can now distinguish "my mic is
-            # broken" from "the model didn't load" from "I was silent".
-            #
-            # NOTE: this raise bypasses ``EmptyCheckStage`` entirely
-            # because the exception propagates out of ``TranscribeStage``
-            # (which calls ``self._transcribe()``) before
-            # ``EmptyCheckStage`` runs. The run() ``except Exception``
-            # block then surfaces the friendly message via
-            # ``_friendly_transcription_error`` (which has an
-            # isinstance branch for ``BackendNotLoadedError``).
             if not backend_was_loaded:
                 raise BackendNotLoadedError(
                     "Active ASR backend is not loaded, "
@@ -484,43 +228,8 @@ class _TranscribeStepMixin:
         return text
 
     def _handle_empty_transcription(self) -> None:
-        """Step 2: Handle case where no speech was detected.
-
-        UX-SILENCE-GRACE: If the recording duration is less than the 15-second
-        grace period, the "no speech detected" tray notification is suppressed.
-        This prevents an annoying warning when the user briefly taps the hotkey
-        (start recording, stop immediately), the recording is too short to
-        make a meaningful speech assessment. The notification only fires when
-        the user records for 15+ seconds with no detectable speech, which
-        genuinely suggests a microphone issue.
-
-        REFINED-SILENCE-GRACE: the original grace-period suppression fired
-        for EVERY short recording, including ones with clear audio (high
-        RMS) where the engine returned empty. That hid the
-        "finish-dictation-→-nothing-transcribed" failure mode entirely:
-        the user saw no clipboard output, no error toast, no tray status
-        beyond "No speech detected": even when their mic was working
-        fine and the engine was the real culprit (e.g. a misconfigured
-        model, a backend that returns "" without raising). The fix
-        narrows the suppression to ONLY the case it was designed for:
-        short recordings with NEAR-SILENCE (recorded_rms below the same
-        0.005 threshold used in the long-recording branch). Short
-        recordings with real audio still suppress the popup notification
-        (a 5s clip with no transcription is too ambiguous to be worth a
-        modal alert) but the tray status now reflects "transcription
-        returned empty" so the user knows something happened, and a
-        warning is logged so the failure is traceable.
-        """
+        """Step 2: Handle case where no speech was detected."""
         # BP-89: ESC-during-transcribe marks the cycle cancelled
-        # (recording_lifecycle._mark_cycle_cancelled →
-        # ``app.recording._cancelled_cycle_ids``). If the abort landed
-        # before the first segment, the empty result flows here and
-        # would otherwise surface the misleading "No speech detected —
-        # check your microphone" message. A deliberately-cancelled
-        # cycle must end QUIETLY (the user pressed ESC; their mic is
-        # fine). Mirrors the CancellationGuard membership check (same
-        # set + lock, torn-read safety; falls back to "not cancelled"
-        # when the attrs are missing).
         _recording = getattr(self._app, "recording", None)
         _cancelled_set = getattr(_recording, "_cancelled_cycle_ids", None)
         if _cancelled_set is not None:
@@ -542,23 +251,16 @@ class _TranscribeStepMixin:
 
         log.info("[TRANSCRIBE] No speech detected (cycle=%s)", self._cycle_id)
         # Hide the bubble since there's nothing to
-        # transcribe, no need to keep the overlay visible.
         self._hide_or_idle_bubble("bubble hide/set idle on empty")
 
         # UX-SILENCE-GRACE: Suppress the notification for short recordings (< 15s).
-        # A brief tap of the hotkey does not warrant a microphone warning.
         _grace_period = 15.0
         # Same near-silence threshold used by the long-recording branch
-        # below, keeps the "audio was actually captured" detection
-        # consistent across both branches.
         _silence_rms_threshold = 0.005
         _audio_was_captured = self._recorded_rms >= _silence_rms_threshold
 
         if self._duration < _grace_period and not _audio_was_captured:
             # Short recording AND near-silence: the user almost certainly
-            # tapped the hotkey by accident or stopped immediately. This
-            # is the original UX-SILENCE-GRACE case, suppress the
-            # notification entirely.
             log.info(
                 "[TRANSCRIBE] No speech detected but recording was only %.1fs "
                 "(< %.0fs grace period) and near-silent (rms=%.4f), suppressing notification",
@@ -568,22 +270,6 @@ class _TranscribeStepMixin:
             )
             self._app.tray.set_state(AppState.IDLE, _i18n_t("state.dictation_pipeline.no_speech_detected"))
             #  (observability): publish a ``dictation_suppressed``
-            # event so the renderer can show a subtle inline bubble
-            # ("recording too short, try again") instead of giving the
-            # user zero feedback. Pre-fix, this branch silently
-            # swallowed ALL user feedback for short near-silent
-            # recordings, the user saw nothing and had no way to tell
-            # their tap registered. The suppression threshold is NOT
-            # lowered (that's a separate UX decision); we only add an
-            # observability/UX channel for the suppressed branch. The
-            # event payload is intentionally minimal (duration, RMS,
-            # reason) so the renderer can decide whether to show the
-            # bubble based on its own UX rules. Wrapped in
-            # ``contextlib.suppress`` so a broken event bus (or an
-            # unregistered event type under ``VOICE_TYPER_DEBUG_EVENTS=1``)
-            # never aborts the suppression path, the tray state set
-            # above is the source of truth; this event is purely
-            # additive UX feedback.
             with contextlib.suppress(Exception):
                 from voice_typer.server import event_bus
 
@@ -599,12 +285,6 @@ class _TranscribeStepMixin:
                 )
         elif self._duration < _grace_period and _audio_was_captured:
             # Short recording BUT real audio was captured: the engine
-            # returned empty despite picking up a non-trivial signal.
-            # This is the silent-empty-transcription failure mode. Keep
-            # the popup suppressed (a short clip is too ambiguous to
-            # justify an alert) but surface a distinct tray status so
-            # the user sees something happened, and log at WARNING so
-            # the failure is traceable in the log file.
             log.warning(
                 "[TRANSCRIBE] Short recording (%.1fs) with audio "
                 "(rms=%.4f >= %.4f) produced empty transcription, "
@@ -631,10 +311,6 @@ class _TranscribeStepMixin:
             )
         else:
             # Long recording with real audio but the engine returned
-            # empty: this is the unusual case where the model clearly
-            # failed (15+ seconds of intelligible audio should produce
-            # SOMETHING). Notify the user so they know to retry or
-            # check the log file.
             log.warning(
                 "[TRANSCRIBE] Long recording (%.1fs) with audio "
                 "(rms=%.4f) produced empty transcription, engine "
@@ -654,7 +330,6 @@ class _TranscribeStepMixin:
                 "audio is unclear. Try again, or check the log file for "
                 "details.",
             )
-        # BP-90: routed through the BusynessCoordinator (set_idle =
         # busy = False) instead of the raw inverted _busy_event.
         self._app._busyness.set_idle()
         self._app._schedule_timer(2.0, lambda: self._app.tray.set_state(AppState.IDLE))

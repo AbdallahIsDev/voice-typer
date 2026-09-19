@@ -57,65 +57,19 @@ if TYPE_CHECKING:  # pragma: no cover, typing-only, never imported at runtime
 log = logging.getLogger("voice_typer.server.config")
 
 # Monotonic counter mixed into the ``config.json.corrupt-<ts>-<pid>-<ns>``
-# suffix (mirrors ``secure_file_io._QUARANTINE_SUFFIX_SEQ``). On Windows
-# ``time.time_ns()`` can return the SAME value for rapid back-to-back
-# calls inside the same coarse system-timer tick, so the microsecond
-# fraction alone does NOT disambiguate two corrupt loads in the same
-# process (two ``Path.replace`` calls would pick the identical filename
-# and the second would silently overwrite the first's forensic backup).
-# ``itertools.count`` is GIL-atomic; ``next()`` needs no lock.
 _CONFIG_QUARANTINE_SUFFIX_SEQ: "itertools.count" = itertools.count()
 
 # NOTE: ``_config_dir`` and ``_secure_read_text`` are NOT imported at the
-# top of this module. They are re-exported by ``config/__init__.py`` and
-# are routinely monkeypatched by tests via
-# ``monkeypatch.setattr("voice_typer.server.config._config_dir", ...)``
-# (see tests/test_config_load_corruption.py,
-# tests/test_config_migration_schema_version.py, tests/test_config_pep604_union.py).
-# If we bound them at top-of-file here, the monkeypatch on the
-# ``config`` module's globals would NOT take effect inside this module's
-# functions (each module has its own globals dict). Looking them up
-# lazily via ``import voice_typer.server.config as _cfg`` inside each
-# function ensures the patched binding is picked up at call time.
 
 #: Dedupe key for the unknown-key WARNING, keyed by ``(config_file, keys)``.
-#: ``Config.load()`` runs several times during startup (app init, crash
-#: handler install, onboarding, prewarm, autostart sync), and each run
-#: re-parses the same config.json and re-fires the same warning, the
-#: user saw the identical "dropped 1 unknown key" line 4× within 10 ms.
-#: Logging it once per (file, key-set) per process keeps the signal
-#: without the noise.  The check-then-add is guarded by a lock because
-#: the prewarm thread can call ``Config.load()`` concurrently with the
-#: main startup thread (without it, a race could slip a duplicate line).
 _unknown_key_warnings: set[tuple[str, frozenset[str]]] = set()
 _unknown_key_warnings_lock = threading.Lock()
 
 #: Dedupe set for the ``validate_config`` WARNING lines, keyed by the
-#: error string itself. Same rationale as :data:`_unknown_key_warnings`:
-#: ``Config.load()`` runs several times per boot, and without dedupe a
-#: single stale value logs the identical line on every load (three
-#: consent flags × three loads = nine lines for one resting state).
-#: ``last_load_warnings`` still receives every error on every load (the
-#: UI reads the current load's list), only the log emission is once
-#: per process. Guarded by a lock: the prewarm thread can load
-#: concurrently with the main startup thread.
 _validate_config_warnings: set[str] = set()
 _validate_config_warnings_lock = threading.Lock()
 
 #: Legacy enum VALUES remapped to their live successors BEFORE validation
-#: on every load. Unlike ``_reset_invalid_enum_fields`` (which drops an
-#: out-of-enum value back to the dataclass DEFAULT), a remap preserves
-#: the user's *choice* across a backend rename, someone who explicitly
-#: selected the premium denoiser keeps a premium denoiser.
-#:
-#: Entries map config field name → {legacy on-disk value: live value}.
-#: ``noise_suppression_method``: ``"deepfilternet"`` was retired when
-#: the bundled GTCRN ONNX streaming model replaced the unmaintained
-#: DeepFilterNet package; ``"speex"`` was never implemented (the
-#: historical dead option) and maps to the default backend. The remap
-#: runs before ``validate_config`` / construction so the migrated value
-#: loads cleanly with a single informational warning (no scary
-#: "invalid value" error, no reset-to-default).
 _LEGACY_ENUM_REMAPS: dict[str, dict[str, str]] = {
     "noise_suppression_method": {
         "deepfilternet": "gtcrn",
@@ -138,34 +92,18 @@ def _read_raw_json_impl(config_file) -> dict | None:
     moves the corrupt file aside.
     """
     # Late lookup so tests that monkeypatch
-    # ``voice_typer.server.config._secure_read_text`` take effect.
     from voice_typer.server.config import _secure_read_text
 
     # SEC-002 / SEC-audit-011: use _secure_read_text to prevent
-    # symlink-TOCTOU attacks when reading config.json
     raw_text = _secure_read_text(config_file)
     parsed = json.loads(raw_text)
     # a valid JSON scalar (null/true/42/"x"/[]) is
-    # not a valid config. Raise TypeError with a clear
-    # message so the failure mode is visible in the WARNING
-    # log below (and matches the caught tuple).  Without
-    # this, ``parsed.items()`` on a non-dict would raise
-    # AttributeError, which we deliberately let propagate.
     if not isinstance(parsed, dict):
         return None
     return parsed
 
 
 # Keys written into ``config.json`` by subsystems that are NOT Config
-# dataclass fields. They are private migration/state flags owned by
-# their writer (``credential_store``), not user settings, so they must
-# never appear in the ``Config`` model, but they are also NOT
-# "unrecognized": excluding them here stops the spurious
-# ``[CONFIG] ignoring N unrecognized setting(s)`` warning that fired on
-# EVERY launch for the keyring service-name flag
-# (``service_name_migrated_com_voicetyper_keyring``), which the
-# migration writes back on every run. Keep this list in sync with
-# ``credential_store.py`` (search for ``data[\"...\"] = True``).
 _KNOWN_EXTERNAL_CONFIG_KEYS: frozenset[str] = frozenset(
     {
         # credential_store legacy-keyring-service-name cutover flag
@@ -189,8 +127,6 @@ def _filter_unknown_keys_impl(cls, parsed: dict, config_file) -> dict:
     dedupe the same line appeared 4× within milliseconds.
     """
     # log a WARNING if the on-disk config contains
-    # keys this build doesn't recognize.  These keys are
-    # silently dropped by the filter below.
     unknown_keys = set(parsed) - set(cls.__dataclass_fields__) - _KNOWN_EXTERNAL_CONFIG_KEYS
     if unknown_keys:
         dedupe_key = (str(config_file), frozenset(unknown_keys))
@@ -200,14 +136,6 @@ def _filter_unknown_keys_impl(cls, parsed: dict, config_file) -> dict:
                 _unknown_key_warnings.add(dedupe_key)
         if first_time:
             # NOTE: key names are deliberately NOT included here, the PII
-            # redaction filter masks any token >= 20 chars (its generic
-            # secret pattern), so long key names would render as ``***``
-            # and defeat the point of naming them. The names are logged at
-            # DEBUG inside ``_remove_unknown_keys_from_disk`` instead.
-            # Distinguish "config written by a NEWER build" (preserve the
-            # keys for that future build; they only disappear on the next
-            # real save) from "stale keys from an older build" (remove
-            # them NOW so the warning stops recurring on every launch).
             _schema = parsed.get("schema_version", 0)
             _newer_config = isinstance(_schema, int) and _schema > _CURRENT_SCHEMA_VERSION
             if _newer_config:
@@ -258,7 +186,6 @@ def _remove_unknown_keys_from_disk(config_file, unknown_keys) -> None:
         )
     except Exception:
         # The load must never fail because the cleanup did. Log at DEBUG
-        # so a persistent failure is diagnosable without spamming.
         log.debug("[CONFIG] could not remove unrecognized settings from %s", config_file, exc_info=True)
 
 
@@ -276,14 +203,6 @@ def _load_config(cls) -> "Config":
         ``cls.<classmethod>(...)`` for the helper delegators).
     """
     # Late import to avoid a circular dependency at module-load time:
-    # ``config/__init__.py`` imports this module at its top, but
-    # ``_default_hotkey_for_platform``, ``_config_dir``, and
-    # ``_secure_read_text`` are defined further down in
-    # ``config/__init__.py`` (or re-exported by it). By call-time the
-    # parent module is fully initialized, so the late import succeeds.
-    # The late lookup ALSO ensures tests that monkeypatch
-    # ``voice_typer.server.config._config_dir`` /
-    # ``voice_typer.server.config._secure_read_text`` take effect here.
     from voice_typer.server.config import (
         _config_dir,
         _default_hotkey_for_platform,
@@ -297,8 +216,6 @@ def _load_config(cls) -> "Config":
         parsed = _read_raw_json_impl(config_file)
         if parsed is None:
             # _read_raw_json_impl already logged the TypeError; raise
-            # it here so the outer except catches + moves the
-            # corrupt file aside (matching the original behavior).
             raise TypeError(f"config root must be a JSON object, got {type(parsed).__name__}")
         data = _filter_unknown_keys_impl(cls, parsed, config_file)
 
@@ -307,14 +224,6 @@ def _load_config(cls) -> "Config":
         # track whether any migration ran.
         migrations_ran = False
         # SCHEMA-2 (MED-J): if the on-disk schema_version is
-        # NEWER than this build supports, log a warning so the
-        # user knows some fields may be dropped (we filter
-        # unknown keys via ``cls._filter_unknown_keys``).  Do NOT
-        # downgrade the on-disk version, preserving the higher
-        # value means a future build that supports it can read
-        # the fields back, and the user gets an honest signal
-        # that they ran an older build against a newer config
-        # rather than silently losing the version metadata.
         if isinstance(loaded_version, int) and loaded_version > _CURRENT_SCHEMA_VERSION:
             log.warning(
                 "[CONFIG] config schema_version=%d is newer than supported=%d, "
@@ -324,9 +233,6 @@ def _load_config(cls) -> "Config":
             )
             final_schema_version = loaded_version
             # versioned backup BEFORE the in-memory data
-            # (with higher-version fields filtered out) gets written
-            # back to disk by the next Config.save(). See
-            # ``_backup_before_downgrade`` for the full rationale.
             cls._backup_before_downgrade(config_file, loaded_version, data)
         else:
             data, final_schema_version, migrations_ran = _run_migrations(data, loaded_version, config_file)
@@ -342,11 +248,6 @@ def _load_config(cls) -> "Config":
         cls._validate_privacy_consents(data)
 
         # Remap legacy enum VALUES to their live successors BEFORE
-        # validation / construction (VALUE remap, not reset-to-default —
-        # see ``_LEGACY_ENUM_REMAPS`` above). Each remap appends an
-        # informational warning to ``_load_warnings`` so the renderer
-        # can surface "your config was migrated" alongside the other
-        # load-time notices.
         for _field, _remap in _LEGACY_ENUM_REMAPS.items():
             _legacy_value = data.get(_field)
             if isinstance(_legacy_value, str) and _legacy_value in _remap:
@@ -363,20 +264,6 @@ def _load_config(cls) -> "Config":
                 data[_field] = _live_value
 
         # credential_store integration.
-        # 1. If secrets haven't been migrated yet, run the
-        #    one-time migration (plaintext → keyring). This
-        #    modifies config.json on disk but NOT our in-memory
-        #    `data` dict, the in-memory dict still has the
-        #    plaintext values (which is what we want, so the
-        #    constructed Config instance has real values for
-        #    cloud_engines / llm_polish to use).
-        # 2. Set the in-memory flag so the constructed Config
-        #    carries it forward (and the next save() persists it).
-        # 3. Resolve any ``keyring://<provider>`` reference
-        #    tokens to real values via credential_store.load_secret.
-        #    This handles the case where migration was done in a
-        #    prior session (config.json on disk has references,
-        #    real values live in keychain).
         try:
             from voice_typer.server import credential_store
 
@@ -388,24 +275,6 @@ def _load_config(cls) -> "Config":
                         migrated_count,
                     )
                 # re-read the on-disk ``secrets_migrated`` flag
-                # AFTER ``migrate_secrets_to_keyring`` returns so we
-                # pick up the  deferral state. The migrate
-                # function modifies ``config.json`` on disk but does
-                # NOT touch the in-memory ``data`` dict, so the
-                # in-memory dict is stale w.r.t. the on-disk flag.
-                # If keyring was unavailable AND real plaintext was
-                # skipped, the on-disk flag stays UNSET (only the
-                # diagnostic ``secrets_migrated_keyring_was_unavailable``
-                # is written). We MUST NOT clobber this, otherwise
-                # the next ``Config.save()`` (which uses
-                # ``asdict(self)``) persists ``secrets_migrated=True``
-                # to disk, the next launch sees True and skips
-                # migration entirely, and the plaintext API key
-                # stays in config.json forever, defeating the
-                # encryption-at-rest goal. Re-reading the on-disk
-                # state is the authoritative way to know whether
-                # migration actually completed (option (b) of the
-                #  fix prescription).
                 try:
                     on_disk_text = _secure_read_text(config_file)
                     on_disk_data = json.loads(on_disk_text)
@@ -413,18 +282,9 @@ def _load_config(cls) -> "Config":
                         data["secrets_migrated"] = bool(on_disk_data.get("secrets_migrated", False))
                     else:
                         # Corrupt or non-dict on-disk JSON —
-                        # conservatively set True so the next launch
-                        # doesn't keep retrying migrate (the migrate
-                        # function already handled the corrupt case
-                        # and returned 0).
                         data["secrets_migrated"] = True
                 except (OSError, json.JSONDecodeError, TypeError, ValueError) as re_err:
                     # Best-effort: if re-reading fails (concurrent
-                    # writer, race, etc.), fall back to True. The
-                    # migrate function itself succeeded in writing
-                    # whatever state it intended; the in-memory dict
-                    # already has the plaintext values for
-                    # cloud_engines / llm_polish to use.
                     log.debug(
                         "[CONFIG] RW-01: could not re-read on-disk "
                         "secrets_migrated flag after migrate (%s), "
@@ -434,8 +294,6 @@ def _load_config(cls) -> "Config":
                     data["secrets_migrated"] = True
             else:
                 # Already migrated in a prior session, preserve
-                # the in-memory flag (which came from the on-disk
-                # config.json we just read).
                 data["secrets_migrated"] = True
 
             # Resolve keyring:// references to real values.
@@ -447,10 +305,6 @@ def _load_config(cls) -> "Config":
                         data[field_name] = real_value
                     else:
                         # Reference points to keyring but keyring
-                        # has nothing, secret is lost (e.g. user
-                        # wiped their keychain). Clear the field
-                        # so the renderer shows "not configured"
-                        # instead of leaking the reference token.
                         log.warning(
                             "[CONFIG] RW-01: %s field has keyring:// reference "
                             "but keyring returned no value, clearing (secret lost)",
@@ -459,10 +313,6 @@ def _load_config(cls) -> "Config":
                         data[field_name] = ""
         except Exception as e:
             # Don't let credential_store issues break config
-            # load, fall through with whatever values we have.
-            # log only the exception TYPE (not the message) —
-            # credential_store exceptions can echo the secret value
-            # being loaded, which would leak into log files.
             log.warning(
                 "[CONFIG] RW-01: credential_store integration failed: %s, continuing with config.json values as-is",
                 type(e).__name__,
@@ -472,13 +322,6 @@ def _load_config(cls) -> "Config":
         data = cls._validate_non_numeric_fields(data)
 
         # validate hotkeys against the reserved-shortcut
-        # denylist (mirrors the IPC set_config validation).
-        # Config.load() previously bypassed this check -- a
-        # stale or hand-edited config with "hotkey": "<ctrl>+<c>"
-        # would steal Ctrl+C from every app on startup.  On
-        # validation failure we reset the offending hotkey to
-        # the platform default (<caps_lock>) and append a
-        # warning to _load_warnings.
         default_hotkey = _default_hotkey_for_platform()
         for hotkey_field in ("hotkey", "repaste_hotkey"):
             value = data.get(hotkey_field)
@@ -500,12 +343,6 @@ def _load_config(cls) -> "Config":
                 data[hotkey_field] = default_hotkey
 
         # validate ``custom_theme`` on load (mirrors the IPC
-        # set_config validation via ``_make_custom_theme_validator``).
-        # Previously, a hand-edited or corrupt ``custom_theme`` dict
-        # loaded without validation, causing schema drift between IPC
-        # and disk paths. On validation failure, reset the field to
-        # its default (None) and append a warning to
-        # ``last_load_warnings`` so the user knows the field was reset.
         if "custom_theme" in data and data["custom_theme"] is not None:
             _theme_err = _make_custom_theme_validator()(data["custom_theme"])
             if _theme_err is not None:
@@ -519,7 +356,6 @@ def _load_config(cls) -> "Config":
                 data["custom_theme"] = None
 
         # extract load warnings before construction
-        # (cls(**data) would fail on the _load_warnings key)
         load_warnings = data.pop("_load_warnings", [])
 
         instance = cls(**data)
@@ -527,17 +363,6 @@ def _load_config(cls) -> "Config":
         instance.last_load_warnings = load_warnings
 
         # AUDIO-PRESET-LOAD-FIX: apply the audio preset's filter
-        # toggles on every load.
-        #
-        # pre-fix the failure was swallowed at DEBUG. A
-        # preset-application failure means the user's audio filter
-        # chain doesn't match their preset selection (e.g. a stale
-        # preset name from a downgrade, or a preset module import
-        # error after a botched package install). The user has no
-        # way to know their audio filters are wrong because the
-        # error was invisible. Promote to WARNING + append to
-        # ``instance.last_load_warnings`` so the renderer surfaces
-        # a "your audio preset couldn't be applied" notice.
         try:
             from voice_typer.server.audio_presets import apply_preset
 
@@ -554,16 +379,6 @@ def _load_config(cls) -> "Config":
             )
 
         # invoke the full-config validator
-        # (``validate_config``) so a hand-edited or migrated
-        # config.json with out-of-range values (e.g. a stale
-        # ``noise_suppression_method="speex"`` from before the
-        # enum was tightened, or a future legacy ``audio_preset``
-        # alias surviving a botched migration) is surfaced via
-        # ``instance.last_load_warnings`` instead of being silently
-        # loaded. Pre-fix, ``validate_config`` existed but was
-        # never called from any production path (the IPC
-        # ``set_config`` validator only sees the delta pushed by
-        # the renderer, never the full on-disk config).
         try:
             from voice_typer.server.config_validators import validate_config
 
@@ -579,48 +394,12 @@ def _load_config(cls) -> "Config":
             log.debug("[CONFIG] validate_config on load failed", exc_info=True)
 
         # ``validate_config`` above only APPENDS warnings —
-        # it does NOT mutate the field. A hand-edited
-        # ``asr_backend="invalid"`` survives ``Config.load()``
-        # verbatim, propagates to runtime code, and either crashes
-        # a dispatch dict (``KeyError``) or silently takes the
-        # wrong branch. ``_reset_invalid_enum_fields`` closes the
-        # gap by resetting the high-impact ``Literal[...]`` enum
-        # fields (asr_backend / recording_mode / bubble_position /
-        # bubble_behavior / tray_left_click_action / theme_mode /
-        # theme_preset / audio_preset / noise_suppression_method)
-        # to their dataclass defaults when the on-disk value is
-        # not in the Literal's allowed set. Each reset appends a
-        # warning to ``instance.last_load_warnings`` so the
-        # renderer (via the sanitizer's ``last_load_warnings`` key)
-        # can surface a "your config was corrected" toast.
-        #
-        # Best-effort: a failure inside the reset helper must NOT
-        # propagate (the config still loads, the invalid value
-        # would just persist, matching the pre-fix behavior). The
-        # ``validate_config`` call above already logged the
-        # invalid value; the user has a signal even if this reset
-        # is skipped.
         try:
             cls._reset_invalid_enum_fields(instance)
         except Exception:
             log.debug("[CONFIG] _reset_invalid_enum_fields on load failed", exc_info=True)
 
         # persist the bumped schema_version eagerly so
-        # the next launch doesn't re-run the same migrations
-        # (and re-trigger any bugs in a migrator that already
-        # raised).  The save() is best-effort.
-        #
-        # pre-fix, the return value of ``instance.save()``
-        # was silently discarded. A failed post-migration save
-        # (e.g. read-only filesystem, disk full, permission denied
-        # after a sudo-installed package upgrade) means the bumped
-        # ``schema_version`` never lands on disk, the next launch
-        # sees the OLD version and re-runs the same migrations
-        # (which may have side effects like double-appending to
-        # list fields or double-migrating keys). Promote to
-        # WARNING + append to ``instance.last_load_warnings`` so
-        # the renderer surfaces a "your migration couldn't be
-        # persisted, migrations will re-run on next launch" notice.
         if migrations_ran:
             try:
                 _post_migration_save_ok = instance.save()
@@ -643,11 +422,6 @@ def _load_config(cls) -> "Config":
                     )
 
         # Re-apply user-configured trusted hosts to the
-        # runtime URL allowlist. The persisted ``trusted_extra_hosts``
-        # list is the config.json-driven path for self-hosted
-        # LLM/ASR endpoints (the env-var bootstrap in ``_secrets.py``
-        # covers the process-startup path). Best-effort: an allowlist
-        # failure must not break config load.
         try:
             trusted_hosts = instance.trusted_extra_hosts
             if trusted_hosts:
@@ -670,30 +444,8 @@ def _load_config(cls) -> "Config":
             e,
         )
         # best-effort move the corrupt config aside so
-        # the user can recover their settings manually from the
-        # .corrupt-<timestamp> backup.  Without this, the next
-        # Config.save() would atomically overwrite the corrupt
-        # file with defaults, destroying any chance of forensic
-        # recovery.  Path.replace is atomic.  Best-effort.
         try:
             # the previous ``int(time.time())`` suffix
-            # had 1-second resolution, two corrupt loads in the
-            # same second (e.g. the renderer triggers a quick
-            # config reload + the backend independently tries to
-            # load it during startup) silently overwrote each
-            # other via ``Path.replace``, destroying the first
-            # corrupt file's forensic recovery point. Adding the
-            # PID disambiguates same-second loads from DIFFERENT
-            # processes (the common race during backend restart);
-            # for same-process same-second loads (very rare in
-            # practice, requires a test loop or a hot-reload
-            # dev environment) we additionally append
-            # ``time.time_ns()`` mod 1_000_000 (microsecond
-            # fraction) so even back-to-back calls produce unique
-            # filenames. ``Path.replace`` is still atomic per
-            # call, so the worst case if the suffix collides is
-            # the previous-behavior overwrite (no corruption,
-            # just lost-forensics, strictly better than before).
             _ns = (time.time_ns() % 1_000_000 + next(_CONFIG_QUARANTINE_SUFFIX_SEQ)) % 1_000_000
             corrupt_backup = config_file.parent / f"config.json.corrupt-{int(time.time())}-{os.getpid()}-{_ns}"
             config_file.replace(corrupt_backup)

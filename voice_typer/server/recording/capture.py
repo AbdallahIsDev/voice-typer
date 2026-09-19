@@ -83,16 +83,9 @@ from voice_typer.server.log_rate_limit import log_rate_limited
 from voice_typer.server.recording.format import ensure_mono
 
 # All submodules use the package-level logger so log records propagate
-# to ``caplog.at_level(..., logger="voice_typer.server.recording")`` in
-# tests.
 log = logging.getLogger("voice_typer.server.recording")
 
 # how many ring-buffer chunks the audio worker drains between
-# stop-event checks. Without this, the drain loop burns up to 3.2s of
-# solid CPU (64 chunks × ~50ms RNNoise each) before noticing a stop
-# signal, delaying ``stop()`` and orphaning the worker. Checking every
-# 4 chunks bounds the stop latency to ~200ms while keeping the
-# per-iteration ``is_set()`` + GIL-yield overhead negligible.
 _DRAIN_STOP_CHECK_INTERVAL = 4
 
 if TYPE_CHECKING:
@@ -110,20 +103,8 @@ class AudioCallbackDispatcher:
 
     def __init__(self, recorder: Any) -> None:
         # Collaborator back-reference. Typed ``Any`` to avoid a circular
-        # import (``recorder`` imports this module at module top to
-        # construct this class in ``Recorder.__init__``).
         self._recorder = recorder
         # STATE-OWNERSHIP: the RT-callback exception channel lives HERE
-        # (the owning collaborator), not on ``Recorder``.
-        # ``dispatch_callback_body`` stores the exception (store-then-
-        # re-raise, atomic under the GIL, no lock, this is the RT
-        # callback), and ``Recorder._stream_finished_callback`` reads
-        # and clears it via ``self._capture._last_callback_error`` so
-        # the true cause of a callback-driven stream abort is logged
-        # at ERROR instead of being misdiagnosed as a device
-        # disconnect. Single attribute read/write, atomic under the
-        # GIL; no lock needed (taking one in the RT callback would
-        # risk an overrun against the 32ms deadline).
         self._last_callback_error: Exception | None = None
 
     def dispatch_callback_body(
@@ -174,33 +155,10 @@ class AudioCallbackDispatcher:
                 :meth:`audio_worker_loop` / ``_process_audio_chunk``).
         """
         # PortAudio can deliver a callback before start()
-        # finishes setting self._recording_start_time and other
-        # per-session state. Bail out early so the silence/max-
-        # duration callbacks don't compute against a None timestamp.
-        #
-        # The entire body is wrapped in try/except so a bug in
-        # the RT callback (e.g. an unexpected AttributeError from a
-        # None _ring_buffer / _preroll_buffer) is surfaced on
-        # ``self._last_callback_error`` (this owning dispatcher) and
-        # logged at ERROR by
-        # ``Recorder._stream_finished_callback`` instead of being silently
-        # swallowed by PortAudio (which aborts the stream and surfaces
-        # to the user as a phantom "device disconnect"). The exception
-        # is re-raised after storage so PortAudio's stream-abort
-        # semantics are preserved, the difference is the user now
-        # sees the true cause in the log instead of a misdiagnosis.
         try:
             return self._dispatch_callback_body_inner(recorder, indata, frames, time_info, status)
         except Exception as exc:
             # Store on THIS collaborator (the owning dispatcher) so
-            # ``Recorder._stream_finished_callback`` can log the true
-            # cause via ``self._capture._last_callback_error``. Atomic
-            # under CPython's GIL (single attribute assignment). We do
-            # NOT use a lock here: this is the RT callback, taking a
-            # lock would risk an overrun against the 32ms deadline. The
-            # store-then-reraise pattern means PortAudio's behavior is
-            # unchanged (the stream still aborts), but the diagnostic
-            # is preserved.
             self._last_callback_error = exc
             raise
 
@@ -228,54 +186,21 @@ class AudioCallbackDispatcher:
         """
         if not recorder._recording_event.is_set():
             # AUDIO-PRE: capture pre-roll even when not officially
-            # recording. This is a fast path (~10µs): copy + mono
-            # downmix + deque append. Stays in the callback so pre-roll
-            # latency is minimal, the worker thread isn't started until
-            # after start() finishes, so pre-roll capture MUST happen
-            # here.
             if recorder._preroll_active:
                 mono_preroll = ensure_mono(recorder, indata.copy())
                 recorder._preroll_buffer.append(mono_preroll)
             return None
 
         # Recording is active, push to the SPSC ring buffer for the
-        # worker thread to process. The callback's only job is to copy
-        # + enqueue.
-        #
-        # PERF-: the indata buffer is owned by PortAudio and
-        # reused for the next callback, so we MUST copy. ~2KB
-        # allocation for 512 float32 samples, negligible compared to
-        # the 32ms deadline.
         chunk_copy = indata.copy()
 
-        # Detect ring buffer overflow (worker can't keep up). The
-        # deque's maxlen will silently evict the oldest chunk, but we
-        # want to log it so the user knows audio is being dropped.
         # This replaces the old PERF-011 frame-skip logic
-        # (_previous_chunk_pending) which was a single-slot queue, the
-        # ring buffer is a 64-slot queue, so we have much more headroom
-        # before dropping.
         ring_maxlen = recorder._ring_buffer.maxlen
         if ring_maxlen is not None and len(recorder._ring_buffer) >= ring_maxlen:
             # increment counter only (atomic under GIL). The
-            # log.warning() was removed from this PortAudio RT callback
-            # , logging I/O here can take ms and risks an overrun against
-            # the 32ms deadline. The counter is surfaced later by the
-            # worker thread / diagnostics paths (e.g. _finalize_audio_quality_report
-            # and the  backpressure warning in _process_audio_chunk).
-            # The former ``_skipped_frames`` counter was removed, it
-            # was incremented here but never read anywhere in the
-            # codebase (dead code on the 16 Hz hot path).
             recorder._dropped_ring_chunks += 1
 
         # Push (copy, frames, time_info, status, perf_timestamp) to the
-        # ring buffer. The timestamp is captured here (not in the worker)
-        # so silence-timer calculations reflect when the audio arrived,
-        # not when the worker happened to process it. The deque-append
-        # itself is performed by the caller (Recorder._audio_callback_dispatch)
-        # so the  source-inspection literal stays pinned on
-        # the Recorder's source (see the module docstring §Source-inspection
-        # contract).
         perf_ts = time.perf_counter()
         return (chunk_copy, frames, time_info, status, perf_ts)
 
@@ -317,24 +242,9 @@ class AudioCallbackDispatcher:
         immediately after the prepend finishes.
         """
         # Prefer explicit ``stop_event`` / ``wake_event`` (captured
-        # at thread-spawn time by ``start_audio_worker_body``) over the
-        # dynamic ``recorder._worker_stop_event`` /
-        # ``_worker_wake_event`` attributes. A stale worker whose
-        # recorder's events were replaced must retain its OLD (set) events
-        # and exit, reading the NEW (cleared) attribute dynamically would
-        # resume the loop and violate the SPSC single-consumer invariant.
-        # Fall back to the dynamic attributes when ``None`` (direct test /
-        # legacy call sites), preserves backward compat.
         _stop = stop_event if stop_event is not None else recorder._worker_stop_event
         _wake = wake_event if wake_event is not None else recorder._worker_wake_event
-        # ── phase 0: pre-roll filter-chain prepend ──
         # Moved off the start() thread to avoid blocking the hotkey
-        # critical path. The worker is the single consumer of
-        # ``_preroll_buffer`` (the callback only writes to it when
-        # ``_recording_event`` is clear, which is now set), so this
-        # drain is race-free. The prepend body lives in
-        # ``SessionState.prepend_preroll_to_buffer`` (shared with the
-        # unit-tested direct call site).
         try:
             recorder._session_state.prepend_preroll_to_buffer(recorder)
         except Exception:
@@ -345,25 +255,11 @@ class AudioCallbackDispatcher:
 
         while True:
             # Wait for work or stop signal. The 50ms timeout ensures we
-            # notice the stop flag even if the wake event is missed
-            # (e.g., if the callback sets the event between the worker's
-            # wait() return and the clear() call, a rare race that the
-            # timeout covers).
             if not _stop.is_set():
                 _wake.wait(timeout=0.05)
             _wake.clear()
 
             # Drain all available chunks. Each chunk is processed by
-            # _process_audio_chunk which does the heavy lifting.
-            #
-            # check the stop event every ``_DRAIN_STOP_CHECK_INTERVAL``
-            # chunks so a stop signal during a long catch-up drain (the ring
-            # buffer holds up to 64 chunks ≈ 1s of audio, each chunk takes
-            # ~50ms in RNNoise → up to 3.2s of solid CPU) is noticed within
-            # ~200ms instead of burning the full drain. On stop we bail out
-            # immediately (sacrificing in-flight audio, acceptable because
-            # ``drain=True`` is best-effort). The ``time.sleep(0)`` yields
-            # the GIL to reduce CPU burn on long drains.
             _drain_count = 0
             while True:
                 try:
@@ -374,18 +270,6 @@ class AudioCallbackDispatcher:
                     recorder._process_audio_chunk(*chunk_data)
                 except Exception:
                     # Log and continue, a single bad chunk must NOT kill
-                    # the worker (otherwise all subsequent audio is lost
-                    # until the next start()).
-                    #
-                    # B-5: this worker runs at ~16 Hz (the audio callback
-                    # pushes a chunk per PortAudio block).  A persistent
-                    # error (e.g. a bad filter config) would flood the
-                    # log at ERROR 16 times/sec ≈ 960 lines/min.
-                    # ``log_rate_limited`` emits the 1st occurrence and
-                    # every 100th thereafter at ERROR with the full
-                    # traceback; all other occurrences go to DEBUG (no
-                    # traceback) so a persistent error remains visible
-                    # in debug mode without spamming the default log.
                     log_rate_limited(
                         log,
                         logging.ERROR,
@@ -399,45 +283,10 @@ class AudioCallbackDispatcher:
                     time.sleep(0)  # yield GIL to reduce CPU burn
 
             # Check for shutdown. We drain the ring buffer fully before
-            # exiting so stop() doesn't lose in-flight audio. For the
-            # discard() path, the ring buffer was already cleared by the
-            # caller, so the drain loop above was a no-op.
             if _stop.is_set():
                 return
 
-    # Phase 4.5: worker-lifecycle bodies (Option C) ──────
-    #
-    # The four methods below contain the BODIES of the worker
-    # lifecycle sequences (the part INSIDE the
-    # ``_worker_lifecycle_lock`` block). The lock acquisition for the
-    # AUDIO-worker pair lives on the kept hybrid
-    # ``Recorder._start_audio_worker`` / ``_stop_audio_worker``
-    # wrappers (pinned by
-    # ``tests/test_recorder_worker_lifecycle.py::test_start_audio_worker_holds_lock``
-    # / ``test_stop_audio_worker_holds_lock``); the lock acquisition
-    # for the EVENT-worker pair moved to the ``_recorder_split``
-    # call sites (``start_recording`` / ``stop_recording`` /
-    # ``discard_recording``: the ``Recorder._start_event_worker`` /
-    # ``_stop_event_worker`` methods were deleted as pure delegators;
-    # pinned by ``test_start_event_worker_lock_is_acquired_at_call_site``
-    # / ``test_stop_event_worker_lock_is_acquired_at_call_sites``).
-    # The bodies themselves must NOT acquire ``_worker_lifecycle_lock``
-    # (negative source checks in ``tests/test_capture_worker_lifecycle.py``)
-    # and the two ``stop_*_body`` methods must NOT acquire
-    # ``self._lock`` (see
-    # ``test_stop_audio_worker_does_not_hold_self_lock_across_join`` and
-    # ``test_stop_event_worker_body_does_not_hold_self_lock_across_join``).
-    #
-    # Deferred imports: the constants ``_AUDIO_WORKER_THREAD_NAME`` /
-    # ``_AUDIO_WORKER_JOIN_TIMEOUT_S`` / ``_EVENT_WORKER_THREAD_NAME`` /
-    # ``_EVENT_WORKER_JOIN_TIMEOUT_S`` / ``_EVENT_WORKER_STOP_SENTINEL``
-    # are module-level in :mod:`.recorder`, which imports this module at
     # the top (``from .capture import AudioCallbackDispatcher``), a
-    # module-level ``from .recorder import _AUDIO_WORKER_THREAD_NAME``
-    # here would create a circular import (the constant is defined at
-    # line ~324 of ``recorder.py``, AFTER the ``from .capture import`` at
-    # line ~166). By call time ``.recorder`` is fully loaded, so the
-    # deferred function-level import succeeds.
 
     def start_audio_worker_body(self, recorder: Any) -> None:
         """Body of :meth:`Recorder._start_audio_worker` (inside the
@@ -483,26 +332,12 @@ class AudioCallbackDispatcher:
         )
 
         # the caller holds ``_worker_lifecycle_lock`` across the
-        # entire read-check-create-start sequence so a concurrent
-        # ``_stop_audio_worker`` cannot observe a stale ``None``
-        # mid-create.
         if recorder._worker_thread is not None and recorder._worker_thread.is_alive():
             return
         # Reset stop event (in case a previous stop() left it set)
         recorder._worker_stop_event.clear()
         recorder._worker_wake_event.clear()
         # Clear the ring buffer of any stale chunks from a previous session.
-        # SEC-audit-008: zero each chunk's numpy array BEFORE ``.clear()``
-        # so the previous session's audio data doesn't linger in process
-        # memory after the deque reference is dropped (mirrors the
-        # preroll-buffer pattern in stop()/discard(), see
-        # ``recorder.py``'s ``_preroll_buffer`` clearing). Ring buffer
-        # chunks are small (~2KB each, capacity-bounded by
-        # ``_AUDIO_RING_BUFFER_CAPACITY``) so synchronous zeroing is
-        # acceptable here. Ring buffer items are 5-tuples
-        # ``(chunk_copy, frames, time_info, status, perf_ts)``, the
-        # numpy array is the first element. Defensive against
-        # direct-array items too.
         for _payload in recorder._ring_buffer:
             _arr = _payload[0] if isinstance(_payload, tuple) else _payload
             if hasattr(_arr, "fill") and hasattr(_arr, "shape"):
@@ -511,28 +346,14 @@ class AudioCallbackDispatcher:
         recorder._worker_thread = threading.Thread(
             target=self.audio_worker_loop,
             # Pass the CURRENT stop / wake events as explicit
-            # args so the worker binds to THESE events at spawn time.
-            # If the recorder's events are later replaced (stale-worker
-            # SPSC race), the OLD worker retains its OLD (set) events
-            # and exits instead of reading the NEW (cleared)
-            # ``_worker_stop_event`` attribute dynamically.
             args=(recorder, recorder._worker_stop_event, recorder._worker_wake_event),
             name=_AUDIO_WORKER_THREAD_NAME,
             daemon=True,
         )
         # Thread-ownership tag (test-leak-guard support): attach the
-        # owning recorder instance so a leaked worker can be attributed
-        # to its recorder by the test guard helpers (identity-based
-        # attribute, the thread NAME stays the canonical worker name,
-        # which is pinned exactly by
-        # ``tests/test_capture_worker_lifecycle.py``). The thread
-        # already holds the recorder via its target/args, so no new
-        # reference lifetime is introduced.
         recorder._worker_thread._vt_owner_recorder = recorder
         recorder._worker_thread.start()
         # THREAD-REGISTRY: register the freshly-started worker so the
-        # central registry can signal/join it on shutdown. The join
-        # timeout matches the worst-case stop() path (drain=True).
         if recorder._thread_registry is not None:
             recorder._thread_registry.register(
                 name=_AUDIO_WORKER_THREAD_NAME,
@@ -585,28 +406,12 @@ class AudioCallbackDispatcher:
         from .recorder import _AUDIO_WORKER_THREAD_NAME
 
         # the caller holds ``_worker_lifecycle_lock`` across the
-        # entire read-check-clear-join-unregister sequence. This is a
-        # separate lock from ``self._lock``: see the docstring above.
         if recorder._worker_thread is None:
             # Still reset the stop event so the next start() is clean.
             recorder._worker_stop_event.clear()
             return
         if not drain:
             # discard() path: clear the ring buffer so the worker has
-            # nothing left to process. It will finish its current chunk
-            # (if any) and then exit on the next iteration.
-            # SEC-audit-008: zero each chunk's numpy array BEFORE
-            # ``.clear()`` so the cancelled session's audio data
-            # doesn't linger in process memory after the deque
-            # reference is dropped (mirrors the preroll-buffer pattern
-            # in stop()/discard(): see ``recorder.py``'s
-            # ``_preroll_buffer`` clearing). Ring buffer chunks are
-            # small (~2KB each, capacity-bounded by
-            # ``_AUDIO_RING_BUFFER_CAPACITY``) so synchronous zeroing
-            # is acceptable here. Ring buffer items are 5-tuples
-            # ``(chunk_copy, frames, time_info, status, perf_ts)`` —
-            # the numpy array is the first element. Defensive against
-            # direct-array items too.
             for _payload in recorder._ring_buffer:
                 _arr = _payload[0] if isinstance(_payload, tuple) else _payload
                 if hasattr(_arr, "fill") and hasattr(_arr, "shape"):
@@ -617,10 +422,6 @@ class AudioCallbackDispatcher:
         # Wake the worker in case it's blocked on the wait event.
         recorder._worker_wake_event.set()
         # Join with timeout. If the worker doesn't exit in time (e.g.,
-        # stuck in VAD inference), we proceed anyway, the worker is a
-        # daemon, so it won't block process exit. A stale worker is
-        # harmless because the stop event is set; it will exit on its
-        # next iteration boundary.
         recorder._worker_thread.join(timeout=timeout)
         if recorder._worker_thread.is_alive():
             log.warning(
@@ -631,18 +432,9 @@ class AudioCallbackDispatcher:
         else:
             log.debug("[RECORDING] Audio worker thread exited cleanly")
         # THREAD-REGISTRY: remove the entry so a subsequent start()
-        # re-registers cleanly. If shutdown_all() already ran and
-        # joined the thread, this is a no-op (the entry was already
-        # used). Safe to call when no entry exists.
         if recorder._thread_registry is not None:
             recorder._thread_registry.unregister(_AUDIO_WORKER_THREAD_NAME)
         # Only clear the stop/wake events and null the thread reference if
-        # the worker actually exited. If still alive (stuck in VAD
-        # inference), leave the stop event SET so the zombie exits on its
-        # next iteration boundary, and keep the thread reference so the
-        # start path's is_alive() guard prevents spawning a duplicate
-        # (zombie thread leak mitigation, mirrors the pattern at
-        # ``device_manager.py``'s ``_stop_device_health_checker``).
         if not recorder._worker_thread.is_alive():
             recorder._worker_stop_event.clear()
             recorder._worker_wake_event.clear()
@@ -705,10 +497,6 @@ class AudioCallbackDispatcher:
         )
 
         # the caller (the ``_recorder_split`` call site) holds
-        # ``_worker_lifecycle_lock`` across the
-        # entire read-check-create-start sequence so a concurrent
-        # stop/discard call site cannot observe a stale ``None``
-        # mid-create.
         if recorder._event_worker_thread is not None and recorder._event_worker_thread.is_alive():
             return
         recorder._event_stop_event.clear()
@@ -778,47 +566,19 @@ class AudioCallbackDispatcher:
         )
 
         # the caller (the ``_recorder_split`` call site) holds
-        # ``_worker_lifecycle_lock`` across the
-        # entire read-check-clear-join-unregister sequence.
         if recorder._event_worker_thread is None:
             # Still reset the stop event so the next start() is clean.
             recorder._event_stop_event.clear()
             return
         if not drain:
             # discard() path: clear the queue so the worker has nothing
-            # left to publish. It will finish its current publish (if
-            # any) and then exit on the next iteration.
             self._drain_event_queue(recorder)
         # Signal the worker to stop.
         recorder._event_stop_event.set()
         # push a sentinel onto the queue to wake the worker immediately
-        # from its 0.5s ``queue.get`` poll. Without the sentinel, the
-        # worker would not notice the stop signal until its next poll
-        # iteration (up to 0.5s latency). The sentinel is a unique
-        # object the loop checks for BEFORE calling
-        # ``event_bus.publish``, so it is never published.
-        # ``put_nowait`` is used because the queue is bounded
-        # (maxsize=1000) and a Full exception here is benign, the
-        # worker will still exit on its next poll iteration within
-        # 0.5s. The sentinel is pushed AFTER ``set()`` so the worker's
-        # next ``get`` returns the sentinel (FIFO order preserves any
-        # real events enqueued before the sentinel).
         with contextlib.suppress(queue.Full):
             recorder._event_queue.put_nowait(_EVENT_WORKER_STOP_SENTINEL)
         # ``stop()`` now passes ``timeout=0.1`` (down from
-        # ``_EVENT_WORKER_JOIN_TIMEOUT_S=2.0``) so the worst-case
-        # stop() latency drops from ~5.8s to ~2.4s. The 0.1s join is
-        # long enough for the daemon to drain its queue (typically
-        # <10ms, the queue is MPSC with a 1 Hz source throttle) and
-        # exit, but 20x shorter than the original 2.0s timeout. If the
-        # daemon is stuck in a slow ``event_bus.publish`` and doesn't
-        # exit within ``timeout``, we proceed anyway, the daemon is
-        # harmless (the stop event is set; it will exit on its next
-        # iteration boundary). The thread reference + stop event are
-        # only cleared if the worker actually exited, so a stuck worker
-        # doesn't get a duplicate spawned on the next start() (zombie
-        # thread leak mitigation, mirrors the pattern at
-        # ``device_manager.py``'s ``_stop_device_health_checker``).
         recorder._event_worker_thread.join(timeout=timeout)
         if recorder._event_worker_thread.is_alive():
             log.debug(
@@ -831,13 +591,6 @@ class AudioCallbackDispatcher:
         if recorder._thread_registry is not None:
             recorder._thread_registry.unregister(_EVENT_WORKER_THREAD_NAME)
         # Only clear the stop event and null the thread reference if the
-        # event worker actually exited. If still alive (stuck in a slow
-        # ``event_bus.publish``), leave the stop event SET so the zombie
-        # exits on its next iteration boundary, and keep the thread
-        # reference so the start path's is_alive() guard prevents
-        # spawning a duplicate (zombie thread leak mitigation, mirrors
-        # the pattern at ``device_manager.py``'s
-        # ``_stop_device_health_checker``).
         if not recorder._event_worker_thread.is_alive():
             recorder._event_stop_event.clear()
             recorder._event_worker_thread = None
@@ -865,55 +618,22 @@ class AudioCallbackDispatcher:
         while True:
             if not recorder._event_stop_event.is_set():
                 # wait for work with a 0.5s timeout (was 50ms).
-                # The event queue is MPSC with a tiny source-side
-                # throttle (1 Hz), so a 50ms poll was 20x more frequent
-                # than necessary -- preventing deep C-states on laptops
-                # on battery for no benefit. The 0.5s poll still wakes
-                # within 0.5s of an event being enqueued (well within
-                # the 1 Hz source throttle) and lets the CPU sleep
-                # between publishes. Stop latency is NOT bounded by
-                # the 0.5s poll: :meth:`stop_event_worker_body` pushes a
-                # sentinel onto the queue to wake the worker
-                # immediately (see ``_EVENT_WORKER_STOP_SENTINEL``).
-                # ``audio_worker_loop``'s 50ms wait is unchanged
-                # because the audio callback pushes chunks at 16 Hz and
-                # a 0.5s wait there would add 0.5s of drain latency on
-                # stop().
                 try:
                     event = recorder._event_queue.get(timeout=0.5)
                 except queue.Empty:
                     continue
             else:
                 # Stop signal received, drain remaining events before
-                # exiting (for the ``stop()`` path). For ``discard()``
-                # the queue was already cleared by the caller, so this
-                # loop is a no-op.
                 try:
                     event = recorder._event_queue.get_nowait()
                 except queue.Empty:
                     return
             # check for the stop sentinel BEFORE publishing. The
-            # sentinel is pushed by :meth:`stop_event_worker_body` to
-            # wake the worker immediately (instead of waiting up to
-            # 0.5s for the next poll iteration). Any real events that
-            # BEFORE the sentinel have already been drained and
-            # published by the iterations above.
             if event is _EVENT_WORKER_STOP_SENTINEL:
                 return
-            # Type narrowing: ``event`` is now guaranteed to be a dict
-            # (the only other variant on the queue). ``isinstance`` here
             # doubles as a defensive guard against a future variant
-            # pushed by mistake, it skips the publish instead of
-            # crashing ``event_bus.publish`` with a TypeError.
             if not isinstance(event, dict):
                 # Pre-fix this branch silently ``continue``d,
-                # swallowing any non-dict / non-sentinel event without a
-                # log. A future variant pushed by mistake would be
-                # invisible in production. Log at WARNING (not ERROR)
-                # because the worker continues running; the missing event
-                # is recoverable on the next publish. ``%r`` formats the
-                # type so the offending variant is identifiable without
-                # dumping the (potentially large) event payload.
                 log.warning(
                     "[RECORDING] Event worker skipped non-dict event: %r",
                     type(event),
@@ -925,11 +645,6 @@ class AudioCallbackDispatcher:
                 event_bus.publish(event)
             except Exception:
                 # A bad event or a buggy subscriber must NOT kill the
-                # event worker (otherwise all subsequent IPC events
-                # are lost until the next start()). event_bus.publish
-                # already isolates subscriber exceptions, so this is a
-                # belt-and-suspenders guard for unexpected failures
-                # (e.g. a TypeError from a malformed event dict).
                 log.debug(
                     "[RECORDING] Event worker thread error publishing event",
                     exc_info=True,
@@ -968,7 +683,6 @@ class AudioCallbackDispatcher:
         current = recorder._dropped_ring_chunks
         delta = current - recorder._last_seen_dropped_ring_chunks
         # Always update the last-seen counter so the delta doesn't
-        # accumulate across rate-limit windows.
         recorder._last_seen_dropped_ring_chunks = current
         if delta <= 0:
             return

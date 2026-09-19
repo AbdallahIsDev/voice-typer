@@ -1,19 +1,10 @@
-"""Teardown helper for the crash-recovery writer.
-
-Phase 4.5 (OI-36), extracted verbatim from
-:meth:`ShutdownController._teardown_crash_recovery`. The body is unchanged;
-only the class boundary moved.
-"""
+"""Teardown helper for the crash-recovery writer."""
 
 from __future__ import annotations
 
 import logging
 
 # ``_run_with_timeout`` / ``TIMEOUT`` are looked up DYNAMICALLY from
-# :mod:`voice_typer.server.shutdown_controller` at call time so tests
-# that ``monkeypatch.setattr(...shutdown_controller._run_with_timeout, ...)
-# still take effect (mirrors the convention documented in
-# ``shutdown_controller.py``'s module docstring).
 from voice_typer.server import shutdown_controller as _sc  # noqa: F401
 
 
@@ -27,23 +18,7 @@ log = logging.getLogger(__name__)
 
 
 def teardown_crash_recovery(controller) -> None:
-    """flush pending crash-recovery writes + shutdown the writer.
-
-    RELIABILITY-005: flush before the process exits so the latest
-    state is persisted. Short timeout, if the disk is genuinely
-    slow we'd rather exit and lose the in-flight snapshot than hang
-    the shutdown.
-
-    ATOMICITY: flush() and shutdown() run in SEPARATE try/except
-    blocks. Pre-fix, both calls shared one try block, if flush()
-    raised, shutdown() was NEVER attempted and the writer thread +
-    state file handle leaked. The split guarantees shutdown() runs
-    even when flush() fails, so the writer thread is joined and the
-    snapshot file is closed cleanly. The TIMEOUT sentinel returned
-    by ``_run_with_timeout`` is checked explicitly (was silently
-    discarded pre-fix) so operators get a WARNING when the inner
-    timeout fires.
-    """
+    """flush pending crash-recovery writes + shutdown the writer."""
     app = controller._app
     if app._crash_recovery is None:
         return

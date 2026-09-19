@@ -20,9 +20,6 @@ from .core import (
 log = logging.getLogger(__name__)
 
 # ``flock``/``msvcrt.locking`` errnos that mean "locked by another
-# process" (contention). NOT "native lock API unavailable". See
-# :meth:`OfflinePackLock._try_native_lock` for why misrouting these to
-# the PID-file fallback was a fail-open bug.
 _LOCK_CONTENTION_ERRNOS = frozenset(
     {
         errno.EACCES,
@@ -34,22 +31,7 @@ _LOCK_CONTENTION_ERRNOS = frozenset(
 
 
 class OfflinePackLock:
-    """Cross-process lock file for the pack downloader (§8.13).
-
-    Acquires an exclusive lock on ``<pack-root>/pack-<version>.lock`` —
-    a SIBLING of the version directory, so the §8.3 atomic swap
-    (version dir → ``.trash``) cannot carry the lock's inode away
-    mid-download. The lock is held for the lifetime of the
-    ``OfflinePackLock`` context manager. On POSIX this uses ``fcntl.flock``
-    (advisory); on Windows it uses ``msvcrt.locking`` (mandatory).
-    Both fall back to a best-effort PID-file + sleep loop if the
-    native API is unavailable.
-
-    The lock file contains the holding process's PID + start time so a
-    stale lock (process crashed without releasing) can be detected and
-    broken. The lock file itself is deliberately NOT deleted on
-    release (see :meth:`release`).
-    """
+    """Cross-process lock file for the pack downloader (§8.13)."""
 
     def __init__(
         self,
@@ -62,9 +44,6 @@ class OfflinePackLock:
         self.path = offline_pack_lock_path(version, root=root)
         self.timeout_s = timeout_s
         # ``BinaryIO`` file handle of the lock file. ``None`` until
-        # :meth:`acquire` opens it (or after a failed acquire closes it).
-        # Annotated so type checkers narrow the non-None accesses in
-        # :meth:`_try_native_lock` / :meth:`_release` correctly.
         self._fh: BinaryIO | None = None
         self._native_handle = None
         self._acquired = False
@@ -92,42 +71,16 @@ class OfflinePackLock:
             time.sleep(OFFLINE_PACK_LOCK_POLL_S)
 
     def _try_native_lock(self) -> bool:
-        """Acquire the OS-native exclusive lock on ``self._fh``.
-
-        Return ``True`` when acquired, ``False`` when the lock is held
-        by another process (contention, the caller's retry loop waits
-        until the timeout). Only a genuinely UNAVAILABLE native API
-        (ImportError / AttributeError) falls back to the PID-file path.
-
-        Contention is detected via errno, NOT via the exception type:
-        ``fcntl.flock`` with ``LOCK_NB`` raises ``BlockingIOError``
-        (an ``OSError`` subclass with EAGAIN/EWOULDBLOCK, CPython
-        translates EAGAIN-family errnos) or a plain ``OSError`` with
-        EACCES. Catching the broad ``OSError`` as "API unavailable"
-        misrouted contention to the PID-file fallback, which fails
-        OPEN while the holder is between its ``flock`` and the PID
-        write (empty lock file), both instances then proceeded.
-        """
+        """Acquire the OS-native exclusive lock on ``self._fh``."""
         fh = self._fh
         if fh is None:
             # No open file handle, cannot lock (caller should have
-            # opened it in :meth:`acquire` first).
             return False
         try:
             if platform.system() == "Windows":
                 import msvcrt
 
                 # Lock the first byte of the file. ``LK_NBLCK`` is
-                # non-blocking, we retry on failure.
-                #
-                # MUST ``seek(0)`` first: ``msvcrt.locking`` locks the
-                # byte range at the CURRENT file position, and the lock
-                # file is opened in append mode ("a+b"), so the position
-                # sits at EOF, a second opener would lock a DIFFERENT
-                # (non-overlapping) range and both lockers would
-                # succeed, defeating the exclusive lock. Locking byte 0
-                # always keeps every contender contending for the same
-                # range.
                 try:
                     fh.seek(0)
                     msvcrt.locking(fh.fileno(), msvcrt.LK_NBLCK, 1)
@@ -145,8 +98,6 @@ class OfflinePackLock:
                 except OSError as exc:
                     if exc.errno in _LOCK_CONTENTION_ERRNOS:
                         # Contention, report "held" so the retry loop
-                        # waits. Do NOT fall through to the PID-file
-                        # fallback (see docstring).
                         return False
                     raise  # unexpected, surface to acquire()'s handler
         except (ImportError, AttributeError) as exc:
@@ -154,12 +105,7 @@ class OfflinePackLock:
             return self._pid_file_fallback()
 
     def _pid_file_fallback(self) -> bool:
-        """Best-effort PID-file lock when native APIs are unavailable.
-
-        Reads the existing PID + start time from the lock file; if the
-        PID is dead (or stale by >1 day), the lock is considered
-        abandoned and we steal it.
-        """
+        """Best-effort PID-file lock when native APIs are unavailable."""
         fh = self._fh
         if fh is None:
             return False
@@ -193,23 +139,7 @@ class OfflinePackLock:
             pass
 
     def release(self) -> None:
-        """Release the lock. Safe to call when not acquired (no-op).
-
-        The lock FILE is deliberately NOT unlinked here:
-
-        * Native locks (``flock`` / ``msvcrt.locking``) are released by
-          ``close()`` alone, a leftover file is instantly re-lockable
-          and harmless.
-        * The PID-file fallback detects stale holders via PID + start
-          time (dead process or >1 day → steal), so unblocking waiters
-          never depended on the unlink.
-        * Unlinking raced with waiters: between the holder's close and
-          the unlink, a waiting instance's next ``open()`` could create
-          a fresh inode, and while the file is absent, a second waiter
-          and the unlink can interleave arbitrarily. A stable inode
-          also keeps the sibling lock's identity intact across the
-          §8.3 version-dir swap.
-        """
+        """Release the lock. Safe to call when not acquired (no-op)."""
         if not self._acquired:
             return
         fh = self._fh
@@ -225,8 +155,6 @@ class OfflinePackLock:
 
                 with contextlib.suppress(OSError):
                     # seek(0) so the unlock covers the SAME byte range
-                    # that was locked (msvcrt.locking is position-based;
-                    # after ``_write_pid`` the position sits at EOF).
                     fh.seek(0)
                     msvcrt.locking(fh.fileno(), msvcrt.LK_UNLCK, 1)
         except (ImportError, OSError, AttributeError):
@@ -259,8 +187,6 @@ def _is_process_alive(pid: int) -> bool:
     try:
         if platform.system() == "Windows":
             # ``os.kill`` on Windows with signal 0 doesn't work; use
-            # ``subprocess.run(['tasklist', ...])`` for a real check.
-            # For tests we accept the simpler ``OpenProcess`` path.
             import ctypes
 
             process_query_limited_information = 0x1000

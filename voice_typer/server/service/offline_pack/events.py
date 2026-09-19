@@ -7,7 +7,6 @@ from types import ModuleType
 
 log = logging.getLogger(__name__)
 
-# ── IPC events (§7.4, published via event_bus.publish) ──────────────────
 
 OFFLINE_PACK_EVENT_TYPES: frozenset[str] = frozenset(
     {
@@ -26,9 +25,6 @@ OFFLINE_PACK_EVENT_TYPES: frozenset[str] = frozenset(
         "transcribe_offline_result",
     }
 )
-
-
-# ── Event publishing (small wrapper for tests) ───────────────────────────
 
 
 def _publish_event(event_bus: ModuleType | None, event_type: str, payload: dict) -> None:

@@ -79,166 +79,52 @@ log = logging.getLogger(__name__)
 
 
 # O2: the SQLite history database lives under a dedicated ``db/``
-# subdir of the config dir (alongside ``logs/``, ``crashes/``, etc.),
-# so ``history.db`` + its ``-wal``/``-shm`` sidecars + corrupt-quarantine
-# + pre-migration backups no longer clutter the config-dir root. The
-# legacy root-located file is migrated once (see
-# :func:`_maybe_migrate_legacy_db`).
 DB_SUBDIR = "db"
 
 _MAX_SEARCH_QUERY_CHARS = 200
 
-# hard upper bound on the total time a blocking _submit_write
-# caller will wait for the writer thread to execute its closure. The
-# per-retry timeout is _WRITE_FUTURE_TIMEOUT (30s); without a hard cap,
-# the retry loop below could wait forever as long as the writer thread
-# was merely *alive* (e.g. a multi-batch retention sweep on a huge DB
 # that never makes progress because of an external SQLite lock). 60s is
-# 2× the per-retry timeout, generous enough that a legitimate slow
-# write (large retention sweep) is never aborted prematurely, but short
-# enough that a truly stuck writer surfaces a clear error to the caller
-# instead of hanging the IPC handler thread indefinitely.
 _WRITE_FUTURE_TOTAL_TIMEOUT = 60.0
 
-# IMPL-A: writer-thread tuning constants.
 #   _WAL_CHECKPOINT_INTERVAL, the writer thread runs
-#   ``PRAGMA wal_checkpoint(PASSIVE)`` at this cadence to bound WAL
-#   growth and prevent autocheckpoint stalls during writes.
-#   _WRITE_FUTURE_TIMEOUT, maximum time a blocking write caller
-#   (delete/restore/clear_all/toggle_favorite/apply_retention) will
-#   wait for the writer to execute its closure. Generous because the
-#   writer is single-threaded and may be draining a backlog; the
-#   previous design could stall 5+ seconds, so 30s is a safety bound,
-#   not a typical latency.
-#   _WRITER_JOIN_TIMEOUT, how long ``close()`` waits for the writer
-#   thread to drain remaining items and exit.
-#   _WRITER_READY_TIMEOUT, how long ``__init__`` waits for the writer
-#   to finish schema initialization before returning.
-#   _CLEAR_ALL_BATCH_SIZE, chunk size for the bulk DELETEs inside
-#   ``clear_all``; each batch commits so the WAL doesn't grow
-#   unboundedly and external readers see progress. (The retention
-#   sweep's ``_RETENTION_BATCH`` chunk size now lives in
-#   ``history_db_internals.retention``.)
 _WAL_CHECKPOINT_INTERVAL = 300.0  # 5 minutes, keeps WAL small with negligible overhead
 _WRITE_FUTURE_TIMEOUT = 30.0
 _WRITER_JOIN_TIMEOUT = 10.0
 _WRITER_READY_TIMEOUT = 30.0
 # clear_all uses a larger batch than retention because it unconditionally
-# deletes every row, chunking only exists to let external readers see
-# progress and to bound WAL growth between commits. SQLite's default
-# ``wal_autocheckpoint=1000`` pages already bounds WAL size, so a 1000-row
-# batch (the query takes a single LIMIT arg, well under SQLite's 999-
-# placeholder default) is safe and 10x faster than the previous 100-row
-# batch on power-user databases with 50K+ rows.
 _CLEAR_ALL_BATCH_SIZE = 1000
 
 # PERF-5: maximum number of pending write closures enqueued on the
-# writer thread's queue. Bounded so a stalled writer (disk full, antivirus
-# lock, deadlocked external process) cannot cause the in-memory queue to
-# grow unboundedly and exhaust memory. 10000 is ~5 minutes of fire-and-
-# forget add_transcription writes at 30/s. When the bound is hit, the
-# oldest non-sentinel queued item is dropped (and its future, if any, is
-# resolved with ``HistoryDBError`` so wait=True callers don't hang).
-# Exposed as a module-level constant so tests can pin the documented
-# bound and reference it as the contract for the drop-oldest path.
 _WRITE_QUEUE_MAXSIZE = 10000
 
 # Sentinel enqueued to ask the writer thread to drain and exit.
 _SHUTDOWN_SENTINEL: Any = object()
 
 # maximum number of transcription rows bundled into a single
-# multi-row INSERT. SQLite's default ``SQLITE_MAX_VARIABLE_NUMBER`` is
-# 999 (or 32766 on newer builds); 7 placeholder columns × 100 rows =
-# 700 placeholders, well under the conservative 999 bound. Capping the
-# batch size also bounds the peak memory used by the parameter list and
-# the WAL frame count of a single transaction.
 _BATCH_INSERT_CAP = 100
 
 # minimum number of pending _BatchableInsert items required to
-# trigger the multi-row INSERT path. Below this threshold each row is
-# inserted individually (the per-transaction overhead saving doesn't
-# justify the multi-row SQL construction for 1-2 rows).
-#
-# lowered from 3 to 1 so even single-row insertions use the
-# multi-row INSERT path (one INSERT + one COMMIT per batch). The
-# original threshold of 3 meant that for typical user dictation (one
-# phrase, then a pause), the queue drained to 1 item every time and
-# the batching optimization never engaged. With MIN=1, the multi-row
-# path is taken for batches of 1+; for 2-row batches this collapses
-# two separate INSERT+COMMIT cycles into one (1 COMMIT instead of 2).
-# Per-row overhead is identical for 1-row batches (both paths do 1
-# INSERT + 1 COMMIT), so the change is a pure simplification with no
-# regression for the single-row case.
 _BATCH_INSERT_MIN = 1
 
 # TTL (seconds) for the get_history_count cache.
 _HISTORY_COUNT_CACHE_TTL_S = 60.0
 
 # Interval (seconds) at which the periodic read-conn prune daemon
-# walks ``_all_read_connections`` and closes connections whose owning
-# thread has exited. Defined at module level (not as a class
-# attribute) so tests can monkeypatch ``history_db._READ_CONN_PRUNE_INTERVAL_S``
-# and have the prune thread pick up the new value on the next restart.
 _READ_CONN_PRUNE_INTERVAL_S: float = 60.0
 
 # TTL (seconds) for the ``get_today_stats`` cache.
-#
-# ``get_today_stats`` runs an aggregating scan
-# (``SELECT COUNT(*), SUM(char_count), SUM(word_count), SUM(duration)
-# FROM transcriptions WHERE timestamp >= DATE('now') AND timestamp <
-# DATE('now', '+1 day')``) on every call. The Dashboard refreshes on
-# every ``transcription_final`` event; at the rate_limiter's 1
-# call/sec/client cap, this was continuous background CPU on the reader
-# thread during active dictation.
-#
-# The cache mirrors the ``get_history_count`` 60s pattern but with a
-# 15s TTL and STRICTER invalidation, invalidated on EVERY mutation
-# that could change today's stats (add/delete/clear/restore/retention),
-# including fire-and-forget ``add_transcription`` (today's stats grow
-# by 1 per dictation and the user wants to see them update live, so we
-# invalidate immediately rather than serving a stale-by-1 count).
 _TODAY_STATS_CACHE_TTL_S = 15.0
 
 # maximum characters of ``text`` returned in list responses.
 _HISTORY_TEXT_PREVIEW_LENGTH = 500
 
 # At-rest encryption: number of pre-existing plaintext rows converted to
-# ciphertext per background backfill step (schema v4+). Each step is a
-# queued writer item that re-enqueues itself between batches, so a huge
-# legacy DB never starves foreground dictation writes; the backfill is
-# idempotent by the ``text_is_encrypted`` flag and resumes across
-# launches. 100 rows ≈ a few ms of AES-256-GCM, imperceptible per batch.
 _ENCRYPTION_BACKFILL_BATCH = 100
 
 # hard upper bound on the ``limit`` parameter for the public list
-# methods (get_recent / search / get_favorites). Prevents a single
-# IPC call from materialising an unbounded result set (each row
-# carries up to _HISTORY_TEXT_PREVIEW_LENGTH chars of text plus 10
-# metadata fields, a hostile or buggy caller passing limit=10**9
-# would otherwise OOM the renderer). Callers asking for more than
-# this get silently clamped; the renderer paginates via cursor
-# parameters (before_timestamp / before_id) for deep reads.
 _MAX_LIST_LIMIT = 500
 
 # regex used by ``HistoryDB._try_iterdump_recovery`` to
-# filter iterdump() output and keep only ``INSERT INTO transcriptions``
-# statements (the user-data rows). Schema rows (``schema_meta``,
-# ``sqlite_sequence``) and FTS5 shadow-table rows
-# (``transcriptions_fts`` and its ``_*_`` shadow tables) are
-# intentionally excluded, the fresh DB's schema init recreates the
-# schema, and replaying ``schema_meta`` would PRIMARY KEY-conflict
-# with the version row that ``init_schema`` writes.
-#
-# iterdump() emits statements of the form::
-#
-#     INSERT INTO "transcriptions" VALUES(1, 'text', ...);
-#     INSERT INTO "schema_meta" VALUES('version','3');
-#     INSERT INTO "transcriptions_fts" VALUES(...);
-#
-# The ``"?`` allows for the optional double-quote that iterdump
-# emits around the table name; ``\b`` ensures ``transcriptions_fts``
-# is NOT matched (``s`` and ``_`` are both word chars, so there's
-# no word boundary between them).
 _INSERT_TRANSCRIPTIONS_RE = re.compile(
     r'^INSERT\s+INTO\s+"?transcriptions"?\b',
     re.IGNORECASE,
@@ -310,39 +196,9 @@ class HistoryDBError(RuntimeError):
 
 
 # Schema-init / migration logic lives in
-# ``voice_typer.server.history_db_internals.schema``. The migration
-# SQL strings, the migrations dict, and the current schema version
-# constant are re-exported here so existing callers (and tests that
-# monkey-patch ``history_db._MIGRATIONS`` / read
-# ``history_db._CURRENT_SCHEMA_VERSION``) keep working unchanged —
-# the re-exported ``_MIGRATIONS`` is the SAME dict object that
-# ``history_db_internals.schema.init_schema`` reads, so in-place
-# mutation (e.g. ``unittest.mock.patch.dict``) is observed by the
-# schema initializer.
-# Search / LIKE / FTS5 helpers + row projection live in
-# ``voice_typer.server.history_db_internals.search``. They are
-# re-exported here under their original (underscore-prefixed) names so
-# existing callers (and tests that import ``history_db._is_fts_compatible_query``
-# etc.) keep working unchanged. The re-exported callables are the SAME
-# function objects that ``history_db_internals.search.search`` /
-# ``get_recent`` / ``get_favorites`` call internally, so monkeypatching
-# the module-level helper via ``history_db._is_fts_compatible_query`` is
-# NOT observed by the delegating methods, callers that need to
-# monkeypatch should target ``history_db_internals.search`` directly.
-# (No existing test monkeypatches these helpers at the module level;
-# they only call them directly, which works through the re-export.)
 import voice_typer.server.history_db_internals.search as _search_helpers  # noqa: E402,F401, backward-compat re-export
 
 # DB file-safety helpers (secure copy, legacy relocation, corruption
-# recovery) live in
-# ``voice_typer.server.history_db_internals.corruption_recovery``. They
-# are re-exported here under their original names so existing callers
-# (and tests that import / monkeypatch
-# ``history_db._secure_copy_db_file`` etc.) keep working unchanged.
-# ``corruption_recovery._backup_before_migration`` reads
-# ``_hd._secure_copy_db_file`` through THIS module's namespace at call
-# time, so a facade-level monkeypatch of the copy helper is still
-# observed by the backup path.
 from voice_typer.server.history_db_internals.corruption_recovery import (  # noqa: E402,F401, backward-compat re-export
     _maybe_migrate_legacy_db,
     _maybe_move_legacy_sidecar,
@@ -436,13 +292,6 @@ def _wrap_read(failure_value, fail_verb):
 
 
 # module-level WeakSet tracking all live HistoryDB instances. Tests
-# that construct HistoryDB via ``_MockApp`` helpers frequently leak the
-# instance (and its ``HistoryDBWriter`` daemon thread) because the test
-# fixture only calls ``IPCServer.stop()``, which does NOT close
-# ``app.history_db``. On Windows the accumulated daemon threads eventually
-# trip a native limit and crash the whole pytest process mid-suite ().
-# ``tests/conftest.py`` iterates this set after each test and calls
-# ``close()`` on any still-alive instance.
 _LIVE_INSTANCES: "weakref.WeakSet[HistoryDB]" = weakref.WeakSet()
 
 
@@ -463,7 +312,6 @@ class HistoryDB:
     """
 
     # Assigned by history_db_internals.lifecycle.initialize_state (from
-    # __init__); declared here so the class carries the state contract.
     db_path: Path
     _read_local: threading.local
     _all_read_connections: list[tuple[int, sqlite3.Connection]]
@@ -495,16 +343,13 @@ class HistoryDB:
 
             config_dir = _config_dir()
             # O2: one-time legacy root-DB migration into db/ BEFORE the
-            # new location is resolved, so the writer opens the moved file.
             _maybe_migrate_legacy_db(config_dir)
             db_path = config_dir / DB_SUBDIR / "history.db"
 
         self.db_path = db_path
         # Stateful attribute setup (lifecycle.initialize_state reads
-        # constants through this module's namespace at call time).
         lifecycle.initialize_state(self)
         # Start the writer thread last, it signals _writer_ready once
-        # the schema is set up.
         self._writer_thread = threading.Thread(
             target=self._writer_loop,
             name="HistoryDBWriter",
@@ -518,8 +363,6 @@ class HistoryDB:
         reader._start_read_conn_prune_thread(self)
 
     # Back-compat alias for the previous name (kept so external code
-    # and any in-flight branches that referenced the verbose name keep
-    # working). New callers should use ``_start_read_conn_prune_thread``.
     _start_periodic_read_conn_prune = _start_read_conn_prune_thread
 
     def _stop_read_conn_prune_thread(self) -> None:
@@ -708,12 +551,8 @@ class HistoryDB:
         """
         with contextlib.suppress(Exception):
             # Signal the writer to exit on its next iteration. The
-            # writer is a daemon, so even if it never sees this signal
-            # it will be killed at process exit.
             self._shutdown.set()
             # Sweep _all_read_connections (thread-local first). Never
-            # blocks on the connections lock (re-entrant GC during
-            # _get_read_conn could otherwise deadlock).
             lifecycle.gc_close_read_connections(self)
 
     def close(self):

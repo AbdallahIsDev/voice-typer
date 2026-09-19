@@ -36,53 +36,10 @@ from voice_typer.server.platform_utils import is_macos, is_windows
 log = logging.getLogger(__name__)
 
 
-# cross-thread serialization lock for restore() ──────
-#
 # Platform clipboard APIs are NOT thread-safe:
-#
-#   * Win32 ``OpenClipboard`` / ``EmptyClipboard`` / ``SetClipboardData``:
-#     only one thread per process can hold the clipboard open at a time.
-#     A second concurrent ``OpenClipboard`` on the same process fails
-#     (returns 0), and the subsequent ``SetClipboardData`` calls are
-#     silently dropped, the user's original clipboard content is lost.
-#   * macOS ``NSPasteboard.clearContents`` / ``writeObjects_``: AppKit
-#     documents NSPasteboard as main-thread-only; concurrent access from
-#     background threads is undefined behavior.
-#   * Linux X11 / Wayland: ``xclip`` and ``wl-copy`` are external
-#     subprocesses, but two concurrent invocations race on the clipboard
-#     selection ownership and the second one's content can be lost.
-#
-# ``ClipboardManager._delayed_restore`` runs on a daemon thread (one per
-# paste() cycle). ``_force_restore_pending_at_exit`` runs on the main
-# thread during interpreter shutdown. Without serialization, the daemon
-# thread for cycle A can call ``snapshot_A.restore()`` concurrently with
-# the atexit handler calling ``snapshot_B.restore()`` for a different
-# pending entry B, racing on the platform clipboard APIs and leaving
-# the clipboard in an indeterminate state (typically: empty, or stuck
-# with the dictated text from one of the two cycles).
-#
-# The  fix in ``manager.py`` already prevents atexit and the SAME
-# snapshot's daemon from both calling ``snapshot.restore()`` (the daemon
-# claims its entry under ``_pending_restores_lock`` before restoring,
-# and short-circuits if atexit already took it). But it does NOT prevent
-# two DIFFERENT snapshots from being restored concurrently, that's the
-# residual race this lock closes.
-#
-# ``threading.Lock`` (not ``RLock``) is correct here: ``restore()``
-# dispatches to ``_restore_windows`` / ``_restore_macos`` /
-# ``_restore_x11`` / ``_restore_wayland``, none of which call back into
-# ``restore()``. No reentrancy → no deadlock risk from a non-reentrant
-# lock. A ``Lock`` is also marginally faster (no owner-tracking) and
-# surfaces reentrancy bugs as a deadlock rather than silently allowing
-# them.
-#
-# The lock is module-level (not per-instance) because the race is
-# between DIFFERENT snapshots on different threads, a per-instance lock
-# would not serialize them.
 _restore_lock = threading.Lock()
 
 
-# ─── Windows builtin clipboard format IDs ─────────────────────────────────
 # https://learn.microsoft.com/en-us/windows/win32/dataxchg/standard-clipboard-formats
 _CF_TEXT = 1
 _CF_BITMAP = 2
@@ -103,7 +60,6 @@ _CF_LOCALE = 16
 _CF_DIBV5 = 17
 
 # Builtin format ID → human-readable name. Used when GetClipboardFormatNameW
-# returns 0 (which means the format is a builtin and has no registered name).
 _BUILTIN_FORMAT_NAMES: dict[int, str] = {
     _CF_TEXT: "CF_TEXT",
     _CF_BITMAP: "CF_BITMAP",
@@ -125,9 +81,6 @@ _BUILTIN_FORMAT_NAMES: dict[int, str] = {
 }
 
 # Formats that cannot be round-tripped through GlobalAlloc + memmove because
-# they are GDI handles, not byte streams. The actual image data is preserved
-# via CF_DIB / CF_DIBV5 (which ARE byte streams), so images are not lost.
-# ADR-0010 §4.3, §11.3.
 _NON_RESTORABLE_FORMATS: frozenset[int] = frozenset(
     {
         _CF_BITMAP,
@@ -137,32 +90,9 @@ _NON_RESTORABLE_FORMATS: frozenset[int] = frozenset(
 )
 
 # Maximum bytes captured for a single clipboard format. Formats larger
-# than this are skipped (with a debug log) so a pathological clipboard
-# (e.g. a 200 MB RTF blob from a copied Excel range, or a huge
-# private-data format registered by an office suite) cannot exhaust
-# Python heap on every dictation. 16 MB comfortably covers every
-# realistic text/HTML/RTF format (the largest typical payload is a
-# richly-formatted document paste at ~1-2 MB) while still bounding
-# peak memory. Image formats (CF_DIB/CF_DIBV5) above the cap are also
-# skipped, they would have been restored as raw bytes anyway, which
-# for an oversized bitmap is slow and rarely what the user wants
-# restored (they typically want the *next* copy to replace it).
 _MAX_FORMAT_BYTES = 16 * 1024 * 1024
 
 # Running-total cap on the bytes captured across ALL formats in
-# a single ``ClipboardSnapshot``. The Windows clipboard can expose 15+
-# formats per copy (CF_UNICODETEXT, CF_TEXT, CF_OEMTEXT, CF_LOCALE,
-# CF_DIB, CF_DIBV5, "Rich Text Format", "HTML Format", "XML
-# Spreadsheet", "Biff12", "Biff8", "Biff5", "CSV", "Hyperlink", plus
-# private formats). Each is read into a fresh ``bytes`` object and held
-# in ``items`` until ``restore()`` runs. The per-format cap (above)
-# bounds a single format at 16 MB, but the theoretical peak per
-# snapshot is 16 MB × 20 formats = 320 MB. 64 MB caps the running
-# total: once we've captured 64 MB of formats, we break out of the
-# format-walk loop. The captured formats (text first, because
-# ``EnumClipboardFormats`` returns CF_* text formats in ID order, and
-# most apps register text formats before rich formats) are sufficient
-# for restore; later formats (RTF, HTML, image) are best-effort.
 _MAX_TOTAL_SNAPSHOT_BYTES = 64 * 1024 * 1024
 
 
@@ -200,8 +130,6 @@ class ClipboardSnapshot:
     items: list[tuple[Any, ...]] = field(default_factory=list)
     captured_at: float = 0.0
 
-    # ─── Public API ────────────────────────────────────────────────────
-
     @classmethod
     def capture(cls) -> ClipboardSnapshot | None:
         """Capture the current clipboard across all formats.
@@ -220,7 +148,6 @@ class ClipboardSnapshot:
             if session == "wayland":
                 snap = cls._capture_wayland()
                 # XWayland fallback: if wl-paste fails (e.g. running under
-                # XWayland without a Wayland compositor), try xclip.
                 if snap is None or not snap.items:
                     snap = cls._capture_x11()
                 return snap
@@ -266,8 +193,6 @@ class ClipboardSnapshot:
                 return self._restore_wayland()
             log.warning("[CLIPBOARD-SNAPSHOT] unknown platform: %s", self.platform)
             return False
-
-    # ─── Windows (Win32 API) ───────────────────────────────────────────
 
     @staticmethod
     def _configure_win32_signatures(user32: Any, kernel32: Any) -> None:
@@ -330,20 +255,12 @@ class ClipboardSnapshot:
         cls._configure_win32_signatures(user32, kernel32)
 
         # OpenClipboard(0). Pass NULL owner so we don't associate the
-        # clipboard with our window (we have none; we're a tray app).
         if not user32.OpenClipboard(0):
             log.debug("[CLIPBOARD-SNAPSHOT] OpenClipboard failed")
             return None
         try:
             items: list[tuple[int, str, bytes]] = []
             # Running total of bytes captured across ALL formats
-            # in this snapshot. Once we hit ``_MAX_TOTAL_SNAPSHOT_BYTES``
-            # we break out of the format-walk loop, the captured
-            # formats (text first) are sufficient for restore; later
-            # formats (RTF, HTML, image) are best-effort. This bounds
-            # the worst-case per-snapshot memory at 64 MB + one format
-            # over the cap (<= 16 MB), instead of 16 MB × 20 formats
-            # = 320 MB.
             total_bytes = 0
             fmt = 0
             while True:
@@ -352,14 +269,6 @@ class ClipboardSnapshot:
                     break
 
                 # Skip GDI-handle formats (CF_BITMAP, CF_METAFILEPICT,
-                # CF_ENHMETAFILE). For these, GetClipboardData returns a
-                # GDI HANDLE, NOT an HGLOBAL, so calling GlobalSize /
-                # GlobalLock / string_at on it reads a non-memory handle
-                # as if it were a heap block, corrupting the heap
-                # (STATUS_HEAP_CORRUPTION, 0xC0000374). We also cannot
-                # restore them from raw bytes anyway (the restore path
-                # skips the same set), so there is no reason to capture
-                # them. Image data is still preserved via CF_DIB/CF_DIBV5.
                 if fmt in _NON_RESTORABLE_FORMATS:
                     continue
 
@@ -377,14 +286,6 @@ class ClipboardSnapshot:
                     continue
 
                 # Bounded RAM: skip formats whose payload exceeds the cap.
-                # ``ctypes.string_at(ptr, size)`` would otherwise copy the
-                # entire payload into a fresh Python ``bytes`` object on
-                # every capture, a 200 MB clipboard format (huge RTF
-                # from an office suite, oversized private-data format)
-                # would balloon Python RSS by 200 MB per dictation and
-                # not be released until the snapshot is restored (which
-                # may be never if the borrow-then-restore path is
-                # skipped due to a paste failure).
                 if size > _MAX_FORMAT_BYTES:
                     log.debug(
                         "[CLIPBOARD-SNAPSHOT] skipping fmt=%d name=%r: %d bytes exceeds %d-byte cap",
@@ -406,10 +307,6 @@ class ClipboardSnapshot:
                 items.append((fmt, name, data))
 
                 # Track the running total of bytes captured
-                # across all formats. Once we hit the per-snapshot cap,
-                # break out of the format-walk loop, the captured
-                # formats (text first) are sufficient for restore;
-                # later formats (RTF, HTML, image) are best-effort.
                 total_bytes += size
                 if total_bytes >= _MAX_TOTAL_SNAPSHOT_BYTES:
                     log.debug(
@@ -477,14 +374,11 @@ class ClipboardSnapshot:
             success_count = 0
             for fmt, name, data in self.items:
                 # Skip GDI-handle formats, they cannot be restored from
-                # raw bytes. Image data is preserved via CF_DIB / CF_DIBV5.
                 if fmt in _NON_RESTORABLE_FORMATS:
                     continue
 
                 target_fmt = fmt
                 # Re-register registered formats by name so the ID matches
-                # what the consuming app expects (the original ID may
-                # differ across processes / sessions).
                 if name:
                     registered = user32.RegisterClipboardFormatW(name)
                     if registered:
@@ -509,7 +403,6 @@ class ClipboardSnapshot:
                     kernel32.GlobalUnlock(h_mem)
 
                 # SetClipboardData takes ownership of h_mem on success.
-                # On failure, we must free it ourselves.
                 if not user32.SetClipboardData(target_fmt, h_mem):
                     kernel32.GlobalFree(h_mem)
                     log.debug(
@@ -521,10 +414,6 @@ class ClipboardSnapshot:
                 success_count += 1
             if success_count == 0:
                 # zero items were successfully set. EmptyClipboard()
-                # has already cleared the clipboard, so the user's prior
-                # content is gone. Return False so the caller logs failure
-                # instead of "Restored snapshot": at least the audit
-                # trail is honest about the data loss.
                 log.warning(
                     "[CLIPBOARD-SNAPSHOT] _restore_windows: 0/%d formats set, "
                     "clipboard is empty after EmptyClipboard (DE-62)",
@@ -534,8 +423,6 @@ class ClipboardSnapshot:
             return True
         finally:
             user32.CloseClipboard()
-
-    # ─── macOS (NSPasteboard) ──────────────────────────────────────────
 
     @classmethod
     def _capture_macos(cls) -> ClipboardSnapshot | None:
@@ -561,10 +448,6 @@ class ClipboardSnapshot:
                     continue
                 length = nsdata.length()
                 # Bounded RAM (mirrors the Windows path): skip formats
-                # whose payload exceeds the cap so a pathological
-                # pasteboard (huge image, large private data) cannot
-                # exhaust Python heap on every dictation. ``bytes(...)``
-                # below would otherwise copy the entire payload.
                 if length > _MAX_FORMAT_BYTES:
                     log.debug(
                         "[CLIPBOARD-SNAPSHOT] skipping type=%r idx=%d: %d bytes exceeds %d-byte cap",
@@ -575,7 +458,6 @@ class ClipboardSnapshot:
                     )
                     continue
                 # NSData.bytes() returns a pointer; .as_buffer(n) gives
-                # us a buffer we can convert to bytes.
                 data = b"" if length == 0 else bytes(nsdata.bytes().as_buffer(length))
                 items.append((idx, str(type_name), data))
 
@@ -622,7 +504,6 @@ class ClipboardSnapshot:
         pb.clearContents()
 
         # Group items by pasteboard item index so multi-item pasteboards
-        # are restored as separate NSPasteboardItem objects.
         from collections import defaultdict
 
         grouped: dict[int, list[tuple[str, bytes]]] = defaultdict(list)
@@ -646,8 +527,6 @@ class ClipboardSnapshot:
             ns_items.append(item)
 
         # ``writeObjects_`` returns YES only if at least one NSPasteboardItem
-        # was accepted by the pasteboard; a NO return means the clipboard is
-        # still empty after clearContents (silent data loss).
         write_ok = bool(pb.writeObjects_(ns_items)) if ns_items else True
 
         if success_count == 0 or not write_ok:
@@ -660,8 +539,6 @@ class ClipboardSnapshot:
             )
             return False
         return True
-
-    # ─── Linux X11 (xclip, text-only, documented limitation) ──────────
 
     @classmethod
     def _capture_x11(cls) -> ClipboardSnapshot | None:
@@ -744,8 +621,6 @@ class ClipboardSnapshot:
                 exc.returncode,
             )
             return False
-
-    # ─── Linux Wayland (wl-copy/wl-paste, text-only, documented) ──────
 
     @classmethod
     def _capture_wayland(cls) -> ClipboardSnapshot | None:

@@ -1,15 +1,4 @@
-"""Backward-compat shim, code moved to ``voice_typer.server.security``.
-
-The secret/PII redaction helpers moved to
-:mod:`voice_typer.server.security.redaction` and the cloud URL allowlist
-+ SSRF defense moved to :mod:`voice_typer.server.security.url_allowlist`.
-This module re-exports every public AND private name the codebase and
-tests reference so existing import sites keep working unchanged.
-
-New code should import from the package directly:
-``voice_typer.server.security.redaction`` /
-``voice_typer.server.security.url_allowlist``.
-"""
+"""Secret redaction helpers (SEC-003)."""
 
 from voice_typer.server._paths import LOOPBACK_HOSTS as _LOOPBACK_HOSTS  # noqa: F401
 from voice_typer.server.security.redaction import (  # noqa: F401

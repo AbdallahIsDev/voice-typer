@@ -1,20 +1,4 @@
-"""Kernel32 function-pointer resolver for the VEH callback.
-
-``_ensure_kernel32`` resolves the kernel32 function pointers
-(``GetCurrentProcessId``, ``GetSystemTimeAsFileTime``, ``CreateFileW``,
-``WriteFile``, etc.) once at first use and caches them on the
-``crash_handler`` facade's module-level state variables
-(``_kernel32``, ``_func_get_current_process_id``, ...).
-
-Per-platform guard: the resolver body only runs on Windows
-(``ctypes.windll`` is Windows-only). On Linux/macOS the function is
-never invoked, ``install_crash_handler`` short-circuits on
-``sys.platform != "win32"`` before calling ``_ensure_kernel32``.
-
-Split out from the original monolithic ``crash_handler.py`` so the
-kernel32 resolution is isolated from the VEH callback body and the
-diagnostics archive.
-"""
+"""Kernel32 function-pointer resolver for the VEH callback."""
 
 from __future__ import annotations
 
@@ -22,24 +6,13 @@ import ctypes
 
 
 def _ensure_kernel32() -> None:
-    """Resolve kernel32 function pointers once. Idempotent.
-
-    State (``_kernel32`` + the ``_func_*`` pointers) lives on the
-    ``crash_handler`` facade module so test mutations on
-    ``crash_handler._kernel32`` propagate to this function. We access
-    it via ``_ch.<name>`` (attribute access on the facade) rather than
-    ``global`` so the same storage is shared across submodules.
-    """
+    """Resolve kernel32 function pointers once. Idempotent."""
     from voice_typer.server import crash_handler as _ch
 
     if _ch._kernel32 is not None:
         return
 
     # Per-platform guard: ``ctypes.windll`` and ``ctypes.wintypes`` only
-    # exist on Windows. On non-Windows this function is never called
-    # (``install_crash_handler`` short-circuits), so the import here is
-    # safe, but we keep it inside the function body so Linux module
-    # load doesn't trigger it.
     from ctypes import wintypes
 
     from voice_typer.server.crash_handler._win32_structs import _SYSTEMTIME
@@ -98,7 +71,6 @@ def _ensure_kernel32() -> None:
     _func_set_file_pointer.argtypes = [
         wintypes.HANDLE,
         wintypes.LONG,
-        ctypes.c_void_p,  # lpDistanceToMoveHigh (None = no 64-bit seek)
         wintypes.DWORD,
     ]
     _func_set_file_pointer.restype = wintypes.DWORD

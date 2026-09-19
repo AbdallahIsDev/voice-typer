@@ -1,19 +1,10 @@
-"""Teardown helper for the bubble / waveform worker.
-
-Phase 4.5 (OI-36), extracted verbatim from
-:meth:`ShutdownController._teardown_waveform_wiring`. The body is unchanged;
-only the class boundary moved.
-"""
+"""Teardown helper for the bubble / waveform worker."""
 
 from __future__ import annotations
 
 import logging
 
 # ``_run_with_timeout`` is looked up DYNAMICALLY from
-# :mod:`voice_typer.server.shutdown_controller` at call time so tests
-# that ``monkeypatch.setattr(...shutdown_controller._run_with_timeout, ...)
-# still take effect (mirrors the convention documented in
-# ``shutdown_controller.py``'s module docstring).
 from voice_typer.server import shutdown_controller as _sc  # noqa: F401
 
 
@@ -25,12 +16,7 @@ log = logging.getLogger(__name__)
 
 
 def teardown_waveform_wiring(controller) -> None:
-    """stop the bubble level / waveform worker so it doesn't
-    try to push to a torn-down IPC server during shutdown.
-
-    PERF- the worker / queue / stop_event live on
-    WaveformBubbleWiring; delegate to its stop() helper.
-    """
+    """stop the bubble level / waveform worker so it doesn't"""
     app = controller._app
     try:
         _run_with_timeout(

@@ -1,15 +1,4 @@
-"""Microphone-test IPC handler mixin: 4 microphone_test_* commands.
-
-extracted verbatim from ``voice_typer/server/ipc_server.py``.
-The methods are mixed into :class:`IPCServer` via multiple inheritance and
-access ``self.app`` / ``self.service`` as before.
-
-(2026-07-30): ``_handle_microphone_test_status`` was REMOVED —
-the renderer polls ``microphone_test_get_level`` at 60 Hz during a
-test; the separate status query was unused. The service-layer method
-``service.microphone_test_status`` still exists for internal callers;
-only the IPC dispatch route was deleted.
-"""
+"""Microphone-test IPC handler mixin: 4 microphone_test_* commands."""
 
 from typing import cast
 
@@ -19,61 +8,13 @@ from voice_typer.server.ipc.validation import ResponseEnvelope, _error_response,
 
 
 class MicrophoneTestHandlersMixin(HandlerBase):
-    """Mixin: microphone-test IPC handlers (start / stop / cancel / get_level).
-
-    this mixin's ``except Exception`` catch-alls call
-        :meth:`HandlerBase._respond_with_error` (generic WS-path envelope,
-        no ``str(e)`` leak).
-
-    ``_handle_microphone_test_start`` enforces
-        ``voice_biometric_consent`` BEFORE capturing any test audio. The mic
-        test records up to 30s of audio and returns file refs plus chunked
-        reads over IPC (never inline base64), the same privacy contract
-        as dictation
-        (``recording_controller.py:248-263``). Without this gate, a
-        renderer-side bug or compromised renderer could trigger a test
-        recording and exfiltrate up to 30s of biometric voice data without
-        the user's explicit consent. The handler raises
-        :class:`ConsentRequiredError` which the existing
-        :meth:`HandlerBase._respond_with_error` maps to the structured
-        ``client.consent_required`` envelope so the renderer can surface a
-        consent dialog instead of a generic error toast.
-    """
+    """Mixin: microphone-test IPC handlers (start / stop / cancel / get_level)."""
 
     def _handle_microphone_test_start(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:
-        """Handle the ``microphone_test_start`` IPC command.
-
-        ``duration`` is validated with ``clamp_range: (1.0, 30.0)``.
-        The schema rule clamps int/float values; string values (e.g.
-        ``"7.5"`` from a form input) pass through and are clamped
-        after the ``float()`` coercion in the body. Note: ``0`` is
-        treated as a real value and clamped to ``1.0`` (not "use
-        default"), the pre-schema ``float(d.get("duration") or 10.0)``
-        treated ``0`` as falsy.
-
-        Migrated to :meth:`HandlerBase._wrap`: the helper handles the
-        surrounding ``try/except`` → ``_respond_with_error`` catch-all
-        and the non-dict ``data`` pre-coercion (``None`` / list → ``{}``)
-        identically to the inline ``if not isinstance(data, dict):
-        data = {}`` guard.
-        """
+        """Handle the ``microphone_test_start`` IPC command."""
 
         def body(d: dict) -> dict:
-            # enforce voice_biometric_consent BEFORE
             # capturing any test audio. The mic test returns up to 30s
-            # of audio via file refs + chunked reads (never inline
-            # base64), same privacy contract
-            # as dictation (recording_controller.py:248-263). We raise
-            # ConsentRequiredError rather than building the envelope
-            # inline so the existing _respond_with_error path maps it
-            # to the structured ``client.consent_required`` envelope
-            # (carrying engine_name/consent_field/model_id fields the
-            # renderer uses to deep-link to the Settings toggle).
-            #
-            # Fail-open policy: if the config read itself raises
-            # (e.g. config file locked / corrupted), we log and
-            # continue rather than lock the user out of the mic
-            # test dialog. Matches recording_controller.py:264-268.
             try:
                 if not getattr(self.app.config, "voice_biometric_consent", False):
                     raise ConsentRequiredError(
@@ -87,11 +28,6 @@ class MicrophoneTestHandlersMixin(HandlerBase):
                 log.exception("[IPC] microphone_test_start: failed to read voice_biometric_consent, failing open")
 
             # validate ``mic_id`` and ``filters`` types via the
-            # shared ``_validate_dict_payload`` helper. Non-dict
-            # ``data`` is pre-coerced to ``{}`` by ``_wrap`` so the
-            # ``test_non_dict_data_uses_defaults`` contract (None →
-            # defaults) still holds; ``_validate_dict_payload`` would
-            # otherwise reject non-dict with ``invalid_payload``.
             validated, error = _validate_dict_payload(
                 d,
                 {
@@ -101,10 +37,6 @@ class MicrophoneTestHandlersMixin(HandlerBase):
                         "default": None,
                     },
                     # ADR 0007 filter-config contract: ``filters`` is
-                    # a DICT of noise_filter_* keys (the renderer's
-                    # ``buildTestFilters`` builds it from config), not
-                    # a list, downstream consumers treat it as a
-                    # mapping, so reject non-dict values here.
                     "filters": {
                         "type": (dict, type(None)),
                         "required": False,
@@ -120,15 +52,9 @@ class MicrophoneTestHandlersMixin(HandlerBase):
             )
             if error:
                 return error
-            assert validated is not None  # narrowed by the error guard above
             mic_id = validated.get("mic_id")
             filters = validated.get("filters")
-            # coerce to float (handles string values like
-            # ``"7.5"``) and re-clamp. The schema's ``clamp_range``
             # already clamped int/float values, but strings bypass it
-            # (the helper only clamps int/float). A string like
-            # ``"1e300"`` would coerce to ``inf`` here; the re-clamp
-            # brings it back to 30.0.
             duration = float(cast(float | int | str, validated["duration"]))
             duration = max(1.0, min(duration, 30.0))
             result = self.service.microphone_test_start(mic_id=mic_id, duration=duration, filters=filters)
@@ -156,13 +82,7 @@ class MicrophoneTestHandlersMixin(HandlerBase):
     def _handle_microphone_test_read_audio(
         self, data: object | None, resp: ResponseEnvelope
     ) -> ResponseEnvelope | None:
-        """Handle the ``microphone_test_read_audio`` IPC command.
-
-        Chunked file-reference transport: returns one slice of a persisted
-        mic-test WAV (path + offset + length). Each response stays well
-        under the 1 MiB single-frame IPC cap, unlike the old monolithic
-        base64 stop payload that was silently dropped.
-        """
+        """Handle the ``microphone_test_read_audio`` IPC command."""
         try:
             if not isinstance(data, dict):
                 return _error_response(resp, "microphone_test_read_audio requires data: object", code="invalid_payload")

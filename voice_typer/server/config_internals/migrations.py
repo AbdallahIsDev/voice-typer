@@ -38,16 +38,6 @@ log = logging.getLogger("voice_typer.server.config")
 _CURRENT_SCHEMA_VERSION = 5
 
 # _MIGRATIONS infrastructure for schema version migrations.
-# v3 prunes deprecated dead-code keys.
-# v4 renames the offline-pack consent flag (2026-08-14, offline_pack rename).
-# v5 prunes the dead ``push_to_talk_hotkey`` field (2026-08-24, fully
-#    removed from the Config dataclass. PTT uses the main ``hotkey``).
-# T1-F3: typed as ``dict[int, Callable[[dict[str, Any]], dict[str, Any]]]``
-# so static checkers can verify that every registered migration is a function
-# taking a config dict and returning a (possibly mutated) config dict.
-# The keys/values are deliberately ``Any`` (not a TypedDict) because the
-# migration functions freely add/remove/rename arbitrary keys on the raw
-# JSON-loaded dict before it is fed to ``Config(**data)``.
 _MIGRATIONS: dict[int, Callable[[dict[str, Any]], dict[str, Any]]] = {}
 
 
@@ -200,25 +190,12 @@ def _run_migrations(
             migrator = _MIGRATIONS.get(version)
             if migrator is not None:
                 # log the migration BEFORE
-                # calling the migrator.
                 log.info(
                     "[CONFIG] migrating schema v%d -> v%d",
                     max(loaded_version, version - 1),
                     version,
                 )
                 # wrap each
-                # migrator in try/except.  On exception:
-                # log ERROR with the failed version and
-                # exception type, save a timestamped +
-                # version-stamped .bak so the user can
-                # recover the pre-failure on-disk state,
-                # then BREAK the loop.  Later migrators
-                # expect the prior version's data shape
-                # and would compound the corruption if
-                # run.  schema_version is left at
-                # ``last_successful_version`` (NOT bumped
-                # to _CURRENT_SCHEMA_VERSION) so the
-                # migration re-runs on next launch.
                 try:
                     data = migrator(data)
                     migrations_ran = True
@@ -241,29 +218,8 @@ def _run_migrations(
                     )
                     migrations_ran = True
                     # save a timestamped .bak
-                    # with the failed target version in
-                    # the filename so multiple failures
-                    # across launches don't clobber each
-                    # other and the user can identify
-                    # which migration produced which
-                    # backup.  Best-effort -- a backup
-                    # failure must not mask the original
-                    # migrator failure.
                     try:
                         # use the SEC-002 symlink-TOCTOU-safe
-                        # read+write pair (mirrors
-                        # ``_backup_before_downgrade`` /
-                        # ``_backup_before_migration`` in config.py)
-                        # instead of ``shutil.copy2``.  ``copy2`` follows
-                        # symlinks, so a ``config.json`` symlinked at
-                        # an attacker-controlled path would have been
-                        # transparently copied here, defeating the
-                        # symlink-TOCTOU guard the rest of the load()
-                        # path enforces.  ``_secure_read_text`` opens
-                        # with ``O_NOFOLLOW`` (POSIX) / reparse-point
-                        # check (Windows) so a planted symlink is
-                        # rejected; ``_secure_atomic_write`` writes via
-                        # a temp file + atomic rename.
                         import os
 
                         from voice_typer.server.secure_file_io import (
@@ -272,18 +228,6 @@ def _run_migrations(
                         )
 
                         # the previous ``time.strftime("%Y%m%d-
-                        # %H%M%S", time.gmtime())`` suffix had 1-second
-                        # resolution, two failures in the same second
-                        # (e.g. renderer-triggered reload + backend
-                        # independent load during startup) silently
-                        # overwrote each other via ``shutil.copy2``,
-                        # destroying the first failure's forensic
-                        # recovery point.  Mirror config.py:1676's
-                        # ``{int(time.time())}-{os.getpid()}-{time.time_ns()
-                        # % 1_000_000}`` format: PID disambiguates
-                        # same-second loads from DIFFERENT processes,
-                        # the microsecond fraction disambiguates
-                        # same-process same-second loads.
                         ts_sec = int(time.time())
                         pid = os.getpid()
                         ts_ns = time.time_ns() % 1_000_000
@@ -298,14 +242,6 @@ def _run_migrations(
                             failed_bak,
                         )
                         # cap retained failed-migration backups
-                        # to 5 (oldest pruned).  Mirrors the
-                        # ``_prune_kept_backups`` call in
-                        # ``_backup_before_migration`` (config.py:1824)
-                        # so the directory doesn't grow unbounded
-                        # across many failed launches.  Looked up via
-                        # the ``config`` module attribute (lazy import)
-                        # to avoid a circular module-load (``config.py``
-                        # imports this module at the top of the file).
                         try:
                             from voice_typer.server import config as _cfg_module
 
@@ -373,17 +309,11 @@ def _backup_before_migration_impl(config_file, loaded_version: Any) -> None:
     if not (isinstance(loaded_version, int) and loaded_version < _CURRENT_SCHEMA_VERSION):
         return
     # Lazy import to (a) avoid a circular module-load (config.py imports
-    # this module at the top of the file) AND (b) route the secure-io
-    # helpers + _prune_kept_backups through the config module namespace
-    # so test monkeypatches of ``config_mod._secure_read_text`` etc.
-    # keep taking effect on this extracted implementation.
     import os
 
     from voice_typer.server import config as _cfg
 
     # Filename includes schema version + epoch seconds + PID + sub-second
-    # nanoseconds to guarantee uniqueness even across parallel app
-    # instances launched against the same user account during a downgrade.
     ts_sec = int(time.time())
     pid = os.getpid()
     ts_ns = time.time_ns() % 1_000_000
@@ -393,10 +323,6 @@ def _backup_before_migration_impl(config_file, loaded_version: Any) -> None:
         _cfg._secure_atomic_write(pre_bak, raw_text)
     except (OSError, ValueError) as e:
         # OSError covers filesystem errors; ValueError covers the SEC-002
-        # inode-changed-during-read guard (symlink TOCTOU detection).
-        # Backup failure must be visible at WARNING so operators notice
-        # (the backup is the ONLY recovery mechanism if a migrator
-        # corrupts the config). DEBUG is usually off in production.
         log.warning(
             "[CONFIG] failed to back up config.json to %s before migration: %s",
             pre_bak,
@@ -404,11 +330,6 @@ def _backup_before_migration_impl(config_file, loaded_version: Any) -> None:
         )
         return
     # cap retained pre-migration backups to 3 (oldest pruned). Match the
-    # prefix ``config.json.pre-migration-v`` so versioned-downgrade
-    # backups (``config.json.v<N>.bak``) and fail-migration backups
-    # (``config.json.bak.failed-migration-*``) are NOT pruned (they
-    # serve different recovery purposes and have their own retention
-    # policies).
     try:
         _cfg._prune_kept_backups(
             config_file.parent,

@@ -1,20 +1,4 @@
-"""Linux / Wayland clipboard primitives ( split).
-
-Extracted from the original ``clipboard.py`` monolith. Contains:
-
-* Wayland ``wl-copy`` / ``wl-paste`` fallback (ADR-0020 §6.6).
-* Wayland ``wtype`` text-injection fallback ().
-* Platform-aware ``_copy_to_clipboard`` / ``_paste_from_clipboard``
-  dispatchers.
-* pynput lazy-import helpers (``_Key`` / ``_Controller`` /
-  ``_ensure_pynput_imported``).
-
-Design contract: all patchable symbols (``pyperclip``, ``subprocess``,
-``is_linux``, ``_is_wayland_session``, etc.) are looked up via the
-PACKAGE (``_cb.X``) at call time. NOT via this module's globals —
-so test patches like ``monkeypatch.setattr(clip_mod, "pyperclip",
-mock)`` actually take effect on the code paths in this module.
-"""
+"""Linux / Wayland clipboard primitives ( split)."""
 
 from __future__ import annotations
 
@@ -22,77 +6,26 @@ import functools
 from typing import TYPE_CHECKING
 
 # Use a local alias to avoid circular import at module load time. The
-# package itself is only partially initialized when this submodule is
-# first imported (it is imported BY the package's __init__.py). All
-# ``_cb.X`` attribute access happens at function-call time, by which
-# point the package is fully initialized.
 from voice_typer.server import clipboard as _cb
 
 if TYPE_CHECKING:  # pragma: no cover
     pass
 
-# the per-submodule `log = logging.getLogger(...)` definition
-# was removed because it was unused, every log call in this module
-# routes through `_cb.log` (the package-level logger imported above
-# as `_cb`). Defining a separate `log` here would shadow the
-# package logger and risk future contributors adding `log.info(...)`
-# calls that bypass the `_cb.log` patch surface used by tests
-# (`tests/test_clipboard.py` patches `voice_typer.server.clipboard.log`).
+# Logs go through `_cb.log` (package logger); do not define a local log.
 
 
-# memoised ``shutil.which`` for invariant system binaries
-# (``wl-copy``, ``wl-paste``, ``wtype``).  Pre-fix, every paste
-# operation on a Wayland session re-probed ``$PATH`` for these
-# binaries via :func:`shutil.which` (~0.5–2 ms per call).  They are
-# installed by the distro package manager and do not appear or
-# disappear during a session, so caching is safe.  ``functools.lru_cache``
-# is keyed by the binary name; the cache is cleared by the
-# ``clear_binary_path_cache`` autouse fixture in ``tests/conftest.py``
-# between tests.  Tests that monkeypatch ``_cb._have_wl_clipboard``
-# (or ``_cb._have_wtype``) directly with a lambda bypass this cache
-# entirely (the patched attribute replaces the function object on the
-# package namespace), so caching is invisible to those tests.
+# Memoize shutil.which for invariant Wayland binaries (wl-copy/wl-paste/wtype).
 @functools.cache
 def _shutil_which_cached(binary: str) -> str | None:
-    """Return ``shutil.which(binary)`` with the result memoised.
-
-    The cache key is the binary name; the lookup is performed once per
-    binary per process.  Returns ``None`` if the binary is not on
-    ``$PATH`` (same as :func:`shutil.which`).
-    """
+    """Return ``shutil.which(binary)`` with the result memoised."""
     import shutil  # noqa: PLC0415, stdlib, kept lazy to mirror existing style
 
     return shutil.which(binary)
 
 
-# ─── pynput lazy-import helpers ──────────────────────────────────────
-#
-# Lazy-import pynput at instance creation time, not module import time.
-# pynput.keyboard imports a platform backend (X11 on Linux, IOKit on mac,
-# Win32 on Windows) that requires a running display / window manager.
-# Importing at module level breaks `python -m voice_typer --version`
-# in headless containers / SSH sessions without DISPLAY.
-#
-# _Key / _Controller are lazily populated by
-# _ensure_pynput_imported() on first use. They are typed as ``Any`` so
-# pyrefly can follow the .cmd / .ctrl / .press() / .release() accesses
-# without flagging every call site (the actual pynput import is
-# deferred to runtime so headless installs don't break at import time).
-#
-# note: the actual _Key / _Controller state lives in the PACKAGE
-# namespace (``voice_typer.server.clipboard._Key`` / ``._Controller``)
-# so test patches like ``patch.object(clip_mod, "_Controller", MagicMock())``
-# and ``clip_mod._Key = None`` take effect. This module's
-# _ensure_pynput_imported() reads + writes via ``_cb._Key`` /
-# ``_cb._Controller``.
+# Lazy pynput import (needs a display). State lives on the package (_cb._Key/_Controller)
 def _ensure_pynput_imported() -> None:
-    """Lazily import pynput.keyboard Key and Controller on first use.
-
-    Reads and writes the ``_Key`` / ``_Controller`` attributes on the
-    PACKAGE (``voice_typer.server.clipboard``), not on this submodule.
-    This lets tests patch / reset them via
-    ``clip_mod._Key = None`` etc.
-    """
+    """Lazily import pynput.keyboard Key and Controller on first use."""
     if _cb._Key is not None and _cb._Controller is not None:
         return
     from pynput.keyboard import (
@@ -104,13 +37,9 @@ def _ensure_pynput_imported() -> None:
     _cb._Controller = _c
 
 
-# ─── Process-name data (terminal + rich-editor lists) ───────────────
 # Used by ClipboardManager._is_terminal_process / paste() for routing.
-# Defined here (close to the Linux/Wayland primitives) because the
-# terminal list spans Linux + Windows + macOS terminal names.
 
 # Terminal process names (lowercase, with extension) that require
-# Shift+Insert instead of Ctrl+V for paste.
 _TERMINAL_PROCESS_NAMES: set[str] = {
     "windowsterminal.exe",
     "warp.exe",
@@ -123,24 +52,13 @@ _TERMINAL_PROCESS_NAMES: set[str] = {
     "pwsh.exe",
     "gnome-terminal",
     # ``gnome-terminal-server`` is the D-Bus-activated backend process
-    # name used by GNOME Terminal >= 3.30 when the ``gnome-terminal``
-    # launcher hands off to a long-running server process. Without
-    # this entry, paste-on-Wayland routing into GNOME Terminal windows
-    # misidentified the target as a non-terminal and sent Ctrl+V
-    # (which the terminal interprets as a literal ^V / 0x16 byte
-    # instead of paste).
     "gnome-terminal-server",
     # Ptyxis is the GNOME-adjacent terminal shipped by Fedora Workstation
-    # (replaces gnome-terminal as the default on recent spins). The
-    # primary GUI process is ``ptyxis``; ``ptyxis-agent`` is the
-    # D-Bus-activated helper that owns the PTYs.
     "ptyxis",
     "ptyxis-agent",
     # BlackBox is a GTK4/libadwaita terminal for GNOME, its binary
-    # name does not contain "term" so the existing heuristic missed it.
     "blackbox",
     # Tabby (formerly "Terminus") is an predecessor-based terminal whose
-    # process image is the host ``tabby`` executable.
     "tabby",
     # cosmic-term is the System76 COSMIC desktop terminal.
     "cosmic-term",
@@ -157,7 +75,6 @@ _TERMINAL_PROCESS_NAMES: set[str] = {
 }
 
 # PLAT-CONTENT: process names that are known rich-text editors.
-# Pasting plain text into these is a known limitation.
 _RICH_EDITOR_PROCESS_NAMES: set[str] = {
     "winword.exe",
     "wordpad.exe",
@@ -168,58 +85,11 @@ _RICH_EDITOR_PROCESS_NAMES: set[str] = {
 }
 
 
-# ─── ADR-0020 §6.6: Wayland clipboard fallback (wl-copy / wl-paste) ────
-#
-# On Wayland, `pyperclip.copy()` does NOT work reliably, pyperclip
-# auto-detects xclip / xsel which are X11-only and silently no-op under
-# native Wayland apps. ADR-0020 §6.6 mandates the clipboard + Ctrl+V
-# fallback path via `wl-copy` / `wl-paste` (provided by the `wl-clipboard`
-# package) when `WAYLAND_DISPLAY` is set and we're on Linux.
-#
-# These helpers are best-effort: if `wl-clipboard` is not installed, the
-# caller falls back to `pyperclip` (which still works under XWayland
-# sessions where both X11 and Wayland clients are talking to the same
-# compositor). The runbook (linux-validation-runbook.md §5/§6) lists
-# `wl-clipboard` as a required system dep on both X11 and Wayland hosts
-# because the same binary runs on both session types.
+# ADR-0020 §6.6: Wayland uses wl-copy/wl-paste (pyperclip is X11-only).
 
 
 def _is_wayland_session(*, broad: bool = False) -> bool:
-    """Return True if running on a Linux Wayland session.
-
-        Detection: `WAYLAND_DISPLAY` is set AND we're on Linux. This is the
-        same heuristic `tauri-plugin-clipboard-manager` uses per ADR-0020 §6.6.
-
-        Note: a Wayland session typically also has `DISPLAY` set (for
-        XWayland), so checking only `DISPLAY` is insufficient. We check
-        `WAYLAND_DISPLAY` first.
-
-    the ``broad`` parameter (keyword-only, default ``False``)
-        preserves the narrow contract pinned by
-        ``tests/test_clipboard.py::TestWaylandDetection`` (which monkey-
-        patches ``_is_wayland_session`` to ``lambda: True`` / ``lambda:
-        False`` and calls it with NO arguments). When ``broad=True``, the
-        function ALSO accepts ``XDG_SESSION_TYPE=wayland`` as evidence of a
-        Wayland session, some compositors (e.g. sway launched from a TTY)
-        set ``XDG_SESSION_TYPE`` but not ``WAYLAND_DISPLAY`` in the spawned
-        process's env, so the narrow check would miss them. The broad
-        variant was previously a separate function
-        (:func:`_is_wayland_paste_session`); the duplication has been
-        eliminated by parameterising this single function. Callers that
-        need the broad detection call ``_is_wayland_session(broad=True)``
-        (or via the ``_is_wayland_paste_session`` wrapper retained for
-        back-compat with existing call sites in ``manager.py``).
-
-    the broad-mode env-var check delegates to
-        :func:`voice_typer.server.platform_utils.is_wayland_session` so
-        the ``XDG_SESSION_TYPE`` / ``WAYLAND_DISPLAY`` heuristic has a
-        single source of truth across the codebase. The narrow mode
-        (``broad=False``) intentionally checks ONLY ``WAYLAND_DISPLAY``
-        because clipboard copy/paste via ``wl-copy`` / ``wl-paste``
-        requires a reachable Wayland socket, if ``WAYLAND_DISPLAY`` is
-        unset, ``wl-copy`` would fail regardless of ``XDG_SESSION_TYPE``,
-        so we should fall through to ``pyperclip`` instead.
-    """
+    """Return True if running on a Linux Wayland session."""
     if not _cb.is_linux():
         return False
     import os
@@ -228,10 +98,6 @@ def _is_wayland_session(*, broad: bool = False) -> bool:
         return True
     if broad:
         # Delegate the env-var check to the platform-wide Wayland
-        # detector so the heuristic has a single source of truth. At
-        # this point WAYLAND_DISPLAY is unset (we'd have returned True
-        # above), so is_wayland_session() effectively just checks
-        # XDG_SESSION_TYPE == "wayland" (case-insensitive).
         from voice_typer.server.platform_utils import is_wayland_session
 
         return is_wayland_session()
@@ -239,56 +105,14 @@ def _is_wayland_session(*, broad: bool = False) -> bool:
 
 
 def _have_wl_clipboard() -> bool:
-    """Return True if both `wl-copy` and `wl-paste` are on PATH.
-
-    the result is memoised with :func:`functools.lru_cache` so
-        the two ``shutil.which`` calls (one for ``wl-copy``, one for
-        ``wl-paste``) run at most ONCE per process.  Pre-fix, every paste
-        operation re-probed ``$PATH`` for these invariant system binaries
-        (~0.5–2 ms per ``shutil.which`` call × 2 calls × every paste = a
-        measurable per-paste tax on top of the ``wl-copy``/``wl-paste``
-        subprocess itself).  The binaries do not appear or disappear during
-        a session (they're installed by the distro package manager), so
-        caching is safe.
-
-        Tests that need to simulate different PATH state MUST call
-        :meth:`_have_wl_clipboard.cache_clear` (or use the
-        ``clear_binary_path_cache`` autouse fixture in ``tests/conftest.py``
-        that clears all module-level lru_caches between tests).  Tests that
-        monkeypatch ``_cb._have_wl_clipboard`` directly with a lambda
-        bypass this cache entirely (the patched attribute replaces the
-        function object), so caching is invisible to those tests.
-    """
+    """Return True if both `wl-copy` and `wl-paste` are on PATH."""
     return bool(_shutil_which_cached("wl-copy") and _shutil_which_cached("wl-paste"))
 
 
 def _linux_wayland_copy(text: str) -> None:
-    """Copy text to the Wayland clipboard via `wl-copy`.
-
-        Raises ``RuntimeError`` if `wl-copy` is missing or exits non-zero.
-        The text is piped to wl-copy's stdin so it works for arbitrary
-        Unicode (no shell escaping concerns).
-
-    ``timeout=5`` bounds the call so a hung Wayland compositor
-        (or a wedged wl-copy fork) can't block the transcription thread
-        indefinitely. ``subprocess.TimeoutExpired`` is converted to a
-        ``RuntimeError`` so the caller's ``except Exception`` fallback to
-        pyperclip kicks in.
-
-    (session-XZ, High, Security): the text is piped via
-        ``stdin`` (NOT passed as a positional CLI argument). Passing
-        dictated text as a CLI arg made it visible to ANY local user via
-        ``/proc/<pid>/cmdline`` (world-readable on Linux), leaking
-        dictated secrets to other accounts on the box. The pre-fix
-        docstring claimed "piped to stdin" but the implementation
-        contradicted it, the docstring is now accurate. ``wl-copy`` with
-        no positional argument reads text from stdin, so we pass an empty
-        argv (``["wl-copy"]``) and feed the UTF-8-encoded text via
-        ``input=...``.
-    """
+    """Copy text to the Wayland clipboard via `wl-copy`."""
     if not text:
         # `wl-copy` with no args clears the clipboard; that matches our
-        # "empty text → no-op" semantics in ClipboardManager.copy().
         return
     import subprocess
 
@@ -304,8 +128,6 @@ def _linux_wayland_copy(text: str) -> None:
         )
     except subprocess.TimeoutExpired:
         # re-raise the original ``TimeoutExpired`` directly (preserves
-        # type info / ``timeout`` attribute / ``cmd`` for callers and
-        # for the test suite which asserts on the exception type).
         raise
     if proc.returncode != 0:
         stderr = proc.stderr.decode("utf-8", errors="replace") if proc.stderr else ""
@@ -315,10 +137,7 @@ def _linux_wayland_copy(text: str) -> None:
 def _linux_wayland_paste() -> str:
     """Read text from the Wayland clipboard via `wl-paste`.
 
-        Returns the clipboard text (may be empty). Raises ``RuntimeError``
-        if `wl-paste` is missing or exits non-zero.
-
-    ``timeout=5`` bounds the call (see :func:`_linux_wayland_copy`).
+    Returns the clipboard text (may be empty). Raises ``RuntimeError``
     """
     import subprocess
 
@@ -332,8 +151,6 @@ def _linux_wayland_paste() -> str:
         )
     except subprocess.TimeoutExpired:
         # re-raise the original ``TimeoutExpired`` directly (preserves
-        # type info / ``timeout`` attribute / ``cmd`` for callers and
-        # for the test suite which asserts on the exception type).
         raise
     if proc.returncode != 0:
         stderr = proc.stderr.decode("utf-8", errors="replace") if proc.stderr else ""
@@ -341,52 +158,18 @@ def _linux_wayland_paste() -> str:
     return proc.stdout.decode("utf-8", errors="replace")
 
 
-# Wayland paste fallback (wtype) ──────────────────────────
-#
 # pynput.keyboard.Controller is X11-only, on a native Wayland session it
-# either silently no-ops or raises (depending on whether XWayland is
-# reachable). ADR-0020 §6.6 /  mandate a `wtype` shell-out as the
-# canonical Wayland text-injection path. `ydotool` is a fallback for
-# compositors that don't ship wtype (rare; wtype is in most distros).
-#
-# Detection uses BOTH `WAYLAND_DISPLAY` and `XDG_SESSION_TYPE=wayland`
-# because some compositors (e.g. sway launched from a TTY) set the latter
-# but not the former in the spawned process's env. The existing
-# :func:`_is_wayland_session` helper checks only `WAYLAND_DISPLAY` (its
-# tests pin that contract), so we use a separate helper here for the
-# broader detection.
 
 _WTYPE_SHORT_TEXT_THRESHOLD = 300  # chars; matches  recommendation
 
 
 def _is_wayland_paste_session() -> bool:
-    """Return True if running on a Linux Wayland session (paste routing).
-
-    broader than :func:`_is_wayland_session`: also accepts
-        ``XDG_SESSION_TYPE=wayland`` for compositors that don't set
-        ``WAYLAND_DISPLAY`` in the spawned process's env.
-
-    thin wrapper over :func:`_is_wayland_session(broad=True)`.
-        The broad detection was previously a separate parallel
-        implementation (duplicating the env-var checks verbatim); the
-        duplication has been eliminated by parameterising the single
-        :func:`_is_wayland_session` function. This wrapper is retained so
-        existing call sites in ``clipboard/manager.py`` (which import the
-        historical name) don't need a coordinated rename, it delegates
-        directly so behavior is identical to the inline implementation
-        that preceded it.
-    """
+    """Return True if running on a Linux Wayland session (paste routing)."""
     return _is_wayland_session(broad=True)
 
 
 def _have_wtype() -> bool:
-    """Return True if `wtype` (Wayland text-injection tool) is on PATH.
-
-    memoised with :func:`functools.lru_cache`: see
-        :func:`_have_wl_clipboard` for rationale.  ``wtype`` is an
-        invariant system binary (installed by the distro package manager)
-        so the result does not change during a session.
-    """
+    """Return True if `wtype` (Wayland text-injection tool) is on PATH."""
     return bool(_shutil_which_cached("wtype"))
 
 
@@ -432,20 +215,6 @@ def _linux_paste_via_wtype(text: str | None, is_terminal: bool = False) -> None:
     cap, matches the wl-clipboard timeout per ).
     """
     # always paste from clipboard via Ctrl+V (or Ctrl+Shift+V for
-    # terminals). The previous short-text path (`wtype -d 50 -- <text>`)
-    # took ~15s for 300 chars.
-    # (Medium, Wayland race): settle delay between the wl-copy return
-    # and the wtype fork. Best-effort: a patched ``_cb.time`` (the
-    # standard test pattern) becomes a MagicMock, whose ``.sleep``
-    # attribute is auto-created as another MagicMock, so the call is
-    # a no-op in tests. The try/except guards against a ``time``
-    # module that doesn't expose ``sleep`` (it always does on stdlib
-    # ``time``, but the patch may swap it for an object without one).
-    # Narrow the guard, a patched ``_cb.time`` may not expose
-    # ``sleep``, but swallowing a real failure here would mask the
-    # settle-delay regression. ``contextlib.suppress`` with the concrete
-    # exception types keeps the intent (best-effort delay) without a
-    # bare ``except Exception: pass``.
     import contextlib as _ctxlib
     import subprocess
 
@@ -465,8 +234,6 @@ def _linux_paste_via_wtype(text: str | None, is_terminal: bool = False) -> None:
         )
     except subprocess.TimeoutExpired:
         # re-raise the original ``TimeoutExpired`` directly (preserves
-        # type info / ``timeout`` attribute / ``cmd`` for callers and
-        # for the test suite which asserts on the exception type).
         raise
     if proc.returncode != 0:
         stderr = proc.stderr.decode("utf-8", errors="replace") if proc.stderr else ""
@@ -474,15 +241,7 @@ def _linux_paste_via_wtype(text: str | None, is_terminal: bool = False) -> None:
 
 
 def _linux_copy(text: str) -> None:
-    """Copy text to the clipboard on Linux, choosing the right backend.
-
-    On Wayland with wl-clipboard installed: use `wl-copy` (native
-    Wayland clipboard).
-
-    Otherwise: fall back to `pyperclip.copy()` (uses xclip/xsel on X11,
-    or the XWayland bridge under a Wayland session if X11 tools are
-    present).
-    """
+    """Copy text to the clipboard on Linux, choosing the right backend."""
     if _cb._is_wayland_session() and _cb._have_wl_clipboard():
         try:
             _cb._linux_wayland_copy(text)
@@ -493,11 +252,7 @@ def _linux_copy(text: str) -> None:
 
 
 def _linux_paste() -> str:
-    """Read clipboard text on Linux, choosing the right backend.
-
-    Mirrors :func:`_linux_copy`: uses `wl-paste` on Wayland when
-    available, otherwise `pyperclip.paste()`.
-    """
+    """Read clipboard text on Linux, choosing the right backend."""
     if _cb._is_wayland_session() and _cb._have_wl_clipboard():
         try:
             return _cb._linux_wayland_paste()
@@ -507,17 +262,7 @@ def _linux_paste() -> str:
 
 
 def _copy_to_clipboard(text: str) -> None:
-    """Platform-aware clipboard copy dispatcher.
-
-    On Linux: routes through :func:`_linux_copy` (Wayland-aware).
-    On Windows / macOS: calls ``pyperclip.copy(text)`` directly (the
-    Win32 / AppKit backend handles both, no wl-clipboard equivalent).
-
-    Tests that monkeypatch ``clipboard.pyperclip`` continue to work
-    because the Linux branch only short-circuits to ``wl-copy`` when
-    ``WAYLAND_DISPLAY`` is set, headless test environments fall through
-    to ``pyperclip.copy`` unchanged.
-    """
+    """Platform-aware clipboard copy dispatcher."""
     if _cb.is_linux():
         _cb._linux_copy(text)
     else:

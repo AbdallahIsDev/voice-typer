@@ -1,154 +1,22 @@
-"""IPC command registry, the canonical dispatch table.
+"""IPC command registry — single source of truth for dispatch tables.
 
-This module is the single source of truth for three interrelated
-constants that the IPC dispatcher consults at runtime:
+- ``_COMMAND_REGISTRY``: ``{command: handler_method}`` for ``IPCServer._dispatch``.
+- ``_READONLY_COMMANDS``: pure-read handlers bypass ``_dispatch_lock`` (WS/stdin
+  still consult this; not TCP-only).
+- ``_PYTHON_ONLY_COMMANDS``: host-only commands absent from the Rust renderer
+  allowlist (``shutdown``, ``tray_click``). ``heartbeat`` / ``relaunch_ack`` are
+  also host-dispatched; see ``tests/test_ipc_command_parity.py``.
 
-- data:`_COMMAND_REGISTRY`: ``{command_name: handler_method_name}``
-  mapping. :class:`voice_typer.server.ipc_server.IPCServer._dispatch`
-  looks up the handler-method-name string here and resolves it via
-  ``getattr(self, handler_name)`` at dispatch time. The
-  ``__init__``-time typo-validation loop iterates over this dict to
-  assert every entry resolves to a callable bound method on
-  class:`IPCServer` ( / ).
-- data:`_READONLY_COMMANDS`: frozenset of command names whose
-  handlers do NOT mutate shared app/service state. The dispatcher
-  (used by the WS transport, stdin, and any remaining transport)
-  bypasses the per-server ``_dispatch_lock`` for these so a
-  long-running state-mutating handler (e.g. ``download_model``) does
-  not block a quick status poll from a second authenticated connection
-(). KEPT after the predecessor/TCP removal: the WS dispatch path still
-  consults this set; do not delete it as "TCP-only".
-- data:`_PYTHON_ONLY_COMMANDS`: frozenset of commands that are
-  intentionally absent from the Rust renderer allowlist (). These
-  commands are registered in :data:`_COMMAND_REGISTRY` (so the
-  dispatcher recognizes them) but are NEVER invoked by the renderer —
-  they are server-internal or host-internal (e.g. ``shutdown`` is
-  invoked by the Tauri host's WS transport; ``tray_click`` is invoked
-  by the Rust host's tray-icon click handler). Host-dispatched
-  ``heartbeat`` / ``relaunch_ack`` also stay out of the Rust allowlist
-  for the same renderer-spoofing reason; they are not in this frozenset
-  but are documented in ``tests/test_ipc_command_parity.py``.
-
-Why this module exists
-----------------------
-
-Pre- these three constants lived in three different places:
-``_COMMAND_REGISTRY`` and ``_PYTHON_ONLY_COMMANDS`` were class
-attributes on :class:`IPCServer` (in the 2,100-line
-``ipc_server.py`` god-module), and ``_READONLY_COMMANDS`` lived in
-``voice_typer/server/ipc/_helpers.py``. The split made the
-"three layers must agree" parity contract (pinned by
-``tests/test_ipc_server.py`` and
-``tests/test_ipc_command_registry_sync.py``) harder to reason about:
-the reader had to know where each constant lived.
-
-(this module) is a behavior-preserving extraction, same dict,
-same keys, same values. :class:`IPCServer` re-exports them as class
-attributes for backward compatibility (so every existing
-``IPCServer._COMMAND_REGISTRY`` / ``IPCServer._PYTHON_ONLY_COMMANDS``
-call site, pinned by ``tests/test_ipc_shutdown_registry.py``,
-``tests/test_ipc_server.py``,
-``tests/test_ipc_command_registry_sync.py``,
-``tests/tauri/mig19/test_phase4_validation.py``,
-``tests/tauri/test_tauri_sidecar_gate.py``,
-``tests/test_dead_code_stays_removed.py``: keeps working unchanged).
-
-``ipc_server.py`` and ``ipc._helpers`` both re-export the
-module-level ``_READONLY_COMMANDS`` name (sourcing it from this
-module) so existing ``from voice_typer.server.ipc_server import
-_READONLY_COMMANDS`` and ``from voice_typer.server.ipc._helpers
-import _READONLY_COMMANDS`` callers keep working unchanged. Both
-re-exports point at the SAME frozenset object defined below, single
-source of truth. The legacy parallel ``_READONLY_COMMANDS`` definition
-that used to live in ``ipc/_helpers.py`` was deleted;
-``ipc._helpers`` now imports the name from this module so the two
-cannot silently drift.
-
-Registry history
-----------------
-
-The following command-name strings were at various points in the
-codebase history members of :data:`_COMMAND_REGISTRY` and were
-subsequently REMOVED. Each removal was coordinated across the Python
-registry and the Rust ``allowed_commands()`` array (the TS
-``ALLOWED_COMMANDS`` Set is retired with predecessor main). The regression guard in
-``tests/test_dead_code_stays_removed.py`` pins the removals so they
-cannot silently re-appear. Brief context for each removal:
-
-- ``refresh_microphones``, ``get_rms_level``, ``get_audio_status`` —
-  removed to match the Tauri/Rust allowlist narrowing. The
-  service-layer methods still exist (called from internal code
-  paths); only the IPC dispatch route was deleted.
-- ``onboarding_get_step``: the renderer no longer invokes it (the
-  wizard state is held client-side).
-- ``onboarding_get_model_catalog``: the renderer uses
-  ``get_model_catalog`` (the non-onboarding command) for model
-  catalog data; this onboarding-scoped alias was never wired up on
-  the client.
-- ``onboarding_request_keyboard_permission``: the renderer's
-  permission flow now uses ``onboarding_check_permissions`` + a
-  Tauri-side invocation.
-- ``microphone_test_status``: the renderer polls
-  ``microphone_test_get_level`` at 60 Hz during a test; the separate
-  status query was unused.
-- ``level_monitor_status``: the renderer subscribes to the
-  ``level_monitor_level`` push event instead of polling a status
-  endpoint.
-- ``test_llm_connection``: the renderer's Settings page now uses
-  the service-layer method directly (not over IPC).
-- ``export_diagnostics``, ``show_notification``, the Tauri
-  host now handles each via a dedicated Rust command
-  (``export_diagnostics`` and the tray-notification path
-  respectively) rather than bridging through Python IPC.
-  ``check_accessibility`` was removed in this pass (no renderer caller at
-  the time) but was later re-added, the Settings → Troubleshooting UI
-  now invokes it to surface
-  the stale-grant ``tccutil`` reset command, so it is registered
-  here AND in both host allowlists in lockstep. See the inline
-  comment at its registration below.
-- ``get_vocabulary_suggestions``, ``apply_vocabulary_suggestion``,
-  ``dismiss_vocabulary_suggestion``: the vocabulary-automation
-  feature was deferred pending UX redesign and the renderer's
-  ``allowed-commands.ts`` dropped the three entries. The handler
-  mixin still exists for the future re-wiring.
-- ``delete_all_personal_data``, ``export_gdpr_bundle``, the Tauri
-  host now invokes them via dedicated Rust commands (with their own
-  allowlist entries and consent prompts) rather than bridging through
-  the generic dispatch path. The Python-side service methods still
-  exist (called from the Rust bridge).
-- ``get_prewarm_status``, ``open_prewarm_log``, the About-page
-  Cache Status card is a user-facing product feature, so these two
-  commands were RESTORED 2026-08-14 verbatim from commit 5a319872
-  (see plan §6.3 addendum) after the initial retirement removed them
-  with the prewarm machinery. ``run_prewarm`` stays REMOVED by
-  design: it spawned the deleted standalone-prewarm subprocess
-  machinery; "start/stop prewarm" is now the ``fast_startup`` toggle
-  in Settings → General, which gates the worker's startup warm phase.
-  The retirement history (2026-08-14 per plan §6.2 P-1): prewarm
-  became a worker-startup phase (master plan §6.2 P-1, the slim core
-  no longer spawns a separate prewarm process; each worker spawn
-  warms the cache itself). The prewarm cache-probe machinery still
-  exists in ``voice_typer/server/prewarm/`` (it is invoked by the
-  worker at startup via ``warm_imports_for_worker``); only the
-  run/log subprocess surface was retired.
+Parity contract: CONTRIBUTING.md §6.4 — Python registry and Rust
+``allowed_commands()`` stay in lockstep. History + pinned counts:
+docs/code-notes/ipc.md#command-registry-contracts.
 """
 
 from __future__ import annotations
 
-# read-only IPC commands whose handlers do NOT mutate shared
-# app/service state. These bypass the per-server ``_dispatch_lock`` so a
-# long-running state-mutating handler (e.g. ``download_model``) does not
-# block a quick status poll from a second authenticated connection. The
-# set is intentionally minimal, only commands whose handler bodies are
-# pure reads (no recorder / config / model / history mutation).
-#
-# MO-86 decision (Lane C, predecessor/TCP removal): KEEP this frozenset.
-# The WS dispatcher (`ipc/dispatcher.py::_dispatch`) still consults it
-# for lock bypass; it is NOT TCP-only. Expanding membership to every
-# confirmed pure-read ``get_*`` handler is tracked as MO-86 (audit each
-# handler body for mutation) and is deliberately NOT done in the
-# transport-collapse pass — a wrong membership entry would let a
-# mutating handler race under the lock-free path.
+# Registry history: removed/restored command notes live in
+
+# Pure-read commands: dispatcher bypasses ``_dispatch_lock`` so
 _READONLY_COMMANDS: frozenset[str] = frozenset(
     {
         "get_status",
@@ -158,23 +26,7 @@ _READONLY_COMMANDS: frozenset[str] = frozenset(
     }
 )
 
-# Instant download-control commands. These bypass the per-server
-# ``_dispatch_lock`` like the read-only set above, even though they
-# DO mutate state — the mutation is a single atomic flag/event flip
-# under ``asr_setup``'s own ``_download_pause_lock`` (pause/resume) or
-# under the service's ``_download_cancel_lock`` (cancel), never shared
-# app/service state, so serializing them against unrelated mutations
-# buys nothing and costs everything: ``download_model`` runs its
-# poll loop synchronously in the dispatch thread for the whole
-# transfer, and a pause/cancel queued behind that lock can never run
-# (observed 2026-09-16: pause + cancel + status polls all timed out
-# mid-download of large-v3-turbo, pool saturated, backend wedged).
-# Safety invariants (do NOT add commands here unless all hold):
-# 1. The handler performs no network/disk I/O and takes no other
-#    locks except its own dedicated flag/queue lock.
-# 2. The operation is idempotent (double pause / double cancel safe).
-# 3. It never starts a long-running operation (cancel only SIGNALS;
-#    the queued-download drain runs on the exiting transfer's path).
+# Instant download-control: also bypass dispatch lock. Mutation is a single
 _INSTANT_CONTROL_COMMANDS: frozenset[str] = frozenset(
     {
         "pause_model_download",
@@ -183,78 +35,14 @@ _INSTANT_CONTROL_COMMANDS: frozenset[str] = frozenset(
     }
 )
 
-# commands intentionally absent from the Rust renderer allowlist.
-# These commands are registered in the Python ``_COMMAND_REGISTRY``
-# (so the dispatcher recognizes them) but are NEVER invoked by the
-# renderer, they are server-internal or host-internal:
-#
-# - ``shutdown``: invoked by the Tauri host's WS transport to
-#   request cooperative server shutdown (the host then closes the
-#   socket). A compromised renderer must NOT be able to invoke
-#   this, that would let it DoS the backend.
-# - ``tray_click``: invoked by the Rust host's tray-icon click
-#   handler. The renderer has no business sending this, it would
-#   let a compromised renderer spoof tray clicks.
-#
-# Host-dispatched ``heartbeat`` / ``relaunch_ack`` also stay out of the
-# Rust allowlist (see ``tests/test_ipc_command_parity.py``).
-#
-# This frozenset is the single source of truth for the subset of the
-# host-dispatched delta that is purely host-internal; the full delta
-# (including heartbeat/relaunch_ack) is pinned by
-# ``tests/test_ipc_command_parity.py::HOST_DISPATCHED_COMMANDS``.
-# There is no TypeScript ``ALLOWED_COMMANDS`` anymore (predecessor main
-# deleted with the Tauri cutover).
+# Host-only commands: registered here, never invoked by the renderer
 _PYTHON_ONLY_COMMANDS: frozenset[str] = frozenset({"shutdown", "tray_click"})
 
-# Command registry: maps IPC command name to handler method.
-# Built once at module load; ``IPCServer._dispatch`` does a single dict lookup.
-# Each handler takes (data, resp) and returns resp (to send) or None
-# (for commands that send their response internally, like restart_app).
-#
-# reconciliation (2026-07-18, updated 2026-08-30 / 2026-09 Lane C):
-# the registry contains exactly 75 commands. 71 are renderer-visible
-# (Rust ``allowed_commands()``); four are host-dispatched / host-only
-# (`_PYTHON_ONLY_COMMANDS` = shutdown + tray_click, plus heartbeat +
-# relaunch_ack which the host sends via ``dispatch_inner``). Most
-# handlers live in voice_typer/server/handlers/ (one mixin module per
-# domain); a few are resident on IPCServer / in ipc/, `heartbeat`
-# (, ADR-0018 predecessor-alive watchdog), `relaunch_ack` (PERF-005, ack of
-# `the legacy relaunch event name` so `restart_app` can drop its fixed 300 ms
-# sleep), `transcribe_offline` and `check_offline_pack_update`, because
-# they touch IPC-server-owned state (`_last_heartbeat_at`,
-# `_relaunch_ack_event`) and don't belong to any domain mixin. The earlier "68 commands" claim in ADR-0020 §2
-# was stale; `relaunch_ack` was added by PERF-005 after the original
-# count. The count was bumped from 63 to 65 to reflect the two
-# `force_cancel_transcription` and `tray_click` handlers added since
-# the prior reconciliation (the `tray_click` host-only command was
-# already counted in `_PYTHON_ONLY_COMMANDS`). The initial runtime-pack
-# split added the §7.4 `transcribe_offline` request
-# (slim core → worker) and three prewarm-stub handlers
-# (`get_prewarm_status` / `run_prewarm` / `open_prewarm_log`,
-# kept as parity-clean stubs while the renderer's About page still
-# invoked them), net 70. The 2026-08-14 retirement removed the three
-# prewarm stubs in lockstep across the registry + host allowlists
-# because the prewarm surface was fully absorbed into the worker startup
-# phase (master plan §6.2 P-1), net 67. RESTORED 2026-08-14:
-# `get_prewarm_status` + `open_prewarm_log` came back verbatim
-# from 5a319872 (the Cache Status card is a user-facing feature —
-# plan §6.3 addendum); `run_prewarm` stays removed (its subprocess
-# machinery is gone), net 69. The 2026-08-14 addendum's 2nd half
-# restored `run_prewarm` (re-implemented in-process via
-# `prewarm.status.run_prewarm_now`, no deleted-subprocess spawn)
-# and added `check_offline_pack_update` (auto-update feature) —
-# net 71. The 2026-08-16 vocabulary usage-tracking feature added
-# `get_correction_usage` + `test_vocabulary_correction`
-# (ADR-0020 §16 addendum 2026-08-16), net 73. The 2026-08-30 count
-# audit (GP-80) verified the actual dict has 74 keys (73 domain +
-# `tray_click`; `shutdown` is in `_PYTHON_ONLY_COMMANDS`).
-# 2026-09 Lane C recount: 75 keys / 71 Rust / 4 host-delta.
+# Maps IPC command name → handler method on IPCServer. Count pinned at 75
 _COMMAND_REGISTRY: dict[str, str] = {
     "get_status": "_handle_get_status",
     "toggle_dictation": "_handle_toggle_dictation",
     "undo_last": "_handle_undo_last",
-    # re-paste the last transcription (repaste_handlers mixin).
     "repaste_last": "_handle_repaste_last",
     "get_config": "_handle_get_config",
     "get_defaults": "_handle_get_defaults",
@@ -267,37 +55,14 @@ _COMMAND_REGISTRY: dict[str, str] = {
     "toggle_favorite": "_handle_toggle_favorite",
     "get_favorites": "_handle_get_favorites",
     "search_history": "_handle_search_history",
-    # On-demand full-text + total-count handlers. Wired by the
-    # history-handlers audit (see
-    # ``handlers/history_handlers.py`` for the implementation). The
-    # Dashboard's "Total Dictations" stat calls ``get_history_count``
-    # (capped at 200 via ``get_history`` previously); the History
-    # page calls ``get_transcription_text`` when the user expands a
-    # row past the 500-char preview.
     "get_history_count": "_handle_get_history_count",
     "get_transcription_text": "_handle_get_transcription_text",
     "get_microphones": "_handle_get_microphones",
     "get_volume_backend_status": "_handle_get_volume_backend_status",
     "get_model_status": "_handle_get_model_status",
-    # ADR-0009 Issue 3: prewarm cache status (Hot/Partial/Cold label,
-    # cache ratio, last-run timestamp, elapsed seconds) for the About
-    # page's "Cache Status" card. RESTORED 2026-08-14 verbatim from
-    # commit 5a319872, the card is a user-facing product feature
-    # (plan §6.3 addendum), not prewarm machinery. Lockstep-across all
-    # the Python handler in ``handlers/status_handlers.py``.
-    # Lockstep-across the two command allowlists per §6.4 parity: this
-    # registry + the Rust ``allowed_commands()`` literal.
+    # About-page Cache Status card (worker warm phase; not subprocess spawn).
     "get_prewarm_status": "_handle_get_prewarm_status",
-    # Task 2: open the prewarm log file in the OS default text editor.
-    # RESTORED 2026-08-14 verbatim from 5a319872 (points at the worker
-    # log, the worker exe runs the warm phase now).
     "open_prewarm_log": "_handle_open_prewarm_log",
-    # (RESTORED 2026-08-14, plan §6.3 addendum second half), the
-    # user-facing "Run Prewarm Now" control. RE-IMPLEMENTED for the
-    # post-P-1 architecture: instead of spawning the deleted standalone
-    # prewarm subprocess, the handler runs the warm phase in-process
-    # (warm_imports_for_worker on a daemon thread + status-file refresh,
-    # see prewarm/status.run_prewarm_now).
     "run_prewarm": "_handle_run_prewarm",
     "get_vocabulary": "_handle_get_vocabulary",
     "save_vocabulary": "_handle_save_vocabulary",
@@ -307,13 +72,7 @@ _COMMAND_REGISTRY: dict[str, str] = {
     "save_templates": "_handle_save_templates",
     "restart_app": "_handle_restart_app",
     "quit_app": "_handle_quit_app",
-    # Tauri host's cooperative-shutdown command.
-    # Registered in the shared dispatch table so the WS transport
-    # (sidecar_ws.py) can drop its special-case intercept and route
-    # ``shutdown`` through the same path as every other command.
-    # The handler delegates to ``self.service.quit()`` (NOT
-    # ``self.app.quit()``) so any side-effect added to the service
-    # layer runs identically on TCP / stdin / WS.
+    # Host cooperative shutdown (service.quit, not app.quit).
     "shutdown": "_handle_shutdown",
     "onboarding_is_first_run": "_handle_onboarding_is_first_run",
     "onboarding_start": "_handle_onboarding_start",
@@ -322,20 +81,13 @@ _COMMAND_REGISTRY: dict[str, str] = {
     "onboarding_set_microphone": "_handle_onboarding_set_microphone",
     "onboarding_set_hotkey": "_handle_onboarding_set_hotkey",
     "onboarding_set_model": "_handle_onboarding_set_model",
-    # local-vs-cloud choice on the wizard's Model step ("local" →
-    # download + run a local model; "cloud" → connect a cloud API).
     "onboarding_set_backend": "_handle_onboarding_set_backend",
     "onboarding_skip": "_handle_onboarding_skip",
     "onboarding_apply": "_handle_onboarding_apply",
     "onboarding_get_microphones": "_handle_onboarding_get_microphones",
     "onboarding_get_model_options": "_handle_onboarding_get_model_options",
     "onboarding_get_hotkey_presets": "_handle_onboarding_get_hotkey_presets",
-    # platform-conditional permission probe
-    # (macOS Accessibility / Linux input group + udev rule) used by
-    # the Permissions step.
     "onboarding_check_permissions": "_handle_onboarding_check_permissions",
-    # Onboarding wizard reset. The handler lives in
-    # ``handlers/onboarding_handlers.py``.
     "onboarding_reset": "_handle_onboarding_reset",
     "microphone_test_start": "_handle_microphone_test_start",
     "microphone_test_stop": "_handle_microphone_test_stop",
@@ -347,113 +99,30 @@ _COMMAND_REGISTRY: dict[str, str] = {
     "import_model": "_handle_import_model",
     "download_model": "_handle_download_model",
     "cancel_model_download": "_handle_cancel_model_download",
-    # pause/resume in-progress model downloads.
     "pause_model_download": "_handle_pause_model_download",
     "resume_model_download": "_handle_resume_model_download",
-    # full model catalog (rich metadata for the
-    # Models page: VRAM, languages, speed/accuracy ratings).
     "get_model_catalog": "_handle_get_model_catalog",
-    # Pending download FIFO queue snapshot (hydrates the renderer's
-    # queue chips on mount; live updates flow via download_progress).
     "get_download_queue": "_handle_get_download_queue",
     "delete_model": "_handle_delete_model",
     "set_tray_locale": "_handle_set_tray_locale",
-    # macOS troubleshooting (finding #127 part b): reset the stale
-    # Accessibility TCC entry (``tccutil reset Accessibility
-    # <bundle-id>``: bundle ID resolved at runtime) + re-open System
-    # Settings. Handler lives in ``handlers/system_handlers.py``.
+    # macOS Accessibility: reset stale TCC entry + reopen System Settings.
     "reset_macos_accessibility": "_handle_reset_macos_accessibility",
-    # macOS accessibility-status probe (finding #919 part b, RE-ADDED
-    # 2026-08-10). Query the macOS Accessibility grant state; on a
-    # confirmed stale grant the response carries a proactive
-    # ``suggest_reset`` flag + the runtime ``tccutil`` reset command
-    # so Settings → Troubleshooting can surface it next to the
-    # "Reset Accessibility Permission" button. Was removed in the
-    # stale-entry cleanup (no renderer caller at the time); the
-    # Troubleshooting UI now invokes it, so it is re-wired through
-    # the two command allowlists in lockstep (Rust ``sidecar_cmds/allowlist.rs``
-    # + this registry). Handler lives in
-    # ``handlers/system_handlers.py``.
+    # macOS Accessibility grant probe (Settings → Troubleshooting); Rust allowlist lockstep.
     "check_accessibility": "_handle_check_accessibility",
-    # Linux troubleshooting: reset a stale polkit authorization
-    # (restart the polkit daemon via pkexec; pkaction enumerates + pkcheck
-    # verifies) so the next permission grant re-prompts. Handler lives in
-    # ``handlers/system_handlers.py``.
     "reset_linux_permissions": "_handle_reset_linux_permissions",
-    # Cloud-provider "Test Connection" probe. The renderer's
-    # ``useCloudProviders.testConnection`` action dispatches this command
-    # instead of issuing a cross-origin fetch directly (which would leak
-    # the API key through browser dev-tools observability and violate
-    # C-DATA-1's "renderer production code path stays network-free"
-    # promise). The handler lives in
-    # ``handlers/cloud_test_handlers.py`` (CloudTestHandlersMixin) and
-    # performs the network call, gated by an explicit user click on the
-    # Cloud tab's "Test Connection" button. Listed in
-    # ``KNOWN_UNDOCUMENTED_COMMANDS`` (tests/tauri/mig19/
-    # test_phase4_validation.py) pending a formal ADR-0020 §16 addendum.
+    # Cloud Test Connection probe — network stays out of the renderer path (C-DATA-1).
     "test_cloud_connection": "_handle_test_cloud_connection",
-    # Add a hostname to the runtime URL allowlist + persist
-    # to config.json under `trusted_extra_hosts` (self-hosted LLM/ASR
-    # endpoint remediation). Handler lives in ConfigHandlersMixin
-    # (handlers/config_handlers.py). Listed in KNOWN_UNDOCUMENTED_COMMANDS
-    # (tests/tauri/mig19/test_phase4_validation.py) pending a formal
-    # ADR-0020 §16 addendum, mirroring test_cloud_connection.
     "add_trusted_endpoint": "_handle_add_trusted_endpoint",
-    # ESC-: pause/resume the global ESC cancel hotkey so the
-    # frontend (HotkeyPicker in hotkey capture mode) can temporarily
-    # disable it, preventing the backend from processing Escape while
-    # the UI is capturing a custom hotkey.
     "set_esc_cancel_paused": "_handle_set_esc_cancel_paused",
-    # P5: vocabulary automation, confidence-score-based correction
-    # suggestions. See ``vocabulary_automation_handlers.py``.
-    # Finding #3: force-cancel a stuck transcription.  Invokes
-    # ``_force_recover_from_stuck_transcription(force=True)`` to reset
-    # the busy flag and tray state immediately, bypassing the normal
-    # 3×90s watchdog timeout.
     "force_cancel_transcription": "_handle_force_cancel_transcription",
-    # predecessor-alive heartbeat.  the predecessor's main process
-    # sends this every 5 seconds; the backend's heartbeat-watchdog
-    # daemon thread calls ``app.quit()`` if 9 consecutive heartbeats
-    # are missed (45s timeout) so a crashed/force-killed predecessor
-    # doesn't strand the backend with the mic open + mutex held.
+    # Host-alive heartbeat (ADR-0018 watchdog); not renderer-facing.
     "heartbeat": "_handle_heartbeat",
-    # predecessor acks receipt/processing of ``the legacy relaunch event name``
-    # so restart_app can drop its fixed 300ms sleep in favour of an
-    # event-driven wait (bounded by a 2s timeout).
+    # PERF-005: host ack so restart_app can wait on an event, not a sleep.
     "relaunch_ack": "_handle_relaunch_ack",
-    # ADR-0020 §6.5 / §16: Tauri sidecar tray-menu click dispatch.
-    # The Tauri host forwards a clicked menu item id; the backend looks
-    # it up in the tray's id→callback map and invokes the action. Unknown
-    # ids return a structured ``unknown_tray_item`` error (distinct from
-    # ``unknown_command``) so the host can surface "missing item" vs
-    # "unknown command" differently.
+    # Host tray click dispatch; unknown ids → unknown_tray_item.
     "tray_click": "_handle_tray_click",
-    # Fix-A (IMPROVE-mode run, 2026-07-21): GDPR Art. 17 (right
-    # to erasure) and Art. 20 (right to data portability) handlers.
-    # Registered via dedicated Rust commands; service methods live on
-    # VoiceTyperService (delete_all_personal_data / export_gdpr_bundle).
-    # ── Master plan §7.4, new IPC event `transcribe_offline` (request,
-    # slim core → worker). The renderer invokes this to run an offline
-    # transcription through the runtime-pack worker (the slim core
-    # forwards the request to the worker over the worker's dedicated
-    # WS hop). The handler stub lives on the worker-handlers mixin
-    # (added in parallel by the worker-IPC sub-agent); the registry
-    # entry + the matching Rust ``allowed_commands()`` entry are added
-    # here in lockstep so the renderer's ``call('transcribe_offline', ...)``
-    # dispatches cleanly through the two command allowlists. The
-    # push counterpart ``transcribe_offline_result`` is published via
-    # ``event_bus.publish(...)`` (NOT a command, see the
-    # ``ALLOWED_EVENT_TYPES`` slice in
-    # ``src-tauri/src/sidecar/ws/event_protocol.rs`` and the
-    # ``PythonPushEvent`` TS union in
-    # ``voice_typer/client/src/renderer/src/types/ipc/push_events.ts``).
-    # Pinned by ``tests/test_event_types_parity.py``.
+    # Master plan §7.4 offline worker request; push pair is event_bus (not a command).
     "transcribe_offline": "_handle_transcribe_offline",
-    # Auto-update feature (docs/auto-update-feature.md), pack update
-    # check + consent-gated background download. Registered in the Rust
-    # ``allowed_commands()`` literal in lockstep. Handler: ``_handle_check_offline_pack_update`` in
-    # ``ipc/lifecycle.py`` (delegates to
-    # ``update_check.handle_check_offline_pack_update_ipc``).
     "check_offline_pack_update": "_handle_check_offline_pack_update",
 }
 

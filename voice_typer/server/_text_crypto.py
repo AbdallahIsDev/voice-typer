@@ -1,61 +1,4 @@
-"""Application-layer AES-256-GCM encryption for dictated history text.
-
-This is the ONE canonical crypto module for the history at-rest-encryption
-feature (E7, no parallel crypto subsystems). Design gate:
-``docs/adr/XZ-R11-04-at-rest-encryption.md`` §2 / §4.
-
-Cipher
-------
-AES-256-GCM via ``cryptography.hazmat.primitives.ciphers.aead.AESGCM``:
-
-- 256-bit key (the DEK, 32 raw bytes from the OS keyring, see
-  ``voice_typer/server/credential_store/_dek.py``).
-- 96-bit random nonce per encryption (``os.urandom(12)``).
-- 128-bit authentication tag appended by ``AESGCM.encrypt``.
-
-On-disk blob format (stored in the existing ``transcriptions.text`` TEXT
-column, so no column-type migration is needed)::
-
-    "enc:v1:" + base64( nonce(12) || ciphertext || tag(16) )
-
-The ASCII prefix makes plaintext-vs-ciphertext detection trivial and
-version-safe: ``is_encrypted()`` is a ``startswith`` check, and a future
-cipher-suite bump ("enc:v2:") is distinguishable without parsing. The
-per-row ``text_is_encrypted`` SQLite flag remains the authoritative
-detector, the prefix check is a defense-in-depth cross-check used by
-tests and diagnostics.
-
-Failure policy (never crash the dictation hot path)
----------------------------------------------------
-:func:`decrypt_text` NEVER raises and NEVER passthrough-decodes: any
-failure (unknown version prefix, malformed base64, truncated blob, wrong
-key, tampered tag → ``InvalidTag``) returns the placeholder
-``"<decryption failed>"`` after a rate-limited WARNING. The row's
-metadata (timestamp, model, duration, ...) stays readable so the user
-can delete the row manually.
-
-DEK cache
----------
-The DEK is resolved ONCE per process (:func:`resolve_dek`) and then read
-from the module-level cache (:func:`get_dek_cached`) by the history
-writer thread and the read seams, no per-call keyring I/O (ADR §7.4).
-Resolution policy (key-loss policy, stricter than ADR §9):
-
-- DEK present in the keyring → use it (encryption active).
-- DEK absent AND no encrypted rows exist AND the keyring is available →
-  generate + store a new DEK (first run).
-- DEK absent AND encrypted rows exist → **key-unavailable**: NEVER
-  regenerate (a fresh key cannot decrypt the existing rows; regenerating
-  would silently orphan them). Reads of encrypted rows return the
-  placeholder; NEW writes stay plaintext (flag 0) so no further rows
-  are lost. ``HistoryDB.encryption_status()`` surfaces this state.
-
-No on-disk DEK fallback exists (ADR §9.3): encrypting user data with a
-key stored next to the ciphertext provides zero security.
-
-Offline guarantee: this module performs ZERO network calls (C-DATA-1).
-The only I/O is the OS-keychain IPC via ``credential_store``.
-"""
+"""At-rest text crypto for history (ADR XZ-R11-04)."""
 
 from __future__ import annotations
 
@@ -70,14 +13,7 @@ from voice_typer.server.credential_store import _dek
 
 log = logging.getLogger(__name__)
 
-# Lazy-once availability probe for the ``cryptography`` dependency. It
-# is a base dependency (pyproject.toml) so a normal install provides
-# it, but a frozen/stripped runtime (Nuitka onefile, a minimal venv
-# that predates the dependency) may lack it. When missing, this module
-# degrades to the documented plaintext mode instead of raising
-# ModuleNotFoundError on every encrypt/decrypt call, which previously
-# surfaced as repeated ``[HISTORY_DB] Fire-and-forget write failed:
-# No module named 'cryptography'`` errors in the history writer thread.
+# Lazy probe for cryptography; missing dep degrades to plaintext (no crash).
 try:
     from cryptography.hazmat.primitives.ciphers.aead import AESGCM as _AESGCM
 
@@ -104,13 +40,7 @@ DECRYPTION_FAILED_PLACEHOLDER = "<decryption failed>"
 #: Minimum seconds between two identical rate-limited log records.
 _RATE_LIMITED_LOG_INTERVAL_S = 60.0
 
-# ── Rate-limited logging ─────────────────────────────────────────────────
-#
 # Decrypt failures can fire once per row per read (a 50-row History page
-# with a lost key would otherwise emit 50 identical WARNINGs per render,
-# and the key-loss ERROR would repeat on every keystroke in the search
-# box). A tiny module-level keyed rate limiter keeps the log readable
-# without silencing distinct failure sites.
 _log_rate_lock = threading.Lock()
 _log_rate_last: dict[str, float] = {}
 
@@ -127,12 +57,7 @@ def _rate_limited_log(level: int, key: str, msg: str, *args: object) -> None:
 
 
 def log_key_unavailable_error() -> None:
-    """Rate-limited ERROR for the key-unavailable state.
-
-    Called by the history read seams when a row is flagged encrypted but
-    no DEK is available (keyring wiped/unavailable). Distinct from the
-    first-run plaintext-passthrough mode, which logs nothing.
-    """
+    """Rate-limited ERROR for the key-unavailable state."""
     _rate_limited_log(
         logging.ERROR,
         "history:key-unavailable",
@@ -141,9 +66,6 @@ def log_key_unavailable_error() -> None:
         "writing new rows in plaintext; the DEK was NOT regenerated "
         "(regenerating would orphan the existing encrypted rows)",
     )
-
-
-# ── Cipher primitives ────────────────────────────────────────────────────
 
 
 def _get_aesgcm(dek: bytes):
@@ -166,11 +88,7 @@ def is_encrypted(text: str) -> bool:
 
 
 def _encrypt_with_nonce(plaintext: str, dek: bytes, nonce: bytes) -> str:
-    """Encrypt with an explicit nonce (test/known-answer hook).
-
-    Production code uses :func:`encrypt_text` (fresh random nonce); tests
-    pin the nonce to assert exact ciphertext bytes.
-    """
+    """Encrypt with an explicit nonce (test/known-answer hook)."""
     if len(nonce) != _NONCE_LENGTH:
         raise ValueError(f"nonce must be {_NONCE_LENGTH} bytes (got {len(nonce)})")
     aes = _get_aesgcm(dek)
@@ -180,29 +98,14 @@ def _encrypt_with_nonce(plaintext: str, dek: bytes, nonce: bytes) -> str:
 
 
 def encrypt_text(plaintext: str, dek: bytes) -> str:
-    """Encrypt ``plaintext`` into a self-describing blob string.
-
-    Random 96-bit nonce per call, never reused with the same key (NIST
-    SP 800-38D random-nonce budget is ~2^32 invocations per key, far
-    beyond a human lifetime of dictation).
-    """
+    """Encrypt ``plaintext`` into a self-describing blob string."""
     return _encrypt_with_nonce(plaintext, dek, os.urandom(_NONCE_LENGTH))
 
 
 def decrypt_text(blob: str, dek: bytes) -> str:
-    """Decrypt a blob produced by :func:`encrypt_text`.
-
-    Never raises and never passthrough-decodes: on ANY failure (unknown
-    version prefix, malformed base64, truncated body, wrong key,
-    ``InvalidTag``) returns :data:`DECRYPTION_FAILED_PLACEHOLDER` after a
-    rate-limited WARNING. The caller decides whether the row is worth
-    surfacing; the metadata columns remain readable either way.
-    """
+    """Decrypt a blob produced by :func:`encrypt_text`."""
     if not isinstance(blob, str) or not blob.startswith(BLOB_PREFIX):
         # Covers plaintext (no prefix), a future "enc:v2:" blob (unknown
-        # version: this build cannot decode it), and non-str garbage.
-        # Never passthrough-decode: the flagged row is corrupted from
-        # this build's perspective.
         _rate_limited_log(
             logging.WARNING,
             "history:decrypt:format",
@@ -247,7 +150,6 @@ def decrypt_text(blob: str, dek: bytes) -> str:
         return plaintext_bytes.decode("utf-8")
     except UnicodeDecodeError:
         # GCM authenticated the bytes, so this is data written by a
-        # non-UTF-8 path, treat as corruption, never crash.
         _rate_limited_log(
             logging.WARNING,
             "history:decrypt:utf8",
@@ -256,66 +158,30 @@ def decrypt_text(blob: str, dek: bytes) -> str:
         return DECRYPTION_FAILED_PLACEHOLDER
 
 
-# ── Process-lifetime DEK cache ───────────────────────────────────────────
-#
 # ``resolve_dek`` runs once per process (from the HistoryDB writer thread
-# after schema init: see ``history_db._init_encryption``) and ``get_dek_cached``
-# is the zero-I/O accessor used by the insert paths and the read seams.
-# ``reset_dek_cache`` exists for tests that need to simulate a fresh
-# process or a keyring that changes state between HistoryDB instances.
 _dek_cache: bytes | None = None
 _dek_resolved: bool = False
 _dek_lock = threading.Lock()
 
 
 def get_dek_cached() -> bytes | None:
-    """Return the resolved DEK, or ``None`` (unavailable / disabled).
-
-    Does NOT touch the keyring and does NOT generate: if
-    :func:`resolve_dek` has not run yet (or resolved to ``None``), this
-    returns ``None`` and callers take the plaintext path. That keeps the
-    write/read seams free of keyring I/O and mid-session key churn.
-    """
+    """Return the resolved DEK, or ``None`` (unavailable / disabled)."""
     with _dek_lock:
         return _dek_cache
 
 
 def resolve_dek(encrypted_rows_exist: bool) -> bytes | None:
-    """Resolve the DEK once per process. Return the DEK or ``None``.
-
-    Policy (key-loss policy: see module docstring):
-
-    1. Load the DEK from the keyring. Present → cache + return it.
-    2. Absent, keyring available, and ``encrypted_rows_exist`` is False →
-       generate a new DEK and store it. If the store fails, return
-       ``None`` (plaintext mode), never encrypt with an unstorable key.
-    3. Absent and ``encrypted_rows_exist`` is True → key loss: return
-       ``None`` WITHOUT regenerating. The existing ciphertext is
-       undecryptable with any new key; regenerating would silently
-       orphan it.
-    4. Absent and the keyring is unavailable → ``None`` (plaintext
-       passthrough mode, ADR §9.1).
-
-    Idempotent: after the first call the cached result is returned as-is
-    (the keyring is not re-probed) until :func:`reset_dek_cache` runs.
-    """
+    """Resolve the DEK once per process. Return the DEK or ``None``."""
     global _dek_cache, _dek_resolved
     with _dek_lock:
         if _dek_resolved:
             return _dek_cache
         # If the crypto backend is missing, don't load/generate a DEK —
-        # the key would be unusable (every encrypt/decrypt call would
-        # raise).  Plaintext mode, matches the documented degrade-to-
-        # plaintext guarantee (the module docstring says "degrades to
-        # plaintext if the import fails").
         if not _CRYPTOGRAPHY_AVAILABLE:
             _dek_resolved = True
             _dek_cache = None
             if encrypted_rows_exist:
                 # The DEK may be perfectly healthy in the keyring, the
-                # runtime just lacks the AES-GCM implementation. Name the
-                # ACTUAL cause: the generic key-loss ERROR would send the
-                # user hunting for a key that was never lost.
                 _rate_limited_log(
                     logging.ERROR,
                     "history:crypto-missing",
@@ -338,7 +204,6 @@ def resolve_dek(encrypted_rows_exist: bool) -> bytes | None:
             # else: store_dek already logged; dek stays None → plaintext.
         elif dek is None and encrypted_rows_exist:
             # Key loss, surface via the shared rate-limited ERROR so the
-            # log carries the same explanation the read seams emit.
             log_key_unavailable_error()
         _dek_cache = dek
         _dek_resolved = True
@@ -357,10 +222,6 @@ def encryption_status(dek: bytes | None, encrypted_rows_exist: bool) -> str:
     """Map ``(dek, encrypted_rows_exist)`` to a status string.
 
     Returns ``"active"`` (DEK available, new rows are encrypted),
-    ``"key-unavailable"`` (encrypted rows exist but no DEK, placeholder
-    reads, plaintext writes, no regeneration), or ``"disabled"`` (no DEK
-    and nothing encrypted, plain passthrough, identical to pre-encryption
-    behavior).
     """
     if dek is not None:
         return "active"

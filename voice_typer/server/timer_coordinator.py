@@ -1,34 +1,4 @@
-"""god-class decomposition: TimerCoordinator, extracted from VoiceTyperApp.
-
-Owns the lifecycle of fire-and-forget ``threading.Timer`` instances
-scheduled by the application:
-
-    - ``_schedule_timer``: create, track, and start a timer. A
-      *generation guard* prevents stale callbacks (scheduled before a
-      cancel) from firing after ``_cancel_pending_timers`` has bumped
-      the generation counter.
-    - ``_cancel_pending_timers``: cancel and clear all pending timers.
-The pending list is guarded by ``_pending_timers_lock`` ()
-      so concurrent appends from the tray / transcription / timer
-      threads can't race with the snapshot-and-clear iteration.
-
-The actual logic lived on ``VoiceTyperApp`` as two private methods of
-the same name. The behaviour is preserved verbatim, only the class
-boundary moved. ``VoiceTyperApp`` keeps thin delegate methods so all
-existing callers (and tests that monkeypatch
-``app._schedule_timer`` / ``app._cancel_pending_timers``) keep working
-unchanged.
-
-State migrated from ``VoiceTyperApp.__init__``:
-
-    - ``self._pending_timers: list[threading.Timer]``
-    - ``self._pending_timers_lock = threading.Lock()``
-    - ``self._timer_generation: int = 0``
-
-These now live on ``TimerCoordinator.__init__``. The primary agent
-will remove the corresponding lines from ``VoiceTyperApp.__init__``
-when wiring the delegate.
-"""
+"""Timer coordination for elapsed UI."""
 
 from __future__ import annotations
 
@@ -38,8 +8,6 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     # Imported only under TYPE_CHECKING to avoid a circular import at
-    # runtime, ``voice_typer.server.app`` imports
-    # ``voice_typer.server.timer_coordinator`` (this module).
     pass
 
 log = logging.getLogger(__name__)
@@ -107,16 +75,9 @@ class TimerCoordinator:
     def __init__(self, app: Any) -> None:
         self._app = app
         # _pending_timers is appended to from the tray thread,
-        # the transcription thread, and the timer thread itself; the
-        # `for timer in self._pending_timers` iteration in
-        # _cancel_pending_timers can race with concurrent appends and
-        # raise RuntimeError("list changed size during iteration").
-        # Guard the list with a dedicated lock.
         self._pending_timers: list[threading.Timer] = []
         self._pending_timers_lock = threading.Lock()
         self._timer_generation: int = 0
-
-    # ── Scheduling / Tracking ──────────────────────────────────────────
 
     def _schedule_timer(self, delay: float, func) -> threading.Thread:
         """Create, track, and start a timer. Replaces fire-and-forget timers.
@@ -178,21 +139,6 @@ class TimerCoordinator:
 
             def guarded_func():
                 # the generation check is a check-then-act TOCTOU.
-                # ``threading.Timer.cancel()`` only prevents a timer that
-                # hasn't fired yet. If this ``guarded_func`` has already
-                # been invoked by the Timer thread (and passed the
-                # unlocked gen check below) when
-                # ``_cancel_pending_timers`` bumps the generation, the
-                # running callback would still proceed to call
-                # ``func()``: which touches app state (tray, recorder,
-                # IPC server) that ``_do_cleanup`` is concurrently
-                # tearing down. We close the window with a second
-                # generation check performed UNDER the lock (pairs with
-                # the bump in ``_cancel_pending_timers``), and ALSO
-                # consult ``app._shutting_down_event`` so a callback
-                # that races against the very start of shutdown (before
-                # ``_cancel_pending_timers`` has run but after the
-                # shutdown event has been set) is still suppressed.
                 if gen != self._timer_generation:
                     return  # stale: scheduled before a cancel
                 app = self._app
@@ -201,58 +147,27 @@ class TimerCoordinator:
                     log.debug("[TIMER] suppressed scheduled callback: app._shutting_down_event is set")
                     return
                 # Re-check the generation under the lock so a concurrent
-                # ``_cancel_pending_timers`` cannot bump-and-clear
-                # between the unlocked check above and the ``func()``
-                # call below. The lock is released immediately (we do
-                # NOT hold it during ``func()``) so slow callbacks don't
-                # block other threads from scheduling.
                 with self._pending_timers_lock:
                     if gen != self._timer_generation:
                         return
                     # evict this timer from ``_pending_timers``
-                    # BEFORE invoking ``func()`` so the list doesn't
-                    # accumulate fired-timer shells. Lock is held only
-                    # for the mutation, released before ``func()`` so a
-                    # slow callback doesn't block other threads. ``timer``
-                    # is captured via closure on the enclosing
-                    # ``_schedule_timer`` call (one ``guarded_func`` per
-                    # timer). For the zero-delay fast path,
-                    # ``timer`` is NOT in ``_pending_timers`` so this
-                    # ``in`` check is False, no-op, no harm.
                     if isinstance(timer, threading.Timer) and timer in self._pending_timers:
                         self._pending_timers.remove(timer)
                 func()
 
-            # Zero/near-zero delay → bare daemon Thread instead
-            # of ``Timer(0, ...)``. ``Timer(0)`` still pays for the
-            # internal ``threading.Event`` and cancel-bookkeeping, all
-            # wasted when the callback runs immediately. We do NOT
-            # append to ``_pending_timers``: a started thread can't be
-            # cancelled, so tracking it there would only accumulate
-            # stale shells (the exact PERF-TMR pathology the eviction
-            # in ``guarded_func`` was added to prevent). The generation
             # guard inside ``guarded_func`` (RACE-013) still suppresses
-            # stale callbacks if a cancel lands while the callback is
-            # mid-flight.
             if delay <= 0:
                 timer = _ZeroDelayThread(target=guarded_func, daemon=True)
             else:
                 timer = threading.Timer(delay, guarded_func)
                 # RACE-016: daemon=True is acceptable because timer callbacks
-                # are fire-and-forget UI updates; missing one on shutdown is harmless.
                 timer.daemon = True
                 self._pending_timers.append(timer)
         timer.start()
         return timer
 
     def _cancel_pending_timers(self):
-        """Cancel and clear all pending scheduled timers.
-
-        Take the lock so concurrent appends from the tray
-        transcription / timer threads can't race with our iteration.
-        The actual ``timer.cancel()`` calls happen outside the lock to
-        avoid holding it longer than necessary.
-        """
+        """Cancel and clear all pending scheduled timers."""
         with self._pending_timers_lock:
             timers = list(self._pending_timers)
             self._pending_timers.clear()

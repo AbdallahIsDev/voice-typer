@@ -49,17 +49,6 @@ from pathlib import Path
 log = logging.getLogger(__name__)
 
 # Per-process verification cache: maps ``(resolved path, size, mtime_ns)``
-# to True for binaries whose SHA-256 has already been verified in this
-# process. The dispatcher builds one backend per hotkey role (dictation /
-# ESC / repaste) and each build verifies the same file, so a single boot
-# hashed + logged "Checksum OK" once per role. The key carries size and
-# mtime so a file replaced on disk misses the cache and is re-verified
-# before first use. Only successful verifications are cached; failures
-# (mismatch, unreadable, missing manifest entry) are re-checked every
-# time so a fixed manifest or restored file recovers without a restart.
-# Guarded by a lock because backends can verify from different threads
-# (main-thread registration vs watchdog respawn). No background thread
-# is used here, so no daemon-thread rationale applies.
 _VERIFIED_CACHE: dict[tuple[str, int, int], bool] = {}
 _VERIFIED_CACHE_LOCK = threading.Lock()
 
@@ -84,38 +73,13 @@ def clear_verified_cache() -> None:
 
 
 # Legacy (non-arch-suffixed) names, kept as a backward-compat fallback
-# for bundles that still ship the old single-arch binary under the
-# pre- name. Probed ONLY when the arch-suffixed name is not found
-# at a given candidate location, so it adds at most one extra
-# ``is_file()`` call per lookup miss. Also used by
-# :class:`_ArchAwareBinaryNameMap` to satisfy the legacy
-# ``_BINARY_NAMES.get("<platform>")`` call site in pre- callers
-# (e.g. existing tests that pin the contract by platform-string key).
-# Once IMPL-4 / the primary agent updates ``src-tauri/tauri.conf.json``
-# to ship the arch-suffixed names exclusively AND old bundles have
-# aged out of the field, this map (and the fallback logic + string-key
-# shim in :class:`_ArchAwareBinaryNameMap`) can be removed.
 _LEGACY_BINARY_NAMES: dict[str, str] = {
     "darwin": "macos-key-listener",
     "win32": "windows-key-listener.exe",
     "linux": "linux-key-listener",
 }
 
-# bidirectional legacy <-> arch-suffixed name mapping used by
-# :func:`get_expected_sha256` to find the right manifest entry
-# regardless of which name form the binary on disk uses. The legacy
-# non-arch-suffixed names (``linux-key-listener``,
-# ``windows-key-listener.exe``) are the pre- names that were
-# ALWAYS the x86_64 build (aarch64 builds did not exist pre-), so
-# the legacy name maps to the x86_64 arch-suffixed name ONLY, never
-# to the aarch64 name. macOS uses the same universal name for both
-# forms (``macos-key-listener``), so it has no entry here. The build
-# script (``scripts/build/compile_native.sh``) still emits the legacy
-# names on Linux/Windows; the manifest (``binaries.json``) now carries
-# BOTH name forms (with the same sha256 where the binary exists), so
-# the direct :func:`get_expected_sha256` lookup usually succeeds
 # without needing this fallback. The fallback exists as a defensive
-# measure for future manifests that might drop one form.
 _LEGACY_TO_ARCH_SUFFIX: dict[str, str] = {
     "linux-key-listener": "linux-key-listener-x86_64",
     "windows-key-listener.exe": "windows-key-listener-x86_64.exe",
@@ -126,8 +90,6 @@ _ARCH_SUFFIX_TO_LEGACY: dict[str, str] = {
 }
 
 # path to the SHA-256 manifest emitted by the build script
-# (``scripts/build/compile_native.*``). Used by :func:`load_binary_manifest`
-# to verify native binaries were not tampered with after install.
 _MANIFEST_PATH = Path(__file__).resolve().parent.parent / "native" / "binaries.json"
 
 
@@ -173,16 +135,6 @@ class _ArchAwareBinaryNameMap(dict):
 
 
 # Per-(platform, machine) binary filename map ().
-#
-# macOS ships a single universal binary (lipo of arm64 + x86_64) so
-# the same filename ``macos-key-listener`` is used for both arches.
-# Linux and Windows ship per-arch variants because neither OS has a
-# lipo-style universal binary mechanism.
-#
-# Note: the dict literal is built with tuple keys ( contract);
-# the :class:`_ArchAwareBinaryNameMap` subclass adds the legacy
-# string-key shim on top so pre- callers that index by bare
-# platform string keep working.
 _BINARY_NAMES: dict[tuple[str, str], str] = _ArchAwareBinaryNameMap(
     {
         # macOS: universal binary covers both arm64 + x86_64.
@@ -249,9 +201,6 @@ def _candidate_binary_names() -> list[str]:
     if legacy and legacy not in names:
         names.append(legacy)
     return names
-
-
-# ─── Binary discovery ──────────────────────────────────────────────────────
 
 
 @functools.lru_cache(maxsize=1)
@@ -331,10 +280,6 @@ def get_native_binary_path() -> Path | None:
                 return candidate
 
     # 3/4. Dev mode, alongside this package's source tree.  Use
-    # ``__file__`` of *this* module (``native_hotkeys/binary_path.py``)
-    # resolved up two parents (``native_hotkeys/`` → ``server/``) and
-    # then into ``server/native/``.  This mirrors the original layout
-    # where ``native_hotkeys.py`` lived directly in ``server/``.
     module_dir = Path(__file__).resolve().parent.parent / "native"
     for binary_name in binary_names:
         candidates = [
@@ -457,9 +402,6 @@ def get_expected_sha256(binary_name: str) -> str | None:
     if not isinstance(binaries, dict):
         return None
     # try the direct name first, then equivalent names (legacy
-    # <-> arch-suffixed x86_64). The first entry with a non-empty
-    # sha256 wins; entries with empty sha256 are skipped (so a future
-    # manifest that populates only one form still verifies correctly).
     for candidate_name in _equivalent_manifest_names(binary_name):
         entry = binaries.get(candidate_name)
         if not isinstance(entry, dict):
@@ -558,10 +500,6 @@ def _path_matches_env_override(path: Path) -> bool:
         if resolved == env_resolved:
             return True
         # Parent-dir match (VOICE_TYPER_NATIVE_DIR case): the discovered
-        # binary lives directly inside the env dir. Use Path.is_relative_to
-        # (Python 3.9+) which handles the parent/child relationship
-        # correctly without string-prefix pitfalls (e.g. /opt/vt/native2
-        # would NOT match /opt/vt/native).
         try:
             if resolved.is_relative_to(env_resolved):
                 return True
@@ -577,16 +515,8 @@ def _path_matches_env_override(path: Path) -> bool:
 
 def verify_native_binary_or_skip(path: Path) -> bool:
     #  + : trusted-path override now requires BOTH:
-    #   1. ``VOICE_TYPER_NATIVE_TRUST=1`` (paired confirmation env var).
-    #   2. The discovered ``path`` actually lives under (or equals) one
-    #      of the env-specified paths. Setting the env vars alone no
-    #      longer disables verification for binaries discovered via
-    #      fallback search.
     if _is_trusted_path_override() and _path_matches_env_override(path):
         # elevated from DEBUG to WARNING so the bypass is
-        # auditable at default log levels. The bypass is a security-
-        # relevant event, operators SHOULD see it in the log without
-        # having to enable DEBUG logging.
         log.warning(
             "[NATIVE-BINARY] Skipping checksum for %s, trusted-path "
             "override active (VOICE_TYPER_NATIVE_TRUST=1 + path matches "
@@ -602,21 +532,6 @@ def verify_native_binary_or_skip(path: Path) -> bool:
     expected = get_expected_sha256(path.name)
     if expected is None:
         # FAIL CLOSED. Previously this branch silently trusted
-        # the binary (returned True with a debug log) whenever the
-        # manifest entry was missing OR had an empty sha256. That made
-        # the entire SHA-256 gate a no-op in any environment where the
-        # manifest wasn't perfectly populated (e.g. dev trees without
-        # cross-compiled Windows/macOS binaries, CI builds that hadn't
-        # yet run scripts/build/update_native_manifests.py, or, as the
-        #  reviewer found, pre- manifests keyed by the
-        # legacy non-suffixed names while the build emitted
-        # arch-suffixed names). A tampered binary could bypass
-        # verification simply by being named something the manifest
-        # didn't list. Now we refuse to use the binary and fall back
-        # to the legacy backend instead. Production builds MUST
-        # populate every manifest entry's sha256 via
-        # scripts/build/update_native_manifests.py (run by CI after
-        # compile_native.sh).
         log.error(
             "[NATIVE-BINARY] FAIL CLOSED for %s, no usable manifest entry "
             "(manifest missing, entry missing, or sha256 empty). "
@@ -628,8 +543,6 @@ def verify_native_binary_or_skip(path: Path) -> bool:
     verified = verify_native_binary(path, expected)
     if verified and cache_key is not None:
         # Only cache when the file was stable across the hash: re-stat
-        # and require the key to be unchanged, otherwise the bytes we
-        # hashed may differ from the file now on disk.
         fresh_key = _verified_cache_key(path)
         if fresh_key is not None and fresh_key == cache_key:
             with _VERIFIED_CACHE_LOCK:

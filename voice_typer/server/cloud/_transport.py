@@ -18,18 +18,7 @@ import numpy as np
 from voice_typer.server._audio_constants import WHISPER_SAMPLE_RATE
 from voice_typer.server._http_safety import build_secure_opener
 
-# Module-level OpenerDirector shared by every cloud request, so the
-# handler chain (redirect refusal, plaintext-HTTP refusal, TLS) is
-# built once instead of per request. NOTE: the stdlib opener does NOT
-# pool connections, ``AbstractHTTPHandler.do_open`` opens a fresh
-# TCP/TLS connection per request and sends ``Connection: close``, so
-# each request pays a full handshake (unlike ``requests.Session``).
 # SEC-2: ``build_secure_opener()`` installs ``_NoRedirectHandler()`` so
-# the opener does NOT follow 3xx redirects (the default
-# ``HTTPRedirectHandler`` would silently POST the request body, user
-# audio + API key, to an attacker-controlled redirect target).
-# the handler + builder live in ``_http_safety`` so they're
-# shared with ``llm_polish._opener`` (single source of truth).
 _opener = build_secure_opener()
 
 

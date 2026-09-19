@@ -1,9 +1,4 @@
-"""Linux volume backend, pactl → wpctl → amixer.
-
-Extracted from the original ``voice_typer/server/volume_backends.py``
-monolith per   See ``voice_typer/server/volume_backends/__init__.py``
-for the package-level docstring and re-exports.
-"""
+"""Linux volume backend, pactl → wpctl → amixer."""
 
 from __future__ import annotations
 
@@ -19,53 +14,18 @@ log = logging.getLogger(__name__)
 
 
 # Smart-duck polling on Linux is expensive: every ``is_speaker_active()``
-# call spawns ``pactl list sink-inputs`` (~50–100 ms per invocation on a
-# typical desktop).  At the default 500 ms cadence inherited from the
-# base class, that's 10–20% CPU on one core just for smart-duck, plus
-# noticeable battery drain on laptops.  Advertising 1500 ms as the
-# minimum safe cadence keeps the monitor responsive (catches audio
-# start within ~1.5 s) while cutting the CPU/battery cost 3×.  Users
-# who explicitly set a faster ``volume_duck_smart_poll_interval_ms``
-# config value are still respected, ``VolumeDucker.initialize`` uses
-# ``max(user_value, min_poll_interval_ms)`` so the monitor never polls
-# faster than the backend can handle but the user's explicit slower
-# value is also honoured.
 _LINUX_MIN_SMART_DUCK_POLL_MS = 1500
 
 # number of consecutive backend failures before a WARNING is
-# surfaced.  See ``voice_typer/server/volume_backends/windows.py`` for
-# the full rationale.  Linux's ``_alsa_is_playing`` swallows exceptions
-# and returns ``True`` (safe default, duck anyway) at DEBUG, so a
-# persistently broken ``/proc/asound`` scan would degrade smart-duck to
-# "always duck" with no log breadcrumb.  The counter surfaces the
-# failure after ``_BACKEND_ERROR_WARN_THRESHOLD`` consecutive errors.
 _BACKEND_ERROR_WARN_THRESHOLD = 3
 
 
 class LinuxVolumeBackend(VolumeBackend):
-    """Linux volume control with automatic backend detection.
-
-    Detection order:
-      1. ``pactl``: works on both PulseAudio and PipeWire (via compat layer).
-         Handles ~95% of desktop Linux installs.
-      2. ``wpctl``: WirePlumber CLI, native to PipeWire-only systems
-         that dropped the PulseAudio compat layer.
-      3. ``amixer``: ALSA hardware mixer, the last-resort fallback for
-         bare ALSA systems (Raspbian Lite, minimal servers, embedded).
-
-    Per-session ducking is theoretically possible via
-    ``pactl set-sink-input-volume`` but enumeration is fragile, so
-    :attr:`supports_per_session` is ``False`` for v1.
-    """
+    """Linux volume control with automatic backend detection."""
 
     def __init__(self) -> None:
         self._tool: str | None = None
         # consecutive-error counter for ``_alsa_is_playing``
-        # (the only error-tracked method on this backend per ).
-        # See ``WinVolumeBackend._consecutive_errors`` for the full
-        # rationale.  Initialized here (and reset in ``initialize``)
-        # so the method is callable before ``initialize`` without
-        # ``AttributeError``.
         self._consecutive_errors: int = 0
 
     @property
@@ -78,22 +38,12 @@ class LinuxVolumeBackend(VolumeBackend):
 
     @property
     def _set_linear_is_subprocess(self) -> bool:
-        """Linux backends always spawn a subprocess (pactl/wpctl/amixer).
-
-        ``fade_to`` collapses to a single :meth:`set_linear` call so we
-        don't fire 10 sequential ``pactl`` invocations (~50 ms each →
-        500 ms total + audible stepping between steps).
-        """
+        """Linux backends always spawn a subprocess (pactl/wpctl/amixer)."""
         return True
 
     @property
     def min_poll_interval_ms(self) -> int:
-        """1500 ms, Linux smart-duck polls spawn ``pactl list sink-inputs``
-        (~50–100 ms each).  At the default 500 ms cadence the monitor
-        would burn 10–20% CPU on one core.  1500 ms keeps the monitor
-        responsive (audio-start detected within ~1.5 s) while cutting
-        the per-poll cost 3×.  See :data:`_LINUX_MIN_SMART_DUCK_POLL_MS`.
-        """
+        """1500 ms, Linux smart-duck polls spawn ``pactl list sink-inputs``"""
         return _LINUX_MIN_SMART_DUCK_POLL_MS
 
     def initialize(self) -> bool:
@@ -109,11 +59,7 @@ class LinuxVolumeBackend(VolumeBackend):
         log.info("[VOLUME-LINUX] No volume tool found (pactl/wpctl/amixer)")
         return False
 
-    # error-tracking helpers ──────────────────────────────────
     # See ``WinVolumeBackend._record_error`` / ``_record_success`` for
-    # the full rationale.  The counter is shared across this backend's
-    # error-tracked methods (currently only ``_alsa_is_playing`` per
-    # scope).
 
     def _record_error(self, context: str, exc: BaseException) -> None:
         self._consecutive_errors += 1
@@ -150,46 +96,16 @@ class LinuxVolumeBackend(VolumeBackend):
         return False
 
     def is_speaker_active(self) -> bool:
-        """Return ``True`` if audio is currently playing on the default sink.
-
-        Per-tool implementation:
-
-        - **pactl**: ``pactl list sink-inputs``: if any sink-input has
-          ``State: running``, audio is being rendered.  Works on both
-          PulseAudio and PipeWire (via the PulseAudio compat layer).
-        - **wpctl**: PipeWire's ``pw-top`` would give per-client
-          activity, but it's heavy.  Instead we try ``pactl list
-          sink-inputs`` first (PipeWire ships the PulseAudio compat
-          layer on most distros); if that fails, fall back to checking
-          ``/proc/asound`` for ALSA-level activity.
-        - **amixer (ALSA-only)**: scan
-          ``/proc/asound/card*/pcm0p/sub*/status`` for
-          ``state: RUNNING``.  This is the kernel-level signal that an
-          audio stream is actively being rendered.  Works on bare ALSA
-          systems without a sound server.
-
-        Returns ``True`` (duck anyway) on any error so we never
-        silently skip ducking when we should.
-        """
+        """Return ``True`` if audio is currently playing on the default sink."""
         if self._tool == "pactl" or self._tool == "wpctl":
             # Try pactl first (works on PulseAudio + PipeWire compat).
-            # For wpctl-only systems without pactl, _run will return None
-            # and we fall through to the ALSA procfs check below.
             out = self._run(["pactl", "list", "sink-inputs"], timeout=1.5)
             if out is not None:
                 # Output contains blocks like:
-                #   Sink Input #42
-                #       State: running
-                #       ...
-                # We look for any "State: running" or "State: corked"
-                # (corked = temporarily paused, but the stream exists).
-                # Only "running" means audio is actually being produced.
                 return "State: running" in out
             # pactl not available (wpctl-only PipeWire), fall through
-            # to the ALSA procfs check below.
         if self._tool == "amixer" or self._tool == "wpctl":
             # ALSA procfs fallback: scan all cards' playback substreams
-            # for "state: RUNNING".  This is the kernel-level signal.
             return self._alsa_is_playing()
         return True  # unknown tool, duck to be safe
 
@@ -197,34 +113,18 @@ class LinuxVolumeBackend(VolumeBackend):
         """Check /proc/asound for any actively-rendering PCM substream."""
         try:
             # (test compat): look up ``Path`` via the package
-            # namespace so tests that do
-            # ``monkeypatch.setattr(volume_backends, "Path", fake_path)``
-            # (see ``tests/test_smart_duck.py::TestLinuxIsSpeakerActive``)
-            # continue to intercept ``Path("/proc/asound")`` lookups after
-            # the split.  Before , ``Path`` was a module global on
-            # the single ``volume_backends.py`` module, so patching the
-            # module's ``Path`` attribute was sufficient.  After the
-            # split, ``_alsa_is_playing`` lives in ``linux.py`` and would
-            # otherwise look up ``Path`` from ``linux.py``'s own globals
-            # (bypassing the patch).  Routing through the package keeps
-            # the patches effective without requiring test changes.
             from voice_typer.server import volume_backends as _vb_pkg
 
             Path = _vb_pkg.Path  # noqa: N806
             asound = Path("/proc/asound")
             if not asound.exists():
                 # success (we successfully determined "not Linux")
-                # , reset the counter so a transient error run doesn't
-                # poison subsequent successful calls.
                 self._record_success()
                 return True  # not Linux?, duck to be safe
             for card_dir in asound.iterdir():
                 if not card_dir.name.startswith("card"):
                     continue
                 # Playback substreams live under pcm*p/ (the 'p' suffix
-                # means playback; 'c' means capture).  Each substream
-                # has a `status` file that contains "state: RUNNING"
-                # when audio is being rendered.
                 for pcm_dir in card_dir.glob("pcm*p"):
                     for sub in pcm_dir.glob("sub*"):
                         status_file = sub / "status"
@@ -239,20 +139,13 @@ class LinuxVolumeBackend(VolumeBackend):
                         except (OSError, PermissionError):
                             continue
             # success, we successfully scanned /proc/asound and
-            # found no running substreams.
             self._record_success()
             return False  # no running substreams found
         except Exception as exc:
             log.debug("[VOLUME-LINUX] _alsa_is_playing failed: %s", exc)
             # surface a WARNING after N consecutive failures so a
-            # persistently broken /proc/asound scan doesn't degrade
-            # smart-duck to "always duck" with no log breadcrumb.  The
-            # safe-default ``True`` return is preserved (prevents
-            # duck-state corruption).
             self._record_error("_alsa_is_playing", exc)
             return True  # safe default
-
-    # ── pactl (PulseAudio / PipeWire compat) ────────────────────────
 
     def _run(self, cmd: list[str], timeout: float = 2.0) -> str | None:
         try:
@@ -267,15 +160,6 @@ class LinuxVolumeBackend(VolumeBackend):
 
     def _pactl_get(self) -> VolumeState | None:
         # ``pactl get-sink-volume`` and ``pactl get-sink-mute`` are
-        # independent queries. Run them in parallel via a 2-worker
-        # ``ThreadPoolExecutor`` so the per-call latency (~100 ms each on
-        # a cold pulseaudio daemon) overlaps instead of stacking.  Total
-        # ``get_state`` cost drops from ~200 ms to ~100 ms, halving the
-        # duck/restore latency on Linux.  ``ThreadPoolExecutor`` is used
-        # (rather than ``asyncio``) because the caller (``VolumeDucker``)
-        # is synchronous; the threads block on ``subprocess.run`` which
-        # releases the GIL while waiting on the pipe, so this does not
-        # starve other Python threads.
         with ThreadPoolExecutor(max_workers=2) as pool:
             vol_future = pool.submit(self._run, ["pactl", "get-sink-volume", "@DEFAULT_SINK@"])
             mute_future = pool.submit(self._run, ["pactl", "get-sink-mute", "@DEFAULT_SINK@"])
@@ -299,8 +183,6 @@ class LinuxVolumeBackend(VolumeBackend):
             self._run(["pactl", "set-sink-mute", "@DEFAULT_SINK@", mute_val])
         return ok
 
-    # ── wpctl (WirePlumber / PipeWire native) ───────────────────────
-
     def _wpctl_get(self) -> VolumeState | None:
         out = self._run(["wpctl", "get-volume", "@DEFAULT_AUDIO_SINK@"])
         if not out:
@@ -319,8 +201,6 @@ class LinuxVolumeBackend(VolumeBackend):
             mute_cmd = "mute" if muted else "unmute"
             self._run(["wpctl", "set-mute", "@DEFAULT_AUDIO_SINK@", mute_cmd])
         return ok
-
-    # ── amixer (ALSA fallback) ──────────────────────────────────────
 
     def _amixer_get(self) -> VolumeState | None:
         out = self._run(["amixer", "-D", "default", "sget", "Master"])

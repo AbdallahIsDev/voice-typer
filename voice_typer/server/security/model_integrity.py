@@ -1,13 +1,6 @@
 """Model integrity verification (SEC-audit-005) + download allowlists.
 
-Part of the :mod:`voice_typer.server.security` package
-(consolidation). Merges the model-integrity half of the former
-``voice_typer.server.security`` module (SHA-256 manifest verification,
-on-disk integrity cache) with the file-pattern allowlists from the
-former ``voice_typer.server._model_integrity`` module.
-
-The PII/secret redaction helpers that previously shared the former
-``security.py`` now live in :mod:`voice_typer.server.security.redaction`.
+NOTE: see docs/code-notes/security-config.md#model-integrity-cache
 """
 
 from __future__ import annotations
@@ -29,68 +22,27 @@ log = logging.getLogger(__name__)
 
 
 def _security_pkg():
-    """Return the ``voice_typer.server.security`` package (call-time lookup).
-
-    The integrity functions resolve ``MODEL_HASHES`` / ``compute_file_sha256``
-    / ``_secure_atomic_write`` / ``_integrity_cache_path_override`` through
-    the PACKAGE namespace at call time -- not through this module's own
-    globals -- so existing tests that monkeypatch
-    ``voice_typer.server.security.<name>`` keep working (the package
-    ``__init__`` re-exports these symbols, and the re-export is what the
-    tests patch). Same pattern as ``PersistedJSON.save``'s lazy
-    ``voice_typer.server.config._secure_atomic_write`` lookup.
-    """
+    """Return the security package via call-time lookup (C-ARCH-2 patch surface)."""
     import voice_typer.server.security as _security
 
     return _security
 
 
-# ─── SEC-audit-005: Model Integrity Verification ──────────────────────────
-
-# Pinned revisions for HuggingFace model downloads.
-# When a specific commit SHA is known, it should be recorded here so that
-# snapshot_download() pins to an exact version instead of the mutable "main"
-# branch.  This prevents supply-chain attacks where a compromised repo
-# pushes a new commit with malicious model files.
-#
-# The canonical source is ``model_hashes.json`` in ``voice_typer/server/``
-# (two levels up from this submodule, ``voice_typer/server/security/``).
-# The JSON file can be updated by the release process without touching
-# Python source code.  We fall back to a hardcoded dict if the JSON file is
-# missing or unreadable (e.g. during unit tests in isolated envs).
+# SEC-audit-005: pinned HF revisions + file hashes.
 
 
 def _load_model_hashes() -> dict[str, dict[str, Any]]:
-    """Load MODEL_HASHES from the companion JSON file, with hardcoded fallback.
-
-    the value type is widened from ``dict[str, str]`` to
-    ``dict[str, Any]`` because each manifest entry mixes value kinds
-    (``"revision": "main"`` is a str, ``"files": {filename: hash}`` is
-    a nested dict).  The narrower annotation made
-    ``manifest.get("files", {})`` infer as ``str`` and broke the
-    downstream ``.items()`` call in both security.py and qwen_engine.py.
-    """
+    """Load MODEL_HASHES from companion JSON; fall back to the hardcoded mirror."""
     json_path = Path(__file__).resolve().parent.parent / "model_hashes.json"
     if json_path.exists():
         try:
-            # use ``_secure_read_text`` (POSIX ``O_NOFOLLOW`` /
-            # Windows reparse-point rejection) instead of ``Path.read_text``
-            # so a symlink planted at ``model_hashes.json`` cannot redirect
-            # the read to an attacker-controlled file and inject pinned
-            # SHA-256 entries. On a symlink, ``_secure_read_text`` raises
-            # ``OSError``/``ValueError`` which is caught below, the
-            # hardcoded fallback then applies.
+            # SEC-audit-005: secure read rejects symlink/reparse redirect of the manifest.
             raw = json.loads(_secure_read_text(json_path))
             # Filter out the _comment metadata key
             return {k: v for k, v in raw.items() if k != "_comment" and isinstance(v, dict)}
         except Exception as exc:
             log.warning("[SECURITY] Failed to load model_hashes.json: %s", exc)
-    # Hardcoded fallback, mirrors model_hashes.json so that even if the JSON
-    # file is missing or unreadable (e.g. isolated test env, broken install),
-    # the pinned revisions are still enforced. SHAs fetched 2026-07-10 from
-    # https://huggingface.co/api/models/<repo>/revision/main. These MUST be
-    # kept in sync with model_hashes.json; the test_model_hashes_fallback_matches_json
-    # regression test enforces this.
+    # Fallback mirrors model_hashes.json; parity enforced by tests.
     return {
         "nvidia/parakeet-tdt-0.6b-v3": {
             "revision": "7c35754d166cca382ad1e53e68b01e7c575f3a1d",
@@ -102,13 +54,7 @@ def _load_model_hashes() -> dict[str, dict[str, Any]]:
                 "tokenizer_config.json": "0b2fe0037599ee335f0b972fa682bf0ece74e4ccfec755cb7daa3405d3d3e874",
             },
         },
-        # The grikdotnet fp16 ONNX export (the upstream original of the
-        # fp16 Parakeet export; ``visuall/...`` was a later copy missing
-        # config.json) ships a real config.json whose 97-byte content is
-        # byte-identical to what asr_setup previously synthesized
-        # (json.dumps indent=4 of the nemo-conformer-tdt dict), the
-        # hash below pins those exact upstream bytes. Keep in sync with
-        # model_hashes.json.
+        # Upstream fp16 ONNX export; hashes pin real shipped bytes.
         "grikdotnet/parakeet-tdt-0.6b-fp16": {
             "revision": "dc9871ec5ad84a420940077e76e8741b3609bf8b",
             "files": {
@@ -152,8 +98,7 @@ def _load_model_hashes() -> dict[str, dict[str, Any]]:
                 "tokenizer.json": "6d8cbd7cd0d8d5815e478dac67b85a26bbe77c1f5e0c6d76d1ce2abc0e5f21ca",
             },
         },
-        # Live multilingual tiny (MODEL_REGISTRY "tiny"). Hashes verified
-        # 2026-09-13 against the local HF cache (revision d90ca5fe).
+        # MODEL_REGISTRY "tiny" (multilingual).
         "Systran/faster-whisper-tiny": {
             "revision": "d90ca5fe260221311c53c58e660288d3deb8d356",
             "files": {
@@ -163,8 +108,7 @@ def _load_model_hashes() -> dict[str, dict[str, Any]]:
                 "vocabulary.txt": "34ce3fe1c5041027b3f8d42912270993f986dbc4bb34cf27f951e34a1e453913",
             },
         },
-        # Turbo: faster-whisper 1.2.1 _MODELS maps "large-v3-turbo"/"turbo"
-        # to mobiuslabsgmbh, NOT Systran (Systran/...-turbo 404s).
+        # Turbo models map to mobiuslabsgmbh, not Systran.
         "mobiuslabsgmbh/faster-whisper-large-v3-turbo": {
             "revision": "0a363e9161cbc7ed1431c9597a8ceaf0c4f78fcf",
             "files": {
@@ -175,15 +119,7 @@ def _load_model_hashes() -> dict[str, dict[str, Any]]:
                 "vocabulary.json": "c69260f2ab26d659b7c398f9a2b2b48ed0df16c3b47d7326782fd9cba71690c1",
             },
         },
-        # add the ``qwen`` entry to the hardcoded fallback so
-        # a missing/corrupt ``model_hashes.json`` doesn't soft-pass
-        # Qwen. ``revision: "local"`` + empty ``files`` triggers the
-        # new hard-FAIL path in ``verify_model_integrity`` above; this
-        # is intentional, operators must populate ``files`` with real
-        # SHA-256 hashes before a local Qwen model can be loaded. The
-        # empty dict mirrors the JSON file's ``"qwen"`` entry so the
-        # ``test_model_hashes_fallback_matches_json`` regression test
-        # (which enforces fallback/JSON parity) keeps passing.
+        # local + empty files: hard-FAIL until operators populate hashes.
         "qwen": {
             "revision": "local",
             "files": {},
@@ -194,25 +130,7 @@ def _load_model_hashes() -> dict[str, dict[str, Any]]:
 MODEL_HASHES: dict[str, dict[str, Any]] = _load_model_hashes()
 
 
-# ─── : On-disk integrity cache for SHA-256 verification ─────────────
-#
-# verify_model_integrity() is called UNCONDITIONALLY on every model load
-# (cache hit AND miss). Pre-, this re-hashed the full multi-GB weight
-# file (model.safetensors ~2.5 GB for Parakeet, model.bin ~3 GB for
-# Whisper large-v3) on EVERY load: 5-10 s of pure I/O + SHA-256 CPU per
-# load. The  idle-unload feature made this worse.
-#
-# The integrity cache is a JSON file at <config_dir>/cache/integrity_cache.json
-# keyed on (repo_id, relpath, st_mtime_ns, st_size) -> sha256_hex. On a
-# cache hit (mtime+size match), the cached hash is returned without
-# re-reading the file.
-#
-# Security: the cache key includes mtime_ns + size. An attacker with
-# write access to the HF cache would need to (a) modify the file, (b)
-# restore the original mtime to nanosecond precision, AND (c) preserve
-# the exact byte size. AND the cached hash still has to match the
-# pinned manifest hash. So the cache does NOT weaken the security
-# guarantee; it only skips the redundant re-hash of unchanged files.
+# NOTE: see docs/code-notes/security-config.md#model-integrity-cache
 _INTEGRITY_CACHE_VERSION = 1
 _integrity_cache_lock = threading.Lock()
 # Tests can override the cache path by setting this attribute.
@@ -230,17 +148,7 @@ def _integrity_cache_path() -> Path:
 
 
 def _load_integrity_cache() -> dict[str, Any]:
-    """Load the integrity cache from disk. Returns empty cache on any error.
-
-    uses ``_secure_read_text`` (POSIX ``O_NOFOLLOW`` / Windows
-    reparse-point rejection) instead of ``Path.read_text`` so a symlink
-    planted at ``<config_dir>/cache/integrity_cache.json`` cannot
-    redirect the read to an arbitrary file and control the cached
-    SHA-256 entries. On a symlink, ``_secure_read_text`` raises
-    ``OSError`` (POSIX ``ELOOP``) / ``OSError`` (Windows reparse-point
-    rejection), which is caught by the broad ``except Exception`` and
-    falls through to the empty cache.
-    """
+    """Load the integrity cache from disk. Returns empty cache on any error."""
     empty = {"version": _INTEGRITY_CACHE_VERSION, "repos": {}}
     try:
         path = _integrity_cache_path()
@@ -248,8 +156,6 @@ def _load_integrity_cache() -> dict[str, Any]:
             return empty
         raw_text = _secure_read_text(path)
         # defense-in-depth, re-tighten perms to 0o600 on every
-        # successful read. Mirrors ``secure_file_io._chmod_owner_only``.
-        # Best-effort; a read-only filesystem must not fail the load.
         with contextlib.suppress(OSError):
             os.chmod(path, 0o600)
         raw = json.loads(raw_text)
@@ -267,18 +173,7 @@ def _load_integrity_cache() -> dict[str, Any]:
 
 
 def _save_integrity_cache(cache: dict[str, Any]) -> None:
-    """Atomically write the integrity cache to disk. Best-effort.
-
-    delegates to ``_secure_atomic_write`` ( ``owned_fd``
-    sentinel + explicit ``_chmod_owner_only`` + symlink-safe
-    ``tempfile.mkstemp``) instead of a bare ``tempfile.mkstemp`` +
-    ``os.fdopen`` + ``os.replace`` block. ``durability=False`` preserves
-    the pre- no-fsync cache-write behaviour, the integrity cache
-    is a perf optimization (skips re-hashing multi-GB model files), not
-    security-critical state, so a power-loss window of a few seconds is
-    acceptable (the next ``verify_model_integrity`` call re-computes
-    any missing cache entry).
-    """
+    """Atomically write the integrity cache to disk. Best-effort."""
     try:
         path = _integrity_cache_path()
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -288,12 +183,7 @@ def _save_integrity_cache(cache: dict[str, Any]) -> None:
 
 
 def compute_file_sha256(path: Path) -> str:
-    """Compute the SHA-256 hash of a file.
-
-    uses mmap when possible for zero-copy hashing of large model
-    files. Falls back to the 64 KB chunk loop on mmap failure (e.g.
-    mmap of a 0-length file raises ValueError).
-    """
+    """Compute the SHA-256 hash of a file."""
     h = hashlib.sha256()
     try:
         with open(path, "rb") as f:
@@ -320,15 +210,7 @@ def compute_file_sha256(path: Path) -> str:
 
 
 def _hash_one_file(cache: dict[str, Any], repo_id: str, file_path: Path, relpath: str) -> tuple[str, bool]:
-    """Hash one file with the integrity cache; return ``(digest, dirty)``.
-
-    ``dirty`` is True when a fresh digest was computed (the caller owns
-    persisting ``cache``). Cache resolution goes through
-    :func:`_security_pkg` at call time so tests patching
-    ``voice_typer.server.security.compute_file_sha256`` keep
-    intercepting, same contract as the former inline closure this was
-    extracted from (E7: one implementation, two callers).
-    """
+    """Hash one file with the integrity cache; return ``(digest, dirty)``."""
     try:
         st = file_path.stat()
         mtime_ns = st.st_mtime_ns
@@ -360,15 +242,7 @@ def _hash_one_file(cache: dict[str, Any], repo_id: str, file_path: Path, relpath
 
 
 def hash_file_cached(repo_id: str, file_path: Path, relpath: str) -> str:
-    """Hash one file, reusing + updating the on-disk integrity cache.
-
-    Same key format as :func:`verify_model_integrity`
-    (``(repo_id, relpath, mtime_ns, size)``), so a digest computed here
-    is a hit there and vice versa. Used by failure-detail paths (e.g.
-    ``asr_setup._verify_model_integrity``) that previously re-hashed
-    with raw ``compute_file_sha256``, paying a second full multi-GB
-    pass after every failed verification.
-    """
+    """Hash one file, reusing + updating the on-disk integrity cache."""
     cache = _load_integrity_cache()
     digest, dirty = _hash_one_file(cache, repo_id, file_path, relpath)
     if dirty:
@@ -380,32 +254,7 @@ def hash_file_cached(repo_id: str, file_path: Path, relpath: str) -> str:
 def verify_model_integrity(local_dir: str, repo_id: str) -> bool:
     """SEC-audit-005: Verify downloaded model files against the manifest.
 
-     Computes SHA-256 hashes of all files in ``local_dir`` and compares
-     them against the pinned hashes in ``MODEL_HASHES``.  If no hashes
-     are pinned for a given file, a basic structural check is performed
-     (file exists and is not empty) and the computed hash is logged at
-     INFO level so it can be added to the manifest later.
-
-     hashes are memoized in an on-disk integrity cache
-     (``<config_dir>/cache/integrity_cache.json``) keyed on
-     ``(repo_id, relpath, st_mtime_ns, st_size)``. On a cache hit, the
-     cached hash is reused without re-reading the multi-GB weight file
-    , saving 5-10 s of pure I/O+CPU on every model load. The cache is
-     invalidated automatically when the file's mtime or size changes.
-
-     Parameters
-     ----------
-     local_dir : str
-         Path to the downloaded model directory.
-     repo_id : str
-         HuggingFace repository identifier (e.g. "nvidia/parakeet-tdt-0.6b-v3").
-
-     Returns
-     -------
-     bool
-         True if all verifications pass, False otherwise. Returns False
-         on any pinned-hash mismatch (hard fail) so callers can refuse
-         to load a tampered model.
+    Returns
     """
     model_path = Path(local_dir)
     if not model_path.exists():
@@ -439,20 +288,6 @@ def verify_model_integrity(local_dir: str, repo_id: str) -> bool:
         return False
 
     # hard-FAIL for local models with an empty ``files`` dict.
-    # Pre-fix, ``verify_model_integrity`` soft-passed whenever the
-    # manifest's ``files`` dict was empty (see the ``else`` branch
-    # below). For HuggingFace repos this was acceptable because the
-    # ``revision`` field is a SHA pin validated upstream by
-    # ``snapshot_download``'s commit-pin; the empty-files state was a
-    # "to-be-populated" placeholder. But for ``revision: "local"`` (the
-    # Qwen model, loaded from a user-supplied local path), there is NO
-    # upstream SHA pin, the soft-pass meant a tampered or substituted
-    # Qwen model directory would load without any integrity check. The
-    # fix: when ``revision == "local"`` AND ``files`` is empty, return
-    # False (hard FAIL) so the caller refuses to load. Operators who
-    # want to load a local Qwen model MUST populate the ``files`` dict
-    # in ``model_hashes.json`` with the expected SHA-256 hashes (the
-    # soft-pass branch below already logs them at INFO).
     manifest_revision = manifest.get("revision")
     pinned_files = manifest.get("files", {})
     if manifest_revision == "local" and not pinned_files:
@@ -469,22 +304,12 @@ def verify_model_integrity(local_dir: str, repo_id: str) -> bool:
         return False
 
     # load the integrity cache ONCE for the whole verification
-    # call. Keyed on (repo_id, relpath, st_mtime_ns, st_size) -> sha256.
-    # The cache lock is held only for load/save, NOT for hash
-    # computation (which can take 5-10 s for a multi-GB weight file).
     with _integrity_cache_lock:
         cache = _load_integrity_cache()
     cache_dirty = False
 
     def _hash_with_cache(file_path: Path, relpath: str) -> str:
-        """Return the SHA-256 of file_path, using the cache when possible.
-
-        Persists eagerly on every newly computed digest (a KB-sized JSON
-        write next to a GB-sized hash is noise): every ``return False``
-        below then keeps the hashes computed so far instead of
-        discarding them, so a retry / the failure-details path never
-        re-hashes the same bytes.
-        """
+        """Return the SHA-256 of file_path, using the cache when possible."""
         nonlocal cache_dirty
         digest, dirty = _hash_one_file(cache, repo_id, file_path, relpath)
         if dirty:
@@ -493,22 +318,7 @@ def verify_model_integrity(local_dir: str, repo_id: str) -> bool:
                 _save_integrity_cache(cache)
         return digest
 
-    # SEC-audit-005: Verify pinned file hashes if available.
-    # The manifest entry for a repo can include a "files" dict mapping
-    # relative file paths to expected SHA-256 hex digests. When present,
-    # every pinned file MUST exist and match, a single mismatch fails
-    # the integrity check (hard fail) so callers refuse to load a
-    # tampered or corrupted model.
-    #
-    # When no files are pinned (the manifest only has "revision"), we
-    # compute and log hashes for every file in the model directory at
-    # INFO level. Operators can copy these logged hashes into
-    # model_hashes.json to enable enforcement on the next run.
-    #
-    # this branch is now reachable ONLY for HuggingFace
-    # repos (``revision`` is a 40-char SHA, validated upstream by
-    # ``snapshot_download``). Local repos with empty files hit the
-    # hard-FAIL branch above.
+    # SEC-audit-005: verify pinned file hashes when present.
     if pinned_files:
         for filename, expected_hash in pinned_files.items():
             file_path = model_path / filename
@@ -535,16 +345,6 @@ def verify_model_integrity(local_dir: str, repo_id: str) -> bool:
         )
     else:
         # No pinned hashes, log computed hashes for future audit.
-        # This is a soft pass; the structural checks above are the
-        # hard gate that prevents loading completely wrong file types.
-        # SEC-audit-005: emit a WARNING (not just INFO) so operators
-        # notice that model integrity verification is effectively a
-        # no-op for this repo. Pre-fix the empty-files state produced
-        # zero enforcement but only an INFO log, which is invisible at
-        # default log levels, operators had no way to know their
-        # model_hashes.json was empty. The WARNING surfaces the issue
-        # in normal logs without refusing to load (the structural
-        # checks above are still enforced).
         log.warning(
             "[SECURITY] Model integrity check is a NO-OP for %s, "
             'model_hashes.json has empty "files" dict for this repo. '
@@ -618,19 +418,6 @@ to either pin or ignore).  The list is now split per backend:
 """
 
 # SEC-audit-005: Allowlist of file patterns permitted in
-# HuggingFace Parakeet model downloads.  ``*.bin`` is intentionally
-# OMITTED, Parakeet ships ``model.safetensors`` only, and the
-# pickle-serialised ``*.bin`` format is a remote-code-execution vector
-# if a compromised HF repo were to ship a malicious weights file.
-# ``verify_model_integrity()`` hard-fails if a pinned file is missing, so every pattern here must also have a
-# corresponding entry in the ``files`` dict of ``model_hashes.json``
-# (or the structural check in ``verify_model_integrity()`` will pass
-# but the pinned-files check will fail).
-#
-# Patterns are matched by ``fnmatch`` (HuggingFace's ``allow_patterns``
-# argument uses ``fnmatch.filter``).  ``*.safetensors`` matches any
-# top-level ``.safetensors`` file (e.g. ``model.safetensors`` and the
-# shard files ``model-00001-of-00003.safetensors``).
 ALLOW_PATTERNS_PARAKEET: list[str] = [
     "*.safetensors",
     "config.json",
@@ -645,26 +432,6 @@ ALLOW_PATTERNS_PARAKEET: list[str] = [
 ]
 
 # ONNX Runtime migration (PLAN_ONNX_INTEGRATION.md §3.5.4): allowlist
-# for the ONNX Parakeet weights (``istupakov/parakeet-tdt-0.6b-v3-onnx``
-# via the ``onnx-asr`` library). The pre-migration ``ALLOW_PATTERNS_PARAKEET``
-# above stays, it covers the legacy safetensors cache layout (still
-# downloaded by users who haven't migrated to ONNX). This new constant
-# covers the ONNX-specific files the ``onnx-asr`` library fetches:
-# ``*.onnx`` for the encoder/decoder/joint ONNX graphs, plus the
-# tokenizer + config JSONs required for decoding (TDT decoding needs
-# the tokenizer + generation_config to map token IDs to text).
-#
-# Typed as ``frozenset`` (not ``list``) per §3.5.4, the ONNX allowlist
-# is consumed by the ``onnx-asr`` library's HF download path, which
-# accepts any iterable of patterns; ``frozenset`` documents
-# immutability + dedup intent and matches the convention used by
-# ``onnx_asr.Model(...)``'s ``allow_patterns`` parameter.
-#
-# SECURITY: ``verify_model_integrity()`` hard-fails if a pinned file
-# is missing, so every pattern here must also have a corresponding
-# entry in the ``files`` dict of ``model_hashes.json`` for the
-# ``grikdotnet/parakeet-tdt-0.6b-fp16`` repo (or the structural
-# check passes but the pinned-files check fails).
 ALLOW_PATTERNS_PARAKEET_ONNX: frozenset[str] = frozenset(
     {
         "*.onnx",
@@ -677,14 +444,6 @@ ALLOW_PATTERNS_PARAKEET_ONNX: frozenset[str] = frozenset(
 )
 
 # SEC-audit-005: Allowlist for HuggingFace Whisper-family
-# downloads (``Systran/faster-whisper-*``).  CTranslate2 loads model
-# weights from ``model.bin``: this is the native on-disk format for
-# ``faster_whisper.WhisperModel`` and is NOT loaded via the
-# pickle-based loader, so the ``*.bin`` risk is bounded to "wrong
-# weights → bad transcription" rather than "arbitrary code execution".  ``model_hashes.json`` pins the SHA-256 of every
-# ``model.bin`` so a tampered file would be detected by
-# ``verify_model_integrity()`` before ``WhisperModel.__init__`` is
-# called.
 ALLOW_PATTERNS_WHISPER: list[str] = [
     "*.safetensors",
     "*.bin",
@@ -698,15 +457,6 @@ ALLOW_PATTERNS_WHISPER: list[str] = [
     "model.safetensors.index.json",
     "*.model",
     # Legacy vocabulary tables shipped by faster-whisper repos
-    # (e.g. Systran/faster-whisper-tiny's ``vocabulary.txt``,
-    # mobiuslabsgmbh/faster-whisper-large-v3-turbo's
-    # ``vocabulary.json``). The engine tokenizes from
-    # ``tokenizer.json`` and never reads these, but the integrity
-    # manifest pins them and hard-fails when a pinned file is
-    # missing — without these patterns no download could ever pass
-    # verification (observed 2026-09-16: every turbo/tiny download
-    # "completed" yet failed integrity). ~1-3 MB each, negligible
-    # against multi-hundred-MB weights.
     "vocabulary.json",
     "vocabulary.txt",
 ]

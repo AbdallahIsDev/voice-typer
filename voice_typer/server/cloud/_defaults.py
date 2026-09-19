@@ -1,10 +1,4 @@
-"""Per-provider endpoint/model defaults for the cloud ASR engines.
-
-Extracted from the ``cloud_engines.py`` monolith so provider onboarding
-(new endpoint, new default model) is a one-map edit.
-``voice_typer/server/cloud_engines.py`` re-exports the map so existing
-importers keep resolving.
-"""
+"""Per-provider endpoint/model defaults for the cloud ASR engines."""
 
 from __future__ import annotations
 

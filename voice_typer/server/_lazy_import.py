@@ -71,11 +71,8 @@ class _LazyModule:
 
     def __init__(self, module_name: str) -> None:
         # Bypass our own __setattr__ (which delegates to the wrapped
-        # module) when storing state on the proxy itself.
         object.__setattr__(self, "_module_name", module_name)
         # cache the most recent ImportError so a missing
-        # dependency is reported once, not on every attribute access.
-        # ``None`` means "no error cached, caller may attempt import".
         object.__setattr__(self, "_cached_error", None)
 
     def reset_cache(self) -> None:
@@ -96,36 +93,24 @@ class _LazyModule:
         cannot be redirected to a fresh proxy without a code change).
         """
         # Bypass our own __setattr__ (which would delegate to the
-        # wrapped module, the very thing we're trying to recover from).
         object.__setattr__(self, "_cached_error", None)
 
     def _resolve(self):
         # if a previous attempt raised ImportError, re-raise
-        # the cached error instead of re-attempting ``import_module``.
-        # This prevents a flood of identical tracebacks when a missing
-        # dependency is accessed from many call sites, and avoids the
-        # CPU cost of repeated failed imports. The cache is reset only
-        # by constructing a new proxy (per-proxy, not per-module) OR by
-        # calling ``reset_cache()`` (the recovery path for proxies held
-        # as module-level singletons).
         cached_error = object.__getattribute__(self, "_cached_error")
         if cached_error is not None:
             raise cached_error
         # import_module checks sys.modules first, so this is cheap after
-        # the first real import and picks up test-injected mocks.
         module_name = object.__getattribute__(self, "_module_name")
         try:
             return importlib.import_module(module_name)
         except ImportError as exc:
             # cache the error so subsequent accesses don't
-            # re-attempt the (likely still-failing) import.
             object.__setattr__(self, "_cached_error", exc)
             raise
 
     def __getattr__(self, name: str) -> Any:
         # __getattr__ is only called when normal lookup fails, i.e. for
-        # anything that isn't _module_name, _cached_error, or a class
-        # attribute.  Every wrapped-module attribute goes through here.
         return getattr(self._resolve(), name)
 
     def __setattr__(self, name: str, value: Any) -> None:

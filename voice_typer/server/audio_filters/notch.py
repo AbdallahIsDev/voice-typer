@@ -27,8 +27,6 @@ class NotchFilter(AudioFilter):
         sample_rate: int = WHISPER_SAMPLE_RATE,
     ) -> None:
         # 0.0 means auto-detect: 50 for EU/Asia, 60 for Americas.
-        # For simplicity, default to 60 (Americas) when auto is requested.
-        # A future enhancement could use locale to pick.
         if frequency_hz <= 0.0:
             frequency_hz = self._auto_detect_frequency()
         self.name = f"Notch({frequency_hz:.0f}Hz)"
@@ -73,11 +71,6 @@ class NotchFilter(AudioFilter):
 
     def process(self, audio: np.ndarray, sample_rate: int) -> np.ndarray | None:
         # Debug-only guard: the notch IIR coefficients were designed
-        # at ``self._sample_rate`` (see ``_init_filter``); feeding
-        # audio at a different rate shifts the notch center frequency
-        # (a 60 Hz notch built at 16 kHz actually cuts at 180 Hz when
-        # fed 48 kHz audio). Python strips this assert under ``-O``;
-        # in debug builds a mismatch surfaces as an ``AssertionError``.
         assert sample_rate == self._sample_rate, (
             f"{type(self).__name__} built at {self._sample_rate} Hz, called with {sample_rate} Hz"
         )
@@ -96,20 +89,9 @@ class NotchFilter(AudioFilter):
         if self._state is not None:
             b, a, zi = self._state
             # zero the existing IIR state in place (mirrors
-            # HighPassFilter.reset).  The notch filter's carry state is
-            # small (1 sample) but still encodes a residual of the
-            # previous audio, so zero it for symmetry with the highpass
-            # path and the same SEC-audit-008 guarantee.
-            # reuse the just-zeroed array instead of allocating a
-            # fresh ``np.zeros(...)`` block on every reset(), same
-            # rationale as HighPassFilter.reset.
             if zi.size > 0:
                 zi.fill(0)
             # ANTIDENORMAL (Round 0 forward-port): re-apply epsilon to
-            # the first state element (mirrors HighPassFilter.reset).
-            # Without this, reset() leaves the IIR state at exact zero,
-            # which on some CPUs triggers denormal float handling and
-            # burns cycles in the audio callback.
             if zi.size > 0:
                 zi[0] = ANTIDENORMAL_EPSILON
             self._state = (b, a, zi)

@@ -79,14 +79,6 @@ def _windows_fsync_directory(path: str) -> None:
         kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
 
         # Constants (avoid relying on pywin32 / Windows SDK headers):
-        #   GENERIC_WRITE             = 0x40000000
-        #   FILE_SHARE_READ           = 0x00000001
-        #   FILE_SHARE_WRITE          = 0x00000002
-        #   OPEN_EXISTING             = 3
-        #   FILE_FLAG_BACKUP_SEMANTICS = 0x02000000
-        # FILE_FLAG_BACKUP_SEMANTICS is required to open a directory
-        # handle on Windows (without it, CreateFileW fails with
-        # ERROR_ACCESS_DENIED on directories).
         GENERIC_WRITE = 0x40000000  # noqa: N806
         FILE_SHARE_READ = 0x00000001  # noqa: N806
         FILE_SHARE_WRITE = 0x00000002  # noqa: N806
@@ -95,12 +87,6 @@ def _windows_fsync_directory(path: str) -> None:
         INVALID_HANDLE_VALUE = ctypes.c_void_p(-1).value  # noqa: N806
 
         # CreateFileW signature:
-        #   HANDLE CreateFileW(
-        #     LPCWSTR lpFileName, DWORD dwDesiredAccess, DWORD dwShareMode,
-        #     LPSECURITY_ATTRIBUTES lpSecurityAttributes,
-        #     DWORD dwCreationDisposition, DWORD dwFlagsAndAttributes,
-        #     HANDLE hTemplateFile
-        #   )
         kernel32.CreateFileW.restype = wintypes.HANDLE
         kernel32.CreateFileW.argtypes = [
             wintypes.LPCWSTR,
@@ -209,19 +195,9 @@ def _secure_atomic_write(
     parent = target.parent
     tmp_path = None
     # ``owned_fd`` tracks ownership of the raw fd.  ``-1`` is the
-    # sentinel meaning "fd is now owned by the file object ``f`` (or
-    # already closed); do NOT call ``os.close`` on it again".  Without
-    # this sentinel, a write/flush/fsync failure inside the with-block
-    # would trigger a double-close: with-block ``__exit__`` closes the
-    # fd, then the except path's ``os.close(fd)`` closes it AGAIN.  On a
-    # quiet fd-table that's a benign EBADF (suppressed); under concurrent
-    # load the fd number may have been reused by another ``os.open`` and
-    # the second close silently corrupts an unrelated resource.
     owned_fd = -1
     try:
         # use a UNIQUE tmp name per call.  mkstemp returns
-        # an open fd (with O_EXCL semantics) so we never collide with
-        # a concurrent caller's tmp file.
         fd, tmp_name = tempfile.mkstemp(
             dir=str(parent),
             prefix=target.name + ".",
@@ -231,22 +207,6 @@ def _secure_atomic_write(
         tmp_path = Path(tmp_name)
 
         # manual try/finally (not a with-block) so we can flip
-        # ``owned_fd`` to ``-1`` AFTER ``os.fdopen`` succeeds, proving
-        # to the outer except that the fd is now owned by ``f`` and
-        # must not be closed again.  Using a with-block here would
-        # reintroduce the double-close: the with-block's ``__exit__``
-        # closes the fd on any exception, but we can't set ``owned_fd
-        # = -1`` between ``os.fdopen(fd)`` and the body of the
-        # with-block.
-        # Write in BINARY mode: text-mode ``os.fdopen(fd, "w")`` applies
-        # the platform newline translation (LF -> CRLF on Windows), which
-        # corrupts byte-exact content contracts (e.g. ``config.json.bak``
-        # must be byte-for-byte identical to the config.json it backs up —
-        # a forensic-recovery contract asserted by
-        # ``tests/test_config_service_secure_backup.py``). Binary mode
-        # preserves the exact bytes on every platform. ``str`` content is
-        # UTF-8-encoded explicitly (same bytes text mode produced on
-        # POSIX).
         f = os.fdopen(fd, "wb")
         owned_fd = -1  # fd is now owned by f; sentinel prevents double-close
         try:
@@ -262,16 +222,6 @@ def _secure_atomic_write(
             f.close()
 
         # os.replace is atomic and does NOT follow symlinks on the target.
-        #
-        # On Windows, os.replace raises PermissionError (WinError 5
-        # "Access is denied") when another thread/process has the
-        # destination open at the moment of the rename, e.g. two
-        # concurrent Config.save() calls racing to persist config.json
-        # regression surface). The lock is held only for the
-        # other writer's brief write window, so the failure is
-        # transient: retry with a short backoff before propagating.
-        # POSIX renames cannot fail this way (rename(2) never blocks on
-        # an open destination), so the retry is Windows-only.
         if is_windows():
             _last_replace_exc: OSError | None = None
             for _attempt in range(_OS_REPLACE_MAX_ATTEMPTS):
@@ -288,34 +238,9 @@ def _secure_atomic_write(
             os.replace(str(tmp_path), str(target))
 
         # explicit chmod to 0o600 (POSIX, best-effort) —
-        # defense-in-depth even though ``tempfile.mkstemp`` creates the
-        # tmp file with 0o600 already. ``os.replace`` brings the
-        # source inode (with its permissions) to the destination on
-        # POSIX, so the 0o600 from mkstemp IS preserved across the
-        # rename, but we re-apply it explicitly so a future refactor
-        # that changes the tmp-creation path (e.g. a caller that
-        # passes a pre-opened fd, or a future Python release that
-        # changes mkstemp's default mode) can't silently leak
-        # world-readable config files. ``_chmod_owner_only`` is a
-        # no-op on Windows (POSIX permission bits are ignored; ACLs
-        # apply) and suppresses OSError at debug level so a read-only
-        # filesystem doesn't fail the write.
         _chmod_owner_only(target)
 
         # fsync the parent directory so the rename is durable.
-        # POSIX-only -- Windows has no equivalent.  Best-effort.
-        # skip when durability=False (the rename still happens,
-        # but its durability across power loss is not guaranteed).
-        # on Windows, the file DATA is durable (the fsync at
-        # line 132 above has no Windows guard and runs unconditionally
-        # when durability=True), but the directory-entry update (the
-        # rename) sits in the NTFS log buffer for seconds and may not
-        # survive power loss. The standard Windows durability recipe
-        # (used by SQLite, PostgreSQL, etc.) is to open the parent
-        # directory with ``CreateFileW(FILE_FLAG_BACKUP_SEMANTICS)``
-        # and call ``FlushFileBuffers(handle)`` on it. Without this,
-        # ``os.replace`` is atomic but not durable across power loss
-        # on Windows.
         if durability:
             if not is_windows():
                 try:
@@ -344,32 +269,12 @@ def _secure_atomic_write(
 
 
 # default upper bound on a single ``_secure_read_text`` call.
-# 16 MiB is well above any legitimate config / vocabulary / templates /
-# credential-store / crash-recovery file size (those are all < 1 MB in
-# practice) but prevents a maliciously planted multi-GB file from
-# exhausting RAM.  Callers reading genuinely large files should pass an
-# explicit ``max_bytes`` (e.g. ``max_bytes=64 * 1024 * 1024`` for a 64
-# MiB cap).
 _DEFAULT_MAX_READ_BYTES = 16 * 1024 * 1024
 
 # Monotonic counter mixed into the ``.corrupt-<ts>-<pid>-<ns>`` quarantine
-# suffix so rapid back-to-back / concurrent quarantine events never collide
-# (see ``PersistedJSON._quarantine_corrupt``). GIL-atomic ``next()``, no
-# lock needed.
 _QUARANTINE_SUFFIX_SEQ: "itertools.count" = itertools.count()
 
 # Windows-only: os.replace onto a destination that another thread/process
-# holds open raises PermissionError (WinError 5). ``_secure_atomic_write``
-# retries up to ``_OS_REPLACE_MAX_ATTEMPTS`` times with a short sleep so
-# concurrent Config.save() calls don't spuriously fail. The window
-# is tiny for a single racing writer, but SUSTAINED contention (4+ threads
-# hammering the same target without the mutation lock, the
-# ``test_concurrent_saves_no_false_return`` stress test, or Defender's
-# real-time scan briefly pinning config.json) can hold the destination for
-# well over 500ms; 10 x 50ms was empirically exhausted on CI
-# (windows-2022/3.11: 2 of 80 saves returned False). 20 x 100ms = 2s covers
-# the contended case while staying invisible to callers (the loop only
-# runs when a replace actually collides).
 _OS_REPLACE_MAX_ATTEMPTS = 20
 _OS_REPLACE_RETRY_DELAY_S = 0.1
 
@@ -399,9 +304,6 @@ def _read_with_byte_limit(f, max_bytes: int | None) -> str:
         if not chunk:
             break
         # Encode to UTF-8 to count BYTES, not characters.  For ASCII
-        # content 1 char == 1 byte, but for non-ASCII (CJK, emoji, etc.)
-        # a single character can be 2-4 bytes.  Counting characters
-        # would under-report the memory footprint by up to 4x.
         chunk_bytes = len(chunk.encode("utf-8", errors="replace"))
         total_bytes += chunk_bytes
         if total_bytes > max_bytes:
@@ -452,8 +354,6 @@ def _secure_read_text(
     p = Path(path)
     if not is_windows():
         # ``owned_fd`` tracks ownership of the raw fd.  ``-1`` is
-        # the sentinel meaning "fd is now owned by the file object ``f``
-        # (or already closed); do NOT call ``os.close`` on it again".
         owned_fd = -1
         fd = os.open(str(p), os.O_RDONLY | os.O_NOFOLLOW)
         owned_fd = fd
@@ -463,7 +363,6 @@ def _secure_read_text(
             owned_fd = -1  # fd is now owned by f; sentinel prevents double-close
             try:
                 # bounded read, aborts with ValueError if the
-                # file exceeds max_bytes before the read completes.
                 content = _read_with_byte_limit(f, max_bytes)
                 stat_after = os.fstat(f.fileno())
                 if stat_before.st_ino != stat_after.st_ino or stat_before.st_dev != stat_after.st_dev:
@@ -478,13 +377,6 @@ def _secure_read_text(
             raise
     else:
         # split the try so the deliberate reparse-point raise
-        # is NOT caught by the tolerant except (which previously swallowed
-        # it, making the Windows reparse-point protection dead code).
-        # initialize stat_result to None BEFORE the try-block so an
-        # OSError from os.lstat does not leave it unbound (the subsequent
-        # `stat_result is not None` reference would raise UnboundLocalError,
-        # which is NOT caught by the caller's `except (json.JSONDecodeError,
-        # OSError, ValueError)` and would crash app startup).
         stat_result = None
         try:
             stat_result = os.lstat(str(p)) if hasattr(os, "lstat") else None
@@ -494,11 +386,6 @@ def _secure_read_text(
         if attrs & 0x00000400:  # FILE_ATTRIBUTE_REPARSE_POINT
             raise OSError(f"SEC-002: refusing to follow reparse point: {p}")
         # pre-check file size on Windows (no fstat-on-fd pattern
-        # here because we use the high-level ``open()`` rather than
-        # ``os.open``).  This is a fast-path rejection of obviously
-        # oversized files; the chunked read below is the slow-path
-        # safety net for the TOCTOU case where the file grows between
-        # the lstat and the read.
         if max_bytes is not None and stat_result is not None and stat_result.st_size > max_bytes:
             raise ValueError(f"file size {stat_result.st_size} exceeds max_bytes={max_bytes}")
         with open(p, encoding=encoding) as f:
@@ -531,19 +418,6 @@ def _chmod_owner_only(path: Path) -> None:
 
 
 # Generic type parameter for :class:`PersistedJSON`.
-#
-# The default value passed to ``__init__`` is intentionally typed as
-# ``Any`` (not ``T``) so legacy callers that pass ``default=None`` and
-# later ``.save(some_dict)`` keep type-checking clean (they get the
-# pre-generic ``Any`` behaviour). New callers can opt INTO type safety
-# by explicitly parameterising the class: e.g.
-# ``PersistedJSON[dict[str, Any]](path, default={})``, after which
-# both :meth:`load` and :meth:`save` are statically checked against
-# ``dict[str, Any]``. The two existing call sites
-# (:class:`VocabularyManager`, :class:`TemplateManager`) currently do
-# not parameterise; parameterising them is a mechanical follow-up that
-# is out of scope for this change because those modules are owned by
-# another agent's area.
 T = TypeVar("T")
 
 
@@ -614,13 +488,6 @@ class PersistedJSON(Generic[T]):
         self._default = default
         self._bak_path = self._path.with_name(self._path.name + ".bak")
         # (High): _last_written_bytes cache for  diff optimization.
-        # Populated on load() and updated on save(). Stores the actual
-        # UTF-8 bytes of the last-written (or last-loaded) content, NOT
-        # just the byte length, so that a subsequent save with identical
-        # content can skip BOTH the file read (for .bak diff) AND the
-        # write (no fsync, no rename, no .bak churn). This eliminates
-        # the 2-fsync-per-save overhead for vocabulary/templates that are
-        # saved frequently but rarely change.
         self._last_written_bytes: bytes | None = None
 
     @property
@@ -666,9 +533,6 @@ class PersistedJSON(Generic[T]):
             raw = _sfio_shim()._secure_read_text(self._path, encoding="utf-8")
             result = json.loads(raw)
             # populate the diff cache so the next save() can skip
-            # both the file read AND the write if the content hasn't
-            # changed. Cache the actual UTF-8 bytes (not just the length)
-            # so a content-equality check is sufficient on the next save.
             self._last_written_bytes = raw.encode("utf-8")
             return result  # type: ignore[return-value, no-any-return]
         except (json.JSONDecodeError, OSError, ValueError) as exc:
@@ -697,8 +561,6 @@ class PersistedJSON(Generic[T]):
                 self._bak_path.name,
             )
             # cache the recovered .bak bytes so the next save()
-            # can skip both the file read AND the write if the content
-            # hasn't changed (mirrors the main-file load() path).
             self._last_written_bytes = raw.encode("utf-8")
             return result
         except (json.JSONDecodeError, OSError, ValueError) as exc:
@@ -750,34 +612,12 @@ class PersistedJSON(Generic[T]):
             if not self._path.exists():
                 return
             # Embed epoch seconds + PID + sub-second nanoseconds so two
-            # concurrent quarantine events never pick the same filename
-            # (closes the same-second TOCTOU race that the previous
-            # ``while corrupt_path.exists(): counter += 1`` loop had).
-            # Mirrors the suffix scheme already used by
-            # ``config.py:_backup_before_migration`` and
-            # ``config.py:_backup_before_downgrade``.
-            #
-            # A module-level monotonic counter is mixed into the
-            # nanosecond component: on Windows ``time.time_ns()`` can
-            # return the SAME value for rapid back-to-back / concurrent
-            # calls inside the same millisecond (coarse system-timer
-            # granularity), which would make two quarantine events pick
-            # the identical suffix and ``os.replace`` would silently
-            # overwrite one quarantine file. ``itertools.count`` is
-            # GIL-atomic so no lock is needed; the counter only
-            # disambiguates calls within the same ms window (wrapping
-            # would require 1M calls inside one ms, impossible).
             _sfio = _sfio_shim()
             ts = int(_sfio.time.time())
             pid = os.getpid()
             ts_ns = (_sfio.time.time_ns() % 1_000_000 + next(_sfio._QUARANTINE_SUFFIX_SEQ)) % 1_000_000
             corrupt_path = self._path.with_name(f"{self._path.name}.corrupt-{ts}-{pid}-{ts_ns}")
             # os.replace is atomic AND overwrites the destination
-            # on both POSIX and Windows (Path.rename / os.rename would
-            # fail on Windows if the destination exists).  With the
-            # pid + nanosecond suffix a collision is essentially
-            # impossible, but os.replace is the safety net so we never
-            # raise on the rename path.
             os.replace(str(self._path), str(corrupt_path))
             log.warning(
                 "[PERSISTED_JSON] Quarantined corrupt file: %s -> %s",
@@ -858,9 +698,6 @@ class PersistedJSON(Generic[T]):
                 ``os.replace`` does not follow the destination symlink).
         """
         # Lazy import so monkeypatches on
-        # ``voice_typer.server.config._secure_atomic_write`` are
-        # observed at call time (mirrors the pre-existing lazy import
-        # in ``vocabulary._save_user`` and ``templates._save``).
         from voice_typer.server.config import _secure_atomic_write
 
         self._path.parent.mkdir(parents=True, exist_ok=True)
@@ -868,71 +705,17 @@ class PersistedJSON(Generic[T]):
         content_bytes = content.encode("utf-8")
 
         # (High): diff-cache optimization. The cache
-        # stores the actual UTF-8 bytes of the last-written (or
-        # last-loaded) content. If the new content's bytes match the
-        # cached bytes EXACTLY, skip both the file read (no need to
-        # re-check the on-disk content) AND the write (no fsync, no
-        # rename, no .bak churn). This eliminates the redundant
-        # read-then-write cycle for vocabulary/templates that are saved
-        # frequently but rarely change.
-        #
-        # Correctness: the cache is populated ONLY after a successful
-        # load() or save() (both of which guarantee the on-disk bytes
-        # match the cached bytes), and is invalidated on a failed load
-        # (see ``test_cache_invalidated_on_failed_load``). So a cache
-        # hit here is proof that the on-disk content matches the new
-        # content, no need to re-read.
         if self._last_written_bytes is not None and content_bytes == self._last_written_bytes:
             return
 
         # Best-effort single-slot .bak before overwrite.
-        #
-        # SECURITY: refuse to follow symlinks on EITHER path.  If
-        # ``self._path`` is a symlink, ``Path.read_bytes()`` (used
-        # pre-fix) would read the SYMLINK TARGET's bytes, exfiltrating
-        # an arbitrary file's content into the ``.bak``.  If
-        # ``self._bak_path`` is a symlink, ``Path.write_bytes()``
-        # (used pre-fix) would write THROUGH the symlink to its target
-        # , overwriting an attacker-chosen file with the exfiltrated
-        # bytes.  Together: read-from-arbitrary-file + write-to-
-        # arbitrary-file primitive ( finding that the
-        # split moved into this shared helper WITHOUT fixing).
-        #
-        # The fix:
-        #   - Explicitly check ``is_symlink()`` on both paths and
-        #     SKIP the backup entirely if either is a symlink (the
-        #     main save via ``_secure_atomic_write`` is unaffected —
-        #     it uses ``os.replace`` which does NOT follow the
-        #     destination symlink, it replaces it).
-        #   - Use ``_secure_read_text`` (POSIX ``O_NOFOLLOW`` +
-        #     inode re-verification) for the existing-file read.
-        #     Defense-in-depth: even without the explicit
-        #     ``is_symlink()`` check, ``O_NOFOLLOW`` would raise
-        #     ``OSError`` on a symlink.  The explicit check is for
-        #     Windows (where ``O_NOFOLLOW`` is not supported) and
-        #     for clarity.
-        #   - Use ``_secure_atomic_write`` for the ``.bak`` write.
-        #     Its ``os.replace`` semantics ensure we never write
-        #     THROUGH a symlink at ``self._bak_path``; we replace
-        #     the symlink itself with a fresh regular file.
         if self._path.exists() and not self._path.is_symlink() and not self._bak_path.is_symlink():
             try:
                 # Read via _secure_read_text (O_NOFOLLOW on POSIX,
-                # reparse-point check on Windows).  If the existing
-                # file is somehow not valid UTF-8 (e.g. corrupt or
-                # hand-edited with a different encoding), this raises
-                # OSError/UnicodeDecodeError, caught by the
-                # ``except OSError`` below, and the backup is skipped
-                # (acceptable: the .bak is best-effort, and a non-UTF-8
-                # file is by definition already corrupt, backing it
-                # up via the JSON-aware save path would not help).
                 existing_text = _sfio_shim()._secure_read_text(self._path, encoding="utf-8")
                 existing_bytes = existing_text.encode("utf-8")
                 if existing_bytes != content_bytes:
                     # The 0o600 perms on the ``.bak`` are set inside
-                    # ``_secure_atomic_write`` itself (it chmods its
-                    # target on every success branch), no redundant
-                    # trailing chmod here.
                     _secure_atomic_write(self._bak_path, existing_text)
             except OSError as e:
                 log.debug(
@@ -943,9 +726,6 @@ class PersistedJSON(Generic[T]):
                 )
         elif self._path.is_symlink() or self._bak_path.is_symlink():
             # explicit log so a symlink-planting attack is
-            # visible in the logs (defense-in-depth visibility, the
-            # backup is silently skipped, but the operator can grep
-            # for this message to detect the attack).
             log.warning(
                 "[PERSISTED_JSON] Refusing to back up %s to %s, one of "
                 "the paths is a symlink (symlink-following defense). "
@@ -957,13 +737,4 @@ class PersistedJSON(Generic[T]):
 
         _secure_atomic_write(self._path, content, durability=durability)
         # update the diff cache so the next save() can skip if
-        # the content hasn't changed. Store the actual bytes (not just
-        # the length) so a content-equality check is sufficient.
-        #
-        # The 0o600 owner-only perms on the saved file are applied
-        # INSIDE ``_secure_atomic_write`` (unconditionally after the
-        # atomic ``os.replace``, on every success branch, see its
-        # ``_chmod_owner_only(target)`` call). A trailing re-chmod here
-        # would be a redundant extra syscall per save and mis-documents
-        # the write path as needing a second permission layer.
         self._last_written_bytes = content_bytes

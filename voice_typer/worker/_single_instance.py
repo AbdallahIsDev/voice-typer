@@ -1,16 +1,4 @@
-"""Single-instance lock for the worker process (master plan §7.2).
-
-This module is an intentional extraction from ``voice_typer/worker/__main__.py``
-per E3 (no spaghetti entry files). It mirrors
-:mod:`voice_typer.server.single_instance`'s shape: a lock file in the
-canonical app config dir, ``O_CREAT | O_EXCL | O_CLOEXEC`` + ``flock``
-on POSIX, existence check + stale-PID recovery on Windows, and stale-PID
-recovery when the holder process is dead.
-
-The worker single-instance lock file name (``worker.lock``) is distinct
-from the slim-core sidecar's ``backend.lock`` so the two processes can
-run side-by-side (master plan §7.1 "1-host ↔ 2-processes pattern").
-"""
+"""Worker single-instance guard."""
 
 from __future__ import annotations
 

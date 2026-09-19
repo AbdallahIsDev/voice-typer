@@ -1,5 +1,4 @@
 # extracted from the original
-# ``voice_typer/server/ipc_server.py`` god-module (Phase 4.5 split).
 """History-DB bounds and config sanitization helpers.
 
 Phase 4.5 / , extracted from the original ``ipc_server.py``
@@ -42,55 +41,9 @@ alone never tripped.  The cap matches the ``limit`` cap pattern.
 """
 
 # Fields whose values are secrets and must never be echoed back.
-# this frozenset is the EXPLICIT allowlist, kept for backward
-# compat with ``crash_recovery.py`` (which imports it for its own
-# config.json redaction path). The PATTERN-based denylist below is the
-# authoritative defense-in-depth: a new secret field that matches a
-# pattern is redacted EVEN IF no one remembers to add it here.
-#
-# This is now an ALIAS IMPORT from
-# :mod:`voice_typer.server.config_sanitizer` (the canonical home,
-# structurally derived from
-# ``credential_store.PROVIDER_TO_CONFIG_FIELD.values()``). Previously
-# this was a SECOND divergent copy of the same 5-field frozenset, a
-# hand-maintained literal that could silently drift out of sync with
-# the canonical set if a contributor added a new provider to
-# ``PROVIDER_TO_CONFIG_FIELD`` without updating this literal. The
-# canonical set is the single source of truth; the alias here keeps
-# the existing ``from voice_typer.server.ipc.history_bounds import
-# _SECRET_CONFIG_FIELDS`` import path (used by ``crash_recovery.py``,
-# ``ipc_server.py``, ``ipc/__init__.py``, and the  regression
-# tests) working unchanged while guaranteeing the two names refer to
-# the SAME frozenset object.
 from voice_typer.server.config_sanitizer import _SECRET_CONFIG_FIELDS  # noqa: F401
 
 # pattern-based secret-field denylist (defense-in-depth).
-#
-# Each entry is either:
-# - ``"!<suffix>"`` (e.g. ``"!_api_key"``), matches any field name
-#   ending with the suffix. This is the ``"*_api_key"`` glob form,
-#   encoded as ``"!"`` prefix so the matcher is unambiguous (no shell
-#   glob chars in Python string literals).
-# - ``"=name"`` (e.g. ``"=password"``), matches a field name that is
-#   EXACTLY ``name``. Used for bare names like ``password`` /
-#   ``credential`` / ``bearer`` that don't have a natural suffix.
-#
-# The patterns cover the conventional secret-bearing field names:
-# - ``*_api_key``: cloud/vendor API keys (cloud_api_key, openai_api_key,
-#   azure_api_key, anthropic_api_key, whisper_api_key, ...)
-# - ``*_token``: OAuth / refresh / bearer tokens (access_token,
-#   refresh_token, id_token, bearer_token, ...)
-# - ``*_secret``: HMAC secrets, client secrets (client_secret,
-#   signing_secret, ...)
-# - ``password`` / ``*_password``: password fields (user_password,
-#   admin_password, db_password, ...)
-# - ``credential`` / ``*_credential``: credential blobs (aws_credential,
-#   service_credential, ...)
-# - ``bearer`` / ``*_bearer``: bearer tokens (auth_bearer, ...)
-#
-# IMPORTANT: the patterns are NAME-based, not value-based. A field like
-# ``warn_password_paste`` (boolean flag in Config) does NOT match
-# because it doesn't end in ``_password`` (it ends in ``_paste``).
 _SECRET_FIELD_PATTERNS: tuple[str, ...] = (
     # Suffix patterns (``*_api_key`` glob form).
     "!_api_key",
@@ -100,12 +53,6 @@ _SECRET_FIELD_PATTERNS: tuple[str, ...] = (
     "!_credential",
     "!_bearer",
     # ``!_key`` catches generic key-suffixed fields that the
-    # narrower ``!_api_key`` suffix missed, ``secret_key``,
-    # ``signing_key``, ``private_key``, ``hmac_key``, ``aes_key``,
-    # ``encryption_key``. The pattern is NAME-based so a non-secret
-    # field like ``keyboard_layout_key`` (a configurable key code)
-    # WOULD match, but the conservative redaction stance is
-    # preferable to silently leaking a signing key.
     "!_key",
     # Exact-match patterns (bare names, must be the WHOLE field name).
     "=password",
@@ -115,11 +62,6 @@ _SECRET_FIELD_PATTERNS: tuple[str, ...] = (
     "=token",
     "=api_key",
     # bare-name exact matches for cryptographic key material
-    # that doesn't carry a vendor prefix. ``private_key`` /
-    # ``secret_key`` / ``signing_key`` are the conventional names for
-    # PEM-encoded key blobs; without these exact matches a Config
-    # field literally named ``private_key`` would be echoed verbatim
-    # to the IPC client (credential disclosure).
     "=private_key",
     "=secret_key",
     "=signing_key",
@@ -155,26 +97,15 @@ def _is_secret_field_name(name: str) -> bool:
     return False
 
 
-# Sentinel returned in place of a secret value.  The renderer treats
-# this as "key is set, do not display", it must NOT treat this as the
 # actual key value (which would be a regression of SEC-003).
 _REDACTED_SENTINEL = "<redacted>"
 
 
 # SEC-010: maximum number of history rows a single IPC call can
-# materialize.  Without this cap, ``{"limit": 100000000}`` would
-# force SQLite to scan and the dispatcher to materialize a million
-# rows before slicing, a trivial DoS.
 _HISTORY_LIMIT_MAX = 500
 _HISTORY_LIMIT_DEFAULT = 50
 
 # maximum history ``offset`` accepted from a client.  Python
-# big-ints are unbounded, so without this cap a client sending
-# ``offset=999999999999`` (or ``int('9'*10000)``) could force SQLite to
-# scan/skip rows wastefully even though the result set is empty.  10M
-# is far above any plausible history size (a 24/7 dictation user
-# accumulates ~100K rows/year) but small enough that SQLite's
-# ``OFFSET n`` skip is microseconds.  See :func:`_bound_history_offset`.
 _HISTORY_OFFSET_MAX = 10_000_000
 
 
@@ -196,8 +127,6 @@ def _bound_history_limit(raw) -> int:
     """
     if isinstance(raw, bool):
         # bool subclasses int, reject explicitly so a stray
-        # ``{"limit": true}`` payload uses the default rather than
-        # silently coercing to 1.
         return _HISTORY_LIMIT_DEFAULT
     if raw is None:
         return _HISTORY_LIMIT_DEFAULT
@@ -231,8 +160,6 @@ def _bound_history_offset(raw) -> int:
     """
     if isinstance(raw, bool):
         # bool subclasses int, reject explicitly so a stray
-        # ``{"offset": true}`` payload uses the default (0) rather
-        # than silently coercing to 1.
         return 0
     if raw is None:
         return 0
@@ -273,12 +200,6 @@ def _sanitize_config_for_ipc(config) -> dict:
             continue
         v = out[k]
         # redact any set value.  Both "unset" sentinels (``None`` and
-        # ``""``, the schema default for API-key fields) are preserved
-        # verbatim so the renderer can distinguish "not configured"
-        # from "configured but hidden".  ``0`` / ``False`` stay masked:
-        # no real secret takes those values.  NOTE: use ``== ""``,
-        # never truthiness — ``not v`` would re-open the ``0`` /
-        # ``False`` leak this tightening closed.
         if v is None or v == "":
             continue
         out[k] = _REDACTED_SENTINEL

@@ -298,26 +298,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from voice_typer.server.log_rate_limit import log_rate_limited
 
-# EVENT_TYPES registry ────────────────────────────────────
 # The docstring catalogue above lists every event the system knows about,
-# but until  the list lived ONLY in the docstring, there was no
-# Python constant. 30+ ``event_bus.publish({"type": "<name>"})`` call
-# sites used bare string literals, and the Rust WS reader
-# (``src-tauri/src/sidecar/ws.rs:62-98``) mirrored the list by hand
-# (``ALLOWED_EVENT_TYPES: &[&str]``). Drift happened twice (legacy
-# aliases documented as "REMOVED"); missed Rust-side updates silently
-# dropped events.
-#
-# This constant is the Python-side source of truth. It mirrors the
-# existing ``ERROR_CODES`` pattern in ``ipc/validation.py:98``.
-#
-# The set is a SUPERSET of the docstring catalogue: it also includes
-# events that are emitted but were never added to the docstring
-# (``llm_polish_failed``, ``asr_backend_disabled``,
-# ``asr_last_resort_unloaded``, ``error``, ``mic_level``,
-# ``device_lost``) plus the two ``IPCServer.push``-only events
-# (``state_changed``, ``status_change``) so the dev-time assertion in
-# ``publish()`` doesn't false-positive on a real call site.
 EVENT_TYPES: frozenset[str] = frozenset(
     {
         "ready",
@@ -362,13 +343,9 @@ EVENT_TYPES: frozenset[str] = frozenset(
         "device_lost",
         "dictation_lost",
         # Model-load lifecycle (model_manager/_change.py background
-        # thread, the set_config ack's ``model_loading`` envelope pairs
-        # with these):
         "asr_backend_ready",
         "asr_backend_load_failed",
         # Mid-recording device/permission events (recorder stream's
-        # device-health paths, distinct from the level-monitor's
-        # ``device_lost``):
         "microphone_permission_revoked",
         "microphone_disconnected",
         # Engine / pipeline degradation observability:
@@ -385,9 +362,6 @@ EVENT_TYPES: frozenset[str] = frozenset(
 )
 
 # dev-time assertion gate. Default OFF so production is not
-# slowed and existing event_bus unit tests (which publish synthetic
-# types like ``"test"``) don't false-positive. Set
-# ``VOICE_TYPER_DEBUG_EVENTS=1`` at dev time to opt in.
 _DEBUG_EVENTS: bool = os.environ.get("VOICE_TYPER_DEBUG_EVENTS", "") == "1"
 
 
@@ -412,7 +386,6 @@ def _subscriber_key(fn: typing.Callable[..., typing.Any]) -> str:
     qualname = getattr(fn, "__qualname__", None) or ""
     module = getattr(fn, "__module__", "") or ""
     # Bound methods: include id() of the bound instance so two methods
-    # bound to different instances get separate counters.
     self_obj = getattr(fn, "__self__", None)
     if self_obj is not None:
         return f"{module}.{qualname}@0x{id(self_obj):x}"
@@ -424,27 +397,7 @@ def _subscriber_key(fn: typing.Callable[..., typing.Any]) -> str:
 
 log = logging.getLogger("voice_typer.server.event_bus")
 
-# ── Resolver wrappers for the snapshot tuple ───────────────────────────
-#
 # publish() iterates a tuple of "resolvers", zero-argument callables
-# that return the live subscriber callback (or None if the subscriber
-# was GC'd since the snapshot was taken). Three resolver kinds exist,
-# one per subscriber bucket in _SubscriberSet:
-#
-#   * weakref.WeakMethod      , for Python bound methods (_weak_py).
-#     WeakMethod is already a zero-arg callable returning the bound
-#     method or None, so it is used directly as the resolver.
-#   * _StrongResolver          , for plain functions / lambdas (_strong)
-#     and C-level bound methods that can't be weakly referenced
-#     (_strong_c). Wraps the strong callback; __call__ always returns
-#     it (never None, strong refs don't die).
-#   * _CWeakResolver           , for C-level bound methods (_weak_c).
-#     Wraps a (weakref.ref, name) pair; __call__ returns
-#     getattr(weakref(), name, None) or None.
-#
-# The snapshot holds NO strong references to bound methods (only to
-# plain functions, which are module-level and never GC'd). This
-# preserves the  leak-prevention semantics.
 
 
 class _StrongResolver:
@@ -496,20 +449,12 @@ class _SubscriberSet:
     def __init__(self) -> None:
         self._strong: set[typing.Callable[[dict], None]] = set()
         # Python bound methods (have __func__), keyed by
-        # (id(__self__), id(__func__)). Value is a WeakMethod.
         self._weak_py: dict[tuple[int, int], weakref.WeakMethod] = {}
         # C-level bound methods (e.g. list.append, have __self__ +
-        # __name__ but no __func__). Keyed by (id(__self__), __name__).
-        # Value is (weakref to __self__, method_name).
         self._weak_c: dict[tuple[int, str], tuple[weakref.ref, str]] = {}
         # Fallback for C-level bound methods whose __self__ is not
-        # weakly referenceable (e.g. list, tuple). Same keying as
-        # _weak_c so discard finds entries regardless of bucket.
         self._strong_c: dict[tuple[int, str], typing.Callable[[dict], None]] = {}
         # Snapshot tuple of resolvers (WeakMethod / _StrongResolver /
-        # _CWeakResolver). Rebuilt atomically on every mutation under
-        # the lock. publish() reads this tuple WITHOUT acquiring the
-        # lock (tuple read is GIL-atomic).
         self._snapshot: tuple = ()
 
     @staticmethod
@@ -625,22 +570,12 @@ class _SubscriberSet:
 
 
 # weak-ref-aware subscriber set. Bound methods are stored via
-# WeakMethod so destroyed subscribers (e.g. an IPCServer that crashed
-# during stop() without calling unsubscribe) are GC'd instead of
-# leaking forever. Plain functions / lambdas stay strong-ref'd.
 _subscribers: _SubscriberSet = _SubscriberSet()
 
 # RLock (not Lock) so a subscriber that calls publish() re-entrantly
-# does not deadlock.  Re-entrant publish is discouraged but supported.
 _lock = threading.RLock()
 
 # When ``publish()`` is called from a real-time audio thread
-# (sounddevice's PortAudio callback, or the in-process "audio-worker"
-# thread that drives the callback), synchronous fan-out to every
-# subscriber can glitch capture, a slow subscriber (json.dumps +
-# socket.sendall to a stalled predecessor renderer) blocks the RT loop.
-# Detect the audio thread by name and defer to a single-worker
-# ThreadPoolExecutor so the RT thread returns in microseconds.
 _RT_THREAD_NAME_PREFIXES: tuple[str, ...] = (
     "audio-worker",  # voice_typer.server.recording._AUDIO_WORKER_THREAD_NAME
     "PortAudio",  # sounddevice's native callback thread prefix
@@ -649,15 +584,6 @@ _deferred_executor: ThreadPoolExecutor | None = None
 _deferred_executor_lock = threading.Lock()
 
 # bound the deferred-publish queue. ``ThreadPoolExecutor`` uses
-# an unbounded ``SimpleQueue`` internally; a slow subscriber (stalled
-# socket.sendall to the predecessor renderer) at 60 Hz ``bubble_level``
-# fan-out would queue 36,000 tasks over 10 minutes, unbounded memory
-# growth under backpressure. The counter tracks in-flight deferred
-# tasks; when it exceeds ``_DEFERRED_QUEUE_MAX`` new submissions are
-# dropped (with a rate-limited WARNING) so memory is bounded. Dropped
-# events are idempotent high-frequency UI updates (bubble_level),
-# losing some under backpressure is preferable to
-# OOM-killing the audio process.
 _DEFERRED_QUEUE_MAX = 256
 _deferred_in_flight: int = 0
 _deferred_in_flight_lock = threading.Lock()
@@ -684,13 +610,9 @@ def _get_deferred_executor() -> ThreadPoolExecutor:
     """
     global _deferred_executor
     # Fast path, no lock acquired. The global is published via the
-    # GIL-atomic pointer assignment inside the slow path below; reads
-    # here are safe under the GIL.
     if _deferred_executor is not None:
         return _deferred_executor
     # Slow path: optimistically create our own executor BEFORE
-    # acquiring the lock, so two racing threads don't serialize on
-    # executor construction (which spawns a worker thread, ~1ms).
     local_executor = ThreadPoolExecutor(
         max_workers=1,
         thread_name_prefix="event-bus-publisher",
@@ -701,13 +623,8 @@ def _get_deferred_executor() -> ThreadPoolExecutor:
             _deferred_executor = local_executor
             return local_executor
         # We lost the race, another thread installed theirs while we
-        # were constructing ours. Shut ours down so its worker thread
-        # doesn't leak (), then return the winner.
         winner = _deferred_executor
     # Shutdown OUTSIDE the lock to avoid blocking other racing callers.
-    # ``wait=False`` returns immediately; the worker thread exits on
-    # its next idle poll (it has no queued tasks, we never submitted
-    # any to our local executor).
     local_executor.shutdown(wait=False)
     return winner
 
@@ -793,25 +710,9 @@ def _deliver_deferred(event, resolvers):
             _deferred_in_flight = max(0, _deferred_in_flight - 1)
 
 
-# ── Transport-liveness probes ──────────────────────────────────────────
-#
 # ``publish()`` returns True when ANY in-process subscriber accepted the
-# event. That is NOT the same as "the event reached the host UI": the
-# IPC transport's push() swallows write failures (it buffers to
-# ``_pending_tcp`` and marks the client dead instead of raising) and the
-# no-client path buffers silently, while unrelated subscribers (e.g. the
-# tray's parakeet-cpu-fallback listener) accept every event without
-# raising. Callers that must know whether the event actually went over
-# the wire to a live host client (``tray_window.open_app_window``)
-# register a zero-arg probe here; :func:`has_live_transport` reports
-# whether any registered probe currently has a live client.
 _transport_probes: list[typing.Any] = []
 # RLock (not Lock), mirrors ``_lock``: the WeakMethod eviction
-# callback (``_on_transport_probe_dead``) fires at arbitrary decref
-# points on arbitrary threads, and may run while the same thread holds
-# this lock if a future change ever resolves/holds a probe (and thus a
-# server reference) inside a critical section. Re-entrancy makes that
-# impossible to deadlock.
 _transport_probes_lock = threading.RLock()
 
 
@@ -829,8 +730,6 @@ def _as_probe_entry(probe: typing.Callable[[], bool]) -> typing.Any:
     stored as-is.
     """
     # ``getattr`` with defaults (not ``hasattr``) so the check is
-    # type-checker-clean on a ``Callable``-typed param and matches the
-    # ``_SubscriberSet._classify`` pattern.
     if getattr(probe, "__self__", None) is not None and getattr(probe, "__func__", None) is not None:
         return weakref.WeakMethod(probe, _on_transport_probe_dead)
     return probe
@@ -871,9 +770,6 @@ def unregister_transport_probe(probe: typing.Callable[[], bool] | None) -> None:
         return
     with _transport_probes_lock, contextlib.suppress(ValueError):
         # ``WeakMethod.__eq__`` compares the underlying bound method,
-        # so re-wrapping here matches the stored entry even though the
-        # callback differs. ``ValueError`` = never registered (or
-        # already evicted), a no-op.
         _transport_probes.remove(_as_probe_entry(probe))
 
 
@@ -890,8 +786,6 @@ def has_live_transport() -> bool:
     if not probes:
         return True
     for entry in probes:
-        # Bound-method entries are WeakMethods (resolve to None once
-        # the owning server is GC'd, the eviction callback normally
         # removes them first; the skip is purely defensive).
         cb = entry() if isinstance(entry, weakref.WeakMethod) else entry
         if cb is None:
@@ -901,10 +795,6 @@ def has_live_transport() -> bool:
                 return True
         except Exception:
             # Isolate probe failures (mirrors ``_deliver``'s
-            # subscriber-isolation): a raising probe must not take down
-            # the caller (e.g. the tray click handler, which wraps
-            # ``publish`` but not ``has_live_transport``). Rate-limited
-            # so a persistently-broken probe logs once, not every call.
             log_rate_limited(
                 log,
                 logging.WARNING,
@@ -978,8 +868,6 @@ def publish(event: dict, *, async_dispatch: bool = False) -> bool:
           re-invoked on subsequent publishes.
     """
     # dev-time membership check. Gated by ``_DEBUG_EVENTS`` (env
-    # var ``VOICE_TYPER_DEBUG_EVENTS=1``) so production is not slowed
-    # and the existing event_bus unit tests don't false-positive.
     if _DEBUG_EVENTS:
         _event_type = event.get("type")
         assert _event_type in EVENT_TYPES, (
@@ -991,19 +879,9 @@ def publish(event: dict, *, async_dispatch: bool = False) -> bool:
     if not snapshot:
         return False
     # defer fan-out when called from an RT thread.
-    # also defer when the caller explicitly opts in via
-    # ``async_dispatch=True`` (e.g. transcription thread that must not
-    # block on slow IPC writes). The RT-thread check takes precedence
-    # so audio hot-path latency stays bounded regardless of the flag.
     if _is_rt_thread() or async_dispatch:
         global _deferred_in_flight, _deferred_drop_count
         # bound the deferred queue. If the single worker is
-        # backed up (slow subscriber), drop new submissions rather than
-        # queuing them indefinitely. The drop is rate-limited so a
-        # persistently-slow subscriber produces one WARNING per minute,
-        # not 60/sec. Dropped events are idempotent high-frequency UI
-        # updates (bubble_level); losing some under
-        # backpressure is preferable to unbounded memory growth.
         with _deferred_in_flight_lock:
             if _deferred_in_flight >= _DEFERRED_QUEUE_MAX:
                 _deferred_drop_count += 1
@@ -1025,7 +903,6 @@ def publish(event: dict, *, async_dispatch: bool = False) -> bool:
             _get_deferred_executor().submit(_deliver_deferred, event, snapshot)
         except RuntimeError:
             # Executor was shut down (process exit); fall back to sync.
-            # Undo the in-flight increment so the counter doesn't leak.
             with _deferred_in_flight_lock:
                 _deferred_in_flight = max(0, _deferred_in_flight - 1)
             return _deliver(event, snapshot)

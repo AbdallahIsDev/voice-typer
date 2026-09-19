@@ -1,29 +1,4 @@
-"""RDP / SSH remote-session detection + non-microphone device predicate.
-
-Phase 4.5 / , extracted from the original
-``voice_typer/server/server_platform.py`` god-module.  The two helpers in
-this file have no cross-submodule state: they only read ``SYSTEM`` (the
-``sys.platform`` snapshot owned by :mod:`.platform_flags`) and stdlib
-``os`` / ``ctypes``.
-
-Patch-path compatibility
-------------------------
-Tests patch ``is_remote_session`` via
-``monkeypatch.setattr("voice_typer.server.server_platform.remote_session.is_remote_session", ...)``
-or swap the whole owning module via
-``patch.dict(sys.modules, {"voice_typer.server.server_platform.remote_session": fake})``
-— callers (e.g. ``clipboard.py``) import the function lazily inside a
-try/except from :mod:`.remote_session`, so both forms take effect at
-call time. For the dispatch on the platform, ``is_remote_session`` reads
-``_platform_flags.SYSTEM`` (NOT a local ``SYSTEM`` binding) so a test
-that patches ``platform_flags.SYSTEM`` still takes effect.
-
-``inspect.getsource`` compatibility
------------------------------------
-``is_remote_session`` and ``_is_non_mic_device`` are genuinely defined
-here, so ``inspect.getsource(is_remote_session)`` continues to read from
-this file.
-"""
+"""RDP / SSH remote-session detection + non-microphone device predicate."""
 
 from __future__ import annotations
 
@@ -32,46 +7,12 @@ import os
 import re
 
 # Patch-path bridge: read ``SYSTEM`` through the owning
-# :mod:`.platform_flags` module attribute at call time (NOT a local
-# ``SYSTEM`` binding) so a test that patches
-# ``voice_typer.server.server_platform.platform_flags.SYSTEM`` still
-# takes effect.
 from voice_typer.server.server_platform import platform_flags as _platform_flags
 
 log = logging.getLogger(__name__)
 
 
-# ─── RDP / remote session detection ──────────────────────────────────
-
-
 # POSIX env vars that indicate a remote-desktop session. Each
-# entry is checked via ``os.environ.get(name)``, a truthy value means
-# we're inside that remote-session backend. The list covers the major
-# Linux/POSIX remote-desktop technologies that the pre-fix code missed:
-#
-# - ``VNCDESKTOP``: set by the vncserver wrapper script (TigerVNC,
-#   TightVNC, RealVNC) when a VNC session is active. Set on the
-#   per-session X server process tree.
-# - ``X2GO_SESSION``: set by x2goclient / x2goserver (NX-based remote
-#   desktop, popular in education and enterprise).
-# - ``NX_TEMP``: set by NoMachine / NX (the commercial successor to
-#   the original NX protocol). ``NX_TEMP`` is the temp-dir env var
-#   that NX sets when a session is active.
-# - ``CITRIX_SESSION``: set by Citrix Workspace (ICA protocol) inside
-#   the published-app session.
-# - ``TERM_PROGRAM == "Hyper"``: Chrome Remote Desktop sets
-#   ``TERM_PROGRAM=Hyper`` inside its remoting shell (a quirk of the
-#   CRD host-side shell wrapper). Other terminals (iTerm2, GNOME
-#   Terminal) set ``TERM_PROGRAM`` too, but only CRD sets it to
-#   ``"Hyper"`` (which is also the name of an predecessor-based terminal
-#   emulator, false positive risk is low because Hyper users on a
-#   local desktop don't typically rely on ``is_remote_session``-gated
-#   behavior).
-#
-# The list is intentionally NOT exhaustive, there are dozens of
-# niche remote-desktop tools (Sun Ray, SPICE, Guacamole, X11-forwarding
-# over SSH without SSH_TTY, etc.). The goal is to cover the major
-# technologies that the original finding () called out by name.
 _POSIX_REMOTE_SESSION_ENV_VARS: tuple[str, ...] = (
     "SSH_CLIENT",
     "SSH_TTY",
@@ -83,28 +24,13 @@ _POSIX_REMOTE_SESSION_ENV_VARS: tuple[str, ...] = (
 
 
 def _posix_proc_has_remote_desktop() -> bool:
-    """scan /proc/*/comm for remote-desktop daemon processes.
-
-    Some VNC/NX setups don't export an env var to the user's shell (e.g.
-    when the session was started by a system service or when the user
-    re-attached to an existing session via ``vncserver -reuse``). We
-    scan the running processes' ``comm`` (the executable name, capped
-    at 15 chars by the kernel) for the well-known remote-desktop
-    process names.
-
-    Returns True on the first match. Returns False if ``/proc`` is not
-    available (non-Linux POSIX, e.g. macOS/BSD) or no match is found.
-    """
+    """scan /proc/*/comm for remote-desktop daemon processes."""
     import os.path
 
     # The process names to look for (kernel truncates comm at 15 chars,
-    # so we match by substring, case-sensitive because comm is the
-    # literal argv[0] basename).
     targets = ("Xvnc", "x2goagent", "nxagent")
 
     # Walk /proc/*/comm. Each entry is a single short line. We bound
-    # the walk at 4096 processes (more than any real system) so a
-    # pathological /proc with millions of entries can't hang the probe.
     try:
         proc_entries = os.listdir("/proc")
     except (OSError, FileNotFoundError):
@@ -129,33 +55,7 @@ def _posix_proc_has_remote_desktop() -> bool:
 
 
 def is_remote_session() -> bool:
-    """PLAT-RDP: Detect if the app is running in an RDP/remote session.
-
-    On Windows, uses GetSystemMetrics(SM_REMOTESESSION = 0x1000).
-        additionally attempts ``WTSQuerySessionInformation`` (WTSConnectState)
-        via wtsapi32, Microsoft docs note that SM_REMOTESESSION is not
-        updated for Windows Virtual Desktop / Azure RemoteApp sessions, so
-        the WTS API is the authoritative probe when available.
-
-        On Linux/macOS (POSIX), checks (in order):
-          1. SSH session env vars (``$SSH_CLIENT`` / ``$SSH_TTY``).
-          2. VNC env var (``$VNCDESKTOP``).
-          3. X2GO session env var (``$X2GO_SESSION``).
-          4. NoMachine / NX env var (``$NX_TEMP``).
-          5. Citrix session env var (``$CITRIX_SESSION``).
-          6. Chrome Remote Desktop env var (``$TERM_PROGRAM == "Hyper"``).
-          7. /proc/*/comm scan for Xvnc / x2goagent / nxagent processes
-             (covers sessions that don't export an env var to the user's
-             shell: e.g. re-attached VNC sessions).
-
-        RDP/VNC clipboard may be redirected, so clipboard operations may
-        behave differently (e.g. clipboard sync delays, missing formats).
-        Keystroke injection via XTest may not propagate to the remote
-        display on VNC/xrdp, the app now logs a warning when a remote
-        session is detected so the user understands the degraded behavior.
-
-        Returns True if a remote session is detected.
-    """
+    """PLAT-RDP: Detect if the app is running in an RDP/remote session."""
     if _platform_flags.SYSTEM == "win32":
         return _is_windows_remote_session()
     else:
@@ -163,23 +63,7 @@ def is_remote_session() -> bool:
 
 
 def _is_windows_remote_session() -> bool:
-    """Windows remote-session detection.
-
-        Primary: ``GetSystemMetrics(SM_REMOTESESSION = 0x1000)``. This is
-        the legacy RDP probe; Microsoft docs note it's NOT updated for
-        Windows Virtual Desktop / Azure RemoteApp sessions.
-
-    Secondary (): ``WTSQuerySessionInformation`` via wtsapi32,
-        requesting ``WTSConnectState`` for the current session. If the
-        connect state is ``WTSActive`` AND the session is NOT the physical
-        console session (``WTSGetActiveConsoleSessionId`` differs from the
-        current session ID), we're in a remote session. This catches WVD /
-        Azure RemoteApp that SM_REMOTESESSION misses.
-
-        The WTS API is gated behind try/except so the probe never takes
-        down the caller, on Windows Home editions or stripped-down
-        Windows containers, wtsapi32 may not be present.
-    """
+    """Windows remote-session detection."""
     try:
         import ctypes
     except Exception:
@@ -196,7 +80,6 @@ def _is_windows_remote_session() -> bool:
         log.debug("[PLATFORM] SM_REMOTESESSION probe failed", exc_info=True)
 
     # Secondary (): WTSQuerySessionInformation for WVD / Azure
-    # RemoteApp sessions that SM_REMOTESESSION misses.
     try:
         wtsapi32 = ctypes.windll.wtsapi32
         kernel32 = ctypes.windll.kernel32
@@ -209,7 +92,6 @@ def _is_windows_remote_session() -> bool:
         buffer = ctypes.c_void_p()
         bytes_returned = ctypes.c_ulong(0)
         # WTSQuerySessionInformationW(handle, session, class, &buffer, &bytes)
-        # Returns BOOL (nonzero on success).
         ok = wtsapi32.WTSQuerySessionInformationW(
             ctypes.c_void_p(0),  # WTS_CURRENT_SERVER_HANDLE = NULL
             WTS_CURRENT_SESSION,
@@ -219,7 +101,6 @@ def _is_windows_remote_session() -> bool:
         )
         if ok and bytes_returned.value >= 4:
             # The returned buffer is a DWORD (4 bytes) holding the
-            # WTS_CONNECTSTATE_CLASS enum value. 0 = WTSActive.
             connect_state = ctypes.cast(buffer, ctypes.POINTER(ctypes.c_ulong)).contents.value
             # Free the buffer. WTSFreeMemory is mandatory on success.
             import contextlib
@@ -227,12 +108,8 @@ def _is_windows_remote_session() -> bool:
             with contextlib.suppress(Exception):
                 wtsapi32.WTSFreeMemory(buffer)
             # Get the physical console session ID. If the current
-            # session differs from the console, we're in a remote
-            # session (WVD, Azure RemoteApp, or RDP).
             console_session_id = kernel32.WTSGetActiveConsoleSessionId()
             # ``WTSGetActiveConsoleSessionId`` returns 0xFFFFFFFF if
-            # there is no attached physical console (e.g. headless
-            # server), in that case, any non-console session is remote.
             if connect_state == 0 and console_session_id == 0xFFFFFFFF:
                 log.warning(
                     "[PLATFORM] Remote Windows session detected via WTS API "
@@ -247,16 +124,7 @@ def _is_windows_remote_session() -> bool:
 
 
 def _is_posix_remote_session() -> bool:
-    """POSIX remote-session detection.
-
-    Checks (in order): SSH env vars → VNC env var → X2GO env var → NX
-    env var → Citrix env var → Chrome Remote Desktop (TERM_PROGRAM ==
-    "Hyper") → /proc/*/comm scan for Xvnc / x2goagent / nxagent.
-
-    Logs a warning when a remote session is detected so the user
-    understands the degraded behavior (clipboard sync delays, XTest
-    keystroke injection may not propagate to the remote display).
-    """
+    """POSIX remote-session detection."""
     # 1-5: env-var checks for the major remote-desktop backends.
     for var_name in _POSIX_REMOTE_SESSION_ENV_VARS:
         value = os.environ.get(var_name)
@@ -275,8 +143,6 @@ def _is_posix_remote_session() -> bool:
             return True
 
     # 6: Chrome Remote Desktop sets TERM_PROGRAM=Hyper in its remoting
-    # shell wrapper. Substring-equality (case-sensitive) to avoid
-    # matching "Hyper" as a substring of an unrelated value.
     term_program = os.environ.get("TERM_PROGRAM", "")
     if term_program == "Hyper":
         log.info("[PLATFORM] Chrome Remote Desktop session detected (TERM_PROGRAM=Hyper)")
@@ -288,8 +154,6 @@ def _is_posix_remote_session() -> bool:
         return True
 
     # 7: /proc/*/comm scan for VNC/NX/X2GO daemons (covers sessions
-    # that don't export an env var to the user's shell, e.g.
-    # re-attached VNC sessions started by a system service).
     if _posix_proc_has_remote_desktop():
         log.warning(
             "[PLATFORM] Remote-desktop daemon process detected in /proc "
@@ -299,9 +163,6 @@ def _is_posix_remote_session() -> bool:
         return True
 
     return False
-
-
-# ─── Non-microphone device predicate ─────────────────────────────────
 
 
 def _is_non_mic_device(name: str) -> bool:
@@ -321,15 +182,10 @@ def _is_non_mic_device(name: str) -> bool:
         return True
 
     # System virtual devices that just mirror the default device
-    # (redundant with "System Default" menu option)
     return bool(any(p in lower for p in ["microsoft sound mapper", "primary sound capture driver"]))
 
 
 # Generic WASAPI/CoreAudio/PulseAudio endpoint words that appear as the
-# friendly-name prefix when a host API fails to give a real device name.
-# A name made of ONLY one of these words plus empty parentheticals
-# (e.g. ``"Input ()"``, ``"Microphone ( )"``) is a placeholder endpoint,
-# not a usable microphone.
 _GENERIC_ENDPOINT_LABELS = frozenset(
     {
         "microphone",
@@ -352,28 +208,7 @@ _EMPTY_PAREN_GROUP_RE = re.compile(r"\(\s*\)")
 
 
 def _is_invalid_device_name(name: object) -> bool:
-    """Return True if *name* is not a usable microphone display name.
-
-    Windows WASAPI (and occasionally MME / CoreAudio / PulseAudio) can
-    expose input endpoints with an EMPTY or placeholder friendly name —
-    users see a literal ``Input ()`` row (channels + sample rate, no
-    real device behind it). Such rows are unusable and must be filtered
-    out of :func:`.microphone_list.list_microphones` output.
-
-    A name is INVALID when any of the following holds:
-
-    - it is not a string, or is empty / whitespace-only;
-    - it contains no alphanumeric characters at all
-      (e.g. ``"---"``, ``"()"``);
-    - after removing every EMPTY parenthetical group, what remains is a
-      bare generic endpoint label (e.g. ``"Input ()" → "Input"``) —
-      the signature of a placeholder endpoint.
-
-    Legitimate names survive untouched: ``"Line 1 (Virtual Audio Cable)"``
-    has non-empty parentheses and extra content; ``"Microphone (Realtek Audio)"``
-    keeps its real endpoint description; trailing whitespace differences
-    are ignored (callers should pass the trimmed name).
-    """
+    """Return True if *name* is not a usable microphone display name."""
     if not isinstance(name, str):
         return True
     stripped = name.strip()

@@ -1,14 +1,4 @@
-"""Shared login-child spawn recipe (BP-130).
-
-All five autostart spawn sites (Tauri host, Tauri focus probe, lean
-predecessor focus, built predecessor, npm run dev) shared the same shape:
-child env + sensitive-key audit + log-file/flags kwargs + Popen +
-pid log + parent handle close. The copies drifted, the
-built-predecessor copy closed parent handles only on success, leaking
-them whenever ``Popen`` raised. One recipe, try/except/finally;
-every site routes through it. Env construction and kwargs stay at
-the call sites (they genuinely differ per child).
-"""
+"""Autostart process spawn helpers."""
 
 from __future__ import annotations
 
@@ -19,8 +9,6 @@ from voice_typer.server.autostart._spawn_env import _log_sensitive_env_keys
 from voice_typer.server.autostart.log_files import _close_log_files
 
 # C-CROSS-3: explicit dotted logger name, the launcher runs as a bare
-# script (``pythonw.exe autostart_launcher.py``), so ``__name__`` would
-# be ``"__main__"`` and miss the app's rotating file handler.
 log = logging.getLogger("voice_typer.server.autostart_launcher")
 
 
@@ -31,18 +19,7 @@ def _spawn_login_child(
     spawn_kwargs: dict,
     describe: str,
 ) -> subprocess.Popen | None:
-    """Spawn one login child with the unified cleanup shape.
-
-    *describe* names the child for logs (e.g. ``"tauri app /bin
-    (hidden=True)"``). Returns the child on success, ``None`` on
-    failure. Parent copies of log-file handles are ALWAYS closed
-    (the child inherited them), on success and on ``Popen``-raise
-    alike.
-
-    This helper is the SINGLE choke point for the [ENV] sensitive-key
-    audit line: it logs once per spawn. Callers must NOT pre-log the
-    same line (that doubled the identical entry on every spawn).
-    """
+    """Spawn one login child with the unified cleanup shape."""
     _log_sensitive_env_keys(env, context="autostart")
     try:
         child = subprocess.Popen(cmd, env=env, **spawn_kwargs)

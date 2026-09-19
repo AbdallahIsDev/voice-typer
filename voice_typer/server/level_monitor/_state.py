@@ -1,49 +1,4 @@
-"""Shared state for the level_monitor package ().
-
-This module owns the singleton ``_state`` instance that holds every
-piece of mutable module-level state previously scattered across
-``level_monitor.py``'s top-level namespace (27 module-level globals
-in the pre-refactor god-module).
-
-Why a singleton class instead of plain module-level globals?
-------------------------------------------------------------
-Python's ``global X`` statement only refers to the *current module's*
-namespace. If ``monitoring.py`` did ``global _monitor_active;
-_monitor_active = True``, the write would land in ``monitoring.py``'s
-``__dict__``: NOT in ``worker.py``'s. The worker thread (which reads
-``_monitor_active`` inside ``_level_worker_loop``) would never see
-the update.
-
-The recording package solves this by owning each mutable global in
-exactly ONE submodule and having other submodules read it via
-``from . import resampling as _r; _r._resample_poly``. That works but
-requires every read site to qualify the access (``_r.X`` instead of
-``X``) and every write site to do ``_r.X = Y`` instead of
-``global X; X = Y``.
-
-A singleton state class is mechanically equivalent: every access
-becomes ``_state.X`` (read) or ``_state.X = Y`` (write). The benefit
-is that ALL state lives in one obvious place, and the package's
-``__init__.py`` can route test writes via a single ``__setattr__``
-hook (instead of one routing rule per owning submodule, as the
-recording package does).
-
-Test-patch compatibility
-------------------------
-Tests access state via ``lm._test_mode`` (read) / ``lm._test_mode = False``
-(write): i.e. via the package namespace, NOT via ``_state`` directly.
-``__init__.py`` installs a custom module class (``_LevelMonitorModule``)
-whose ``__getattr__`` / ``__setattr__`` route ``_``-prefixed attribute
-access through to ``_state``. So:
-
-    lm._test_mode              →  _state._test_mode
-    lm._test_mode = False      →  _state._test_mode = False
-    lm._test_chunks.clear()    →  _state._test_chunks.clear()
-    lm._test_chunks.append(x)  →  _state._test_chunks.append(x)
-    lm._monitor_lock.acquire() →  _state._monitor_lock.acquire()
-
-This preserves every test access pattern documented in
-"""
+"""Shared state for the level_monitor package ()."""
 
 from __future__ import annotations
 
@@ -52,38 +7,14 @@ import threading
 from typing import Any
 
 # use the canonical Whisper 16 kHz constant as the default
-# monitor sample rate instead of a hardcoded ``16000`` literal. The
-# pre-refactor ``level_monitor.py`` god-module used ``WHISPER_SAMPLE_RATE``
-# here; the  package split lost that link and inlined the literal.
-# Re-establishing the import keeps a single source of truth so an
-# intent-level change (e.g. moving to 24 kHz models) propagates here
-# automatically.
 from voice_typer.server._audio_constants import WHISPER_SAMPLE_RATE
 
 
 class _State:
-    """Singleton holding every piece of level_monitor mutable state.
-
-    All 27+ module-level globals from the pre-refactor ``level_monitor.py``
-    live here as instance attributes. Submodules (``monitoring.py``,
-    ``test_recording.py``, ``worker.py``) import the singleton ``_state``
-    instance and access state via ``_state.X`` (read) / ``_state.X = Y``
-    (write).
-
-    The class is intentionally NOT a ``dataclass``, many attributes are
-    mutable containers (``deque``, ``dict``, ``threading.Event``) whose
-    identity must remain stable across the lifetime of the process
-    (tests do ``lm._test_chunks.clear()`` and expect the SAME deque
-    object to be cleared, not a freshly-constructed one).
-    """
+    """Singleton holding every piece of level_monitor mutable state."""
 
     def __init__(self) -> None:
-        # ── Monitor session state ────────────────────────────────────
         # ``Optional[object]`` made every downstream
-        # ``stream.stop()`` / ``stream.close()`` call raise
-        # ``Object of class `object` has no attribute ...``.  ``Any``
-        # matches the actual runtime type (``sounddevice.InputStream``)
-        # which is too heavy to import here and has no inline stubs.
         self._monitor_lock: threading.Lock = threading.Lock()
         self._monitor_stream: Any | None = None  # sounddevice.InputStream
         self._monitor_active: bool = False
@@ -93,60 +24,16 @@ class _State:
         self._monitor_mic_id: str | None = None  # device this stream is on
 
         # Display gain applied to the smoothed RMS before it reaches any
-        # UI surface (``get_level`` poll response AND the ``mic_level``
-        # push payload, both MUST scale identically so the two delivery
-        # paths stay interchangeable for the renderer).
-        # History: originally *5, raised to *8 ("MULT-8") so low-level
-        # ambient sounds produce a visible bar response; the bubble's
-        # ``rmsToNorm()`` applies the same multiplier client-side.
         self._LEVEL_DISPLAY_GAIN: float = 8.0
 
-        # ── Audio processor for filtering the live level bar ─────────
         # When set, audio from the callback is run through this processor's
-        # process_chunk() before computing RMS/peak so the level bar
-        # reflects the effect of noise filters in real-time.
-        # same as ``_monitor_stream``: ``Optional[object]``
-        # rejects ``.process_chunk()`` / ``.cancel()`` calls below.  Use
-        # ``Any`` to match the runtime ``AudioProcessor`` type.
         self._level_processor: Any | None = None  # AudioProcessor instance
         # Stash of the config_dict last passed to ``update_level_processor``.
-        # ``start_monitoring``'s "different device, restart" branch reads
-        # this so it can rebuild the chain at the NEW native sample rate
-        # (the old processor was constructed against the old rate; without a
-        # rebuild, the IIR filter ``zi`` arrays + RNNoise ``_carry`` would
-        # be tuned to the wrong rate and produce audible artifacts /
-        # incorrect level readings on the new device). ``None`` means no
-        # processor was ever configured (the user hasn't toggled any noise
-        # filter); the restart path skips the rebuild in that case.
         self._level_processor_config: dict | None = None
         # Lightweight level-bar mode. When False (default), the cosmetic
-        # level bar computes RMS/peak on RAW audio only, the filter chain
-        # (which may include RNNoise, 5-50 ms per chunk on CPU) is SKIPPED
-        # for the cosmetic bar to avoid pegging a core at 31-94 Hz for a
-        # non-functional visualization. The filter chain STILL runs when
-        # ``_test_mode`` is True (the test's "after" WAV needs the filtered
-        # audio).
-        #
-        # Set to True (via ``update_level_processor``'s
-        # ``level_bar_filtered`` config key, or directly by tests that pin
-        # the filtered-bar contract) to opt IN to running the filter chain
-        # for the cosmetic bar, useful for users who want the bar to
-        # reflect what they actually hear after filtering.
         self._level_bar_filtered: bool = False
 
         # ──  (c-review PERF-03): SPSC ring buffer + worker ──
-        # The PortAudio callback (single producer) pushes
-        # (indata_copy, status) tuples to this deque; the level worker
-        # thread (single consumer) pops them and runs the heavy
-        # processing pipeline (filter chain, RMS/peak smoothing,
-        # test-chunk accumulation + quality metrics).
-        # ~2 s of audio at the ~31 Hz chunk rate (32 ms blocks scaled to
-        # the device native sample rate via ``max(512, int(sr * 0.032))``).
-        # The earlier ``# ~4s @ 16 Hz block rate`` comment was stale: at the
-        # previous fixed 512-sample blocksize, a 48 kHz device drove a ~94 Hz
-        # callback rate, so the buffer only held ~0.68 s. With the scaled
-        # blocksize the rate is ~31 Hz on every device and the 64-entry
-        # buffer holds ~2 s of audio.
         self._LEVEL_RING_BUFFER_CAPACITY: int = 64
         self._level_ring_buffer: collections.deque = collections.deque(
             maxlen=self._LEVEL_RING_BUFFER_CAPACITY,
@@ -155,30 +42,16 @@ class _State:
         self._level_worker_stop_event: threading.Event = threading.Event()
         self._level_worker_wake_event: threading.Event = threading.Event()
         # Counter for chunks dropped because the ring buffer was full
-        # (worker couldn't keep up). Logged with throttling.
         self._dropped_level_chunks: int = 0
         # timestamp (``time.monotonic()``) of the last throttled
-        # log emission for ``_dropped_level_chunks``.
         self._last_drop_log_time: float = 0.0
         # One-shot latch so the RT callback emits a WARNING on
-        # the FIRST drop of a burst (before the worker thread's 5s
-        # throttle window would).
         self._first_drop_warning_emitted: bool = False
 
-        # ── Test recording state (uses the SAME stream) ──────────────
         # ``_test_chunks`` / ``_test_raw_chunks`` are bounded
-        # ``collections.deque`` (NOT plain ``list``).  The maxlen is
-        # derived from the CURRENT sample rate and the currently-
-        # requested test duration, so a forgotten
-        # ``stop_test_recording()`` cannot accumulate unbounded audio.
         self._TEST_MAX_CHUNKS_CAP: int = int(30 * 48000 / 512) + 1  # ~2813
         self._test_mode: bool = False
         #  ``_test_chunks`` is retained as a backward-
-        # compat shim ONLY because external test files reference it
-        # directly via ``lm._test_chunks.clear() / .append() / .maxlen /
-        # len(...)``. Removing the symbol here would break those tests.
-        # The shim is bounded + cleared alongside ``_test_raw_chunks``
-        # () so it cannot leak.
         self._test_chunks: collections.deque = collections.deque(
             maxlen=self._TEST_MAX_CHUNKS_CAP,
         )
@@ -204,17 +77,11 @@ class _State:
         self._test_silence_blocks: int = 0
 
         # Disconnect-detection state: when the mic produces N consecutive
-        # zero-RMS + zero-peak chunks (or the InputStream finishes),
-        # emit a ``device_lost`` IPC event so the frontend can surface
-        # the disconnect instead of freezing the level bar with no
-        # signal.
         self._consecutive_zero_chunks: int = 0
         self._device_lost_emitted: bool = False
         self._LEVEL_ZERO_CHUNK_DISCONNECT_THRESHOLD: int = 10
 
         # mic_level push-event publishing state: coalesces level updates
-        # to ~30 Hz and pushes them on a dedicated worker thread so the
-        # RT callback never blocks on event_bus publish latency.
         self._mic_level_queue: collections.deque = collections.deque(maxlen=16)
         self._mic_level_queue_lock: threading.Lock = threading.Lock()
         self._mic_level_last_push_ts: float = 0.0
@@ -223,62 +90,24 @@ class _State:
         self._mic_level_worker_stop: bool = False
         self._MIC_LEVEL_COALESCE_SEC: float = 1.0 / 30.0
 
-        # ── : idle-timeout auto-stop ────────────────────────────
         # When no IPC ``get_level`` poll has been received in
-        # ``_LEVEL_IDLE_TIMEOUT_SEC`` seconds, the next ``get_level``
-        # call auto-stops the stream (and re-starts it on the next
-        # ``start_monitoring`` / ``get_level`` poll). This prevents the
-        # RNNoise filter chain from pegging a core when the tray bubble
-        # is hidden but the frontend forgot to call ``level_monitor_stop``.
         self._last_get_level_poll_ts: float = 0.0
-        # Belt-and-suspenders: 60s instead of 5s. The frontend reliably
-        # calls ``level_monitor_stop`` on unmount (see  docstring
         # above), so this timeout is purely a defensive backstop for the
-        # rare case where the IPC stop is lost. 5s was too aggressive —
-        # combined with the push-event migration (frontend may only call
-        # ``get_level`` once on mount), it could falsely trip while the
-        # bubble was still actively consuming ``mic_level`` push events.
         self._LEVEL_IDLE_TIMEOUT_SEC: float = 60.0
 
-        # ── : worker backstop poll interval ─────────────────────
         # Raised from 50 ms to 250 ms, the stop path already calls
-        # ``_level_worker_wake_event.set()`` so stop latency is
-        # unaffected; the timeout only governs the "missed wakeup"
-        # recovery interval (a rare edge case). 250 ms cuts idle
-        # wakeups 5× with no functional change. Shared by BOTH the
-        # level worker and the mic_level publish worker so a lost
-        # stream doesn't leave a 1 Hz orphan wakeup behind.
         self._LEVEL_WORKER_BACKSTOP_TIMEOUT_SEC: float = 0.25
 
         # Optional central ThreadRegistry for shutdown coordination.
-        # Installed via ``set_thread_registry`` (mirrors the buffer-clear
-        # worker pattern in ``recording/buffer.py``). When set, both
-        # worker threads register on spawn and unregister on stop so
-        # ``shutdown_all()`` can join them even if the level_monitor
-        # teardown step is skipped under a shutdown deadline.
         self._thread_registry: Any | None = None
 
     def reset_for_tests(self) -> None:
-        """Reset all mutable state to its post-``__init__`` defaults.
-
-        Used by the package-level ``_reset_state_for_tests()`` helper
-        which the test fixtures call via ``lm._reset_state_for_tests()``
-        to start from a clean slate. Mirrors the inline reset that
-        ``tests/test_level_monitor.py`` and
-        ``tests/test_level_monitor_disconnect.py`` previously did by
-        hand (assigning to ~25 ``lm._X`` attributes one at a time).
-        """
+        """Reset all mutable state to its post-``__init__`` defaults."""
         # Re-initialise by creating a fresh instance and copying its
-        # attributes, simpler than re-listing every field here (and
-        # stays in sync if new fields are added to ``__init__``).
         fresh = _State()
         self.__dict__.clear()
         self.__dict__.update(fresh.__dict__)
 
 
 # Singleton instance, every submodule imports this and accesses state
-# via ``_state._X`` (read) / ``_state._X = Y`` (write). The package's
-# ``__init__.py`` installs a custom module class that routes
-# ``level_monitor._X`` reads/writes through to this singleton, so tests
-# can keep using the ``lm._X`` access pattern unchanged.
 _state: _State = _State()

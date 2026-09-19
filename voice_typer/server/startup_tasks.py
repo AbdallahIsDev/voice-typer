@@ -1,26 +1,4 @@
-"""Extracted configuration-related startup methods from ``VoiceTyperApp``.
-
-These functions were originally methods on ``VoiceTyperApp`` (in
-``voice_typer/server/app.py``) and have been extracted into standalone
-functions for testability. Each function takes ``app`` (the
-``VoiceTyperApp`` instance) as its first parameter and accesses state via
-``app.config``, ``app.tray``, ``app._microphones``, ``app._shutting_down``,
-etc., exactly the same attributes the original ``self.*`` references
-resolved to.
-
-The original delegate methods on ``VoiceTyperApp`` were removed during the
-god-class decomposition; callers (and tests) now invoke these
-functions directly (e.g.
-``monkeypatch.setattr(startup_tasks, "sync_autostart", ...)``).
-
-A note on monkeypatching: tests like ``test_autostart_syncs_with_platform``
-replace ``voice_typer.server.server_platform.is_autostart_enabled`` /
-``enable_autostart`` / ``disable_autostart`` / ``list_microphones`` at
-call time. To keep those patches effective, the platform-helper names are
-imported inside the relevant functions (deferred import from the
-canonical ``server_platform`` module) rather than being captured at
-import time.
-"""
+"""Background startup tasks after app construction (non-blocking)."""
 
 from __future__ import annotations
 
@@ -41,33 +19,13 @@ log = logging.getLogger(__name__)
 
 
 # cache the macOS ApplicationServices framework handle at
-# module level instead of re-loading it every 60s in
-# ``_check_accessibility``. ``ctypes.cdll.LoadLibrary`` is not free
-# (it calls dlopen + resolves symbols), and the handle is safe to
-# share across threads (the underlying C function ``AXIsProcessTrusted``
-# is thread-safe). ``None`` means "not yet loaded" (or "load failed
-# permanently": in which case the pulse re-attempts on the first call
-# of each process). The cache is best-effort: a permanent load failure
-# (non-macOS, missing framework) leaves this as ``None`` and the pulse
-# falls through to the "fail safe (assume not granted)" branch.
 _APP_SERVICES_LIB: Any | None = None
 _APP_SERVICES_LIB_LOADED: bool = False
 
 
 def _a11y_regrant_message(bundle_id: str | None) -> str:
-    """Build the macOS Accessibility re-grant notification body.
-
-    When the HOST app's bundle ID can be resolved at runtime (see
-    ``resolve_host_bundle_id``), the message includes the exact
-    ``tccutil reset Accessibility <bundle-id>`` command for the
-    currently-running runtime (predecessor or Tauri). When it cannot be
-    resolved (dev-mode run without an ``.app`` in the process chain),
-    fall back to the generic System Settings walkthrough, a wrong
-    bundle ID in a ``tccutil`` command is worse than no command.
-    """
+    """Build the macOS Accessibility re-grant notification body."""
     # TCC-002: the command string comes from the single construction
-    # point in macos_bundle_id (tccutil_reset_command_str), so a future
-    # change to tccutil invocation lands in one place.
     from voice_typer.server.server_platform.macos_bundle_id import tccutil_reset_command_str
 
     if bundle_id:
@@ -110,20 +68,9 @@ def sync_autostart(app: AppProtocol) -> dict:
         ``error`` with the real failure reason.
     """
     # Import the autostart facade module at call time so tests that
-    # monkeypatch voice_typer.server.server_platform.autostart.{
-    # is_autostart_enabled, enable_autostart, disable_autostart} still
-    # take effect (the attribute is resolved on that module at each call).
     from voice_typer.server.server_platform import autostart as _autostart
 
     # One-time per-install cleanup of legacy autostart entries
-    # (AUTOSTART-LEGACY): pre-PLAT-RUN fixed names + the buggy
-    # ``sys.executable``-derived hashes could leave multiple live
-    # ``VoiceTyper*`` Run keys / ``VoiceTyperAutostart*`` tasks /
-    # ``VoiceTyper*.bat`` files that ALL point at this install and ALL
-    # fire at logon. The sweep is marker-gated (per install hash), so
-    # after the first run the only cost here is a single
-    # ``Path.exists()`` check. Best-effort: a sweep failure must never
-    # break autostart sync.
     try:
         from voice_typer.server.config import _config_dir as _cfg_dir
         from voice_typer.server.server_platform import sweep_legacy_autostart_entries
@@ -142,15 +89,6 @@ def sync_autostart(app: AppProtocol) -> dict:
         log.debug("[AUTOSTART] Legacy autostart sweep failed", exc_info=True)
 
     # (a): track the post-sync ACTUAL OS-level autostart state so the
-    # caller can pass it straight to ``tray.set_autostart_enabled(...)`` without
-    # re-invoking ``is_autostart_enabled()``. The pre- startup path
-    # called ``is_autostart_enabled()`` twice back-to-back on the startup hot
-    # path (once inside sync_autostart, once immediately after in
-    # startup_sequence), both calls hit the same platform helper (Win32
-    # registry / launchctl plist / XDG autostart file) and return the same
-    # value, so the second call was pure waste. The ``actual_post_sync``
-    # field is the post-sync OS state derived from the read + the
-    # enable/disable success flag, so callers no longer need to re-query.
     result: dict = {"registered": False, "error": None, "actual_post_sync": False}
     try:
         actual = _autostart.is_autostart_enabled()
@@ -158,13 +96,6 @@ def sync_autostart(app: AppProtocol) -> dict:
             log.info("[CONFIG] Config says autostart=true but it is disabled -- enabling")
             registered = _autostart.enable_autostart()
             # capture the post-enable state. enable_autostart()
-            # returns True on success; on failure (exception caught
-            # internally) it returns False, we surface that as
-            # registered=False, error=None (the error is logged inside
-            # enable_autostart_ex).
-            # (a): ``actual_post_sync`` is True iff the enable succeeded
-            # (registered is True); on failure the OS state is unchanged
-            # (still False, the value we read at the top of this branch).
             result = {
                 "registered": bool(registered),
                 "error": None,
@@ -179,13 +110,6 @@ def sync_autostart(app: AppProtocol) -> dict:
             log.info("[CONFIG] Config says autostart=false but it is enabled -- disabling")
             removed = _autostart.disable_autostart()
             # ``registered`` in the result dict reflects "is the
-            # autostart entry now in the desired state?". After a
-            # successful disable, the entry is NO LONGER registered,
-            # so ``registered = removed`` (True if disable succeeded).
-            # (a): ``actual_post_sync`` is the post-disable OS state —
-            # False iff the disable succeeded (removed is True); on failure
-            # the OS state is unchanged (still True, the value we read at
-            # the top of this branch).
             result = {
                 "registered": bool(removed),
                 "error": None,
@@ -198,7 +122,6 @@ def sync_autostart(app: AppProtocol) -> dict:
             )
         else:
             # Already in sync, report the current state.
-            # (a): ``actual_post_sync`` mirrors the unchanged OS state.
             result = {
                 "registered": bool(actual),
                 "error": None,
@@ -212,31 +135,12 @@ def sync_autostart(app: AppProtocol) -> dict:
     except Exception as e:
         log.warning("[CONFIG] Autostart sync failed: %s", e)
         # (a): on failure we don't know the post-sync OS state, leave
-        # ``actual_post_sync`` as False (the conservative default). Callers
-        # that need a definitive read can still call ``is_autostart_enabled()``
-        # explicitly, but the startup path treats this as "autostart is off"
-        # (the safer default for tray-menu display, avoids showing a
-        # stale "enabled" checkmark next to a disabled entry).
         result = {"registered": False, "error": str(e), "actual_post_sync": False}
     return result
 
 
 def sync_prewarm_task(app: AppProtocol, shutdown_event: threading.Event | None = None) -> dict:
-    """No-op stub retained for caller compatibility.
-
-    Prewarm became a worker startup phase (master plan §6.2 P-1): the
-    OS-level scheduled-task registration (Windows Task Scheduler /
-    macOS LaunchAgent / Linux systemd user timer) was deleted along
-    with the prewarm binary it launched. There is no longer anything
-    to register or unregister here.
-
-    The renderer's Settings page still surfaces a "Fast Startup"
-    toggle (and the ``set_config`` IPC response still carries a
-    ``prewarm_status`` field): this stub returns a no-op success so
-    the renderer doesn't show a spurious error when the user toggles
-    the (now-cosmetic) setting. The actual cache-warming happens
-    inside the worker process on each spawn.
-    """
+    """No-op stub retained for caller compatibility."""
     _ = app  # unused, kept for signature backward-compat
     _ = shutdown_event  # unused, kept for signature backward-compat
     return {"registered": False, "error": None}
@@ -303,9 +207,6 @@ def check_offline_pack_on_launch(app: AppProtocol, shutdown_event: threading.Eve
             return {"checked": True, "installed_version": local_version, "checksum": "background"}
 
         # 3. Missing → publish offline_pack_missing (§8.10) + consent-gated
-        #    silent re-download. The event is published even when consent
-        #    is off so the renderer can show the "Preparing offline
-        #    engine…" banner instead of silently failing later.
         try:
             offline_pack._publish_event(
                 event_bus,
@@ -325,9 +226,6 @@ def check_offline_pack_on_launch(app: AppProtocol, shutdown_event: threading.Eve
                 event_bus,
                 trigger_download=True,
                 # Launch path: bound the remote fetch tightly. This runs
-                # on a fire-and-forget daemon thread, but a stalled
-                # logon network (captive portal, no route yet) must not
-                # pin the thread for the full 30 s interactive default.
                 manifest_timeout=update_check.LAUNCH_MANIFEST_TIMEOUT_S,
             )
             return {
@@ -344,21 +242,13 @@ def check_offline_pack_on_launch(app: AppProtocol, shutdown_event: threading.Eve
 
 
 def ensure_desktop_shortcut(app: AppProtocol) -> None:
-    """Create the Desktop + Start Menu shortcuts on first run.
-
-    Also migrates away the legacy backend-only ``Voice Typer.bat`` that
-    pointed at ``pythonw -m voice_typer`` (which started the backend
-    with no predecessor, so the bubble overlay never worked).  That .bat
-    is removed so the user is left with only the correct universal
-    launcher shortcut.
-    """
+    """Create the Desktop + Start Menu shortcuts on first run."""
     if not is_windows():
         return
     desktop = Path.home() / "Desktop"
     legacy_bat = desktop / "Voice Typer.bat"
 
     # 1. Migrate: remove the legacy backend-only .bat so the broken
-    #    "no bubble" shortcut stops shadowing the correct one.
     try:
         if legacy_bat.exists() and "-m voice_typer" in legacy_bat.read_text(encoding="utf-8", errors="replace"):
             legacy_bat.unlink()
@@ -367,8 +257,6 @@ def ensure_desktop_shortcut(app: AppProtocol) -> None:
         pass
 
     # 2. Ensure the universal-launcher shortcut exists.
-    #    create_launcher_shortcut() skips .lnk files that already exist,
-    #    so this is a no-op on subsequent startups.
     try:
         create_launcher_shortcut()
     except Exception as e:
@@ -376,25 +264,7 @@ def ensure_desktop_shortcut(app: AppProtocol) -> None:
 
 
 def _reconcile_configured_microphone(app: AppProtocol, mics: list[dict]) -> None:
-    """Validate ``app.config.microphone`` against the live device list.
-
-    config.json is the CANONICAL settings store; the persisted value is
-    either ``None`` (System Default, the documented canonical meaning) or
-    a stable device id emitted by :func:`list_microphones`
-    (``"<host api>|<name>[#N]"``, plus legacy shapes resolvable by
-    :func:`find_microphone_by_id`).
-
-    Runs during startup (and any tray-driven re-enumeration) so a stale,
-    renamed, or unplugged persisted selection is reconciled BEFORE the
-    renderer ever loads the Microphone page, the page renders the
-    already-corrected state instead of discovering it as a side effect of
-    being opened. The recovery is silent to the user (an internal
-    configuration inconsistency, not a user-facing error); operators get
-    a WARNING diagnostic naming the stale id and the recovery action.
-
-    Never raises: enumeration/reconciliation failures must not break mic
-    loading (mirrors the surrounding best-effort contract).
-    """
+    """Validate ``app.config.microphone`` against the live device list."""
     from voice_typer.server.server_platform.microphone_list import find_microphone_by_id
 
     try:
@@ -402,8 +272,6 @@ def _reconcile_configured_microphone(app: AppProtocol, mics: list[dict]) -> None
     except AttributeError:
         return
     # Only str/None are meaningful persisted values. Anything else is an
-    # in-memory test fake / corrupt runtime state that IPC validators own —
-    # never silently rewritten here.
     if mic_id is not None and not isinstance(mic_id, str):
         return
     if mic_id is None:
@@ -411,8 +279,6 @@ def _reconcile_configured_microphone(app: AppProtocol, mics: list[dict]) -> None
         return
     if not mics:
         # An EMPTY enumeration is NOT evidence that the configured device
-        # is gone (failed PortAudio query / headless environment). Never
-        # fall back on it, wait for a successful enumeration.
         log.debug("[MIC] Skipping microphone reconciliation: no devices enumerated")
         return
 
@@ -426,9 +292,6 @@ def _reconcile_configured_microphone(app: AppProtocol, mics: list[dict]) -> None
         canonical = str(resolved.get("id", ""))
         if canonical and canonical != mic_id:
             # Legacy id shape (bare index / compound form) resolved to a
-            # live device via find_microphone_by_id's fallback strategies
-            # , persist its NEW stable id so every consumer agrees on one
-            # representation going forward.
             lock = getattr(app, "_config_mutation_lock", None)
             with contextlib.ExitStack() as stack:
                 if lock is not None:
@@ -458,8 +321,6 @@ def _reconcile_configured_microphone(app: AppProtocol, mics: list[dict]) -> None
         return
 
     # Stale selection → SILENT user-facing recovery + diagnostic log.
-    # No tray notification, no renderer snack: this is an internal config
-    # inconsistency fixed at startup, not something the user did.
     lock = getattr(app, "_config_mutation_lock", None)
     with contextlib.ExitStack() as stack:
         if lock is not None:
@@ -485,21 +346,7 @@ def _reconcile_configured_microphone(app: AppProtocol, mics: list[dict]) -> None
 
 
 def reconcile_configured_model(app: AppProtocol) -> bool:
-    """Clear ``config.model_size`` when the configured ASR model isn't on disk.
-
-    ROOT-CAUSE FIX for the recurring "phantom model name" issue: the
-    config's ``model_size`` defaults to a concrete name (``"tiny"``)
-    even when no model is installed, so every consumer reading
-    ``config.model_size`` directly surfaces a model name that doesn't
-    exist on disk.  Each surface was patched individually; the config
-    still carried the stale name.  This reconciliation makes the CONFIG
-    itself reflect reality at startup: when the configured model is
-    definitively absent, ``model_size`` is set to ``NO_MODEL_SIZE``
-    (``""``) and persisted, so ALL consumers report "no model selected"
-    from one source of truth.
-
-    Returns True when the config was changed and persisted.
-    """
+    """Clear ``config.model_size`` when the configured ASR model isn't on disk."""
     from voice_typer.server.model_registry import NO_MODEL_SIZE
     from voice_typer.server.tray_models import is_active_model_downloaded
 
@@ -532,12 +379,7 @@ def reconcile_configured_model(app: AppProtocol) -> bool:
 
 
 def _publish_mic_reconciled(app: AppProtocol, updates: dict) -> None:
-    """Push a ``config_changed`` event after startup reconciliation.
-
-    Lets connected renderers refresh their cached config without opening
-    the Microphone page (same envelope shape as the IPC set_config push).
-    Best-effort, no subscribers is fine.
-    """
+    """Push a ``config_changed`` event after startup reconciliation."""
     try:
         from voice_typer.server import event_bus
 
@@ -560,16 +402,9 @@ def load_microphones(app: AppProtocol, shutdown_event: threading.Event | None = 
     and ``new_ids`` sets.
     """
     # Import list_microphones at call time so tests that monkeypatch
-    # voice_typer.server.server_platform.microphone_list.list_microphones
-    # still take effect.
     from voice_typer.server.server_platform.microphone_list import list_microphones
 
     # Accessors for the app's off-protocol ``_microphones`` attribute
-    # (ADR-0008 deliberately excludes it from AppProtocol). Imported at
-    # call time like the platform helpers above: a module-level import
-    # would pull the whole service package into every importer of
-    # startup_tasks, adding its load cost to the app's cold start for
-    # one two-line accessor use.
     from voice_typer.server.service._app_internals import app_microphones, set_app_microphones
 
     # RACE-020: abort early if shutting down
@@ -578,45 +413,23 @@ def load_microphones(app: AppProtocol, shutdown_event: threading.Event | None = 
     try:
         mics = list_microphones()
         # Startup reconciliation: validate the PERSISTED selection against
-        # the freshly enumerated devices so a stale/unavailable id falls
-        # back to System Default (silently, with a diagnostic log) before
-        # any consumer, tray, recorder, renderer, reads it. Must run on
-        # EVERY enumeration path (startup AND tray refresh), not only once,
-        # so the persisted value always matches reality.
         try:
             _reconcile_configured_microphone(app, mics)
         except Exception:
             # Belt-and-braces: a reconciler bug must never downgrade the
-            # enumeration into "Could not enumerate microphones" (which
-            # would leave tray + renderer without any device list).
             log.warning("[MIC] Microphone reconciliation failed", exc_info=True)
         # AUDIO-MIC: detect device changes by comparing the new
-        # list against the cached one. If the set of device IDs
-        # changed (USB mic plugged/unplugged), notify the UI via
-        # IPC push event so the predecessor renderer can refresh its
-        # microphone dropdown without a manual "Refresh" click.
         app_mics = app_microphones(app)
         old_ids = {m["id"] for m in app_mics} if app_mics else set()
         new_ids = {m["id"] for m in mics}
         set_app_microphones(app, mics)
         app.tray.set_microphones(mics)
         # Log INFO on first load or when device count changes.
-        # Routine polls where nothing changed log nothing, the
-        # microphones_changed IPC event handles UI updates.
         if not old_ids:
             log.info("[RECORDING] Found %d microphones", len(mics))
         elif len(mics) != len(old_ids):
             log.info("[RECORDING] Microphone count changed: %d -> %d", len(old_ids), len(mics))
         # AUDIO-MIC: push a device-change IPC event if the device
-        # set changed since the last enumeration. ALSO publish on the
-        # FIRST population (empty → non-empty): the renderer connects
-        # and the restored Microphone page fetches ``get_microphones``
-        # during the startup window BEFORE this task runs (verified from
-        # voice-typer.log: TCP client connected 18:24:55, ``[RECORDING]
-        # Found 3 microphones`` 18:24:58), so its initial snapshot is an
-        # empty list. Without this publish the page stays stale ("No
-        # microphones found", Start Test disabled) until a manual page
-        # change or a genuine hot-plug event.
         if (old_ids and old_ids != new_ids) or (not old_ids and new_ids):
             added = new_ids - old_ids
             removed = old_ids - new_ids
@@ -636,47 +449,16 @@ def load_microphones(app: AppProtocol, shutdown_event: threading.Event | None = 
                 )
             except Exception:
                 # Best-effort: a failed notification publish must never break
-                # mic enumeration, but leave a breadcrumb when it happens so
-                # a silently-stale Microphone page is diagnosable.
                 log.debug("[AUDIO-MIC] microphones_changed publish failed", exc_info=True)
     except Exception as e:
         log.warning("[RECORDING] Could not enumerate microphones: %s", e)
 
 
 def start_accessibility_pulse(app: AppProtocol, initial_state: bool) -> None:
-    """Periodically re-check macOS Accessibility permission.
-
-        Runs on macOS only. Every 60 seconds, re-invokes
-        ``AXIsProcessTrusted()`` and fires ``tray.notify_safety`` only
-        on state transitions (granted→revoked or revoked→granted) so
-        the user isn't spammed with repeated notifications.
-
-        Pre-fix: accessibility was checked once at startup. If the user
-        granted permission after startup, the app never recovered until
-        restart. With this pulse, the app detects the change within 60s.
-
-    PERF-: two allocation patterns were cleaned up:
-
-        - ``threading.Event().wait(1.0)`` in the 60-iteration sleep loop
-          previously allocated a fresh ``Event`` object every second. We
-          now create a single ``Event`` once and reuse it for the lifetime
-          of the pulse thread.
-        - ``ctypes.cdll.LoadLibrary(".../ApplicationServices")`` was called
-          every 60s in ``_check_accessibility``. The handle is now cached
-          at module level (``_APP_SERVICES_LIB``) and reused for the
-          lifetime of the process, ``dlopen`` is idempotent on an already-
-          loaded framework but still does a symbol-table lookup, which is
-          wasted work on a 60s heartbeat.
-    """
+    """Periodically re-check macOS Accessibility permission."""
 
     def _check_accessibility() -> bool:
-        """Return True if Accessibility permission is granted.
-
-        PERF-: uses the module-level cached ApplicationServices
-                handle. The first call loads the framework; subsequent calls
-                reuse the cached handle. A permanent load failure leaves the
-                cache as ``None`` and this function returns False (fail safe).
-        """
+        """Return True if Accessibility permission is granted."""
         global _APP_SERVICES_LIB, _APP_SERVICES_LIB_LOADED
         if not _APP_SERVICES_LIB_LOADED:
             try:
@@ -697,35 +479,12 @@ def start_accessibility_pulse(app: AppProtocol, initial_state: bool) -> None:
             return False  # fail safe (assume not granted)
 
     def _pulse_loop(stop_event: threading.Event) -> None:
-        # PERF-: allocate ONE Event for the lifetime of the pulse
-        # thread and reuse it. The previous code called
-        # ``threading.Event().wait(1.0)`` in a 60-iteration loop, which
-        # allocated a fresh Event object (and its underlying condition
-        # variable + lock) every second, ~3.6k allocations/hour per
-        # pulse thread.
-        #
         # PERF-25: the loop now also watches ``stop_event``
-        # (registered with ``app._thread_registry``) so ``shutdown_all()``
-        # can signal an early exit instead of waiting up to 60s for the
-        # next ``app._shutting_down`` poll. ``stop_event.set()`` from
-        # ``shutdown_all()`` wakes the thread IMMEDIATELY on shutdown —
-        # the 60s timeout only governs the AXIsProcessTrusted() recheck
-        # interval, which is the actual purpose of the loop. The previous
         # 60-iteration 1s loop (PERF-25) was added so shutdown signals
-        # would be picked up within ~1s, but ``stop_event.wait()`` already
-        # wakes immediately on ``stop_event.set()``: the 1s slicing was
-        # redundant and caused 60 kernel thread wakeups per minute for
-        # the lifetime of the app (~2.4-12 Wh/day wasted on battery per
         # the  finding). The defensive ``app._shutting_down`` check
-        # is kept for callers that don't go through the registry.
         last_state = initial_state
         while not app._shutting_down:
             # single 60s wait, ``stop_event.set()`` from
-            # ``shutdown_all()`` wakes the thread immediately on
-            # shutdown; the 60s timeout only governs the
-            # AXIsProcessTrusted() recheck interval. ``stop_event.wait``
-            # returns True when set (shutdown signalled), False on
-            # timeout (60s elapsed, recheck AXIsProcessTrusted()).
             if stop_event.wait(timeout=60.0):
                 return
             if app._shutting_down or stop_event.is_set():
@@ -735,23 +494,6 @@ def start_accessibility_pulse(app: AppProtocol, initial_state: bool) -> None:
                 if current:
                     log.info("[A11Y] macOS Accessibility permission granted")
                     # persist the app version at which a11y was
-                    # last observed granted. The next granted→denied
-                    # transition compares the current ``voice_typer.__version__``
-                    # against this value, if they differ, the denial
-                    # is likely a TCC reset on app update (macOS Sequoia
-                    # sometimes invalidates TCC grants on bundle-id-stable
-                    # binary updates), and we surface a different tray
-                    # notification pointing the user at ``tccutil reset
-                    # Accessibility <bundle-id>``: the bundle ID is
-                    # resolved at runtime (see ``_a11y_regrant_message``)
-                    # instead of the generic "Open System Settings" message.
-                    # ``last_known_a11y_version`` is a future config
-                    # field (currently owned by another agent, using
-                    # ``getattr``/``setattr`` so this code is forward-
-                    # compatible when the field is added). When the
-                    # field is absent, ``getattr`` returns ``None``
-                    # (in-session tracking only, no cross-session
-                    # persistence until the field is declared).
                     try:
                         import voice_typer as _vt
 
@@ -768,7 +510,6 @@ def start_accessibility_pulse(app: AppProtocol, initial_state: bool) -> None:
                 else:
                     log.warning("[A11Y] macOS Accessibility permission revoked")
                     # detect version-change-induced TCC reset
-                    # and surface a more actionable notification.
                     _version_changed = False
                     try:
                         import voice_typer as _vt
@@ -791,11 +532,6 @@ def start_accessibility_pulse(app: AppProtocol, initial_state: bool) -> None:
                     with contextlib.suppress(Exception):
                         if _version_changed:
                             # Resolve the HOST app's bundle ID at runtime:
-                            # both the predecessor and Tauri builds work, and a
-                            # future bundle-identifier change needs no code
-                            # edit here. If resolution fails (dev-mode run),
-                            # ``_a11y_regrant_message`` falls back to the
-                            # generic walkthrough.
                             app.tray.notify_safety(
                                 f"{APP_NAME}, Accessibility Re-grant",
                                 _a11y_regrant_message(resolve_host_bundle_id()),
@@ -809,20 +545,11 @@ def start_accessibility_pulse(app: AppProtocol, initial_state: bool) -> None:
                 last_state = current
 
     # PERF-25: dedicated stop_event so ``app._thread_registry`` can
-    # signal the pulse thread to exit during ``shutdown_all()``. The
-    # thread is also still gated on ``app._shutting_down`` for
-    # backward compat with any code path that doesn't go through the
-    # registry.
     stop_event = threading.Event()
     t = threading.Thread(target=_pulse_loop, args=(stop_event,), daemon=True, name="A11yPulse")
     # RACE-008: daemon=True is acceptable, the pulse only reads
-    # permission state, no critical cleanup. With the stop_event +
-    # registry, shutdown is signalled within ~1s.
     t.start()
     # PERF-25: register with the central ThreadRegistry so
-    # ``shutdown_all()`` signals + joins this thread. join_timeout=2.0
-    # matches the original "exits within 1 second" contract with a
-    # safety margin.
     registry = getattr(app, "_thread_registry", None)
     if registry is not None:
         try:
@@ -834,9 +561,6 @@ def start_accessibility_pulse(app: AppProtocol, initial_state: bool) -> None:
             )
         except Exception:
             log.debug("[STARTUP] could not register A11yPulse with ThreadRegistry", exc_info=True)
-
-
-# Onboarding reset ( / re-run setup wizard) ─────────────────────
 
 
 def reset_onboarding_complete(
@@ -893,15 +617,6 @@ def reset_onboarding_complete(
 
             config_dir = _config_dir()
         # Delete the merged ``.onboarding_status.json`` document (which
-        # holds the started flag, the completed flag, AND the fail
-        # counter) so the wizard re-runs on next launch. Any legacy
-        # ``.onboarding_complete`` / ``.onboarding_started`` markers
-        # still on disk are removed too. Deleting the whole document
-        # (rather than clearing one flag) keeps the flags consistent:
-        # if a stale ``started`` flag survived, the auto-heal
-        # would treat the next launch as a mid-wizard crash and SKIP
-        # re-running the wizard, defeating the whole point of a
-        # "re-run setup" affordance.
         if not onboarding_status.reset_status(config_dir):
             raise OSError("could not delete the onboarding status document")
         log.info(
@@ -909,28 +624,11 @@ def reset_onboarding_complete(
             onboarding_status.status_path(config_dir),
         )
         # Also clear the ``onboarding_completed`` flag in config.json so
-        # ``OnboardingController.is_first_run`` returns True even if the
-        # marker file is recreated by a stale save.
-        # Prefer the live ``app.config`` over a fresh ``Config.load()``
-        # snapshot so the mutation goes through the config-mutation lock
-        # (acquired inside ``Config.save`` / ``Config.save_strict``). A
-        # ``Config.load()`` + ``cfg.save()`` sequence reads WITHOUT the
-        # lock and could overwrite a concurrent ``set_config`` IPC
-        # handler's write. When the caller has the app instance in
-        # scope, they should pass it.
         if app is not None:
             try:
                 cfg = getattr(app, "config", None)
                 if cfg is not None and getattr(cfg, "onboarding_completed", False):
                     # Acquire the app's config-mutation lock around the
-                    # read-modify-save cycle to prevent racing a concurrent
-                    # ``set_config`` IPC handler. ``Config.save_strict()`` does
-                    # NOT acquire ``app._config_mutation_lock`` on its own
-                    # (``Config._mutation_lock`` is only wired up via an
-                    # explicit ``set_mutation_lock()`` call, which is never
-                    # invoked: see ADR-0008-§3.1 for the locking contract).
-                    # ``RLock`` reentrancy makes this safe even if an IPC
-                    # handler already holding the lock delegates here.
                     lock = getattr(app, "_config_mutation_lock", None)
                     if lock is not None:
                         with lock:
@@ -944,10 +642,6 @@ def reset_onboarding_complete(
                 log.debug("[ONBOARDING] could not clear onboarding_completed via app.config", exc_info=True)
         else:
             # Fall back to ``Config.load()`` + ``cfg.save()`` for the
-            # test-only path (no app instance available). The save
-            # still acquires the config-mutation lock, but the load
-            # bypasses it, a known race window that callers can close
-            # by passing ``app``.
             try:
                 from voice_typer.server.config import Config
 

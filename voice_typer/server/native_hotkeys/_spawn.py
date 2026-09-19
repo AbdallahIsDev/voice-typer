@@ -17,9 +17,6 @@ from voice_typer.server import native_hotkeys as _native_hotkeys_pkg
 log = logging.getLogger(__name__)
 
 # Legacy per-PID diagnostic files (``native-<backend>-<pid>.log``): one file
-# per app launch, accumulated unbounded (only the 7-day age sweep removed
-# them). The stable name is ``native-<backend>.log`` (no PID); anything
-# matching this pattern is a legacy orphan safe to delete.
 _LEGACY_PID_LOG_RE = re.compile(r"^native-.+-(\d+)\.log$")
 
 
@@ -107,18 +104,9 @@ def _sweep_legacy_per_pid_logs(keep: Path | None = None) -> None:
 
 class _SpawnMixin:
     # Human-readable backend name used in log messages. Provided by the
-    # composing backend class (``_core.py`` sets ``platform_name: str =
-    # "subprocess"``); declared here so the mixin's own methods typecheck
-    # (same pattern as ``_ReaderMixin`` in ``_reader.py``).
     platform_name: str
 
     # Members provided by the composed ``SubprocessHotkeyBackend``
-    # (``_core.py`` ``__init__``): cross-mixin attribute access is
-    # runtime-valid but pyrefly cannot see it on a standalone mixin.
-    # Annotations only, no values, so no runtime attribute is created
-    # and the runtime MRO is unaffected (same pattern as
-    # dictation_pipeline's mixin declarations and model_manager's
-    # ``ChangeMixin``).
     hotkey_str: str
     _binary_path: Path | None
     _native_log_path: Path | None
@@ -133,10 +121,6 @@ class _SpawnMixin:
 
     if TYPE_CHECKING:
         # Methods provided by the sibling mixins (``_reader.py`` /
-        # ``_watchdog.py``) in the composed MRO; TYPE_CHECKING-only
-        # stubs keep this mixin type-checkable standalone without
-        # shadowing the real implementations at runtime (same pattern
-        # as model_manager's ``ChangeMixin`` sibling-method stubs).
         def _reader_loop(self) -> None: ...
 
         def _watchdog_loop(self) -> None: ...
@@ -228,27 +212,15 @@ class _SpawnMixin:
             log.error("[NATIVE-HOTKEY] %s", self._error_message)
             return
         # Local import to avoid an import-cycle (binary_path.py imports
-        # from .spec_parser at module load; base.py also imports from
-        # .spec_parser, keeping this local avoids any chance of a
-        # cycle if binary_path.py grows additional deps).
         from .binary_path import verify_native_binary_or_skip
 
         # on POSIX, open the file with O_RDONLY | O_CLOEXEC
-        # BEFORE the verify so the fd pins the inode. The fd is held
-        # across the verify and Popen so we can detect tampering via
-        # a stat mismatch (path-stat vs fd-stat) just before Popen.
-        # On Windows the fd-based check is skipped (see the docstring's
-        # "Windows limitation" section).
         on_posix = _native_hotkeys_pkg.is_macos() or _native_hotkeys_pkg.is_linux()
         fd: int | None = None
         pinned_stat: tuple | None = None
         if on_posix:
             try:
                 # ``O_CLOEXEC`` does not exist on Windows (pre-Python
-                # 3.13); ``getattr`` resolves it to 0 there so tests
-                # that monkeypatch a POSIX platform while running on
-                # Windows take the fd-pinning path without raising
-                # AttributeError.
                 o_cloexec = getattr(os, "O_CLOEXEC", 0)
                 fd = os.open(
                     str(self._binary_path),
@@ -277,9 +249,6 @@ class _SpawnMixin:
             return
 
         # capture the pinned inode's stat for the pre-Popen
-        # check. fstat reads metadata directly from the fd (no path
-        # re-resolution), so this is the stat of the inode the fd
-        # pinned at os.open time, unaffected by any later path swap.
         if fd is not None:
             try:
                 st = os.fstat(fd)
@@ -296,9 +265,6 @@ class _SpawnMixin:
                 return
 
         # pre-Popen stat check. If the path's stat differs
-        # from the pinned fd's stat, the file was swapped or modified
-        # between os.open and now (which includes the verify window).
-        # Refuse to spawn: this is the TOCTOU gate.
         if pinned_stat is not None:
             try:
                 pst = os.stat(str(self._binary_path))
@@ -327,27 +293,8 @@ class _SpawnMixin:
                 return
 
         # A backend spawns its own native listener process here only when
-        # it is NOT delegated. ``HotkeyDispatcher`` creates three backend
-        # instances (dictation / ESC / repaste) but marks the ESC and
-        # repaste ones ``_delegated=True``: their ``start()`` skips
-        # spawning, and their specs are matched as extra matchers on the
-        # shared dictation backend's event stream (the binary emits ALL
-        # keystroke events on stdout; the Python side does the matching).
-        # So on native platforms exactly ONE native listener process,
-        # reader thread, IPC pipe, and TOCTOU-verify + watchdog cycle
-        # serves all three roles. The per-role three-process model
-        # applies only when the factory falls back to non-poolable
-        # backends. See the architecture note in
-        # ``hotkey_dispatcher.HotkeyDispatcher``.
         cmd = [str(self._binary_path), self.hotkey_str]
         # Pass the binary its diagnostic log path (``--log-file``): the
-        # native binaries (linux/windows/macos key-listeners) parse the
-        # flag and append timestamped init / permission / hook-install
-        # diagnostics there, giving support bundles a native-side trace
-        # for hotkey problems. Error-tolerant by design: diagnostics
-        # must NEVER break the spawn, if the path can't be computed we
-        # spawn without the flag (the binary's stderr still reaches the
-        # parent via the merged stdout pipe).
         native_log_path: Path | None
         try:
             native_log_path = self._compute_native_log_path()
@@ -371,12 +318,6 @@ class _SpawnMixin:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 # change stdin from DEVNULL to PIPE so the
-                # liveness watchdog can write ``PING\n`` to the binary's
-                # stdin.  The binary is expected to respond with ``PONG\n``;
-                # if it doesn't implement the PING/PONG protocol, the
-                # watchdog's ``_pong_supported`` flag stays False and
-                # respawn-on-PONG-absence is suppressed (see
-                # ``_watchdog_loop`` for the rationale).
                 stdin=subprocess.PIPE,
                 # No console window on Windows
                 creationflags=(
@@ -396,18 +337,11 @@ class _SpawnMixin:
             raise RuntimeError(self._error_message) from exc
 
         # close the pinned fd now that Popen has spawned.
-        # The child has its own reference to the binary via the
-        # execve, so the parent's fd is no longer needed. Closing
-        # here avoids leaking fds across respawns.
         if fd is not None:
             with contextlib.suppress(OSError):
                 os.close(fd)
 
         # reset the liveness timestamps so the freshly-spawned
-        # binary gets a full 60s grace period before the watchdog
-        # considers it hung.  ``_pong_supported`` is NOT reset here —
-        # once we've seen a PONG from any spawn of this binary, we know
-        # it supports the protocol and future spawns should too.
         self._last_event_received_at = time.time()
         self._last_pong_received_at = 0.0
 
@@ -420,11 +354,6 @@ class _SpawnMixin:
         self._reader_thread.start()
 
         # start (or restart) the liveness watchdog thread.
-        # The watchdog writes ``PING\n`` to the binary's stdin every
-        # 30s and respawns the binary if it stops responding.  We use
-        # a dedicated ``_watchdog_stop_event`` (separate from
-        # ``_stop_event``) so the watchdog can be torn down
-        # independently in ``stop()`` after the reader has exited.
         if self._watchdog_thread is None or not self._watchdog_thread.is_alive():
             self._watchdog_stop_event.clear()
             self._watchdog_thread = threading.Thread(
@@ -464,10 +393,6 @@ class _SpawnMixin:
         if self._native_log_path is not None:
             return self._native_log_path
         # Canonical location first (single source of truth for all logs).
-        # Falls back to the legacy home dir only when the canonical
-        # resolution fails (read-only config, sandbox, etc.). Returns
-        # None when neither resolves so the spawn proceeds without
-        # --log-file.
         log_dir = _resolve_canonical_logs_dir()
         if log_dir is None:
             log_dir = _legacy_home_logs_dir()
@@ -477,8 +402,6 @@ class _SpawnMixin:
             log_dir.mkdir(parents=True, exist_ok=True)
         except OSError:
             # Can't create the log dir (read-only home, sandbox, etc.).
-            # Spawn without --log-file, the binary's stderr still goes
-            # to the parent's merged stdout pipe.
             return None
         backend = (self.platform_name or "native").lower()
         path = log_dir / f"native-{backend}.log"

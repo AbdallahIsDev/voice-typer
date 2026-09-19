@@ -1,41 +1,4 @@
-"""Single-file onboarding status persistence.
-
-Onboarding state used to be spread across THREE dotfile markers in the
-config dir, all describing the same thing (the wizard's lifecycle):
-
-* ``.onboarding_complete`` : ``{"completed": bool, "version": int}``
-  terminal marker: the wizard finished successfully.
-* ``.onboarding_started``  : ``{"started": bool, "version": int}``
-  wizard-has-rendered marker (distinct from ``completed``, a user can
-  be mid-wizard: started without being completed).
-* ``.onboarding_fail_count``— ``{"count": int, "last_fail_ts": float}``
-  the startup auto-heal circuit breaker's fail counter (no ``.json``
-  extension, which made the file format ambiguous).
-
-This module consolidates them into ONE JSON document,
-``.onboarding_status.json``::
-
-    {"version": 1, "started": bool, "completed": bool,
-     "fail_count": int, "last_fail_ts": float}
-
-The ``started`` and ``completed`` fields are intentionally kept
-separate, they are NOT redundant: ``startup_sequence.py``'s auto-heal
-checks ``started`` to distinguish a genuine mid-wizard crash from a
-stale lost-marker state, and ``OnboardingController.is_first_run``
-checks ``completed``. Merging them into one flag would break the
-auto-heal logic.
-
-Migration: the first time the status file is read (or written), any
-legacy markers present are merged into the status document, the status
-file is written, and the legacy markers are deleted, so upgrading
-users end up with exactly one file, created by the app itself.
-
-Write-error policy: :func:`write_status` raises on disk failure so
-callers with a re-raise contract (``OnboardingController.mark_complete``)
-can surface the error to the IPC layer. Best-effort callers (the
-startup fail counter) wrap it themselves. :func:`read_status` never
-raises, it falls back to validated defaults.
-"""
+"""Single-file onboarding status persistence."""
 
 import json
 import logging
@@ -47,7 +10,6 @@ log = logging.getLogger(__name__)
 ONBOARDING_STATUS_FILENAME: str = ".onboarding_status.json"
 
 # Legacy marker filenames (pre-merge). Retained so the one-time
-# migration can read them; they are deleted after a successful merge.
 _LEGACY_COMPLETE_MARKER: str = ".onboarding_complete"
 _LEGACY_STARTED_MARKER: str = ".onboarding_started"
 _LEGACY_FAIL_COUNT_MARKER: str = ".onboarding_fail_count"
@@ -55,9 +17,6 @@ _LEGACY_FAIL_COUNT_MARKER: str = ".onboarding_fail_count"
 _STATUS_VERSION: int = 1
 
 # Keys the schema has since renamed. They are consumed during
-# ``_coerce`` (mapped onto their successor) rather than carried
-# verbatim as unknown future fields, so a read-modify-write migrates
-# old documents to the canonical keys instead of duplicating them.
 _LEGACY_KEYS: frozenset[str] = frozenset({"count"})
 
 
@@ -78,19 +37,7 @@ def status_path(config_dir: "Path | str") -> Path:
 
 
 def read_status(config_dir: "Path | str") -> dict:
-    """Read the merged onboarding-status document (best-effort).
-
-    If the status file is missing, migrates the legacy markers in place
-    (merging their values, writing the status file, deleting the legacy
-    files). If no legacy markers exist either, returns the defaults
-    WITHOUT writing, a fresh install has no onboarding activity yet,
-    so we don't create the file until the app actually records state.
-
-    Never raises: every failure mode (missing/corrupt file, read
-    errors) falls back to validated defaults so callers like
-    ``OnboardingController.is_first_run`` / the startup auto-heal keep
-    working.
-    """
+    """Read the merged onboarding-status document (best-effort)."""
     data = _defaults()
     path = status_path(config_dir)
     try:
@@ -100,7 +47,6 @@ def read_status(config_dir: "Path | str") -> dict:
             if isinstance(parsed, dict):
                 data.update(_coerce(parsed))
             # Legacy markers alongside a status file are leftovers from
-            # an interrupted migration, clean them up best-effort.
             _delete_legacy(config_dir)
             return data
     except (OSError, UnicodeDecodeError, json.JSONDecodeError):
@@ -126,10 +72,6 @@ def write_status(
     """Merge ``updates`` into the current status and persist it.
 
     Returns the merged document. Raises on write failure so callers
-    with a re-raise contract (``OnboardingController.mark_complete``)
-    can surface disk errors; best-effort callers (the startup fail
-    counter) wrap this themselves. ``durability=False`` matches the
-    fast atomic-write pattern used by the autostart/prewarm paths.
     """
     data = read_status(config_dir)
     data.update(updates)
@@ -158,13 +100,8 @@ def reset_status(config_dir: "Path | str") -> bool:
         return False
 
 
-# ── internals ──────────────────────────────────────────────────────────
-
-
 def _write(data: dict, config_dir: "Path | str", *, durability: bool = True) -> None:
     # Imported at call time (module attribute lookup) so tests that
-    # monkeypatch ``secure_file_io._secure_atomic_write`` intercept the
-    # write, and so this module stays import-safe in any order.
     import voice_typer.server.secure_file_io as sio
 
     Path(config_dir).mkdir(parents=True, exist_ok=True)
@@ -179,11 +116,6 @@ def _coerce(data: dict) -> dict:
     """Validate + coerce a parsed status dict against the schema."""
     out = _defaults()
     # Forward-compat: carry unknown keys verbatim so a downgrade
-    # read-modify-write doesn't silently drop fields written by a
-    # newer app version. The pre-rename ``count`` key is a KNOWN
-    # legacy key (not an unknown future field): it is consumed below
-    # and mapped onto ``fail_count``, so a read-modify-write migrates
-    # old documents to the canonical key instead of carrying both.
     for key, value in data.items():
         if key not in out and key not in _LEGACY_KEYS:
             out[key] = value
@@ -195,15 +127,9 @@ def _coerce(data: dict) -> dict:
         if isinstance(value, bool):
             out[key] = value
     # ``fail_count`` is the canonical key for the onboarding fail
-    # counter (renamed from the ambiguous ``count``). ``count`` is
-    # still accepted for back-compat with documents written before the
-    # rename (and with the legacy marker format).
     count = data.get("fail_count", data.get("count", 0))
     if not isinstance(count, int) or isinstance(count, bool) or count < 0:
         # Invalid/missing canonical value, fall back to the legacy
-        # ``count`` if it carries a valid value. Defensive: no writer
-        # has produced both keys, but a corrupt file shouldn't lose a
-        # valid counter.
         count = data.get("count", 0)
     if isinstance(count, int) and not isinstance(count, bool) and count >= 0:
         out["fail_count"] = count
@@ -217,10 +143,6 @@ def _read_legacy(config_dir: "Path | str") -> dict | None:
     """Merge the three legacy marker files into one dict.
 
     Returns ``None`` when none of the legacy markers exist. Corrupt or
-    unreadable individual markers are skipped (their fields keep the
-    schema defaults). The ``version`` from the first legacy marker that
-    carries one wins; ``started`` / ``completed`` / ``fail_count`` /
-    ``last_fail_ts`` are each taken from their own marker.
     """
     out: dict = {}
     any_found = False
@@ -255,7 +177,6 @@ def _read_legacy(config_dir: "Path | str") -> dict | None:
         pass
 
     # Fail counter: {"count": int, "last_fail_ts": float} (the legacy
-    # marker format; the merged document uses ``fail_count``).
     try:
         path = cfg / _LEGACY_FAIL_COUNT_MARKER
         if path.exists():

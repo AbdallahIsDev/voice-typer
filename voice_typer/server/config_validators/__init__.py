@@ -62,19 +62,7 @@ import sys as _sys  # noqa: F401  # test patch target (tests mutate cv._sys.plat
 
 from voice_typer.server.config_validators import allowlist as _allowlist_module
 
-# ──────────────────────────────────────────────────────────────────────────
 # SEC-002 allowlist + supporting constants.
-#
-# These used to live directly in this ``__init__.py`` (862 LOC).  They
-# were extracted into :mod:`voice_typer.server.config_validators.allowlist`
-# so the security-critical allowlist has its own focused home.  The
-# re-export below keeps the public import path stable: every existing
-# caller (``config/coercion.py``, ``config/__init__.py``,
-# ``config_applier.py``, ``audio_filters/noise_suppressor.py``, the
-# parity tests under ``tests/test_*allowlist*.py``) continues to import
-# these names from ``voice_typer.server.config_validators`` exactly as
-# before.
-# ──────────────────────────────────────────────────────────────────────────
 from voice_typer.server.config_validators.allowlist import (  # noqa: F401
     _VALIDATOR_API_KEY,
     _VALIDATOR_API_URL,
@@ -96,22 +84,7 @@ from voice_typer.server.config_validators.allowlist import (  # noqa: F401
     STREAMING_RIGHT_GUARD_SECONDS_MIN,
 )
 
-# ──────────────────────────────────────────────────────────────────────────
 # Submodule re-exports.  Importing these names into the package namespace
-# means callers can keep using
-# ``from voice_typer.server.config_validators import _validate_hotkey``
-# (or any other symbol) exactly as before.  It also means
-# :func:`validate_config` / :func:`validate_config_update` (in
-# :mod:`voice_typer.server.config_validators.entry_points`) can reference
-# the cross-field helpers via the package globals, which is essential
-# because the regression tests in
-# ``tests/test_config_validators_hotkey_nonstring.py`` monkeypatch
-# ``voice_typer.server.config_validators._check_cross_field_hotkey_conflicts``
-# and expect :func:`validate_config` to see the patched binding
-# (the entry-point functions look the helpers up via a lazy import from
-# the package namespace at call time, so this re-export is the load-bearing
-# glue: see the docstring of :mod:`voice_typer.server.config_validators.entry_points`).
-# ──────────────────────────────────────────────────────────────────────────
 from voice_typer.server.config_validators.cross_field import (  # noqa: F401
     _CLOUD_CONSENT_FIELD_NAMES,
     _HOTKEY_FIELD_NAMES,
@@ -171,25 +144,11 @@ from voice_typer.server.config_validators.scalar import (  # noqa: F401
 )
 
 # Re-export ``IPC_CONFIG_ALLOWLIST`` with an explicit parameterised
-# annotation so static type-checkers (and ``typing.get_type_hints(cv)``
-# , exercised by
-# ``tests/config/test_config_schema_migration.py::test_ipc_config_allowlist_is_dict_of_fieldspec``)
-# see the ``dict[str, FieldSpec]`` hint on the package namespace. This is
-# an annotated ALIAS ASSIGNMENT, not a bare re-annotation: it binds the
-# package attribute to the SAME dict object defined in ``.allowlist``
 # (identity preserved: this exact registry is the SEC-002 source of
-# truth), while registering the hint in ``__annotations__``. A previous
-# attempt used a bare annotation-only statement, which mypy flags as a
-# no-redef redefinition of an imported name.
 IPC_CONFIG_ALLOWLIST: dict[str, FieldSpec] = _allowlist_module.IPC_CONFIG_ALLOWLIST
 
 
-# ──────────────────────────────────────────────────────────────────────────
 # explicit ``__all__`` so the wildcard re-export in
-# ``config.py`` (``from .config_validators import *``) brings through
-# every validator symbol: including the underscore-prefixed factory
-# helpers, preserving the pre-refactor import surface.
-# ──────────────────────────────────────────────────────────────────────────
 __all__ = [
     # Constants
     "ALLOWED_USER_MODELS",
@@ -230,8 +189,6 @@ __all__ = [
     "validate_config_update",
     "validate_config",
     # extracted hotkey validation stage helpers (:
-    # reconciled with actual function names, the prior list referenced
-    # 9 nonexistent symbols that caused F822 × 9 hard-fail in CI).
     "_check_basic_shape",
     "_check_universal_reserved",
     "_check_platform_reserved",

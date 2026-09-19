@@ -43,8 +43,6 @@ import subprocess
 import time
 
 # default throttle interval, once per 60s. The values change slowly
-# and are only needed for post-crash triage, not per-utterance decisions.
-# Previously the probe ran every utterance (~2-5ms of system/driver calls).
 DEFAULT_CHECK_INTERVAL: float = 60.0
 
 log = logging.getLogger(__name__)
@@ -125,11 +123,6 @@ def _probe_gpu_memory_via_nvidia_smi() -> tuple[float | None, float | None]:
 
     try:
         # Windows: hide the console window for this ~10-30ms probe.
-        # Without CREATE_NO_WINDOW, spawning the console-mode
-        # ``nvidia-smi.exe`` flashes a visible terminal on every call
-        # that reaches this fallback. Guarded by ``os.name`` so POSIX
-        # passes nothing (the constant does not exist there); the
-        # getattr fallback covers stubbed ``subprocess`` modules.
         hide_window_kwargs: dict = (
             {"creationflags": getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)} if os.name == "nt" else {}
         )
@@ -183,7 +176,6 @@ def check_resources(*, logger: logging.Logger | None = None) -> None:
     """
     _log = logger if logger is not None else log
 
-    # ── RAM check ───────────────────────────────────────────────
     free_mb: float | None = None
     try:
         import psutil
@@ -214,14 +206,6 @@ def check_resources(*, logger: logging.Logger | None = None) -> None:
                 free_mb = stat.ullAvailPhys / (1024 * 1024)
         except Exception:
             #  previously a bare ``except
-            # Exception: pass``: the docstring at the top of
-            # ``check_resources`` promises "failures are logged at
-            # DEBUG level", but this branch silently swallowed the
-            # ctypes fallback failure (e.g. ``GlobalMemoryStatusEx``
-            # returning an error code on a stripped-down Windows
-            # IoT build), leaving operators with no clue why the
-            # RAM INFO line was missing. Emit a DEBUG line with the
-            # traceback so the docstring's promise is honored.
             _log.debug(
                 "[RESOURCE] RAM check (ctypes fallback) failed (non-fatal)",
                 exc_info=True,
@@ -248,9 +232,7 @@ def check_resources(*, logger: logging.Logger | None = None) -> None:
     else:
         _log.debug("[RESOURCE] Could not query available RAM")
 
-    # ── Disk space check ────────────────────────────────────────
     # Check both the system drive (for pagefile) and the model
-    # cache drive (for model downloads).
     drives_to_check: list[pathlib.Path] = []
     try:
         from voice_typer.server.config import _config_dir
@@ -264,7 +246,6 @@ def check_resources(*, logger: logging.Logger | None = None) -> None:
             drives_to_check.append(pathlib.Path(hf_home))
     except Exception:
         # Best-effort probe: fall back to home so the disk check still
-        # runs. Logged (MO-9) instead of a silent ``except: pass``.
         _log.debug(
             "[RESOURCE] config-dir probe failed, checking home drive only (non-fatal)",
             exc_info=True,
@@ -284,7 +265,6 @@ def check_resources(*, logger: logging.Logger | None = None) -> None:
         try:
             anchor = str(getattr(path, "anchor", "") or "").upper()
             # Windows anchor is the drive (``C:\\``); POSIX anchor
-            # is ``/`` for every path, so prefer st_dev there.
             if anchor and os.name == "nt":
                 return anchor
             with contextlib.suppress(Exception):
@@ -298,8 +278,6 @@ def check_resources(*, logger: logging.Logger | None = None) -> None:
             drive_info = os.statvfs(path) if hasattr(os, "statvfs") else None
         except OSError:
             # Per-path best-effort: one unreadable drive must not abort
-            # the whole probe. Narrowed from ``except Exception: continue``
-            # (MO-9) — statvfs only raises OSError.
             _log.debug(
                 "[RESOURCE] statvfs failed for %s (non-fatal)",
                 path,
@@ -307,7 +285,6 @@ def check_resources(*, logger: logging.Logger | None = None) -> None:
             )
             continue
         # One line per physical drive: config/home/cache on the same
-        # drive previously logged the identical free-GB value 3x.
         drive_key = _drive_key(pathlib.Path(path))
         if drive_key in seen_drives:
             continue
@@ -336,8 +313,6 @@ def check_resources(*, logger: logging.Logger | None = None) -> None:
                     )
             except (OSError, ValueError):
                 # Per-path best-effort: disk_usage can fail on a removed
-                # drive or bad path. Narrowed from ``except Exception:
-                # continue`` (MO-9) — only OS/value errors are expected.
                 _log.debug(
                     "[RESOURCE] disk_usage failed for %s (non-fatal)",
                     path,
@@ -357,14 +332,7 @@ def check_resources(*, logger: logging.Logger | None = None) -> None:
                     free_gb,
                 )
 
-    # ── GPU memory check (if CUDA) ──────────────────────────────
     # Uses ``onnxruntime.get_device()`` (CUDA-availability check) +
-    # ``nvidia-smi`` subprocess (memory query). ``pynvml`` is used if
-    # available, it is more efficient than spawning ``nvidia-smi`` per
-    # check, but the wheel is not in the project's hard deps so the
-    # subprocess is the safe fallback. The block is wrapped in
-    # ``try/except Exception`` with DEBUG fallback so the probe remains
-    # best-effort.
     try:
         gpu_total_mb, gpu_free_mb = _probe_gpu_memory_via_nvidia_smi()
         if gpu_total_mb is not None and gpu_free_mb is not None:
@@ -382,9 +350,6 @@ def check_resources(*, logger: logging.Logger | None = None) -> None:
                 )
         else:
             # nvidia-smi unavailable (no NVIDIA GPU, headless CI, macOS,
-            # or the binary is not on PATH). Check ORT's device report so
-            # the log line at least records whether ORT sees a CUDA
-            # device. ``onnxruntime.get_device()`` returns "cuda" or "cpu".
             ort_device = _probe_ort_device()
             if ort_device is not None:
                 _log.info(

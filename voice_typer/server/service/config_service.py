@@ -1,32 +1,4 @@
-"""Config-mutation domain mixin for VoiceTyperService.
-
-Extracted verbatim from the original ``service.py`` god class
-(Phase 4.5 spaghetti split). Owns the cross-cutting config
-surface that doesn't belong to a single domain mixin:
-
-* :meth:`ConfigMutationMixin.get_config`               : sanitized config read
-* :meth:`ConfigMutationMixin.get_defaults`             : sanitized defaults read
-* :meth:`ConfigMutationMixin.apply_config`             : atomic validate→mutate→save
-* :meth:`ConfigMutationMixin.apply_config_side_effects`, post-mutation side effects
-* :meth:`ConfigMutationMixin.change_model`             : ASR model switch wrapper
-* :meth:`ConfigMutationMixin.set_active_backend`. ASR backend switch wrapper
-* :meth:`ConfigMutationMixin.reset_config_to_defaults` , factory reset (config-only)
-* :meth:`ConfigMutationMixin._keyring_status`          : shared keychain probe helper
-
-These previously lived on :class:`VoiceTyperService` itself because
-they delegate to :class:`ConfigApplier` for the post-update
-dispatch.
-touch the cross-cutting config-mutation lock. They are extracted here
-as a :class:`ConfigMutationMixin` so :class:`VoiceTyperService`
-shrinks back to a thin composition root (``__init__`` + ``restart`` /
-``quit`` + the TypedDict response shapes). Every public method name
-and signature is preserved verbatim; the mixin is composed via
-multiple inheritance so ``VoiceTyperService.apply_config`` resolves
-to ``ConfigMutationMixin.apply_config`` (MRO), which is what the
-regression guards in ``tests/regressions/test_concurrency.py``
-(``inspect.getsource(VoiceTyperService.apply_config)`` must contain
-``_config_applier``) and ``tests/test_config_applier.py`` assert.
-"""
+"""Config-mutation domain mixin for VoiceTyperService."""
 
 import contextlib
 import logging
@@ -43,40 +15,10 @@ log = logging.getLogger(__name__)
 
 
 class ConfigMutationMixin(ServiceMixinBase):
-    """Config read / mutate / side-effects surface.
-
-        Most mutating methods delegate to ``self._config_applier`` (the
-        :class:`ConfigApplier` instance bound in
-        :meth:`VoiceTyperService.__init__`) so the config-mutation lock
-        (``_config_mutation_lock``) lives in exactly one place, see
-    for the rationale and
-        ``tests/regressions/test_concurrency.py`` for the regression
-        guard that introspects ``ConfigApplier.apply_config`` for the
-        lock acquisition.
-
-        The exception is :meth:`reset_config_to_defaults`, which is a
-        whole-config factory reset: it cannot go through
-        ``ConfigApplier`` (which validates and applies an *update* dict
-        to the live config) because it constructs a fresh
-        :class:`Config` from scratch. It still acquires
-        ``_config_mutation_lock`` directly so a concurrent
-        ``set_config`` IPC call can't interleave with the reset.
-    """
-
-    # ── Config ──────────────────────────────────────────────────
+    """Config read / mutate / side-effects surface."""
 
     def _keyring_status(self) -> dict[str, object]:
-        """SVC-6: probe the OS keychain backend once and return a
-        status dict shaped ``{available, backend, fallback, reason}``.
-
-        Centralizes the duplicated try/except that previously lived in
-        both :meth:`get_config` and :meth:`get_defaults`. Wrapping the
-        ``credential_store.get_keyring_status()`` call here means a
-        broken keyring library never breaks the IPC ``get_config`` /
-        ``get_defaults`` paths (which would lock the renderer out of
-        all settings). Both callers now route through this helper so
-        the probe has a single source of truth.
-        """
+        """SVC-6: probe the OS keychain backend once and return a"""
         try:
             from voice_typer.server import credential_store
 
@@ -91,29 +33,14 @@ class ConfigMutationMixin(ServiceMixinBase):
             }
 
     def get_config(self) -> dict[str, object]:
-        """Return the sanitized config (API keys redacted).
-
-        also includes a ``keyring_status`` field describing the
-                OS keychain backend state, so the renderer can show
-                "Stored securely in your OS keychain" indicators next to API
-                key inputs (or a warning when only the plaintext fallback is
-                available).
-        """
+        """Return the sanitized config (API keys redacted)."""
         # import the canonical sanitizer from the
-        # transport-neutral ``config_sanitizer`` module instead of
-        # reaching DOWN into the IPC transport layer (``ipc_server``),
-        # which created a real import cycle (ipc_server imports
-        # VoiceTyperService from this module).
         from voice_typer.server.config_sanitizer import sanitize_config_for_ipc
 
         sanitized = sanitize_config_for_ipc(self._app.config)
         # SVC-6: route through the shared helper (single try/except).
         sanitized["keyring_status"] = self._keyring_status()
         # Linux window-button system snapshot (read-only, computed, NOT
-        # a persisted Config field). Lets the renderer's "follow system"
-        # mode know the desktop's button-layout + DE without the renderer
-        # ever spawning a subprocess. Cached once per process inside
-        # window_buttons; every failure degrades to layout=None.
         try:
             from voice_typer.server.server_platform.window_buttons import (
                 system_window_buttons,
@@ -129,17 +56,10 @@ class ConfigMutationMixin(ServiceMixinBase):
         return sanitized
 
     def get_defaults(self) -> dict[str, object]:
-        """Return default config values (sanitized).
-
-        includes the same ``keyring_status`` field as
-                :meth:`get_config` so the renderer's "Reset to Defaults" flow
-                can show the same keychain indicators.
-        """
+        """Return default config values (sanitized)."""
         from voice_typer.server.config import Config
 
         # import the canonical sanitizer from the
-        # transport-neutral ``config_sanitizer`` module, see
-        # :meth:`get_config` for rationale.
         from voice_typer.server.config_sanitizer import sanitize_config_for_ipc
 
         sanitized = sanitize_config_for_ipc(Config())
@@ -148,116 +68,31 @@ class ConfigMutationMixin(ServiceMixinBase):
         return sanitized
 
     # ``set_config`` and ``save_config`` were REMOVED from this
-    # service layer.
-    #
-    # Rationale:
-    #   - ``set_config`` (validated-config helper) had 0 production
-    #     callers, the IPC ``set_config`` command is implemented in
-    #     ``handlers/config_handlers.py::_handle_set_config``, which
-    #     calls ``config.validate_config_update`` directly and then
-    #     delegates to ``service.apply_config`` (NOT this method).
-    #   - ``save_config`` (``self._app.config.save()`` wrapper) had 0
-    #     production callers; the IPC ``save_config`` command was
-    #     removed, ``Config.save()`` is now invoked
-    #     inside ``service.apply_config`` under the config-mutation
-    #     lock so disk writes can't race.
-    #
-    # Callers should use:
-    #   - ``config.validate_config_update(updates)`` directly for
-    #     validation, OR
-    #   - ``service.apply_config(updates)`` for the full atomic
-    #     validate→mutate→side-effects→save→tray-invalidate flow.
-
-    # Config side effects ─────────────────────────────
 
     def apply_config_side_effects(self, updates: dict) -> SideEffectStatus:
         """Apply side effects after config changes. Delegates to ConfigApplier.
 
-                Returns
-                -------
-                SideEffectStatus
-        side-effect status payload from
-                    :meth:`ConfigApplier.apply_config_side_effects` (shape
-                    ``{"autostart_status": dict | None, "prewarm_status": dict | None}``).
-                    Callers that previously discarded the return value still work.
+        Returns
         """
         return self._config_applier.apply_config_side_effects(updates)
 
     def change_model(self, model_size: str) -> None:
-        """Switch the active ASR model to ``model_size``.
-
-        Wraps ``self._app.change_model()`` so the IPC ``set_config``
-        handler doesn't call ``self.app.change_model()`` directly
-        (ADR 0008 §3.1).
-        """
+        """Switch the active ASR model to ``model_size``."""
         self._app.change_model(model_size)
 
     def set_active_backend(self, backend: str) -> None:
-        """Set the active ASR backend (e.g. ``"whisper"``, ``"qwen"``).
-
-        Wraps ``self._app.models.set_active_backend()`` so the IPC
-        ``set_config`` handler doesn't reach into ``app.models``
-        directly (ADR 0008 §3.1).
-        """
+        """Set the active ASR backend (e.g. ``"whisper"``, ``"qwen"``)."""
         self._app.models.set_active_backend(backend)
 
     def apply_config(self, updates: dict) -> SideEffectStatus:
         """Apply validated config updates atomically. Delegates to ConfigApplier.
 
-                Returns
-                -------
-                SideEffectStatus
-        side-effect status dict from
-                    :meth:`ConfigApplier.apply_config` (shape
-                    ``{"autostart_status": dict | None, "prewarm_status": dict | None}``).
-                    Callers that previously discarded the return value still work.
+        Returns
         """
         return self._config_applier.apply_config(updates)
 
     def reset_config_to_defaults(self, *, preserve_api_keys: bool = True) -> dict:
-        """factory-reset the in-memory + on-disk config to defaults.
-
-        Snapshots the current ``config.json`` to ``config.json.bak``
-        (so the user can recover their settings if they clicked
-        "Reset to defaults" by mistake), then constructs a fresh
-        :class:`Config` (all defaults) and, by default, preserves
-        the 5 API-key fields (``openai_api_key`` / ``groq_api_key`` /
-        ``deepgram_api_key`` / ``cloud_api_key`` / ``llm_api_key``)
-        from the pre-reset config so the user doesn't have to re-enter
-        their keys after a reset.  Set ``preserve_api_keys=False`` to
-        also wipe API keys (rare; the GDPR delete path is the right
-        tool for that, it also clears the keychain).
-
-        This method does NOT touch:
-
-          * ``history.db`` (transcription history, GDPR Art. 17
-            delete is a separate, intentional action).
-          * ``voice-typer-corrections.json`` / ``vocabulary.json`` /
-            ``templates.json`` (user customizations, preserved across
-            a factory reset).
-          * ``voice-typer.log`` (runtime log, rotated normally).
-          * OS keychain entries (only the in-memory + on-disk config
-            are reset).
-
-        Acquires ``app._config_mutation_lock`` so a concurrent
-        ``set_config`` IPC call can't interleave attribute writes
-        with the reset.  Calls ``Config.save_strict()`` so a disk
-        failure is surfaced as a ``RuntimeError`` rather than a
-        silent success.  Invalidates the cached ``LLMPolisher`` so
-        the next polish request rebuilds with the reset config.
-
-        Agent 2-j wires the IPC handler that calls this method
-        (``config_handlers.reset_config_to_defaults``).
-
-        Returns::
-
-            {"success": bool,
-             "backup_path": "/path/to/config.json.bak"}
-
-        On backup or save failure, returns::
-
-            {"success": False, "message": "..."}
-        """
+        """factory-reset the in-memory + on-disk config to defaults."""
         from voice_typer.server import credential_store
         from voice_typer.server.config import Config, _config_dir
         from voice_typer.server.secure_file_io import (
@@ -267,31 +102,12 @@ class ConfigMutationMixin(ServiceMixinBase):
 
         app = self._app
         # The mutation lock is one of the private attributes
-        # ADR-0008-§3.1 keeps off ``AppProtocol``: the accessors in
-        # ``service/_app_internals.py`` own that boundary (see
-        # ``providers.py`` for the full rationale).
         with app_config_mutation_lock(app):
             config_dir = _config_dir()
             config_file = config_dir / "config.json"
             backup_path = config_dir / "config.json.bak"
 
             # 1. Snapshot current config.json → config.json.bak.
-            # Best-effort: if config.json doesn't exist (fresh
-            # install), skip the backup.  If the backup write fails
-            # (disk full, permissions), return failure, we don't
-            # want to reset without a recovery path.
-            #
-            # Use the shared secure helpers instead of ``shutil.copy2``:
-            #   * ``_secure_read_text`` opens with ``O_NOFOLLOW`` on
-            #     POSIX so a symlink-planted config.json can't be
-            #     followed (defense against symlink-TOCTOU exfiltration
-            #     into the .bak file).
-            #   * ``_secure_atomic_write`` writes to a unique tmp file
-            #     (``mkstemp`` + ``O_EXCL``), fsyncs, then ``os.replace``
-            #     (atomic + does NOT follow the destination symlink),
-            #     and chmod's to 0o600.  This is the same vulnerability
-            #     class as the one already fixed in
-            #     ``config.py:_backup_before_migration``.
             if config_file.exists():
                 try:
                     raw = _secure_read_text(config_file)
@@ -304,10 +120,6 @@ class ConfigMutationMixin(ServiceMixinBase):
                     }
 
             # 2. Snapshot the API-key fields from the live Config
-            # (these hold the REAL values, not the keyring://
-            # reference tokens: see ``Config.load``).  We preserve
-            # them so the user doesn't have to re-enter their keys
-            # after a factory reset.
             preserved_keys: dict[str, str] = {}
             old_config = getattr(app, "config", None)
             if preserve_api_keys and old_config is not None:
@@ -337,17 +149,10 @@ class ConfigMutationMixin(ServiceMixinBase):
             old_config = app.config
             try:
                 # Swap the in-memory Config BEFORE save so save() reads
-                # the new defaults (and routes preserved API keys
-                # through credential_store if keyring is available).
                 app.config = new_config
                 new_config.save_strict()
             except Exception as exc:
                 # HU-22: restore the pre-swap config so a save failure
-                # does NOT leave the in-memory config diverged from disk
-                # (the renderer/engine would show defaults while the old
-                # values stay on disk and reappear on restart, a stale
-                # API key could even stay active after the user believed
-                # they reset everything).
                 app.config = old_config
                 log.exception("[SERVICE] reset_config_to_defaults: save_strict failed: %s", exc)
                 return {
@@ -356,9 +161,6 @@ class ConfigMutationMixin(ServiceMixinBase):
                 }
 
             # 6. Invalidate cached LLMPolisher / CloudEngine so the
-            # next request rebuilds with the reset config. The
-            # ``_app_internals`` accessors own the off-protocol
-            # attribute writes.
             with contextlib.suppress(Exception):
                 invalidate_llm_polisher(app)
             with contextlib.suppress(Exception):

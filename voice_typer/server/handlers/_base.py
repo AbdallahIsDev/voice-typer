@@ -74,9 +74,6 @@ from voice_typer.server.ipc.validation import (
 )
 
 # Import the recording-pipeline exception hierarchy so the
-# ``_respond_with_error`` isinstance ladder can map ResampleError /
-# ResampleUnavailableError to dedicated IPC error codes instead of
-# collapsing them into the generic ``server.internal_error`` toast.
 from voice_typer.server.recording.exceptions import (
     RecordingError,
     ResampleError,
@@ -85,23 +82,6 @@ from voice_typer.server.recording.exceptions import (
 from voice_typer.server.security.redaction import _redact_home_path_in_text
 
 # The ``ErrorEnvelope`` TypedDict contract is kept in
-# :mod:`voice_typer.server.ipc.validation` (useful as documentation),
-# but the cast + return-type annotations were REMOVED here because
-# pyrefly correctly flags that a ``TypedDict`` is not assignable to
-# ``dict[str, object]`` (TypedDicts are invariant). The construction
-# sites keep their ``# ErrorEnvelope contract, see validation.py``
-# comments so the contract remains documented without being enforced
-# at the type level. The runtime contract is verified by
-# ``tests/test_error_codes_registry.py``.
-#
-# Note: the per-envelope ``legacy_code`` field and its helpers
-# (``_legacy_code_from`` + ``_LEGACY_CODE_MAP``) were removed once the
-# renderer migrated fully to the namespaced ``code`` form. The
-# :class:`LegacyErrorCodes` constants are still re-exported from this
-# module for handlers (e.g. ``config_handlers`` and
-# ``cloud_test_handlers``) that emit the bare form directly as the
-# primary ``code`` field on legacy code paths that have not yet been
-# namespaced.
 
 
 def _scrub_traceback(exc: BaseException) -> tuple[str, str]:
@@ -176,16 +156,6 @@ class HandlerMixinBase:
     """
 
     # Pyrefly null-safety fix.
-    # Provided at runtime by the IPCServer host class via multiple
-    # inheritance. Declared here once so each handler mixin doesn't
-    # repeat the 3-line block (the duplicate-block removal refactor
-    # also removed the 4 duplicates that had been left behind in
-    # history / dictation / model / onboarding handlers).
-    #
-    # ``Any`` is the deliberate design choice: see the class
-    # docstring for the rationale on why the narrower
-    # :class:`ServiceProtocol` / :class:`AppProtocol` /
-    # ``Callable[[dict | None], None]`` annotations were reverted.
     service: Any
     app: Any
     _send: Any
@@ -307,57 +277,22 @@ class HandlerBase(HandlerMixinBase):
         continue to hold.
         """
         # Scrub the exception message before logging so secrets
-        # (sk-..., gsk_..., Bearer ...) and home-directory paths
-        # (which contain the username) don't land in voice-typer.log
-        # (which persists on disk and ships, 1 MB tail, in the CLI
-        # diagnostics bundle, and is user-attachable to bug reports). We also
-        # construct a scrubbed exception instance and pass it via
-        # ``exc_info`` (with ``tb=None`` so no traceback frames are
-        # printed, the frames could carry the secret in local
-        # variables or absolute file paths). This preserves
-        # ``record.exc_info is not None`` (structured-logging
-        # consumers and existing
-        # ``test_catch_all_logs_at_error_level_with_exc_info``
-        # assertions rely on it) while ensuring the formatted
-        # ``record.exc_text`` doesn't leak the secret either.
         scrubbed_str, _ = _scrub_traceback(exc)
         # ErrorEnvelope contract: see validation.py
         resp["type"] = "error"
         if isinstance(exc, ConsentRequiredError):
             # Structured consent error. Pass through the
-            # typed fields so the renderer can surface a consent dialog
-            # instead of a generic error toast. The structured fields
-            # (engine_name, consent_field, model_id) let the renderer
-            # deep-link to the exact toggle in Settings.
-            #
-            # Construct ``data`` from ``exc.to_dict()`` FIRST,
-            # then explicitly overwrite ``code`` and ``message`` AFTER
-            # the spread. Pre-fix the literal order was
-            # ``{"code": ..., "message": ..., **exc.to_dict()}`` which
-            # silently overwrote both fields with the (possibly empty)
-            # values from ``to_dict()``: the user-visible message
-            # became ``""`` whenever ``str(exc)`` was empty, defeating
-            # the ``or "consent required"`` fallback.
             data = exc.to_dict()
             data["code"] = ErrorCodes.CONSENT_REQUIRED
             data["message"] = str(exc) or "consent required"
             resp["data"] = data
             # Expected, user-actionable rejection (e.g. voice-biometric
-            # consent not granted): log at WARNING without a traceback.
-            # This is normal control-flow, the renderer surfaces a
-            # consent dialog from the envelope, not a server fault.
-            # The previous ERROR + exception-class header line made
-            # every consent-denied microphone test / dictation look
-            # like a crash in voice-typer.log.
             log.warning("[IPC] %s rejected: %s", cmd_name, scrubbed_str)
             return resp
         try:
             scrubbed_exc = type(exc)(scrubbed_str)
         except Exception:
             # Some exception types (e.g. OSError) have a different
-            # ``__init__`` signature that doesn't accept a single
-            # string. Fall back to RuntimeError so the log still
-            # captures the scrubbed message.
             scrubbed_exc = RuntimeError(scrubbed_str)
         log.error(
             "[IPC] %s failed: %s",
@@ -366,42 +301,16 @@ class HandlerBase(HandlerMixinBase):
             exc_info=(type(scrubbed_exc), scrubbed_exc, None),
         )
         # Typed cloud/LLM exception hierarchy, map each typed
-        # exception to a distinct IPC error code (registered in
-        # ``ERROR_CODES`` at ``voice_typer/server/ipc/validation.py``)
-        # so the renderer can distinguish "API key invalid" from "rate
-        # limited" from "transient network" from "missing config" and
-        # react accordingly (re-enter key, backoff, auto-retry, open
-        # Settings). The catch-all ``RuntimeError`` fallback stays as
-        # ``server.internal_error`` for non-cloud RuntimeErrors.
-        #
-        # Every envelope below carries both the namespaced
-        # ``code`` and a matching ``legacy_code`` alias (derived by
-        # stripping the ``client.``/``server.`` prefix) so the renderer
-        # can switch on either form during the namespacing migration
-        # window, mirroring the parity stamp added to
-        # ``_validate_dict_payload`` and the TCP/WS rate-limit envelopes
-        # under
         if isinstance(exc, ResampleUnavailableError):
             # scipy.signal.resample_poly unavailable, the
-            # high-quality resample tier is missing, callers must
-            # fall back to linear interpolation. Maps to a distinct
-            # code so the renderer can surface "install scipy for
-            # better audio quality" instead of a generic error toast.
             code = ErrorCodes.RECORDING_RESAMPLE_UNAVAILABLE
             message = "high-quality audio resampling unavailable"
         elif isinstance(exc, ResampleError):
             # Audio cannot be resampled to the target sample
-            # rate. Maps to a distinct code so the renderer can
-            # distinguish "audio pipeline misconfiguration" from a
-            # generic internal_error toast.
             code = ErrorCodes.RECORDING_RESAMPLE_FAILED
             message = "audio resampling failed"
         elif isinstance(exc, RecordingError):
             # Catch-all for the typed recording-pipeline base
-            # (anything that is not one of the narrow subclasses above).
-            # Maps to the resample-failed code rather than the generic
-            # ``server.internal_error`` so the renderer can group
-            # recording-pipeline failures together.
             code = ErrorCodes.RECORDING_RESAMPLE_FAILED
             message = "recording pipeline error"
         elif isinstance(exc, CloudAuthError):
@@ -421,23 +330,13 @@ class HandlerBase(HandlerMixinBase):
             message = "cloud provider not configured"
         elif isinstance(exc, CloudEngineError):
             # Catch-all for the typed base (e.g. unknown HTTP
-            # status from the cloud provider). Maps to a cloud-specific
-            # code rather than the generic ``server.internal_error``.
             code = ErrorCodes.CLOUD_ENGINE_ERROR
             message = "cloud provider error"
         else:
             # Use the namespaced form
-            # ``server.internal_error`` rather than the legacy bare
-            # ``internal_error``. The renderer's ``usePython.ts`` switch
-            # accepts both forms (the legacy alias is documented in
-            # ``voice_typer/server/ipc/validation.py``); new emitters
-            # MUST use the namespaced form.
             code = ErrorCodes.INTERNAL_ERROR
             message = "internal error"
         # Stamp the envelope with the namespaced ``code`` and the
-        # generic server-side message. The previous per-envelope
-        # ``legacy_code`` alias was removed once the renderer migrated
-        # fully to the namespaced ``code`` form.
         resp["data"] = {
             "code": code,
             "message": message,
@@ -521,23 +420,11 @@ class HandlerBase(HandlerMixinBase):
         data: dict[str, Any] = {"code": code, "message": message}
         if extra:
             # Merge extra fields AFTER ``code`` + ``message`` so the
-            # standard pair is always present and cannot be clobbered
-            # by a caller-supplied ``code``/``message`` kwarg (Python
-            # would raise ``TypeError: multiple values for keyword
-            # argument`` if a caller tried, the explicit ``code``
-            # parameter above shadows any ``code`` in ``**extra``).
             data.update(extra)
         resp["data"] = data
         return resp
 
-    # ── Template-method helper for handler consistency ────
     # ``_wrap`` is the sanctioned shape for every IPC handler,
-    # including side-effecting ones (subprocess, HTTP, tray/i18n
-    # mutation, event-bus publish). Side effects belong in ``body``;
-    # multiple early-return envelopes are expressed by returning
-    # ``{"type": ..., "data": ...}`` (or ``self._error_response(...)``)
-    # from ``body``. Do not reintroduce a parallel ad-hoc try/validate
-    # structure.
     def _wrap(
         self,
         *,
@@ -606,8 +493,6 @@ class HandlerBase(HandlerMixinBase):
                 assert validated is not None  # narrowed by the error guard above
             else:
                 # Schema-less calls always pre-coerce (``pre_coerce=True``),
-                # so ``coerced`` is a dict here; ``cast`` satisfies pyrefly
-                # without a runtime check.
                 validated = typing.cast(dict, coerced)
             result = body(validated)
             if isinstance(result, dict):

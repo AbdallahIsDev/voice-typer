@@ -27,7 +27,6 @@ from voice_typer.server.branding import APP_NAME
 from voice_typer.server.platform_utils import is_macos, is_windows
 
 # C-CROSS-3: explicit dotted logger name: see log_files.py for why
-# ``__name__`` cannot be used here.
 log = logging.getLogger("voice_typer.server.autostart_launcher")
 
 
@@ -43,19 +42,6 @@ def _client_dir_exists() -> bool:
 
 
 # Well-known install paths per OS, in DISCOVERY ORDER. Tokens:
-# - ``{APP}``  → APP_NAME (the installer product name)
-# - ``{HOME}`` → Path.home()
-# - ``%LOCALAPPDATA%`` / ``%PROGRAMFILES%`` → resolved from the environment
-#   at call time (a missing LOCALAPPDATA makes that candidate skipped;
-#   PROGRAMFILES falls back to ``C:\\Program Files``, both mirror the
-#   pre-refactor behavior).
-# This table is the launcher side of the autostart↔manifest drift pair
-# pinned by
-# ``tests/tauri/test_config_script_drift.py::TestLauncherInstallPathsMatchManifest``
-# against ``tauri-binaries.json`` → ``binaries.*._install_paths`` (order
-# matters, LOCALAPPDATA is first on Windows because the NSIS installer
-# defaults to ``installMode=currentUser``). Any change here MUST be
-# mirrored in the manifest, and vice versa.
 _TAURI_LAUNCHER_INSTALL_PATHS: dict[str, tuple[str, ...]] = {
     "windows": (
         r"%LOCALAPPDATA%\Programs\{APP}\voice-typer-tauri.exe",
@@ -168,9 +154,6 @@ def _is_tauri_mode() -> bool:
     if os.environ.get("VT_TAURI_AUTOSTART") == "1":
         return True
     # also detect Tauri mode from sys.executable basename —
-    # the Tauri Rust host renames the Python sidecar executable to
-    # ``voice-typer-tauri`` when freezing, so this is a reliable signal
-    # that we are running inside a Tauri install.
     exe_basename = os.path.basename(sys.executable).lower()
     if "voice-typer-tauri" in exe_basename:
         return True
@@ -209,8 +192,6 @@ def _tauri_manifest_path() -> Path | None:
             return p
         log.warning("[AUTOSTART] VT_TAURI_MANIFEST set but not a file: %s", override)
     # (2) Exe-adjacent: frozen sidecar dir + resources subdir + parent
-    # chain up 3 levels. Guarded: sys.executable may be unset/odd in
-    # embedded interpreters, never let probing raise.
     try:
         exe_dir = Path(sys.executable).resolve().parent
     except (OSError, RuntimeError):
@@ -239,7 +220,6 @@ def _tauri_manifest_path() -> Path | None:
             except OSError:
                 continue
     # (3) Dev checkout: walk the __file__ parents chain (superset of
-    # the historic parents[3] repo-root lookup).
     try:
         file_parents = Path(__file__).resolve().parents
     except (OSError, RuntimeError):
@@ -351,7 +331,6 @@ def verify_tauri_binary_or_skip(path: str | Path) -> bool:
         return False
     try:
         # Chunked read (8 MiB): the host binary is tens of MB, a
-        # single read_bytes() spikes peak RAM at login (BP-130).
         digest = hashlib.sha256()
         with open(binary, "rb") as handle:
             for chunk in iter(lambda: handle.read(8 * 1024 * 1024), b""):
@@ -388,9 +367,6 @@ def _spawn_tauri_host(binary: str, hidden: bool = False) -> subprocess.Popen | N
     from voice_typer.server import autostart_launcher as _pkg
 
     # Fail-closed integrity gate: the Tauri host binary MUST
-    # verify against ``tauri-binaries.json`` before it is spawned —
-    # otherwise a tampered or stale binary (or the ``VT_TAURI_BINARY``
-    # env override, which is NOT a bypass) would launch unchecked.
     if not _pkg.verify_tauri_binary_or_skip(binary):
         log.error(
             "[AUTOSTART] refusing to spawn Tauri binary %s, integrity verification failed (fail-closed).",
@@ -398,12 +374,10 @@ def _spawn_tauri_host(binary: str, hidden: bool = False) -> subprocess.Popen | N
         )
         return None
     # ``_launcher_child_env`` force-disables ANSI colour + npm notices
-    # (the child's output is redirected to the host log files).
     env = _launcher_child_env()
     if hidden:
         env["VT_START_HIDDEN"] = "1"
     # The [ENV] audit line is emitted once by ``_spawn_login_child``
-    # (single choke point); no pre-log here to avoid the doubled line.
     sk: dict = {}
     sk.update(_pkg._tauri_log_files())
     sk.update(_spawn_flags(hidden=hidden))
@@ -447,7 +421,6 @@ def launch_tauri_frontend_standalone(binary: str, *, port: int, token: str) -> i
         )
         return None
     # ``_launcher_child_env`` force-disables ANSI colour + npm notices
-    # (the child's output is redirected to the tauri log files).
     env = _launcher_child_env()
     env["VT_PYTHON_PORT"] = str(port)
     env["VT_IPC_TOKEN"] = token
@@ -469,5 +442,4 @@ def launch_tauri_frontend_standalone(binary: str, *, port: int, token: str) -> i
 
 
 # Backward-compat alias, older test imports use the previous name.
-# Both names refer to the same function object.
 _launch_tauri_app = _spawn_tauri_host

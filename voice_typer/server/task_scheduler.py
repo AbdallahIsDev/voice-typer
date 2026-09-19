@@ -1,30 +1,4 @@
-"""Windows Task Scheduler helpers shared with the autostart path.
-
-Prewarm became a worker startup phase (master plan §6.2 P-1): the
-OS-level scheduled-task registration for the prewarm binary (Windows
-LogonTrigger / macOS LaunchAgent / Linux systemd user timer) was
-deleted along with the prewarm binary it launched. The prewarm-
-specific functions that used to live here (``register_prewarm_task``,
-``unregister_prewarm_task``, ``is_prewarm_registered``,
-``_build_task_xml``, the HKCU Run-key fallback helpers, the
-``_prewarm_command`` interpreter resolver, and the
-``prewarm_resolver`` / ``prewarm_scheduler_posix`` delegation paths)
-were removed at the same time.
-
-What REMAINS in this module is the small set of schtasks wrappers
-that the autostart path (``server_platform/autostart.py`` /
-``autostart_windows.py``) reuses:
-
-- :data:`_APP_AUTOSTART_DELAY_SECONDS`: delay the autostart launcher
-  waits before spawning predecessor, so the just-launched app doesn't
-  contend with the logon I/O storm (prewarm warms from inside the
-  worker now, so the delay stays small).
-- :func:`is_supported`: True on Windows when ``schtasks.exe`` is
-  present (gates the autostart_windows code paths).
-- :func:`_schtasks` / :func:`_schtasks_elevated`, run
-  ``schtasks`` non-elevated / via UAC elevation prompt (used by the
-  autostart register / unregister / query / delete calls).
-"""
+"""Windows Task Scheduler helpers (autostart order C-CROSS-2)."""
 
 from __future__ import annotations
 
@@ -41,38 +15,14 @@ from voice_typer.server.platform_utils import is_windows
 log = logging.getLogger(__name__)
 
 # STARTUP-2: delay the app's autostart_launcher waits before spawning
-# predecessor, so the just-launched app doesn't contend with the logon I/O
-# storm (Explorer, AV scan, other autostart entries faulting pages at
-# once). Kept small on purpose: prewarm is a worker startup phase now
-# (it warms the OS file cache from INSIDE the backend process after it
-# spawns), so a long pre-launch sleep only delays the worker itself.
-# The launcher additionally clamps legacy large delays (see
-# ``_LAUNCHER_DELAY_CAP_S`` in ``autostart_launcher``) so entries
-# registered with the old 15 s value don't stall logon. Coded as a CLI
-# flag so platform.py can pass it without depending on this module's
-# internals.
 _APP_AUTOSTART_DELAY_SECONDS = 3
 
 
-# ─── schtasks wrappers ──────────────────────────────────────────────────
-
-
 def _schtasks(args: list[str], *, capture: bool = True) -> tuple[int, str]:
-    """Run ``schtasks`` with *args*. Returns (returncode, combined output).
-
-    ``schtasks /Create`` can block for up to 30s if the
-    Windows Task Scheduler service is hung. Callers run this off the
-    hotkey-registration critical path (the phase-6 autostart sync
-    dispatches it on a fire-and-forget daemon thread).
-    """
+    """Run ``schtasks`` with *args*. Returns (returncode, combined output)."""
     cmd = ["schtasks"] + args
     try:
         # Hidden spawn on Windows: schtasks.exe is a console-subsystem
-        # binary, without CREATE_NO_WINDOW every autostart Query/Create
-        # (startup sync at logon + settings toggle) flashes a conhost
-        # window. Flag value single-sourced via the shared
-        # server_platform.autostart helper (DRY); omitted on POSIX
-        # where creationflags is not a valid subprocess.run kwarg.
         run_kwargs: dict = {
             "capture_output": capture,
             "text": True,
@@ -99,16 +49,7 @@ def _schtasks(args: list[str], *, capture: bool = True) -> tuple[int, str]:
 
 
 def _schtasks_elevated(args: list[str], *, timeout_ms: int = 60000) -> tuple[int, str]:
-    """Run ``schtasks`` with *args* via UAC elevation prompt.
-
-    Used when a non-elevated schtasks call fails with "Access is denied"
-    (e.g. overwriting a task created by an admin install).  Shows the
-    standard Windows UAC consent dialog and waits for the user to accept
-    or reject.
-
-    Returns (returncode, combined_output).  If the user cancels UAC,
-    the ShellExecuteExW fails and we return (1223, "user cancelled").
-    """
+    """Run ``schtasks`` with *args* via UAC elevation prompt."""
     import ctypes
     import ctypes.wintypes
 
@@ -134,24 +75,8 @@ def _schtasks_elevated(args: list[str], *, timeout_ms: int = 60000) -> tuple[int
     see_mask_noclose = 0x00000040
     sw_hide = 0
 
-    # build the arg string for schtasks using
     # ``subprocess.list2cmdline`` (the same helper ``subprocess.Popen``
-    # uses on Windows internally). The previous hand-rolled join —
-    # ``" ".join(f'"{a}"' if " " in a or "&" in a else a for a in args)``
-    # , only quoted args containing a space or ``&`` and NEVER escaped
-    # embedded ``"`` characters. A malicious or misconfigured arg
-    # containing ``"`` could break out of the quoting and inject
-    # arbitrary cmd.exe metacharacters into the ``cmd_line`` below
-    # (which is then wrapped in another layer of ``cmd.exe /c "..."``
     # quoting via ``sei.lpParameters``). ``list2cmdline`` handles the
-    # full Windows command-line quoting rules: it double-quotes any
-    # arg containing whitespace, ``"``, or other special chars, and
-    # escapes embedded ``"`` as ``\\"`` so the resulting string parses
-    # back to the original argv on the cmd.exe side. ``schtasks`` args
-    # today are all safe (task name, /Query, /TN, etc.), but the
-    # function is a generic helper, hardening it removes a latent
-    # injection vector if a future caller passes a user-supplied arg
-    # (e.g. a custom ``--trigger`` value).
     arg_str = subprocess.list2cmdline(args)
 
     # Redirect output to a temp file so we can read it back
@@ -170,13 +95,6 @@ def _schtasks_elevated(args: list[str], *, timeout_ms: int = 60000) -> tuple[int
         sei.nShow = sw_hide
 
         # parity with the non-elevated ``_schtasks`` helper
-        # (which logs WARNING on ``FileNotFoundError`` and ERROR on
-        # ``TimeoutExpired``). The elevated path previously had ZERO
-        # log lines, a UAC-cancel or stale-temp-file failure was
-        # silently swallowed, leaving the caller (e.g. an autostart
-        # register / unregister flow) to retry blind or give up with
-        # no diagnostic trail. Each failure mode now logs at the same
-        # severity as the sibling helper per
         if not ctypes.windll.shell32.ShellExecuteExW(ctypes.byref(sei)):
             err = ctypes.WinError()
             log.warning(
@@ -187,22 +105,11 @@ def _schtasks_elevated(args: list[str], *, timeout_ms: int = 60000) -> tuple[int
             return 1223, f"UAC elevation failed: {err}"
 
         # Wait for the process to finish. ``WaitForSingleObject`` returns
-        # WAIT_TIMEOUT (258) if the process didn't exit within
-        # ``timeout_ms``: surface that as a warning so a hung schtasks
-        # doesn't look like a silent success.
         wait_result = ctypes.windll.kernel32.WaitForSingleObject(
             sei.hProcess,
             timeout_ms,
         )
         # check both documented non-success return values.
-        # ``WAIT_TIMEOUT`` (258) means the process is still running
-        # after ``timeout_ms``: log.error so a hung schtasks is
-        # visible. ``WAIT_FAILED`` (0xFFFFFFFF) means the wait itself
-        # failed (e.g. ``sei.hProcess`` is invalid), log.warning so
-        # the failure is diagnosable before ``GetExitCodeProcess``
-        # reads garbage. The finding's suggested ``WAIT_TIMEOUT=124``
-        # is incorrect (124 is ETIMEDOUT, not a Win32 wait code); the
-        # correct value is 258 (``STATUS_TIMEOUT`` = ``0x102``).
         if wait_result == 258:  # WAIT_TIMEOUT
             log.error(
                 "[TASK] _schtasks_elevated: WaitForSingleObject timed out after "
@@ -219,13 +126,6 @@ def _schtasks_elevated(args: list[str], *, timeout_ms: int = 60000) -> tuple[int
 
         exit_code = ctypes.wintypes.DWORD()
         # ``GetExitCodeProcess`` returns a BOOL (nonzero on
-        # success, zero on failure). The previous call discarded the
-        # return value, so a failure (e.g. invalid handle) silently
-        # left ``exit_code`` at its zero-initialized value, the caller
-        # saw ``rc=0`` (success) and treated a failed read as a
-        # successful schtasks run. Now log the failure and fall
-        # through with ``STILL_ACTIVE`` (259) sentinel so the caller's
-        # ``rc != 0`` branch (which logs warning + retries) fires.
         get_exit_ok = ctypes.windll.kernel32.GetExitCodeProcess(sei.hProcess, ctypes.byref(exit_code))
         if not get_exit_ok:
             log.warning(
@@ -237,11 +137,6 @@ def _schtasks_elevated(args: list[str], *, timeout_ms: int = 60000) -> tuple[int
         ctypes.windll.kernel32.CloseHandle(sei.hProcess)
 
         # Read output from the temp file. The empty-output case (e.g.
-        # schtasks exited 0 but produced no stdout) is logged at debug
-        # so a silent-success is distinguishable from a failed read.
-        # An ``OSError`` here (temp file deleted by AV, permissions,
-        # etc.) is logged at warning, same severity as the sibling
-        # ``_schtasks`` uses for ``FileNotFoundError``.
         output = ""
         try:
             with open(out_path, encoding="utf-8") as f:
@@ -280,26 +175,8 @@ def _schtasks_elevated(args: list[str], *, timeout_ms: int = 60000) -> tuple[int
             os.unlink(out_path)
 
 
-# ─── Public API ──────────────────────────────────────────────────────────
-
-
 def is_supported() -> bool:
-    """Return True if Windows Task Scheduler (``schtasks.exe``) is available.
-
-    Prewarm became a worker startup phase (master plan §6.2 P-1): the
-    POSIX prewarm scheduling path (macOS LaunchAgent / Linux systemd
-    user timer via ``prewarm_scheduler_posix``) was deleted along
-    with the prewarm binary it launched. ``is_supported`` now only
-    reports whether the Windows schtasks.exe binary exists, the
-    POSIX path no longer needs a Task-Scheduler-style gate because
-    the autostart code paths on POSIX use LaunchAgent / systemd
-    directly (see ``server_platform/autostart_macos.py`` /
-    ``autostart_linux.py``), not this helper.
-
-    Returns:
-        True on Windows when ``schtasks.exe`` is present, False
-        otherwise.
-    """
+    """Return True if Windows Task Scheduler (``schtasks.exe``) is available."""
     if not is_windows():
         return False
     return Path(os.environ.get("SYSTEMROOT", r"C:\Windows") + r"\System32\schtasks.exe").exists()

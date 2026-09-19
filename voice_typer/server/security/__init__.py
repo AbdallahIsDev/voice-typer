@@ -1,29 +1,6 @@
-"""Security package (consolidated security surface).
+"""Security package (redaction, URL allowlist/SSRF, secure I/O, integrity, Win32 DACL).
 
-Consolidates the former top-level security modules into one cohesive
-package so a security review reads a single threat-model surface:
-
-- :mod:`voice_typer.server.security.redaction`, secret + PII redaction
-  (the redaction half of the former ``_secrets.py`` merged with the PII
-  filter from the former ``security.py``).
-- :mod:`voice_typer.server.security.url_allowlist`, cloud URL allowlist
-  + SSRF defense (the allowlist half of the former ``_secrets.py``).
-- :mod:`voice_typer.server.security.file_io`: secure atomic file I/O
-  (the former ``secure_file_io.py``).
-- :mod:`voice_typer.server.security.http_safety`, no-redirect /
-  HTTPS-only urllib opener (the former ``_http_safety.py``).
-- :mod:`voice_typer.server.security.model_integrity`, SHA-256 model
-  verification + download allowlists (the integrity half of the former
-  ``security.py`` merged with the former ``_model_integrity.py``).
-- :mod:`voice_typer.server.security.win32_dacl`. Win32 restrictive DACL
-  (the former ``_security_attributes.py``).
-
-Backward compatibility: the old top-level module paths
-(``voice_typer.server._secrets``, ``voice_typer.server.security``,
-``voice_typer.server.secure_file_io``, ``voice_typer.server._http_safety``,
-``voice_typer.server._security_attributes``, ``voice_typer.server._model_integrity``)
-remain importable as re-export shims. New code should import from this
-package (or its submodules) directly.
+Legacy top-level modules remain as re-export shims; import from here.
 """
 
 from pathlib import Path as _Path  # noqa: F401, re-exported for tests that patch security.Path.exists
@@ -86,10 +63,7 @@ from .url_allowlist import (  # noqa: F401
 )
 from .win32_dacl import _create_restrictive_security_attributes  # noqa: F401
 
-# ``security.Path`` must be the ``pathlib.Path`` class itself, tests
-# monkeypatch ``security.Path.exists`` (see ``tests/test_model_integrity.py``)
-# and the re-export keeps that contract identical to the former
-# ``security.py`` module (which did ``from pathlib import Path``).
+# Re-export Path so tests can monkeypatch security.Path.exists.
 Path = _Path  # noqa: F401
 
 __all__ = [

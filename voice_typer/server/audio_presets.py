@@ -1,18 +1,4 @@
-"""Audio preset definitions, single source of truth.
-
-This module eliminates the previous 3-way duplication of preset → filter
-mappings (service.py, Microphone.tsx, AudioPresetSelector.tsx). All
-server-side preset logic lives here; the renderer ships its own display
-copy of the preset catalog (labels + descriptions), so no display
-metadata is exported from this module.
-
-Presets (ADR 0007 §5.5):
-    auto      , Best for 90% of users. All filters ON, RNNoise.
-    studio    , Quiet room, good mic. Minimal processing.
-    noisy_room, Keyboard/fan/HVAC. Aggressive, GTCRN.
-    off       , Raw audio, no filtering.
-    custom    , User controls each filter individually.
-"""
+"""Microphone quality preset definitions."""
 
 from __future__ import annotations
 
@@ -25,14 +11,7 @@ PRESET_NOISY_ROOM = "noisy_room"
 PRESET_OFF = "off"
 PRESET_CUSTOM = "custom"
 
-# Preset → filter settings mapping.
-# Includes the boolean on/off toggles + method selection, AND per-preset
-# parameter overrides (threshold, ratio, cutoff, etc.) where a preset
-# needs to deviate from the config defaults. Presets without explicit
-# parameter overrides (``PRESET_AUTO``, ``PRESET_STUDIO``, ``PRESET_OFF``)
-# use the config defaults for every threshold / ratio / cutoff, this
-# matches the original contract (presets only flipped toggles) so
-# existing behavior is preserved for those presets.
+# Preset → filter settings + optional per-preset parameter overrides.
 PRESETS: dict[str, dict[str, Any]] = {
     PRESET_AUTO: {
         "noise_filter_highpass": True,
@@ -55,27 +34,12 @@ PRESETS: dict[str, dict[str, Any]] = {
     PRESET_NOISY_ROOM: {
         "noise_filter_highpass": True,
         # GTCRN, the bundled ONNX streaming denoiser (higher quality
-        # than RNNoise; ~2 ms per 16 ms hop on CPU). Replaces the
-        # retired DeepFilterNet option this preset historically
-        # selected (whose processing path was never wired).
         "noise_suppression_method": "gtcrn",  # best quality
         "noise_filter_gate": True,
         "noise_filter_eq": True,
         "noise_filter_compressor": True,
         "noise_filter_limiter": True,
         "noise_filter_notch": True,
-        # Per-preset parameter overrides. Previously
-        # ``PRESET_NOISY_ROOM`` had identical toggle values to
-        # ``PRESET_AUTO``: switching to "Noisy Room" only changed the
-        # suppression method (and the notch toggle) while leaving every
-        # threshold / ratio / cutoff at the config default. A noisy
-        # environment (keyboard / fan / HVAC) needs more aggressive
-        # settings: a higher high-pass cutoff to strip HVAC rumble, a
-        # less-sensitive gate threshold (opens only on louder speech
-        # above the noise floor), and a stiffer compressor ratio to
-        # keep transient keyboard noise in check. These overrides are
-        # applied via the same ``setattr`` loop in ``apply_preset`` as
-        # the boolean toggles.
         "noise_filter_highpass_cutoff_hz": 100.0,  # default 80; strip HVAC rumble
         "noise_filter_gate_open_threshold_db": -22.0,  # default -26; less sensitive
         "noise_filter_compressor_ratio": 4.0,  # default 3.0; stiffer for transients
@@ -94,27 +58,7 @@ PRESETS: dict[str, dict[str, Any]] = {
 
 
 def apply_preset(preset: str, config: Any) -> None:
-    """Apply a named preset to a config object in-place.
-
-    For "custom", does nothing (user controls individual fields).
-    For other presets, sets the filter toggles AND any per-preset
-    parameter overrides (threshold / ratio / cutoff) from
-    :data:`PRESETS` via ``setattr``. Presets without explicit
-    parameter overrides (``PRESET_AUTO``, ``PRESET_STUDIO``,
-    ``PRESET_OFF``) only set the boolean toggles, every threshold /
-    ratio / cutoff on ``config`` is left at whatever value it
-    currently holds (typically the :class:`Config` default).
-    ``PRESET_NOISY_ROOM`` additionally overrides
-    ``noise_filter_highpass_cutoff_hz``,
-    ``noise_filter_gate_open_threshold_db``, and
-    ``noise_filter_compressor_ratio`` with values tuned for a noisy
-    environment (keyboard / fan / HVAC).
-
-    Args:
-        preset: one of the preset name constants (PRESET_AUTO,
-            PRESET_STUDIO, PRESET_NOISY_ROOM, PRESET_OFF, PRESET_CUSTOM).
-        config: a Config-like object with noise_filter_* attributes.
-    """
+    """Apply a named preset to a config object in-place."""
     if preset == PRESET_CUSTOM:
         return  # no automatic changes
     if preset not in PRESETS:
@@ -127,6 +71,5 @@ def get_preset_filters(preset: str) -> dict[str, Any]:
     """Return the filter settings for a named preset.
 
     Returns an empty dict for "custom" (no automatic changes).
-    Returns an empty dict for unknown presets.
     """
     return dict(PRESETS.get(preset, {}))

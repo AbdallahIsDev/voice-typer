@@ -17,15 +17,6 @@ from voice_typer.server.native_hotkeys._constants import (
 log = logging.getLogger(__name__)
 
 # Known-good diagnostic lines emitted by the native binaries via their
-# diagnostic logger to stderr (merged into stdout by the parent's
-# ``stderr=STDOUT`` pipe). They carry a timestamp+pid prefix, e.g.
-# ``2026-09-18T12:00:00.000 [1234] windows-key-listener starting;
-# spec=<f2>; log_file=...``. They are not wire-protocol events, so the
-# table dispatch above never matches them. Match by substring (the
-# prefix varies per boot) and acknowledge at debug without hitting the
-# "Unrecognized" fallback below. The markers are deliberately
-# cross-platform: the Linux/macOS binaries emit the same startup,
-# stdin-reader, and READY-emitted shapes with their own binary name.
 _KNOWN_DIAGNOSTIC_MARKERS: tuple[str, ...] = (
     "starting; spec=",
     "stdin reader thread started (PING/PONG enabled)",
@@ -36,17 +27,9 @@ _KNOWN_DIAGNOSTIC_MARKERS: tuple[str, ...] = (
 
 class _ReaderMixin:
     # Human-readable backend name used in log messages. Provided by the
-    # composing backend class (``_core.py`` sets ``platform_name: str =
-    # "subprocess"``); declared here so the mixin's own methods typecheck.
     platform_name: str
 
     # Members provided by the composed ``SubprocessHotkeyBackend``
-    # (``_core.py`` ``__init__``): cross-mixin attribute access is
-    # runtime-valid but pyrefly cannot see it on a standalone mixin.
-    # Annotations only, no values, so no runtime attribute is created
-    # and the runtime MRO is unaffected (same pattern as
-    # dictation_pipeline's mixin declarations and model_manager's
-    # ``ChangeMixin``).
     _process: subprocess.Popen | None
     _stop_event: threading.Event
     _ready_event: threading.Event
@@ -62,21 +45,10 @@ class _ReaderMixin:
 
     if TYPE_CHECKING:
         # Method provided by ``_SpawnMixin`` in the composed MRO; a
-        # TYPE_CHECKING-only stub keeps this mixin type-checkable
-        # standalone without shadowing the real implementation at
-        # runtime (same pattern as model_manager's ``ChangeMixin``
-        # sibling-method stubs).
         def _spawn_process(self) -> None: ...
 
     def _reader_loop(self) -> None:
-        """Read lines from the binary's stdout and dispatch.
-
-        the check-then-spawn sequence
-        is guarded by ``_restart_lock`` and the old thread ``return``s after
-        spawning a replacement (was: ``continue`` → fork-bomb). The attempt
-        counter is the instance-level ``_restart_attempts`` (was: local
-        ``attempts`` → per-thread, defeating the cap).
-        """
+        """Read lines from the binary's stdout and dispatch."""
         while not self._stop_event.is_set():
             if self._process is None or self._process.poll() is not None:
                 # Process exited, decide whether to restart
@@ -84,10 +56,8 @@ class _ReaderMixin:
                     return
                 with self._restart_lock:
                     # Re-check under lock, another reader thread may have
-                    # already restarted while we were waiting for the lock.
                     if self._process is not None and self._process.poll() is None:
                         # Another thread is handling the restart; exit cleanly
-                        # so the new reader thread owns the new process.
                         return
                     self._restart_attempts += 1
                     attempts = self._restart_attempts
@@ -95,10 +65,7 @@ class _ReaderMixin:
                         self._failed = True
                         self._error_message = f"{self.platform_name} binary crashed {attempts} times; giving up"
                         log.error("[NATIVE-HOTKEY] %s", self._error_message)
-                        self._ready_event.set()  # unblock start() wait
                         # notify the adapter so it can swap to a
-                        # legacy backend. The callback is invoked on the
-                        # reader thread; adapters must be thread-safe.
                         if self._on_permanent_failure_callback is not None:
                             try:
                                 self._on_permanent_failure_callback()
@@ -126,7 +93,6 @@ class _ReaderMixin:
                     self._error_message = str(exc)
                     self._ready_event.set()
                     # Also notify the adapter on spawn failure (binary
-                    # disappeared mid-restart, etc.)
                     if self._on_permanent_failure_callback is not None:
                         try:
                             self._on_permanent_failure_callback()
@@ -137,13 +103,6 @@ class _ReaderMixin:
                             )
                     return
                 # the new spawn creates its own reader thread (in
-                # ``_spawn_process``). The OLD thread (this one) MUST return
-                # so it doesn't compete with the new reader for
-                # ``self._process.stdout.readline()``. Pre-fix, the old
-                # thread did ``continue`` and would race with the new
-                # reader, causing out-of-order event processing (e.g.
-                # ``MOD_DOWN:Ctrl`` and ``KEY_DOWN:V`` for a combo could be
-                # processed by different threads).
                 return
 
             assert self._process is not None
@@ -152,8 +111,6 @@ class _ReaderMixin:
                 line_bytes = self._process.stdout.readline()
             except Exception:
                 # Read failure (broken pipe / closed stream) is treated as
-                # EOF below, but leave a breadcrumb, a binary that dies
-                # mid-handshake looks identical to a clean exit otherwise.
                 log.debug(
                     "[NATIVE-HOTKEY] readline() failed on %s binary stdout, treating as EOF",
                     self.platform_name,
@@ -177,48 +134,21 @@ class _ReaderMixin:
                 )
 
     def _handle_line(self, line: str) -> None:
-        """Parse one wire-protocol line and dispatch to the hotkey matcher.
-
-        the dispatch is now table-driven via
-        :data:`_WIRE_HANDLERS`. Adding a new event type = one table
-        entry + one ``_on_*_event`` handler method, not a new branch
-        in a 100-line if/elif chain.
-
-        every recognised line (except ``PONG``) updates
-        ``_last_event_received_at`` so the liveness watchdog can tell
-        whether the binary is producing output.  ``PONG`` is tracked
-        separately via ``_last_pong_received_at`` so the watchdog can
-        distinguish "binary is alive and responding to PING" from
-        "binary is alive but ignoring PING" (the latter is a strong
-        signal of a stuck event loop).
-        """
+        """Parse one wire-protocol line and dispatch to the hotkey matcher."""
         # PONG is tracked separately from generic events so the
-        # watchdog can apply the "no event AND no PONG" respawn rule.
-        # PONG does NOT update ``_last_event_received_at``.
         if line == "PONG":
             self._on_pong_event()
             return
 
         # update the general "last event received" timestamp
-        # for every other recognised line.  This includes READY,
-        # ERROR:, WARN:, and all key/modifier events.  Unrecognised
-        # lines also update the timestamp (any output means the binary
-        # is alive).
         self._last_event_received_at = time.time()
 
         # READY is an exact-match event (no payload) that resets the
-        # per-backend restart counter. Special-cased before the table
-        # because the table dispatches via ``startswith``, and READY
-        # has no payload to extract.
         if line == "READY":
             self._on_ready_event()
             return
 
         # All remaining recognised events are dispatched via the table.
-        # The first matching prefix wins; entries are ordered so that
-        # more-specific prefixes (e.g. ``MOD_DOWN:``) are tried before
-        # less-specific ones. (No current entries shadow each other,
-        # but the order is defensive against future additions.)
         for prefix, handler_name, down_flag in self._WIRE_HANDLERS:
             if line.startswith(prefix):
                 payload = line[len(prefix) :]
@@ -237,58 +167,20 @@ class _ReaderMixin:
         log.debug("[NATIVE-HOTKEY] Unrecognized line from %s: %r", self.platform_name, line)
 
     def _on_pong_event(self) -> None:
-        """Handle a ``PONG`` wire-protocol line ().
-
-        Updates ``_last_pong_received_at`` and latches
-        ``_pong_supported`` on the first PONG so the liveness
-        watchdog knows the binary implements the PING/PONG protocol.
-        From then on, PONG absence is a reliable hung-binary signal.
-
-        Does NOT update ``_last_event_received_at``: PONG is a
-        separate liveness signal so the watchdog can distinguish
-        "alive and responding to PING" from "alive but ignoring PING"
-        (the latter is a strong signal of a stuck event loop).
-        """
+        """Handle a ``PONG`` wire-protocol line ()."""
         self._last_pong_received_at = time.time()
         self._pong_supported = True
         log.debug("[NATIVE-HOTKEY] %s binary sent PONG", self.platform_name)
 
     def _on_ready_event(self) -> None:
-        """Handle a ``READY`` wire-protocol line.
-
-        Sets ``_ready_event`` (unblocking ``start()``'s READY wait)
-        and resets the per-backend restart counter () so a
-        transient crash followed by recovery doesn't permanently count
-        toward ``MAX_RESTART_ATTEMPTS``.
-        """
+        """Handle a ``READY`` wire-protocol line."""
         self._ready_event.set()
         self._restart_attempts = 0
         # DEBUG: the dispatcher's "[HOTKEY] Registration OK" INFO line
-        # is emitted right after start() returns, a second INFO here
-        # duplicated the same readiness event.
         log.debug("[NATIVE-HOTKEY] %s binary is READY", self.platform_name)
 
     def _on_version_event(self, payload: str) -> None:
-        """Handle a ``VERSION:<x.y.z>`` wire-protocol line (VERSION reporter).
-
-        Records the binary's reported wire-protocol version in
-        ``_binary_version`` and (if the factory stashed an
-        ``_expected_version`` from the manifest) compares the two,
-        logging a WARNING on mismatch. The comparison is deferred to
-        here (rather than done in the factory) because the binary only
-        emits VERSION after READY, which happens after ``start()`` —
-        the factory creates the backend but doesn't start it.
-
-        Older binaries that don't emit VERSION leave ``_binary_version``
-        as None; the factory's expected-version check is then a no-op
-        (no comparison possible). A mismatch is a diagnostic signal
-        only, the binary is still functional for the wire-protocol
-        events we care about, so we don't fail the backend.
-
-        ``payload`` is the version string (e.g. ``"1.0.0"``) with no
-        surrounding whitespace; we strip defensively in case a binary
-        emits ``VERSION: 1.0.0`` (with a space).
-        """
+        """Handle a ``VERSION:<x.y.z>`` wire-protocol line (VERSION reporter)."""
         version = (payload or "").strip()
         if not version:
             log.debug(
@@ -305,9 +197,6 @@ class _ReaderMixin:
         expected = getattr(self, "_expected_version", None)
         if expected is None:
             # No manifest entry for this binary, skip the comparison.
-            # This is the case for tests that construct backends
-            # directly without going through the factory, and for
-            # dev-tree binaries whose filename isn't in the manifest.
             return
         if version != expected:
             log.warning(
@@ -322,18 +211,7 @@ class _ReaderMixin:
             )
 
     def _on_error_event(self, payload: str) -> None:
-        """Handle an ``ERROR:<message>`` wire-protocol line.
-
-        Marks the backend as failed (``_failed = True``), stores the
-        error message, logs at ERROR level, and unblocks ``start()``'s
-        READY wait so callers see the failure promptly rather than
-        timing out.
-
-        also invokes ``_on_error_callback`` (if registered by
-        the adapter) so the adapter can classify the error and
-        potentially show a permission prompt. The callback is invoked
-        on the reader thread; adapters must be thread-safe.
-        """
+        """Handle an ``ERROR:<message>`` wire-protocol line."""
         self._failed = True
         self._error_message = payload
         log.error(
@@ -341,7 +219,6 @@ class _ReaderMixin:
             self.platform_name,
             self._error_message,
         )
-        self._ready_event.set()  # unblock start() wait
         if self._on_error_callback is not None:
             try:
                 self._on_error_callback(self._error_message)
@@ -352,12 +229,7 @@ class _ReaderMixin:
                 )
 
     def _on_warn_event(self, payload: str) -> None:
-        """Handle a ``WARN:<message>`` wire-protocol line ().
-
-        Non-fatal degradation: logs at WARNING level and invokes
-        ``_on_warn_callback`` (if registered by the adapter) so the
-        adapter can surface the warning to the user.
-        """
+        """Handle a ``WARN:<message>`` wire-protocol line ()."""
         log.warning(
             "[NATIVE-HOTKEY] %s binary reported WARN: %s",
             self.platform_name,

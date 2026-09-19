@@ -1,23 +1,4 @@
-"""Lightweight cleanup for raw speech-to-text output.
-
-Compatibility facade: the original single-module ``text_cleanup.py`` is
-now a package split by concern:
-
-- :mod:`._corrections_data`: corrections loaders + the Roman-numeral /
-  pronoun-I cluster (writer + reader share one module because the
-  user-extension state is rebound via ``global``).
-- :mod:`._casing`         : sentence capitalization + file-extension repair.
-- :mod:`._engine`         : active-corrections state, entry points,
-                             regex constants, and the cleaning rules.
-
-Every public AND private top-level name of the old module is
-re-exported here so existing importers (including tests that patch or
-poke module attributes through this namespace) keep working unchanged.
-NOTE: tests that REPLACE mutable module state (e.g.
-``_active_phrases``, ``_phrases_re_cache``, ``_BUNDLED_CORRECTIONS_PATH``)
-must target the owning leaf (``_engine`` / ``_corrections_data``) for
-the change to be visible to the reading functions.
-"""
+"""Lightweight cleanup for raw speech-to-text output."""
 
 from __future__ import annotations
 

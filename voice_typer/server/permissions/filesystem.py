@@ -1,16 +1,4 @@
-"""Linux filesystem (``/dev/input/event*``) permission probe for the
-``permissions`` package.
-
-This submodule contains the Linux input-group + device-readability
-probe (``_check_linux_input_access``) and the pkexec-based installer
-launcher (``_open_linux_pkexec_prompt`` / ``_find_linux_install_script``).
-
-The dispatcher :func:`voice_typer.server.permissions.check_keyboard_permission`
-lives in :mod:`voice_typer.server.permissions.checker` and routes to
-``_check_linux_input_access`` when ``is_linux()`` is True. The pkexec
-prompt is invoked by
-:func:`voice_typer.server.permissions.request_keyboard_permission`.
-"""
+"""Linux filesystem (``/dev/input/event*``) permission probe for the"""
 
 from __future__ import annotations
 
@@ -29,8 +17,6 @@ def _check_linux_input_access() -> _p.PermissionState:
     """Check whether the current user can read /dev/input/event* devices.
 
     Returns ``GRANTED`` if the user is in the ``input`` group AND at
-    least one ``/dev/input/event*`` device is readable. Returns
-    ``DENIED`` otherwise.
     """
     # Check group membership
     try:
@@ -64,16 +50,7 @@ def _check_linux_input_access() -> _p.PermissionState:
 
 
 def _open_linux_pkexec_prompt() -> None:
-    """Run install_permissions.py via pkexec to grant keyboard permission.
-
-    For AppImage users (no package manager), this is the zero-command
-    path: the OS shows a GUI sudo prompt (polkit), the user types their
-    password once, and the install script installs the udev rule + adds
-    the user to the ``input`` group + configures Caps Lock.
-
-    Falls back to ``gksu`` / ``kdesu`` / a terminal-based prompt if
-    pkexec isn't available.
-    """
+    """Run install_permissions.py via pkexec to grant keyboard permission."""
     # Find the install_permissions.py script
     install_script = _p._find_linux_install_script()
     if install_script is None:
@@ -85,20 +62,6 @@ def _open_linux_pkexec_prompt() -> None:
         return
 
     # Try pkexec first (modern Linux, GUI prompt via polkit).
-    # invoke the install_permissions.py script DIRECTLY via
-    # pkexec (NOT ``pkexec <python> <script>``). The polkit policy
-    # annotation (installed by ``scripts/linux/install_permissions.py``
-    # via the .policy file) annotates the *script itself* as the
-    # authorized action, passing the python interpreter as the first
-    # arg breaks the annotation match (polkit sees ``<python>`` as
-    # the action, not the script) and the user gets a generic
-    # "Authentication is required" prompt with no app name. Direct
-    # script invocation requires the script to be executable
-    # (``chmod +x`` handled by ``install_permissions.py`` /
-    # ``scripts/linux/install_permissions.py``). The
-    # script's shebang (``#!/usr/bin/env python3``) ensures pkexec
-    # spawns it with the correct interpreter without us hard-coding
-    # ``sys.executable`` here.
     if shutil.which("pkexec"):
         try:
             subprocess.Popen(
@@ -149,18 +112,11 @@ def _open_linux_pkexec_prompt() -> None:
 
 
 def _find_linux_install_script():
-    """Find scripts/linux/install_permissions.py.
-
-    Search order:
-    1. Alongside the voice_typer package (dev mode)
-    2. In /usr/share/voice-typer/scripts/ (installed package)
-    3. Next to sys.executable (PyInstaller bundle)
-    """
+    """Find scripts/linux/install_permissions.py."""
     from pathlib import Path
 
     candidates = [
         # Dev mode: voice_typer/server/permissions/__init__.py →
-        # ../../../../scripts/linux/install_permissions.py
         Path(__file__).resolve().parent.parent.parent.parent / "scripts" / "linux" / "install_permissions.py",
         # Installed package (deb/rpm)
         Path("/usr/share/voice-typer/scripts/install_permissions.py"),

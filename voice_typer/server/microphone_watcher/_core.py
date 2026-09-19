@@ -1,16 +1,4 @@
-"""Microphone device-change watcher, shared state, lifecycle, and callback dispatch.
-
-The ``MicrophoneDeviceWatcher`` class inherits from platform-specific mixins
-(:mod:`._linux`, :mod:`._macos`, :mod:`._windows`).  The mixins are defined
-in leaf modules; the class body here holds only the shared concerns:
-
-- ``__init__`` (all instance state)
-- ``set_on_default_device_changed``, ``set_idle``
-- ``_detect_platform``, ``start``, ``stop``, ``_run``
-- ``_invoke_callback`` (debounced dispatch + active-mic-lost check)
-- ``_DEBOUNCE_SECONDS``
-- ``set_active_mic_id``, ``set_on_active_mic_lost``, ``set_device_id_provider``, ``_check_active_mic_lost``
-"""
+"""Microphone device-change watcher, shared state, lifecycle, and callback dispatch."""
 
 from __future__ import annotations
 
@@ -28,50 +16,7 @@ log = logging.getLogger(__name__)
 
 
 class MicrophoneDeviceWatcher(_LinuxMixin, _MacOSMixin, _WindowsMixin):
-    """Watches for microphone device changes and invalidates the cache.
-
-     The watcher is intentionally best-effort: if the platform is
-     unsupported, the thread fails to start, or the watcher thread
-     crashes, the caller's 30s TTL cache (in ``recording.py``) still
-     refreshes the device list. This class never raises from
-     ``start()``/``stop()`` so a watcher failure cannot take down the
-     recorder.
-
-     Parameters
-     ----------
-     on_change:
-         Zero-argument callback invoked (from the watcher thread) when
-         a device change is detected. The callback is wrapped in a
-         try/except so an exception in the callback does not kill the
-         watcher thread.
-     poll_interval:
-         Seconds between ``/dev/snd`` directory polls on Linux.
-         Defaults to 5.0s (bumped from 1.0s to cut constant 1 Hz idle
-         wakeups for app lifetime). Exposed as a parameter so tests can
-         pass a smaller value for fast, deterministic verification.
-
-    , active-mic-lost detection
-     -----------------------------------
-     The watcher also exposes an OPTIONAL active-mic-lost hook so
-     ``RecordingController`` can be notified when the microphone backing
-     an in-flight recording is unplugged.  Three methods register the
-     hook (all default to no-op if unset, preserving backward
-     compatibility):
-
-     - :meth:`set_active_mic_id`: set/clear the currently-active mic id
-       (call with the mic id when a recording starts, ``None`` when it
-       stops).
-     - :meth:`set_on_active_mic_lost`: register the zero-arg callback
-       to fire when the active mic disappears from the device list.
-       The controller's implementation should cancel the recording and
-       emit a tray notification.
-     - :meth:`set_device_id_provider`: register a callable returning
-       the current list of available mic ids.  Used by the watcher to
-       detect "active mic gone" after a device-change event.
-
-     The check runs inside :meth:`_invoke_callback` AFTER the cache-
-     invalidation callback, so the provider sees a fresh device list.
-    """
+    """Watches for microphone device changes and invalidates the cache."""
 
     def __init__(
         self,
@@ -107,8 +52,6 @@ class MicrophoneDeviceWatcher(_LinuxMixin, _MacOSMixin, _WindowsMixin):
             self._idle_poll_interval_s if is_idle else self._active_poll_interval_s,
         )
 
-    # ── platform detection ────────────────────────────────────────────
-
     def _detect_platform(self) -> str:
         from voice_typer.server.platform_utils import is_linux, is_macos, is_windows
 
@@ -119,8 +62,6 @@ class MicrophoneDeviceWatcher(_LinuxMixin, _MacOSMixin, _WindowsMixin):
         if is_linux():
             return "linux"
         return "unknown"
-
-    # ── lifecycle ─────────────────────────────────────────────────────
 
     def start(self) -> None:
         with self._lock:
@@ -223,8 +164,6 @@ class MicrophoneDeviceWatcher(_LinuxMixin, _MacOSMixin, _WindowsMixin):
             self._thread = None
             log.info("[MIC-WATCHER] Stopped device-change watcher")
 
-    # ── thread entry point ────────────────────────────────────────────
-
     def _run(self) -> None:
         try:
             if self._platform == "windows":
@@ -238,8 +177,6 @@ class MicrophoneDeviceWatcher(_LinuxMixin, _MacOSMixin, _WindowsMixin):
                 "[MIC-WATCHER] Watcher thread crashed, falling back to TTL polling",
                 exc_info=True,
             )
-
-    # ── callback dispatch ─────────────────────────────────────────────
 
     _DEBOUNCE_SECONDS = 0.5
 
@@ -272,8 +209,6 @@ class MicrophoneDeviceWatcher(_LinuxMixin, _MacOSMixin, _WindowsMixin):
                 exc_info=True,
             )
         self._check_active_mic_lost()
-
-    # ── active-mic-lost detection ──────────────────────────────
 
     def set_active_mic_id(self, mic_id: Any) -> None:
         with self._hooks_lock:

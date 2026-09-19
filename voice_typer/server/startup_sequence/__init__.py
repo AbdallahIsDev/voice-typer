@@ -1,51 +1,22 @@
 """Startup sequence orchestration for VoiceTyperApp.
-
 Phase 5: extracted from ``VoiceTyperApp._do_startup`` (~340 lines)
-to reduce the god-class size. Each phase is gated by
+re-exported and live at their owning modules. Per C-ARCH-2, tests patch seam names at their OWNING
 ``app._shutting_down`` so a ``quit()`` during startup short-circuits
-cleanly.
-
-Phase ordering is FIXED: see the dependency graph in worklog.md.
-Reordering risks:
-
-(a) Hotkey registration before model load means F2 works even if the
-    model fails to load: without this, a model-load failure leaves the
-    user with no way to interact with the app.
-(b) Mic enumeration before hotkey registration means the tray menu has
-    mics available when the hotkey is bound (the menu is built lazily
-    on first show, but the mic list is captured at startup).
 (c) Onboarding auto-heal must run before any ``config.save()`` to avoid
     clobbering user settings, the wizard's ``apply_settings()`` overwrites
-    the user's hotkey, model, and microphone selections with onboarding
     defaults (``<caps_lock>``, ``tiny``, ``None``).
-
 The class does NOT import ``app.py`` at module load (would create an
 import cycle: ``app`` imports ``startup_sequence`` indirectly via the
 ``StartupSequence(self)`` call inside ``_do_startup``).  The runtime
 import is local to ``_do_startup`` itself, so this module never
 appears in ``app.py``'s import-time graph.
-
-Package layout (behavior-preserving split of the former 1474-LOC
-monolith, bodies moved verbatim, split by concern):
-
 - :mod:`._maintenance`   -- stale backup / ``.tmp`` startup sweeps
 - :mod:`._phases_early`  -- ``StageResult``, onboarding fail-counter
-  helpers, phases 1-4 (banner/VAD preload, crash diagnostics,
-  session+onboarding, corrections+recovery)
-- :mod:`._phases_late`   -- Wayland-warning module state, phases 5-8
-  (platform warnings, autostart/prewarm/mics, hotkey+model load,
-  finalize)
-
 ``StartupSequence`` is assembled here from the two phase mixins, so
-every re-exported pre-split attribute of
 ``voice_typer.server.startup_sequence`` (including ``monkeypatch``
-seams re-exported below) keeps resolving through this package
 ``__init__``: stdlib and cross-module names that the pre-split module
 happened to bind (``os``, ``contextlib``, ``APP_NAME``, ...) are NOT
-re-exported and live at their owning modules. Per C-ARCH-2, tests patch seam names at their OWNING
 submodule (e.g. ``...startup_sequence._phases_early.configure_corrections``)
-— the re-exports below exist for import-path parity, not as patch
-targets.
 """
 
 from __future__ import annotations
@@ -56,18 +27,9 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     # Type-only import to avoid the import cycle described in the module
-    # docstring.  At runtime, ``app`` is whatever object was passed to
-    # ``__init__`` (always a ``VoiceTyperApp`` in production, but tests
-    # pass mocks that satisfy the same duck-typed surface).
-    # NOTE: ``AppProtocol`` (providers) is deliberately NOT imported
-    # here, the pack-check thread imports it at runtime (function
-    # scope) because ``typing.cast`` evaluates its type argument at
-    # runtime and a TYPE_CHECKING-only import caused a NameError in the
-    # pack-check thread.
     from voice_typer.server.app import VoiceTyperApp
 
 # Explicit re-exports (redundant aliases) so every pre-split attribute
-# of this package keeps resolving at its historical import path.
 from voice_typer.server.startup_sequence._maintenance import (
     _BACKUP_FILE_GLOBS as _BACKUP_FILE_GLOBS,
     _BACKUP_RETENTION_MAX_AGE_SECONDS as _BACKUP_RETENTION_MAX_AGE_SECONDS,
@@ -97,15 +59,7 @@ log = logging.getLogger(__name__)
 
 
 def _anchor_startup_t0() -> float:
-    """Monotonic anchor for the total-startup duration (C-LOG-2).
-
-    Anchored at BACKEND SPAWN (not at ``run()`` entry): the
-    interpreter + import + onefile-extraction gap before the first log
-    line is real user-perceived latency, and anchoring at ``run()``
-    under-reports it (a 5s-visible boot printed "3.0s"). Falls back to
-    right-now when the host never stamped the spawn marker
-    (standalone runs, tests).
-    """
+    """Monotonic anchor for the total-startup duration (C-LOG-2)."""
     from voice_typer.server import startup_timeline as _timeline
 
     spawned = _timeline.backend_spawn_monotonic()
@@ -116,19 +70,7 @@ def _anchor_startup_t0() -> float:
 
 class StartupSequence(EarlyPhases, LatePhases):
     """Orchestrates the multi-phase background startup of VoiceTyperApp.
-
     The previous monolithic ``VoiceTyperApp._do_startup`` (~340 lines)
-    is now ``StartupSequence(app).run()``.  ``app`` is a back-reference
-    so the sequence can read/write the app's state (config, tray, models,
-    hotkeys, etc.), same attribute surface as before, just renamed
-    from ``self.X`` to ``self._app.X``.
-
-    Phase decomposition: ``run`` is now a <40-line orchestrator
-    that calls 8 phased sub-runs in order. Each phase returns a
-    :class:`StageResult`; ``success=False`` short-circuits the rest (the
-    phase has already emitted its own canonical shutdown log line).
-    Every log line, exception swallow, and shutdown check from the
-    pre-refactor ``run`` body is preserved verbatim in the
     corresponding phase method (C-LOG-1 / C-LOG-2 / RACE-020).
     """
 
@@ -136,26 +78,11 @@ class StartupSequence(EarlyPhases, LatePhases):
         self._app = app
 
     def run(self) -> None:
-        """Top-level entry, equivalent to the old ``_do_startup`` body.
-
-        RACE-020: checks ``self._app._shutting_down`` between each major
-        step so that a ``quit()`` call during startup doesn't proceed
-        with model downloads or background loads after the app has
-        begun shutdown.
-
-        Refactor: the previous 926-LOC monolithic body is now
-        decomposed into 8 phased sub-runs (``_phase_1`` … ``_phase_8``).
-        Each phase returns a :class:`StageResult`; ``success=False``
-        (set when ``app._shutting_down`` is detected mid-phase)
-        short-circuits the rest. Every log line, exception swallow,
+        """RACE-020: checks ``self._app._shutting_down`` between each major
         and RACE-020 shutdown check from the pre-refactor body is
-        preserved verbatim in the corresponding phase method
         (C-LOG-1 / C-LOG-2).
         """
         # C-LOG-2: anchor the total startup duration, reported on the
-        # "Startup complete" line emitted by ``_phase_8_finalize_and_signal``
-        # (model load runs on a background thread and is measured
-        # separately).
         self._t0 = _anchor_startup_t0()
         for phase in (
             self._phase_1_init_and_vad_preload,
@@ -173,16 +100,6 @@ class StartupSequence(EarlyPhases, LatePhases):
                 return
 
     def _handle_phase_failure(self, result: StageResult) -> None:
-        """Hook for handling a phase that did not complete normally.
-
-        Currently every ``success=False`` return is a RACE-020 shutdown
-        abort: the phase already emitted the canonical
-        "Interrupted after ..." / "_shutting_down is set, aborting
-        startup" log line per the original monolithic ``run()`` body,
-        so there is nothing more to do here but return. Kept as a
-        dedicated method so future phases that fail for non-shutdown
-        reasons have an obvious place to hook in additional handling
-        (without rewriting the orchestrator).
-        """
+        """Currently every ``success=False`` return is a RACE-020 shutdown"""
         # Intentionally a no-op for shutdown aborts (the phase logged).
         return

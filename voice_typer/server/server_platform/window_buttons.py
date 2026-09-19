@@ -1,33 +1,4 @@
-"""Linux window-button layout detection (system integration).
-
-The renderer's frameless title bar draws its own minimize/maximize/close
-buttons. On Linux, desktop conventions vary per user: GNOME stores the
-button layout (which buttons exist, on which side) in
-``gsettings org.gnome.desktop.wm.preferences button-layout``, and KDE
-sessions style their chrome differently from GNOME. This module is the
-single source of truth for that system state:
-
-* :func:`detect_desktop_environment`: classify the session
-  (``"kde" | "gnome" | "xfce" | "mate" | "other" | "unknown"``) from the
-  standard session env vars (``KDE_FULL_SESSION``, ``XDG_CURRENT_DESKTOP``).
-* :func:`parse_button_layout`: parse a ``button-layout`` value like
-  ``"appmenu:minimize,maximize,close"`` into ``{"side", "buttons"}``.
-* :func:`system_window_buttons`: the cached snapshot exposed to the
-  renderer through the read-only ``linux_window_buttons_system`` field of
-  the ``get_config`` IPC response.
-
-Design constraints:
-
-* **Never blocks startup**: the ``gsettings`` subprocess is bounded by a
-  2-second timeout and every failure degrades to ``None`` (the renderer
-  then falls back to the built-in right-side minimize/maximize/close
-  default).
-* **Read-only**: this module never writes settings and never spawns
-  anything except ``gsettings get``.
-* **Cached once per process**: the session layout cannot change while
-  the app runs (it is read at login), so one snapshot per process is
-  correct and keeps ``get_config`` free of subprocess latency.
-"""
+"""Linux window-button layout detection (system integration)."""
 
 from __future__ import annotations
 
@@ -44,7 +15,6 @@ _GSETTINGS_KEY = "button-layout"
 _GSETTINGS_TIMEOUT_SECONDS = 2
 
 # The only caption buttons we model. Anything else in the layout value
-# (``appmenu``, ``spacer``, ...) is ignored.
 _KNOWN_BUTTONS = frozenset({"minimize", "maximize", "close"})
 
 _CACHE: dict[str, object] | None = None
@@ -54,14 +24,7 @@ _CACHE_LOCK = threading.Lock()
 def detect_desktop_environment(
     env: dict[str, str] | None = None,
 ) -> str:
-    """Classify the running desktop session.
-
-    Checks ``KDE_FULL_SESSION`` first (set by Plasma regardless of
-    ``XDG_CURRENT_DESKTOP`` spelling), then the ``XDG_CURRENT_DESKTOP``
-    colon-list. Returns one of ``"kde"``, ``"gnome"``, ``"xfce"``,
-    ``"mate"``, ``"other"``, or ``"unknown"`` (no session markers, e.g.
-    tests or a headless process).
-    """
+    """Classify the running desktop session."""
     environ = os.environ if env is None else env
     if environ.get("KDE_FULL_SESSION"):
         return "kde"
@@ -80,14 +43,7 @@ def detect_desktop_environment(
 
 
 def parse_button_layout(value: str | None) -> dict[str, object] | None:
-    """Parse a GNOME ``button-layout`` value into ``{"side", "buttons"}``.
-
-    The value format is ``"[<left-items>:]<right-items>"``, exactly one
-    side carries buttons, the other side of the colon holds menu tokens
-    (``appmenu`` etc.). A colon-less value is treated as right-side.
-    Tokens outside :data:`_KNOWN_BUTTONS` are dropped. Returns ``None``
-    when no known button remains (e.g. ``":"`` = no caption buttons).
-    """
+    """Parse a GNOME ``button-layout`` value into ``{"side", "buttons"}``."""
     if not value:
         return None
     cleaned = value.strip().strip("'\"")
@@ -134,13 +90,7 @@ def system_window_buttons(
     *,
     force_refresh: bool = False,
 ) -> dict[str, object]:
-    """Return the cached system snapshot ``{desktop_environment, layout}``.
-
-    ``layout`` is :func:`parse_button_layout` output or ``None`` when the
-    platform is not Linux or the ``gsettings`` probe failed. The snapshot
-    is computed once per process (the session layout is fixed at login);
-    tests can pass ``force_refresh=True`` or seed ``env``.
-    """
+    """Return the cached system snapshot ``{desktop_environment, layout}``."""
     global _CACHE  # noqa: PLW0603, single-process snapshot cache
     with _CACHE_LOCK:
         if _CACHE is not None and not force_refresh:

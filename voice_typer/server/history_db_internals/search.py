@@ -1,35 +1,4 @@
-"""Search / read helpers for :class:`HistoryDB`.
-
-Extracted from the once-monolithic ``history_db.py`` (wave 2 split). The
-functions in this module are free functions that take the
-:class:`~voice_typer.server.history_db.HistoryDB` instance (``db``)
-instead of ``self``: they read the instance's attributes (the
-thread-local read connection pool, the today-stats / history-count TTL
-caches) via the passed-in reference.
-
-Free functions:
-
-- :func:`get_recent`: paginated recent transcriptions.
-- :func:`get_latest_text`: most recent transcription text.
-- :func:`search`: FTS5 / LIKE search.
-- :func:`get_favorites`: paginated favorited transcriptions.
-- :func:`get_today_stats`: today's count/chars/words/duration (cached).
-- :func:`invalidate_today_stats_cache`: drop the cached today-stats dict.
-- :func:`get_transcription_text`: full text of a single row.
-- :func:`get_history_count`: total row count (cached).
-- :func:`invalidate_history_count_cache`: drop the cached total-count int.
-
-Module-level helpers (re-exported by
-:mod:`voice_typer.server.history_db`):
-
-- :func:`prepare_like_search_pattern`: bounded LIKE pattern.
-- :func:`is_fts_compatible_query`: heuristic for FTS5 fallback.
-- :func:`has_cjk_or_wide_chars`: CJK / fullwidth script detection.
-- :func:`sanitize_fts_query`: escape FTS5 special chars.
-- :func:`project_text_row`: post-process a SQLite row for list responses.
-- :func:`_finalize_text_rows`: projection + at-rest-encryption decrypt
-  seam shared by get_recent / search / get_favorites.
-"""
+"""History search (FTS router + LIKE fallback)."""
 
 from __future__ import annotations
 
@@ -45,19 +14,7 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
-# ──────────────────────────────────────────────────────────────────
 # Shared list projection
-# ──────────────────────────────────────────────────────────────────
-# The 12-column projection returned by every history list/read query
-# (``get_recent`` / ``search`` / ``get_favorites``). ``text`` is a
-# SUBSTR-bounded preview (the full text is decrypted on demand via
-# ``get_transcription_text``) and ``text_is_encrypted`` flags rows
-# that need that decryption. Single-sourced here so adding a column
-# is one edit, not one per query; ``_LIST_COLUMNS_T_SQL`` is the
-# table-alias variant for the FTS JOIN queries that read
-# ``transcriptions t``. The first ``?`` in each variant is the preview
-# length bound (``_HISTORY_TEXT_PREVIEW_LENGTH``), it stays the FIRST
-# parameter of every statement that interpolates these constants.
 _LIST_COLUMNS_SQL = """id,
     SUBSTR(text, 1, ?) AS text,
     LENGTH(text) AS text_full_length,
@@ -85,15 +42,12 @@ _LIST_COLUMNS_T_SQL = """t.id,
     t.language"""
 
 
-# ──────────────────────────────────────────────────────────────
 # Search / LIKE / FTS5 helpers
-# ──────────────────────────────────────────────────────────────
 
 
 def prepare_like_search_pattern(query: str) -> str:
     """Build a bounded LIKE pattern where user wildcards stay literal."""
     # ``_MAX_SEARCH_QUERY_CHARS`` lives on the history_db module so tests
-    # can monkeypatch it. Lazy import so monkeypatches are observed.
     from voice_typer.server import history_db as _hd
 
     capped_query = query[: _hd._MAX_SEARCH_QUERY_CHARS]
@@ -102,47 +56,16 @@ def prepare_like_search_pattern(query: str) -> str:
 
 
 def is_fts_compatible_query(query: str) -> bool:
-    """Return True if the (capped) query can be served by the FTS5 index.
-
-    FTS5's ``unicode61`` tokenizer treats ``%``, ``_``, and most
-    punctuation as separators. A query consisting ONLY of separator
-    characters produces zero tokens and either raises a syntax error or
-    silently matches nothing. For such queries we fall back to LIKE so
-    users can still find rows containing literal ``%`` / ``_``
-    characters.
-    """
+    """True when FTS5 can serve the query; separator-only queries fall back to LIKE."""
     from voice_typer.server import history_db as _hd
 
     capped = query[: _hd._MAX_SEARCH_QUERY_CHARS]
     # ``\W`` matches [^a-zA-Z0-9_] in ASCII mode, but with re.UNICODE
-    # (the default in Py3) it matches any non-word character. We also
-    # explicitly strip ``_`` because ``\w`` includes underscore.
     stripped = re.sub(r"[\W_]+", "", capped, flags=re.UNICODE)
     return bool(stripped)
 
 
-# Codepoint ranges whose scripts the FTS5 ``unicode61`` tokenizer cannot
-# substring-match. unicode61 has no word-boundary concept for these
-# scripts (Chinese/Japanese/Korean text has no spaces), so a contiguous
-# CJK run in a transcription is indexed as ONE token. A phrase-wrapped
-# MATCH therefore only finds rows where the ENTIRE run equals the query
-# , searching "你好" never matches "今天你好吗". Queries containing any
-# character from these ranges are routed to the bounded LIKE scan
-# instead, which gives true substring semantics for every query length
-# (1-char included).
-#
-# Range set:
-#   U+1100–U+11FF   Hangul Jamo (decomposed syllables)
-#   U+3000–U+303F   CJK Symbols and Punctuation (、。 「」 …)
-#   U+3040–U+30FF   Hiragana + Katakana
-#   U+3130–U+318F   Hangul Compatibility Jamo
-#   U+31F0–U+31FF   Katakana Phonetic Extensions
-#   U+3400–U+4DBF   CJK Unified Ideographs Extension A
-#   U+4E00–U+9FFF   CJK Unified Ideographs
-#   U+F900–U+FAFF   CJK Compatibility Ideographs
-#   U+AC00–U+D7AF   Hangul Syllables
-#   U+FF00–U+FFEF   Halfwidth and Fullwidth Forms (！ａｂｃ ｱｲｳ …)
-#   U+20000–U+2FA1F CJK Ideograph Extensions B–F + Compat Supplement
+# Scripts unicode61 cannot substring-match (CJK runs index as one token);
 _CJK_WIDE_CODEPOINT_RANGES: tuple[tuple[int, int], ...] = (
     (0x1100, 0x11FF),
     (0x3000, 0x303F),
@@ -159,53 +82,24 @@ _CJK_WIDE_CODEPOINT_RANGES: tuple[tuple[int, int], ...] = (
 
 
 def has_cjk_or_wide_chars(query: str) -> bool:
-    """Return True if the (capped) query contains CJK / fullwidth chars.
-
-    Such queries bypass the FTS5 index (see
-    :data:`_CJK_WIDE_CODEPOINT_RANGES` for why) and are served by the
-    LIKE path, which matches raw substrings regardless of script or
-    length. The scan cost is bounded the same way as every other LIKE
-    fallback: one pass over the transcriptions table with the
-    ``(timestamp DESC, id DESC)`` index serving the ORDER BY and the
-    caller's LIMIT bounding the result set.
-    """
+    """True when the query needs the LIKE path for CJK/fullwidth substring semantics."""
     from voice_typer.server import history_db as _hd
 
     capped = query[: _hd._MAX_SEARCH_QUERY_CHARS]
     return any(lo <= codepoint <= hi for codepoint in map(ord, capped) for lo, hi in _CJK_WIDE_CODEPOINT_RANGES)
 
 
-# Minimum query length for the trigram CJK path.
-#
-# The trigram tokenizer indexes only 3-character substrings, and an FTS5
-# MATCH whose phrase is shorter than 3 tokens SILENTLY matches nothing
-# (verified live against SQLite 3.50, no error, empty result). CJK
-# queries shorter than 3 chars keep the LIKE path, which gives correct
-# substring results for every length.
+# Trigram indexes only 3-char substrings; shorter CJK queries stay on LIKE.
 _TRIGRAM_MIN_QUERY_CHARS = 3
 
 
 def _build_trigram_phrase(query: str) -> str:
-    """Build the FTS5 MATCH expression for the trigram CJK path.
-
-    The whole capped query becomes ONE double-quoted FTS5 phrase, the
-    trigram tokenizer treats every character (including whitespace and
-    ``%``/``_``) as indexable text, so the phrase matches the query as a
-    literal substring, exactly like the escaped-LIKE fallback it
-    replaces. Embedded double quotes are doubled (FTS5 string-escape).
-    """
+    """Build the FTS5 MATCH phrase for the trigram CJK path."""
     return '"' + query.replace('"', '""') + '"'
 
 
 def is_trigram_cjk_query(query: str) -> bool:
-    """Return True if the (capped) query should use the trigram CJK index.
-
-    Criteria: contains at least one CJK/fullwidth character (the scripts
-    unicode61 cannot substring-match) AND is at least 3 characters long
-    (shorter queries would silently match nothing on the trigram index —
-    see ``_TRIGRAM_MIN_QUERY_CHARS``) and keep the LIKE path's true
-    substring semantics.
-    """
+    """True when the query should use the trigram CJK index."""
     from voice_typer.server import history_db as _hd
 
     capped = query[: _hd._MAX_SEARCH_QUERY_CHARS]
@@ -213,24 +107,15 @@ def is_trigram_cjk_query(query: str) -> bool:
 
 
 def sanitize_fts_query(query: str) -> str:
-    """Escape FTS5 special characters so user input is treated as literals.
-
-    FTS5 MATCH syntax treats ``*``, ``"``, ``(``, ``)``, ``:``, ``^``,
-    ``{``, ``}`` and a few others as syntax. A user typing ``foo*``
-    expects a substring/literal match, not an FTS5 prefix query. We wrap
-    each whitespace-separated token in double quotes (FTS5 "phrase"
-    syntax) so the token is treated as a literal string.
-    """
+    """Escape FTS5 syntax so user input matches as literals."""
     from voice_typer.server import history_db as _hd
 
     capped = query[: _hd._MAX_SEARCH_QUERY_CHARS]
     tokens = capped.split()
     if not tokens:
         # Shouldn't happen (caller checks is_fts_compatible_query), but
-        # guard anyway: an empty MATCH is a syntax error.
         return '""'
     # Wrap each token in double quotes. Escape any embedded double
-    # quotes by doubling them (SQL string-literal style).
     quoted = []
     for tok in tokens:
         escaped_tok = tok.replace('"', '""')
@@ -239,14 +124,7 @@ def sanitize_fts_query(query: str) -> str:
 
 
 def project_text_row(row: sqlite3.Row | tuple) -> dict:
-    """Post-process a SQLite row from get_recent/search/get_favorites.
-
-    The ``text_is_encrypted`` marker (added to the list SELECTs for the
-    at-rest-encryption read seam) is popped here so the projected dict
-    shape, and therefore the IPC response contract, is identical to
-    the pre-encryption one. Decryption of flagged rows happens in
-    :func:`_finalize_text_rows`, which runs AFTER this projection.
-    """
+    """Post-process a SQLite row from get_recent/search/get_favorites."""
     from voice_typer.server import history_db as _hd
 
     d = dict(row)
@@ -264,30 +142,10 @@ def project_text_row(row: sqlite3.Row | tuple) -> dict:
 
 
 def _finalize_text_rows(conn: sqlite3.Connection, rows: list[sqlite3.Row]) -> list[dict]:
-    """Project rows and decrypt flagged-encrypted text in Python.
-
-    At-rest-encryption read seam for the three list methods
-    (get_recent / search / get_favorites). The SQL still applies
-    SUBSTR/LENGTH truncation, that preview is CORRECT for plaintext
-    rows and costs nothing, but for ``text_is_encrypted`` rows the
-    SQL-level SUBSTR would be a slice of base64 ciphertext, so the full
-    ciphertext is re-fetched by id here, decrypted, and truncated to
-    the preview length in Python with ``text_full_length`` /
-    ``text_truncated`` recomputed from the PLAINTEXT length.
-
-    Key-loss policy: when a flagged row exists but no DEK is available,
-    the row is kept (its metadata stays readable and deletable) with
-    text set to the "<decryption failed>" placeholder, and a
-    rate-limited ERROR explains the state. New writes stay plaintext in
-    that mode (writer-side policy), and the DEK is never regenerated
-    while encrypted rows exist.
-    """
+    """Project rows and decrypt flagged-encrypted text in Python."""
     from voice_typer.server import _text_crypto, history_db as _hd
 
     # Capture the encryption flag from the RAW rows before projection —
-    # project_text_row pops the marker so the projected dict shape (and
-    # the IPC response contract) stays identical to the pre-encryption
-    # one.
     out: list[dict] = []
     flagged_ids: list[int] = []
     for row in rows:
@@ -310,8 +168,6 @@ def _finalize_text_rows(conn: sqlite3.Connection, rows: list[sqlite3.Row]) -> li
                 d["text_truncated"] = False
         return out
     # Re-fetch the FULL ciphertext for the flagged rows only (the list
-    # SELECT returned a 500-char SUBSTR of it, useless for decryption).
-    # One extra indexed query per page, bounded by the list LIMIT.
     full_texts: dict[int, str] = {}
     try:
         with contextlib.closing(conn.cursor()) as cursor:
@@ -336,26 +192,11 @@ def _finalize_text_rows(conn: sqlite3.Connection, rows: list[sqlite3.Row]) -> li
     return out
 
 
-# ──────────────────────────────────────────────────────────────
 # Public read methods
-# ──────────────────────────────────────────────────────────────
 
 
 def _assert_bounded_offset(offset: int) -> None:
-    """Shared deep-OFFSET guard for every list path.
-
-    Deep OFFSET pagination is O(offset) on SQLite (it scans and
-    discards ``offset`` rows before returning the first result); at
-    offset=10K on a 500K-row DB this was measured at ~594ms. Callers
-    needing deeper pagination must use cursor pagination
-    (``before_timestamp`` + ``before_id``), which is O(log N) per page
-    via ``idx_timestamp_id``. The assert is intentional, it surfaces
-    deep-OFFSET callers loudly so they migrate rather than silently
-    degrading on large DBs. Every OFFSET (non-cursor) list path —
-    :func:`get_recent`, :func:`search` (all three no-cursor query
-    branches) and :func:`get_favorites`: must call this so the
-    bounded-offset contract has a single source of truth.
-    """
+    """Shared deep-OFFSET guard for every list path."""
     assert offset < 1000, (
         f"OFFSET pagination requires offset < 1000 (got {offset}); "
         "use cursor pagination (before_timestamp + before_id) for deeper pages"
@@ -370,22 +211,7 @@ def get_recent(
     before_timestamp: str | None = None,
     before_id: int | None = None,
 ) -> list[dict]:
-    """Get recent transcriptions with offset-based pagination.
-
-    Keyset pagination: when ``before_timestamp`` AND ``before_id`` are
-    both supplied, the WHERE clause restricts to rows strictly older
-    than ``(before_timestamp, before_id)`` in (timestamp DESC, id DESC)
-    order. This is O(log N) per page via ``idx_timestamp_id``, whereas
-    OFFSET is O(offset).
-
-    OFFSET guard: ``offset`` must be < 1000. Deep OFFSET pagination is
-    O(offset) on SQLite (it scans and discards ``offset`` rows before
-    returning the first result), so callers paginating past the first
-    ~1000 rows MUST switch to cursor pagination
-    (``before_timestamp`` + ``before_id``). The assert is intentional —
-    it surfaces deep-OFFSET callers loudly so they migrate rather than
-    silently degrading on large DBs.
-    """
+    """Get recent transcriptions with offset-based pagination."""
     from voice_typer.server import history_db as _hd
 
     limit = min(max(limit, 1), _hd._MAX_LIST_LIMIT)
@@ -427,17 +253,7 @@ def get_recent(
 
 
 def get_latest_text(db: HistoryDB) -> str:
-    """Return the most recent transcription text, or ``""`` if DB empty.
-
-    Order by the autoincrement PK (DESC), not ``timestamp DESC``:
-    ``timestamp`` defaults to ``CURRENT_TIMESTAMP``, so transcriptions
-    written within the same second tie and the "latest" becomes
-    ambiguous. The PK is monotonic.
-
-    At-rest encryption: when the latest row is flagged encrypted, its
-    text is decrypted before returning (key-loss → "<decryption
-    failed>" placeholder, never the raw ciphertext, never a crash).
-    """
+    """Return the most recent transcription text, or ``""`` if DB empty."""
     try:
         conn = db._get_read_conn()
         with contextlib.closing(conn.cursor()) as cur:
@@ -462,44 +278,7 @@ def search(
     before_timestamp: str | None = None,
     before_id: int | None = None,
 ) -> list[dict]:
-    """Search transcriptions by text with offset-based pagination.
-
-    FTS5 is used for any query that yields at least one tokenizable
-    character (``is_fts_compatible_query``). For empty queries and
-    queries consisting solely of separator characters (e.g. ``%`` or
-    ``_``), we fall back to the pre-FTS5 LIKE path so literal wildcards
-    still match.
-
-    CJK / fullwidth queries (``has_cjk_or_wide_chars``) are ALSO routed
-    to the LIKE path: the ``unicode61`` tokenizer indexes a contiguous
-    CJK run as a single token, so a phrase-wrapped MATCH only matches
-    whole runs, searching "你好" would never find "今天你好吗". The LIKE
-    scan gives true substring semantics for every query length; its cost
-    is bounded by the same ORDER BY + LIMIT contract as the FTS path
-    (the ``(timestamp DESC, id DESC)`` index serves the ordering, and
-    the caller's LIMIT/OFFSET bounds the result set). Latin-only search
-    behavior is unchanged.
-
-    Mixed-script queries containing at least one CJK/fullwidth character
-    take the LIKE path too: the whole capped query becomes one literal
-    substring pattern, consistent with the existing separator-only
-    fallback semantics.
-
-    FTS5 LIMIT push-down: on the no-cursor path, the ``LIMIT`` (and
-    ``OFFSET`` when present) is pushed INTO the FTS5 subquery so FTS5
-    only materialises the rowids that will actually be returned, rather
-    than the full match set. On a query with many matches this cuts the
-    JOIN+sort working set from N_matches to ``limit + offset``. The
-    cursor path cannot use push-down because the cursor WHERE clause
-    filters by ``(timestamp, id)``, not rowid, pushing LIMIT into FTS
-    there could starve the cursor filter and return fewer than
-    ``limit`` rows.
-
-    OFFSET guard: ``offset`` must be < 1000 on the OFFSET (non-cursor)
-    branch, matching :func:`get_recent`. This bounds the FTS subquery
-    LIMIT to ``limit + offset <= 500 + 999 = 1499`` so the push-down
-    stays effective.
-    """
+    """Search transcriptions by text with offset-based pagination."""
     from voice_typer.server import history_db as _hd
 
     limit = min(max(limit, 1), _hd._MAX_LIST_LIMIT)
@@ -508,28 +287,10 @@ def search(
         capped = query[: _hd._MAX_SEARCH_QUERY_CHARS]
         use_cursor = before_timestamp is not None and before_id is not None
         # CJK / fullwidth queries: the unicode61 index cannot substring-
-        # match those scripts (a contiguous CJK run is ONE token). Since
-        # schema V5 a SECOND FTS5 index (``transcriptions_fts_cjk``,
-        # trigram tokenizer) serves them with indexed substring matching:
-        # whole-query length >= 3 chars → trigram MATCH path (one phrase,
-        # literal semantics, wildcards are just characters); shorter
-        # queries keep the LIKE path (the trigram index only stores
-        # 3-char substrings, so a 1-2 char MATCH would silently match
-        # nothing).
-        # Queries FTS5 cannot tokenize (LIKE wildcards, punctuation-only,
-        # fullwidth punctuation) intentionally keep the LIKE fallback:
-        # it treats wildcards as literals and is the pinned contract for
-        # every separator-only query (see test_history_db.py and
-        # test_history_search_cjk.py). Do NOT short-circuit these to an
-        # empty result, that regressed CJK punctuation search.
         use_fts = bool(capped) and is_fts_compatible_query(capped) and not has_cjk_or_wide_chars(capped)
         use_trigram_cjk = bool(capped) and not use_fts and is_trigram_cjk_query(capped)
         if use_trigram_cjk:
             # Availability gate: on SQLite builds without the trigram
-            # tokenizer the V5 migration is skipped and the shadow table
-            # does not exist, degrade to the bounded LIKE path instead
-            # of raising "no such table" (same true-substring semantics,
-            # just unindexed).
             from voice_typer.server.history_db_internals.schema import cjk_trigram_table_exists
 
             use_trigram_cjk = cjk_trigram_table_exists(conn)
@@ -537,9 +298,6 @@ def search(
             trigram_query = _build_trigram_phrase(capped)
             if use_cursor:
                 # Cursor path: no LIMIT push-down (the cursor WHERE
-                # filters by (timestamp, id), not rowid, pushing LIMIT
-                # into FTS could starve the cursor filter), mirroring the
-                # unicode61 cursor branch.
                 cursor.execute(
                     f"""
                     SELECT
@@ -562,8 +320,6 @@ def search(
                 )
             else:
                 # No-cursor path: push LIMIT (+ OFFSET) into the trigram
-                # FTS subquery (same shape/rationale as the unicode61
-                # push-down branch).
                 _assert_bounded_offset(offset)
                 fts_subquery_limit = limit + offset
                 cursor.execute(
@@ -593,7 +349,6 @@ def search(
             fts_query = sanitize_fts_query(capped)
             if use_cursor:
                 # Cursor path: cannot push LIMIT into FTS because the
-                # cursor WHERE filters by (timestamp, id), not rowid.
                 cursor.execute(
                     f"""
                     SELECT
@@ -616,13 +371,6 @@ def search(
                 )
             else:
                 # No-cursor path: push LIMIT (+ OFFSET) into the FTS
-                # subquery so FTS5 only materialises the rowids that
-                # will actually be returned. The outer ORDER BY
-                # re-sorts by (timestamp DESC, id DESC), rowid DESC is
-                # a close approximation since id is autoincrement and
-                # timestamp defaults to CURRENT_TIMESTAMP, but not
-                # identical for same-second ties, so the outer sort is
-                # still required.
                 _assert_bounded_offset(offset)
                 fts_subquery_limit = limit + offset
                 cursor.execute(
@@ -673,8 +421,6 @@ def search(
                 )
             else:
                 # LIKE fallback, OFFSET branch: same bounded-offset
-                # contract as the FTS branches (this branch previously
-                # lacked the guard, same silent O(offset) skip scan).
                 _assert_bounded_offset(offset)
                 cursor.execute(
                     f"""
@@ -727,8 +473,6 @@ def get_favorites(
             )
         else:
             # Same bounded-offset contract as ``get_recent`` / ``search``:
-            # without this guard the IPC layer could pass offsets up to
-            # 10,000,000 and trigger a silent O(offset) skip scan.
             _assert_bounded_offset(offset)
             cursor.execute(
                 f"""
@@ -746,24 +490,7 @@ def get_favorites(
 
 
 def get_today_stats(db: HistoryDB) -> dict:
-    """Get statistics for today's transcriptions.
-
-    A 15s TTL cache (``_TODAY_STATS_CACHE_TTL_S``) wraps the aggregating
-    scan so the Dashboard's per-``transcription_final`` refresh doesn't
-    re-scan on every refresh. The cache is invalidated by EVERY mutation
-    that could change today's stats. The returned dict is a shallow copy
-    so callers can mutate it without corrupting the cached value.
-
-    Timezone handling: ``timestamp`` is stored as UTC
-    (``CURRENT_TIMESTAMP``). The boundaries are computed in LOCAL time
-    (``DATETIME('now', 'localtime', 'start of day')``, the user's
-    calendar midnight) and then converted back to UTC via the trailing
-    ``'utc'`` modifier so the lexicographic comparison against the
-    UTC-stored ``timestamp`` column is correct. Without the local→UTC
-    round-trip, a user in UTC+8 dictating at 9pm local (1pm UTC) would
-    see "today" stats roll over at midnight UTC (4am local) instead of
-    local midnight.
-    """
+    """Get statistics for today's transcriptions."""
     from voice_typer.server import history_db as _hd
 
     # check the cache first.
@@ -771,15 +498,10 @@ def get_today_stats(db: HistoryDB) -> dict:
     with db._today_stats_cache_lock:
         if db._today_stats_cache is not None and (now - db._today_stats_cache_ts) < _hd._TODAY_STATS_CACHE_TTL_S:
             # Return a shallow copy so callers can mutate the returned
-            # dict without corrupting the cached value.
             return dict(db._today_stats_cache)
     conn = db._get_read_conn()
     with contextlib.closing(conn.cursor()) as cursor:
         # Sargable predicate. ``DATE(timestamp) = DATE('now')`` applies
-        # a function to every row's ``timestamp`` column, so SQLite
-        # cannot use ``idx_timestamp``. The range form lets the query
-        # planner use the index. Boundaries are computed in LOCAL time
-        # then converted to UTC (see docstring).
         cursor.execute("""
             SELECT
                 COUNT(*) as count,
@@ -798,7 +520,6 @@ def get_today_stats(db: HistoryDB) -> dict:
         "duration": row[3] or 0,
     }
     # store the result in the cache (under the lock so a concurrent
-    # invalidator doesn't race the write).
     with db._today_stats_cache_lock:
         db._today_stats_cache = result
         db._today_stats_cache_ts = time.monotonic()
@@ -807,30 +528,14 @@ def get_today_stats(db: HistoryDB) -> dict:
 
 
 def invalidate_today_stats_cache(db: HistoryDB) -> None:
-    """Drop the cached today-stats dict.
-
-    Called by every mutation that could change today's stats
-    (``add_transcription``, ``delete``, ``clear_all``, ``restore``,
-    ``apply_retention``). Unlike :func:`invalidate_history_count_cache`
-    (which skips invalidation on fire-and-forget
-    ``add_transcription`` because a stale-by-1 total is fine), the
-    today-stats cache is invalidated on EVERY mutation, today's
-    stats grow by 1 per dictation and the user wants to see them
-    update live.
-    """
+    """Drop the cached today-stats dict."""
     with db._today_stats_cache_lock:
         db._today_stats_cache = None
         db._today_stats_cache_ts = 0.0
 
 
 def _decrypt_full_text(blob: str) -> str:
-    """Decrypt a single flagged row's full text (never raises).
-
-    Shared by the full-text read seams (``get_latest_text`` /
-    ``get_transcription_text``). Key-unavailable → rate-limited ERROR +
-    placeholder; DEK available → :func:`decrypt_text` (which itself
-    returns the placeholder on any crypto failure).
-    """
+    """Decrypt a single flagged row's full text (never raises)."""
     from voice_typer.server import _text_crypto
 
     dek = _text_crypto.get_dek_cached()
@@ -846,16 +551,7 @@ def get_transcription_text(
     *,
     raise_on_error: bool = False,
 ) -> dict:
-    """Return the FULL ``text`` of a single transcription row.
-
-    Companion to the 500-char ``text`` preview returned by
-    ``get_recent`` / ``search`` / ``get_favorites``. Returns
-    ``{"id": int, "text": str}`` (empty string if not found).
-
-    At-rest encryption: when the row is flagged encrypted, its text is
-    decrypted before returning (key-loss → "<decryption failed>"
-    placeholder, the raw ciphertext is never surfaced).
-    """
+    """Return the FULL ``text`` of a single transcription row."""
     try:
         conn = db._get_read_conn()
         with contextlib.closing(conn.cursor()) as cursor:
@@ -888,15 +584,7 @@ def get_history_count(
     *,
     raise_on_error: bool = False,
 ) -> int:
-    """Return the total number of transcription rows.
-
-    ``SELECT COUNT(*) FROM transcriptions`` is O(N) in SQLite. A 60s TTL
-    cache wraps it with immediate invalidation on
-    delete/clear_all/restore/apply_retention. Fire-and-forget
-    ``add_transcription`` does NOT invalidate, the count grows by 1 per
-    dictation, and a 60s-stale-by-N count is fine for a "Total
-    Dictations" stat card.
-    """
+    """Return the total number of transcription rows."""
     from voice_typer.server import history_db as _hd
 
     now = time.monotonic()
@@ -923,13 +611,7 @@ def get_history_count(
 
 
 def invalidate_history_count_cache(db: HistoryDB) -> None:
-    """Drop the cached total-count int.
-
-    Called by ``delete``, ``clear_all``, ``restore``, and
-    ``apply_retention``. Fire-and-forget ``add_transcription`` does NOT
-    invalidate, the count grows by 1 per dictation, and a 60s-stale-by-N
-    count is fine for a "Total Dictations" stat card.
-    """
+    """Drop the cached total-count int."""
     with db._history_count_cache_lock:
         db._history_count_cache = None
         db._history_count_cache_ts = 0.0

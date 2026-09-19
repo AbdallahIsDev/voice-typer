@@ -1,32 +1,4 @@
-"""Lifecycle mixin for the IPC server (split from ``ipc_server.py``).
-
-Contains the :class:`LifecycleMixin` class, the per-instance lifecycle
-methods (``start`` / ``stop`` / heartbeat watchdog / tray-state hook /
-relaunch-ack coordination) that are mixed into :class:`IPCServer` via
-multiple inheritance.
-
-The mixin accesses instance state (``self._running``, ``self._lock``,
-``self._tcp_client``, ``self._tcp_server_socket``, ``self._tcp_worker_pool``,
-``self._tcp_dispatch_pool``, ``self._push_fn``, ``self._cached_shutting_down``,
-``self._heartbeat_stop_event``, ``self._heartbeat_thread``,
-``self._stdin_thread``, ``self._relaunch_ack_event``,
-``self._last_heartbeat_at``, ``self._ready_emitted``, ``self.app``,
-``self._tcp_mode``, etc.) which is declared on :class:`IPCServer` itself —
-the mixin provides only the method bodies.
-
-Source-string-pinning tests (``tests/test_ipc_server.py``,
-``tests/test_ipc_send_shutdown_allowlist.py``,
-``tests/test_security_fixes.py``,
-``tests/security/test_tcp_accept_worker_pool.py``) use
-``inspect.getsource(IPCServer.start)`` / ``.stop`` and assert substrings
-appear in the source. Because ``IPCServer.start`` resolves through MRO
-to ``LifecycleMixin.start``, ``inspect.getsource`` returns the source from
-this module, the bodies are moved verbatim so every pinned substring
-(``_cached_shutting_down = False``, ``_cached_shutting_down = True``,
-``_tcp_worker_pool``, ``shutdown``, ``_tcp_server_socket``,
-``_STDIN_IPC_ENV_VAR``, ``os.environ.get(_STDIN_IPC_ENV_VAR) == "1"``)
-is preserved.
-"""
+"""Lifecycle mixin for the IPC server (split from ``ipc_server.py``)."""
 
 from __future__ import annotations
 
@@ -49,38 +21,11 @@ from voice_typer.server.keyboard_ownership import keyboard_ownership
 from voice_typer.server.tray_types import is_tauri_sidecar
 
 # PERF-SHUTDOWN-001: the TCP dispatch pool's ``thread_name_prefix``,
-# used as a fallback self-join detector (see ``_in_pool_worker``).
 _TCP_DISPATCH_POOL_PREFIX = "tcp-dispatch"
 
 
 def _in_pool_worker(pool) -> bool:
-    """Return ``True`` when the current thread is a worker of ``pool``.
-
-    PERF-SHUTDOWN-001: detects the quit-path self-join. ``quit_app``
-    is dispatched via ``_tcp_dispatch_and_respond`` onto the
-    ``tcp-dispatch`` pool, so the quit handler calls ``app.quit()`` →
-    ``_do_cleanup()`` → ``ipc_server.stop()`` FROM INSIDE one of that
-    pool's own workers. Draining the pool there is a self-join that
-    can never complete, ``shutdown(wait=True)`` waits for EVERY
-    worker, including the caller blocked inside ``stop()``, so the
-    drain burned its full 5s timeout on every quit (measured: quit
-    took 8.6s, of which 5s was this deadlock).
-
-    ``ThreadPoolExecutor`` exposes its live worker threads as the
-    private ``_threads`` set; membership there is exact and stable
-    across CPython 3.9+ (populated at worker start, cleared at exit).
-    Fall back to the ``thread_name_prefix`` we construct the pool with
-    when that set is absent, empty, or does not (yet) contain the
-    running worker:
-
-      - absent → monkeypatched executors in tests;
-      - empty → CPython 3.12+ ``_adjust_thread_count`` calls
-        ``t.start()`` BEFORE ``self._threads.add(t)``, so during
-        that window a live worker is not a member yet.  Without the
-        fallback the quit-path self-join gate would misread the
-        worker as "outside the pool" and drain the pool from inside
-        itself (burning the full 5s timeout on every quit).
-    """
+    """Return ``True`` when the current thread is a worker of ``pool``."""
     if pool is None:
         return False
     current = threading.current_thread()
@@ -94,156 +39,50 @@ def _in_pool_worker(pool) -> bool:
 
 
 class LifecycleMixin:
-    """Lifecycle methods for :class:`IPCServer`.
+    """Lifecycle methods for :class:`IPCServer`."""
 
-    Provides ``start``, ``stop``, ``_reset_ready_emitted``,
-    ``_heartbeat_loop``, ``_check_heartbeat_timeout``,
-    ``_handle_heartbeat``, ``_handle_relaunch_ack``,
-    ``wait_for_relaunch_ack`` and ``_hook_tray_set_state``. The mixin
-    assumes the host class declares the lifecycle instance attributes
-    (``_running``, ``_lock``, ``_tcp_client``, ``_tcp_server_socket``,
-    ``_tcp_worker_pool``, ``_tcp_dispatch_pool``, ``_push_fn``,
-    ``_cached_shutting_down``, ``_heartbeat_stop_event``,
-    ``_heartbeat_thread``, ``_stdin_thread``, ``_relaunch_ack_event``,
-    ``_last_heartbeat_at``, ``_ready_emitted``, ``_shutdown_started``).
-    """
-
-    # Declare the lifecycle attributes the host normally initializes in
-    # ``IPCServer.__init__`` so the mixin's own method bodies type-check
-    # (pyrefly types ``self`` as ``LifecycleMixin`` here). The nullable
-    # unions mirror the host's declarations: the heartbeat watchdog's
-    # ``_last_heartbeat_at`` starts ``None`` until the first heartbeat,
     # and ``_stdin_thread`` may be ``None`` (gated-off stdin listener).
     _stdin_thread: threading.Thread | None
     _heartbeat_thread: threading.Thread | None
     _heartbeat_stop_event: threading.Event
     # Set by ``shutdown.cleanup.do_cleanup`` when ``_do_cleanup()``
-    # finishes; the heartbeat force-exit watchdog waits on it so a
-    # healthy-but-slow quit() is not force-killed mid-teardown (see
-    # ``_check_heartbeat_timeout``).
     _shutdown_completed_event: threading.Event
     _relaunch_ack_event: threading.Event
     _last_heartbeat_at: float | None
     # host app object; ``Any`` avoids an override conflict with the
-    # host's concrete ``app`` attribute.
     app: typing.Any
     # transport-liveness probe (historically registered by the TCP
-    # transport). Declared here so ``stop()`` can unregister it.
     _transport_live_probe: typing.Callable[[], bool] | None
 
     def _reset_ready_emitted(self) -> None:
-        """Test-only: reset the per-instance ``_ready_emitted`` flag.
-
-        in production, ``_ready_emitted`` is set to ``True`` on the
-        first authenticated WS connection and never reset, this is the
-        intended behavior so a transient WS reconnect after a drop does
-        NOT re-emit the ``ready`` event. However, tests that construct a
-        single ``IPCServer`` and call ``sidecar_ws.run(server)`` multiple
-        times in the same process need to reset the flag between runs to
-        verify the "first connection emits ready" path.
-
-        The cleaner alternative, constructing a fresh ``IPCServer`` per
-        test, is what we recommend, and is what the per-instance move
-        enables (a fresh instance starts with ``_ready_emitted = False``
-        automatically). This helper exists for the small number of tests
-        that, for fixture-sharing reasons, must reuse the same instance.
-
-        Marked "test-only" by convention (leading underscore + docstring)
-        rather than by a runtime guard, the cost of an accidental
-        production call is just a duplicate ``ready`` event, which the
-        host already tolerates (it's idempotent on the UI side).
-        """
+        """Test-only: reset the per-instance ``_ready_emitted`` flag."""
         self._ready_emitted = False
 
     def _on_ipc_client_disconnect(self, reason: str) -> None:
-        """Reset keyboard ownership when the IPC client disconnects.
-
-        Backend ownership watchdog: if the frontend crashes mid-capture
-        (before sending ``set_esc_cancel_paused: false``), the backend
-        would otherwise be stuck in ``"hotkey_capture"`` state forever,
-        suppressing all hotkey interactions until restart. Resetting
-        ownership here ensures the next client reconnect starts clean.
-
-        Skipped during server shutdown (``self._running == False``)
-        so an active recording isn't interrupted by the teardown
-        sequence — we only want to fire on an *unexpected* client
-        disconnect, not on a planned stop().
-
-        The reset is idempotent: calling it when ownership is already
-        ``"normal"`` is a no-op. Safe to call from multiple disconnect
-        paths (WS drop + stdin EOF) — the second call is a no-op.
-        """
+        """Reset keyboard ownership when the IPC client disconnects."""
         if not self._running:
             # Server is shutting down (stop() was called). Don't
-            # reset ownership — a recording might be in progress
-            # and the teardown sequence will handle cleanup.
             log.debug("[IPC] client disconnect during shutdown; skipping keyboard ownership reset")
             return
         keyboard_ownership().reset()
         # Also clear the ESC-pending-capture-exit Event on the hotkey
-        # dispatcher. If the frontend crashed mid-capture (ESC pressed
-        # but not yet released), the flag would remain set and cause a
-        # spurious ``hotkey_capture_cancel`` event on the next ESC
-        # press after reconnect. The Event is cleared atomically so the
-        # threads that touch this flag cannot race on a
-        # read-modify-write cycle.
         _hotkeys = getattr(self.app, "hotkeys", None)
         if _hotkeys is not None:
             with contextlib.suppress(AttributeError):
                 _hotkeys._esc_pending_capture_exit_event.clear()
 
     def start(self) -> None:
-        """Start the IPC server in a daemon thread.
-
-        Also hooks ``app.tray.set_state`` so that every state change emits
-        a ``status_change`` push event back to the frontend, and runs the
-        deferred background integrations
-        (``wire_background_integrations``) as the explicit post-start
-        phase so ``IPCServer.__init__`` stays side-effect-free.
-        """
+        """Start the IPC server in a daemon thread."""
         self._running = True
         # Refresh the cached shutdown flag. ``start()`` is called once at
-        # server boot (when the host connects) and again after a
-        # stop()/restart cycle in tests, so this is the canonical
-        # "we're not shutting down" transition point.
         self._cached_shutting_down = False
         # Expose the server on the app so listeners (waveform bubble,
-        # streaming partials, etc.) can push events without an explicit
-        # reference being threaded through every call site.
         self.app._ipc_server = self
         # ALSO register the push function at module level.  This is
-        # the bullet-proof path: any code (waveform listeners, hot
-        # paths, audio callback) can call ``event_bus.publish(msg)``
-        # without holding a reference to the app or the server.
-        # _set_push_event now adds to a registry instead
-        # of stomping a single global.  We track our own push callable
-        # so stop() can unregister just ours without affecting other
-        # active servers.
-        # Subscribe through the event_bus directly.
         self._push_fn = self.push
         event_bus.subscribe(self._push_fn)
         self._hook_tray_set_state()
-        #  Do NOT start the stdin
-        # listener in TCP/WS mode. A direct-terminal invocation
-        # (``python -m voice_typer.server.ipc_server --port N``) would
-        # otherwise accept unauthenticated JSON commands on stdin while
-        # the TCP socket enforces the VOICE_TYPER_IPC_TOKEN handshake.
-        # The stdin listener is only for the legacy stdin/stdout IPC mode
-        # (``_tcp_mode`` is False). In TCP mode stdin is unused (inherited
-        # from predecessor, connected to /dev/null or NUL).
-        #
-        #  (High): the unauthenticated stdin IPC path is gated
-        # behind ``VOICE_TYPER_ALLOW_STDIN_IPC=1``. When ``_tcp_mode`` is
-        # False (the legacy stdin/stdout path) AND the env var is not
-        # set, the stdin listener is REFUSED, a WARNING is logged and
-        # ``_stdin_thread`` is set to ``None``. This prevents an
-        # unauthenticated command channel from opening on the user's
-        # terminal: on Linux TIOCSTI injection is possible, and on every
-        # platform an accidental paste of JSON into the terminal triggers
-        # unintended IPC commands. Direct API users and tests that need
-        # the stdin listener must set ``VOICE_TYPER_ALLOW_STDIN_IPC=1``
-        # (the ``--allow-stdin`` CLI flag in :func:`parse_ipc_args` is
-        # the alternative gate, it sets the env var).
+        # NOTE: see docs/code-notes/ipc.md
         if not self._tcp_mode:
             if os.environ.get(_STDIN_IPC_ENV_VAR) == "1":
                 self._stdin_thread = threading.Thread(
@@ -254,15 +93,6 @@ class LifecycleMixin:
                 self._stdin_thread.start()
             else:
                 # refuse to start the unauthenticated stdin
-                # listener. ``_tcp_mode`` is False (so the caller did
-                # NOT explicitly opt into TCP/WS mode) AND the env-var
-                # gate is unset: this is the "unprotected stdin IPC
-                # path is still the default" scenario the gate exists
-                # to close. Log a WARNING (not an error: the server is
-                # still usable for TCP/WS dispatch via the methods on
-                # ``self``; only the stdin listener is gated off) and
-                # leave ``_stdin_thread = None`` so ``stop()`` /
-                # ``_thread_registry`` see no thread to join.
                 log.warning(
                     "[IPC] stdin listener gated off. Set %s=1 (or pass "
                     "--allow-stdin) to enable unauthenticated stdin/stdout "
@@ -272,26 +102,7 @@ class LifecycleMixin:
                 self._stdin_thread = None
         else:
             self._stdin_thread = None
-        # start the predecessor-alive heartbeat watchdog.  Daemon
         # thread so it doesn't block shutdown.  The thread refuses to
-        # fire ``app.quit()`` until the first heartbeat lands, so a
-        # slow predecessor cold start (10+ seconds for torch import)
-        # doesn't trigger a false-positive exit.
-        # ADR-0020 §2 + §10: under the Tauri sidecar path
-        # (TAURI_SIDECAR=1), the Python-side heartbeat watchdog
-        # (ADR-0018) is disabled. The Tauri Rust host owns liveness
-        # via TWO mechanisms: (1) WS-close / process exit triggers
-        # respawn, and (2) the Rust host dispatches a
-        # ``heartbeat`` command every 10s and triggers respawn
-        # on 3 consecutive misses (≥30s unresponsive, catches GIL
-        # contention / infinite loops / blocking C calls that keep
-        # the socket open but don't respond to dispatches). The
-        # Python ``_handle_heartbeat`` handler is registered in
-        # ``_COMMAND_REGISTRY`` and updates ``_last_heartbeat_at``
-        # for the (disabled) watchdog's bookkeeping. See
-        # ``src-tauri/src/sidecar/ws.rs`` (reconnect_ws heartbeat
-        # task) and ``voice_typer/server/sidecar_ws.py`` (Heartbeat
-        # docstring) for the full picture.
         _tauri_sidecar = is_tauri_sidecar()
         if _tauri_sidecar:
             log.info(
@@ -308,27 +119,9 @@ class LifecycleMixin:
             )
             self._heartbeat_thread.start()
         # THREAD-REGISTRY: register both IPC threads with the central
-        # registry (if the app provides one) so ``shutdown_all()`` can
-        # signal and join them during ``VoiceTyperApp.quit()``.
-        #
-        # heartbeat-watchdog: registers WITH a stop_event
-        # (``_heartbeat_stop_event``) because the loop wakes on
-        # ``Event.wait(timeout)``: setting the event unblocks it
-        # immediately and the thread exits cleanly.
-        #
-        # ipc-server (stdin listener): registers with ``stop_event=None``
-        # because the thread blocks on ``for line in iter(stdin)`` —
-        # there is no event it checks between reads. The existing
-        # ``stop()`` path closes the TCP client socket and sets
-        # ``_running = False`` (checked between lines), but the stdin
-        # loop only exits naturally on EOF/OSError. The registry's
-        # ``shutdown_all()`` will still JOIN the stdin thread (with a
-        # short timeout) to verify it's tracked; the existing per-site
-        # ``stop()`` is responsible for the actual cleanup.
         registry = getattr(getattr(self, "app", None), "_thread_registry", None)
         if registry is not None:
             # ADR-0020 §10: heartbeat-watchdog is skipped under TAURI_SIDECAR=1,
-            # so only register it if it actually exists.
             if self._heartbeat_thread is not None:
                 registry.register(
                     name="heartbeat-watchdog",
@@ -344,13 +137,8 @@ class LifecycleMixin:
                     join_timeout=0.5,
                 )
         # DEBUG: the entrypoint's "[IPC] TCP server listening on port
-        # ..." line is the single INFO startup marker for the server.
         log.debug("[IPC] server started; push hook registered")
-        # Post-start phase: deferred background integrations (the
-        # service-layer mic cache invalidator). Construction stays pure
         # wiring; the invalidator daemon thread is spawned only here,
-        # after the server is accepting. Idempotent via the
-        # once-per-server gate set in ``_init_app_and_service``.
         self.wire_background_integrations()
 
     def stop(self) -> None:
@@ -395,22 +183,8 @@ class LifecycleMixin:
         """
         self._running = False
         # Refresh the cached shutdown flag. ``stop()`` is the canonical
-        # "we're shutting down" transition point. ``_send`` reads
-        # ``self._cached_shutting_down`` (defensively via ``getattr``) on
-        # every push event and short-circuits the TCP write for
-        # non-critical events when this is True: see
-        # ``_SHUTDOWN_ALLOWLIST`` for the allowlist of events that MUST
-        # still be delivered.
-        #
-        # NOTE: ``restart_app`` sets ``self.app._shutting_down = True``
-        # BEFORE ``stop()`` is called, so during the brief window between
-        # that set and this ``stop()`` call, the cache is stale (still
-        # False). This is acceptable: see the ``__init__`` comment for
-        # ``_cached_shutting_down``.
         self._cached_shutting_down = True
         # WS graceful-shutdown hook FIRST (see docstring): best-effort,
-        # exceptions logged inside the hook itself. ``None`` when the WS
-        # layer never attached (pure-TCP servers, most unit tests).
         stop_hook = getattr(self, "_ws_stop_hook", None)
         if stop_hook is not None:
             try:
@@ -418,67 +192,28 @@ class LifecycleMixin:
             except Exception:
                 log.debug("[IPC] _ws_stop_hook raised, continuing TCP teardown", exc_info=True)
         # Unregister our push callable.  Other servers in the registry
-        # are unaffected.
-        # Unsubscribe through the event_bus directly.
         push_fn = getattr(self, "_push_fn", None)
         if push_fn is not None:
             event_bus.unsubscribe(push_fn)
             self._push_fn = None
         # Unregister the transport-liveness probe registered by
-        # ``start_tcp`` (no-op when the TCP transport never started,
-        # e.g. the Tauri WS sidecar path).
         event_bus.unregister_transport_probe(getattr(self, "_transport_live_probe", None))
         self._transport_live_probe = None
         if self._tcp_client is not None:
             self._tcp_client.close()
             self._tcp_client = None
         # Close the listening socket to unblock the accept() loop.
-        # The accept loop catches OSError and breaks out.
         server_sock = self._tcp_server_socket
         if server_sock is not None:
             with contextlib.suppress(OSError):
                 server_sock.close()
             self._tcp_server_socket = None
         # SEC-8: shut down the TCP worker pools so queued (not-yet-
-        # started) connection handoffs AND dispatch submissions are
-        # dropped and in-flight workers' teardown is no longer tracked.
-        # The accept loop also shuts the pools down when it exits
-        # naturally; this is the belt-and-suspenders path for callers
-        # that close the listening socket directly (e.g. test fixtures)
-        # without waiting for the accept thread to observe the close.
-        # The dispatch pool is torn down first so its in-flight
-        # dispatches can finish writing responses before the connection
-        # handlers' sockets are torn down.
         dispatch_pool = self._tcp_dispatch_pool
         if dispatch_pool is not None:
             dispatch_pool.shutdown(wait=False, cancel_futures=True)
             self._tcp_dispatch_pool = None
             # PERF-SHUTDOWN-001: skip the drain wait when ``stop()`` is
-            # called from inside the dispatch pool itself.  ``quit_app``
-            # runs on a ``tcp-dispatch`` worker, so draining the pool
-            # here would wait on a worker that is blocked inside this
-            # very ``stop()`` call, a self-join that always burned the
-            # full 5s timeout on every quit.  The caller exits right
-            # after ``stop()`` returns, ``cancel_futures=True`` already
-            # dropped queued work, and the accept-loop's own drain
-            # covers any remaining in-flight handlers.
-            #
-            # The thread-membership check alone is NOT enough: the
-            # production shutdown path runs ``stop()`` on a separate
-            # helper thread, ``_do_cleanup()`` → ``_run_with_timeout(
-            # "ipc_server.stop", ...)`` spawns a ``cleanup-*`` thread —
-            # NOT on the pool worker itself. The ``quit_app`` dispatch
-            # worker is then *transitively* blocked waiting for that
-            # thread inside ``_do_cleanup``, and draining the pool
-            # waits once more on the same worker → guaranteed full-5s
-            # timeout on every shutdown (measured: quit took 8.8s, of
-            # which 5s was this deadlock). Gate the drain on the
-            # app-level shutdown flag as well: during quit/restart the
-            # in-flight dispatcher finishes as soon as ``stop()``
-            # returns and the process is exiting anyway, so skipping
-            # the wait is safe. ``is not True`` keeps old drain
-            # behavior for test mocks whose ``_shutting_down`` is a
-            # truthy child Mock.
             app_ref = getattr(self, "app", None)
             if not _in_pool_worker(dispatch_pool) and getattr(app_ref, "_shutting_down", False) is not True:
                 dispatch_join = threading.Thread(target=dispatch_pool.shutdown, kwargs={"wait": True}, daemon=True)
@@ -491,121 +226,37 @@ class LifecycleMixin:
             pool.shutdown(wait=False, cancel_futures=True)
             self._tcp_worker_pool = None
             # PERF-SHUTDOWN-002: same shutdown gate as the dispatch drain
-            # above. The connection read-loop worker blocks in ``recv`` on
-            # the client socket while the client keeps it open during the
-            # quit handshake, and Windows does NOT unblock that recv from
-            # ``close()``, so the drain join below would burn its full
-            # 5s timeout on EVERY quit (measured end-to-end: 8.8s, of
-            # which 5s was this worker-pool join; the dispatch drain
-            # fixed the other 5s). During app shutdown the process exits
-            # right after cleanup, so in-flight connection handlers are
-            # daemon-thread reaped, nothing to wait for.
             if getattr(getattr(self, "app", None), "_shutting_down", False) is not True:
                 # Bound the in-flight handler drain so teardown doesn't
-                # race with running handlers. ``shutdown(wait=False)`` only
-                # cancels queued futures; in-flight handlers keep running on the
-                # pool's worker threads. We drain them with a hard 5s deadline
-                # on a daemon thread so this ``stop()`` call never blocks
-                # indefinitely.
                 join_thread = threading.Thread(target=pool.shutdown, kwargs={"wait": True}, daemon=True)
                 join_thread.start()
                 join_thread.join(timeout=5.0)
                 if join_thread.is_alive():
                     log.warning("[SHUTDOWN] tcp_worker_pool did not drain in 5s, proceeding anyway")
         # signal the heartbeat watchdog to exit.  The thread
-        # sleeps on ``_heartbeat_stop_event.wait(timeout=INTERVAL)``;
-        # setting the event wakes it immediately so it doesn't linger
-        # past shutdown.  (It's a daemon thread, so even if it lingered
-        # it wouldn't block process exit, but explicit shutdown is
-        # cleaner for test start/stop cycles.)
         self._heartbeat_stop_event.set()
         # THREAD-REGISTRY: unregister both IPC threads so a subsequent
-        # ``start()`` cycle (common in tests) re-registers cleanly
-        # without triggering the "Re-registering name" warning. Safe to
-        # call when no entry exists (unregister is a no-op for unknown
-        # names).
         registry = getattr(getattr(self, "app", None), "_thread_registry", None)
         if registry is not None:
             registry.unregister("heartbeat-watchdog")
             registry.unregister("ipc-server")
         # Join the stdin thread so it doesn't leak in test
-        # start/stop cycles.  The thread is a daemon that blocks on
-        # ``for line in iter(stdin)``, so a 0.5s timeout is sufficient
-        # , the thread exits naturally on stdin EOF/OSError (set by
-        # closing the TCP client socket above) or when _running becomes
-        # False (checked between lines).
         stdin_thread = getattr(self, "_stdin_thread", None)
         if stdin_thread is not None and stdin_thread.is_alive():
             stdin_thread.join(timeout=0.5)
         # Keep the app-level reference so existing closures still
-        # work after a stop+start cycle in tests.
-
-    # ── Heartbeat watchdog () ───────────────────────────────────────
 
     def _heartbeat_loop(self) -> None:
-        """daemon thread that watches for predecessor heartbeat timeouts.
-
-        Wakes every ``_HEARTBEAT_INTERVAL_SECONDS`` (5s) and calls
-        :meth:`_check_heartbeat_timeout`.  When the timeout fires
-        (9 missed heartbeats = 45s without a heartbeat from predecessor;
-        reduced from 120s/24 misses to align with the Rust-side
-        ~30-45s supervisor respawn window), the loop returns —
-        ``app.quit()`` has already been triggered, which runs the
-        shared ``_do_cleanup()`` path from  (restores volume,
-        flushes recovery, releases the mutex, closes PortAudio) and
-        breaks the pystray loop so the process exits.
-
-        The thread is a daemon so it doesn't block shutdown.  ``stop()``
-        sets ``_heartbeat_stop_event`` to wake the thread immediately
-        on a planned shutdown.
-        """
+        """daemon thread that watches for predecessor heartbeat timeouts."""
         while not self._heartbeat_stop_event.wait(_HEARTBEAT_INTERVAL_SECONDS):
             if self._check_heartbeat_timeout():
                 return  # app.quit() was called; thread exits
 
     def _check_heartbeat_timeout(self) -> bool:
-        """Return True and call ``app.quit()`` if the heartbeat is overdue.
-
-        extracted as a separate method so tests can invoke it
-        directly without spinning up the daemon thread (and without
-        waiting for the real-time 45s timeout to elapse).
-
-        Returns ``True`` when ``app.quit()`` was called, ``False``
-        otherwise.  The ``False`` cases are:
-
-        - ``_last_heartbeat_at is None``: predecessor has not yet sent
-          its first heartbeat.  The watchdog must NOT fire here, or a
-          slow predecessor cold start (10+ seconds for the torch import)
-          would cause a false-positive exit.
-        - ``now - last <= _HEARTBEAT_TIMEOUT_SECONDS``: the most
-          recent heartbeat is fresh enough; predecessor is still alive.
-
-        The ``True`` case calls ``self.app.quit()``: which runs the
-        shared ``_do_cleanup()`` cleanup path () so the mic
-        stream, hotkeys, volume duck, and single-instance mutex are
-        properly released before the process exits.  ``app.quit()``
-        also calls ``tray.stop()`` which breaks the pystray loop,
-        letting ``app.start()`` return and the process exit naturally
-        (quit() only calls ``sys.exit()`` from the main thread; from
-        a daemon thread it relies on tray.stop() to unwind the main
-        loop).
-
-        if ``tray.stop()`` hangs (observed on certain Linux
-        backends + Windows Server), the daemon thread scheduled here
-        force-exits the process via ``os._exit(1)`` after the grace
-        period. The thread waits on the shutdown-completion event
-        (set when ``_do_cleanup()`` finishes) instead of a bare sleep,
-        so a healthy-but-slow quit() that completes cleanup within the
-        grace window is NOT force-killed, the event is set and the
-        thread returns without ``os._exit(1)``. Only the genuine-hang
-        case (no completion signal before the grace elapses) fires the
-        hard force-exit. See the inline comment in the ``True`` branch.
-        """
+        """Return True and call ``app.quit()`` if the heartbeat is overdue."""
         last = self._last_heartbeat_at
         if last is None:
             # No heartbeat yet. predecessor hasn't connected.  Don't
-            # fire.  This is the critical guard that prevents a false
-            # positive during a slow predecessor cold start.
             return False
         now = time.monotonic()
         if now - last <= _HEARTBEAT_TIMEOUT_SECONDS:
@@ -622,39 +273,7 @@ class LifecycleMixin:
         except Exception:
             log.exception("[HEARTBEAT] app.quit() raised during heartbeat timeout")
 
-        # force-exit fallback if ``tray.stop()`` hangs.
-        #
-        # ``app.quit()`` from a daemon thread relies on
-        # ``tray.stop()`` breaking the pystray loop so ``app.start()``
-        # returns and the process exits naturally (``quit()`` only
-        # calls ``sys.exit(0)`` from the main thread). pystray on
-        # certain Linux backends (AppIndicator with stale dbus) and on
-        # Windows Server (with RDP session disconnects) has been
-        # observed to hang inside ``stop()``: leaving the process
-        # stuck with the mic open and the single-instance mutex held.
-        #
-        # Mitigation: schedule a daemon thread that waits on the
-        # shutdown-completion event (wired to the end of
-        # ``_do_cleanup()``) for the grace period, then calls
-        # ``os._exit(1)`` if the event was never set. If ``quit()``
-        # succeeded (cleanup finished within the grace window), the
-        # event is set and the thread returns WITHOUT ``os._exit(1)`` —
-        # the process exits naturally. If ``quit()`` hung, the grace
-        # elapses, the event is never set, and the thread force-exits.
-        #
-        # Previously the thread used a bare ``time.sleep(grace)`` with
-        # no completion signal, so a healthy-but-slow quit() (>10s:
-        # PortAudio teardown + history-DB flush + mutex release) was
-        # force-killed mid-cleanup without the supervisor being able
-        # to distinguish a genuine hang from a slow-but-valid shutdown.
-        #
-        # ``os._exit`` (not ``sys.exit``) bypasses Python's normal
-        # shutdown sequence (no atexit handlers, no finally blocks) —
-        # appropriate here because the graceful ``_do_cleanup()`` path
-        # already ran inside ``app.quit()`` above. We use ``os._exit(1)``
-        # (non-zero) so the supervisor treats this as a
-        # crash and respawns with backoff, rather than silently exiting
-        # and looking like a clean shutdown.
+        # NOTE: see docs/code-notes/ipc.md
         try:
             import threading as _threading
 
@@ -662,11 +281,6 @@ class LifecycleMixin:
 
             def _force_exit_after_grace() -> None:
                 # Wait for the cleanup-completion event instead of a bare
-                # sleep. If ``_do_cleanup()`` finishes within the grace
-                # window (the event is set), the process is exiting
-                # cleanly, return without force-exiting. Only the
-                # genuine-hang case (no completion signal before the
-                # grace elapses) fires the hard force-exit.
                 if _shutdown_completed_event.wait(_HEARTBEAT_FORCE_EXIT_GRACE_SECONDS):
                     return
                 log.error(
@@ -690,20 +304,7 @@ class LifecycleMixin:
         return True
 
     def _handle_heartbeat(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope:
-        """Handle the ``heartbeat`` IPC command ().
-
-        the predecessor's main process sends this every 5 seconds (see
-        ``client/src/main/index.ts``) once the TCP connection is
-        established.  The handler updates ``_last_heartbeat_at`` so
-        the :meth:`_heartbeat_loop` daemon thread knows predecessor is
-        still alive.
-
-        The response is a trivial ``heartbeat_ack``: predecessor does
-        not act on it (the heartbeat is fire-and-forget), but
-        returning a well-formed response keeps the IPC dispatcher's
-        ``result.setdefault('data', {})`` path happy and lets
-        ``sendToPython()`` resolve its promise instead of timing out.
-        """
+        """Handle the ``heartbeat`` IPC command ()."""
         self._last_heartbeat_at = time.monotonic()
         resp["type"] = "heartbeat_ack"
         return resp
@@ -743,22 +344,9 @@ class LifecycleMixin:
         self._relaunch_ack_event.clear()
         return self._relaunch_ack_event.wait(timeout=timeout)
 
-    # ── Tray state hook ─────────────────────────────────────────────────
-
     def _hook_tray_set_state(self) -> None:
-        """Monkey-patch ``app.tray.set_state`` to emit push events.
-
-        Every call to ``set_state`` will also send a ``status_change``
-        push event with the new state value.
-
-        Idempotent: guarded so a ``start()`` → ``stop()`` → ``start()``
-        cycle (common in tests and possible during restart) does not
-        stack another wrapper on top of an already-wrapped
-        ``set_state``. Without the guard, each state change would emit
-        N ``status_change`` events after N start cycles.
-        """
+        """Monkey-patch ``app.tray.set_state`` to emit push events."""
         # Already wrapped on a prior start(), leave the existing
-        # wrapper in place so push events stay deduplicated.
         if getattr(self.app.tray.set_state, "_vt_wrapped", False):
             return
 
@@ -766,31 +354,7 @@ class LifecycleMixin:
 
         def wrapped(state, message=""):
             original(state, message)
-            # The ``message`` argument carries the human-readable
-            # context that the tray itself already shows in its
-            # tooltip (e.g. ``"Transcription failed: …"``). Forwarding
-            # it in the push payload lets the renderer surface the
-            # same diagnostic instead of seeing only the bare state
-            # value. The field is always present so consumers can
-            # branch on ``data.message`` without a separate
-            # ``hasOwnProperty`` check; the empty-string default
-            # mirrors the ``set_state`` signature.
-            #
-            # Published through ``event_bus`` (not ``server.push``)
-            # so BOTH runtimes deliver it: in TCP mode the server's
-            # own ``_push_fn`` subscriber (installed at start(),
-            # lifecycle.py) bridges the bus to the TCP client, the
-            # same single delivery the old direct ``push`` call
-            # produced, while in WS mode the sidecar writer task's
-            # ``_push_to_ws`` subscriber delivers it over the
-            # WebSocket. A direct ``self.push`` dead-ends in the
-            # TCP-only ``_pending_tcp`` buffer in WS mode (no TCP
-            # client ever exists there, same rationale as
-            # ``_emit_ready_if_first``'s documented WS fix, which
-            # converted the ``ready`` push for exactly this reason).
             # The dead-end buffer is capped (SEC-008), so the
-            # redundant TCP-path delivery attempt in WS mode is
-            # bounded and harmless.
             event_bus.publish(
                 {
                     "type": "status_change",
@@ -834,10 +398,6 @@ class LifecycleMixin:
         """
         resp["type"] = "ack"
         # ResponseEnvelope is dict[str, object], so setdefault's static
-        # return type is `object`: cast to the dict it actually is at
-        # runtime so the resp_data["queued"] writes type-check. Named
-        # resp_data (not `data`) because the handler's REQUEST parameter
-        # is already `data`.
         resp_data = typing.cast(dict[str, object], resp.setdefault("data", {}))
         # Cheap existence check, no hashing (§8.10).
         pack_missing = True
@@ -853,10 +413,6 @@ class LifecycleMixin:
             resp_data["reason"] = "offline_pack_missing"
         else:
             # Minimal ack so the renderer's call() resolves instead of
-            # timing out. The actual transcription comes back via the
-            # transcribe_offline_result push event (see
-            # ALLOWED_EVENT_TYPES in
-            # src-tauri/src/sidecar/ws/event_protocol.rs).
             resp_data["queued"] = True
         return resp
 

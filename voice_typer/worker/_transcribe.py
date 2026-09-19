@@ -1,38 +1,4 @@
-"""Offline transcription for the worker (master plan §7.4).
-
-This module owns the ``transcribe_offline`` contract's worker half: the
-slim-core sidecar forwards ``{audio_path, sample_rate, language}`` to
-the worker over the worker's dedicated WS hop, and the worker runs a
-real ASR inference and returns the transcript via the
-``transcribe_offline_result`` push event.
-
-It reuses the exact same backend machinery the slim-core sidecar uses
-(``AsrBackendRegistry`` from ``voice_typer/server/asr_registry.py``) so
-there is ONE engine-construction path for both processes, the worker
-is a second consumer of the same registry, not a parallel
-re-implementation (E7 / P2: no duplicated engine logic).
-
-Engine lifecycle (§7.3 "long-lived worker"): the engine is built lazily
-on the first ``transcribe_offline`` request and cached for the worker's
-lifetime (a fresh request does not rebuild it). A request carrying a
-``language`` that differs from the cached engine's language rebuilds the
-engine with the request's language, language is fixed at engine
-construction in this codebase (``TranscriptionEngine.language`` is set
-in ``__init__``), so a per-request override requires reconstruction.
-
-Concurrency: transcription is blocking C-level work (0.5-30 s per file)
-and MUST NOT run on the asyncio event loop, the caller
-(``_ws_server._handle_connection``) wraps :func:`transcribe_file` in
-``asyncio.to_thread`` so heartbeats and the ``shutdown`` command stay
-responsive mid-inference. A ``threading.Lock`` guards the lazy
-construction so two racing requests cannot double-build the engine.
-
-Errors: any failure (missing file, engine load failure, decode error)
-is caught and returned as ``{"text": "", "latency_ms": <elapsed>,
-"error": <message>}``, the caller turns that into a
-``transcribe_offline_result`` push so the slim-core sidecar's caller
-never hangs waiting for an event that will never arrive.
-"""
+"""Worker transcription helpers."""
 
 from __future__ import annotations
 

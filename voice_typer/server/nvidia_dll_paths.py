@@ -51,29 +51,10 @@ log = logging.getLogger(__name__)
 
 
 class _NvidiaDllPathManager:
-    """Encapsulates the mutable NVIDIA DLL-path state.
-
-    The state lives in a ``state_dict`` mapping the three canonical
-    keys, ``_nvidia_dll_path_handles`` (list),
-    ``_nvidia_dll_paths_configured`` (bool), ``_nvidia_config_lock``
-    (threading.Lock), to their current values. When ``state_dict`` is
-    ``None`` (the default for the production singleton), the manager
-    reads/writes through the ``voice_typer.server.transcription``
-    module's globals via late binding, so existing tests that poke
-    ``transcription._nvidia_dll_path_handles`` directly continue to
-    work (the singleton sees the rebound value on the next attribute
-    access).
-
-    Constructing a manager with an explicit ``state_dict`` (a plain
-    dict) is useful for unit tests that want a fresh, isolated state
-    without touching module globals: see
-    ``tests/test_transcription_phase_helpers.py``.
-    """
+    """Encapsulates the mutable NVIDIA DLL-path state."""
 
     def __init__(self, state_dict: dict[str, Any] | None = None) -> None:
         self._state_dict: dict[str, Any] | None = state_dict
-
-    # ── state_dict accessors ──────────────────────────────────────
 
     def _get(self, key: str) -> Any:
         """Read a state value, late-binding to ``transcription`` globals
@@ -81,7 +62,6 @@ class _NvidiaDllPathManager:
         if self._state_dict is not None:
             return self._state_dict[key]
         # Late binding: read through the ``transcription`` module's
-        # __dict__ so rebinds (e.g. by tests) are reflected immediately.
         from voice_typer.server import transcription as _t
 
         return getattr(_t, key)
@@ -95,8 +75,6 @@ class _NvidiaDllPathManager:
         from voice_typer.server import transcription as _t
 
         setattr(_t, key, value)
-
-    # ── public properties ─────────────────────────────────────────
 
     @property
     def handles(self) -> list[Any]:
@@ -117,20 +95,8 @@ class _NvidiaDllPathManager:
         """RACE-029 serializer lock for ``configure()``."""
         return self._get("_nvidia_config_lock")
 
-    # ── operations ────────────────────────────────────────────────
-
     def free_handles(self) -> None:
-        """Release DLL directory handles opened by ``configure()``.
-
-        ``os.add_dll_directory`` returns a handle that holds a reference
-        to the OS-level DLL directory entry. Previously these handles
-        were stored and never freed, so the process held phantom DLL
-        directory refs even after the model was unloaded. We now
-        iterate and call each handle's ``close()`` method (the
-        documented way to release the directory entry) and clear the
-        list in place. Called from ``TranscriptionEngine.unload()`` on
-        shutdown.
-        """
+        """Release DLL directory handles opened by ``configure()``."""
         handles = self.handles
         for handle in list(handles):
             try:
@@ -139,13 +105,10 @@ class _NvidiaDllPathManager:
                     close()
                 else:
                     # Some Python versions return a path string instead
-                    # of a handle object; nothing to close in that case.
                     pass
             except Exception as exc:
                 log.debug("[CUDA-DLL] Error closing handle %s: %s", handle, exc)
         # Mutate the existing list in place so external references
-        # (e.g. tests that grabbed ``mod._nvidia_dll_path_handles``
-        # before calling us) see the cleared state.
         handles.clear()
 
     def configure(self) -> None:
@@ -162,7 +125,6 @@ class _NvidiaDllPathManager:
         if self.configured or not is_windows():
             return
         # C-LOG-2: report the DLL scan + prepend duration on the
-        # completion line so "package loading" time is measurable.
         _t0 = time.perf_counter()
 
         roots: list[str] = []
@@ -178,16 +140,12 @@ class _NvidiaDllPathManager:
             log.warning("[CUDA-DLL] site.getusersitepackages() failed: %s", exc)
 
         # Also include the current venv's site-packages (via sys.prefix).
-        # site.getsitepackages() can be wrong when the app runs from a
-        # different Python environment (e.g. Hermes venv) than expected.
         venv_sp = os.path.join(sys.prefix, "Lib", "site-packages")
         if os.path.isdir(venv_sp) and venv_sp not in roots:
             roots.append(venv_sp)
             log.debug("[CUDA-DLL] Added current venv site-packages: %s", venv_sp)
 
         # Fallback: the app's own venv at ~/.voice-typer/venv/ may have
-        # the NVIDIA pip wheels even when the running Python belongs to
-        # a different environment.
         app_venv_sp = os.path.join(
             os.path.expanduser("~"),
             ".voice-typer",
@@ -255,23 +213,11 @@ class _NvidiaDllPathManager:
         self.configured = True
 
 
-# ── module-level public functions (delegate to the singleton) ─────────
-#
 # The singleton itself lives in ``voice_typer.server.transcription`` as
-# ``_nvidia_dll_paths`` so it can late-bind to that module's globals
-# (the module-level ``_nvidia_dll_path_handles`` /
-# ``_nvidia_dll_paths_configured`` / ``_nvidia_config_lock`` attrs that
-# existing tests rebind). These thin wrappers reach back through the
-# import to find the singleton, keeping ``nvidia_dll_paths`` free of
-# the circular import that would arise if it held the singleton itself.
 
 
 def _free_nvidia_dll_path_handles() -> None:
-    """Release DLL directory handles opened by ``_configure_nvidia_dll_paths``.
-
-    Delegates to the ``transcription._nvidia_dll_paths`` singleton so the
-    manager class owns the mutation logic in one place.
-    """
+    """Release DLL directory handles opened by ``_configure_nvidia_dll_paths``."""
     from voice_typer.server import transcription as _t
 
     _t._nvidia_dll_paths.free_handles()
@@ -308,26 +254,13 @@ def _configure_nvidia_dll_paths():
 
 
 def _configure_nvidia_dll_paths_locked():
-    """Inner implementation, called under ``_nvidia_config_lock``.
-
-    Delegates to the singleton's ``_configure_locked`` so callers that
-    already hold the lock (none in production, but preserved for
-    backward-compat with tests that import this name) still work.
-    """
+    """Inner implementation, called under ``_nvidia_config_lock``."""
     from voice_typer.server import transcription as _t
 
     _t._nvidia_dll_paths._configure_locked()
 
 
-# ── CUDA runtime availability gate ────────────────────────────────────
-#
 # The CUDA runtime DLLs (cuBLAS / cuLt / cuDNN) ship with the
-# ``nvidia-*`` wheels or a GPU-enabled install. NOT with a CPU-only
-# install. On such machines ``ctranslate2.get_cuda_device_count()``
-# still reports a device (the driver is present), but model load fails
-# with "cublas64_12.dll is not found or cannot be loaded", after
-# ~20s of CUDA enumeration during ``import ctranslate2``. These helpers
-# make that failure cheap and early.
 
 _CUDA_DLL_CANDIDATES = ("cublas64_12.dll", "cublasLt64_12.dll")
 _cuda_availability_checked = False
@@ -335,20 +268,7 @@ _cuda_available = True
 
 
 def _cuda_runtime_available() -> bool:
-    """Return True when the CUDA runtime DLLs can actually be loaded.
-
-    Non-Windows platforms return True unconditionally (no cheap ctypes
-    probe exists there; the normal ``ctranslate2`` detection path
-    applies). On Windows, probes the core cuBLAS DLLs via
-    ``ctypes.WinDLL`` after :func:`_configure_nvidia_dll_paths` has
-    prepended the NVIDIA wheel directories to PATH. The result is
-    cached per process (the probe costs a few milliseconds).
-
-    Fail-open: any unexpected error (e.g. ``ctypes.WinDLL`` missing when
-    a non-Windows platform is mocked as Windows in tests) returns True
-    so the caller falls through to the authoritative ctranslate2
-    detection.
-    """
+    """Return True when the CUDA runtime DLLs can actually be loaded."""
     global _cuda_availability_checked, _cuda_available
     if not is_windows():
         return True
@@ -380,22 +300,12 @@ def _load_cuda_dll(ctypes: Any, name: str) -> bool:
 
 
 def _configure_cuda_visibility_if_broken() -> None:
-    """Hide the GPU from downstream libraries when CUDA is unusable.
-
-    Sets ``CUDA_VISIBLE_DEVICES=""`` once when the CUDA runtime DLLs
-    cannot be loaded, so ``import ctranslate2`` skips
-    the ~20s CUDA device-enumeration stall and loads in CPU-only mode.
-    No-op on non-Windows, when CUDA is usable, or when the variable is
-    already set (by the user or a prior call).
-    """
+    """Hide the GPU from downstream libraries when CUDA is unusable."""
     if not is_windows():
         return
     if _cuda_runtime_available():
         return
     # Only skip when the variable is present AND explicitly empty
-    # (i.e. the user already hid the GPU). An UNSET variable must be
-    # set to "" here, otherwise ``import ctranslate2`` would still
-    # probe CUDA for ~20s before the model-load failure.
     if os.environ.get("CUDA_VISIBLE_DEVICES") == "":
         return  # already hidden
     os.environ["CUDA_VISIBLE_DEVICES"] = ""

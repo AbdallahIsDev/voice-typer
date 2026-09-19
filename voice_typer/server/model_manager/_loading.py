@@ -1,4 +1,4 @@
-"""Background/manual model loading, fallback chain, lazy init."""
+"""Model load path helpers."""
 
 from __future__ import annotations
 
@@ -17,9 +17,6 @@ from voice_typer.server.tray_types import AppState
 
 if TYPE_CHECKING:
     # Type-only import to avoid the import cycle (app.py constructs the
-    # ModelManager; this mixin is part of it). At runtime, ``_app`` is
-    # whatever object ``ModelManagerCore.__init__`` received (a
-    # ``VoiceTyperApp`` in production, mocks in tests).
     from voice_typer.server.app import VoiceTyperApp
 
 log = logging.getLogger("voice_typer.server.model_manager")
@@ -27,10 +24,6 @@ log = logging.getLogger("voice_typer.server.model_manager")
 
 class LoadingMixin:
     # Members provided by the composed ``ModelManager`` (manager.py):
-    # core state lives on ``ModelManagerCore`` (_base.py). Annotations
-    # only, no values, so no runtime attribute is created and the
-    # runtime MRO is unaffected (same pattern as dictation_pipeline's
-    # ``_StorageStepMixin._app``).
     _app: VoiceTyperApp
     _registry: AsrBackendRegistry
     _deliberately_unloaded: set[str]
@@ -42,11 +35,6 @@ class LoadingMixin:
 
     if TYPE_CHECKING:
         # Methods provided by the sibling mixins at runtime
-        # (``_notify.py`` / ``_construction.py`` / ``_lifecycle.py`` /
-        # ``_base.py``). Declared as TYPE_CHECKING-only stubs so this
-        # mixin type-checks standalone; a real (un-guarded) ``def`` here
-        # would shadow the sibling implementations in the composed
-        # class's MRO.
         def _model_downloaded_precheck(self) -> bool: ...
 
         def _notify_model_load_refused(self, exc: Exception, backend: str | None = None) -> str: ...
@@ -64,33 +52,8 @@ class LoadingMixin:
         def active_transcriber(self) -> Any | None: ...
 
     def _on_load_success(self, backend_name: str) -> None:
-        """Shared post-load success ritual for every model-load path.
-
-        The load paths live in separate mixins (``_loading.py`` /
-        ``_change.py``) and each used to hand-roll the same completion
-        sequence: LRU touch + evict, deliberate-unload flag clear, and
-        the tray "Ready" message. The copies had drifted, three of the
-        six hardcoded English tray strings instead of the localized
-        ``state.model_manager.ready_*`` keys. This helper now owns the
-        ritual:
-
-        1. touch the freshly-loaded backend so PERF-015 LRU tracking
-           sees it, then evict the LRU model if more than
-           ``_MAX_LOADED_MODELS`` are loaded. Guarded so a tracking
-           failure doesn't break the load.
-        2. clear the deliberate-unload flag, the backend is healthy
-           again, so a FUTURE genuine failure must re-notify the user.
-        3. transition the tray to IDLE with the LOCALIZED ready
-           message: ``state.model_manager.ready_whisper`` (with the
-           engine's device info) for a loaded whisper engine,
-           ``state.model_manager.ready_other`` otherwise. The renderer
-           pushes localized values for both keys via
-           ``set_tray_locale`` (see ``client/.../i18n/push.ts``), so the
-           message follows the user's UI locale on every path.
-
-        Called with the backend that just finished loading (in every
-        production path this equals ``self._registry.active_name``
-        after a successful load).
+        """1. touch the freshly-loaded backend so PERF-015 LRU tracking
+        ``set_tray_locale`` (see ``client/.../i18n/push.ts``), so the
         """
         try:
             self.touch_model(backend_name)
@@ -115,49 +78,19 @@ class LoadingMixin:
             )
 
     def load_background(self) -> None:
-        """Background worker: create + load the transcription engine.
-
-        Runs in a daemon thread so the heavy torch/transformers import and
-        weight download/read (off-disk on cold boot) do not block the app
-        reaching an interactive state.  All tray state transitions happen
-        here; if a dictation is pending (user pressed F2 during load), it
-        is auto-started once loading succeeds.
-        """
+        """Background worker: create + load the transcription engine."""
         # bail out early if shutdown was signalled while this
-        # loader was queued. Without this guard the loader would proceed
-        # to construct + load an ASR backend after ``_do_cleanup`` has
-        # already torn down the tray, recorder, hotkeys, etc., touching
-        # freed state. The thread_registry join (3s timeout) gives the
-        # in-flight loader a chance to exit, but this early check avoids
-        # the race where the loader hasn't started its first instruction
-        # yet.
         if self._app._shutting_down:
             log.debug("[MODEL] load_background skipped, shutdown already in progress")
             return
-        # Capture the backend/model BEFORE the try so the except handler
         # can log them without re-reading ``self._app.config`` (which
-        # could itself be the source of the original exception, a
-        # degraded/None config would make the handler raise a SECOND
-        # exception, skipping the pending-dictation clear and the tray
-        # ERROR transition).
         backend_name = getattr(self._app.config, "asr_backend", "unknown")
         model_size = getattr(self._app.config, "model_size", "unknown")
         try:
             # Fast existence pre-check: if the configured model is
-            # definitively NOT on disk, refuse immediately, BEFORE the
-            # heavy engine import, BEFORE the misleading "Loading model"
-            # LOADING state, and with a GENERIC message (no model name).
-            # The load path would raise ModelNotDownloadedError anyway
-            # (the registry re-raises for a missing primary, no whisper
-            # fallback), so this only skips wasted work. Cloud backends /
-            # unknown model sizes return True from the probe (nothing to
-            # gate); the probe is TTL-cached and costs one stat.
             if not self._model_downloaded_precheck():
                 if model_size == NO_MODEL_SIZE:
                     # Genuine "no model selected" state, nothing to
-                    # load, and no phantom model to claim is missing.
-                    # DEBUG: ``_notify_model_load_refused`` below logs
-                    # the single WARNING for every refusal path.
                     log.debug(
                         "[MODEL] no model selected, refusing load before heavy import",
                     )
@@ -171,9 +104,6 @@ class LoadingMixin:
                     )
                 else:
                     # DEBUG: ``_notify_model_load_refused`` below logs the
-                    # single WARNING for every refusal path, a second
-                    # WARNING here duplicated the same event. The model
-                    # size travels in the exception message instead.
                     log.debug(
                         "[MODEL] %s model '%s' not downloaded, refusing load before heavy import",
                         backend_name,
@@ -206,28 +136,10 @@ class LoadingMixin:
                 if self._app._shutting_down:
                     return
                 # List which backends were attempted
-                # so the user (and support) can see exactly what failed,
-                # plus a remediation hint. ``available_backends`` returns
-                # the registered backend names; ``active_name`` is the one
-                # that was selected as primary.
-                # pyrefly not-callable, ``available_backends`` is a
-                # @property on ASRRegistry (asr_registry.py:534-538) returning
-                # ``list[str]``, NOT a method. Calling it (``()``) raises
-                # ``TypeError: 'list' object is not callable`` at runtime.
-                # Use the property's value directly (no parentheses). Guard
-                # with ``callable()`` so test doubles that override the
-                # attribute with a callable (e.g. MagicMock auto-spec) still
-                # work.
                 _backends = self._registry.available_backends
                 if callable(_backends):
                     _backends = _backends()
                 # Narrow ``_backends`` to a list before joining.
-                # ``available_backends`` is a ``@property`` returning
-                # ``list[str]``, but the ``callable(_backends)`` fallback
-                # (for MagicMock test doubles that override the attribute
-                # with a callable) widens the inferred type to
-                # ``list[str] | object``: ``str.join`` rejects ``object``
-                # (not iterable). At runtime the value is always a list.
                 if isinstance(_backends, list):
                     _attempted = ", ".join(str(_b) for _b in _backends) or "(none registered)"
                 else:
@@ -243,20 +155,10 @@ class LoadingMixin:
                 )
                 self._app.tray.set_state(AppState.ERROR, i18n.t("state.model_manager.load_failed_retry"))
                 # Clear the pending-dictation flag so the ``finally``
-                # block does NOT auto-start a dictation that would
-                # immediately fail (no model is loaded). Pre-fix, the
-                # flag was NOT cleared and the finally block
-                # unconditionally scheduled ``_start_dictation``, which
-                # fell through to ``fallback_to_whisper`` (same root
-                # cause), entered a tight retry loop, and spammed the
-                # tray with ERROR state.
                 self._pending_dictation = False
 
         except (ModelNotDownloadedError, ModelIntegrityError) as exc:
             # The selected model isn't on disk (or failed integrity
-            # verification), the app never auto-downloads. Surface an
-            # actionable message and do NOT auto-start any pending
-            # dictation (it would fail the same way).
             self._notify_model_load_refused(exc, backend=backend_name)
             self._pending_dictation = False
         except Exception:
@@ -267,17 +169,10 @@ class LoadingMixin:
             )
             self._app.tray.set_state(AppState.ERROR, i18n.t("state.model_manager.load_failed_retry"))
             # Same failure-path guard as above: a crash must NOT trigger
-            # the finally's auto-start of a pending dictation (it would
-            # crash again on the same root cause).
             self._pending_dictation = False
         finally:
             self._model_load_thread = None
             # If the user pressed F2 during load, honour it now, but
-            # ONLY on success. On failure/crash the ``_pending_dictation``
-            # flag was already cleared by the error paths above, so this
-            # check skips the auto-start (which would otherwise loop on
-            # ``fallback_to_whisper`` and fail the same way, spamming the
-            # tray with ERROR state).
             if self._pending_dictation and not self._app._shutting_down:
                 log.info("[STARTUP] Pending dictation -- auto-starting now")
                 self._pending_dictation = False
@@ -285,28 +180,11 @@ class LoadingMixin:
                 self._app._schedule_timer(0, self._app._start_dictation)
 
     def start_background_load(self) -> None:
-        """Spawn the background model-load thread (idempotent).
-
-        register the thread with ``app._thread_registry`` so
-        ``shutdown_all()`` can join it during ``quit()``. Previously
-        the ModelLoad thread was a daemon but untracked, it was
-        indirectly signalled via ``_shutting_down`` checks inside
-        ``load_background``, which meant a stuck model load (e.g. a
-        slow Whisper download on a cold boot) could outlive
-        ``_do_cleanup`` and access torn-down state (tray, recorder,
-        hotkeys). With registration, ``shutdown_all()`` joins it with
-        a 3s timeout, matching the existing transcription-thread join
-        in ``_do_cleanup``. ``stop_event=None`` because the loader
-        has no single cancellation point, it checks
-        ``_app._shutting_down`` itself at the top of
-        ``load_background``.
-        """
+        """Spawn the background model-load thread (idempotent)."""
         if self._model_load_thread is not None and self._model_load_thread.is_alive():
             return
         with self._model_load_spawn_lock:
             # Re-check under the lock, a concurrent caller may have
-            # spawned the thread between our check and the lock
-            # acquisition.
             if self._model_load_thread is not None and self._model_load_thread.is_alive():
                 return
             self._model_load_thread = threading.Thread(
@@ -316,9 +194,6 @@ class LoadingMixin:
             )
             self._model_load_thread.start()
         # track the loader centrally so shutdown_all() can
-        # signal-and-join it. Best-effort, if the registry is missing
-        # (e.g. in a stripped-down test fixture) we log and continue;
-        # the loader is a daemon and will die on process exit anyway.
         try:
             self._app._thread_registry.register(
                 name="ModelLoad",
@@ -333,20 +208,7 @@ class LoadingMixin:
             )
 
     def _find_installed_model(self) -> tuple[AsrBackendName, str] | None:
-        """Return the first installed (downloaded) model as ``(backend, model_size)``.
-
-        Scans ``MODEL_REGISTRY`` in registry order (tiny → large-v3 →
-        turbo → parakeet → qwen), skipping the currently configured
-        model (the one that just failed to load), and returns the first
-        whose weights are on disk. Returns ``None`` when nothing is
-        installed.
-
-        This is the fallback the app uses when the user's chosen model
-        fails to load, it degrades to ANY model the user has actually
-        downloaded, not a hardcoded model name (the old "whisper/tiny"
-        fallback depended on a specific tiny model that is being phased
-        out).
-        """
+        """Return the first installed (downloaded) model as ``(backend, model_size)``."""
         from voice_typer.server import config as _cfg
         from voice_typer.server.model_registry import MODEL_REGISTRY
         from voice_typer.server.tray_models import (
@@ -375,27 +237,14 @@ class LoadingMixin:
             else:
                 if _check_hf_model_downloaded(meta.repo_id, config_dir):
                     # ``ModelMetadata.backend`` is typed ``str``, but the
-                    # catalog's HF entries are all whisper-backend models
-                    # (MODEL_REGISTRY declares ``backend="whisper"`` for
-                    # them), the cast documents the registry invariant.
                     return (cast(AsrBackendName, meta.backend), name)
         return None
 
     def fallback_to_whisper(self, notify_on_failure: bool = False) -> None:
-        """Fall back to an INSTALLED model after the configured one failed.
-
-        Replaces the old hardcoded "whisper/tiny" fallback. When the
-        user's chosen model fails to load (deleted, corrupted, moved),
-        this picks the first model whose weights are actually on disk
-        (any backend, whisper, parakeet, or qwen) and switches the
-        config + engine to it. The choice persists, so the next boot
-        does NOT re-try the failed backend. If NO model is installed,
-        surfaces the "open Models and download" error instead.
-        """
+        """Fall back to an INSTALLED model after the configured one failed."""
         fallback = self._find_installed_model()
         if fallback is None:
             # Nothing installed, surface the actionable message rather
-            # than trying to load a phantom model.
             missing_backend = self._app.config.asr_backend
             self._notify_model_load_refused(
                 ModelNotDownloadedError(
@@ -411,19 +260,10 @@ class LoadingMixin:
         self._app.config.model_size = new_model
         self._app.config.asr_backend = new_backend
         # persist the fallback so the next boot
-        # doesn't re-try the failed backend and repeat the failure
-        # loop.  Previously the config mutation was in-memory only —
-        # if the app crashed after fallback, the next boot read the
-        # original (failed) backend from disk and re-entered the
-        # failure loop on every boot.  Mirrors the persist pattern in
-        # ``change_model`` (line 557).
         try:
             self._app.config.save()
         except Exception:
             # Previously missing the ``[MODEL]``
-            # topic prefix used by every other log call in this module.
-            # Adding it keeps the log topic-consistent so log filters /
-            # greps work.
             log.warning("[MODEL] failed to persist fallback config", exc_info=True)
         self._ensure_engine(new_backend)
 
@@ -434,7 +274,6 @@ class LoadingMixin:
             success = self._registry.load_with_fallback(progress_callback=on_progress)
         except (ModelNotDownloadedError, ModelIntegrityError) as exc:
             # The fallback model isn't downloaded either, surface the
-            # actionable message instead of crashing the hotkey thread.
             self._notify_model_load_refused(exc, backend=new_backend)
             return
         if success:
@@ -443,9 +282,6 @@ class LoadingMixin:
             self._app.tray.set_state(AppState.ERROR, i18n.t("state.model_manager.load_failed_retry"))
             if notify_on_failure:
                 # critical, bypass toggle (model load failed).
-                # Use the i18n key so the tray tooltip + OS notification
-                # render in the user's selected UI locale, and name the
-                # user's ACTUAL configured hotkey in the retry hint.
                 self._app.tray.notify_safety(
                     APP_NAME,
                     i18n.t(
@@ -455,20 +291,7 @@ class LoadingMixin:
                 )
 
     def try_load(self, notify_on_failure: bool = False) -> None:
-        """Attempt to load the transcription model.
-
-        008: Delegates to AsrBackendRegistry.load_with_fallback()
-        instead of calling self.transcriber.load() directly.
-
-        Prewarm became a worker startup phase (master plan §6.2 P-1):
-        the previous ADR-0009 Issue 4 wait-for-prewarm handshake (wait
-        for a separate prewarm process to finish, spawn a fresh
-        background prewarm on timeout) was removed along with the
-        deleted prewarm machinery. Each worker spawn warms the OS
-        file cache itself before accepting the first transcription
-        request, so there is no separate process to wait for or
-        re-spawn here.
-        """
+        """Attempt to load the transcription model."""
         self._model_load_attempted = True
         try:
             log.info(
@@ -492,8 +315,6 @@ class LoadingMixin:
             self._notify_model_load_refused(exc, backend=_failed_backend)
         except Exception as e:
             # Include the model name and backend
-            # info so the failure is actionable, the user can see which
-            # backend and model size failed and retry / switch via Settings.
             _failed_backend = getattr(self._app.config, "asr_backend", "unknown")
             _failed_model = getattr(self._app.config, "model_size", "unknown")
             log.exception(
@@ -513,60 +334,8 @@ class LoadingMixin:
                 )
 
     def ensure_active_engine_loaded(self) -> Any | None:
-        """Ensure the active backend's engine exists; lazy-init if missing.
-
-        Called from VoiceTyperApp._start_dictation to handle the case
-        where the user changed the backend via predecessor UI after startup
-        (so the engine wasn't created during __init__).
-
-        previously two threads could both pass the
-        ``registry.get(backend) is None`` check and each call
-        ``_ensure_engine``, creating two engine instances (memory leak
-        + double GPU allocation). We guard with a dedicated lock so
-        the second caller sees the engine created by the first.
-
-        this is also the reload-after-idle-unload path. When the
-        idle-unload timer has fired (``engine.is_loaded == False``),
-        this method reloads the SAME backend via
-        ``_registry.load_active(progress_callback=...)`` (not Whisper
-        fallback). The tray transitions through LOADING "Loading
-        model..." → IDLE "Ready -- ..." so the user sees the reload
-        latency. After reload, ``touch_model`` re-arms the idle-unload
-        timer so the cycle can repeat on the next idle period.
-
-        if the active backend is currently busy (inside
-        ``transcribe_with_fallback`` on another thread, e.g. a stuck
-        ctranslate2 call that the watchdog hasn't force-recovered yet),
-        REJECT this request and mark a pending dictation so the user's
-        F2 press is honoured after the watchdog recovers. Returning
-        None here causes ``recording_controller.start`` to fall through
-        to the ``fallback_to_whisper`` path, which is the safest
-        fallback, it loads a separate Whisper backend rather than
-        piling up on the stuck backend's ctranslate2 internal lock.
-
-        Returns the active transcriber on success, or None if no engine
-        could be created. The caller is responsible for checking
-        ``is_loaded`` and calling fallback_to_whisper() if needed.
-        """
+        """Called from VoiceTyperApp._start_dictation to handle the case"""
         # busy-flag rejection. The transcribe thread sets the
-        # flag via ``registry.busy_context`` / ``transcribe_with_fallback``
-        # (or, when the pipeline adopts the wrapper, automatically); the
-        # IPC / hotkey thread reads it here. The check is best-effort —
-        # the flag may have been cleared between the read and the
-        # subsequent ``_lazy_init_lock`` acquisition, but it
-        # short-circuits the common case where the previous
-        # transcription is stuck and the user has pressed F2 again. The
-        # ``_pending_dictation`` flag ensures the user's F2 press isn't
-        # lost: the next ``recording_controller.start`` (after the
-        # watchdog recovers) will re-enter this method and the busy
-        # check will pass.
-        #
-        # Strict ``is True`` check (not just truthy): test fixtures that
-        # replace the registry with a ``MagicMock`` get a truthy
-        # MagicMock from ``is_busy()`` by default, a truthy check
-        # would incorrectly reject every dictation in those tests.
-        # The real ``AsrBackendRegistry.is_busy`` returns a real
-        # ``bool``, so the strict check is safe in production.
         try:
             active_name = self._app.config.asr_backend
             if self._registry.is_busy(active_name) is True:
@@ -578,9 +347,6 @@ class LoadingMixin:
                     active_name,
                 )
                 # Queue the dictation so the user's F2 press is honoured
-                # after the watchdog recovers (mirrors the
-                # ``_pending_dictation`` semantics in ``load_background``'s
-                # finally block).
                 self._pending_dictation = True
                 return None
         except Exception:
@@ -589,19 +355,8 @@ class LoadingMixin:
                 exc_info=True,
             )
         # cancel any pending idle-unload timer, the user is
-        # actively dictating so the model must NOT be unloaded mid-
-        # dictation. This is the canonical "cancel on activity" path.
         self.cancel_idle_unload_timer()
         # race-safe lazy init. The ``backend = config.asr_backend`` read
-        # MUST happen INSIDE ``_lazy_init_lock`` (not before it) so a
-        # concurrent ``_change_model_blocking``: which does NOT take
-        # ``_lazy_init_lock``: cannot rewrite ``config.asr_backend``
-        # between our read and the lock acquisition (producing a phantom
-        # VRAM engine for the stale backend name). The check inside
-        # ``_ensure_engine`` is also guarded, but we need to guard the
-        # whole check-then-init sequence so two threads don't both create
-        # the engine. ``_lazy_init_lock`` is created in __init__
-        # (LAZY-INIT-LOCK-FIX).
         with self._lazy_init_lock:
             backend = self._app.config.asr_backend
             engine = self._registry.get(backend)
@@ -609,11 +364,6 @@ class LoadingMixin:
                 self._ensure_engine(backend)
                 engine = self._registry.get(backend)
                 # re-validate ``config.asr_backend`` after
-                # ``_ensure_engine``: a concurrent ``_change_model_blocking``
-                # may have rewritten it while we constructed the (now
-                # phantom) engine for the stale backend name. Re-route to
-                # the CURRENT backend so the caller never transcribes
-                # against an abandoned backend.
                 current_backend = self._app.config.asr_backend
                 if current_backend != backend:
                     log.info(
@@ -628,11 +378,6 @@ class LoadingMixin:
                         self._ensure_engine(backend)
                         engine = self._registry.get(backend)
             # reload-after-idle-unload. If the engine exists but
-            # has been unloaded by the idle-unload timer (is_loaded=False),
-            # reload it via load_active so the SAME backend is restored
-            # (not silently switched to Whisper fallback). The tray
-            # transitions through LOADING "Loading model..." then IDLE
-            # "Ready -- ..." so the user sees the reload latency.
             if engine is not None and hasattr(engine, "is_loaded") and not engine.is_loaded:
                 self._app.tray.set_state(AppState.LOADING, "Loading model...")
 
@@ -640,15 +385,10 @@ class LoadingMixin:
                     self._app.tray.set_state(AppState.LOADING, msg)
 
                 # Set the synchronous-load flag so the last-resort
-                # subscriber (fired by a concurrent 15s get_status probe)
-                # does NOT tell the user to download a model that is
-                # literally loading on this thread.
                 self._sync_load_in_progress = True
                 try:
                     self._registry.load_active(progress_callback=on_progress)
                     # Successful reload → backend healthy; clear any
-                    # deliberate-unload flag (set by _do_idle_unload) so
-                    # a FUTURE genuine failure re-notifies.
                     self._clear_deliberately_unloaded(backend)
                 except Exception:
                     log.warning(
@@ -658,10 +398,6 @@ class LoadingMixin:
                 finally:
                     self._sync_load_in_progress = False
                 # Shared success ritual: re-arm the idle-unload timer
-                # (touch_model only arms when backend == active_name),
-                # then surface the active backend's device info on the
-                # tray via the localized ready message (matches the
-                # other five load paths).
                 try:
                     self._on_load_success(backend)
                 except Exception:

@@ -1,9 +1,4 @@
-"""Windows volume backend, pycaw (IAudioEndpointVolume).
-
-Extracted from the original ``voice_typer/server/volume_backends.py``
-monolith per   See ``voice_typer/server/volume_backends/__init__.py``
-for the package-level docstring and re-exports.
-"""
+"""Windows volume backend, pycaw (IAudioEndpointVolume)."""
 
 from __future__ import annotations
 
@@ -17,30 +12,11 @@ from voice_typer.server.volume_backend_base import VolumeBackend, VolumeState
 log = logging.getLogger(__name__)
 
 # number of consecutive backend failures before a WARNING is
-# surfaced.  Backends otherwise swallow errors and return safe defaults
-# (``True`` for ``is_speaker_active``, ``None`` for ``get_state``) so
-# duck-state is never corrupted by a transient backend hiccup, but a
-# stuck/revoked COM pointer would degrade ducking to a silent no-op
-# with no log breadcrumb.  The counter is per-instance and shared
-# across the backend's error-tracked methods; a single success resets
-# it.  The WARNING fires every ``_BACKEND_ERROR_WARN_THRESHOLD`` failures
-# (3, 6, 9, ...) so a persistently broken backend surfaces in the logs
-# without spamming on every call.
 _BACKEND_ERROR_WARN_THRESHOLD = 3
 
 
 class WinVolumeBackend(VolumeBackend):
-    """Windows volume control via pycaw / COM.
-
-    Uses ``SetMasterVolumeLevelScalar`` (perceptual-linear) rather than
-    ``SetMasterVolumeLevel`` (decibels) so that the 0.0–1.0 scale matches
-    what the Windows volume slider shows, no non-linear dB conversion
-    needed.
-
-    Per-session ducking (ducking other apps' audio without touching the
-    master volume, like Skype/Teams do) is supported via
-    ``ISimpleAudioVolume``.
-    """
+    """Windows volume control via pycaw / COM."""
 
     def __init__(self) -> None:
         self._vol = None  # IAudioEndpointVolume COM pointer
@@ -48,12 +24,6 @@ class WinVolumeBackend(VolumeBackend):
         self._sessions: list = []  # saved (session, original_volume) tuples
         self._com_initialized = False
         # consecutive-error counter for observability.  Reset on
-        # any success; surfaces a WARNING after
-        # ``_BACKEND_ERROR_WARN_THRESHOLD`` consecutive failures so a
-        # stuck/revoked COM pointer doesn't degrade ducking to a silent
-        # no-op.  Initialized here (and reset in ``initialize``) so
-        # methods can be called before ``initialize`` without
-        # ``AttributeError``.
         self._consecutive_errors: int = 0
 
     @property
@@ -81,12 +51,6 @@ class WinVolumeBackend(VolumeBackend):
                 return False
 
             # (pyrefly): bind the endpoint volume pointer to a
-            # local first so pyrefly can see it is non-None when we
-            # later call .QueryInterface on it. Previously the code
-            # assigned straight to ``self._vol`` whose declared type is
-            # ``None``-compatible, so the meter lookup below triggered
-            # ``Object of class `NoneType` has no attribute
-            # `QueryInterface```.
             vol_ptr: Any
             try:
                 # pycaw >= 20251023: EndpointVolume is a direct property
@@ -97,8 +61,6 @@ class WinVolumeBackend(VolumeBackend):
                 vol_ptr = cast(interface, POINTER(IAudioEndpointVolume))
             self._vol = vol_ptr
             # Get IAudioMeterInformation for smart-duck detection.
-            # Available on both old and new pycaw via QueryInterface
-            # on the IAudioEndpointVolume pointer.
             try:
                 from pycaw.pycaw import IAudioMeterInformation
 
@@ -114,22 +76,7 @@ class WinVolumeBackend(VolumeBackend):
             log.warning("[VOLUME-WIN] initialize failed: %s", exc)
             return False
 
-    # error-tracking helpers ──────────────────────────────────
-    #
     # ``_record_error`` increments the consecutive-failure counter and
-    # emits a WARNING every ``_BACKEND_ERROR_WARN_THRESHOLD`` failures
-    # (3, 6, 9, ...) so a persistently broken backend surfaces in the
-    # logs without spamming on every call.  ``_record_success`` resets
-    # the counter.  Both are no-ops with respect to the return values
-    # of the calling method, the safe-default return values are
-    # preserved (they prevent duck-state corruption); the counter is
-    # additive observability only.
-    #
-    # The counter is a plain ``int`` mutated under CPython's GIL.  A
-    # missed increment from a concurrent caller (the smart-duck monitor
-    # polls ``is_speaker_active`` outside the ``VolumeDucker`` lock) is
-    # acceptable for an observability counter, the WARNING still fires
-    # eventually on a persistently broken backend.
 
     def _record_error(self, context: str, exc: BaseException) -> None:
         self._consecutive_errors += 1
@@ -157,7 +104,6 @@ class WinVolumeBackend(VolumeBackend):
             return VolumeState(linear=scalar, muted=muted)
         except Exception as exc:
             # per-failure DEBUG only; the threshold-based WARNING
-            # in ``_record_error`` is the operator-visible signal.
             log.debug("[VOLUME-WIN] get_state failed: %s", exc)
             self._record_error("get_state", exc)
             return None
@@ -178,19 +124,12 @@ class WinVolumeBackend(VolumeBackend):
             return False
 
     def is_speaker_active(self) -> bool:
-        """Return ``True`` if any application is currently playing audio.
-
-        Uses ``IAudioMeterInformation.GetPeakValue()`` on the default
-        render endpoint.  If no audio is playing, the peak is ≈ 0.0 and
-        we can skip ducking, no point animating the volume icon for
-        silence.
-        """
+        """Return ``True`` if any application is currently playing audio."""
         if self._meter is None:
             return True
         try:
             peak = float(self._meter.GetPeakValue())
             # Threshold at ~ -40 dBFS.  Below this, nothing audible is
-            # coming out of the speakers.
             active = peak >= 0.01
             self._record_success()
             return active
@@ -205,15 +144,6 @@ class WinVolumeBackend(VolumeBackend):
             from pycaw.pycaw import AudioUtilities
 
             # PROC-FILTER-FIX: previously only excluded processes whose
-            # name CONTAINED "voice_typer" or whose name was EXACTLY
-            # "python". The bundled app is "VoiceTyper.exe" (no
-            # underscore, the install name uses CamelCase), and dev
-            # mode runs as "python3" / "python3.12" / "pythonw.exe".
-            # None of those matched, so the app ducked ITS OWN audio
-            # output during dictation (audible volume dip when the user
-            # spoke). Broadened to cover all common variants AND to
-            # exclude the current process by PID as a definitive
-            # backstop (works regardless of process name).
             own_pid = os.getpid()
             sessions = []
             for session in AudioUtilities.GetAllSessions():
@@ -228,10 +158,6 @@ class WinVolumeBackend(VolumeBackend):
                     pass
                 proc_name = proc.name().lower()
                 # Substring match covers: voice_typer.exe (dev mode
-                # launched via python -m voice_typer), voice-typer.exe
-                # (hyphen variant), voicetyper.exe (bundled CamelCase
-                # lowercased). Plus the exact-match list for python
-                # interpreters that don't contain "voice_typer".
                 if (
                     "voice_typer" in proc_name
                     or "voice-typer" in proc_name
@@ -256,7 +182,6 @@ class WinVolumeBackend(VolumeBackend):
         for session in sessions:
             try:
                 # pycaw >= 20251023: SimpleAudioVolume property
-                # pycaw < 20251023: private _ctl attribute
                 vol = getattr(session, "SimpleAudioVolume", getattr(session, "_ctl", None))
                 if vol is None:
                     continue

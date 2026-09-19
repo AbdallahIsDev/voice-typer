@@ -54,9 +54,6 @@ np = lazy_module("numpy")
 log = logging.getLogger(__name__)
 
 
-# VAD state machine ───────────────────────────────────────
-
-
 class VadState(enum.Enum):
     """VAD state-machine states with hysteresis transitions.
 
@@ -74,12 +71,6 @@ class VadState(enum.Enum):
 DEFAULT_VAD_SPEECH_THRESHOLD_DB = -40.0  # dBFS, above this → speech candidate
 DEFAULT_VAD_SILENCE_THRESHOLD_DB = -50.0  # dBFS, below this → silence candidate
 # R18-F14: hard floors on the user-configurable thresholds. The
-# setters below clamp ``speech_threshold_db`` / ``silence_threshold_db``
-# to these values so a malformed config (or an auto-calibration
-# artifact on a noisy mic) can't push speech detection into the
-# noise floor (which would cause false starts on every ambient sound)
-# or invert the speech/silence hysteresis. Exposed at module scope so
-# tests can pin them and downstream callers can import them.
 MIN_VAD_SPEECH_THRESHOLD_DB = -55.0  # dBFS, speech floor
 MIN_VAD_SILENCE_THRESHOLD_DB = -65.0  # dBFS, silence floor (must be below speech floor)
 DEFAULT_VAD_CALIBRATION_DURATION = 1.5  # seconds of ambient noise to sample
@@ -88,37 +79,12 @@ DEFAULT_VAD_SILENCE_FRAMES = 15  # consecutive quiet frames to declare SILENCE (
 DEFAULT_VAD_HANGOVER_FRAMES = 15  # same as SILENCE_FRAMES, configurable alias
 
 # Silero-probability auto-calibration constants. When
-# ``config.vad_auto_calibrate`` is True and Silero VAD is the active
-# backend, the first ``calibration_duration`` seconds of Silero
-# probabilities are collected and used to derive the probability
-# thresholds from the observed noise floor (instead of relying on the
-# static config defaults). The math mirrors the RMS-dB calibration:
-#   silence_threshold = noise_floor + MARGIN
-#   speech_threshold  = silence_threshold + SPEECH_DELTA
-# where ``noise_floor`` is the median of collected Silero probabilities
-# (a robust estimator that ignores transient speech bursts during the
-# calibration window). The margin/delta are linear deltas in
-# probability space (0-1); ``SPEECH_DELTA = 0.15`` approximates the
-# ~6 dB gap the finding specifies (a 2x amplitude ratio ~= 6 dB, but
-# Silero probabilities don't have a natural dB scale, so a fixed
-# linear delta is the pragmatic interpretation).
 DEFAULT_VAD_SILERO_CALIBRATION_MARGIN: float = 0.05  # silence = noise_floor + 0.05
 DEFAULT_VAD_SILERO_SPEECH_DELTA: float = 0.15  # speech = silence + 0.15 (~6 dB gap equivalent)
 # Minimum separation between speech and silence Silero thresholds after
-# calibration. Guards against a degenerate noise floor (e.g. all-zero
-# probabilities from a silent mic) producing thresholds that are too
-# close to distinguish.
 MIN_VAD_SILERO_THRESHOLD_SPREAD: float = 0.10
 
 # Silero VAD probability thresholds. These must match the canonical
-# defaults declared on the ``Config`` dataclass
-# (``voice_typer.server.config.Config.vad_speech_threshold`` /
-# ``vad_silence_threshold``). Importing the class attribute here keeps the
-# getattr fallback literals in lockstep with the Config default, previously
-# a drift in one would silently change behavior for stub-config tests.
-# A lazy import (inside a try/except) avoids a hard import cycle:
-# ``config`` does not import ``vad_processor``, but importing it eagerly at
-# module top would still couple the two modules; the deferred form is safe.
 try:  # pragma: no cover - import shim, exercised at runtime
     from voice_typer.server.config import Config as _Config
 
@@ -172,9 +138,6 @@ class VadProcessor:
     """
 
     # PERF-02 (c-review): max age in seconds before the cached vad_enabled
-    # value is re-evaluated even if on_config_changed() has not fired.
-    # Safety net so a missed config-change notification cannot permanently
-    # wedge the cache.
     VAD_ENABLED_CACHE_TTL_S: float = 5.0
 
     def __init__(
@@ -204,25 +167,8 @@ class VadProcessor:
         self._consecutive_silence_frames: int = 0
 
         # grey-zone hold bounding. Without this, a long run of
-        # grey-zone chunks (between speech and silence thresholds) pins
-        # both counters indefinitely, soft-speech tails can stall the
-        # silence timer. After ``_grey_zone_hold_limit`` consecutive
-        # grey-zone frames, the hold is bounded by force-transitioning
-        # toward the next state: SPEECH seeds the silence counter to
-        # the hangover (soft tail ends), SILENCE seeds the speech
-        # counter toward promotion (soft speech is recognized), and
-        # UNKNOWN decays both counters by 1 (stale history can't pin
-        # the machine). See the grey-zone branch in ``update_frame``.
         self._consecutive_grey_frames: int = 0
         # grey-zone hold limit is now configurable so soft-spoken
-        # users (whose speech legitimately hovers in the 0.3-0.5 prob
-        # band) can extend the bound beyond the default ~1s instead of
-        # being force-transitioned to SILENCE mid-phrase. Reads
-        # ``config.vad_grey_zone_hold_limit`` when explicitly set as an
-        # int; falls back to 30 frames (~1s at the ~31 Hz chunk cadence
-        # of rate-scaled ~32 ms blocks) otherwise. The
-        # isinstance guard avoids tripping on MagicMock configs in tests
-        # (which auto-create attributes as MagicMock instances, not ints).
         _grey_override = getattr(config, "vad_grey_zone_hold_limit", None)
         if isinstance(_grey_override, int):
             self._grey_zone_hold_limit: int = _grey_override
@@ -239,18 +185,8 @@ class VadProcessor:
         self._hangover_frames: int = DEFAULT_VAD_HANGOVER_FRAMES
 
         # Silero VAD integration: when use_silero_vad is
-        # enabled in config, the recording callback uses Silero VAD
-        # probability instead of RMS dB thresholds for the state machine.
-        # impl-vad-fix: ADR 0007 §4.1 changed the config.py default to
-        # True. The getattr fallback here must match, otherwise removing
-        # the attribute from a Config dataclass instance (e.g. in tests
-        # or partial configs) silently disables VAD even though the
-        # documented default is True.
         self._use_silero_vad: bool = getattr(config, "use_silero_vad", True)
         # getattr fallbacks now reference the canonical Config
-        # defaults via DEFAULT_VAD_SPEECH_PROB_THRESHOLD /
-        # DEFAULT_VAD_SILENCE_PROB_THRESHOLD (imported from Config at module
-        # top) so a stub config exercises the same threshold as production.
         self._speech_threshold: float = getattr(config, "vad_speech_threshold", DEFAULT_VAD_SPEECH_PROB_THRESHOLD)
         self._silence_threshold: float = getattr(config, "vad_silence_threshold", DEFAULT_VAD_SILENCE_PROB_THRESHOLD)
         self._silero_available: bool = False
@@ -277,35 +213,18 @@ class VadProcessor:
         self._calibration_duration: float = DEFAULT_VAD_CALIBRATION_DURATION
         self._calibration_rms_values: list[float] = []
         # Silero-probability samples collected during the
-        # calibration window when ``vad_auto_calibrate`` is enabled.
-        # Separate from ``_calibration_rms_values`` because the two
-        # are different scales (0-1 probability vs linear RMS amplitude)
-        # and only one path runs per session (Silero OR RMS, not both).
         self._calibration_prob_values: list[float] = []
         self._calibrated: bool = False
         # explicit, inspectable calibration status so a no-op skip
-        # (Silero active / VAD disabled / no samples) is never silent.
-        # Values: "pending" | "calibrated" | "calibrated_silero" |
-        # "skipped_silero" | "skipped_disabled" | "skipped_no_samples" |
-        # "skipped_no_prob".
         self._calibration_status: str = "pending"
 
         # Opt-in flag for Silero-probability auto-calibration.
-        # Default False for backwards compat. The isinstance guard
-        # avoids tripping on MagicMock configs in tests (which
-        # auto-create attributes as MagicMock instances, not bools).
-        # Same pattern as the vad_grey_zone_hold_limit guard above.
         _vad_ac_override = getattr(config, "vad_auto_calibrate", False)
         self._vad_auto_calibrate: bool = isinstance(_vad_ac_override, bool) and _vad_ac_override
 
         # VAD-GATE (Task 4): gate ALL VAD processing on whether any audio
-        # enhancement is active. See ``vad_enabled`` property below for
-        # the caching strategy (5s TTL safety net + explicit refresh via
-        # on_config_changed()).
         self._vad_enabled_cached: bool | None = None
         self._vad_enabled_cache_ts: float = 0.0
-
-    # ── Public API: state machine + calibration ──────────────────────
 
     def update_frame(
         self,
@@ -330,8 +249,6 @@ class VadProcessor:
                 (no silence warnings, no VAD-based auto-stop).
         """
         # VAD-GATE (Task 4): skip the full state machine when VAD is
-        # disabled. Returning UNKNOWN (without updating any state or
-        # logging) means no silence warnings and no VAD-based auto-stop.
         if not self.vad_enabled:
             return VadState.UNKNOWN
         if vad_prob is not None and self._use_silero_vad and self._silero_available:
@@ -355,52 +272,18 @@ class VadProcessor:
             self._consecutive_grey_frames = 0
         else:
             # Grey zone (between speech and silence thresholds).
-            # bound the grey-zone hold so a soft-speech tail can't
-            # lock the state machine in SPEECH and starve the silence timer.
             self._consecutive_grey_frames += 1
             if self._consecutive_grey_frames >= self._grey_zone_hold_limit:
                 if self._state == VadState.SPEECH:
                     # Sustained grey after speech => the soft tail has ended.
-                    # Drop the stale speech history and seed the silence
-                    # counter so the SPEECH->SILENCE transition below fires.
-                    # Without this, a soft phrase ending (audio hovering in
-                    # the grey zone) keeps returning SPEECH, which holds the
-                    # recorder's silence timer at 0, so auto-stop never
-                    # triggers and the tail is held/cut off. Bounding the hold
-                    # to ~1s lets the silence timer start advancing ~1s after
-                    # speech actually ends.
                     self._consecutive_speech_frames = 0
                     self._consecutive_silence_frames = self._hangover_frames
                 elif self._state == VadState.SILENCE:
                     # SILENCE grey-zone PROMOTE.
-                    # Pre-fix this branch only decayed both counters by 1,
-                    # which meant a user speaking softly (audio hovering in
-                    # the grey zone between speech and silence thresholds)
-                    # was NEVER promoted to SPEECH, the recorder stayed in
-                    # SILENCE, the silence timer kept advancing, and the
-                    # recording auto-stopped even though the user was
-                    # actively speaking. Mirror the SPEECH->SILENCE
-                    # force-transition pattern: seed ``speech_frames`` to
-                    # ``_speech_frames - 1`` so the NEXT grey frame (handled
-                    # by the ``elif`` below) tips the state machine into
-                    # SPEECH. Clear ``silence_frames`` so the SILENCE->SPEECH
-                    # transition check is unambiguous.
-                    #
-                    # Note: UNKNOWN state is intentionally NOT seeded here.
-                    # The UNKNOWN->SPEECH transition check below requires
-                    # ``is_loud AND speech_frames >= _speech_frames``; grey
-                    # frames have ``is_loud == False``, so seeding
-                    # ``speech_frames`` would never trigger a transition on
-                    # grey frames in UNKNOWN. UNKNOWN keeps the original
-                    # decay behavior (bounded grey-zone hold for stale
-                    # history), which the regression tests in
-                    # ``test_vad_processor.py::TestGreyZoneDecay`` pin.
                     self._consecutive_silence_frames = 0
                     self._consecutive_speech_frames = self._speech_frames - 1
                 else:
                     # UNKNOWN state: decay both counters by 1 so stale
-                    # history can't pin the machine. Bounds the hold to ~1s.
-                    # (Preserved; see note above.)
                     if self._consecutive_speech_frames > 0:
                         self._consecutive_speech_frames -= 1
                     if self._consecutive_silence_frames > 0:
@@ -412,17 +295,6 @@ class VadProcessor:
                 and self._consecutive_speech_frames < self._speech_frames
             ):
                 # Promote mode, the limit-hit branch above
-                # seeded ``speech_frames`` to ``_speech_frames - 1``. Each
-                # subsequent grey frame increments it by 1 so the NEXT grey
-                # frame tips the state machine into SPEECH (the state-
-                # transition check below fires when ``speech_frames >=
-                # _speech_frames``). Without this increment, the seed would
-                # sit at ``_speech_frames - 1`` forever and the transition
-                # would never fire, reproducing the original "stuck in
-                # SILENCE" bug. The ``> 0`` guard ensures we only increment
-                # AFTER the seed (not on every grey frame in SILENCE); the
-                # ``< _speech_frames`` guard caps the count so we don't
-                # overshoot once the transition has fired.
                 self._consecutive_speech_frames += 1
 
         # State transitions with hysteresis
@@ -483,9 +355,6 @@ class VadProcessor:
                         behavior, preserving backwards compat.
         """
         # VAD-GATE (Task 4): skip calibration entirely when VAD is
-        # disabled. The prior fix only demoted the log level; this gate
-        # prevents the calibration work and the RMS-value list growth
-        # that would otherwise happen on every chunk in raw mode.
         if not self.vad_enabled:
             self._calibration_status = "skipped_disabled"
             return
@@ -493,22 +362,12 @@ class VadProcessor:
             return
 
         # when Silero VAD is the active backend, dB-threshold
-        # calibration has no effect (update_frame uses probability
-        # thresholds). Two sub-paths:
-        #   1. ``vad_auto_calibrate`` enabled AND a vad_prob
-        #      sample is provided -> collect Silero probabilities and
-        #      derive thresholds from the observed noise floor.
-        #   2. Otherwise -> skip with a one-time INFO log so the
-        #      operator knows calibration is intentionally not running
-        #      (preserves the pre-calibration behavior for backwards compat).
         if self._use_silero_vad and self._silero_available:
             if self._vad_auto_calibrate and vad_prob is not None:
                 self._calibrate_silero_thresholds(vad_prob, elapsed_seconds)
                 return
             if self._vad_auto_calibrate and vad_prob is None:
                 # the flag is on but the caller didn't pass
-                # vad_prob. Surface a WARNING so the misconfiguration
-                # is visible (not silent).
                 self._calibration_status = "skipped_no_prob"
                 self._calibrated = True  # prevent re-entry / log spam
                 log.warning(
@@ -543,24 +402,12 @@ class VadProcessor:
         noise_db = 20.0 * math.log10(noise_rms) if noise_rms > 0 else -90.0
 
         # Set thresholds relative to noise floor, written through the
-        # CLAMPING setters, not the raw underscore attributes: a quiet
-        # mic or digital-silence input can push the
-        # raw math below the floors, and unclamped thresholds then read
-        # ambient noise as SPEECH (silence-based auto-stop never fires
-        # and recordings run to the maximum duration). The setters are
-        # the same guard the config-loading path applies; the floors
-        # keep the hysteresis order intact (speech floor > silence
-        # floor).
         self.silence_threshold_db = noise_db + 6.0  # 6 dB above noise -> silence
         self.speech_threshold_db = noise_db + 18.0  # 18 dB above noise -> speech
         self._calibrated = True
         self._calibration_status = "calibrated"
 
         # VAD auto-calibration runs every recording start (the dB thresholds
-        # are a Silero-fallback used for silence/speech detection). Log the
-        # result at INFO so operators can verify the measured noise floor and
-        # thresholds from the default app logs: this is genuine per-session
-        # operational state (logged once per session, not per audio frame).
         log.info(
             "[VAD] auto-calibrated: noise_floor=%.1f dBFS, silence_threshold=%.1f dBFS, speech_threshold=%.1f dBFS",
             noise_db,
@@ -606,14 +453,11 @@ class VadProcessor:
             return
 
         # noise_floor = median of collected Silero probabilities.
-        # Median (not mean) is robust to transient speech bursts
-        # during the calibration window.
         noise_prob = float(np.median(self._calibration_prob_values))
 
         # silence = noise_floor + MARGIN
         silence = noise_prob + DEFAULT_VAD_SILERO_CALIBRATION_MARGIN
         # speech = silence + SPEECH_DELTA (the finding's "silence + 6dB"
-        # gap, interpreted as a linear delta in probability space).
         speech = silence + DEFAULT_VAD_SILERO_SPEECH_DELTA
 
         # Enforce a minimum spread + clamp to [0, 1].
@@ -622,7 +466,6 @@ class VadProcessor:
         silence = max(0.0, min(1.0, silence))
         speech = max(0.0, min(1.0, speech))
         # Final guard: if clamping inverted the order (only possible
-        # if silence hit 1.0), force speech to silence + spread.
         if speech <= silence:
             speech = min(1.0, silence + MIN_VAD_SILERO_THRESHOLD_SPREAD)
 
@@ -660,8 +503,6 @@ class VadProcessor:
         self._silence_threshold_db = DEFAULT_VAD_SILENCE_THRESHOLD_DB
         self._calibration_rms_values = []
         # Clear Silero-probability calibration samples too so
-        # the next session re-collects from scratch. Also restore the
-        # Silero probability thresholds to the config defaults.
         self._calibration_prob_values = []
         self._speech_threshold = float(getattr(self._config, "vad_speech_threshold", DEFAULT_VAD_SPEECH_PROB_THRESHOLD))
         self._silence_threshold = float(
@@ -671,8 +512,6 @@ class VadProcessor:
         self._calibration_status = "pending"
 
         # reset Silero LSTM hidden state at session boundaries.
-        # No-op if the model isn't loaded (avoids triggering a load just
-        # to reset state, the model starts fresh on first load).
         try:
             from voice_typer.server.vad import reset_states as _vad_reset_states
 
@@ -702,17 +541,9 @@ class VadProcessor:
         cached = self._vad_enabled_cached
         if cached is not None:
             # Safety-net refresh: if the explicit on_config_changed()
-            # hook has not fired recently, fall back to re-evaluating at
-            # most once per VAD_ENABLED_CACHE_TTL_S. Cheap: one
-            # perf_counter call + one comparison.
             now = time.perf_counter()
             if now - self._vad_enabled_cache_ts >= self.VAD_ENABLED_CACHE_TTL_S:
                 # (item 2): reassign the narrowed local ``cached``
-                # rather than re-reading ``self._vad_enabled_cached`` so
-                # pyrefly's null-safety check tracks the narrowed
-                # ``bool`` type through the return (an attribute access
-                # on ``self`` is treated as ``bool | None`` since the
-                # checker can't rule out a concurrent mutation).
                 cached = self.compute_vad_enabled(self._config)
                 self._vad_enabled_cached = cached
                 self._vad_enabled_cache_ts = now
@@ -750,7 +581,6 @@ class VadProcessor:
         self._vad_enabled_cache_ts = time.perf_counter()
 
         # release the Silero model when VAD transitions to
-        # disabled. ``unload`` is a no-op if the model isn't loaded.
         if was_enabled and not new_enabled:
             try:
                 from voice_typer.server.vad import unload as _vad_unload
@@ -792,14 +622,7 @@ class VadProcessor:
             return True
         return str(getattr(config, "noise_suppression_method", "none")).lower() != "none"
 
-    # ── State accessors (tests + production consumers via recorder._vad) ──
     # The 18 pure pass-through properties below are generated by the
-    # module-level ``_make_vad_property`` factory to avoid 18×
-    # @property/@setter boilerplate. The historical ``Recorder`` property
-    # shims named ``_vad_*`` were removed, access the state through
-    # ``recorder._vad.<attr>``. The 2 threshold-dB
-    # properties stay hand-written because they clamp to a floor
-    # (R18-F14: MIN_VAD_SPEECH_THRESHOLD_DB / MIN_VAD_SILENCE_THRESHOLD_DB).
 
     state = _make_vad_property("state")
     consecutive_speech_frames = _make_vad_property("consecutive_speech_frames")
@@ -852,8 +675,6 @@ class VadProcessor:
     @speech_threshold_db.setter
     def speech_threshold_db(self, value: float) -> None:
         # R18-F14: clamp to the speech threshold floor so a noisy
-        # auto-calibration (or a malformed config) can't push speech
-        # detection into the noise floor.
         self._speech_threshold_db = max(float(value), MIN_VAD_SPEECH_THRESHOLD_DB)
 
     @property

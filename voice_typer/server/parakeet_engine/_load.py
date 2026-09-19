@@ -21,22 +21,11 @@ log = logging.getLogger(__name__)
 
 
 class LoadMixin:
-    # ── Import management ────────────────────────────────────────────
-
     @classmethod
     def _ensure_imports(cls) -> bool:
         """Lazily import ``onnx_asr`` + ``onnxruntime``.
 
         Returns ``True`` on success, ``False`` if either package is not
-        installed. The lazy import keeps this module importable on
-        systems without ``onnx-asr`` (the optional-deps pattern used
-        throughout the project).
-
-        Idempotent: re-entering after a successful import is a fast
-        flag-check under the lock. Re-entering after a FAILED import
-        re-attempts the import (so installing the package after the
-        engine was first constructed takes effect on the next
-        ``load()``).
         """
         with cls._imports_lock:
             if cls._imports_loaded:
@@ -67,13 +56,7 @@ class LoadMixin:
 
     @classmethod
     def is_available(cls) -> bool:
-        """Return ``True`` if the ONNX backend can be loaded.
-
-        Quick probe used by the registry / model_manager to decide
-        whether the parakeet backend is usable on the current install
-        (i.e. ``onnx_asr`` + ``onnxruntime`` are importable). Does NOT
-        probe the model cache, that's :meth:`_is_cached`.
-        """
+        """Return ``True`` if the ONNX backend can be loaded."""
         try:
             import onnx_asr  # noqa: F401
             import onnxruntime  # noqa: F401
@@ -81,19 +64,8 @@ class LoadMixin:
             return False
         return True
 
-    # ── Provider selection ──────────────────────────────────────────
-
     def _select_providers(self, device: str) -> list[str]:
-        """Map a device string to an ORT ``providers=`` list.
-
-        ``CUDAExecutionProvider`` is tried first when ``device == "cuda"``;
-        if it's not available (CPU-only onnxruntime wheel, no GPU, no
-        CUDA Toolkit DLLs on Windows), falls back to
-        ``CPUExecutionProvider``. The fallback at *load time* is
-        distinct from the *runtime* GPU→CPU fallback in
-        :meth:`transcribe_with_fallback`: the latter recreates the
-        session after a CUDA error during inference.
-        """
+        """Map a device string to an ORT ``providers=`` list."""
         if device == "cuda":
             try:
                 available = self._ort.get_available_providers() if self._ort is not None else []
@@ -108,21 +80,9 @@ class LoadMixin:
             return ["CPUExecutionProvider"]
         return ["CPUExecutionProvider"]
 
-    # ── Disk-space / cache probes ───────────────────────────────────
-
     @staticmethod
     def _should_force_cpu() -> bool:
-        """Check disk space on system drive, if under 500MB, force CPU.
-
-        CUDA on Windows needs pagefile space to back GPU memory
-        allocations. When the system drive is nearly full, Windows
-        can't grow the pagefile, causing error 1455. This check avoids
-        that error and gives a clean warning instead.
-
-        Platform-qualified: the pagefile/CUDA-error-1455 failure mode
-        is Windows-only (Linux/macOS don't use a Windows-style pagefile
-        for GPU memory).
-        """
+        """Check disk space on system drive, if under 500MB, force CPU."""
         from voice_typer.server.platform_utils import is_windows
 
         if not is_windows():
@@ -146,14 +106,7 @@ class LoadMixin:
 
     @staticmethod
     def _is_cached() -> bool:
-        """Quick check if the Parakeet ONNX model is in the HF cache.
-
-        Walks the ONNX repo's snapshot dir
-        (``models--grikdotnet--parakeet-tdt-0.6b-fp16/``) for a
-        ``*.onnx`` file. The engine is ONNX-only post-migration, the
-        torch/safetensors cache (``nvidia/parakeet-tdt-0.6b-v3``) is no
-        longer loadable and does NOT count as cached.
-        """
+        """Quick check if the Parakeet ONNX model is in the HF cache."""
         from voice_typer.server.config import _config_dir
 
         cache_root = _config_dir() / "huggingface" / "hub"
@@ -172,21 +125,7 @@ class LoadMixin:
         return False
 
     def load(self, progress_callback: Callable[[str], None] | None = None) -> bool:
-        """Load the Parakeet ONNX model via ``onnx_asr.load_model(...)``.
-
-        The app never downloads models automatically, the user must
-        explicitly download the Parakeet weights (Models page Download
-        button, or the onboarding wizard) before they can be loaded. If
-        the model is not in the local HuggingFace cache, a
-        ``ModelNotDownloadedError`` is raised so callers can direct the
-        user to the Models page. A cached-but-tampered model raises
-        ``ModelIntegrityError`` and is NOT deleted automatically.
-
-        See PLAN_ONNX_INTEGRATION.md §3.3 (Option B-1). onnx-asr 0.12.0
-        exports ``load_model(...)``: there is NO ``onnx_asr.Model``
-        class in any release (verified against 0.12.0 and main; only
-        ``load_model`` + ``load_vad`` are exported).
-        """
+        """Load the Parakeet ONNX model via ``onnx_asr.load_model(...)``."""
         log.info("[PARAKEET] load() entered, importing onnx-asr if needed")
         if not self._ensure_imports():
             if progress_callback:
@@ -198,16 +137,11 @@ class LoadMixin:
                 return True
 
             # Reset the one-time CPU-fallback notification flag on
-            # every fresh ``load()``. A fallback that fired during a
-            # previous transcription session must not silently suppress
-            # the next session's notification, the user may have
-            # restarted their GPU driver or freed VRAM in the meantime.
             self._cpu_fallback_notified = False
             self._cpu_fallback_since = None
             self._cpu_transcribe_count = 0
 
             # Quick cache check, avoids calling onnx_asr.load_model(...)
-            # entirely when the model isn't on disk.
             _cache_t0 = time.perf_counter()
             _cached = self._is_cached()
             log.info(
@@ -217,10 +151,6 @@ class LoadMixin:
             )
             if not _cached:
                 # The app NEVER auto-downloads models, downloading is
-                # an explicit user action (Models page Download button,
-                # or the onboarding wizard). Refuse to load and raise
-                # the actionable error so the tray / IPC layer can
-                # point the user at the Models page.
                 from voice_typer.server.asr_errors import ModelNotDownloadedError
 
                 raise ModelNotDownloadedError(
@@ -232,10 +162,6 @@ class LoadMixin:
                 )
 
             # Verify model integrity (hash check), UNCONDITIONALLY on
-            # every load. The ~1-3s SHA-256 cost is acceptable vs the
-            # multi-second ORT load time. On failure we hard-fail —
-            # WITHOUT deleting the tampered files (deletion is an
-            # explicit user action via the Models page Delete button).
             from voice_typer.server.config import _config_dir
             from voice_typer.server.security import verify_model_integrity
 
@@ -274,8 +200,6 @@ class LoadMixin:
                     )
 
             # Load ONNX model via onnx_asr.load_model(...), by TYPE
-            # name (``nemo-conformer-tdt``) + the verified local
-            # snapshot dir (PLAN_ONNX_INTEGRATION.md §3.3 Option B-1).
             try:
                 if progress_callback:
                     progress_callback("Loading Parakeet TDT v3 ONNX model...")
@@ -289,12 +213,6 @@ class LoadMixin:
                 _load_start = time.perf_counter()
 
                 # onnx-asr 0.12.0 exports ``load_model(...)``: there is
-                # NO ``onnx_asr.Model`` class in any onnx-asr release
-                # (verified against 0.12.0 and main; only ``load_model``
-                # + ``load_vad`` are exported). We load by TYPE name
-                # (``nemo-conformer-tdt``) + the verified local snapshot
-                # dir so onnx-asr loads the integrity-verified files
-                # instead of re-resolving the repo BY NAME.
                 self._onnx_model_dir = verified_snapshot
                 self._model = self._onnx_asr.load_model(
                     _PARAKERT_ONNX_MODEL_NAME,
@@ -315,7 +233,6 @@ class LoadMixin:
                 if progress_callback:
                     progress_callback("Parakeet model ready")
                 # Stash the effective providers so the GPU→CPU fallback
-                # path knows what to switch FROM.
                 self._effective_providers = providers
                 return True
 
@@ -338,16 +255,7 @@ class LoadMixin:
     def _load_impl(self, *, providers: list[str]) -> bool:
         """Re-create the ONNX session (``onnx_asr.load_model``) with the given providers.
 
-         Used by the GPU→CPU fallback path (§3.4) to recreate the session
-         on CPU. Does NOT re-check the cache or run the integrity check
-        , those already passed in the original :meth:`load` call. The
-         model files are still on disk (the GPU session was loaded from
-         them, at ``self._onnx_model_dir``); we just rebuild the ORT
-         session with new providers.
-
-         Returns ``True`` on success, ``False`` if the new session could
-         not be created (logged at ERROR, caller raises
-         ``TranscriptionBackendError``).
+        Returns ``True`` on success, ``False`` if the new session could
         """
         if not self._ensure_imports():
             return False
@@ -368,14 +276,6 @@ class LoadMixin:
             return False
 
     def _unload_impl(self) -> None:
-        """Drop the loaded onnx-asr model reference (without acquiring
-        ``_inference_cond``).
-
-        Used by the GPU→CPU fallback path. The full :meth:`unload` also
-        waits for ``_active_inference == 0`` and runs gc / GPU memory
-        release; this lighter variant is safe to call from inside the
-        fallback path (which already holds the inference slot via
-        ``_active_inference``).
-        """
+        """Drop the loaded onnx-asr model reference (without acquiring"""
         with self._lock:
             self._model = None

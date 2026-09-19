@@ -1,50 +1,4 @@
-"""dependency-injection boundary for ``IPCServer``.
-
-This module is the **composition root** for the IPC server.  It defines
-two :class:`typing.Protocol` classes, :class:`AppProtocol` and
-:class:`ServiceProtocol`: describing the surface that
-:class:`voice_typer.server.ipc_server.IPCServer` and its handler mixins
-actually need from a ``VoiceTyperApp`` and a ``VoiceTyperService``.
-
-Historically ``IPCServer.__init__(app)`` took a concrete
-``VoiceTyperApp`` and immediately constructed
-``VoiceTyperService(app)``.  This tight coupling forced every test that
-exercised the IPC layer to spin up a (real or MagicMock) app AND let
-the server construct a real ``VoiceTyperService`` over it, meaning
-service-layer bugs surfaced as IPC test failures, and tests could not
-isolate the IPC dispatch path from the service implementation.
-
-This module introduces a backward-compatible seam:
-
-- ``IPCServer(app)`` still works exactly as before (constructs a real
-  ``VoiceTyperService`` over ``app``).  Existing call sites in tests
-  and production are unchanged.
-- ``IPCServer(app, service=fake_service)`` lets a caller inject a
-  fake service for testing.  The injected service is used verbatim;
-  no ``VoiceTyperService(app)`` is constructed.
-- :func:`build_ipc_server` is the canonical factory / composition root
-  for production code.  It is a thin wrapper today (constructs the
-  service itself) but provides a single, discoverable place to add
-  future wiring (logging, metrics, feature flags, etc.) without
-  touching ``IPCServer.__init__``.
-
-The protocols intentionally use ``typing.Any`` for member types
-(rather than concrete classes like ``Config`` or ``HistoryDB``) so
-that:
-
-1. The protocol module does not import every concrete dependency
-   (avoiding import cycles and a heavy import surface).
-2. Test doubles (MagicMock, custom fakes) trivially satisfy the
-   protocol via structural typing, no inheritance required.
-3. The protocol captures **shape**, not type identity, which is the
-   whole point of structural subtyping.
-
-Member names match the actual attribute / method names on
-``VoiceTyperApp`` (e.g. ``_audio_processor`` and ``_volume_ducker``
-are private on the real app, the protocol keeps those names so a
-test introspection can verify the protocol declares every name the
-handlers actually access).
-"""
+"""Provider registry entries for cloud engines."""
 
 from __future__ import annotations
 
@@ -54,21 +8,8 @@ from typing import TYPE_CHECKING, Any, Protocol, TypedDict, runtime_checkable
 log = logging.getLogger(__name__)
 
 # Avoid hard imports at module load time, these are only needed for
-# type-checker benefit and would create cycles if imported eagerly
-# (ipc_server.py imports providers via build_ipc_server; providers
-# must not eagerly import ipc_server at top level).
 if TYPE_CHECKING:  # pragma: no cover - type-checker-only
     # ``SideEffectStatus`` is the TypedDict contract of the
-    # ``apply_config`` / ``apply_config_side_effects`` return value
-    # (producer-owned in ``config_applier.py``). Imported under
-    # ``TYPE_CHECKING``: ``config_applier`` does not import this
-    # module, so no cycle, and the runtime surface of providers is
-    # unchanged.
-    # Concrete types for the AppProtocol data-attribute surface
-    # (previously ``Any``). All imported under ``TYPE_CHECKING`` to
-    # avoid runtime cycles; ``MagicMock`` fixtures still satisfy the
-    # ``@runtime_checkable`` Protocol structurally (the check inspects
-    # attribute NAMES via ``getattr_static``, not types).
     from voice_typer.server.config import Config
     from voice_typer.server.config_applier import SideEffectStatus
     from voice_typer.server.correction_usage import CorrectionUsageTracker
@@ -80,56 +21,14 @@ if TYPE_CHECKING:  # pragma: no cover - type-checker-only
     from voice_typer.server.recording_controller import RecordingController
 
     # ``TrayIcon`` lives in ``voice_typer.server.tray``
-    # (not ``tray_icon``). ``tray_icon.py`` only contains helpers like
-    # ``_make_icon``; the ``TrayIcon`` class is defined in ``tray.py``.
     from voice_typer.server.tray import TrayIcon
 
 
 @runtime_checkable
 class AppProtocol(Protocol):
-    """Structural type for the ``app`` object consumed by ``IPCServer``.
+    """Structural type for the ``app`` object consumed by ``IPCServer``."""
 
-        ``IPCServer`` and its handler mixins (under
-        ``voice_typer/server/handlers/``) access a handful of attributes
-        and methods on ``app``.  This protocol enumerates that surface so:
-
-        - Tests can build a focused fake (see
-          ``tests/fixtures/ipc_test_helpers.py:make_fake_app``) without
-          guessing which attributes are read.
-        - A regression test (``tests/test_di_providers.py``) introspects
-          the handlers and asserts this protocol declares every attribute
-          they touch, catching drift if a new handler starts reading a
-          new ``self.app.X`` field that the protocol doesn't list.
-
-        Members are typed as ``Any`` to avoid forcing the protocol module
-        to import every concrete dependency.  Structural typing means any
-        object with these attributes satisfies the protocol, including
-        ``MagicMock`` instances, which respond to every attribute access.
-
-        The members below are the post-ADR-0008-§3.1 surface: handlers
-        reach the app only through public domain objects (``config``,
-        ``history_db``, ``models``, ``recording``, ``hotkeys``,
-        ``recorder``, ``tray``) and a small set of private attributes
-        that are still accessed by ``ipc_server.py`` itself
-        (``_ipc_server``, ``_shutting_down``) or by handlers not yet
-        refactored (``_esc_cancel_paused``, ``_vocabulary_automation``,
-    ``_waveform_bubble``: the last two were promoted in
-        because four handler sites read them via ``getattr``; see the
-        per-attribute docstrings below).
-
-        The private attributes ``_audio_processor``, ``_volume_ducker``,
-    and ``_config_mutation_lock`` were removed in : the
-        ``get_audio_status`` and ``apply_config`` IPC paths now go
-        through :class:`ServiceProtocol` methods (``get_audio_status``,
-        ``apply_config``, ``change_model``, ``set_active_backend``)
-        which encapsulate the private-attribute access inside the
-        service layer.
-    """
-
-    # ── Public application state ───────────────────────────────────
     # The big five: every handler that touches ``self.app.X`` reads
-    # one of these.  They are the "domain objects" the IPC layer
-    # exposes to the frontend.
     config: Config
     """Configuration dataclass (``voice_typer.server.config.Config``)."""
 
@@ -173,19 +72,8 @@ class AppProtocol(Protocol):
         ...
 
     # ── Private attributes still accessed by ipc_server / handlers ─
-    # These are private on VoiceTyperApp (leading underscore) but are
-    # part of the IPC layer's effective contract.  Declaring them
-    # here keeps the introspection test honest: if a handler starts
-    # reading ``self.app._foo``, the test fails until ``_foo`` is
-    # added here, forcing an explicit decision about whether the new
-    # access is a smell or an accepted widening of the surface.
 
     # (ADR 0008 §3.1) removed ``_audio_processor``,
-    # ``_volume_ducker``, and ``_config_mutation_lock`` from this
-    # list, the service layer now wraps those accesses via
-    # ``get_audio_status``, ``get_volume_backend_status``, and
-    # ``apply_config`` respectively, so handlers no longer need to
-    # reach into them directly.
 
     _ipc_server: IPCServer | None
     """Back-reference set by ``IPCServer.start()`` so other modules
@@ -267,42 +155,13 @@ class AppProtocol(Protocol):
     """
 
     # The 4 private service-injected
-    # attrs (``_llm_polisher``, ``_cloud_engine``, ``_crash_recovery``,
-    # ``_config_mutation_lock``) are NOT declared on ``AppProtocol``.
-    # The reviewer's original Issue 2e instruction was to add them
-    # here as ``Any``, but ``tests/test_di_providers.py`` explicitly
-    # forbids ``_config_mutation_lock`` (and ``_audio_processor`` /
-    # ``_volume_ducker``) from ``AppProtocol`` per ADR-0008-§3.1 (the
-    # service layer wraps their access; re-declaring them re-introduces
-    # the leaky abstraction the refactor removed). Adding the other 3
-    # (``_llm_polisher`` / ``_cloud_engine`` / ``_crash_recovery``)
-    # would also break ``test_fake_app_satisfies_app_protocol`` because
-    # ``make_fake_app()`` doesn't set them and they're not in the
-    # ``_FAKE_APP_AUTO_STUB_OK`` exemption list.
 
-    # Instead, the service-layer accesses (in
-    # :mod:`voice_typer.server.service.__init__`) use ``setattr`` /
-    # ``getattr`` for these 4 attrs, which:
-    #   1. Returns ``Any`` (so pyrefly doesn't flag the access),
-    #   2. Preserves runtime behavior (``setattr(app, "_X", v)`` is
-    #      equivalent to ``app._X = v``; ``getattr(app, "_X")`` is
-    #      equivalent to ``app._X``),
-    #   3. Doesn't require declaring the attrs on ``AppProtocol``
-    #      (keeping the ADR-0008-§3.1 boundary intact),
     #   4. Doesn't require ``# type: ignore`` markers.
 
-    # ── Methods invoked by the IPC layer ───────────────────────────
     # The service layer delegates these to the app.  Declaring them
-    # on the protocol means a fake app must implement them (or be a
-    # MagicMock, which auto-stubs any method call).
 
     def change_model(self, model_size: str) -> None:
-        """Switch the active ASR model to ``model_size``.
-
-        Wrapped by :meth:`ServiceProtocol.change_model`; no IPC
-        handler calls ``self.app.change_model()`` directly
-        post-ADR-0008-§3.1.
-        """
+        """Switch the active ASR model to ``model_size``."""
         ...
 
     def toggle_dictation(self) -> None:
@@ -322,24 +181,11 @@ class AppProtocol(Protocol):
         ...
 
     def quit_app(self) -> None:
-        """Initiate application shutdown via the tray controller path.
-
-        Called by :meth:`ServiceProtocol.quit`.  Distinguished from
-        :meth:`quit` below: ``quit_app`` pushes a ``quit_app`` IPC
-        event to predecessor first, while ``quit`` skips that (used by
-        the heartbeat watchdog when predecessor is already dead).
-        """
+        """Initiate application shutdown via the tray controller path."""
         ...
 
     def quit(self) -> None:
-        """Run the audited cleanup path and exit.
-
-        Called directly by the heartbeat watchdog in
-        ``ipc_server.py:_check_heartbeat_timeout`` when predecessor has
-        stopped sending heartbeats.  ``quit_app`` delegates here
-        after notifying predecessor; the watchdog skips the notification
-        because predecessor is already gone.
-        """
+        """Run the audited cleanup path and exit."""
         ...
 
     def start(self) -> None:
@@ -367,34 +213,11 @@ class AppProtocol(Protocol):
         ...
 
 
-# ── TypedDict payload contracts for the list-returning service surface ──
-#
 # These replace the bare ``list`` return annotations on
-# :class:`ServiceProtocol` (get_history / search_history /
-# get_favorites / get_microphones / refresh_microphones /
-# get_templates) so static checkers and IDEs can see the element
-# shape. The key sets are pinned by the producers —
-# ``history_db_internals/search.py`` SELECT lists + projection,
-# ``server_platform/microphone_list.py`` device dicts, and
-# ``service/template.py``'s template projection, none of which are
-# TypedDict-typed themselves (their annotations are bare
-# ``list[dict]``); these TypedDicts document the runtime contract at
-# the protocol boundary, mirroring how ``StatusResponse``/
-# ``ForceCancelResult`` (``service/__init__.py``) pin the two most
-# critical dict returns.
 
 
 class HistoryEntry(TypedDict):
-    """One row of ``get_history`` / ``search_history`` / ``get_favorites``.
-
-    Keys mirror the SELECT list + projection in
-    ``history_db_internals/search.py`` (``project_text_row``):
-    ``text`` is the ≤500-char preview (``_HISTORY_TEXT_PREVIEW_LENGTH``);
-    ``text_full_length`` / ``text_truncated`` tell the renderer whether
-    to fetch the full text via ``get_transcription_text``; ``favorite``
-    is SQLite's 0/1 int (truthy check), matching the wire format the
-    renderer already consumes.
-    """
+    """One row of ``get_history`` / ``search_history`` / ``get_favorites``."""
 
     id: int
     text: str
@@ -411,13 +234,7 @@ class HistoryEntry(TypedDict):
 
 
 class MicrophoneEntry(TypedDict):
-    """One input device dict from ``get_microphones`` / ``refresh_microphones``.
-
-    Keys mirror ``server_platform/microphone_list.py``
-    (``_list_microphones_uncached``): ``id`` is the stable
-    ``"<host api>|<name>[#N]"`` identifier (survives device-index
-    reordering), ``index`` is the (unstable) PortAudio device index.
-    """
+    """One input device dict from ``get_microphones`` / ``refresh_microphones``."""
 
     id: str
     index: int
@@ -429,12 +246,7 @@ class MicrophoneEntry(TypedDict):
 
 
 class TemplateEntry(TypedDict):
-    """One saved template from ``get_templates``.
-
-    Keys mirror the projection in ``service/template.py``, exactly
-    three keys (internal fields like ``created_at`` are stripped
-    before the payload crosses the IPC boundary).
-    """
+    """One saved template from ``get_templates``."""
 
     trigger: str
     output: str
@@ -443,58 +255,28 @@ class TemplateEntry(TypedDict):
 
 @runtime_checkable
 class ServiceProtocol(Protocol):
-    """Structural type for the service object consumed by ``IPCServer``.
+    """Structural type for the service object consumed by ``IPCServer``."""
 
-    ``IPCServer`` delegates to a service object via ``self.service.X``.
-    The concrete implementation is :class:`voice_typer.server.service.VoiceTyperService`,
-    but tests can substitute any object satisfying this protocol
-    (typically a ``MagicMock`` configured by
-    :func:`tests.fixtures.ipc_test_helpers.make_fake_service`).
-
-    The methods below enumerate the full surface that the IPC handler
-    mixins call.  They are typed with ``Any`` return values and
-    parameter types so a structural fake trivially satisfies the
-    protocol, but each method's signature mirrors the real
-    ``VoiceTyperService`` method so a static type checker can verify
-    the contract if desired.
-    """
-
-    # ── Status ─────────────────────────────────────────────────────
     def get_status(self) -> dict[str, object]: ...
     def get_rms_level(self) -> dict[str, object]: ...
     def get_volume_backend_status(self) -> dict[str, object]: ...
     def get_model_status(self) -> dict[str, object]: ...
     def get_audio_status(self) -> dict[str, object]: ...
 
-    # ── Dictation ──────────────────────────────────────────────────
     def toggle_dictation(self) -> None: ...
     def undo_last(self) -> None: ...
     def repaste_last(self) -> None: ...
     def force_cancel_transcription(self) -> dict[str, object]: ...
 
-    # ── Config ─────────────────────────────────────────────────────
     # ``set_config`` and ``save_config`` REMOVED from
-    # ``ServiceProtocol``.  Both were dead: see the corresponding
-    # comment block in ``service.py`` for the full rationale.  The IPC
-    # ``set_config`` command path goes through
-    # ``config.validate_config_update`` + ``service.apply_config``;
-    # ``Config.save()`` is now invoked inside ``apply_config`` under
-    # the config-mutation lock.  Tests that pinned the old protocol
-    # methods (``tests/test_di_providers.py:544``) need follow-up.
     def get_config(self) -> dict[str, object]: ...
     def get_defaults(self) -> dict[str, object]: ...
-    # ``apply_config_side_effects`` and ``apply_config`` return
-    # the side-effect status dict from ``ConfigApplier`` (shape
-    # ``{"autostart_status": dict | None, "prewarm_status": dict | None}``
-    #: see ``config_service.py:156-198``). The previous ``-> None``
-    # annotation was a lie that hid the return value from type-checkers
     # and forced callers into ``# type: ignore`` or silent-discards.
     def apply_config_side_effects(self, updates: dict) -> SideEffectStatus: ...
     def apply_config(self, updates: dict) -> SideEffectStatus: ...
     def change_model(self, model_size: str) -> None: ...
     def set_active_backend(self, backend: str) -> None: ...
 
-    # ── History ────────────────────────────────────────────────────
     def get_history(self, limit: int = 50, offset: int = 0) -> list[HistoryEntry]: ...
     def search_history(self, query: str, limit: int = 50, offset: int = 0) -> list[HistoryEntry]: ...
     def get_today_stats(self) -> dict[str, object]: ...
@@ -506,27 +288,10 @@ class ServiceProtocol(Protocol):
     def get_history_count(self) -> int: ...
     def get_transcription_text(self, transcription_id: int) -> dict[str, object]: ...
 
-    # ── Microphone ─────────────────────────────────────────────────
     def get_microphones(self) -> list[MicrophoneEntry]: ...
     def refresh_microphones(self) -> list[MicrophoneEntry]: ...
 
-    # ── Microphone test ────────────────────────────────────────────
     # narrowed from ``Any`` to concrete unions matching the
-    # ``VoiceTyperService`` impl signatures in
-    # ``voice_typer/server/service/microphone_test.py:113-115`` and
-    # ``service/microphone_test.py:214``. The renderer's
-    # ``_handle_microphone_test_start`` IPC handler validates
-    # ``mic_id`` as ``str | None`` and ``duration`` as
-    # ``int | float | str`` (with a ``float()`` coercion + clamp to
-    # ``[1.0, 30.0]``), so by the time the service method is called
-    # ``duration`` is always a ``float``. ``filters`` is validated as
-    # ``list | None`` at the IPC layer but the impl signature is
-    # ``dict | None`` (the impl casts internally); the Protocol
-    # matches the impl here. ``onboarding_set_microphone``'s
-    # ``mic_id`` is ``str | None`` (validated at
-    # ``onboarding_handlers.py``). The previous ``Any`` annotations
-    # gave a false impression of an untyped contract; the narrowing
-    # is safe because the call sites already pass validated values.
     def microphone_test_start(
         self,
         mic_id: str | None = None,
@@ -539,12 +304,10 @@ class ServiceProtocol(Protocol):
     def microphone_test_status(self) -> dict[str, object]: ...
     def microphone_test_get_level(self) -> dict[str, object]: ...
 
-    # ── Level monitor ──────────────────────────────────────────────
     def level_monitor_start(self, mic_id: str | None = None) -> dict[str, object]: ...
     def level_monitor_stop(self) -> dict[str, object]: ...
     def level_monitor_status(self) -> dict[str, object]: ...
 
-    # ── Models ─────────────────────────────────────────────────────
     def import_model(self, dir_path: str) -> dict[str, object]: ...
     def download_model(self, model_name: str) -> dict[str, object]: ...
     def cancel_model_download(self) -> dict[str, object]: ...
@@ -554,7 +317,6 @@ class ServiceProtocol(Protocol):
     def delete_model(self, model_name: str) -> dict[str, object]: ...
     def test_llm_connection(self) -> dict[str, object]: ...
 
-    # ── Vocabulary / Templates ─────────────────────────────────────
     def get_vocabulary(self) -> dict[str, object]: ...
     def save_vocabulary_with_diff(self, data: dict) -> dict[str, object]: ...
     def get_correction_usage(self) -> dict[str, object]: ...
@@ -562,7 +324,6 @@ class ServiceProtocol(Protocol):
     def get_templates(self) -> list[TemplateEntry]: ...
     def save_templates(self, templates: list[dict]) -> bool: ...
 
-    # ── Onboarding ────────────────────────────────────────────────
     def onboarding_is_first_run(self) -> dict[str, object]: ...
     def onboarding_start(self) -> dict[str, object]: ...
     def onboarding_get_step(self) -> dict[str, object]: ...
@@ -579,25 +340,12 @@ class ServiceProtocol(Protocol):
     def onboarding_get_model_catalog(self) -> dict[str, object]: ...
     def onboarding_get_hotkey_presets(self) -> dict[str, object]: ...
 
-    # ── System ─────────────────────────────────────────────────────
     def restart(self) -> None: ...
     def quit(self) -> None: ...
 
     # ``export_diagnostics`` was removed: every IPC/Rust/TS surface for
-    # it was already deleted and the service mixin went with the dead
-    # server-side bundle pipeline, support bundles come from the CLI
-    # (``scripts/diagnostics.py export``), which is self-contained.
 
-    # ── Privacy / GDPR ────────────────────────────────────────────
     # (GDPR Art. 17 right-to-erasure) and  (Art. 20
-    # right-to-data-portability).  Both are implemented on
-    # :class:`voice_typer.server.service.VoiceTyperService`; the IPC
-    # handlers in ``voice_typer/server/handlers/privacy_handlers.py``
-    # are thin envelopes that delegate to these service methods.
-    # Declaring them on the protocol keeps the AST introspection test
-    # in ``tests/test_di_providers.py`` honest (any handler that calls
-    # ``self.service.X`` must have ``X`` declared on
-    # ``ServiceProtocol``).
     def delete_all_personal_data(self) -> dict[str, object]: ...
     def export_gdpr_bundle(self) -> dict[str, object]: ...
 
@@ -649,20 +397,9 @@ def build_ipc_server(app: AppProtocol) -> IPCServer:
     drift bug cannot take down ``build_ipc_server`` at startup.
     """
     # Imported lazily to avoid an import cycle: ipc_server.py imports
-    # from providers (via build_ipc_server) at call time, and importing
-    # IPCServer eagerly here would create a top-level cycle.  Doing the
-    # import inside the function means the cycle only resolves when the
-    # factory is actually called, which is always after both modules
-    # are fully loaded.
     from voice_typer.server.ipc_server import IPCServer
 
     # Soft AppProtocol validation.  ``runtime_checkable``
-    # ``isinstance`` only verifies attribute names (not signatures) and
-    # returns False for ``MagicMock``-based fakes even when they
-    # structurally satisfy the protocol, so this is a warning, not a
-    # gate.  We compute the missing list from ``__annotations__``
-    # (annotated data attributes only; methods are not checked here
-    # because ``hasattr`` against a MagicMock would always succeed).
     if not isinstance(app, AppProtocol):
         missing = [attr for attr in getattr(AppProtocol, "__annotations__", {}) if not hasattr(app, attr)]
         log.warning(

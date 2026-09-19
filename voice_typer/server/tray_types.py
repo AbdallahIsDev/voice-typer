@@ -1,9 +1,4 @@
-"""Tray types: AppState enum and TrayController protocol.
-
-extracted from tray.py to separate the type definitions
-from the icon rendering and menu logic.  This allows tests to import
-AppState without pulling in pystray/PIL.
-"""
+"""Tray type definitions."""
 
 import os
 from enum import Enum
@@ -14,14 +9,7 @@ if TYPE_CHECKING:
 
 
 def is_tauri_sidecar() -> bool:
-    """Return True when running as the Tauri sidecar (``TAURI_SIDECAR=1``).
-
-    Single source of truth for the runtime-mode guard: under Tauri the
-    native tray (and OS notifications) are owned by the Rust host, so
-    the Python side must publish menu/state over the event bus and skip
-    pystray icon creation. The check reads the environment at call time
-    so tests can flip it with ``monkeypatch.setenv``.
-    """
+    """Return True when running as the Tauri sidecar (``TAURI_SIDECAR=1``)."""
     return os.environ.get("TAURI_SIDECAR") == "1"
 
 
@@ -42,7 +30,6 @@ class TrayController(Protocol):
     recording: "RecordingController"
 
     # build_tray_menu_model reads controller._microphones via getattr.
-    # Promote to the Protocol so pyrefly verifies VoiceTyperApp exposes it.
     microphones: list[dict]
 
     def toggle_dictation(self) -> None: ...
@@ -53,16 +40,6 @@ class TrayController(Protocol):
     def undo_last(self) -> None: ...
 
     # Tauri-side ``maybe_publish_tray_menu`` consumes these two
-    # members to mark the active mic in the Microphones submenu and to
-    # wire the "Refresh mics" menu item. Previously the call sites used
-    # ``getattr(controller, "active_microphone_id", None)`` /
-    # ``getattr(controller, "refresh_microphones", None)`` against names
-    # that were NEVER defined on ``VoiceTyperApp``, the defensive
-    # ``getattr`` silently returned ``None`` and the Tauri tray submenu
-    # never marked the active mic nor offered "Refresh mics". Promoting
-    # to the Protocol lets pyrefly verify the contract; the call sites
-    # in ``tray_menu.maybe_publish_tray_menu`` now use direct attribute
-    # access (drop the ``getattr`` defensive calls).
     @property
     def active_microphone_id(self) -> str | None: ...
 

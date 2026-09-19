@@ -18,17 +18,8 @@ from .events import _publish_event
 log = logging.getLogger(__name__)
 
 
-# ── Background checksum (§8.10, §8.16) ────────────────────────────────────
-
-
 class BackgroundChecksum:
-    """Run :func:`verify_offline_pack_or_skip` on a daemon thread (§8.10, §8.16).
-
-    Launch-time path uses :func:`offline_pack_exists` (cheap, sync).
-    Background checksum runs in the daemon thread; on completion it
-    publishes ``offline_pack_verified`` (success) or ``offline_pack_corrupt`` (failure)
-    via the event bus.
-    """
+    """Run :func:`verify_offline_pack_or_skip` on a daemon thread (§8.10, §8.16)."""
 
     def __init__(
         self,
@@ -61,7 +52,6 @@ class BackgroundChecksum:
         self._done.set()
         if ok:
             # E9 parity: the renderer's OfflinePackVerifiedEvent requires
-            # ``{version, sha256}``: same payload as the install-stage emit.
             manifest = load_offline_pack_manifest(offline_pack_manifest_path(self.version, root=self.root))
             _publish_event(
                 self.event_bus,

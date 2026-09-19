@@ -81,12 +81,6 @@ import threading  # noqa: F401  # re-exported / patch surface parity
 import time  # noqa: F401  # tests do monkeypatch.setattr(_sc.time, "monotonic"/"sleep", ...)
 
 # Single source of truth for the declarative shutdown plan + driver lives
-# in :mod:`voice_typer.server.shutdown.plan` (extracted out of this module
-# to keep the controller wiring-focused). Re-imported here so existing
-# callers, tests do
-# ``from voice_typer.server.shutdown_controller import ShutdownPlan,
-# ShutdownStep``: keep resolving, and so the dataclass constructors used
-# in ``_do_cleanup`` below remain in scope without duplication.
 from voice_typer.server._timeout_utils import (  # noqa: F401  # SHUTDOWN_WATCHDOG_TIMEOUT_S + join_leaked_workers re-exported for tests
     SHUTDOWN_WATCHDOG_TIMEOUT_S,
     TIMEOUT,
@@ -104,10 +98,7 @@ from voice_typer.server.shutdown.plan import (  # noqa: F401  # re-exported for 
 
 log = logging.getLogger(__name__)
 
-# ─── Leaf imports (facade re-exports) ───────────────────────────────
-#
 # Import order matters: the mixins must be imported BEFORE
-# ``.controller`` so the class definition can resolve its bases.
 from ._cleanup import CleanupMixin  # noqa: E402,F401
 from ._deadline import (  # noqa: E402,F401  # re-exported for tests that import the helpers from this package
     _shutdown_deadline_near,

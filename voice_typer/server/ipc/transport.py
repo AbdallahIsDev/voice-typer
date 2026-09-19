@@ -1,5 +1,4 @@
 # extracted from the original
-# ``voice_typer/server/ipc_server.py`` god-module (Phase 4.5 split).
 """TCP transport helpers: port picker and line-IO wrapper.
 
 Phase 4.5 / , extracted from the original ``ipc_server.py``
@@ -54,13 +53,6 @@ def _pick_available_port(start: int = IPC_PORT, max_tries: int = 100) -> tuple[i
         candidate = start + offset
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         # P1-1.4 (Windows parity): on Windows ``SO_REUSEADDR`` has the
-        # OPPOSITE semantics, it lets a second socket FORCIBLY bind a
-        # port already in use (the hijack behavior), so the busy-port
-        # probe below would spuriously "succeed" and return a port
-        # another process is actively listening on. Only set
-        # SO_REUSEADDR on POSIX (where it skips TIME_WAIT rebinds); on
-        # Windows the default exclusive-bind semantics are what make
-        # the EADDRINUSE probe reliable.
         if os.name != "nt":
             s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         try:
@@ -71,10 +63,6 @@ def _pick_available_port(start: int = IPC_PORT, max_tries: int = 100) -> tuple[i
                 s.close()
             continue
         # return the ACTUAL bound port (s.getsockname()[1]), not
-        # ``candidate``.  When ``candidate == 0`` (ephemeral-port
-        # request), the OS assigns a real port number which we must
-        # surface to the caller.  The bound socket is returned so the
-        # caller can pass it through to start_tcp (no race window).
         return s.getsockname()[1], s
     # All ports in range are busy, let the OS assign an ephemeral one.
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -94,78 +82,30 @@ class _TCPLineIO:
     def __init__(self, conn: socket.socket) -> None:
         self.conn = conn
         # enable TCP_NODELAY on the wrapped socket so small push
-        # events (bubble_level at 15-50 Hz, heartbeat_ack) are not
-        # delayed by Nagle's algorithm (up to ~40 ms of coalescing on
-        # loopback). Defense-in-depth: the WS transport also sets it on
-        # accepted sockets, but ``_TCPLineIO`` is constructed directly in
-        # tests and via the WS-bridge path. The suppress() wrapper keeps
-        # non-TCP sockets (socketpair on some platforms, test mocks)
-        # from crashing the constructor.
         with contextlib.suppress(OSError, AttributeError):
             conn.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
         # Use the default chunk buffer size (io.DEFAULT_BUFFER_SIZE,
-        # typically 8 KiB) rather than ``buffering == 1`` (line buffering).
-        # ``buffering == 1`` means "line buffered" in text mode —
-        # meaningful only for writes (flush when a newline is seen); for
-        # reads CPython silently treats it as the default, but the intent
-        # is non-obvious and linters flag it as a potential small-recv-
-        # buffer smell. An explicit ``io.DEFAULT_BUFFER_SIZE`` removes
-        # the ambiguity and ensures the BufferedReader pulls the largest
-        # chunk the kernel will hand over per ``recv()`` call, minimising
-        # syscalls under load.
         self._reader = conn.makefile("r", encoding="utf-8", buffering=io.DEFAULT_BUFFER_SIZE)
         # user-space write buffer. ``write()`` appends to this
-        # buffer (a list of bytes chunks, cheaper than BytesIO for
-        # repeated appends because it avoids the copy-on-extend that
-        # BytesIO does when its internal slab is full). ``flush()``
-        # concatenates all buffered chunks into a single ``bytes`` object
-        # and issues ONE ``sendall`` syscall. This lets the caller batch
-        # many small writes (e.g. the reconnect drain loop in
-        # ``sender._send`` which writes up to 100 pending entries) into
-        # a single syscall instead of N. The buffer MUST be flushed
-        # before returning from any public write path that needs the
-        # data on the wire, ``_send`` always calls ``flush()`` after
-        # its batched writes.
         self._write_buffer: list[bytes] = []
 
     def write(self, text: str | bytes) -> None:
         # append to the in-memory buffer; ``flush()`` does the
-        # actual ``sendall``. Encoding happens here (once per write) so
-        # the flush path can use ``b"".join`` without re-encoding.
-        # Callers that have ALREADY encoded the text (e.g. to check
-        # the byte length against a size cap before writing) may pass
-        # ``bytes`` directly to skip the re-encode, see the
-        # ``line_bytes`` pre-encode path in ``sender._send``.
         if isinstance(text, str):
             text = text.encode("utf-8")
         self._write_buffer.append(text)
 
     def flush(self) -> None:
         # drain the write buffer in a single ``sendall``. If the
-        # buffer is empty, this is a no-op (preserves the previous
-        # ``flush()`` semantics for callers that call ``write`` then
-        # ``flush`` with no intervening buffer). On failure the buffer
-        # is left UNCHANGED, callers that need retry semantics (the
-        # drain loop in ``_send``) can re-call ``flush`` after the
-        # client reconnects. Callers that want drop-on-failure semantics
-        # (the first-write path in ``_send``) can call
-        # ``_reset_write_buffer`` or simply discard this ``_TCPLineIO``
-        # instance (it's about to be closed and replaced on reconnect
-        # anyway).
         if not self._write_buffer:
             return
         batch = b"".join(self._write_buffer)
         self.conn.sendall(batch)
         # Only clear the buffer AFTER sendall succeeds, if sendall
-        # raises (timeout / broken pipe), the data is still buffered
-        # and the caller can decide to retry or drop.
         self._write_buffer.clear()
 
     def _reset_write_buffer(self) -> None:
         # discard the current write buffer without flushing.
-        # Used by callers that want drop-on-failure semantics (e.g. the
-        # drain-failure path in ``_send`` where partially-buffered
-        # entries must not leak into the next ``_send`` call).
         self._write_buffer.clear()
 
     def write_raw(self, text: str) -> None:
@@ -192,9 +132,6 @@ class _TCPLineIO:
         """
         if self._write_buffer:
             # Preserve publish order: flush buffered data first so the
-            # raw text follows it on the wire. This is the rare case
-            # (most callers either use write+flush OR write_raw, not
-            # both in the same cycle).
             batch = b"".join(self._write_buffer)
             self.conn.sendall(batch)
             self._write_buffer.clear()
@@ -213,10 +150,6 @@ class _TCPLineIO:
         """
         _max_line_bytes = 1 * 1024 * 1024  # 1 MB
         # UTF-8 worst case is 4 bytes/char (e.g. emoji). ``readline(n)``
-        # in text mode caps CHARS, not bytes, a client sending 1M
-        # emoji chars forces a 4MB buffer. Cap chars at bytes//4 so
-        # the effective byte ceiling stays at ~1MB regardless of the
-        # payload's char width.
         _max_line_chars = _max_line_bytes // 4
         line = self._reader.readline(_max_line_chars + 1)
         if len(line) > _max_line_chars:
@@ -238,30 +171,6 @@ class _TCPLineIO:
 
     def close(self) -> None:
         # Close the underlying socket FIRST so any in-progress/blocked
-        # read (a ``recv`` running on another thread, e.g. the dispatch
-        # loop) is interrupted and releases the ``BufferedReader`` lock.
-        # Otherwise ``BufferedReader.close()`` deadlocks against the
-        # concurrent read and the caller (e.g. teardown / cleanup) hangs
-        # forever.  ``shutdown`` + ``close`` raise on an already-closed
-        # socket, so both are wrapped in suppress.
-        #
-        # Platform ordering matters (the ``test_close_does_not_deadlock``
-        # regression suite covers both):
-        # - POSIX: ``shutdown()`` FIRST, it wakes a blocked ``recv``
-        #   cleanly (``close()`` alone from another thread is unreliable:
-        #   it may not interrupt the recv and can race fd reuse).
-        # - Windows: ``shutdown()`` called from another thread while a
-        #   ``recv`` is in flight can BLOCK until that I/O completes
-        #   (documented winsock behavior), so the shutdown-first order
-        #   deadlocks. The remaining socket ops below are Windows-safe:
-        #   ``close()`` returns immediately (the parked ``recv`` just
-        #   stays parked), and the ``BufferedReader`` is released on a
-        #   daemon thread WITHOUT joining, closing the buffered reader
-        #   synchronously would deadlock on the buffer lock held by the
-        #   parked ``recv`` (measured on the quit path: stop() hung the
-        #   full 5s cleanup budget). The daemon thread is reaped at
-        #   process exit; the raw fd is freed eagerly below so the
-        #   socket number is reusable.
         if os.name != "nt":
             with contextlib.suppress(Exception):
                 self.conn.shutdown(socket.SHUT_RDWR)
@@ -270,9 +179,6 @@ class _TCPLineIO:
         reader = self._reader
         if os.name == "nt":
             # Release the raw fd NOW (no lock) so the OS socket is
-            # reusable, then hand the buffered close to a daemon thread.
-            # ``reader.close()`` needs the buffer lock; the parked
-            # dispatch-loop ``recv`` holds it → deadlock if joined.
             raw = getattr(reader, "raw", None)
             if raw is None:
                 raw = getattr(getattr(reader, "buffer", None), "raw", None)

@@ -1,37 +1,4 @@
-"""ASR auto-setup: GPU detection, dependency check, weight download.
-
-This module provides utilities for automatically setting up the ASR
-environment, including GPU detection, dependency checking, and model
-weight downloading.
-
-``pip_install`` and ``download_weights`` were removed from
-this module.  The verbatim bodies were previously retained in
-``archive/asr_setup_dead_code.py`` for reference; that archive file
-has been deleted as part of dead-code cleanup since zero production
-call sites referenced it.  The historical implementation can be
-recovered from git history if needed for the future  on-demand
-dependency install feature.
-
-pause/resume/abort flags for in-progress model downloads.
-``set_download_paused(True)`` BLOCKS the actual HuggingFace transfer at
-the next chunk boundary (see :func:`get_download_tqdm_class`), bytes
-stop flowing, not just the progress reporting. ``request_download_abort()``
-makes the transfer unwind with :class:`ModelDownloadAborted` so a cancel
-stops the network transfer instead of letting it finish in the
-background. The flags are module-level so the IPC handler can set them
-from any thread.
-
-Lifecycle:
-  - :func:`reset_download_pause_state`: call at start of download
-    (creates fresh ``threading.Event``s).
-  - :func:`set_download_paused`: set/clear the pause flag.
-  - :func:`is_download_paused`: check the flag.
-  - :func:`wait_while_paused`: block while paused (polling loop).
-  - :func:`request_download_abort`: signal a cancel (gate raises).
-  - :func:`clear_download_pause_state`: call at end of download
-    (sets the Events back to ``None``; a straggler transfer thread then
-    aborts at its next chunk boundary instead of finishing silently).
-"""
+"""ASR engine setup and model-load helpers."""
 
 import logging
 import os
@@ -44,40 +11,16 @@ from typing import Any
 log = logging.getLogger(__name__)
 
 
-# pause/resume flag ────────────────────────────────
-
 # A single module-level ``threading.Event`` controls the pause state
-# for ALL in-progress downloads.  We support only one concurrent
-# download at a time (the existing ``_download_cancel_event`` in
-# VoiceTyperService has the same constraint), so a single flag is
-# sufficient.
 
 # Semantics:
-# - ``_download_pause_event`` is created lazily by
-#   ``reset_download_pause_state()`` at the start of a download.
-# - ``set_download_paused(True)``  -> ``_download_pause_event.set()``
-# - ``set_download_paused(False)`` -> ``_download_pause_event.clear()``
-# - ``is_download_paused()``       -> ``_download_pause_event.is_set()``
-# - When no download is in progress, ``_download_pause_event`` is
-#   ``None`` and ``is_download_paused()`` returns ``False``.
-# - ``_download_abort_event`` mirrors the same lifecycle for CANCEL:
-#   ``request_download_abort()`` sets it, the transfer gate raises
-#   :class:`ModelDownloadAborted` at the next chunk boundary, and
-#   reset/clear recycle it per download.
 _download_pause_event: threading.Event | None = None
 _download_abort_event: threading.Event | None = None
 _download_pause_lock = threading.Lock()
 
 
 def reset_download_pause_state() -> None:
-    """Initialize the pause + abort flags at the start of a download.
-
-    Called by :meth:`VoiceTyperService.download_model` when a new
-    download begins (so a stale ``paused=True`` / abort from a previous
-    download doesn't carry over). Creates fresh ``threading.Event``s in
-    the cleared (not-paused / not-aborted) state. Safe to call from any
-    thread.
-    """
+    """Initialize the pause + abort flags at the start of a download."""
     global _download_pause_event, _download_abort_event
     with _download_pause_lock:
         _download_pause_event = threading.Event()
@@ -86,15 +29,7 @@ def reset_download_pause_state() -> None:
 
 
 def clear_download_pause_state() -> None:
-    """Clear the pause + abort flags at the end of a download.
-
-    Sets both Events back to ``None`` so subsequent pause calls return
-    ``False`` (no active download to pause) and any straggler transfer
-    thread aborts at its next chunk boundary (the gate treats a None
-    abort event as "no active download. Stop"). Called from every
-    cleanup path in :meth:`VoiceTyperService.download_model` (success,
-    failure, cancel).
-    """
+    """Clear the pause + abort flags at the end of a download."""
     global _download_pause_event, _download_abort_event
     with _download_pause_lock:
         _download_pause_event = None
@@ -105,10 +40,6 @@ def set_download_paused(paused: bool) -> bool:
     """Set or clear the pause flag.
 
     Returns ``True`` if the flag was successfully updated, ``False``
-    if no download is currently in progress (in which case there's
-    nothing to pause).  The renderer treats ``False`` as "no-op" —
-    e.g. pressing Pause when nothing is downloading just dismisses
-    the button.
     """
     global _download_pause_event
     with _download_pause_lock:
@@ -128,8 +59,6 @@ def is_download_paused() -> bool:
     """Return ``True`` if the current download is paused.
 
     Returns ``False`` when no download is in progress (so callers
-    can use this as a simple ``if is_download_paused(): ...`` guard
-    without checking for ``None`` first).
     """
     with _download_pause_lock:
         if _download_pause_event is None:
@@ -138,30 +67,13 @@ def is_download_paused() -> bool:
 
 
 def is_download_active() -> bool:
-    """Return ``True`` while a gateable model download is in flight.
-
-    ``True`` from :func:`reset_download_pause_state` (start of a
-    download) until :func:`clear_download_pause_state` (every exit
-    path), regardless of whether it is running or paused. Used as the
-    single-flight guard so a second ``download_model`` IPC (e.g. the
-    renderer's Retry after its promise timed out during a long PAUSE)
-    cannot start a second concurrent transfer and recycle the shared
-    pause/abort events underneath the live one.
-    """
+    """Return ``True`` while a gateable model download is in flight."""
     with _download_pause_lock:
         return _download_pause_event is not None
 
 
 def wait_while_paused(timeout_s: float = 1.0) -> bool:
-    """Block while the download is paused.
-
-    Used by the service polling loop between progress updates.  Returns
-    ``True`` if the pause flag was cleared within ``timeout_s`` seconds,
-    ``False`` if it's still paused after the timeout (in which case the
-    caller should loop and call again, or check cancellation).
-
-    Safe to call when no download is in progress, returns immediately.
-    """
+    """Block while the download is paused."""
     with _download_pause_lock:
         ev = _download_pause_event
     if ev is None:
@@ -173,22 +85,8 @@ def wait_while_paused(timeout_s: float = 1.0) -> bool:
     return ev.wait(timeout=timeout_s)
 
 
-# ── Cancel (abort) flag ───────────────────────────────────────────────
-
-
 def request_download_abort() -> bool:
-    """Signal the in-flight transfer threads to abort (cancel).
-
-    The transfer gate (``_DownloadGateTqdm.update``, see
-    :func:`get_download_tqdm_class`) raises :class:`ModelDownloadAborted`
-    at the next chunk boundary (≤10 MB), so the HuggingFace transfer
-    actually STOPS. Pre-fix, cancel only stopped the progress REPORTER:
-    the daemon transfer thread kept downloading to completion in the
-    background, silently burning the user's bandwidth.
-
-    Returns ``True`` if the abort signal was delivered, ``False`` when
-    no download is active (nothing to abort).
-    """
+    """Signal the in-flight transfer threads to abort (cancel)."""
     global _download_abort_event
     with _download_pause_lock:
         if _download_abort_event is None:
@@ -200,42 +98,18 @@ def request_download_abort() -> bool:
 
 
 def _abort_requested() -> bool:
-    """Return ``True`` if the transfer must stop.
-
-    ``True`` when the abort event is set (cancel requested) OR when the
-    event is ``None`` (the download already cleaned up, a straggler
-    transfer thread must not keep downloading).
-    """
+    """Return ``True`` if the transfer must stop."""
     with _download_pause_lock:
         ev = _download_abort_event
     return ev is None or ev.is_set()
 
 
 class ModelDownloadAborted(BaseException):
-    """Raised inside the transfer thread when a download is aborted.
-
-    Inherits from ``BaseException`` (NOT ``Exception``) deliberately:
-    the retry wrappers around the transfer (`_download_with_retry`,
-    ``download_parakeet_weights``) retry on ``Exception``, an ABORT must
-    unwind immediately, never be retried (retrying a cancel would resume
-    downloading). Callers that must handle it (map it to the
-    ``{"success": False, "cancelled": True}`` IPC outcome) catch this
-    class explicitly.
-    """
+    """Raised inside the transfer thread when a download is aborted."""
 
 
 def check_download_gate() -> None:
-    """Enforce pause/abort at a transfer chunk boundary. Shared by the
-    tqdm gate (classic snapshot path) and the segmented engine.
-
-    - Cancel → raises :class:`ModelDownloadAborted` immediately.
-    - Pause → BLOCKS until resumed (or aborted), so the transfer thread
-      parks and bytes genuinely stop flowing.
-    - Otherwise returns at once (healthy-download fast path: two flag
-      reads, no sleeping).
-
-    Safe to call from any transfer thread, at any frequency.
-    """
+    """Enforce pause/abort at a transfer chunk boundary. Shared by the"""
     import time as _time
 
     if _abort_requested():
@@ -247,30 +121,7 @@ def check_download_gate() -> None:
 
 
 def get_download_tqdm_class() -> type:
-    """Return the download progress-bar class that enforces pause/abort.
-
-    WHY: huggingface_hub invokes ``bar.update(n)`` from the transfer
-    thread at every ~10 MB chunk boundary (``DOWNLOAD_CHUNK_SIZE``) on
-    the HTTP path. Subclassing the HF tqdm intercepts exactly those
-    boundaries:
-
-    - **Pause**, ``update()`` BLOCKS while the pause event is set, so
-      the transfer thread parks mid-download and bytes genuinely stop
-      flowing (the pre-fix pause only froze the progress REPORTER while
-      the transfer continued to completion). On resume the chunk loop
-      continues; if the idle HTTP connection died during a long pause,
-      huggingface_hub's connect-error retry re-requests with a Range
-      header and resumes from the partial blob.
-    - **Cancel**, ``update()`` raises :class:`ModelDownloadAborted`,
-      unwinding the transfer instead of letting it finish in the
-      background.
-
-    Subclasses ``huggingface_hub.utils.tqdm.tqdm`` (not vanilla tqdm) so
-    the ``name=`` kwarg ``_create_progress_bar`` passes is accepted.
-    The class is built lazily per call so importing ``asr_setup`` never
-    imports ``huggingface_hub``. Gate semantics live in
-    :func:`check_download_gate` (shared with the segmented engine).
-    """
+    """Return the download progress-bar class that enforces pause/abort."""
     from huggingface_hub.utils.tqdm import tqdm as _hf_tqdm
 
     class _DownloadGateTqdm(_hf_tqdm):
@@ -279,7 +130,6 @@ def get_download_tqdm_class() -> type:
             super().update(n)
 
         # Kept for back-compat with the gate unit tests (delegates to
-        # the shared implementation).
         def _gate_check(self) -> None:
             check_download_gate()
 
@@ -287,21 +137,7 @@ def get_download_tqdm_class() -> type:
 
 
 def force_http_download_path() -> None:
-    """Force huggingface_hub onto the HTTP chunk path (disable xet).
-
-    The pause/abort gate lives in the HTTP chunk loop's progress-bar
-    updates. The xet path reports progress from native Rust reporter
-    threads, where a blocking/raising callback does NOT reliably stop
-    the native transfer, so gate correctness requires the HTTP path.
-
-    ``ensure_hf_env`` already prefers this (setdefault, "xet can be
-    extremely slow on some connections"), but it only helps when it runs
-    BEFORE ``huggingface_hub`` is first imported (the flag is read into
-    ``constants`` at import time). This helper closes both gaps: it sets
-    the env var unconditionally AND overrides the already-imported
-    ``constants`` attribute, so the download path is on the gateable
-    HTTP path regardless of import order.
-    """
+    """Force huggingface_hub onto the HTTP chunk path (disable xet)."""
     os.environ["HF_HUB_DISABLE_XET"] = "true"
     try:
         from huggingface_hub import constants as _hf_constants
@@ -315,38 +151,17 @@ def force_http_download_path() -> None:
 
 
 # SEC-audit-005 / CRIT-5 / SEC-2: allow-list imported from the shared
-# ``_model_integrity`` module so ``parakeet_engine`` and ``asr_setup``
-# can never drift out of sync.  See ``_model_integrity.py`` for the
-# sync requirement with ``model_hashes.json``: pinned files in the
-# manifest MUST be a subset of these allow-patterns, otherwise
-# ``verify_model_integrity()`` hard-fails on every download.
 from voice_typer.server._model_integrity import (  # noqa: E402
     ALLOW_PATTERNS_PARAKEET as _HF_ALLOW_PATTERNS,
     ALLOW_PATTERNS_PARAKEET_ONNX as _HF_ALLOW_PATTERNS_PARAKEET_ONNX,
 )
 
 # removed the module-level ``_CONFIG_DIR`` cache.
-# It was a one-line indirection over ``config._config_dir()`` that
-# provided no measurable performance benefit (Path construction is
-# ~1 µs) and made the code harder to read.  Callers now use
-# ``config._config_dir()`` directly.
 
 # maximum number of download attempts (1 initial + 3 retries)
-# with exponential backoff.  This value is passed as ``max_attempts=`` to
-# ``_download_with_retry`` (NOT ``max_retries=``), so the name reflects
-# total attempts, not retries-after-the-first.  Previously named
-# ``_MAX_DOWNLOAD_RETRIES`` which was ambiguous ("4 retries" could mean
-# 4 total or 5 total); renamed for clarity.
 _MAX_DOWNLOAD_ATTEMPTS = 4
 
 # the local ``_check_disk_space`` and ``_ESTIMATED_MODEL_SIZES``
-# duplicate was REMOVED. The canonical disk-space check lives in
-# ``transcription.py::_check_disk_space_for_download`` (raises RuntimeError
-# on insufficient space). ``asr_setup.py`` delegates to it (see
-# ``download_parakeet_weights`` below). If the canonical import fails, we
-# log the error and proceed, the model download will fail naturally if
-# there's truly no space, which is a safer failure mode than running a
-# second, divergent size table that could drift out of sync.
 
 
 def ensure_hf_env():
@@ -363,36 +178,11 @@ def ensure_hf_env():
     # Suppress "unauthenticated requests" nag
     os.environ.setdefault("HF_HUB_DISABLE_UNVERIFIED_ACCESS_WARNING", "1")
     # Disable huggingface_hub telemetry (C-DATA-1: no unsolicited egress).
-    # Defensive, pinning the flag now guards against future
-    # huggingface_hub releases that expand their telemetry surface,
-    # without introducing any network call ourselves.
     os.environ.setdefault("HF_HUB_DISABLE_TELEMETRY", "1")
 
 
 def _verify_model_integrity(repo_id: str, local_dir: str) -> tuple[bool, dict[str, Any]]:
-    """Verify downloaded model files have valid structure.
-
-    Basic integrity check that the model directory
-        contains expected files and they're not empty.
-
-        SEC-audit-005: Delegates to the centralized
-        ``security.verify_model_integrity()`` which also checks SHA-256
-        hashes against the MODEL_HASHES manifest when available.
-
-        Returns ``(ok, details)`` instead of a bare bool so the
-        caller can surface a useful diagnostic when the integrity check
-        fails. ``details`` is a dict with the following keys (any of which
-        may be ``None`` when not applicable):
-
-        - ``failed_file``: relative path of the file that failed the check.
-        - ``expected_hash``: the manifest-declared SHA-256 for
-          ``failed_file``.
-        - ``actual_hash``: the computed SHA-256 for ``failed_file``.
-        - ``allow_pattern_matched``: whether the download's allow-patterns
-          matched any file in ``local_dir``.
-
-        When the integrity check passes, ``details`` is an empty dict.
-    """
+    """Verify downloaded model files have valid structure."""
     from voice_typer.server.security import MODEL_HASHES, verify_model_integrity
 
     ok = verify_model_integrity(local_dir, repo_id)
@@ -422,21 +212,9 @@ def _verify_model_integrity(repo_id: str, local_dir: str) -> tuple[bool, dict[st
                 break
             try:
                 # Cache-aware: a digest computed by the failed
-                # verify_model_integrity() pass above is a cache hit
-                # here, no second multi-GB hash. (Same key format,
-                # same manifest comparison, same first-failure break.)
                 actual_hash = hash_file_cached(repo_id, file_path, filename)
             except Exception as exc:
                 # Record the unhashable file as ``failed_file``
-                # (with ``actual_hash = None`` to distinguish "could not
-                # compute" from "computed-but-mismatched"), escalate the
-                # log from DEBUG to WARNING so it's visible in production
-                # logs, and ``break`` on the FIRST unhashable file —
-                # mirroring the ``not file_path.exists()`` branch above.
-                # Pre-fix this branch did ``continue`` with a ``log.debug``,
-                # silently skipping the unhashable file and leaving
-                # ``failed_file = None``, which was indistinguishable
-                # from an empty-manifest soft-pass.
                 log.warning(
                     "[ASR_SETUP] could not compute hash for %s: %s",
                     file_path,
@@ -476,12 +254,7 @@ def _verify_model_integrity(repo_id: str, local_dir: str) -> tuple[bool, dict[st
 
 
 def _cleanup_failed_cache(repo_id: str) -> None:
-    """Cache cleanup: best-effort delete a tampered HF cache dir.
-
-    Delegates to the canonical ``asr_utils.cleanup_hf_cache_dir``
-    helper (single source of truth, previously the body was duplicated
-    here).  Imported lazily to avoid an import cycle at module load.
-    """
+    """Cache cleanup: best-effort delete a tampered HF cache dir."""
     from voice_typer.server.asr_utils import cleanup_hf_cache_dir
 
     cleanup_hf_cache_dir(repo_id, log_prefix="[ASR_SETUP]")
@@ -494,17 +267,7 @@ def _run_parakeet_segmented_phase(
     seg_plan: Any,
     progress_callback: Callable[[str], None] | None,
 ) -> None:
-    """Fetch the planned big Parakeet files via the segmented engine.
-
-    Thin wrapper over :func:`segmented_download.run_segmented_phase`
-    that maps per-file starts onto the message-only progress callback
-    this module's callers already speak (the Parakeet UI never had byte
-    granularity, it shows status text at a fixed 50%).
-
-    Raises :class:`segdl.SegmentedDownloadError` (caller falls back to
-    classic) or propagates the gate's ``ModelDownloadAborted`` (caller
-    maps to cancelled).
-    """
+    """Fetch the planned big Parakeet files via the segmented engine."""
     from voice_typer.server import segmented_download as segdl
     from voice_typer.server.config import _config_dir
 
@@ -539,62 +302,8 @@ def download_parakeet_weights(
     config: Any = None,
     force: bool = False,
 ) -> tuple[bool, str, tuple[type, BaseException, Any] | None]:
-    """Download Parakeet TDT v3 model weights via huggingface_hub.
-
-    wraps snapshot_download in retry loop with exponential
-        backoff.  Max 4 attempts total (1 initial + 3 retries); the delays
-        tuple passed to ``_download_with_retry`` is ``(1s, 2s, 4s, 8s)``
-        but only the first 3 entries are consumed (one delay before each
-        retry), so the user-visible backoff is 1s, 2s, 4s. Logs each
-        retry attempt.
-
-    checks disk space before attempting download.
-
-        Defense-in-depth consent gate.
-        When ``config`` is provided, ``config.huggingface_consent`` MUST be
-        True before any HuggingFace network call.
-
-        The return type is now a 3-tuple
-        ``(success, reason, exc_info)``.  ``reason`` is a short reason code:
-          - ``"huggingface_consent_false"``: consent gate blocked download.
-          - ``"huggingface_hub_missing"``: ``huggingface_hub`` import failed.
-          - ``"disk_space_insufficient"``: canonical disk-space check raised.
-          - ``"download_retry_exhausted"``: all ``_MAX_DOWNLOAD_ATTEMPTS``
-            attempts failed (1 initial + 3 retries with exponential backoff).
-          - ``"integrity_check_failed"``: post-download integrity check
-            returned False (tampered or corrupted download).
-        Success returns ``(True, "", None)``.
-
-        ``exc_info`` is the captured ``sys.exc_info()`` 3-tuple
-        ``(type, value, traceback)`` from the most recent exception in this
-        function, or ``None`` when no exception was raised. The IPC layer /
-        diagnostic bundle consumer can format the traceback via
-        ``traceback.format_exception(*exc_info)`` to surface the full chain
-       , HF Hub URL, HTTP status, retry chain, originating frame inside
-        ``snapshot_download``: without needing to re-raise.
-
-        Args:
-            progress_callback: Optional callable(message: str) for progress updates.
-            config: Optional Config object: when provided and
-                ``huggingface_consent`` is True, the consent gate passes.
-    ``None`` is treated as consent NOT given ( safe default).
-            force: When True, bypass the consent gate entirely (explicit
-                escape hatch for legacy / test paths that verified consent
-                upstream and cannot forward a real Config object).
-
-        Returns:
-            ``(success, reason, exc_info)``: see above.
-    """
+    """Download Parakeet TDT v3 model weights via huggingface_hub."""
     # defense-in-depth consent gate with safe default.
-    # When ``force`` is False (the default), the gate refuses unless an
-    # explicit Config object with ``huggingface_consent=True`` is
-    # forwarded.  ``config=None`` is treated as "consent NOT given"
-    # (GDPR Art. 6/13 safe default) so a future refactor that drops
-    # the ``config`` argument from a call site cannot silently bypass
-    # the gate.  ``force=True`` is the explicit escape hatch for legacy
-    # / test paths that have already verified consent upstream and
-    # cannot forward a real Config object, the bypass is now EXPLICIT
-    # at the call site, not implicit.
     if not force and (config is None or not bool(getattr(config, "huggingface_consent", False))):
         if progress_callback:
             progress_callback("huggingface_consent_false")
@@ -605,7 +314,6 @@ def download_parakeet_weights(
         from huggingface_hub import snapshot_download
     except ImportError:
         # Append the install command so the user
-        # can recover without filing a bug or grepping pyproject.toml.
         log.exception(
             "[ASR_SETUP] huggingface_hub not available for Parakeet download "
             "(install with: pip install huggingface_hub)"
@@ -615,16 +323,6 @@ def download_parakeet_weights(
         return (False, "huggingface_hub_missing", None)
 
     # The engine is ONNX-only post-migration (parakeet_engine.py). The
-    # fp16 ONNX export (USER-selected repo, 2026-08-20) is the download
-    # target, the legacy safetensors weights (nvidia/parakeet-tdt-0.6b-v3)
-    # are NOT loadable by the engine anymore. ``grikdotnet/...`` is the
-    # upstream original of the fp16 export (the earlier
-    # ``visuall/...`` copy shipped NO config.json upstream, that is why
-    # the engine loads by TYPE name + local path instead of by repo
-    # name; onnx-asr needs config.json to resolve the model type).
-    # grikdotnet ships a real config.json (bytes pinned in
-    # model_hashes.json), so the old post-download synthesis hack was
-    # removed, ``verify_model_integrity`` passes on upstream files.
     repo_id = "grikdotnet/parakeet-tdt-0.6b-fp16"
 
     # SEC-audit-005: Use pinned revision from MODEL_HASHES manifest
@@ -645,9 +343,6 @@ def download_parakeet_weights(
             local_files_only=True,
         )
         # allow_patterns is a superset of the pinned manifest files;
-        # verify_model_integrity hard-fails if any pinned file is
-        # missing, so an incomplete download is caught below.
-        # Verify model integrity for cached weights
         if local_dir:
             cached_ok, cached_details = _verify_model_integrity(repo_id, local_dir)
         else:
@@ -660,7 +355,6 @@ def download_parakeet_weights(
             return (True, "", None)
         else:
             # Log the integrity-check details at WARNING before
-            # _cleanup_failed_cache removes the offending files.
             log.warning(
                 "[ASR_SETUP] Cached model failed integrity check, re-downloading "
                 "(details: failed_file=%s expected_hash=%s actual_hash=%s "
@@ -671,36 +365,17 @@ def download_parakeet_weights(
                 cached_details.get("allow_pattern_matched"),
             )
             # Cache cleanup on verify failure: remove the
-            # offending cache dir so the re-download doesn't get the
-            # same tampered files served from local cache.
             _cleanup_failed_cache(repo_id)
     except Exception as exc:
         # previously a bare ``except Exception: pass``.
-        # Corrupted HF cache (partial download, broken lock file,
-        # permissions issue, HF cache schema change) silently triggered
-        # a full re-download. The user saw "Downloading Parakeet TDT v3
-        # model..." (potentially 2.5 GB) on every launch with no
-        # explanation. Log at DEBUG level (this is expected on the
-        # first run when no cache exists yet) and include the exception
-        # so a non-trivial cache corruption is at least visible in the
-        # log file when the user is debugging.
 
         # NOTE (Fix-I / Fix-D coordination): Fix-D also touches this
-        # function (the ``download_parakeet_weights`` body) but only
-        # the retry-loop / progress-callback portion below. This cache-
-        # probe block is Fix-I's exclusive territory per the disjoint
-        # ownership table.
         log.debug(
             "[ASR_SETUP] cache probe failed (%s); will re-download",
             exc,
         )
 
     # (revised): Use the canonical disk space check from
-    # transcription.py instead of the local _check_disk_space() duplicate.
-    # The two implementations had different size tables and different
-    # return semantics (bool vs raise RuntimeError), creating a
-    # maintenance hazard. Now asr_setup delegates to the canonical version.
-    # See FORENSIC_REVIEW_COMPLETE.md →
     try:
         from voice_typer.server.transcription import _check_disk_space_for_download
 
@@ -713,12 +388,6 @@ def download_parakeet_weights(
         return (False, "disk_space_insufficient", sys.exc_info())
     except Exception as e:
         # If the canonical check can't be imported, log and
-        # proceed. The model download itself will fail naturally if
-        # there's truly no space, a safer failure mode than running a
-        # divergent local size table. Pre-fix this fell back to a local
-        # ``_check_disk_space`` duplicate that had different size
-        # thresholds and could drift out of sync with the canonical
-        # version.
         log.debug("[ASR_SETUP] canonical disk space check unavailable, proceeding: %s", e)
 
     msg = "Downloading Parakeet TDT v3 model..."
@@ -727,10 +396,6 @@ def download_parakeet_weights(
         progress_callback(msg)
 
     # Segmented fast lane for the big ONNX files (same design as the
-    # whisper branch): small files via classic snapshot (big ones
-    # ignored), big files via the segmented engine, probe-verify, classic
-    # fallback on any segmented failure. Planning NEVER raises (None =
-    # classic for everything, i.e. today's behavior).
     from voice_typer.server import segmented_download as segdl
     from voice_typer.server.security import MODEL_HASHES as _MH
 
@@ -743,16 +408,8 @@ def download_parakeet_weights(
     seg_names = [p.filename for p in seg_plan] if seg_plan else []
 
     # Force the gateable HTTP transfer path (see force_http_download_path):
-    # the pause/abort gate lives in the HTTP chunk loop's progress-bar
-    # updates; the xet path reports from native threads where a callback
-    # cannot stop the transfer.
     force_http_download_path()
     # (revised): Use the canonical _download_with_retry from
-    # transcription.py instead of the inline retry loop. The two
-    # implementations had different delay tables ([5,15,45] vs 2**attempt)
-    # and different API shapes (callable vs inline). Now asr_setup
-    # delegates to the canonical version. See FORENSIC_REVIEW_COMPLETE.md
-    # →
     try:
         from voice_typer.server.transcription import _download_with_retry
 
@@ -777,8 +434,6 @@ def download_parakeet_weights(
                 progress_callback=progress_callback,
             )
             # Self-verify by HF's own definition before the integrity
-            # check below: fail over to classic rather than shipping a
-            # layout the loader would reject.
             try:
                 snapshot_download(
                     repo_id=repo_id,
@@ -805,16 +460,6 @@ def download_parakeet_weights(
                 )
     except Exception as e:
         # Capture the full ``sys.exc_info()`` triple into the
-        # return tuple so the IPC layer / diagnostic bundle consumer
-        # can format the traceback (HF Hub URL, HTTP status, retry
-        # chain, originating frame inside ``snapshot_download``) for
-        # remote debugging, the #1 ASR-app support case. ``log.error``
-        # with ``exc_info=True`` writes the full traceback to the log
-        # file so the on-disk log is no longer blind to the underlying
-        # failure mode (429 rate-limit vs DNS vs CRC vs TLS).
-        # NOTE: an abort (ModelDownloadAborted) is a BaseException and
-        # never enters this handler, it unwinds to ``download_model``,
-        # which maps it to the cancelled outcome.
         captured_exc_info = sys.exc_info()
         log.error(
             "[ASR_SETUP] All %d download attempts failed. Last error: %s",
@@ -827,12 +472,6 @@ def download_parakeet_weights(
         return (False, "download_retry_exhausted", captured_exc_info)
 
     # Verify model integrity after download
-    # ``_verify_model_integrity`` now returns ``(ok, details)``.
-    # Log the details at ERROR before ``_cleanup_failed_cache`` removes
-    # the offending files: without these details, support cannot
-    # distinguish a missing pinned file from a hash mismatch from a
-    # tampered allow-pattern (all surface as the same opaque
-    # ``integrity_check_failed`` reason code).
     post_ok, post_details = _verify_model_integrity(repo_id, local_dir)
     if not post_ok:
         log.error(
@@ -847,8 +486,6 @@ def download_parakeet_weights(
         if progress_callback:
             progress_callback("Download completed but integrity check failed")
         # Cache cleanup on verify failure: remove the
-        # offending cache dir so the next call doesn't re-discover the
-        # tampered snapshot.
         _cleanup_failed_cache(repo_id)
         return (False, "integrity_check_failed", None)
     msg = "Parakeet model download complete"

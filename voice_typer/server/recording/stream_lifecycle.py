@@ -50,15 +50,9 @@ from voice_typer.server._audio_constants import (
 from voice_typer.server._lazy_import import lazy_module
 
 # PERF-COLDSTART-001: lazy import, sounddevice loads the PortAudio C
-# library at import time. The lazy proxy re-resolves ``sys.modules`` on
-# every attribute access, so test patches of the form
-# ``monkeypatch.setattr(recording.sd, "InputStream", fake)`` propagate
-# here automatically.
 sd = lazy_module("sounddevice")
 
 # All submodules use the package-level logger so log records propagate
-# to ``caplog.at_level(..., logger="voice_typer.server.recording")`` in
-# tests.
 log = logging.getLogger("voice_typer.server.recording")
 
 if TYPE_CHECKING:
@@ -74,19 +68,8 @@ class StreamLifecycle:
 
     def __init__(self, recorder: Any) -> None:
         # Collaborator back-reference. Typed ``Any`` to avoid a circular
-        # import (``recorder`` imports ``stream_lifecycle`` at module top
-        # to construct this class in ``Recorder.__init__``).
         self._recorder = recorder
         # STATE-OWNERSHIP: the PortAudio ``InputStream`` slot
-        # lives HERE (the owning collaborator), not on ``Recorder``.
-        # ``open_stream_for_candidates`` / ``open_stream_fallback``
-        # assign it, ``teardown_stream_body`` stops/aborts/closes +
-        # clears it, and ``DisconnectHandler.restart_stream`` swaps it
-        # on hot-plug restart. Consumers access it via
-        # ``recorder._stream_lifecycle._stream``. The recorder-level
-        # declaration was removed from ``recorder_init`` (E15); the
-        # empty-``None`` sentinel + all read/write semantics are
-        # identical to the pre-move attribute.
         self._stream: Any = None
 
     def open_stream_for_candidates(
@@ -130,26 +113,11 @@ class StreamLifecycle:
 
             stream = None
             try:
-                # AUDIO-CH: query device's max input channels.
-                # If device only supports stereo, use channels=2
-                # and convert to mono in the callback via _ensure_mono.
-                # If config.recording_channels > 0, use that value
-                # instead of auto-detecting (allows user override).
-                # recording_channels is a Config dataclass field
-                # (default 1), always present on a real Config instance,
-                # so the getattr fallback could never fire. The ``or 1``
-                # guard is preserved because recording_channels=0 is an
-                # invalid misconfig that would produce a zero-channel
                 # stream, defensive against misconfig, not missing attr.
                 config_channels = int(recorder.config.recording_channels or 1)
                 channels = config_channels if config_channels > 0 else 1
                 try:
                     # PERF: consult the cached device list (pre-warmed in
-                    # ``__init__`` via ``_prewarm_device_cache``) instead
-                    # of issuing a fresh ``sd.query_devices()`` RPC per
-                    # candidate. Each RPC is 50-200ms on Windows MME; with
-                    # 1-3 candidates the savings are 1-3 RPCs on the
-                    # hotkey critical path.
                     max_ch = recorder._cached_max_input_channels(candidate)
                     if config_channels <= 0:
                         # 0 = auto-detect: prefer mono, fallback to device default
@@ -161,7 +129,6 @@ class StreamLifecycle:
                         channels = max(1, max_ch)  # don't request more than device supports
                 except Exception:
                     # Channel probe failure falls back to the device default;
-                    # log so a device that keeps failing here is diagnosable.
                     log.debug(
                         "[RECORDING] channel probe failed for device %r, using default channel count",
                         candidate,
@@ -175,22 +142,8 @@ class StreamLifecycle:
                     device=candidate,
                     callback=callback,
                     # VAD-001 (rate-scaled): request ~32 ms blocks so each
-                    # chunk resamples to EXACTLY 512 samples at 16 kHz —
-                    # the Silero VAD window (1536 @ 48 kHz, 1411 @ 44.1 kHz;
-                    # the 512 floor keeps the contract on low-rate devices).
-                    # A fixed 512 block at native 48 kHz produced 10.7 ms
-                    # chunks (~93.75 callbacks/sec), ~3× the designed
-                    # worker/VAD cadence, with VAD hysteresis frame counts
-                    # running ~3× faster than documented. PortAudio
-                    # may still deliver a different size on some drivers,
-                    # but vad.py now pads/truncates to handle that.
                     blocksize=scaled_audio_blocksize(candidate_sr),
                     # Request the host API's "low" latency hint.
-                    # On ALSA/CoreAudio/WASAPI this selects the smallest
-                    # viable buffer (10-20 ms end-to-end callback latency).
-                    # PortAudio silently falls back to the default if the
-                    # requested latency is unavailable (PA clamps
-                    # suggestedLatency to [0, defaultLowInputLatency]).
                     latency="low",
                     # AUDIO-HOT: finished_callback detects unexpected stream termination
                     finished_callback=recorder._stream_finished_callback,
@@ -198,17 +151,10 @@ class StreamLifecycle:
                 stream.start()
 
                 # AUDIO-BT: detect Bluetooth HFP profile (8/16 kHz).
-                # After opening the stream, check if the actual sample
-                # rate differs from requested and is 8000 or 16000.
                 try:
                     actual_sr = int(stream.samplerate) if hasattr(stream, "samplerate") else candidate_sr
                     if actual_sr in SILERO_VAD_SAMPLE_RATES and actual_sr != candidate_sr:
                         # AUDIO-BT: detecting a Bluetooth HFP (hands-free
-                        # telephony) profile is EXPECTED behaviour for a BT
-                        # headset, it is not a fault or misconfiguration.
-                        # Demoted from WARNING to INFO so the default log
-                        # isn't littered with a non-error on every BT mic
-                        # connection.
                         log.info(
                             "[RECORDING] Bluetooth HFP profile detected: actual sample rate "
                             "%d Hz differs from requested %d Hz. Audio quality will be limited. "
@@ -219,7 +165,6 @@ class StreamLifecycle:
                         )
                 except Exception:
                     # BT quality detection is advisory only, but a persistent
-                    # probe failure should still leave a trail.
                     log.debug("[RECORDING] Bluetooth HFP profile probe failed", exc_info=True)
 
                 # AUDIO-CH: store actual channel count for callback
@@ -239,7 +184,6 @@ class StreamLifecycle:
 
             self._stream = stream
             # guard _effective_sr writes with the lock because
-            # snapshot() reads it under the lock from another thread.
             with recorder._audio_pipeline._lock:
                 recorder._effective_sr = candidate_sr
             selected_device = candidate
@@ -297,10 +241,6 @@ class StreamLifecycle:
             stream = None
             try:
                 # AUDIO-CH: also query channels for fallback devices.
-                # PERF: use the cached lookup (same rationale as the
-                # primary candidate loop above), the fallback path
-                # iterates ALL input devices, so per-candidate RPC
-                # savings compound quickly here.
                 fb_channels = 1
                 try:
                     fb_max_ch = recorder._cached_max_input_channels(candidate)
@@ -308,7 +248,6 @@ class StreamLifecycle:
                         fb_channels = 2
                 except Exception:
                     # Same channel-probe failure contract as the primary
-                    # candidate loop above, fall back to mono, leave a trail.
                     log.debug(
                         "[RECORDING] channel probe failed for fallback device %r, using mono",
                         candidate,
@@ -322,11 +261,8 @@ class StreamLifecycle:
                     device=candidate,
                     callback=callback,
                     # VAD-001 (rate-scaled): ~32 ms blocks, same rationale
-                    # as the primary open_stream_for_candidates call above.
                     blocksize=scaled_audio_blocksize(candidate_sr),
                     # Request the host API's "low" latency hint
-                    # (mirrors the primary open_stream_for_candidates call;
-                    # PortAudio silently falls back if unavailable).
                     latency="low",
                     # AUDIO-HOT: finished_callback detects unexpected stream termination
                     finished_callback=recorder._stream_finished_callback,
@@ -352,14 +288,6 @@ class StreamLifecycle:
             effective_sr = candidate_sr
             used_fallback = True
             # (pyrefly): ``dev_info_extra`` is typed
-            # ``dict | None`` because ``_resolve_effective_sample_rate``
-            # may return None when PortAudio can't enumerate the
-            # device. The earlier ``if dev_info_extra:`` gate
-            # protects the first access (logging at line ~1505),
-            # but this post-success log was unguarded, calling
-            # ``["name"]`` on None would raise ``TypeError`` here
-            # after a *successful* stream open. Fall back to a
-            # placeholder so the log line still fires.
             fb_name = dev_info_extra["name"] if dev_info_extra else "(unknown)"
             log.info(
                 "[RECORDING] Fallback succeeded with device [%s] %s",
@@ -396,11 +324,6 @@ class StreamLifecycle:
 
         def callback(indata, frames, time_info, status):
             # guard flag for in-flight callback.
-            # _teardown_stream() polls this flag for up to 300ms before
-            # calling stream.close() to avoid use-after-free if the
-            # callback is still running. With the RT-safe refactor, the
-            # callback is ~10µs (copy + deque append + Event.set), so
-            # the flag is almost always clear by the time teardown runs.
             recorder._is_in_audio_callback.set()
             try:
                 recorder._audio_callback_dispatch(indata, frames, time_info, status)
@@ -466,23 +389,9 @@ class StreamLifecycle:
             return
         if force:
             # Known-dead-device path (disconnect handler).
-            # ``abort()`` returns immediately without waiting for
-            # pending buffers to drain, unlike ``stop()`` which blocks
-            # indefinitely on a dead device. Both ``abort()`` and
-            # ``close()`` are best-effort here: the device is already
-            # gone, so failures are suppressed to keep the recovery
-            # critical path moving, and ``_stream`` is always cleared
-            # so the next ``start()`` opens a fresh stream.
             with contextlib.suppress(Exception):
                 self._stream.abort()
             # The drain poll is moot after ``abort()`` (PortAudio
-            # guarantees no further callback dispatch), but kept as a
-            # safety net for any in-flight callback that started before
-            # ``abort()`` took effect. Fast-path: skip the deadline
-            # computation + poll loop entirely when the callback flag
-            # is already clear on the first check (the common case —
-            # the RT callback is ~10µs so the flag is almost always
-            # clear by the time teardown runs).
             if recorder._is_in_audio_callback.is_set():
                 _deadline = time.perf_counter() + _TEARDOWN_CALLBACK_DRAIN_BUDGET_S
                 while recorder._is_in_audio_callback.is_set():
@@ -495,54 +404,8 @@ class StreamLifecycle:
             self._stream = None
             return
         # CLEAN path (stop from hotkey / discard / __del__), graceful
-        # drain via ``stop()`` so pending buffers complete before
-        # ``close()``. Exceptions from ``stop()`` / ``close()`` propagate
-        # to the caller (``Recorder._teardown_stream`` → its ``finally``
-        # releases the lock).
         self._stream.stop()
         # wait briefly for any in-flight audio
-        # callback to complete before closing the stream. This prevents
-        # PortAudio from calling the callback during/after stream.stop()
-        # which can cause use-after-free or deadlock.
-        #
-        # PERF- (Round 0): the previous "exponential backoff"
-        # implementation was inverted. It used::
-        #
-        #     if self._is_in_audio_callback.wait(timeout=_timeout):
-        #         break  # callback completed
-        #
-        # but ``threading.Event.wait(timeout)`` returns ``True`` when the
-        # flag is *set*, and the flag is set while the callback is
-        # *running* (see lines 1082/1086: set on entry, clear on exit).
-        # So the loop broke immediately when the callback WAS running
-        # (defeating the safety guard) and blocked for the full
-        # 20+30+50+80+130+200 = 510ms when the callback was NOT running
-        # (the common case).  Every dictation paid a half-second penalty.
-        #
-        # The fix: poll for the flag to become *clear* (callback not
-        # running), with a 5ms interval and a 300ms hard budget (matching
-        # the original 6×50ms worst case).  On a healthy system the flag
-        # is already clear on the first check → 0ms wait.  When the
-        # callback genuinely runs past ``stream.stop()``, the poll loop
-        # waits for it to finish (restoring the
-        # safety contract).
-        # magic numbers extracted to module constants
-        # (``_TEARDOWN_CALLBACK_DRAIN_BUDGET_S`` /
-        # ``_TEARDOWN_CALLBACK_POLL_INTERVAL_S``) so they can be tuned /
-        # referenced from tests without grep-and-replace.
-        #
-        # Fast-path: skip the deadline computation + poll loop entirely
-        # when the callback flag is already clear on the first check.
-        # The existing ``while`` loop already short-circuits on the
-        # first iteration (``is_set()`` returns False → body never
-        # runs), but the explicit ``if`` guard also skips the
-        # ``time.perf_counter()`` call + deadline arithmetic, a tiny
-        # but non-zero saving on every stop() (the common case is that
-        # the RT callback is ~10µs and has already returned by the time
-        # teardown runs). On a healthy system the fast-path fires
-        # ~100% of the time; the slow path only fires when the callback
-        # is genuinely in-flight (e.g. a slow driver callback past
-        # ``stream.stop()``).
         if recorder._is_in_audio_callback.is_set():
             _deadline = time.perf_counter() + _TEARDOWN_CALLBACK_DRAIN_BUDGET_S
             while recorder._is_in_audio_callback.is_set():

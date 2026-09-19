@@ -1,12 +1,4 @@
-"""macOS native hotkey backend.
-
-Split out from the original ``native_hotkeys.py`` god-file in Phase 4.5
-().
-
-Spawns ``macos-key-listener`` (Swift). Supports the FN key via
-``NSEvent.modifierFlags.contains(.function)``. Requires macOS
-Accessibility permission.
-"""
+"""macOS native hotkey backend."""
 
 import sys
 
@@ -21,12 +13,7 @@ def is_macos() -> bool:
 
 
 class MacNativeHotkey(SubprocessHotkeyBackend):
-    """macOS native hotkey backend.
-
-    Spawns ``macos-key-listener`` (Swift). Supports the FN key via
-    ``NSEvent.modifierFlags.contains(.function)``. Requires macOS
-    Accessibility permission.
-    """
+    """macOS native hotkey backend."""
 
     platform_name = "macOS"
     supports_fn = True

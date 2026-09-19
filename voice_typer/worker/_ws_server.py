@@ -1,41 +1,4 @@
-"""WebSocket server + connection handling for the worker (master plan §7.3).
-
-This module is an intentional extraction from ``voice_typer/worker/__main__.py``
-per E3 (no spaghetti entry files). It owns:
-
-- The WS server lifecycle: :func:`run_worker_server` binds
-  ``127.0.0.1:0`` via ``websockets.asyncio.server.serve``, emits the
-  ``worker_started`` stdout event, and blocks on ``stop_event`` until
-  graceful shutdown.
-- The connection handler :func:`_handle_connection`: authenticates the
-  slim-core sidecar, acknowledges heartbeats, dispatches the
-  ``shutdown`` command (which sets ``stop_event`` so ``run_worker_server``
-  unblocks and the worker exits cleanly), and dispatches
-  ``transcribe_offline`` (real ASR via
-  :func:`voice_typer.worker._transcribe.get_transcriber`, result pushed
-   back as ``transcribe_offline_result``, master plan §7.4).
-- The SIGTERM handler :func:`_install_sigterm_handler` (POSIX), also
-  sets ``stop_event`` on signal.
-- The :class:`_ShutdownTimer` that measures the wall-clock duration of
-  graceful shutdown for the ``[SHUTDOWN] worker shutdown complete <duration>``
-  log line per C-LOG-2.
-- Stdout helpers (:func:`_force_line_buffered_stdout`,
-  :func:`_emit_worker_started`) and the prewarm phase
-  (:func:`_run_prewarm_phase`).
-
-The shutdown command path is the authoritative graceful-shutdown
-mechanism. When the sidecar sends ``{"cmd":"shutdown"}``, the worker
-sends ``shutdown_ack``, calls ``stop_event.set()``, marks the shutdown
-timer's start, and closes the socket, so ``run_worker_server``'s
-``await stop_event.wait()`` unblocks, ``async with serve()`` exits
-cleanly, and ``run()``'s ``finally: lock_handle.release()`` runs.
-
-NOTE: a sidecar that closes the WS WITHOUT sending ``shutdown`` does
-NOT trigger worker exit (intentional, the respawn scheduler may
-briefly disconnect and reconnect). Use the ``shutdown`` command for
-graceful exit; SIGTERM (POSIX) / taskkill (Windows) is the forceful
-backstop.
-"""
+"""Worker WebSocket server helpers."""
 
 from __future__ import annotations
 

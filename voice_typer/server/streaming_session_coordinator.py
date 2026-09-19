@@ -1,36 +1,4 @@
-"""Streaming-session coordinator, extracted from ``RecordingController``
-(Phase 4.5 split).
-
-Owns the streaming-session **startup** path: checking whether hidden
-streaming is enabled for the active recording, building the
-``StreamingConfig``, and constructing + starting the
-``StreamingTranscriptionSession``.
-
-What stays on ``RecordingController``
---------------------------------------
-The streaming-session **accessors** (``get_streaming_session`` /
-``set_streaming_session`` / ``pop_streaming_session``) and the
-**cancel** helper (``_cancel_streaming_session``) remain on the
-controller. They are tightly coupled to the controller's
-``_streaming_session`` / ``_streaming_session_lock`` /
-``_pending_finalize_session`` state, and several static-source checks
-in the test-suite pin their source to the controller module
-(``inspect.getsource(RecordingController.pop_streaming_session)`` etc.).
-Moving them here would break those tripwires; keeping them on the
-controller preserves the atomic-pop contract verbatim.
-
-Collaborator pattern
---------------------
-:class:`StreamingSessionCoordinator` is constructed by
-``RecordingController.__init__`` with NO arguments (stateless). Each
-method takes a back-reference to the owning ``RecordingController``
-(``controller``) and reads ``controller._app``,
-``controller._streaming_session_lock``, etc.
-
-Originally lines 1611–1675 of ``recording_controller.py`` (the
-``_streaming_enabled`` / ``_streaming_config`` /
-``_start_streaming_session_if_enabled`` methods).
-"""
+"""Streaming session lifecycle coordination."""
 
 from __future__ import annotations
 
@@ -44,16 +12,7 @@ log = logging.getLogger(__name__)
 
 
 def _publish_live_preview_unsupported(cycle_id: str) -> None:
-    """Publish the ONE-TIME per-recording "live preview unavailable" signal.
-
-    Emitted from the coordinator's skip paths (the only place that knows
-    authoritatively whether the active engine supports hidden streaming)
-    so the renderer can surface a localized hint instead of silence.
-    The engine-capability check (``hasattr(active, "transcribe_words")``)
-    lives server-side; duplicating the engine list in TypeScript would
-    drift silently. Best-effort: a publish failure must never block the
-    recording start path.
-    """
+    """Publish the ONE-TIME per-recording "live preview unavailable" signal."""
     try:
         event_bus.publish(
             {
@@ -70,9 +29,7 @@ def _publish_live_preview_unsupported(cycle_id: str) -> None:
             "[STREAMING] Failed to publish live-preview-unavailable signal",
             exc_info=True,
         )
-    # Mirror onto the bubble channel so the sandboxed bubble window
     # (SEC-026, no python bridge) can show a localized hint instead of
-    # silently omitting live text for engines without transcribe_words.
     try:
         event_bus.publish(
             {
@@ -91,15 +48,7 @@ def _publish_live_preview_unsupported(cycle_id: str) -> None:
 
 
 class StreamingSessionCoordinator:
-    """Streaming-session startup + config helpers.
-
-    Extracted from the former ``RecordingController._streaming_enabled``
-    / ``_streaming_config`` / ``_start_streaming_session_if_enabled``
-    methods. Each method's body is the moved implementation, with
-    ``self.X`` references rewritten to ``controller.X`` for shared state.
-    ``RecordingController`` keeps 1-line delegators on each method name so
-    existing call sites and source-inspection checks continue to work.
-    """
+    """Streaming-session startup + config helpers."""
 
     def __init__(self) -> None:
         # Stateless helper, all state lives on the controller.
@@ -131,7 +80,6 @@ class StreamingSessionCoordinator:
             return
 
         # Streaming requires ``transcribe_words`` (word-level timestamps).
-        # Only Whisper supports this; skip for Parakeet/Qwen.
         active = app.models.active_transcriber()
         if active is not None:
             log.info(
@@ -157,29 +105,10 @@ class StreamingSessionCoordinator:
                 config=self.streaming_config(controller),
                 sample_rate=app.config.sample_rate,
                 # THREAD-REGISTRY: pass the app's registry so the
-                # streaming worker is tracked for coordinated shutdown.
-                # ``getattr`` with default ``None`` keeps this robust
-                # if a test constructs RecordingController with a mock
-                # app that doesn't have ``_thread_registry``.
                 thread_registry=getattr(app, "_thread_registry", None),
                 # Correlation id echoed in every transcription_partial
-                # payload. ``getattr`` keeps mock-app test fixtures working.
                 cycle_id=getattr(app, "_cycle_id", "") or "",
                 # Residual fence: let the session check whether the
-                # backend is busy in ANOTHER thread before its finalize path
-                # re-enters the captured engine. ``is_busy`` is keyed by
-                # backend NAME. PRIMARY scenario is same-cycle overlap:
-                # finalize()'s bounded join (~10s) can return while the
-                # worker's own transcription call is merely SLOW and still
-                # holds the busy flag (set/cleared around the call by the
-                # registry wrapper), the fence converts that concurrent-
-                # entry race into committed-only output. NOT a post-force-
-                # recovery guard: force_unload_active() force-clears the
-                # busy flag AND drops the registry slot, so after recovery
-                # is_busy(active_name) is False even while the orphaned
-                # thread runs (next cycle loads a fresh engine instance).
-                # Duck-typed getattr: test fixtures with
-                # mock app.models keep working (fence disabled).
                 busy_check=lambda: (
                     app.models.registry.is_busy(app.models.registry.active_name)
                     if getattr(getattr(app, "models", None), "registry", None) is not None

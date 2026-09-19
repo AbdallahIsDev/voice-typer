@@ -19,8 +19,6 @@ from .base import SubprocessHotkeyBackend
 from .factory import create_native_backend, is_native_backend_available
 from .modifiers import _key_name_to_token, _modifier_to_token
 
-# ─── Capture mode (hotkey recorder) ────────────────────────────────────────
-
 
 class NativeHotkeyRecorder:
     """Hotkey recorder that uses the native binary in "stream" mode.
@@ -62,13 +60,6 @@ class NativeHotkeyRecorder:
             raise RuntimeError("Failed to create native backend for recording")
         self._backend = backend
         # capture ``backend`` in a local so the
-        # ``recording_handler`` closure below does not need to re-read
-        # ``self._backend`` (which is ``Optional`` and could be reset to
-        # ``None`` by ``stop()`` on another thread).  ``backend`` is
-        # narrowed to non-None by the guard above, so attribute accesses
-        # on it type-check cleanly.
-        # Override the line handler so events go to our queue instead of
-        # the hotkey matcher.
         original_handler = backend._handle_line
 
         def recording_handler(line: str) -> None:
@@ -99,17 +90,6 @@ class NativeHotkeyRecorder:
             original_handler(line)
 
         # ``# type: ignore[assignment]`` is required because
-        # ``recording_handler`` is a free function (signature
-        # ``(line: str) -> None``) while ``backend._handle_line`` is a
-        # bound method (signature ``(self, line: str) -> None``). The
-        # override is intentional: the recorder needs to intercept ALL
-        # wire-protocol lines during capture mode (not just hotkey
-        # matches), so it replaces the bound method with a closure that
-        # captures ``backend`` (and ``self``) via closure scope instead
-        # of taking them as parameters. The override is reverted when
-        # ``stop()`` sets ``self._backend = None`` (the next
-        # ``start()`` call creates a fresh backend with the original
-        # bound method).
         backend._handle_line = recording_handler  # type: ignore[assignment]
         backend.start(lambda: None)
 
@@ -168,8 +148,6 @@ class NativeHotkeyRecorder:
                 break
             elif event_type == "KEY_UP":
                 # Single-key release without a preceding KEY_DOWN —
-                # could be a modifier-only capture (e.g. user pressed
-                # and released Alt). Build a modifier-only spec.
                 pass
 
         # If we have only modifiers (no main key), build a modifier-only spec

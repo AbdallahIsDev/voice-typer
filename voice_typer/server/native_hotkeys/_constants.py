@@ -1,8 +1,4 @@
-"""Native hotkey backend, shared constants.
-
-Kept in a dedicated leaf module so mixin modules can import them
-without circular dependencies.
-"""
+"""Native hotkey backend, shared constants."""
 
 from __future__ import annotations
 

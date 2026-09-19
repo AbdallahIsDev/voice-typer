@@ -1,35 +1,4 @@
-"""VoiceTyperService: service layer between IPC and domain logic.
-
-previously ipc_server.py directly called VoiceTyperApp
-methods (26 call sites).  This service layer provides a clean
-boundary so a second transport (CLI, gRPC, REST) can be added
-without duplicating app glue.
-
-The service is a thin facade, it delegates to the app but provides
-a stable interface that doesn't leak VoiceTyperApp's internal API.
-
-The original 2,116-line god class has been split
-into ten domain mixins plus this module. This module owns ONLY
-``VoiceTyperService.__init__``, the ``restart`` / ``quit`` lifecycle
-methods, and the ``StatusResponse`` / ``ForceCancelResult``
-TypedDicts. All other surface (config, GDPR, dictation,
-history, model, onboarding, microphone-test, status, template,
-vocabulary) is composed via multiple inheritance from the domain
-mixins in this package, so ``VoiceTyperService`` exposes the same
-public surface it always has. Every public method name and signature
-is preserved verbatim, and resolves via MRO to the mixin copy (which
-is the single source of truth, no method or constant is duplicated
-on this class).
-
-the model-download daemon thread (in
-:meth:`ModelMixin.download_model`, ``voice_typer/server/service/model.py``)
-spawns a daemon thread whose only side-effect is writing to the HF
-cache dir, no critical cleanup. On force-kill the partial download is
-resumed on next start via HF's ``resume_download=True``. (Rationale
-kept here so the regression guard in
-``tests/regressions/test_platform_misc.py::TestDaemonThreadRationaleDocumented``
-that introspects ``inspect.getsource(service)`` still finds it.)
-"""
+"""Service package composition."""
 
 import logging
 from typing import TYPE_CHECKING, TypedDict
@@ -50,23 +19,13 @@ from .privacy import PrivacyMixin
 
 if TYPE_CHECKING:
     # T1-F9: imported only under ``TYPE_CHECKING`` so the annotation
-    # ``-> "TemplateManager"`` on :meth:`_template_manager` resolves at
-    # type-check time without forcing a runtime import (and a possible
-    # cycle) of :mod:`voice_typer.server.templates`.
     from voice_typer.server.providers import AppProtocol  # noqa: F401
     from voice_typer.server.templates import TemplateManager  # noqa: F401
 
 log = logging.getLogger(__name__)
 
 
-# ── TypedDicts for the most critical ``dict`` returns ──
 # These replace bare ``dict`` annotations so static type checkers (and
-# IDE autocomplete) can verify the shape of the response payloads that
-# flow from the service layer to the IPC layer (and ultimately to the
-# renderer).  The remaining ~47 service methods that still return bare
-# ``dict`` are widened to ``dict[str, object]`` as a mechanical
-# improvement (callers must opt into per-key typing by defining their
-# own TypedDicts when they need stronger guarantees).
 
 
 class StatusResponse(TypedDict):
@@ -74,9 +33,6 @@ class StatusResponse(TypedDict):
 
     status: str
     # The tray-tooltip reason for the current state. MUST stay in lockstep
-    # with ``status``: renderer sync paths derive BOTH the ERROR pill and
-    # the Home description line from this pair (diverging them re-opens the
-    # intermittent "ERROR pill with normal dictate hint" bug).
     message: str
     xruns_since_start: int
     loaded_via: str
@@ -85,17 +41,6 @@ class StatusResponse(TypedDict):
 
 
 # the four ``DownloadXxx`` TypedDicts + ``DownloadResult`` union
-# were removed because ``download_model`` returns plain ``dict`` literals
-# (service/model.py:1073,1079,1081 + the consent_required return) that
-# happen to have the right keys, not TypedDict instances. Pyrefly
-# correctly flagged the mismatch (3 ``bad-return`` errors baselined in
-# ``pyrefly-baseline.json``); the union gave no real protection (a typo
-# like ``{"succes": True}`` would still compile, pass tests, and ship).
-# The safer fix is to widen the return annotation on ``download_model``
-# to ``dict[str, object]`` (matching the actual runtime shape) rather
-# than construct TypedDicts explicitly at every call site (too many
-# sites to change safely in one session). The runtime shape is verified
-# by the existing ``tests/test_service_fixes.py`` suite.
 
 
 class ForceCancelResult(TypedDict):
@@ -137,49 +82,13 @@ class VoiceTyperService(
     def __init__(self, app: "AppProtocol") -> None:
         self._app = app
         # Delegate config side-effects + apply_config to
-        # the extracted ConfigApplier (to_filter_dict +
-        # save_strict()). The previous inline copies were never wired up.
-        # ConfigApplier is the single owner of the config-mutation lock
-        # acquisition + rollback logic so the
-        # regression test ``tests/regressions/test_concurrency.py`` can
-        # introspect ``ConfigApplier.apply_config`` for the lock.
         self._config_applier = ConfigApplier(self)
         # delegate state initialisation to the owning mixins
-        # (instead of having the base class own state for 3 separate
-        # concerns, ModelMixin's download-cancel + model-status-cache
-        # state, MicrophoneTestMixin's microphones-cache state). Each
-        # mixin's ``__init__`` initialises ONLY its own state, so the
-        # base class is no longer a fat owner of mixin-specific fields.
-        # The mixin ``__init__`` methods are called explicitly (rather
-        # than via cooperative ``super().__init__()`` chaining) because
-        # ``ServiceMixinBase`` in ``_base.py`` doesn't define an
-        # ``__init__`` that accepts the ``app`` argument, cooperative
-        # MI would require modifying ``_base.py``. Functionally
-        # equivalent: the state ends up on the same instance via the
-        # same MRO.
-        # The state-ownership fix was previously applied
-        # INCONSISTENTLY, only ``MicrophoneTestMixin`` got its own
-        # ``__init__`` extraction. ``ModelMixin``'s six state fields
-        # (``_download_cancel_events``, ``_download_cancel_lock``,
-        # ``_active_download_id``, ``_model_status_cache``,
-        # ``_model_status_cache_ts``, ``_model_status_cache_lock``)
-        # were still being initialised inline here. They are now owned
-        # by ``ModelMixin.__init__`` so each mixin is the single source
-        # of truth for its own state, mirroring the
-        # ``MicrophoneTestMixin`` pattern.
         ModelMixin.__init__(self)
-        # ``_onboarding`` holds the live :class:`OnboardingController`
-        # between :meth:`OnboardingMixin.onboarding_start` and
-        # :meth:`OnboardingMixin.onboarding_apply`. Initialise to
-        # ``None`` so the ``getattr(self, "_onboarding", None)``
         # defensive reads in ``service/onboarding.py`` resolve to a
-        # typed value (and so the ClassVar annotation on
-        # :class:`ServiceMixinBase` is honoured at runtime).
         self._onboarding = None
         # ``_microphones_cache`` initialised to ``None``.
         MicrophoneTestMixin.__init__(self)
-
-    # ── Lifecycle ───────────────────────────────────────────────
 
     def restart(self) -> None:
         """Restart the application."""
@@ -188,8 +97,6 @@ class VoiceTyperService(
     def quit(self) -> None:
         """Quit the application."""
         self._app.quit_app()
-
-    # ── Config side effects ──────────────────────────
 
 
 __all__ = [

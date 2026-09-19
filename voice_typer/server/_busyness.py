@@ -69,22 +69,10 @@ class BusynessCoordinator:
 
     def __init__(self) -> None:
         # ``threading.Event`` whose SET state means "NOT busy" (the
-        # event doubles as a "ready" signal: ``wait()`` blocks while
-        # busy and returns immediately when idle). This preserves the
-        # exact primitive the legacy code used so the back-compat
-        # ``_busy_event`` property (delegating to this object) keeps
-        # the same wait/notify semantics for non-migrated consumers.
         self._busy_event = threading.Event()
         self._busy_event.set()  # start IDLE
         # Companion lock, used by the legacy code paths as a
-        # coarse-grained mutex around ``_transcription_thread`` writes
-        # etc. Kept here (not deleted) because non-owned consumer
-        # files (``recording_lifecycle.py``, ``transcription_watchdog.py``)
-        # still acquire it via the back-compat ``_lock`` property on
-        # VoiceTyperApp.
         self._lock = threading.Lock()
-
-    # ── Intent-revealing public API ────────────────────────────────
 
     def adopt_event(self, event: threading.Event) -> None:
         """Rebind the underlying event to ``event``.

@@ -24,27 +24,18 @@ from pathlib import Path
 log = logging.getLogger(__name__)
 
 # precompiled regexes, was `re.sub(r"\s+", ...)` recompiled per call
-# (Python's re module has an internal cache, but with MAX_TEMPLATES=1000 the
-# inner loop re-looks-up the cached pattern 1000 times per dictation).
 _WHITESPACE_RE = re.compile(r"\s+")
 # single regex pass for variable substitution with lazy resolution.
-# Was: 4 eager str.replace() calls, including a potentially-blocking
-# _get_clipboard_text() even when the output had no {clipboard} placeholder.
 _TEMPLATE_VAR_RE = re.compile(r"\{(today|now|clipboard|username)\}")
 
 TEMPLATES_FILENAME = "templates.json"
 _LEGACY_TEMPLATES_FILENAME = "voice-typer-templates.json"
 
 # SEC-011-style caps for templates to prevent resource
-# exhaustion. Mirror vocabulary.MAX_CORRECTIONS_ENTRIES pattern.
 MAX_TEMPLATES = 1000
 MAX_TRIGGER_LENGTH = 200
 # Template OUTPUT is free-form text (a whole paragraph / document the
-# trigger expands to), so the cap is generous, 128 KiB, well under the
-# 256 KiB whole-payload IPC cap (the real ceiling for one save).
 MAX_OUTPUT_LENGTH = 128 * 1024
-
-# ─── Variable substitution ─────────────────────────────────────────────
 
 
 def _get_clipboard_text() -> str:
@@ -113,9 +104,6 @@ def _safe_getuser() -> str:
         return "user"
 
 
-# ─── Template manager ──────────────────────────────────────────────────
-
-
 class TemplateManager:
     """Manages voice templates: CRUD, persistence, matching."""
 
@@ -126,10 +114,6 @@ class TemplateManager:
             config_dir = _config_dir()
         self._path = config_dir / TEMPLATES_FILENAME
         # One-time migration of the legacy prefixed name
-        # (``voice-typer-templates.json`` → ``templates.json``). Best-effort —
-        # a failed rename falls back to the canonical name on the next
-        # write, so the legacy file is never silently clobbered and the
-        # migration is idempotent (mirrors the O4 prewarm-status pattern).
         _legacy = config_dir / _LEGACY_TEMPLATES_FILENAME
         if _legacy.exists() and not self._path.exists():
             try:
@@ -142,37 +126,17 @@ class TemplateManager:
             except OSError as exc:
                 log.debug("[TEMPLATES] legacy file migration failed: %s", exc)
         # Route persistence through PersistedJSON so templates
-        # get single-slot .bak before overwrite + corrupt-file
-        # quarantine + 0o600 perms (parity with config.py). The
-        # previous implementation used _secure_atomic_write for saves
-        # but had NO .bak and NO quarantine on load failure.
         from voice_typer.server.secure_file_io import PersistedJSON
 
         self._store = PersistedJSON(self._path, default={"templates": []})
         self._templates: list[dict] = []
         # re-entrant lock guarding ``_templates`` +
-        # ``_exact_index`` + ``_contains_list``.  ``match`` iterates
-        # the indexes while CRUD methods (``add`` / ``update`` /
-        # ``delete`` / ``import_json``) mutate ``_templates`` and
-        # rebuild the indexes via ``_rebuild_indexes``.  Without a
-        # lock, a CRUD mutation interleaved with a ``match`` iteration
-        # could observe a half-rebuilt index, the same race
-        # fixed for ``VocabularyManager``.  ``RLock`` because ``_save``
-        # is called from inside already-locked CRUD methods and
-        # ``add``'s rollback path re-mutates ``_templates``.
         self._lock = threading.RLock()
         # match indexes for O(1) exact lookup + reduced-scan
-        # contains lookup. Rebuilt by ``_rebuild_indexes`` after every
-        # mutation (add/update/delete/import/load). Pre-fix ``match`` did
-        # an O(N) linear scan of ``self._templates`` on every dictation;
-        # with MAX_TEMPLATES=1000 that was 1000 iterations per call.
         self._exact_index: dict[str, dict] = {}
         self._contains_list: list[tuple[str, dict]] = []
         # _load() calls _rebuild_indexes() at its end so the
-        # indexes are populated by the time __init__ returns.
         self._load()
-
-    # ── Match indexes () ─────────────────────────────────────
 
     def _rebuild_indexes(self) -> None:
         """rebuild the match indexes from ``self._templates``.
@@ -202,16 +166,6 @@ class TemplateManager:
         self._contains_list = []
         for t in self._templates:
             # skip templates without a usable ``output`` field.
-            # ``_load`` already validates structure on the load path,
-            # but templates added via ``update`` (which writes raw
-            # user input directly into the dict without an
-            # ``"output" in t`` guard) or via direct IPC mutation can
-            # still reach here with a missing/None output. Pre-fix,
-            # such a template would be indexed and then cause
-            # ``KeyError: 'output'`` inside ``match``: breaking the
-            # template-matching pipeline mid-dictation. Skipping it
-            # here means ``match`` can safely use ``.get("output", "")``
-            # and never KeyError.
             if not t.get("output"):
                 continue
             trigger = t.get("trigger", "")
@@ -223,14 +177,9 @@ class TemplateManager:
                 self._contains_list.append((trigger_norm, t))
             else:
                 # Exact: first-wins for duplicate normalized triggers
-                # (preserves the pre-fix linear scan's first-match-wins
-                # behavior under strict ``<`` comparison).
                 if trigger_norm not in self._exact_index:
                     self._exact_index[trigger_norm] = t
         # Sort contains list by trigger length ascending so ``match``
-        # can early-exit once it sees a trigger >= the current best
-        # length. Stable sort preserves original order for same-length
-        # triggers (first-wins semantics).
         self._contains_list.sort(key=lambda pair: len(pair[0]))
 
     @property
@@ -259,8 +208,6 @@ class TemplateManager:
         """
         with self._lock:
             return list(self._templates)
-
-    # ── Persistence ──────────────────────────────────────────────────
 
     def _load(self) -> None:
         """Load templates from JSON file.
@@ -312,12 +259,6 @@ class TemplateManager:
         else:
             raw_list = []
         # per-item structural validation. Drop any item that
-        # isn't a dict or that lacks a "trigger" or "output" key, and
-        # log a single warning summarising the dropped count so the
-        # user can see their file was partially-corrupt (the file is
-        # NOT quarantined, the JSON itself is valid; only the
-        # per-item structure is wrong, so we keep the file and just
-        # skip the bad entries). Mirrors the import_json validation.
         if not isinstance(raw_list, list):
             raw_list = []
         validated: list[dict] = []
@@ -365,17 +306,9 @@ class TemplateManager:
         """
         try:
             # PersistedJSON.save handles atomic write + .bak
-            # + 0o600 perms + parent-dir creation in one call.
-            # durability=False, the atomic os.replace still
-            # guarantees consistency (no half-written files); only the
-            # per-save fsync is dropped. Template edits are frequent
-            # (CRUD ops from the settings UI) and a power-loss window
-            # of a few seconds is acceptable.
             self._store.save({"templates": self._templates}, durability=False)
         except Exception:
             # M-62: log then re-raise so callers can roll back.
-            # use log.exception so the traceback is captured
-            # automatically via sys.exc_info().
             log.exception("[TEMPLATES] Failed to save")
             raise
         log.debug("[TEMPLATES] Saved %d templates", len(self._templates))
@@ -433,8 +366,6 @@ class TemplateManager:
                 self._save()
             except Exception:
                 # Rollback: remove the template we just appended.
-                # Use identity check (not equality) in case the template
-                # dict happens to equal an earlier entry.
                 for i in range(len(self._templates) - 1, -1, -1):
                     if self._templates[i] is template:
                         del self._templates[i]
@@ -502,8 +433,6 @@ class TemplateManager:
             self._rebuild_indexes()
             return True
 
-    # ── Full-replace (bulk set) ──────────────────────────────────────
-
     def replace_all(self, templates: list[dict]) -> None:
         """Atomically replace the entire template list.
 
@@ -544,18 +473,10 @@ class TemplateManager:
                 self._save()
             except Exception:
                 # Rollback: restore the previous in-memory list so the
-                # in-memory state stays consistent with the on-disk
-                # state (which was NOT overwritten because _save
-                # raised before PersistedJSON.save reached os.replace).
                 self._templates = old_templates
                 raise
             # rebuild match indexes after the swap so ``match`` sees
-            # the new templates immediately. Done AFTER _save succeeds
-            # so a save failure leaves the OLD indexes intact (which
-            # match the OLD in-memory list we just restored).
             self._rebuild_indexes()
-
-    # ── Import / Export ───────────────────────────────────────────────
 
     def export_json(self) -> str:
         """Export templates as a JSON string.
@@ -602,7 +523,6 @@ class TemplateManager:
                     trigger_str = trigger_raw if isinstance(trigger_raw, str) else str(trigger_raw)
                     output_str = output_raw if isinstance(output_raw, str) else str(output_raw)
                     # Use the stripped length for the trigger cap to match
-                    # the add() behavior (which strips before storing).
                     if len(trigger_str.strip()) > MAX_TRIGGER_LENGTH:
                         dropped += 1
                         continue
@@ -650,8 +570,6 @@ class TemplateManager:
                 log.exception("[TEMPLATES] Import failed")
                 return 0
 
-    # ── Matching ─────────────────────────────────────────────────────
-
     def match(self, text: str) -> str | None:
         """Try to match *text* against any template trigger.
 
@@ -695,24 +613,12 @@ class TemplateManager:
             best_len = float("inf")
 
             # O(1) exact lookup. The exact match (if any) sets
-            # the upper-bound length for the contains scan below.
             exact_t = self._exact_index.get(normalized)
             if exact_t is not None:
                 best_match = exact_t
                 best_len = len(normalized)
 
             # reduced-scan contains lookup. The list is sorted by
-            # trigger length ascending; once we see a trigger whose length
-            # is >= best_len, no subsequent (longer) trigger can beat the
-            # current best, so we early-exit. Before any match is found
-            # (best_len == inf) we scan the entire contains list.
-            # iterate ``self._contains_list`` DIRECTLY (no per-call
-            # copy): every writer goes through ``_rebuild_indexes``
-            # under ``self._lock`` and REASSIGNS the attribute to a
-            # fresh list (built + sorted before publication), so the
-            # object referenced here is never mutated in place. The
-            # previous ``list(...)`` snapshot copied up to MAX_TEMPLATES
-            # entries on every dictation for no concurrency benefit.
             for trigger_norm, t in self._contains_list:
                 if len(trigger_norm) >= best_len:
                     break
@@ -722,18 +628,8 @@ class TemplateManager:
 
             if best_match is None:
                 return None
-            # use ``.get("output", "")`` instead of a direct
-            # subscript. ``_rebuild_indexes`` now skips templates
-            # without an ``output`` field, so ``best_match`` should
             # always have one, but a defensive ``.get`` keeps
-            # ``match`` from raising ``KeyError`` if a future code
-            # path adds a template to the index without going through
-            # ``_rebuild_indexes``'s validation. An empty-output
-            # template substituting to "" is a graceful no-op rather
-            # than a pipeline-crashing KeyError.
             output = best_match.get("output", "")
 
         # Substitute variables OUTSIDE the lock so the (potentially
-        # blocking) clipboard read in ``{clipboard}`` doesn't block
-        # concurrent CRUD calls.
         return substitute_variables(output)

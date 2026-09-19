@@ -91,11 +91,7 @@ This preserves every test access pattern documented in
 
 from __future__ import annotations
 
-# ─── Top-of-module imports ──────────────────────────────────────────────
 # Re-exported for backward compatibility, the original module bound these
-# names at module top, and tests / production code that does
-# ``from voice_typer.server import level_monitor; level_monitor.np``
-# expects them to keep working.
 import base64  # noqa: F401, re-exported
 import collections  # noqa: F401, re-exported
 import contextlib  # noqa: F401, re-exported
@@ -110,13 +106,9 @@ import numpy as np  # noqa: F401, re-exported
 
 log = logging.getLogger(__name__)
 
-# ─── State singleton + class re-export ──────────────────────────────────
 from ._state import _State, _state  # noqa: E402, F401
 
-# ─── Public + private API re-exports ────────────────────────────────────
 # Each name below is genuinely defined in a sibling submodule.  We import
-# it here so ``from voice_typer.server.level_monitor import X`` keeps
-# working for both production code and the test suite.
 from .monitoring import (  # noqa: E402
     _emit_device_lost,  # noqa: F401
     _ensure_mic_level_worker_running,  # noqa: F401
@@ -189,62 +181,19 @@ __all__ = [
 
 
 def _reset_state_for_tests() -> None:
-    """Test-only helper: reset all mutable state to post-``__init__`` defaults.
-
-    Equivalent to the inline ``lm._test_mode = False; lm._test_chunks.clear();
-    lm._monitor_active = False; ...`` blocks at the top of
-    ``tests/test_level_monitor.py`` / ``tests/test_level_monitor_disconnect.py``
-    / ``tests/test_mic_level_push_event.py``. Provided as a convenience —
-    tests can call ``lm._reset_state_for_tests()`` for a one-line reset
-    instead of enumerating every global.
-
-    NOTE: this function does NOT stop the worker threads (call
-    ``lm._stop_level_worker()`` and ``lm._stop_mic_level_worker()``
-    separately if needed). It also does NOT close the PortAudio stream
-    (call ``lm.stop_monitoring()`` for that).
-    """
+    """Test-only helper: reset all mutable state to post-``__init__`` defaults."""
     _state.reset_for_tests()
 
 
-# ─── Custom module class for mutable-state routing ──────────────────────
 # TECH-DEBT (mirrors the pattern in recording/__init__.py).
-# Tests access state via ``lm._test_mode`` (read) / ``lm._test_mode = False``
-# (write): i.e. via the package namespace, NOT via ``_state`` directly.
-# Without this routing, those reads/writes would land on the package's
-# own ``__dict__`` (a stale snapshot taken at import time), and the
-# submodules that actually own + read the state (via ``_state._X``)
-# would never see the test's write, the test would silently no-op.
-#
-# The custom ``_LevelMonitorModule`` class below installs ``__getattr__``
-# and ``__setattr__`` overrides that route ``_``-prefixed attribute
-# access through to the singleton ``_state`` instance in :mod:`._state`.
-# Reads of non-routed names fall back to the normal ``AttributeError``
-# (which Python resolves via the package's ``__dict__`` before
-# ``__getattr__`` is even called).
 import sys  # noqa: E402
 
 
 class _LevelMonitorModule(sys.modules[__name__].__class__):
-    """Module subclass routing mutable-state reads/writes to ``_state``.
-
-    See the comment block above for the rationale.  The class is
-    installed as the package's ``__class__`` at the bottom of this file
-    via ``sys.modules[__name__].__class__ = _LevelMonitorModule``.
-
-    Routing rule: any attribute name starting with ``_`` that exists on
-    ``_state`` is routed. Non-``_``-prefixed names (e.g. ``np``,
-    ``log``, ``time``) and ``_``-prefixed names NOT on ``_state``
-    (e.g. ``__name__``, ``__file__``, ``_LevelMonitorModule`` itself)
-    fall back to normal module attribute lookup.
-    """
+    """Module subclass routing mutable-state reads/writes to ``_state``."""
 
     def __getattr__(self, name: str) -> object:
         # ``__getattr__`` is only called when normal attribute lookup
-        # (via ``__dict__``) fails, so this is a fallback for names
-        # NOT bound at import time.  All ``_``-prefixed mutable state
-        # lives on ``_state`` and is deliberately NOT imported into the
-        # package's ``__dict__`` (see above), so reads route through
-        # here.
         if name.startswith("_"):
             try:
                 return getattr(_state, name)
@@ -256,9 +205,6 @@ class _LevelMonitorModule(sys.modules[__name__].__class__):
 
     def __setattr__(self, name: str, value: object) -> None:
         # Route writes for ``_``-prefixed names that exist on ``_state``.
-        # This propagates test writes (``lm._test_mode = False``) to the
-        # singleton so production code reading ``_state._test_mode`` sees
-        # the new value.
         if name.startswith("_") and hasattr(_state, name):
             setattr(_state, name, value)
             return

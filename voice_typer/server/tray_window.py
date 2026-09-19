@@ -1,28 +1,4 @@
-"""App window management for the system tray.
-
-#13: Extracted from tray.py to separate concerns:
-- Win32 window focus (EnumWindows/AttachThreadInput/SetForegroundWindow)
-- Window focus fallbacks (macOS AppleScript, Linux wmctrl/xdotool)
-
-(Phase 4.5 spaghetti split): extended with the
-remaining window-management + quit-confirmation concerns that were
-still inlined on ``TrayIcon``:
-
-  - :func:`open_page`: publish a ``navigate`` event so the renderer
-    opens the given route (Settings / History / Help / Models).
-  - :func:`open_models_page`: open the app window and navigate
-    to ``/models``.
-  - :func:`confirm_quit_while_recording`: quit immediately via the
-    controller (the old confirmation dialog was removed; crash
-    recovery + ``quit_app`` handle in-flight transcriptions).
-
-These operations are platform/IPC-specific and independent of the
-pystray icon lifecycle, so they belong in their own module. The
-``TrayIcon`` class keeps one-line delegate methods for each so tests
-that do ``monkeypatch.setattr("voice_typer.server.tray.TrayIcon.X", ...)``
-keep working and source-grep tests that scan ``tray.py`` for the
-method signatures still pass.
-"""
+"""Tray window helpers."""
 
 import logging
 import subprocess
@@ -37,7 +13,6 @@ if TYPE_CHECKING:
 log = logging.getLogger("voice_typer.server.tray_window")
 
 # Track the PID of the host process we launched
-# so quit() can terminate it explicitly as a safety net.
 _host_pid: int | None = None
 
 
@@ -53,18 +28,7 @@ def get_host_pid() -> int | None:
 
 
 def _host_process_is_running() -> bool:
-    """Return True if a Voice Typer host process appears to be alive.
-
-    Checks in order:
-    1. The tracked ``_host_pid`` (set when *this* backend launched
-       the host process), via the cross-platform ``_is_pid_alive`` helper.
-    2. A ``pgrep -f <APP_NAME>`` process-table match (macOS/Linux) —
-       catches a host process launched by another backend instance or a
-       manual start.
-
-    Used by :func:`open_app_window` to avoid spawning a DUPLICATE
-    host process when the window-focus fallback fails.
-    """
+    """Return True if a Voice Typer host process appears to be alive."""
     from voice_typer.server.backend_pid import _is_pid_alive
 
     pid = _host_pid
@@ -72,7 +36,6 @@ def _host_process_is_running() -> bool:
         return True
     if not is_windows():
         # pgrep -f matches the full command line, so it finds the
-        # host process regardless of which backend spawned it.
         try:
             completed = subprocess.run(
                 ["pgrep", "-f", APP_NAME],
@@ -87,18 +50,7 @@ def _host_process_is_running() -> bool:
 
 
 def _bring_app_to_front_macos() -> bool:
-    """Bring the Voice Typer window to front on macOS via AppleScript.
-
-     ``tell application "<name>" to activate`` asks the running app to
-     activate (the app registers its bundle name with
-     LaunchServices, so this resolves to the running instance). Returns
-     True if the AppleScript succeeded.
-
-     Previously the macOS/Linux paths had NO focus helper at all
-    : ``bring_app_to_front`` returned False outside Windows, so a
-     transient TCP blip fell straight through to spawning a DUPLICATE
-     duplicate app process.
-    """
+    """Bring the Voice Typer window to front on macOS via AppleScript."""
     if is_windows():
         return False
     try:
@@ -122,15 +74,7 @@ def _bring_app_to_front_macos() -> bool:
 
 
 def _bring_app_to_front_linux() -> bool:
-    """Bring the Voice Typer window to front on Linux via wmctrl/xdotool.
-
-    Tries ``wmctrl -a <name>`` first (X11 window manager control;
-    matches windows whose title contains the app name), then falls back
-    to ``xdotool search --name <name> windowactivate`` (also works
-    under Wayland with XWayland). Returns True if either succeeded.
-
-    Previously the macOS/Linux paths had NO focus helper at all.
-    """
+    """Bring the Voice Typer window to front on Linux via wmctrl/xdotool."""
     if is_windows():
         return False
     for tool_cmd in (
@@ -151,14 +95,6 @@ def bring_app_to_front() -> bool:
     """Find an existing Voice Typer window and bring it to front.
 
     Returns True if a window was found and focused, False otherwise.
-
-    - Windows: Win32 EnumWindows search by window title.
-    - macOS: AppleScript ``activate`` on the running app.
-    - Linux: ``wmctrl -a`` / ``xdotool ... windowactivate``.
-
-    Extracted from TrayIcon._bring_app_to_front() per #13;
-    extended with the macOS/Linux focus helpers that were
-    previously missing.
     """
     if not is_windows():
         # macOS / Linux focus paths.
@@ -168,9 +104,6 @@ def bring_app_to_front() -> bool:
         from ctypes import wintypes
 
         # Winlogon / UAC secure desktop: GetForegroundWindow returns 0
-        # (NULL). Foreground manipulation is blocked there, so skip the
-        # window enumeration + focus dance entirely and report that no
-        # window was brought to front.
         fg_hwnd = ctypes.windll.user32.GetForegroundWindow()
         if not fg_hwnd:
             log.info("[TRAY] No foreground window (secure desktop / Winlogon active), skipping bring-to-front")
@@ -195,10 +128,6 @@ def bring_app_to_front() -> bool:
             return False
 
         # Restore from minimized, OR reveal if hidden via close-to-tray.
-        # SW_SHOW (5) makes a hidden window visible without activating;
-        # SW_RESTORE (9) both restores a minimized window and shows it.
-        # We handle both states so the tray "Open app" works whether the
-        # window was minimized normally or hidden to tray.
         if ctypes.windll.user32.IsIconic(found_hwnd):
             ctypes.windll.user32.ShowWindow(found_hwnd, 9)  # SW_RESTORE
         elif not ctypes.windll.user32.IsWindowVisible(found_hwnd):
@@ -229,23 +158,8 @@ def bring_app_to_front() -> bool:
 
 
 def open_app_window() -> None:
-    """Open (or focus) the dashboard window.
-
-    Primary path (1 hop): push ``show_window`` over the TCP channel that
-    is always up between us (the backend) and our parent host
-    process.  The host then shows + focuses the
-    dashboard (creating it lazily if autostart started it hidden).
-
-    Fallback: if the push doesn't land (TCP momentarily down, or this
-    backend was started standalone without a host), use the Win32
-    ``bring_app_to_front`` focus path.
-    The host owns its own window lifecycle.
-
-    Extracted from TrayIcon.open_app_window() per #13.
-    """
+    """Open (or focus) the dashboard window."""
     # 1. Primary: push show_window over TCP.  Cheap, cross-platform,
-    #    and works whether the window is hidden (close-to-tray) or
-    #    minimized.
     import time as _time
 
     from voice_typer.server import event_bus
@@ -259,24 +173,6 @@ def open_app_window() -> None:
         log.debug("[TRAY] show_window push raised, trying Win32 focus")
 
     # ``event_bus.publish`` returns True when ANY in-process subscriber
-    # accepted the event: which does NOT prove the host received it:
-    # the IPC transport's push() swallows write failures (it buffers to
-    # ``_pending_tcp`` and marks the client dead instead of raising) and
-    # the no-client path buffers silently, while unrelated subscribers
-    # (e.g. the tray's parakeet-cpu-fallback listener) accept every
-    # event. Only treat the push as delivered when a transport probe
-    # reports a live host client; otherwise fall through to the Win32
-    # focus path so the window still appears.
-    #
-    # BP-160: a HALF-OPEN socket defeats even the probe, the kernel
-    # accepts the write (no error, client stays "live") while the host
-    # never receives the frame, so the push is silently lost and no
-    # fallback runs. On Windows the native focus below is pure ctypes
-    # (EnumWindows + ShowWindow, microseconds, no subprocess), so it
-    # runs as INSURANCE on every Windows open, even when the TCP push
-    # looks delivered. Both target the same window; the calls are
-    # idempotent. Non-Windows keeps the old shape (the AppleScript /
-    # wmctrl helpers spawn subprocesses, so they stay fallback-only).
     live = event_bus.has_live_transport()
     delivered = published and live
     if delivered:
@@ -288,7 +184,6 @@ def open_app_window() -> None:
         log.info("[TRAY] no live host transport, trying Win32 focus")
 
     # 2. Native focus: insurance on Windows (see BP-160 note above),
-    #    fallback elsewhere.
     focused = False
     if is_windows() or not delivered:
         try:
@@ -308,33 +203,16 @@ def open_app_window() -> None:
         return
 
     # 3. Duplicate-launch gate: if the focus helpers above failed
-    #    but we KNOW a host process is still alive, do NOT spawn a
-    #    duplicate.
     if _host_process_is_running():
         log.warning("[TRAY] App appears to be running but window focus failed, skipping duplicate launch")
         return
 
     # The host manages its own window lifecycle; this backend only
-    # publishes show_window events.
     log.info("[TRAY] No live transport and focus failed; cannot launch a frontend from the backend")
 
 
 def open_page(path: str) -> None:
-    """Publish a ``navigate`` event so the renderer opens ``path``.
-
-    (): generalization of :func:`open_models_page` so any
-        in-app route can be opened from the tray menu (Settings / History /
-        Help). Does NOT open the app window itself, callers that need
-        the window open (e.g. :func:`open_models_page`) call
-        :func:`open_app_window` first, then :func:`open_page`.
-
-    extracted from ``TrayIcon._open_page`` as a
-        pure module-level function (no instance state needed, just
-        publishes via the event bus).
-
-        Args:
-            path: The renderer route to navigate to (e.g. ``/settings``).
-    """
+    """Publish a ``navigate`` event so the renderer opens ``path``."""
     from voice_typer.server import event_bus
 
     try:
@@ -345,45 +223,11 @@ def open_page(path: str) -> None:
 
 
 def open_models_page(tray: "TrayIcon") -> None:
-    """Open the app window and navigate to the Models page.
-
-        Called from the tray menu's "More models..." item. Opens/focuses
-        the app window (same as :func:`open_app_window`) and then
-        delegates to :func:`open_page` with ``'/models'`` so the renderer
-        navigates to the Models page instead of staying on whatever page
-        was last open.
-
-    extracted from ``TrayIcon._open_models_page``.
-        The delegate on ``TrayIcon`` calls ``tray._open_page('/models')``
-        (NOT this module's :func:`open_page` directly) so tests that do
-        ``monkeypatch.setattr(tray, "_open_page", fake_open_page)`` keep
-        working, the patched instance attribute is consulted at call
-        time, not the module-level function.
-
-        Args:
-            tray: The ``TrayIcon`` instance (used to access the
-                ``_open_page`` delegate).
-    """
+    """Open the app window and navigate to the Models page."""
     open_app_window()
     tray._open_page("/models")
 
 
 def confirm_quit_while_recording(tray: "TrayIcon") -> None:
-    """Quit immediately, regardless of recording state.
-
-        The old confirmation dialog was removed because crash recovery
-        already protects in-flight transcriptions, and ``quit_app()``
-        handles discarding active recordings and waiting for transcription
-        to finish (with timeout).
-
-    extracted from
-        ``TrayIcon._confirm_quit_while_recording``. The method is a thin
-        delegate to ``tray._controller.quit_app()``; kept as a separate
-        function so the ``TrayIcon`` class is a one-line delegate and the
-        quit policy lives with the rest of the window-management code.
-
-        Args:
-            tray: The ``TrayIcon`` instance (used to access
-                ``tray._controller``).
-    """
+    """Quit immediately, regardless of recording state."""
     tray._controller.quit_app()

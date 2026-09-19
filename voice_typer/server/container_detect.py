@@ -1,11 +1,4 @@
-"""Container/cgroup detection for Linux deployments.
-
-When running inside a container (Docker, Podman, LXC, Flatpak, Snap),
-certain features don't work: no system tray (no D-Bus session bus),
-no audio devices (no /dev/snd), no GPU acceleration. This module
-detects containerized environments so the app can degrade gracefully
-instead of logging confusing errors.
-"""
+"""Container/cgroup detection for Linux deployments."""
 
 from __future__ import annotations
 
@@ -19,21 +12,10 @@ _log = __import__("logging").getLogger(__name__)
 
 
 # container-signature substrings looked for in ``/proc/1/cgroup``.
-# Used for the legacy cgroup v1 detection path. On cgroup v2 (the
-# default on modern Linux kernels 5.15+) the per-process cgroup path
-# is typically just ``0::/`` for host processes and ``0::/`` for
-# container processes too, so these substring matches no longer fire
-# reliably on v2. The cgroup v2-aware checks below (``/proc/self/mountinfo``
-# overlayfs-at-root + ``/proc/1/environ`` ``container=``) close the
-# misdetection gap for rootless Podman and other modern runtimes.
 _LEGACY_CGROUP_SIGNATURES = ("docker", "lxc", "kubepods", "containerd")
 
 
 # cgroup signature → human-readable container type. Shared by the single
-# probe so ``is_in_container`` and ``get_container_type`` can never
-# disagree (the old duplicated chains reported a cgroup-detected Docker
-# container as ``True``/``unknown``: a deliberate-looking but unintended
-# mismatch; both accessors now agree on the mapped name).
 _CGROUP_TYPE_NAMES = {
     "docker": "docker",
     "lxc": "lxc",
@@ -43,12 +25,7 @@ _CGROUP_TYPE_NAMES = {
 
 
 def _read_proc_file(path: str) -> str | None:
-    """Read a ``/proc`` file as text, returning ``None`` on any I/O error.
-
-    Centralized here so every detection path uses the same
-    error-swallowing behavior (``OSError`` / ``PermissionError`` /
-    ``FileNotFoundError`` are all subclasses of ``OSError``).
-    """
+    """Read a ``/proc`` file as text, returning ``None`` on any I/O error."""
     try:
         return Path(path).read_text(encoding="utf-8", errors="ignore")
     except OSError:
@@ -58,20 +35,6 @@ def _read_proc_file(path: str) -> str | None:
 def _detect_via_mountinfo_overlay() -> bool:
     """detect containers via overlayfs rooted at ``/``.
 
-    On cgroup v2 (and on cgroup v1 hybrid hosts that don't write a
-    container-runtime signature into ``/proc/1/cgroup``), most OCI
-    runtimes (Docker, Podman, containerd) mount the container's root
-    filesystem as an ``overlay`` filesystem. The
-    ``/proc/self/mountinfo`` line for the root mount has the form::
-
-        <mount-id> <parent-id> <major>:<minor> / / <fstype> ...
-
-    We look for a line whose mount point (field 5) is ``/`` and whose
-    filesystem type (the token after the ``-`` separator) is
-    ``overlay``. This catches rootless Podman containers that
-    create neither ``/.dockerenv`` nor ``/run/.containerenv`` and
-    don't write a recognizable signature into ``/proc/1/cgroup``.
-
     Returns ``True`` if a root overlayfs mount is found.
     """
     text = _read_proc_file("/proc/self/mountinfo")
@@ -80,12 +43,9 @@ def _detect_via_mountinfo_overlay() -> bool:
     for line in text.splitlines():
         fields = line.split()
         # mountinfo layout: id parent dev:major root mount-point ...
-        # followed (after the optional per-mount fields terminated by
-        # ``-``) by fstype source super-options.
         if len(fields) < 10:
             continue
         # Find the ``-`` separator that delimits the optional
-        # per-mount fields from the fstype / source / super-options.
         try:
             sep_idx = fields.index("-")
         except ValueError:
@@ -101,16 +61,6 @@ def _detect_via_mountinfo_overlay() -> bool:
 
 def _detect_via_proc1_environ() -> bool:
     """detect containers via ``container=`` in ``/proc/1/environ``.
-
-    Most modern container runtimes (systemd-nspawn, Podman, Docker
-    with ``--env container=oci``, Kubernetes-managed containers) set
-    the ``container=`` environment variable on PID 1. This is the
-    most reliable single indicator on cgroup v2 hosts where
-    ``/proc/1/cgroup`` is uninformative (``0::/``).
-
-    ``/proc/1/environ`` is a NUL-separated ``KEY=VALUE`` list. We
-    look for any entry whose key is exactly ``container`` (so a
-    variable like ``MY_CONTAINER=foo`` does not false-positive).
 
     Returns ``True`` if the ``container=`` variable is set on PID 1.
     """
@@ -132,26 +82,7 @@ def _detect_via_proc1_environ() -> bool:
 def is_in_container() -> bool:
     """Detect if the process is running inside a container.
 
-        Checks multiple indicators:
-        1. ``/.dockerenv`` file (Docker)
-        2. ``/run/.containerenv`` file (Podman)
-        3. ``container`` environment variable (systemd-nspawn)
-        4. ``/proc/1/cgroup`` contains container runtime signatures (cgroup v1)
-    5. : ``container=`` set on PID 1's environment (cgroup v2 / Podman)
-    6. : overlayfs rooted at ``/`` in ``/proc/self/mountinfo``
-           (cgroup v2 / rootless Podman / OCI runtimes)
-
-        Returns True if any indicator is positive, False otherwise.
-        On non-Linux platforms, always returns False.
-
-    the result is memoized for the lifetime of the process.
-        Container membership is invariant during a process lifetime (the
-        cgroup namespace can't change without ``unshare``/``setns``, which
-        would already be a different process). The cache is bypassed when
-        running under pytest so tests that monkeypatch ``sys.platform`` /
-        ``Path.exists`` between scenarios keep working without needing a
-        cache-clear fixture (which would otherwise have to live in
-        ``tests/conftest.py``: owned by another agent).
+    Returns True if any indicator is positive, False otherwise.
     """
     if _is_in_container_cached.cache_info().currsize > 0 and _should_bypass_cache():
         _is_in_container_cached.cache_clear()
@@ -159,15 +90,7 @@ def is_in_container() -> bool:
 
 
 def _should_bypass_cache() -> bool:
-    """Return True when running under pytest (test-isolation bypass).
-
-    Production callers never hit this, pytest sets the
-    ``PYTEST_CURRENT_TEST`` env var at the start of every test item's
-    execution and clears it between items, so the cache is bypassed
-    only while a test is actively running. The check is on the env var
-    (not ``"pytest" in sys.modules``) so that simply having pytest
-    installed doesn't disable the cache in production.
-    """
+    """Return True when running under pytest (test-isolation bypass)."""
     return os.environ.get("PYTEST_CURRENT_TEST") is not None
 
 
@@ -175,21 +98,6 @@ def _probe_container() -> str | None:
     """Single canonical container probe.
 
     Returns a human-readable container type, or ``None`` when not in a
-    container / not on Linux. Both public accessors
-    (:func:`is_in_container` via :func:`_is_in_container_cached` and
-    :func:`get_container_type` via :func:`_get_container_type_cached`)
-    read this ONE memoized probe, so the boolean and the type can never
-    disagree (previously they duplicated overlapping probe chains that
-    could drift apart).
-
-    Detection order (first hit wins):
-    1. ``/.dockerenv`` (Docker)
-    2. ``/run/.containerenv`` (Podman)
-    3. ``CONTAINER`` env var (systemd-nspawn)
-    4. ``/proc/1/cgroup`` runtime signatures (cgroup v1, legacy hosts)
-    5. ``container=`` on PID 1's environ (cgroup v2 / modern runtimes)
-    6. overlayfs rooted at ``/`` in ``/proc/self/mountinfo``
-       (rootless Podman / OCI runtimes with no v1 signature)
     """
     if not is_linux():
         return None
@@ -208,7 +116,6 @@ def _probe_container() -> str | None:
         return f"systemd-nspawn ({env_container})"
 
     # 4. Check /proc/1/cgroup for container runtime signatures (cgroup v1
-    #    path-based detection, still relevant for legacy hosts).
     cgroup = _read_proc_file("/proc/1/cgroup")
     if cgroup:
         for sig in _LEGACY_CGROUP_SIGNATURES:
@@ -216,7 +123,6 @@ def _probe_container() -> str | None:
                 return _CGROUP_TYPE_NAMES.get(sig, sig)
 
     # 5. cgroup v2-aware, ``container=`` on PID 1's environ carries the
-    #    runtime name (``container=oci``, ``container=podman``, ...).
     environ_text = _read_proc_file("/proc/1/environ")
     if environ_text:
         for entry in environ_text.split("\x00"):
@@ -227,7 +133,6 @@ def _probe_container() -> str | None:
                 return value
 
     # 6. cgroup v2-aware, overlayfs rooted at ``/`` catches rootless
-    #    Podman and other OCI runtimes that write no cgroup signature.
     if _detect_via_mountinfo_overlay():
         return "container (overlayfs root)"
 
@@ -235,26 +140,13 @@ def _probe_container() -> str | None:
 
 
 def _reset_container_cache() -> None:
-    """Test-only: clear the memoized container-detection results.
-
-    production callers should NEVER need this, container
-        membership doesn't change during a process lifetime. Tests that
-        patch ``sys.platform`` or filesystem state need it so the next
-        :func:`is_in_container` / :func:`get_container_type` call re-probes.
-        The autouse ``_should_bypass_cache`` check above handles most test
-        scenarios automatically; this helper is kept for explicit test
-        pinning of the caching contract itself.
-    """
+    """Test-only: clear the memoized container-detection results."""
     _is_in_container_cached.cache_clear()
     _get_container_type_cached.cache_clear()
 
 
 def get_container_type() -> str | None:
-    """Return a human-readable container type if detected, None otherwise.
-
-    the result is memoized alongside :func:`is_in_container` —
-        the underlying probe is identical, so the two callers always agree.
-    """
+    """Return a human-readable container type if detected, None otherwise."""
     if not is_in_container():
         return None
     if _should_bypass_cache() and _get_container_type_cached.cache_info().currsize > 0:
@@ -264,23 +156,13 @@ def get_container_type() -> str | None:
 
 @functools.lru_cache(maxsize=1)
 def _is_in_container_cached() -> bool:
-    """Memoized boolean body of :func:`is_in_container`.
-
-    Wraps the single canonical probe (``_probe_container``), both
-    accessors share one memoized result so the boolean and the
-    human-readable type can never disagree.
-    """
+    """Memoized boolean body of :func:`is_in_container`."""
     return _probe_container() is not None
 
 
 @functools.lru_cache(maxsize=1)
 def _get_container_type_cached() -> str | None:
-    """Memoized type body of :func:`get_container_type`.
-
-    Wraps the single canonical probe (``_probe_container``). Assumes
-    :func:`is_in_container` has already returned True, callers gate on
-    that before invoking this helper.
-    """
+    """Memoized type body of :func:`get_container_type`."""
     probe = _probe_container()
     return probe if probe is not None else "unknown"
 
