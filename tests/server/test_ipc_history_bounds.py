@@ -12,10 +12,12 @@ from voice_typer.server.ipc.history_bounds import (
     _HISTORY_OFFSET_MAX,
     _REDACTED_SENTINEL,
     _SECRET_FIELD_PATTERNS,
+    HISTORY_OFFSET_LIMIT,
     _bound_history_limit,
     _bound_history_offset,
     _is_secret_field_name,
     _sanitize_config_for_ipc,
+    deep_offset_message,
 )
 
 # The real ``Config`` is a dataclass with ~80 fields; constructing one
@@ -126,6 +128,22 @@ class TestBoundHistoryOffsetBoundariesDirect:
         huge = 2**10000
         assert huge > _HISTORY_OFFSET_MAX, "Sanity: 2**10000 must vastly exceed _HISTORY_OFFSET_MAX."
         assert _bound_history_offset(huge) == _HISTORY_OFFSET_MAX
+
+
+class TestSharedOffsetLimitPin:
+    """The IPC bounder and the DB guard share ``HISTORY_OFFSET_LIMIT``."""
+
+    def test_shared_limit_is_999(self):
+        assert HISTORY_OFFSET_LIMIT == 999
+
+    def test_shared_limit_sits_below_dos_cap(self):
+        assert HISTORY_OFFSET_LIMIT < _HISTORY_OFFSET_MAX
+
+    def test_deep_offset_message_names_cursor_alternative(self):
+        msg = deep_offset_message(1000)
+        assert "999" in msg
+        assert "1000" in msg
+        assert "cursor pagination" in msg
 
 
 class TestBoundHistoryLimitBoundariesDirect:

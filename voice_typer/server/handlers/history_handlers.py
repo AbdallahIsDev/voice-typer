@@ -91,6 +91,9 @@ class HistoryHandlersMixin(HandlerBase):
             if isinstance(cursor, dict):
                 return cursor
             before_timestamp, before_id = cursor
+            deep = self._reject_deep_offset(resp, offset, before_timestamp, before_id)
+            if deep is not None:
+                return deep
             if before_timestamp is not None and before_id is not None:
                 rows = self.service.get_history(limit, offset, before_timestamp=before_timestamp, before_id=before_id)
             else:
@@ -294,6 +297,9 @@ class HistoryHandlersMixin(HandlerBase):
             if isinstance(cursor, dict):
                 return cursor
             before_timestamp, before_id = cursor
+            deep = self._reject_deep_offset(resp, offset, before_timestamp, before_id)
+            if deep is not None:
+                return deep
             if before_timestamp is not None and before_id is not None:
                 rows = self.service.get_favorites(limit, offset, before_timestamp=before_timestamp, before_id=before_id)
             else:
@@ -338,6 +344,9 @@ class HistoryHandlersMixin(HandlerBase):
             if isinstance(cursor, dict):
                 return cursor
             before_timestamp, before_id = cursor
+            deep = self._reject_deep_offset(resp, offset, before_timestamp, before_id)
+            if deep is not None:
+                return deep
             if before_timestamp is not None and before_id is not None:
                 rows = self.service.search_history(
                     query,
