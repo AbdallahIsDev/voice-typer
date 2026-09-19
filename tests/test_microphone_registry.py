@@ -1,9 +1,4 @@
-"""Tests for :class:`voice_typer.server._microphone_registry.MicrophoneRegistry`.
-
-AC-66: extract MicrophoneRegistry that owns the legacy ``_microphones``
-list and exposes intent-revealing methods (``list`` / ``add`` /
-``extend`` / ``replace`` / ``clear`` + ``__iter__`` / ``__len__``).
-"""
+"""Tests for :class:`voice_typer.server._microphone_registry.MicrophoneRegistry`."""
 
 from __future__ import annotations
 
@@ -153,12 +148,7 @@ class TestMicrophoneRegistryIteration:
         assert len(mr) == 5
 
     def test_iter_is_a_live_view(self) -> None:
-        """``__iter__`` yields the internal items (live view).
-
-        Callers that need a consistent snapshot should use ``list()``
-        (which returns a copy), direct iteration may see concurrent
-        mutation if another thread is modifying the registry.
-        """
+        """``__iter__`` yields the internal items (live view)."""
         mr = MicrophoneRegistry()
         mr.add(_mic(0))
         iterator = iter(mr)

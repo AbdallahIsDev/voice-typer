@@ -1,11 +1,4 @@
-"""Startup recovery notification reaches the user in Tauri mode.
-
-The recovery store's startup check returns unpasted transcriptions, and
-the startup phase must surface them through the tray safety path (which
-routes to the Rust-owned native toast under Tauri) plus a notification
-event carrying a History deep link. A silent log-only branch leaves the
-user unaware of recoverable text.
-"""
+"""Startup recovery notification reaches the user in Tauri mode."""
 
 from __future__ import annotations
 

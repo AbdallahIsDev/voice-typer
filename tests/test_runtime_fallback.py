@@ -1,29 +1,13 @@
-"""Tests for the runtime fallback chain in _NativeBackendAdapter (GAP-4).
-
-Covers:
-- Native backend permanent failure → swap to legacy
-- Native backend recovery via retry timer → swap back
-- Both backends fail → FAILED state
-- stop() during swap → no deadlock
-- Thread safety of state transitions
-- Permission error handling (GAP-2 integration)
-"""
+"""Tests for the runtime fallback chain in _NativeBackendAdapter (GAP-4)."""
 
 from __future__ import annotations
 
 import threading
 from unittest.mock import MagicMock
 
-# ─── Helpers ────────────────────────────────────────────────────────────────
-
 
 def _make_mock_native_backend(hotkey_str: str = "<f2>"):
-    """Create a mock SubprocessHotkeyBackend-compatible object.
-
-    The real SubprocessHotkeyBackend sets _on_error_callback and
-    _on_permanent_failure_callback on itself; our mock accepts those
-    assignments so the adapter can wire them up.
-    """
+    """Create a mock SubprocessHotkeyBackend-compatible object."""
     backend = MagicMock()
     backend.hotkey_str = hotkey_str
     backend.diagnose.return_value = "mock native backend"
@@ -46,9 +30,6 @@ def _make_mock_legacy_backend(hotkey_str: str = "<f2>"):
     backend.stop = MagicMock(return_value=None)
     backend.set_on_release = MagicMock(return_value=None)
     return backend
-
-
-# ─── Adapter state machine tests ───────────────────────────────────────────
 
 
 class TestAdapterInitialState:
@@ -220,9 +201,6 @@ class TestAdapterIsAlive:
         assert adapter.is_alive() is False
 
 
-# ─── Swap-to-legacy tests ─────────────────────────────────────────────────
-
-
 class TestSwapToLegacy:
     """Verify _swap_to_legacy behavior."""
 
@@ -232,10 +210,6 @@ class TestSwapToLegacy:
         native = _make_mock_native_backend()
         adapter = _NativeBackendAdapter(native)
         # Register a callback so the swap can hand it to the legacy
-        # backend (the no-callback path is a separate defensive
-        # branch that returns early without transitioning to
-        # FALLBACK, covered by ``test_swap_when_legacy_also_fails``
-        # indirectly).
         adapter._callback = MagicMock()
         legacy = _make_mock_legacy_backend()
         monkeypatch.setattr(adapter, "_create_legacy_backend", lambda: legacy)
@@ -310,9 +284,6 @@ class TestSwapToLegacy:
         assert adapter._state == _NativeBackendAdapter._STATE_STOPPED
 
 
-# ─── Permanent failure callback tests ─────────────────────────────────────
-
-
 class TestPermanentFailureCallback:
     """Verify _on_native_permanent_failure triggers swap."""
 
@@ -330,9 +301,6 @@ class TestPermanentFailureCallback:
         # Simulate the native backend calling its permanent failure callback
         adapter._on_native_permanent_failure()
         assert adapter._state == _NativeBackendAdapter._STATE_FALLBACK
-
-
-# ─── Native retry tests ────────────────────────────────────────────────────
 
 
 class TestNativeRetry:
@@ -390,9 +358,6 @@ class TestNativeRetry:
         native.start.assert_not_called()
 
 
-# ─── set_on_release propagation ────────────────────────────────────────────
-
-
 class TestSetOnRelease:
     """Verify set_on_release propagates to both backends."""
 
@@ -424,9 +389,6 @@ class TestSetOnRelease:
         legacy.set_on_release.assert_called_once_with(cb)
 
 
-# ─── Diagnose ──────────────────────────────────────────────────────────────
-
-
 class TestDiagnose:
     """Verify diagnose() includes state info."""
 
@@ -456,9 +418,6 @@ class TestDiagnose:
         result = adapter.diagnose()
         assert "FALLBACK" in result
         assert "MockLegacy" in result
-
-
-# ─── Thread safety ─────────────────────────────────────────────────────────
 
 
 class TestThreadSafety:

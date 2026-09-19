@@ -1,22 +1,4 @@
-"""Tests for the model registry.
-
-Verifies that:
-- The catalog was pruned (2026-08-15) to the three Whisper variants
-  (``tiny`` default, ``large-v3``, ``large-v3-turbo``) plus
-  ``parakeet`` and ``qwen``, the removed variants (tiny.en, base*,
-  small*, medium*, large-v1/v2, turbo alias, distil-*) are GONE from
-  the registry.
-- ``get_model_metadata`` returns correctly-typed fields.
-- ``get_all_models`` returns a list (not a dict).
-- ``DEFAULT_MODEL_SIZE`` is a valid registry entry (the config
-  dataclass default + load-time coercion reset target reference it).
-- The turbo model has the expected metadata (size, speed, accuracy).
-- Every entry carries a ``network_behavior`` field.
-
-These tests are pure, no network, no file I/O, no model downloads.
-Importing ``voice_typer.server.model_registry`` must be side-effect
-free (no HuggingFace calls, no GPU init).
-"""
+"""Tests for the model registry."""
 
 from voice_typer.server.model_registry import (
     DEFAULT_MODEL_SIZE,
@@ -27,12 +9,7 @@ from voice_typer.server.model_registry import (
     get_model_metadata,
 )
 
-# ── Expected catalog ─────────────────────────────────────────────────
-#
 # The Whisper family was pruned 2026-08-15 to the three multilingual
-# variants the user wants: `tiny` (default), `large-v3`, and
-# `large-v3-turbo` (`large-v3` was restored at the user's request the
-# same day). Parakeet + Qwen are non-Whisper backends and remain.
 
 _EXPECTED_WHISPER_VARIANTS = {"tiny", "large-v3", "large-v3-turbo"}
 
@@ -57,14 +34,12 @@ class TestModelRegistryContainsWhisperVariants:
     """The pruned catalog contains exactly the three kept Whisper models."""
 
     def test_model_registry_contains_kept_whisper_variants(self):
-        """Every variant in _EXPECTED_WHISPER_VARIANTS must be a key in
-        MODEL_REGISTRY."""
+        """Every variant in _EXPECTED_WHISPER_VARIANTS must be a key in"""
         missing = _EXPECTED_WHISPER_VARIANTS - set(MODEL_REGISTRY.keys())
         assert not missing, f"MODEL_REGISTRY missing required variants: {sorted(missing)}"
 
     def test_removed_whisper_variants_are_gone(self):
-        """None of the removed variants may appear in the registry (and
-        ``get_model_metadata`` returns None for them)."""
+        """None of the removed variants may appear in the registry (and"""
         present = _REMOVED_WHISPER_VARIANTS & set(MODEL_REGISTRY.keys())
         assert not present, (
             f"Removed whisper variants still in MODEL_REGISTRY: {sorted(present)}. "
@@ -78,13 +53,7 @@ class TestModelRegistryContainsWhisperVariants:
         assert len(MODEL_REGISTRY) == 5, f"Expected 5 models, got {len(MODEL_REGISTRY)}: {sorted(MODEL_REGISTRY)}"
 
     def test_default_model_size_is_the_no_model_sentinel(self):
-        """DEFAULT_MODEL_SIZE is deliberately the "no model selected"
-        sentinel (NO_MODEL_SIZE, ""), NOT a registry entry. The app has
-        NO concrete default model, a fresh install must not claim a
-        model is selected when none is (the old "tiny" default made
-        every consumer surface a phantom model name). It must equal the
-        NO_MODEL_SIZE sentinel so config defaults / coercion resets land
-        on "no model selected", and the user explicitly chooses."""
+        """DEFAULT_MODEL_SIZE is deliberately the \"no model selected\""""
         assert DEFAULT_MODEL_SIZE == NO_MODEL_SIZE, (
             f"DEFAULT_MODEL_SIZE={DEFAULT_MODEL_SIZE!r} must be the 'no model "
             f"selected' sentinel (NO_MODEL_SIZE={NO_MODEL_SIZE!r}), the app "
@@ -104,8 +73,6 @@ class TestGetModelMetadataReturnsCorrectFields:
         assert isinstance(meta.required_vram_mb, int) and meta.required_vram_mb > 0
         assert isinstance(meta.backend, str) and meta.backend
         assert isinstance(meta.multilingual, bool)
-        # supported_languages is Optional[list[str]]: either None or a
-        # list of strings.
         assert meta.supported_languages is None or (
             isinstance(meta.supported_languages, list) and all(isinstance(x, str) for x in meta.supported_languages)
         )
@@ -121,35 +88,23 @@ class TestGetModelMetadataReturnsCorrectFields:
         assert get_model_metadata("") is None
 
     def test_display_name_sets_detailed_model_names(self):
-        """The Models page shows a detailed name under the family header:
-        parakeet renders as ``Parakeet-TDT-0.6b-V3`` and qwen as ``Qwen-3``;
-        whisper variants have no display_name and fall back to the bare
-        name in the renderer."""
+        """The Models page shows a detailed name under the family header:"""
         assert get_model_metadata("parakeet").display_name == "Parakeet-TDT-0.6b-V3"
         assert get_model_metadata("qwen").display_name == "Qwen-3"
         for name in ("tiny", "large-v3", "large-v3-turbo"):
             assert get_model_metadata(name).display_name is None
 
     def test_to_dict_carries_display_name(self):
-        """``to_dict()`` (the ``get_model_catalog`` IPC payload) includes
-        ``display_name`` so the renderer can render the detailed name."""
+        """``to_dict()`` (the ``get_model_catalog`` IPC payload) includes"""
         d = get_model_metadata("parakeet").to_dict()
         assert d["display_name"] == "Parakeet-TDT-0.6b-V3"
 
     def test_wer_is_published_benchmark_data_for_every_entry(self):
-        """Every registry entry carries a real, sourced WER (%) on
-        LibriSpeech test-clean (lower is better): see the per-entry
-        comments for the exact source (model card / published
-        benchmark). No placeholder or fabricated figures; if a model
-        had no reliable figure the field would be None and the renderer
-        would omit it."""
+        """LibriSpeech test-clean (lower is better): see the per-entry"""
         expected: dict[str, float] = {
-            # openai/whisper-tiny model card (self-reported 7.540)
             "tiny": 7.5,
-            # published Whisper benchmark consensus (LibriSpeech test-clean)
             "large-v3": 2.0,
             "large-v3-turbo": 2.1,
-            # nvidia/parakeet-tdt-0.6b-v3 model card (1.93)
             "parakeet": 1.93,
             # Qwen/Qwen3-ASR-1.7B model card evaluation table (1.63)
             "qwen": 1.63,
@@ -161,20 +116,17 @@ class TestGetModelMetadataReturnsCorrectFields:
             assert meta.wer > 0, f"{name}: WER must be positive"
 
     def test_to_dict_includes_wer(self):
-        """``to_dict()`` (the ``get_model_catalog`` IPC payload) carries
-        ``wer`` so the Models page can render the benchmark metric."""
+        """``to_dict()`` (the ``get_model_catalog`` IPC payload) carries"""
         d = get_model_metadata("tiny").to_dict()
         assert d["wer"] == 7.5
 
     def test_metadata_is_frozen(self):
-        """Registry entries are immutable so they can be safely shared
-        across threads (IPC + service layer) without copying."""
+        """Registry entries are immutable so they can be safely shared"""
         meta = get_model_metadata("tiny")
         assert meta is not None
         try:
             meta.download_size_mb = 1  # type: ignore[misc]
         except Exception:
-            # frozen dataclass raises FrozenInstanceError on setattr.
             return
         # If we get here, the dataclass is NOT frozen, that's a bug.
         raise AssertionError("ModelMetadata should be frozen=True but setattr succeeded")
@@ -192,8 +144,7 @@ class TestGetAllModelsReturnsList:
             assert isinstance(m, ModelMetadata), f"Expected ModelMetadata, got {type(m).__name__}"
 
     def test_get_all_models_preserves_registry_order(self):
-        """The list is in the same order as MODEL_REGISTRY.values()
-        (the renderer renders in this order, tiny first)."""
+        """The list is in the same order as MODEL_REGISTRY.values()"""
         all_models = get_all_models()
         registry_order = list(MODEL_REGISTRY.values())
         assert [m.name for m in all_models] == [m.name for m in registry_order]
@@ -203,8 +154,7 @@ class TestLargeV3HasCorrectMetadata:
     """test_large-v3_has_correct_metadata."""
 
     def test_large_v3_has_correct_metadata(self):
-        """The ``large-v3`` entry matches: 3000 MB download, 4096 MB
-        VRAM, multilingual, slow, high accuracy."""
+        """The ``large-v3`` entry matches: 3000 MB download, 4096 MB"""
         meta = get_model_metadata("large-v3")
         assert meta is not None, "large-v3 missing from registry"
         assert meta.download_size_mb == 3000, f"expected download_size_mb=3000, got {meta.download_size_mb}"
@@ -220,9 +170,7 @@ class TestLargeV3HasCorrectMetadata:
         )
 
     def test_large_v3_size_matches_model_size_mb(self):
-        """The registry's download_size_mb must match the
-        ``_MODEL_SIZE_MB`` table in asr_utils.py so the disk-space
-        pre-check and the renderer's UI agree."""
+        """``_MODEL_SIZE_MB`` table in asr_utils.py so the disk-space"""
         from voice_typer.server.asr_utils import _MODEL_SIZE_MB
 
         meta = get_model_metadata("large-v3")
@@ -236,8 +184,7 @@ class TestLargeV3TurboHasCorrectMetadata:
     """test_large-v3-turbo_has_correct_metadata."""
 
     def test_large_v3_turbo_has_correct_metadata(self):
-        """The ``large-v3-turbo`` entry matches: 809 MB download, 2000
-        MB VRAM, multilingual, fast, high accuracy."""
+        """The ``large-v3-turbo`` entry matches: 809 MB download, 2000"""
         meta = get_model_metadata("large-v3-turbo")
         assert meta is not None, "large-v3-turbo missing from registry"
         assert meta.download_size_mb == 809, f"expected download_size_mb=809, got {meta.download_size_mb}"
@@ -253,9 +200,7 @@ class TestLargeV3TurboHasCorrectMetadata:
         )
 
     def test_turbo_size_matches_model_size_mb(self):
-        """The registry's download_size_mb must match the
-        ``_MODEL_SIZE_MB`` table in asr_utils.py so the disk-space
-        pre-check and the renderer's UI agree."""
+        """``_MODEL_SIZE_MB`` table in asr_utils.py so the disk-space"""
         from voice_typer.server.asr_utils import _MODEL_SIZE_MB
 
         meta = get_model_metadata("large-v3-turbo")
@@ -265,16 +210,14 @@ class TestLargeV3TurboHasCorrectMetadata:
         )
 
     def test_turbo_alias_removed(self):
-        """The ``turbo`` alias was removed with the catalog prune, only
-        the explicit ``large-v3-turbo`` name remains."""
+        """The ``turbo`` alias was removed with the catalog prune, only"""
         assert get_model_metadata("turbo") is None, (
             "'turbo' alias should have been removed (only large-v3-turbo remains)"
         )
 
 
 class TestRemovedVariantsNoLongerMarkedDistilled:
-    """Post-prune: no distil entries exist, and the kept models are not
-    marked distilled."""
+    """Post-prune: no distil entries exist, and the kept models are not"""
 
     def test_distil_models_removed(self):
         """distil-large-v3 / distil-medium.en are gone from the registry."""
@@ -289,12 +232,8 @@ class TestRemovedVariantsNoLongerMarkedDistilled:
             assert meta.is_distilled is False, f"{name}: should NOT be marked is_distilled"
 
 
-# network_behavior field ─────────────────────────────────
-
-
 class TestModelMetadataHasNetworkBehaviorField:
-    """every ``ModelMetadata`` carries a ``network_behavior``
-    field that honestly declares the model's network activity."""
+    """every ``ModelMetadata`` carries a ``network_behavior``"""
 
     _ALLOWED_VALUES = {
         "local-only",
@@ -313,8 +252,7 @@ class TestModelMetadataHasNetworkBehaviorField:
         )
 
     def test_default_is_local_only(self):
-        """A dataclass constructed without ``network_behavior`` defaults
-        to ``\"local-only\"``, the safest assumption (offline)."""
+        """A dataclass constructed without ``network_behavior`` defaults"""
         meta = ModelMetadata(
             name="probe",
             download_size_mb=1,
@@ -333,8 +271,7 @@ class TestModelMetadataHasNetworkBehaviorField:
         )
 
     def test_every_registry_entry_has_a_valid_value(self):
-        """Every model in ``MODEL_REGISTRY`` sets ``network_behavior``
-        to one of the allowed values."""
+        """Every model in ``MODEL_REGISTRY`` sets ``network_behavior``"""
         for name, meta in MODEL_REGISTRY.items():
             assert isinstance(meta.network_behavior, str), (
                 f"{name}: network_behavior must be a str, got {type(meta.network_behavior).__name__}"
@@ -344,8 +281,7 @@ class TestModelMetadataHasNetworkBehaviorField:
             )
 
     def test_whisper_backend_is_consent_gated(self):
-        """The kept Whisper variants download from HuggingFace on first
-        use and are consent-gated (the user clicks 'Download')."""
+        """The kept Whisper variants download from HuggingFace on first"""
         for name in ("tiny", "large-v3", "large-v3-turbo"):
             meta = get_model_metadata(name)
             assert meta is not None, f"{name} missing from registry"
@@ -366,8 +302,7 @@ class TestModelMetadataHasNetworkBehaviorField:
         )
 
     def test_qwen_is_local_only(self):
-        """Qwen is local-only, the user must manually configure the
-        model path in Settings."""
+        """Qwen is local-only, the user must manually configure the"""
         meta = get_model_metadata("qwen")
         assert meta is not None, "qwen missing from registry"
         assert meta.network_behavior == "local-only", (
@@ -381,8 +316,7 @@ class TestModelMetadataHasNetworkBehaviorField:
         )
 
     def test_to_dict_includes_network_behavior(self):
-        """``to_dict()`` (used for IPC transport to the renderer)
-        includes ``network_behavior`` so the Models page can display it."""
+        """``to_dict()`` (used for IPC transport to the renderer)"""
         meta = get_model_metadata("tiny")
         assert meta is not None
         d = meta.to_dict()

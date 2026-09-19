@@ -1,20 +1,4 @@
-"""Tests for the WhisperModel thread budget (``cpu_threads``).
-
-Pins two contracts:
-
-1. :func:`voice_typer.server.transcription_device.whisper_cpu_threads`
-   derives the CTranslate2 intra-op thread budget from the machine's
-   cores, capped at ``_WHISPER_CPU_THREADS_CAP`` (psutil physical-core
-   count first, affinity / logical fallbacks second, floor of 1).
-2. ``TranscriptionEngine`` passes that budget (plus the explicit
-   ``num_workers=1`` single-decoder contract) to every
-   ``WhisperModel(...)`` construction, CTranslate2 silently defaults
-   to 4 intra-op threads when the option is omitted, which under-uses
-   multi-core machines on the CPU path.
-
-All external dependencies (faster_whisper, psutil) are mocked, no
-real model, no real core-count probing.
-"""
+"""Tests for the WhisperModel thread budget (``cpu_threads``)."""
 
 from __future__ import annotations
 
@@ -23,8 +7,6 @@ import threading
 from unittest.mock import MagicMock
 
 import pytest
-
-# ── whisper_cpu_threads unit tests ──────────────────────────────────────
 
 
 class TestWhisperCpuThreads:
@@ -96,9 +78,6 @@ class TestWhisperCpuThreads:
         assert td.whisper_cpu_threads() == 1
 
 
-# ── WhisperModel constructor kwargs pin ─────────────────────────────────
-
-
 def _make_engine_for_load():
     """Bare TranscriptionEngine with the state ``_load_transcriber_impl`` needs."""
     from voice_typer.server.transcription import TranscriptionEngine
@@ -128,12 +107,9 @@ class TestWhisperModelConstructorKwargs:
         )
 
     def test_constructor_receives_cpu_threads_and_single_worker(self, monkeypatch):
-        """The ctor kwargs pin: budget from the helper + num_workers=1.
-
-        ``num_workers`` is faster-whisper's knob for CTranslate2's
+        """
+        The ctor kwargs pin: budget from the helper + num_workers=1.
         ``inter_threads``, pinned to 1 so the inter-op contract is
-        explicit. ``cpu_threads`` is the intra-op budget CTranslate2
-        would otherwise default to 4.
         """
         import voice_typer.server.transcription as transcription
 
@@ -152,11 +128,7 @@ class TestWhisperModelConstructorKwargs:
         assert engine._model is self.fw_module.WhisperModel.return_value
 
     def test_budget_applies_to_cpu_fallback_entries_too(self, monkeypatch):
-        """Every chain entry (incl. GPU→CPU fallback) gets the budget.
-
-        The loop stops at the first successful construction, so the
-        first entry is made to fail to exercise the CPU fallback.
-        """
+        """Every chain entry (incl. GPU→CPU fallback) gets the budget."""
         import voice_typer.server.transcription as transcription
 
         monkeypatch.setattr(transcription, "_whisper_cpu_threads_impl", lambda: 8)

@@ -1,14 +1,4 @@
-"""Regression tests split out of the former ``tests/test_bugfix_regressions.py``.
-
-This module is part of the ``tests/regressions/`` package.
-The class/method names, assertion logic, and imports below are
-preserved verbatim from the original 4446-line monolith, only file
-location has changed.
-
-Common preamble (imports + Linux test-env shim) is identical to the
-original file so that every test in this module sees the same global
-state the monolith provided.
-"""
+"""The class/method names, assertion logic, and imports below are"""
 
 from __future__ import annotations
 
@@ -21,56 +11,17 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 
-# the previous Linux test-env shim that aliased
-# ``ctypes.WINFUNCTYPE = ctypes.CFUNCTYPE`` and inserted a ``MagicMock``
-# for ``voice_typer.server.crash_handler`` into ``sys.modules`` has been
-# removed. ``crash_handler.py`` now gates the ``@ctypes.WINFUNCTYPE(...)``
-# decorator behind ``sys.platform == "win32"``, so the module imports
-# cleanly on Linux/macOS without any test-infrastructure shim.
 class TestTranscriptionLoggingRedactsPii:
-    """Pre-fix: ``redact_pii()`` was dead code, declared in security.py
-    but never called from production. The original SEC-009 fix wired
-    ``redact_pii()`` into the ``log_transcriptions=True`` path of
-    ``DictationPipeline._store_result`` so PII patterns were masked
-    before hitting the log file.
-
-    ``redact_pii()`` only masked four
-    patterns (email / US-phone / SSN / credit-card-like), medical
-    dictation, financial narratives, addresses, and names passed
-    through verbatim. For a voice-typing tool this is the primary
-    PII surface, so masking just four patterns was insufficient.
-    The path now logs a non-reversible 12-char SHA-256 prefix of the
-    transcription text instead, preserving log-line correlation
-    (the same transcription produces the same hash) without leaking
-    ANY content. ``len(text)`` is also logged so operators can spot
-    suspiciously short / long transcriptions.
-    """
+    """but never called from production. The original SEC-009 fix wired"""
 
     def test_store_result_logs_sha256_hash_not_raw_text(self, caplog):
-        """when ``log_transcriptions`` is enabled,
-        ``DictationPipeline._store_result`` must log a non-reversible
-        SHA-256 hash prefix of the transcription text, NOT the raw
-        text and NOT a four-pattern ``redact_pii()`` masked version
-        (which leaked medical/financial/address/name PII). The raw
-        text must NEVER appear in the log output.
-
-        The test is behavioral: it patches ``hashlib.sha256`` so we
-        can assert the hash path is invoked, AND it captures the log
-        output to verify the raw transcription text does not leak.
-        """
+        """when ``log_transcriptions`` is enabled,"""
         import hashlib
         import logging
 
         from voice_typer.server.dictation_pipeline import DictationPipeline
 
         # Build a minimal app mock. ``_store_result`` touches:
-        # ``history_db.add_transcription`` / ``flush``,
-        # ``config.crash_recovery_enabled`` (False → skip crash recovery),
-        # ``config.log_transcriptions`` (True → trigger the hash-log path),
-        # ``config.model_size`` / ``config.device`` (passed to add_transcription),
-        # ``_last_transcription`` (assigned), ``tray.notify`` (only on errors),
-        # and ``event_bus.publish`` (transcription_final push event, the
-        # MagicMock makes this a no-op).
         app = MagicMock()
         app.config.log_transcriptions = True
         app.config.crash_recovery_enabled = False
@@ -82,10 +33,6 @@ class TestTranscriptionLoggingRedactsPii:
         raw_text = "Contact john.doe@example.com for the biopsy results."
 
         # Patch ``hashlib.sha256`` so we can assert the hash path is
-        # invoked (the source does ``hashlib.sha256(text.encode(...))``).
-        # We delegate to the real implementation so the log line gets a
-        # real 12-char hex prefix (which we then verify is NOT the raw
-        # text).
         real_sha256 = hashlib.sha256
         sha256_calls: list[bytes] = []
 
@@ -99,10 +46,6 @@ class TestTranscriptionLoggingRedactsPii:
         ):
             pipeline._store_result(raw_text)
 
-        # ``hashlib.sha256`` MUST have been invoked with the raw text
-        # bytes (the  contract). If this fails, the source has
-        # regressed to either logging raw text or to ``redact_pii()``
-        # (the pre- four-pattern masker).
         assert sha256_calls, (
             "_store_result must call hashlib.sha256 on the transcription text when log_transcriptions is True."
         )
@@ -111,7 +54,6 @@ class TestTranscriptionLoggingRedactsPii:
         )
 
         # The raw transcription text must NOT appear in any log line —
-        # only the 12-char hash prefix + length are logged. This is the
         # core SEC-009 invariant: PII never leaks to the log file.
         log_text = caplog.text
         assert raw_text not in log_text, (
@@ -120,7 +62,6 @@ class TestTranscriptionLoggingRedactsPii:
             "should be logged. The raw text was found in the log."
         )
         # Belt-and-suspenders: verify the hash-prefix form is present
-        # (``hash=<12 hex chars>`` per dictation_pipeline.py:1131).
         import re
 
         assert re.search(r"hash=[0-9a-f]{12}", log_text), (
@@ -147,25 +88,7 @@ class TestTranscriptionLoggingRedactsPii:
         assert redact_pii(text) == text
 
     def test_transcribe_segment_log_redacts_pii_when_log_transcriptions_true(self, caplog):
-        """``TranscriptionEngine._transcribe_unlocked``
-        logs per-segment DEBUG lines. Pre-fix, raw segment text was
-        logged verbatim at DEBUG level regardless of
-        ``log_transcriptions``, leaking any PII the user dictated
-        whenever DEBUG logging was enabled (e.g. in diagnostics zips).
-
-        Post-fix: when ``log_transcriptions`` is True, segment text is
-        passed through ``redact_pii`` before being logged, so email /
-        phone / SSN / credit-card patterns are masked. When False, only
-        the segment char count + timestamps are logged (no text content
-        at all).
-
-        This test exercises the transcription path with a fake model
-        whose segment contains a known email pattern, captures the log
-        output, and asserts:
-          1. The raw email string does NOT appear in the log.
-          2. The ``[EMAIL]`` redaction token DOES appear (when
-             ``log_transcriptions=True``).
-        """
+        """``TranscriptionEngine._transcribe_unlocked``"""
         import logging
         import threading
         import types
@@ -179,9 +102,6 @@ class TestTranscriptionLoggingRedactsPii:
         cfg = Config()
         cfg.log_transcriptions = True
 
-        # Construct the engine without touching the real model. The
-        # ``_model`` attribute is set to a stub that returns a single
-        # segment containing a PII pattern.
         engine = TranscriptionEngine.__new__(TranscriptionEngine)
         engine.config = cfg
         engine.beam_size = 1
@@ -190,17 +110,9 @@ class TestTranscriptionLoggingRedactsPii:
         engine.condition_on_previous_text = False
         engine._lock = threading.Lock()
         # ``_transcribe_unlocked`` checks ``self._abort_event.is_set()``
-        # between segment iterations so a cooperative cancel request
-        # can interrupt a long-running transcription. The attribute is
-        # initialised by ``TranscriptionEngine.__init__`` (which we skip
-        # via ``__new__`` above to avoid loading the real model), so we
-        # create a fresh ``threading.Event`` here. The test never sets
-        # it, so ``is_set()`` always returns False and the loop runs to
-        # completion.
         engine._abort_event = threading.Event()
 
         # Segment stub: provides .start, .end, .text, .avg_logprob,
-        # .no_speech_prob, the attributes consumed by the loop.
         seg = types.SimpleNamespace(
             start=0.0,
             end=1.0,
@@ -220,9 +132,6 @@ class TestTranscriptionLoggingRedactsPii:
         # Stub out the hallucination rejection so it doesn't interfere.
         engine._should_reject_low_audio_hallucination = lambda **kwargs: False
 
-        # Build a 1-second float32 audio buffer at 16 kHz (non-empty so
-        # the early-return guard at the top of _transcribe_unlocked is
-        # not triggered).
         audio = np.zeros(16000, dtype=np.float32)
         audio[1000:1100] = 0.1  # non-silence so RMS > 0.001
 
@@ -232,15 +141,11 @@ class TestTranscriptionLoggingRedactsPii:
             engine._transcribe_unlocked(audio)
 
         log_text = caplog.text
-        # The raw email MUST NOT appear in the log output, only the
-        # ``[EMAIL]`` redaction token should appear in its place.
         assert raw_email not in log_text, (
             "raw PII (email) must NOT appear in the "
             "transcription segment DEBUG log when log_transcriptions is "
             "True. redact_pii should have masked it as [EMAIL]."
         )
-        # The ``[EMAIL]`` redaction token SHOULD appear (proving the
-        # redact_pii call site fired).
         assert "[EMAIL]" in log_text, (
             "when log_transcriptions is True, segment "
             "text should be passed through redact_pii before logging, "
@@ -248,12 +153,7 @@ class TestTranscriptionLoggingRedactsPii:
         )
 
     def test_transcribe_segment_log_emits_no_text_when_log_transcriptions_false(self, caplog):
-        """XS-20 / SEC-009 (negative case): when ``log_transcriptions``
-        is False (the default), the per-segment DEBUG log must NOT
-        emit any text content, only the char count + timestamps.
-        This is the privacy-by-default invariant: PII never leaks to
-        the log file unless the operator has explicitly opted in.
-        """
+        """/ SEC-009 (negative case): when ``log_transcriptions``"""
         import logging
         import threading
         import types
@@ -275,9 +175,6 @@ class TestTranscriptionLoggingRedactsPii:
         engine.condition_on_previous_text = False
         engine._lock = threading.Lock()
         # ``_transcribe_unlocked`` checks ``self._abort_event.is_set()``
-        # between segment iterations. Initialise the attribute (normally
-        # set by ``__init__``, which we skipped via ``__new__``) so the
-        # loop runs to completion instead of raising ``AttributeError``.
         engine._abort_event = threading.Event()
 
         seg_text = "My SSN is 123-45-6789 and card 4111-1111-1111-1111."
@@ -300,14 +197,12 @@ class TestTranscriptionLoggingRedactsPii:
 
         log_text = caplog.text
         # The raw segment text (containing SSN + CC patterns) MUST NOT
-        # appear in the log output when log_transcriptions is False.
         assert seg_text not in log_text, (
             "when log_transcriptions is False, the "
             "segment DEBUG log must NOT contain raw segment text, only "
             "the char count + timestamps."
         )
         # And the redaction tokens should NOT appear either (because
-        # the text was never logged at all, not even through redact_pii).
         assert "[SSN]" not in log_text, (
             "when log_transcriptions is False, the "
             "segment DEBUG log must not emit any text content, not "
@@ -317,11 +212,7 @@ class TestTranscriptionLoggingRedactsPii:
 
 
 class TestReadCappedAbortsOnOverflow:
-    """Pre-fix: the ``total > max_bytes`` abort path in ``_read_capped``
-    was untested. A malformed server sending >50MB could timeout
-    instead of cleanly aborting. Fix: add a test that supplies chunks
-    summing >50MB and asserts ``RuntimeError`` is raised.
-    """
+    """Pre-fix: the ``total > max_bytes`` abort path in ``_read_capped``"""
 
     def test_read_capped_aborts_on_overflow(self):
         from voice_typer.server.cloud_engines import _read_capped
@@ -386,20 +277,15 @@ class TestReadCappedAbortsOnOverflow:
 
 
 class TestMutexHardenedWithSecurityDescriptor:
-    r"""The finding: CreateMutexW with NULL security descriptor and bare
-    name. Investigation: the mutex now has ``Local\`` prefix,
-    a fixed name (no install-path hash), and a restrictive DACL.
+    """
+    The finding: CreateMutexW with NULL security descriptor and bare
     This test pins that state.
     """
 
     def test_mutex_name_has_local_prefix(self):
-        r"""The mutex name must have Local\ prefix (no install hash).
-
+        r"""
+        The mutex name must have Local\ prefix (no install hash).
         KEEP, pins PLAT-040 (mutex name has Local\ prefix,
-        no install-path hash). A behavioral test would need to spawn
-        two processes and observe the mutex collision, which is heavy;
-        the source-string check catches reintroduction of the install
-        hash directly.
         """
         import inspect
 
@@ -412,10 +298,6 @@ class TestMutexHardenedWithSecurityDescriptor:
 
     def test_mutex_uses_restrictive_security_attributes(self):
         # KEEP, pins  (mutex uses restrictive DACL via
-        # _create_restrictive_security_attributes). A behavioral test
-        # would need to inspect the mutex's security descriptor via
-        # Windows APIs (heavy, Windows-only); the source-string check
-        # catches removal of the helper call directly.
         from voice_typer.server import app
 
         src = inspect.getsource(app)
@@ -425,17 +307,10 @@ class TestMutexHardenedWithSecurityDescriptor:
 
 
 class TestClipboardRetryNarrowedException:
-    """The finding: retry loop caught broad ``Exception``, masking
-    permanent failures. Fix: narrow to ``OSError`` with
-    ``winerror == 5`` (ERROR_ACCESS_DENIED) check.
-    """
+    """The finding: retry loop caught broad ``Exception``, masking"""
 
     def test_retry_catches_oserror_not_broad_exception(self):
         # KEEP, pins  (clipboard retry narrowed to OSError
-        # with winerror == 5). A behavioral test would need to trigger
-        # ERROR_ACCESS_DENIED on the clipboard, which is Windows-specific
-        # and flaky; the source-string check catches reintroduction of
-        # the broad Exception catch directly.
         from voice_typer.server import clipboard
 
         src = inspect.getsource(clipboard)
@@ -445,18 +320,14 @@ class TestClipboardRetryNarrowedException:
         assert "winerror == 5" in src, "PLAT-007: clipboard retry must check winerror == 5 (ERROR_ACCESS_DENIED)"
 
     def test_broad_exception_catch_removed(self):
-        """The pre-fix ``except Exception as copy_err`` must NOT be
-        present in the retry block.
-
+        """
+        The pre-fix ``except Exception as copy_err`` must NOT be
         RW-8: KEEP, pins the negative half of PLAT-007. Same rationale
-        as test_retry_catches_oserror_not_broad_exception.
         """
         from voice_typer.server import clipboard
 
         src = inspect.getsource(clipboard)
         # The pre-fix pattern was: except Exception as copy_err
-        # (inside the  retry block). It must be gone.
-        # We check the copy() method source specifically.
         copy_methods = [line for line in src.split("\n") if "except Exception as copy_err" in line]
         assert len(copy_methods) == 0, (
             "PLAT-007: 'except Exception as copy_err' must be removed from "
@@ -465,10 +336,7 @@ class TestClipboardRetryNarrowedException:
 
 
 class TestComtypesFallbackFailsClosed:
-    """The finding: comtypes absence → fail-open (returns True = safe to
-    paste). Fix: add credential-dialog window-class heuristic as a
-    fallback, and log a WARNING (not INFO) so operators notice.
-    """
+    """fallback, and log a WARNING (not INFO) so operators notice."""
 
     def test_cred_dialog_classes_constant_exists(self):
         from voice_typer.server import clipboard
@@ -492,35 +360,19 @@ class TestComtypesFallbackFailsClosed:
         reason="Non-Windows path: _focused_window_is_credential_dialog short-circuits to False when Win32 FindWindowEx unavailable",  # noqa: E501
     )
     def test_focused_window_returns_false_on_non_windows(self):
-        """On non-Windows platforms, the helper must return False
-        (no credential dialogs to detect).
-        """
+        """On non-Windows platforms, the helper must return False"""
         from voice_typer.server.clipboard import _focused_window_is_credential_dialog
 
         assert _focused_window_is_credential_dialog() is False
 
     def test_comtypes_absence_logs_warning_not_info(self):
-        """The ImportError handler must log at WARNING level (not INFO)
-        so operators notice at default log levels.
-
-        RW-8: KEEP, pins PLAT-014 (comtypes-absence path logs WARNING
-        and calls the credential-dialog fallback). A behavioral test
-        would need to uninstall comtypes and capture log output, which
-        is heavy; the source-string check catches removal of the
-        WARNING level or the fallback call directly.
-
-        The source uses the module-level ``_log()`` helper (a
-        lazy-init logger getter) rather than a bare ``log`` symbol,
-        so the assertion uses a regex that accepts both ``log.warning``
-        and ``_log().warning`` forms.
-        """
+        """The ImportError handler must log at WARNING level (not INFO)"""
         import re
 
         from voice_typer.server import clipboard
 
         src = inspect.getsource(clipboard._is_password_field)
         # Accept both ``log.warning(...)`` and ``_log().warning(...)``
-        # forms (the clipboard module uses the lazy ``_log()`` helper).
         assert re.search(r"\b(?:log|_log\(\))\.warning\b", src), "comtypes-absence must log at WARNING level (not INFO)"
         # Must call the credential-dialog fallback
         assert "_focused_window_is_credential_dialog" in src, (
@@ -529,34 +381,18 @@ class TestComtypesFallbackFailsClosed:
 
 
 class TestMutexAcquisitionHasRetryAndTimeout:
-    """The finding: no retry/timeout for mutex acquisition. Investigation:
-    the immediate-exit-on-ERROR_ALREADY_EXISTS is intentional, if
-    another instance holds the mutex, it IS running. This test pins
-    that behavior so a future "let's add retry" change is caught.
-    """
+    """The finding: no retry/timeout for mutex acquisition. Investigation:"""
 
     def test_ensure_single_instance_exits_on_already_exists(self):
         # KEEP, pins  (immediate-exit on ERROR_ALREADY_EXISTS,
-        # no retry). A behavioral test would need to spawn two processes
-        # and observe the exit, which is heavy; the source-string check
-        # catches reintroduction of a retry loop directly.
         from voice_typer.server import app as app_mod
 
-        # _ensure_single_instance is now a thin dispatcher; the
-        # Windows mutex logic (which checks error_already_exists) lives
-        # in _ensure_windows_single_instance. Inspect that function so
-        # the  invariant is still pinned.
         src = inspect.getsource(app_mod._ensure_windows_single_instance)
         # Must check ERROR_ALREADY_EXISTS and exit. The implementation
-        # may use either the symbolic name "ERROR_ALREADY_EXISTS" or the
-        # numeric value 183 assigned to a lowercase variable
-        # ``error_already_exists``, both are valid representations of
-        # the Windows system error code.
         assert "ERROR_ALREADY_EXISTS" in src or "error_already_exists" in src or "183" in src, (
             "_ensure_single_instance must check ERROR_ALREADY_EXISTS"
         )
         # The immediate-exit behavior is intentional, no retry loop
-        # should be added without explicit design discussion.
         assert "for attempt" not in src or "retry" not in src.lower(), (
             "_ensure_single_instance intentionally does NOT retry. "
             "Adding retry would delay the 'already running' message to the user."
@@ -564,43 +400,19 @@ class TestMutexAcquisitionHasRetryAndTimeout:
 
 
 class TestSystemRootValidationFunctional:
-    """The finding: only existence tests for _validate_systemroot, no
-    functional test that verifies a malicious SystemRoot is rejected.
-    Fix: add a test that sets SystemRoot to an attacker-controlled path
-    and verifies the function rejects it.
-    """
+    """The finding: only existence tests for _validate_systemroot, no"""
 
     def test_validate_systemroot_rejects_traversal(self, monkeypatch):
-        """A SystemRoot containing '..' must be rejected (REG-3 / CR-19).
-
-          Original behavior: the function logged a warning and continued
-          (fail-open). CR-19 changed this to fail-closed: a path-traversal
-          sequence in SystemRoot is a classic DLL-injection vector, so
-          ``_validate_systemroot`` now calls ``sys.exit(1)`` instead of
-          silently resetting the env var. This test pins the fail-closed
-          behavior by patching ``is_windows`` to True (otherwise the
-          Linux test runner would short-circuit at the top of the
-          function) and asserting that ``SystemExit`` is raised with
-          exit code 1.
-
-          Note: ``SYSTEMROOT`` (all-caps) is used here because the
-          function reads it via ``os.environ.get("SYSTEMROOT", "")``.
-          On Windows env-var names are case-insensitive, but on the
-          Linux CI runner ``SystemRoot`` and ``SYSTEMROOT`` are distinct
-        , the all-caps form is what the function actually consults.
-        """
+        """A SystemRoot containing '..' must be rejected (REG-3 / CR-19)."""
         from voice_typer.server import config
         from voice_typer.server.config import _validate_systemroot
 
         # Force the Windows-only code path to execute on the Linux
-        # CI runner so the traversal check actually runs.
         monkeypatch.setattr(config, "is_windows", lambda: True)
 
         # Set SystemRoot to a path with traversal. Use the all-caps
-        # form (see docstring above for rationale).
         monkeypatch.setenv("SYSTEMROOT", r"C:\Windows\..\..\attacker")
 
-        # must abort startup (fail-closed), not silently reset.
         with pytest.raises(SystemExit) as exc_info:
             _validate_systemroot()
         assert exc_info.value.code == 1, (
@@ -608,51 +420,20 @@ class TestSystemRootValidationFunctional:
         )
 
         # The malicious value must NOT be silently reset, the user
-        # must see the startup abort and investigate. (Silently
-        # resetting would hide the attack.)
         assert os.environ.get("SYSTEMROOT") == r"C:\Windows\..\..\attacker"
 
     def test_validate_systemroot_rejects_nonexistent_dir(self, monkeypatch):
-        """A SystemRoot pointing to a nonexistent directory must be
-        rejected (reset to the safe default ``C:\\Windows``).
-
-        previously this test was a complete no-op on Linux CI:
-        (1) it set ``SystemRoot`` (mixed-case) but the production
-        function reads ``SYSTEMROOT`` (all-caps, case-sensitive on
-        Linux); (2) it never patched ``is_windows`` so the function
-        early-returned at config.py:204-205 (``if not is_windows():
-        return``); (3) the assertion ``"SystemRoot" in os.environ``
-        was trivially True because the test itself just set it. The
-        "rejects nonexistent dir" branch (config.py:246-262) was
-        entirely uncovered. Now mirrors the sibling
-        ``test_validate_systemroot_rejects_traversal`` pattern: patch
-        ``is_windows`` to True, set all-caps ``SYSTEMROOT``, and
-        assert the function resets it to the safe default.
-
-        Systemroot-conditional-reset: the production code only resets
-        to the default when ``C:\\Windows`` actually exists as a
-        directory (the previous unconditional reset broke the fail-soft
-        contract on stripped-down Wine prefixes and the Linux sandbox,
-        where ``C:\\Windows`` doesn't exist either). On the Linux CI
-        runner we therefore mock ``Path`` so the default reports
-        ``is_dir() True``, mirroring the real Windows runtime where
-        ``C:\\Windows`` is always present. The sibling
-        ``tests/test_validate_systemroot.py::test_missing_dir_does_not_exit``
-        covers the inverse case (default also missing → no reset).
-        """
+        """A SystemRoot pointing to a nonexistent directory must be"""
         from voice_typer.server import config
         from voice_typer.server.config import _validate_systemroot
 
         # Patch is_windows so the function doesn't early-return on Linux.
         monkeypatch.setattr(config, "is_windows", lambda: True)
         # Use all-caps SYSTEMROOT (case-sensitive on Linux; the production
-        # function reads os.environ.get("SYSTEMROOT", "")).
         user_root = r"C:\Nonexistent\Path\12345"
         monkeypatch.setenv("SYSTEMROOT", user_root)
 
         # Mock Path so the user-supplied path reports is_dir()=False
-        # (missing) while the default C:\Windows reports is_dir()=True
-        # (present), mirroring real Windows runtime semantics.
         default_root = r"C:\Windows"
 
         class _FakePath:
@@ -666,8 +447,6 @@ class TestSystemRootValidationFunctional:
                 return self._s == default_root
 
             def exists(self):
-                # notepad.exe check is downstream of the reset branch;
-                # report True so the function returns normally.
                 return True
 
             def __str__(self):
@@ -677,7 +456,6 @@ class TestSystemRootValidationFunctional:
 
         _validate_systemroot()
         # The function must reset the malicious value to the safe default
-        # (``C:\Windows``): see config.py:246-262.
         assert os.environ.get("SYSTEMROOT") == r"C:\Windows", (
             "PLAT-016/REG-3: _validate_systemroot() must reset a "
             "nonexistent-dir SYSTEMROOT to 'C:\\\\Windows' (the safe "

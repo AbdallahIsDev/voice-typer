@@ -1,18 +1,4 @@
-"""test matrix for ``Config.load()`` corrupt-config scenarios.
-
-Prior to ``Config.load()`` wrapped its body in a broad
-``except Exception`` that silently returned defaults.  This file pins
-the new contract:
-
-* **Caught** (fall back to defaults + WARNING log containing the
-  exception class name and the config file path):
-  ``OSError``, ``json.JSONDecodeError``, ``TypeError``, ``ValueError``.
-* **Propagated** (NOT caught, indicates a bug in our code or a
-  system-level failure): ``KeyError``, ``AttributeError``,
-  ``MemoryError``, ``KeyboardInterrupt``, ``SystemExit``.
-
-The tests below cover each row of that decision matrix.
-"""
+"""test matrix for ``Config.load()`` corrupt-config scenarios."""
 
 from __future__ import annotations
 
@@ -28,9 +14,6 @@ from voice_typer.server.config import Config, _default_hotkey_for_platform
 EXPECTED_DEFAULT_HOTKEY = _default_hotkey_for_platform()
 
 
-# ── Helpers ────────────────────────────────────────────────────────────────
-
-
 def _write_config(tmp_path: Path, payload: str) -> Path:
     """Write ``payload`` to ``<tmp_path>/config.json`` and return the path."""
     config_file = tmp_path / "config.json"
@@ -44,18 +27,7 @@ def _warning_records(caplog) -> list[logging.LogRecord]:
 
 
 def _loading_warning_records(caplog) -> list[logging.LogRecord]:
-    """Return only the per-field 'invalid ... resetting to default' or
-    'loading config ... Using defaults' warning records.
-
-    adds a second warning ('moved corrupt config ... for forensic
-    recovery') when a corrupt config is moved aside.  Tests that assert
-    on the load-failure warning specifically should use this helper to
-    filter out the move-aside warning.
-
-    per-field coercion warnings now use the format
-    'invalid <field> value ... resetting to default' rather than the
-    old generic 'loading config ... Using defaults' message.
-    """
+    """'loading config ... Using defaults' warning records."""
     return [
         r
         for r in _warning_records(caplog)
@@ -63,19 +35,11 @@ def _loading_warning_records(caplog) -> list[logging.LogRecord]:
     ]
 
 
-# ── Caught: fall back to defaults + WARNING ────────────────────────────────
-
-
 class TestConfigLoadCaughtFailureModes:
     """Each expected failure mode must fall back to defaults and log."""
 
     def test_file_missing_returns_defaults_no_warning(self, tmp_path, tmp_config_dir, caplog):
-        """No config file at all → defaults, no exception, no warning.
-
-        This is the legitimate "first run" case and must NOT log a
-        warning (there's nothing wrong, the user just hasn't saved a
-        config yet).
-        """
+        """No config file at all → defaults, no exception, no warning."""
         with caplog.at_level(logging.WARNING, logger="voice_typer.server.config"):
             cfg = Config.load()
         assert cfg.hotkey == EXPECTED_DEFAULT_HOTKEY
@@ -111,14 +75,7 @@ class TestConfigLoadCaughtFailureModes:
         ids=["null", "true", "int", "float", "string", "empty_list", "list"],
     )
     def test_json_non_dict_returns_defaults_and_logs_warning(self, tmp_path, tmp_config_dir, caplog, bad_root):
-        """Valid JSON but not a dict → TypeError → defaults.
-
-        ``load()`` now explicitly checks ``isinstance(parsed, dict)``
-        and raises ``TypeError`` with a clear message.  Previously this
-        case raised ``AttributeError`` from ``parsed.items()``, which was
-        caught by the broad ``except Exception``.  The new behavior
-        surfaces the failure mode (``TypeError``) in the log.
-        """
+        """Valid JSON but not a dict → TypeError → defaults."""
         config_file = _write_config(tmp_path, bad_root)
         with caplog.at_level(logging.WARNING, logger="voice_typer.server.config"):
             cfg = Config.load()
@@ -131,20 +88,13 @@ class TestConfigLoadCaughtFailureModes:
         assert "JSON object" in recs[0].message
 
     def test_field_with_uncoercible_string_returns_defaults_and_logs_warning(self, tmp_path, tmp_config_dir, caplog):
-        """A float field set to a non-numeric string → per-field reset + warning.
-
-        ``float("abc")`` raises ``ValueError``, the
-        field cannot be coerced.  Previously this reset the ENTIRE config
-        to defaults; now only the bad field is reset and a warning is
-        logged so the user knows which field was bad.
-        """
+        """A float field set to a non-numeric string → per-field reset + warning."""
         _write_config(tmp_path, json.dumps({"streaming_chunk_seconds": "abc"}))
         with caplog.at_level(logging.WARNING, logger="voice_typer.server.config"):
             cfg = Config.load()
         assert cfg.hotkey == EXPECTED_DEFAULT_HOTKEY
         recs = _loading_warning_records(caplog)
         assert len(recs) == 1
-        # new message format names the field and value.
         assert "streaming_chunk_seconds" in recs[0].message
         assert "abc" in recs[0].message
         assert "resetting to default" in recs[0].message
@@ -152,11 +102,7 @@ class TestConfigLoadCaughtFailureModes:
         assert cfg.streaming_chunk_seconds == 12.0
 
     def test_field_with_null_for_float_returns_defaults_and_logs_warning(self, tmp_path, tmp_config_dir, caplog):
-        """A float field set to ``null`` → per-field reset + warning.
-
-        ``float(None)`` raises ``TypeError``.  Previously
-        this reset the ENTIRE config; now only the bad field is reset.
-        """
+        """A float field set to ``null`` → per-field reset + warning."""
         _write_config(tmp_path, json.dumps({"streaming_chunk_seconds": None}))
         with caplog.at_level(logging.WARNING, logger="voice_typer.server.config"):
             cfg = Config.load()
@@ -171,11 +117,7 @@ class TestConfigLoadCaughtFailureModes:
     def test_field_with_uncoercible_int_for_float_returns_defaults_and_logs_warning(
         self, tmp_path, tmp_config_dir, caplog
     ):
-        """A float field set to a list → per-field reset + warning.
-
-        ``float([1, 2])`` raises ``TypeError``.  Previously
-        this reset the ENTIRE config; now only the bad field is reset.
-        """
+        """A float field set to a list → per-field reset + warning."""
         _write_config(tmp_path, json.dumps({"streaming_chunk_seconds": [1, 2, 3]}))
         with caplog.at_level(logging.WARNING, logger="voice_typer.server.config"):
             cfg = Config.load()
@@ -189,12 +131,7 @@ class TestConfigLoadCaughtFailureModes:
     def test_validate_non_numeric_fields_raises_returns_defaults_and_logs_warning(
         self, tmp_path, tmp_config_dir, monkeypatch, caplog
     ):
-        """If the validator raises a caught exception, fall back to defaults.
-
-        Simulates a future regression where ``_validate_non_numeric_fields``
-        raises ``ValueError`` on a field it can't reason about.  The
-        outer ``except`` must catch it and fall back to defaults.
-        """
+        """If the validator raises a caught exception, fall back to defaults."""
         config_file = _write_config(tmp_path, json.dumps({"hotkey": "<f5>"}))
 
         def raising_validate(cls, data):
@@ -218,15 +155,9 @@ class TestConfigLoadCaughtFailureModes:
         reason="POSIX-only: chmod 0o000 to deny read access",
     )
     def test_permission_denied_returns_defaults_and_logs_warning(self, tmp_path, tmp_config_dir, caplog):
-        """File exists but is unreadable → PermissionError (OSError) → defaults.
-
-        We never want a permission error to crash the app on startup;
-        falling back to defaults (and warning) is the correct UX.
-        """
+        """File exists but is unreadable → PermissionError (OSError) → defaults."""
         config_file = _write_config(tmp_path, json.dumps({"hotkey": "<f5>"}))
         # Strip all permissions from the file (note: this only denies
-        # non-root users; root can still read).  Tests run as the user
-        # that owns the file, so 0o000 denies read access.
         config_file.chmod(0o000)
         try:
             with caplog.at_level(logging.WARNING, logger="voice_typer.server.config"):
@@ -235,15 +166,10 @@ class TestConfigLoadCaughtFailureModes:
             recs = _loading_warning_records(caplog)
             assert len(recs) == 1
             # PermissionError is a subclass of OSError; the log records
-            # the actual subclass name so the user can see "permission
-            # denied" vs. "disk error".
             assert "PermissionError" in recs[0].message or "OSError" in recs[0].message
             assert str(config_file) in recs[0].message
         finally:
             # Restore permissions so pytest can clean up tmp_path.
-            # the corrupt config may have been moved aside to
-            # config.json.corrupt-<timestamp>; chmod that if the original
-            # is gone (best-effort cleanup).
             try:
                 config_file.chmod(0o600)
             except FileNotFoundError:
@@ -254,10 +180,7 @@ class TestConfigLoadCaughtFailureModes:
     def test_disk_error_during_read_returns_defaults_and_logs_warning(
         self, tmp_path, tmp_config_dir, monkeypatch, caplog
     ):
-        """OSError mid-read (e.g. disk failure) → defaults + warning.
-
-        Simulated by mocking ``_secure_read_text`` to raise ``OSError``.
-        """
+        """OSError mid-read (e.g. disk failure) → defaults + warning."""
         config_file = _write_config(tmp_path, json.dumps({"hotkey": "<f5>"}))
 
         def boom(path, **kwargs):
@@ -273,13 +196,7 @@ class TestConfigLoadCaughtFailureModes:
         assert str(config_file) in recs[0].message
 
     def test_oserror_subclass_permissionerror_is_caught(self, tmp_path, tmp_config_dir, monkeypatch, caplog):
-        """``PermissionError`` (subclass of ``OSError``) must be caught.
-
-        This is a regression guard: if someone refactors the except
-        tuple to ``except OSError`` only, ``PermissionError`` still
-        works.  But if they narrow it to specific OSError subclasses,
-        we want to know.
-        """
+        """``PermissionError`` (subclass of ``OSError``) must be caught."""
         _write_config(tmp_path, json.dumps({"hotkey": "<f5>"}))
 
         def boom(path, **kwargs):
@@ -292,9 +209,6 @@ class TestConfigLoadCaughtFailureModes:
         recs = _loading_warning_records(caplog)
         assert len(recs) == 1
         assert "PermissionError" in recs[0].message
-
-
-# ── Propagated: NOT caught ─────────────────────────────────────────────────
 
 
 class TestConfigLoadPropagatedFailureModes:
@@ -331,12 +245,7 @@ class TestConfigLoadPropagatedFailureModes:
             Config.load()
 
     def test_memoryerror_propagates(self, tmp_path, tmp_config_dir, monkeypatch):
-        """``MemoryError`` is system-level, must not be silently swallowed.
-
-        the broad ``except Exception`` caught ``MemoryError``
-        (it's a subclass of ``Exception``) and silently returned
-        defaults, masking an OOM condition.
-        """
+        """``MemoryError`` is system-level, must not be silently swallowed."""
         _write_config(tmp_path, json.dumps({"hotkey": "<f5>"}))
 
         def boom(path, **kwargs):
@@ -347,13 +256,7 @@ class TestConfigLoadPropagatedFailureModes:
             Config.load()
 
     def test_keyboardinterrupt_propagates(self, tmp_path, tmp_config_dir, monkeypatch):
-        """``KeyboardInterrupt`` must always propagate (user hit Ctrl-C).
-
-        ``except Exception`` did NOT catch ``KeyboardInterrupt``
-        (it's a ``BaseException``, not ``Exception``), but we add this
-        test to pin that behavior, if someone later widens the catch
-        to ``except BaseException`` it would break Ctrl-C handling.
-        """
+        """``KeyboardInterrupt`` must always propagate (user hit Ctrl-C)."""
         _write_config(tmp_path, json.dumps({"hotkey": "<f5>"}))
 
         def boom(path, **kwargs):
@@ -376,12 +279,7 @@ class TestConfigLoadPropagatedFailureModes:
         assert exc_info.value.code == 42
 
     def test_runtimeerror_propagates(self, tmp_path, tmp_config_dir, monkeypatch):
-        """``RuntimeError`` is not an expected config-corruption mode.
-
-        If a ``RuntimeError`` bubbles up from inside ``load()``, it's
-        likely a bug in our migration code or a downstream import
-        failure, we want it surfaced, not silently swallowed.
-        """
+        """``RuntimeError`` is not an expected config-corruption mode."""
         _write_config(tmp_path, json.dumps({"hotkey": "<f5>"}))
 
         def boom(path, **kwargs):
@@ -390,9 +288,6 @@ class TestConfigLoadPropagatedFailureModes:
         monkeypatch.setattr("voice_typer.server.config._secure_read_text", boom)
         with pytest.raises(RuntimeError, match="simulated downstream bug"):
             Config.load()
-
-
-# ── Backward-compat: existing legitimate cases still work ──────────────────
 
 
 class TestConfigLoadLegitimateCasesPreserved:
@@ -438,15 +333,11 @@ class TestConfigLoadLegitimateCasesPreserved:
         assert cfg.hotkey == "<f3>"
 
 
-# ── Log-message quality ────────────────────────────────────────────────────
-
-
 class TestConfigLoadWarningMessageQuality:
     """the warning must include enough context to be actionable."""
 
     def test_warning_includes_exception_class_name(self, tmp_path, tmp_config_dir, caplog):
-        """The exception class name (e.g. ``JSONDecodeError``) is the
-        failure-mode indicator, it must be in the log message."""
+        """The exception class name (e.g. ``JSONDecodeError``) is the"""
         _write_config(tmp_path, "garbage")
         with caplog.at_level(logging.WARNING, logger="voice_typer.server.config"):
             Config.load()
@@ -456,9 +347,7 @@ class TestConfigLoadWarningMessageQuality:
         assert "JSONDecodeError" in recs[0].message
 
     def test_warning_includes_config_file_path(self, tmp_path, tmp_config_dir, caplog):
-        """The config file path must be in the message so the user knows
-        which file is corrupt (in case there are multiple, e.g. legacy
-        + new)."""
+        """The config file path must be in the message so the user knows"""
         config_file = _write_config(tmp_path, "garbage")
         with caplog.at_level(logging.WARNING, logger="voice_typer.server.config"):
             Config.load()
@@ -467,24 +356,17 @@ class TestConfigLoadWarningMessageQuality:
         assert str(config_file) in recs[0].message
 
     def test_warning_includes_exception_message(self, tmp_path, tmp_config_dir, caplog):
-        """The underlying exception message (e.g. JSON parse error
-        detail) must be in the log so the user can see *where* in the
-        file the corruption is."""
+        """The underlying exception message (e.g. JSON parse error"""
         _write_config(tmp_path, "garbage")
         with caplog.at_level(logging.WARNING, logger="voice_typer.server.config"):
             Config.load()
         recs = _warning_records(caplog)
         assert recs
-        # json.JSONDecodeError messages always include "line" and "column".
         assert "line" in recs[0].message
         assert "column" in recs[0].message
 
     def test_warning_level_is_warning_not_error(self, tmp_path, tmp_config_dir, caplog):
-        """level is WARNING (recoverable), not ERROR (fatal).
-
-        Recovering to defaults is a normal, recoverable event, using
-        ERROR would flood monitoring dashboards with false positives.
-        """
+        """level is WARNING (recoverable), not ERROR (fatal)."""
         _write_config(tmp_path, "garbage")
         with caplog.at_level(logging.WARNING, logger="voice_typer.server.config"):
             Config.load()
@@ -493,18 +375,8 @@ class TestConfigLoadWarningMessageQuality:
         assert recs[0].levelno == logging.WARNING
 
 
-# extracted coercion helpers ─────────────────────────────────
-
-
 class TestCoercionHelpers:
-    """``_warn_and_reset`` and ``_warn_and_coerce`` extract
-    the duplicated 5-line "build msg → log → append → reset" pattern
-    that appeared 6 times in the original
-    ``_validate_non_numeric_fields``.
-
-    These tests verify the helpers behave correctly in isolation so
-    future refactors of the per-type branches can rely on them.
-    """
+    """``_warn_and_reset`` and ``_warn_and_coerce`` extract"""
 
     def test_warn_and_reset_returns_default_value(self, caplog):
         """``_warn_and_reset`` returns the default value for the field."""
@@ -537,7 +409,6 @@ class TestCoercionHelpers:
         assert len(warnings) == 1
         msg = warnings[0]
         # The message must include enough context to be actionable:
-        # field name, original value, default value, and the reason.
         assert "streaming_chunk_seconds" in msg
         assert "'not a number'" in msg
         assert repr(defaults.streaming_chunk_seconds) in msg
@@ -589,7 +460,6 @@ class TestCoercionHelpers:
         assert len(warnings) == 1
         msg = warnings[0]
         # The message must include both the original and coerced values
-        # so the user can see what was changed.
         assert "sample_rate" in msg
         assert "'16000'" in msg  # original string form
         assert repr(16000) in msg  # coerced int form
@@ -612,26 +482,20 @@ class TestCoercionHelpers:
         assert recs[0].levelno == logging.WARNING
 
     def test_validate_non_numeric_fields_uses_helpers_for_bool_coercion(self, caplog):
-        """regression: bool coercion routes through
-        ``_warn_and_coerce`` so the warning message format stays
-        consistent with int/float coercion.
-        """
+        """regression: bool coercion routes through"""
         # Force a non-bool value for a bool field.
         data = {"autostart": "yes"}
         with caplog.at_level(logging.WARNING, logger="voice_typer.server.config"):
             validated = Config._validate_non_numeric_fields(data)
         assert validated["autostart"] is True
         # The warning must match the helper's format (not the legacy
-        # inline format).
         recs = _warning_records(caplog)
         assert recs, "expected at least one WARNING record"
         assert "autostart" in recs[0].message
         assert "coerced to" in recs[0].message
 
     def test_validate_non_numeric_fields_uses_helpers_for_int_reset(self, caplog):
-        """regression: int field reset routes through
-        ``_warn_and_reset``.
-        """
+        """regression: int field reset routes through"""
         # An int field with a non-numeric string value → reset to default.
         data = {"sample_rate": "not a number"}
         with caplog.at_level(logging.WARNING, logger="voice_typer.server.config"):

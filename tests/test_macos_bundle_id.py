@@ -1,31 +1,4 @@
-"""Tests for the macOS host bundle-ID runtime resolution.
-
-The Accessibility re-grant notification in ``startup_tasks.py`` must
-show ``tccutil reset Accessibility <bundle-id>`` with the REAL bundle
-ID of the currently-running host app (predecessor or Tauri), never a
-hardcoded value. The resolver walks the parent-process chain from the
-Python backend up to the nearest ``*.app`` bundle and reads
-``CFBundleIdentifier`` from its ``Contents/Info.plist``.
-
-This module tests:
-
-1. ``app_bundle_root``, pure path parsing.
-2. ``read_bundle_identifier``, Info.plist parsing (missing file / key /
-   wrong type are all ``None``).
-3. ``_resolve_host_bundle_id``, the process-chain walk (scripted ``ps``
-   output; resolves the nearest ``.app``, skips non-app ancestors,
-   stops at launchd / ps failure / depth bound).
-4. ``resolve_host_bundle_id``, macOS-only guard (no ``ps`` on other
-   platforms).
-5. The ``startup_tasks`` integration: the message helper embeds the
-   resolved bundle ID when available and falls back to the generic
-   walkthrough otherwise, and the module never hardcodes a bundle ID.
-6. Real-process integration (macOS-only): the ACTUAL ``ps`` walk
-   against the live process tree, a process launched inside a
-   synthetic ``.app`` resolves its bundle ID end-to-end, and the
-   public no-arg resolver agrees with an independent read of the
-   current process chain.
-"""
+"""Tests for the macOS host bundle-ID runtime resolution."""
 
 from __future__ import annotations
 
@@ -50,9 +23,6 @@ def _make_app_bundle(root: Path, bundle_id: str) -> Path:
     return app
 
 
-# ─── app_bundle_root ───────────────────────────────────────────────────────
-
-
 class TestAppBundleRoot:
     def test_finds_app_root_in_macos_host_path(self):
         root = mbid.app_bundle_root("/Applications/Voice Typer.app/Contents/MacOS/Voice Typer")
@@ -70,9 +40,6 @@ class TestAppBundleRoot:
 
     def test_returns_none_for_empty_path(self):
         assert mbid.app_bundle_root("") is None
-
-
-# ─── read_bundle_identifier ────────────────────────────────────────────────
 
 
 class TestReadBundleIdentifier:
@@ -110,9 +77,6 @@ class TestReadBundleIdentifier:
         assert mbid.read_bundle_identifier(app) is None
 
 
-# ─── _resolve_host_bundle_id (process-chain walk) ──────────────────────────
-
-
 def _fake_ps(lines: dict[int, str]):
     """Return a ``_process_chain_line``-shaped fake serving ``lines``."""
 
@@ -144,7 +108,6 @@ class TestResolveHostBundleId:
             "_process_chain_line",
             _fake_ps(
                 {
-                    # intermediate ancestor: a launcher script (no .app)
                     300: "200 /usr/local/bin/voice-typer-launch",
                     200: f"150 {app}/Contents/MacOS/Voice Typer",
                     150: "1 /sbin/launchd",
@@ -209,18 +172,8 @@ class TestPublicResolveHostBundleId:
         assert mbid.resolve_host_bundle_id() == "com.voicetyper.desktop"
 
 
-# ─── real-process integration (macOS-only) ─────────────────────────────────
-
-
 def _expected_bundle_id_from_current_chain() -> str | None:
-    """Oracle: walk the LIVE process tree from the runner's parent (real
-    ``ps``) and return the bundle ID the resolver SHOULD produce.
-
-    Mirrors the resolver's walk so the integration test has an
-    independent expected value computed from the same real ``ps``
-    output, the point is exercising the real process tree, plist
-    parsing and path handling end-to-end, not re-verifying the loop.
-    """
+    """Oracle: walk the LIVE process tree from the runner's parent (real"""
     pid = os.getppid()
     for _ in range(mbid._MAX_CHAIN_DEPTH):
         line = mbid._process_chain_line(pid)
@@ -243,44 +196,23 @@ def _expected_bundle_id_from_current_chain() -> str | None:
 
 
 class TestRealProcessTreeIntegration:
-    """macOS-only integration: the REAL ``ps`` walk against the live tree.
-
-    ``_process_chain_line`` is NOT mocked here. ``ps -p <pid> -o ppid=
-    -o comm=`` is BSD syntax and ``*.app`` bundle semantics are
-    macOS-specific, so both tests skip on Linux/Windows and are
-    exercised on the macos-14 CI leg (build.yml runs the full pytest
-    suite there on every PR).
-    """
+    """macOS-only integration: the REAL ``ps`` walk against the live tree."""
 
     @pytest.mark.skipif(sys.platform != "darwin", reason="macos-only real ps walk")
     def test_resolver_returns_bundle_id_for_process_launched_inside_app(self, tmp_path):
-        """A process whose executable lives inside a ``*.app`` must resolve.
-
-        Builds a synthetic ``Voice Typer Test.app`` on disk with a real
-        Mach-O executable (a copy of ``/bin/sleep``, a shebang script
-        would report the INTERPRETER path in ``ps comm``, not the bundle
-        path) and a real ``Info.plist``, launches it as a live
-        subprocess, then runs the resolver's real ``ps`` walk from that
-        pid. The space in the app name also exercises the comm-based
-        path parsing (no tokenization).
-        """
+        """A process whose executable lives inside a ``*.app`` must resolve."""
         app = tmp_path / "Voice Typer Test.app"
         contents = app / "Contents"
         macos_dir = contents / "MacOS"
         macos_dir.mkdir(parents=True)
         (contents / "Info.plist").write_bytes(plistlib.dumps({"CFBundleIdentifier": "com.voicetyper.desktop"}))
         host = macos_dir / "sleep"
-        # copyfile, NOT copy2: copystat() tries to preserve the source's
-        # macOS file flags (chflags) and fails with PermissionError when
-        # copying a system binary from /bin into a runner temp dir. The
-        # test only needs identical CONTENT plus an exec bit (chmod below).
         shutil.copyfile("/bin/sleep", host)  # real exe at a path inside the .app
         host.chmod(0o755)
 
         proc = subprocess.Popen([str(host), "30"])
         try:
             # Premise check: the live process's comm must report an .app
-            # path (robust to macOS /var -> /private/var canonicalisation).
             line = mbid._process_chain_line(proc.pid)
             parts = line.split(None, 1)
             assert len(parts) == 2, f"ps must report '<ppid> <exe>'; got: {line!r}"
@@ -292,24 +224,13 @@ class TestRealProcessTreeIntegration:
 
     @pytest.mark.skipif(sys.platform != "darwin", reason="macos-only real ps walk")
     def test_public_resolver_consistent_with_current_process_tree(self):
-        """``resolve_host_bundle_id()`` must agree with the real tree it walked.
-
-        Runs the no-arg public resolver (walks from the test runner's own
-        parent via real ``ps``) and compares against an independent read
-        of the same chain. When the suite is launched inside an ``.app``
-        (packaged run, CI inside a bundle), the resolver must return that
-        bundle's identifier, non-None; in a plain dev/terminal run it
-        must return None. Either way the real walk must match the tree.
-        """
+        """``resolve_host_bundle_id()`` must agree with the real tree it walked."""
         result = mbid.resolve_host_bundle_id()
         expected = _expected_bundle_id_from_current_chain()
         assert result == expected, (
             f"resolver returned {result!r} but the live process tree yields "
             f"{expected!r} (launched inside an .app => bundle ID, else None)"
         )
-
-
-# ─── startup_tasks integration ─────────────────────────────────────────────
 
 
 class TestRegrantMessage:
@@ -325,8 +246,6 @@ class TestRegrantMessage:
 
     def test_embeds_any_runtime_bundle_id(self):
         # The message must follow the resolved value, not a fixed one —
-        # this is the whole point of runtime resolution (e.g. a future
-        # Tauri build with a different identifier).
         msg = _a11y_regrant_message("com.voicetyper.some-other-build")
         assert "tccutil reset Accessibility com.voicetyper.some-other-build" in msg
 
@@ -351,8 +270,7 @@ class TestStartupTasksSource:
 
 
 class TestOnboardingSource:
-    """Source-inspection guard: onboarding.py must never hardcode the
-    bundle ID in its macOS permissions guidance."""
+    """Source-inspection guard: onboarding.py must never hardcode the"""
 
     def test_uses_runtime_resolution_and_no_hardcoded_bundle_id(self):
         import inspect

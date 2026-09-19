@@ -1,21 +1,4 @@
-"""§8.9: Disk fills during download: graceful stop on ``OSError``.
-
-Spec (§8.9):
-
-  The download stops gracefully on ``OSError`` (disk full), the partial
-  file is deleted, one notification is shown, retried later.
-
-Tested behaviors:
-
-  1. When ``fh.write`` raises ``OSError`` (disk full), the partial is
-     deleted.
-  2. ``PackDiskFullError`` is raised (subclass of ``OSError``).
-  3. The exception carries the version + path for the notification.
-  4. Exactly one ``pack_download_failed`` event is published (with
-     reason ``"disk_full"``).
-  5. The download is NOT retried automatically (caller schedules
-     retry later).
-"""
+"""§8.9: Disk fills during download: graceful stop on ``OSError``."""
 
 from __future__ import annotations
 
@@ -46,15 +29,7 @@ def _make_normal_transport(full_body: bytes):
 
 
 def _patch_dest_to_fail_on_write(dest: Path, monkeypatch, *, fail_after_bytes: int):
-    """Monkeypatch ``dest.open`` to return a fake file object whose
-    ``write`` raises ``OSError`` after ``fail_after_bytes`` bytes have
-    been written.
-
-    The fake file also simulates the on-disk presence (so the resume
-    path can stat the partial). On the OSError, the file is left in a
-    "partial" state so the implementation's ``dest.unlink()`` has
-    something to delete.
-    """
+    """Monkeypatch ``dest.open`` to return a fake file object whose"""
     real_open = Path.open
     bytes_written = {"n": 0}
 
@@ -133,13 +108,6 @@ class TestDiskFullDuringDownload:
                 http_get=fake,
                 chunk_bytes=64,
             )
-        # The implementation should have called ``dest.unlink()`` on
-        # the disk-full path. We can't assert ``not dest.exists()``
-        # directly because our fake_open may have created the file via
-        # the underlying real_open; instead, we assert the file size
-        # is 0 (or absent), implementation deletes it.
-        # If the implementation deleted it, ``exists()`` is False.
-        # If the rmtree fell back to truncate, the file is 0 bytes.
         if dest.exists():
             assert dest.stat().st_size == 0, "partial must be deleted or empty after disk-full"
 
@@ -171,8 +139,7 @@ class TestDiskFullDuringDownload:
         assert failed[0]["data"]["version"] == "v1"
 
     def test_disk_full_not_retried_automatically(self, tmp_path: Path, monkeypatch):
-        """Unlike rate-limit retries, disk-full is NOT retried in the
-        download loop, the caller schedules the retry later."""
+        """Unlike rate-limit retries, disk-full is NOT retried in the"""
         full = b"x" * 4096
         fake, expected = _make_normal_transport(full)
         dest = tmp_path / "pack-v1.partial"

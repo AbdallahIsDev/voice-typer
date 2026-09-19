@@ -1,43 +1,4 @@
-"""Regression test: ``PersistedJSON._quarantine_corrupt`` must produce
-distinct quarantine filenames even when two processes corrupt their
-files in the same epoch second.
-
-The previous implementation used::
-
-    ts = int(time.time())
-    corrupt_path = self._path.with_name(f"{self._path.name}.corrupt-{ts}")
-    counter = 0
-    while corrupt_path.exists():
-        counter += 1
-        corrupt_path = self._path.with_name(
-            f"{self._path.name}.corrupt-{ts}.{counter}"
-        )
-
-Two concurrent processes corrupting DIFFERENT files in the same second
-both picked ``ts`` + ``counter=0``, but their ``corrupt_path``s point
-at DIFFERENT parent files, so the ``while exists()`` loop never trips
-on each other.  The bug surfaces when two processes corrupt the SAME
-file path (e.g. two app instances launched against the same user
-account) within the same second: both pick ``ts-0``, the
-``exists()`` check has a TOCTOU window, and one process's
-``os.replace`` overwrites the other's quarantine, losing forensic
-history.
-
-The fix mirrors ``config.py:_backup_before_migration`` (line 1900-1903)
-and the corrupt-config rename in ``config.py:1779-1782``: embed epoch
-seconds + PID + sub-second nanoseconds (``time.time_ns() % 1_000_000``)
-in the filename so a collision is essentially impossible without an
-``exists()`` probe loop.
-
-These tests assert:
-
-1. Two concurrent ``_quarantine_corrupt`` calls on the SAME path from
-   the SAME process produce distinct quarantine filenames (no
-   clobber).
-2. The quarantine filename matches the new pattern
-   ``<name>.corrupt-<ts>-<pid>-<ns>``.
-3. Both corrupt files are preserved (neither is overwritten).
-"""
+"""Regression test: ``PersistedJSON._quarantine_corrupt`` must produce"""
 
 from __future__ import annotations
 
@@ -53,8 +14,7 @@ _QUARANTINE_NAME_RE = re.compile(r"^(?P<base>.+?)\.corrupt-(?P<ts>\d+)-(?P<pid>\
 
 
 def test_quarantine_filename_uses_pid_and_nanoseconds(tmp_path: Path) -> None:
-    """A single quarantine event produces a filename matching the new
-    ``<name>.corrupt-<ts>-<pid>-<ns>`` pattern."""
+    """A single quarantine event produces a filename matching the new"""
     corrupt_path = tmp_path / "mydata.json"
     corrupt_path.write_text("{not valid json")
 
@@ -81,47 +41,14 @@ def test_quarantine_filename_uses_pid_and_nanoseconds(tmp_path: Path) -> None:
     assert int(m.group("pid")) == os.getpid(), (
         f"Quarantine filename PID must match os.getpid()={os.getpid()}, got {m.group('pid')}"
     )
-    # ts must be a positive integer (epoch seconds).
     ts = int(m.group("ts"))
     assert ts > 0, f"ts must be a positive epoch-seconds value, got {ts}"
-    # ns must be in [0, 1_000_000).
     ns = int(m.group("ns"))
     assert 0 <= ns < 1_000_000, f"ns must be in [0, 1_000_000) (time.time_ns() % 1_000_000), got {ns}"
 
 
 def test_concurrent_quarantine_same_path_no_clobber(tmp_path: Path) -> None:
-    """Two concurrent ``_quarantine_corrupt`` calls on files with the
-    SAME ``name`` (but in different parent directories) must produce
-    DISTINCT quarantine filenames (different ``ns`` suffix).
-
-    Simulates the realistic race scenario: two app instances launched
-    against different user accounts, each with its own ``config.json``
-    in its own config dir, both detecting corruption in the same
-    epoch second.  The previous ``ts = int(time.time())`` + counter
-    loop had a TOCTOU window when the SAME-PATH scenario applied
-    (two processes, same config.json path, one process's
-    ``os.replace`` would clobber the other's quarantine).  This test
-    exercises the same-second, same-name, DIFFERENT-directory variant
-    which is the closest race that's safely simulable in a
-    single-process unit test (two threads each get their own file
-    system path, so no FS-level serialization masks the filename
-    collision).
-
-    Note: this is a probabilistic test, under extreme contention the
-    two ``time.time_ns()`` calls could still produce the same value if
-    the OS clock has nanosecond resolution AND both threads happen to
-    be scheduled to read the clock in the exact same nanosecond.  In
-    practice on Linux this is essentially impossible (clock read
-    takes ~20-50ns of itself, leaving plenty of slack).  The test
-    runs 5 iterations to maximize the chance of catching a regression
-    if the nanosecond suffix is removed or weakened.
-    """
-    # Each thread has its OWN subdirectory + its OWN copy of
-    # ``race.json``.  This avoids the FS-level serialization where
-    # only one thread can win the ``os.replace`` on a shared path —
-    # both threads successfully quarantine their own file, and we
-    # verify the resulting quarantine FILENAMES are distinct (the
-    # PID+ns suffix disambiguates them within the same epoch second).
+    """SAME ``name`` (but in different parent directories) must produce"""
     dir_a = tmp_path / "a"
     dir_b = tmp_path / "b"
     dir_a.mkdir()
@@ -130,11 +57,6 @@ def test_concurrent_quarantine_same_path_no_clobber(tmp_path: Path) -> None:
     path_b = dir_b / "race.json"
 
     # Capture the destination path each thread passes to os.replace
-    # by spying on os.replace.  We can't read the filesystem AFTER
-    # both threads finish because both quarantine files have the
-    # same NAME (``race.json.corrupt-*``), they're just in different
-    # parent directories.  Spying on os.replace captures the dst
-    # path each thread computed.
     real_os_replace = os.replace
     per_thread_dests: dict[int, str] = {}
     dest_lock = threading.Lock()
@@ -193,22 +115,14 @@ def test_concurrent_quarantine_same_path_no_clobber(tmp_path: Path) -> None:
         )
 
         dests = list(per_thread_dests.values())
-        # Extract just the FILENAME (not the parent dir) for
-        # collision comparison.  Both threads have the same
-        # ``race.json`` source name, so the only way the quarantine
-        # FILENAMES can differ is via the ts/pid/ns suffix.
         dest_filenames = [Path(d).name for d in dests]
 
         if dest_filenames[0] == dest_filenames[1]:
             # Same filename, collision.  This is the regression
-            # we're guarding against (the OLD ``ts``-only suffix
-            # would produce the same filename when both threads
-            # hit the same epoch second).
             clobber_seen = True
             break
 
         # Both quarantine files must exist on disk in their respective
-        # parent directories.
         for d in dests:
             assert Path(d).exists(), (
                 f"Quarantine file {d} should exist after both threads "
@@ -225,13 +139,7 @@ def test_concurrent_quarantine_same_path_no_clobber(tmp_path: Path) -> None:
 
 
 def test_concurrent_quarantine_different_paths_distinct(tmp_path: Path) -> None:
-    """Two concurrent ``_quarantine_corrupt`` calls on DIFFERENT paths
-    must produce distinct quarantine filenames (each in its own parent).
-
-    This is the simpler case, different parent paths mean no real
-    collision risk, but it pins the filename pattern so future
-    refactors don't accidentally collapse to a non-unique scheme.
-    """
+    """Two concurrent ``_quarantine_corrupt`` calls on DIFFERENT paths"""
     path_a = tmp_path / "data_a.json"
     path_b = tmp_path / "data_b.json"
     path_a.write_text("{corrupt a")
@@ -277,21 +185,10 @@ def test_concurrent_quarantine_different_paths_distinct(tmp_path: Path) -> None:
 
 
 def test_quarantine_no_counter_loop_filenames(tmp_path: Path) -> None:
-    """The new implementation must NOT produce ``.corrupt-<ts>.<N>``
-    filenames (the old counter-loop pattern).
-
-    Calls ``_quarantine_corrupt`` repeatedly to populate multiple
-    quarantine files (each iteration re-creates the source file and
-    quarantines it again), then asserts none of the resulting
-    filenames match the old ``.corrupt-<ts>.<N>`` counter pattern.
-    """
+    """The new implementation must NOT produce ``.corrupt-<ts>.<N>``"""
     corrupt_path = tmp_path / "loopcheck.json"
 
     # Run several quarantines back-to-back.  With the old
-    # implementation, back-to-back calls in the same second would have
-    # produced ``.corrupt-<ts>``, ``.corrupt-<ts>.1``, ``.corrupt-<ts>.2``,
-    # etc.  With the new implementation, each call produces a unique
-    # ``.corrupt-<ts>-<pid>-<ns>`` filename.
     for i in range(5):
         corrupt_path.write_text(f"{{iteration {i} corrupt")
         store: PersistedJSON = PersistedJSON(corrupt_path, default={})
@@ -302,7 +199,6 @@ def test_quarantine_no_counter_loop_filenames(tmp_path: Path) -> None:
         f"Expected 5 quarantine files, got {len(quarantined)}: {[p.name for p in quarantined]}"
     )
 
-    # NONE of the filenames should match the old counter pattern
     # (.corrupt-<ts>.<N>).
     old_counter_re = re.compile(r"^loopcheck\.json\.corrupt-\d+\.\d+$")
     for q in quarantined:
@@ -325,8 +221,7 @@ def test_quarantine_no_counter_loop_filenames(tmp_path: Path) -> None:
 
 
 def test_quarantine_preserves_file_content(tmp_path: Path) -> None:
-    """The quarantined file must contain the EXACT bytes of the
-    original corrupt file (so forensic recovery is possible)."""
+    """The quarantined file must contain the EXACT bytes of the"""
     original_content = "{this is corrupt but recoverable"
     corrupt_path = tmp_path / "preserve.json"
     corrupt_path.write_text(original_content)

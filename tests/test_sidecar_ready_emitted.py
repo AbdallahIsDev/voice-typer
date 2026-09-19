@@ -1,29 +1,6 @@
-"""CR-4 regression: ``_ready_emitted`` must be per-IPCServer-instance.
-
-Before CR-4, ``sidecar_ws._ready_emitted`` was a module-level boolean.
-That was correct for production (one ``ready`` event per process), but
-it leaked state between test runs that imported the module once and
-called ``sidecar_ws.run(server)`` multiple times, even with DIFFERENT
-``IPCServer`` instances. A test that ran second would see ``ready`` NOT
-emitted because the first test had already set the flag.
-
-The fix moves the flag to ``IPCServer._ready_emitted`` (per-instance),
-initialized to ``False`` in ``IPCServer.__init__``. Two fresh
-``IPCServer`` instances each get their own ``_ready_emitted = False``
-and each emit ``ready`` on their first authenticated WS connection.
-
-This module exercises:
-
-- ``IPCServer._ready_emitted`` is ``False`` on a freshly-constructed
-  instance (without the test having to touch the module).
+"""
+regression: ``_ready_emitted`` must be per-IPCServer-instance.
 - Two ``IPCServer`` instances do NOT share ``_ready_emitted``, setting
-  one to ``True`` leaves the other ``False``.
-- ``_reset_ready_emitted()`` resets the per-instance flag (test-only
-  helper).
-- ``sidecar_ws._handle_connection`` reads/writes ``server._ready_emitted``
-  (not the module-level global), and emits ``ready`` exactly once per
-  fresh server instance.
-- The module-level ``_ready_emitted`` global is GONE (no leak).
 """
 
 from __future__ import annotations
@@ -41,17 +18,9 @@ from voice_typer.server.ipc_server import IPCServer  # noqa: E402
 
 from tests.fixtures.ipc_test_helpers import make_fake_app, make_fake_service  # noqa: E402
 
-# ── Per-instance attribute ─────────────────────────────────────────────
-
 
 def test_ready_emitted_is_false_on_fresh_instance() -> None:
-    """A freshly-constructed IPCServer must have ``_ready_emitted = False``.
-
-    Before CR-4, the flag was module-level, a fresh ``IPCServer`` had
-    no per-instance state, so the only way to reset between tests was
-    to assign ``sidecar_ws._ready_emitted = False`` manually (which is
-    exactly what leaked state between tests that forgot the reset).
-    """
+    """A freshly-constructed IPCServer must have ``_ready_emitted = False``."""
     app = make_fake_app()
     service = make_fake_service()
     server = IPCServer(app, service=service)
@@ -63,15 +32,7 @@ def test_ready_emitted_is_false_on_fresh_instance() -> None:
 
 
 def test_two_instances_have_independent_ready_emitted() -> None:
-    """Two IPCServer instances must NOT share ``_ready_emitted``.
-
-    This is the core CR-4 regression: before the fix, both instances
-    shared the module-level global. Setting one to ``True`` (via a
-    first-authenticated WS connection) made the other instance also
-    appear to have emitted ``ready``, so a test that constructed a
-    fresh ``IPCServer`` after another test's ``IPCServer`` had already
-    emitted ``ready`` would silently skip the ``ready`` emission.
-    """
+    """Two IPCServer instances must NOT share ``_ready_emitted``."""
     app1 = make_fake_app()
     service1 = make_fake_service()
     server1 = IPCServer(app1, service=service1)
@@ -87,7 +48,6 @@ def test_two_instances_have_independent_ready_emitted() -> None:
     # Simulate the first WS connection on server1.
     server1._ready_emitted = True
 
-    # server2 must STILL be False, independent state.
     assert server1._ready_emitted is True
     assert server2._ready_emitted is False, (
         "two IPCServer instances must not share _ready_emitted state, "
@@ -96,13 +56,7 @@ def test_two_instances_have_independent_ready_emitted() -> None:
 
 
 def test_reset_ready_emitted_sets_flag_back_to_false() -> None:
-    """``_reset_ready_emitted()`` is the test-only helper to reset the flag.
-
-    In production we NEVER reset, once ``ready`` is emitted, it stays
-    emitted. But tests that reuse the same ``IPCServer`` across multiple
-    ``sidecar_ws.run(server)`` calls need to reset between runs. The
-    helper is documented as test-only.
-    """
+    """``_reset_ready_emitted()`` is the test-only helper to reset the flag."""
     app = make_fake_app()
     service = make_fake_service()
     server = IPCServer(app, service=service)
@@ -117,14 +71,7 @@ def test_reset_ready_emitted_sets_flag_back_to_false() -> None:
 
 
 def test_module_level_ready_emitted_is_gone() -> None:
-    """The module-level ``_ready_emitted`` global must NOT exist.
-
-    CR-4 moved the flag to per-instance state. Leaving the module-level
-    global around would be a footgun, code that imports
-    ``sidecar_ws._ready_emitted`` would silently keep working but read
-    a stale value that's never updated. Asserting the attribute is
-    gone locks the migration in.
-    """
+    """The module-level ``_ready_emitted`` global must NOT exist."""
     from voice_typer.server import sidecar_ws
 
     assert not hasattr(sidecar_ws, "_ready_emitted"), (
@@ -133,17 +80,8 @@ def test_module_level_ready_emitted_is_gone() -> None:
     )
 
 
-# ── sidecar_ws._handle_connection uses the per-instance flag ──────────
-
-
 async def test_handle_connection_emits_ready_on_first_auth(monkeypatch) -> None:
-    """``sidecar_ws._handle_connection`` emits ``ready`` on first auth.
-
-    After CR-4, the flag it checks is ``server._ready_emitted``, not
-    a module-level global. A fresh ``IPCServer`` instance (which has
-    ``_ready_emitted = False`` by default) MUST emit ``ready`` on its
-    first authenticated WS connection.
-    """
+    """``sidecar_ws._handle_connection`` emits ``ready`` on first auth."""
     from voice_typer.server import event_bus, sidecar_ws
 
     app = make_fake_app()
@@ -158,7 +96,6 @@ async def test_handle_connection_emits_ready_on_first_auth(monkeypatch) -> None:
     def spy(event: dict) -> None:
         published.append(event)
         # Don't actually publish, we don't want other subscribers
-        # to fire during this test.
         return None
 
     monkeypatch.setattr(event_bus, "publish", spy)
@@ -177,13 +114,10 @@ async def test_handle_connection_emits_ready_on_first_auth(monkeypatch) -> None:
     ws.close = MagicMock()
 
     # Make websocket iterable: yield nothing (the test only cares about
-    # the post-auth ``ready`` emission, not the dispatch loop).
     async def _aiter_nothing():
         if False:  # pragma: no cover - never enters
             yield b""
 
-    # The `async for raw in websocket:` form calls __aiter__ on the
-    # websocket object. Build a tiny async iterator that yields nothing.
     class _EmptyAsyncIter:
         def __aiter__(self):
             return self
@@ -192,14 +126,10 @@ async def test_handle_connection_emits_ready_on_first_auth(monkeypatch) -> None:
             raise StopAsyncIteration
 
     # Patch __aiter__ on the MagicMock, MagicMock doesn't auto-build
-    # async iter protocol, so we attach it explicitly.
     ws.__aiter__ = lambda: _EmptyAsyncIter()
     ws.remote_address = ("127.0.0.1", 12345)
     ws.send = MagicMock()  # don't actually await anything
 
-    # _handle_connection also creates a writer task that calls
-    # websocket.send. We don't want that to hang, so make send a no-op
-    # coroutine.
     async def _noop_send(*a, **kw):
         return None
 
@@ -208,8 +138,6 @@ async def test_handle_connection_emits_ready_on_first_auth(monkeypatch) -> None:
     dispatch = sidecar_ws._make_dispatch(server)
 
     # Connection-cleanup exceptions are fine for this test, we
-    # only care that ``ready`` was published BEFORE the dispatch
-    # loop started.
     with contextlib.suppress(Exception):
         await sidecar_ws._handle_connection(ws, server, dispatch)
 
@@ -225,13 +153,7 @@ async def test_handle_connection_emits_ready_on_first_auth(monkeypatch) -> None:
 async def test_handle_connection_does_not_re_emit_ready_on_reconnect(
     monkeypatch,
 ) -> None:
-    """If ``server._ready_emitted`` is already True, ``ready`` is NOT re-emitted.
-
-    This is the original production guarantee: a transient WS reconnect
-    after a drop does NOT re-emit ``ready`` (the host already hydrated
-    the UI on the first connection). The per-instance flag (was
-    module-level) preserves this.
-    """
+    """If ``server._ready_emitted`` is already True, ``ready`` is NOT re-emitted."""
     from voice_typer.server import event_bus, sidecar_ws
 
     app = make_fake_app()
@@ -290,13 +212,7 @@ async def test_handle_connection_does_not_re_emit_ready_on_reconnect(
 
 
 async def test_two_fresh_servers_each_emit_ready(monkeypatch) -> None:
-    """Two fresh IPCServer instances each emit ``ready`` exactly once.
-
-    This is the integration-level CR-4 regression: before the fix, the
-    module-level global meant the SECOND fresh server would NOT emit
-    ``ready`` because the first had already set the flag. With per-instance
-    state, both emit ``ready`` on their first connection.
-    """
+    """Two fresh IPCServer instances each emit ``ready`` exactly once."""
     from voice_typer.server import event_bus, sidecar_ws
 
     monkeypatch.setenv("VOICE_TYPER_IPC_TOKEN", "shared-token")

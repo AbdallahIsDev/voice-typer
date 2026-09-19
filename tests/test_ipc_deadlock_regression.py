@@ -1,30 +1,4 @@
-"""regression tests: TCP-teardown deadlock in ``IPCServer._send``.
-
-The bug
--------
-``IPCServer._send`` (in ``voice_typer/server/ipc_server.py``) set a
-write timeout on the TCP socket before sending, then restored the
-timeout to ``None`` (blocking) in the ``finally`` block.  ``None``
-clobbers the auth-read deadline set on the connection (the fix),
-so the dispatch-loop ``readline`` could block forever: meaning the
-reader thread could never exit and ``_TCPLineIO.close()`` would
-deadlock against the in-progress ``recv``.
-
-The fix
--------
-1. ``_send`` captures ``_prev_timeout = tcp_client.conn.gettimeout()``
-   BEFORE setting the write timeout, and restores ``_prev_timeout``
-   (NOT ``None``) in the ``finally`` block.
-2. ``_TCPLineIO.close`` calls ``self.conn.shutdown(SHUT_RDWR)`` BEFORE
-   ``self.conn.close()`` so an in-progress ``recv`` is interrupted
-   and ``BufferedReader.close()`` doesn't deadlock.  (This fix lives
-   in ``voice_typer/server/ipc/transport.py`` and is imported by
-   ``ipc_server.py`` so there is a single source of truth.)
-
-These tests verify both halves of the fix.  Each test FAILS if the
-fix is reverted (restoring ``None`` instead of ``_prev_timeout``, or
-removing ``shutdown`` from ``close``).
-"""
+"""regression tests: TCP-teardown deadlock in ``IPCServer._send``."""
 
 from __future__ import annotations
 
@@ -36,27 +10,17 @@ from unittest.mock import MagicMock
 import pytest
 from voice_typer.server.ipc_server import IPCServer, _TCPLineIO
 
-# part 1: _send restores _prev_timeout (not None) ──────────────
-
 
 class TestSendRestoresPrevTimeout:
     """``_send`` must restore the PREVIOUS timeout (not ``None``)."""
 
     def test_send_does_not_mutate_socket_timeout(self):
-        """The select-based write-readiness gate (``_await_socket_writable``)
-        replaces the previous ``gettimeout`` / ``settimeout`` / restore
-        dance. The socket's timeout attribute is NEVER mutated by
-        ``_send``, so there's no ``_prev_timeout`` to capture and no
-        ``finally:`` block to restore it. This preserves the auth-read
-        deadline set on the connection, the original deadlock root cause
-        was ``settimeout(None)`` clobbering that deadline.
-        """
+        """The select-based write-readiness gate (``_await_socket_writable``)"""
         src = inspect.getsource(IPCServer._send)
         # The new approach uses _await_socket_writable (select.select).
         assert "_await_socket_writable" in src, (
             "_send must use _await_socket_writable to gate writes on socket write-readiness (select-based timeout)."
         )
-        # The old dance variables and calls must be gone.
         assert "_prev_timeout" not in src, (
             "_send must NOT capture _prev_timeout, the select-based "
             "approach doesn't mutate the socket timeout, so there's "
@@ -71,13 +35,7 @@ class TestSendRestoresPrevTimeout:
         )
 
     def test_send_restores_prev_timeout_behaviorally(self):
-        """When ``_send`` runs against a client with a non-None previous
-        timeout (e.g. the auth-read deadline), the timeout must be
-        restored to that value after the send completes, NOT clobbered
-        to ``None`` (blocking).
-        """
-        # Build a minimal IPCServer without running __init__ (which
-        # would spawn threads / bind sockets).
+        """When ``_send`` runs against a client with a non-None previous"""
         server = IPCServer.__new__(IPCServer)
         server.app = MagicMock()
         server.app._shutting_down = False
@@ -86,23 +44,17 @@ class TestSendRestoresPrevTimeout:
         server._tcp_mode = True
 
         # Use a real socketpair so settimeout/gettimeout are real.
-        # ``socket.socketpair()`` (no family arg) uses AF_UNIX on POSIX and
-        # AF_INET on Windows, identical duplex-pipe semantics on both.
         srv, cli = socket.socketpair()
         try:
             # Wrap the server end in _TCPLineIO so _send can write to it.
             tcp_client = _TCPLineIO(srv)
             # Set a non-None previous timeout (simulating the auth-read
-            # deadline).  Use a distinctive value so we can detect it
-            # after _send runs.
             AUTH_DEADLINE = 7.0  # noqa: N806
             srv.settimeout(AUTH_DEADLINE)
             assert srv.gettimeout() == AUTH_DEADLINE  # sanity
 
             server._tcp_client = tcp_client
 
-            # The other end of the socketpair reads the message so the
-            # write doesn't block.
             received = []
             reader = threading.Thread(
                 target=lambda: received.append(cli.recv(65536)),
@@ -116,8 +68,6 @@ class TestSendRestoresPrevTimeout:
             reader.join(timeout=2.0)
             assert received, "reader should have received the message"
 
-            # the previous timeout must be preserved, NOT clobbered
-            # to None (which would be the bug).
             assert srv.gettimeout() == AUTH_DEADLINE, (
                 f"_send must restore the PREVIOUS timeout ({AUTH_DEADLINE}s), "
                 f"not None (blocking). Got {srv.gettimeout()!r}, this is the "
@@ -128,11 +78,7 @@ class TestSendRestoresPrevTimeout:
             cli.close()
 
     def test_send_restores_none_when_prev_was_none(self):
-        """If the previous timeout was already ``None`` (no auth deadline
-        set), ``_send`` may restore ``None``, that's the correct
-        behavior in that scenario.  This test guards against an
-        over-aggressive fix that always forces a non-None timeout.
-        """
+        """If the previous timeout was already ``None`` (no auth deadline"""
         server = IPCServer.__new__(IPCServer)
         server.app = MagicMock()
         server.app._shutting_down = False
@@ -140,8 +86,6 @@ class TestSendRestoresPrevTimeout:
         server._pending_tcp = []
         server._tcp_mode = True
 
-        # ``socket.socketpair()`` (no family arg) uses AF_UNIX on POSIX and
-        # AF_INET on Windows, identical duplex-pipe semantics on both.
         srv, cli = socket.socketpair()
         try:
             tcp_client = _TCPLineIO(srv)
@@ -160,9 +104,6 @@ class TestSendRestoresPrevTimeout:
             reader.join(timeout=2.0)
             assert received
 
-            # restore _prev_timeout, if prev was None, restored
-            # value is None.  This is correct (no clobbering of a real
-            # deadline).
             assert srv.gettimeout() is None, (
                 "_send must restore the PREVIOUS timeout. When prev was "
                 "None, the restored value should be None (not a hardcoded "
@@ -173,19 +114,11 @@ class TestSendRestoresPrevTimeout:
             cli.close()
 
 
-# part 2: _TCPLineIO.close uses shutdown(SHUT_RDWR) ────────────
-
-
 class TestTCPLineIOCloseUsesShutdown:
-    """``_TCPLineIO.close`` must ``shutdown(SHUT_RDWR)`` before
-    ``close()`` so an in-progress ``recv`` on another thread is
-    interrupted and ``BufferedReader.close()`` doesn't deadlock.
-    """
+    """``_TCPLineIO.close`` must ``shutdown(SHUT_RDWR)`` before"""
 
     def test_close_source_uses_shutdown(self):
-        """The source of ``_TCPLineIO.close`` must call
-        ``shutdown(SHUT_RDWR)`` before ``close()``.
-        """
+        """The source of ``_TCPLineIO.close`` must call"""
         src = inspect.getsource(_TCPLineIO.close)
         assert "shutdown" in src, (
             "_TCPLineIO.close must call self.conn.shutdown() to interrupt in-progress reads (deadlock fix)."
@@ -196,65 +129,30 @@ class TestTCPLineIOCloseUsesShutdown:
         )
 
     def test_close_does_not_deadlock_with_concurrent_read(self):
-        """End-to-end: a concurrent ``recv`` blocked on the socket must
-        be interrupted by ``close()`` (via ``shutdown``) so the
-        ``close()`` call returns.  Without ``shutdown``, the
-        ``BufferedReader.close()`` would deadlock against the in-progress
-        ``recv`` and this test would hang until the pytest timeout.
-
-        Windows: historically skipped because a blocked ``recv`` cannot
-        be woken by any socket API (shutdown/closesocket both leave it
-        pending). ``_TCPLineIO.close()`` now handles that: it frees the
-        raw fd eagerly and hands the buffered close to a daemon thread,
-        so ``close()`` returns promptly on every platform.
-        """
-        # ``socket.socketpair()`` (no family arg) uses AF_UNIX on POSIX and
-        # AF_INET on Windows, identical duplex-pipe semantics on both.
+        """End-to-end: a concurrent ``recv`` blocked on the socket must"""
         srv, cli = socket.socketpair()
         try:
             io = _TCPLineIO(srv)
 
             # Start a reader thread that blocks on readline (waiting
-            # for data that will never arrive).
             read_results: list[str] = []
             # Signal that the reader thread has STARTED and is
-            # about to enter the blocking ``readline()``. Replaces the
-            # fixed ``time.sleep(0.1)`` synchronization barrier with an
-            # Event-based wait, the test no longer has to guess how
-            # long "a moment to enter the blocking readline" takes on
-            # slow CI. The race window between ``reader_started.set()``
-            # and ``io.readline()`` is the same as before (the original
-            # sleep could also miss the readline entry), but the test
-            # now exits the wait as soon as the reader thread is
-            # scheduled, instead of always paying 0.1s.
             reader_started = threading.Event()
 
             def reader():
-                # readline() will block until shutdown() interrupts it.
                 reader_started.set()
                 try:
                     line = io.readline()
                     read_results.append(line)
                 except OSError:
-                    # close() aborts the blocked read (WinError 10053 /
-                    # 10038 on Windows), that interruption IS the point
-                    # of this test; the close-path deadlock assertion
-                    # below is what matters. Record the abort instead of
-                    # leaking an unhandled thread exception.
                     read_results.append("<aborted>")
 
             t = threading.Thread(target=reader, daemon=True)
             t.start()
             # Bounded wait (1s) for the reader to start. If this
-            # expires, the test continues anyway, the close-path
-            # deadlock assertion below will still catch the regression
-            # (close would hang against an in-progress readline whether
-            # or not readline has been entered yet).
             reader_started.wait(timeout=1.0)
 
             # Close MUST interrupt the blocked readline and return
-            # promptly (within 2 seconds).  Without shutdown(), this
-            # would deadlock.
             close_done = threading.Event()
 
             def closer():
@@ -265,16 +163,12 @@ class TestTCPLineIOCloseUsesShutdown:
             ct.start()
 
             # The close must complete within 2 seconds.  If the bug is
-            # present (no shutdown), close() deadlocks against the
-            # in-progress readline and this assert fails.
             assert close_done.wait(timeout=2.0), (
                 "_TCPLineIO.close() deadlocked against a concurrent "
                 "readline(), the fix (shutdown before close) is missing "
                 "or broken."
             )
             # The reader thread should also have exited (readline returned
-            # empty string on EOF).  Don't join with a long timeout
-            # because the reader may still be in cleanup.
             t.join(timeout=2.0)
         finally:
             with __import__("contextlib").suppress(Exception):

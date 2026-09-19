@@ -1,55 +1,4 @@
-"""MIG-1.5 Phase 0-W Gate Check 10 (+1): Windows autostart + installer validation.
-
-Tests the Windows autostart mechanism (Task Scheduler LogonTrigger + HKCU Run
-key fallback) and the Tauri NSIS/MSI installer configuration. The autostart
-logic lives in ``voice_typer/server/server_platform.py`` (cross-platform
-facade) and ``voice_typer/server/task_scheduler.py`` (schtasks wrappers
-reused by the autostart path). The installer config is in
-``src-tauri/tauri.conf.json``.
-
-AUTOSTART ARCHITECTURE (actual implementation)
-----------------------------------------------
-The app autostart (``server_platform._enable_autostart_windows``) tries Task
-Scheduler FIRST (``_register_app_autostart_task`` which builds a
-LogonTrigger XML and calls ``task_scheduler._schtasks /Create``), then the
-Startup-folder .bat (admin-free, always processed by Explorer at logon),
-then the HKCU Run key last (AUTOSTART-ORDER-FIX, the Run key's raw command
-line can be rejected by the Windows 11 StartupApp launcher at logon; it
-was previously first and produced the broken PID-0-at-logon entries). (The
-former prewarm scheduled task was deleted with the prewarm binary it
-launched, master plan §6.2 P-1.)
-
-All paths:
-  - Use ``LogonTrigger`` (fires at user logon, not boot, interactive session
-    required for ``InteractiveToken`` + ``pythonw.exe``).
-  - Run as the current user with ``LeastPrivilege`` (NO admin elevation).
-  - Omit ``<UserId>`` so the task defaults to the registering (HKCU) user.
-  - Have admin-free Startup .bat / HKCU Run key fallbacks for the
-    locked-task / standard-user scenario.
-
-VALIDATE ON WINDOWS HOST:
-1. Build the installer: cd src-tauri; cargo tauri build --target x86_64-pc-windows-msvc
-2. Install target\\x86_64-pc-windows-msvc\\release\\bundle\\nsis\\*-setup.exe
-3. Verify Start Menu shortcut: "Voice Typer" appears under Start Menu
-4. Launch Voice Typer → enable autostart via Settings
-5. Run: schtasks /query /tn "com.voicetyper.autostart*" /v /fo LIST
-   Expected: Trigger=At logon; Action=voice-typer-tauri.exe
-   (Note: the task name includes an 8-char install-path hash suffix,
-   e.g. com.voicetyper.autostart_a1b2c3d4, use the wildcard form above.)
-6. Sign out + sign back in → verify Voice Typer auto-launches
-7. Launch a second instance → verify it focuses the first (single-instance plugin)
-8. Uninstall via "Add or remove programs" → verify schtasks entry + Start Menu
-   shortcut are removed
-Expected: autostart works; single-instance works; uninstall cleans up
-
-TEST-HOST NOTES
----------------
-On the Linux test host, ``winreg`` is unavailable and ``sys.platform !=
-"win32"``, so the Windows-only code paths are exercised by installing a fake
-``winreg`` module in ``sys.modules`` and monkeypatching ``sys.platform`` +
-``server_platform.SYSTEM`` to ``"win32"``. The Tauri config / Cargo.toml /
-main.rs source-inspection tests read the real files (no mocking).
-"""
+"""Phase 0-W Gate Check 10 (+1): Windows autostart + installer validation."""
 
 from __future__ import annotations
 
@@ -62,10 +11,6 @@ from unittest.mock import MagicMock
 
 import pytest
 
-# ─── Paths to real source files (source-inspection, NOT mocked) ──────────
-
-# tests/tauri/mig15/test_autostart_installer_windows.py → repo root in 3 parents:
-#   parents[0]=mig15, parents[1]=tauri, parents[2]=tests, parents[3]=voice-typer.
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 TAURI_CONF = _REPO_ROOT / "src-tauri" / "tauri.conf.json"
 SRC_TAURI_DIR = TAURI_CONF.parent
@@ -76,17 +21,9 @@ MAIN_RS = SRC_TAURI_DIR / "src" / "main.rs"
 _TASK_NS = {"ms": "http://schemas.microsoft.com/windows/2004/02/mit/task"}
 
 
-# ─── fixtures: fake winreg + win32 platform ──────────────────────────────
-
-
 @pytest.fixture
 def fake_winreg(monkeypatch):
-    """Install a fake ``winreg`` module so Windows code paths import cleanly.
-
-    Returns the fake module; tests can configure its OpenKey / SetValueEx /
-    QueryValueEx / DeleteValue / CloseKey / EnumValue behavior as needed
-    (they start as MagicMocks so calls are no-ops by default).
-    """
+    """Install a fake ``winreg`` module so Windows code paths import cleanly."""
     fake = types.ModuleType("winreg")
     # Constants used by the production code (task_scheduler.py + server_platform.py).
     fake.HKEY_CURRENT_USER = 0x80000001
@@ -107,17 +44,7 @@ def fake_winreg(monkeypatch):
 
 @pytest.fixture
 def win32_platform(monkeypatch, fake_winreg):
-    """Pretend we're on Windows for the duration of the test.
-
-    Patches:
-      - ``sys.platform`` → "win32" (used by platform_utils.is_windows)
-      - ``voice_typer.server.server_platform.platform_flags.SYSTEM`` →
-        "win32" (the platform-dispatch constant read at function-call
-        time by enable/disable/is_enabled)
-      - installs ``fake_winreg`` so ``import winreg`` succeeds
-
-    Returns the (already-imported) ``server_platform`` module.
-    """
+    """Pretend we're on Windows for the duration of the test."""
     monkeypatch.setattr(sys, "platform", "win32")
     from voice_typer.server import server_platform
     from voice_typer.server.server_platform import platform_flags
@@ -126,17 +53,8 @@ def win32_platform(monkeypatch, fake_winreg):
     return server_platform
 
 
-# ─── Test 1: app autostart task XML uses LogonTrigger + InteractiveToken ──
-
-
 def test_task_scheduler_xml_uses_logon_trigger_no_elevation():
-    """``server_platform._build_app_autostart_task_xml`` creates a Task
-    Scheduler entry with a LogonTrigger for the current user,
-    InteractiveToken + LeastPrivilege (no admin elevation). (The former
-    prewarm task XML builder was deleted with the prewarm binary it
-    launched (master plan §6.2 P-1) leaving the app autostart task as
-    the only Task Scheduler consumer.)
-    """
+    """``server_platform._build_app_autostart_task_xml`` creates a Task"""
     from voice_typer.server import server_platform
 
     xml_str = server_platform._build_app_autostart_task_xml()
@@ -178,16 +96,9 @@ def test_task_scheduler_xml_uses_logon_trigger_no_elevation():
 
 
 def test_enable_autostart_on_windows_uses_windows_path_not_plist_or_desktop(monkeypatch, fake_winreg, win32_platform):
-    """``enable_autostart()`` on Windows dispatches to
+    """
     ``_enable_autostart_windows()`` (Task Scheduler preferred, then
     Startup .bat, then HKCU Run key). It must NOT create a macOS
-    LaunchAgent plist or a Linux .desktop file.
-
-    NOTE: the actual implementation prefers Task Scheduler FIRST, then the
-    Startup-folder .bat, then the HKCU Run key last: see
-    ``AUTOSTART-ORDER-FIX`` in ``server_platform._enable_autostart_windows``.
-    All three mechanisms launch ``autostart_launcher.py`` (not a plist or
-    .desktop).
     """
     server_platform = win32_platform
 
@@ -239,11 +150,7 @@ def test_enable_autostart_on_windows_uses_windows_path_not_plist_or_desktop(monk
 
 
 def test_enable_autostart_windows_falls_back_to_task_scheduler(monkeypatch, fake_winreg, win32_platform):
-    """When the HKCU Run key fails, ``enable_autostart()`` falls back to the
-    Task Scheduler path which builds a LogonTrigger XML and calls
-    ``task_scheduler._schtasks /Create``. This is the
-    "Task Scheduler LogonTrigger" half of the autostart mechanism.
-    """
+    """Task Scheduler path which builds a LogonTrigger XML and calls"""
     server_platform = win32_platform
     from voice_typer.server import task_scheduler
     from voice_typer.server.server_platform import autostart_windows
@@ -289,14 +196,8 @@ def test_enable_autostart_windows_falls_back_to_task_scheduler(monkeypatch, fake
     )
 
 
-# ─── Test 5: disable_autostart removes both mechanisms ───────────────────
-
-
 def test_disable_autostart_windows_removes_both(monkeypatch, fake_winreg, win32_platform):
-    """``disable_autostart()`` on Windows removes BOTH the Task Scheduler
-    entry AND the HKCU Run key fallback (so neither lingers to relaunch
-    the app after the user disables autostart).
-    """
+    """``disable_autostart()`` on Windows removes BOTH the Task Scheduler"""
     server_platform = win32_platform
     from voice_typer.server.server_platform import autostart_windows
 
@@ -321,9 +222,6 @@ def test_disable_autostart_windows_removes_both(monkeypatch, fake_winreg, win32_
     assert len(reg_removed) == 1, "must remove the HKCU Run key fallback"
 
 
-# ─── Test 6-9 (parametrized): is_autostart_enabled OR semantics ──────────
-
-
 @pytest.mark.parametrize(
     "task_registered, runkey_registered, expected",
     [
@@ -342,11 +240,7 @@ def test_is_autostart_enabled_windows_either_mechanism(
     runkey_registered,
     expected,
 ):
-    """``is_autostart_enabled()`` returns True if EITHER the Task Scheduler
-    entry OR the HKCU Run key exists. This is the OR-semantics that lets
-    the Settings toggle reflect the actual state regardless of which
-    mechanism succeeded at registration time.
-    """
+    """``is_autostart_enabled()`` returns True if EITHER the Task Scheduler"""
     server_platform = win32_platform
     from voice_typer.server.server_platform import autostart_windows
 
@@ -364,15 +258,8 @@ def test_is_autostart_enabled_windows_either_mechanism(
     assert server_platform.is_autostart_enabled() is expected
 
 
-# ─── Test 10: tauri.conf.json bundle config (NSIS + MSI) ─────────────────
-
-
 def test_tauri_conf_has_bundle_windows_or_nsis_msi_defaults():
-    """``tauri.conf.json`` has a bundle config that produces NSIS + MSI on
-    Windows. Either an explicit ``bundle.windows`` block exists, OR
-    ``bundle.targets`` is ``"all"`` (which defaults to NSIS + MSI on
-    Windows per Tauri v2 defaults).
-    """
+    """Windows per Tauri v2 defaults)."""
     assert TAURI_CONF.exists(), f"tauri.conf.json missing at {TAURI_CONF}"
     conf = json.loads(TAURI_CONF.read_text(encoding="utf-8"))
 
@@ -392,21 +279,11 @@ def test_tauri_conf_has_bundle_windows_or_nsis_msi_defaults():
     )
 
 
-# ─── Test 11: installer bundles sidecar + prewarm + native listener ──────
-
-
 def test_installer_includes_sidecar_and_native_resources():
-    """The installer bundles the sidecar exe (``externalBin``) and the
-    native key-listener exes (``resources``) so the Tauri app can spawn
-    them at runtime without a separate Python install. (The prewarm
-    binaries were removed from ``resources`` with the prewarm feature —
-    master plan §6.2 P-1.)
-    """
+    """native key-listener exes (``resources``) so the Tauri app can spawn"""
     conf = json.loads(TAURI_CONF.read_text(encoding="utf-8"))
     bundle = conf["bundle"]
 
-    # Sidecar: externalBin (Tauri appends the target triple at runtime to
-    # resolve bin/python-sidecar-x86_64-pc-windows-msvc.exe).
     external_bin = bundle.get("externalBin", [])
     assert "bin/python-sidecar" in external_bin, (
         "externalBin must include bin/python-sidecar (Tauri appends the target triple to find the per-platform binary)"
@@ -421,41 +298,25 @@ def test_installer_includes_sidecar_and_native_resources():
     )
 
 
-# ─── Test 12: installer creates Start Menu + Desktop shortcuts ───────────
-
-
 def test_installer_creates_start_menu_and_desktop_shortcuts():
-    """The NSIS installer creates Start Menu + Desktop shortcuts.
-
-    Tauri v2's NSIS bundler creates both by default. The config has no
-    explicit ``bundle.windows.nsis`` override that disables them, so the
-    defaults apply. Additionally, ``server_platform.create_launcher_shortcut()``
-    creates runtime .lnk shortcuts (Desktop + Start Menu) pointing at the
-    universal launcher (``autostart_launcher.py``), these are separate
-    from the installer shortcuts and exist so the legacy predecessor path
-    also has Start Menu discoverability.
-    """
+    """The NSIS installer creates Start Menu + Desktop shortcuts."""
     conf = json.loads(TAURI_CONF.read_text(encoding="utf-8"))
     bundle = conf.get("bundle", {})
 
     # No explicit NSIS override that would disable shortcuts → defaults apply
-    # (Start Menu + Desktop shortcuts created by the Tauri NSIS bundler).
     windows_cfg = bundle.get("windows", {})
     nsis_cfg = windows_cfg.get("nsis", {})
     # If installMode is set, it must be "currentUser" (per-user, no admin —
-    # matches the runbook §5 "no admin required" expectation).
     if "installMode" in nsis_cfg:
         assert nsis_cfg["installMode"] == "currentUser", (
             "NSIS installMode must be currentUser (per-user, no admin, matches voice-typer.manifest asInvoker)"
         )
     # No explicit shortcut suppression (Tauri v2 has no such key, but guard
-    # against future configs that might add one).
     assert "nsis" not in windows_cfg or not nsis_cfg.get("disableShortcuts", False), (
         "NSIS shortcuts must not be disabled"
     )
 
     # The runtime shortcut creator exists in server_platform (creates
-    # Desktop + Start Menu .lnk files at app startup).
     from voice_typer.server import server_platform
 
     assert hasattr(server_platform, "create_launcher_shortcut"), (
@@ -467,21 +328,8 @@ def test_installer_creates_start_menu_and_desktop_shortcuts():
     )
 
 
-# ─── Test 13: single-instance plugin enforced ────────────────────────────
-
-
 def test_single_instance_plugin_enforced():
-    """Single-instance is enforced via ``tauri-plugin-single-instance``.
-
-    Verifies (source-inspection, no mocking):
-      1. ``tauri.conf.json`` declares ``plugins.single-instance``.
-      2. ``Cargo.toml`` depends on ``tauri-plugin-single-instance``.
-      3. ``main.rs`` registers the plugin FIRST (before sidecar spawn —
-         ADR-0020 §12 ordering requirement so a second launch doesn't
-         leave a zombie sidecar).
-      4. The plugin's callback focuses the existing main window (show +
-         set_focus) so the second launch routes to the first instance.
-    """
+    """Single-instance is enforced via ``tauri-plugin-single-instance``."""
     # 1. tauri.conf.json declares the plugin.
     conf = json.loads(TAURI_CONF.read_text(encoding="utf-8"))
     plugins = conf.get("plugins", {})
@@ -498,10 +346,6 @@ def test_single_instance_plugin_enforced():
     assert "tauri_plugin_single_instance::init" in main_rs, (
         "main.rs must call tauri_plugin_single_instance::init() to register the single-instance plugin"
     )
-    # ADR-0020 §12: single-instance MUST be the FIRST plugin in the
-    # tauri::Builder chain so its duplicate-instance check runs before any
-    # sidecar spawn (which would otherwise leave a zombie python process on
-    # a double-launch). Verify it's the first .plugin( call in the file.
     first_plugin_idx = main_rs.find(".plugin(")
     single_instance_idx = main_rs.find(".plugin(tauri_plugin_single_instance::init")
     assert first_plugin_idx != -1, "no .plugin() calls found in main.rs"
@@ -512,8 +356,6 @@ def test_single_instance_plugin_enforced():
         "zombie sidecar before the duplicate check runs"
     )
     # The sidecar spawn happens inside the .setup() hook (which calls
-    # spawn_sidecar_and_get_port). The plugin registration (in the Builder
-    # chain) must precede .setup().
     setup_idx = main_rs.find(".setup(")
     if setup_idx != -1:
         assert single_instance_idx < setup_idx, (
@@ -521,15 +363,7 @@ def test_single_instance_plugin_enforced():
             "hook (where the sidecar is spawned), ADR-0020 §12 ordering"
         )
 
-    # 4. The callback focuses the existing main window.
-    #
-    # MO-109: the raise sequence is NOT inlined in main.rs any more —
-    # every "bring the dashboard back" path (second launch, tray
-    # left-click, macOS dock activation, the sidecar's `show_window`
-    # event) routes through ONE shared routine in `host_events.rs`, so a
-    # second launch cannot drift from the tray path. `main.rs` stays
     # wiring-only (C-ARCH-1) and just calls it, so this test now asserts
-    # the delegation here AND the raise sequence at its single owner.
     assert "show_main_window" in main_rs, (
         "single-instance callback must raise the existing main window via "
         "the shared `host_events::show_main_window` routine (MO-109)"

@@ -1,56 +1,4 @@
-"""Shared autouse fixture: mock heavy imports so all tests run headless.
-
-Modules mocked: sounddevice, faster_whisper, pynput, pystray, PIL,
-pyperclip.
-
-the autouse mock is now conditional, tests that need real
-pynput (e.g. to test the actual keyboard listener) can use the
-``@pytest.mark.real_pynput`` marker to opt out of the pynput mock.
-
-(test infra & config sub-agent): the ``ctypes.WINFUNCTYPE`` alias
-that previously lived at module-load time has been moved into the
-``winfunctype_alias`` autouse fixture below so the global ``ctypes``
-module is no longer mutated at collection time. Tests that exercise
-Windows hotkey code paths on Linux (``tests/test_hotkeys_win32.py`` etc.)
-still see the alias because the fixture is autouse, it just installs
-the alias per-test via ``monkeypatch.setattr`` (auto-undone after each
-test) instead of mutating ``ctypes`` permanently for the whole session.
-
-The ``contextlib.suppress(Exception)`` blocks that hid patch failures
-have been replaced with targeted ``try/except`` + ``warnings.warn`` so
-real failures surface as test warnings instead of being silently
-swallowed. Previously a typo in the monkeypatch target (or a renamed
-module) would silently skip the patch and tests would pass against an
-unpatched code path; now the warning surfaces the drift.
-
-Mocking Convention
-============================
-
-This project uses two mocking styles. Follow these rules to keep tests
-consistent and maintainable:
-
-1. **Short-lived patches**: Use ``unittest.mock.patch`` as a context
-   manager (``with patch(...)``) for patches that only need to exist
-   within a single test function. This makes the mock's scope explicit
-   and prevents it from leaking to other tests.
-
-2. **Long-lived mocks**: Use ``@pytest.fixture`` for mocks that are
-   shared across multiple tests or that need complex setup. Fixtures
-   are automatically cleaned up by pytest after each test.
-
-3. **DO NOT mix styles within a single test**: Pick one approach per
-   test. If you need both a fixture and a context-manager patch in the
-   same test, refactor the patch into the fixture.
-
-4. **``monkeypatch`` vs ``patch``**: Prefer ``monkeypatch`` (pytest's
-   built-in) for attribute/item replacement, it's automatically
-   undone after the test. Use ``unittest.mock.patch`` only when you
-   need the mock object itself (e.g. to assert call counts).
-
-5. **Autouse fixtures**: Use sparingly. The ``mock_heavy_imports``
-   fixture below is autouse because every test needs it. New autouse
-   fixtures should be justified with a comment explaining why.
-"""
+"""Shared autouse fixture: mock heavy imports so all tests run headless."""
 
 import ctypes
 import sys
@@ -62,36 +10,7 @@ import pytest
 
 from tests.fixtures.cache_resets import clear_caches
 
-# ── Collection-time heavy-import mocks (WR-9 / TK-47 centralization) ──
-# pytest imports every test module (executing its top-level code) BEFORE
-# any fixture runs. The session-scoped ``mock_heavy_imports_session``
-# fixture below installs the unconditional mocks only AFTER collection,
-# so any test module whose top-level imports touch ``pystray`` /
-# ``pynput`` / ``pyperclip`` needs the mock already present in
-# ``sys.modules`` during collection. Historically each affected file
-# carried its own inline ``sys.modules.setdefault`` block (38 files at
-# peak, TK-47); centralizing here means no test file needs its own
-# block, because ``tests/conftest.py`` is imported by pytest before any
-# test module is collected.
-#
-# ``pystray`` needs the ``Menu.SEPARATOR`` / ``MenuItem`` / ``Icon``
-# attributes because ``tray.py`` / ``tray_menu.py`` touch them at
-# import time (the xorg backend would otherwise try to connect to an X
-# display on headless Linux CI). ``pynput`` / ``pynput.keyboard`` /
-# ``pyperclip`` are plain mocks: ``voice_typer.server.clipboard``
-# imports ``pyperclip`` eagerly and ``pynput`` lazily, and the hotkey
-# paths import ``pynput.keyboard``.
-#
-# Escape hatches (preserved):
-#   - ``real_pynput`` / ``real_pil`` markers: the per-test
-#     ``mock_heavy_imports`` fixture EVICTS these collection-time
-#     mocks (by ``__spec__`` detection) for marked tests: see the
-#     ``real_pynput`` branch in that fixture.
-#   - ``tests/test_pystray_icon_handle_regression.py::_load_real_pystray``
-#     evicts ``sys.modules["pystray"]`` itself before importing the
-#     real package and restores the mock in ``finally``.
-#   - ``PIL`` is deliberately NOT mocked here (real ``PIL`` tests need
-#     it, and the session fixture intentionally keeps PIL per-test).
+# ── Collection-time heavy-import mocks ──
 _mock_pystray_collection = MagicMock()
 _mock_pystray_collection.Menu = MagicMock
 _mock_pystray_collection.Menu.SEPARATOR = "SEP"
@@ -102,66 +21,16 @@ sys.modules.setdefault("pynput", MagicMock(name="collection_pynput"))
 sys.modules.setdefault("pynput.keyboard", MagicMock(name="collection_pynput_keyboard"))
 sys.modules.setdefault("pyperclip", MagicMock(name="collection_pyperclip"))
 
-# The module-level ``wait_until`` helper was DELETED, it had zero
-# importers (the review entry flagged it as unused alongside
-# ``tests/fixtures/wait_for.py``). The canonical polling helper is
-# ``tests.fixtures.wait_for.wait_for`` (returns ``bool``, uses
-# ``time.monotonic()``, and is already imported by the migrated
-# ``time.sleep`` call sites in tests/test_microphone_watcher.py,
-# tests/test_hotkeys_win32.py and tests/hotkeys/test_polling_strategy.py).
-# Note: ``time`` is still imported module-wide, the faulthandler
-# snapshot-loop fixture below uses ``time.monotonic()`` at runtime.
 
-
-# (test infra & config sub-agent): the ``ctypes.WINFUNCTYPE``
-# alias previously installed at module-load time has been moved into
-# the ``winfunctype_alias`` autouse fixture below. The fixture installs
-# the alias per-test via ``monkeypatch.setattr`` so the global
-# ``ctypes`` module is no longer mutated at collection time. See the
-# fixture docstring for the full rationale.
-
-
-# dedicated warning category for mock_heavy_imports patch
-# failures. Previously these used the bare ``UserWarning`` default,
-# which made them impossible to filter separately from real warnings
-# emitted by the SUT. Contributors can now filter them with::
-#
-#     filterwarnings("ignore::tests.conftest.MockHeavyImportsWarning")
-#
-# or via the ``-W`` CLI flag.
 class MockHeavyImportsWarning(UserWarning):
-    """Emitted by ``mock_heavy_imports`` when a patch fails.
-
-    Categories of patches that can emit this warning:
-
-    - ``atexit_register``: the ``atexit.register``
-      patch failed (module renamed or attribute moved).
-    - ``force_pynput_hotkey_backend``: the hoisted hotkey-backend patch
-      failed.
-    - ``keyboard_ownership_reset``: the per-test ``keyboard_ownership``
-      singleton reset failed.
-
-    also dedupes each warning kind to fire at most once per
-    pytest session via :data:`_mock_heavy_imports_warned` so a 102-test
-    file no longer emits 102 copies of the same warning.
-    """
+    """Emitted by ``mock_heavy_imports`` when a patch fails."""
 
 
-# per-session dedup flag. Each key is a warning kind
-# (``"atexit_register"``, ``"force_pynput_hotkey_backend"``,
-# ``"keyboard_ownership_reset"``). The first test to hit a given kind
-# emits the warning; subsequent tests skip the ``warnings.warn`` call.
-# This keeps the pytest output readable when a real module-rename bug
-# is present (one warning surfaces the drift; the other 101 tests in
-# the file stay quiet).
 _mock_heavy_imports_warned: dict[str, bool] = {}
 
 
 def _warn_once(kind: str, message: str) -> None:
-    """Emit a :class:`MockHeavyImportsWarning` at most once per session.
-
-    see :class:`MockHeavyImportsWarning` for the rationale.
-    """
+    """Emit a :class:`MockHeavyImportsWarning` at most once per session."""
     if _mock_heavy_imports_warned.get(kind):
         return
     _mock_heavy_imports_warned[kind] = True
@@ -169,44 +38,7 @@ def _warn_once(kind: str, message: str) -> None:
 
 
 def pytest_configure(config):
-    """register the real_pynput and real_pil markers.
-
-    also register the ``slow`` marker used by
-    ``tests/test_manual_slow.py`` to wrap the manual diagnostic
-    scripts in ``tests/manual/`` as proper pytest tests. Slow tests
-    are deselected by default (see ``pytest_collection_modifyitems``)
-    and only run when ``--slow`` is passed.
-
-    also register a project-wide hypothesis profile named ``ci`` with
-    ``deadline=None`` and load it unconditionally. Hypothesis's default
-    ``deadline`` is 200ms per test case; on a loaded CI runner (or even
-    a busy local machine) the 22 ``@settings``-decorated tests across
-    ``tests/test_property_based.py``,
-    ``tests/test_text_cleanup_hypothesis.py`` and
-    ``tests/test_streaming_hypothesis.py`` can exceed 200ms and fail
-    with ``FlakyFailure(DeadlineExceeded)``. Registering ``deadline=None``
-    as the parent profile means every ``@settings(max_examples=N)``
-    decorator inherits ``deadline=None`` from the loaded profile, so
-    the deadline is disabled project-wide without touching each of the
-    22 call sites. See:
-    https://hypothesis.readthedocs.io/en/latest/settings.html#hypothesis.settings.register_profile
-
-    The profile is loaded unconditionally (not just under CI) because
-    a developer running ``pytest tests/test_property_based.py`` locally
-    on a busy laptop hits the same ``DeadlineExceeded`` failures as CI.
-    ``deadline=None`` is the hypothesis-recommended default for test
-    suites that aren't doing real-time performance work; the only
-    downside of disabling it is that a pathological slowdown (e.g. an
-    accidental O(n²) inner loop) is no longer surfaced by hypothesis —
-    but pytest-timeout (``--timeout=60``) still catches hangs.
-
-    Hypothesis is an optional dependency (declared in
-    ``[project.optional-dependencies].test``); the import is wrapped in
-    ``try/except ImportError`` so a minimal install without ``[test]``
-    extras still collects successfully (the hypothesis test files have
-    their own ``pytestmark = pytest.mark.skipif(not HAS_HYPOTHESIS, ...)``
-    guard and skip cleanly).
-    """
+    """register the real_pynput and real_pil markers."""
     config.addinivalue_line(
         "markers",
         "real_pynput: opt out of the pynput mock (use real pynput.keyboard)",
@@ -227,26 +59,12 @@ def pytest_configure(config):
         "platform paths, env overrides).",
     )
 
-    # Register + load a project-wide hypothesis profile with
-    # ``deadline=None``. See the docstring above for the full rationale.
-    # The import is lazy (inside pytest_configure, not at module load)
-    # so a minimal install without hypothesis can still collect tests.
     try:
         from hypothesis import HealthCheck, settings
     except ImportError:
-        # hypothesis is optional, skip profile registration. The
-        # hypothesis test files skip themselves via their own
         # ``pytestmark = pytest.mark.skipif(not HAS_HYPOTHESIS, ...)``.
         return
 
-    # ``suppress_health_check=[HealthCheck.too_slow]`` mirrors the
-    # per-test ``@settings(suppress_health_check=[HealthCheck.too_slow])``
-    # decorators already present in the hypothesis test files, setting
-    # it at the profile level makes the suppression project-wide so a
-    # future ``@given`` test that forgets the decorator is still safe.
-    # ``print_blob=True`` makes hypothesis include a reproducible
-    # base64 blob in failure messages so a CI failure can be reproduced
-    # locally with ``--hypothesis-seed=...`` or by pasting the blob.
     settings.register_profile(
         "ci",
         deadline=None,
@@ -254,20 +72,11 @@ def pytest_configure(config):
         print_blob=True,
     )
     # ``load_profile`` is idempotent and safe to call multiple times
-    # across nested conftest.py files. Loading here (rather than relying
-    # on the ``HYPOTHESIS_PROFILE=ci`` env var) means the profile is
-    # active for every pytest invocation, including local ``pytest
-    # tests/test_foo.py`` runs that don't go through CI.
     settings.load_profile("ci")
 
 
 def pytest_addoption(parser):
-    """add ``--slow`` flag to opt in to slow tests.
-
-    Slow tests (marked with ``@pytest.mark.slow``) are skipped by
-    default to keep the regular pytest suite fast. Pass ``--slow`` to
-    run them, typically in a separate, best-effort CI job.
-    """
+    """add ``--slow`` flag to opt in to slow tests."""
     parser.addoption(
         "--slow",
         action="store_true",
@@ -277,12 +86,7 @@ def pytest_addoption(parser):
 
 
 def pytest_collection_modifyitems(config, items):
-    """skip slow tests unless ``--slow`` was passed.
-
-    We use ``skip`` (not ``deselect``) so the tests still appear in
-    the report as skipped, making it obvious that they exist and
-    would have run with ``--slow``.
-    """
+    """skip slow tests unless ``--slow`` was passed."""
     if config.getoption("--slow"):
         return
     skip_slow = pytest.mark.skip(reason="need --slow option to run")
@@ -292,43 +96,11 @@ def pytest_collection_modifyitems(config, items):
 
 
 # WAV fixture file ``tests/fixtures/test_440hz_1s_16k.wav``
-# (1-second 440Hz sine wave at 16kHz mono, 16-bit PCM) is retained on
-# disk for ad-hoc use, but the ``wav_fixture_path`` pytest fixture that
-# identified as dead code has been removed, no test imported it.
-# Tests that need the WAV file should construct the path inline:
-#   ``Path(__file__).parent / "fixtures" / "test_440hz_1s_16k.wav"``
 
 
 @pytest.fixture(autouse=True)
 def winfunctype_alias(monkeypatch):
-    """Provide ``ctypes.WINFUNCTYPE`` on non-Windows platforms.
-
-    ``voice_typer.server.hotkeys._install_low_level_hook`` (line ~1311)
-    and ``voice_typer.server.microphone_watcher`` use
-    ``ctypes.WINFUNCTYPE(...)`` inside Windows-gated function bodies.
-    On Linux, those code paths are never executed in production, but
-    some tests (``tests/test_hotkeys_win32.py``) DO exercise them with
-    mocked Windows state. Without the alias, those tests fail with
-    ``AttributeError: module 'ctypes' has no attribute 'WINFUNCTYPE'``.
-
-    Aliasing ``WINFUNCTYPE = CFUNCTYPE`` on non-Windows lets those
-    tests run. This is a test-only shim, production behaviour on
-    Windows is unchanged (real ``WINFUNCTYPE`` is used; on Windows the
-    alias is a no-op because ``hasattr(ctypes, "WINFUNCTYPE")`` is
-    True).
-
-    previously this alias was installed at conftest.py
-    module-load time via ``ctypes.WINFUNCTYPE = ctypes.CFUNCTYPE``.
-    That permanently mutated the global ``ctypes`` module for the
-    whole pytest session, which (a) leaked the alias into any
-    non-test code that ran in the same process and (b) made it
-    impossible for a test to assert that ``WINFUNCTYPE`` is ABSENT
-    on non-Windows (e.g. to verify the production guard). Moving the
-    alias into an autouse fixture means it's installed only for the
-    duration of each test and is automatically removed by
-    ``monkeypatch`` afterwards, restoring ``ctypes`` to its pristine
-    state between tests.
-    """
+    """Provide ``ctypes.WINFUNCTYPE`` on non-Windows platforms."""
     if not hasattr(ctypes, "WINFUNCTYPE"):
         monkeypatch.setattr(
             ctypes,
@@ -338,114 +110,12 @@ def winfunctype_alias(monkeypatch):
         )
 
 
-# ── Heavy-import mocking: session + per-test split ────────────────────
-#
 # Originally a single autouse ``mock_heavy_imports`` fixture ran at
-# function scope for every one of the ~12k tests, installing the SAME
-# unconditional mocks (sounddevice, faster_whisper, pystray, pyperclip)
-# each time. The mocks are identical across every
-# test, so the per-test ``sys.modules.setitem`` calls (~5) + MagicMock
-# constructions (~4) were pure overhead, ~120k redundant operations
-# per session.
-#
-# The split below moves the unconditional mocks into a session-scoped
-# fixture (``mock_heavy_imports_session``) that runs once per worker.
-# The per-test ``mock_heavy_imports`` fixture retains ONLY the work
-# that actually varies per test:
-#
-#   - pynput marker branch (``real_pynput`` opts out of the pynput mock)
-#   - PIL marker branch (``real_pil`` opts out + evicts stale mocks)
-#   - ``atexit.register`` patch (per-test, imports ``voice_typer.server.app``)
-#   - ``force_pynput_hotkey_backend`` patch (per-test, imports
-#     ``voice_typer.server.hotkeys``)
-#   - ``keyboard_ownership`` singleton reset (per-test, MUST run before
-#     each test to prevent state leakage)
-#
-# The per-test fixture name is intentionally kept as ``mock_heavy_imports``
-# (NOT renamed to ``mock_heavy_imports_per_test`` as a strict reading of
-# the task spec might suggest) because TEN test files override the
-# conftest fixture by redefining their own ``mock_heavy_imports`` at
-# function scope (run ``rg '^def mock_heavy_imports\b' tests/`` to
-# re-verify the list when adding or removing an override):
-#
-#   - tests/test_recorder_double_resample.py (custom sounddevice mock —
-#     stubs ``query_devices`` per-test to simulate a 48 kHz native-rate
-#     microphone, the  double-resample failure scenario)
-#   - tests/test_recording_audio_processor.py (custom sounddevice mock
-#     with a ``FakeInputStream`` that captures the callback for direct
-#     chunk-push invocation from the test)
-#   - tests/test_tray.py (custom pystray/PIL mocks, installs a
-#     ``_FakeIcon`` / ``_FakeMenu`` / ``_FakeMenuItem`` so the tray
-#     menu builder runs headless without invoking real GTK/Cocoa/Win32)
-#   - tests/test_volume_lifecycle.py (full hardware/GUI mock set +
-#     custom ``create_hotkey_backend`` patch that forces PynputHotkey so
-#     the test can mock ``pynput.keyboard.GlobalHotKeys``; this is a
-#     near-complete replacement of the conftest fixture, not just the
-#     hotkey patch)
-#   - tests/test_shutdown_parallel.py (no-op override to avoid
-#     importing ``voice_typer.server.app``, uses a ``_FakeApp`` and
-#     injects mock modules into ``sys.modules`` directly)
-#   - tests/test_shutdown_deadline.py (no-op override, same rationale
-#     as test_shutdown_parallel.py; uses a ``_FakeApp``)
-#   - tests/test_shutdown_race_fixes.py (no-op override, same rationale;
-#     exercises ``_do_fast_cleanup`` against a ``_FakeApp``)
-#   - tests/test_shutdown_plan.py (no-op override, same rationale;
-#     exercises the ZR-17 shutdown plan against a ``_FakeApp``)
-#   - tests/test_shutdown_deadline_skip.py (no-op override, same
-#     rationale as test_shutdown_deadline.py; uses a ``_FakeApp``)
-#   - tests/test_recording_lifecycle_threaded.py (no-op override —
-#     builds a ``_make_app_with_mock_recorder`` MagicMock app and must
-#     not import ``voice_typer.server.app`` during collection)
-#
-# Renaming the conftest fixture would silently break those overrides:
-# the local ``mock_heavy_imports`` would no longer shadow the conftest
-# autouse fixture, and the conftest version would run alongside the
-# local one, for the four ``test_shutdown_*`` files this would
-# re-introduce the ``voice_typer.server.app`` import that the override
-# deliberately avoids (the real app module can be in a parallel agent's
-# WIP state during incremental development). Keeping the original name
-# preserves the shadow semantics.
-# The session-scoped fixture uses a distinct name
-# (``mock_heavy_imports_session``) so there is no collision.
-
-
-# Torch/transformers mocks were removed after the ORT migration:
-# production has no executable ``import torch`` / ``import transformers``
-# (verified via module-scope import scan), VAD runs Silero ONNX through
-# ``onnxruntime.InferenceSession`` with ``providers=[CPUExecutionProvider]``,
-# and ``scipy.signal`` imports cleanly without a torch stand-in. Tests that
-# pin the torch-free contract inject their own local fake via
-# ``monkeypatch.setitem(sys.modules, "torch", ...)`` instead of relying on
-# a global mock.
 
 
 @pytest.fixture(scope="session", autouse=True)
 def mock_heavy_imports_session():
-    """Install unconditional heavy-import mocks once per worker session.
-
-    These mocks (sounddevice, faster_whisper, faster_whisper.WhisperModel,
-    pystray, pyperclip) are identical across every
-    test. Moving them from the per-test ``mock_heavy_imports`` fixture
-    to this session-scoped fixture eliminates ~5 ``sys.modules.setitem``
-    + ~4 ``MagicMock`` constructions per test × ~12k tests.
-
-    Uses the ``pytest.MonkeyPatch()`` factory (instead of the
-    ``monkeypatch`` fixture, which is function-scoped and cannot be
-    requested from a session-scoped fixture). Cleanup happens in the
-    ``finally`` block via ``mp.undo()`` so the session teardown
-    restores ``sys.modules`` to its pre-session state, important when
-    running multiple pytest invocations in the same interpreter (e.g.
-    via ``pytest.main()`` in a notebook).
-
-    Per-test local overrides of ``mock_heavy_imports`` (in
-    ``tests/test_shutdown_plan.py``, ``tests/test_volume_lifecycle.py``,
-    etc.) do NOT shadow this session fixture, they shadow only the
-    function-scoped ``mock_heavy_imports`` of the same name. So every
-    test (including those with local overrides) gets the session mocks
-    installed; the local override only replaces the per-test portion.
-    This is intentional and matches the original behaviour for the
-    unconditional mocks.
-    """
+    """Install unconditional heavy-import mocks once per worker session."""
     mp = pytest.MonkeyPatch()
     try:
         mock_sd = MagicMock()
@@ -459,46 +129,12 @@ def mock_heavy_imports_session():
         mp.setitem(sys.modules, "pystray", MagicMock())
         mp.setitem(sys.modules, "pyperclip", MagicMock())
 
-        # NOTE: no torch/transformers mocks. Production is torch-free
-        # (ORT InferenceSession with CPUExecutionProvider is the canonical
         # VAD path), so a global torch stand-in is dead weight. Contract
-        # tests inject their own local fake instead.
 
         # BLOCK THE REAL ``winreg`` MODULE. Setting ``sys.modules["winreg"]``
-        # to ``None`` makes any later ``import winreg`` raise ImportError
-        # ("import of winreg halted; None in sys.modules"), exactly the
-        # behaviour on non-Windows CI, where production code degrades
-        # gracefully (``try: import winreg / except ImportError: return
-        # False``). Without this guard, running the suite on a Windows dev
-        # machine lets tests that exercise Windows autostart / uninstall
-        # paths (``_register/_unregister_app_autostart_runkey``,
-        # ``_unregister_all_voicetyper_runkeys``, …) hit the DEVELOPER'S
-        # REAL HKCU registry: a test that called ``disable_autostart`` or
-        # the uninstaller sweep deleted the user's actual autostart
-        # Run-key entry and wrote a ``MagicMock``-content pid file into
-        # the real config dir (both observed in the wild), producing the
-        # perpetual "Config says autostart=true but it is disabled --
-        # enabling" re-registration loop. Tests that need winreg inject a
-        # fake via ``monkeypatch.setitem(sys.modules, "winreg", fake)``
-        # (the ``fake_winreg`` fixtures), which overrides this None during
-        # the test and is undone back to None afterwards.
         mp.setitem(sys.modules, "winreg", None)
 
         # Volume-duck backend: never auto-detect a REAL platform volume
-        # backend in tests. A test that builds a real VoiceTyperApp and
-        # starts dictation would otherwise duck the developer's actual
-        # system volume to ``volume_duck_level`` (~20%) via pycaw /
-        # CoreAudio / pactl and never restore it (tests don't run the
-        # full cleanup path). Tests that need a volume backend inject
-        # their own (``VolumeDucker(backend=...)`` or a monkeypatched
-        # ``get_volume_backend``), those bypass this factory, and
-        # ``VolumeDucker.duck()``/``restore()`` already short-circuit
-        # on a ``None`` backend, so this only neutralizes ACCIDENTAL
-        # real backends.
-        # Patch the OWNING submodule: ``VolumeDucker.initialize`` lazily
-        # imports ``get_volume_backend`` from
-        # ``voice_typer.server.server_platform.volume_factory``, so this is
-        # the module attribute production actually reads.
         mp.setattr("voice_typer.server.server_platform.volume_factory.get_volume_backend", lambda: None)
 
         yield
@@ -508,79 +144,28 @@ def mock_heavy_imports_session():
 
 @pytest.fixture(autouse=True)
 def mock_heavy_imports(monkeypatch, request):
-    """Per-test conditional mocks + atexit + keyboard_ownership reset.
-
-    Handles ONLY the work that varies per test:
-
-      - ``real_pynput`` marker branch (opt out of the pynput mock).
-      - ``real_pil`` marker branch (opt out + evict stale PIL mocks
-        that test modules may have installed at collection time).
-      - ``atexit.register`` patch (prevents production atexit handlers
-        from polluting test output).
-      - ``force_pynput_hotkey_backend`` patch (uniform PynputHotkey
-        backend across platforms, without it, hotkey tests only pass
-        on Linux/X11 by accident).
-      - ``keyboard_ownership`` singleton reset (prevents stale owner
-        state from a prior test leaking into the next).
-
-    The unconditional mocks (sounddevice, faster_whisper, pystray,
-    pyperclip) are installed ONCE per session by
-    :func:`mock_heavy_imports_session` and are NOT re-installed here.
-
-    tests marked with @pytest.mark.real_pynput will NOT
-    have pynput mocked, so they can test the real keyboard listener.
-    """
-    # only mock pynput if the test doesn't request real pynput
+    """Per-test conditional mocks + atexit + keyboard_ownership reset."""
     if not request.node.get_closest_marker("real_pynput"):
         mock_pynput = MagicMock()
         mock_pynput_kb = MagicMock()
         monkeypatch.setitem(sys.modules, "pynput", mock_pynput)
         monkeypatch.setitem(sys.modules, "pynput.keyboard", mock_pynput_kb)
     else:
-        # ``real_pynput`` escape hatch: the collection-time pynput mock
-        # installed by this conftest's module-level ``setdefault`` (see
-        # the block above, WR-9 / TK-47 centralization) would otherwise
-        # shadow the REAL package for this test. Evict any mock entries
-        # (identified by a missing ``__spec__``, real modules always
-        # have one, MagicMocks do not, mirroring the ``real_pil``
-        # eviction branch below) so the real import loads from disk.
         for _key in ("pynput", "pynput.keyboard"):
             _existing = sys.modules.get(_key)
             if _existing is not None and getattr(_existing, "__spec__", None) is None:
                 del sys.modules[_key]
 
-    # only mock PIL if the test doesn't request real PIL
     if not request.node.get_closest_marker("real_pil"):
         mock_pil = MagicMock()
         monkeypatch.setitem(sys.modules, "PIL", mock_pil)
         monkeypatch.setitem(sys.modules, "PIL.Image", MagicMock())
         monkeypatch.setitem(sys.modules, "PIL.ImageDraw", MagicMock())
     else:
-        # Ensure the real PIL is available in sys.modules.
-        #
-        # Some test modules (e.g. tests/test_tray.py) call
-        # ``sys.modules.setdefault("PIL", MagicMock())`` at *collection*
-        # time, which permanently installs a MagicMock for PIL in
-        # sys.modules. When a ``real_pil`` test runs afterwards, a plain
-        # ``import PIL`` returns that MagicMock instead of the real
-        # package, causing ``PIL.ImageDraw`` attribute access to fail
-        # with ``AttributeError: module 'PIL' has no attribute
-        # 'ImageDraw'``.
-        #
-        # Fix: detect and evict any mock entries for PIL/PIL.Image/
-        # PIL.ImageDraw from sys.modules before importing the real
-        # package. We identify mocks by checking ``__spec__``, real
-        # modules have a non-None ``__spec__``; MagicMocks do not.
-        #
-        # Note: the session-scoped ``mock_heavy_imports_session`` does
-        # NOT mock PIL (it's intentionally per-test because of this
-        # eviction branch), so the only stale mock to evict is one
-        # left behind by a prior test's collection-time setdefault.
         for _key in ("PIL", "PIL.Image", "PIL.ImageDraw"):
             _existing = sys.modules.get(_key)
             if _existing is not None and getattr(_existing, "__spec__", None) is None:
                 # Looks like a mock (or a non-module object), evict it
-                # so the real import below actually loads the package.
                 del sys.modules[_key]
         try:
             import importlib as _importlib
@@ -595,19 +180,6 @@ def mock_heavy_imports(monkeypatch, request):
             pass  # PIL not available, tests will skip
 
     # Prevent atexit handler from polluting test output. :
-    # previously this was wrapped in ``contextlib.suppress(Exception)``,
-    # which silently swallowed typos in the monkeypatch target and let
-    # tests pass against unpatched code. The targeted ``except`` below
-    # only catches the two real failure modes (the module isn't
-    # importable, or the attribute is missing) and warns on either so
-    # drift is visible in CI output without failing the test.
-    #
-    # Per-test (NOT session) because: (a) it imports
-    # ``voice_typer.server.app``, which test_shutdown_plan.py
-    # explicitly avoids via its local no-op override of
-    # ``mock_heavy_imports``; (b) the patch is idempotent so per-test
-    # re-installation is cheap; (c) keeping it per-test preserves the
-    # shadow semantics of the four local overrides.
     try:
         monkeypatch.setattr(
             "atexit.register",
@@ -622,41 +194,12 @@ def mock_heavy_imports(monkeypatch, request):
             "during tests.",
         )
 
-    # (IMPROVE-mode run, 2026-07-21): hoist the
-    # ``force_pynput_hotkey_backend`` patch from the deleted
-    # ``tests/test_app.py:76-88`` into this autouse fixture so
-    # ``tests/app/test_hotkeys.py`` (and other hotkey tests) work on
-    # macOS/Windows where the default hotkey backend is NOT PynputHotkey.
-    # Pre-fix, the tests passed only because on Linux/X11 the unpatched
-    # ``create_hotkey_backend`` falls through to PynputHotkey by default
-    # , same accidental pass condition documented in the (now-deleted)
-    # ``tests/test_app.py:73-75``. With the hoist, the patch is applied
-    # uniformly across platforms.
-    #
-    # replaced ``contextlib.suppress(Exception)`` with targeted
-    # ``except (ImportError, AttributeError)`` + ``warnings.warn`` so a
-    # renamed module or moved function surfaces as a warning rather
-    # than a silent patch-skip.
-    #
-    # Per-test (NOT session) because: (a) it imports
-    # ``voice_typer.server.hotkeys``, which some local overrides
-    # (test_volume_lifecycle.py) re-implement with their own patch on
-    # the same canonical target
-    # (``hotkey_dispatcher.create_hotkey_backend``); keeping it
-    # per-test preserves the shadow semantics.
     try:
         from voice_typer.server.hotkeys import PynputHotkey
 
-        # ``create_hotkey_backend`` now accepts a ``role`` kwarg (used to
-        # give Wayland backends a per-role socket path). The mock must
-        # tolerate it: ``PynputHotkey`` does not take ``role``, so it is
-        # accepted and dropped here.
         def _force_pynput(hotkey_str, role=None, **kwargs):
             return PynputHotkey(hotkey_str)
 
-        # ``create_hotkey_backend`` moved from ``app.py`` to
-        # ``voice_typer.server.hotkeys.factory`` (re-exported via
-        # ``hotkeys.__init__``).  ``app.py`` no longer has this attribute.
         monkeypatch.setattr(
             "voice_typer.server.hotkey_dispatcher.create_hotkey_backend",
             _force_pynput,
@@ -671,16 +214,6 @@ def mock_heavy_imports(monkeypatch, request):
         )
 
     # (IMPROVE-mode run, 2026-07-21): reset the keyboard_ownership
-    # singleton before each test so stale state from a prior test (e.g.
-    # ``set_owner("hotkey_capture")``) doesn't cause ``undo_last`` /
-    # ``_cancel_dictation`` to early-return. The singleton persists across
-    # tests because it's a class-level ``_instance``; without this reset,
-    # test ordering affects test outcomes.
-    #
-    # replaced ``contextlib.suppress(Exception)`` with targeted
-    # ``except (ImportError, AttributeError)`` + ``warnings.warn`` so a
-    # renamed singleton or removed ``reset`` method surfaces as a
-    # warning rather than a silent skip.
     try:
         from voice_typer.server.keyboard_ownership import keyboard_ownership
 
@@ -697,22 +230,7 @@ def mock_heavy_imports(monkeypatch, request):
 
 @pytest.fixture(autouse=True)
 def _reset_log_rate_limit():
-    """Reset ``log_rate_limit`` module-level state between tests.
-
-    ``log_rate_limit`` keeps three module-level dicts
-    (``_RATE_LIMIT_COUNTS``, ``_RATE_LIMIT_NEXT_SUMMARY_DEADLINE``,
-    ``_RATE_LIMIT_SUPPRESSED_SINCE_SUMMARY``) that persist across tests.
-    Without this reset, a test that exercises a rate-limited log path
-    (e.g. ``test_ipc_no_client_log_redaction``) leaves counters behind
-    that cause the *next* test's first call to be suppressed at DEBUG
-    instead of emitted at INFO, so ``caplog.at_level(INFO)`` captures
-    nothing and the test fails when run after its siblings.
-
-    The reset is autouse so the same leak can't bite future tests that
-    exercise ``log_rate_limited``.  Mirrors the ``keyboard_ownership``
-    reset inside ``mock_heavy_imports`` (the fix) and the
-    ``clear_binary_path_cache`` autouse pattern (the fix).
-    """
+    """Reset ``log_rate_limit`` module-level state between tests."""
     from voice_typer.server import log_rate_limit
 
     log_rate_limit.reset()
@@ -722,23 +240,7 @@ def _reset_log_rate_limit():
 
 @pytest.fixture(autouse=True)
 def _restore_vt_logging_state():
-    """Snapshot and restore the ``voice_typer`` logger between tests.
-
-    Tests that call ``voice_typer.server.log.setup_logging()`` install
-    PII-filtered / session-filtered handlers on the ``voice_typer``
-    logger that persist for the rest of the xdist worker process.
-    Because ``logging`` passes the SAME record object through every
-    handler in ``Logger.callHandlers``, a leaked ``PIIRedactionFilter``
-    handler mutates ``record.msg`` BEFORE caplog's own handler captures
-    it, so later tests see redacted messages (e.g. ``[MIC-WATCHER] ***
-    callback raised``, ``expected ***, got ***``) and their caplog
-    assertions fail order- and worker-dependently under xdist.
-
-    Mirrors the file-local fixture in ``tests/test_log_formatting.py``
-    and the ``_reset_log_rate_limit`` autouse pattern; the global
-    version closes the leak for the ~10 other files that call
-    ``setup_logging`` without their own restore.
-    """
+    """Snapshot and restore the ``voice_typer`` logger between tests."""
     import logging
 
     from voice_typer.server.log import _module_level_overrides
@@ -753,11 +255,6 @@ def _restore_vt_logging_state():
     yield
 
     # Drop handlers the test installed WITHOUT closing them: a leaked
-    # background thread (e.g. a recording watchdog) may still be mid-
-    # emit, and closing the underlying stream under it can surface as a
-    # hard ``Windows fatal exception: 0x800703e5`` during worker
-    # teardown. Dropping matches ``log.reset()`` semantics; the GC
-    # closes the handler later.
     vt_root.handlers = saved_handlers
     vt_root.filters = saved_filters
     vt_root.setLevel(saved_level)
@@ -769,32 +266,10 @@ def _restore_vt_logging_state():
 
 @pytest.fixture(autouse=True)
 def _restore_event_bus_transport_probes():
-    """Snapshot + restore ``event_bus._transport_probes`` between tests.
-
-    ``TCPTransportMixin.start_tcp`` registers a transport-liveness probe
-    on the process-global ``event_bus`` registry and ``stop()``
-    unregisters it. Tests that start a real TCP server WITHOUT calling
-    ``stop()`` (``tests/test_e2e_pipeline.py`` deliberately skips it —
-    ``stop()`` would try to join a stdin thread that was never started)
-    leave the probe registered for the rest of the xdist worker; the
-    probe reports ``False`` once the test closes the client socket, so
-    any later test on the same worker that calls
-    ``event_bus.has_live_transport()`` (e.g. the tray "open window"
-    tests) sees "no live transport" and takes the wrong code path.
-
-    The weakref storage in ``event_bus`` already auto-evicts probes
-    whose server is GC'd, but the e2e fixture's server stays alive past
-    teardown via its own accept-loop thread, so the registry needs a
-    deterministic per-test restore. Mirrors the ``_restore_vt_logging_state``
-    snapshot/restore pattern; the empty-list case is a no-op in terms
-    of cost (~1 list copy per test).
-    """
+    """Snapshot + restore ``event_bus._transport_probes`` between tests."""
     from voice_typer.server import event_bus
 
     # Snapshot under the registry lock: a late weakref eviction
-    # callback from a previous test's dying server can mutate the list
-    # concurrently, and ``list(list)`` on a concurrently-shrinking list
-    # is not thread-safe in CPython. The restore is an atomic rebind.
     with event_bus._transport_probes_lock:
         saved = list(event_bus._transport_probes)
     yield
@@ -803,22 +278,7 @@ def _restore_event_bus_transport_probes():
 
 @pytest.fixture(autouse=True)
 def _drain_crash_recovery_workers():
-    """Stop any leaked ``CrashRecovery`` save worker thread between tests.
-
-    ``CrashRecovery`` spawns a daemon save worker per instance and
-    registers the instance in ``_LIVE_INSTANCES``. Tests that construct
-    an instance without calling ``shutdown()`` (or whose worker is
-    still draining when the test ends) leak a thread that can fire an
-    asynchronous ``_save_sync()`` DURING a LATER test, polluting
-    module-level ``mock.patch`` assertions (``assert_called_once``
-    seeing a 2nd call from a stale path) and writing stale files into
-    the wrong test's tmp dir. Observed order-dependently under xdist
-    on 3.12.7, 3.13.7 and 3.13.14 alike.
-
-    ``shutdown()`` is idempotent and bounded (join(timeout=1.0)); the
-    WeakSet is empty for the vast majority of tests, so the overhead is
-    negligible.
-    """
+    """Stop any leaked ``CrashRecovery`` save worker thread between tests."""
     import contextlib
 
     yield
@@ -831,20 +291,7 @@ def _drain_crash_recovery_workers():
 
 @pytest.fixture(autouse=True)
 def _drain_watchdog_threads():
-    """Stop any leaked ``TranscriptionWatchdog`` threads between tests.
-
-    ``RecordingLifecycle._start_impl`` arms a real 90s watchdog thread
-    on every successful ``start()`` (``recording_lifecycle.py`` L1108).
-    Tests that start a controller without calling ``stop()`` leak that
-    thread; ~90s later it fires a ``[STUCK-RECOVERY]`` log storm on a
-    closed logging stream, which can hard-crash the xdist worker
-    (``[gwN] node down: Not properly terminated``) and hang the
-    controller, the suite then appears to "run forever".
-
-    Mirrors the ``_LIVE_INSTANCES`` drain in
-    ``_drain_crash_recovery_workers``; the WeakSet is empty for the
-    vast majority of tests, so the overhead is negligible.
-    """
+    """Stop any leaked ``TranscriptionWatchdog`` threads between tests."""
     yield
     import contextlib
 
@@ -859,18 +306,7 @@ def _drain_watchdog_threads():
 
 @pytest.fixture(autouse=True)
 def _drain_ptt_safety_timers():
-    """Cancel any leaked PTT safety timers between tests.
-
-    ``HotkeyDispatcher._start_ptt_safety_timer`` arms a real 60s daemon
-    ``threading.Timer`` whenever a push-to-talk backend is registered
-    (``hotkey_dispatcher.py`` L451). Tests that register a PTT backend
-    without exercising the release path leak that timer; ~60s later it
-    fires ``[HOTKEY] PTT release event missed`` on a closed logging
-    stream, the same worker-crash/hang signature as the leaked
-    transcription watchdog (see ``_drain_watchdog_threads``).
-
-    Mirrors that fixture's WeakSet-registry pattern.
-    """
+    """Cancel any leaked PTT safety timers between tests."""
     yield
     import contextlib
 
@@ -885,26 +321,7 @@ def _drain_ptt_safety_timers():
 
 @pytest.fixture(autouse=True)
 def _drain_shutdown_watchdogs():
-    """Disarm any leaked shutdown-watchdog threads between tests.
-
-    ``quit()`` / ``restart_app()`` invoked on a NON-main thread arm a
-    real 2s daemon watchdog (``shutdown/lifecycle.py``
-    ``arm_shutdown_watchdog``) that calls ``os._exit(0)`` as a last
-    resort. Tests that exercise the non-main-thread path (e.g.
-    ``tests/test_app_restart.py`` runs ``restart_app()`` on a worker
-    thread, and its ``_stub_restart_environment`` only patches
-    ``os._exit``, the module-level ``os``
-    in ``shutdown/lifecycle.py``) arm that watchdog and never let the
-    process exit. ~2s later the watchdog fires the REAL ``os._exit(0)``
-    and kills the whole xdist worker with no traceback
-    (``[gwN] node down: Not properly terminated``), hanging the
-    controller, the suite then appears to "run forever".
-
-    The watchdog is cancellable (``cancel_event.wait(timeout_s)``);
-    setting the event wakes it immediately so it returns before calling
-    ``os._exit(0)``. Mirrors the WeakSet-registry pattern of
-    ``_drain_crash_recovery_workers``.
-    """
+    """Disarm any leaked shutdown-watchdog threads between tests."""
     yield
     import contextlib
 
@@ -918,21 +335,7 @@ def _drain_shutdown_watchdogs():
 
 @pytest.fixture(autouse=True)
 def _drain_test_thread_registry_workers():
-    """Stop and join any live ``test_thread_registry`` worker threads.
-
-    ``tests/test_thread_registry.py`` deliberately creates "never-exit"
-    workers (``never_exit=True`` or ``stop_event=None``) that loop
-    ``time.sleep(0.01)`` forever to exercise the registry's stuck-thread
-    paths. Under xdist a worker process lives for the WHOLE suite, so
-    those daemon threads would otherwise spin for the entire run, the
-    crash dump of a rare native heap corruption (``0xc0000374``) showed
-    ``tests/test_thread_registry.py``'s ``_run`` thread still alive at
-    crash time, alongside VAD inference and history_db file copies. The
-    kill-switch is checked BEFORE ``never_exit`` so stuck
-    workers can be terminated between tests.
-
-    Mirrors the WeakSet-registry pattern of the other drain fixtures.
-    """
+    """Stop and join any live ``test_thread_registry`` worker threads."""
     yield
     import contextlib
 
@@ -944,23 +347,7 @@ def _drain_test_thread_registry_workers():
 
 @pytest.fixture(autouse=True)
 def _drain_thread_registries():
-    """Call ``shutdown_all()`` on every live ``ThreadRegistry``.
-
-    ``VoiceTyperApp.__init__`` arms a real ``vad-preload`` daemon thread
-    (registered on ``app._thread_registry`` with join_timeout=2.0), and
-    ``StartupSequence.run()`` arms a ``vad-preload-startup`` one. Tests
-    that build a real app (the ``app`` fixture, ``app_for_startup``,
-    and ~20 direct ``VoiceTyperApp()`` constructions) never join those
-    threads. Under xdist a worker lives for the WHOLE suite, so leaked
-    preload threads accumulate; if one wakes while history_db file copies
-    are in flight it runs VAD inference concurrently with them, the rare
-    native heap corruption (``0xc0000374``) seen in crash dumps.
-
-    This fixture is the catch-all: it drains every live registry (and
-    therefore every registered thread, vad-preload, bubble-level
-    pusher, etc.) regardless of which fixture constructed the app.
-    Mirrors the WeakSet-registry pattern of the other drain fixtures.
-    """
+    """Call ``shutdown_all()`` on every live ``ThreadRegistry``."""
     yield
     import contextlib
 
@@ -972,32 +359,23 @@ def _drain_thread_registries():
         _drain_live_thread_registries()
 
 
-# ── Silent worker-death diagnostics (opt-in: VT_OSEXIT_LOG=<dir>) ──────
+@pytest.fixture(autouse=True)
+def _restore_tauri_sidecar_env():
+    """Snapshot + restore ``TAURI_SIDECAR`` between tests."""
+    import os
+
+    _sentinel = object()
+    saved = os.environ.get("TAURI_SIDECAR", _sentinel)
+    yield
+    if saved is _sentinel:
+        os.environ.pop("TAURI_SIDECAR", None)
+    else:
+        os.environ["TAURI_SIDECAR"] = saved
 
 
 @pytest.fixture(scope="session", autouse=True)
 def _vt_capture_worker_os_exit():
-    """Diagnostic (opt-in): capture ``os._exit()`` calls with tracebacks.
-
-    The full suite occasionally loses a worker to a SILENT abnormal
-    exit (``[gwN] node down: Not properly terminated``) near the end of
-    the run (no native-crash banner, no faulthandler dump) the
-    signature of an ``os._exit()`` fired by a leaked daemon thread
-    (shutdown watchdog, heartbeat force-exit, ...). ``os._exit`` skips
-    all interpreter cleanup, so nothing is ever logged.
-
-    Set ``VT_OSEXIT_LOG=<dir>`` to wrap ``os._exit`` for the whole
-    process: before delegating to the real ``os._exit`` the wrapper
-    appends a faulthandler dump (ALL thread stacks) to
-    ``<dir>/os-exit-<pid>.log``, and a per-process session start/finish
-    marker is appended to ``<dir>/session-<pid>.log``. When
-    ``VT_OSEXIT_LOG`` is unset this fixture is a no-op, normal runs
-    are completely unaffected.
-
-    The wrapper is intentionally NOT restored at teardown: it must stay
-    armed through interpreter shutdown, where leaked daemons can still
-    fire ``os._exit`` (the exact scenario under diagnosis).
-    """
+    """Diagnostic (opt-in): capture ``os._exit()`` calls with tracebacks."""
     import os as _os_mod
     import threading as _threading_mod
 
@@ -1028,8 +406,6 @@ def _vt_capture_worker_os_exit():
                 )
                 _faulthandler_mod.dump_traceback(file=_fh)
                 # Also dump the live ThreadRegistry contents (names +
-                # join_timeouts + alive flags) so a slow teardown drain
-                # can be attributed to a specific registered thread.
                 try:
                     from voice_typer.server.thread_registry import (
                         _LIVE_REGISTRIES,
@@ -1055,10 +431,6 @@ def _vt_capture_worker_os_exit():
     _os_mod._exit = _logged_exit  # type: ignore[assignment]
 
     # Periodic faulthandler snapshot (every 40s) so a slow/hung phase is
-    # caught MID-STACK, not just at death. A leaked-daemon or
-    # GIL-starved worker can make a normally-fast test exceed the
-    # per-test timeout; these snapshots reveal exactly which frame the
-    # main thread is stuck in.
     _snapshot_stop = _threading_mod.Event()
 
     def _snapshot_loop() -> None:
@@ -1088,32 +460,9 @@ def _vt_capture_worker_os_exit():
             pass
 
 
-# ── Shared fixtures for domain-split test files ────────────────────────
-
-
 @pytest.fixture
 def tmp_config_dir(tmp_path, monkeypatch):
-    """Temporary config directory with ``_config_dir`` monkeypatched.
-
-    Patches BOTH ``voice_typer.server.config._config_dir`` (the
-    canonical accessor) AND ``voice_typer.server.app._config_dir``.
-
-    ``config._config_dir`` is the one that matters today:
-    ``app.py`` routes its internal calls through ``_resolve_config_dir()``
-    (call-time indirection), so a canonical-name patch intercepts every
-    app path (``Config.load``, corrupt-config rename,
-    ``DuckCrashRecovery(config_dir=...)``, ...).
-
-    ``app._config_dir`` is kept patched as belt-and-suspenders (no
-    production path resolves via the app module since BP-126).
-
-    Previously 4 test files (``test_app_restart.py``,
-    ``test_app_cleanup.py``, ``test_shutdown_controller.py``,
-    ``test_shutdown_posix_release.py``) shadowed this fixture locally
-    with a version that patched both references. Those local shadows
-    have been deleted in favour of this single canonical fixture so
-    the project-wide fixture is the source of truth.
-    """
+    """Temporary config directory with ``_config_dir`` monkeypatched."""
     from tests.fixtures.config_helpers import patch_config_dir_refs
 
     patch_config_dir_refs(monkeypatch, tmp_path)
@@ -1122,39 +471,7 @@ def tmp_config_dir(tmp_path, monkeypatch):
 
 @pytest.fixture(autouse=True)
 def _isolate_user_config_dir(tmp_path, monkeypatch, request):
-    """Redirect EVERY test's config dir to a per-test tmp dir.
-
-    Regression guard for real-user ``config.json`` corruption: tests
-    that build a real ``Config`` and call ``save()`` without requesting
-    the ``tmp_config_dir`` fixture (e.g. the onboarding-apply suite
-    with hotkey ``<f9>`` / mic ``mic-42``) wrote straight into the
-    developer's live profile (``~/.voice-typer/config.json``),
-    permanently overwriting their hotkey, microphone, and consents.
-    No test may touch the real profile: this fixture extends the
-    ``tmp_config_dir`` redirection to the whole suite.
-
-    Mechanism (all reverted automatically after each test):
-    1. ``VOICE_TYPER_CONFIG_DIR`` env var → ``tmp_path`` (backstop for
-       any binding this fixture doesn't patch, e.g. module-load-time
-       ``from ... import _config_dir`` references and subprocess env
-       inheritance). Best-effort: SEC-005 validation may reject
-       paths outside ``Path.home()`` (Linux ``/tmp``), the setattr
-       patches below are the primary isolation.
-    2. :func:`tests.fixtures.config_helpers.patch_config_dir_refs`
-       (``config`` + ``app`` + ``_paths`` + ``config_internals.paths``
-       bindings).
-    3. ``_reset_config_dir_cache()`` before AND after (the real
-       ``_config_dir`` is ``lru_cache``d per worker process; a stale
-       entry would otherwise leak one test's resolution into the
-       next). The original function object is captured BEFORE
-       patching so teardown resets the real cache even though the
-       module attr is a lambda at that point.
-
-    Opt-out: ``@pytest.mark.real_config_dir`` (registered in
-    ``pytest_configure`` above) skips isolation for tests that assert
-    the resolver's own behavior (``test_config_dir_cache.py`` and
-    friends). Those tests only resolve paths, they never write.
-    """
+    """Redirect EVERY test's config dir to a per-test tmp dir."""
     if request.node.get_closest_marker("real_config_dir"):
         yield
         return
@@ -1190,20 +507,7 @@ def templates_dir(tmp_path, monkeypatch):
 
 @pytest.fixture
 def isolated_integrity_cache(tmp_path, monkeypatch):
-    """Point the on-disk model-integrity cache at a temp dir.
-
-    ``security.verify_model_integrity`` persists its memoized SHA-256
-    hashes to ``<config_dir>/cache/integrity_cache.json`` via
-    ``_integrity_cache_path()`` (which honors the
-    ``_integrity_cache_path_override`` module hook). Tests that exercise
-    the real verifier would otherwise write real user state under the
-    developer's config directory, which can be read-only or
-    ACL-restricted (causing ``tempfile.mkstemp`` inside
-    ``_secure_atomic_write`` to hang) and pollute real cache data
-    across runs. Request this fixture from any test class that calls
-    ``verify_model_integrity`` (e.g. model-integrity, parakeet/qwen
-    engine hard-fail tests).
-    """
+    """Point the on-disk model-integrity cache at a temp dir."""
     from voice_typer.server import security as security_module
 
     monkeypatch.setattr(
@@ -1214,78 +518,10 @@ def isolated_integrity_cache(tmp_path, monkeypatch):
     return tmp_path / "cache" / "integrity_cache.json"
 
 
-# clear ``get_native_binary_path`` LRU cache between tests ──────
-
-
 @pytest.fixture(autouse=True)
 def clear_binary_path_cache():
-    """Clear the ``functools.lru_cache`` on
-    ``voice_typer.server.native_hotkeys.binary_path.get_native_binary_path``
-    (and three other production caches) before every test.
-
-    memoises ``get_native_binary_path()`` with
-    ``functools.lru_cache(maxsize=1)`` so production startup doesn't
-    re-probe the 6-step lookup chain 3× (factory probe + backend init +
-    availability check = ~18 ``Path.is_file()`` stats). Without this
-    fixture the cache would persist across tests, breaking the many
-    tests that monkeypatch ``sys.platform`` / ``platform.machine`` /
-    ``VOICE_TYPER_NATIVE_*`` env vars / ``Path.is_file`` to simulate
-    different platform + filesystem states and expect DIFFERENT results
-    from successive calls to ``get_native_binary_path()`` within the
-    same test session.
-
-    Affected test files (each relies on per-call resolution):
-      - ``tests/test_native_hotkeys_binary_path.py``
-      - ``tests/test_native_hotkeys.py``
-      - ``tests/tauri/test_native_binary_path_tauri.py``
-      - ``tests/tauri/mig15/test_native_key_listener_windows.py``
-      - ``tests/tauri/mig16/test_native_key_listener_macos.py``
-      - ``tests/tauri/mig17/test_native_key_listener_linux.py``
-
-    Tests that monkeypatch ``factory.get_native_binary_path`` directly
-    (``tests/test_native_binary_checksum.py``) bypass the real function
-    entirely, so they do not need this fixture, but the ``cache_clear``
-    call is cheap (one dict pop) and runs unconditionally to keep the
-    fixture simple and avoid per-test opt-in drift.
-
-    See ``tests/test_binary_path_caching.py`` for the pinning tests that
-    assert the cache actually memoises (and that ``cache_clear`` resets
-    it), those tests use ``monkeypatch.setattr`` to swap the function
-    out, so they are unaffected by this fixture.
-
-    The four caches cleared here (and the per-cache rationale for each)
-    are tabulated in :data:`tests.fixtures.cache_resets.CACHES_TO_CLEAR`
-    and iterated by :func:`tests.fixtures.cache_resets.clear_caches`.
-    Moving the loop out of this fixture (and out of ``conftest.py``)
-    means adding a fifth cached callable is now a one-line table edit
-    instead of another copy-pasted ``try/except ImportError`` block
-    here, which was the latent-bug vector that bit us once already
-    (the original early ``return`` on ``ImportError`` for
-    ``native_hotkeys.binary_path`` silently skipped all subsequent
-    clears; converting to per-entry ``try/except`` + a table makes the
-    same drift mechanically impossible).
-
-    Each entry's clear is independent, a missing optional dependency
-    (e.g. ``clipboard.linux`` on Windows-only test runs) raises
-    ``ImportError`` for THAT entry only; the loop moves on. Same
-    semantics as the original copy-pasted blocks, just table-driven.
-    """
+    """``voice_typer.server.native_hotkeys.binary_path.get_native_binary_path``"""
     clear_caches()
 
 
-# daemon-thread leak prevention ──────────────────────────────────
-#
 # The original per-test autouse cleanup (iterating a WeakSet of all live
-# HistoryDB/CrashRecovery instances and calling close()/shutdown() on each)
-# was unsound: it closed instances still held by module-scoped fixtures,
-# breaking subsequent tests in the same module and causing an EARLIER
-# native crash (53% vs the original 59%). gc.get_referrers() could not
-# reliably distinguish "leaked" from "held by a live fixture" because
-# fixture-local variables survive on the frame/closure even after teardown.
-#
-# The correct fix is at the source: each test fixture that constructs an
-# ``IPCServer(app)`` via a ``_MockApp`` helper MUST close ``app.history_db``
-# and shut down ``app._crash_recovery`` in its teardown. The leaking
-# fixtures are fixed individually below and in their respective test files.
-# The WeakSet registries (``_LIVE_INSTANCES``) remain in the production
-# modules as an observability aid, but no autouse fixture touches them.

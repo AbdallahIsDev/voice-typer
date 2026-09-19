@@ -1,14 +1,4 @@
-"""doc-parity test: assert the architecture docs match reality.
-
-This test is the regression guard for the .. doc-accuracy
-fixes. It cross-checks claims in ``docs/ARCHITECTURE.md`` (and the
-``docs/modules/*.md`` per-module pages) against the actual code so a
-future drift is caught at PR time.
-
-The asserts are intentionally literal (regex-grep the markdown for the
-key claim, then assert the code-side fact matches it) so a reviewer
-reading the failure message can immediately see which side is wrong.
-"""
+"""doc-parity test: assert the architecture docs match reality."""
 
 from __future__ import annotations
 
@@ -36,11 +26,8 @@ def _read(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
-# ─── 37-event bus ─────────────────────────────────────────────────────
-
-
 def test_event_bus_count_matches_doc_and_code():
-    """Doc must say "49-event bus" and ``EVENT_TYPES`` must have 49 entries."""
+    """Doc must say \"49-event bus\" and ``EVENT_TYPES`` must have 49 entries."""
     doc = _read(ARCH_DOC)
     assert "49-event bus" in doc, "ARCHITECTURE.md must describe the bus as '49-event bus' ."
     assert "24-event bus" not in doc, "Stale '24-event bus' must not appear in ARCHITECTURE.md ."
@@ -55,9 +42,6 @@ def test_event_bus_count_matches_doc_and_code():
     )
 
 
-# ─── main-runtime capabilities list ───────────────────────────────────
-
-
 def test_gp92_capabilities_row_lists_accurate_perms():
     """The capabilities row in ARCHITECTURE.md must match main-runtime.json."""
     doc = _read(ARCH_DOC)
@@ -65,12 +49,7 @@ def test_gp92_capabilities_row_lists_accurate_perms():
     assert caps_row_match is not None, "Capabilities row not found."
     body = caps_row_match.group("body")
 
-    # The capabilities row MUST explain that clipboard-manager was removed
     # (it's part of the  finding's required text) but must NOT list
-    # clipboard-manager as an active granted permission. The active-perm
-    # form would look like "clipboard-manager:" or "clipboard-manager," or
-    # "`clipboard-manager`" inside the granted-perms enumeration; the
-    # removal-note form looks like "`clipboard-manager` was removed".
     assert "clipboard-manager" in body, (
         "capabilities row must mention clipboard-manager's removal (XE-4-4) so future readers know why it is absent."
     )
@@ -91,10 +70,6 @@ def test_gp92_capabilities_row_lists_accurate_perms():
             f"granular tray perm '{stale_tray_perm}' was dropped, must not be listed as an active grant."
         )
 
-    # Required claims from . The notification perms are listed in
-    # abbreviated form (the `notification:` prefix is only on `allow-notify`;
-    # the sibling perms `allow-is-permission-granted` and
-    # `allow-request-permission` are listed bare in the same bullet).
     required_claims = [
         "core:default",
         "shell:allow-spawn",
@@ -142,9 +117,6 @@ def test_gp92_capabilities_row_lists_accurate_perms():
     )
 
 
-# ─── Cargo manifest description ───────────────────────────────────────
-
-
 def test_gp93_cargo_manifest_row_does_not_mention_removed_deps():
     doc = _read(ARCH_DOC)
     cargo_row_match = re.search(r"\| Cargo manifest \|.*?\|\s*(?P<body>[^|]+)\s*\|", doc)
@@ -157,10 +129,7 @@ def test_gp93_cargo_manifest_row_does_not_mention_removed_deps():
     assert "tokio-tungstenite" in body
     assert "futures-util" in body
     assert "libc" in body
-    # The Cargo manifest row MUST mention that clipboard-manager and enigo
-    # were removed (per ), the absence is part of the finding's
     # required text. But the row must NOT list either as an active dep
-    # (e.g. as `tauri-plugin-clipboard-manager`).
     assert "clipboard-manager" in body, "Cargo manifest row must mention clipboard-manager's removal (XE-4-4)."
     assert "enigo" in body, "Cargo manifest row must mention enigo's removal (FZ-19)."
     assert "were removed (XE-4-4 / FZ-19)" in body, "row must say 'were removed (XE-4-4 / FZ-19)'."
@@ -170,10 +139,7 @@ def test_gp93_cargo_manifest_row_does_not_mention_removed_deps():
 
     # Cross-check against the actual Cargo.toml.
     cargo = _read(CARGO_TOML)
-    # The crate name may appear in comments ("# XE-4-4: tauri-plugin-clipboard-manager removed")
     # but must NOT appear as an actual dependency declaration. A real dep
-    # would be `tauri-plugin-clipboard-manager = "version"` at the start of
-    # a line (no leading #).
     dep_pattern = re.compile(r"^tauri-plugin-clipboard-manager\s*=", re.MULTILINE)
     assert not dep_pattern.search(cargo), (
         "tauri-plugin-clipboard-manager must NOT be declared as a dependency "
@@ -185,9 +151,6 @@ def test_gp93_cargo_manifest_row_does_not_mention_removed_deps():
     assert 'features = ["tray-icon"' in cargo
     assert "tokio-tungstenite" in cargo
     assert "libc = " in cargo
-
-
-# ─── 18 Tauri commands + main.rs line count ──────────────────────────
 
 
 def _parse_generate_handler() -> list[str]:
@@ -240,10 +203,6 @@ def test_gp94_tauri_command_count_in_doc_matches_code():
         "renderer_log_error",
         "set_host_locale",
         # 2026-09-16 predecessor-parity additions (review.md MO-118 / MO-120 /
-        # MO-113 / MO-121): https-only external-link launch, reveal-in-file-manager,
-        # the renderer's backend-restart escalation, the webview
-        # liveness heartbeat feeding the renderer watchdog, and the
-        # share-stats PNG save/Save-As command.
         "open_external_url_command",
         "reveal_path_command",
         "restart_sidecar",
@@ -260,107 +219,15 @@ def test_gp94_tauri_command_count_in_doc_matches_code():
 
 
 def test_gp94_main_rs_line_count_is_385():
-    """Doc claims 385 lines; main.rs must actually be 385 lines.
-
-    Updated 2026-08-13: main.rs grew from 264 → 288 lines as part of
-    the runtime-pack split (additional setup wiring for the worker
-    exe + listener registrations). Doc + test pin updated in lockstep.
-
-    Updated 2026-08-21: main.rs grew from 288 → 326 lines, the first
-    Windows host run documented the tauri.conf.json plugin-config
-    contract inline at the ``.plugin()`` registration site (the
-    comment block is deliberate: CI builds but never launches the
-    app, so the startup-crash rationale lives next to the code it
-    protects; cf. AGENTS.md C-TAURI-2 / C-TOKIO-1). The wiring-only
-    ceiling counts non-comment lines and is unaffected. Doc + test
-    pin updated in lockstep.
-
-    Updated 2026-08-22: main.rs grew from 326 → 333 lines, host_events
-    event-forwarding wiring was added. Still wiring-only: the bodies
-    live in the extracted ``host_events`` module, satisfying AGENTS.md
-    C-ARCH-1 (~138 non-comment code lines). Doc + test pin updated in
-    lockstep.
-
-    Updated 2026-08-24: main.rs grew from 349 → 378 lines, durable
-    bubble-position persistence wiring (WindowEvent::Moved branch for
-    the bubble label + generation-debounced persist schedule). Bodies
-    live in ``commands/bubble/persisted_position.rs``. Doc + test pin
-    updated in lockstep.
-
-    Updated 2026-08-25: main.rs grew from 378 → 385 lines, the unified
-    command-error enum wiring (``mod error;`` + ``#[cfg(test)] mod
-    error_tests;`` declarations only; all bodies live in ``error.rs`` /
-    ``error_tests.rs``). Still wiring-only. Doc + test pin updated in
-    lockstep.
-
-    Updated 2026-08-26: main.rs grew from 385 → 389 lines, the
-    ``set_host_locale`` command registration (renderer i18n push parity
-    with the predecessor ``i18n:set-locale`` channel; body lives in
-    ``commands/system_cmds.rs``, state field in ``state.rs``). Still
-    wiring-only. Doc + test pin updated in lockstep.
-
-    Updated 2026-08-31: main.rs grew from 389 → 407 lines, the
-    repo-wide rustfmt pass (line-wrapping normalization) re-wrapped
-    long lines; no new logic, still wiring-only. Doc + test pin
-    updated in lockstep.
-
-    Updated 2026-09-02: main.rs grew from 407 → 413 lines, the
-    Windows toast AUMID registration (``notify_aumid`` module:
-    ``mod`` declaration + one ``register()`` wiring call in setup;
-    body lives in ``notify_aumid.rs``). Still wiring-only. Doc +
-    test pin updated in lockstep.
-
-    Updated 2026-09-06: main.rs grew from 413 → 434 lines, the
-    OS-theme-reactive window icon (``theme_icon`` module: ``mod`` +
-    ``theme_icon_tests`` declarations, one ``apply_startup()`` wiring
-    call, and a ``WindowEvent::ThemeChanged`` branch that forwards to
-    ``apply_to_window()``; bodies live in ``theme_icon.rs``). Still
-    wiring-only. Doc + test pin updated in lockstep.
-
-    Updated 2026-09-07: main.rs shrank from 434 → 342 lines, the
-    main-window bootstrap block (window construction +
-    ``VT_START_HIDDEN`` env handling) moved to
-    ``window_bootstrap.rs``, and the sidecar cold-start init (guarded
-    spawn body incl. the panic-payload downcast chain) moved to
-    ``sidecar/spawn``; the launch-timeline epoch-marker stamping
-    landed as ``startup_timeline.rs`` (``mod`` + first-statement
-    ``record_boot_epoch()`` wiring call). Still wiring-only. Doc +
-    test pin updated in lockstep.
-
-    Updated 2026-09-07 (Wave 3): main.rs shrank from 342 → 274
-    lines, the ``.on_window_event`` arm dispatch (close-to-tray /
-    theme-icon / bubble-persist forwarding) moved to
-    ``window_events.rs``, and the tray-init error-log +
-    ``tray_available`` marking moved into ``tray.rs``
-    (``create_tray_and_mark_state``); several comment blocks were
-    deduplicated against the owning modules' docs (the C-TAURI-2
-    plugin-contract comment and the C-TOKIO-1 spawn-site guard stay
-    inline by design). Still wiring-only. Doc + test pin updated in
-    lockstep.
-    Updated 2026-09-09: main.rs grew from 274 → 279 lines, the
-    BP-33 Phase-2c worker-state manage wiring (``use WorkerState``
-    import + ``.manage(Arc::new(WorkerState::new()))`` call; bodies
-    live in ``sidecar/spawn/worker.rs``). Still wiring-only. Doc +
-    test pin updated in lockstep.
-
-    Updated 2026-09-16 (predecessor-parity + MO-121/125): main.rs grew
-    from 279 → 305 (renderer_heartbeat + HeartbeatState manage,
-    open_external_url_command / reveal_path_command / restart_sidecar
-    registrations) then 305 → 320 (`save_stats_image` registration +
-    `tauri_plugin_global_shortcut::Builder::new().build()` plugin
-    setup; bodies in ``commands/system_cmds/stats_image.rs`` +
-    ``platform/shortcuts.rs``). Still wiring-only. Doc + test pin
-    updated in lockstep.
-
-    Updated 2026-09-18: pin corrected 330 → 329. The file is 329
-    lines at HEAD; the 330 pin was miscounted when written, no code
-    changed. Doc + test pin updated in lockstep.
+    """
+    Doc claims 385 lines; main.rs must actually be 385 lines.
+    C-ARCH-1 / C-TOKIO-1 / C-TAURI-2 anchors kept). Still wiring-only.
     """
     doc = _read(ARCH_DOC)
-    assert "329 lines" in doc, "Doc must claim '329 lines' for main.rs."
+    assert "240 lines" in doc, "Doc must claim '240 lines' for main.rs."
     actual = sum(1 for _ in _read(MAIN_RS).splitlines())
-    assert actual == 329, (
-        f"src-tauri/src/main.rs must be 329 lines (actual: {actual}). Update the doc + this test together."
+    assert actual == 240, (
+        f"src-tauri/src/main.rs must be 240 lines (actual: {actual}). Update the doc + this test together."
     )
     # Stale counts must NOT be in the doc.
     assert "274 lines" not in doc, "Stale '274 lines' must be removed from doc."
@@ -377,13 +244,11 @@ def test_gp94_main_rs_line_count_is_385():
     assert "349 lines" not in doc, "Stale '349 lines' must be removed from doc."
     assert "337 lines" not in doc, "Stale '337 lines' must be removed from doc."
     assert "385 lines" not in doc, "Stale '385 lines' must be removed from doc."
+    assert "329 lines" not in doc, "Stale '329 lines' must be removed from doc."
     assert "413 lines" not in doc, "Stale '413 lines' must be removed from doc."
     assert "434 lines" not in doc, "Stale '434 lines' must be removed from doc."
     assert "342 lines" not in doc, "Stale '342 lines' must be removed from doc."
     assert "330 lines" not in doc, "Stale '330 lines' must be removed from doc."
-
-
-# ─── package-style module paths ───────────────────────────────────────
 
 
 def test_gp95_module_paths_use_package_form():
@@ -412,9 +277,6 @@ def test_gp95_module_paths_use_package_form():
     assert len(cts_files) == 4, f"clipboard_target_safety/ must be a 4-file package (actual: {len(cts_files)})."
 
 
-# ─── shutdown_controller entry points ────────────────────────────────
-
-
 def test_gp96_shutdown_controller_entry_points_match_code():
     doc = _read(SHUTDOWN_DOC)
     # Required entry-point names per .
@@ -438,9 +300,6 @@ def test_gp96_shutdown_controller_entry_points_match_code():
         assert callable(getattr(ShutdownController, method, None)), (
             f"ShutdownController must define `{method}` (per  doc)."
         )
-
-
-# ─── audio_quality_controller entry points ───────────────────────────
 
 
 def test_gp97_audio_quality_controller_entry_points_match_code():
@@ -472,9 +331,6 @@ def test_gp97_audio_quality_controller_entry_points_match_code():
         )
 
 
-# ─── sidecar_ws auth + entry points ──────────────────────────────────
-
-
 def test_gp98_sidecar_ws_doc_is_accurate():
     doc = _read(SIDECAR_DOC)
     # Required auth phrasing per .
@@ -504,9 +360,6 @@ def test_gp98_sidecar_ws_doc_is_accurate():
     assert list(sig_auth.parameters) == ["websocket"], (
         f"_authenticate signature must be (websocket) (actual: {sig_auth})."
     )
-
-
-# ─── timer_coordinator + volume_controller docs exist & are accurate ────────
 
 
 def test_timer_coordinator_doc_matches_code():
@@ -546,36 +399,11 @@ def test_index_lists_all_five_module_docs():
         assert (ROOT / "docs" / "modules" / f"{name}.md").exists(), f"docs/modules/{name}.md must exist."
 
 
-# ─── error-envelope-contract path references ────────────────────────────────
-
-
 # TCP transport removed: the error-envelope contract test that pinned
-# ``ipc/transport_tcp.py:_handle_tcp_connection`` was deleted with the
-# transport. The WS path (``sidecar_ws``) carries the equivalent contract.
-
-
-# ─── prewarm_resolver deletion (plan-runtime-pack-split §6.2 P-1) ──────────
 
 
 def test_prewarm_resolver_module_deleted_per_plan_p1():
-    """``voice_typer/server/prewarm_resolver.py`` was DELETED.
-
-    Per ``plan-runtime-pack-split.md`` §6.2 Option P-1 (Decision §6.3),
-    the prewarm binary + the OS-level schedulers + ``prewarm_resolver.py``
-    (242 LOC) are in the DELETE list, prewarm is now a startup phase of
-    the worker exe (``voice_typer/worker/__main__.py``), and the Tauri
-    build no longer bundles a ``prewarm-<triple>[.exe]`` (see
-    ``src-tauri/tauri.conf.json`` ``externalBin`` / ``resources`` —
-    neither lists prewarm). ADR-0011 carries a "Status: Superseded"
-    banner recording the decision.
-
-    This test pins the deletion so an accidental revert (e.g. a stale
-    cherry-pick that resurrects ``prewarm_resolver.py``) fails here
-    instead of silently undoing the migration. The companion
-    ``docs/modules/prewarm_resolver.md`` is intentionally NOT checked
-    here, that page is now a stale historical artifact owned by the
-    docs workstream; it will be cleaned up separately.
-    """
+    """Per ``plan-runtime-pack-split.md`` §6.2 Option P-1 (Decision §6.3),"""
     prewarm_resolver_py = ROOT / "voice_typer" / "server" / "prewarm_resolver.py"
     assert not prewarm_resolver_py.is_file(), (
         f"{prewarm_resolver_py} must NOT exist, it was deleted per "
@@ -585,7 +413,6 @@ def test_prewarm_resolver_module_deleted_per_plan_p1():
         "(Status: Superseded)."
     )
     # The worker module, which absorbed the prewarm startup phase —
-    # MUST exist. This anchors the migration's target state.
     worker_main = ROOT / "voice_typer" / "worker" / "__main__.py"
     assert worker_main.is_file(), (
         f"{worker_main} must exist, it is the worker exe entry point "

@@ -1,40 +1,4 @@
-"""Tests for the Caps Lock option-merge logic in
-``scripts/linux/install_permissions.py`` .
-
-Background: prior to /19/20, ``install_permissions.py`` clobbered
-the user's existing XKB options when enabling ``caps:none``, e.g. a
-GNOME user with ``['altwin:swap_alt_win']`` would have that option
-silently dropped, replaced with just ``['caps:none']``. The fix reads
-the existing value via ``gsettings get`` / ``configparser`` / sway-config
-scan, merges ``caps:none`` in (deduped, order-preserving), and captures
-the original in the manifest so the uninstaller can restore it via
-``gsettings set`` / kxkbrc rewrite / sway config rewrite (instead of
-``gsettings reset``, which would lose user customization).
-
-These tests exercise:
-
-1. Pure unit tests for the option-merge helpers
-   (``_parse_gsettings_array``, ``_format_gsettings_array``,
-   ``_parse_comma_options``, ``_format_comma_options``,
-   ``_merge_option``, ``_find_sway_xkb_options_lines``).
-2. GNOME flow : mocked ``gsettings get`` returns an existing
-   options array; ``configure_caps_lock_neutralization('gnome', ...)``
-   must call ``gsettings set`` with the MERGED value, and capture the
-   original raw string in ``result['gnome_xkb_options_original']``.
-3. KDE flow : a real kxkbrc file in tmp_path with an existing
-   ``Options=altwin:swap_alt_win`` line; the function must merge
-   ``caps:none`` in via configparser and capture the original.
-4. Sway flow : a real sway config file with an existing
-   ``input * xkb_options altwin:swap_alt_win`` line; the function must
-   merge ``caps:none`` in, leave a restore-marker comment, and capture
-   the original line.
-5. Uninstall restore (/19/20): given a manifest with the captured
-   originals, ``_restore_gnome_xkb_options`` / ``_restore_kde_kxkbrc_options``
-   / ``_restore_sway_config_options`` must restore the user's prior state.
-6. ``install()`` must ``fail(5, ...)`` when
-   ``get_target_user()`` returns None (instead of silently continuing
-   with ``username = "root"``).
-"""
+"""``scripts/linux/install_permissions.py`` ."""
 
 from __future__ import annotations
 
@@ -66,9 +30,6 @@ def ip_module():
     if not sys.platform.startswith("linux"):
         pytest.skip("Linux-only test (script uses grp / pwd modules)")
     return _load_install_permissions_module()
-
-
-# ─── Helper unit tests ─────────────────────────────────────────────────────
 
 
 class TestParseGsettingsArray:
@@ -202,23 +163,15 @@ class TestFindSwayXkbOptionsLines:
         assert ip_module._find_sway_xkb_options_lines(lines) == []
 
 
-# ─── GNOME flow  ─────────────────────────────────────────────────────
-
-
 class TestGnomeFlow:
     """``configure_caps_lock_neutralization('gnome', ...)`` merges existing options."""
 
     def test_merges_into_existing_options(self, ip_module, monkeypatch):
-        """When ``gsettings get`` returns existing options, ``gsettings set``
-        receives the MERGED array (original + caps:none)."""
+        """When ``gsettings get`` returns existing options, ``gsettings set``"""
         # Arrange: fake ``gsettings get`` returns an existing option, fake
-        # ``gsettings set`` captures the value passed.
         captured_set_calls: list[list[str]] = []
 
         def fake_run(cmd, *args, **kwargs):
-            # Return a fake CompletedProcess for ``gsettings get``; the
-            # module's GNOME branch uses subprocess.run directly (not the
-            # module's ``run`` helper) for the get call.
             if "get" in cmd:
                 return subprocess.CompletedProcess(
                     args=cmd,
@@ -227,12 +180,10 @@ class TestGnomeFlow:
                     stderr="",
                 )
             # The ``gsettings set`` call goes through the module's ``run``
-            # helper, capture it.
             captured_set_calls.append(cmd)
             return subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
 
         # The GNOME branch calls ``subprocess.run`` directly for the get,
-        # and ``run(...)`` for the set. Patch both.
         monkeypatch.setattr(ip_module.subprocess, "run", fake_run)
         monkeypatch.setattr(ip_module, "run", fake_run)
 
@@ -244,7 +195,6 @@ class TestGnomeFlow:
         assert result["gnome_xkb_options_original"] == "['altwin:swap_alt_win']"
 
         # Assert: ``gsettings set`` was called with the MERGED value
-        # (existing + caps:none, deduped, order-preserving).
         set_calls_with_set = [c for c in captured_set_calls if "set" in c]
         assert len(set_calls_with_set) == 1, f"expected 1 gsettings set call, got {set_calls_with_set}"
         set_call = set_calls_with_set[0]
@@ -273,8 +223,7 @@ class TestGnomeFlow:
         assert "['caps:none']" in set_call
 
     def test_dedupes_when_caps_none_already_present(self, ip_module, monkeypatch):
-        """When ``caps:none`` is already in the existing options, the merged
-        value contains it exactly once (no duplicate)."""
+        """When ``caps:none`` is already in the existing options, the merged"""
         captured_set_calls: list[list[str]] = []
 
         def fake_run(cmd, *args, **kwargs):
@@ -301,15 +250,11 @@ class TestGnomeFlow:
         )
 
 
-# ─── KDE flow  ──────────────────────────────────────────────────────
-
-
 class TestKdeFlow:
     """``configure_caps_lock_neutralization('kde', ...)`` merges via configparser."""
 
     def test_merges_into_existing_kxkbrc(self, ip_module, monkeypatch, tmp_path):
-        """When kxkbrc has ``Options=altwin:swap_alt_win``, the merged
-        file has ``Options=altwin:swap_alt_win,caps:none``."""
+        """When kxkbrc has ``Options=altwin:swap_alt_win``, the merged"""
         # Arrange: fake home dir with a real kxkbrc.
         fake_home = tmp_path
         kxkbrc = fake_home / ".config" / "kxkbrc"
@@ -317,7 +262,6 @@ class TestKdeFlow:
         kxkbrc.write_text("[Layout]\nLayoutList=us\nOptions=altwin:swap_alt_win\nUse=true\n")
         fake_pw = type("FakePw", (), {"pw_dir": str(fake_home), "pw_uid": 1000, "pw_gid": 1000})()
         monkeypatch.setattr(ip_module.pwd, "getpwnam", lambda u: fake_pw)
-        # shutil.chown would fail in tests (no root); stub it.
         monkeypatch.setattr(ip_module.shutil, "chown", lambda *a, **k: None)
 
         # Act
@@ -354,8 +298,7 @@ class TestKdeFlow:
         assert result["kde_xkb_options_original"] == ""
 
     def test_dedupes_when_caps_none_already_present(self, ip_module, monkeypatch, tmp_path):
-        """When ``Options=`` already contains ``caps:none``, the merged file
-        contains it exactly once."""
+        """When ``Options=`` already contains ``caps:none``, the merged file"""
         fake_home = tmp_path
         kxkbrc = fake_home / ".config" / "kxkbrc"
         kxkbrc.parent.mkdir(parents=True)
@@ -368,7 +311,6 @@ class TestKdeFlow:
 
         new_text = kxkbrc.read_text()
         # ``caps:none`` must appear exactly once in the Options= value.
-        # Find the Options= line.
         options_line = next(
             (line for line in new_text.splitlines() if line.startswith("Options=")),
             None,
@@ -377,16 +319,11 @@ class TestKdeFlow:
         assert options_line.count("caps:none") == 1, f"caps:none must appear exactly once, got: {options_line}"
 
 
-# ─── Sway flow  ─────────────────────────────────────────────────────
-
-
 class TestSwayFlow:
     """``configure_caps_lock_neutralization('sway', ...)`` scans and merges."""
 
     def test_replaces_existing_xkb_options_line(self, ip_module, monkeypatch, tmp_path):
-        """When sway config has ``input * xkb_options altwin:swap_alt_win``,
-        the merged file has ``input * xkb_options altwin:swap_alt_win,caps:none``,
-        and the original line is preserved as a restore-marker comment."""
+        """When sway config has ``input * xkb_options altwin:swap_alt_win``,"""
         fake_home = tmp_path
         sway_config = fake_home / ".config" / "sway" / "config"
         sway_config.parent.mkdir(parents=True)
@@ -414,8 +351,7 @@ class TestSwayFlow:
         assert result["sway_xkb_options_original"] == "input * xkb_options altwin:swap_alt_win"
 
     def test_appends_block_when_no_existing_line(self, ip_module, monkeypatch, tmp_path):
-        """When sway config has no ``input * xkb_options`` line, Voice Typer
-        appends its marker block."""
+        """When sway config has no ``input * xkb_options`` line, Voice Typer"""
         fake_home = tmp_path
         sway_config = fake_home / ".config" / "sway" / "config"
         sway_config.parent.mkdir(parents=True)
@@ -435,8 +371,7 @@ class TestSwayFlow:
         assert result["sway_xkb_options_original"] == ""
 
     def test_dedupes_when_caps_none_already_present(self, ip_module, monkeypatch, tmp_path):
-        """When ``input * xkb_options`` already contains ``caps:none``, the
-        merged line contains it exactly once."""
+        """When ``input * xkb_options`` already contains ``caps:none``, the"""
         fake_home = tmp_path
         sway_config = fake_home / ".config" / "sway" / "config"
         sway_config.parent.mkdir(parents=True)
@@ -452,9 +387,6 @@ class TestSwayFlow:
         active_lines = [line for line in new_text.splitlines() if line.strip().startswith("input * xkb_options")]
         assert len(active_lines) == 1, f"expected 1 active xkb_options line, got {active_lines}"
         assert active_lines[0].count("caps:none") == 1
-
-
-# ─── Uninstall restore  ─────────────────────────────
 
 
 class TestUninstallRestore:
@@ -523,7 +455,6 @@ class TestUninstallRestore:
 
         new_text = kxkbrc.read_text()
         assert "Options=altwin:swap_alt_win" in new_text
-        # caps:none must be gone (restored to original).
         assert "caps:none" not in new_text
 
     def test_kde_restore_removes_options_key_when_no_prior_value(self, ip_module, monkeypatch, tmp_path):
@@ -611,9 +542,6 @@ class TestUninstallRestore:
         assert "bindsym Mod4+Return exec foot" in new_text
 
 
-# ─── Manifest schema (/19/20) ─────────────────────────────────────────
-
-
 class TestManifestSchema:
     """``write_manifest`` records the originals for restore-on-uninstall."""
 
@@ -643,9 +571,6 @@ class TestManifestSchema:
         assert manifest["caps_lock_originals"]["sway_xkb_options_line"] == ""
 
 
-# ─── install() fails fast on no target user ────────────────────────
-
-
 class TestGp131NoTargetUserFails:
     """``install()`` must ``fail(5, ...)`` when no target user is detected."""
 
@@ -662,8 +587,6 @@ class TestGp131NoTargetUserFails:
 
         monkeypatch.setattr(ip_module, "fail", fake_fail)
 
-        # Stub out setup_polkit_stable_path so install() doesn't try to
-        # actually create /usr/share/voice-typer/scripts/.
         monkeypatch.setattr(ip_module, "setup_polkit_stable_path", lambda: None)
 
         ip_module.install()

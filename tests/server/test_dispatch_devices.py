@@ -1,11 +1,4 @@
-"""IPC dispatch tests for device-polling commands.
-
-Classes:
-- TestDispatchGetMicrophones       , get_microphones dispatcher
-- TestDispatchGetVolumeBackendStatus, get_volume_backend_status dispatcher
-
-Split out from the original monolithic tests/test_server.py (DT-37, Phase 4.5).
-"""
+"""IPC dispatch tests for device-polling commands."""
 
 from tests.server.conftest import (  # noqa: F401
     mock_app,
@@ -23,12 +16,7 @@ class TestDispatchGetMicrophones:
 
 
 class TestDispatchGetVolumeBackendStatus:
-    """Tests for the get_volume_backend_status IPC handler.
-
-    This endpoint powers the Settings UI's "Volume Backend" status
-    indicator and the gating of the Per-Session Duck toggle on
-    non-Windows platforms.  See architecture doc §7.9.
-    """
+    """Tests for the get_volume_backend_status IPC handler."""
 
     def test_returns_backend_name_and_availability(self, server, mock_app):
         result = server._dispatch({"id": 1, "type": "get_volume_backend_status"})
@@ -38,22 +26,18 @@ class TestDispatchGetVolumeBackendStatus:
         assert data["available"] is True
         assert data["name"] == "fake (test)"
         assert data["supports_per_session"] is False
-        # is_windows reflects the test runner's platform
         import sys as _sys
 
         assert data["is_windows"] == (_sys.platform == "win32")
 
     def test_calls_initialize_to_detect_backend(self, server, mock_app):
-        """The handler should call initialize() so the backend name is
-        populated even before the user starts their first dictation."""
+        """The handler should call initialize() so the backend name is"""
         mock_app._volume_ducker.initialize.reset_mock()
         server._dispatch({"id": 1, "type": "get_volume_backend_status"})
         mock_app._volume_ducker.initialize.assert_called_once()
 
     def test_handles_missing_volume_ducker_gracefully(self, server, mock_app):
-        """If the app doesn't have a _volume_ducker (e.g. during early
-        startup before __init__ completes), the handler should return
-        a 'disabled' status rather than crashing."""
+        """If the app doesn't have a _volume_ducker (e.g. during early"""
         del mock_app._volume_ducker
         result = server._dispatch({"id": 1, "type": "get_volume_backend_status"})
         assert result["type"] == "volume_backend_status"
@@ -63,8 +47,7 @@ class TestDispatchGetVolumeBackendStatus:
         assert data["supports_per_session"] is False
 
     def test_handles_initialize_exception(self, server, mock_app):
-        """If initialize() raises (e.g. backend init fails), the handler
-        should still return a valid response using is_available=False."""
+        """If initialize() raises (e.g. backend init fails), the handler"""
         mock_app._volume_ducker.initialize.side_effect = RuntimeError("init failed")
         result = server._dispatch({"id": 1, "type": "get_volume_backend_status"})
         # Should NOT be an error response, best-effort status.

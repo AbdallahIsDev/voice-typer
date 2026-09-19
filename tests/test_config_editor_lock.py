@@ -1,40 +1,6 @@
-"""SEC-audit-011: Config editor mutation lock regression tests.
-
-``VoiceTyperApp._open_config_file`` (now delegated to
-:class:`voice_typer.server.config_editor.ConfigEditorLauncher`) acquires
-``_config_mutation_lock`` for the FULL editor session, not just the
-save/reload phases, so a concurrent IPC ``set_config`` call cannot
-atomically overwrite ``config.json`` while the user's editor is
-mid-edit (SEC-audit-011 TOCTOU race).
-
-History: the macOS (``open``) and Linux (``xdg-open``) paths previously
-used non-blocking ``subprocess.Popen`` and did NOT acquire the lock, so
-a concurrent IPC ``set_config`` call (which goes through
-``service.apply_config`` → ``with app._config_mutation_lock``) could
-silently overwrite the user's manual edits. The Windows notepad path
-had a brief "split-lock" relaxation that released the lock during the
-editor wait. Both downgrades re-opened the TOCTOU window; the
+"""
+SEC-audit-011: Config editor mutation lock regression tests.
 SEC-audit-011 fix holds the lock continuously from the pre-editor save
-through the editor wait through the post-editor reload.
-
-These tests pin the fix BEHAVIORALLY (no ``inspect.getsource``):
-
-1. For every platform branch: while the editor is open, the lock IS
-   held by the open-config thread (verified inline at the moment
-   ``subprocess.run`` / ``subprocess.Popen`` is called) AND a
-   concurrent ``set_config`` call (mimicked by a second thread
-   acquiring the same lock) BLOCKS until the editor closes, then
-   proceeds, mirrors
-   ``tests/regressions/test_concurrency.py::test_open_config_file_holds_config_mutation_lock``.
-
-2. ``config.save()`` happens INSIDE ``_config_mutation_lock`` (the lock
-   is held when save is called), pins CR-015.
-
-3. The macOS branch uses ``open -W`` (not vanilla ``open``) and the
-   macOS/Linux branches do NOT use non-blocking ``subprocess.Popen``.
-
-4. After the editor closes, the config is reloaded from disk so the
-   user's saved edits are picked up (all three platforms).
 """
 
 from __future__ import annotations
@@ -48,24 +14,11 @@ import pytest
 
 from tests.fixtures.app_helpers import make_voice_typer_app
 
-# Captured at import time (BEFORE any test monkeypatches subprocess) so
-# pass-through helpers can invoke the REAL subprocess.run even after a test
-# replaces ``subprocess.run`` on the module. (A local
-# ``import subprocess as _subprocess`` inside a function makes
-# ``_subprocess`` a function-local name for the WHOLE function scope, so
-# referencing it before the import statement raises UnboundLocalError.)
 _ORIGINAL_RUN = subprocess.run
-
-# config.save() must happen inside _config_mutation_lock ─
 
 
 class TestSaveInsideLock:
-    """Behavioral replacement for the source-string APP-3 tests.
-
-    Verifies ``config.save()`` is called WHILE ``_config_mutation_lock``
-    is held (not before the lock is acquired) and exactly once per
-    launch, for every platform branch.
-    """
+    """Behavioral replacement for the source-string APP-3 tests."""
 
     @pytest.mark.parametrize("platform", ["windows", "macos", "linux"])
     def test_save_called_inside_lock(self, tmp_config_dir, monkeypatch, platform):
@@ -103,16 +56,8 @@ class TestSaveInsideLock:
         )
 
 
-# ── B-4: macOS must use `open -W`, macOS/Linux must not use bare Popen ────
-
-
 class TestMacosLinuxCommandShape:
-    """Behavioral replacement for the source-string command-shape tests.
-
-    Verifies:
-    - macOS uses ``open -W`` (not vanilla ``open``).
-    - macOS and Linux do NOT spawn a non-blocking ``subprocess.Popen``.
-    """
+    """Behavioral replacement for the source-string command-shape tests."""
 
     def test_macos_uses_open_w(self, tmp_config_dir, monkeypatch):
         app = make_voice_typer_app(tmp_config_dir, monkeypatch)
@@ -166,17 +111,8 @@ class TestMacosLinuxCommandShape:
         )
 
 
-# ── B-4: all platforms reload config after editor closes ─────────────────
-
-
 class TestReloadAfterEditor:
-    """Behavioral replacement for the source-string reload-count test.
-
-    Verifies every platform branch reloads the config from disk after
-    the editor closes (picks up the user's saved edits). Writes a
-    different value to disk while the editor is "open" and checks the
-    in-memory config reflects it after the launch returns.
-    """
+    """Behavioral replacement for the source-string reload-count test."""
 
     @pytest.mark.parametrize("platform", ["windows", "macos", "linux"])
     def test_config_reloaded_after_editor_closes(self, tmp_config_dir, monkeypatch, platform):
@@ -208,9 +144,6 @@ class TestReloadAfterEditor:
 
         def _run_with_disk_write(args, **kwargs):
             if not _is_editor_launch(args):
-                # Pass through non-editor subprocess calls (e.g. the
-                # icacls ACL enforcement) to the REAL subprocess.run,
-                # captured before the monkeypatch below replaced it.
                 return original_run(args, **kwargs)
             result = editor.run(args, **kwargs)
             config_path.write_text(json.dumps({"show_notifications": False}), encoding="utf-8")
@@ -232,7 +165,6 @@ class TestReloadAfterEditor:
                     self._a = a
 
                 # ``wait`` now accepts an optional ``timeout`` kwarg
-                # because the notepad fallback calls ``proc.wait(timeout=1800)``.
                 def wait(self, timeout=None):
                     return _popen_wait_with_disk_write(self._a)
 
@@ -257,9 +189,6 @@ class TestReloadAfterEditor:
         )
 
 
-# ── Runtime behavior (lock held for full editor session) ─────────────────
-
-
 def _force_platform(monkeypatch, platform: str) -> None:
     """Monkeypatch the platform helpers in voice_typer.server.app."""
     flags = {
@@ -281,18 +210,7 @@ def _lock_owned(app) -> bool:
 
 
 class _FakeEditor:
-    """Simulates an editor that stays open until signaled to close.
-
-    When ``subprocess.run`` (or ``Popen().wait()``) is called, the
-    fake editor:
-
-    1. Sets ``opened`` so the test knows the editor has launched
-       (and therefore the lock should be held).
-    2. Waits on ``close_event`` so the call blocks, mimicking the
-       editor being open.
-    3. Returns after ``close_event`` is set, mimicking the editor
-       closing.
-    """
+    """Simulates an editor that stays open until signaled to close."""
 
     def __init__(self) -> None:
         self.opened = threading.Event()
@@ -333,7 +251,6 @@ def _install_fake_editor(monkeypatch, editor: _FakeEditor, platform: str) -> Non
                 self._a = a
 
             # ``wait`` now accepts an optional ``timeout`` kwarg
-            # because the notepad fallback calls ``proc.wait(timeout=1800)``.
             def wait(self, timeout=None):
                 return editor.popen_wait(self._a)
 
@@ -343,8 +260,6 @@ def _install_fake_editor(monkeypatch, editor: _FakeEditor, platform: str) -> Non
 
         def _fake_run(args, **kwargs):
             if not _is_editor_launch(args):
-                # Pass through non-editor subprocess calls (icacls) to
-                # the real subprocess.run captured before patching.
                 return original_run(args, **kwargs)
             return editor.run(args, **kwargs)
 
@@ -352,25 +267,12 @@ def _install_fake_editor(monkeypatch, editor: _FakeEditor, platform: str) -> Non
 
 
 def _is_editor_launch(args) -> bool:
-    """True when *args* is the editor-launch subprocess command.
-
-    The macos/linux fake-editor interceptors patch ``subprocess.run`` to
-    simulate the editor staying open. On a real Windows host, the config
-    module's ``save()`` ALSO fires ``subprocess.run`` for the ``icacls``
-    ACL enforcement (its ``is_windows()`` reads the real platform, not
-    the test-forced one). Those non-editor calls must pass through to the
-    real subprocess, otherwise each one consumes the fake editor's 10s
-    wait and blows the test's timeout budget.
-    """
+    """True when *args* is the editor-launch subprocess command."""
     return bool(args) and str(args[0]).lower() in ("open", "xdg-open")
 
 
 def _run_open_config_in_thread(app):
-    """Run ``app._open_config_file()`` in a background thread.
-
-    Returns the thread handle. Use ``thread.join(timeout=...)`` to wait
-    for completion.
-    """
+    """Run ``app._open_config_file()`` in a background thread."""
     errors: list = []
 
     def _target():
@@ -385,17 +287,7 @@ def _run_open_config_in_thread(app):
 
 
 def _assert_concurrent_set_config_blocks_then_proceeds(app, editor):
-    """Mimic a concurrent IPC ``set_config`` call (SEC-audit-011).
-
-    Spawns a thread that tries to acquire ``app._config_mutation_lock``
-    (exactly what ``service.apply_config`` does on the IPC set_config
-    path). Verifies the thread CANNOT acquire the lock while the editor
-    is open (the lock is held for the FULL editor session) and then
-    DOES acquire it shortly after the editor closes.
-
-    Mirrors the assertion style of
-    ``tests/regressions/test_concurrency.py::test_open_config_file_holds_config_mutation_lock``.
-    """
+    """Mimic a concurrent IPC ``set_config`` call (SEC-audit-011)."""
     import time as _time
 
     acquired = threading.Event()
@@ -408,8 +300,6 @@ def _assert_concurrent_set_config_blocks_then_proceeds(app, editor):
     setter_thread.start()
 
     # Give the setter thread a moment to attempt the acquire. The lock
-    # is held by the open-config thread for the full editor session, so
-    # the setter MUST still be blocked here.
     _time.sleep(0.15)
     assert not acquired.is_set(), (
         "SEC-audit-011: a concurrent set_config call (acquiring "
@@ -420,7 +310,6 @@ def _assert_concurrent_set_config_blocks_then_proceeds(app, editor):
     )
 
     # Closing the editor lets the open-config thread release the lock,
-    # unblocking the setter.
     editor.close_event.set()
 
     assert acquired.wait(timeout=5.0), (
@@ -433,16 +322,7 @@ def _assert_concurrent_set_config_blocks_then_proceeds(app, editor):
 
 
 class TestMacosRuntime:
-    """Runtime test for the macOS ``open -W`` branch (SEC-audit-011).
-
-    The lock IS held for the full editor session, from the pre-editor
-    save through the ``subprocess.run(['open', '-W', ...])`` wait through
-    the post-editor reload, so a concurrent IPC ``set_config`` call
-    (which goes through ``service.apply_config`` →
-    ``_config_mutation_lock``) blocks until the editor exits. This
-    closes the TOCTOU window where a set_config could silently
-    overwrite the user's manual edits mid-session.
-    """
+    """Runtime test for the macOS ``open -W`` branch (SEC-audit-011)."""
 
     def test_lock_held_during_editor_session(self, tmp_config_dir, monkeypatch):
         app = make_voice_typer_app(tmp_config_dir, monkeypatch)
@@ -454,8 +334,6 @@ class TestMacosRuntime:
 
         def _run(args, **kwargs):
             if not _is_editor_launch(args):
-                # Pass through non-editor subprocess calls (icacls) to
-                # the real subprocess.run captured before patching.
                 return original_run(args, **kwargs)
             assert _lock_owned(app), (
                 "SEC-audit-011: _config_mutation_lock must be HELD by "
@@ -490,11 +368,7 @@ class TestMacosRuntime:
 
 
 class TestLinuxRuntime:
-    """Runtime test for the Linux ``xdg-open`` branch (SEC-audit-011).
-
-    The lock IS held for the full editor session: see
-    ``TestMacosRuntime`` for the full rationale.
-    """
+    """Runtime test for the Linux ``xdg-open`` branch (SEC-audit-011)."""
 
     def test_lock_held_during_editor_session(self, tmp_config_dir, monkeypatch):
         app = make_voice_typer_app(tmp_config_dir, monkeypatch)
@@ -506,8 +380,6 @@ class TestLinuxRuntime:
 
         def _run(args, **kwargs):
             if not _is_editor_launch(args):
-                # Pass through non-editor subprocess calls (icacls) to
-                # the real subprocess.run captured before patching.
                 return original_run(args, **kwargs)
             assert _lock_owned(app), (
                 "SEC-audit-011: _config_mutation_lock must be HELD by "
@@ -537,15 +409,7 @@ class TestLinuxRuntime:
 
 
 class TestWindowsRuntime:
-    """Runtime test for the Windows notepad branch (SEC-audit-011).
-
-    The lock IS held for the full editor session: see
-    ``TestMacosRuntime`` for the full rationale. The Windows branch
-    had a brief "split-lock" relaxation that released the lock during
-    the editor wait; SEC-audit-011 restores the full-session hold so
-    a concurrent IPC ``set_config`` cannot atomically replace
-    ``config.json`` while Notepad is mid-edit.
-    """
+    """Runtime test for the Windows notepad branch (SEC-audit-011)."""
 
     def test_lock_held_during_editor_session(self, tmp_config_dir, monkeypatch):
         app = make_voice_typer_app(tmp_config_dir, monkeypatch)
@@ -563,7 +427,6 @@ class TestWindowsRuntime:
                 self._args = args
 
             # ``wait`` now accepts an optional ``timeout`` kwarg
-            # because the notepad fallback calls ``proc.wait(timeout=1800)``.
             def wait(self, timeout=None):
                 return editor.popen_wait(self._args)
 
@@ -593,12 +456,7 @@ class TestWindowsRuntime:
 
 
 class TestReloadPicksUpDiskChanges:
-    """After the editor closes, ``_open_config_file`` must reload config.
-
-    This is what makes the user's saved edits visible to the running
-    app. Without the reload, the in-memory Config would diverge from
-    disk after every edit.
-    """
+    """After the editor closes, ``_open_config_file`` must reload config."""
 
     def test_config_reloaded_after_macos_editor_closes(self, tmp_config_dir, monkeypatch):
         app = make_voice_typer_app(tmp_config_dir, monkeypatch)
@@ -624,8 +482,6 @@ class TestReloadPicksUpDiskChanges:
 
         def _run(args, **kwargs):
             if not _is_editor_launch(args):
-                # Pass through non-editor subprocess calls (icacls) to
-                # the real subprocess.run captured before patching.
                 return original_run(args, **kwargs)
             result = editor.run(args, **kwargs)
             config_path = app.config.config_dir / "config.json"
@@ -646,34 +502,8 @@ class TestReloadPicksUpDiskChanges:
         )
 
 
-# bounded subprocess timeouts on all editor launch paths ────
-
-
 class TestEditorTimeouts:
-    """every ``subprocess.Popen().wait()`` / ``subprocess.run()``
-    in the editor-launch path must be bounded by a 30-minute timeout.
-
-    Pre-fix, the notepad fallback (``_launch_windows_editor``) called
-    ``subprocess.Popen([...]).wait()`` with no timeout, and the POSIX
-    branches called ``subprocess.run([...], check=False)`` with no
-    timeout. If the editor hung, the calling thread blocked forever
-    (holding ``_config_mutation_lock`` and the IPC thread).
-
-    These tests verify:
-    1. Each launcher passes ``timeout=1800`` (30 minutes) to the
-       subprocess wait.
-    2. When ``subprocess.TimeoutExpired`` is raised, the launcher
-       kills the process (``proc.kill()`` on the Popen path) and
-       raises a clear ``TimeoutError`` with a helpful message.
-    3. The ``TimeoutError`` is NOT silently swallowed by the
-       launcher's inner exception handler.
-    4. The launcher's outer ``except TimeoutError`` produces a tray
-       notification containing the recovery hint.
-
-    Tests call the platform launcher functions directly (not via
-    ``app._open_config_file()``) so they don't depend on the
-    ``is_windows``/``os`` attributes of ``voice_typer.server.app``
-    """
+    """every ``subprocess.Popen().wait()`` / ``subprocess.run()``"""
 
     def test_windows_notepad_fallback_passes_timeout_to_wait(self, monkeypatch):
         """Notepad fallback calls ``proc.wait(timeout=1800)``."""
@@ -845,9 +675,7 @@ class TestEditorTimeouts:
         assert "30-minute timeout" in msg, f"Linux TimeoutError must mention '30-minute timeout'. Got: {msg!r}"
 
     def test_launcher_swallows_non_timeout_exceptions(self, monkeypatch):
-        """DR-19 contract preserved: non-timeout launch errors are still
-        silently swallowed (so a missing editor binary doesn't surface
-        as a tray notification)."""
+        """DR-19 contract preserved: non-timeout launch errors are still"""
         from voice_typer.server import config_editor
 
         def _raising_launcher(config_path):
@@ -879,15 +707,12 @@ class TestEditorTimeouts:
         launcher.launch("/tmp/config.json")
 
         # Tray must NOT be notified for a non-timeout launch error
-        # ( historical behavior on macOS / Linux).
         assert notify_calls == [], (
             f"DR-19: non-timeout launch errors must NOT trigger a tray notification. Got: {notify_calls}"
         )
 
     def test_launcher_propagates_timeout_to_tray_notification(self, monkeypatch):
-        """when a launcher raises TimeoutError, the outer
-        except catches it and pushes a tray notification with a
-        recovery hint (NOT the generic 'Config file:\\n...' message)."""
+        """when a launcher raises TimeoutError, the outer"""
         from voice_typer.server import config_editor
 
         def _timing_out_launcher(config_path):
@@ -914,8 +739,6 @@ class TestEditorTimeouts:
         monkeypatch.setattr(config_editor, "_current_platform", lambda: "linux")
 
         launcher = config_editor.ConfigEditorLauncher(_FakeApp())
-        # Must NOT raise, the outer except catches TimeoutError and
-        # converts it to a tray notification.
         launcher.launch("/tmp/config.json")
 
         assert len(notify_calls) == 1, (

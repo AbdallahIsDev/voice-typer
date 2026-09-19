@@ -1,7 +1,4 @@
-"""Tests for platform_utils module.
-
-CQ-029: Verify that centralized platform detection functions work correctly.
-"""
+"""Tests for platform_utils module."""
 
 from __future__ import annotations
 
@@ -60,11 +57,7 @@ class TestPlatformDetection:
 
 
 class TestPlatformUtils:
-    """Verify centralized platform utilities.
-
-    Split from the former review-round catch-all
-    ``tests/test_remaining_fixes.py``.
-    """
+    """Verify centralized platform utilities."""
 
     def test_platform_utils_module_exists(self):
         """voice_typer.server.platform_utils should exist."""

@@ -9,13 +9,7 @@ import pytest
 
 @pytest.fixture(autouse=True)
 def _mock_recovery_owner_acl(monkeypatch):
-    """Never run real icacls during crash-recovery tests on Windows hosts.
-
-    ``_save_sync`` / ``_quarantine_corrupt`` now apply the owner-only
-    ACL helper on Windows (PII hardening). Real ``icacls`` under the
-    CI/SYSTEM account can grant to the wrong principal and lock the
-    test process out of its own temp files.
-    """
+    """Never run real icacls during crash-recovery tests on Windows hosts."""
     monkeypatch.setattr(
         "voice_typer.server.config._enforce_windows_owner_only_acl",
         MagicMock(return_value=True),
@@ -107,7 +101,6 @@ class TestCrashRecoveryPersistence:
         cr1 = CrashRecovery(config_dir=recovery_dir)
         cr1.add("Persistent entry", pasted=False)
         # RELIABILITY-005: writes are async; explicit flush before
-        # collection ensures the data is on disk.
         cr1.flush()
         del cr1
 
@@ -125,19 +118,11 @@ class TestCrashRecoveryPersistence:
         assert cr.count == 0
 
 
-# ── RELIABILITY-005: async write path ────────────────────────────────────
-
-
 class TestCrashRecoveryAsyncWrites:
-    """RELIABILITY-005: writes happen on a background thread, so
-    rapid mutations don't block the caller and the latest state is
-    always the one persisted."""
+    """RELIABILITY-005: writes happen on a background thread, so"""
 
     def test_add_returns_immediately(self, cr):
-        """add() must not block on disk I/O, it enqueues a save and
-        returns.  We can't easily measure wall-clock in a unit test,
-        but we can verify the entry is visible in-memory immediately
-        (before the worker has necessarily written it)."""
+        """returns.  We can't easily measure wall-clock in a unit test,"""
         cr.add("Fast entry", pasted=False)
         # The in-memory state should be updated synchronously
         assert cr.count == 1
@@ -147,7 +132,6 @@ class TestCrashRecoveryAsyncWrites:
         """flush() blocks until all queued saves are done."""
         for i in range(20):
             cr.add(f"Entry {i}", pasted=False)
-        # flush should complete within a reasonable timeout
         assert cr.flush(timeout=5.0) is True
         # After flush, the file should reflect the latest state
         recovery_file = recovery_dir / "recovery.json"
@@ -157,8 +141,7 @@ class TestCrashRecoveryAsyncWrites:
         assert data["entries"][-1]["text"] == "Entry 19"
 
     def test_concurrent_adds_are_safe(self, cr):
-        """Multiple threads calling add() concurrently should not
-        corrupt the in-memory state."""
+        """Multiple threads calling add() concurrently should not"""
         import threading
 
         def writer(n: int) -> None:
@@ -185,13 +168,8 @@ class TestCrashRecoveryAsyncWrites:
             assert not cr._save_thread.is_alive()
 
     def test_enqueue_save_drops_oldest_when_full(self, cr):
-        """When the save queue is full, the oldest pending save is
-        dropped (not the latest state).  This is the documented
-        RELIABILITY-005 behavior, we'd rather lose an intermediate
-        snapshot than block the transcription thread."""
+        """When the save queue is full, the oldest pending save is"""
         # Fill the queue past capacity without giving the worker time
-        # to drain it.  We mock _save_sync to be a no-op so nothing
-        # actually gets written, then verify no exception is raised.
         from unittest.mock import patch
 
         with patch.object(cr, "_save_sync", lambda: None):
@@ -199,32 +177,14 @@ class TestCrashRecoveryAsyncWrites:
             for _ in range(100):
                 cr._enqueue_save()
         # No exception should have been raised; the queue should be
-        # at or below its max size.
         assert cr._save_queue.qsize() <= 32 + 1  # +1 for race tolerance
 
 
-# integration test for crash-recovery loop ────────────────
-
-
 class TestCrashRecoveryFlushTimeout:
-    """``flush(timeout=...)`` must actually enforce the timeout.
-
-    Previously ``flush()`` called ``Queue.join()``, which has no
-    ``timeout`` parameter in the stdlib, the ``timeout`` argument was
-    dead code.  If the worker stalled (disk full, NFS hang, fsync on a
-    dying SSD, antivirus lock on Windows), ``flush()`` blocked forever,
-    preventing clean shutdown.  The fix uses a sentinel + ``threading.Event``
-    pattern so the timeout is actually enforced.
-    """
+    """``flush(timeout=...)`` must actually enforce the timeout."""
 
     def test_flush_returns_false_when_worker_stalled(self, cr):
-        """``flush(timeout=0.1)`` returns ``False`` when the worker
-        can't drain the queue within the timeout.
-
-        We patch ``_save_sync`` to sleep 0.5s per save and enqueue 5
-        saves, the worker needs ~2.5s to drain, so a 0.1s timeout must
-        fire and return ``False``.
-        """
+        """``flush(timeout=0.1)`` returns ``False`` when the worker"""
         import time
         from unittest.mock import patch
 
@@ -237,13 +197,11 @@ class TestCrashRecoveryFlushTimeout:
                 "flush(timeout=0.1) must return False when the worker is stalled and cannot drain the queue in time"
             )
             # The worker thread must survive the timeout, flush() just
-            # gives up waiting; it does NOT kill the worker.
             assert cr._save_thread is not None
             assert cr._save_thread.is_alive(), "worker thread must survive a flush timeout"
 
     def test_flush_returns_true_when_queue_drains_quickly(self, cr):
-        """``flush(timeout=5.0)`` returns ``True`` when all saves
-        complete within the timeout (the normal case)."""
+        """``flush(timeout=5.0)`` returns ``True`` when all saves"""
         # Enqueue several saves via the public add() API.
         for i in range(10):
             cr.add(f"Entry {i}", pasted=False)
@@ -255,14 +213,7 @@ class TestCrashRecoveryFlushTimeout:
         assert cr._save_thread.is_alive()
 
     def test_flush_sentinel_not_processed_as_save(self, cr, recovery_dir):
-        """the flush sentinel must NOT be processed as a real save
-        item, i.e., the worker must NOT call ``_save_sync()`` for it.
-
-        We count ``_save_sync`` calls; after 2 ``add()`` calls + 1
-        ``flush()``, exactly 2 saves should have been performed (one per
-        add).  A 3rd call would mean the sentinel was incorrectly
-        treated as a save.
-        """
+        """the flush sentinel must NOT be processed as a real save"""
         from unittest.mock import patch
 
         save_calls = []
@@ -276,8 +227,6 @@ class TestCrashRecoveryFlushTimeout:
             cr.add("Entry 1", pasted=False)
             cr.add("Entry 2", pasted=False)
             assert cr.flush(timeout=5.0) is True
-            # flush() returns True only after the sentinel is processed,
-            # which happens AFTER both adds.  So save_calls is final.
             assert len(save_calls) == 2, (
                 f"expected exactly 2 save calls (one per add), got "
                 f"{len(save_calls)}; the flush sentinel must not be "
@@ -285,9 +234,7 @@ class TestCrashRecoveryFlushTimeout:
             )
 
     def test_flush_does_not_break_subsequent_saves(self, cr):
-        """after a timed-out flush(), the worker must still process
-        new saves normally.  The sentinel left in the queue must not
-        corrupt subsequent operations."""
+        """after a timed-out flush(), the worker must still process"""
         import time
         from unittest.mock import patch
 
@@ -297,7 +244,6 @@ class TestCrashRecoveryFlushTimeout:
             assert cr.flush(timeout=0.05) is False
 
         # Now, with the original (fast) _save_sync restored, add more
-        # entries and flush, the worker should still be functioning.
         cr.add("After timeout", pasted=False)
         result = cr.flush(timeout=5.0)
         assert result is True, "worker must still process saves normally after a flush timeout"
@@ -305,31 +251,18 @@ class TestCrashRecoveryFlushTimeout:
         assert cr._save_thread.is_alive()
 
 
-# integration test for crash-recovery loop ────────────────
-
-
 class TestCrashRecoveryIntegration:
-    """TEST-036: full crash-recovery loop, simulate a crash mid-dictation
-    and verify the next session's check_on_startup surfaces the unpasted
-    entry. Previously only unit-level add/get/persist tests existed."""
+    """TEST-036: full crash-recovery loop, simulate a crash mid-dictation"""
 
     def test_recovery_after_simulated_crash(self, recovery_dir):
-        """End-to-end:
-        1. Session A: add an unpasted transcription.
-        2. Flush + simulate crash (don't call shutdown; just drop the ref).
-        3. Session B: new CrashRecovery instance reads the same file.
-        4. check_on_startup() must return the unpasted entry.
-        """
+        """End-to-end:"""
         from voice_typer.server.crash_recovery import CrashRecovery
 
         # Session A: dictation completes but paste fails (simulated by
-        # pasted=False, this is exactly what  now does when the
-        # clipboard is unavailable).
         cr_a = CrashRecovery(config_dir=recovery_dir)
         cr_a.add("Recover me, clipboard was unavailable", pasted=False)
         cr_a.flush(timeout=2.0)
         # Simulate crash: do NOT call shutdown(); just drop the ref.
-        # The next process reopens the same file from disk.
         del cr_a
 
         # Session B: new process boots.
@@ -342,9 +275,7 @@ class TestCrashRecoveryIntegration:
         assert any("Recover me" in t for t in texts), f"Expected recovery text in {texts}"
 
     def test_mark_pasted_clears_from_unpasted_set(self, recovery_dir):
-        """After a successful paste, mark_latest_pasted must remove the
-        entry from the unpasted set so check_on_startup doesn't re-surface
-        it on the next boot."""
+        """entry from the unpasted set so check_on_startup doesn't re-surface"""
         from voice_typer.server.crash_recovery import CrashRecovery
 
         cr = CrashRecovery(config_dir=recovery_dir)
@@ -360,45 +291,19 @@ class TestCrashRecoveryIntegration:
         cr2 = CrashRecovery(config_dir=recovery_dir)
         result = cr2.check_on_startup()
         # (fix): tighten the weak `result is None or []` assertion.
-        # check_on_startup() is documented to return None when there are no
-        # unpasted entries (crash_recovery.py:248-252). The `or []` branch
-        # was defensive against an implementation drift that never happened;
-        # asserting exactly `is None` catches any future regression where
-        # the function starts returning [] for "nothing" instead of None.
         assert result is None, f"Expected None (no unpasted entries), got {result!r}"
 
 
-# ── a-review Findings A1 + A3: shutdown() sync fallback + __del__ safety ──
-
-
 class TestCrashRecoveryShutdownFallback:
-    """a-review Finding A1: ``shutdown()``'s docstring claims post-shutdown
-    calls to ``add()`` / ``mark_pasted()`` / etc. "will fall back to
-    synchronous saves".  Previously this was false: ``_enqueue_save()``
-    put on a queue whose worker had exited, silently losing the mutation.
-
-    The fix makes ``_enqueue_save()`` call ``_save_sync()`` directly when
-    ``self._stopped`` is True, serialized via ``_save_lock`` so concurrent
-    callers don't trample each other.
-    """
+    """a-review Finding A1: ``shutdown()``'s docstring claims post-shutdown"""
 
     def test_add_after_shutdown_persists_synchronously(self, recovery_dir):
-        """Finding A1: ``add()`` post-shutdown must persist to disk.
-
-        Steps (per directive):
-        1. Construct CrashRecovery with a temp path.
-        2. Call ``shutdown()``.
-        3. Call ``add(...)`` post-shutdown.
-        4. Verify the entry was actually persisted to disk by reading
-           the file back.
-        """
+        """Finding A1: ``add()`` post-shutdown must persist to disk."""
         from voice_typer.server.crash_recovery import CrashRecovery
 
         cr = CrashRecovery(config_dir=recovery_dir)
         cr.shutdown()
         # Ensure the worker has fully exited before the post-shutdown
-        # mutation (so the test is deterministic, the fallback path
-        # must be exercised, not the worker drain path).
         if cr._save_thread is not None:
             cr._save_thread.join(timeout=2.0)
             assert not cr._save_thread.is_alive(), "worker thread should exit promptly after shutdown()"
@@ -407,7 +312,6 @@ class TestCrashRecoveryShutdownFallback:
         cr.add("post-shutdown entry", pasted=False)
 
         # Read the recovery file back from disk and verify the entry
-        # was persisted (not just held in-memory).
         recovery_file = recovery_dir / "recovery.json"
         assert recovery_file.exists(), "Recovery file must exist on disk after post-shutdown add()"
         data = json.loads(recovery_file.read_text(encoding="utf-8"))
@@ -417,9 +321,7 @@ class TestCrashRecoveryShutdownFallback:
         )
 
     def test_mark_latest_pasted_after_shutdown_persists(self, recovery_dir):
-        """Finding A1: ``mark_latest_pasted()`` post-shutdown must also
-        persist (the documented contract covers all mutating methods,
-        not just ``add()``)."""
+        """Finding A1: ``mark_latest_pasted()`` post-shutdown must also"""
         from voice_typer.server.crash_recovery import CrashRecovery
 
         cr = CrashRecovery(config_dir=recovery_dir)
@@ -430,8 +332,6 @@ class TestCrashRecoveryShutdownFallback:
             cr._save_thread.join(timeout=2.0)
 
         # Pre-shutdown entry exists; mark it pasted post-shutdown.
-        # mark_latest_pasted() returns None (per its signature), so we
-        # just call it and verify the on-disk state below.
         cr.mark_latest_pasted()
 
         recovery_file = recovery_dir / "recovery.json"
@@ -443,18 +343,7 @@ class TestCrashRecoveryShutdownFallback:
         )
 
     def test_mark_pasted_after_shutdown_persists(self, recovery_dir):
-        """XE-16-1: ``mark_pasted(index)`` post-shutdown must also
-        persist (mirrors ``test_mark_latest_pasted_after_shutdown_persists``
-        for the index-based path).
-
-        Pre-fix, ``mark_pasted`` enqueued the save INSIDE
-        ``with self._lock:``, when called post-shutdown,
-        ``_enqueue_save`` falls back to ``_save_sync`` which
-        re-acquires ``self._lock`` for the snapshot, deadlocking the
-        calling thread (the test would hang until pytest's
-        ``--timeout`` killed it). Post-fix, the enqueue happens
-        OUTSIDE the lock scope, breaking the re-entrancy.
-        """
+        """XE-16-1: ``mark_pasted(index)`` post-shutdown must also"""
         from voice_typer.server.crash_recovery import CrashRecovery
 
         cr = CrashRecovery(config_dir=recovery_dir)
@@ -466,8 +355,6 @@ class TestCrashRecoveryShutdownFallback:
             cr._save_thread.join(timeout=2.0)
 
         # Post-shutdown: mark the FIRST entry as pasted. Pre-fix this
-        # would deadlock (the in-lock _enqueue_save → _save_sync →
-        # _save_lock + re-acquire of _lock never returns).
         ok = cr.mark_pasted(0)
         assert ok is True, "mark_pasted(0) must return True for an in-range index"
 
@@ -483,9 +370,7 @@ class TestCrashRecoveryShutdownFallback:
         assert entries[1].get("pasted") is False, "mark_pasted(0) must not affect other entries' pasted flag"
 
     def test_clear_after_shutdown_persists_empty_state(self, recovery_dir):
-        """Finding A1: ``clear()`` post-shutdown must persist the empty
-        state (otherwise a re-opened session would resurrect stale
-        entries)."""
+        """Finding A1: ``clear()`` post-shutdown must persist the empty"""
         from voice_typer.server.crash_recovery import CrashRecovery
 
         cr = CrashRecovery(config_dir=recovery_dir)
@@ -505,11 +390,7 @@ class TestCrashRecoveryShutdownFallback:
         )
 
     def test_concurrent_post_shutdown_adds_are_safe(self, recovery_dir):
-        """Finding A1: ``_save_lock`` must serialize concurrent
-        post-shutdown sync saves so they don't trample each other on
-        the file write.  Without the lock, two threads calling
-        ``add()`` post-shutdown could race on ``_secure_atomic_write``
-        and corrupt the recovery file or lose entries."""
+        """Finding A1: ``_save_lock`` must serialize concurrent"""
         import threading
 
         from voice_typer.server.crash_recovery import CrashRecovery
@@ -534,7 +415,6 @@ class TestCrashRecoveryShutdownFallback:
         assert cr.count == 10
 
         # On-disk state must match (final sync save wins, serialized
-        # by _save_lock, no torn writes, no corruption).
         recovery_file = recovery_dir / "recovery.json"
         data = json.loads(recovery_file.read_text(encoding="utf-8"))
         on_disk_entries = data.get("entries", [])
@@ -545,27 +425,10 @@ class TestCrashRecoveryShutdownFallback:
 
 
 class TestCrashRecoveryDelAfterShutdown:
-    """a-review Finding A3: ``__del__`` previously only saved if
-    ``_save_thread.is_alive() and not _save_queue.empty()``, which
-    skipped the save entirely after ``shutdown()`` killed the worker,
-    dropping any post-shutdown mutations on GC.
-
-    The fix drops the ``is_alive()`` guard and saves whenever
-    ``_entries`` is non-empty.  ``shutdown()`` also now does a final
-    ``_save_sync()`` after joining the worker as cheap insurance.
-    """
+    """skipped the save entirely after ``shutdown()`` killed the worker,"""
 
     def test_post_shutdown_entry_survives_del(self, recovery_dir):
-        """Finding A3: post-shutdown mutations must survive ``__del__``.
-
-        Steps (per directive):
-        1. Construct CrashRecovery.
-        2. Call ``shutdown()``.
-        3. Call ``add()`` post-shutdown.
-        4. Explicitly ``del`` the object.
-        5. Re-instantiate a new CrashRecovery from the same path.
-        6. Verify the post-shutdown entry survived.
-        """
+        """Finding A3: post-shutdown mutations must survive ``__del__``."""
         from voice_typer.server.crash_recovery import CrashRecovery
 
         cr = CrashRecovery(config_dir=recovery_dir)
@@ -574,10 +437,6 @@ class TestCrashRecoveryDelAfterShutdown:
             cr._save_thread.join(timeout=2.0)
             assert not cr._save_thread.is_alive()
 
-        # Post-shutdown mutation, relies on the A1 sync fallback to
-        # be persisted at all.  The A3 fix ensures __del__ doesn't
-        # *drop* it again even if a future regression breaks the
-        # fallback path.
         cr.add("survives-del", pasted=False)
 
         # Force GC of the instance, __del__ must not lose the entry.
@@ -590,22 +449,7 @@ class TestCrashRecoveryDelAfterShutdown:
         cr2.shutdown()
 
     def test_del_saves_unpersisted_post_shutdown_mutations(self, recovery_dir):
-        """Finding A3 regression guard: ``__del__`` must save any
-        post-shutdown mutations that bypassed ``_enqueue_save()``.
-
-        Scenario: after ``shutdown()``, directly mutate ``_entries``
-        (simulating an internal caller that skips the public API).
-        With the OLD ``is_alive()`` guard, ``__del__`` would skip the
-        save because the worker is dead.  With the A3 fix
-        (``if self._entries:``), ``__del__`` saves regardless of
-        worker state.
-
-        Note: we can't rely on ``del cr`` to trigger ``__del__``
-        while the worker is alive (the worker holds ``self`` via its
-        bound-method target).  But after ``shutdown()`` + ``join()``,
-        the worker has exited and ``del cr`` does fire ``__del__`` —
-        which is exactly the post-shutdown scenario A3 targets.
-        """
+        """Finding A3 regression guard: ``__del__`` must save any"""
         from voice_typer.server.crash_recovery import CrashRecovery
 
         cr = CrashRecovery(config_dir=recovery_dir)
@@ -615,7 +459,6 @@ class TestCrashRecoveryDelAfterShutdown:
             assert not cr._save_thread.is_alive()
 
         # Mutate _entries directly, bypassing add()/_enqueue_save()
-        # so the only path to disk is __del__'s save.
         with cr._lock:
             cr._entries.append(
                 {
@@ -645,17 +488,11 @@ class TestCrashRecoveryDelAfterShutdown:
         cr2.shutdown()
 
     def test_shutdown_does_final_sync_save(self, recovery_dir):
-        """Finding A3: ``shutdown()`` itself must do a final
-        ``_save_sync()`` after joining the worker, so any in-flight
-        mutation (raced just before shutdown) is persisted even if the
-        worker didn't drain it.  We verify by checking the on-disk
-        state matches ``_entries`` immediately after ``shutdown()``
-        returns, no flush() or __del__ needed."""
+        """Finding A3: ``shutdown()`` itself must do a final"""
         from voice_typer.server.crash_recovery import CrashRecovery
 
         cr = CrashRecovery(config_dir=recovery_dir)
         # Enqueue several saves rapidly so the worker may not have
-        # drained them all before shutdown() joins with timeout=1.0.
         for i in range(15):
             cr.add(f"entry-{i}", pasted=False)
         cr.shutdown()
@@ -676,21 +513,11 @@ class TestCrashRecoveryDelAfterShutdown:
         )
 
 
-# ============================================================================
-# corrupt recovery file is quarantined (not silently dropped)
-# ============================================================================
-
-
 class TestCrashRecoveryQuarantineCorrupt:
-    """GT-A1-5: when ``_load`` encounters a corrupt recovery file
-    (unparseable JSON, truncated by a mid-write crash, wrong shape),
-    it renames the file to ``<path>.corrupt.<timestamp>`` before
-    resetting ``_entries = []``.
-    """
+    """GT-A1-5: when ``_load`` encounters a corrupt recovery file"""
 
     def test_corrupt_json_file_is_quarantined(self, recovery_dir):
-        """GT-A1-5: a file with broken JSON is renamed to
-        ``<name>.corrupt.<ts>`` and ``_entries`` is reset to ``[]``."""
+        """GT-A1-5: a file with broken JSON is renamed to"""
         from voice_typer.server.crash_recovery import CrashRecovery
 
         path = recovery_dir / "recovery.json"
@@ -703,8 +530,7 @@ class TestCrashRecoveryQuarantineCorrupt:
         assert "NOT VALID JSON" in quarantined[0].read_text(encoding="utf-8")
 
     def test_corrupt_shape_file_is_quarantined(self, recovery_dir):
-        """GT-A1-5: a file with valid JSON but the wrong shape (no
-        ``entries`` key, not a list) is also quarantined."""
+        """GT-A1-5: a file with valid JSON but the wrong shape (no"""
         from voice_typer.server.crash_recovery import CrashRecovery
 
         path = recovery_dir / "recovery.json"
@@ -716,8 +542,7 @@ class TestCrashRecoveryQuarantineCorrupt:
         assert len(quarantined) == 1
 
     def test_quarantine_allows_next_save_to_start_fresh(self, recovery_dir):
-        """GT-A1-5: after a corrupt file is quarantined, the next
-        ``add()`` writes a fresh file at the original path."""
+        """GT-A1-5: after a corrupt file is quarantined, the next"""
         from voice_typer.server.crash_recovery import CrashRecovery
 
         path = recovery_dir / "recovery.json"
@@ -735,12 +560,7 @@ class TestCrashRecoveryQuarantineCorrupt:
         cr.shutdown()
 
     def test_quarantine_corrupt_is_best_effort(self, recovery_dir):
-        """GT-A1-5: if the move fails, ``_quarantine_corrupt`` must
-        not raise, callers rely on a clean reset to ``_entries = []``.
-
-        The move primitive is ``os.replace`` (the hardened
-        cross-platform rename), so the failure is injected there —
-        simulating a cross-device / permission failure."""
+        """GT-A1-5: if the move fails, ``_quarantine_corrupt`` must"""
         from voice_typer.server.crash_recovery import CrashRecovery
 
         path = recovery_dir / "recovery.json"
@@ -763,19 +583,7 @@ class TestCrashRecoveryQuarantineCorrupt:
 
 
 class TestQuarantineHardenedAtomicMove:
-    """``_quarantine_corrupt`` must use the hardened move:
-    ``os.replace`` (atomic, overwrites an existing destination on BOTH
-    POSIX and Windows: ``Path.rename`` raises on Windows when the
-    destination exists) plus a PID + sub-second-nanosecond suffix so
-    concurrent same-second quarantines produce distinct files without
-    an ``exists()`` probe loop (TOCTOU).
-
-    The naming keeps the dot-separated, human-readable
-    ``<name>.corrupt.<YYYYMMDD_HHMMSS>`` base (pinned by the startup
-    maintenance sweep glob ``recovery.json.corrupt.*`` and the GDPR
-    purge prefix match on ``recovery.json.corrupt``) and appends the
-    ``-<pid>-<ns>`` uniqueness suffix.
-    """
+    """``_quarantine_corrupt`` must use the hardened move:"""
 
     def test_quarantine_filename_includes_pid_and_ns(self, recovery_dir):
         from voice_typer.server.crash_recovery import CrashRecovery
@@ -802,10 +610,7 @@ class TestQuarantineHardenedAtomicMove:
         cr.shutdown()
 
     def test_concurrent_same_second_quarantines_produce_distinct_files(self, tmp_path):
-        """Two quarantine calls racing within the same second on files
-        with the SAME name (in different parent dirs, mirroring two
-        processes on the same user account) must produce DISTINCT
-        quarantine filenames, neither forensic copy is lost."""
+        """Two quarantine calls racing within the same second on files"""
         import threading
 
         from voice_typer.server.crash_recovery import CrashRecovery
@@ -854,17 +659,7 @@ class TestQuarantineHardenedAtomicMove:
         assert (dir_b / names_b[0]).read_text(encoding="utf-8") == "corrupt-from-B"
 
     def test_quarantine_overwrites_preexisting_destination(self, recovery_dir, monkeypatch):
-        """A pre-existing file at the exact computed quarantine
-        destination must be OVERWRITTEN atomically (os.replace
-        semantics), not raise.
-
-        On Windows, ``Path.rename``/``os.rename`` raise ``OSError``
-        (winerror 183) when the destination exists; ``os.replace``
-        overwrites atomically on BOTH POSIX and Windows. This test
-        pins the overwrite semantics with a fully controlled clock
-        (fixed datetime / pid / ns / counter) so the destination name
-        is predictable; on Linux the same semantics hold, so the test
-        simulates the Windows collision case portably."""
+        """A pre-existing file at the exact computed quarantine"""
         import itertools
         import os as _os
         import types as _types
@@ -901,10 +696,7 @@ class TestQuarantineHardenedAtomicMove:
         cr.shutdown()
 
     def test_quarantine_uses_os_replace_not_path_rename(self):
-        """Structural pin: the quarantine move must go through
-        ``os.replace`` (atomic, cross-platform overwrite), never
-        ``Path.rename``/``os.rename`` (fails on Windows when the
-        destination exists)."""
+        """Structural pin: the quarantine move must go through"""
         import inspect
 
         import voice_typer.server.crash_recovery._io as _io
@@ -921,18 +713,7 @@ class TestQuarantineHardenedAtomicMove:
 
 
 class TestDiagnosticBundleSurfaceRemoved:
-    """The server-side diagnostic-bundle pipeline is deliberately gone.
-
-    Every surface was removed one by one (IPC command registry, TS +
-    Rust allowlists, renderer Diagnostics section, tray entries) until
-    the pipeline was production-dead; the bundle builder and its
-    delegates were then deleted. Support bundles come from the
-    self-contained CLI (``python scripts/diagnostics.py export``),
-    which never used this class and deliberately excludes
-    crash-recovery contents. These pins keep the removal deliberate
-    and visible against an accidental re-wiring without a real
-    surface.
-    """
+    """The server-side diagnostic-bundle pipeline is deliberately gone."""
 
     def test_crash_recovery_has_no_bundle_delegate(self):
         from voice_typer.server.crash_recovery import CrashRecovery

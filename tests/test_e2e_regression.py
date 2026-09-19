@@ -1,18 +1,4 @@
-"""E2E tests: verify the #2 extractions and STARTUP-3/7 fixes.
-
-Covers:
-- #2: ModelManager / RecordingController / HotkeyDispatcher extracted from app.py
-- STARTUP-3: prewarm import filtering by active backend
-- STARTUP-7: Windows autostart uses Task Scheduler logon trigger (with Run-key fallback)
-
-(Wave 3, 2026-08-14): STARTUP-5 (POSIX prewarm scheduler) section
-was deleted, prewarm became a worker startup phase (master plan
-§6.2 P-1), so the macOS LaunchAgent + Linux systemd user-timer
-scheduler (``prewarm_scheduler_posix.py``) and the POSIX True-return
-branch of ``task_scheduler.is_supported()`` were removed. The 7
-``TestPrewarmPosixSchedulerSupportsLaunchagentAndSystemd`` tests
-were deleted in lockstep.
-"""
+"""E2E tests: verify the #2 extractions and STARTUP-3/7 fixes."""
 
 import importlib
 import importlib.util
@@ -63,12 +49,14 @@ class TestCoreModulesExtractedFromApp:
         assert "ModelManager" in src
 
     def test_app_py_uses_recording_controller(self):
-        """app.py source references self.recording (RecordingController instance)."""
-        from voice_typer.server import app
+        """The recording subsystem wires a RecordingController onto the app."""
+        from voice_typer.server import app_recording_init
 
-        src = inspect.getsource(app)
-        assert "self.recording" in src, "app.py must use self.recording (RecordingController)"
-        assert "RecordingController" in src
+        src = inspect.getsource(app_recording_init)
+        assert "RecordingController" in src, "app_recording_init.py must reference RecordingController"
+        assert "RecordingController(self)" in src, (
+            "app_recording_init.py must construct RecordingController(self) so the app owns its recording lifecycle"
+        )
 
     def test_app_py_uses_hotkey_dispatcher(self):
         """app.py source references self.hotkeys (HotkeyDispatcher instance)."""
@@ -79,8 +67,7 @@ class TestCoreModulesExtractedFromApp:
         assert "HotkeyDispatcher" in src
 
     def test_app_py_size_reduced(self):
-        """app.py must stay at a manageable size. Security and platform fixes
-        added essential code (DACL, restart token, signal handlers, RDP, etc.)."""
+        """app.py must stay at a manageable size. Security and platform fixes"""
         from voice_typer.server import app as app_module
 
         src = inspect.getsource(app_module)
@@ -137,10 +124,7 @@ class TestCoreModulesExtractedFromApp:
             assert hasattr(HotkeyDispatcher, method), f"HotkeyDispatcher must have {method}"
 
     def test_app_property_delegates_removed(self, temp_config, monkeypatch):
-        """ARCH-REFAC-003: the @property delegates (transcriber,
-        _hotkey_backend, _streaming_session, etc.) have been removed from
-        VoiceTyperApp. Callers must access the extracted modules directly
-        via ``app.models``, ``app.hotkeys``, ``app.recording``."""
+        """ARCH-REFAC-003: the @property delegates (transcriber,"""
         monkeypatch.setattr("voice_typer.server.server_platform.autostart.is_autostart_enabled", lambda: False)
         monkeypatch.setattr("voice_typer.server.server_platform.microphone_list.list_microphones", lambda: [])
         from voice_typer.server.app import VoiceTyperApp
@@ -173,52 +157,14 @@ class TestCoreModulesExtractedFromApp:
 
 
 class TestPrewarmFiltersImportsByActiveBackend:
-    """STARTUP-3: worker warm-imports list (master plan §6.2 P-1).
-
-    (Wave 3, 2026-08-14): the original tests pinned backend-specific
-    filtering (whisper skipped torch/transformers; parakeet warmed
-    them). Prewarm became a worker startup phase and the worker is
-    TORCH-FREE (VAD is ONNX, Parakeet is onnx-asr), the warm list is
-    now the fixed ``_WORKER_WARM_PACKAGES`` tuple (``onnxruntime`` +
-    ``ctranslate2`` + ``numpy`` + ``scipy`` + ``faster_whisper``)
-    regardless of ``asr_backend``. ``torch`` and ``transformers`` are
-    NEVER warmed (the worker exe doesn't ship them). The two tests
-    below pin the new invariants:
-      1. ``_warm_imports`` NEVER calls ``__import__("torch")`` /
-         ``__import__("transformers")`` (would defeat the torch-free
-         worker contract).
-      2. ``_warm_imports`` warms every package in
-         ``_WORKER_WARM_PACKAGES`` via ``_warm_package_files`` (no
-         backend variation).
-    """
+    """(Wave 3, 2026-08-14): the original tests pinned backend-specific"""
 
     def test_warm_imports_never_imports_torch_or_transformers(self, temp_config, monkeypatch):
-        """``_warm_imports`` must NOT call ``__import__("torch")`` or
-        ``__import__("transformers")``, the worker exe is torch-free
-        (master plan §6.2 P-1 + Phase 1c ONNX migration).
-
-        Pre-Phase-2 production did ``import torch`` (which executes
-        ~5s of CPU + pulls in transformers). The new worker warms the
-        torch-FREE runtime pack (``onnxruntime`` + ``ctranslate2`` +
-        ``numpy`` + ``scipy`` + ``faster_whisper``) via
-        ``_warm_package_files`` (which uses ``importlib.util.find_spec``
-        to locate files and reads them into the OS page cache without
-        executing the package's code). This test enforces the no-import
-        invariant across both backends, a future regression that
-        reintroduces ``import torch`` would break the torch-free worker
-        bundle (the build's ``--nofollow-import-to=torch`` flag would
-        silently drop it, but the runtime import would still execute).
-        """
+        """``__import__(\"transformers\")``, the worker exe is torch-free"""
         # The warm list is backend-independent post-§6.2 P-1, but we
-        # exercise both backends to guard against a future regression
-        # that re-introduces backend-specific torch/transformers warming.
         from voice_typer.server import prewarm
         from voice_typer.server.prewarm import cache_probe
 
-        # Capture the real ``__import__`` ONCE before the loop, the
-        # ``tracking_import`` closure inside the loop references this
-        # binding, so re-capturing it inside the loop would capture the
-        # previous iteration's ``tracking_import`` (recursion).
         real_import = __builtins__["__import__"] if isinstance(__builtins__, dict) else __builtins__.__import__
 
         for backend in ("whisper", "parakeet"):
@@ -226,10 +172,6 @@ class TestPrewarmFiltersImportsByActiveBackend:
             imported: list[str] = []
 
             # Bind ``imported`` as a default arg so the closure captures
-            # the CURRENT iteration's list (B023: function definitions
-            # inside loops don't bind loop variables by name, they
-            # capture the variable itself, which would all refer to the
-            # last iteration's list at call time without this binding).
             def tracking_import(name, *args, _imported=imported, **kwargs):
                 if name in ("torch", "transformers"):
                     _imported.append(name)
@@ -237,9 +179,6 @@ class TestPrewarmFiltersImportsByActiveBackend:
 
             monkeypatch.setattr("builtins.__import__", tracking_import)
 
-            # Mock every package in _WORKER_WARM_PACKAGES so
-            # _warm_package_files's find_spec + iter_modules path doesn't
-            # shell out to a missing package on a fresh dev env.
             fake_modules = {}
             for pkg_name in cache_probe._WORKER_WARM_PACKAGES:
                 mock = MagicMock()
@@ -248,7 +187,6 @@ class TestPrewarmFiltersImportsByActiveBackend:
             with patch.dict(sys.modules, fake_modules):
                 prewarm._warm_imports()
             # torch and transformers must NOT have been imported (the
-            # worker exe is torch-free).
             assert "torch" not in imported, (
                 f"STARTUP-3 regression: torch was imported for {backend!r} backend "
                 "(the worker exe is torch-free, master plan §6.2 P-1)."
@@ -259,33 +197,12 @@ class TestPrewarmFiltersImportsByActiveBackend:
             )
 
     def test_warm_imports_warms_canonical_worker_packages(self, temp_config, monkeypatch):
-        """``_warm_imports`` MUST warm every package in
-        ``_WORKER_WARM_PACKAGES`` via ``_warm_package_files`` (no
-        backend variation).
-
-        XV-19/XV-32: production no longer does ``import torch`` (which
-        executes ~5s of CPU). Instead it calls
-        ``_warm_package_files(pkg_name)`` for each pkg in
-        ``_WORKER_WARM_PACKAGES``, which uses ``importlib.util.find_spec``
-        to locate the package files and reads them into the OS page
-        cache without executing the package's code. The test verifies
-        the file-warming path is taken (not the import path) AND that
-        the canonical warm list is honored (a future regression that
-        drops a package or re-introduces backend variation would break
-        this test).
-        """
-        # The warm list is backend-independent post-§6.2 P-1, pin the
-        # parakeet path (which previously warmed torch+transformers;
-        # the new path warms the same fixed list as whisper).
+        """``_WORKER_WARM_PACKAGES`` via ``_warm_package_files`` (no"""
         (temp_config / "config.json").write_text(json.dumps({"asr_backend": "parakeet"}))
         warmed_packages: list[str] = []
         real_import = __builtins__["__import__"] if isinstance(__builtins__, dict) else __builtins__.__import__
 
         def tracking_import(name, *args, **kwargs):
-            # production should NOT call __import__("torch") —
-            # it warms files instead. Track any unexpected imports so
-            # we can fail the test if a future regression reintroduces
-            # the import path.
             if name in ("torch", "transformers", "faster_whisper"):
                 raise AssertionError(
                     f"_warm_imports should NOT call __import__({name!r}), "
@@ -306,7 +223,6 @@ class TestPrewarmFiltersImportsByActiveBackend:
 
         monkeypatch.setattr(cache_probe, "_warm_package_files", tracking_warm)
         # Mock the heavy modules so find_spec succeeds without actually
-        # locating the real packages on this machine.
         fake_modules = {}
         for pkg_name in cache_probe._WORKER_WARM_PACKAGES:
             mock = MagicMock()
@@ -320,8 +236,6 @@ class TestPrewarmFiltersImportsByActiveBackend:
                 f"_warm_imports must warm {pkg!r} via _warm_package_files "
                 f"(it is in _WORKER_WARM_PACKAGES). warmed_packages={warmed_packages!r}"
             )
-        # torch / transformers MUST NOT have been warmed (worker is
-        # torch-free).
         assert "torch" not in warmed_packages, (
             f"_warm_imports must NOT warm torch (worker is torch-free). warmed_packages={warmed_packages!r}"
         )
@@ -330,25 +244,7 @@ class TestPrewarmFiltersImportsByActiveBackend:
         )
 
 
-# (Wave 3, 2026-08-14): ``TestPrewarmPosixSchedulerSupportsLaunchagentAndSystemd``
-# (7 tests) was DELETED, the entire ``prewarm_scheduler_posix`` module
-# was removed (prewarm became a worker startup phase, master plan §6.2
 # P-1). The deleted tests pinned:
-#   - ``prewarm_scheduler_posix.is_supported`` / ``is_prewarm_registered`` /
-#     ``register_prewarm_task`` / ``unregister_prewarm_task`` (module
-#     existence + public API)
-#   - ``_build_macos_plist`` / ``_build_linux_service`` / ``_build_linux_timer``
-#     (POSIX scheduler unit builders)
-#   - ``task_scheduler.is_supported()`` returns True on POSIX (the OLD
-#     behavior: ``is_supported`` is now Windows-only since the POSIX
-#     prewarm scheduling path was deleted; the autostart code paths on
-#     POSIX use LaunchAgent / systemd directly via
-#     ``server_platform/autostart_macos.py`` / ``autostart_linux.py``)
-#   - macOS / Linux LaunchAgent / systemd registration round-trip
-# All tested functions / modules no longer exist, so the tests were
-# deleted (per task B decision tree: DELETE tests that test deleted
-# features). The new architecture has no OS-level prewarm scheduler,
-# so there is no equivalent behavior to re-pin.
 
 
 class TestAppAutostartUsesTaskSchedulerLogonTrigger:
@@ -361,9 +257,6 @@ class TestAppAutostartUsesTaskSchedulerLogonTrigger:
             from voice_typer.server.server_platform import autostart_windows as platform_mod
 
             # PLAT-VENV: _build_app_autostart_task_xml calls
-            # _app_autostart_command_and_args which calls shutil.which.
-            # On Linux, shutil.which with win32 platform check fails.
-            # Patch the command builder to return known values.
             with patch.object(
                 platform_mod,
                 "_app_autostart_command_and_args",
@@ -396,8 +289,7 @@ class TestAppAutostartUsesTaskSchedulerLogonTrigger:
         assert len(startup_calls) == 0, "Startup .bat must NOT be registered when Task Scheduler succeeds"
 
     def test_enable_autostart_windows_falls_back_to_startup_bat_then_runkey(self, monkeypatch):
-        """_enable_autostart_windows falls back to the Startup .bat, then the
-        HKCU Run key, when Task Scheduler registration fails (AUTOSTART-ORDER-FIX)."""
+        """_enable_autostart_windows falls back to the Startup .bat, then the"""
         from voice_typer.server.server_platform import autostart_windows as awin
 
         monkeypatch.setattr(awin.sys, "platform", "win32")

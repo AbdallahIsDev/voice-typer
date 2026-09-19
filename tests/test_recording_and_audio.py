@@ -1,5 +1,4 @@
-"""Tests for recording, resampling, audio processing, xrun detection,
-watchdog, streaming session, and related recording infrastructure."""
+"""Tests for recording, resampling, audio processing, xrun detection,"""
 
 from __future__ import annotations
 
@@ -79,12 +78,8 @@ class TestWatchdogForceRecover:
         ctrl._watchdog_stop_event = MagicMock()
         ctrl._watchdog_event = MagicMock()
         ctrl._watchdog_thread = None
-        # _force_recover_from_stuck_transcription now snapshots
-        # _transcription_thread + _watchdog_firings under _watchdog_lock.
         ctrl._watchdog_lock = threading.Lock()
         # Force-recover path also touches _cancelled_cycle_ids_lock +
-        # _cancelled_cycle_ids when app._cycle_id is non-None. MagicMock's
-        # auto-attribute makes app._cycle_id non-None, so we must init both.
         ctrl._cancelled_cycle_ids_lock = threading.Lock()
         ctrl._cancelled_cycle_ids = set()
 
@@ -103,7 +98,6 @@ class TestWatchdogForceRecover:
 
         ctrl = RecordingController.__new__(RecordingController)
         # TRANSCRIBE-NOTIFY-FIX: tray.notify only fires on the second+
-        # firing, so use firings=2 (still < max=3, so non-force path).
         ctrl._watchdog_firings = 2
         ctrl._watchdog_max_firings = 3
         ctrl._transcription_thread = MagicMock()
@@ -111,7 +105,6 @@ class TestWatchdogForceRecover:
         ctrl._watchdog_stop_event = MagicMock()
         ctrl._watchdog_event = MagicMock()
         ctrl._watchdog_thread = None
-        # snapshot block needs _watchdog_lock.
         ctrl._watchdog_lock = threading.Lock()
         app = MagicMock()
         app._busy_event.is_set.return_value = False  # busy = True (force-recover guard still reads the legacy event)
@@ -124,10 +117,7 @@ class TestWatchdogForceRecover:
         app.tray.notify.assert_called()
 
     def test_first_firing_is_silent(self):
-        """TRANSCRIBE-NOTIFY-FIX: the first watchdog firing must NOT
-        notify the user, it only logs and updates the tray state.
-        Notify fires starting on the second firing (see
-        test_non_force_re_arms_when_worker_alive)."""
+        """TRANSCRIBE-NOTIFY-FIX: the first watchdog firing must NOT"""
         from voice_typer.server.recording_controller import RecordingController
 
         ctrl = RecordingController.__new__(RecordingController)
@@ -138,7 +128,6 @@ class TestWatchdogForceRecover:
         ctrl._watchdog_stop_event = MagicMock()
         ctrl._watchdog_event = MagicMock()
         ctrl._watchdog_thread = None
-        # snapshot block needs _watchdog_lock.
         ctrl._watchdog_lock = threading.Lock()
         app = MagicMock()
         app._busy_event.is_set.return_value = False  # busy = True (force-recover guard still reads the legacy event)
@@ -199,14 +188,7 @@ class TestParakeetBackendError:
 
 
 class TestQwenTranscribeWithFallback:
-    """QwenEngine's ``transcribe_with_fallback`` delegates to ``transcribe``.
-
-    The pre-migration torch engine retried on CPU after a CUDA error. The
-    ONNX path is CPU-pinned at ``load()`` (int4 CPU exports are the
-    documented fast path; ORT CUDA is not exercised), so there is no
-    device to fall back from, the method delegates and lets exceptions
-    propagate to the caller's friendly error path.
-    """
+    """QwenEngine's ``transcribe_with_fallback`` delegates to ``transcribe``."""
 
     def test_delegates_to_transcribe_passing_audio_and_stats(self):
         from voice_typer.server.qwen_engine import QwenEngine
@@ -234,8 +216,7 @@ class TestQwenTranscribeWithFallback:
         assert captured["stats"] is stats
 
     def test_exceptions_propagate_no_cpu_retry(self):
-        """The ONNX path has no device to fall back from, the exception
-        propagates (mirrors the old non-CUDA re-raise branch)."""
+        """The ONNX path has no device to fall back from, the exception"""
         from voice_typer.server.qwen_engine import QwenEngine
 
         engine = QwenEngine.__new__(QwenEngine)
@@ -257,8 +238,7 @@ class TestQwenTranscribeWithFallback:
         assert call_count["n"] == 1, "must not retry on CPU, no device to fall back from"
 
     def test_load_pins_device_to_cpu_regardless_of_constructor_arg(self):
-        """The ONNX engine is CPU-first: ``load()`` pins ``device`` to
-        ``cpu`` even when constructed with ``device="cuda"``."""
+        """The ONNX engine is CPU-first: ``load()`` pins ``device`` to"""
         from voice_typer.server import qwen_onnx_model as qom
         from voice_typer.server.qwen_engine import QwenEngine
 
@@ -271,9 +251,6 @@ class TestQwenTranscribeWithFallback:
         engine._onnx_model = None
         engine._active_inference = 0
         engine._inference_cond = threading.Condition(engine._lock)
-        # load() imports is_onnx_model_dir + QwenOnnxModel from the
-        # qwen_onnx_model module; stub them so no real ONNX download/
-        # import happens, then verify the device-pin behavior.
         fake_onnx = MagicMock()
         monkeypatch = pytest.MonkeyPatch()
         monkeypatch.setattr(qom, "is_onnx_model_dir", lambda p: True)
@@ -298,7 +275,6 @@ class TestPendingModelChange:
         app = MagicMock()
         app.recorder.recording = True
         # NOTE: ModelManager still reads the legacy ``_busy_event``
-        # (not yet coordinator-migrated) - keep this mock on the event.
         app._busy_event.is_set.return_value = False
         app.config.asr_backend = "whisper"
         app.config.model_size = "tiny.en"
@@ -373,16 +349,9 @@ class TestAudioCallbackPreStartGuard:
         recorder = Recorder.__new__(Recorder)
         recorder._recording_event = threading.Event()
         # STATE-OWNERSHIP: the XRUN/clip telemetry attrs were
-        # removed from ``Recorder`` (owned by ``AudioPipeline``); the
-        # historical setup lines for them were dead (the test only
-        # asserts the event state below) and are deleted.
         recorder.on_xrun_threshold = MagicMock()
         recorder._audio_processor = None
         # STATE-OWNERSHIP: the buffer lock / buffer / chunk
-        # counter live on the owning ``AudioPipeline``, the degenerate
-        # ``__new__`` instance gets a stand-in namespace (the historical
-        # recorder-level setup lines were dead: the test only asserts
-        # the event state below).
         from types import SimpleNamespace
 
         recorder._audio_pipeline = SimpleNamespace(
@@ -411,9 +380,6 @@ class TestResampleCacheInvalidation:
         from tests.fixtures.recorder_test_helpers import make_recorder
 
         recorder = make_recorder()
-        # Behavioral form of the historical __init__ source pin: the
-        # resample cache key is declared at construction with the
-        # empty "no session yet" sentinel.
         assert recorder._cached_resample_key == ()
 
 
@@ -494,13 +460,7 @@ class TestGetStatusReturnsDict:
         assert result["xruns_since_start"] == 7
 
     def test_get_status_includes_tray_message(self):
-        """get_status exposes the tray-tooltip reason alongside status.
-
-        The renderer derives BOTH the Home ERROR pill and its red
-        description line from the {status, message} pair, every
-        status-carrying response must carry both fields (see
-        applyStatusWithReason in useConnection.ts).
-        """
+        """get_status exposes the tray-tooltip reason alongside status."""
         from unittest.mock import MagicMock
 
         from voice_typer.server.service import VoiceTyperService
@@ -516,7 +476,7 @@ class TestGetStatusReturnsDict:
         assert result["message"] == "No speech model is selected. Open Models to choose one."
 
     def test_get_status_coerces_non_string_tray_message_to_empty(self):
-        """A non-str tray ``_message`` (test doubles, mocks) degrades to ""."""
+        """A non-str tray ``_message`` (test doubles, mocks) degrades to \"\"."""
         from unittest.mock import MagicMock
 
         from voice_typer.server.service import VoiceTyperService
@@ -543,7 +503,6 @@ class TestCancelGuaranteesTrayReset:
         ctrl = RecordingController.__new__(RecordingController)
         ctrl._streaming_session_lock = threading.Lock()
         ctrl._watchdog_lock = threading.Lock()
-        # cancel() now acquires _toggle_lock (RLock) at entry.
         ctrl._toggle_lock = threading.RLock()
         ctrl._watchdog_firings = 0
         ctrl._watchdog_max_firings = 3
@@ -559,8 +518,6 @@ class TestCancelGuaranteesTrayReset:
         app._cancel_streaming_session = MagicMock()
         app._restore_volume = MagicMock()
         app.config.bubble_behavior = "auto_hide"
-        # cancel() resets via the BusynessCoordinator, not the
-        # legacy ``_busy_event``.
         app._busyness = MagicMock()
         ctrl._app = app
 
@@ -584,7 +541,6 @@ class TestCancelSetsCancellingState:
         ctrl = RecordingController.__new__(RecordingController)
         ctrl._streaming_session_lock = threading.Lock()
         ctrl._watchdog_lock = threading.Lock()
-        # cancel() now acquires _toggle_lock (RLock) at entry.
         ctrl._toggle_lock = threading.RLock()
         ctrl._watchdog_firings = 0
         ctrl._watchdog_max_firings = 3
@@ -625,10 +581,6 @@ class TestSetConfigInvalidatesTrayCache:
 
         app = MagicMock()
         app.config = cfg
-        # the app-level test-seam delegates were removed;
-        # production code reaches ``startup_tasks.*`` / ``app.hotkeys.*``
-        # directly. ``app`` is a MagicMock so those attributes are
-        # auto-stubbed on access, nothing to pre-assign here.
         app.tray.invalidate_menu_cache = MagicMock()
 
         server = IPCServer(app)
@@ -803,8 +755,7 @@ class TestAudioProcessorNullChecksFunctional:
     """Audio processor null checks prevent crashes."""
 
     def test_quality_callback_null_does_not_crash(self):
-        """When _quality_callback is None, _run_quality_check should
-        be a no-op, not crash."""
+        """When _quality_callback is None, _run_quality_check should"""
         from voice_typer.server.audio_processor import AudioProcessor
 
         class _Cfg:
@@ -850,14 +801,7 @@ class TestGetVoiceTyperPythonRemoved:
 
 
 class TestAudioWorkerThreadLifecycle:
-    """RT-SAFE-001: The PortAudio callback now ONLY pushes to a lock-free
-    SPSC ring buffer and signals a daemon worker thread. The worker
-    thread drains the ring buffer and runs the heavy processing pipeline
-    (filter chain, Silero VAD, scipy resample, VAD state machine).
-
-    These tests verify the worker thread starts and stops cleanly across
-    the recording lifecycle (start / stop / discard).
-    """
+    """RT-SAFE-001: The PortAudio callback now ONLY pushes to a lock-free"""
 
     @staticmethod
     def _make_ok_stream(monkeypatch, recording_mod):
@@ -927,10 +871,6 @@ class TestAudioWorkerThreadLifecycle:
 
         config = MagicMock(sample_rate=16000, microphone=None)
         # Thread-ownership baseline (S5 fix): snapshot BEFORE any worker
-        # spawn so the wait only requires the DELTA to drain, threads
-        # leaked by earlier files in the same xdist worker no longer flake
-        # this wait; threads spawned HERE stay fully waited on (leak
-        # detection unchanged).
         baseline = snapshot_worker_threads()
         r = Recorder(config)
         r.start()
@@ -938,17 +878,13 @@ class TestAudioWorkerThreadLifecycle:
 
         r.stop()
 
-        # GT-23-style load guard: a worker that outlived a timed-out join
-        # leaves a stale ref (stop() fast-paths when idle and cannot reap
-        # it), poll the shared guard before asserting the ref cleared.
+        # -style load guard: a worker that outlived a timed-out join
         assert wait_for_workers_stopped(r, stop=r.stop, baseline=baseline), (
             "stop() must set _worker_thread to None after joining"
         )
 
     def test_worker_thread_stops_on_discard(self, monkeypatch):
-        """discard() must join the worker thread and set _worker_thread
-        to None. discard() uses drain=False so the worker exits quickly
-        without processing the remaining ring buffer."""
+        """discard() must join the worker thread and set _worker_thread"""
         import voice_typer.server.recording as recording_mod
         from voice_typer.server.recording import Recorder
 
@@ -963,15 +899,13 @@ class TestAudioWorkerThreadLifecycle:
 
         r.discard()
 
-        # GT-23-style load guard: see the stop() variant above.
+        # -style load guard: see the stop() variant above.
         assert wait_for_workers_stopped(r, stop=r.stop, baseline=baseline), (
             "discard() must set _worker_thread to None after joining"
         )
 
     def test_worker_thread_can_restart_after_stop(self, monkeypatch):
-        """After stop(), a subsequent start() must start a NEW worker
-        thread. This verifies _start_audio_worker is idempotent and
-        reusable across recording sessions."""
+        """After stop(), a subsequent start() must start a NEW worker"""
         import voice_typer.server.recording as recording_mod
         from voice_typer.server.recording import Recorder
 
@@ -979,8 +913,6 @@ class TestAudioWorkerThreadLifecycle:
 
         config = MagicMock(sample_rate=16000, microphone=None)
         # Thread-ownership baseline (S5 fix): see the stop() variant above.
-        # ONE snapshot at entry covers BOTH sessions: each session's workers
-        # spawn after it, so both stay fully waited on.
         baseline = snapshot_worker_threads()
         r = Recorder(config)
 
@@ -1004,9 +936,7 @@ class TestAudioWorkerThreadLifecycle:
         assert wait_for_workers_stopped(r, stop=r.stop, baseline=baseline), "worker must stop after stop()"
 
     def test_worker_thread_drains_ring_buffer_on_stop(self, monkeypatch):
-        """When the callback pushes a chunk to the ring buffer, the
-        worker thread must drain it and process it (incrementing
-        _chunk_count). stop() must wait for the drain to complete."""
+        """worker thread must drain it and process it (incrementing"""
         import time
 
         import voice_typer.server.recording as recording_mod
@@ -1019,13 +949,10 @@ class TestAudioWorkerThreadLifecycle:
         r.start()
         try:
             # Simulate a PortAudio callback: push a chunk to the ring
-            # buffer via the real callback entry point.
             indata = np.ones((512, 1), dtype=np.float32) * 0.1
             r._current_callback(indata, 512, None, 0)
 
             # Wait for the worker thread to drain the ring buffer.
-            # The worker wakes on the event with a 50ms timeout, so
-            # 500ms is plenty.
             deadline = time.perf_counter() + 2.0
             while time.perf_counter() < deadline:
                 if len(r._ring_buffer) == 0 and r._audio_pipeline._chunk_count >= 1:
@@ -1042,12 +969,10 @@ class TestAudioWorkerThreadLifecycle:
             r.stop()
 
     def test_callback_does_not_do_heavy_processing(self, monkeypatch):
-        """RT-SAFE-001: the audio callback (_audio_callback_dispatch)
-        must NOT contain Silero VAD, scipy resample, or filter chain
-        calls, those run on the worker thread (_process_audio_chunk).
+        """
+        RT-SAFE-001: the audio callback (_audio_callback_dispatch)
         This is a source-inspection test that pins the real-time safety
-        invariant: the callback must be fast enough to complete within
-        the ~32ms PortAudio deadline."""
+        """
         from voice_typer.server import recording
 
         callback_src = inspect.getsource(recording.Recorder._audio_callback_dispatch)
@@ -1072,33 +997,12 @@ class TestAudioWorkerThreadLifecycle:
         assert "_worker_wake_event" in callback_src, "RT-SAFE-001: the audio callback must signal the worker thread"
 
     def test_worker_thread_processes_heavy_pipeline(self, monkeypatch):
-        """RT-SAFE-001: the worker thread (_process_audio_chunk) must
-        contain the heavy processing pipeline that was previously in the
-        audio callback. This is a source-inspection test that pins the
-        architecture: the heavy work must be on the worker thread.
-
-        The heavy-pipeline call sites were extracted from
-        ``_process_audio_chunk`` into named helpers and ultimately
-        delegated to ``AudioPipeline.process_audio_chunk`` /
-        ``AudioPipeline.run_vad_state_machine``. Both run
-        synchronously on the same worker thread as the Recorder
-        orchestrator (called via ``self._audio_pipeline.<method>``),
-        so the real-time-safety architecture is preserved. The
-        source-inspection check aggregates the orchestrator + the
-        delegator helpers + the AudioPipeline implementations so the
-        heavy-pipeline call sites are still found.
-        """
+        """RT-SAFE-001: the worker thread (_process_audio_chunk) must"""
         from voice_typer.server import recording
         from voice_typer.server.recording import audio_pipeline
 
         worker_src = inspect.getsource(recording.Recorder._process_audio_chunk)
         # The heavy-pipeline helpers were consolidated onto
-        # ``AudioPipeline`` (the historical 1-line Recorder delegators
-        # were removed). All helpers are called synchronously from the
-        # orchestrator on the same worker thread.
-        # The actual heavy operations live in AudioPipeline. Include
-        # them so the call-site assertions find ``compute_vad_prob`` /
-        # ``_get_resample_poly`` / ``process_chunk`` / ``vad_update``.
         worker_src += "\n" + inspect.getsource(audio_pipeline.AudioPipeline.process_audio_chunk)
         worker_src += "\n" + inspect.getsource(audio_pipeline.AudioPipeline.run_vad_state_machine)
         # The worker thread MUST run these heavy operations

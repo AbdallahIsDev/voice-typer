@@ -1,25 +1,4 @@
-"""Forced-recovery engine ejection: regression tests.
-
-When dictation hangs, the transcription watchdog force-recovers: it
-marks the cycle cancelled, resets tray/busy state, and (since the
-forced-recovery ejection fix) ejects the affected ASR backend from the
-registry so the NEXT dictation constructs a FRESH engine instance.
-
-Contract pinned here:
-
-1. A forced recovery while a worker thread is genuinely alive inside
-   the engine drops the backend's registry slot, clears the busy flag,
-   and does NOT destroy the engine object (the stuck thread keeps its
-   orphaned reference; destroying CUDA tensors / ctranslate2 handles
-   under a live C call would use-after-free).
-2. The next dictation is served by a NEW engine instance (identity
-   assert), never the ejected one.
-3. A forced recovery that races past an already-exited worker leaves a
-   healthy warm model registered (no needless cold reload).
-4. Non-forced watchdog firings (worker still alive, under the firing
-   threshold) leave the app busy and touch nothing.
-5. Normal (non-forced) operation keeps reusing warm instances.
-"""
+"""Forced-recovery engine ejection: regression tests."""
 
 from __future__ import annotations
 
@@ -33,8 +12,6 @@ from voice_typer.server.asr_registry import AsrBackendRegistry
 from voice_typer.server.model_manager import ModelManager
 from voice_typer.server.recording_controller import RecordingController
 from voice_typer.server.transcription_watchdog import TranscriptionWatchdog
-
-# ── Test doubles ──────────────────────────────────────────────────────
 
 
 class _Config:
@@ -87,7 +64,6 @@ def _make_registry_and_manager(
     app._busy_event = threading.Event()
     app._busy_event.set()  # is_set() == True means NOT busy
     # Production resets via the coordinator (``_busyness.set_idle()``),
-    # so wire the mock through to the real Event the asserts observe.
     app._busyness.set_idle.side_effect = lambda: app._busy_event.set()
     app._busyness.set_busy.side_effect = lambda: app._busy_event.clear()
     app._config_mutation_lock = threading.RLock()
@@ -110,16 +86,13 @@ def _make_registry_and_manager(
     mm.touch_model = MagicMock()
 
     # Wire the manager onto the mock app exactly like VoiceTyperApp does
-    # (``self.models = ModelManager(self)``).
     app.models = mm
 
     return mm, app, config, registry
 
 
 def _make_controller(app: MagicMock) -> RecordingController:
-    """Build a ``RecordingController`` via ``__new__`` with only the
-    attributes the watchdog's force-recover path touches (mirrors the
-    established test pattern for the extracted helper modules)."""
+    """established test pattern for the extracted helper modules)."""
     controller = RecordingController.__new__(RecordingController)
     controller._app = app
     controller._transcription_thread = None
@@ -138,10 +111,7 @@ def _make_controller(app: MagicMock) -> RecordingController:
 
 
 class _HungTranscribe:
-    """Monkeypatched slow callable: blocks until released, then returns.
-
-    Simulates a ctranslate2 call stuck at the C level (never returns on
-    its own within the test's lifetime)."""
+    """Monkeypatched slow callable: blocks until released, then returns."""
 
     def __init__(self) -> None:
         self.started = threading.Event()
@@ -154,12 +124,7 @@ class _HungTranscribe:
 
 
 def _start_hung_worker(registry: AsrBackendRegistry, hung: _HungTranscribe, engine: _FakeEngine):
-    """Run ``registry.transcribe_with_fallback`` on a worker thread
-    with the engine's transcribe callable replaced by ``hung`` (so
-    the busy flag is set by the real wrapper, exactly like
-    production). Returns ``(finish, worker)`` where ``finish``
-    releases + joins and ``worker`` is the live thread (usable as
-    ``controller._transcription_thread``)."""
+    """Run ``registry.transcribe_with_fallback`` on a worker thread"""
     original_transcribe_fn = engine.transcribe_fn
     engine.transcribe_fn = hung
     worker_done = threading.Event()
@@ -183,9 +148,7 @@ def _start_hung_worker(registry: AsrBackendRegistry, hung: _HungTranscribe, engi
 
 
 def _fake_ensure_engine_factory(registry: AsrBackendRegistry, fresh_engine: _FakeEngine):
-    """Mirrors the real ``_ensure_engine`` short-circuit without the
-    heavy imports: registers ``fresh_engine`` only when the slot is
-    empty."""
+    """heavy imports: registers ``fresh_engine`` only when the slot is"""
 
     def fake_ensure_engine(backend_name: str) -> None:
         if registry.get(backend_name) is None:
@@ -194,12 +157,8 @@ def _fake_ensure_engine_factory(registry: AsrBackendRegistry, fresh_engine: _Fak
     return fake_ensure_engine
 
 
-# ── Tests ─────────────────────────────────────────────────────────────
-
-
 class TestForcedRecoveryEjectsEngine:
-    """The core regression: forced recovery must fence the SAME-engine
-    pile-up by ejecting the backend before the next dictation."""
+    """The core regression: forced recovery must fence the SAME-engine"""
 
     def test_forced_recovery_drops_stuck_engine_and_next_dictation_is_fresh(self):
         mm, app, config, registry = _make_registry_and_manager("whisper")
@@ -207,8 +166,6 @@ class TestForcedRecoveryEjectsEngine:
         registry.register("whisper", stuck_engine)
 
         # Worker thread enters the (hung) transcribe call via the real
-        # registry wrapper → busy flag set, thread parked inside the
-        # engine, exactly the pre-recovery production state.
         hung = _HungTranscribe()
         finish_worker, worker = _start_hung_worker(registry, hung, stuck_engine)
         try:
@@ -222,14 +179,11 @@ class TestForcedRecoveryEjectsEngine:
 
             watchdog.force_recover(controller, force=True)
 
-            # The slot was dropped, the next load cannot reuse the
-            # instance the orphaned worker still occupies.
             assert registry.get("whisper") is None, (
                 "forced recovery must eject the stuck backend from the "
                 "registry so the next dictation constructs a fresh engine"
             )
             # The engine object itself was NOT destroyed (the stuck
-            # thread keeps its orphaned reference).
             assert stuck_engine.unload_calls == 0, (
                 "forced recovery must not destroy the engine object while "
                 "a worker thread may still be inside its C-level call"
@@ -239,7 +193,6 @@ class TestForcedRecoveryEjectsEngine:
             assert app._busy_event.is_set() is True  # app no longer busy
 
             # The NEXT dictation constructs and receives a FRESH engine
-            # instance, identity assert against the stuck one.
             fresh_engine = _FakeEngine("fresh")
             mm._ensure_engine = _fake_ensure_engine_factory(registry, fresh_engine)
             result = mm.ensure_active_engine_loaded()
@@ -252,9 +205,7 @@ class TestForcedRecoveryEjectsEngine:
             finish_worker()
 
     def test_non_forced_recovery_reuses_warm_instance_unchanged(self):
-        """Normal paths keep reusing warm instances: with NO recovery in
-        the picture, the next dictation gets the SAME registered engine
-        (identity preserved)."""
+        """the picture, the next dictation gets the SAME registered engine"""
         mm, app, config, registry = _make_registry_and_manager("whisper")
         warm_engine = _FakeEngine("warm")
         registry.register("whisper", warm_engine)
@@ -271,9 +222,7 @@ class TestForcedRecoveryGating:
     """Ejection fires ONLY when a worker thread is genuinely alive."""
 
     def test_forced_recovery_after_worker_exit_keeps_warm_instance(self):
-        """A forced recovery that raced past an already-exited worker
-        (e.g. the ESC-cancel path passing force=True late) must NOT
-        needlessly drop a healthy warm model."""
+        """A forced recovery that raced past an already-exited worker"""
         mm, app, config, registry = _make_registry_and_manager("whisper")
         warm_engine = _FakeEngine("warm")
         registry.register("whisper", warm_engine)
@@ -293,9 +242,7 @@ class TestForcedRecoveryGating:
         assert app._busy_event.is_set() is True
 
     def test_non_forced_watchdog_firing_leaves_stuck_backend_registered(self):
-        """Below the force threshold with the worker alive, the watchdog
-        only warns + stays busy: the backend registration, busy flag and
-        engine object are all untouched."""
+        """Below the force threshold with the worker alive, the watchdog"""
         mm, app, config, registry = _make_registry_and_manager("whisper")
         stuck_engine = _FakeEngine("stuck")
         registry.register("whisper", stuck_engine)

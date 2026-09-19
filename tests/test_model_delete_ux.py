@@ -1,18 +1,4 @@
-"""Regression test for model delete is intentionally confirm-only.
-
-The d-review flagged that model delete uses a confirm dialog only,
-with no undo toast (unlike History / Templates / Vocabulary which all use
-``showUndoableToast`` for a 6-second undo window).
-
-This test pins the DECISION (DOCUMENT, not IMPLEMENT): the rationale comment
-must remain in ``Models.tsx`` above ``confirmDeleteModel``, and the
-decision writeup must remain at ``docs/ux/model-delete-rationale.md``.
-
-If a future contributor reverts to a confirm-only flow without the rationale
-comment, OR removes the doc, this test fails, forcing them to either
-re-affirm the decision (re-add the comment/doc) or implement proper undo
-(and update the test accordingly).
-"""
+"""Regression test for model delete is intentionally confirm-only."""
 
 from __future__ import annotations
 
@@ -35,21 +21,7 @@ class TestModelDeleteRationale:
         assert MODELS_TSX.is_file(), f"Missing Models.tsx at {MODELS_TSX}"
 
     def test_rationale_comment_present_in_models_tsx(self) -> None:
-        """The rationale comment block must live above the delete-confirm UI.
-
-        The marker ``(rationale): model delete is intentionally
-        confirm-only`` is the unique anchor the test greps for. If a future
-        refactor removes or rewords it, the test fails, forcing the author
-        to either re-affirm the decision or implement undo and update this
-        test.
-
-        The confirm-delete handler lives in ``hooks/models/useModelSelection.ts``
-        (``confirmDelete``), but the dialog itself is rendered in ``Models.tsx``
-        via ``<ConfirmDialog ... onConfirm={lifecycle.confirmDelete}>``. We
-        anchor the comment to the ``<ConfirmDialog`` JSX element (the
-        delete-confirm UI) rather than the handler, since the rationale is
-        about the UX surface the user sees.
-        """
+        """The rationale comment block must live above the delete-confirm UI."""
         src = MODELS_TSX.read_text(encoding="utf-8")
 
         # Anchor marker, must be present verbatim.
@@ -67,8 +39,6 @@ class TestModelDeleteRationale:
         )
 
         # The comment must live ABOVE the ConfirmDialog JSX (not after it) —
-        # otherwise it documents nothing useful. We check the marker appears
-        # before the dialog element.
         marker_idx = src.find("(rationale): model delete is intentionally confirm-only")
         fn_idx = src.find("<ConfirmDialog")
         assert marker_idx != -1 and fn_idx != -1, "Either the rationale marker or the ConfirmDialog JSX is missing."
@@ -77,28 +47,12 @@ class TestModelDeleteRationale:
         )
 
     def test_no_undo_toast_wired_for_model_delete(self) -> None:
-        """The model delete flow must NOT actually wire ``showUndoableToast``.
-
-        This is the negative half of the decision: not only must the
-        rationale comment exist, the code must also actually NOT wire an
-        undo toast. We assert that ``showUndoableToast`` is not imported
-        and not called anywhere in ``Models.tsx``.
-
-        We check for an *import* statement and a *call* (identifier followed
-        by ``(``) rather than the bare identifier, because the rationale
-        comment block itself mentions the name in prose. The point is to
-        catch active wiring, not a documentation reference.
-
-        (If a future contributor implements undo, they MUST update this
-        test, that's the point.)
-        """
+        """The model delete flow must NOT actually wire ``showUndoableToast``."""
         import re
 
         src = MODELS_TSX.read_text(encoding="utf-8")
 
         # An import of showUndoableToast would look like one of:
-        #   import { showUndoableToast } from ...
-        #   import {showUndoableToast} from ...
         import_pattern = re.compile(
             r"import\s*\{[^}]*\bshowUndoableToast\b[^}]*\}\s*from",
             re.MULTILINE,
@@ -111,9 +65,6 @@ class TestModelDeleteRationale:
         )
 
         # A call would look like ``showUndoableToast(``, identifier directly
-        # followed by an open paren. The rationale comment uses the word in
-        # prose ("... use showUndoableToast for a 6-second ...") which does
-        # NOT match this pattern (no open paren after the identifier).
         call_pattern = re.compile(r"\bshowUndoableToast\s*\(", re.MULTILINE)
         assert not call_pattern.search(src), (
             "Models.tsx calls showUndoableToast(...), undo has been wired "
@@ -142,12 +93,9 @@ class TestModelDeleteRationale:
         )
 
     def test_backend_delete_is_hard_delete(self) -> None:
-        """The backend ``delete_model`` must remain a hard ``shutil.rmtree``.
-
+        """
+        The backend ``delete_model`` must remain a hard ``shutil.rmtree``.
         This pins the assumption behind the DOCUMENT decision: model delete
-        is a real on-disk delete, not a soft-delete to a trash dir. If a
-        future change makes it soft-delete, the rationale (and this test)
-        must be revisited.
         """
         service_py = REPO_ROOT / "voice_typer" / "server" / "service" / "model"
         if service_py.is_dir():
@@ -159,10 +107,6 @@ class TestModelDeleteRationale:
         # Locate the delete_model method body.
         fn_idx = src.find("def delete_model(")
         assert fn_idx != -1, "VoiceTyperService.delete_model not found"
-        # Slice the method body precisely: from ``def delete_model(`` up to
-        # the next top-level ``def `` (the next method on the class). A
-        # fixed char window (previously 4000) silently missed the rmtree
-        # call once the method's docstring/comments grew past the window.
         next_def = src.find("\n    def ", fn_idx + 1)
         method_body = src[fn_idx : next_def if next_def != -1 else fn_idx + 4000]
 

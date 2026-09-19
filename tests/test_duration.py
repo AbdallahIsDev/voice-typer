@@ -1,13 +1,4 @@
-"""Tests for ``voice_typer.server.duration.format_duration`` (C-LOG-2).
-
-Pins the canonical space-separated ``<duration>`` suffix used on
-lifecycle-completion log lines: `` 2.3s`` for sub-minute durations and
-`` 1m 2.3s`` for anything longer. The return value carries a single
-leading space so callers splice it directly after the timed event
-(``...warmed 2.3s``) with a bare ``%s``. Any future change to the
-format must update this file (and the C-LOG-2 rule in AGENTS.md)
-together.
-"""
+"""Tests for ``voice_typer.server.duration.format_duration`` (C-LOG-2)."""
 
 from __future__ import annotations
 
@@ -40,8 +31,6 @@ def test_multiple_minutes() -> None:
 
 
 def test_negative_duration_clamped_to_zero() -> None:
-    # A negative clock delta (clock shenanigans) must never render as a
-    # nonsense negative duration.
     assert format_duration(-3.0) == " 0.0s"
 
 
@@ -52,8 +41,6 @@ def test_negative_duration_clamped_to_zero() -> None:
         (0.5, " 0.5s"),
         (7.0, " 7.0s"),
         (59.9, " 59.9s"),
-        # Rounding to 0.1s happens BEFORE the minutes/split decision, so
-        # 59.96s renders identically to 60.0s (no misleading " 60.0s").
         (59.96, " 1m 0.0s"),
         (60.0, " 1m 0.0s"),
         (119.9, " 1m 59.9s"),

@@ -1,44 +1,4 @@
-"""regression tests for the predecessor-alive heartbeat watchdog.
-
-If predecessor crashes or is force-killed, the Python backend would
-otherwise keep running with the mic stream open, hotkeys registered,
-volume ducked, and the single-instance mutex held.  The next launch
-hits ``ERROR_ALREADY_EXISTS`` and surfaces "Only one instance can
-run", forcing the user to manually kill ``python.exe``.
-
-The fix adds:
-
-  1. A ``heartbeat`` IPC handler in ``ipc_server.py`` that updates
-     ``self._last_heartbeat_at = time.monotonic()``.
-  2. A daemon thread (``_heartbeat_loop``) that wakes every 5 seconds
-     and calls ``_check_heartbeat_timeout``.  If more than
-     ``_HEARTBEAT_TIMEOUT_SECONDS`` (9 missed heartbeats at the
-     default 45s timeout, PI-30 reduced from 120s/24 misses) have elapsed since the last heartbeat,
-     the watchdog calls ``self.app.quit()``, which runs the shared
-     ``_do_cleanup()`` path from RW-3 (restores volume, flushes
-     recovery, releases the mutex, closes PortAudio).
-  3. A guard so the watchdog does NOT fire before the first heartbeat
-     has been received (so a slow predecessor cold start doesn't trigger
-     a false-positive exit).
-
-These tests exercise:
-
-  - The ``heartbeat`` IPC handler updates ``_last_heartbeat_at``.
-  - The ``heartbeat`` command is registered in the dispatch table.
-  - ``_check_heartbeat_timeout`` returns False / does NOT call
-    ``app.quit()`` when no heartbeat has been received yet.
-  - ``_check_heartbeat_timeout`` returns False within the grace
-    period (``_HEARTBEAT_TIMEOUT_SECONDS``) after a heartbeat.
-  - ``_check_heartbeat_timeout`` returns True and calls ``app.quit()``
-    when the heartbeat is overdue (mocked ``time.monotonic`` to
-    advance past the timeout).
-  - The ``_heartbeat_loop`` thread is started by ``start()`` as a
-    daemon (so it doesn't block shutdown).
-  - ``stop()`` signals the watchdog to exit (best-effort wakeup).
-  - An end-to-end integration test that uses a real
-    ``socket.socketpair`` to send a ``heartbeat`` command over the TCP
-    transport and verifies the timestamp is updated.
-"""
+"""regression tests for the predecessor-alive heartbeat watchdog."""
 
 from __future__ import annotations
 
@@ -56,25 +16,10 @@ from voice_typer.server.ipc_server import (
 
 from tests.fixtures.ipc_test_helpers import make_fake_app, make_fake_service
 
-# ── Fixtures ────────────────────────────────────────────────────────────
-
 
 @pytest.fixture
 def server() -> typing.Iterator[IPCServer]:
-    """Construct a real IPCServer with fake app/service for unit tests.
-
-    The fake app is a ``MagicMock``, so ``app.quit()`` is a no-op call
-    that we can assert on with ``app.quit.assert_called_once()``.  We
-    set ``_running = True`` so the watchdog treats us as a live server
-    (matching the post-start() state).
-
-    Yields the server, then calls ``stop()`` in teardown to ensure the
-    heartbeat thread is stopped and the push function is unregistered
-    from the global ``_push_event_registry``. Without this teardown,
-    a push function left in the registry would interfere with
-    ``test_server.py::TestPushEventNow`` tests that assert on the
-    registry state.
-    """
+    """Construct a real IPCServer with fake app/service for unit tests."""
     app = make_fake_app()
     service = make_fake_service()
     s = IPCServer(app, service=service)
@@ -84,25 +29,15 @@ def server() -> typing.Iterator[IPCServer]:
         yield s
     finally:
         # Defensive teardown: stop the heartbeat thread + unregister
-        # the push function even if the test called start() without
-        # a matching stop().
         with contextlib.suppress(Exception):
             s.stop()
-
-
-# ── Handler tests ───────────────────────────────────────────────────────
 
 
 class TestHeartbeatHandler:
     """the ``heartbeat`` IPC handler updates the timestamp."""
 
     def test_handler_updates_last_heartbeat_at(self, server: IPCServer) -> None:
-        """Calling ``_handle_heartbeat`` records ``time.monotonic()``.
-
-        Before the first call, ``_last_heartbeat_at`` is ``None`` (the
-        watchdog won't fire).  After the call, it's a float, arming
-        the watchdog.
-        """
+        """Calling ``_handle_heartbeat`` records ``time.monotonic()``."""
         assert server._last_heartbeat_at is None
 
         resp = {"id": 1}
@@ -120,12 +55,7 @@ class TestHeartbeatHandler:
         assert IPCServer._COMMAND_REGISTRY["heartbeat"] == "_handle_heartbeat"
 
     def test_dispatch_routes_heartbeat_to_handler(self, server: IPCServer) -> None:
-        """``_dispatch({"type": "heartbeat"})`` invokes the handler.
-
-        This is the path that production uses, the predecessor's
-        ``sendToPython({type: "heartbeat"})`` lands in ``_dispatch``
-        via the TCP read loop.  Verifies the registry wiring.
-        """
+        """``_dispatch({\"type\": \"heartbeat\"})`` invokes the handler."""
         assert server._last_heartbeat_at is None
 
         result = server._dispatch({"type": "heartbeat", "id": 42})
@@ -136,11 +66,7 @@ class TestHeartbeatHandler:
         assert server._last_heartbeat_at is not None
 
     def test_repeated_heartbeat_calls_update_timestamp(self, server: IPCServer) -> None:
-        """Each heartbeat call updates ``_last_heartbeat_at``.
-
-        The watchdog compares against the most recent heartbeat, so
-        repeated calls must overwrite (not accumulate).
-        """
+        """Each heartbeat call updates ``_last_heartbeat_at``."""
         # First heartbeat at t=100.
         with patch("voice_typer.server.ipc_server.time.monotonic", return_value=100.0):
             server._handle_heartbeat(None, {"id": 1})
@@ -155,44 +81,21 @@ class TestHeartbeatHandler:
         assert second > first
 
 
-# ── Watchdog timeout logic ──────────────────────────────────────────────
-
-
 class TestHeartbeatWatchdog:
     """the watchdog fires only when the heartbeat is overdue."""
 
     @pytest.fixture(autouse=True)
     def _park_force_exit_thread(self, monkeypatch) -> typing.Iterator[None]:
-        """Park the ``heartbeat-force-exit`` daemon thread so it can't
-        kill the pytest process.
-
-        ``_check_heartbeat_timeout`` spawns a real daemon thread
-        (``_force_exit_after_grace``) that sleeps
-        ``_HEARTBEAT_FORCE_EXIT_GRACE_SECONDS`` (10s) then calls
-        ``os._exit(1)``. The tests below fire the watchdog on a mocked
-        ``app.quit()``, so the thread survives the test and would
-        hard-exit pytest ~10s later, mid-suite. Park the grace period
-        at a value far beyond any suite runtime (mirrors the same
-        guard in ``tests/server/test_ipc_lifecycle.py``).
-        """
+        """Park the ``heartbeat-force-exit`` daemon thread so it can't"""
         import voice_typer.server.ipc.lifecycle as lifecycle_mod
 
         monkeypatch.setattr(lifecycle_mod, "_HEARTBEAT_FORCE_EXIT_GRACE_SECONDS", 10000)
         yield
 
     def test_does_not_fire_before_first_heartbeat(self, server: IPCServer) -> None:
-        """The watchdog must NOT fire before the predecessor's first heartbeat.
-
-        This is the critical guard: a slow predecessor cold start (10+
-        seconds for the torch import on first launch) must not cause
-        the backend to exit prematurely.  ``_last_heartbeat_at`` is
-        ``None`` until the first heartbeat lands, and the watchdog
-        checks for this explicitly.
-        """
+        """The watchdog must NOT fire before the predecessor's first heartbeat."""
         assert server._last_heartbeat_at is None
 
-        # Even if a huge amount of time has passed (simulated), the
-        # watchdog must refuse to fire.
         with patch("voice_typer.server.ipc_server.time.monotonic", return_value=10_000.0):
             fired = server._check_heartbeat_timeout()
 
@@ -200,11 +103,7 @@ class TestHeartbeatWatchdog:
         server.app.quit.assert_not_called()
 
     def test_does_not_fire_within_grace_period(self, server: IPCServer) -> None:
-        """Within the grace period, the watchdog must not fire.
-
-        A heartbeat received recently means predecessor is alive, even
-        if we're 0.1s shy of the timeout, we're still inside it.
-        """
+        """Within the grace period, the watchdog must not fire."""
         # Heartbeat at t=100.
         with patch("voice_typer.server.ipc_server.time.monotonic", return_value=100.0):
             server._handle_heartbeat(None, {"id": 1})
@@ -220,20 +119,12 @@ class TestHeartbeatWatchdog:
         server.app.quit.assert_not_called()
 
     def test_fires_after_timeout(self, server: IPCServer) -> None:
-        """The watchdog fires ``app.quit()`` after the timeout elapses.
-
-        Mocks ``time.monotonic`` so we can simulate the timeout
-        without waiting real seconds.  This is the core regression
-        test: a crashed predecessor (no more heartbeats) must cause the
-        backend to clean up and exit via the normal ``app.quit()``
-        path.
-        """
+        """The watchdog fires ``app.quit()`` after the timeout elapses."""
         # First heartbeat at t=100.
         with patch("voice_typer.server.ipc_server.time.monotonic", return_value=100.0):
             server._handle_heartbeat(None, {"id": 1})
 
         # Simulate that the timeout + 5s has elapsed (clearly past
-        # the boundary so the strictly-greater-than comparison fires).
         with patch(
             "voice_typer.server.ipc_server.time.monotonic",
             return_value=100.0 + _HEARTBEAT_TIMEOUT_SECONDS + 5.0,
@@ -244,17 +135,11 @@ class TestHeartbeatWatchdog:
         server.app.quit.assert_called_once_with()
 
     def test_fires_exactly_at_timeout_boundary(self, server: IPCServer) -> None:
-        """The watchdog fires as soon as the timeout is exceeded.
-
-        Tests the ``>`` (strictly-greater-than) comparison: at exactly
-        ``timeout + epsilon``, the watchdog fires.  This guards
-        against off-by-one errors in the comparison.
-        """
+        """The watchdog fires as soon as the timeout is exceeded."""
         with patch("voice_typer.server.ipc_server.time.monotonic", return_value=100.0):
             server._handle_heartbeat(None, {"id": 1})
 
         # Exactly at the timeout boundary (15.0s later), strictly
-        # greater-than means we need to be even a hair past it.
         with patch(
             "voice_typer.server.ipc_server.time.monotonic",
             return_value=100.0 + _HEARTBEAT_TIMEOUT_SECONDS + 0.001,
@@ -265,13 +150,7 @@ class TestHeartbeatWatchdog:
         server.app.quit.assert_called_once_with()
 
     def test_quit_exception_is_swallowed(self, server: IPCServer) -> None:
-        """If ``app.quit()`` raises, the watchdog must not propagate.
-
-        The daemon thread has no caller to catch the exception; if it
-        propagated, it would kill the thread silently and the process
-        would never exit.  The ``try/except`` around ``app.quit()``
-        logs the exception but still returns ``True``.
-        """
+        """If ``app.quit()`` raises, the watchdog must not propagate."""
         with patch("voice_typer.server.ipc_server.time.monotonic", return_value=100.0):
             server._handle_heartbeat(None, {"id": 1})
 
@@ -289,21 +168,7 @@ class TestHeartbeatWatchdog:
         server.app.quit.assert_called_once_with()
 
     def test_does_not_fire_when_app_already_shutting_down(self, server: IPCServer) -> None:
-        """The watchdog should not trigger a redundant quit.
-
-        If ``app.quit()`` was already called (e.g. by the tray Quit
-        menu item), ``app._shutting_down`` is ``True`` and the real
-        ``VoiceTyperApp.quit()`` is a no-op.  With the fake app we
-        simulate this by checking that the watchdog still calls
-        ``app.quit()``, the real ``quit()`` is itself idempotent
-        (early-returns on ``_shutting_down``), so the call is harmless.
-
-        This test documents that the watchdog does NOT pre-check
-        ``_shutting_down``, it relies on ``app.quit()``'s own
-        idempotency guard.  This is intentional: the watchdog must
-        trigger cleanup when it fires, and a redundant call is
-        cheaper than a missed cleanup.
-        """
+        """The watchdog should not trigger a redundant quit."""
         # Simulate the app already being in shutdown.
         server.app._shutting_down = True
 
@@ -321,43 +186,22 @@ class TestHeartbeatWatchdog:
         server.app.quit.assert_called_once_with()
 
 
-# ── Daemon thread lifecycle ─────────────────────────────────────────────
-
-
 class TestHeartbeatThreadLifecycle:
     """the watchdog thread must be a daemon and exit on stop()."""
 
     @pytest.fixture(autouse=True)
     def _clear_tauri_sidecar_env(self, monkeypatch) -> typing.Iterator[None]:
-        """Ensure ``TAURI_SIDECAR`` is unset so ``start()`` spawns the watchdog.
-
-        When ``TAURI_SIDECAR=1`` is in the environment, ``IPCServer.start()``
-        intentionally skips spawning the heartbeat-watchdog thread (the Tauri
-        Rust host owns liveness via WS-close + heartbeat dispatch). Other
-        tests in the suite set this env var, and the test runner may also
-        inherit it, without an explicit ``delenv`` the four lifecycle tests
-        below would observe the skip path (``_heartbeat_thread is None``) and
-        fail with "0 threads spawned" / "0 calls". Mirrors the same ``delenv``
-        pattern used in ``tests/test_ipc_server.py``.
-        """
+        """Ensure ``TAURI_SIDECAR`` is unset so ``start()`` spawns the watchdog."""
         monkeypatch.delenv("TAURI_SIDECAR", raising=False)
         yield
 
     def test_start_spawns_daemon_thread(self) -> None:
-        """``start()`` must spawn the heartbeat thread as a daemon.
-
-        Daemon threads don't block process exit, critical because
-        the watchdog sleeps for 5 seconds between checks; if it were
-        a non-daemon thread, the process would hang on shutdown until
-        the next tick.
-        """
+        """``start()`` must spawn the heartbeat thread as a daemon."""
         app = make_fake_app()
         service = make_fake_service()
         s = IPCServer(app, service=service)
 
         # Capture the thread object so we can assert on its daemon
-        # flag after start() returns.  We patch threading.Thread with
-        # a subclass that records instances by name.
         original_thread = threading.Thread
         captured: list[threading.Thread] = []
 
@@ -376,19 +220,10 @@ class TestHeartbeatThreadLifecycle:
             assert captured[0].is_alive(), "heartbeat-watchdog thread should be running after start()"
         finally:
             s.stop()
-            # Give the thread a moment to exit (it sleeps on the
-            # stop event with a 5s timeout; setting the event wakes
-            # it immediately).
             captured[0].join(timeout=2.0)
 
     def test_stop_signals_watchdog_to_exit(self) -> None:
-        """``stop()`` sets the stop event so the watchdog exits promptly.
-
-        Without this, the watchdog would linger up to 5 seconds past
-        shutdown.  It's a daemon thread, so it wouldn't block process
-        exit, but explicit shutdown is cleaner for test start/stop
-        cycles.
-        """
+        """``stop()`` sets the stop event so the watchdog exits promptly."""
         app = make_fake_app()
         service = make_fake_service()
         s = IPCServer(app, service=service)
@@ -406,13 +241,7 @@ class TestHeartbeatThreadLifecycle:
         assert not heartbeat_thread.is_alive(), "heartbeat-watchdog thread did not exit after stop()"
 
     def test_watchdog_loop_calls_check_heartbeat_timeout(self) -> None:
-        """The loop body delegates to ``_check_heartbeat_timeout``.
-
-        Verifies the wiring: the loop calls the check method on each
-        tick.  Uses a real (slow) interval, patched to be fast for
-        the test, and asserts the check is invoked at least once
-        before stop().
-        """
+        """The loop body delegates to ``_check_heartbeat_timeout``."""
         app = make_fake_app()
         service = make_fake_service()
         s = IPCServer(app, service=service)
@@ -445,12 +274,7 @@ class TestHeartbeatThreadLifecycle:
         )
 
     def test_watchdog_loop_exits_after_quit_triggered(self) -> None:
-        """When ``_check_heartbeat_timeout`` returns True, the loop exits.
-
-        Simulates a timeout firing: the spy returns True on the first
-        call, and the loop must exit immediately (return) rather than
-        continuing to tick.
-        """
+        """When ``_check_heartbeat_timeout`` returns True, the loop exits."""
         app = make_fake_app()
         service = make_fake_service()
         s = IPCServer(app, service=service)
@@ -474,18 +298,11 @@ class TestHeartbeatThreadLifecycle:
                 time.sleep(0.02)
 
         # The loop should have called _check_heartbeat_timeout exactly
-        # once (returned True → loop exited).  We don't call stop()
-        # because the loop already exited; but we set the stop event
-        # just in case the loop is still alive (defensive).
         s._heartbeat_stop_event.set()
         if s._heartbeat_thread is not None:
             s._heartbeat_thread.join(timeout=2.0)
 
         # TEST-ISOLATION-FIX: call stop() to unregister the push function
-        # from the global _push_event_registry. Without this, the push
-        # function remains registered and interferes with
-        # test_server.py::TestPushEventNow tests that assert on the
-        # registry state.
         with contextlib.suppress(Exception):
             s.stop()
 
@@ -494,6 +311,3 @@ class TestHeartbeatThreadLifecycle:
             f"exactly once (returned True → exit) but called it "
             f"{len(check_calls)} times"
         )
-
-
-# ── Integration test: real TCP socketpair ──────────────────────────────

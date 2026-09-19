@@ -1,21 +1,4 @@
-"""Verify the credential_store package split preserves the public API surface.
-
-Splitting ``voice_typer/server/credential_store.py`` (a single 2132-line
-module) into the ``voice_typer/server/credential_store/`` package must
-preserve every public AND private symbol that callers / tests import or
-monkey-patch. This module imports each symbol from the package and
-asserts it has the expected type (callable for functions, the correct
-class for data, etc.).
-
-The split also relies on test-time ``monkeypatch.setattr`` propagation:
-several constants and functions (``_KEYRING_TIMEOUT_SECONDS``,
-``_is_windows``, ``is_keyring_available``, ``_KNOWN_PROVIDERS_HISTORY``,
-``_plaintext_config_cache``, ``_probe_keyring``, ...) are read by
-submodule call sites via the *package* module (``_cs.<NAME>``) rather
-than via bare-name global lookup against the submodule's own
-``__dict__``. The final test class verifies a representative
-monkey-patch propagates to the consuming call site.
-"""
+"""Verify the credential_store package split preserves the public API surface."""
 
 from __future__ import annotations
 
@@ -25,12 +8,9 @@ import threading
 import pytest
 from voice_typer.server import credential_store as cs
 
-# ── Public API ───────────────────────────────────────────────────────────
-
 
 class TestPublicAPIPreserved:
-    """Every public symbol listed in ``__all__`` must resolve to a value
-    of the expected type after the split."""
+    """Every public symbol listed in ``__all__`` must resolve to a value"""
 
     def test_constants_are_correct_types(self):
         assert isinstance(cs.KEYRING_SERVICE_NAME, str)
@@ -60,11 +40,6 @@ class TestPublicAPIPreserved:
     def test_outcome_function_callable(self):
         assert callable(cs.last_store_outcome)
         # Returns a dict with the three documented keys (``stored_in``,
-        # ``reason``, ``provider``). The exact ``stored_in`` value
-        # depends on whether a prior ``store_secret`` call ran on this
-        # thread, other test files in the credential suite call
-        # ``store_secret`` and the thread-local persists across tests,
-        # so we only assert the shape here.
         outcome = cs.last_store_outcome()
         assert set(outcome.keys()) == {"stored_in", "reason", "provider"}
         assert outcome["stored_in"] in {
@@ -78,9 +53,6 @@ class TestPublicAPIPreserved:
     def test_all_attribute_complete(self):
         for name in cs.__all__:
             assert hasattr(cs, name), f"public __all__ entry {name!r} missing from package"
-
-
-# ── Private symbols used by tests ───────────────────────────────────────
 
 
 class TestPrivateSymbolsPreserved:
@@ -148,19 +120,11 @@ class TestPrivateSymbolsPreserved:
         assert isinstance(cs._last_store_outcome, threading.local)
 
 
-# ── Monkey-patch propagation (the key invariant of the split) ───────────
-
-
 class TestMonkeyPatchPropagates:
-    """Tests do ``monkeypatch.setattr(credential_store, "<name>", ...)``.
-    After the split, the patched value lives on the *package* module's
-    ``__dict__``; submodule call sites must look the symbol up via the
-    package module (``_cs.<name>``) for the patch to take effect."""
+    """Tests do ``monkeypatch.setattr(credential_store, \"<name>\", ...)``."""
 
     def test_keyring_timeout_seconds_propagates_to_run_keyring_call(self, monkeypatch):
-        """``_run_keyring_call`` reads ``_KEYRING_TIMEOUT_SECONDS`` via
-        the package module, patching the package attribute must shorten
-        the timeout (a 1ms timeout aborts a 500ms call)."""
+        """``_run_keyring_call`` reads ``_KEYRING_TIMEOUT_SECONDS`` via"""
         import time
 
         monkeypatch.setattr(cs, "_KEYRING_TIMEOUT_SECONDS", 0.001)
@@ -173,47 +137,29 @@ class TestMonkeyPatchPropagates:
             cs._run_keyring_call(slow_fn)
 
     def test_is_keyring_available_propagates_to_store_secret(self, monkeypatch):
-        """``store_secret`` reads ``is_keyring_available`` via the
-        package module, patching the package attribute must make
-        ``store_secret`` see the patched value."""
+        """package module, patching the package attribute must make"""
         calls = []
         monkeypatch.setattr(cs, "is_keyring_available", lambda: (calls.append(1), True)[1])
-        # store_secret on an unknown provider calls is_keyring_available
-        # only AFTER the provider-validation check (which fails first).
-        # Use a known provider with an empty value to hit the delete
-        # path that doesn't touch is_keyring_available, then call
-        # ``load_secret`` which DOES consult is_keyring_available.
         with contextlib.suppress(Exception):
             cs.load_secret("openai")
         assert calls, "load_secret must have consulted the patched is_keyring_available"
 
     def test_known_providers_history_propagates_to_delete_secret(self, monkeypatch):
-        """``delete_secret`` iterates ``_KNOWN_PROVIDERS_HISTORY`` via
-        the package module, patching the package attribute must change
-        what the loop sees."""
+        """``delete_secret`` iterates ``_KNOWN_PROVIDERS_HISTORY`` via"""
         fake = frozenset({"ghost_provider"})
         monkeypatch.setattr(cs, "_KNOWN_PROVIDERS_HISTORY", fake)
         assert cs._KNOWN_PROVIDERS_HISTORY is fake
 
     def test_plaintext_config_cache_propagates_to_clear_helper(self, monkeypatch):
-        """``_clear_plaintext_config_cache`` clears the dict via the
-        package module, patching the package attribute with a new
-        dict and then calling the clear helper must leave the patched
-        dict empty (not the original)."""
+        """package module, patching the package attribute with a new"""
         sentinel = {"k": "v"}
         monkeypatch.setattr(cs, "_plaintext_config_cache", sentinel)
         cs._clear_plaintext_config_cache()
         assert sentinel == {}, "clear helper must have cleared the patched dict"
 
 
-# ── Smoke: end-to-end import + dir() ────────────────────────────────────
-
-
 class TestPublicSurfaceMatchesDir:
-    """``dir(credential_store)`` must surface every public name. This is
-    the assertion the orchestrator's validation step makes (``python -c
-    "from voice_typer.server import credential_store; print(dir(...))"``).
-    """
+    """``dir(credential_store)`` must surface every public name. This is"""
 
     def test_dir_contains_public_api(self):
         names = set(dir(cs))

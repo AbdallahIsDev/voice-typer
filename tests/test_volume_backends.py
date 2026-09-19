@@ -1,26 +1,4 @@
-"""Cross-platform volume backend tests.
-
-Tests the Linux and macOS backends' parsing logic without requiring
-the real platform tools (pactl / wpctl / amixer / osascript) to be
-installed.  All ``subprocess.run`` calls are mocked.
-
-Coverage
---------
-- LinuxVolumeBackend:
-  * Tool detection priority: pactl → wpctl → amixer.
-  * pactl output parsing ("Volume: ... 100% ..." + "Mute: yes/no").
-  * wpctl output parsing ("Volume: 0.50" + "[MUTED]").
-  * amixer output parsing ("Playback 50% [50%] [on]"/"[off]").
-  * Linear→percent conversion on set.
-  * Graceful failure when no tool is available.
-- MacVolumeBackend:
-  * osascript get_state / set_linear (CoreAudio path can't be tested
-    without macOS, but osascript fallback can be exercised via mocks).
-  * Volume clamping.
-- WinVolumeBackend:
-  * Constructor doesn't crash on non-Windows (resources deferred to
-    initialize()).
-"""
+"""Cross-platform volume backend tests."""
 
 from __future__ import annotations
 
@@ -33,10 +11,6 @@ from voice_typer.server.volume_backends import (
     MacVolumeBackend,
     WinVolumeBackend,
 )
-
-# ═══════════════════════════════════════════════════════════════════════════
-# Linux backend
-# ═══════════════════════════════════════════════════════════════════════════
 
 
 class TestLinuxBackendToolDetection:
@@ -83,7 +57,6 @@ class TestLinuxBackendToolDetection:
         b.initialize()
         tool = b._tool
         # Second initialize() shouldn't re-detect.
-        # We remove the mock to prove it.
         monkeypatch.setattr("shutil.which", lambda t: None)
         b.initialize()
         assert b._tool == tool
@@ -198,7 +171,6 @@ class TestLinuxBackendWpctl:
         calls = []
         b._run = lambda cmd, timeout=2.0: calls.append(cmd) or "ok"
         b.set_linear(0.3)
-        # wpctl set-volume takes a float in [0, 1]
         assert any("0.30" in " ".join(c) for c in calls), f"set_linear(0.3) should pass 0.30; calls={calls}"
 
 
@@ -233,22 +205,15 @@ class TestLinuxBackendAmixer:
         assert any("75%" in " ".join(c) for c in calls), f"set_linear(0.75) should pass 75%; calls={calls}"
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# macOS backend
-# ═══════════════════════════════════════════════════════════════════════════
-
-
 class TestMacBackendOsascript:
-    """§5.2: osascript fallback path (CoreAudio can't be tested without
-    a real macOS install)."""
+    """§5.2: osascript fallback path (CoreAudio can't be tested without"""
 
     def test_supports_per_session_is_false(self):
         b = MacVolumeBackend()
         assert b.supports_per_session is False
 
     def test_initialize_returns_true_without_coreaudio(self):
-        """Without pyobjc installed (the test environment), initialize()
-        falls back to osascript and returns True."""
+        """Without pyobjc installed (the test environment), initialize()"""
         b = MacVolumeBackend()
         # Patch the CoreAudio import to fail so osascript is used.
         with patch.dict(sys.modules, {"CoreAudio": None}):
@@ -315,11 +280,6 @@ class TestMacBackendOsascript:
         )
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# Windows backend (smoke tests only, full pycaw tests need Windows)
-# ═══════════════════════════════════════════════════════════════════════════
-
-
 class TestWinBackendSmoke:
     """§5.1: Windows backend, only tests that don't need pycaw/COM."""
 
@@ -332,15 +292,8 @@ class TestWinBackendSmoke:
         assert b.name == "pycaw (WASAPI)"
 
     def test_initialize_returns_false_without_pycaw(self):
-        """On non-Windows (or without pycaw installed), initialize() should
-        return False gracefully rather than crashing."""
+        """On non-Windows (or without pycaw installed), initialize() should"""
         b = WinVolumeBackend()
-        # Force pycaw/comtypes to be unavailable regardless of the host
-        # (on a Windows dev box pycaw may be installed, which would make
-        # initialize() succeed, this test pins the graceful-failure path,
-        # so we simulate the ImportError deterministically). Setting a
-        # sys.modules entry to None makes the lazy ``from pycaw.pycaw
-        # import ...`` inside initialize() raise ImportError.
         with patch.dict(sys.modules, {"pycaw": None, "pycaw.pycaw": None, "comtypes": None}):
             ok = b.initialize()
         assert ok is False
@@ -354,20 +307,11 @@ class TestWinBackendSmoke:
         assert b.set_linear(0.5) is False
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# VolumeBackend base class default fade_to behaviour
-# ═══════════════════════════════════════════════════════════════════════════
-
-
 class TestVolumeBackendFadeTo:
-    """§4.1: VolumeBackend.fade_to() default implementation uses N
-    discrete set_linear calls with equal-sized sleeps."""
+    """§4.1: VolumeBackend.fade_to() default implementation uses N"""
 
     def test_fade_to_uses_set_linear(self):
         # Use a non-subprocess subclass so the default ``fade_to`` ramp
-        # path runs (the real ``LinuxVolumeBackend._set_linear_is_subprocess``
-        # returns True, which collapses the ramp to a single set_linear
-        # call: see the comment on the LinuxVolumeBackend property).
         class _InProcessLinuxBackend(LinuxVolumeBackend):
             @property
             def _set_linear_is_subprocess(self) -> bool:
@@ -386,7 +330,6 @@ class TestVolumeBackendFadeTo:
         b.set_linear = spy_set
 
         # Fade from current (we need get_state to return a starting point).
-        # The default fade_to calls get_state first.
         b.get_state = lambda: VolumeState(linear=0.2, muted=False)
         # Patch time.sleep so the test doesn't take 150ms.
         with patch("voice_typer.server.volume_backend_base.time.sleep"):
@@ -417,22 +360,6 @@ class TestVolumeBackendFadeTo:
         # With duration_ms <= 0, the default impl does a single set_linear
         assert len(set_calls) == 1
         assert set_calls[0] == 0.5
-
-
-# ═══════════════════════════════════════════════════════════════════════════
-# per-backend consecutive-error counter (observability)
-# ═══════════════════════════════════════════════════════════════════════════
-#
-# Backends swallow errors and return safe defaults (True for
-# is_speaker_active, None for get_state) so duck-state is never
-# corrupted by a transient backend hiccup.  But a stuck/revoked COM
-# pointer (Windows), a missing CLI tool (Linux), or revoked AppleScript
-# permission (macOS 13+) would degrade ducking to a silent no-op with
-# no log breadcrumb.   adds a per-backend consecutive-error
-# counter that surfaces a WARNING after N consecutive failures.
-#
-# The safe-default return values are preserved -- the counter is purely
-# additive observability.
 
 
 class TestWinBackendErrorCounter:
@@ -567,7 +494,6 @@ class TestLinuxBackendErrorCounter:
         b._consecutive_errors = 0
 
         # Patch volume_backends.Path to raise on construction -- simulates
-        # a broken /proc/asound (e.g. permission denied on all reads).
         import voice_typer.server.volume_backends as vb_mod
 
         class BrokenPath:
@@ -720,20 +646,13 @@ class TestMacBackendErrorCounter:
         assert len(warnings) >= 1, "Expected a WARNING after 3 consecutive _osascript_get_state parse failures"
 
     def test_osascript_get_state_no_double_count(self, monkeypatch):
-        """When _osascript_run fails, _osascript_get_state must NOT double-count.
-
-        _osascript_run already increments the counter on subprocess failure;
-        _osascript_get_state returns None without incrementing again.
-        """
+        """When _osascript_run fails, _osascript_get_state must NOT double-count."""
         from voice_typer.server.volume_backends import MacVolumeBackend
 
         b = MacVolumeBackend()
         b._use_coreaudio = False
         b._consecutive_errors = 0
 
-        # _osascript_run fails (returns None) -- the REAL _osascript_run
-        # records the error via _record_error before returning None.
-        # Simulate that real behaviour so the counter reflects one failure.
         def fake_run(script, timeout=2.0):
             b._record_error("_osascript_run", RuntimeError("subprocess failed"))
             return None
@@ -770,19 +689,8 @@ class TestCrossPlatformImportSafety:
         assert b._consecutive_errors == 0
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# XS-80: WinVolumeBackend ducking logic, behavioral coverage with mocked pycaw.
-#
-# The existing TestWinBackendSmoke only verifies the 'pycaw not installed →
-# graceful failure' path. These tests mock pycaw.pycaw.AudioUtilities,
-# IAudioEndpointVolume, and IAudioMeterInformation so initialize() succeeds
-# and the ducking logic (is_speaker_active peak threshold, get_other_sessions
-# PROC-FILTER-FIX regex, duck/restore round-trip) is exercised on Linux.
-# ═══════════════════════════════════════════════════════════════════════════
-
-
 class TestWinBackendPycaw:
-    """XS-80: WinVolumeBackend ducking logic with mocked pycaw."""
+    """WinVolumeBackend ducking logic with mocked pycaw."""
 
     @staticmethod
     def _install_fake_pycaw(
@@ -793,15 +701,10 @@ class TestWinBackendPycaw:
         mute=0,
         sessions=None,
     ):
-        """Inject a fake ``pycaw.pycaw`` + ``comtypes`` module into sys.modules.
-
-        Returns ``(vol_ptr, meter_ptr, audio_utilities)`` for assertions.
-        """
+        """Inject a fake ``pycaw.pycaw`` + ``comtypes`` module into sys.modules."""
         from unittest.mock import MagicMock
 
         # Fake IAudioEndpointVolume / IAudioMeterInformation, the source
-        # uses them only as type markers (accesses ``_iid_`` on the legacy
-        # Activate path; we exercise the modern EndpointVolume path).
         class FakeIAudioEndpointVolume:
             _iid_ = "fake-iid"
 
@@ -821,7 +724,6 @@ class TestWinBackendPycaw:
         vol_ptr.QueryInterface.return_value = meter_ptr
 
         # Fake speakers device, pycaw >= 20251023 path: EndpointVolume
-        # property returns the vol_ptr directly.
         speakers = MagicMock()
         speakers.EndpointVolume = vol_ptr
 
@@ -1100,27 +1002,12 @@ class TestWinBackendPycaw:
         assert b.restore_other_sessions() is False
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# XS-80: MacVolumeBackend CoreAudio path, mocked CoreAudio module.
-#
-# The existing TestMacBackendOsascript patches CoreAudio to None to force the
-# osascript fallback. These tests patch sys.platform='darwin' and install a
-# fake CoreAudio module so initialize() switches to the in-process CoreAudio
-# path, then exercise the get_state / set_linear / is_speaker_active CoreAudio
-# methods (which the osascript tests never reach).
-# ═══════════════════════════════════════════════════════════════════════════
-
-
 class TestMacBackendCoreAudio:
-    """XS-80: MacVolumeBackend CoreAudio (pyobjc) path with mocked CoreAudio."""
+    """MacVolumeBackend CoreAudio (pyobjc) path with mocked CoreAudio."""
 
     @staticmethod
     def _install_fake_coreaudio(monkeypatch):
-        """Patch sys.platform='darwin' + install fake CoreAudio module.
-
-        Returns the fake module so tests can assert on
-        ``AudioObjectGetPropertyData`` / ``AudioObjectSetPropertyData`` calls.
-        """
+        """Patch sys.platform='darwin' + install fake CoreAudio module."""
         import sys
         from unittest.mock import MagicMock
 
@@ -1141,13 +1028,10 @@ class TestMacBackendCoreAudio:
 
     @staticmethod
     def _make_get_property_side_effect(fake_ca, *, default_device=42, is_running=1, volume=0.6, mute=0, status=0):
-        """Build a side_effect for AudioObjectGetPropertyData that writes through
-        ``ctypes.byref(...)`` data pointers and returns a status code.
-        """
+        """Build a side_effect for AudioObjectGetPropertyData that writes through"""
 
         def fake_get_property(obj_id, address, qual_size, qual_data, size_ptr, data_ptr):
             selector = address[0]
-            # ctypes.byref(obj) exposes the underlying object via _obj.
             data_obj = getattr(data_ptr, "_obj", None)
             if selector == fake_ca.kAudioHardwarePropertyDefaultOutputDevice:
                 if data_obj is not None:
@@ -1337,7 +1221,6 @@ class TestMacBackendCoreAudio:
         """If CoreAudio get_state returns None, falls back to osascript."""
         fake_ca = self._install_fake_coreaudio(monkeypatch)
         # Non-zero status on the volume query → _ca_get_volume returns None
-        # → _coreaudio_get_state returns None → fall through to osascript.
         fake_ca.AudioObjectGetPropertyData.side_effect = self._make_get_property_side_effect(fake_ca, status=1)
         b = MacVolumeBackend()
         b.initialize()
@@ -1408,7 +1291,6 @@ class TestMacBackendCoreAudio:
         """If CoreAudio query fails, returns True (safe default, duck anyway)."""
         fake_ca = self._install_fake_coreaudio(monkeypatch)
         # Non-zero status on the device-is-running query → None → raise →
-        # fall through to safe-default True.
         fake_ca.AudioObjectGetPropertyData.side_effect = self._make_get_property_side_effect(fake_ca, status=1)
         b = MacVolumeBackend()
         b.initialize()

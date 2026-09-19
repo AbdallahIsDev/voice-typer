@@ -1,14 +1,4 @@
-"""Structural pins for the Host Validation workflow (review.md §E close-out).
-
-The §E Cannot-Verify items need real Windows / macOS / Linux desktop
-runtimes. This workflow automates the headless-checkable subset on
-GitHub-hosted runners and records the interactive remainder as warnings
-instead of faking green. These pins keep it from silently rotting: the
-three host jobs, the Node-24 action majors, the evidence uploads, and
-the no-touch-fragile-pipelines invariant (C-CI-2).
-
-Source-text assertions (headless; same style as test_arm_validation_workflow).
-"""
+"""Structural pins for the Host Validation workflow (review.md §E close-out)."""
 
 from __future__ import annotations
 
@@ -37,8 +27,6 @@ class TestHostValidationWorkflowContract:
         assert "VERSION" in text
         assert "PONG" in text
         # Post-predecessor cutover: kill-path contracts pin the surviving
-        # signal-handler / timeout / native-binary surfaces, not the
-        # deleted predecessor process-tree helpers.
         assert "win32_console_handler" in text
         assert "KILL_PATH_CONTRACTS=PASS" in text
         assert "binaries.json" in text

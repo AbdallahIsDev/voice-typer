@@ -1,14 +1,4 @@
-"""Tests for ``_audio_to_wav_bytes`` helper and the cleanup of lazy
-stdlib imports / hand-crafted WAV magic bytes in ``cloud_engines``.
-
-Covers:
-  1. The helper produces a 44-byte WAV header for empty float32 input.
-  2. The WAV header is parseable by the stdlib ``wave`` module.
-  3. The ``test_connection`` Deepgram path uses ``_audio_to_wav_bytes``
-     (source inspection) instead of hand-crafted magic bytes.
-  4. ``time``, ``wave``, and ``datetime`` are imported at module top
-     (no lazy ``import`` statements hiding inside functions).
-"""
+"""Tests for ``_audio_to_wav_bytes`` helper and the cleanup of lazy"""
 
 from __future__ import annotations
 
@@ -26,23 +16,15 @@ CLOUD_ENGINES_PATH = os.path.abspath(cloud_engines.__file__)
 ENGINE_PATH = os.path.abspath(_engine.__file__)
 
 
-# ---------------------------------------------------------------------------
-# 1. Helper produces a 44-byte WAV header for empty input.
-# ---------------------------------------------------------------------------
 def test_audio_to_wav_bytes_empty_input_is_44_bytes() -> None:
-    """An empty float32 array must produce exactly the 44-byte WAV header
-    (RIFF/WAVE/fmt /data chunk headers, zero data frames)."""
+    """An empty float32 array must produce exactly the 44-byte WAV header"""
     empty_wav = cloud_engines._audio_to_wav_bytes(np.zeros(0, dtype=np.float32))
     assert isinstance(empty_wav, bytes)
     assert len(empty_wav) == 44, f"expected 44-byte WAV header, got {len(empty_wav)} bytes"
 
 
-# ---------------------------------------------------------------------------
-# 2. WAV header is valid / parseable by the stdlib ``wave`` module.
-# ---------------------------------------------------------------------------
 def test_audio_to_wav_bytes_empty_input_is_valid_wav() -> None:
-    """The 44-byte header must be openable by ``wave.open`` and report
-    the expected PCM parameters (mono, 16-bit, 0 frames)."""
+    """The 44-byte header must be openable by ``wave.open`` and report"""
     empty_wav = cloud_engines._audio_to_wav_bytes(np.zeros(0, dtype=np.float32))
     with wave.open(io.BytesIO(empty_wav), "rb") as wf:
         assert wf.getnchannels() == 1
@@ -51,10 +33,7 @@ def test_audio_to_wav_bytes_empty_input_is_valid_wav() -> None:
 
 
 def test_audio_to_wav_bytes_empty_input_48k_byte_identical_to_hand_crafted() -> None:
-    """The Deepgram ``test_connection`` path previously used hand-crafted
-    magic bytes (RIFF...WAVEfmt ...data) at 48000 Hz. The helper, called
-    with ``sample_rate=48000``, must produce byte-identical output so the
-    network probe payload is unchanged."""
+    """magic bytes (RIFF...WAVEfmt ...data) at 48000 Hz. The helper, called"""
     helper_wav = cloud_engines._audio_to_wav_bytes(np.zeros(0, dtype=np.float32), sample_rate=48000)
     hand_crafted = (
         b"RIFF\x24\x00\x00\x00WAVEfmt \x10\x00\x00\x00"
@@ -71,10 +50,6 @@ def test_audio_to_wav_bytes_empty_input_48k_byte_identical_to_hand_crafted() -> 
         assert wf.getnframes() == 0
 
 
-# ---------------------------------------------------------------------------
-# 3. ``test_connection`` Deepgram path uses ``_audio_to_wav_bytes``.
-#    (Source inspection, avoids the real network call the method makes.)
-# ---------------------------------------------------------------------------
 def _read_facade_source() -> str:
     with open(CLOUD_ENGINES_PATH, encoding="utf-8") as fh:
         return fh.read()
@@ -86,9 +61,7 @@ def _read_engine_source() -> str:
 
 
 def test_test_connection_deepgram_branch_uses_helper() -> None:
-    """The Deepgram branch of ``test_connection`` must obtain its empty
-    WAV payload from ``_audio_to_wav_bytes``, NOT from a hand-crafted
-    ``b\"RIFF...\"`` literal."""
+    """The Deepgram branch of ``test_connection`` must obtain its empty"""
     src = _read_engine_source()
     # The method body must be present.
     assert "def test_connection" in src, "test_connection method not found"
@@ -100,9 +73,7 @@ def test_test_connection_deepgram_branch_uses_helper() -> None:
 
 
 def test_no_hand_crafted_wav_magic_bytes_in_module() -> None:
-    """The hand-crafted 44-byte WAV literal must not appear anywhere in
-    the engine module anymore, the helper is the single source of
-    truth for WAV encoding."""
+    """truth for WAV encoding."""
     src = _read_engine_source()
     hand_crafted = (
         b"RIFF\x24\x00\x00\x00WAVEfmt \x10\x00\x00\x00"
@@ -112,15 +83,8 @@ def test_no_hand_crafted_wav_magic_bytes_in_module() -> None:
     assert hand_crafted not in src.encode(), "hand-crafted WAV magic bytes are still present in cloud_engines.py"
 
 
-# ---------------------------------------------------------------------------
-# 4. ``time``, ``wave``, ``datetime`` are imported at module top.
-# ---------------------------------------------------------------------------
 def test_stdlib_imports_hoisted_to_module_top() -> None:
-    """``import time``, ``import wave`` and ``from datetime import ...``
-    must appear in the first 30 lines of ``cloud_engines.py`` (i.e. the
-    module-top import block). The lazy in-function ``import time as
-    _time`` / ``import wave`` / ``from datetime import datetime, ...``
-    patterns must be gone."""
+    """``import time``, ``import wave`` and ``from datetime import ...``"""
     with open(CLOUD_ENGINES_PATH, encoding="utf-8") as fh:
         head = fh.read().splitlines()[:30]
     head_text = "\n".join(head)
@@ -133,7 +97,6 @@ def test_stdlib_imports_hoisted_to_module_top() -> None:
     full_src = _read_facade_source()
     assert "import time as _time" not in full_src, "lazy `import time as _time` still present"
     # `import wave` may only appear once, at module top. A second
-    # occurrence inside a function would be a lazy import regression.
     assert full_src.count("import wave") == 1, (
         f"expected exactly one `import wave` (module-top); found {full_src.count('import wave')}"
     )
@@ -146,8 +109,7 @@ def test_stdlib_imports_hoisted_to_module_top() -> None:
 
 
 def test_module_exports_time_wave_datetime() -> None:
-    """Sanity: after hoisting, ``time``, ``wave``, ``datetime`` and
-    ``timezone`` are accessible as module attributes of ``cloud_engines``."""
+    """Sanity: after hoisting, ``time``, ``wave``, ``datetime`` and"""
     import datetime as _dt  # noqa: F401  (for isinstance check)
 
     assert cloud_engines.time is not None

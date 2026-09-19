@@ -1,20 +1,4 @@
-"""Tests for Sub-Agent G (Round R8) backend perf + RT-safety + leak fixes.
-
-Covers four c-review findings:
-- PERF-02 (G1): ``Recorder._vad.vad_enabled`` cached instead of recomputed
-  on every access. Refreshed by ``on_config_changed()`` + 5-second TTL
-  safety net.
-- PERF-03 (G2): ``level_monitor`` PortAudio callback does ONLY
-  ``deque.append`` + ``Event.set()``. Heavy work runs on a worker
-  thread. Test verifies the callback completes in <1 ms even with a
-  50 ms slow filter chain.
-- MEM-01 (G3): ``AsrBackendRegistry.load_with_fallback`` calls
-  ``backend.unload()`` on the failed backend BEFORE unregistering +
-  falling back, so partially-allocated torch/CUDA/model resources are
-  released.
-- CPU-02 (G4): ``VolumeDucker.initialize`` disables smart-duck when
-  the active macOS backend is osascript (not CoreAudio).
-"""
+"""Covers four c-review findings:"""
 
 from __future__ import annotations
 
@@ -25,10 +9,6 @@ from unittest.mock import MagicMock
 
 import numpy as np
 import pytest
-
-# ═══════════════════════════════════════════════════════════════════════════
-# G1 (PERF-02): _vad_enabled cache
-# ═══════════════════════════════════════════════════════════════════════════
 
 
 class TestVadEnabledCache:
@@ -57,8 +37,6 @@ class TestVadEnabledCache:
         rec = self._make_recorder()
         # First access computes the cache.
         v1 = rec._vad.vad_enabled
-        # Second access returns the cached value without re-running the
-        # 6 getattr() calls.
         v2 = rec._vad.vad_enabled
         assert v1 is v2
         # Sanity: with all noise filters off + method="none", VAD is disabled.
@@ -73,7 +51,6 @@ class TestVadEnabledCache:
 
         # Flip a noise filter on.
         rec.config.noise_filter_highpass = True
-        # WITHOUT on_config_changed, the cache still holds the old value
         # (within the 5-second TTL window).
         assert rec._vad.vad_enabled is False, "cache should NOT refresh without explicit hook"
 
@@ -96,21 +73,9 @@ class TestVadEnabledCache:
         assert rec._vad.vad_enabled is True, "TTL safety net must refresh stale cache"
 
     def test_vad_enabled_cache_is_bool_not_none_after_init(self):
-        """After __init__, the cache attribute is a bool (not None).
-
-        ``Recorder.__init__`` calls ``self._vad_enabled`` once (to log
-        whether VAD is disabled), so the cache is populated before
-        ``__init__`` returns. This test guards against a regression
-        that leaves the cache as ``None`` (which would force every
-        subsequent access to recompute).
-        """
+        """After __init__, the cache attribute is a bool (not None)."""
         rec = self._make_recorder()
         assert isinstance(rec._vad.vad_enabled_cached, bool)
-
-
-# ═══════════════════════════════════════════════════════════════════════════
-# G2 (PERF-03): level_monitor RT-safety
-# ═══════════════════════════════════════════════════════════════════════════
 
 
 def _reset_level_monitor_state():
@@ -143,11 +108,7 @@ def _reset_level_monitor():
 
 
 def _wire_stream_with_callback_capture(monkeypatch):
-    """Wire a mock sd.InputStream that captures the callback for direct invocation.
-
-    Returns ``(mock_stream, captured_callback_holder)`` where the holder is a
-    one-element list the test can read the captured callback from.
-    """
+    """Wire a mock sd.InputStream that captures the callback for direct invocation."""
     import sounddevice as sd
 
     holder = {"callback": None}
@@ -179,19 +140,12 @@ class TestLevelMonitorRTSafety:
     """The level_monitor PortAudio callback must complete in <1ms even with a slow filter."""
 
     def test_callback_returns_in_under_1ms_with_slow_filter(self, monkeypatch):
-        """RT-SAFE-001 (c-review PERF-03): the callback does ONLY deque.append + Event.set().
-
-        With a 50 ms slow filter processor installed, the callback must
-        still return in <1 ms. The slow filter runs on the worker
-        thread, not the callback thread.
-        """
+        """RT-SAFE-001 (c-review PERF-03): the callback does ONLY deque.append + Event.set()."""
         import voice_typer.server.level_monitor as lm
 
         holder = _wire_stream_with_callback_capture(monkeypatch)
 
         # Install a level processor that sleeps 50 ms, simulates
-        # RNNoise CPU cost. If the callback ran this, the callback
-        # would take >50 ms and miss the PortAudio deadline.
         slow_processor = MagicMock()
         slow_processor.process_chunk.side_effect = lambda chunk: (
             __import__("time").sleep(0.05),
@@ -211,8 +165,6 @@ class TestLevelMonitorRTSafety:
         elapsed_ms = (time.perf_counter() - t0) * 1000.0
 
         # The callback must complete in well under the ~32ms PortAudio
-        # deadline, assert <5ms (generous upper bound for CI jitter;
-        # the actual work is ~10µs).
         assert elapsed_ms < 5.0, (
             f"PortAudio callback took {elapsed_ms:.2f}ms, must be <5ms "
             "(RT-SAFE-001: heavy filter chain must run on worker thread, "
@@ -234,8 +186,6 @@ class TestLevelMonitorRTSafety:
         holder["callback"](chunk, 512, None, None)
 
         # The ring buffer should have at least one entry (the worker may
-        # have already drained it, wait briefly for the worker to
-        # process it, then verify the level was updated).
         deadline = time.perf_counter() + 1.0
         while time.perf_counter() < deadline:
             if lm._monitor_level > 0:
@@ -266,8 +216,6 @@ class TestLevelMonitorRTSafety:
 
         assert lm._monitor_level > 0
         # The smoothed level for a 0.25-amplitude chunk should be
-        # roughly 0.25 * 0.4 = 0.1 (first iteration) and grow with
-        # smoothing. Just verify it's positive and reasonable.
         assert 0 < lm._monitor_level < 1.0
         lm.stop_monitoring()
 
@@ -295,14 +243,12 @@ class TestLevelMonitorRTSafety:
         chunk = np.ones((512, 1), dtype=np.float32) * 0.25
         t0 = time.perf_counter()
         # The callback should NOT block on _monitor_lock, it only
-        # does deque.append + Event.set().
         holder["callback"](chunk, 512, None, None)
         elapsed_ms = (time.perf_counter() - t0) * 1000.0
 
         t.join(timeout=2.0)
 
         # Even with lock contention, the callback must return quickly.
-        # deque.append + Event.set() don't touch _monitor_lock.
         assert elapsed_ms < 50.0, (
             f"Callback took {elapsed_ms:.2f}ms under lock contention, "
             "the callback must NOT acquire _monitor_lock (RT-SAFE-001)."
@@ -310,27 +256,16 @@ class TestLevelMonitorRTSafety:
         lm.stop_monitoring()
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# G3 (): ASR registry unload leak
-# ═══════════════════════════════════════════════════════════════════════════
-
-
 class TestAsrRegistryUnloadOnLoadFailure:
     """``load_with_fallback`` calls ``unload()`` on the failed backend before unregistering."""
 
     def _make_backend(self, load_raises: bool = True):
-        """Build a mock backend that allocates a 'tensor' in load() then optionally raises.
-
-        The ``unload()`` method clears the fake tensor, so the test can
-        assert the tensor was released by checking the attribute after
-        ``load_with_fallback`` returns.
-        """
+        """Build a mock backend that allocates a 'tensor' in load() then optionally raises."""
         backend = MagicMock()
         backend.allocated_tensor = None  # tracks whether unload freed the tensor
 
         def fake_load(progress_callback=None):
             # Simulate a partial load: allocate a 'tensor' (real engines
-            # allocate torch tensors / CUDA contexts here).
             backend.allocated_tensor = object()
             if load_raises:
                 raise RuntimeError("simulated load failure after partial allocation")
@@ -345,16 +280,7 @@ class TestAsrRegistryUnloadOnLoadFailure:
         return backend
 
     def test_failed_backend_unload_called_before_fallback(self):
-        """MEM-01: unload() is called on the failed backend BEFORE fallback.
-
-        XS-17 (F-09): the failed primary backend is intentionally NOT
-        unregistered, it stays in ``_backends`` so subsequent
-        ``load_with_fallback`` calls can retry it (and increment the
-        failure counter toward the disable threshold). The original
-        test name ``..._before_unregister`` predates this design
-        change; the assertion on ``registry.get("qwen") is None`` has
-        been updated to assert the backend stays registered.
-        """
+        """MEM-01: unload() is called on the failed backend BEFORE fallback."""
         from voice_typer.server.asr_registry import AsrBackendRegistry
 
         config = SimpleNamespace(asr_backend="qwen")
@@ -369,7 +295,6 @@ class TestAsrRegistryUnloadOnLoadFailure:
 
         # Fallback returned the whisper backend.
         assert result is whisper_backend
-        # the failed backend's unload() was called.
         failed_backend.unload.assert_called_once()
         # The fake tensor was released by unload().
         assert failed_backend.allocated_tensor is None, (
@@ -377,21 +302,12 @@ class TestAsrRegistryUnloadOnLoadFailure:
             "without it, the failed backend leaks the tensor until GC"
         )
         # (F-09): the failed backend is intentionally kept
-        # registered so it can be retried on the next call.
         assert registry.get("qwen") is failed_backend
         # The whisper fallback's load was called and succeeded.
         whisper_backend.load.assert_called_once()
 
     def test_unload_failure_does_not_prevent_fallback(self):
-        """If unload() itself raises, the fallback still proceeds.
-
-        XS-17 (F-09): the failed primary backend is intentionally NOT
-        unregistered even if ``unload()`` raises, the registry keeps it
-        around so subsequent calls can retry. The original test name
-        ``..._does_not_prevent_unregister`` predates this design
-        change; the assertion on ``registry.get("qwen") is None`` has
-        been updated accordingly.
-        """
+        """If unload() itself raises, the fallback still proceeds."""
         from voice_typer.server.asr_registry import AsrBackendRegistry
 
         config = SimpleNamespace(asr_backend="qwen")
@@ -408,7 +324,6 @@ class TestAsrRegistryUnloadOnLoadFailure:
         result = registry.load_with_fallback()
 
         assert result is whisper_backend
-        # unload() was attempted (and failed).
         failed_backend.unload.assert_called_once()
         # (F-09): the failed backend stays registered for retry.
         assert registry.get("qwen") is failed_backend
@@ -451,20 +366,11 @@ class TestAsrRegistryUnloadOnLoadFailure:
         ok_backend.unload.assert_not_called()
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# G4 (CPU-02): osascript smart-duck disable
-# ═══════════════════════════════════════════════════════════════════════════
-
-
 class TestOsascriptSmartDuckDisable:
     """``VolumeDucker.initialize`` disables smart-duck when backend is osascript."""
 
     def _make_backend(self, name: str, recommended_poll_ms: int = 500):
-        """Build a duck-typed backend with the given ``name``.
-
-        We don't extend ``VolumeBackend`` because the production check
-        is duck-typed (it uses ``getattr(self._backend, "name", "")``).
-        """
+        """Build a duck-typed backend with the given ``name``."""
         backend = MagicMock()
         backend.name = name
         backend.recommended_poll_interval_ms = recommended_poll_ms
@@ -503,7 +409,6 @@ class TestOsascriptSmartDuckDisable:
         from voice_typer.server.volume_ducker import VolumeDucker
 
         # Simulate a Linux pactl backend (50ms per call, slower than
-        # CoreAudio but not as catastrophic as osascript 200-500ms).
         backend = self._make_backend(name="pulseaudio", recommended_poll_ms=50)
         ducker = VolumeDucker(backend=backend)
         ducker.initialize()
@@ -527,24 +432,8 @@ class TestOsascriptSmartDuckDisable:
         assert ducker.smart_duck_enabled is False
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# level_monitor test-chunk deques are bounded (maxlen) so a
-# forgotten stop_test_recording() can't accumulate unbounded audio.
-# ═══════════════════════════════════════════════════════════════════════════
-
-
 class TestLevelMonitorTestChunkBounds:
-    """MEM-02: _test_chunks / _test_raw_chunks are bounded deques.
-
-    Guards against the regression where they were plain (unbounded)
-    ``list[np.ndarray]`` that lingered in memory if the IPC client
-    crashed mid-test and never called stop/cancel.
-
-    The maxlen must be DYNAMIC, derived from the CURRENT device
-    sample rate (16k / 44.1k / 48k) and the requested duration —
-    NOT a hardcoded constant. A 48 kHz / 30 s test holds far more
-    chunks than a 16 kHz / 10 s one.
-    """
+    """MEM-02: _test_chunks / _test_raw_chunks are bounded deques."""
 
     def test_queues_are_bounded_deques_at_import(self):
         """At import, both queues are collections.deque with a maxlen set."""
@@ -554,8 +443,6 @@ class TestLevelMonitorTestChunkBounds:
 
         assert isinstance(lm._test_chunks, collections.deque)
         assert isinstance(lm._test_raw_chunks, collections.deque)
-        # maxlen must be a positive int (the absolute hard cap ~2813
-        # for 30s @ 48kHz), never None (None == unbounded).
         assert lm._test_chunks.maxlen is not None
         assert lm._test_chunks.maxlen > 0
         assert lm._test_raw_chunks.maxlen == lm._test_chunks.maxlen
@@ -596,12 +483,7 @@ class TestLevelMonitorTestChunkBounds:
         assert cap_48k > cap_16k * 2  # 3x rate => ~3x chunks
 
     def test_forgotten_stop_cannot_exceed_capacity(self, monkeypatch):
-        """Even without stop/cancel, appends past maxlen drop the oldest.
-
-        Simulates the IPC-client-crash scenario: start a test, push
-        MANY more chunks than the capacity, and verify the deque never
-        grows past maxlen (bounded memory, no leak).
-        """
+        """Even without stop/cancel, appends past maxlen drop the oldest."""
         import voice_typer.server.level_monitor as lm
 
         _wire_stream_with_callback_capture(monkeypatch)
@@ -619,7 +501,6 @@ class TestLevelMonitorTestChunkBounds:
         # Bounded: length never exceeds maxlen.
         assert len(lm._test_chunks) == cap
         assert len(lm._test_raw_chunks) == cap
-        # raw + processed stay in lockstep (concatenation safety).
         assert len(lm._test_chunks) == len(lm._test_raw_chunks)
 
         # Now a real stop must still return exactly `cap` chunks of audio.
@@ -629,12 +510,7 @@ class TestLevelMonitorTestChunkBounds:
         assert result["audio_file"]["bytes"] > 0
 
     def test_stop_preserves_bounded_deque_type(self, monkeypatch):
-        """stop_test_recording clears in place, it must NOT reassign to [].
-
-        A naive ``_test_chunks = []`` would clobber the deque back to
-        an unbounded list and reintroduce the leak. Verify the type and
-        maxlen survive a stop+restart cycle.
-        """
+        """stop_test_recording clears in place, it must NOT reassign to []."""
         import collections
 
         import voice_typer.server.level_monitor as lm
@@ -662,13 +538,7 @@ class TestLevelMonitorTestChunkBounds:
         lm.cancel_test_recording()
 
     def test_auto_stop_does_not_clear_chunks_until_retrieved(self, monkeypatch):
-        """Auto-stop must NOT clear chunks, frontend retrieves them after.
-
-        Regression guard: if _do_auto_stop_test cleared _test_chunks,
-        the post-autostop stop_test_recording() (used by the frontend
-        to fetch audio) would return no audio. The deque bound caps the
-        lingering audio at one test's worth, which is the intended fix.
-        """
+        """Auto-stop must NOT clear chunks, frontend retrieves them after."""
         import voice_typer.server.level_monitor as lm
 
         _wire_stream_with_callback_capture(monkeypatch)
@@ -689,7 +559,6 @@ class TestLevelMonitorTestChunkBounds:
         result = lm.stop_test_recording()
         assert result["success"] is True
         # File-reference transport: a non-empty persisted WAV ref proves
-        # the captured chunks were retrievable after auto-stop.
         assert isinstance(result["audio_file"], dict)
         assert result["audio_file"]["bytes"] > 0
         # After retrieval, cleared (and still a bounded deque).

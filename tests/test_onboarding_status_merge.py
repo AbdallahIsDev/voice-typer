@@ -1,12 +1,4 @@
-"""Tests for the merged ``.onboarding_status.json`` document.
-
-``voice_typer/server/onboarding_status.py`` consolidated the three
-legacy onboarding marker files (``.onboarding_complete``,
-``.onboarding_started``, ``.onboarding_fail_count``) into ONE JSON
-document. These tests pin the merge schema, the one-time migration
-(read legacy → write status → delete legacy), and the
-read/write/reset contracts.
-"""
+"""Tests for the merged ``.onboarding_status.json`` document."""
 
 from __future__ import annotations
 
@@ -16,13 +8,10 @@ from pathlib import Path
 import pytest
 from voice_typer.server import onboarding_status as os_mod
 
-# ── read_status ────────────────────────────────────────────────────────
-
 
 class TestReadStatus:
     def test_defaults_when_nothing_exists(self, tmp_path: Path) -> None:
-        """No status file and no legacy markers → defaults, and the
-        status file is NOT created (a fresh install has no state)."""
+        """No status file and no legacy markers → defaults, and the"""
         data = os_mod.read_status(tmp_path)
         assert data == {
             "version": 1,
@@ -61,10 +50,7 @@ class TestReadStatus:
         assert data["fail_count"] == 0
 
     def test_pre_rename_count_key_is_migrated_to_fail_count(self, tmp_path: Path) -> None:
-        """Documents written before the ``count`` → ``fail_count`` rename
-        keep the old key; reads must map it onto the canonical
-        ``fail_count`` and a read-modify-write must drop the legacy key.
-        """
+        """Documents written before the ``count`` → ``fail_count`` rename"""
         (tmp_path / os_mod.ONBOARDING_STATUS_FILENAME).write_text(
             json.dumps(
                 {
@@ -85,9 +71,6 @@ class TestReadStatus:
         raw = json.loads((tmp_path / os_mod.ONBOARDING_STATUS_FILENAME).read_text(encoding="utf-8"))
         assert raw["fail_count"] == 29
         assert "count" not in raw
-
-
-# ── migration ──────────────────────────────────────────────────────────
 
 
 class TestLegacyMigration:
@@ -121,8 +104,6 @@ class TestLegacyMigration:
         assert not (tmp_path / ".onboarding_complete").exists()
 
     def test_write_triggers_migration_first(self, tmp_path: Path) -> None:
-        # A write on a legacy-only dir migrates FIRST, then applies the
-        # update, so the completed flag from the legacy marker survives.
         self._seed_legacy(tmp_path)
         os_mod.write_status(tmp_path, started=False)
         data = json.loads((tmp_path / os_mod.ONBOARDING_STATUS_FILENAME).read_text(encoding="utf-8"))
@@ -133,7 +114,6 @@ class TestLegacyMigration:
 
     def test_partial_legacy_markers(self, tmp_path: Path) -> None:
         # Only the fail counter exists (e.g. an install that never
-        # started the wizard).
         (tmp_path / ".onboarding_fail_count").write_text(
             json.dumps({"count": 2, "last_fail_ts": 1.0}), encoding="utf-8"
         )
@@ -153,13 +133,9 @@ class TestLegacyMigration:
         assert (tmp_path / os_mod.ONBOARDING_STATUS_FILENAME).exists()
 
 
-# ── write_status / reset_status ────────────────────────────────────────
-
-
 class TestWriteAndReset:
     def test_write_preserves_unknown_fields(self, tmp_path: Path) -> None:
         # Forward-compat: fields written by a newer app version must
-        # survive a read-modify-write by this version.
         (tmp_path / os_mod.ONBOARDING_STATUS_FILENAME).write_text(
             json.dumps(
                 {
@@ -192,8 +168,7 @@ class TestWriteAndReset:
         os_mod.reset_status(tmp_path)  # must not raise
 
     def test_write_raises_on_disk_failure(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        """write_status propagates write errors (the mark_complete
-        re-raise contract)."""
+        """write_status propagates write errors (the mark_complete"""
         import voice_typer.server.secure_file_io as sio
 
         def _boom(*_args: object, **_kwargs: object) -> None:

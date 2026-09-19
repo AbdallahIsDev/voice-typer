@@ -1,11 +1,4 @@
-"""BP-158: single authoritative model-availability verdicts.
-
-All consumers (service status poll, tray submenu, tooltip probe,
-model-manager precheck) consult ``model_availability.is_available``.
-Freshness comes from directory mtime + explicit invalidation, not
-TTL expiry. Hermetic: fake repo dirs, controlled mtimes, an injected
-call-counting probe stub (the real snapshot probe never runs here).
-"""
+"""BP-158: single authoritative model-availability verdicts."""
 
 from __future__ import annotations
 
@@ -136,9 +129,7 @@ class TestInProgressOverride:
 
 
 class TestAdversarialMutation:
-    """A mutation that preserves mtime is invisible until invalidated —
-    then the store re-probes and corrects. This pins the documented
-    contract: mtime is a fast path, invalidation is the authority."""
+    """A mutation that preserves mtime is invisible until invalidated —"""
 
     def test_pinned_mtime_serves_stale_then_corrects_on_invalidate(self, tmp_path: Path):
         verdicts = [True]
@@ -150,8 +141,6 @@ class TestAdversarialMutation:
         pinned = 1_700_000_000_000_000_000
         _set_mtime(repo_dir, pinned)
         assert ma.is_available("org/repo", tmp_path, probe=probe) is True
-        # Mutate behind the cache's back (files removed) but pin the
-        # mtime so the fingerprint still matches.
         for child in repo_dir.iterdir():
             if child.is_file():
                 child.unlink()
@@ -192,13 +181,7 @@ class TestSnapshotDir:
 
 
 class TestTooltipCheapness:
-    """The 1 s tooltip tick's probe cost: 10 checks, 1 probe.
-
-    (The tick still recomputes the tooltip string every second, the
-    mm:ss clock must tick, but the filesystem cost is a single stat
-    per check once warm. Publish dedup already suppresses identical
-    tooltips.)
-    """
+    """The 1 s tooltip tick's probe cost: 10 checks, 1 probe."""
 
     def test_ten_checks_one_probe(self, tmp_path: Path):
         calls = []
@@ -215,14 +198,7 @@ class TestTooltipCheapness:
 
 
 class TestConcurrentSingleFlight:
-    """Concurrent checks for the SAME key probe exactly once.
-
-    Startup runs the tray menu build and the Models status poll on
-    concurrent threads; both ask about the same repo within the same
-    second. Without single-flight both miss the empty store and both
-    run the snapshot probe (duplicate HF probe + duplicate probe-miss
-    log). With it, the waiter serves the owner's verdict.
-    """
+    """Concurrent checks for the SAME key probe exactly once."""
 
     def test_concurrent_checks_probe_once(self, tmp_path: Path):
         import threading
@@ -250,7 +226,6 @@ class TestConcurrentSingleFlight:
             t.start()
         try:
             # Let every worker block inside the probe (or join it), then
-            # release the single owner exactly once.
             deadline = time.monotonic() + 30.0
             while time.monotonic() < deadline and len(calls) < 1:
                 time.sleep(0.01)
@@ -266,8 +241,7 @@ class TestConcurrentSingleFlight:
 
 
 class TestMonotonicHygiene:
-    """Entries much older than the freshness window re-probe even when
-    the mtime matches (bounds trust in a stale filesystem view)."""
+    """Entries much older than the freshness window re-probe even when"""
 
     def test_ancient_entry_reprobes(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         calls = []

@@ -1,12 +1,4 @@
-"""Mocked coverage for the macOS pasteboard capture path.
-
-The restore half already has thorough mocked tests elsewhere; the
-capture half had none. These tests exercise
-``ClipboardSnapshot._capture_macos`` headlessly by installing a fake
-``AppKit`` module, so they run on Linux CI and on the macOS
-host-validation runner without touching the real pasteboard server
-(which needs an interactive session).
-"""
+"""Mocked coverage for the macOS pasteboard capture path."""
 
 from __future__ import annotations
 

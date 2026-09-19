@@ -1,12 +1,4 @@
-"""Audio-quality chunk delegation-loss warning gate: unit tests.
-
-The audio pipeline delivers quality chunks at ~94 Hz. When the
-``audio_quality`` controller is unavailable (lazy-init failed), the
-delegation path in ``VoiceTyperApp._on_audio_quality_chunk`` must warn
-exactly ONCE per delegate-loss episode instead of once per chunk
-(~94 WARNING lines per second of recording). The latch resets on the
-first successful delegation so a fresh loss episode warns again.
-"""
+"""Audio-quality chunk delegation-loss warning gate: unit tests."""
 
 from __future__ import annotations
 
@@ -23,8 +15,7 @@ from voice_typer.server.app import (
 
 
 def _make_app() -> VoiceTyperApp:
-    """Build a ``VoiceTyperApp`` via ``__new__`` with only the lazy-init
-    backing fields the ``audio_quality`` property reads."""
+    """Build a ``VoiceTyperApp`` via ``__new__`` with only the lazy-init"""
     app = VoiceTyperApp.__new__(VoiceTyperApp)
     app._audio_quality_backing = None
     app._audio_quality_failed_at = None
@@ -32,9 +23,7 @@ def _make_app() -> VoiceTyperApp:
 
 
 def _make_delegateless_app() -> VoiceTyperApp:
-    """Build an app whose ``audio_quality`` property returns None for the
-    whole test (fresh lazy-init failure inside the retry TTL, the
-    property returns None without re-attempting construction)."""
+    """property returns None without re-attempting construction)."""
     app = _make_app()
     app._audio_quality_backing = _LAZY_FAILED
     app._audio_quality_failed_at = time.monotonic()
@@ -54,8 +43,6 @@ class TestAudioQualityChunkWarningGate:
             "delegate-less chunks arrive at ~94 Hz; the warning must fire "
             "exactly once per delegate-loss episode, not once per chunk"
         )
-        # Subsequent chunks stay audible at debug level (or silent), but
-        # never as warnings.
         debugs = [r for r in caplog.records if r.levelno == logging.DEBUG]
         assert len(debugs) >= 1
 

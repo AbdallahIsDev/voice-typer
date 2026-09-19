@@ -1,21 +1,4 @@
-"""FR-13 regression: STATUS_GUARD_PAGE_VIOLATION is excluded from ``_CRASH_CODES``.
-
-Pre-FR-13, ``STATUS_GUARD_PAGE_VIOLATION`` (0x80000001, severity=warning,
-NON-FATAL) was included in ``_CRASH_CODES``. The VEH callback at
-``_veh_callback.py:225-226`` checks the rate-limit flag at callback entry;
-``:345`` sets ``_ch._crash_written = True`` after the first crash-record
-write (NEVER reset within the process). A single non-fatal
-STATUS_GUARD_PAGE_VIOLATION event permanently silenced the VEH for the
-rest of the process, real crashes during the same session left no
-diagnostic record, breaking the ``report_pending_crash`` -> user
-notification loop on next startup.
-
-Post-FR-13, the code is removed from ``_CRASH_CODES``. The constant
-itself (``STATUS_GUARD_PAGE_VIOLATION``) and the friendly-name lookup
-(``_NAME_GUARD_PAGE``) are RETAINED for back-compat, the VEH callback's
-elif branch remains as a defensive no-op (the ``_CRASH_CODES`` gate at
-callback entry already filters the code out).
-"""
+"""FR-13 regression: STATUS_GUARD_PAGE_VIOLATION is excluded from ``_CRASH_CODES``."""
 
 from __future__ import annotations
 
@@ -26,12 +9,7 @@ from voice_typer.server.crash_handler import _constants
 
 
 class TestGuardPageExcluded:
-    """``STATUS_GUARD_PAGE_VIOLATION`` is NOT in ``_CRASH_CODES``.
-
-    This is the core FR-13 invariant, without it, a single non-fatal
-    guard-page event would set ``_crash_written = True`` and permanently
-    silence the VEH for the rest of the process.
-    """
+    """``STATUS_GUARD_PAGE_VIOLATION`` is NOT in ``_CRASH_CODES``."""
 
     def test_guard_page_violation_not_in_crash_codes(self):
         """FR-13: STATUS_GUARD_PAGE_VIOLATION is NOT in ``_CRASH_CODES``."""
@@ -43,27 +21,11 @@ class TestGuardPageExcluded:
         )
 
     def test_guard_page_violation_value_unchanged(self):
-        """FR-13 back-compat: the constant's VALUE is unchanged.
-
-        The constant is retained so the VEH callback's elif branch
-        remains a defensive no-op (the ``_CRASH_CODES`` gate already
-        filters it out). External callers and the docstring still
-        reference ``0x80000001``.
-        """
+        """FR-13 back-compat: the constant's VALUE is unchanged."""
         assert crash_handler.STATUS_GUARD_PAGE_VIOLATION == 0x80000001
 
     def test_guard_page_violation_is_warning_severity(self):
-        """FR-13 rationale: the high bit (0x80000000) of the NTSTATUS
-        layout indicates ``severity=warning`` (0x1 = success, 0x2 = info,
-        0x3 = warning, 0xC = error). STATUS_GUARD_PAGE_VIOLATION has
-        severity=1 (the high 2 bits are ``0b10`` = 0x8... but the
-        Windows NTSTATUS severity field is bits 30-31; 0x80000001 has
-        severity=2 = WARNING per the Microsoft NTSTATUS layout), not
-        severity=3 (ERROR) like the other ``0xC...`` codes in
-        ``_CRASH_CODES``. It does NOT terminate the process, the OS
-        uses it for stack-growth probe pages and C-extension guard-page
-        probes.
-        """
+        """FR-13 rationale: the high bit (0x80000000) of the NTSTATUS"""
         code = crash_handler.STATUS_GUARD_PAGE_VIOLATION
         # Extract the severity field (bits 30-31).
         severity = (code >> 30) & 0x3
@@ -75,10 +37,7 @@ class TestGuardPageExcluded:
         )
 
     def test_all_other_codes_still_in_crash_codes(self):
-        """FR-13 non-regression: the OTHER 8 YJ-42 extended codes remain
-        in ``_CRASH_CODES``. Only STATUS_GUARD_PAGE_VIOLATION was
-        removed, the fix is surgical, not a blanket rollback of YJ-42.
-        """
+        """FR-13 non-regression: the OTHER 8 YJ-42 extended codes remain"""
         remaining_extended = frozenset(
             {
                 crash_handler.STATUS_ILLEGAL_INSTRUCTION,
@@ -96,9 +55,7 @@ class TestGuardPageExcluded:
         )
 
     def test_original_four_codes_still_in_crash_codes(self):
-        """FR-13 non-regression: the original 4 fatal codes are still
-        in ``_CRASH_CODES`` (HEAP_CORRUPTION, ACCESS_VIOLATION,
-        STACK_BUFFER_OVERRUN, FATAL_APP_EXIT)."""
+        """FR-13 non-regression: the original 4 fatal codes are still"""
         original_four = frozenset(
             {
                 crash_handler.STATUS_HEAP_CORRUPTION,
@@ -110,14 +67,7 @@ class TestGuardPageExcluded:
         assert original_four <= crash_handler._CRASH_CODES
 
     def test_guard_page_friendly_name_retained(self):
-        """FR-13 back-compat: the ``_NAME_GUARD_PAGE`` pre-encoded
-        friendly-name byte string is RETAINED so the VEH callback's
-        elif branch remains a defensive no-op (the ``_CRASH_CODES``
-        gate at callback entry already filters the code out before the
-        elif chain is reached). Removing the constant would break the
-        ``test_crash_handler_split.py`` back-compat surface check that
-        asserts every re-exported name still exists on the facade.
-        """
+        """FR-13 back-compat: the ``_NAME_GUARD_PAGE`` pre-encoded"""
         assert crash_handler._NAME_GUARD_PAGE, (
             "FR-13: _NAME_GUARD_PAGE constant must be RETAINED (the VEH "
             "callback's elif branch references it; removing would break "
@@ -127,13 +77,8 @@ class TestGuardPageExcluded:
         assert b"STATUS_GUARD_PAGE_VIOLATION" in crash_handler._NAME_GUARD_PAGE
 
 
-# ─── _constants module surface ────────────────────────────────────────
-
-
 class TestConstantsModuleSurface:
-    """Direct assertions against ``_constants`` (no facade indirection)
-    so a future refactor that moves the constant between modules is
-    caught."""
+    """Direct assertions against ``_constants`` (no facade indirection)"""
 
     def test_constants_module_excludes_guard_page_from_crash_codes(self):
         assert _constants.STATUS_GUARD_PAGE_VIOLATION not in _constants._CRASH_CODES

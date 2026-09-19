@@ -1,42 +1,4 @@
-"""FR-22 / FR-23 regression tests for the tray menu + icon locks.
-
-These tests guard the thread-safety fixes added for:
-
-  * **FR-22** (Medium): ``tray_menu.py:build_menu_for_tray`` and
-    ``invalidate_menu_cache`` read+write ``tray._cached_menu`` /
-    ``tray._menu_cache_valid`` / ``tray._microphones`` without any
-    lock.    ``invalidate_menu_cache`` is called from background threads
-    (e.g. ``set_microphones`` from the device watcher). On Windows,
-    ``pystray.Icon._update_menu()`` calls ``DestroyMenu`` /
-    ``CreatePopupMenu``, not guaranteed thread-safe.
-    Fix: ``tray._menu_lock`` (``threading.RLock``) serializes the
-    check-then-build-then-cache sequence in ``build_menu_for_tray``
-    AND the flag-clear + ``_update_menu()`` pair in
-    ``invalidate_menu_cache``. RLock (not Lock) because
-    ``invalidate_menu_cache`` holds the lock while calling
-    ``_icon._update_menu()``, and pystray's ``_update_menu`` iterates
-    the ``pystray.Menu(tray._build_menu)`` callable, which re-enters
-    ``build_menu_for_tray`` on the SAME thread (a plain Lock would
-    self-deadlock, permanently wedging the IPC dispatch worker and
-    producing the 15s ``command_timeout`` storm).
-
-  * **FR-23** (Medium): ``tray.py:_apply_state`` + ``stop`` had no
-    lock around ``self._icon`` access. Between ``self._icon.stop()``
-    returning and ``self._icon = None`` executing, a concurrent
-    ``_apply_state`` could read ``self._icon`` as non-None, then call
-    ``self._icon.icon = ...`` on a torn-down Icon, the documented
-    WinError 1402 trigger.
-    Fix: ``tray._icon_lock`` (``threading.RLock``) serializes the
-    ``if not self._icon: return`` + writes in ``_apply_state`` AND
-    the ``stop()`` + ``= None`` pair in ``stop()``. ``_apply_state``
-    re-checks ``self._icon`` INSIDE the lock so the caller's racy
-    ``if self._icon:`` check (in ``set_state``) is not authoritative.
-
-The concurrency stress tests below spawn N threads through the
-production lock-using paths and assert no thread raises (no torn
-reads, no AttributeError on a torn-down Icon) and no thread hangs
-within the timeout (no deadlock).
-"""
+"""FR-22 / FR-23 regression tests for the tray menu + icon locks."""
 
 from __future__ import annotations
 
@@ -70,13 +32,7 @@ class _FakeMenuItem:
 
 
 class _FakeIcon:
-    """Stand-in pystray.Icon whose ``stop()`` simulates the teardown
-    race window that FR-23 guards against.
-
-    ``stop_was_called`` lets the test assert that a concurrent
-    ``_apply_state`` did NOT touch the icon after ``stop()`` (which
-    would be the WinError 1402 torn-down-Icon write).
-    """
+    """Stand-in pystray.Icon whose ``stop()`` simulates the teardown"""
 
     def __init__(self, **kwargs):
         self.menu = kwargs.get("menu")
@@ -84,10 +40,6 @@ class _FakeIcon:
         self.title = kwargs.get("title", "")
         self._run_called = False
         self.stop_was_called = False
-        # race amplifier: when stop_was_called is True, any
-        # subsequent attribute write raises (simulating a torn-down
-        # Icon on Windows). Without the lock, _apply_state would hit
-        # this after stop() returns but before _icon = None lands.
         self._torn_down = False
 
     def run(self):
@@ -102,15 +54,10 @@ class _FakeIcon:
 
     def _update_menu(self):
         # If the icon is torn down, _update_menu is a no-op (the real
-        # pystray would raise / log). The lock in invalidate_menu_cache
-        # serializes this against build_menu_for_tray.
         if self._torn_down:
             return
 
     def __setattr__(self, name, value):
-        # After stop(), writes to .icon / .title raise to simulate the
-        # WinError 1402 torn-down-Icon symptom. This is the exact race
-        # prevents: _apply_state must not write to a stopped Icon.
         if getattr(self, "_torn_down", False) and name in ("icon", "title"):
             raise OSError("WinError 1402: invalid cursor handle (torn-down Icon)")
         super().__setattr__(name, value)
@@ -164,24 +111,11 @@ def _make_tray() -> TrayIcon:
     return TrayIcon(controller=controller, config=config)
 
 
-# menu cache lock ─────────────────────────────────────────────
-
-
 class TestMenuLockDeclared:
     """FR-22: TrayIcon.__init__ must declare ``_menu_lock``."""
 
     def test_menu_lock_is_reentrant_rlock(self):
-        """FR-22: ``_menu_lock`` must be re-entrant (RLock).
-
-        ``invalidate_menu_cache`` holds the lock while calling
-        ``tray._icon._update_menu()``; pystray's ``_update_menu``
-        iterates the menu, and ``pystray.Menu(callable)`` INVOKES the
-        callable on iteration, so ``build_menu_for_tray`` re-enters the
-        lock on the SAME thread. A plain ``threading.Lock`` self-
-        deadlocks there, permanently wedging the IPC dispatch worker
-        (the 15s ``command_timeout`` storm). Re-entrant acquisition
-        must succeed.
-        """
+        """FR-22: ``_menu_lock`` must be re-entrant (RLock)."""
         tray = _make_tray()
         with tray._menu_lock, tray._menu_lock:
             pass  # RLock allows re-entrant acquisition from one thread
@@ -196,46 +130,21 @@ class TestMenuLockDeclared:
 
 
 class _CallableMenuIcon:
-    """Fake pystray icon whose ``_update_menu`` iterates a callable menu.
-
-    Mirrors pystray's real behavior: the icon's menu was created as
-    ``pystray.Menu(tray._build_menu)`` (a single callable), and
-    ``_update_menu`` iterates the menu, which INVOKES the callable
-    (pystray's ``Menu.items`` property calls ``self._items[0]()`` when
-    the menu holds a single callable), synchronously re-entering
-    ``build_menu_for_tray`` on the same thread. This is the exact
-    re-entrancy that made a plain ``threading.Lock`` on ``_menu_lock``
-    self-deadlock. Implemented without the real pystray module so the
-    headless-CI mock can't mask the bug.
-    """
+    """Fake pystray icon whose ``_update_menu`` iterates a callable menu."""
 
     def __init__(self, tray):
         self._tray = tray
 
     def _update_menu(self):
-        # pystray's win32 _create_menu does `for descriptor in self.menu`;
-        # iterating a Menu(single-callable) invokes the callable.
         for _descriptor in self._tray._build_menu():
             pass
 
 
 class TestConcurrentBuildAndInvalidateNoException:
-    """FR-22: spawn N threads through build_menu_for_tray +
-    invalidate_menu_cache and assert no thread raises."""
+    """FR-22: spawn N threads through build_menu_for_tray +"""
 
     def test_invalidate_menu_cache_with_live_icon_does_not_self_deadlock(self):
-        """Regression: ``invalidate_menu_cache`` on a LIVE icon must not
-        self-deadlock.
-
-        The dispatch-pool worker thread that runs ``set_tray_locale``
-        calls ``invalidate_menu_cache``, which holds ``_menu_lock``
-        while calling ``_icon._update_menu()``. pystray's
-        ``_update_menu`` re-enters ``build_menu_for_tray`` (via the
-        callable menu) on the same thread, with a plain Lock that is a
-        self-deadlock that permanently wedges the worker (the 15s
-        ``command_timeout`` storm in production). With the RLock fix the
-        re-entrant acquisition succeeds and the call returns.
-        """
+        """Regression: ``invalidate_menu_cache`` on a LIVE icon must not"""
         from voice_typer.server.tray_menu import invalidate_menu_cache
 
         tray = _make_tray()
@@ -268,7 +177,6 @@ class TestConcurrentBuildAndInvalidateNoException:
 
         tray = _make_tray()
         # Set up enough state for build_menu_for_tray to succeed without
-        # a real icon (it reads _microphones / _hotkey / _config / _state).
         tray._microphones = [{"id": "mic1", "name": "Mic 1"}]
         errors: list[Exception] = []
         stop = threading.Event()
@@ -289,8 +197,6 @@ class TestConcurrentBuildAndInvalidateNoException:
                 barrier.wait(timeout=5.0)
                 iterations = 0
                 while not stop.is_set() and iterations < 200:
-                    # invalidate_menu_cache reads tray._icon (None here)
-                    # and calls maybe_publish_tray_menu, both safe headless.
                     invalidate_menu_cache(tray)
                     iterations += 1
             except Exception as e:  # noqa: BLE001
@@ -301,8 +207,6 @@ class TestConcurrentBuildAndInvalidateNoException:
         ]
         for t in threads:
             t.start()
-        # Let them run for 0.5s; if any thread is stuck in a deadlock the
-        # join(timeout=3) below will fail.
         time.sleep(0.5)  # intentional fixed delay (stress-test duration)
         stop.set()
         for t in threads:
@@ -313,8 +217,7 @@ class TestConcurrentBuildAndInvalidateNoException:
         assert not errors, f"concurrent build_menu_for_tray + invalidate_menu_cache raised: {errors}"
 
     def test_concurrent_builds_produce_consistent_menu(self):
-        """Two concurrent builds must not corrupt _cached_menu, both
-        must return a tuple of MenuItems (no half-written state)."""
+        """Two concurrent builds must not corrupt _cached_menu, both"""
         from voice_typer.server.tray_menu import build_menu_for_tray
 
         tray = _make_tray()
@@ -348,17 +251,11 @@ class TestConcurrentBuildAndInvalidateNoException:
         assert isinstance(tray._cached_menu, tuple)
 
 
-# icon lock ───────────────────────────────────────────────────
-
-
 class TestIconLockDeclared:
     """FR-23: TrayIcon.__init__ must declare ``_icon_lock`` as an RLock."""
 
     def test_icon_lock_is_rlock(self):
         tray = _make_tray()
-        # threading.RLock instances are not the RLock class directly
-        # (factory returns a _RLock C object). Verify re-entrancy:
-        # acquiring twice from the same thread must not deadlock.
         with tray._icon_lock, tray._icon_lock:
             pass  # RLock allows re-entrant acquisition
         # If we get here without deadlock, _icon_lock is re-entrant.
@@ -369,14 +266,7 @@ class TestIconLockDeclared:
 
 
 class TestApplyStateStopRaceNoTornDownIconWrite:
-    """FR-23: a concurrent ``_apply_state`` must NOT write to a
-    torn-down Icon during ``stop()``.
-
-    The ``_FakeIcon`` raises ``OSError`` (simulating WinError 1402) on
-    any ``.icon`` / ``.title`` write AFTER ``stop()`` was called. If
-    the lock is missing or the re-check inside the lock is removed,
-    this test will surface the OSError.
-    """
+    """torn-down Icon during ``stop()``."""
 
     def test_concurrent_apply_state_and_stop_no_torn_down_write(self):
         tray = _make_tray()
@@ -393,9 +283,6 @@ class TestApplyStateStopRaceNoTornDownIconWrite:
                 barrier.wait(timeout=5.0)
                 iterations = 0
                 while not stop_event.is_set() and iterations < 500:
-                    # _apply_state must either write to a LIVE icon or
-                    # no-op after stop(), it must NEVER write to a
-                    # torn-down icon (which raises OSError in _FakeIcon).
                     tray._apply_state(AppState.RECORDING, "recording")
                     tray._apply_state(AppState.IDLE, "")
                     iterations += 1
@@ -406,14 +293,7 @@ class TestApplyStateStopRaceNoTornDownIconWrite:
             try:
                 barrier.wait(timeout=5.0)
                 for _ in range(50):
-                    # stop() sets _icon = None under the lock. A
-                    # concurrent _apply_state that reads _icon BEFORE
-                    # the lock but writes AFTER must re-check inside
-                    # the lock and bail out (no torn-down write).
                     tray.stop()
-                    # Re-arm: restart the tray so the next stop() has a
-                    # live icon to tear down. This maximizes the race
-                    # window between _apply_state and stop().
                     tray._icon = _FakeIcon(
                         menu=_FakeMenu(lambda: ()),
                         icon=MagicMock(),
@@ -441,12 +321,9 @@ class TestApplyStateStopRaceNoTornDownIconWrite:
             f"FR-23 race NOT fixed. OSError(s): {torn_down_errors}"
         )
         # Other exceptions (e.g. from re-arming _icon) are acceptable
-        # for this test's purpose, the key assertion is no OSError
-        # from a torn-down Icon write.
 
     def test_stop_sets_icon_none_under_lock(self):
-        """FR-23: after stop(), _icon must be None (the lock doesn't
-        change the observable post-condition, just the race-safety)."""
+        """FR-23: after stop(), _icon must be None (the lock doesn't"""
         tray = _make_tray()
         tray.start(bg_work=None)
         tray.run()
@@ -455,8 +332,7 @@ class TestApplyStateStopRaceNoTornDownIconWrite:
         assert tray._icon is None, "stop() must set _icon = None (FR-23)."
 
     def test_apply_state_noop_when_icon_none(self):
-        """FR-23: _apply_state must return early (no exception) when
-        _icon is None, the re-check inside the lock is the guard."""
+        """FR-23: _apply_state must return early (no exception) when"""
         tray = _make_tray()
         # _icon is None before start(), _apply_state must no-op.
         tray._apply_state(AppState.RECORDING, "recording")

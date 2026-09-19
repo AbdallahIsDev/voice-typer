@@ -1,21 +1,4 @@
-"""regression tests for the recorder + capture fixes.
-
-Covers:
- *, RT-callback exception capture (HIGH)
- *, discard idle fast-path / start-discard race (HIGH, Option A)
- *, stale-worker SPSC: audio_worker_loop accepts explicit events
-            (HIGH; the end-to-end _start_audio_worker variant lives in
-            ``tests/test_recording.py``
-            ``TestRec1StaleWorkerGuard::test_start_audio_worker_creates_fresh_events_for_stale_worker``)
- *, warm_up_resampler None-guard (Low)
- *, event worker logs non-dict events (Low)
- *, covered by's idle fast-path (Low)
-
-All tests run headless, the autouse ``mock_heavy_imports`` fixture in
-``tests/conftest.py`` installs MagicMocks for sounddevice / torch /
-pynput etc., and the ``_FakeRecorder`` helpers below stand in for the
-full ``Recorder`` where the source-inspection contracts allow.
-"""
+"""regression tests for the recorder + capture fixes."""
 
 from __future__ import annotations
 
@@ -27,36 +10,19 @@ from unittest.mock import MagicMock
 import numpy as np
 import pytest
 
-# ── Shared fakes ────────────────────────────────────────────────────────
-
 
 def _make_recorder():
-    """Build a real ``Recorder`` with a MagicMock config (headless).
-
-    Delegates to the shared canonical factory (XS-42 helper dedup) —
-    see ``tests/fixtures/recorder_test_helpers.make_recorder`` for the
-    pre-populated config fields.
-    """
+    """Build a real ``Recorder`` with a MagicMock config (headless)."""
     from tests.fixtures.ipc_test_helpers import make_fake_recorder
 
     return make_fake_recorder()
 
 
-# ── : RT-callback exception capture ────────────────────────────────
-
-
 class TestCallbackExceptionCapture:
-    """: ``dispatch_callback_body`` must wrap its body in try/except,
-    store the exception on the owning dispatcher
-    (``AudioCallbackDispatcher._last_callback_error``), and re-raise
-    so PortAudio still aborts the stream. ``_stream_finished_callback``
-    must log the captured error at ERROR with full traceback and clear
-    the attribute so a subsequent genuine disconnect is not masked.
-    """
+    """: ``dispatch_callback_body`` must wrap its body in try/except,"""
 
     def test_last_callback_error_attr_declared_in_init(self):
-        """``_last_callback_error`` is declared on the owning
-        collaborator (``AudioCallbackDispatcher.__init__``, None)."""
+        """``_last_callback_error`` is declared on the owning"""
         r = _make_recorder()
         assert hasattr(r._capture, "_last_callback_error"), (
             ": AudioCallbackDispatcher.__init__ must declare _last_callback_error"
@@ -64,16 +30,9 @@ class TestCallbackExceptionCapture:
         assert r._capture._last_callback_error is None, ": _last_callback_error must initialize to None"
 
     def test_dispatch_callback_body_stores_exception_and_reraises(self):
-        """When the inner body raises, ``dispatch_callback_body`` must
-        store the exception on the owning dispatcher's
-        ``_last_callback_error`` AND re-raise (so PortAudio still aborts
-        the stream)."""
+        """When the inner body raises, ``dispatch_callback_body`` must"""
         from voice_typer.server.recording.capture import AudioCallbackDispatcher
 
-        # Minimal fake recorder, only the attributes touched by the
-        # wrapper + the inner body. The inner body reads
-        # ``recorder._recording_event``; we make it raise by giving it
-        # a non-Event object whose ``is_set`` raises.
         class _BoomEvent:
             def is_set(self) -> bool:
                 raise RuntimeError(" simulated RT-callback bug")
@@ -90,8 +49,6 @@ class TestCallbackExceptionCapture:
         with pytest.raises(RuntimeError, match=" simulated RT-callback bug"):
             dispatcher.dispatch_callback_body(fake, indata, 4, "t", "s")
 
-        # And it must have stored the exception on the dispatcher (the
-        # owning collaborator).
         assert dispatcher._last_callback_error is not None, (
             "dispatch_callback_body did not store the exception on "
             "AudioCallbackDispatcher._last_callback_error, "
@@ -102,8 +59,7 @@ class TestCallbackExceptionCapture:
         assert " simulated RT-callback bug" in str(dispatcher._last_callback_error)
 
     def test_dispatch_callback_body_no_exception_leaves_attr_none(self):
-        """When the inner body succeeds, ``_last_callback_error`` stays
-        None (no stale exception from a previous callback)."""
+        """When the inner body succeeds, ``_last_callback_error`` stays"""
         from voice_typer.server.recording.capture import AudioCallbackDispatcher
 
         class _FakeRecorder:
@@ -125,8 +81,7 @@ class TestCallbackExceptionCapture:
         assert dispatcher._last_callback_error is None, ": _last_callback_error must stay None on the happy path"
 
     def test_stream_finished_callback_logs_error_and_clears_attr(self, caplog):
-        """``_stream_finished_callback`` must log the captured exception
-        at ERROR with the exact message and clear the attribute."""
+        """``_stream_finished_callback`` must log the captured exception"""
         r = _make_recorder()
         # Simulate a captured RT-callback exception.
         captured_exc = RuntimeError(" simulated RT-callback bug")
@@ -154,10 +109,10 @@ class TestCallbackExceptionCapture:
         )
 
     def test_stream_finished_callback_skips_disconnect_handler_when_error_set(self, monkeypatch):
-        """When the owning dispatcher's ``_last_callback_error`` is set,
+        """
+        When the owning dispatcher's ``_last_callback_error`` is set,
         ``_stream_finished_callback`` must NOT spawn the disconnect-retry
-        handler, the stream aborted because of a code bug, not a device
-        issue. Restarting on the default device would mask the bug."""
+        """
         r = _make_recorder()
         r._capture._last_callback_error = RuntimeError(" bug")
         spawn_calls: list[str] = []
@@ -174,13 +129,9 @@ class TestCallbackExceptionCapture:
         )
 
     def test_stream_finished_callback_no_error_falls_through_to_disconnect_path(self, monkeypatch):
-        """When the owning dispatcher's ``_last_callback_error`` is None,
-        the existing disconnect detection path runs unchanged (regression
-        guard)."""
+        """When the owning dispatcher's ``_last_callback_error`` is None,"""
         r = _make_recorder()
         # No error set. Simulate the "unexpected disconnect" branch:
-        # _device_disconnected False, _user_stop_pending False,
-        # _stream not None, _recording_event not set.
         r._capture._last_callback_error = None
         r._devices._device_disconnected = False
         r._user_stop_pending = False
@@ -201,23 +152,11 @@ class TestCallbackExceptionCapture:
         )
 
 
-# ── (Option A) + : discard idle fast-path ──────────────
-
-
 class TestDiscardIdleFastPath:
-    """``discard`` on an idle recorder (not recording)
-    is a no-op, it does NOT bump ``_stop_generation``, does NOT set
-    ``_user_stop_pending``, does NOT touch the stream. This closes the
-    start()/discard() race where ``start()`` releases ``_start_lock``
-    before ``start_recording`` runs, and a concurrent ``discard()``
-    could observe ``is_set()==False`` and run its full body out from
-    under the in-flight ``start()``.
-    """
+    """``discard`` on an idle recorder (not recording)"""
 
     def test_discard_on_idle_recorder_is_noop(self, monkeypatch):
-        """``discard()`` on a recorder that is NOT recording is a no-op:
-        no ``_stop_generation`` bump, no ``_user_stop_pending`` flip,
-        no stream teardown."""
+        """``discard()`` on a recorder that is NOT recording is a no-op:"""
         r = _make_recorder()
         # Idle state: not recording, no stream.
         assert not r._recording_event.is_set()
@@ -226,8 +165,6 @@ class TestDiscardIdleFastPath:
         gen_before = r._stop_generation
         user_stop_before = r._user_stop_pending
 
-        # Patch the discard_recording helper so we can detect if the
-        # full body was invoked.
         from voice_typer.server.recording import _recorder_split
 
         full_body_calls: list[int] = []
@@ -253,9 +190,7 @@ class TestDiscardIdleFastPath:
         )
 
     def test_discard_on_recording_recorder_runs_full_body(self, monkeypatch):
-        """Symmetric: ``discard()`` on a recording recorder DOES run the
-        full body (regression guard, the idle fast-path must not
-        accidentally swallow a genuine discard)."""
+        """full body (regression guard, the idle fast-path must not"""
         r = _make_recorder()
         # Recording state.
         r._recording_event.set()
@@ -265,7 +200,6 @@ class TestDiscardIdleFastPath:
         gen_before = r._stop_generation
 
         # Stub out the heavy parts of discard_recording so it doesn't
-        # try to join real threads / close real streams.
         from voice_typer.server.recording import _recorder_split
 
         def _stub_discard(recorder):
@@ -286,15 +220,9 @@ class TestDiscardIdleFastPath:
         assert not r._recording_event.is_set()
 
     def test_discard_idle_does_not_touch_stream(self, monkeypatch):
-        """Even if a stale ``_stream`` reference exists, ``discard()`` on
-        an idle recorder must NOT close it (the idle fast-path returns
-        before teardown). This guards against a race where ``start()``
-        is mid-flight (stream assigned, ``_recording_event`` not yet
-        set) and a concurrent ``discard()`` would tear down the
-        in-flight stream."""
+        """an idle recorder must NOT close it (the idle fast-path returns"""
         r = _make_recorder()
         # Idle state but with a stream reference (simulates start()
-        # mid-flight: stream assigned, _recording_event not yet set).
         assert not r._recording_event.is_set()
         mock_stream = MagicMock()
         r._stream_lifecycle._stream = mock_stream
@@ -320,37 +248,18 @@ class TestDiscardIdleFastPath:
         assert r._stream_lifecycle._stream is mock_stream, ": discard on an idle recorder must NOT null _stream."
 
 
-# ── : audio_worker_loop accepts explicit events ───────────────────
-
-
 class TestExplicitEventsInAudioWorkerLoop:
-    """: ``audio_worker_loop`` accepts ``stop_event`` / ``wake_event``
-    as explicit parameters (captured at thread-spawn time) instead of
-    reading ``recorder._worker_stop_event`` / ``_worker_wake_event``
-    dynamically. This is the unit-level test; the end-to-end
-    ``_start_audio_worker`` stale-worker test lives in
-    ``tests/test_recording.py``
-    ``TestRec1StaleWorkerGuard::test_start_audio_worker_creates_fresh_events_for_stale_worker``.
-    """
+    """: ``audio_worker_loop`` accepts ``stop_event`` / ``wake_event``"""
 
     def test_worker_uses_explicit_stop_event_not_dynamic_attr(self):
-        """When the worker is started with explicit ``stop_event`` /
-        ``wake_event``, it must use THOSE events, not
-        ``recorder._worker_stop_event`` / ``_worker_wake_event``. This
-        is the SPSC fix: after the recorder's events are replaced, the
-        OLD worker retains its OLD (set) events and exits; it does NOT
-        read the NEW (cleared) attribute."""
+        """When the worker is started with explicit ``stop_event`` /"""
 
         from voice_typer.server.recording.capture import AudioCallbackDispatcher
 
         class _FakeRecorder:
             def __init__(self) -> None:
-                # The OLD events, captured by the worker at spawn time.
                 self._old_stop = threading.Event()
                 self._old_wake = threading.Event()
-                # The NEW events, installed on the recorder AFTER the
-                # worker started. Pre-fix, the worker read these
-                # dynamically and saw the NEW (cleared) stop event.
                 self._new_stop = threading.Event()
                 self._new_wake = threading.Event()
                 self._worker_stop_event = self._new_stop
@@ -364,8 +273,6 @@ class TestExplicitEventsInAudioWorkerLoop:
         fake = _FakeRecorder()
         dispatcher = AudioCallbackDispatcher(fake)
 
-        # Start the worker with the OLD events (simulating spawn-time
-        # capture). The worker should bind to these.
         t = threading.Thread(
             target=dispatcher.audio_worker_loop,
             args=(fake, fake._old_stop, fake._old_wake),
@@ -374,8 +281,6 @@ class TestExplicitEventsInAudioWorkerLoop:
         )
         t.start()
 
-        # Set the OLD stop event (simulating _stop_audio_worker). The
-        # OLD worker should exit because it checks the OLD stop event.
         fake._old_stop.set()
         fake._old_wake.set()
 
@@ -388,11 +293,7 @@ class TestExplicitEventsInAudioWorkerLoop:
         )
 
     def test_worker_falls_back_to_dynamic_attr_when_events_none(self):
-        """Backward compat: when ``stop_event`` / ``wake_event`` are None
-        (direct test invocation), the worker falls back to
-        ``recorder._worker_stop_event`` / ``_worker_wake_event``. This
-        preserves the behavior for tests that don't exercise
-        the stale-worker race."""
+        """Backward compat: when ``stop_event`` / ``wake_event`` are None"""
         from voice_typer.server.recording.capture import AudioCallbackDispatcher
 
         class _FakeRecorder:
@@ -424,9 +325,7 @@ class TestExplicitEventsInAudioWorkerLoop:
         )
 
     def test_start_audio_worker_body_passes_explicit_events_to_thread(self):
-        """``start_audio_worker_body`` must pass the CURRENT events as
-        explicit args to the thread target, not rely on the worker to
-        read ``recorder._worker_stop_event`` dynamically."""
+        """read ``recorder._worker_stop_event`` dynamically."""
         from voice_typer.server.recording.capture import AudioCallbackDispatcher
 
         class _FakeRecorder:
@@ -447,17 +346,10 @@ class TestExplicitEventsInAudioWorkerLoop:
 
         fake = _FakeRecorder()
         dispatcher = AudioCallbackDispatcher(fake)
-        # The thread target is the dispatcher's ``audio_worker_loop``;
-        # shadow it with an args-recording stand-in so the test can
-        # assert the explicit-args contract without running the real
-        # processing pipeline.
         dispatcher.audio_worker_loop = fake.record_loop_args
         dispatcher.start_audio_worker_body(fake)
         try:
             assert fake._worker_thread is not None
-            # When the thread runs, it calls the target with
-            # (recorder, stop_event, wake_event). Wait briefly for the
-            # thread to execute.
             fake._worker_thread.join(timeout=1.0)
             assert fake._captured_args == (
                 fake._worker_stop_event,
@@ -475,23 +367,13 @@ class TestExplicitEventsInAudioWorkerLoop:
                 fake._worker_thread.join(timeout=0.5)
 
 
-# ── : warm_up_resampler None-guard ─────────────────────────────
-
-
 class TestWarmUpResamplerNoneGuard:
-    """: ``warm_up_resampler`` must handle ``_get_resample_poly``
-    returning ``None`` gracefully (log the "scipy not available" warning
-    and return) instead of calling ``None(...)`` and raising
-    ``TypeError: 'NoneType' object is not callable``.
-    """
+    """: ``warm_up_resampler`` must handle ``_get_resample_poly``"""
 
     def test_warm_up_resampler_handles_none_poly(self, monkeypatch, caplog):
-        """When ``_get_resample_poly()`` returns None, the method logs
-        the "scipy not available" warning and returns without raising."""
+        """When ``_get_resample_poly()`` returns None, the method logs"""
         r = _make_recorder()
         # Patch the OWNING module: ``warm_up_resampler`` resolves
-        # ``_get_resample_poly`` from ``recording.resampling`` at call
-        # time (the package-attribute indirection was removed).
         monkeypatch.setattr("voice_typer.server.recording.resampling._get_resample_poly", lambda: None)
 
         with caplog.at_level(logging.WARNING, logger="voice_typer.server.recording"):
@@ -506,12 +388,7 @@ class TestWarmUpResamplerNoneGuard:
         )
 
     def test_warm_up_resampler_none_poly_does_not_log_as_failure(self, monkeypatch, caplog):
-        """The None case must NOT be logged as "Resampler warm-up failed"
-        , it's the expected "scipy unavailable" state, not a transient
-          failure. Pre-fix, the None case raised TypeError which was
-          caught by the broad ``except Exception`` and logged with the
-          misleading "Resampler warm-up failed: 'NoneType' object is not
-          callable" message."""
+        """The None case must NOT be logged as \"Resampler warm-up failed\""""
         r = _make_recorder()
         # Patch the OWNING module (see the sibling test above).
         monkeypatch.setattr("voice_typer.server.recording.resampling._get_resample_poly", lambda: None)
@@ -529,25 +406,14 @@ class TestWarmUpResamplerNoneGuard:
         )
 
 
-# ── : event worker logs non-dict events ───────────────────────
-
-
 class TestEventWorkerNonDictWarning:
-    """: the event worker loop must log a WARNING when it
-    encounters a non-dict / non-sentinel event on the queue (pre-fix it
-    silently ``continue``d, swallowing the event with no trace).
-    """
+    """: the event worker loop must log a WARNING when it"""
 
     def test_non_dict_event_logs_warning(self, monkeypatch, caplog):
-        """Push a non-dict event onto the queue AFTER starting the
-        worker (start_event_worker_body drains stale events before
-        starting), then stop it. The non-dict event must be logged
-        at WARNING."""
+        """worker (start_event_worker_body drains stale events before"""
         r = _make_recorder()
 
         with caplog.at_level(logging.WARNING, logger="voice_typer.server.recording"):
-            # Start the event worker FIRST (it drains stale events on
-            # start, so we must push the non-dict event AFTER).
             with r._worker_lifecycle_lock:
                 r._capture.start_event_worker_body(r)
             # Push a non-dict, non-sentinel item onto the event queue.
@@ -568,8 +434,7 @@ class TestEventWorkerNonDictWarning:
         )
 
     def test_non_dict_event_warning_includes_type(self, monkeypatch, caplog):
-        """The WARNING message must include the type of the skipped
-        event so the offending variant is identifiable."""
+        """The WARNING message must include the type of the skipped"""
         r = _make_recorder()
 
         with caplog.at_level(logging.WARNING, logger="voice_typer.server.recording"):
@@ -583,7 +448,6 @@ class TestEventWorkerNonDictWarning:
                 r._capture.stop_event_worker_body(r, timeout=1.0, drain=True)
 
         # The message must mention the type, either "<class 'int'>" (Python 3)
-        # or "int", we just check "int" is somewhere in the WARNING text.
         warning_messages = [
             rec.getMessage()
             for rec in caplog.records

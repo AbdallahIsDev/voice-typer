@@ -1,11 +1,4 @@
-"""split from tests/test_app.py.
-
-All heavy dependencies are mocked via the project-wide ``mock_heavy_imports``
-autouse fixture (in ``tests/conftest.py``), CR-60 hoisted the
-``force_pynput_hotkey_backend`` patch from the old local fixture into
-that project-wide fixture, so test modules no longer need a local
-override.
-"""
+"""All heavy dependencies are mocked via the project-wide ``mock_heavy_imports``"""
 
 import time
 from unittest.mock import MagicMock
@@ -15,14 +8,7 @@ import pytest
 
 
 def _wait_for_busy_clear(app, timeout=2.0):
-    """Poll until app._busy_event is set (not busy).
-
-    Replaces bare time.sleep() calls that cause flaky failures under load.
-
-    TEST-033 (fix): poll interval reduced from 50ms to 5ms to speed up
-    the test suite. With ~100 call sites, this saves ~4.5s of cumulative
-    sleep time across a full run.
-    """
+    """Poll until app._busy_event is set (not busy)."""
     deadline = time.monotonic() + timeout
     while not app._busy_event.is_set() and time.monotonic() < deadline:
         time.sleep(0.005)
@@ -134,14 +120,6 @@ class TestStreamingIntegration:
         app.recorder = MagicMock()
         app.recorder.recording = False
 
-        # ``RecordingLifecycle._start_impl`` spawns a daemon worker that
-        # re-checks ``app.recorder.recording`` AFTER ``app.recorder.start()``
-        # returns (the re-check guards against a concurrent stop/cancel
-        # during the model-load window). A bare MagicMock ``recorder.start()``
-        # does not flip ``recording`` to True, so the worker would
-        # short-circuit and never reach ``_start_streaming_session_if_enabled``.
-        # Wire ``start`` to set ``recording = True`` so the worker proceeds
-        # to the streaming-session setup path the test exercises.
         def _flip_recording_on_start():
             app.recorder.recording = True
 
@@ -154,13 +132,6 @@ class TestStreamingIntegration:
         session = MagicMock()
         session_cls = MagicMock(return_value=session)
         # Phase 4.5 split: the streaming session is instantiated inside
-        # ``StreamingSessionCoordinator.start_streaming_session_if_enabled``
-        # (in ``streaming_session_coordinator.py``), which imports
-        # ``StreamingTranscriptionSession`` at module level. The historical
-        # target ``voice_typer.server.recording_controller.StreamingTranscriptionSession``
-        # is a re-export only, patching it does not affect the
-        # coordinator's bound reference. Patch the module where the
-        # instantiation actually happens.
         monkeypatch.setattr(
             "voice_typer.server.streaming_session_coordinator.StreamingTranscriptionSession",
             session_cls,
@@ -170,11 +141,6 @@ class TestStreamingIntegration:
         app._start_dictation()
 
         # The streaming session is started on a daemon worker thread
-        # (``DictationStart``) so the F2 dispatch thread is not blocked
-        # for the model-load window. Wait for the worker's
-        # ``_start_complete_event`` (signalled in the worker's ``finally``
-        # block) before asserting, without this wait the assertions race
-        # the worker and flake.
         start_event = getattr(app.recording, "_start_complete_event", None)
         if start_event is not None:
             start_event.wait(timeout=5.0)
@@ -202,8 +168,6 @@ class TestStreamingIntegration:
 
         session = MagicMock()
         session.finalize = MagicMock(return_value="streamed text")
-        # Phase 1: was ``app._set_streaming_session(session)`` (test-seam
-        # delegate removed); call the controller method directly.
         app.recording.set_streaming_session(session)
 
         app._stop_dictation()
@@ -224,8 +188,6 @@ class TestStreamingIntegration:
         app.tray = MagicMock()
 
         session_cls = MagicMock()
-        # Patch where the coordinator actually resolves the class (the
-        # app-module re-export is inert for this path).
         monkeypatch.setattr(
             "voice_typer.server.streaming_session_coordinator.StreamingTranscriptionSession",
             session_cls,
@@ -235,14 +197,10 @@ class TestStreamingIntegration:
         app._start_dictation()
 
         session_cls.assert_not_called()
-        # Phase 1: was ``app._get_streaming_session()`` (test-seam
-        # delegate removed); call the controller method directly.
         assert app.recording.get_streaming_session() is None
 
     def test_quit_cancels_active_streaming_session(self, app):
         session = MagicMock()
-        # Phase 1: was ``app._set_streaming_session(session)`` (test-seam
-        # delegate removed); call the controller method directly.
         app.recording.set_streaming_session(session)
         app.recorder = MagicMock()
         app.recorder.recording = False
@@ -266,12 +224,10 @@ class TestStreamingIntegration:
 
 
 class TestModelLoadingQueue:
-    """When the model is still loading in the background, F2 queues the
-    dictation and auto-starts it once loading completes."""
+    """When the model is still loading in the background, F2 queues the"""
 
     def test_toggle_queues_when_model_loading(self, app):
-        """F2 during background model load sets _pending_dictation and
-        shows a LOADING state, does NOT call _start/_stop_dictation."""
+        """F2 during background model load sets _pending_dictation and"""
         app.recorder = MagicMock()
         app.recorder.recording = False
         app.tray = MagicMock()
@@ -293,8 +249,7 @@ class TestModelLoadingQueue:
         app.tray.set_state.assert_called()
 
     def test_toggle_does_not_queue_when_load_complete(self, app):
-        """Once the loader thread has finished, F2 goes straight to
-        _start_dictation (no queueing)."""
+        """Once the loader thread has finished, F2 goes straight to"""
         app.recorder = MagicMock()
         app.recorder.recording = False
         app.tray = MagicMock()
@@ -314,27 +269,13 @@ class TestModelLoadingQueue:
         assert len(started) == 1
 
     def test_toggle_survives_loader_cleared_during_is_alive(self, app):
-        """Regression for TOCTOU race: the background loader's finally
-        block sets self._model_load_thread = None.  If that runs while
-        toggle_dictation is between its `is not None` check and the
-        `.is_alive()` call, the old (two-LOAD_ATTR) code raised
-        ``AttributeError: 'NoneType' object has no attribute 'is_alive'``.
-
-        We simulate the race by making the loader's is_alive() clear the
-        attribute, exactly what the loader thread does in its finally
-        block, and assert toggle_dictation does not crash.  With the fix
-        (capture the reference into a local first), is_alive() runs on the
-        captured local, so the attribute becoming None is harmless.
-        """
+        """Regression for TOCTOU race: the background loader's finally"""
         app.recorder = MagicMock()
         app.recorder.recording = False
         app.tray = MagicMock()
 
         loader = MagicMock()
 
-        # is_alive() simulates the loader finishing: clears the attribute
-        # (as the real finally block does) then returns True so the queuing
-        # path is exercised.
         def clear_then_alive():
             app.models._model_load_thread = None
             return True
@@ -342,8 +283,6 @@ class TestModelLoadingQueue:
         loader.is_alive.side_effect = clear_then_alive
         app.models._model_load_thread = loader
 
-        # Must not raise AttributeError.  (The old code re-read the
-        # attribute for is_alive() and would hit None here.)
         try:
             app.toggle_dictation()
         except AttributeError as exc:
@@ -352,18 +291,12 @@ class TestModelLoadingQueue:
         assert app.models._pending_dictation is True
 
     def test_background_load_auto_starts_pending_dictation(self, app, monkeypatch):
-        """When the loader finishes and _pending_dictation is set, it
-        schedules _start_dictation via a 0-delay timer."""
+        """When the loader finishes and _pending_dictation is set, it"""
         app.tray = MagicMock()
         # Stub the engine init so the loader body doesn't do real work.
         app.models._ensure_engine = MagicMock()
         # The fast model-existence pre-check probes the real HF cache;
-        # this test simulates a SUCCESSFUL load (pending dictation
-        # auto-start), so the model must be "downloaded".
         app.models._model_downloaded_precheck = lambda: True
-        # Phase 2: was ``app._try_load_model = MagicMock()`` /
-        # ``app._fallback_to_whisper = MagicMock()`` (delegates removed);
-        # patch the ModelManager methods directly.
         app.models.try_load = MagicMock()
         app.models.fallback_to_whisper = MagicMock()
 
@@ -378,13 +311,10 @@ class TestModelLoadingQueue:
         app._schedule_timer = fake_schedule
 
         # Run the loader synchronously (it would normally be in a thread).
-        # Force the Whisper backend path (default) so it's a no-op with
-        # _try_load_model mocked.
         app.config.asr_backend = "whisper"
         app.models.load_background()
 
         # The pending dictation should have been cleared and a 0-delay
-        # _start_dictation scheduled.
         assert app.models._pending_dictation is False
         assert any(delay == 0 for delay, _ in scheduled), (
             "pending dictation should schedule _start_dictation at delay=0"
@@ -395,11 +325,7 @@ class TestModelLoadingQueue:
         app.tray = MagicMock()
         app.models._ensure_engine = MagicMock()
         # Fast existence pre-check probes the real HF cache, stub it
-        # (model "downloaded") so the loader body runs.
         app.models._model_downloaded_precheck = lambda: True
-        # Phase 2: was ``app._try_load_model = MagicMock()`` /
-        # ``app._fallback_to_whisper = MagicMock()`` (delegates removed);
-        # patch the ModelManager methods directly.
         app.models.try_load = MagicMock()
         app.models.fallback_to_whisper = MagicMock()
         app.models._pending_dictation = False
@@ -417,16 +343,9 @@ class TestModelLoadingQueue:
         app.tray = MagicMock()
         app.models._ensure_engine = MagicMock()
         # Fast existence pre-check probes the real HF cache, stub it
-        # (model "downloaded") so the loader reaches the registry.
         app.models._model_downloaded_precheck = lambda: True
-        # _load_transcription_engine_background now delegates
-        # to AsrBackendRegistry.load_with_fallback. Mock it to raise.
-        # assign to ModelManager._registry directly (was
-        # a @property delegate on VoiceTyperApp).
         app.models._registry = MagicMock()
         app.models.registry.load_with_fallback = MagicMock(side_effect=RuntimeError("disk on fire"))
-        # write to ModelManager directly (was a @property
-        # delegate on VoiceTyperApp).
         app.models._pending_dictation = False
         app.config.asr_backend = "whisper"
 
@@ -439,17 +358,10 @@ class TestModelLoadingQueue:
 
 
 class TestTryLoadModel:
-    """Test _try_load_model helper method.
-
-    ARCH-007/008: _try_load_model now delegates to the ASR registry,
-    so each test must set up the registry before calling it.
-    """
+    """Test _try_load_model helper method."""
 
     def _setup_registry(self, app):
-        """No-op: the registry is now kept in sync by the @property setters
-        on ``app.models.transcriber`` / ``_qwen_engine`` / ``_parakeet_engine``
-        (assignments delegate to ``self._registry.register(...)``).
-        """
+        """No-op: the registry is now kept in sync by the @property setters"""
         pass
 
     def test_try_load_success_sets_idle_state(self, app):
@@ -460,8 +372,6 @@ class TestTryLoadModel:
         app.models.transcriber.device_info = "cpu (int8)"
         app.models.transcriber.loaded_via = "cpu/int8/small.en"
 
-        # Phase 2: was ``app._try_load_model()`` (delegate removed);
-        # call the ModelManager method directly.
         app.models.try_load()
 
         app.models.transcriber.load.assert_called_once()
@@ -480,8 +390,6 @@ class TestTryLoadModel:
         app.models.transcriber.load = MagicMock(side_effect=RuntimeError("OOM"))
         app.models.transcriber.is_loaded = False
 
-        # Phase 2: was ``app._try_load_model()`` (delegate removed);
-        # call the ModelManager method directly.
         app.models.try_load()
 
         from voice_typer.server.tray import AppState
@@ -497,8 +405,6 @@ class TestTryLoadModel:
         app.models.transcriber.load = MagicMock(side_effect=RuntimeError("OOM"))
         app.models.transcriber.is_loaded = False
 
-        # Phase 2: was ``app._try_load_model(notify_on_failure=True)``
-        # (delegate removed); call the ModelManager method directly.
         app.models.try_load(notify_on_failure=True)
 
         app.tray.notify.assert_called_once()
@@ -512,8 +418,6 @@ class TestTryLoadModel:
         app.models.transcriber.load = MagicMock(side_effect=RuntimeError("OOM"))
         app.models.transcriber.is_loaded = False
 
-        # Phase 2: was ``app._try_load_model(notify_on_failure=False)``
-        # (delegate removed); call the ModelManager method directly.
         app.models.try_load(notify_on_failure=False)
 
         app.tray.notify.assert_not_called()
@@ -525,8 +429,5 @@ class TestTryLoadModel:
         app.models.transcriber.load = MagicMock()
 
         assert app.models._model_load_attempted is False
-        # Phase 2: was ``app._try_load_model()`` (delegate removed);
-        # call the ModelManager method directly.
         app.models.try_load()
-        # pyrefly: ignore [unnecessary-comparison]
         assert app.models._model_load_attempted is True

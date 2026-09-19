@@ -1,15 +1,7 @@
-"""redaction in logs, and API-key redaction.
-
-extends ``PIIRedactionFilter`` to also redact:
-  - API keys / bearer tokens (via ``_secrets.redact_secret``)
-  - URL-embedded credentials (via ``_secrets.redact_url``)
-  - Traceback text (when ``record.exc_info`` is set)
-"""
+"""redaction in logs, and API-key redaction."""
 
 import logging
 import sys
-
-# ─── existing PII patterns (unchanged behavior) ──────────────────
 
 
 def test_pii_redaction_email():
@@ -99,7 +91,6 @@ def test_rw6_api_key_redaction_bearer_token():
     assert api_key not in record.msg
     assert "sk-abcdef" not in record.msg
     assert "***" in record.msg
-    # redact_secret preserves the "Bearer " prefix
     assert "Bearer" in record.msg
 
 
@@ -130,10 +121,6 @@ def test_rw6_url_credential_redaction():
 
     f = PIIRedactionFilter()
     # Use ``localhost:8080`` (no dot in the host) so the existing
-    # email-PII pattern, which requires a dotted domain after ``@`` —
-    # does NOT fire and consume the userinfo.  This lets us verify
-    # ``redact_url`` actually strips the credentials.  The password is
-    # 32+ chars so ``redact_secret`` also fires on it.
     password = "password1234567890ABCDEFpassword1234567890ABCDEF"
     url = f"https://user:{password}@localhost:8080/v1"
     record = logging.LogRecord(
@@ -223,9 +210,6 @@ def test_rw6_traceback_redaction_via_default_formatter():
     f = PIIRedactionFilter()
     f.filter(record)
 
-    # The default logging.Formatter appends record.exc_text to the
-    # formatted message, this verifies the redacted traceback is what
-    # gets emitted.
     formatter = logging.Formatter("%(message)s")
     output = formatter.format(record)
 
@@ -270,13 +254,7 @@ def test_rw6_traceback_redaction_chained_exception():
 
 
 def test_rw6_end_to_end_log_file_no_api_key(tmp_path):
-    """An actual log file (via setup_logging) contains no API key.
-
-    This exercises the full pipeline: ``get_logger('voice_typer.<x>')``
-    → handler filter → ``_FileFormatter`` → log file on disk.  This
-    verifies the filter is attached to the *handler* (not just the
-    logger) so records from child loggers are also redacted.
-    """
+    """An actual log file (via setup_logging) contains no API key."""
     from voice_typer.server.log import reset, setup_logging
 
     reset()
@@ -390,15 +368,10 @@ def test_g4_m_26_iban_redacted():
 
 
 def test_g4_m_26_us_routing_number_not_redacted():
-    """9-digit US ABA routing numbers are NOT matched
-    (too high a false-positive rate on ordinary numeric text)."""
+    """9-digit US ABA routing numbers are NOT matched"""
     from voice_typer.server.security import redact_pii
 
     # A 9-digit routing number like ``021000021`` (Chase) is bare
-    # digits with no country prefix or check-digit structure. The
-    # PIIRedactionFilter patterns deliberately omit it because the
-    # pattern would also match every 9-digit order ID, zip+4, and
-    # timestamp fragment in operator logs.
     text = "Routing number 021000021 for the wire"
     redacted = redact_pii(text)
     # The routing number must survive redaction unchanged.
@@ -409,9 +382,7 @@ def test_g4_m_26_us_routing_number_not_redacted():
 
 
 def test_g4_m_26_redact_pii_helper_covers_new_patterns():
-    """the standalone ``redact_pii`` helper also redacts the
-    new international phone + IBAN patterns (it shares the same
-    ``_PATTERNS`` list as ``PIIRedactionFilter``)."""
+    """new international phone + IBAN patterns (it shares the same"""
     from voice_typer.server.security import redact_pii
 
     # International phone
@@ -431,9 +402,7 @@ def test_g4_m_26_redact_pii_helper_covers_new_patterns():
 
 
 def test_g4_h_03_lastresort_is_stream_handler_with_pii_filter():
-    """``logging.lastResort`` is a ``StreamHandler`` carrying
-    a ``PIIRedactionFilter`` so third-party logger output (keyring,
-    urllib3, websockets) is redacted."""
+    """``logging.lastResort`` is a ``StreamHandler`` carrying"""
     import logging
 
     from voice_typer.server.security import (
@@ -442,13 +411,8 @@ def test_g4_h_03_lastresort_is_stream_handler_with_pii_filter():
     )
 
     # Self-contained: the filter is process-global and per-test logging
-    # hygiene fixtures may remove it: (re)install explicitly rather
-    # than relying on a prior test's side effect.
     install_lastresort_pii_filter()
 
-    # The default lastResort is a _StderrHandler (a private subclass of
-    # StreamHandler). After security.py is imported, it should be a
-    # plain StreamHandler with our filter attached.
     assert isinstance(logging.lastResort, logging.StreamHandler)
     has_filter = any(isinstance(f, PIIRedactionFilter) for f in logging.lastResort.filters)
     assert has_filter, (
@@ -459,9 +423,7 @@ def test_g4_h_03_lastresort_is_stream_handler_with_pii_filter():
 
 
 def test_g4_h_03_lastresort_filter_redacts_pii():
-    """the PIIRedactionFilter attached to ``logging.lastResort``
-    actually redacts PII when applied to a record (sanity check that
-    the filter is functional, not just attached)."""
+    """the PIIRedactionFilter attached to ``logging.lastResort``"""
     import logging
 
     from voice_typer.server.security import (
@@ -490,14 +452,7 @@ def test_g4_h_03_lastresort_filter_redacts_pii():
 
 
 def test_g4_h_03_third_party_logger_output_redacted_via_lastresort():
-    """end-to-end, a third-party logger with NO handlers
-    routes through ``logging.lastResort``, which redacts PII.
-
-    This simulates the production scenario: a buggy keyring backend
-    logs ``"Loaded API key sk-..."`` and the record flows to stderr
-    via ``lastResort``. Without the G4-H-03 fix, the API key would
-    appear unredacted in stderr (and any captured stderr buffer).
-    """
+    """end-to-end, a third-party logger with NO handlers"""
     import logging
     from io import StringIO
 
@@ -506,22 +461,14 @@ def test_g4_h_03_third_party_logger_output_redacted_via_lastresort():
     install_lastresort_pii_filter()  # self-contained (see above)
 
     # Save the original stream so we can restore it after the test.
-    # lastResort's stream is captured at construction time, so we
-    # swap it out for a StringIO to capture the emitted output.
     original_stream = logging.lastResort.stream
     original_level = logging.lastResort.level
 
     captured = StringIO()
     logging.lastResort.stream = captured
-    # lastResort's default level is WARNING; lower it so DEBUG/INFO
-    # records also flow through (in case the test logger emits at
-    # those levels).
     logging.lastResort.setLevel(logging.DEBUG)
     try:
         # Create a third-party logger that mimics keyring/urllib3:
-        # no handlers of its own, no propagation to the root logger
-        # (so root's handlers (if any) don't catch it). This forces
-        # the record to flow through ``lastResort``.
         logger = logging.getLogger("test_g4_h_03_fake_third_party_lib")
         # Clear any handlers a previous test may have left behind.
         logger.handlers.clear()
@@ -551,9 +498,7 @@ def test_g4_h_03_third_party_logger_output_redacted_via_lastresort():
 
 
 def test_g4_h_03_install_lastresort_pii_filter_idempotent():
-    """``install_lastresort_pii_filter()`` is idempotent —
-    calling it multiple times replaces the prior handler rather than
-    stacking duplicate filters."""
+    """``install_lastresort_pii_filter()`` is idempotent —"""
     import logging
 
     from voice_typer.server.security import PIIRedactionFilter, install_lastresort_pii_filter
@@ -566,7 +511,6 @@ def test_g4_h_03_install_lastresort_pii_filter_idempotent():
     # The handler should still be a StreamHandler.
     assert isinstance(logging.lastResort, logging.StreamHandler)
     # Count PIIRedactionFilter instances, should be exactly 1
-    # (each install replaces the handler, so no duplicates accumulate).
     pii_filters = [f for f in logging.lastResort.filters if isinstance(f, PIIRedactionFilter)]
     assert len(pii_filters) == 1, (
         f"expected exactly 1 PIIRedactionFilter after multiple installs, got {len(pii_filters)}"

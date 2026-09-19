@@ -1,10 +1,6 @@
-"""IPC dispatch tests for history commands (get_history / favorites / search).
-
-Classes:
-- TestDispatchGetHistory                , get_history dispatcher
+"""
+IPC dispatch tests for history commands (get_history / favorites / search).
 - TestHistoryLimitBoundingClampsCallerInput, SEC-010 limit clamping
-
-Split out from the original monolithic tests/test_server.py (DT-37, Phase 4.5).
 """
 
 from unittest.mock import MagicMock
@@ -44,13 +40,8 @@ class TestDispatchGetHistory:
         )
 
 
-# ── SEC-010: history limit bounding ──────────────────────────────────────
-
-
 class TestHistoryLimitBoundingClampsCallerInput:
-    """SEC-010: ``get_history``, ``get_favorites``, ``search_history``
-    must clamp caller-supplied ``limit`` to ``[1, 500]`` to prevent
-    DoS via ``{"limit": 100000000}``."""
+    """SEC-010: ``get_history``, ``get_favorites``, ``search_history``"""
 
     def test_get_history_with_huge_limit_is_clamped(self, server, mock_app):
         """A 100M limit must be clamped to 500, not passed through."""
@@ -62,7 +53,6 @@ class TestHistoryLimitBoundingClampsCallerInput:
                 "data": {"limit": 100_000_000, "offset": 0},
             }
         )
-        # get_recent must be called with 500, not 100M
         mock_app.history_db.get_recent.assert_called_once_with(
             500, 0, raise_on_error=True, before_timestamp=None, before_id=None
         )

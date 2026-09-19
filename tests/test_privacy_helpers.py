@@ -1,27 +1,6 @@
-"""Focused unit tests for the extracted ``PrivacyMixin`` helpers.
-
-The pre-refactor ``PrivacyMixin.delete_all_personal_data`` /
-``PrivacyMixin.export_gdpr_bundle`` were 275-LOC / 189-LOC monoliths.
-The refactor extracted the per-step work into 11 private
-``@staticmethod`` helpers so the two public methods are now ~20-LOC
-orchestrators. The full GDPR pipeline is still covered by the
-existing ``tests/test_gdpr_delete.py`` / ``tests/test_gdpr_export.py``
-/ ``tests/test_reset_config_to_defaults.py`` suites, these tests run
-unchanged against the refactor (regression guard).
-
-This file adds DIRECT unit tests for each helper so a future change
-that breaks one helper is surfaced with a focused failure pointing
-at the helper (rather than a diffuse failure somewhere in the
-275-LOC monolith).  Each test constructs the minimum input the
-helper needs (a tmp ``config_dir``, a fake ``hdb`` / ``app``, the
-``erased`` / ``failed`` accumulators) and asserts on the helper's
-contract.
-
+"""
+Focused unit tests for the extracted ``PrivacyMixin`` helpers.
 These tests do NOT depend on a live ``VoiceTyperService`` /
-``VoiceTyperApp``, they call the ``@staticmethod`` helpers directly
-via ``PrivacyMixin._gdpr_*``.  This keeps them fast (no service
-construction) and isolates the helper-under-test from the rest of
-the pipeline.
 """
 
 from __future__ import annotations
@@ -35,8 +14,6 @@ from unittest.mock import MagicMock
 
 import pytest
 from voice_typer.server.service.privacy import PrivacyMixin
-
-# ── _gdpr_checkpoint_history_db ────────────────────────────────────────
 
 
 def test_checkpoint_history_db_none_is_noop() -> None:
@@ -63,13 +40,7 @@ def test_checkpoint_history_db_close_flag_calls_close() -> None:
 
 
 def test_checkpoint_history_db_calls_with_truncate_kwarg_once() -> None:
-    """``checkpoint`` is called exactly once, with the ``truncate=`` kwarg.
-
-    The canonical ``HistoryDB.checkpoint(truncate: bool = True)``
-    signature accepts the kwarg; the historical TypeError→positional
-    fallback targeted a signature that no code path defines (dead
-    speculative compat) and was removed.
-    """
+    """``checkpoint`` is called exactly once, with the ``truncate=`` kwarg."""
     hdb = MagicMock()
     PrivacyMixin._gdpr_checkpoint_history_db(hdb, close=False)
     hdb.checkpoint.assert_called_once_with(truncate=True)
@@ -90,9 +61,6 @@ def test_checkpoint_history_db_swallows_close_exception() -> None:
     hdb.close.side_effect = RuntimeError("already closed")
     PrivacyMixin._gdpr_checkpoint_history_db(hdb, close=True)
     hdb.close.assert_called_once_with()
-
-
-# ── _gdpr_unlink_personal_files ────────────────────────────────────────
 
 
 def test_unlink_personal_files_removes_existing_files(tmp_path: Path) -> None:
@@ -147,9 +115,6 @@ def test_unlink_personal_files_captures_unlink_failure(tmp_path: Path) -> None:
     assert "PermissionError" in failed[str(target)]
 
 
-# ── _gdpr_unlink_personal_globs ────────────────────────────────────────
-
-
 def test_unlink_personal_globs_removes_matched_files(tmp_path: Path) -> None:
     """Glob-matched files are unlinked and recorded in ``erased``."""
     (tmp_path / "voice-typer.log.1").write_text("rotated 1")
@@ -177,14 +142,7 @@ def test_unlink_personal_globs_no_matches_is_noop(tmp_path: Path) -> None:
 
 
 def test_gdpr_globs_single_sourced_from_user_data_files() -> None:
-    """The corrupt/pre-migration inventory is composed, not re-declared.
-
-    ``PrivacyMixin._GDPR_PERSONAL_GLOBS`` must contain EVERY pattern
-    from ``_user_data_files._GDPR_PERSONAL_GLOBS`` (the same tuple the
-    uninstall-purge path walks) via the ``*`` unpacking in the class
-    body, so a filename-format change in the corruption-recovery or
-    pre-migration-backup paths lands in exactly one place.
-    """
+    """The corrupt/pre-migration inventory is composed, not re-declared."""
     from voice_typer.server._user_data_files import _GDPR_PERSONAL_GLOBS as _INVENTORY
 
     for pattern in _INVENTORY:
@@ -196,11 +154,9 @@ def test_gdpr_globs_single_sourced_from_user_data_files() -> None:
 
 
 def test_gdpr_globs_cover_corrupt_and_sidecar_files(tmp_path: Path) -> None:
-    """The composed tuple still matches corrupt + pre-migration sidecars.
-
+    """
+    The composed tuple still matches corrupt + pre-migration sidecars.
     Behavioral pin: the composed (not re-declared) inventory must keep
-    sweeping the byte-for-byte sidecar copies that retain dictated
-    plaintext.
     """
     (tmp_path / "history.db.corrupt-123").write_text("q")
     (tmp_path / "history.db.corrupt-123-wal").write_text("q-wal")
@@ -216,9 +172,6 @@ def test_gdpr_globs_cover_corrupt_and_sidecar_files(tmp_path: Path) -> None:
     assert len(erased) == 6
     assert failed == {}
     assert not list(tmp_path.glob("history.db.*"))
-
-
-# ── _gdpr_rmtree_rust_logs ─────────────────────────────────────────────
 
 
 def test_rmtree_rust_logs_removes_directory(tmp_path: Path) -> None:
@@ -244,9 +197,6 @@ def test_rmtree_rust_logs_missing_dir_is_noop(tmp_path: Path) -> None:
     PrivacyMixin._gdpr_rmtree_rust_logs(tmp_path, erased, failed)
     assert erased == []
     assert failed == {}
-
-
-# ── _gdpr_rmtree_db_dir ─────────────────────────────────────────────────
 
 
 def test_rmtree_db_dir_removes_directory(tmp_path: Path) -> None:
@@ -275,9 +225,6 @@ def test_rmtree_db_dir_missing_dir_is_noop(tmp_path: Path) -> None:
     assert failed == {}
 
 
-# ── _gdpr_rmtree_crash_archive ─────────────────────────────────────────
-
-
 def test_rmtree_crash_archive_removes_directory(tmp_path: Path) -> None:
     """The ``crash_diagnostics/`` subdir is recursively removed."""
     archive_dir = tmp_path / "crash_diagnostics"
@@ -303,12 +250,8 @@ def test_rmtree_crash_archive_missing_dir_is_noop(tmp_path: Path) -> None:
     assert failed == {}
 
 
-# ── _gdpr_clear_keychain ───────────────────────────────────────────────
-
-
 def test_clear_keychain_calls_delete_secret_per_provider() -> None:
-    """``delete_secret`` is called once per provider in
-    ``PROVIDER_TO_CONFIG_FIELD``."""
+    """``delete_secret`` is called once per provider in"""
     from voice_typer.server import credential_store
 
     app = SimpleNamespace(config=MagicMock())
@@ -360,9 +303,6 @@ def test_clear_keychain_captures_provider_failure() -> None:
     assert "RuntimeError" in failed["keychain:openai"]
 
 
-# ── _gdpr_invalidate_cached_engines ────────────────────────────────────
-
-
 def test_invalidate_cached_engines_sets_attrs_to_none() -> None:
     """``_llm_polisher`` and ``_cloud_engine`` are set to ``None``."""
     app = SimpleNamespace(_llm_polisher="polisher", _cloud_engine="engine")
@@ -372,13 +312,9 @@ def test_invalidate_cached_engines_sets_attrs_to_none() -> None:
 
 
 def test_invalidate_cached_engines_swallows_missing_attrs() -> None:
-    """An app object without the cached attrs is silently initialized.
-
-    ``setattr`` creates the attribute if it doesn't exist, the
+    """
+    An app object without the cached attrs is silently initialized.
     ``contextlib.suppress`` contract is that no exception propagates
-    even if the underlying ``__setattr__`` would reject the write
-    (e.g. a frozen dataclass).  For a plain ``SimpleNamespace`` the
-    write succeeds and the attrs end up as ``None``.
     """
     app = SimpleNamespace()  # no _llm_polisher / _cloud_engine
     # Must not raise.
@@ -387,15 +323,10 @@ def test_invalidate_cached_engines_swallows_missing_attrs() -> None:
     assert app._cloud_engine is None
 
 
-# ── _gdpr_recreate_history_db ──────────────────────────────────────────
-
-
 def test_recreate_history_db_assigns_new_instance(tmp_path: Path) -> None:
     """A fresh ``HistoryDB`` is constructed and assigned to ``app.history_db``."""
     from voice_typer.server import config as cfg_mod
 
-    # Redirect config_dir to tmp_path so HistoryDB() resolves to a
-    # writable test location.
     mp = pytest.MonkeyPatch()
     mp.setattr(cfg_mod, "_config_dir", lambda: tmp_path)
     try:
@@ -434,9 +365,6 @@ def test_recreate_history_db_swallows_construction_failure() -> None:
     assert app.history_db == "closed-instance"
 
 
-# ── _gdpr_post_cleanup_sweep ───────────────────────────────────────────
-
-
 def test_post_cleanup_sweep_unlinks_recreated_lock_files(tmp_path: Path) -> None:
     """Re-created ``config.json.lock`` and ``.restart_token`` are unlinked."""
     (tmp_path / "config.json.lock").write_text('{"pid": 123}')
@@ -459,9 +387,6 @@ def test_post_cleanup_sweep_skips_missing_files(tmp_path: Path) -> None:
     PrivacyMixin._gdpr_post_cleanup_sweep(tmp_path, erased, failed)
     assert erased == []
     assert failed == {}
-
-
-# ── _gdpr_build_zip ────────────────────────────────────────────────────
 
 
 def test_build_zip_writes_all_existing_files(tmp_path: Path) -> None:
@@ -509,9 +434,6 @@ def test_build_zip_skips_directories(tmp_path: Path) -> None:
         assert zf.namelist() == []
 
 
-# ── _gdpr_rotate_exports ───────────────────────────────────────────────
-
-
 def test_rotate_exports_keeps_five_most_recent(tmp_path: Path) -> None:
     """Only the 5 most-recent ``gdpr-export-*.zip`` files survive rotation."""
     import time
@@ -555,23 +477,13 @@ def test_rotate_exports_under_five_does_nothing(tmp_path: Path) -> None:
     assert len(list(tmp_path.glob("gdpr-export-*.zip"))) == 5
 
 
-# ── orchestrator thinness (refactor contract) ─────────────────────────
-
-
 def test_delete_all_personal_data_is_thin_orchestrator() -> None:
-    """``delete_all_personal_data`` must be a thin orchestrator.
-
-    Asserts the public method exists, has the documented name, and
-    delegates to the extracted helpers.  The full pipeline behavior
-    is covered by ``tests/test_gdpr_delete.py``, this test only
-    verifies the refactor's structural contract.
-    """
+    """``delete_all_personal_data`` must be a thin orchestrator."""
     import inspect
 
     method = PrivacyMixin.delete_all_personal_data
     src = inspect.getsource(method)
     # The orchestrator must NOT inline the per-step work, it must
-    # delegate to the extracted helpers.
     assert "_gdpr_checkpoint_history_db" in src
     assert "_gdpr_unlink_personal_files" in src
     assert "_gdpr_unlink_personal_globs" in src

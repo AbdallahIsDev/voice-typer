@@ -1,21 +1,4 @@
-"""Tests for the event_bus transport-liveness probe registry.
-
-``event_bus.publish`` returns True when ANY in-process subscriber
-accepted the event, which is NOT proof the event reached the host UI:
-the IPC transport's push() swallows write failures (it buffers to
-``_pending_tcp`` and marks the client dead instead of raising), the
-no-client path buffers silently, and unrelated subscribers (e.g. the
-tray's parakeet-cpu-fallback listener) accept every event.
-
-The probe registry (``register_transport_probe`` /
-``unregister_transport_probe`` / ``has_live_transport``) gives callers
-such as ``tray_window.open_app_window`` a truthful delivery
-signal: ``has_live_transport()`` is True only when a registered probe
-reports a live host client. The TCP transport (``IPCServer.start_tcp``)
-registers one reporting ``self._tcp_client is not None`` and
-``IPCServer.stop`` unregisters it, verified in
-``TestTcpServerProbeWiring`` below.
-"""
+"""Tests for the event_bus transport-liveness probe registry."""
 
 from __future__ import annotations
 
@@ -31,9 +14,7 @@ class TestProbeRegistry:
     """Pure registry semantics: register / unregister / has_live_transport."""
 
     def test_no_probes_defaults_to_live(self):
-        """With no probes registered, has_live_transport() returns True
-        (console mode / non-TCP transports keep publish-and-return
-        behavior)."""
+        """With no probes registered, has_live_transport() returns True"""
         assert has_live_transport() is True
 
     def test_register_none_is_noop(self):
@@ -84,8 +65,7 @@ class TestProbeRegistry:
             unregister_transport_probe(p2)
 
     def test_probe_reflects_live_state_dynamically(self):
-        """The probe is a callable evaluated at query time, mutating the
-        transport state flips the answer without re-registering."""
+        """The probe is a callable evaluated at query time, mutating the"""
         state = {"connected": False}
 
         def probe() -> bool:
@@ -101,12 +81,7 @@ class TestProbeRegistry:
 
 
 class TestTcpServerProbeWiring:
-    """TCP accept-loop probe wiring was removed with the TCP transport.
-
-    The WS transport does not register a ``_transport_live_probe`` on
-    ``IPCServer`` the same way; this class pins that the deleted
-    ``start_tcp`` / ``_accept_tcp`` surface stays gone.
-    """
+    """``IPCServer`` the same way; this class pins that the deleted"""
 
     def test_start_tcp_surface_is_removed(self):
         from tests.fixtures.ipc_test_helpers import make_ipc_server_with_fakes
@@ -114,12 +89,10 @@ class TestTcpServerProbeWiring:
         server, _app, _service = make_ipc_server_with_fakes()
         assert not hasattr(server, "_accept_tcp")
         assert not hasattr(type(server), "start_tcp") or not callable(getattr(type(server), "start_tcp", None))
-        # stop() unregistered the probe → back to the no-probe default.
         assert has_live_transport() is True
 
     def test_stop_without_start_tcp_is_noop(self):
-        """stop() on a server whose TCP transport never started must not
-        raise (the WS-sidecar path never calls start_tcp)."""
+        """stop() on a server whose TCP transport never started must not"""
         from tests.fixtures.ipc_test_helpers import make_ipc_server_with_fakes
 
         server, _app, _service = make_ipc_server_with_fakes()

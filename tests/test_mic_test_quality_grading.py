@@ -1,18 +1,4 @@
-"""Regression tests for the mic-test quality-verdict fixes (backend only).
-
-Covers the stop-path grading in ``level_monitor/test_recording.py``
-(noise floor vs. overall RMS, volume-band agreement with the dictation
-path, voice gated on the non-silent share, single volume penalty), the
-worker silence gate, the cancel-guard raw buffer, the ``*.wav.tmp``
-purge, the persist-failure envelope, the service transcription-exception
-marker, and the two doc/comment wording alignments.
-
-All ``sounddevice`` interaction is bypassed: tests drive
-``stop_test_recording`` / ``_process_level_chunk`` /
-``_cancel_test_locked`` directly with synthetic audio, and point the
-WAV transport at a per-test tmp dir (the keep-only-latest purge would
-otherwise race concurrent xdist workers against the real config dir).
-"""
+"""Regression tests for the mic-test quality-verdict fixes (backend only)."""
 
 from __future__ import annotations
 
@@ -62,8 +48,7 @@ def _drive_stop(raw_audio: np.ndarray, rms_hist: list[float], silence_blocks: in
 
 
 def _speech_with_pauses() -> tuple[np.ndarray, list[float]]:
-    """Loud clean speech shape: 220 Hz tone at 0.06 peak for the first
-    half, digital silence for the second half (overall RMS ≈ 0.03)."""
+    """Loud clean speech shape: 220 Hz tone at 0.06 peak for the first"""
     n = SAMPLE_RATE
     t = np.arange(n, dtype=np.float64) / SAMPLE_RATE
     tone = 0.06 * np.sin(2 * np.pi * 220 * t)
@@ -75,8 +60,7 @@ def _speech_with_pauses() -> tuple[np.ndarray, list[float]]:
 
 class TestNoiseFloorGrading:
     def test_loud_clean_speech_with_pauses_is_not_high_noise(self):
-        """Overall RMS ≈ 0.03 but the quiet half reveals a silent room:
-        the verdict must be low background noise, not high."""
+        """Overall RMS ≈ 0.03 but the quiet half reveals a silent room:"""
         raw, hist = _speech_with_pauses()
         result = _drive_stop(raw, hist, silence_blocks=15)
 
@@ -88,8 +72,7 @@ class TestNoiseFloorGrading:
         assert quality["volume_level"] == "good"
 
     def test_gapless_loud_tone_never_reports_high_noise(self):
-        """A gapless 0.03-RMS tone has no quiet floor to measure, but
-        0.03 sits inside the normal speech band: moderate at most."""
+        """A gapless 0.03-RMS tone has no quiet floor to measure, but"""
         t = np.arange(SAMPLE_RATE, dtype=np.float64) / SAMPLE_RATE
         raw = (0.0424 * np.sin(2 * np.pi * 220 * t)).astype(np.float32)
         result = _drive_stop(raw, [0.03] * 31, silence_blocks=0)
@@ -98,8 +81,7 @@ class TestNoiseFloorGrading:
         assert "High background noise" not in result["quality"]["detected_issues"]
 
     def test_sustained_voice_caps_noise_at_moderate(self):
-        """Continuous loud voiced audio (floor ≥ high band) must not
-        claim high background noise: the signal dominates the energy."""
+        """Continuous loud voiced audio (floor ≥ high band) must not"""
         t = np.arange(SAMPLE_RATE, dtype=np.float64) / SAMPLE_RATE
         raw = (0.3 * np.sin(2 * np.pi * 220 * t)).astype(np.float32)
         result = _drive_stop(raw, [_sine_rms(0.3)] * 31, silence_blocks=0)
@@ -109,9 +91,7 @@ class TestNoiseFloorGrading:
         assert quality["noise_level"] == "moderate"
 
     def test_short_loud_test_without_voice_share_still_high(self):
-        """The high band is not dead code: a loud 2-block test is too
-        short to establish a voice share (min 3 non-silent blocks), so
-        a loud floor still reports high background noise."""
+        """short to establish a voice share (min 3 non-silent blocks), so"""
         raw = np.full(1024, 0.08, dtype=np.float32)
         result = _drive_stop(raw, [0.08, 0.08], silence_blocks=0)
 
@@ -145,8 +125,7 @@ class TestVolumeBandAgreement:
         assert _tr.MIC_TEST_VERY_LOW_VOLUME_RMS == AUDIO_SILENCE_RMS
 
     def test_quiet_but_audible_rms_is_low_on_both_paths(self):
-        """RMS 0.003: dictation flags low volume AND the mic test
-        reports low (previously the mic test called this good)."""
+        """RMS 0.003: dictation flags low volume AND the mic test"""
         from voice_typer.server.audio_quality import AudioQualityAnalyzer
 
         amplitude = 0.003 * np.sqrt(2.0)
@@ -160,8 +139,7 @@ class TestVolumeBandAgreement:
         assert result["quality"]["volume_level"] == "low"
 
     def test_healthy_rms_is_good_and_unflagged_on_both_paths(self):
-        """RMS 0.01: dictation raises no low-volume flag and the mic
-        test reports good."""
+        """RMS 0.01: dictation raises no low-volume flag and the mic"""
         from voice_typer.server.audio_quality import AudioQualityAnalyzer
 
         amplitude = 0.01 * np.sqrt(2.0)
@@ -175,8 +153,7 @@ class TestVolumeBandAgreement:
         assert result["quality"]["volume_level"] == "good"
 
     def test_worker_silence_gate_matches_very_low_boundary(self):
-        """A 0.0003-RMS block counts as silence, a 0.001-RMS block does
-        not: the worker gate and the mic-test very_low boundary agree."""
+        """A 0.0003-RMS block counts as silence, a 0.001-RMS block does"""
         from voice_typer.server._audio_constants import AUDIO_SILENCE_RMS
         from voice_typer.server.level_monitor import worker as _worker
         from voice_typer.server.level_monitor._state import _state
@@ -195,8 +172,7 @@ class TestVolumeBandAgreement:
 
 class TestVoiceGating:
     def test_single_click_in_silence_is_not_voice(self):
-        """One loud transient (peak 0.8) in an otherwise silent test:
-        the silence share gates voice off."""
+        """One loud transient (peak 0.8) in an otherwise silent test:"""
         raw = np.zeros(SAMPLE_RATE, dtype=np.float32)
         raw[SAMPLE_RATE // 2] = 0.8
         hist = [0.8 / np.sqrt(512.0)] + [0.0] * 30
@@ -216,8 +192,7 @@ class TestVoiceGating:
 
 class TestVolumeScorePenalty:
     def test_inaudible_input_charged_once(self):
-        """Very-low input (single 0.06 impulse, no block history) takes
-        the -40 very_low penalty exactly once: 100 - 40 = 60."""
+        """Very-low input (single 0.06 impulse, no block history) takes"""
         raw = np.zeros(SAMPLE_RATE, dtype=np.float32)
         raw[0] = 0.06
         result = _drive_stop(raw, [], silence_blocks=0)
@@ -230,8 +205,7 @@ class TestVolumeScorePenalty:
 
 class TestCancelGuard:
     def test_raw_only_state_clears_and_reports_inactive(self):
-        """A raw-only leftover must be cleared even though no test is
-        active (previously the guard returned early and kept it)."""
+        """A raw-only leftover must be cleared even though no test is"""
         from unittest.mock import patch
 
         from voice_typer.server.level_monitor import test_recording as _tr
@@ -248,8 +222,7 @@ class TestCancelGuard:
 
 class TestStagingPurge:
     def test_start_purges_crash_leftover_tmp_files(self, monkeypatch):
-        """A kill between the staging write and the atomic replace
-        leaves ``*.wav.tmp`` behind: the next start must remove it."""
+        """A kill between the staging write and the atomic replace"""
         from voice_typer.server.level_monitor import test_recording as _tr
         from voice_typer.server.level_monitor._state import _state
 
@@ -274,8 +247,7 @@ class TestStagingPurge:
 
 class TestPersistFailureEnvelope:
     def test_write_failure_returns_quality_without_raising(self, monkeypatch):
-        """Disk-full after the chunk state was cleared: stop reports
-        success False but keeps the computed quality for the verdict."""
+        """Disk-full after the chunk state was cleared: stop reports"""
         from voice_typer.server.level_monitor import test_recording as _tr
 
         def _boom(_buf, _kind):
@@ -295,8 +267,7 @@ class TestPersistFailureEnvelope:
 
 class TestTranscriptionExceptionMarker:
     def test_setup_failure_marks_transcription_unavailable(self, monkeypatch, tmp_path):
-        """An unreadable persisted WAV (outer except path) must set the
-        honest non-transcribable marker instead of omitting the line."""
+        """An unreadable persisted WAV (outer except path) must set the"""
         from types import SimpleNamespace
         from typing import Any, cast
 
@@ -324,8 +295,7 @@ class TestTranscriptionExceptionMarker:
         assert "transcription" not in result
 
     def test_engine_failure_marks_transcription_unavailable(self, monkeypatch, tmp_path):
-        """A throwing engine (inner except path) must set the same honest
-        marker as the setup-failure path instead of omitting the line."""
+        """A throwing engine (inner except path) must set the same honest"""
         import wave
         from types import SimpleNamespace
         from typing import Any, cast
@@ -371,8 +341,7 @@ class TestTranscriptionExceptionMarker:
 
 class TestWordingAlignment:
     def test_handler_docstring_caps_test_at_30s(self):
-        """The consent docstring must not promise a 60 s exfiltration
-        bound: the backend clamps duration to [1, 30]."""
+        """The consent docstring must not promise a 60 s exfiltration"""
         import voice_typer.server.handlers.microphone_test_handlers as _handlers
 
         source = inspect.getsource(_handlers)
@@ -380,8 +349,7 @@ class TestWordingAlignment:
         assert "up to 30s" in source
 
     def test_auto_stop_comment_matches_sized_deques(self):
-        """The auto-stop comment must not claim a fixed 3 s / 16 kHz
-        bound: ``_reset_test_chunks`` sizes maxlen by duration × rate."""
+        """The auto-stop comment must not claim a fixed 3 s / 16 kHz"""
         from voice_typer.server.level_monitor import test_recording as _tr
 
         source = inspect.getsource(_tr._do_auto_stop_test)

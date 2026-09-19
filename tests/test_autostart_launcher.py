@@ -1,14 +1,4 @@
-"""Tests for the universal autostart launcher.
-
-Covers:
-  - Port-open path (app already running → focus existing)
-  - Port-closed path (app not running → fresh start)
-  - --hidden flag → VT_START_HIDDEN=1
-  - VT_FOCUS_ONLY env var for lea predecessor focus probe
-  - _is_port_open helper
-  - _focus_running_app helper
-  - PID file writing
-"""
+"""Tests for the universal autostart launcher."""
 
 import socket
 import subprocess
@@ -86,9 +76,7 @@ class TestWritePidFile:
         assert "child=" in content
 
     def test_non_int_child_pid_normalized_to_empty(self, tmp_path, monkeypatch):
-        """A non-int child PID (e.g. a test double's MagicMock leaking into
-        the call site) must NEVER be persisted, it would poison the pid
-        file with a garbage ``child=`` value no reader can parse."""
+        """A non-int child PID (e.g. a test double's MagicMock leaking into"""
         monkeypatch.setattr(
             "voice_typer.server.autostart_launcher._config_dir",
             lambda: tmp_path,
@@ -100,8 +88,7 @@ class TestWritePidFile:
         )
 
     def test_non_int_launcher_pid_not_persisted(self, tmp_path, monkeypatch):
-        """A non-int launcher PID is normalized to ``0``, never a garbage
-        string from a test double's ``__str__``."""
+        """A non-int launcher PID is normalized to ``0``, never a garbage"""
         monkeypatch.setattr(
             "voice_typer.server.autostart_launcher._config_dir",
             lambda: tmp_path,
@@ -312,13 +299,7 @@ class TestLaunchPortClosedPath:
 
 
 class TestLegacyDelayClamp:
-    """Legacy ``--delay`` values are clamped to a short cap.
-
-    Entries registered before the worker-phase prewarm cutover still
-    carry ``--delay 15``; the standalone prewarm task that sleep served
-    is gone, so honoring the full legacy value would be pure logon
-    latency. Small delays pass through untouched.
-    """
+    """Legacy ``--delay`` values are clamped to a short cap."""
 
     def _run_launch_with_delay(self, monkeypatch, delay_arg):
         monkeypatch.setattr(
@@ -383,19 +364,10 @@ class TestLegacyDelayClamp:
 
 
 class TestLauncherOutcomeLogging:
-    """main() logs a single greppable outcome line for every autostart attempt.
-
-    The OS runs this file as a bare script (``pythonw autostart_launcher.py``),
-    so ``__name__`` is ``"__main__"``, the module logger MUST use the
-    explicit dotted name (``voice_typer.server.autostart_launcher``) or its
-    records never reach the ``voice_typer`` file handler and autostart
-    attempts are invisible in ``voice-typer.log`` (the bug that produced
-    zero ``[AUTOSTART]`` lines ever).
-    """
+    """main() logs a single greppable outcome line for every autostart attempt."""
 
     def test_logger_uses_dotted_name_not_main(self):
-        """The module logger must be under the ``voice_typer`` root so its
-        records reach the rotating file handler when run as a script."""
+        """The module logger must be under the ``voice_typer`` root so its"""
         import voice_typer.server.autostart_launcher as launcher_mod
 
         assert launcher_mod.log.name == "voice_typer.server.autostart_launcher"
@@ -430,8 +402,7 @@ class TestLauncherOutcomeLogging:
         assert any("RESULT failure exit=1" in m for m in result_lines), result_lines
 
     def test_main_catches_unhandled_exception_and_logs_traceback(self, monkeypatch, caplog):
-        """A pythonw launch that crashes mid-way must not lose the traceback
-        (no console), main() logs it and returns 1."""
+        """A pythonw launch that crashes mid-way must not lose the traceback"""
         from voice_typer.server.autostart_launcher import main
 
         def boom():
@@ -447,7 +418,6 @@ class TestLauncherOutcomeLogging:
             assert main() == 1
         messages = [r.getMessage() for r in caplog.records]
         assert any("RESULT failure unhandled-exception" in m for m in messages), messages
-        # log.exception stores the traceback in exc_info, not getMessage().
         exc_records = [r for r in caplog.records if r.exc_info]
         assert exc_records, "expected an exception record with traceback"
         import traceback as _tb
@@ -458,11 +428,7 @@ class TestLauncherOutcomeLogging:
 
 
 def test_pid_helpers_resolve_without_importing_app():
-    """BP-126: the login path must stay light, importing single_instance
-    (where the launcher now resolves its PID helpers) must not import
-    the app orchestrator. If this regresses, every logon pays the full
-    backend-app import just to read a PID file.
-    """
+    """BP-126: the login path must stay light, importing single_instance"""
     code = (
         "import sys, voice_typer.server.single_instance; "
         "sys.exit(0 if 'voice_typer.server.app' not in sys.modules else 1)"

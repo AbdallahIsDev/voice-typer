@@ -1,14 +1,4 @@
-"""HistoryDB unit tests split out of the former ``tests/test_history_and_models.py``.
-
-Domain: history database, typed exceptions, retention (favorites
-preservation), search edge cases (LIKE-escape + length cap), and
-soft-delete restore.
-
-Class/method names + assertions are preserved verbatim from the
-original monolith, only file location has changed. The shared
-``history_db`` fixture (temporary SQLite file) is provided by the
-top-level ``tests/conftest.py``.
-"""
+"""Domain: history database, typed exceptions, retention (favorites"""
 
 from __future__ import annotations
 
@@ -82,47 +72,6 @@ class TestSearchHistoryEdgeCases:
         assert [row["text"] for row in results] == ["snake_case_token"]
 
 
-# ==============================================================================
-# Merged from tests/test_history_db_perf_fixes.py —
-#   pagination performance regression pins (composite covering index, OFFSET guard, FTS5 LIMIT push-down,
-#   delegation-split re-export identity, timezone-aware today-stats query)
-# ==============================================================================
-# Regression tests for history_db pagination performance fixes.
-#
-# Covers three fixes:
-#
-# 1. **Composite covering index ``idx_timestamp_id``**, the schema
-# initializer must create ``idx_timestamp_id ON transcriptions(timestamp
-# DESC, id DESC)`` so the ``ORDER BY timestamp DESC, id DESC`` clause
-# in ``get_recent`` / ``search`` / ``get_favorites`` is index-served
-# (no sort pass). On a 500K-row DB the single-column ``idx_timestamp``
-# forced a sort pass that pushed OFFSET pagination to ~594ms.
-#
-# 2. **OFFSET guard**: ``get_recent`` and ``search`` must ``assert
-# offset < 1000`` on their OFFSET (non-cursor) branches. Deep OFFSET
-# pagination is O(offset) on SQLite; the assert forces callers
-# paginating past the first ~1000 rows to switch to cursor
-# pagination (``before_timestamp`` + ``before_id``), which is O(log N).
-#
-# 3. **FTS5 LIMIT push-down**: ``search`` must push the ``LIMIT``
-# (and ``OFFSET`` when present) INTO the FTS5 subquery on the
-# no-cursor path so FTS5 only materialises the rowids that will
-# actually be returned, rather than the full match set. On a query
-# with many matches this cuts the JOIN+sort working set from
-# N_matches to ``limit + offset``.
-#
-# 4. **Delegation split**, the inline SQL methods in ``history_db.py``
-# must now delegate to ``history_db_internals.search`` (thin stubs),
-# and the module-level helpers (``_prepare_like_search_pattern``,
-# ``_is_fts_compatible_query``, ``_sanitize_fts_query``,
-# ``_project_text_row``) must be re-exports from
-# ``history_db_internals.search``. This test pins that the
-# re-exported callables are the SAME function objects as the ones
-# in ``history_db_internals.search`` (so behaviour changes only need
-# to be made in one place).
-#
-
-
 @pytest.fixture
 def db(tmp_path):
     """Create a HistoryDB with a temp path."""
@@ -131,11 +80,6 @@ def db(tmp_path):
     db_instance = HistoryDB(db_path=tmp_path / "perf_fixes_test.db")
     yield db_instance
     db_instance.close()
-
-
-# ──────────────────────────────────────────────────────────────
-# 1. Composite covering index idx_timestamp_id
-# ──────────────────────────────────────────────────────────────
 
 
 class TestTimestampIdCoveringIndex:
@@ -153,19 +97,15 @@ class TestTimestampIdCoveringIndex:
         """The index must be on (timestamp DESC, id DESC)."""
         conn = db._get_read_conn()
         # PRAGMA index_info gives column indices into the table; we need
-        # PRAGMA index_xinfo to get the column names + sort order.
         rows = conn.execute("PRAGMA index_xinfo('idx_timestamp_id')").fetchall()
         # Each row: (seqno, cid, name, desc, coll, key)
-        # We care about the KEY columns (key=1), the indexed columns,
-        # not the auxiliary PK columns SQLite appends.
         key_cols = [(r[2], r[3]) for r in rows if r[5] == 1]
         assert key_cols == [("timestamp", 1), ("id", 1)], (
             f"idx_timestamp_id must be ON (timestamp DESC, id DESC); got key cols: {key_cols}"
         )
 
     def test_idx_timestamp_id_is_idempotent_rebuild(self, tmp_path):
-        """Re-running schema init on an existing DB must not error and
-        must keep the index (CREATE INDEX IF NOT EXISTS is idempotent)."""
+        """Re-running schema init on an existing DB must not error and"""
         from voice_typer.server.history_db import HistoryDB
 
         db_path = tmp_path / "idempotent.db"
@@ -185,14 +125,8 @@ class TestTimestampIdCoveringIndex:
             db2.close()
 
 
-# ──────────────────────────────────────────────────────────────
-# 2. OFFSET guard (assert offset < 1000)
-# ──────────────────────────────────────────────────────────────
-
-
 class TestOffsetGuard:
-    """``get_recent``, ``search`` and ``get_favorites`` must reject deep
-    OFFSET pagination (shared ``_assert_bounded_offset`` guard)."""
+    """``get_recent``, ``search`` and ``get_favorites`` must reject deep"""
 
     @staticmethod
     def _seed_rows(db, n):
@@ -208,12 +142,7 @@ class TestOffsetGuard:
         assert rows[0]["text"] == "entry 0"  # oldest, last in DESC order
 
     def test_get_recent_offset_1000_raises_assertion(self, db):
-        """OFFSET == 1000 must raise (forces cursor migration).
-
-        The ``@_wrap_read`` decorator converts the underlying
-        ``AssertionError`` into a ``HistoryDBError`` when
-        ``raise_on_error=True``. We test via that path so the assertion
-        is exercised end-to-end through the delegation."""
+        """OFFSET == 1000 must raise (forces cursor migration)."""
         self._seed_rows(db, 1)
         with pytest.raises(Exception, match="offset < 1000"):
             db.get_recent(limit=1, offset=1000, raise_on_error=True)
@@ -225,9 +154,7 @@ class TestOffsetGuard:
             db.get_recent(limit=1, offset=5000, raise_on_error=True)
 
     def test_get_recent_cursor_path_bypasses_offset_guard(self, db):
-        """Cursor pagination (before_timestamp + before_id) must NOT
-        be subject to the OFFSET guard, it's the O(log N) alternative
-        we want callers to migrate TO."""
+        """Cursor pagination (before_timestamp + before_id) must NOT"""
         self._seed_rows(db, 10)
         first_page = db.get_recent(limit=5)
         last_row = first_page[-1]
@@ -262,10 +189,7 @@ class TestOffsetGuard:
         assert len(second_page) == 5
 
     def test_get_favorites_offset_1000_raises_assertion(self, db):
-        """``get_favorites`` OFFSET path must reject deep OFFSET too —
-        it is the third list path and previously ran ``LIMIT ? OFFSET ?``
-        with NO guard (a silent O(offset) skip scan where its siblings
-        failed loudly)."""
+        """``get_favorites`` OFFSET path must reject deep OFFSET too —"""
         row_id = db.add_transcription("fav entry")
         db.flush()
         db.toggle_favorite(row_id)
@@ -288,8 +212,7 @@ class TestOffsetGuard:
         assert rows[0]["text"] == "fav 0"  # oldest, last in DESC order
 
     def test_get_favorites_cursor_path_bypasses_offset_guard(self, db):
-        """``get_favorites`` cursor path must NOT be subject to the
-        OFFSET guard (the O(log N) migration target)."""
+        """``get_favorites`` cursor path must NOT be subject to the"""
         for i in range(10):
             db.add_transcription(f"fav {i}")
         db.flush()
@@ -306,17 +229,11 @@ class TestOffsetGuard:
         assert len(second_page) == 5
 
     def test_get_recent_like_path_offset_guard_via_search(self, db):
-        """``search``'s LIKE-fallback OFFSET branch is guarded by the
-        same shared helper (a separator-only query keeps the LIKE path)."""
+        """``search``'s LIKE-fallback OFFSET branch is guarded by the"""
         db.add_transcription("plain text entry")
         db.flush()
         with pytest.raises(Exception, match="offset < 1000"):
             db.search("%", limit=1, offset=1000, raise_on_error=True)
-
-
-# ──────────────────────────────────────────────────────────────
-# 3. FTS5 LIMIT push-down
-# ──────────────────────────────────────────────────────────────
 
 
 class TestFtsLimitPushDown:
@@ -335,12 +252,10 @@ class TestFtsLimitPushDown:
         db_instance.close()
 
     def test_search_returns_correct_results_with_pushdown(self, seeded_db):
-        """The push-down must not change the visible results, top-N by
-        (timestamp DESC, id DESC) is still returned."""
+        """The push-down must not change the visible results, top-N by"""
         results = seeded_db.search("commonword", limit=10)
         assert len(results) == 10
         # Results must be ordered by id DESC (autoincrement, all same
-        # second so timestamp ties, id DESC is the tiebreaker).
         ids = [r["id"] for r in results]
         assert ids == sorted(ids, reverse=True), f"Results must be in id DESC order; got {ids}"
 
@@ -350,8 +265,7 @@ class TestFtsLimitPushDown:
         assert len(results) == 5
 
     def test_search_respects_offset_with_pushdown(self, seeded_db):
-        """OFFSET must work with the push-down, page 2 returns the
-        next ``limit`` rows (by timestamp DESC, id DESC)."""
+        """OFFSET must work with the push-down, page 2 returns the"""
         page1 = seeded_db.search("commonword", limit=5, offset=0)
         page2 = seeded_db.search("commonword", limit=5, offset=5)
         assert len(page1) == 5
@@ -380,11 +294,7 @@ class TestFtsLimitPushDown:
         assert all(r["id"] < last["id"] for r in page2)
 
     def test_search_order_preserved_with_explicit_timestamps(self, tmp_path):
-        """The push-down must preserve the (timestamp DESC, id DESC)
-        ordering contract, pinned by the existing
-        ``test_search_preserves_order_by_timestamp_desc`` test, but we
-        re-pin it here with more rows to exercise the FTS subquery
-        LIMIT (not just the all-rows-fit-in-LIMIT case)."""
+        """The push-down must preserve the (timestamp DESC, id DESC)"""
         from datetime import datetime, timedelta
 
         from voice_typer.server.history_db import HistoryDB
@@ -394,9 +304,6 @@ class TestFtsLimitPushDown:
             base = datetime.now()
 
             # Insert 20 rows where id and timestamp are CORRELATED
-            # (id=1 oldest, id=20 newest). The FTS subquery returns
-            # rowids DESC = [20, 19, ..., 1]; outer ORDER BY timestamp
-            # DESC, id DESC gives the same order. LIMIT 10 → ids 20..11.
             def _do_insert(conn):
                 cur = conn.cursor()
                 for i in range(1, 21):
@@ -417,19 +324,11 @@ class TestFtsLimitPushDown:
             db.close()
 
 
-# ──────────────────────────────────────────────────────────────
-# 4. Delegation split, re-exports must be the SAME function objects
-# ──────────────────────────────────────────────────────────────
-
-
 class TestDelegationSplit:
     """history_db.py must delegate to history_db_internals.search."""
 
     def test_module_level_helpers_are_reexported_from_search(self):
-        """``history_db._is_fts_compatible_query`` etc. must be the SAME
-          function objects as ``history_db_internals.search.is_fts_compatible_query``
-        , proving the inline duplicates were removed and replaced with
-          re-exports."""
+        """``history_db._is_fts_compatible_query`` etc. must be the SAME"""
         from voice_typer.server import history_db
         from voice_typer.server.history_db_internals import search
 
@@ -439,8 +338,7 @@ class TestDelegationSplit:
         assert history_db._project_text_row is search.project_text_row
 
     def test_reexported_helpers_behave_identically(self):
-        """The re-exported helpers must produce identical results to the
-        underlying functions (sanity check, no wrapper indirection)."""
+        """The re-exported helpers must produce identical results to the"""
         from voice_typer.server import history_db
         from voice_typer.server.history_db_internals import search
 
@@ -448,7 +346,6 @@ class TestDelegationSplit:
         assert history_db._is_fts_compatible_query("%") is False
         assert history_db._sanitize_fts_query("hello") == '"hello"'
         assert history_db._prepare_like_search_pattern("a%b") == r"%a\%b%"
-        # project_text_row with a real sqlite3.Row from an in-memory DB.
         conn = sqlite3.connect(":memory:")
         conn.row_factory = sqlite3.Row
         row = conn.execute("SELECT 1 as id, 'x' as text, 5 as text_full_length").fetchone()
@@ -460,9 +357,7 @@ class TestDelegationSplit:
         assert search.project_text_row(row) == projected
 
     def test_get_recent_delegates_to_search_module(self, db, monkeypatch):
-        """``HistoryDB.get_recent`` must call
-        ``history_db_internals.search.get_recent``, verified by
-        monkeypatching the target and asserting the call."""
+        """``HistoryDB.get_recent`` must call"""
         from voice_typer.server.history_db_internals import search
 
         called = {"count": 0}
@@ -483,8 +378,7 @@ class TestDelegationSplit:
         assert called["count"] == 1, "get_recent must delegate to history_db_internals.search.get_recent"
 
     def test_search_delegates_to_search_module(self, db, monkeypatch):
-        """``HistoryDB.search`` must delegate to
-        ``history_db_internals.search.search``."""
+        """``HistoryDB.search`` must delegate to"""
         from voice_typer.server.history_db_internals import search
 
         called = {"count": 0}
@@ -630,31 +524,17 @@ class TestDelegationSplit:
         assert called["count"] == 1
 
 
-# ──────────────────────────────────────────────────────────────
-# 5. today_stats timezone-aware query preserved through delegation
-# ──────────────────────────────────────────────────────────────
-
-
 class TestTodayStatsTimezoneQueryPreserved:
-    """The timezone-aware ``DATETIME('now', 'localtime', 'start of day', 'utc')``
-    query must be preserved through the delegation, the search.py
-    implementation must NOT regress to the old ``DATE('now')`` UTC-only
-    query (which silently excluded rows for users in negative UTC
-    offsets dictating in their local evening)."""
+    """The timezone-aware ``DATETIME('now', 'localtime', 'start of day', 'utc')``"""
 
     def test_today_stats_uses_timezone_aware_query(self, db, monkeypatch):
-        """The delegated ``get_today_stats`` must use the
-        ``DATETIME('now', 'localtime', 'start of day', 'utc')`` query,
-        not the old ``DATE('now')``."""
+        """``DATETIME('now', 'localtime', 'start of day', 'utc')`` query,"""
         db.add_transcription("today's entry")
         db.flush()
         # Invalidate cache so the next call actually runs the SQL.
         db._invalidate_today_stats_cache()
 
         # Wrap _get_read_conn so the returned connection's cursor
-        # captures every execute() call. We can't reassign
-        # sqlite3.Connection.execute (read-only), but we CAN return a
-        # wrapper connection from _get_read_conn.
         real_get_read_conn = db._get_read_conn
         executed_sqls: list[str] = []
 

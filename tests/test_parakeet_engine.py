@@ -1,27 +1,4 @@
-"""Tests for the module-level helpers in ``voice_typer.server.parakeet_engine``.
-
-The ONNX migration (PLAN_ONNX_INTEGRATION.md §3) moved most of the
-engine's behavior under the ``onnx_asr.load_model`` backend. Engine-class
-behavior (load, transcribe, fallback, abort, integrity) is now covered
-by the focused ONNX test files:
-
-- ``tests/test_parakeet_onnx_load.py``, load + is_available + providers
-- ``tests/test_parakeet_onnx_transcribe.py``, parity + transcribe path
-- ``tests/test_parakeet_onnx_abort.py``, inter-chunk abort contract
-- ``tests/test_parakeet_onnx_gpu_fallback.py``, CUDA→CPU session recreation
-- ``tests/test_parakeet_onnx_sha.py``, manifest + integrity allowlist
-- ``tests/test_parakeet_cpu_abort.py``, CPU-fallback abort gate guards
-- ``tests/test_parakeet_warmup.py``, warmup-removed regression guard
-
-This file pins the module-level helper functions re-exported by
-``parakeet_engine`` (the canonical home is ``asr_utils.py`` per §5.3/§5.4):
-
-- ``_is_likely_english`` / ``_is_latin_char``, language-hallucination filter
-- ``_merge_chunks`` / ``_compute_overlap_skip``, overlap-dedup chunk merge
-- ``_split_audio``, chunk-splitting delegate (asr_utils.split_audio)
-- ``ParakeetEngine.unload``, model memory release (not covered elsewhere)
-- ``ParakeetEngine.__init__``, config + state setup (not covered elsewhere)
-"""
+"""Tests for the module-level helpers in ``voice_typer.server.parakeet_engine``."""
 
 from __future__ import annotations
 
@@ -31,8 +8,6 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 from voice_typer.server.parakeet_engine import ParakeetEngine  # noqa: E402
-
-# ─── Helpers ────────────────────────────────────────────────────────────
 
 
 def _mock_onnx_asr_module() -> MagicMock:
@@ -53,13 +28,7 @@ def _mock_onnxruntime_module() -> MagicMock:
 
 @pytest.fixture(autouse=True)
 def _reset_parakeet_engine_class_state():
-    """Reset ``ParakeetEngine`` class-level state between tests.
-
-    ``_ensure_imports`` caches ``_imports_loaded`` + the imported
-    modules on the class. Without this reset, a test that runs
-    ``_ensure_imports`` with mocked modules leaks the mocks into the
-    next test.
-    """
+    """Reset ``ParakeetEngine`` class-level state between tests."""
     saved = (
         ParakeetEngine._imports_loaded,
         ParakeetEngine._onnx_asr,
@@ -82,10 +51,7 @@ def _make_engine(device: str = "cuda", language: str = "en"):
 
 
 def _make_engine_with_mocks(device: str = "cpu", language: str = "en"):
-    """Build a ParakeetEngine and force mocked onnx_asr/onnxruntime imports.
-
-    Returns ``(engine, mock_onnx_asr, mock_onnxruntime)``.
-    """
+    """Build a ParakeetEngine and force mocked onnx_asr/onnxruntime imports."""
     mock_onnx_asr = _mock_onnx_asr_module()
     mock_onnxruntime = _mock_onnxruntime_module()
     with patch.dict(
@@ -95,9 +61,6 @@ def _make_engine_with_mocks(device: str = "cpu", language: str = "en"):
         engine = ParakeetEngine(device=device, language=language)
         ParakeetEngine._ensure_imports()
     return engine, mock_onnx_asr, mock_onnxruntime
-
-
-# ─── Init ───────────────────────────────────────────────────────────────
 
 
 class TestParakeetEngineInit:
@@ -120,10 +83,7 @@ class TestParakeetEngineInit:
         assert engine.language == "fr"
 
     def test_init_default_batch_size_is_two(self):
-        """``_INFERENCE_BATCH_SIZE`` default is 2 (kept for backward
-        compat with pre-migration tests even though the ONNX backend
-        doesn't batch: ``onnx_asr.recognize`` processes one audio at
-        a time)."""
+        """``_INFERENCE_BATCH_SIZE`` default is 2 (kept for backward"""
         engine = _make_engine()
         assert engine._INFERENCE_BATCH_SIZE == 2
 
@@ -144,8 +104,7 @@ class TestParakeetEngineInit:
         assert engine.is_loaded is False
 
     def test_is_loaded_true_when_model_set(self):
-        """ONNX engine: ``is_loaded`` checks ``_model`` only (no
-        separate processor needed: ``onnx_asr.load_model`` bundles them)."""
+        """ONNX engine: ``is_loaded`` checks ``_model`` only (no"""
         engine = _make_engine()
         engine._model = MagicMock()
         assert engine.is_loaded is True
@@ -158,9 +117,6 @@ class TestParakeetEngineInit:
         engine = _make_engine(device="cuda")
         assert "parakeet/cuda/" in engine.loaded_via
         assert "grikdotnet/parakeet-tdt-0.6b-fp16" in engine.loaded_via
-
-
-# ─── Module-level helpers ───────────────────────────────────────────────
 
 
 class TestIsLikelyEnglish:
@@ -240,12 +196,8 @@ class TestIsLatinChar:
         assert _is_latin_char("世") is False
 
 
-# ─── unload() ───────────────────────────────────────────────────────────
-
-
 class TestParakeetEngineUnload:
-    """``unload()`` clears the model + processor and runs gc + the
-    (no-op for ORT) ``release_gpu_memory()`` helper."""
+    """``unload()`` clears the model + processor and runs gc + the"""
 
     def test_unload_clears_model_and_processor(self):
         engine = _make_engine()
@@ -254,7 +206,6 @@ class TestParakeetEngineUnload:
         assert engine.is_loaded is True
 
         # ``release_gpu_memory`` is imported locally inside ``unload()``
-        # from ``voice_typer.server.asr_utils`` (the canonical location).
         with patch("voice_typer.server.asr_utils.release_gpu_memory") as mock_release:
             engine.unload()
 
@@ -264,9 +215,7 @@ class TestParakeetEngineUnload:
         mock_release.assert_called_once()
 
     def test_unload_runs_gc(self):
-        """``unload()`` must run ``gc.collect()`` AFTER nulling the model
-        (OUTSIDE the lock: see the docstring) so the ORT session is
-        eligible for immediate destruction."""
+        """``unload()`` must run ``gc.collect()`` AFTER nulling the model"""
         engine = _make_engine()
         engine._model = MagicMock()
 
@@ -279,9 +228,7 @@ class TestParakeetEngineUnload:
         mock_gc.assert_called_once()
 
     def test_unload_when_already_unloaded_is_noop(self):
-        """Calling ``unload()`` when the model is already None must not
-        raise (idempotent contract, callers like ``transcribe_with_fallback``
-        may unload twice in error paths)."""
+        """Calling ``unload()`` when the model is already None must not"""
         engine = _make_engine()
         assert engine._model is None
         with patch("voice_typer.server.asr_utils.release_gpu_memory"):
@@ -290,15 +237,7 @@ class TestParakeetEngineUnload:
         assert engine._model is None
 
     def test_unload_waits_for_active_inference(self):
-        """``unload()`` must wait for ``_active_inference == 0`` before
-        nulling the model so a concurrent transcribe() doesn't
-        dereference a freed ORT session (use-after-free guard).
-
-        Verified by setting ``_active_inference = 1`` BEFORE unload and
-        asserting the model is NOT nulled while the count is non-zero.
-        A background thread then decrements the count + notifies the
-        condition variable; unload completes and nulls the model.
-        """
+        """``unload()`` must wait for ``_active_inference == 0`` before"""
         import threading
         import time
 
@@ -322,9 +261,6 @@ class TestParakeetEngineUnload:
         assert engine._model is None
 
 
-# ─── Chunk merge / overlap dedup ─────────────────────────────────────────
-
-
 class TestMergeChunks:
     """``_merge_chunks`` + ``_compute_overlap_skip`` handle chunk boundaries."""
 
@@ -344,8 +280,7 @@ class TestMergeChunks:
         assert result == "hello there world peace"
 
     def test_two_chunks_with_overlap_dedups_boundary(self):
-        """If the second chunk's leading words duplicate the first chunk's
-        trailing words, those duplicates are skipped at the boundary."""
+        """If the second chunk's leading words duplicate the first chunk's"""
         engine = _make_engine()
         # "the dog" appears at end of chunk 1 AND start of chunk 2 → skipped.
         result = engine._merge_chunks(["I saw the dog", "the dog ran fast"])
@@ -355,7 +290,6 @@ class TestMergeChunks:
         assert ParakeetEngine._compute_overlap_skip(["alpha", "beta"], ["gamma", "delta"]) == 0
 
     def test_compute_overlap_skip_with_overlap_returns_count(self):
-        # prev tail contains "the dog"; new head is "the dog" → skip 2.
         assert ParakeetEngine._compute_overlap_skip(["I", "saw", "the", "dog"], ["the", "dog", "ran"]) == 2
 
     def test_compute_overlap_skip_empty_inputs_return_zero(self):
@@ -369,9 +303,6 @@ class TestMergeChunks:
     def test_compute_overlap_skip_ignores_punctuation(self):
         # Punctuation is stripped before comparison.
         assert ParakeetEngine._compute_overlap_skip(["The", "dog."], ["the", "dog", "ran"]) == 2
-
-
-# ─── _split_audio ────────────────────────────────────────────────────────
 
 
 class TestSplitAudio:
@@ -401,9 +332,6 @@ class TestSplitAudio:
         audio = np.arange(int(50 * 16000), dtype=np.float32)
         chunks = engine._split_audio(audio, chunk_sec=25, overlap_sec=3)
         if len(chunks) >= 2:
-            # The overlap is at the START of chunk[1] and the END of
-            # chunk[0]. Verify by checking the first ``overlap`` samples
-            # of chunk[1] match the last ``overlap`` samples of chunk[0].
             overlap_samples = int(3 * 16000)
             np.testing.assert_array_equal(
                 chunks[1][:overlap_samples],

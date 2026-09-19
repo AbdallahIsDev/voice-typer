@@ -1,36 +1,4 @@
-"""Install stage for the downloaded runtime pack (plan §8.3 + §4.6).
-
-The download stage (`download_offline_pack_with_resume`) leaves a
-verified ``pack-<version>.partial`` archive on disk and RETURNS, this
-file covers the missing link: `install_offline_pack` extracts the
-archive into a ``<version>.new`` staging dir, verifies every file
-against the manifest, writes ``pack-manifest.json``, and atomically
-swaps the staging dir into place.
-
-The runtime-pack worker start step is intentionally NOT covered here:
-that step is owned by the host-side worker wiring decision and is out
-of scope for the install stage (the pack is installed and ready).
-
-Tested behaviors:
-
-  1. Happy path: fixture pack → extracted at ``<root>/<version>/``,
-     manifest written, archive deleted, ``offline_pack_verified``
-     event published with ``{version, sha256}`` (renderer contract).
-  2. The cheap existence probe + full verification both succeed after
-     install (the launch-time scan finds the pack).
-  3. An existing pack dir is replaced (stale files gone), the swap
-     path.
-  4. A missing archive → False (nothing to install, the download
-     fake wrote nothing).
-  5. A tampered inner file → fail closed BEFORE the swap: no version
-     dir, staging cleaned, archive KEPT for retry, ``offline_pack_corrupt``
-     event.
-  6. A non-zip archive → False, staging cleaned, archive kept.
-  7. A zip-slip entry (``../escape``) → rejected, nothing written
-     outside staging.
-  8. Swap failure → False, staging cleaned, archive kept,
-     ``offline_pack_download_failed`` with reason ``install_failed``.
-"""
+"""Install stage for the downloaded runtime pack (plan §8.3 + §4.6)."""
 
 from __future__ import annotations
 
@@ -50,13 +18,7 @@ def _sha256_bytes(b: bytes) -> str:
 def _build_fixture_pack(
     tmp_path: Path, version: str = "1.2.3", *, archive_name: str | None = None
 ) -> tuple[Path, dict]:
-    """Build a fixture pack archive + its manifest dict.
-
-    Mirrors the release layout from ``publish_pack_release.py`` /
-    ``full-offline-installer.nsi``: ``pack-<version>.zip`` entries
-    extract DIRECTLY into the pack dir (no top-level folder), and the
-    manifest is a separate dict describing each file.
-    """
+    """Build a fixture pack archive + its manifest dict."""
     files = {
         "worker.exe": b"worker-binary-blob",
         "engines/parakeet.onnx": b"onnx-weights-blob",
@@ -130,8 +92,7 @@ class TestInstallOfflinePack:
         assert (pack_dir / "worker.exe").exists()
 
     def test_missing_archive_returns_false(self, tmp_path: Path):
-        """Nothing was downloaded (e.g. an injected fake wrote no file) —
-        the install stage is a no-op, not an error."""
+        """Nothing was downloaded (e.g. an injected fake wrote no file) —"""
         _archive, manifest = _build_fixture_pack(tmp_path, "1.0.0")
         missing = tmp_path / "pack-1.0.0.partial"
         missing.unlink()
@@ -142,9 +103,7 @@ class TestInstallOfflinePack:
         assert not (tmp_path / "1.0.0").exists()
 
     def test_tampered_inner_file_fails_closed_before_swap(self, tmp_path: Path):
-        """A manifest/zip disagreement (tampered inner file) → fail closed
-        BEFORE the swap: no version dir, staging cleaned, archive kept
-        for retry, ``offline_pack_corrupt`` published."""
+        """A manifest/zip disagreement (tampered inner file) → fail closed"""
         archive, manifest = _build_fixture_pack(tmp_path, "1.2.3")
         # Tamper: manifest declares a hash the zip does not contain.
         manifest["files"][0]["sha256"] = "0" * 64
@@ -179,8 +138,7 @@ class TestInstallOfflinePack:
         assert archive.exists()
 
     def test_zip_slip_entry_rejected(self, tmp_path: Path):
-        """A zip entry escaping the staging dir (zip-slip) is rejected —
-        nothing is written outside staging."""
+        """A zip entry escaping the staging dir (zip-slip) is rejected —"""
         archive = tmp_path / "pack-4.0.0.partial"
         with zipfile.ZipFile(archive, "w") as zf:
             zf.writestr("../escaped.txt", b"evil")
@@ -198,9 +156,7 @@ class TestInstallOfflinePack:
         assert not (tmp_path / "4.0.0").exists()
 
     def test_swap_failure_cleans_staging_and_keeps_partial(self, tmp_path: Path, monkeypatch):
-        """When the atomic swap raises (e.g. the Windows worker exe is
-        open), the staging dir is cleaned, the partial is kept, and the
-        failure is reported via ``offline_pack_download_failed``."""
+        """When the atomic swap raises (e.g. the Windows worker exe is"""
         archive, manifest = _build_fixture_pack(tmp_path, "5.0.0")
         bus = _FakeBus()
 
@@ -218,8 +174,7 @@ class TestInstallOfflinePack:
         assert failed and failed[0]["data"]["reason"] == "install_failed"
 
     def test_stale_staging_dir_is_discarded(self, tmp_path: Path):
-        """A leftover ``<version>.new`` from a previous failed install is
-        removed before extraction (never merged with the new one)."""
+        """A leftover ``<version>.new`` from a previous failed install is"""
         archive, manifest = _build_fixture_pack(tmp_path, "6.0.0")
         stale = Path(str(tmp_path / "6.0.0") + ".new")
         stale.mkdir(parents=True)
@@ -233,8 +188,7 @@ class TestInstallOfflinePack:
         assert (pack_dir / "worker.exe").exists()
 
     def test_unsafe_manifest_entry_name_fails_closed(self, tmp_path: Path):
-        """A manifest entry whose name escapes the pack dir is rejected
-        (the manifest comes over the network, never trust path parts)."""
+        """A manifest entry whose name escapes the pack dir is rejected"""
         archive, manifest = _build_fixture_pack(tmp_path, "7.0.0")
         manifest["files"][0]["name"] = "../outside.exe"
 

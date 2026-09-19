@@ -1,15 +1,4 @@
-"""Model download / delete / status tests split out of the former ``tests/test_history_and_models.py``.
-
-Domain: model management, cancel mechanism (per-download Event
-registry), delete_model via MODEL_REGISTRY, get_model_status cache
-(SVC-9 / PERF-10), and download-progress poll scoped to model_dir
-(PERF-21).
-
-Class/method names + assertions are preserved verbatim from the
-original monolith, only file location has changed. The shared
-``tmp_config_dir`` fixture is provided by the top-level
-``tests/conftest.py``.
-"""
+"""Domain: model management, cancel mechanism (per-download Event"""
 
 from __future__ import annotations
 
@@ -18,13 +7,7 @@ import os
 
 
 class TestCancelModelDownloadMechanism:
-    """Verify the cancel mechanism works at the Python service level.
-
-    the legacy single-instance ``_download_cancel_event``
-    attribute has been removed.  These tests now exercise the per-download
-    API (``_register_download`` / ``_download_cancel_events`` /
-    ``_unregister_download``) that production code uses.
-    """
+    """Verify the cancel mechanism works at the Python service level."""
 
     def test_cancel_returns_false_when_no_download_active(self, tmp_config_dir):
         from voice_typer.server.service import VoiceTyperService
@@ -64,7 +47,6 @@ class TestCancelModelDownloadMechanism:
         download_id = service._register_download("test-model")
         service.cancel_model_download()
         # Unregistering the download clears the active id and removes
-        # the Event from the dict, so a subsequent cancel returns False.
         service._unregister_download(download_id)
         result = service.cancel_model_download()
         assert result == {"cancelled": False}
@@ -82,10 +64,7 @@ class TestCancelModelDownloadMechanism:
 
 
 class TestDeleteModelUsesRegistryUnconditionally:
-    """SVC-7: ``delete_model`` resolves ``repo_id`` from
-      :data:`MODEL_REGISTRY` for ALL models (whisper/distil/parakeet/qwen)
-    , the inline ``elif model_name == "parakeet"`` / ``elif model_name ==
-      "qwen"`` branches are gone."""
+    """:data:`MODEL_REGISTRY` for ALL models (whisper/distil/parakeet/qwen)"""
 
     def _make_service(self):
         from voice_typer.server.service import VoiceTyperService
@@ -100,8 +79,7 @@ class TestDeleteModelUsesRegistryUnconditionally:
         return VoiceTyperService(FakeApp())
 
     def test_parakeet_uses_registry_repo_id(self, tmp_config_dir, monkeypatch):
-        """``delete_model("parakeet")`` looks up the registry's
-        ``nvidia/parakeet-tdt-0.6b-v3`` repo_id (NOT a hardcoded branch)."""
+        """``delete_model(\"parakeet\")`` looks up the registry's"""
         from voice_typer.server.model_registry import get_model_metadata
 
         service = self._make_service()
@@ -120,11 +98,7 @@ class TestDeleteModelUsesRegistryUnconditionally:
         assert not (cache_dir / model_dir_name).exists()
 
     def test_qwen_uses_registry_repo_id(self, tmp_config_dir):
-        """``delete_model("qwen")`` no longer returns "Unknown model"
-        , it derives ``andrewleech/qwen3-asr-1.7b-onnx`` from the
-          registry (the ONNX export repo, 2026-08-15) and either deletes
-          the matching cache dir or returns "not downloaded" when the
-          dir is absent."""
+        """``delete_model(\"qwen\")`` no longer returns \"Unknown model\""""
         from voice_typer.server.model_registry import get_model_metadata
 
         service = self._make_service()
@@ -139,8 +113,7 @@ class TestDeleteModelUsesRegistryUnconditionally:
         )
 
     def test_unknown_model_still_errors(self, tmp_config_dir):
-        """A model name absent from the registry still surfaces the
-        existing "Unknown model" error (regression guard)."""
+        """A model name absent from the registry still surfaces the"""
         service = self._make_service()
         result = service.delete_model("definitely-not-a-real-model")
         assert result["success"] is False
@@ -148,8 +121,7 @@ class TestDeleteModelUsesRegistryUnconditionally:
 
 
 class TestGetModelStatusCache:
-    """SVC-9 / PERF-10: ``get_model_status`` caches its result for 5 s
-    and is invalidated by ``delete_model`` + successful downloads."""
+    """SVC-9 / PERF-10: ``get_model_status`` caches its result for 5 s"""
 
     def _make_service(self):
         from voice_typer.server.service import VoiceTyperService
@@ -164,8 +136,7 @@ class TestGetModelStatusCache:
         return VoiceTyperService(FakeApp())
 
     def test_two_consecutive_calls_return_same_cached_object(self, tmp_config_dir, monkeypatch):
-        """Within the 5 s TTL window, the second call returns the SAME
-        dict object, proving the cache served it (not a fresh compute)."""
+        """Within the 5 s TTL window, the second call returns the SAME"""
         service = self._make_service()
         monkeypatch.setattr("os.path.isdir", lambda p: False)
         first = service.get_model_status()
@@ -173,8 +144,7 @@ class TestGetModelStatusCache:
         assert first is second, "Second call within TTL should return the cached dict object"
 
     def test_invalidate_forces_recompute(self, tmp_config_dir, monkeypatch):
-        """``_invalidate_model_status_cache`` causes the next call to
-        re-compute (returns a different dict object)."""
+        """``_invalidate_model_status_cache`` causes the next call to"""
         service = self._make_service()
         monkeypatch.setattr("os.path.isdir", lambda p: False)
         first = service.get_model_status()
@@ -183,8 +153,7 @@ class TestGetModelStatusCache:
         assert first is not second, "After invalidation, the cache should be re-populated with a fresh dict"
 
     def test_delete_model_invalidates_cache(self, tmp_config_dir, monkeypatch):
-        """A successful ``delete_model`` drops the status cache so the
-        next ``get_model_status`` IPC call reflects the deletion."""
+        """A successful ``delete_model`` drops the status cache so the"""
         from voice_typer.server.model_registry import get_model_metadata
 
         service = self._make_service()
@@ -206,9 +175,7 @@ class TestGetModelStatusCache:
         assert service._model_status_cache is None, "delete_model must invalidate the get_model_status cache (SVC-9)"
 
     def test_cache_dir_exists_probed_once_per_compute(self, tmp_config_dir, monkeypatch):
-        """SVC-9 / PERF-10: ``cache_dir_exists = os.path.isdir(cache_dir)``
-        is hoisted above the loop. The cache_dir root is stat exactly
-        ONCE per ``_compute_model_status`` call, not once per model."""
+        """SVC-9 / PERF-10: ``cache_dir_exists = os.path.isdir(cache_dir)``"""
         service = self._make_service()
 
         isdir_calls: list[str] = []
@@ -228,28 +195,10 @@ class TestGetModelStatusCache:
 
 
 class TestDownloadPollScopedToModelDir:
-    """PERF-21: the download-progress polling loop walks ONLY the
-    in-progress model's directory, not the entire HF cache tree."""
+    """PERF-21: the download-progress polling loop walks ONLY the"""
 
     def test_poll_walks_model_dir_not_cache_root(self, tmp_config_dir, monkeypatch):
-        """When polling for download progress, the loop calls
-        ``rglob`` on ``cache_dir / models--<repo_id>``, NOT on
-        ``cache_dir`` itself.
-
-        We verify by inspecting the source, running an actual
-        download is impractical in unit tests (snapshot_download +
-        threading). The source-level guard catches any future revert
-        that re-widens the rglob.
-
-        DR-17: the polling loop was extracted from the original
-        monolithic ``VoiceTyperService.download_model`` (now a thin
-        dispatcher delegating to ``_download_whisper_family`` /
-        ``_download_qwen`` / ``_download_parakeet``) into the
-        module-level ``poll_download_progress`` helper in
-        ``voice_typer/server/service/_download_helpers.py``. The
-        PERF-21 invariant still lives there, so this test introspects
-        the helper's source rather than ``download_model``.
-        """
+        """When polling for download progress, the loop calls"""
 
         from voice_typer.server.service._download_helpers import poll_download_progress
 
@@ -262,9 +211,6 @@ class TestDownloadPollScopedToModelDir:
             "PERF-21: progress polling must call model_dir.rglob('*'), not cache_dir.rglob('*')"
         )
         # Strip Python comments before checking so the PERF-21
-        # explanatory comment (which mentions cache_dir.rglob in plain
-        # English) doesn't trip the assertion. We only want to catch a
-        # regression where the actual CODE re-widens the rglob.
         code_only_lines = []
         for line in src.splitlines():
             stripped = line.lstrip()

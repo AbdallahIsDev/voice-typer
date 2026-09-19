@@ -1,14 +1,4 @@
-"""Regression tests split out of the former ``tests/test_bugfix_regressions.py``.
-
-This module is part of the ``tests/regressions/`` package created by
-REF-4. The class/method names, assertion logic, and imports below are
-preserved verbatim from the original 4446-line monolith, only file
-location has changed.
-
-Common preamble (imports + Linux test-env shim) is identical to the
-original file so that every test in this module sees the same global
-state the monolith provided.
-"""
+"""REF-4. The class/method names, assertion logic, and imports below are"""
 
 from __future__ import annotations
 
@@ -19,29 +9,8 @@ from unittest.mock import MagicMock
 import pytest
 
 
-# the previous Linux test-env shim that aliased
-# ``ctypes.WINFUNCTYPE = ctypes.CFUNCTYPE`` and inserted a ``MagicMock``
-# for ``voice_typer.server.crash_handler`` into ``sys.modules`` has been
-# removed. ``crash_handler.py`` now gates the ``@ctypes.WINFUNCTYPE(...)``
-# decorator behind ``sys.platform == "win32"``, so the module imports
-# cleanly on Linux/macOS without any test-infrastructure shim.
 class TestAccessibilityIpcEndpointExists:
-    """PLAT-030.
-
-    The finding: macOS Accessibility check exists but no IPC endpoint
-    for the predecessor UI to query. Fix: added ``check_accessibility``
-    IPC handler that returns ``{granted, platform}``.
-
-    Stale-test refresh + re-registration: the ``check_accessibility``
-    command was REMOVED from ``IPCServer._COMMAND_REGISTRY`` in the
-    GT-32 stale-entry cleanup (the Tauri host invoked it via a
-    dedicated Rust command), then RE-ADDED on 2026-08-10 (finding
-    #919 part b), the Settings → Troubleshooting UI now invokes it
-    on macOS to surface the stale-grant ``tccutil`` reset command.
-    This test calls the handler method directly (not via ``_dispatch``)
-    so it stays a pure PLAT-030 regression check; the dispatch-level
-    coverage lives in ``tests/handlers/test_system_handlers.py``.
-    """
+    """PLAT-030."""
 
     @pytest.mark.skipif(
         sys.platform == "darwin",
@@ -53,13 +22,6 @@ class TestAccessibilityIpcEndpointExists:
         from voice_typer.server.ipc_server import IPCServer
 
         # Build a minimal IPCServer with a mock app.
-        # ``_dispatch`` and ``_send`` acquire ``self._dispatch_lock``; the
-        # test bypasses ``__init__`` (which would otherwise build the
-        # authenticated socket, worker pool, and command-handler cache)
-        # via ``__new__`` for speed, so the minimal instance attrs the
-        # code-under-test touches must be set up here. Without this, the
-        # test fails with ``AttributeError: 'IPCServer' object has no
-        # attribute '_dispatch_lock'`` before the handler ever runs.
         app = MagicMock()
         app._config_mutation_lock = __import__("threading").RLock()
         server = IPCServer.__new__(IPCServer)
@@ -68,9 +30,6 @@ class TestAccessibilityIpcEndpointExists:
         server.service = MagicMock()
 
         # Invoke the handler directly. The handler runs
-        # empty-schema payload validation (a non-dict payload is
-        # rejected with ``invalid_payload``), so pass ``{}``, NOT
-        # ``None``, as the data arg.
         resp = server._handle_check_accessibility({}, {"id": "test"})
 
         assert resp["type"] == "accessibility_status"
@@ -83,12 +42,7 @@ class TestSendCatchesOSErrorSubclasses:
 
     @pytest.mark.parametrize("exc_class", [BrokenPipeError, ConnectionResetError, OSError])
     def test_send_catches_oserror_subclasses(self, exc_class):
-        """Each OSError subclass should be caught by the _send error handler.
-
-        This test creates a mock TCP client whose write() raises the given
-        exception, calls _send, and verifies the exception is caught (not
-        propagated) and the client is dropped.
-        """
+        """Each OSError subclass should be caught by the _send error handler."""
         from voice_typer.server.ipc_server import IPCServer
 
         server = IPCServer.__new__(IPCServer)
@@ -102,7 +56,6 @@ class TestSendCatchesOSErrorSubclasses:
         mock_client.settimeout = MagicMock()
         mock_client.getpeername.return_value = ("127.0.0.1", 12345)
 
-        # _send should catch the exception and drop the client
         # (not propagate it)
         try:
             server._send(mock_client, {"type": "test"})
@@ -110,8 +63,6 @@ class TestSendCatchesOSErrorSubclasses:
             pytest.fail(f"NEW-CQ-003: _send should catch {exc_class.__name__}, not propagate it")
         except Exception:
             # Other exception types (e.g. RuntimeError from the drop path)
-            # are acceptable, the key is that the original OSError subclass
-            # was caught.
             pass
 
 
@@ -148,8 +99,7 @@ class TestSendCatchesSocketTimeout:
     """NEW-IPC-016: IPC write timeout under blocking conditions."""
 
     def test_send_catches_socket_timeout(self):
-        """When the TCP client's write() raises socket.timeout, _send
-        must catch it and drop the client (not hang or propagate)."""
+        """When the TCP client's write() raises socket.timeout, _send"""
         from voice_typer.server.ipc_server import IPCServer
 
         server = IPCServer.__new__(IPCServer)
@@ -170,14 +120,7 @@ class TestSendCatchesSocketTimeout:
             pass  # drop path may raise other exceptions
 
     def test_send_awaits_socket_writable_before_write(self):
-        """The send path must enforce a write timeout before writing.
-
-        NEW-IPC-016 refactor: the per-write ``settimeout`` dance (3
-        socket syscalls per call) was replaced by the select-based
-        ``_await_socket_writable`` write-readiness gate in
-        ``ipc/sender.py``, which enforces ``_TCP_WRITE_TIMEOUT_SECONDS``
-        without mutating the socket's timeout state.
-        """
+        """The send path must enforce a write timeout before writing."""
 
         from unittest.mock import patch
 
@@ -198,6 +141,5 @@ class TestSendCatchesSocketTimeout:
 
         with patch.object(sender_mod, "_await_socket_writable") as spy:
             server._send({"type": "test"})
-        # the write-timeout gate must have been applied to the connection
         spy.assert_called()
         assert spy.call_args.args[0] is mock_tcp.conn

@@ -1,27 +1,4 @@
-"""Regression tests for the Equalizer filter with very short input chunks.
-
-The Equalizer's 3-sample delay line has two code paths:
-
-  * ``n >= 3``: a pre-allocated buffer is slice-filled from the carried
-    delay state + the input. No ``extended`` array is constructed.
-  * ``n <  3``: a small ``prefix + x`` array (``extended``) is built so
-    the delay update can index ``extended[-1/-2/-3]`` without bounds
-    errors.
-
-Historically the d3-construction branch and the delay-update branch
-were two SEPARATE ``if n >= 3:`` blocks. Both referenced ``extended``
-but it was assigned in only one of them. That worked only because
-both branches shared the same guard, a future refactor that
-diverged the two conditions would trigger ``NameError: name
-'extended' is not defined`` at runtime. Short chunks (1-2 samples)
-occur at stream startup / teardown and would surface such a bug
-intermittently in production.
-
-These tests exercise the ``n < 3`` path directly with 1-, 2-, and
-3-sample inputs, asserting no exception is raised, the output shape
-is preserved, and the carried delay state matches the last 3 samples
-of ``[prefix, x]``.
-"""
+"""Regression tests for the Equalizer filter with very short input chunks."""
 
 from __future__ import annotations
 
@@ -65,7 +42,6 @@ class TestEqualizerShortChunks:
         eq = Equalizer(sample_rate=16000)
         eq.process(np.array([0.42], dtype=np.float32), 16000)
         assert eq._delay1 == pytest.approx(0.42, abs=1e-6)
-        # delay2/delay3 stay at their carried values (0.0 from __init__).
         assert eq._delay2 == pytest.approx(0.0, abs=1e-12)
         assert eq._delay3 == pytest.approx(0.0, abs=1e-12)
 
@@ -86,11 +62,7 @@ class TestEqualizerShortChunks:
         assert eq._delay3 == pytest.approx(0.42, abs=1e-6)
 
     def test_short_then_long_chunk_chain(self):
-        """A 1-sample chunk followed by a normal chunk must not crash.
-
-        This exercises the carried state from the short-chunk path
-        feeding into the n>=3 path on the next call.
-        """
+        """A 1-sample chunk followed by a normal chunk must not crash."""
         eq = Equalizer(sample_rate=16000)
         r1 = eq.process(np.array([0.5], dtype=np.float32), 16000)
         r2 = eq.process(np.array([0.5, 0.3], dtype=np.float32), 16000)
@@ -101,12 +73,7 @@ class TestEqualizerShortChunks:
         assert np.all(np.isfinite(r3))
 
     def test_short_chunks_with_nonzero_carried_state(self):
-        """Pre-populate delay state, then send a 1-sample chunk.
-
-        Verifies the ``extended`` array correctly mixes the carried
-        prefix with the new input (the delay-update else branch reads
-        ``extended[-1/-2/-3]``).
-        """
+        """Pre-populate delay state, then send a 1-sample chunk."""
         eq = Equalizer(sample_rate=16000)
         # Seed the delay state with distinctive values.
         eq._delay1 = 0.11
@@ -114,7 +81,6 @@ class TestEqualizerShortChunks:
         eq._delay3 = 0.33
         eq.process(np.array([0.99], dtype=np.float32), 16000)
         # After a 1-sample chunk, extended = [0.33, 0.22, 0.11, 0.99].
-        # extended[-1] = 0.99, extended[-2] = 0.11, extended[-3] = 0.22.
         assert eq._delay1 == pytest.approx(0.99, abs=1e-6)
         assert eq._delay2 == pytest.approx(0.11, abs=1e-6)
         assert eq._delay3 == pytest.approx(0.22, abs=1e-6)

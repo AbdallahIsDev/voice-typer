@@ -1,24 +1,4 @@
-"""Canonical-resolution tests for the parakeet engine helper aliases.
-
-The historical defensive-fallback machinery in
-``voice_typer.server.parakeet_engine._helpers`` (a try/except around the
-``asr_utils`` import, six ``None`` placeholders, six ``_local_*``
-re-implementations, and a dispatch block) was removed once the ONNX
-parallel refactor completed: ``asr_utils`` lives in the same package, so
-the fallback was unreachable dead code. These tests pin the post-cleanup
-contract so it cannot silently regress:
-
-1. every alias exported by ``_helpers`` resolves to the CANONICAL
-   ``asr_utils`` implementation (same function object, no parallel
-   copy can creep back in);
-2. the merge-chunk / language-filter constants in
-   ``parakeet_engine._constants`` are the same objects as their
-   ``asr_utils`` counterparts (no re-declared literals that could
-   drift);
-3. the backward-compat names the package facade re-exports (used by
-   ``_transcribe.py``, ``tests/test_parakeet_engine.py``,
-   ``tests/regressions/test_parakeet_merge.py``) keep working.
-"""
+"""Canonical-resolution tests for the parakeet engine helper aliases."""
 
 from __future__ import annotations
 
@@ -39,9 +19,7 @@ class TestHelpersResolveCanonicalImplementations:
         assert _helpers._compute_overlap_skip_impl is asr_utils.compute_overlap_skip
 
     def test_no_local_fallback_copies_remain(self) -> None:
-        """The ``_local_*`` re-implementations were deleted, none of
-        the names may reappear (a reintroduced fallback would be
-        unreachable dead code again, and a drift hazard)."""
+        """the names may reappear (a reintroduced fallback would be"""
         for name in (
             "_local_is_latin_char",
             "_local_is_likely_english",
@@ -52,8 +30,7 @@ class TestHelpersResolveCanonicalImplementations:
             assert not hasattr(_helpers, name), f"_helpers.{name} must not exist"
 
     def test_helpers_available_flag_is_true(self) -> None:
-        """The package facade re-exports this flag; with the direct
-        import it is ``True`` by construction."""
+        """The package facade re-exports this flag; with the direct"""
         assert _helpers._ASR_UTILS_HELPERS_AVAILABLE is True
 
     def test_ascii_fast_path_threshold_is_the_canonical_constant(self) -> None:

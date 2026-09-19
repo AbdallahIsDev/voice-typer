@@ -1,192 +1,6 @@
-r"""MIG-1.9 Phase 3: tray/menu port validation (ADR-0020 §6.5).
-
-This is the **Phase 3 tray-menu check** for the MIG-1.9 Tauri runtime
-migration. It validates that the **tray menu structure is preserved
-1:1** across the runtime migration, the user must see the same six
-menu items (Open App, Start Dictation, Cancel, Models, Restart,
-Quit), the same locale toggles (English + Spanish at minimum), and
-the same dynamic items (microphone list, model list) as before the
-migration.
-
-ADR-0020 §6.5 mandates:
-
-    "the tray icon moves to ``tauri-plugin-tray`` (Win32 / AppKit /
-    GTK via ``gtk-3.0``), but the **menu structure and locale logic
-    stay in the Python sidecar**, the sidecar computes the menu items
-    and emits them as a ``tray_menu`` event; the Rust host renders
-    them via the Tauri tray API. This preserves the existing
-    ``tray.py`` / ``tray_menu.py`` logic unchanged."
-
-Implementation note (Tauri v2): in Tauri v2 the tray API is built
-into the **core** ``tauri`` crate (enabled by the ``tray-icon``
-feature), it is NOT a separate ``tauri-plugin-tray`` crate. The
-project's ``src-tauri/Cargo.toml`` documents this choice.
-
-Implementation decision (MIG-1.9 Phase 3, host-side tray rendering):
-The capability file ``src-tauri/capabilities/main-runtime.json``
-records the actual decision taken for the v1 migration:
-
-    "core:tray:*, the Rust host OWNS the system tray (tauri-plugin-tray
-    / core tray-icon feature, ADR-0020 §6.5). The Python sidecar
-    computes the menu structure and emits a `tray_menu` event; the Rust
-    host renders it and routes clicks back via `dispatch({cmd:
-    'tray_click', data:{id}})` (pystray is the legacy fallback path
-    only and is never used by the shipped host)."
-
-In other words: the Rust host renders the tray icon + menu via Tauri's
-built-in tray API (enabled by the ``tray-icon`` cargo feature). The
-Python sidecar still owns the menu *logic* (it computes the items,
-locale, and dynamic submenus and emits them as a ``tray_menu`` event),
-but the *rendering* + click-dispatch lives in the Rust host
-(``src-tauri/src/tray.rs``). This is the design the ADR-0020 §6.5
-anticipated and MIG-1.9 Phase 3 implemented, so the previously-planned
-"pystray owns the tray" fallback is never used by the shipped host.
-
-This test file therefore validates BOTH halves of the contract: the
-menu structure/locale/dynamic items are preserved 1:1 by the sidecar
-that computes them, AND the Rust host correctly renders the
-``tray_menu`` event + routes ``tray_click`` back to the sidecar.
-
-Scope (ADR-0020 §6.5 + MIG-1.9 task brief):
-
-1. **Menu structure preserved 1:1**, the menu items mandated by
-   ``tray_menu.py::build_menu_for_tray`` (Open App, Start Dictation,
-   Force Cancel [conditional], Models ▸, Microphones ▸, Restart,
-   Quit + quick shortcuts) appear in the same order with the same
-   separators. Source-inspected on the Python sidecar (the renderer
-   of record).
-
-2. **Locale support preserved**, the ``set_tray_locale`` IPC command
-   + the ``_TRAY_LABELS_LOCALES`` dict in ``tray.py`` ship English
-   (``en``) + Spanish (``es``) translations for every menu key. The
-   ``set_tray_locale`` handler is wired in ``system_handlers.py``.
-
-3. **Dynamic items wired**, the microphone list (via
-   ``TrayIcon.set_microphones``) and the model list (via
-   ``build_models_submenu`` → ``tray_models.build_models_menu_items``)
-   are reachable from the running sidecar.
-
-4. **Tray icon path**: ``tray_icon.py::_get_icon_path`` resolves to
-   ``voice_typer/server/assets/tray-mic-{16,24,32,48,64}.png`` (with
-   ``.ico`` preferred on Windows for sharper rendering).
-
-5. **Tauri tray API choice (built-in, not a separate plugin)** —
-   ``Cargo.toml`` documents that Tauri v2 ships tray support in the
-   core crate; there is NO ``tauri-plugin-tray`` dependency. (The
-   ``tray-icon`` cargo feature is not yet enabled on the host because
-   the host has no tray code: see gap below.)
-
-6. **Rust host tray status**: ``main.rs`` contains no tray setup
-   code; the capability file documents the deliberate decision that
-   the Python sidecar owns the tray. No ``core:tray:*`` permissions
-   are granted to the Rust host.
-
-VALIDATE ON HOST (Linux, after building the Tauri app):
-    1. Build the sidecar + Tauri bundle:
-         bash scripts/build/build_sidecar_linux.sh x86_64
-         cd src-tauri && cargo tauri build
-    2. Launch the built AppImage / .deb install:
-         target/release/bundle/appimage/voice-typer_*.AppImage
-       (or the .deb install + ``voice-typer`` from the desktop launcher)
-    3. Find the tray icon in the system status area (top-bar on GNOME
-       with the AppIndicator extension, waybar tray module on Sway,
-       etc.). RIGHT-click it.
-    4. Verify the menu shows these 6 items in this exact order:
-           Open App
-           Start Dictation (F2)         ← hotkey label in parens
-           ─── separator ───
-           Models ▸                       ← hover for the submenu
-           ─── separator ───
-           Restart
-           Quit
-       The "Cancel Transcription" item appears ONLY while a
-       transcription is in flight, start a dictation, then re-open
-       the menu to verify it surfaces.
-    5. Verify the Models ▸ submenu lists each downloaded model with the
-       native checkmark on the active one and a "More models..." entry at
-       the bottom that opens the app on the Models page.
-    6. Locale, open the app → Settings → Language → switch to
-       Español. Re-open the tray menu and verify the labels changed
-       to:
-           Abrir Aplicación
-           Alternar Dictado (F2)
-           Modelos
-           Reiniciar
-           Salir
-    7. Dynamic items, plug / unplug a USB microphone; verify the
-       tray menu doesn't error and the app's microphone picker
-       updates (the tray's microphone list is intentionally a no-op
-       cache since NEW-CQ-008, but the IPC wiring must not crash).
-    8. Quit via the tray's "Salir" / "Quit" item, verify the sidecar
-       process exits (``pgrep -f python-sidecar`` returns empty) and
-       the Tauri main window closes.
-
-VALIDATE ON HOST (Windows, after building the Tauri app):
-    1. Build:
-         bash scripts/build/build_sidecar_windows.sh
-         cd src-tauri && cargo tauri build
-    2. Install the produced .msi / .exe and launch from the Start
-       Menu.
-    3. RIGHT-click the Voice Typer tray icon in the Windows
-       notification area (chevron ↑ in the taskbar).
-    4. Same 6-item menu check as Linux step 4 (labels in English by
-       default). The "Cancel Transcription" item appears only while
-       transcribing.
-    5. Locale, same as Linux step 6 (Settings → Language → Español).
-    6. Tray icon path check, verify ``%LOCALAPPDATA%\voice-typer``
-       contains the extracted ``voice_typer/server/assets/`` dir with
-       the ``tray-mic-{16,24,32,48,64}.png`` icons. On Windows the
-       tray prefers ``tray-mic-{state}.ico`` for sharper rendering
-       (PLAT-024).
-    7. Quit via "Quit", verify ``tasklist | findstr python-sidecar``
-       returns nothing.
-
-VALIDATE ON HOST (macOS, after building the Tauri app):
-    1. Build:
-         bash scripts/build/build_sidecar_macos.sh aarch64
-         cd src-tauri && cargo tauri build
-    2. Drag the produced .app to /Applications and launch.
-    3. Click the Voice Typer microphone icon in the macOS menu-bar
-       tray (top-right).
-    4. Same 6-item menu check as Linux step 4.
-    5. Locale, same as Linux step 6 (Settings → Language → Español).
-    6. Quit via "Quit", verify ``pgrep -f python-sidecar`` returns
-       empty and the menu-bar icon disappears.
-
+"""
+tray/menu port validation (ADR-0020 §6.5).
 Gaps / decisions documented (report, do NOT fix, out of scope for this
-gate check):
-  - GAP-1 (RESOLVED in MIG-1.9 Phase 3, Rust host owns the tray):
-    ADR-0020 §6.5 anticipated the Rust host rendering the tray icon via
-    Tauri's built-in tray API, with the menu piped from the sidecar over
-    IPC via a ``tray_menu`` event + a ``tray_click`` dispatch command.
-    MIG-1.9 Phase 3 IMPLEMENTED this: the Rust host (``src-tauri/src/
-    tray.rs``) renders the tray via the ``tray-icon`` cargo feature,
-    listens for the sidecar's ``tray_menu`` event, and routes clicks
-    back via ``dispatch({cmd:'tray_click', data:{id}})``. The Python
-    sidecar still owns the menu *logic* (it emits ``tray_menu``); pystray
-    is the legacy fallback path only. This is documented in
-    ``src-tauri/capabilities/main-runtime.json``'s description field.
-    See ``test_main_rs_sets_up_rust_host_tray``,
-    ``test_tray_rs_routes_clicks_via_tray_click_dispatch``, and
-    ``test_capability_file_grants_core_tray_permissions``.
-  - GAP-2 (RESOLVED: ``tray-icon`` cargo feature enabled): the
-    ``tray-icon`` feature IS enabled on the ``tauri`` crate in
-    ``Cargo.toml`` (``features = ["tray-icon"]``) because the Rust host
-    now renders the tray. See ``test_cargo_toml_tray_icon_feature_is_enabled``.
-  - GAP-3 (microphone list cache removed): the tray's
-    ``set_microphones`` API is a no-op (NEW-CQ-008 removed the
-    write-only cache). The IPC wiring is preserved for parity, but
-    the tray menu doesn't actually render a microphone list. The
-    app's in-window microphone picker is the canonical UI. See
-    ``test_dynamic_microphone_list_api_present_but_noop``.
-  - GAP-4 (no tray icon assets shipped): the directory
-    ``voice_typer/server/assets/`` is referenced by
-    ``tray_icon.py::_get_icon_path`` but doesn't exist on disk in
-    this repo (icons are generated by
-    ``client/scripts/generate-icons.mjs`` at build time). At runtime
-    the shape-only fallback (``_draw_shape``) renders a colored
-    circle / square / diamond / triangle. See
-    ``test_tray_icon_path_uses_assets_dir_with_fallback``.
 """
 
 from __future__ import annotations
@@ -197,13 +11,7 @@ from pathlib import Path
 
 import pytest
 
-# ─── Project paths ───────────────────────────────────────────────────────────
-# This test file lives at tests/tauri/mig19/test_tray_menu.py.
 # Path from file → root:
-#   parents[0] = mig19/
-#   parents[1] = tauri/
-#   parents[2] = tests/
-#   parents[3] = <project root> (voice-typer/)
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
 MAIN_RS = PROJECT_ROOT / "src-tauri" / "src" / "main.rs"
@@ -221,7 +29,6 @@ STARTUP_TASKS_PY = PROJECT_ROOT / "voice_typer" / "server" / "startup_tasks.py"
 SERVICE_PY = PROJECT_ROOT / "voice_typer" / "server" / "service.py"
 
 
-# ─── Fixtures ────────────────────────────────────────────────────────────────
 @pytest.fixture(scope="module")
 def main_rs_source() -> str:
     """Read src-tauri/src/main.rs as text (for static assertions)."""
@@ -252,15 +59,7 @@ def tray_py_source() -> str:
 
 @pytest.fixture(scope="module")
 def tray_i18n_py_source() -> str:
-    """Read voice_typer/server/tray_i18n.py as text.
-
-    S1-CR-47: the locale dicts (_TRAY_LABELS_EN, _TRAY_LABELS_ES,
-    _TRAY_LABELS_LOCALES, etc.) and the set_tray_locale / get_tray_locale /
-    _() functions were extracted from tray.py into tray_i18n.py. tray.py
-    re-exports them for backward compat, but the canonical definitions live
-    here. Source-text assertions that grep for the dict definitions must
-    read tray_i18n.py, not tray.py.
-    """
+    """Read voice_typer/server/tray_i18n.py as text."""
     assert TRAY_I18N_PY.exists(), f"tray_i18n.py not found: {TRAY_I18N_PY}"
     return TRAY_I18N_PY.read_text(encoding="utf-8")
 
@@ -293,31 +92,9 @@ def system_handlers_source() -> str:
     return SYSTEM_HANDLERS_PY.read_text(encoding="utf-8")
 
 
-# ─── Section A: tray menu structure preserved 1:1 ───────────────────────────
-
-
 def test_tray_menu_has_six_required_labels_in_order(tray_menu_py_source) -> None:
-    """ADR-0020 §6.5: the core menu labels appear in the mandated order.
-
-    The Python sidecar's ``tray_menu.build_menu_for_tray`` is the
-    renderer of record for the pystray tray menu (the Rust host has no
-    tray code: see GAP-1). The core menu structure MUST be preserved
-    1:1 across the migration, so the i18n keys for the 6 core items
-    must appear in the file in this exact order:
-
-        1. open_app
-        2. toggle_dictation
-        3. force_cancel_transcription   (conditional, only when
-                                         state == TRANSCRIBING)
-        4. models
-        5. restart
-        6. quit
-    """
+    """ADR-0020 §6.5: the core menu labels appear in the mandated order."""
     # Locate each label-key call's argument in source order.
-    # Scope the scan to the build_menu_for_tray() function body so the
-    # Tauri-side build_tray_menu_model() (which legitimately reuses the
-    # same keys) does not pollute the pystray renderer's ordering check
-    # (ADR-0020 §6.5: build_menu_for_tray is the renderer of record).
     _src = tray_menu_py_source
     _start = _src.find("def build_menu_for_tray(")
     _end = _src.find("\ndef ", _start + 1)
@@ -325,10 +102,6 @@ def test_tray_menu_has_six_required_labels_in_order(tray_menu_py_source) -> None
         _end = len(_src)
     build_menu_source = _src[_start:_end]
     key_occurrences = [m.group(1) for m in re.finditer(r'_\(\s*["\']([a-z_]+)["\']', build_menu_source)]
-    # The 6 mandated keys must ALL be present. (The dictation label is
-    # dynamic: "stop_dictation" while recording, "toggle_dictation"
-    # otherwise, via the dictation_key branch, so it never appears as a
-    # bare literal; the branch below pins its presence instead.)
     required_keys = [
         "open_app",
         "force_cancel_transcription",
@@ -349,14 +122,7 @@ def test_tray_menu_has_six_required_labels_in_order(tray_menu_py_source) -> None
         "tray_menu.py must emit the toggle_dictation/stop_dictation label, "
         "missing from build_menu_for_tray output (ADR-0020 §6.5)."
     )
-    # The keys must appear in the mandated order. We compare the
-    # subsequence of key_occurrences filtered to required_keys.
     seen_order = [k for k in key_occurrences if k in required_keys]
-    # Collapse consecutive duplicate keys (e.g. the "models" label is
-    # emitted twice under Tauri, once as the pystray MenuItem and once
-    # as the Tauri-model spec {"id":"models","label":localize("models")}
-    # , both are the SAME logical menu item, so a consecutive repeat
-    # must not break the ordering check).
     collapsed = [k for i, k in enumerate(seen_order) if i == 0 or k != seen_order[i - 1]]
     assert collapsed == required_keys, (
         f"tray_menu.py menu keys out of order: expected {required_keys}, "
@@ -366,12 +132,7 @@ def test_tray_menu_has_six_required_labels_in_order(tray_menu_py_source) -> None
 
 
 def test_tray_menu_open_app_is_default_action(tray_menu_py_source) -> None:
-    """ADR-0020 §6.5 + tray_menu.py docstring: "Open App" is the default.
-
-    Left-click on the tray icon triggers the ``default=True`` menu
-    item, which is "Open App" unless the user reconfigures
-    ``tray_left_click_action``. This default MUST be preserved.
-    """
+    """ADR-0020 §6.5 + tray_menu.py docstring: \"Open App\" is the default."""
     assert "default=open_app_default" in tray_menu_py_source, (
         "Open App must be the default (bold) menu item, left-click "
         "behavior. build_menu_for_tray must pass "
@@ -387,13 +148,7 @@ def test_tray_menu_open_app_is_default_action(tray_menu_py_source) -> None:
 def test_tray_menu_toggle_dictation_includes_hotkey_label(
     tray_menu_py_source,
 ) -> None:
-    """ADR-0020 §6.5: Start Dictation label includes the hotkey hint.
-
-    The tray's "Start Dictation" item shows the current hotkey in
-    parentheses (e.g. "Start Dictation (F2)") so the user knows
-    which key to press without opening Settings. The label is built
-    by formatting ``f"{localize('toggle_dictation')} ({hotkey_label})"``.
-    """
+    """ADR-0020 §6.5: Start Dictation label includes the hotkey hint."""
     assert re.search(
         r"_\(dictation_key\)\s*\}\s*\(\{hotkey_label\}\)",
         tray_menu_py_source,
@@ -406,14 +161,7 @@ def test_tray_menu_toggle_dictation_includes_hotkey_label(
 
 
 def test_tray_menu_cancel_item_conditional(tray_menu_py_source) -> None:
-    """PR-2 Finding #3: Cancel Transcription item is conditional.
-
-    The "Cancel Transcription" menu item is only added when
-    ``force_cancel_transcription`` callback is provided (a manual
-    escape hatch for stuck transcriptions). It must NOT be
-    unconditional, that would clutter the menu when nothing is
-    transcribing.
-    """
+    """PR-2 Finding #3: Cancel Transcription item is conditional."""
     assert "force_cancel_transcription" in tray_menu_py_source, (
         "build_menu_for_tray must render a Force Cancel item, the menu "
         "entry is a manual escape hatch for stuck transcriptions "
@@ -427,13 +175,7 @@ def test_tray_menu_cancel_item_conditional(tray_menu_py_source) -> None:
 
 
 def test_tray_menu_models_submenu_delegated(tray_menu_py_source) -> None:
-    """ADR-0020 §6.5: Models submenu is built by a delegated callable.
-
-    The Models ▸ submenu is built by ``build_models_submenu()``
-    (passed as a callable so the tray module stays testable without
-    a TrayIcon instance). The submenu's items are dynamic, they
-    reflect the currently-downloaded models.
-    """
+    """ADR-0020 §6.5: Models submenu is built by a delegated callable."""
     assert "models_sub = tray._build_models_submenu()" in tray_menu_py_source, (
         "build_menu_for_tray must delegate the Models submenu items to "
         "tray._build_models_submenu(), the items are dynamic (reflect "
@@ -447,12 +189,7 @@ def test_tray_menu_models_submenu_delegated(tray_menu_py_source) -> None:
 
 
 def test_tray_menu_separators_present(tray_menu_py_source) -> None:
-    """ADR-0020 §6.5: two separators structure the menu into 3 groups.
-
-    The tray menu has 3 visual groups separated by 2 horizontal
-    rules: (1) Open App + Start Dictation + Cancel, (2) Models ▸,
-    (3) Restart + Quit. The separators MUST be present.
-    """
+    """ADR-0020 §6.5: two separators structure the menu into 3 groups."""
     sep_count = tray_menu_py_source.count("pystray.Menu.SEPARATOR")
     assert sep_count >= 2, (
         f"build_menu_for_tray must insert at least 2 "
@@ -462,17 +199,8 @@ def test_tray_menu_separators_present(tray_menu_py_source) -> None:
     )
 
 
-# ─── Section B: locale support preserved (en + es at minimum) ───────────────
-
-
 def test_tray_locale_english_dict_present(tray_i18n_py_source) -> None:
-    """TRAY-008: English locale dict must be defined.
-
-    The English locale is the default fallback for every tray label.
-    It must include all 6 menu keys (open_app, toggle_dictation,
-    models, restart, quit, force_cancel_transcription) plus the
-    app_name tooltip key.
-    """
+    """TRAY-008: English locale dict must be defined."""
     assert "_TRAY_LABELS_EN" in tray_i18n_py_source, (
         "tray_i18n.py must define _TRAY_LABELS_EN, the English locale dict "
         "is the default fallback for every tray label (TRAY-008)."
@@ -512,12 +240,7 @@ def test_tray_locale_english_dict_present(tray_i18n_py_source) -> None:
 
 
 def test_tray_locale_spanish_dict_present(tray_i18n_py_source) -> None:
-    """TRAY-008: Spanish locale dict must be defined.
-
-    Spanish is the proof-of-concept locale for tray i18n. The user
-    can switch the UI to Español and the tray must update to Spanish
-    labels via the ``set_tray_locale('es')`` IPC command.
-    """
+    """TRAY-008: Spanish locale dict must be defined."""
     assert "_TRAY_LABELS_ES" in tray_i18n_py_source, (
         "tray_i18n.py must define _TRAY_LABELS_ES. Spanish is the proof-of-concept locale for tray i18n (TRAY-008)."
     )
@@ -556,13 +279,7 @@ def test_tray_locale_spanish_dict_present(tray_i18n_py_source) -> None:
 
 
 def test_tray_locale_registry_includes_en_and_es(tray_i18n_py_source) -> None:
-    """TRAY-008: ``_TRAY_LABELS_LOCALES`` must register en + es.
-
-    The locale registry maps locale codes to their label dicts. The
-    ``set_tray_locale`` function falls back to English if the
-    requested locale isn't in this registry, so en + es must be
-    registered for the host VALIDATE step's Spanish toggle to work.
-    """
+    """TRAY-008: ``_TRAY_LABELS_LOCALES`` must register en + es."""
     assert "_TRAY_LABELS_LOCALES" in tray_i18n_py_source, (
         "tray_i18n.py must define _TRAY_LABELS_LOCALES, the locale→dict registry that set_tray_locale consults."
     )
@@ -582,13 +299,7 @@ def test_tray_locale_registry_includes_en_and_es(tray_i18n_py_source) -> None:
 
 
 def test_tray_locale_setter_and_getter_present(tray_i18n_py_source) -> None:
-    """TRAY-008: ``set_tray_locale`` + ``get_tray_locale`` functions exist.
-
-    The IPC layer calls ``set_tray_locale('es')`` when the user
-    switches the UI language; the getter is used by tests. Both must
-    be present and module-level (so the IPC handler can import them
-    directly without a TrayIcon instance).
-    """
+    """TRAY-008: ``set_tray_locale`` + ``get_tray_locale`` functions exist."""
     assert "def set_tray_locale(locale: str) -> None:" in tray_i18n_py_source, (
         "tray_i18n.py must define module-level set_tray_locale(locale), the "
         "IPC handler in system_handlers.py imports + calls it directly."
@@ -604,13 +315,7 @@ def test_tray_locale_setter_and_getter_present(tray_i18n_py_source) -> None:
 
 
 def test_tray_locale_lookup_function_present(tray_i18n_py_source) -> None:
-    """TRAY-008: the ``_()`` lookup function translates keys → labels.
-
-    The ``_()`` function (mirroring gettext's convention) takes a
-    label key and returns the localized string, falling back to
-    English then to the key itself. ``build_menu_for_tray`` calls
-    it to translate keys to localized labels.
-    """
+    """TRAY-008: the ``_()`` lookup function translates keys → labels."""
     assert "def _(key: str) -> str:" in tray_i18n_py_source, (
         "tray_i18n.py must define the _(key) lookup function, "
         "build_menu_for_tray calls it to translate keys to localized labels."
@@ -626,13 +331,7 @@ def test_tray_locale_lookup_function_present(tray_i18n_py_source) -> None:
 def test_tray_locale_command_wired_in_system_handlers(
     system_handlers_source,
 ) -> None:
-    """ADR-0020 §6.5: ``set_tray_locale`` IPC command is wired.
-
-    The IPC handler ``_handle_set_tray_locale`` in
-    ``system_handlers.py`` is the entry point for the UI's locale
-    change. It validates the locale string and calls
-    ``set_tray_locale()`` from ``tray.py``.
-    """
+    """ADR-0020 §6.5: ``set_tray_locale`` IPC command is wired."""
     assert "_handle_set_tray_locale" in system_handlers_source, (
         "system_handlers.py must define _handle_set_tray_locale, the "
         "IPC handler for the set_tray_locale command (ADR-0020 §6.5)."
@@ -647,26 +346,11 @@ def test_tray_locale_command_wired_in_system_handlers(
     )
 
 
-# ─── Section C: dynamic items wired (microphones + models) ──────────────────
-
-
 def test_dynamic_microphone_list_api_present_but_noop(
     tray_py_source,
 ) -> None:
-    """NEW-CQ-008 / RT-FIX-9 (2026-07-24): ``TrayIcon.set_microphones``
-    API MUST be present.
-
-    Originally added in NEW-CQ-008 as a no-op (the write-only cache
-    had been removed). RT-FIX-9: the API was re-activated in UX-2
-    it now caches the microphone device list (accepting
-    ``list[dict] | None``) and invalidates the menu cache so the
-    Microphones ▸ submenu reflects the new device set. The signature
-    was widened to accept ``None`` (normalized to ``[]``) so callers
-    never have to special-case a missing list.
-    """
+    """NEW-CQ-008 / RT-FIX-9 (2026-07-24): ``TrayIcon.set_microphones``"""
     # The function MUST be defined on TrayIcon. The signature now
-    # accepts ``list[dict] | None`` ( /, was ``list[dict]``
-    # in the  no-op era).
     set_mics_match = re.search(
         r"def set_microphones\(self,\s*mics:\s*list\[dict\]\s*(?:\|\s*None)?\)\s*->\s*None:",
         tray_py_source,
@@ -680,13 +364,7 @@ def test_dynamic_microphone_list_api_present_but_noop(
 
 
 def test_dynamic_microphone_list_wired_in_startup_tasks() -> None:
-    """ADR-0020 §6.5: startup_tasks.py enumerates mics → tray.set_microphones.
-
-    Even though set_microphones is a no-op, the startup task still
-    enumerates microphones and calls it. This keeps the wiring intact
-    so a future tray menu redesign can re-add the microphone list
-    without touching the startup pipeline.
-    """
+    """ADR-0020 §6.5: startup_tasks.py enumerates mics → tray.set_microphones."""
     assert STARTUP_TASKS_PY.exists(), f"startup_tasks.py not found: {STARTUP_TASKS_PY}"
     src = STARTUP_TASKS_PY.read_text(encoding="utf-8")
     assert "set_microphones" in src, (
@@ -697,25 +375,10 @@ def test_dynamic_microphone_list_wired_in_startup_tasks() -> None:
 
 
 def test_dynamic_microphone_list_wired_in_service() -> None:
-    """ADR-0020 §6.5: the service package also calls tray.set_microphones.
-
-    The runtime microphone watcher (hotplug) calls
-    ``tray.set_microphones`` from within the ``voice_typer/server/service/``
-    package so a newly-plugged USB mic is propagated (the in-window
-    microphone picker receives the event via the same enumeration
-    pipeline).
-
-    RT-FIX-9 (2026-07-24): ``voice_typer/server/service.py`` was split
-    into a package (``voice_typer/server/service/``); the
-    ``set_microphones`` call site now lives in
-    ``service/microphone_test.py`` (the runtime mic-test handler that
-    enumerates + propagates the device list to the tray).
-    """
-    # The service package MUST exist (split from the prior service.py).
+    """ADR-0020 §6.5: the service package also calls tray.set_microphones."""
     service_pkg = PROJECT_ROOT / "voice_typer" / "server" / "service"
     assert service_pkg.is_dir(), f"service package not found: {service_pkg}"
     # The set_microphones call MUST appear somewhere in the service
-    # package (any submodule, currently service/microphone_test.py).
     found = False
     for py_file in service_pkg.rglob("*.py"):
         try:
@@ -737,13 +400,7 @@ def test_dynamic_microphone_list_wired_in_service() -> None:
 def test_dynamic_model_submenu_builder_present(
     tray_menu_py_source,
 ) -> None:
-    """ADR-0020 §6.5: the Models ▸ submenu is built dynamically.
-
-    The Models submenu is the canonical "dynamic item" of the tray
-    menu, it reflects which models the user has downloaded.
-    ``build_menu_for_tray`` delegates to ``tray._build_models_submenu()``
-    which returns the list of pystray.MenuItem for the submenu.
-    """
+    """ADR-0020 §6.5: the Models ▸ submenu is built dynamically."""
     assert "models_sub = tray._build_models_submenu()" in tray_menu_py_source, (
         "build_menu_for_tray must invoke tray._build_models_submenu() to "
         "materialize the dynamic Models submenu items, this is the "
@@ -754,14 +411,7 @@ def test_dynamic_model_submenu_builder_present(
 def test_dynamic_model_submenu_data_builder_present(
     tray_models_py_source,
 ) -> None:
-    """ADR-0020 §6.5: ``build_models_submenu_data`` enumerates models.
-
-    The data builder returns tuples of (name, downloaded, is_active,
-    change_fn) for the candidate models. The candidate list MUST
-    include the 5 models the app supports after the 2026-08-15
-    catalog prune (with large-v3 restored that same day at the user's
-    request): tiny, large-v3, large-v3-turbo, parakeet, qwen.
-    """
+    """ADR-0020 §6.5: ``build_models_submenu_data`` enumerates models."""
     assert "def build_models_submenu_data(" in tray_models_py_source, (
         "tray_models.py must define build_models_submenu_data, the data-gathering function for the Models submenu."
     )
@@ -777,14 +427,7 @@ def test_dynamic_model_submenu_data_builder_present(
 def test_dynamic_model_submenu_items_builder_present(
     tray_models_py_source,
 ) -> None:
-    """ADR-0020 §6.5: ``build_models_menu_items`` produces pystray items.
-
-    The item builder wraps the data tuples in pystray.MenuItem
-    instances, marks the active one via pystray's ``checked`` callable
-    (native platform checkmark, the accessibility-preserving
-    alternative to a manual "• " label prefix), and appends a
-    "More models..." item that opens the app's Models page.
-    """
+    """ADR-0020 §6.5: ``build_models_menu_items`` produces pystray items."""
     assert "def build_models_menu_items(" in tray_models_py_source, (
         "tray_models.py must define build_models_menu_items, the "
         "pystray-UI glue that wraps the data tuples as MenuItem instances."
@@ -795,10 +438,6 @@ def test_dynamic_model_submenu_items_builder_present(
         "opens the app's Models page, this is the deep-link contract."
     )
     # Active models are marked with the native checkmark via pystray's
-    # ``checked`` callable (Win32 MF_CHECKED / macOS NSControlStateValueOn
-    # / GTK RadioMenuItem). This replaced the old manual "• " label
-    # prefix, which bypassed the native checkmark and broke
-    # screen-reader semantics: see the comment in the builder.
     assert "checked=" in tray_models_py_source, (
         "tray_models.py must mark the active model via pystray's "
         "checked= callable (native checkmark) so the user can see at "
@@ -809,12 +448,7 @@ def test_dynamic_model_submenu_items_builder_present(
 def test_tray_py_build_models_submenu_method_present(
     tray_py_source,
 ) -> None:
-    """ADR-0020 §6.5: TrayIcon._build_models_submenu delegates to tray_models.
-
-    The TrayIcon class's _build_models_submenu method is the bridge
-    from the tray icon's menu cache to the standalone
-    build_models_menu_items function in tray_models.py.
-    """
+    """ADR-0020 §6.5: TrayIcon._build_models_submenu delegates to tray_models."""
     assert "def _build_models_submenu(self) -> list:" in tray_py_source, (
         "TrayIcon must define _build_models_submenu, the method that "
         "delegates to tray_models.build_models_menu_items (the #13 "
@@ -826,20 +460,10 @@ def test_tray_py_build_models_submenu_method_present(
     )
 
 
-# ─── Section D: tray icon path ──────────────────────────────────────────────
-
-
 def test_tray_icon_path_uses_assets_dir_with_fallback(
     tray_icon_py_source,
 ) -> None:
-    """PLAT-024: tray icon path resolves to ``server/assets/``.
-
-    The tray icon PNGs live at
-    ``voice_typer/server/assets/tray-mic-{16,24,32,48,64}.png``.
-    The renderer falls back to a shape-only icon (circle / square /
-    diamond / triangle) if no PNG is found, this is the GAP-4
-    fallback for environments where the icons aren't shipped.
-    """
+    """PLAT-024: tray icon path resolves to ``server/assets/``."""
     assert 'asset_dir = Path(__file__).resolve().parent / "assets"' in tray_icon_py_source, (
         "tray_icon.py must resolve the assets dir relative to its own "
         "file path (Path(__file__).resolve().parent / 'assets') so the "
@@ -859,12 +483,7 @@ def test_tray_icon_path_uses_assets_dir_with_fallback(
 
 
 def test_tray_icon_path_windows_ico_preference(tray_icon_py_source) -> None:
-    """PLAT-024: on Windows, .ico files are preferred for sharper rendering.
-
-    ICO supports multiple sizes (16, 32, 48, 256) in one file and is
-    the native format for Windows tray icons, sharper than PNG on
-    Windows 11 with per-monitor DPI scaling.
-    """
+    """PLAT-024: on Windows, .ico files are preferred for sharper rendering."""
     assert "is_windows()" in tray_icon_py_source, (
         "tray_icon.py must check is_windows() before preferring .ico files, the ICO preference is Windows-only."
     )
@@ -883,13 +502,7 @@ def test_tray_icon_path_windows_ico_preference(tray_icon_py_source) -> None:
 def test_tray_icon_shape_fallback_for_colorblind_accessibility(
     tray_icon_py_source,
 ) -> None:
-    """PLAT-021 / TRAY-032: shape-only fallback for colorblind users.
-
-    When no PNG is available, the renderer draws a shape-only icon
-    (circle / square / diamond / triangle) so colorblind users can
-    identify the state by shape alone. Each AppState maps to a
-    distinct shape.
-    """
+    """PLAT-021 / TRAY-032: shape-only fallback for colorblind users."""
     assert "_ICON_SHAPES" in tray_icon_py_source, (
         "tray_icon.py must define the _ICON_SHAPES dict, the AppState→shape map for colorblind-accessibility."
     )
@@ -905,22 +518,8 @@ def test_tray_icon_shape_fallback_for_colorblind_accessibility(
     )
 
 
-# ─── Section E: Tauri tray API choice (built-in, not separate plugin) ───────
-
-
 def test_cargo_toml_no_separate_tray_plugin_crate(cargo_toml_source) -> None:
-    """ADR-0020 §6.5 (Tauri v2 note): no ``tauri-plugin-tray`` crate dep.
-
-    In Tauri v2 the tray API is built into the core ``tauri`` crate
-    (enabled by the ``tray-icon`` cargo feature). The project must
-    NOT declare a ``tauri-plugin-tray`` crate as a dependency (the
-    v1-era crate doesn't exist for v2).
-
-    This test inspects the ``[dependencies]`` table's KEYS only, the
-    string "tauri-plugin-tray" DOES appear in a Cargo.toml comment
-    that documents WHY the separate crate isn't used, so a naive
-    substring search would false-positive on the comment.
-    """
+    """ADR-0020 §6.5 (Tauri v2 note): no ``tauri-plugin-tray`` crate dep."""
     # Extract the [dependencies] table body (up to the next table header).
     deps_match = re.search(
         r"^\[dependencies\]\s*\n(.*?)(?=^\[|\Z)",
@@ -930,8 +529,6 @@ def test_cargo_toml_no_separate_tray_plugin_crate(cargo_toml_source) -> None:
     assert deps_match, "Cargo.toml must declare a [dependencies] table, couldn't find the [dependencies] header."
     deps_body = deps_match.group(1)
     # Each dep entry is `name = { ... }` or `name = "version"`. Strip
-    # comment lines so a `#` mention of tauri-plugin-tray in a comment
-    # inside the [dependencies] table doesn't false-positive.
     deps_no_comments = "\n".join(line for line in deps_body.splitlines() if not line.strip().startswith("#"))
     # Dependency keys are at the start of a line (no leading whitespace).
     dep_keys = re.findall(r"^([a-zA-Z0-9_-]+)\s*=", deps_no_comments, re.MULTILINE)
@@ -945,12 +542,7 @@ def test_cargo_toml_no_separate_tray_plugin_crate(cargo_toml_source) -> None:
 
 
 def test_cargo_toml_documents_builtin_tray_api(cargo_toml_source) -> None:
-    """ADR-0020 §6.5: Cargo.toml documents the built-in tray API choice.
-
-    A Cargo.toml comment must explain that tray support is built
-    into the core ``tauri`` crate (not a separate plugin) so future
-    contributors don't try to add ``tauri-plugin-tray`` as a dep.
-    """
+    """ADR-0020 §6.5: Cargo.toml documents the built-in tray API choice."""
     assert "tray support is built into the core crate" in cargo_toml_source, (
         "Cargo.toml must document (in a comment) that tray support is "
         "built into the core 'tauri' crate in v2, prevents future "
@@ -966,13 +558,7 @@ def test_cargo_toml_documents_builtin_tray_api(cargo_toml_source) -> None:
 def test_cargo_toml_tray_icon_feature_documentation(
     cargo_toml_source,
 ) -> None:
-    """ADR-0020 §6.5: Cargo.toml documents the ``tray-icon`` feature gate.
-
-    The ``tray-icon`` cargo feature on the ``tauri`` crate enables
-    the tray API. The Cargo.toml comment must mention this feature
-    so future contributors know how to turn it on when the host
-    starts rendering the tray directly.
-    """
+    """ADR-0020 §6.5: Cargo.toml documents the ``tray-icon`` feature gate."""
     assert '"tray-icon" feature' in cargo_toml_source, (
         "Cargo.toml must mention the 'tray-icon' cargo feature in a "
         "comment, this is the gate that enables the tray API on the "
@@ -983,20 +569,7 @@ def test_cargo_toml_tray_icon_feature_documentation(
 def test_cargo_toml_tray_icon_feature_is_enabled(
     cargo_toml_source,
 ) -> None:
-    """ADR-0020 §6.5 + MIG-1.9 Phase 3: the ``tray-icon`` feature IS enabled
-    on the ``tauri`` crate.
-
-    The Rust host now owns the system tray (it renders the menu piped
-    from the sidecar's ``tray_menu`` event via the Tauri tray API). The
-    ``tray-icon`` cargo feature on the ``tauri`` crate is the gate that
-    enables ``TrayIconBuilder`` / ``tauri::menu``, so it MUST be present
-    in the ``tauri`` dependency's feature list.
-
-    The Python sidecar still computes the menu structure under Tauri
-    (the predecessor fallback uses pystray); under Tauri the sidecar emits
-    a ``tray_menu`` event and the Rust host renders it (see
-    ``src-tauri/src/tray.rs``).
-    """
+    """ADR-0020 §6.5 + MIG-1.9 Phase 3: the ``tray-icon`` feature IS enabled"""
     # The tauri dep line MUST include "tray-icon" in its features list.
     tauri_dep_match = re.search(
         r"^tauri\s*=\s*\{[^}]*features\s*=\s*\[([^\]]*)\][^}]*\}",
@@ -1019,20 +592,7 @@ def test_cargo_toml_tray_icon_feature_is_enabled(
 
 
 def test_main_rs_sets_up_rust_host_tray(main_rs_source) -> None:
-    """ADR-0020 §6.5 + MIG-1.9 Phase 3: the Rust host OWNS the tray.
-
-    ``main.rs`` wires the tray via ``crate::tray::create_tray`` in its
-    ``.setup`` hook. The sidecar computes the menu structure and emits a
-    ``tray_menu`` event; the Rust host (in ``src-tauri/src/tray.rs``)
-    renders it via Tauri's built-in tray API and routes clicks back via
-    ``dispatch({cmd:'tray_click', data:{id}})``. This is the opposite of
-    the original v1 GAP-1 plan (where the Python sidecar owned the tray
-    via pystray), the host now renders it directly.
-
-    This test confirms the ``main.rs`` wiring is present (``create_tray``
-    call + the ``tray_menu`` reference) so future refactors can't
-    silently drop it.
-    """
+    """ADR-0020 §6.5 + MIG-1.9 Phase 3: the Rust host OWNS the tray."""
     # The .setup hook must call create_tray.
     assert "create_tray" in main_rs_source, (
         "main.rs must call crate::tray::create_tray(...) in its .setup "
@@ -1040,35 +600,18 @@ def test_main_rs_sets_up_rust_host_tray(main_rs_source) -> None:
         "MIG-1.9 Phase 3). If host-side tray rendering is removed, "
         "update this test + the capability file."
     )
-    # The tray wiring uses the sidecar-driven menu event.
-    assert "tray_menu" in main_rs_source, (
-        "main.rs must reference the sidecar's `tray_menu` event (the "
+    # The tray wiring uses the sidecar-driven menu event (tray.rs).
+    tray_rs = PROJECT_ROOT / "src-tauri" / "src" / "tray.rs"
+    assert tray_rs.exists(), f"tray.rs not found: {tray_rs}"
+    tray_rs_source = tray_rs.read_text(encoding="utf-8")
+    assert "tray_menu" in tray_rs_source, (
+        "tray.rs must reference the sidecar's `tray_menu` event (the "
         "Rust host renders the menu piped from the sidecar)."
     )
 
 
 def test_tray_rs_routes_clicks_via_tray_click_dispatch() -> None:
-    """ADR-0020 §6.5 + MIG-1.9 Phase 3 + CR-1/CR-2 fix: ``src-tauri/src/tray.rs``
-    renders the sidecar's ``tray_menu`` event and routes item clicks back to the
-    sidecar through the SHARED ``dispatch_inner`` path (which delegates to
-    ``dispatch_frame``, the same WS-send implementation the public
-    ``dispatch`` command uses, with its size caps, shutdown short-circuit,
-    timeouts, and log correlation).
-
-    CR-1 finding: the previous implementation emitted a Tauri ``dispatch`` EVENT
-    (``app.emit("dispatch", payload)``) and relied on a renderer-side listener
-    to re-invoke the ``dispatch`` COMMAND, but no such listener existed, so
-    tray menu clicks were completely non-functional on the Tauri path. CR-2
-    coordinated the test update with the FIX-2 production fix in tray.rs.
-
-    Design note (E5, documented fix was a suggestion): FIX-2 as originally
-    specified prescribed an inline ``ws_tx.send(Message::Text(...))`` in
-    tray.rs. The landed design is SUPERIOR: routing through ``dispatch_inner``
-    shares the single hardened WS-send implementation instead of forking a
-    second one that would bypass the payload cap + shutdown + timeout guards
-    and drift from it. Inlining the raw send now would be a downgrade, so
-    this test pins the shared-path contract instead of the inline pattern.
-    """
+    """ADR-0020 §6.5 + MIG-1.9 Phase 3 + CR-1/CR-2 fix: ``src-tauri/src/tray.rs``"""
     tray_rs = PROJECT_ROOT / "src-tauri" / "src" / "tray.rs"
     assert tray_rs.exists(), f"tray.rs not found: {tray_rs}"
     src = tray_rs.read_text(encoding="utf-8")
@@ -1082,17 +625,12 @@ def test_tray_rs_routes_clicks_via_tray_click_dispatch() -> None:
         "a tray menu item is clicked, this routes the click back to the "
         "Python sidecar (ADR-0020 §6.5 + MIG-1.9 Phase 3)."
     )
-    # The click must go through the shared dispatch_inner path (which
-    # delegates to dispatch_frame, the hardened WS-send implementation),
-    # NOT through an inline ws_tx send and NOT emitted as a Tauri event.
     assert "dispatch_inner" in src, (
         "tray.rs must route tray_click through the shared `dispatch_inner` "
         "path (CR-1 fix). An inline ws_tx.send would fork a second WS-send "
         "implementation bypassing the payload cap + shutdown + timeout guards."
     )
-    # regression guard: the OLD buggy `emit("dispatch", ...)` pattern
     # must NOT be present. If it ever returns, the tray menu will be
-    # non-functional again (the renderer never listens for the dispatch event).
     assert 'emit("dispatch"' not in src, (
         "stale `emit('dispatch', ...)` pattern present in tray.rs, CR-1 "
         "regression. The tray click must go through `dispatch_inner`, "
@@ -1108,16 +646,7 @@ def test_tray_rs_routes_clicks_via_tray_click_dispatch() -> None:
 def test_main_rs_tray_ownership_documented_in_capability(
     capability_json,
 ) -> None:
-    """ADR-0020 §6.5 + MIG-1.9 Phase 3: capability file documents the
-    Rust-host-owns-tray decision.
-
-    The ``main-runtime.json`` capability's ``description`` field
-    records that the Rust host OWNS the system tray (via the core
-    ``tray-icon`` feature) and that the sidecar computes the menu
-    structure and emits a ``tray_menu`` event (pystray is the
-    predecessor-fallback path only). This justifies the ``core:tray:*``
-    permissions granted to the Rust host.
-    """
+    """Rust-host-owns-tray decision."""
     description = capability_json.get("description", "")
     assert "Rust host OWNS the system tray" in description, (
         "capability file's description must document that 'the Rust "
@@ -1139,23 +668,8 @@ def test_main_rs_tray_ownership_documented_in_capability(
 def test_capability_file_grants_core_tray_permissions(
     capability_json,
 ) -> None:
-    """ADR-0020 §6.5 + MIG-1.9 Phase 3 + XZ-R4-015: the MAIN window
-    capability grants the minimal ``core:tray:default`` permission only.
-
-    The Rust host OWNS the system tray (renders the menu piped from the
-    sidecar's ``tray_menu`` event via Tauri's built-in tray API). The
-    Rust host does NOT need a capability grant, capability files grant
-    permissions to WINDOWS (renderers), not to the host process. The
-    main renderer never manipulates the tray (it only listens for
-    tray-related events broadcast by the Rust host), so it only needs
-    ``core:tray:default`` (the read-only default permission set).
-
-    XZ-R4-015 reconciliation (2026-07-30): the previous broader grant
-    set (``core:tray:allow-set-icon`` / ``allow-set-menu`` /
-    ``allow-set-tooltip`` / ``allow-set-title`` / ``allow-get-by-id`` /
-    ``allow-remove-by-id`` / ``allow-new``) was removed because the
-    renderer does not invoke any tray-manipulation IPC. The capability
-    file's ``permissions`` list MUST contain ``core:tray:default`` and
+    """
+    ADR-0020 §6.5 + MIG-1.9 Phase 3 + XZ-R4-015: the MAIN window
     MUST NOT contain the manipulation grants.
     """
     permissions = capability_json.get("permissions", [])
@@ -1171,9 +685,6 @@ def test_capability_file_grants_core_tray_permissions(
         "needs the default tray-observation permission set (ADR-0020 "
         "§6.5 + XZ-R4-015)."
     )
-    # the explicit manipulation grants MUST NOT be present
-    # (the renderer never invokes them; the Rust host owns the tray
-    # and does not need a capability grant).
     forbidden_tray_perms = [
         "core:tray:allow-set-icon",
         "core:tray:allow-set-menu",
@@ -1192,13 +703,7 @@ def test_capability_file_grants_core_tray_permissions(
 
 
 def test_main_rs_plugins_do_not_include_tray(main_rs_source) -> None:
-    """GAP-1: ``main.rs`` does not register a tray plugin.
-
-    Even if the tray API is built into the core crate (Tauri v2),
-    the Rust host would still need to register / build the tray
-    icon in ``main.rs``. Since the Python sidecar owns the tray,
-    no tray plugin / builder registration appears in ``main.rs``.
-    """
+    """GAP-1: ``main.rs`` does not register a tray plugin."""
     # No tauri_plugin_tray or tray-related plugin registration.
     forbidden_patterns = [
         r"tauri_plugin_tray",
@@ -1213,16 +718,9 @@ def test_main_rs_plugins_do_not_include_tray(main_rs_source) -> None:
         )
 
 
-# ─── Section G: tauri.conf.json tray plugin section ─────────────────────────
-
-
 def test_tauri_conf_no_separate_tray_plugin_section() -> None:
-    """ADR-0020 §6.5: ``tauri.conf.json`` has no separate ``tray`` plugin entry.
-
-    ADR-0020 §7 anticipated a ``"tray": {}`` entry under
-    ``plugins``. In Tauri v2 the tray API is built into the core
-    crate (no plugin registration), and the v1 implementation
-    doesn't use it anyway (Python sidecar owns the tray). The
+    """
+    ADR-0020 §6.5: ``tauri.conf.json`` has no separate ``tray`` plugin entry.
     ``plugins`` section must NOT include ``"tray"``.
     """
     assert TAURI_CONF.exists(), f"tauri.conf.json not found: {TAURI_CONF}"

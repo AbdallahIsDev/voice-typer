@@ -1,45 +1,4 @@
-"""XZ-R6-NH-01: regression tests for the TOCTOU re-verification in
-``_spawn_process``.
-
-Background
-----------
-``native_hotkeys/base.py:_spawn_process`` re-uses the cached
-``self._binary_path`` on watchdog respawn WITHOUT re-running
-``verify_native_binary_or_skip``. The factory's verification call at
-construction time covers the FIRST spawn, but the watchdog respawns
-the binary on liveness timeout by calling ``stop()`` + ``start()`` →
-``_spawn_process()`` WITHOUT going back through the factory. A TOCTOU
-window opens between the original verification and the respawn: an
-attacker swapping the binary on disk during that window achieves
-native-code execution as the user.
-
-XZ-R6-NH-01 fix
-----------------
-Added a ``verify_native_binary_or_skip(self._binary_path)`` call at
-the top of ``_spawn_process``. On verification failure, sets
-``_failed=True`` and returns early (no spawn). The caller's
-``_ready_event.wait(timeout=...)`` then times out and the new
-``if self._failed:`` check in ``start()`` raises a clear
-``RuntimeError`` instead of waiting for the full READY timeout.
-
-These tests pin:
-  1. ``_spawn_process`` calls ``verify_native_binary_or_skip`` on
-     every invocation (not just the first).
-  2. On verification failure, ``_failed`` is set, the error message
-     references SHA-256, and ``subprocess.Popen`` is NOT called.
-  3. The new ``if self._failed:`` check in ``start()`` short-circuits
-     the READY-timeout wait so the operator sees the precise error.
-  4. When the binary path is ``None``, ``_spawn_process`` sets
-     ``_failed=True`` and returns early (defensive, the start()
-     method already raises ``FileNotFoundError`` for this case, but
-     ``_spawn_process`` is also called from the watchdog respawn path
-     which doesn't go through ``start()``).
-
-Also pins the XZ-R6-NH-02 constructor change: ``__init__`` accepts
-an optional ``binary_path`` parameter so the factory can pass its
-verified binary in (cross-file part, the factory itself is owned by
-another agent).
-"""
+"""``_spawn_process``."""
 
 from __future__ import annotations
 
@@ -52,8 +11,6 @@ import pytest
 # Make sure the Linux backend is importable on this platform.
 from voice_typer.server import native_hotkeys
 from voice_typer.server.native_hotkeys import LinuxEvdevHotkey
-
-# ─── Helpers ────────────────────────────────────────────────────────────
 
 
 def _setup_linux(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -71,10 +28,7 @@ def _fake_binary(tmp_path: Path) -> Path:
 
 
 def _patch_binary_path(monkeypatch: pytest.MonkeyPatch, fake_bin: Path | None) -> None:
-    """Patch BOTH the binary_path module AND the base module's
-    ``get_native_binary_path`` binding. The base module imports the
-    function via ``from .binary_path import get_native_binary_path``,
-    so it has its OWN binding that must be patched separately."""
+    """Patch BOTH the binary_path module AND the base module's"""
     monkeypatch.setattr(
         "voice_typer.server.native_hotkeys.binary_path.get_native_binary_path",
         lambda: fake_bin,
@@ -89,11 +43,7 @@ def _patch_binary_path(monkeypatch: pytest.MonkeyPatch, fake_bin: Path | None) -
 
 
 class TestSpawnProcessReVerifiesBinary:
-    """XZ-R6-NH-01: ``_spawn_process`` must call
-    ``verify_native_binary_or_skip`` on EVERY invocation, not just
-    the first. The watchdog respawn path goes through ``_spawn_process``
-    directly (no factory), so this is the only gate that closes the
-    TOCTOU window for respawns."""
+    """XZ-R6-NH-01: ``_spawn_process`` must call"""
 
     def test_calls_verify_on_first_spawn(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         _setup_linux(monkeypatch)
@@ -105,8 +55,6 @@ class TestSpawnProcessReVerifiesBinary:
             lambda p: (verify_calls.append(p), True)[1],
         )
         # Also patch the base module's binding of the verifier (same
-        # reason as get_native_binary_path, base.py imports it locally).
-        # Reset verify_calls to drop the import-time check (if any).
         verify_calls.clear()
         b = LinuxEvdevHotkey("<caps_lock>")
         # Stub Popen so no real process spawns.
@@ -167,15 +115,8 @@ class TestSpawnProcessReVerifiesBinary:
         assert not popen_calls
 
 
-# start() short-circuits on _spawn_process failure ─────
-
-
 class TestStartShortCircuitsOnSpawnFailure:
-    """XZ-R6-NH-01: when ``_spawn_process`` sets ``_failed=True`` and
-    returns early (no spawn), the ``start()`` method must immediately
-    raise ``RuntimeError`` with the precise error message, NOT wait
-    for the ``_ready_event`` timeout and overwrite the message with
-    the generic "Timed out waiting for READY"."""
+    """returns early (no spawn), the ``start()`` method must immediately"""
 
     def test_start_raises_with_verification_error_message(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
@@ -203,10 +144,7 @@ class TestStartShortCircuitsOnSpawnFailure:
     def test_start_does_not_wait_full_ready_timeout_on_verification_failure(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
-        """Sanity check: the short-circuit returns IMMEDIATELY, not
-        after ``READY_TIMEOUT_SECONDS`` seconds. Uses a wall-clock
-        assertion so a future regression that removes the short-circuit
-        (forcing the wait) is caught."""
+        """Sanity check: the short-circuit returns IMMEDIATELY, not"""
         import time
 
         _setup_linux(monkeypatch)
@@ -222,7 +160,6 @@ class TestStartShortCircuitsOnSpawnFailure:
             b.start(callback=lambda: None)
         elapsed = time.perf_counter() - t0
         # READY_TIMEOUT_SECONDS is 5.0 in base.py; the short-circuit
-        # should return in < 1s. Allow 2s of slack for slow CI runners.
         assert elapsed < 2.0, (
             "XZ-R6-NH-01: start() should short-circuit immediately on "
             f"verification failure (elapsed={elapsed:.2f}s). A 5s+ elapsed "
@@ -234,18 +171,12 @@ class TestStartShortCircuitsOnSpawnFailure:
 
 
 class TestInitAcceptsBinaryPathParameter:
-    """XZ-R6-NH-02: ``__init__`` accepts an optional ``binary_path``
-    parameter so the factory can pass its verified binary in (instead
-    of re-discovering via ``get_native_binary_path()``). The parameter
-    is optional so existing call sites (tests, etc.) that don't pass
-    it continue to work."""
+    """XZ-R6-NH-02: ``__init__`` accepts an optional ``binary_path``"""
 
     def test_binary_path_parameter_is_used_when_provided(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         _setup_linux(monkeypatch)
         fake_bin = _fake_binary(tmp_path)
         # Make get_native_binary_path return a DIFFERENT path so we
-        # can detect whether the constructor used our binary_path or
-        # fell back to get_native_binary_path.
         other_bin = tmp_path / "other-binary"
         other_bin.write_text("#!/bin/sh\n")
         other_bin.chmod(0o755)
@@ -267,9 +198,10 @@ class TestInitAcceptsBinaryPathParameter:
         assert b._binary_path == fake_bin
 
     def test_binary_path_none_explicit_falls_back(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-        """Passing ``binary_path=None`` explicitly must behave the same
-        as omitting the kwarg (fall back to get_native_binary_path).
-        This pins the ``if binary_path is not None`` branch."""
+        """
+        Passing ``binary_path=None`` explicitly must behave the same
+        This pins the ``if binary_path is not None`` branch.
+        """
         _setup_linux(monkeypatch)
         fake_bin = _fake_binary(tmp_path)
         _patch_binary_path(monkeypatch, fake_bin)
@@ -277,15 +209,8 @@ class TestInitAcceptsBinaryPathParameter:
         assert b._binary_path == fake_bin
 
 
-# re-verification is called on every spawn ─────────────
-
-
 class TestReVerificationOnEverySpawn:
-    """XZ-R6-NH-01: the watchdog respawn path goes through
-    ``_spawn_process`` directly (no factory). The verifier must be
-    called on EVERY spawn (including respawns) so an attacker
-    swapping the binary between the first spawn and a respawn is
-    caught."""
+    """XZ-R6-NH-01: the watchdog respawn path goes through"""
 
     def test_verify_called_on_second_spawn(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
         _setup_linux(monkeypatch)

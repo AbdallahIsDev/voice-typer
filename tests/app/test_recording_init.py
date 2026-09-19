@@ -1,26 +1,4 @@
-"""Focused tests for the ``AppRecordingInit`` mixin
-(``voice_typer/server/app_recording_init.py``), the deferred
-recorder-subsystem construction slice extracted from ``VoiceTyperApp``.
-
-Covers the mixin's public API on a minimal host class (no real
-``Recorder`` / ``RecordingController`` / PortAudio / ORT, external
-dependencies stubbed), mirroring how ``tests/app/test_dictation.py``
-exercises the ``AppDictation`` mixin surface:
-
-- ``_init_recording`` declares the ``_RECORDER_MISSING`` sentinels, the
-  build-error slot and the build-ready event, and spawns the
-  ``recorder-init`` background thread through the thread registry with
-  the historical flags (daemon, join_timeout).
-- the setter-race guard: a recorder injected while the background build
-  is in flight is never clobbered (early return, no recording import).
-- the build-failure path records the exception and still sets the
-  build-ready event (first-access surfacing contract).
-- ``_preload_vad_model`` spawns the ``vad-preload`` thread with the
-  historical flags, and a failing ``vad.preload()`` is swallowed
-  (best-effort preload, logged at DEBUG).
-- failure logs route to the ``voice_typer.server.app`` logger (the
-  sibling-module convention that keeps caplog captures working).
-"""
+"""Focused tests for the ``AppRecordingInit`` mixin"""
 
 from __future__ import annotations
 
@@ -31,10 +9,6 @@ import types
 from unittest.mock import MagicMock
 
 from voice_typer.server.app_recording_init import AppRecordingInit
-
-# Imported lazily inside the tests that need it: importing the real
-# vad module pins the ``from voice_typer.server import vad`` binding
-# deterministically (see TestPreloadVadModel).
 
 
 class _FakeThreadRegistry:
@@ -89,9 +63,7 @@ class TestInitRecording:
         assert join_timeout == 10.0
 
     def test_setter_race_guard_never_clobbers_injected_recorder(self):
-        """A recorder injected while the background build is in flight
-        wins: the build target returns before importing the recording
-        package (no heavy import, no backing overwrite)."""
+        """A recorder injected while the background build is in flight"""
         registry = _FakeThreadRegistry()
         host = _Host(registry)
 
@@ -137,20 +109,10 @@ class TestInitRecording:
 
 
 class TestPreloadVadModel:
-    """The eager Silero VAD preload is owned by ``StartupSequence``
-    phase 1 (``startup_sequence/_phases_early.py``), the SINGLE spawn
-    site per boot. The former construction-time duplicate that lived
-    here was removed (both sites fired on every boot; ``vad.preload()``
-    is idempotent and the lazy-load fallback in ``compute_vad_prob``
-    is preserved either way). These tests pin the new boundary:
-    recording-init construction must NOT spawn its own VAD preload
-    worker; the startup-sequence site's thread/best-effort contract is
-    pinned in ``tests/test_startup_sequence_phases.py`` and
-    ``tests/test_startup_sequence_boot_costs.py``."""
+    """The eager Silero VAD preload is owned by ``StartupSequence``"""
 
     def test_init_recording_spawns_no_vad_preload(self, monkeypatch):
-        """``_init_recording`` no longer arms a duplicate VAD preload —
-        the startup sequence's phase-1 spawn is the only one per boot."""
+        """``_init_recording`` no longer arms a duplicate VAD preload —"""
         import voice_typer.server.vad as vad_module
 
         monkeypatch.setattr(vad_module, "preload", lambda: None)
@@ -167,7 +129,5 @@ class TestPreloadVadModel:
         )
 
     def test_vad_preload_helper_is_gone(self):
-        """The removed helper must stay removed, a construction-time
-        preload would silently duplicate the startup-sequence preload
-        on every boot."""
+        """The removed helper must stay removed, a construction-time"""
         assert not hasattr(_Host, "_preload_vad_model")

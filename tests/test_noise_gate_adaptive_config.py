@@ -1,23 +1,4 @@
-"""Focused tests for the ``noise_filter_gate_adaptive`` config knob.
-
-Covers the wiring the field was missing (it existed on the ``Config``
-dataclass and was read by ``build_chain`` but nothing else honored it):
-
-1. Schema, the Python ``Config`` dataclass declares
-   ``noise_filter_gate_adaptive: bool = False`` (opt-in adaptive
-   noise-floor calibration for the NoiseGate).
-2. Rebuild signature: ``_CONFIG_SIGNATURE_FIELDS`` (the tuple
-   ``rebuild_from_config`` hashes to short-circuit no-op config
-   changes) must include the field, so an adaptive-ONLY change flips
-   the signature and actually rebuilds the chain instead of being
-   silently skipped.
-3. Allowlist: ``IPC_CONFIG_ALLOWLIST["noise_filter_gate_adaptive"]``
-   accepts bools and rejects non-bools at the IPC ``set_config``
-   boundary (SEC-002: settable from the UI without bypassing the
-   allowlist).
-4. Round-trip: ``validate_config_update`` validates the field exactly
-   like the dispatcher will use it.
-"""
+"""Focused tests for the ``noise_filter_gate_adaptive`` config knob."""
 
 from __future__ import annotations
 
@@ -49,9 +30,7 @@ class TestAdaptiveGateInConfigSignature:
         )
 
     def test_adaptive_only_change_flips_signature(self) -> None:
-        """Two configs differing ONLY in the adaptive flag must hash to
-        different signatures (the pre-fix behavior: identical signature
-        → rebuild short-circuited → the knob silently did nothing)."""
+        """different signatures (the pre-fix behavior: identical signature"""
         from voice_typer.server.audio_processor import _config_signature
 
         cfg_off = _ConfigSchema()
@@ -68,9 +47,10 @@ class TestAdaptiveGateInConfigSignature:
         assert _config_signature(cfg_off, 16000) == sig_off
 
     def test_adaptive_only_change_triggers_chain_rebuild(self) -> None:
-        """End-to-end short-circuit behavior: rebuilding with a config
-        that differs only in the adaptive flag must call
-        ``build_chain`` (the unchanged-config rebuild must not)."""
+        """
+        End-to-end short-circuit behavior: rebuilding with a config
+        ``build_chain`` (the unchanged-config rebuild must not).
+        """
         from unittest.mock import patch
 
         import voice_typer.server.audio_processor as ap_mod

@@ -1,16 +1,4 @@
-"""CR-069: split from tests/test_feature_hardening_regressions.py (L1195-1221).
-
-Source marker: ``tests/test_new_ts_004_006_012_015.py``.
-
-This section of the original monolith contained only the module
-docstring for the NEW-TS-004 / NEW-TS-006 / NEW-TS-012 / NEW-TS-015
-regression cluster, the actual static-source checks for these
-TypeScript-side fixes live in their own dedicated test modules
-(``tests/test_host_ipc_and_build.py`` and friends).  The
-``if __name__ == "__main__"`` block is preserved verbatim so that
-the file remains runnable as a standalone pytest invocation (per
-the original file's pattern).
-"""
+"""Source marker: ``tests/test_new_ts_004_006_012_015.py``."""
 
 # === Source: tests/test_new_ts_004_006_012_015.py ===
 

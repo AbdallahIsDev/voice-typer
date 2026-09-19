@@ -1,30 +1,4 @@
-"""DJ-27: Stale keyring availability cache; re-probe on slow cadence.
-
-``is_keyring_available()`` caches the probe result for the lifetime of
-the process. On macOS with a locked keychain at app startup, the probe
-read may raise → cached as ``False``. On Linux headless without
-gnome-keyring-daemon, the probe returns ``(False, "fail", ...)``. In
-both cases, the cache says "unavailable" for the entire process
-lifetime, even if the user subsequently unlocks their keychain or
-installs gnome-keyring-daemon mid-session. Every subsequent API key
-operation routes to the plaintext fallback for the entire session.
-
-DJ-27 fix: in ``is_keyring_available()``, when the cached result is
-``False`` AND the last probe was more than 5 minutes ago, re-probe and
-update the cache. The re-probe only fires on the unavailable path (a
-backend that's already available doesn't need re-probing) to bound the
-probe rate on a permanently-unavailable backend.
-
-This test file asserts:
-
-  1. The first ``is_keyring_available()`` call probes (cache is None).
-  2. A second call within 5 minutes does NOT re-probe (cache hit).
-  3. A call AFTER 5 minutes (with cache=False) DOES re-probe.
-  4. A call AFTER 5 minutes (with cache=True) does NOT re-probe
-     (available backends don't need re-probing).
-  5. ``_reset_keyring_cache()`` resets the timestamp so the next call
-     always re-probes (tests don't have to wait 5 minutes).
-"""
+"""DJ-27: Stale keyring availability cache; re-probe on slow cadence."""
 
 from __future__ import annotations
 
@@ -32,8 +6,6 @@ import time
 
 import pytest
 from voice_typer.server import credential_store
-
-# ── Fixtures ────────────────────────────────────────────────────────────
 
 
 @pytest.fixture(autouse=True)
@@ -45,17 +17,7 @@ def _reset_caches():
 
 
 def _install_fake_probe(monkeypatch, available: bool, reason: str | None = None):
-    """Install a fake ``_probe_keyring`` that records every call.
-
-    Returns a list that grows by one element per probe call. Tests
-    assert on ``len(probe_calls)`` to verify re-probe behavior.
-
-    The fake ALSO updates ``_keyring_last_probe_ts`` so the
-    slow-cadence re-probe gate in ``is_keyring_available`` evaluates
-    correctly, without this, the timestamp stays at ``0.0`` (from
-    ``_reset_keyring_cache``) and every call would re-probe because
-    ``time.time() - 0.0 > 300`` is always True.
-    """
+    """Install a fake ``_probe_keyring`` that records every call."""
     probe_calls: list = []
     backend_name = "FakeKeyring" if available else "fail"
     if reason is None:
@@ -63,8 +25,6 @@ def _install_fake_probe(monkeypatch, available: bool, reason: str | None = None)
 
     def _fake_probe():
         probe_calls.append(time.time())
-        # Mirror the real _probe_keyring's timestamp update so the
-        # slow-cadence re-probe gate evaluates correctly.
         credential_store._keyring_last_probe_ts = time.time()
         return (available, backend_name, reason)
 
@@ -72,12 +32,8 @@ def _install_fake_probe(monkeypatch, available: bool, reason: str | None = None)
     return probe_calls
 
 
-# re-probe policy ──────────────────────────────────────────────
-
-
 class TestReprobePolicy:
-    """DJ-27: ``is_keyring_available()`` re-probes on a slow cadence
-    when the cached result is ``False``."""
+    """DJ-27: ``is_keyring_available()`` re-probes on a slow cadence"""
 
     def test_first_call_always_probes(self, monkeypatch):
         """DJ-27 sanity: the first call (cache is None) always probes."""
@@ -90,9 +46,7 @@ class TestReprobePolicy:
         assert len(probe_calls) == 1, f"first call must probe exactly once, got {len(probe_calls)} probes"
 
     def test_second_call_within_5min_does_not_reprobe_available(self, monkeypatch):
-        """DJ-27: when cache=True, no re-probe (available backends don't
-        need re-probing, bounds probe rate on a permanently-available
-        backend)."""
+        """DJ-27: when cache=True, no re-probe (available backends don't"""
         probe_calls = _install_fake_probe(monkeypatch, available=True)
         credential_store.is_keyring_available()  # first probe
         assert len(probe_calls) == 1
@@ -104,8 +58,7 @@ class TestReprobePolicy:
         )
 
     def test_second_call_within_5min_does_not_reprobe_unavailable(self, monkeypatch):
-        """DJ-27: when cache=False AND last probe was <5 min ago, no
-        re-probe (bounds probe rate on a permanently-unavailable backend)."""
+        """DJ-27: when cache=False AND last probe was <5 min ago, no"""
         probe_calls = _install_fake_probe(monkeypatch, available=False)
         credential_store.is_keyring_available()  # first probe → False
         assert len(probe_calls) == 1
@@ -116,20 +69,13 @@ class TestReprobePolicy:
         assert len(probe_calls) == 1, "DJ-27: cache=False path within 5 min of last probe must NOT re-probe"
 
     def test_reprobe_after_5min_when_unavailable(self, monkeypatch):
-        """DJ-27: when cache=False AND last probe was >5 min ago, re-probe.
-        This is the core fix, a backend that appears mid-session
-        (user unlocks keychain, installs gnome-keyring-daemon) is picked
-        up without an app restart."""
+        """DJ-27: when cache=False AND last probe was >5 min ago, re-probe."""
         probe_calls = _install_fake_probe(monkeypatch, available=False)
         credential_store.is_keyring_available()  # first probe → False
         assert len(probe_calls) == 1
         assert credential_store._keyring_available_cache is False
 
         # Simulate 5+ minutes passing by rewinding the probe timestamp.
-        # _probe_keyring sets _keyring_last_probe_ts = time.time() on
-        # every call. We rewind it to 301 seconds ago so the next
-        # is_keyring_available call's "time.time() - _keyring_last_probe_ts"
-        # check evaluates > 300.
         credential_store._keyring_last_probe_ts = time.time() - 301.0
 
         # Second call: cache=False AND last probe >5 min ago → re-probe.
@@ -137,10 +83,7 @@ class TestReprobePolicy:
         assert len(probe_calls) == 2, "DJ-27: cache=False path >5 min after last probe must re-probe"
 
     def test_reprobe_picks_up_backend_appearing_mid_session(self, monkeypatch):
-        """DJ-27: the re-probe must OBSERVE a backend that appeared mid-
-        session. We simulate: first probe returns False (keychain locked);
-        re-probe (after 5 min) returns True (keychain now unlocked).
-        ``is_keyring_available()`` must return True after the re-probe."""
+        """DJ-27: the re-probe must OBSERVE a backend that appeared mid-"""
         # First probe returns False (keychain locked at boot).
         probe_count = {"n": 0}
 
@@ -174,15 +117,12 @@ class TestReprobePolicy:
         assert credential_store._KEYRING_REPROBE_INTERVAL_SECONDS == 300.0
 
     def test_last_probe_timestamp_initialized_to_zero(self):
-        """DJ-27: ``_keyring_last_probe_ts`` starts at 0.0 so the first
-        ``is_keyring_available()`` call always probes (belt-and-suspenders
-        alongside the ``cache is None`` check)."""
+        """DJ-27: ``_keyring_last_probe_ts`` starts at 0.0 so the first"""
         credential_store._reset_keyring_cache()
         assert credential_store._keyring_last_probe_ts == 0.0
 
     def test_reset_keyring_cache_resets_timestamp(self, monkeypatch):
-        """DJ-27: ``_reset_keyring_cache()`` also resets the probe
-        timestamp so tests don't have to wait 5 minutes for a re-probe."""
+        """DJ-27: ``_reset_keyring_cache()`` also resets the probe"""
         # Populate the timestamp by probing.
         _install_fake_probe(monkeypatch, available=True)
         credential_store.is_keyring_available()

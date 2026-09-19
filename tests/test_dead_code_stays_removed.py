@@ -1,12 +1,4 @@
-"""Consolidated regression tests for the NEW-DEAD-xxx series (dead-code removal).
-
-Merges:
-- tests/test_new_dead_002_scripts.py
-- tests/test_new_dead_003_font_svg.py
-- tests/test_new_dead_009_diagnose.py
-- tests/test_new_dead_010_ptt_wiring.py
-- tests/test_new_dead_015_llm_test_connection.py
-"""
+"""Consolidated regression tests for the NEW-DEAD-xxx series (dead-code removal)."""
 
 # NOTE: search.py is now LIVE (history_db.py delegates to it). Only recovery.py remains deleted.
 
@@ -73,14 +65,10 @@ class TestRuntimeProofImports:
         ast.parse(source)
 
     def test_script_imports_from_server_package(self):
-        """The script must import from ``voice_typer.server.*`` not the
-        legacy top-level ``voice_typer.*`` paths.
-        """
+        """legacy top-level ``voice_typer.*`` paths."""
         script_path = SCRIPTS_DIR / "runtime_proof.py"
         source = script_path.read_text()
         # The legacy broken imports would say "from voice_typer.config",
-        # "from voice_typer.transcription", "from voice_typer.tray".
-        # The fix uses "from voice_typer.server.config", etc.
         assert "from voice_typer.server.config import" in source, (
             "runtime_proof.py must import Config from voice_typer.server.config"
         )
@@ -111,35 +99,22 @@ class TestRuntimeTestRunnerMarkers:
         ast.parse(source)
 
     def test_uses_current_transcription_complete_marker(self):
-        """The runner must look for ``[TRANSCRIBE] Transcription complete``
-        (the actual marker emitted by dictation_pipeline.py:98), not
-        the legacy ``_busy reset to False``.
-        """
+        """The runner must look for ``[TRANSCRIBE] Transcription complete``"""
         source = (SCRIPTS_DIR / "runtime_test_runner.py").read_text()
         assert "[TRANSCRIBE] Transcription complete" in source, (
             "runtime_test_runner.py must grep for '[TRANSCRIBE] Transcription complete' (current production marker)"
         )
 
     def test_does_not_rely_on_legacy_busy_reset_marker(self):
-        """The legacy ``_busy reset to False`` marker is no longer
-        emitted by the production code; the runner must not depend on
-        it as the primary success signal.
-        """
+        """The legacy ``_busy reset to False`` marker is no longer"""
         source = (SCRIPTS_DIR / "runtime_test_runner.py").read_text()
-        # The old wait_for_log call looked for "_busy reset to False".
-        # The new code looks for "[TRANSCRIBE] Transcription complete".
-        # We allow the legacy string to appear in comments/docstrings
-        # but NOT as the argument to wait_for_log.
         # Easiest check: the wait_for_log call must not pass the legacy
-        # string.
         assert 'wait_for_log(LOG_FILE, "_busy reset to False"' not in source, (
             "runtime_test_runner.py still uses the legacy _busy reset to False marker as a wait_for_log argument"
         )
 
     def test_force_recover_still_checked(self):
-        """FORCE RECOVER is still emitted by recording_controller.py:623,
-        so the runner should still check for it as a fallback signal.
-        """
+        """FORCE RECOVER is still emitted by recording_controller.py:623,"""
         source = (SCRIPTS_DIR / "runtime_test_runner.py").read_text()
         assert "FORCE RECOVER" in source, (
             "runtime_test_runner.py should still check for FORCE RECOVER (still emitted by recording_controller.py:623)"
@@ -179,11 +154,9 @@ class TestPyprojectNoDeadFontReference:
         )
 
     def test_no_package_data_section_for_fonts(self):
-        """The ``[tool.setuptools.package-data]`` section must not
-        reference fonts or icons."""
+        """The ``[tool.setuptools.package-data]`` section must not"""
         content = PYPROJECT.read_text()
         # The section may exist for other purposes, but it must not
-        # reference the dead font/icons.
         if "[tool.setuptools.package-data]" in content:
             # Find the section and check its contents.
             start = content.index("[tool.setuptools.package-data]")
@@ -200,8 +173,7 @@ class TestPyprojectNoDeadFontReference:
 
 
 class TestNoPythonCodeLoadsTheFont:
-    """Sanity check: no Python source file should reference the font
-    (the issue said zero source files load it)."""
+    """Sanity check: no Python source file should reference the font"""
 
     def test_no_python_imports_hgi_font(self):
         """No Python file in voice_typer/ should reference the font."""
@@ -235,9 +207,7 @@ class TestDiagnoseNotAbstract:
     """NEW-DEAD-009: diagnose must not be @abstractmethod."""
 
     def test_diagnose_has_default_implementation(self):
-        """The HotkeyBackend base class must provide a default
-        ``diagnose`` implementation that returns an empty string.
-        """
+        """The HotkeyBackend base class must provide a default"""
         assert hasattr(HotkeyBackend, "diagnose"), "HotkeyBackend must have a diagnose method"
         source = inspect.getsource(HotkeyBackend.diagnose)
         assert 'return ""' in source, (
@@ -259,9 +229,7 @@ class TestDiagnoseNotAbstract:
             )
 
     def test_subclasses_can_skip_diagnose_override(self):
-        """A new subclass that doesn't override diagnose must be
-        instantiable (with the other abstract methods implemented).
-        """
+        """A new subclass that doesn't override diagnose must be"""
 
         class MinimalBackend(HotkeyBackend):
             def start(self, callback):
@@ -310,15 +278,7 @@ class TestPttWiring:
     """NEW-DEAD-010: PTT mode must wire set_on_release to _stop_dictation."""
 
     def test_dispatcher_sets_on_release_in_ptt_mode(self):
-        """When recording_mode is 'push_to_talk', the dispatcher must
-        call ``set_on_release(app._stop_dictation)``.
-
-        The PTT wiring lives in ``_create_and_start_main_backend`` (a
-        helper extracted from ``register`` for the atomic-swap
-        refactor, ). Both methods' source is inspected so a
-        future refactor that moves the wiring again doesn't break this
-        regression guard.
-        """
+        """When recording_mode is 'push_to_talk', the dispatcher must"""
         register_src = inspect.getsource(HotkeyDispatcher.register)
         helper_src = inspect.getsource(HotkeyDispatcher._create_and_start_main_backend)
         combined_src = register_src + "\n" + helper_src
@@ -335,9 +295,7 @@ class TestPttWiring:
         )
 
     def test_win32_backend_fires_on_release_on_key_up(self):
-        """The Win32 polling backend must detect key-up transitions and
-        fire ``_on_release_callback``.
-        """
+        """fire ``_on_release_callback``."""
         source = inspect.getsource(hotkeys.WindowsNativeHotkey._run_polling_loop)
         assert "_on_release_callback" in source, (
             "WindowsNativeHotkey._run_polling_loop must reference _on_release_callback"
@@ -348,18 +306,14 @@ class TestPttWiring:
         )
 
     def test_pynput_backend_fires_on_release(self):
-        """The pynput backend must fire _on_release_callback in its
-        on_release handler.
-        """
+        """The pynput backend must fire _on_release_callback in its"""
         # Find the PynputHotkey class's on_release closure.
         source = inspect.getsource(hotkeys.PynputHotkey._start_fallback)
         assert "_on_release_callback" in source, "PynputHotkey._start_fallback must reference _on_release_callback"
         assert "on_release" in source, "PynputHotkey._start_fallback must register an on_release handler"
 
     def test_set_on_release_stores_callback(self):
-        """``HotkeyBackend.set_on_release`` must store the callback in
-        ``self._on_release_callback``.
-        """
+        """``self._on_release_callback``."""
         # Create a minimal backend instance to test set_on_release.
         backend = hotkeys.PynputHotkey.__new__(hotkeys.PynputHotkey)
         backend._on_release_callback = None
@@ -377,8 +331,7 @@ class TestPttWiring:
         assert callback_called == [True]
 
     def test_set_on_release_accepts_none(self):
-        """``set_on_release(None)`` must clear the callback (allowing
-        toggle mode to override a previous PTT setting)."""
+        """``set_on_release(None)`` must clear the callback (allowing"""
         backend = hotkeys.PynputHotkey.__new__(hotkeys.PynputHotkey)
         backend._on_release_callback = lambda: None
 
@@ -390,10 +343,7 @@ class TestPttFunctionalFlow:
     """Functional test: simulate the PTT wiring end-to-end."""
 
     def test_ptt_wiring_calls_stop_dictation_on_key_release(self):
-        """When the dispatcher registers a hotkey in PTT mode, the
-        backend's ``_on_release_callback`` must point to
-        ``app._stop_dictation``.
-        """
+        """``app._stop_dictation``."""
         app = MagicMock()
         app.config.hotkey = "<f2>"
         app.config.recording_mode = "push_to_talk"
@@ -414,13 +364,10 @@ class TestPttFunctionalFlow:
         ):
             dispatcher.register()
 
-        # set_on_release must have been called with app._stop_dictation.
         fake_backend.set_on_release.assert_called_once_with(app._stop_dictation)
 
     def test_toggle_mode_does_not_set_on_release(self):
-        """In toggle mode (not push_to_talk), set_on_release must NOT
-        be called, the hotkey press toggles recording on/off.
-        """
+        """In toggle mode (not push_to_talk), set_on_release must NOT"""
         app = MagicMock()
         app.config.hotkey = "<f2>"
         app.config.recording_mode = "toggle"
@@ -475,8 +422,7 @@ class TestServiceTestMethod:
         )
 
     def test_service_returns_failure_when_no_api_key(self, server_with_mock_app):
-        """When the config has no llm_api_key, the service must return
-        success=False with a helpful message."""
+        """When the config has no llm_api_key, the service must return"""
         srv = server_with_mock_app
         # Mock config with empty key.
         srv.app.config = MagicMock()
@@ -490,9 +436,7 @@ class TestServiceTestMethod:
         assert "key" in result["message"].lower()
 
     def test_service_constructs_polisher_and_calls_test(self, server_with_mock_app):
-        """When the config has an API key, the service must construct an
-        LLMPolisher and call its test_connection() method.
-        """
+        """LLMPolisher and call its test_connection() method."""
         srv = server_with_mock_app
         srv.app.config = MagicMock()
         srv.app.config.llm_api_key = "sk-test-key"
@@ -521,38 +465,15 @@ class TestServiceTestMethod:
 
 
 class TestDispatchesTestLlmConnection:
-    """ZR-45: ``test_llm_connection`` was REMOVED from ``_COMMAND_REGISTRY``.
-
-    Previously (NEW-DEAD-015) this class asserted that the IPC
-    dispatcher routed ``test_llm_connection`` to the service-layer
-    method. ZR-45 removed the command from ``_COMMAND_REGISTRY`` (and
-    from the renderer allowlist) because the renderer no longer
-    invokes it, the "Test connection" affordance was removed from the
-    Models page UI in favour of the cloud-provider probe in
-    ``CloudProvidersPanel``. The service-layer method
-    ``service.test_llm_connection`` still exists (it's called by other
-    service methods), but the IPC dispatch route is gone.
-
-    The tests below are INVERTED, they now assert the command is NOT
-    in the registry (regression guard against a silent re-add without
-    an ADR-0020 §16 addendum + renderer allowlist update).
-    """
+    """dispatcher routed ``test_llm_connection`` to the service-layer"""
 
     def test_ipc_does_not_dispatch_test_llm_connection(self, server_with_mock_app):
-        """``_dispatch({'type': 'test_llm_connection'})`` must NOT call
-        ``service.test_llm_connection()``, ZR-45 removed the route.
-
-        The dispatch should hit ``_handle_unknown_command`` and return
-        an ``error`` envelope with the ``server.unknown_command`` code
-        (per ``ipc_server._handle_unknown_command``).
-        """
+        """``_dispatch({'type': 'test_llm_connection'})`` must NOT call"""
         srv = server_with_mock_app
         srv.service.test_llm_connection = MagicMock(return_value={"success": True, "message": "Connected"})
 
         result = srv._dispatch({"id": 1, "type": "test_llm_connection"})
 
-        # the service method MUST NOT be invoked, there is no
-        # dispatch route to it.
         srv.service.test_llm_connection.assert_not_called()
         assert result["type"] == "error", (
             "ZR-45: `test_llm_connection` was removed from _COMMAND_REGISTRY; "
@@ -560,27 +481,15 @@ class TestDispatchesTestLlmConnection:
             "command was intentionally re-added, update _COMMAND_REGISTRY + "
             "the renderer allowlist + this test together."
         )
-        # the error envelope carries a structured
-        # ``code`` field; ``server.unknown_command`` is the canonical
-        # code for an unregistered command.
         assert result["data"].get("code") == "server.unknown_command", (
             "ZR-45: the error envelope should carry the `server.unknown_command` "
             f"code; got {result['data'].get('code')!r}"
         )
 
     def test_ipc_handles_service_exception_when_command_not_registered(self, server_with_mock_app):
-        """ZR-45: the prior test_ipc_handles_service_exception asserted
-        that a service-raising ``test_llm_connection`` surfaced as an
-        IPC error envelope. With the route removed, the service is
-        never invoked, so the "service raises" path is unreachable for
-        this command. This test now asserts the command is simply not
-        registered (the dispatch returns the unknown-command error
-        WITHOUT calling the service, regardless of whether the service
-        would have raised).
-        """
+        """the prior test_ipc_handles_service_exception asserted"""
         srv = server_with_mock_app
         # Even if the service method WOULD raise, the dispatch must not
-        # call it because the route is gone.
         srv.service.test_llm_connection = MagicMock(side_effect=RuntimeError("boom"))
 
         result = srv._dispatch({"id": 1, "type": "test_llm_connection"})
@@ -588,20 +497,12 @@ class TestDispatchesTestLlmConnection:
         srv.service.test_llm_connection.assert_not_called()
         assert result["type"] == "error"
         # The error is the unknown-command envelope, NOT the "boom"
-        # propagation (the service was never called).
         assert "boom" not in result["data"].get("message", "")
         assert result["data"].get("code") == "server.unknown_command"
 
 
 class TestRendererAllowlist:
-    """ZR-45: the Rust renderer allowlist must NOT include
-    ``test_llm_connection``, the IPC command was removed from
-    ``_COMMAND_REGISTRY`` and the renderer no longer invokes it.
-
-    Post-predecessor cutover: the TS ``ALLOWED_COMMANDS`` set is gone;
-    the Rust ``allowed_commands()`` set is the sole renderer-reachable
-    gate.
-    """
+    """the Rust renderer allowlist must NOT include"""
 
     def test_rust_allowlist_does_not_include_test_llm_connection(self):
         from tests.test_security_doc_command_count import _allowed_commands_rust
@@ -673,11 +574,7 @@ class TestIpcDeadCodeStaysRemoved:
             importlib.import_module(mod_path)
 
     def test_ipc_init_does_not_re_export_ipcserver_or_main(self):
-        """The ``ipc`` package __init__ must NOT re-export ``IPCServer`` or
-        ``main``, those names live only in ``ipc_server.py`` (the shim
-        that retains the full implementation).  Re-exporting them from
-        ``ipc`` would re-create the parallel-system surface.
-        """
+        """``main``, those names live only in ``ipc_server.py`` (the shim"""
         import voice_typer.server.ipc as ipc_pkg
 
         assert not hasattr(ipc_pkg, "IPCServer"), (
@@ -692,11 +589,7 @@ class TestIpcDeadCodeStaysRemoved:
         )
 
     def test_ipc_init_does_not_re_export_push_event_now_or_process_meta(self):
-        """The ``ipc`` package __init__ must NOT re-export
-        ``_push_event_now`` or ``_set_process_metadata``, they live in
-        ``ipc_server.py`` and were previously re-exported from the (now
-        deleted) ``ipc/push_events.py`` and ``ipc/process_meta.py``.
-        """
+        """The ``ipc`` package __init__ must NOT re-export"""
         import voice_typer.server.ipc as ipc_pkg
 
         assert not hasattr(ipc_pkg, "_push_event_now"), (
@@ -721,10 +614,7 @@ class TestIpcDeadCodeStaysRemoved:
             importlib.import_module(mod_path)
 
     def test_ipc_server_imports_TCPLineIO_from_transport(self):  # noqa: N802
-        """``ipc_server.py`` must import ``_TCPLineIO`` from
-        ``voice_typer.server.ipc.transport`` (the canonical location with
-        the deadlock fix in ``close``), not define a parallel copy.
-        """
+        """the deadlock fix in ``close``), not define a parallel copy."""
         import inspect
 
         from voice_typer.server import ipc_server
@@ -744,11 +634,7 @@ class TestIpcDeadCodeStaysRemoved:
         )
 
     def test_ipc_server_TCPLineIO_close_uses_shutdown(self):  # noqa: N802
-        """``_TCPLineIO.close`` must call ``shutdown(SHUT_RDWR)``
-        BEFORE ``close()`` so an in-progress ``recv`` on another thread
-        is interrupted and the ``BufferedReader.close()`` doesn't
-        deadlock.
-        """
+        """``_TCPLineIO.close`` must call ``shutdown(SHUT_RDWR)``"""
         import inspect
 
         from voice_typer.server.ipc_server import _TCPLineIO
@@ -763,47 +649,25 @@ class TestIpcDeadCodeStaysRemoved:
 
 
 class TestExtendUrlAllowlistIsWired:
-    """XZ-SEC-05: ``extend_url_allowlist`` in
+    """
     ``voice_typer/server/_secrets.py`` is LIVE production code.
-
     The XZ-SEC-05 wiring landed 2026-08-02: the env-var bootstrap
-    (``_load_env_allowlist_extensions``) was joined by ``Config.load``
-    re-applying the persisted ``trusted_extra_hosts`` list, and by the
-    ``add_trusted_endpoint`` / ``set_config`` IPC handlers in
-    ``handlers/config_handlers.py``. The former DEAD-CODE marker was
-    removed from ``_secrets.py``.
-
-    These tests enforce the live-claim: the set of production call
-    sites MUST stay exactly the three expected families, and the
-    DEAD-CODE marker MUST NOT come back.
     """
 
-    # Expected call sites of ``extend_url_allowlist`` in production code
-    # (relative to the repo root). Any addition or removal here means the
     # XZ-SEC-05 wiring drifted and must be reviewed.
     _EXPECTED_CALLERS: frozenset[str] = frozenset(
         {
             # Config.load re-applies persisted trusted_extra_hosts.
-            # config/__init__.py was split into a package
-            # (``config/__init__.py`` + ``config/loader.py``), the
-            # actual call site moved to loader.py.
             "voice_typer/server/config/loader.py",
             # ConfigHandlersMixin: set_config trusted_extra_hosts re-apply
-            # + the add_trusted_endpoint IPC handler.
             "voice_typer/server/handlers/config_handlers.py",
             # Pack downloads: service/offline_pack/gates.py filters model-pack URLs
-            # through the allowlist before fetching (SSRF hardening).
             "voice_typer/server/service/offline_pack/gates.py",
         }
     )
 
     def test_production_callers_of_extend_url_allowlist_are_expected(self) -> None:
-        """AST-walk every ``.py`` file under ``voice_typer/`` (excluding
-        ``_secrets.py`` itself) and assert every Call node targeting
-        ``extend_url_allowlist`` lives in one of the expected modules.
-        A new caller (e.g. a UI affordance wiring the command directly)
-        must be reviewed and added to ``_EXPECTED_CALLERS`` here.
-        """
+        """AST-walk every ``.py`` file under ``voice_typer/`` (excluding"""
         import ast
         from pathlib import Path
 
@@ -813,9 +677,6 @@ class TestExtendUrlAllowlistIsWired:
 
         for py_file in voice_typer_dir.rglob("*.py"):
             # Skip the function's own definition file(s): the former
-            # ``_secrets.py`` and its EO-23 home ``security/url_allowlist.py``
-            # (which calls ``extend_url_allowlist`` internally via
-            # ``_load_env_allowlist_extensions``).
             if py_file.name == "_secrets.py" or py_file.name == "url_allowlist.py":
                 continue
             try:
@@ -832,8 +693,6 @@ class TestExtendUrlAllowlistIsWired:
                         or (isinstance(func, ast.Attribute) and func.attr == "extend_url_allowlist")
                     ):
                         # Normalize to forward slashes so the comparison
-                        # against _EXPECTED_CALLERS matches on Windows
-                        # (where str(Path) uses backslashes).
                         offender_files.add(str(py_file.relative_to(repo_root)).replace("\\", "/"))
 
         unexpected = offender_files - self._EXPECTED_CALLERS
@@ -847,10 +706,7 @@ class TestExtendUrlAllowlistIsWired:
         )
 
     def test_dead_code_marker_removed_from_secrets_module(self) -> None:
-        """The DEAD-CODE marker must be GONE from ``_secrets.py``, the
-        function is live (XZ-SEC-05 wired), so the marker would now be
-        actively misleading.
-        """
+        """function is live (XZ-SEC-05 wired), so the marker would now be"""
         from voice_typer.server import _secrets
 
         src = inspect.getsource(_secrets)
@@ -866,34 +722,12 @@ class TestExtendUrlAllowlistIsWired:
 
 
 class TestHistoryDbInternalsRecoveryModuleStaysRemoved:
-    """``voice_typer.server.history_db_internals.recovery`` was 519 LOC of
-    dead code, 0% coverage, 0 actual importers.
-
-    The ``HistoryDB`` class methods that handle corruption recovery
-    (``_maybe_recover_from_corruption``, ``_backup_before_migration``,
-    ``_try_iterdump_recovery``) all live in
-    :mod:`voice_typer.server.history_db` itself, the standalone
-    functions in ``recovery.py`` (``backup_before_migration``,
-    ``maybe_recover_from_corruption``, ``try_iterdump_recovery``,
-    ``apply_recovered_inserts``, ``notify_corruption_recovered``,
-    ``secure_copy_db_file_impl``) were an unused extraction that never
-    got wired in.
-
-    Note: ``history_db_internals/search.py`` is now LIVE, session-2
-    promoted it to the canonical search implementation and
-    ``history_db.py`` delegates to it. Only ``recovery.py`` stays
-    deleted; this test guards against accidental re-creation
-    (e.g. a cherry-pick from an old branch restoring the file).
-    """
+    """The ``HistoryDB`` class methods that handle corruption recovery"""
 
     _DEAD_MODULES = ("voice_typer.server.history_db_internals.recovery",)
 
     def test_recovery_module_stays_removed(self) -> None:
-        """``voice_typer.server.history_db_internals.recovery`` must
-        NOT be importable, the module was deleted as dead code.
-        If this test fails, someone restored the file (e.g. by
-        cherry-picking an old commit). Re-delete it.
-        """
+        """``voice_typer.server.history_db_internals.recovery`` must"""
         import importlib
 
         try:
@@ -910,12 +744,7 @@ class TestHistoryDbInternalsRecoveryModuleStaysRemoved:
         )
 
     def test_recovery_file_does_not_exist_on_disk(self) -> None:
-        """Belt-and-braces: the actual ``.py`` file must not exist on
-        disk. The import-not-importable test above is the primary
-        guard, but this catches a scenario where the file is present
-        but has a syntax error preventing import (which would mask
-        the regression from the import test).
-        """
+        """disk. The import-not-importable test above is the primary"""
         repo_root = Path(__file__).resolve().parent.parent
         pkg_dir = repo_root / "voice_typer" / "server" / "history_db_internals"
         recovery_py = pkg_dir / "recovery.py"
@@ -927,17 +756,7 @@ class TestHistoryDbInternalsRecoveryModuleStaysRemoved:
         )
 
     def test_no_source_file_imports_the_recovery_module(self) -> None:
-        """No ``.py`` file under ``voice_typer/`` or ``tests/`` may
-        import the dead ``recovery`` module. This guards against a
-        regression where someone restores the file AND wires it back
-        in (the file-existence guard above would catch the file
-        restore, but this test catches the wiring restore too).
-
-        We allow the module to be MENTIONED in comments / docstrings
-        (e.g. an explanatory comment in ``privacy.py`` referencing
-        the historical path), only actual ``from ... import`` /
-        ``import ...`` statements are forbidden.
-        """
+        """No ``.py`` file under ``voice_typer/`` or ``tests/`` may"""
         repo_root = Path(__file__).resolve().parent.parent
         offender_files: set[str] = set()
         for sub in ("voice_typer", "tests"):
@@ -962,7 +781,6 @@ class TestHistoryDbInternalsRecoveryModuleStaysRemoved:
                     ):
                         offender_files.add(str(py_file.relative_to(repo_root)))
                     # ``import voice_typer.server.history_db_internals.recovery``
-                    # (also catches dotted ``import ... as ...``)
                     if isinstance(node, ast.Import):
                         for alias in node.names:
                             if alias.name in ("voice_typer.server.history_db_internals.recovery",):
@@ -977,18 +795,8 @@ class TestHistoryDbInternalsRecoveryModuleStaysRemoved:
         )
 
 
-# === Legacy config dir removal (split from the LOW-findings batch
-# catch-all test module) ============================================
-
 REPO_ROOT = Path(__file__).resolve().parent.parent
 # ``voice_typer/server/config.py`` was split into a package
-# (``config/__init__.py`` + ``config/{coercion,loader,sanitization}.py``)
-# plus sibling modules (``config_applier.py``, ``config_editor.py``,
-# ``config_sanitizer.py``, ``config_validators.py``) and the
-# ``config_internals/`` package (``__init__.py``, ``migrations.py``,
-# ``paths.py``). The legacy ``_legacy_config_dir`` function could have
-# lived in any of these after the split, so we scan them all rather
-# than asserting on a single (now-nonexistent) file.
 CONFIG_MODULE_PATHS = [
     *(
         p
@@ -1007,14 +815,7 @@ class TestLegacyConfigDirRemoved:
     """``_legacy_config_dir`` was dead and is now deleted."""
 
     def test_config_py_does_not_define_legacy_config_dir(self):
-        """The function definition must be gone from all config module sources.
-
-        ``config.py`` was previously a single file; it has since been
-        split into a package + sibling modules. We scan every config
-        module file for the deleted function definition so the test
-        catches a re-introduction regardless of which module it lands
-        in after a future refactor.
-        """
+        """The function definition must be gone from all config module sources."""
         assert CONFIG_MODULE_PATHS, (
             "Expected at least one config module file under "
             "voice_typer/server/config/ and voice_typer/server/config*.py, "
@@ -1035,10 +836,7 @@ class TestLegacyConfigDirRemoved:
         )
 
     def test_legacy_config_dir_not_importable(self):
-        """``from voice_typer.server.config import _legacy_config_dir``
-        must raise ``ImportError`` / ``AttributeError`` now that the
-        function is gone.
-        """
+        """``from voice_typer.server.config import _legacy_config_dir``"""
         from voice_typer.server import config as config_mod
 
         assert not hasattr(config_mod, "_legacy_config_dir"), (
@@ -1046,9 +844,7 @@ class TestLegacyConfigDirRemoved:
         )
 
     def test_no_callers_of_legacy_config_dir_anywhere_in_repo(self):
-        """Sanity: no Python file in the repo should still reference
-        ``_legacy_config_dir`` (the function is gone).
-        """
+        """Sanity: no Python file in the repo should still reference"""
         offenders: list[str] = []
         for py_file in (REPO_ROOT / "voice_typer").rglob("*.py"):
             try:

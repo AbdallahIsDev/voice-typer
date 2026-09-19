@@ -1,14 +1,4 @@
-"""Tests for voice_typer.server.ai_enhancement: P4 AI grammar/punctuation/capitalization.
-
-These tests cover the four public functions:
-  * auto_capitalize
-  * auto_punctuate
-  * fix_grammar_basics
-  * enhance_transcription (dispatcher)
-
-The dispatcher tests use a real ``Config`` instance so they also
-verify the config fields are present and default correctly.
-"""
+"""Tests for voice_typer.server.ai_enhancement: P4 AI grammar/punctuation/capitalization."""
 
 from __future__ import annotations
 
@@ -19,8 +9,6 @@ from voice_typer.server.ai_enhancement import (
     fix_grammar_basics,
 )
 from voice_typer.server.config import Config
-
-# ─── auto_capitalize ────────────────────────────────────────────────────────
 
 
 class TestAutoCapitalize:
@@ -62,9 +50,7 @@ class TestAutoCapitalize:
         assert result == "My birthday is in July"
 
     def test_auto_capitalize_leaves_ambiguous_month_words_alone(self):
-        """BP-132: may/march/august double as common words, mid-sentence
-        occurrences must NOT capitalize ("the plan may work", not
-        "the plan May work"). Sentence-start still capitalizes."""
+        """BP-132: may/march/august double as common words, mid-sentence"""
         assert auto_capitalize("the plan may work") == "The plan may work"
         assert auto_capitalize("we march at dawn") == "We march at dawn"
         assert auto_capitalize("may the force be with you") == "May the force be with you"
@@ -81,9 +67,6 @@ class TestAutoCapitalize:
         assert once == twice
 
 
-# ─── auto_punctuate ─────────────────────────────────────────────────────────
-
-
 class TestAutoPunctuate:
     def test_auto_punctuate_adds_periods(self):
         """A sentence with no terminal punctuation should get a period."""
@@ -97,11 +80,7 @@ class TestAutoPunctuate:
         assert auto_punctuate("what?") == "what?"
 
     def test_auto_punctuate_short_text_no_period(self):
-        """Very short text (<=3 words) should not get terminal punctuation.
-
-        This mirrors the existing ``_add_safe_terminal_punctuation``
-        heuristic: short text is likely a fragment, not a sentence.
-        """
+        """Very short text (<=3 words) should not get terminal punctuation."""
         result = auto_punctuate("hello world")
         assert result == "hello world"
 
@@ -129,9 +108,6 @@ class TestAutoPunctuate:
         """`apples and oranges` (no pronoun after `and`) should not get a comma."""
         result = auto_punctuate("i bought apples and oranges at the store today")
         assert ", and" not in result
-
-
-# ─── fix_grammar_basics ────────────────────────────────────────────────────
 
 
 class TestFixGrammarBasics:
@@ -168,12 +144,7 @@ class TestFixGrammarBasics:
         assert fix_grammar_basics("") == ""
 
     def test_fix_grammar_basics_does_not_invert_were(self):
-        """The question form "Were you..." must survive untouched.
-
-        "were" -> "we're" was removed from the contraction map because
-        the whole-word rewrite silently inverts the meaning of the
-        (far more common) question/past-tense form.
-        """
+        """The question form \"Were you...\" must survive untouched."""
         result = fix_grammar_basics("were you at the store")
         assert result == "were you at the store"  # meaning preserved verbatim
         assert "We're" not in result
@@ -185,23 +156,19 @@ class TestFixGrammarBasics:
         assert "we're" not in result
 
     def test_fix_grammar_basics_does_not_invert_possessive_its(self):
-        """The possessive "its" must survive untouched.
-
-        "its" -> "it's" was removed: the possessive is ubiquitous and
-        the rewrite corrupted it ("the dog bit its tail" -> "it's tail").
-        """
+        """The possessive \"its\" must survive untouched."""
         result = fix_grammar_basics("the dog bit its tail")
         assert "its tail" in result
         assert "it's" not in result
 
     def test_fix_grammar_basics_does_not_rewrite_ill(self):
-        """Legitimate "ill" must not become "I'll" ("she felt ill")."""
+        """Legitimate \"ill\" must not become \"I'll\" (\"she felt ill\")."""
         result = fix_grammar_basics("she felt ill today")
         assert "ill" in result
         assert "I'll" not in result
 
     def test_fix_grammar_basics_does_not_rewrite_id(self):
-        """Legitimate "id" must not become "I'd" ("enter your id")."""
+        """Legitimate \"id\" must not become \"I'd\" (\"enter your id\")."""
         result = fix_grammar_basics("enter your id to continue")
         assert " id " in f" {result} "
         assert "I'd" not in result
@@ -209,14 +176,9 @@ class TestFixGrammarBasics:
     def test_fix_grammar_basics_no_apostrophe_i(self):
         """`i` after an apostrophe (e.g. in a contraction we just fixed) should not be re-capitalized."""
         # "don't" contains `t` after `'`, the regex's negative
-        # lookbehind for `[A-Za-z']` prevents us from matching the
-        # `t` or any letter adjacent to an apostrophe.
         result = fix_grammar_basics("don't i know you")
         # The standalone `i` (between spaces) should be capitalized.
         assert "I" in result
-
-
-# ─── enhance_transcription (dispatcher) ────────────────────────────────────
 
 
 class TestEnhanceTranscription:
@@ -238,10 +200,6 @@ class TestEnhanceTranscription:
 
         text = "i cant dont wont"
         result = enhance_transcription(text, cfg)
-        # Grammar fixes (i → I, cant → can't, dont → don't, wont → won't)
-        # plus terminal punctuation (the result is now 4 "words"
-        # counting the contractions as one word each, so a period is
-        # added by auto_punctuate).
         assert "I" in result
         assert "can't" in result
         assert "don't" in result
@@ -277,7 +235,6 @@ class TestEnhanceTranscription:
         cfg = Config()
         cfg.ai_enhancement_enabled = True
         cfg.auto_capitalize = False
-        # auto_punctuate still runs, so a period gets added.
         text = "hello world this is a test sentence"
         result = enhance_transcription(text, cfg)
         # First letter should NOT be capitalized.

@@ -1,17 +1,4 @@
-"""``download_model`` return-shape contract test.
-
-The original ``download_model`` returned 6+ distinct dict shapes across
-8 return paths. Four paths (unknown-model, generic-exception,
-cancelled, qwen-unconfigured) omitted the ``model`` field. The TS
-renderer's ``useModelDownload`` hook and any future transport need a
-stable contract: every return value MUST populate at least
-``success`` and ``model`` so consumers can route toasts / log entries
-without sniffing the call input.
-
-This test file is the regression guard for the harmonisation: it
-exercises every return path that previously omitted ``model`` and
-asserts the field is now present with the input ``model_name``.
-"""
+"""``download_model`` return-shape contract test."""
 
 from __future__ import annotations
 
@@ -21,20 +8,12 @@ from voice_typer.server.service import VoiceTyperService
 
 
 def _make_service() -> VoiceTyperService:
-    """Build a VoiceTyperService with a permissive mock app.
-
-    The mock config defaults to ``qwen_model_path=None`` so the
-    Qwen-unconfigured return path is exercised. Tests that need a
-    different shape override the attribute after construction.
-    """
+    """Build a VoiceTyperService with a permissive mock app."""
     app = MagicMock()
     app.config.qwen_model_path = None
     app.config.huggingface_consent = True
     app.tray.notify = MagicMock()
     return VoiceTyperService(app)
-
-
-# ── Unknown-model return path ─────────────────────────────────────────
 
 
 def test_unknown_model_return_includes_model_field() -> None:
@@ -48,9 +27,6 @@ def test_unknown_model_return_includes_model_field() -> None:
     )
 
 
-# ── Qwen-unconfigured return path ─────────────────────────────────────
-
-
 def test_qwen_unconfigured_return_includes_model_field() -> None:
     """The Qwen-unconfigured return path must include ``model``."""
     service = _make_service()
@@ -61,19 +37,8 @@ def test_qwen_unconfigured_return_includes_model_field() -> None:
     assert result["model"] == "qwen", "qwen-unconfigured return must include `model`."
 
 
-# ── Generic-exception return path ─────────────────────────────────────
-
-
 def test_generic_exception_return_includes_model_field(monkeypatch) -> None:
-    """The dispatcher's outer ``except Exception`` handler must include
-    ``model`` so a failed download still reports which model failed.
-
-    We force the model-registry import to raise so the failure happens
-    before any branch method runs, exercising the exact path the
-    original finding cited (the bare
-    ``return {"success": False, "error": str(exc)}`` at the bottom of
-    ``download_model``).
-    """
+    """The dispatcher's outer ``except Exception`` handler must include"""
     service = _make_service()
 
     def _boom(*_args, **_kwargs):
@@ -89,28 +54,8 @@ def test_generic_exception_return_includes_model_field(monkeypatch) -> None:
     assert result["model"] == "tiny.en", "generic-exception return must include `model`."
 
 
-# ── Cancelled return path ─────────────────────────────────────────────
-#
-# The cancelled return path is exercised at runtime only when
-# huggingface_hub is installed AND the polling-loop ``poll_download_progress``
-# returns ``"cancelled"``. The structural invariant (that the cancelled
-# return dict contains a ``model`` key) is covered by the AST check in
-# ``test_all_download_model_return_paths_include_model`` below, so we
-# don't duplicate the heavyweight mocking here.
-
-
-# ── Static-structural check: all return paths in download_model include model ──
-
-
 def test_all_download_model_return_paths_include_model() -> None:
-    """Static check: every ``return {...}`` literal inside the
-    ``download_model`` dispatcher must contain a ``"model"`` key.
-
-    This catches future regressions where a new return path forgets
-    the field. We use ``ast`` to walk the function body so the test
-    doesn't need to actually invoke every branch at runtime (some
-    branches are hard to exercise without heavyweight mocking).
-    """
+    """``download_model`` dispatcher must contain a ``\"model\"`` key."""
     import ast
     import inspect
     import textwrap

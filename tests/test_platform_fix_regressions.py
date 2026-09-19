@@ -1,29 +1,4 @@
-"""Regression tests for PLAT-* fixes.
-
-Tests cover the key platform fixes:
-  EmptyClipboard() before pyperclip.copy()
-  PLAT-008: Environment variable validation
-  PLAT-013: Elevated target detection
-  PLAT-014: Password field detection
-  PLAT-020: IME composition filter
-  PLAT-021: Tray icon shape definitions
-  PLAT-024: ICO format support for Windows
-  PLAT-027: Win32Clipboard abstraction
-  PLAT-030: macOS Accessibility permission guide
-  PLAT-036: MANIFEST.in exists
-  PLAT-037: .spec manifest with asInvoker
-  PLAT-ALTGR: AltGr detection
-  PLAT-PASTEVR: Clipboard verification after copy
-  PLAT-RDP: RDP session detection
-  PLAT-RUN: Mutex name with path hash
-  PLAT-SECURE: Clipboard save/restore lifecycle
-  PLAT-STUCK: try/finally for modifier key release
-  PLAT-VENV: Autostart venv detection
-  PLAT-VKMAP: VK code layout fallback
-  PLAT-CONTENT: contentEditable detection comment
-  PLAT-CLIPRACE: Clipboard sequence number in abstraction
-  PLAT-HLEAK: Mutex handle close on shutdown
-"""
+"""Regression tests for PLAT-* fixes."""
 
 import os
 import sys
@@ -40,8 +15,6 @@ class TestWin32ClipboardAbstraction:
 
     def test_get_sequence_number_returns_zero_on_non_windows(self, monkeypatch):
         # Patch is_windows() directly, pytest 9.0.2's monkeypatch no
-        # longer accepts the dotted "...clipboard.sys.platform" form
-        # because it tries to resolve the prefix as a module path.
         monkeypatch.setattr("voice_typer.server.clipboard.is_windows", lambda: False)
         from voice_typer.server.clipboard import Win32Clipboard
 
@@ -69,17 +42,8 @@ class TestEmptyClipboard:
         _win32_empty_clipboard()
 
 
-# ─── PLAT-PASTEVR: Clipboard verification after copy ──────────────────
-
-
 class TestClipboardVerification:
-    """PLAT-PASTEVR: After copy(), verify clipboard content matches.
-
-    ADR-0010 §5.2: ``copy()`` now returns a ``ClipboardSnapshot | None``
-    instead of ``bool``. We mock ``ClipboardSnapshot.capture()`` to
-    return a sentinel snapshot so the assertions can check the returned
-    value rather than a boolean.
-    """
+    """PLAT-PASTEVR: After copy(), verify clipboard content matches."""
 
     def test_copy_verifies_clipboard_content(self, monkeypatch):
         monkeypatch.setattr("voice_typer.server.clipboard.is_windows", lambda: False)
@@ -95,8 +59,6 @@ class TestClipboardVerification:
         sentinel = ClipboardSnapshot(platform="linux-x11", items=[], captured_at=0.0)
 
         # Mock keyboard and snapshot capture. The copy() call MUST be
-        # inside the patch context because it consults
-        # ClipboardSnapshot.capture() at call time (ADR-0010 §5.2).
         with (
             patch("voice_typer.server.clipboard._ensure_pynput_imported"),
             patch("voice_typer.server.clipboard._Controller") as mock_ctrl,
@@ -110,7 +72,6 @@ class TestClipboardVerification:
 
             result = cm.copy("hello world")
         assert result is sentinel
-        # pyperclip.copy should have been called
         mock_pyperclip.copy.assert_called()
 
     def test_copy_retries_on_verification_mismatch(self, monkeypatch):
@@ -122,7 +83,6 @@ class TestClipboardVerification:
         mock_pyperclip = MagicMock()
         mock_pyperclip.copy.return_value = None
         # First paste: verification attempt 1, returns WRONG, triggers retry
-        # Second paste: verification attempt 2, returns correct value, success
         mock_pyperclip.paste.side_effect = ["wrong_value", "hello world"]
         clip_mod.pyperclip = mock_pyperclip
 
@@ -141,17 +101,12 @@ class TestClipboardVerification:
 
             result = cm.copy("hello world")
         assert result is sentinel
-        # copy() should be called twice: once for initial copy, once for retry
-        # after verification mismatch
         assert mock_pyperclip.copy.call_count >= 2, (
             f"Expected copy() to be called at least 2 times (initial + retry), but got {mock_pyperclip.copy.call_count}"
         )
         # Verify all calls were with the correct text
         for call in mock_pyperclip.copy.call_args_list:
             assert call[0][0] == "hello world"
-
-
-# ─── PLAT-STUCK: try/finally for modifier key release ────────────────
 
 
 class TestSafeKeyRelease:
@@ -177,17 +132,8 @@ class TestSafeKeyRelease:
         mock_instance.release.assert_called()
 
 
-# ─── PLAT-SECURE: Clipboard save/restore lifecycle ───────────────────
-
-
 class TestClipboardSaveRestore:
-    """PLAT-SECURE: Before copy, save existing clipboard; after clear, restore.
-
-    ADR-0010 §5.2: ``copy()`` now captures a ``ClipboardSnapshot`` of
-    the prior clipboard contents via ``ClipboardSnapshot.capture()``
-    (replacing the old ``pyperclip.paste()`` save). The snapshot is
-    returned to the caller, it is NOT stored on ``self``.
-    """
+    """PLAT-SECURE: Before copy, save existing clipboard; after clear, restore."""
 
     def test_copy_saves_existing_clipboard(self, monkeypatch):
         """copy() captures a ClipboardSnapshot of the prior clipboard."""
@@ -222,16 +168,8 @@ class TestClipboardSaveRestore:
             cm = ClipboardManager(paste_enabled=False)
 
             result = cm.copy("new text")
-        # copy() returns the captured snapshot (not stored on self).
         assert result is sentinel_snapshot
         mock_capture.assert_called_once()
-
-    # ADR-0010 §5.6: ``schedule_clipboard_clear`` was DELETED. The
-    # ``test_schedule_clipboard_clear_restores_previous`` test that
-    # previously lived here exercised a method that no longer exists.
-    # The restore-after-paste lifecycle is now driven by
-    # ``_delayed_restore()`` on a daemon thread, started from
-    # ``paste(snapshot=...)``. See tests/test_clipboard_borrow_restore.py.
 
 
 # Elevated target detection ─────────────────────────────
@@ -297,14 +235,9 @@ class TestEnvVarValidation:
     def test_invalid_config_dir_is_removed(self, monkeypatch):
         from voice_typer.server.env_validation import _validate_env_vars
 
-        # Path with shell metacharacters (null bytes can't be set in
-        # os.environ on POSIX, Python raises ValueError). Use a path
-        # that fails the validation regex instead.
         monkeypatch.setenv("VOICE_TYPER_CONFIG_DIR", "")
         _validate_env_vars()
         # Empty string is not a valid path, should be removed
-        # Note: _PATH_PATTERN allows non-empty strings without null bytes,
-        # so a truly empty string may pass. Test with an overlength path.
         long_path = "/a" * 3000  # > 4096 chars
         monkeypatch.setenv("VOICE_TYPER_CONFIG_DIR", long_path)
         _validate_env_vars()
@@ -329,9 +262,6 @@ class TestIMEDetection:
         from voice_typer.server.hotkeys import WindowsNativeHotkey
 
         assert WindowsNativeHotkey._is_ime_composing() is False
-
-
-# ─── PLAT-ALTGR: AltGr detection ─────────────────────────────────────
 
 
 class TestAltGrDetection:
@@ -384,7 +314,6 @@ class TestICOFormatSupport:
         from voice_typer.server.tray_types import AppState
 
         # Just verify _make_icon doesn't crash
-        # (actual ICO generation requires PIL + Windows)
         try:
             icon = _make_icon(AppState.IDLE, size=32)
             assert icon is not None
@@ -432,9 +361,6 @@ class TestSpecManifest:
         assert "dpiAware" in spec_content
 
 
-# ─── PLAT-RDP: RDP session detection ─────────────────────────────────
-
-
 class TestRDPSession:
     """PLAT-RDP: is_remote_session detects RDP/SSH sessions."""
 
@@ -460,9 +386,6 @@ class TestRDPSession:
         assert is_remote_session() is True
 
 
-# ─── PLAT-VENV: Autostart venv detection ─────────────────────────────
-
-
 class TestVenvDetection:
     """PLAT-VENV: Autostart uses system Python when in venv."""
 
@@ -472,9 +395,6 @@ class TestVenvDetection:
 
         cmd = _autostart_command()
         assert "autostart_launcher.py" in cmd
-
-
-# ─── PLAT-RUN: Mutex name with path hash ─────────────────────────────
 
 
 class TestMutexPathHash:
@@ -490,14 +410,6 @@ class TestMutexPathHash:
     def test_different_executables_produce_different_hashes(self, monkeypatch):
         from voice_typer.server.server_platform import _run_key_name
 
-        # The Run-key name hashes the STABLE install identifier (the
-        # autostart launcher path), NOT sys.executable, sys.executable
-        # differs between python.exe / pythonw.exe / the venv for the
-        # SAME install, so a sys.executable-derived name would be
-        # registered by one process and never found by the next (the
-        # perpetual "autostart=true but disabled -- enabling" loop).
-        # Different install DIRECTORY identifiers must still produce
-        # different names (PLAT-RUN multi-install support).
         monkeypatch.setattr(
             "voice_typer.server.server_platform.autostart._install_identifier",
             lambda: "/path/a/autostart_launcher.py",
@@ -509,9 +421,6 @@ class TestMutexPathHash:
         )
         name_b = _run_key_name()
         assert name_a != name_b
-
-
-# ─── PLAT-VKMAP: VK code layout fallback ─────────────────────────────
 
 
 class TestVKMapFallback:
@@ -531,9 +440,6 @@ class TestVKMapFallback:
 
         assert parse_hotkey_to_vk("<f2>") == 0x71
         assert parse_hotkey_to_vk("a") == ord("A")
-
-
-# ─── PLAT-HLEAK: Mutex handle close ─────────────────────────────────
 
 
 class TestMutexHandleClose:
@@ -562,8 +468,6 @@ class TestMutexHandleClose:
 
         from voice_typer.server.hotkeys import PynputHotkey
 
-        # app.create_hotkey_backend re-export removed, the dispatcher
-        # resolves the factory from its own module namespace.
         monkeypatch.setattr(
             "voice_typer.server.hotkey_dispatcher.create_hotkey_backend",
             lambda hotkey_str: PynputHotkey(hotkey_str),
@@ -584,9 +488,6 @@ class TestMutexHandleClose:
         assert app._mutex_handle is mock_handle
 
 
-# macOS Accessibility permission guide ──────────────────
-
-
 class TestMacOSAccessibilityGuide:
     """PLAT-030: PynputHotkey logs accessibility guide on macOS failure."""
 
@@ -595,17 +496,8 @@ class TestMacOSAccessibilityGuide:
 
         import voice_typer.server.hotkeys as hk_mod
 
-        # The macOS Accessibility guide lives in
-        # ``PynputHotkey._start_listener`` (the exception handler that
-        # logs the permission guide when pynput fails on macOS), not in
-        # the thin ``start`` wrapper. Inspect the whole class body so
-        # the assertion holds regardless of which method the guide
-        # moves to.
         source = inspect.getsource(hk_mod.PynputHotkey)
         assert "Accessibility" in source or "accessibility" in source
-
-
-# ─── PLAT-CONTENT: contentEditable detection ─────────────────────────
 
 
 class TestContentEditableComment:
@@ -619,9 +511,6 @@ class TestContentEditableComment:
         source = inspect.getsource(clip_mod)
         assert "PLAT-CONTENT" in source
         assert "contentEditable" in source
-
-
-# ─── PLAT-CLIPRACE: Clipboard sequence number ────────────────────────
 
 
 class TestClipboardSequenceNumber:
@@ -641,9 +530,6 @@ class TestClipboardSequenceNumber:
         from voice_typer.server.clipboard import Win32Clipboard
 
         assert Win32Clipboard.get_sequence_number() == 0
-
-
-# pynput fallback documented ────────────────────────────
 
 
 class TestPynputFallbackDocumentation:

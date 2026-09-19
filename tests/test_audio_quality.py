@@ -116,21 +116,14 @@ class TestAudioQualityAnalyzerProperties:
         assert analyzer.peak == 0.0
 
 
-# per-chunk RMS EMA accumulator ────────────────────────────
-
-
 class TestAudioQualityAnalyzerRmsEma:
-    """AUDIO-8: AudioQualityAnalyzer must maintain a per-chunk RMS
-    exponential moving average so sustained low-input-level conditions
-    can be surfaced as a single warning. Previously the per-chunk RMS
-    value was dropped on the floor."""
+    """AUDIO-8: AudioQualityAnalyzer must maintain a per-chunk RMS"""
 
     def test_rms_ema_starts_at_zero(self, analyzer):
         assert analyzer.rms_ema == 0.0
 
     def test_update_live_rms_advances_ema(self, analyzer):
-        """AUDIO-8: update_live_rms applies the EMA formula
-        ``alpha*rms + (1-alpha)*prev`` with alpha=0.05."""
+        """AUDIO-8: update_live_rms applies the EMA formula"""
         analyzer.update_live_rms(0.1)
         # After 1 chunk: 0.05 * 0.1 + 0.95 * 0.0 = 0.005
         assert analyzer.rms_ema == pytest.approx(0.005, rel=1e-6)
@@ -146,9 +139,7 @@ class TestAudioQualityAnalyzerRmsEma:
         assert analyzer.rms_ema == pytest.approx(0.05, abs=1e-4)
 
     def test_low_volume_warning_fires_after_sustained_chunks(self, analyzer):
-        """AUDIO-8: sustained low RMS for LOW_VOLUME_SUSTAINED_CHUNKS
-        consecutive chunks fires a single 'low input level, increase
-        mic gain' warning."""
+        """AUDIO-8: sustained low RMS for LOW_VOLUME_SUSTAINED_CHUNKS"""
         analyzer.LOW_VOLUME_SUSTAINED_CHUNKS = 5  # speed up test
         warnings = []
         for _ in range(5):
@@ -161,8 +152,7 @@ class TestAudioQualityAnalyzerRmsEma:
         assert analyzer.low_volume_warned is True
 
     def test_low_volume_warning_latched_per_episode(self, analyzer):
-        """AUDIO-8: once the warning fires for an episode, subsequent
-        low-RMS chunks do NOT re-fire (latched)."""
+        """AUDIO-8: once the warning fires for an episode, subsequent"""
         analyzer.LOW_VOLUME_SUSTAINED_CHUNKS = 3
         warnings = []
         for _ in range(20):
@@ -172,8 +162,7 @@ class TestAudioQualityAnalyzerRmsEma:
         assert len(warnings) == 1, f"Expected 1 latched warning, got {len(warnings)}: {warnings}"
 
     def test_low_volume_warning_resets_on_recovery(self, analyzer):
-        """AUDIO-8: when EMA recovers above LOW_VOLUME_THRESHOLD, the
-        latch resets and a future low-volume episode can fire again."""
+        """AUDIO-8: when EMA recovers above LOW_VOLUME_THRESHOLD, the"""
         analyzer.LOW_VOLUME_SUSTAINED_CHUNKS = 3
         warnings_ep1 = []
         for _ in range(3):
@@ -184,21 +173,11 @@ class TestAudioQualityAnalyzerRmsEma:
         assert analyzer.low_volume_warned is True
 
         # Recovery: feed high RMS so EMA rises above threshold.
-        # Use 1 chunk (not 20) so EMA ends at ~0.025 (alpha * 0.5 = 0.025),
-        # which is above LOW_VOLUME_THRESHOLD (0.005) but low enough that
-        # the second low-volume episode (50 chunks of 0.001) can bring
-        # EMA back below threshold and trigger the warning again.
-        # With 20 chunks of 0.5, EMA would converge to ~0.32 and the
-        # second episode would need ~64 chunks to drop below 0.005
-        # (more than the test's 50-chunk budget).
         analyzer.update_live_rms(0.5)
         assert analyzer.low_volume_warned is False, "Recovery must unlatch the warning flag"
         assert analyzer.low_volume_chunks == 0
 
         # Second episode: need enough low-RMS chunks to bring EMA back
-        # below threshold (the recovery raised EMA to ~0.025, so we need
-        # ~35 chunks of 0.001 to bring it below 0.005, then 3 more to
-        # cross LOW_VOLUME_SUSTAINED_CHUNKS).
         warnings_ep2 = []
         for _ in range(50):
             w = analyzer.update_live_rms(0.001)
@@ -207,8 +186,7 @@ class TestAudioQualityAnalyzerRmsEma:
         assert len(warnings_ep2) == 1, f"After recovery, a new episode must fire again, got {warnings_ep2}"
 
     def test_normal_rms_does_not_fire_warning(self, analyzer):
-        """AUDIO-8: normal RMS levels (above LOW_VOLUME_THRESHOLD) must
-        NOT fire the low-volume warning, even after many chunks."""
+        """AUDIO-8: normal RMS levels (above LOW_VOLUME_THRESHOLD) must"""
         analyzer.LOW_VOLUME_SUSTAINED_CHUNKS = 5
         warnings = []
         for _ in range(100):
@@ -219,8 +197,7 @@ class TestAudioQualityAnalyzerRmsEma:
         assert analyzer.low_volume_warned is False
 
     def test_reset_clears_rms_ema_state(self, analyzer):
-        """AUDIO-8: reset() must clear the EMA, low-volume counter,
-        and warning latch for a new recording session."""
+        """AUDIO-8: reset() must clear the EMA, low-volume counter,"""
         analyzer.LOW_VOLUME_SUSTAINED_CHUNKS = 2
         for _ in range(5):
             analyzer.update_live_rms(0.001)
@@ -235,16 +212,7 @@ class TestAudioQualityAnalyzerRmsEma:
 
 
 class TestAnalyzeFullAudioAllocationFreeEquivalence:
-    """The allocation-free reductions in ``analyze_full_audio`` must
-    produce the same rms / peak / noise_ratio values as the original
-    full-copy formulas (``np.square(..., dtype=float64)`` /
-    ``np.abs(...)`` / ``np.var(...)``) within tight tolerance.
-
-    The original formulas are re-implemented inline here so this test
-    independently pins the numeric contract, if the production code
-    ever drifts (e.g. a float32 dot sneaks in), these comparisons catch
-    it.
-    """
+    """The allocation-free reductions in ``analyze_full_audio`` must"""
 
     @staticmethod
     def _legacy_metrics(audio: np.ndarray) -> tuple[float, float, float]:
@@ -259,10 +227,6 @@ class TestAnalyzeFullAudioAllocationFreeEquivalence:
 
         legacy_rms, legacy_peak, legacy_ratio = self._legacy_metrics(audio)
         # Recompute rms/peak the way analyze_full_audio reports them:
-        # rms is only stored on the report when low volume fired, and
-        # peak only when clipping fired, so derive them from the same
-        # production code path via a fresh analyzer + direct formula
-        # comparison instead of reading private fields.
         flat = audio.ravel()
         size = int(flat.size)
         mean = float(flat.mean(dtype=np.float64))
@@ -292,15 +256,13 @@ class TestAnalyzeFullAudioAllocationFreeEquivalence:
         self._assert_equivalent(audio)
 
     def test_dc_shifted_signal_matches_legacy_formulas(self):
-        """DC offset makes variance ≪ E[x²], the cancellation-heavy case
-        where a float32 dot product would visibly drift."""
+        """DC offset makes variance ≪ E[x²], the cancellation-heavy case"""
         rng = np.random.default_rng(7)
         audio = (0.5 + 0.01 * rng.standard_normal(48000)).astype(np.float32)
         self._assert_equivalent(audio)
 
     def test_all_negative_signal_peak_is_positive(self):
-        """max(x) < 0 everywhere: peak must still come out positive and
-        equal max(|x|)."""
+        """max(x) < 0 everywhere: peak must still come out positive and"""
         audio = (-np.abs(np.random.default_rng(3).standard_normal(8000)) - 0.1).astype(np.float32)
         assert float(audio.max()) < 0
         _, legacy_peak, _ = self._legacy_metrics(audio)
@@ -320,16 +282,14 @@ class TestAnalyzeFullAudioAllocationFreeEquivalence:
         assert report.high_noise_detected is False
 
     def test_longer_than_one_block_matches_legacy(self):
-        """> 2**20 elements forces the blocked accumulation loop to run
-        more than one iteration."""
+        """> 2**20 elements forces the blocked accumulation loop to run"""
         rng = np.random.default_rng(11)
         audio = (0.1 * rng.standard_normal(1 << 21)).astype(np.float32)
         assert audio.size > (1 << 20)
         self._assert_equivalent(audio)
 
     def test_thresholds_unchanged_for_typical_recording(self):
-        """End-to-end: the report flags for a normal speech-like signal
-        must be identical to what the legacy metrics would produce."""
+        """End-to-end: the report flags for a normal speech-like signal"""
         from voice_typer.server.audio_quality import AudioQualityAnalyzer
 
         rng = np.random.default_rng(5)

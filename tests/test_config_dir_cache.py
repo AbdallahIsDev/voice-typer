@@ -1,40 +1,4 @@
-"""XV-119: ``_config_dir()`` is memoized via ``@functools.lru_cache``.
-
-Background
-----------
-``voice_typer/server/config.py:_config_dir()`` previously performed
-live filesystem + env-var resolution on EVERY call: ``Path.resolve``,
-``Path.exists``, and ``os.path.commonpath`` (via
-``_validate_path_safety``) issued 30-50 ``stat()`` syscalls at startup
-across ~29 call sites in ``config.py``, ``credential_store.py``,
-``security.py``, and ``_paths.py``, plus 3+ per ``Config.save()``.
-
-The fix wraps the function in ``@functools.lru_cache(maxsize=1)`` so
-the resolution runs at most once per process.  The function is
-deterministic w.r.t. ``os.environ`` + ``Path.home()`` + the existence
-of the legacy ``~/.voice-typer`` directory, all of which are stable
-for the process lifetime in production.
-
-Tests that change those inputs (e.g. ``monkeypatch.setenv`` /
-``monkeypatch.setattr(Path, "home", ...)``) must call the
-``_reset_config_dir_cache()`` test helper, mirrors
-``voice_typer.server.credential_store._reset_keyring_cache``.
-
-What these tests verify
------------------------
-1. ``_config_dir`` exposes the ``functools.lru_cache`` API
-   (``cache_info`` / ``cache_clear``) with ``maxsize=1``.
-2. Repeated calls return the SAME ``Path`` object (cache hits, no
-   re-allocation, no re-stat).
-3. ``_reset_config_dir_cache()`` clears the cache (``currsize=0``,
-   ``hits=0``, ``misses=0`` after the reset).
-4. ``_reset_config_dir_cache()`` is idempotent (safe to call from an
-   autouse fixture that doesn't know whether the cache has been
-   populated).
-5. The cache, not the function, is what returns stale state after an
-   env-var change, and ``_reset_config_dir_cache()`` is the release
-   valve (mirrors the ``_reset_keyring_cache`` contract).
-"""
+"""XV-119: ``_config_dir()`` is memoized via ``@functools.lru_cache``."""
 
 from __future__ import annotations
 
@@ -44,35 +8,19 @@ import pytest
 from voice_typer.server import config
 
 # Opt out of the suite-wide per-test config-dir isolation: every test
-# in this file asserts the REAL ``_config_dir`` resolver's own
-# behavior (lru_cache API, staleness, env re-resolution). The tests
-# only resolve paths, they never write, so the real profile is safe.
 pytestmark = pytest.mark.real_config_dir
 
 
 @pytest.fixture(autouse=True)
 def _reset_cache_around_each_test():
-    """Clear the ``_config_dir`` lru_cache before AND after each test.
-
-    Ensures no test sees stale state from a prior test's call (in this
-    file or any other), and that this file's tests don't leak cached
-    state to subsequent test files in the same pytest session.
-    """
+    """Clear the ``_config_dir`` lru_cache before AND after each test."""
     config._reset_config_dir_cache()
     yield
     config._reset_config_dir_cache()
 
 
-# the function is wrapped in functools.lru_cache ──────────────
-
-
 def test_config_dir_exposes_lru_cache_api():
-    """XV-119: ``_config_dir`` carries the ``functools.lru_cache``
-    marker attributes (``cache_info`` / ``cache_clear``).
-
-    A plain function or a lambda does NOT expose these, their presence
-    is the structural proof that the decorator was applied.
-    """
+    """XV-119: ``_config_dir`` carries the ``functools.lru_cache``"""
     assert hasattr(config._config_dir, "cache_info"), (
         "_config_dir must be wrapped in functools.lru_cache (no cache_info attribute found)"
     )
@@ -82,28 +30,13 @@ def test_config_dir_exposes_lru_cache_api():
 
 
 def test_config_dir_lru_cache_maxsize_is_one():
-    """XV-119: the cache is configured with ``maxsize=1``.
-
-    The function takes no arguments, so a single-slot cache is
-    sufficient, every call after the first is a hit.  A larger
-    maxsize would be a waste of memory; a maxsize of ``None``
-    (unbounded) or ``0`` (disabled) would defeat the fix.
-    """
+    """XV-119: the cache is configured with ``maxsize=1``."""
     info = config._config_dir.cache_info()
     assert info.maxsize == 1, f"_config_dir lru_cache maxsize must be 1 (got {info.maxsize})"
 
 
-# repeated calls hit the cache (same Path object) ─────────────
-
-
 def test_config_dir_returns_same_object_on_repeated_calls():
-    """XV-119: repeated calls return the SAME ``Path`` object.
-
-    ``functools.lru_cache`` returns the cached object on a hit (not a
-    freshly-allocated equal one), this is what makes the cache a perf
-    win: no ``Path`` re-allocation and, crucially, no re-``stat()``
-    inside ``_validate_path_safety`` / ``Path.resolve`` / ``Path.exists``.
-    """
+    """XV-119: repeated calls return the SAME ``Path`` object."""
     first = config._config_dir()
     second = config._config_dir()
     third = config._config_dir()
@@ -117,14 +50,7 @@ def test_config_dir_returns_same_object_on_repeated_calls():
 
 
 def test_config_dir_cache_hit_miss_counts():
-    """XV-119: ``cache_info()`` reports exactly one miss (the first
-    call) and the rest as hits.
-
-    This is the call-count assertion referenced in the XV-119 fix
-    brief: the underlying function body (with all its ``stat()`` /
-    ``resolve()`` / ``commonpath`` work) runs exactly ONCE across
-    N calls.
-    """
+    """XV-119: ``cache_info()`` reports exactly one miss (the first"""
     # Fixture already cleared the cache, first call is a miss.
     config._config_dir()
     config._config_dir()
@@ -155,9 +81,7 @@ def test_reset_config_dir_cache_clears_cache():
 
 
 def test_reset_config_dir_cache_is_idempotent():
-    """XV-119: calling ``_reset_config_dir_cache`` on an empty cache
-    is a no-op (safe to call from autouse fixtures that don't know
-    whether the cache has been populated)."""
+    """XV-119: calling ``_reset_config_dir_cache`` on an empty cache"""
     # Cache is already empty (autouse fixture cleared it).
     config._reset_config_dir_cache()  # should not raise
     config._reset_config_dir_cache()  # should not raise
@@ -166,13 +90,7 @@ def test_reset_config_dir_cache_is_idempotent():
 
 
 def test_reset_config_dir_cache_forces_re_resolution():
-    """XV-119: after ``_reset_config_dir_cache()``, the next call
-    re-invokes the underlying function (a fresh miss).
-
-    This is what makes the helper useful for tests that change
-    ``os.environ`` / ``Path.home()`` / the legacy-dir existence: the
-    first call after the reset observes the new inputs.
-    """
+    """XV-119: after ``_reset_config_dir_cache()``, the next call"""
     # First population.
     config._config_dir()
     assert config._config_dir.cache_info().misses == 1
@@ -185,23 +103,9 @@ def test_reset_config_dir_cache_forces_re_resolution():
     assert info.hits == 0, f"expected 0 hits after reset + 1 call, got {info.hits}"
 
 
-# env-var changes require a cache reset (mirrors keyring) ─────
-
-
 def test_cache_returns_stale_value_until_reset(monkeypatch, tmp_path):
-    """XV-119: ``VOICE_TYPER_CONFIG_DIR`` set AFTER the first call is
-    NOT observed until ``_reset_config_dir_cache()`` is called.
-
-    This is the documented contract: the function is deterministic
-    w.r.t. ``os.environ`` + ``Path.home()`` + filesystem state at
-    process lifetime, and tests that change any of those inputs must
-    call ``_reset_config_dir_cache()``, exactly mirroring
-    ``credential_store._reset_keyring_cache()`` for the keyring-probe
-    cache.
-    """
+    """XV-119: ``VOICE_TYPER_CONFIG_DIR`` set AFTER the first call is"""
     # Pin Path.home() to tmp_path so the SEC-005 path-traversal
-    # validator accepts the custom config dirs below (they need to be
-    # within Path.home()).  Restored by monkeypatch at teardown.
     monkeypatch.setattr(Path, "home", lambda: tmp_path)
     custom_a = tmp_path / "config_a"
     custom_a.mkdir()
@@ -215,7 +119,6 @@ def test_cache_returns_stale_value_until_reset(monkeypatch, tmp_path):
     assert first == custom_a, f"first call should return custom_a ({custom_a}), got {first}"
 
     # Change env to custom_b WITHOUT resetting the cache, the cache
-    # must return the stale custom_a (this is the documented behavior).
     monkeypatch.setenv("VOICE_TYPER_CONFIG_DIR", str(custom_b))
     stale = config._config_dir()
     assert stale == custom_a, (
@@ -238,14 +141,7 @@ def test_cache_returns_stale_value_until_reset(monkeypatch, tmp_path):
 
 
 def test_reset_helper_mirrors_keyring_cache_convention():
-    """XV-119: ``_reset_config_dir_cache`` follows the same naming +
-    behavior convention as ``credential_store._reset_keyring_cache``.
-
-    Both are test-only helpers that clear a module-level cache so
-    tests that change the cached function's inputs can force
-    re-evaluation.  This test pins the convention so a future
-    refactor doesn't silently diverge the two APIs.
-    """
+    """XV-119: ``_reset_config_dir_cache`` follows the same naming +"""
     from voice_typer.server import credential_store
 
     # Both helpers must exist and be callable.

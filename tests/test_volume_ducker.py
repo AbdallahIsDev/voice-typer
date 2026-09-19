@@ -1,8 +1,4 @@
-"""Tests for VolumeDucker, VolumeBackend ABC, and DuckCrashRecovery.
-
-Uses a FakeBackend that implements the VolumeBackend ABC without any
-real audio hardware, so tests run on any platform (CI included).
-"""
+"""Tests for VolumeDucker, VolumeBackend ABC, and DuckCrashRecovery."""
 
 from __future__ import annotations
 
@@ -17,17 +13,9 @@ from voice_typer.server.duck_crash_recovery import DuckCrashRecovery
 from voice_typer.server.volume_backend_base import VolumeBackend, VolumeState
 from voice_typer.server.volume_ducker import VolumeDucker
 
-# ═══════════════════════════════════════════════════════════════════════════
-# Fake backend for testing
-# ═══════════════════════════════════════════════════════════════════════════
-
 
 class FakeBackend(VolumeBackend):
-    """In-memory VolumeBackend for tests, no real audio hardware.
-
-    ``speaker_active`` controls :meth:`is_speaker_active`, set to
-    ``False`` to simulate "no audio playing" (smart-duck skips).
-    """
+    """In-memory VolumeBackend for tests, no real audio hardware."""
 
     def __init__(
         self,
@@ -43,7 +31,6 @@ class FakeBackend(VolumeBackend):
         self._ducked_sessions = False
         self._restored_sessions = False
         # Track is_speaker_active() call count so tests can verify
-        # smart-duck actually queried the backend.
         self.is_speaker_active_calls: int = 0
 
     @property
@@ -109,11 +96,6 @@ class FakeFailingBackend(VolumeBackend):
         return False
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# Fixtures
-# ═══════════════════════════════════════════════════════════════════════════
-
-
 @pytest.fixture
 def backend() -> FakeBackend:
     return FakeBackend(current=0.5, muted=False)
@@ -121,18 +103,7 @@ def backend() -> FakeBackend:
 
 @pytest.fixture
 def ducker(backend: FakeBackend) -> VolumeDucker:
-    """A ``VolumeDucker`` wrapping ``backend``.
-
-    Teardown: ``VolumeDucker.__init__`` allocates a ``threading.Lock``
-    and a ``threading.Event`` (the smart-duck monitor stop signal). The
-    monitor thread itself is only started by ``duck()`` (when smart-duck
-    skips the actual volume change because no audio is playing), not by
-    ``__init__``. Calling ``_stop_smart_duck_monitor()`` in teardown is
-    a defensive no-op when no monitor is running, and ensures that if a
-    test DID start the monitor (and didn't explicitly stop it via
-    ``restore()``) the daemon thread is signalled to exit before the
-    next test starts.
-    """
+    """A ``VolumeDucker`` wrapping ``backend``."""
     d = VolumeDucker(backend=backend)
     yield d
     # Idempotent: early-returns when ``_monitor_thread is None``.
@@ -147,26 +118,12 @@ def recovery_dir(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def crash_recovery(recovery_dir: Path) -> DuckCrashRecovery:
-    """A ``DuckCrashRecovery`` rooted at ``recovery_dir``.
-
-    Teardown: ``DuckCrashRecovery`` persists the pre-duck volume state
-    to a JSON file inside ``config_dir``. ``clear()`` deletes the file
-    so a test that called ``save()`` but not ``restore()`` doesn't leave
-    a stale ``ducked_volume.json`` behind in ``tmp_path`` (which would
-    be visible to the next test that constructs a ``DuckCrashRecovery``
-    pointed at the same dir, causing ``load_stale()`` to return a bogus
-    cached state).
-    """
+    """A ``DuckCrashRecovery`` rooted at ``recovery_dir``."""
     cr = DuckCrashRecovery(config_dir=recovery_dir)
     yield cr
     # Idempotent: suppresses ``OSError`` if the file is already gone.
     with contextlib.suppress(Exception):
         cr.clear()
-
-
-# ═══════════════════════════════════════════════════════════════════════════
-# VolumeState tests
-# ═══════════════════════════════════════════════════════════════════════════
 
 
 class TestVolumeState:
@@ -181,11 +138,6 @@ class TestVolumeState:
         assert a == b
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# VolumeDucker basic lifecycle tests
-# ═══════════════════════════════════════════════════════════════════════════
-
-
 class TestDuckRestore:
     def test_duck_saves_and_restores(self, ducker: VolumeDucker, backend: FakeBackend) -> None:
         ducker.initialize()
@@ -198,10 +150,7 @@ class TestDuckRestore:
         assert backend._fade_calls[-1] == (0.5, 150)
 
     def test_duck_default_level_is_single_sourced(self, ducker: VolumeDucker, backend: FakeBackend) -> None:
-        """``duck()`` with no explicit level and the initial
-        ``_ducked_level`` must both come from the shared
-        ``DEFAULT_DUCK_LEVEL`` constant (0.20, the effective config
-        default), not from a drifted module-local literal."""
+        """``duck()`` with no explicit level and the initial"""
         from voice_typer.server.volume_ducker import DEFAULT_DUCK_LEVEL
 
         assert DEFAULT_DUCK_LEVEL == 0.20
@@ -247,11 +196,6 @@ class TestDuckRestore:
         assert backend._fade_calls[-1][0] == 0.0
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# Mute state tests
-# ═══════════════════════════════════════════════════════════════════════════
-
-
 class TestMuteState:
     def test_mute_state_preserved_on_restore(self) -> None:
         backend = FakeBackend(current=0.5, muted=True)
@@ -264,11 +208,6 @@ class TestMuteState:
         ducker.restore()
         # Restore should re-mute
         assert any(call[1] is True for call in backend._set_calls), "restore should have set muted=True"
-
-
-# ═══════════════════════════════════════════════════════════════════════════
-# Manual override tests
-# ═══════════════════════════════════════════════════════════════════════════
 
 
 class TestManualOverride:
@@ -296,11 +235,6 @@ class TestManualOverride:
         backend._current = 0.27  # within 5% of ducked level
         ducker.restore()
         assert backend._fade_calls[-1][0] == 0.5  # restored to saved
-
-
-# ═══════════════════════════════════════════════════════════════════════════
-# Concurrency tests
-# ═══════════════════════════════════════════════════════════════════════════
 
 
 class TestConcurrency:
@@ -332,11 +266,6 @@ class TestConcurrency:
 
         assert not errors
         assert not ducker.is_ducked  # exactly one restore happened
-
-
-# ═══════════════════════════════════════════════════════════════════════════
-# Crash recovery tests
-# ═══════════════════════════════════════════════════════════════════════════
 
 
 class TestCrashRecovery:
@@ -407,11 +336,6 @@ class TestCrashRecovery:
         assert crash_recovery.load_stale() is None
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# Backend failure tests
-# ═══════════════════════════════════════════════════════════════════════════
-
-
 class TestBackendFailure:
     def test_failing_backend_initialize_returns_false(self) -> None:
         backend = FakeFailingBackend()
@@ -429,17 +353,11 @@ class TestBackendFailure:
         backend = FakeFailingBackend()
         ducker = VolumeDucker(backend=backend)
         ducker.initialize()
-        # restore() when not ducked is no-op success regardless of backend.
-        # But duck() should fail, and restore() after a failed duck should
-        # also return True (no-op, since _saved_state was never set).
         assert not ducker.duck(0.25)  # duck fails, backend not ready
         assert ducker.restore() is True  # not ducked → no-op success
 
     def test_none_backend_initialize_returns_false(self) -> None:
         ducker = VolumeDucker(backend=None)
-        # initialize lazily imports get_volume_backend from the OWNING
-        # ``volume_factory`` submodule, which may return a real backend on
-        # this platform.  To test the None path, we mock it there.
         import voice_typer.server.server_platform.volume_factory as plat
 
         original = plat.get_volume_backend
@@ -449,11 +367,6 @@ class TestBackendFailure:
             assert not ducker.is_available
         finally:
             plat.get_volume_backend = original  # type: ignore[assignment]
-
-
-# ═══════════════════════════════════════════════════════════════════════════
-# Introspection tests
-# ═══════════════════════════════════════════════════════════════════════════
 
 
 class TestIntrospection:
@@ -469,11 +382,6 @@ class TestIntrospection:
         assert not ducker.is_available
         ducker.initialize()
         assert ducker.is_available
-
-
-# ═══════════════════════════════════════════════════════════════════════════
-# DuckCrashRecovery unit tests
-# ═══════════════════════════════════════════════════════════════════════════
 
 
 class TestDuckCrashRecoveryFile:
@@ -505,17 +413,8 @@ class TestDuckCrashRecoveryFile:
         assert not crash_recovery.path.exists()
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# restore() must call _stop_smart_duck_monitor() under self._lock
-# ═══════════════════════════════════════════════════════════════════════════
-
-
 class TestStopMonitorUnderLock:
-    """UE-23: restore() must call _stop_smart_duck_monitor() from inside
-    self._lock so the stop + _saved_state-clear is atomic with respect
-    to a concurrent duck() (which calls _start_smart_duck_monitor()
-    under the same lock).
-    """
+    """UE-23: restore() must call _stop_smart_duck_monitor() from inside"""
 
     def test_stop_smart_duck_monitor_called_under_lock(self) -> None:
         """_stop_smart_duck_monitor() is invoked while self._lock is held."""
@@ -533,13 +432,6 @@ class TestStopMonitorUnderLock:
 
         def spy_stop() -> None:
             # From a worker thread, try to acquire the lock with a short
-            # timeout.  If restore() holds the lock (the  fix), the
-            # worker times out and acquired is False.  We use a worker
-            # thread because Lock.acquire(blocking=False) from the same
-            # thread that holds the lock also returns False (Lock is not
-            # reentrant) -- we cannot distinguish "held by current
-            # thread" from "held by another thread" without a second
-            # thread.
             result: list[bool] = [True]
 
             def worker() -> None:
@@ -556,9 +448,6 @@ class TestStopMonitorUnderLock:
             # Signal the test thread that we've recorded the lock state.
             spy_done.set()
             # Block here so the test thread can read lock_held_during_stop
-            # before the restore thread continues (and potentially
-            # releases the lock, which would make a later re-check
-            # incorrect).
             proceed.wait(timeout=2.0)
             original_stop()
 
@@ -578,14 +467,7 @@ class TestStopMonitorUnderLock:
         assert not restore_thread.is_alive(), "restore thread did not finish"
 
     def test_concurrent_duck_after_restore_starts_fresh_monitor(self) -> None:
-        """Functional race test: after restore() + a new duck(), the new
-        dictation's monitor is alive (UE-23 regression).
-
-        This is the user-facing scenario: dictation 1 ends (restore),
-        dictation 2 starts immediately (duck with smart-duck skip).  The
-        monitor for dictation 2 must be running so audio starting
-        mid-dictation triggers a retroactive duck.
-        """
+        """Functional race test: after restore() + a new duck(), the new"""
         backend = FakeBackend(current=0.5, speaker_active=False)
         ducker = VolumeDucker(backend=backend)
         ducker.set_smart_duck_poll_interval(50)
@@ -595,7 +477,6 @@ class TestStopMonitorUnderLock:
         ducker.duck(0.25)
         assert ducker.is_monitor_running
         ducker.restore()
-        # Give the old monitor a moment to wind down.
         deadline = time.monotonic() + 1.0
         while ducker.is_monitor_running and time.monotonic() < deadline:
             time.sleep(0.01)
@@ -608,35 +489,17 @@ class TestStopMonitorUnderLock:
         ducker.restore()
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# duck() must drop self._lock during backend.fade_to()
-# ═══════════════════════════════════════════════════════════════════════════
-
-
 class TestDuckDropsLockDuringFade:
-    """UE-12-F6: duck() must NOT hold self._lock during backend.fade_to()
-    (up to 150 ms).  Holding the lock serialises restore() (ESC cancel)
-    behind the fade -- visible as a 150 ms "ESC doesn't respond" delay.
-
-    The pattern mirrors level_monitor/worker._process_level_chunk:
-    snapshot shared state under the lock, release for the heavy work,
-    re-acquire for the shared-state writes.
-    """
+    """UE-12-F6: duck() must NOT hold self._lock during backend.fade_to()"""
 
     @staticmethod
     def _make_lock_probing_fade(ducker: VolumeDucker, backend: FakeBackend) -> tuple[Callable[..., bool], list[bool]]:
-        """Wrap backend.fade_to so it records whether self._lock was held.
-
-        Returns (spy_fade, lock_held_during_fade) where
-        lock_held_during_fade[0] is True if the lock was held.
-        """
+        """Wrap backend.fade_to so it records whether self._lock was held."""
         lock_held_during_fade: list[bool] = [False]
         original_fade = backend.fade_to
 
         def spy_fade(target_linear: float, duration_ms: int = 150, steps: int = 10) -> bool:
             # Worker thread tries to acquire the lock with a short
-            # timeout.  If duck() holds the lock during fade_to, the
-            # worker times out.
             result: list[bool] = [True]
 
             def worker() -> None:
@@ -689,9 +552,7 @@ class TestDuckDropsLockDuringFade:
         )
 
     def test_smart_duck_skip_does_not_fade(self) -> None:
-        """Sanity: the smart-duck skip path returns early (no fade, lock
-        released normally).  Guards against the UE-12-F6 refactor
-        accidentally introducing a fade on the skip path."""
+        """Sanity: the smart-duck skip path returns early (no fade, lock"""
         backend = FakeBackend(current=0.5, speaker_active=False)
         ducker = VolumeDucker(backend=backend)
         ducker.set_smart_duck_poll_interval(50)
@@ -711,8 +572,7 @@ class TestDuckDropsLockDuringFade:
         ducker.restore()
 
     def test_duck_state_consistent_after_fade(self) -> None:
-        """After duck() returns, _actually_ducked is True and _saved_state
-        is set -- the post-fade re-acquire block updated them correctly."""
+        """After duck() returns, _actually_ducked is True and _saved_state"""
         backend = FakeBackend(current=0.5, speaker_active=True)
         ducker = VolumeDucker(backend=backend)
         ducker.initialize()
@@ -723,18 +583,12 @@ class TestDuckDropsLockDuringFade:
         assert backend._fade_calls[-1][0] == 0.25
 
     def test_restore_during_duck_fade_does_not_corrupt_state(self) -> None:
-        """If restore() runs during duck()'s fade (now possible because
-        duck() drops the lock), the post-fade re-acquire block must NOT
-        mark _actually_ducked = True (restore() already cleared
-        _saved_state and faded back)."""
+        """If restore() runs during duck()'s fade (now possible because"""
         backend = FakeBackend(current=0.5, speaker_active=True)
         ducker = VolumeDucker(backend=backend)
         ducker.initialize()
 
         # Block ONLY the duck's fade (the first call) so a restore() can
-        # interleave mid-fade; later fade calls (restore's fade-back)
-        # must pass straight through, or restore() would stall on the
-        # same gate the duck fade is held on.
         fade_started = threading.Event()
         proceed = threading.Event()
         fade_call_count = [0]
@@ -762,73 +616,36 @@ class TestDuckDropsLockDuringFade:
         assert fade_started.wait(timeout=2.0), "fade_to not called"
 
         # While duck()'s fade is blocked (lock released per ),
-        # run restore().  It should acquire the lock, clear _saved_state,
-        # and fade back.
         ducker.restore()
         assert not ducker.is_ducked, "restore() should have cleared ducked state"
 
         # Release the duck fade -- it completes, re-acquires the lock,
-        # sees _saved_state is None, skips the state update.
         proceed.set()
         t.join(timeout=2.0)
         assert not t.is_alive(), "duck thread did not finish"
         assert not errors, f"duck() raised: {errors}"
 
         # Final state: restore() won.  _actually_ducked must be False
-        # (restore() set it) -- NOT True (which would happen if the
-        # post-fade block didn't re-check _saved_state).
         assert ducker.actually_ducked is False, (
             "UE-12-F6: after restore() ran during duck()'s fade, "
             "_actually_ducked must remain False (post-fade re-check "
             "must skip the state update)"
         )
         assert not ducker.is_ducked
-        # The PHYSICAL volume must be back at the pre-duck level: the
-        # duck fade completed AFTER restore()'s fade-back, so its write
-        # left the backend at the duck level, duck()'s post-fade block
-        # must repair it.  Asserting only the logical state here is what
-        # originally masked the stuck-volume bug.
         assert backend._current == pytest.approx(0.5), (
             "physical backend volume must return to the pre-duck level "
             "after restore() ran during duck()'s fade (stuck-volume regression)"
         )
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# restore() landing inside the FIRST duck's fade window
-# ═══════════════════════════════════════════════════════════════════════════
-
-
 class TestRestoreDuringFirstDuckFade:
-    """A restore() that lands inside the FIRST duck's fade window must
-    fade the PHYSICAL volume back to the pre-duck level (not take the
-    smart-duck logical-clear path), clear the crash-recovery file, and
-    leave a subsequent restore() a safe no-op.
-
-    Reachable since ducking moved off ``_toggle_lock`` onto the
-    DictationStart worker thread: the ESC cancel thread can call
-    restore() while the worker's duck fade (``volume_duck_fade_ms``,
-    default 200 ms, a single subprocess call on pactl/osascript
-    backends) is still lowering the volume.  Pre-fix, restore() hit the
-    ``not _actually_ducked`` early-return meant for the smart-duck skip,
-    cleared the logical state WITHOUT fading back, and duck()'s
-    still-running fade left the system volume STUCK at the duck level
-    with clean logical state, a no-op later restore(), and an orphaned
-    crash-recovery file (whose pre-duck level is lost once the next
-    duck() overwrites it with the stuck volume).
-    """
+    """A restore() that lands inside the FIRST duck's fade window must"""
 
     @staticmethod
     def _make_first_call_blocking_fade(
         backend: FakeBackend,
     ) -> tuple[threading.Event, threading.Event]:
-        """Patch ``backend.fade_to`` so only the FIRST call (the duck's
-        fade) blocks until ``proceed`` is set; later calls (restore's
-        fade-back) pass straight through so restore() doesn't stall on
-        the same gate the duck fade is held on.
-
-        Returns ``(fade_started, proceed)``.
-        """
+        """Patch ``backend.fade_to`` so only the FIRST call (the duck's"""
         fade_started = threading.Event()
         proceed = threading.Event()
         fade_call_count = [0]
@@ -845,10 +662,7 @@ class TestRestoreDuringFirstDuckFade:
         return fade_started, proceed
 
     def test_restore_mid_fade_returns_volume_and_clears_recovery_file(self, crash_recovery: DuckCrashRecovery) -> None:
-        """The reproduced stuck-volume scenario: duck (fade in flight) →
-        ESC restore mid-fade → the physical volume must be back at the
-        pre-duck level, the crash-recovery file cleared, and a second
-        restore() a safe no-op."""
+        """The reproduced stuck-volume scenario: duck (fade in flight) →"""
         backend = FakeBackend(current=0.5, speaker_active=True)
         ducker = VolumeDucker(backend=backend, crash_recovery=crash_recovery)
         ducker.initialize()
@@ -872,23 +686,17 @@ class TestRestoreDuringFirstDuckFade:
         assert not ducker.is_ducked, "restore() should have cleared ducked state"
 
         # Let the duck fade complete, its backend write still lands at
-        # the duck level AFTER the restore.
         proceed.set()
         t.join(timeout=2.0)
         assert not t.is_alive(), "duck thread did not finish"
         assert not errors, f"duck() raised: {errors}"
 
-        # THE regression: the PHYSICAL backend volume must be back at the
-        # pre-duck level, not stuck at the duck level.
         assert backend._current == pytest.approx(0.5), (
             f"system volume stuck at {backend._current:.2f} after a restore "
             f"landed inside the first duck's fade (pre-duck level was 0.5), "
             f"duck()'s unlocked fade outran the restore"
         )
         # The crash-recovery file must not be orphaned: it was saved
-        # pre-fade, so restore() must clear it, or the next launch would
-        # "recover" to a stale level (and the next duck() would overwrite
-        # it with the stuck volume).
         assert crash_recovery.load_stale() is None, (
             "restore() during the first duck's fade must clear the crash-recovery file"
         )
@@ -896,7 +704,6 @@ class TestRestoreDuringFirstDuckFade:
         assert not ducker.is_ducked
 
         # A subsequent restore() must be a safe no-op, logical state is
-        # clean, so no further fade may fire.
         fades_before = list(backend._fade_calls)
         sets_before = list(backend._set_calls)
         assert ducker.restore() is True
@@ -906,10 +713,7 @@ class TestRestoreDuringFirstDuckFade:
         assert backend._set_calls == sets_before
 
     def test_restore_during_level_update_fade_restores_saved_level(self) -> None:
-        """restore() landing inside an already-ducked LEVEL-UPDATE fade
-        must trust the saved state (the mid-fade volume reading is our
-        own fade, not a user manual change) and return the volume to the
-        pre-duck level."""
+        """restore() landing inside an already-ducked LEVEL-UPDATE fade"""
         backend = FakeBackend(current=0.5, speaker_active=True)
         ducker = VolumeDucker(backend=backend)
         ducker.initialize()
@@ -930,8 +734,6 @@ class TestRestoreDuringFirstDuckFade:
         assert fade_started.wait(timeout=2.0), "level-update fade not called"
 
         # Mid-fade the volume reads between 0.25 and 0.15, more than 5%
-        # off the ducked level, which the manual-override heuristic would
-        # misread as a user change.
         backend._current = 0.20
         assert ducker.restore() is True
 
@@ -948,10 +750,7 @@ class TestRestoreDuringFirstDuckFade:
         assert not ducker.is_ducked
 
     def test_duck_fade_exception_leaves_consistent_state(self, crash_recovery: DuckCrashRecovery) -> None:
-        """A backend exception during the duck fade must leave the ducker
-        consistent: no saved state, no crash-recovery file, no in-flight
-        fade count, the volume repaired to the pre-duck level, and the
-        exception re-raised to the caller (VolumeController logs it)."""
+        """A backend exception during the duck fade must leave the ducker"""
         backend = FakeBackend(current=0.5, speaker_active=True)
         ducker = VolumeDucker(backend=backend, crash_recovery=crash_recovery)
         ducker.initialize()
@@ -982,34 +781,15 @@ class TestRestoreDuringFirstDuckFade:
         assert backend._fade_calls == fades_before
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# crash_recovery.save() must be called BEFORE backend.fade_to()
-# ═══════════════════════════════════════════════════════════════════════════
-
-
 class TestCrashRecoveryBeforeFade:
-    """FR-33: ``crash_recovery.save()`` must be called BEFORE
-    ``backend.fade_to()`` in the duck flow.
-
-    If the process crashes during the 150 ms fade, the volume is
-    partially ducked but (without a pre-fade recovery file) no
-    crash-recovery file exists for the next launch, leaving the
-    speakers stuck at the ducked level.  Saving before the fade
-    guarantees the file exists for the entire fade duration.
-
-    Covers both the synchronous ``duck()`` path and the asynchronous
-    ``_smart_duck_monitor_loop`` retroactive-duck path.
-    """
+    """FR-33: ``crash_recovery.save()`` must be called BEFORE"""
 
     @staticmethod
     def _make_order_recording_spies(
         crash_recovery: DuckCrashRecovery,
         backend: FakeBackend,
     ) -> tuple[list[str], Callable[..., bool], Callable[..., bool]]:
-        """Wrap ``crash_recovery.save`` and ``backend.fade_to`` so they
-        append ``"save"`` / ``"fade"`` to a shared list in call order.
-        Returns ``(call_order, spy_save, spy_fade)``.
-        """
+        """Wrap ``crash_recovery.save`` and ``backend.fade_to`` so they"""
         call_order: list[str] = []
         original_save = crash_recovery.save
         original_fade = backend.fade_to
@@ -1025,8 +805,7 @@ class TestCrashRecoveryBeforeFade:
         return call_order, spy_save, spy_fade
 
     def test_first_duck_saves_crash_recovery_before_fade(self, crash_recovery: DuckCrashRecovery) -> None:
-        """First-duck path: ``crash_recovery.save()`` precedes
-        ``backend.fade_to()``."""
+        """First-duck path: ``crash_recovery.save()`` precedes"""
         backend = FakeBackend(current=0.6, speaker_active=True)
         ducker = VolumeDucker(backend=backend, crash_recovery=crash_recovery)
         ducker.initialize()
@@ -1050,20 +829,13 @@ class TestCrashRecoveryBeforeFade:
         )
 
     def test_retroactive_duck_saves_crash_recovery_before_fade(self, crash_recovery: DuckCrashRecovery) -> None:
-        """Retroactive-duck path (smart-duck monitor):
-        ``crash_recovery.save()`` precedes ``backend.fade_to()``.
-
-        Also verifies the smart-duck skip did NOT save a file (the
-        volume was unchanged), guards against the FR-33 refactor
-        accidentally writing the file on the skip path.
-        """
+        """Retroactive-duck path (smart-duck monitor):"""
         backend = FakeBackend(current=0.6, speaker_active=False)
         ducker = VolumeDucker(backend=backend, crash_recovery=crash_recovery)
         ducker.set_smart_duck_poll_interval(50)
         ducker.initialize()
 
         # First duck: smart-duck skips (no audio), monitor starts.
-        # No crash-recovery file should be written on this path.
         ducker.duck(0.25)
         assert ducker.is_monitor_running, "smart-duck monitor should be running"
         assert crash_recovery.load_stale() is None, (
@@ -1075,7 +847,6 @@ class TestCrashRecoveryBeforeFade:
         backend.fade_to = spy_fade  # type: ignore[assignment]
 
         # Simulate audio starting mid-dictation, the monitor's next
-        # poll detects speaker activity and applies the retroactive duck.
         backend._speaker_active = True
 
         deadline = time.monotonic() + 2.0
@@ -1096,21 +867,8 @@ class TestCrashRecoveryBeforeFade:
         ducker.restore()
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# retroactive-duck path must drop self._lock during backend.fade_to()
-# ═══════════════════════════════════════════════════════════════════════════
-
-
 class TestRetroactiveDuckDropsLockDuringFade:
-    """FR-32: ``_smart_duck_monitor_loop``'s retroactive-duck path must
-    NOT hold ``self._lock`` during ``backend.fade_to()`` (up to 150 ms).
-
-    Holding the lock serialises ``restore()`` (ESC cancel) behind the
-    fade, the same 150 ms "ESC doesn't respond" delay UE-12-F6 fixed
-    for ``duck()``.  The fix mirrors the UE-12-F6 pattern: snapshot
-    under the lock, release for the fade, re-acquire for the post-fade
-    state writes.
-    """
+    """FR-32: ``_smart_duck_monitor_loop``'s retroactive-duck path must"""
 
     def test_retroactive_duck_drops_lock_during_fade(self, crash_recovery: DuckCrashRecovery) -> None:
         backend = FakeBackend(current=0.6, speaker_active=False)
@@ -1123,9 +881,6 @@ class TestRetroactiveDuckDropsLockDuringFade:
         assert ducker.is_monitor_running, "smart-duck monitor should be running"
 
         # Wrap fade_to: from a worker thread, try to acquire the lock
-        # during the fade.  If the retroactive-duck path holds the lock
-        # during fade (the  bug), the worker times out and
-        # ``lock_held_during_fade`` is True.
         lock_held_during_fade: list[bool] = [False]
         original_fade = backend.fade_to
 

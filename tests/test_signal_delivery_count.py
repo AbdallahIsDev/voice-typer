@@ -1,13 +1,4 @@
-"""Delivery counting for POSIX signal handlers and second-signal force-exit.
-
-``install_signal_handlers`` records each delivery on the controller
-(``_signal_count``) so ``signal_watcher_loop`` can force-exit when a
-second signal arrives while the first graceful shutdown is still
-running. The watcher half documents and implements the escalation;
-these tests pin the counting half and the escalation trigger, both
-headless: no real signal is delivered, installed handlers are invoked
-directly.
-"""
+"""Delivery counting for POSIX signal handlers and second-signal force-exit."""
 
 from __future__ import annotations
 
@@ -59,8 +50,6 @@ def test_handler_counts_deliveries_and_records_signum(
     controller = _make_controller()
     assert not hasattr(controller, "_signal_count")
     # Stub the watcher thread so the install stays hermetic (no daemon
-    # loop is started; the escalation trigger is covered below with the
-    # real watcher body instead).
     monkeypatch.setattr(signal_handlers.threading, "Thread", _StubThread)
 
     watched_signals = [signal.SIGINT, signal.SIGTERM]

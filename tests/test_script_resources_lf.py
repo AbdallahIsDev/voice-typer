@@ -1,38 +1,4 @@
-"""macOS + Windows installer-script LF / byte-parity tests.
-
-The macOS (``install.sh`` / ``uninstall.sh``) and Windows
-(``sign-authenticode.ps1`` / ``uninstall.bat`` / ``uninstaller.nsh`` /
-``uninstall_permissions.py``) installer scripts run at install /
-uninstall time. CRLF would break the POSIX shell scripts outright, and
-the Windows maintainer files are byte-pinned to LF by
-``.gitattributes`` (``scripts/macos/* text eol=lf`` and
-``scripts/windows/* text eol=lf``).
-
-Unlike the Linux scripts (which have a bundled copy in
-``src-tauri/resources/linux-scripts/`` to byte-compare against), the
-macOS / Windows scripts are referenced by the Tauri config directly —
-there is no second on-disk copy. The canonical byte form is therefore
-the committed git blob. These tests close the gap that a plain CR scan
-leaves open by asserting three invariants per file:
-
-  1. **LF-only**: the working-tree file contains no CR byte (i.e. it is
-     byte-identical to its canonical LF-normalized form).
-  2. **Blob parity** (committed-state snapshot): the working-tree bytes
-     equal the committed git blob (``git show HEAD:<path>``). In CI the
-     checkout is clean so this is always true; locally it catches any
-     uncommitted drift in a file that ships in the installer. Note that
-     with ``eol=lf`` in effect git never converts at checkout, so the
-     CRLF regressions are caught by (1) + (3), this test is about
-     working-tree drift from the committed canonical bytes.
-  3. **Attribute resolution**: ``git check-attr text eol`` reports
-     ``text: set`` + ``eol: lf``, i.e. the ``.gitattributes`` rule is
-     actually in effect for the file, so a deleted / edited rule fails
-     here before any CR byte ever appears.
-
-Together these make it impossible for the ``.gitattributes`` rule to
-silently regress: removing the rule trips (3); a CRLF working tree
-trips (1) and (2); a CRLF blob committed as-is trips (1).
-"""
+"""macOS + Windows installer-script LF / byte-parity tests."""
 
 from __future__ import annotations
 
@@ -41,7 +7,6 @@ from pathlib import Path
 
 import pytest
 
-# tests/test_script_resources_lf.py → repo root in 1 parent.
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 
 _MACOS_DIR = _REPO_ROOT / "scripts" / "macos"

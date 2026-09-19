@@ -1,44 +1,4 @@
-"""regression tests for ``voice_typer/server/model_manager.py``.
-
-Pins the contract for five fixes shipped in the WM-FIX-P4 batch:
-
- (HIGH): ``ensure_active_engine_loaded`` race    The ``backend = self._app.config.asr_backend`` read MUST happen
-    INSIDE ``_lazy_init_lock`` and MUST re-validate ``config.asr_backend``
-    after ``_ensure_engine`` so a concurrent ``_change_model_blocking``
-    that rewrote config between the read and the lock acquisition does
-    NOT produce a phantom VRAM engine for the stale backend name.
-
- (Medium): ``start_background_load`` check-then-spawn race
- The liveness check + ``threading.Thread`` construction + assignment
-    to ``_model_load_thread`` MUST be atomic (guarded by
-    ``_model_load_spawn_lock``) so two concurrent callers don't both
-    spawn a ModelLoad thread (leaking the first).
-
- (Medium), unconditional ``asr_backend_ready`` on failure
-  ``_change_model_blocking`` and ``_set_active_backend_blocking`` MUST
-    publish ``asr_backend_ready`` ONLY on success. On failure, they
-    MUST publish a separate ``asr_backend_load_failed`` event with
-    ``{"backend": ..., "model_size": ..., "failure_reason": ...}``.
-    The deferred branch (recording in progress) publishes NEITHER
-    event (the load didn't happen).
-
- (Low), exception log lacks backend/model context
- ``load_background``'s outer ``except Exception`` log MUST include
-    ``backend`` + ``model`` so the crash trace is actionable.
-
- (Low): ``load_background`` finally auto-starts on failure
- ``load_background``'s ``finally`` block MUST NOT auto-start a
-    dictation (via ``_schedule_timer(0, _start_dictation)``) when the
-    load FAILED or CRASHED, the auto-start would loop on
-    ``fallback_to_whisper`` and fail the same way, spamming the tray
-    with ERROR state. ``_pending_dictation`` MUST be cleared on the
-    failure / crash paths so the finally's ``if self._pending_dictation``
-    check skips the auto-start.
-
-These tests mock the heavy torch / transformers / huggingface_hub
-dependencies (mirroring ``tests/test_model_manager.py``) so they run
-headless on the Linux sandbox.
-"""
+"""regression tests for ``voice_typer/server/model_manager.py``."""
 
 from __future__ import annotations
 
@@ -50,24 +10,13 @@ from voice_typer.server import event_bus
 from voice_typer.server.asr_registry import AsrBackendRegistry
 from voice_typer.server.model_manager import ModelManager
 
-# ── Shared fixtures ────────────────────────────────────────────────────
-
 
 def _make_mm_with_mock_registry(
     *,
     backend_name: str = "whisper",
     model_size: str = "tiny.en",
 ) -> tuple[ModelManager, MagicMock, MagicMock]:
-    """Build a ModelManager via the real ``__init__`` with a mock app,
-    then swap the registry for a MagicMock (mirrors the helper in
-    ``tests/test_model_manager.py``).
-
-    Returns ``(mm, app, mock_registry)``. The real ``__init__`` runs so
-    its wiring (locks, LRU state, ``_model_load_thread = None``,
-    ``_model_load_spawn_lock``, etc.) is exercised. The registry is
-    swapped because every method we assert on (``load_active``,
-    ``create``, ``unload``...) is easier to verify via mocks.
-    """
+    """Build a ModelManager via the real ``__init__`` with a mock app,"""
     app = MagicMock(name="app")
     app.config.asr_backend = backend_name
     app.config.model_size = model_size
@@ -82,9 +31,6 @@ def _make_mm_with_mock_registry(
     app._thread_registry = MagicMock()
     app._config_mutation_lock = threading.RLock()
     # Ensure change_model is NOT deferred —
-    # ``_change_model_setattr_phase`` checks ``recorder.recording``
-    # (must be False) and ``_busy_event.is_set()`` (must return True
-    # = not busy).
     app.recorder.recording = False
     app._busy_event = MagicMock()
     app._busy_event.is_set.return_value = True
@@ -119,12 +65,7 @@ def _make_mm_with_real_registry(
     recording: bool = False,
     busy: bool = False,
 ) -> tuple[ModelManager, MagicMock, object, AsrBackendRegistry]:
-    """Build a ModelManager with a mock app + REAL ``AsrBackendRegistry``.
-
-    Used by / tests that need the real registry's busy-flag
-    API and ``get`` / ``register`` semantics (no mocking of those).
-    Mirrors the helper in ``tests/test_model_manager_busy_guard.py``.
-    """
+    """Build a ModelManager with a mock app + REAL ``AsrBackendRegistry``."""
     config = _Config(asr_backend=asr_backend, model_size=model_size)
     registry = AsrBackendRegistry(config)
 
@@ -177,25 +118,11 @@ class _Config:
         return True
 
 
-# ── : ensure_active_engine_loaded race ───────────────────────────
-
-
 class TestEnsureActiveEngineLoadedRace:
-    """(HIGH): the ``backend = config.asr_backend`` read MUST
-    happen INSIDE ``_lazy_init_lock`` and MUST re-validate after
-    ``_ensure_engine`` so a concurrent ``_change_model_blocking`` that
-    rewrote config between the read and the lock acquisition does NOT
-    produce a phantom VRAM engine for the stale backend name."""
+    """(HIGH): the ``backend = config.asr_backend`` read MUST"""
 
     def test_backend_read_happens_inside_lazy_init_lock(self):
-        """Source guard: the ``backend = self._app.config.asr_backend``
-        assignment MUST appear INSIDE the ``with self._lazy_init_lock:``
-        block in ``ensure_active_engine_loaded``. NOT before it.
-
-        Pre-fix, the read was OUTSIDE the lock, which let a concurrent
-        ``_change_model_blocking`` rewrite ``config.asr_backend``
-        between the read and the lock acquisition.
-        """
+        """Source guard: the ``backend = self._app.config.asr_backend``"""
         import inspect
         import re
 
@@ -204,12 +131,6 @@ class TestEnsureActiveEngineLoadedRace:
         lock_match = re.search(r"with self\._lazy_init_lock:", src)
         assert lock_match is not None, ": ensure_active_engine_loaded must acquire _lazy_init_lock."
         lock_line_idx = lock_match.start()
-        # Find the CODE-form of the backend read (indented inside the
-        # ``with`` block, NOT the comment-form which uses backticks).
-        # The code form is ``backend = self._app.config.asr_backend``
-        # followed by a newline + ``engine = ...`` (the next
-        # statement). The comment form uses backticks around the
-        # attribute name.
         code_read_match = re.search(
             r"backend = self\._app\.config\.asr_backend\n\s+engine = ",
             src,
@@ -231,10 +152,7 @@ class TestEnsureActiveEngineLoadedRace:
         )
 
     def test_revalidates_backend_after_ensure_engine(self):
-        """Source guard: after ``_ensure_engine(backend)``, the method
-        MUST re-read ``config.asr_backend`` and reconcile if it has
-        changed. The re-validation is the actual mitigation (the lock
-        narrows the window, the re-validation closes it)."""
+        """Source guard: after ``_ensure_engine(backend)``, the method"""
         import inspect
 
         src = inspect.getsource(ModelManager.ensure_active_engine_loaded)
@@ -254,42 +172,13 @@ class TestEnsureActiveEngineLoadedRace:
         )
 
     def test_re_routes_when_config_changes_during_lock_acquisition(self):
-        """End-to-end: simulate a concurrent ``_change_model_blocking``
-        that rewrites ``config.asr_backend`` between the (now
-        inside-lock) read and ``_ensure_engine``. The fix MUST re-route
-        to the current backend so the phantom engine for the stale
-        backend name is NOT returned to the caller (it's constructed
-        but abandoned, the next change cycle unloads it).
-
-        Scenario:
-        1. config.asr_backend starts as "whisper".
-        2. ensure_active_engine_loaded reads backend = "whisper" (inside lock).
-        3. registry.get("whisper") returns None.
-        4. _ensure_engine("whisper") is called, constructs a phantom
-           whisper engine (unavoidable: the fix can't look into the
-           future to know config is about to change).
-        5. Simulate the concurrent changer: config.asr_backend flips
-           to "parakeet" and registry now has a parakeet engine.
-        6. The fix re-validates config.asr_backend, sees "parakeet",
-           re-routes, and returns the parakeet engine (NOT the phantom
-           whisper engine).
-
-        Pre-fix (read OUTSIDE the lock), the method would have returned
-        the phantom whisper engine while config said "parakeet", the
-        caller would transcribe against a backend the rest of the app
-        had abandoned.
-        """
+        """End-to-end: simulate a concurrent ``_change_model_blocking``"""
         mm, app, registry = _make_mm_with_mock_registry(backend_name="whisper")
         # The phantom whisper engine constructed by _ensure_engine is
-        # never observed, the fix aborts the swap before transcription
-        # can run against the abandoned backend.
-        # The real parakeet engine loaded by the concurrent changer.
         parakeet_engine = MagicMock(name="parakeet-engine")
         parakeet_engine.is_loaded = True
 
         # Simulate the concurrent changer: after the first
-        # _ensure_engine("whisper") call, config flips to "parakeet"
-        # and the parakeet engine appears in the registry.
         config_state = {"asr_backend": "whisper"}
 
         class _FlippingConfig:
@@ -320,41 +209,23 @@ class TestEnsureActiveEngineLoadedRace:
         def _track_ensure(backend_name):
             ensure_calls.append(backend_name)
             # Simulate the concurrent _change_model_blocking firing
-            # DURING _ensure_engine("whisper"): config flips to
-            # "parakeet" and the parakeet engine appears in the
-            # registry. This is the race window the fix must handle.
             if backend_name == "whisper":
                 config_state["asr_backend"] = "parakeet"
                 # The phantom whisper engine is constructed.
-                # (In real code, _ensure_engine would register it.)
-                # We don't register it on the mock, we want
-                # registry.get("whisper") to STILL return None so the
-                # re-validation path is exercised. The phantom is
-                # "leaked" but not returned.
 
         mm._ensure_engine = _track_ensure
 
-        # registry.get side_effect:
-        # - "whisper" → None (not yet loaded; _ensure_engine doesn't
-        #   register on the mock)
-        # - "parakeet" → parakeet_engine (loaded by the concurrent
-        #   changer)
         def _get(name):
             if name == "whisper":
                 return None
             return parakeet_engine
 
         registry.get.side_effect = _get
-        # active_transcriber reads registry.get(active_name).
         mm.active_transcriber = MagicMock(return_value=parakeet_engine)
         mm.touch_model = MagicMock()
 
         result = mm.ensure_active_engine_loaded()
 
-        # The returned engine is the parakeet engine (re-routed to the
-        # current backend), NOT a phantom whisper engine. Pre-fix, the
-        # method would have returned the phantom whisper engine while
-        # config said "parakeet".
         assert result is parakeet_engine, (
             "ensure_active_engine_loaded must return the "
             "re-routed (current) backend's engine when config "
@@ -362,10 +233,6 @@ class TestEnsureActiveEngineLoadedRace:
             "have returned a phantom engine for the stale 'whisper' "
             "backend while config said 'parakeet'."
         )
-        # _ensure_engine was called for "whisper" (the phantom
-        # construction, unavoidable: the fix can't look into the
-        # future to know config is about to change). The phantom is
-        # abandoned; the next change cycle unloads it.
         assert "whisper" in ensure_calls, (
             "_ensure_engine must be called for the initial "
             "backend lookup (whisper) when registry.get returns None. "
@@ -373,9 +240,6 @@ class TestEnsureActiveEngineLoadedRace:
             "prevents the phantom from being RETURNED, not from being "
             "constructed."
         )
-        # _ensure_engine was NOT called for "parakeet" because the
-        # parakeet engine already exists (loaded by the concurrent
-        # changer). This proves the re-route path was taken.
         assert "parakeet" not in ensure_calls, (
             "_ensure_engine must NOT be called for the "
             "re-routed backend (parakeet) when its engine already "
@@ -385,17 +249,11 @@ class TestEnsureActiveEngineLoadedRace:
         )
 
     def test_no_revalidation_when_config_unchanged(self):
-        """When ``config.asr_backend`` does NOT change during the lock
-        acquisition, the re-validation is a no-op and the method
-        proceeds with the original backend (the existing path is
-        preserved, only adds the re-validation, it doesn't
-        change the happy path)."""
+        """When ``config.asr_backend`` does NOT change during the lock"""
         mm, app, registry = _make_mm_with_mock_registry(backend_name="whisper")
         whisper_engine = MagicMock(name="whisper-engine")
         whisper_engine.is_loaded = True
         # ``active_transcriber`` reads ``registry.get_active()``, make
-        # it return the whisper engine so the method's return value is
-        # the whisper engine.
         registry.get_active.return_value = whisper_engine
         registry.get.return_value = whisper_engine
         mm._ensure_engine = MagicMock()
@@ -404,22 +262,15 @@ class TestEnsureActiveEngineLoadedRace:
         result = mm.ensure_active_engine_loaded()
 
         # No re-route, _ensure_engine NOT called (engine was already
-        # registered).
         mm._ensure_engine.assert_not_called()
         assert result is whisper_engine
 
 
-# ── : start_background_load check-then-spawn race ───────────────
-
-
 class TestStartBackgroundLoadAtomicSpawn:
-    """(Medium): the liveness check + Thread construction +
-    assignment to ``_model_load_thread`` MUST be atomic so two
-    concurrent callers don't both spawn a ModelLoad thread."""
+    """(Medium): the liveness check + Thread construction +"""
 
     def test_spawn_lock_exists_in_init(self):
-        """``__init__`` MUST create ``_model_load_spawn_lock`` so the
-        lock exists before any thread can call ``start_background_load``."""
+        """``__init__`` MUST create ``_model_load_spawn_lock`` so the"""
         mm, _app, _registry = _make_mm_with_mock_registry()
         assert hasattr(mm, "_model_load_spawn_lock"), (
             "__init__ must create _model_load_spawn_lock so "
@@ -435,16 +286,7 @@ class TestStartBackgroundLoadAtomicSpawn:
         )
 
     def test_concurrent_start_background_load_spawns_single_thread(self):
-        """End-to-end: spawn N threads that all call
-        ``start_background_load`` concurrently. Assert that at most ONE
-        ``ModelLoad`` thread is actually started (the spawn lock
-        serializes the check-then-spawn).
-
-        We slow down ``load_background`` with a barrier so the spawned
-        thread stays alive long enough for the concurrent
-        ``start_background_load`` calls to observe it via the
-        ``is_alive()`` check.
-        """
+        """End-to-end: spawn N threads that all call"""
         mm, app, registry = _make_mm_with_mock_registry()
         # Slow down load_background so the spawned thread stays alive.
         barrier = threading.Event()
@@ -454,10 +296,6 @@ class TestStartBackgroundLoadAtomicSpawn:
 
         mm.load_background = _slow_load_background
         # Track Thread.start() invocations, we patch threading.Thread
-        # to count starts, but we need a REAL Thread for the
-        # ``is_alive()`` check inside ``start_background_load`` to work.
-        # Instead, we count the threads spawned by inspecting
-        # ``mm._model_load_thread`` after each call.
         spawned_threads: list[threading.Thread] = []
         spawn_lock = threading.Lock()
 
@@ -489,11 +327,6 @@ class TestStartBackgroundLoadAtomicSpawn:
         if mm._model_load_thread is not None:
             mm._model_load_thread.join(timeout=5.0)
 
-        # Count DISTINCT Thread identities that were assigned to
-        # ``_model_load_thread``. Pre-fix, the check-then-spawn race
-        # could produce multiple threads (the second assignment
-        # overwrote the first, leaking it). Post-fix, the spawn lock
-        # serializes so at most ONE thread is ever assigned.
         distinct_identities = {id(t) for t in spawned_threads}
         assert len(distinct_identities) <= 1, (
             f": start_background_load spawned {len(distinct_identities)} "
@@ -509,9 +342,7 @@ class TestStartBackgroundLoadAtomicSpawn:
         )
 
     def test_idempotent_when_thread_already_alive(self):
-        """When ``_model_load_thread`` is already alive,
-        ``start_background_load`` MUST be a no-op (return without
-        spawning a new thread). This is the existing fast-path;         must not break it."""
+        """When ``_model_load_thread`` is already alive,"""
         mm, app, registry = _make_mm_with_mock_registry()
         barrier = threading.Event()
 
@@ -536,18 +367,11 @@ class TestStartBackgroundLoadAtomicSpawn:
         first_thread.join(timeout=5.0)
 
 
-# ── : asr_backend_ready / asr_backend_load_failed event contract ──
-
-
 class TestBackendLoadFailedEvent:
-    """(Medium): ``_change_model_blocking`` and
-    ``_set_active_backend_blocking`` MUST publish
-    ``asr_backend_load_failed`` (NOT ``asr_backend_ready``) on failure."""
+    """``_set_active_backend_blocking`` MUST publish"""
 
     def test_change_model_blocking_publishes_ready_on_success(self):
-        """Regression: on success, ``asr_backend_ready`` is still
-        published ( only adds the failure event, it does not
-        change the success path)."""
+        """Regression: on success, ``asr_backend_ready`` is still"""
         mm, app, registry = _make_mm_with_mock_registry(backend_name="whisper")
         received: list[dict] = []
 
@@ -573,10 +397,7 @@ class TestBackendLoadFailedEvent:
         assert evt["data"]["model_size"] == "parakeet"
 
     def test_change_model_blocking_publishes_load_failed_on_failure(self):
-        """When ``load_active`` returns falsy, ``_change_model_blocking``
-        MUST publish ``asr_backend_load_failed`` (NOT
-        ``asr_backend_ready``) with the backend name + a short
-        ``failure_reason``."""
+        """When ``load_active`` returns falsy, ``_change_model_blocking``"""
         mm, app, registry = _make_mm_with_mock_registry(backend_name="whisper")
         # Make load_active return falsy (failure).
         registry.load_active.return_value = None
@@ -614,9 +435,7 @@ class TestBackendLoadFailedEvent:
         assert evt["data"]["failure_reason"], ": failure_reason must be a non-empty string."
 
     def test_change_model_blocking_publishes_load_failed_on_exception(self):
-        """When ``load_active`` raises, ``_change_model_blocking`` MUST
-        publish ``asr_backend_load_failed`` (NOT ``asr_backend_ready``)
-        with the exception message in ``failure_reason``."""
+        """When ``load_active`` raises, ``_change_model_blocking`` MUST"""
         mm, app, registry = _make_mm_with_mock_registry(backend_name="whisper")
         # Make load_active raise.
         registry.load_active.side_effect = RuntimeError("simulated CUDA OOM")
@@ -642,16 +461,10 @@ class TestBackendLoadFailedEvent:
         )
 
     def test_change_model_blocking_publishes_neither_event_when_deferred(self):
-        """When the change is deferred (recording in progress),
-        ``_change_model_blocking`` MUST publish NEITHER event, the
-        load didn't happen, so neither 'ready' nor 'failed' applies.
-        The next ``apply_pending_model_change`` will re-run the cycle
-        and publish at that point."""
+        """When the change is deferred (recording in progress),"""
         mm, app, registry = _make_mm_with_mock_registry(backend_name="whisper")
         # Force the deferred branch, recording in progress.
         app.recorder.recording = True
-        # _busy_event.is_set() returns True (not busy), but the
-        # recording check forces deferral.
         received: list[dict] = []
 
         def subscriber(event: dict) -> None:
@@ -678,8 +491,7 @@ class TestBackendLoadFailedEvent:
         )
 
     def test_set_active_backend_blocking_publishes_ready_on_success(self):
-        """Regression: on success, ``asr_backend_ready`` is still
-        published by ``_set_active_backend_blocking``."""
+        """Regression: on success, ``asr_backend_ready`` is still"""
         mm, app, registry = _make_mm_with_mock_registry(backend_name="whisper")
         received: list[dict] = []
 
@@ -702,9 +514,7 @@ class TestBackendLoadFailedEvent:
         assert len(failed_events) == 0
 
     def test_set_active_backend_blocking_publishes_load_failed_on_failure(self):
-        """When ``load_active`` returns falsy,
-        ``_set_active_backend_blocking`` MUST publish
-        ``asr_backend_load_failed`` (NOT ``asr_backend_ready``)."""
+        """When ``load_active`` returns falsy,"""
         mm, app, registry = _make_mm_with_mock_registry(backend_name="whisper")
         registry.load_active.return_value = None  # failure
         received: list[dict] = []
@@ -732,8 +542,7 @@ class TestBackendLoadFailedEvent:
         assert evt["data"]["failure_reason"]
 
     def test_set_active_backend_blocking_publishes_neither_when_deferred(self):
-        """When the backend change is deferred (recording in progress),
-        ``_set_active_backend_blocking`` MUST publish NEITHER event."""
+        """When the backend change is deferred (recording in progress),"""
         mm, app, registry = _make_mm_with_mock_registry(backend_name="whisper")
         # Force the deferred branch, recording in progress.
         app.recorder.recording = True
@@ -760,9 +569,7 @@ class TestBackendLoadFailedEvent:
         )
 
     def test_load_failed_event_data_shape(self):
-        """The ``asr_backend_load_failed`` event data MUST include
-        ``backend``, ``model_size``, and ``failure_reason`` fields
-        (so the renderer can route the event and display the reason)."""
+        """The ``asr_backend_load_failed`` event data MUST include"""
         mm, app, registry = _make_mm_with_mock_registry(backend_name="whisper")
         registry.load_active.return_value = None
         received: list[dict] = []
@@ -787,24 +594,15 @@ class TestBackendLoadFailedEvent:
         )
 
 
-# ── : exception log includes backend + model context ─────────
-
-
 class TestExceptionLogContext:
-    """(Low): ``load_background``'s outer ``except Exception``
-    log MUST include ``backend`` + ``model`` so the crash trace is
-    actionable (the same crash in ``parakeet`` vs ``whisper`` has very
-    different remediation paths)."""
+    """(Low): ``load_background``'s outer ``except Exception``"""
 
     def test_exception_log_includes_backend_and_model(self, caplog):
-        """Source guard: the ``log.exception`` call in the outer
-        ``except Exception`` block MUST include ``backend=%s`` and
-        ``model=%s`` format specifiers."""
+        """Source guard: the ``log.exception`` call in the outer"""
         import inspect
 
         src = inspect.getsource(ModelManager.load_background)
         # The exception log must include backend + model context.
-        # We look for the format string in the source.
         assert "backend=%s" in src and "model=%s" in src, (
             "load_background's outer ``except Exception`` "
             "log.exception MUST include ``backend=%s`` and ``model=%s`` "
@@ -816,9 +614,7 @@ class TestExceptionLogContext:
         )
 
     def test_exception_log_emitted_with_context_on_crash(self, caplog):
-        """End-to-end: when ``load_background``'s body raises, the
-        outer ``except Exception`` log MUST include the backend and
-        model_size in the formatted message."""
+        """model_size in the formatted message."""
         mm, app, registry = _make_mm_with_mock_registry(backend_name="parakeet", model_size="parakeet")
 
         # Make _ensure_engine raise so the body's outer except fires.
@@ -839,23 +635,11 @@ class TestExceptionLogContext:
         assert "model=parakeet" in msg, f": the crash log must include 'model=parakeet'. Got: {msg!r}"
 
 
-# ── : load_background finally does NOT auto-start on failure ──
-
-
 class TestNoAutoStartOnFailure:
-    """``load_background``'s ``finally`` block MUST NOT
-    auto-start a dictation when the load FAILED or CRASHED. The
-    auto-start would loop on ``fallback_to_whisper`` and fail the same
-    way, spamming the tray with ERROR state. ``_pending_dictation``
-    MUST be cleared on the failure / crash paths so the finally's
-    ``if self._pending_dictation`` check skips the auto-start."""
+    """``load_background``'s ``finally`` block MUST NOT"""
 
     def test_no_auto_start_when_load_with_fallback_fails(self):
-        """When ``load_with_fallback`` returns falsy (all backends
-        failed), the finally block MUST NOT call
-        ``_schedule_timer(0, _start_dictation)`` even if
-        ``_pending_dictation`` was set (the F2 press). The flag is
-        cleared on the failure path."""
+        """When ``load_with_fallback`` returns falsy (all backends"""
         mm, app, registry = _make_mm_with_mock_registry(backend_name="whisper")
         # Simulate all backends failed.
         registry.load_with_fallback.return_value = None
@@ -885,10 +669,7 @@ class TestNoAutoStartOnFailure:
         assert schedule_calls == [], f": _schedule_timer must NOT be called on the failure path. Got: {schedule_calls}"
 
     def test_no_auto_start_when_body_raises(self):
-        """When ``load_background``'s body raises (crash), the finally
-        block MUST NOT call ``_schedule_timer(0, _start_dictation)``
-        even if ``_pending_dictation`` was set. The flag is cleared on
-        the crash path."""
+        """When ``load_background``'s body raises (crash), the finally"""
         mm, app, registry = _make_mm_with_mock_registry(backend_name="whisper")
 
         # Make _ensure_engine raise so the body's outer except fires.
@@ -911,13 +692,9 @@ class TestNoAutoStartOnFailure:
         assert schedule_calls == [], f": _schedule_timer must NOT be called on the crash path. Got: {schedule_calls}"
 
     def test_auto_start_still_fires_on_success(self):
-        """Regression: on SUCCESS, the finally block MUST auto-start a
-        pending dictation (the original intent, auto-start only when
-        the model is actually ready). only clears the flag on
-        failure / crash; the success path is preserved."""
+        """pending dictation (the original intent, auto-start only when"""
         mm, app, registry = _make_mm_with_mock_registry(backend_name="whisper")
         # Load succeeds (default mock returns truthy engine).
-        # User pressed F2 during load.
         mm._pending_dictation = True
         schedule_calls: list = []
         app._schedule_timer = lambda delay, cb: schedule_calls.append((delay, cb))
@@ -942,9 +719,7 @@ class TestNoAutoStartOnFailure:
         assert cb == app._start_dictation
 
     def test_no_auto_start_when_shutting_down(self):
-        """Regression: the existing ``not self._app._shutting_down``
-        guard is preserved, even on success, the auto-start is
-        suppressed during shutdown."""
+        """Regression: the existing ``not self._app._shutting_down``"""
         mm, app, registry = _make_mm_with_mock_registry(backend_name="whisper")
         app._shutting_down = True
         mm._pending_dictation = True
@@ -953,9 +728,6 @@ class TestNoAutoStartOnFailure:
 
         mm.load_background()
 
-        # _schedule_timer NOT called (shutting down).
-        # Note: load_background returns early at the top when
-        # _shutting_down is True, so the body never runs.
         assert schedule_calls == [], (
             "regression: _schedule_timer must NOT be called "
             "when _shutting_down is True (the existing early-return "

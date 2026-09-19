@@ -1,8 +1,4 @@
-"""Tests for corrections.json corruption recovery.
-
-TEST-016: Test loading corrupted corrections.json files and verify
-graceful recovery with defaults.
-"""
+"""Tests for corrections.json corruption recovery."""
 
 from __future__ import annotations
 
@@ -114,10 +110,6 @@ class TestCorrectionsExplicitLoad:
 
     def test_bundled_corrections_produce_valid_cleanup(self):
         """Bundled corrections should produce valid cleanup results."""
-        # Self-sufficient: under `--dist=loadgroup` unmarked tests in
-        # this file may land on different workers, so a sibling test's
-        # configure_corrections() cannot be relied upon. Restore the
-        # bundled set explicitly before asserting on it.
         assert configure_corrections() is None
         # Test a known correction from the bundled file
         result = clean_transcribed_text("infestigate this")

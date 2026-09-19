@@ -1,19 +1,4 @@
-"""Tests for the Tauri-sidecar tray behavior.
-
-Covers the ADR-0020 §6.5 single-icon invariant and the host-ready menu
-replay:
-
-1. Under ``TAURI_SIDECAR=1`` the pystray icon is NEVER created (the
-   native tray is owned by the Rust host): ``start()`` degrades to the
-   unavailable path while still launching background work.
-2. When the sidecar publishes ``ready`` (a new host WS connection just
-   authenticated), the last tray menu model + state are re-published so
-   the Rust host's placeholder menu is replaced even when the original
-   one-shot publish raced ahead of the WS subscriber install.
-3. Notifications under the Tauri runtime are routed through the
-   ``notification`` event bus event instead of a pystray icon that will
-   never exist, instead of being queued forever.
-"""
+"""Tests for the Tauri-sidecar tray behavior."""
 
 from types import SimpleNamespace
 

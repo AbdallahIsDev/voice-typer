@@ -1,12 +1,4 @@
-"""YJ-10 negative-regression guard for the Rust allowlist.
-
-Post-predecessor cutover the TS ``ALLOWED_COMMANDS`` set is gone; the
-Rust ``allowed_commands()`` set is the sole renderer-reachable gate.
-Python ↔ Rust membership parity lives in
-``tests/test_ipc_command_parity.py``. This file keeps the YJ-10
-negative-regression pin: the commands removed by the YJ-10 fix
-must NOT silently creep back into the Rust allowlist.
-"""
+"""YJ-10 negative-regression guard for the Rust allowlist."""
 
 from __future__ import annotations
 
@@ -25,14 +17,7 @@ def _read_sidecar_cmds_module() -> str:
 
 
 def _rust_allowed_commands() -> set[str]:
-    """Parse the Rust ``allowed_commands()`` body for quoted command names.
-
-    Anchors on ``let cmds: &[&str] = &[`` inside the
-    ``ALLOWED_COMMANDS.get_or_init`` closure and extracts each
-    ``"<snake_case_name>"`` token until the matching ``];``. Mirrors
-    the parser in ``test_security_doc_command_count.py`` so a literal
-    shape change fails both loudly.
-    """
+    """Parse the Rust ``allowed_commands()`` body for quoted command names."""
     src = _read_sidecar_cmds_module()
     m_start = re.search(r"let\s+cmds:\s*&\[&str\]\s*=\s*&\[", src)
     assert m_start is not None, (
@@ -52,30 +37,9 @@ def _rust_allowed_commands() -> set[str]:
 
 
 def test_rust_allowlist_does_not_contain_removed_commands() -> None:
-    """YJ-10 negative regression guard.
-
-    The commands removed by the YJ-10 fix (none had renderer
-    callers: see the reconciliation note in
+    """
+    YJ-10 negative regression guard.
     ``sidecar_cmds.rs::allowed_commands``) MUST NOT silently creep
-    back into the Rust allowlist. Each was audited via
-    ``rg --type=ts '<cmd>' voice_typer/client/src/renderer/src/`` and
-    confirmed to have ZERO renderer callers; re-adding one would
-    re-open the defense-in-depth gap (a compromised renderer would
-    be able to ``invoke('dispatch', {cmd:'<one of these>'})`` and
-    reach a server-side handler that no legitimate UI path
-    exercises).
-
-    If a future contributor legitimately adds a renderer caller for
-    one of these commands (e.g. wires up a Settings page button for
-    ``export_diagnostics``), they MUST:
-      1. Add the command back to the Rust allowlist (and keep the
-         Python ``_COMMAND_REGISTRY`` entry in lockstep).
-      2. Remove the command name from the ``yj10_removed`` set below
-         so this negative-regression guard no longer flags it.
-    (``check_accessibility`` followed exactly this path on
-    2026-08-10, finding #919 part b gave it a renderer caller, so
-    it was dropped from the set below and re-added to the Rust
-    allowlist plus the Python registry.)
     """
     rust = _rust_allowed_commands()
     yj10_removed = {

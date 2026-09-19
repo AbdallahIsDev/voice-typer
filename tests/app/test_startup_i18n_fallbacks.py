@@ -1,11 +1,6 @@
-"""Startup i18n fallback registration.
-
+"""
+Startup i18n fallback registration.
 Pins the contract that the English fallback labels for the app-startup
-i18n keys (``error.config_load_failed.*`` / ``state.app.starting``) are
-registered by ``_register_startup_i18n_fallbacks()`` at app-INIT time
-(called from ``VoiceTyperApp.__init__``). NOT at module import time.
-Importing ``voice_typer.server.app`` must stay side-effect-free with
-respect to the i18n registry.
 """
 
 from __future__ import annotations
@@ -22,8 +17,7 @@ _STARTUP_KEYS = {
 
 
 def _pop_startup_keys() -> dict[str, str]:
-    """Remove the startup keys from the English registry (under the
-    registry lock) and return the removed values."""
+    """Remove the startup keys from the English registry (under the"""
     removed: dict[str, str] = {}
     with i18n._LOCK:
         en = i18n._REGISTRY.setdefault("en", {})
@@ -35,13 +29,7 @@ def _pop_startup_keys() -> dict[str, str]:
 
 
 def test_module_import_does_not_register_fallbacks():
-    """Importing ``app`` must not (re)populate the startup keys: the
-    registration moved from module level into ``__init__``. The keys
-    may legitimately already exist (``i18n._INITIAL_LABELS`` owns the
-    canonical English fallbacks), so assert on the MECHANISM: no
-    module-level ``with i18n._LOCK`` registration block remains at
-    import scope, the only registrant is the helper function.
-    """
+    """registration moved from module level into ``__init__``. The keys"""
     import ast
     import inspect
 
@@ -57,8 +45,7 @@ def test_module_import_does_not_register_fallbacks():
 
 
 def test_helper_registers_missing_english_fallbacks():
-    """After the keys are removed, one helper call restores all three
-    English fallbacks."""
+    """After the keys are removed, one helper call restores all three"""
     removed = _pop_startup_keys()
     try:
         # Sanity: the keys are really gone (or were never present).
@@ -76,9 +63,7 @@ def test_helper_registers_missing_english_fallbacks():
 
 
 def test_helper_is_idempotent_and_thread_safe():
-    """Calling the helper repeatedly (including concurrently, as happens
-    when several app instances are constructed in tests) must never
-    overwrite an existing value and must not raise."""
+    """Calling the helper repeatedly (including concurrently, as happens"""
     results: list[Exception | None] = []
 
     def _call() -> None:

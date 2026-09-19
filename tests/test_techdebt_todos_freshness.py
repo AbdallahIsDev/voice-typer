@@ -1,42 +1,6 @@
-"""Regression tests for XZ-CC-13: Stale TODO migrate-tests cluster.
-
-The three god-class decomposition packages (``prewarm``, ``recording``,
-``server_platform``) each carry a TECH-DEBT TODO block in their
-``__init__.py`` documenting the test-patch-compatibility boilerplate
-(``_pkg.X`` indirection / ``_RecordingModule`` custom module class)
-that exists pending migration of tests to patch submodules directly.
-
-XZ-CC-13 flagged these TODOs as stale (no current date, no tracking
-link).  This test file pins the post-fix contract:
-
-1. Each TODO block must reference the migration tracking doc
-   ``docs/rw9-god-class-decomposition.md``.
-2. Each TODO must carry a date in ``YYYY-MM-DD`` form that is on or
-   after ``2026-08-01`` (the date the staleness was addressed).
-3. The TODOs must NOT carry a stripped session-prefix artifact
-   (the double-space ``"  / TECH-DEBT"`` pattern that appeared when a
-   ``CR-XX`` prefix was stripped per C-STYLE-1).
-4. The TODOs must NOT contain literal ``CR-`` task-ID prefixes
-   (C-STYLE-1: no task IDs / session prefixes in source code).
-
-**Update 2026-08-13 (Phase 2 / master plan §6.2):** the prewarm
-package is being re-architected, the standalone binary + OS schedulers
-are being deleted and prewarm becomes a worker-startup phase. When
-Sub-agent 6's slice completes, the TECH-DEBT TODO block in
-``voice_typer/server/prewarm/__init__.py`` will disappear (the
-patch-compatibility boilerplate it documented is no longer needed).
-The ``TestPrewarmInitTODO`` class was rewritten to gracefully handle
-BOTH states (TODO present → must satisfy the freshness contract;
-TODO absent → soft-skip) so the parallel sub-agent coordination doesn't
-deadlock. ``TestRecordingInitTODO`` is unchanged (the recording package
-is owned by a different agent lane and still carries its TODO blocks).
-
-Only the file owned by WAVE2-A10 (and not since rewritten by the
-torch-removal migration) is asserted here:
-- ``voice_typer/server/recording/__init__.py``
-
-The sibling ``server_platform/__init__.py`` TODO is the responsibility
-of a different agent's lane; it is intentionally NOT checked here.
+"""
+Regression tests for XZ-CC-13: Stale TODO migrate-tests cluster.
+``CR-XX`` prefix was stripped per C-STYLE-1).
 """
 
 from __future__ import annotations
@@ -50,16 +14,11 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 PREWARM_INIT = REPO_ROOT / "voice_typer" / "server" / "prewarm" / "__init__.py"
 RECORDING_INIT = REPO_ROOT / "voice_typer" / "server" / "recording" / "__init__.py"
 TRACKING_DOC = "docs/history/rw9-god-class-decomposition.md"
-# The session that addressed the staleness (worklog session start).
 MIN_TODO_DATE = "2026-08-01"
 # Matches "TODO (YYYY-MM-DD, TECH-DEBT", the post-fix format.
-# Accepts an optional ``/`` separator before TECH-DEBT but rejects
-# the bare double-space artifact that signalled a stripped CR-XX prefix.
 TODO_DATE_RE = re.compile(r"TODO\s*\(\s*(\d{4}-\d{2}-\d{2})\s*,\s*TECH-DEBT")
 # The pre-fix artifact: a double space followed by ``/ TECH-DEBT`` —
-# this was left behind when a ``CR-XX`` prefix was stripped.
 STRIPPED_PREFIX_ARTIFACT_RE = re.compile(r"TODO\s*\(\s*\d{4}-\d{2}-\d{2}\s*,\s+/\s*TECH-DEBT")
-# Reject literal ``CR-`` task-ID prefixes anywhere in the TODO block
 # (C-STYLE-1).
 SESSION_PREFIX_RE = re.compile(r"\bCR-[A-Z0-9-]+\b")
 
@@ -70,12 +29,7 @@ def recording_source() -> str:
 
 
 def _todo_blocks(source: str) -> list[str]:
-    """Return the contiguous line-runs that mention TECH-DEBT.
-
-    A "TODO block" is the comment/docstring paragraph that opens with
-    ``TODO (date, TECH-DEBT ...)`` and runs until the next blank line
-    (for docstrings) or the next ``#``-comment gap (for comment blocks).
-    """
+    """Return the contiguous line-runs that mention TECH-DEBT."""
     blocks: list[str] = []
     current: list[str] = []
     in_block = False
@@ -91,8 +45,6 @@ def _todo_blocks(source: str) -> list[str]:
                 and "TODO" not in line
             ):
                 # Heuristic: a blank line OR a non-indented non-comment
-                # line ends the block.  For docstrings this catches the
-                # trailing closing paragraph break.
                 blocks.append("\n".join(current))
                 current = []
                 in_block = False
@@ -104,22 +56,7 @@ def _todo_blocks(source: str) -> list[str]:
 
 
 class TestPrewarmInitTODO:
-    """XZ-CC-13, prewarm/__init__.py TODO block freshness.
-
-    **Phase 2 / master plan §6.2 transition:** Sub-agent 6 is deleting
-    the standalone prewarm binary + OS schedulers and absorbing the
-    cache-probe logic into the worker exe's startup phase. When that
-    slice completes, ``prewarm/__init__.py`` is rewritten as a thin
-    re-export shim around ``cache_probe`` and the TECH-DEBT TODO block
-    disappears (the patch-compat boilerplate it documented is no
-    longer needed).
-
-    This test gracefully handles BOTH the pre-deletion state (TODO
-    block present, must satisfy the freshness contract) and the
-    post-deletion state (no TODO block, the test passes vacuously
-    with a soft-skip marker so the parallel sub-agent coordination
-    doesn't deadlock).
-    """
+    """, prewarm/__init__.py TODO block freshness."""
 
     def test_file_exists(self) -> None:
         assert PREWARM_INIT.is_file(), f"missing: {PREWARM_INIT}"
@@ -128,8 +65,6 @@ class TestPrewarmInitTODO:
         source = PREWARM_INIT.read_text(encoding="utf-8")
         blocks = _todo_blocks(source)
         if not blocks:
-            # Post-deletion state (Sub-agent 6 has finished). Nothing
-            # to assert, the TODO freshness contract no longer applies.
             pytest.skip(
                 "prewarm/__init__.py no longer carries a TECH-DEBT TODO "
                 "block, the package was re-architected as a worker-startup "
@@ -152,17 +87,7 @@ class TestPrewarmInitTODO:
 
 
 class TestRecordingInitTODO:
-    """recording/__init__.py patch-compat boilerplate state.
-
-    The custom ``_RecordingModule`` module class (and its TECH-DEBT
-    TODO blocks) has been REMOVED, every test now patches the owning
-    submodule directly and production code reads the mutable globals
-    from :mod:`.resampling` / :mod:`.buffer` at call time. These tests
-    pin the clean state so the indirection is not silently
-    reintroduced. If a TECH-DEBT TODO block ever reappears, it must
-    satisfy the same freshness contract as before (tracking doc
-    reference, fresh date, no stripped-prefix artifact).
-    """
+    """recording/__init__.py patch-compat boilerplate state."""
 
     def test_file_exists(self) -> None:
         assert RECORDING_INIT.is_file(), f"missing: {RECORDING_INIT}"

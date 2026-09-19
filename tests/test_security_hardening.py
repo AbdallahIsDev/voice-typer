@@ -1,15 +1,6 @@
-"""Regression tests for all SEC fixes applied in this audit round.
-
-Tests cover:
-  - SEC-audit-005: Model integrity verification with SHA-256
-  - SEC-audit-007: Qwen model directory validation (no .py files)
-  - SEC-001: Mutex name uses Local\\ prefix (already verified in code)
-  - SEC-002: _secure_read_text inode verification & symlink rejection
-  - SEC-009: PII-safe hallucination logging & privacy warning
-  - SEC-011: MAX_CORRECTIONS_ENTRIES, MAX_PATTERN_LENGTH, MAX_REPLACEMENT_LENGTH
-  - SEC-audit-011: SystemRoot env var validation
-  - SEC-003: Secure file write permissions (0o600)
-  - SEC-audit-008: Audio buffer zeroing before clear
+"""
+Regression tests for all SEC fixes applied in this audit round.
+- SEC-audit-005: Model integrity verification with SHA-256
 """
 
 import json
@@ -18,8 +9,6 @@ import sys
 from unittest.mock import patch
 
 import pytest
-
-# ─── SEC-audit-005: Model Integrity Verification ──────────────────────────
 
 
 class TestModelIntegrity:
@@ -114,33 +103,10 @@ class TestModelIntegrity:
 
 
 class TestQwenModelIntegrityHardFail:
-    """G4-H-33: ``security.verify_model_integrity`` is the canonical
-    hard-fail path for local Qwen models with an empty ``files`` dict
-    in ``model_hashes.json``.
-
-    The Qwen model is loaded from a user-supplied local path (not a
-    HuggingFace repo_id), so there is NO upstream SHA pin from
-    ``snapshot_download``. The empty-files state was previously a
-    soft-pass in ``qwen_engine._verify_qwen_model_hashes``, a
-    tampered or substituted local Qwen directory would load with NO
-    content hash verification.
-
-    The canonical hard-fail in ``security.verify_model_integrity``
-    returns False when ``manifest["revision"] == "local"`` AND
-    ``manifest["files"]`` is empty, so callers (qwen_engine, once
-    agent 2-f migrates it) refuse to load a tampered model directory.
-    """
+    """G4-H-33: ``security.verify_model_integrity`` is the canonical"""
 
     def test_qwen_dir_with_empty_pinned_files_hard_fails(self, isolated_integrity_cache, tmp_path):
-        """G4-H-33: a local Qwen dir with the default (empty) pinned-files
-        manifest MUST hard-fail integrity verification.
-
-        Constructs a plausible Qwen model directory (model.safetensors,
-        config.json, tokenizer.json, the typical Qwen layout) and
-        asserts that ``verify_model_integrity(dir, "qwen")`` returns
-        False because ``model_hashes.json["qwen"]`` has
-        ``"revision": "local"`` with an empty ``"files"`` dict.
-        """
+        """G4-H-33: a local Qwen dir with the default (empty) pinned-files"""
         from voice_typer.server.security import verify_model_integrity
 
         # Construct a plausible Qwen model dir.
@@ -149,7 +115,6 @@ class TestQwenModelIntegrityHardFail:
         (tmp_path / "tokenizer.json").write_text("{}")
 
         # The default model_hashes.json has ``"qwen": {"revision":
-        # "local", "files": {}}``, so the hard-fail branch MUST fire.
         result = verify_model_integrity(str(tmp_path), "qwen")
         assert result is False, (
             "verify_model_integrity must hard-FAIL for a local Qwen dir "
@@ -158,14 +123,10 @@ class TestQwenModelIntegrityHardFail:
         )
 
     def test_qwen_dir_tampered_with_pinned_hash_mismatch(self, isolated_integrity_cache, tmp_path):
-        """G4-H-33: a tampered local Qwen dir (pinned hash mismatch)
-        is rejected via the canonical ``verify_model_integrity`` path.
-
+        """
+        G4-H-33: a tampered local Qwen dir (pinned hash mismatch)
         Populates the manifest with pinned hashes for the Qwen repo
-        (simulating an operator who has populated ``files`` with the
-        expected SHA-256 digests), then constructs a directory whose
         ``model.safetensors`` content does NOT match the pinned hash.
-        Verifies that ``verify_model_integrity`` returns False.
         """
         import hashlib
 
@@ -177,9 +138,6 @@ class TestQwenModelIntegrityHardFail:
         (tmp_path / "config.json").write_text('{"model_type": "qwen2"}')
         (tmp_path / "tokenizer.json").write_text("{}")
 
-        # Compute the ACTUAL hash of model.safetensors, then pin a
-        # WRONG hash to simulate a tampered directory (the file on
-        # disk differs from what the manifest expects).
         actual_safetensors_hash = hashlib.sha256(b"\x00" * 1024).hexdigest()
         wrong_hash = "0" * 64  # definitely not the actual hash
 
@@ -208,16 +166,7 @@ class TestQwenModelIntegrityHardFail:
             security.MODEL_HASHES.update(original)
 
     def test_qwen_dir_valid_with_correct_pinned_hashes(self, isolated_integrity_cache, tmp_path):
-        """G4-H-33: a valid local Qwen dir (pinned hashes match) is
-        accepted via ``verify_model_integrity``.
-
-        Populates the manifest with the CORRECT pinned hashes for the
-        Qwen repo, then constructs a directory whose file contents
-        match. Verifies that ``verify_model_integrity`` returns True.
-        This is the positive case, operators who populate
-        ``model_hashes.json`` with real hashes can load their local
-        Qwen model.
-        """
+        """G4-H-33: a valid local Qwen dir (pinned hashes match) is"""
         import hashlib
 
         from voice_typer.server import security
@@ -252,12 +201,7 @@ class TestQwenModelIntegrityHardFail:
             security.MODEL_HASHES.update(original)
 
     def test_qwen_dir_missing_pinned_file(self, isolated_integrity_cache, tmp_path):
-        """G4-H-33: a local Qwen dir missing a pinned file is rejected.
-
-        Even when the manifest is populated with pinned hashes, if a
-        pinned file is missing from the directory, the integrity
-        check must fail (hard-fail).
-        """
+        """G4-H-33: a local Qwen dir missing a pinned file is rejected."""
         import hashlib
 
         from voice_typer.server import security
@@ -288,16 +232,6 @@ class TestQwenModelIntegrityHardFail:
 
 
 # SEC-audit-007 note (2026-08-15): the Qwen model-directory allowlist
-# (``_validate_qwen_model_dir`` / ``_QWEN_ALLOWED_EXTENSIONS``) was
-# removed with the torch Qwen engine. The ONNX backend
-# (``qwen_onnx_model.py``) loads ONLY the specific known files
-# (encoder/decoder ONNX sessions, embed_tokens.bin, tokenizer.json,
-# config.json) via ``is_onnx_model_dir`` + ``from_pretrained``, a
-# stricter trust posture than the old extension allowlist, with no
-# code-execution surface from the model dir.
-
-
-# ─── SEC-001: Mutex Local\ Prefix ──────────────────────────────────────────
 
 
 class TestMutexLocalPrefix:
@@ -310,9 +244,6 @@ class TestMutexLocalPrefix:
         with open(app_module.__file__) as f:
             source = f.read()
         assert "Local\\\\VoiceTyperSingleInstance" in source or '"Local\\VoiceTyperSingleInstance"' in source
-
-
-# ─── SEC-002: Secure Read Text ──────────────────────────────────────────────
 
 
 class TestSecureReadText:
@@ -348,9 +279,6 @@ class TestSecureReadText:
         test_file = tmp_path / "test.txt"
         test_file.write_text("héllo wörld", encoding="utf-8")
         assert _secure_read_text(test_file, encoding="utf-8") == "héllo wörld"
-
-
-# ─── SEC-009: PII-Safe Hallucination Logging ──────────────────────────────
 
 
 class TestHallucinationLogging:
@@ -409,16 +337,12 @@ class TestHallucinationLogging:
         assert "PII" in caplog.text or "privacy" in caplog.text.lower() or "log_transcriptions" in caplog.text
 
 
-# ─── SEC-011: Corrections Limits ──────────────────────────────────────────
-
-
 class TestCorrectionsLimits:
     """SEC-011: MAX_CORRECTIONS_ENTRIES, MAX_PATTERN_LENGTH, MAX_REPLACEMENT_LENGTH."""
 
     def test_max_corrections_entries_constant(self):
         """SEC-011: MAX_CORRECTIONS_ENTRIES is 5000."""
         # The constant is used inside the function; verify indirectly
-        # by checking that the vocabulary module also defines it
         from voice_typer.server.vocabulary import MAX_CORRECTIONS_ENTRIES
 
         assert MAX_CORRECTIONS_ENTRIES == 5000
@@ -481,22 +405,9 @@ class TestCorrectionsLimits:
             assert long_pattern not in misspellings
 
     def test_phrase_pattern_cache_is_bounded_via_combined_regex(self):
-        """SEC-011 (revised): the former per-phrase LRU
-        ``_phrase_pattern_cache`` was dead on the production hot path and
-        has been removed. The live path is ``_get_phrases_regex``, which
-        builds ONE combined-alternation regex per active-phrase list and
-        caches it by list identity, so memory grows with the number of
-        distinct ``configure_corrections`` calls, not with the number of
-        distinct phrases ever seen. This test pins that the live cache
-        contract holds: a single call returns a compiled regex + lookup
-        dict for the active phrases, and a fresh call returns the same
-        cached objects.
-        """
+        """SEC-011 (revised): the former per-phrase LRU"""
         import re
 
-        # The mutable regex-cache state lives on the ``_engine`` leaf of
-        # the text_cleanup package, poke it there so the reading
-        # functions see the replacement.
         from voice_typer.server.text_cleanup import _engine as text_cleanup
 
         saved = text_cleanup._active_phrases
@@ -512,9 +423,6 @@ class TestCorrectionsLimits:
         finally:
             text_cleanup._active_phrases = saved
             text_cleanup._phrases_re_cache = (None, None, {})
-
-
-# ─── SEC-audit-011: SystemRoot Validation ──────────────────────────────────
 
 
 class TestSystemRootValidation:
@@ -538,19 +446,12 @@ class TestSystemRootValidation:
         assert callable(_validate_systemroot)
 
     def test_systemroot_validation_called_in_app(self):
-        """SEC-audit-011: _validate_systemroot is called in _validate_env_vars.
-
-        The check lives in the canonical ``env_validation`` module (the
-        app-module re-export was removed with the test-seam cleanup).
-        """
+        """SEC-audit-011: _validate_systemroot is called in _validate_env_vars."""
         import voice_typer.server.env_validation as env_validation_module
 
         with open(env_validation_module.__file__) as f:
             source = f.read()
         assert "_validate_systemroot" in source
-
-
-# ─── SEC-003: Secure File Write Permissions ──────────────────────────────
 
 
 class TestSecureFileWrites:
@@ -588,8 +489,6 @@ class TestSecureFileWrites:
 
     def test_autostart_launcher_uses_secure_write(self):
         """SEC-003: _write_pid_file uses _secure_atomic_write."""
-        # _write_pid_file lives in the autostart subpackage since the
-        # launcher was split into a facade + leaf modules.
         import voice_typer.server.autostart.pid_file as mod
 
         with open(mod.__file__) as f:
@@ -597,14 +496,6 @@ class TestSecureFileWrites:
         assert "_secure_atomic_write" in source
 
     # (IMPROVE-mode run PI): ``test_security_restart_token_uses_secure_write``
-    # removed, the ``generate_restart_token`` function it pinned was dead code
-    # (imported into ``app.py`` but never called in production) and has been
-    # deleted from ``voice_typer/server/security.py``. The other tests in this
-    # class still verify ``_secure_atomic_write`` usage across
-    # ``duck_crash_recovery``, ``onboarding``, and ``autostart_launcher``.
-
-
-# ─── SEC-audit-008: Audio Buffer Zeroing ──────────────────────────────────
 
 
 class TestAudioBufferZeroing:
@@ -626,7 +517,6 @@ class TestAudioBufferZeroing:
         with open(mod.__file__) as f:
             source = f.read()
         # The preroll buffer should also be zeroed
-        # Find the section that zeros the preroll buffer
         assert "_preroll_buffer" in source
         # Verify that there's a fill(0) near preroll_buffer
         lines = source.split("\n")
@@ -635,9 +525,6 @@ class TestAudioBufferZeroing:
                 # Look backward for fill(0)
                 context = "\n".join(lines[max(0, i - 5) : i + 1])
                 assert "fill(0)" in context, "preroll_buffer.clear() should be preceded by fill(0)"
-
-
-# ─── SEC-002: Secure read used in security-sensitive paths ────────────────
 
 
 class TestSecureReadUsage:
@@ -654,8 +541,6 @@ class TestSecureReadUsage:
     def test_text_cleanup_uses_secure_read(self):
         """SEC-002: text_cleanup._load_external_corrections uses _secure_read_text."""
         # The corrections loaders (which perform the secure reads) moved
-        # into the ``_corrections_data`` leaf of the text_cleanup package
-        # split; scan the module where the actual read happens.
         import voice_typer.server.text_cleanup._corrections_data as mod
 
         with open(mod.__file__) as f:
@@ -665,9 +550,6 @@ class TestSecureReadUsage:
     def test_config_load_uses_secure_read(self):
         """SEC-002: Config.load uses _secure_read_text for config.json."""
         # The load implementation moved into ``config/loader.py`` during
-        # the config package split; the facade (``config/__init__.py``)
-        # only re-exports the name. Scan the module where the actual
-        # read happens.
         import voice_typer.server.config.loader as mod
 
         with open(mod.__file__) as f:
@@ -684,8 +566,3 @@ class TestSecureReadUsage:
         assert "_secure_read_text" in source
 
     # (IMPROVE-mode run PI): ``test_security_verify_restart_uses_secure_read``
-    # removed, the ``verify_restart_token`` function it pinned was dead code
-    # (imported into ``app.py`` but never called in production) and has been
-    # deleted from ``voice_typer/server/security.py``. The other tests in this
-    # class still verify ``_secure_read_text`` usage across ``vocabulary``,
-    # ``text_cleanup``, ``config``, and ``duck_crash_recovery``.

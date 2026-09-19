@@ -1,8 +1,4 @@
-"""Tests for tray_icon module: shape drawing and indicator overlay.
-
-TRAY-032: Tests for _draw_shape() (all 4 shapes + unknown fallback)
-and _draw_shape_indicator() (overlay positioning, invalid size safety).
-"""
+"""Tests for tray_icon module: shape drawing and indicator overlay."""
 
 import pytest
 
@@ -162,11 +158,9 @@ class TestDrawShapeIndicator:
         from voice_typer.server.tray_icon import _draw_shape_indicator
 
         # Create a real image but make its .size return None by
-        # patching at the class level on the copied image.
         real_img = Image.new("RGBA", (32, 32), (0, 0, 0, 255))
 
         # The function does: img = img.copy() then checks img.size
-        # Patch Image.Image.size to return None for this test
         original_size = Image.Image.size
         try:
             Image.Image.size = property(lambda self: None)  # type: ignore[assignment]
@@ -233,7 +227,6 @@ class TestDrawShapeIndicator:
         color = (255, 0, 0, 255)
         result = _draw_shape_indicator(base, "square", color)
         # Bottom-right quadrant should have indicator pixels
-        # (the indicator is ~20% of icon size = ~13px for 64px icon)
         br_pixel = result.getpixel((58, 58))
         assert br_pixel[3] > 0  # indicator drawn in bottom-right
 
@@ -283,9 +276,6 @@ class TestMakeIcon:
             assert state in _ICON_SHAPES, f"AppState.{state.name} missing from _ICON_SHAPES"
 
 
-# =============================================================================
-# === Merged from test_new_perf_consolidated.py (: DPI cache) ===
-# =============================================================================
 """Regression tests for NEW-PERF-005: DPI-aware icon size caching.
 
 Previously, ``_get_dpi_aware_icon_size()`` ran Win32 ``GetDC(0)`` +
@@ -308,9 +298,6 @@ from voice_typer.server.tray_icon import (  # noqa: E402
 def _install_fake_windll(monkeypatch):
     """Install a fake ``ctypes.windll`` (Linux doesn't have one)."""
     fake_windll = MagicMock()
-    # ctypes.windll is a magic attribute on Windows; on Linux we have
-    # to set it manually for the import-time `import ctypes; ctypes.windll`
-    # pattern used in tray_icon.py to work.
     monkeypatch.setattr(ctypes, "windll", fake_windll, raising=False)
     return fake_windll
 
@@ -328,8 +315,6 @@ class TestDpiCache:
     def test_first_call_queries_win32(self):
         """The first call must invoke the Win32 GetDC chain."""
         # On non-Windows platforms, the function returns the base size
-        # without calling GetDC.  We can still verify the cache is
-        # populated.
         result = _get_dpi_aware_icon_size()
         assert isinstance(result, int)
         assert result > 0
@@ -338,9 +323,7 @@ class TestDpiCache:
         assert tray_icon._dpi_aware_size_cache == result
 
     def test_second_call_uses_cache(self, monkeypatch):
-        """The second call must NOT re-invoke Win32, it returns the
-        cached value directly.
-        """
+        """cached value directly."""
         # Mock the platform check + ctypes to detect calls.
         monkeypatch.setattr(tray_icon, "is_windows", lambda: True)
         fake_windll = _install_fake_windll(monkeypatch)
@@ -359,7 +342,6 @@ class TestDpiCache:
         # All three results must be the same.
         assert result1 == result2 == result3
         # GetDC must only have been called ONCE (the first call).
-        # The second and third calls must hit the cache.
         assert getdc_calls_after_first == 1, (
             f"GetDC called {getdc_calls_after_first} times after first call; expected 1"
         )
@@ -415,9 +397,6 @@ class TestDpiCache:
         assert result == 64, f"expected 64 (base), got {result}"
 
 
-# =============================================================================
-# === Merged from test_tray_icon_history_models.py (regression: _make_icon source) ===
-# =============================================================================
 """Regression tests for ``tray_icon._make_icon`` source content.
 
 Merged here from ``tests/test_tray_icon_history_models.py`` (Phase 4.5 /
@@ -458,8 +437,6 @@ class TestTrayIconUsesGetchannelNotSplitIndex:
 
         assert "split()[3]" not in code_only
         # The production source uses ``getchannel("A")`` (double quotes);
-        # accept either quote style so the test is resilient to the
-        # formatter's preference.
         assert ('getchannel("A")' in code_only) or ("getchannel('A')" in code_only), (
             "expected getchannel('A') or getchannel(\"A\") in _make_icon source"
         )

@@ -1,16 +1,4 @@
-"""Security contracts for Tauri's Windows Authenticode signing path.
-
-``tauri-sign.cmd`` is intentionally a minimal adapter: Tauri invokes it
-through ``bundle.windows.signCommand`` with the binary path as ``%1``. The
-adapter must never expand an arbitrary signing command. It delegates to one
-PowerShell helper so Tauri, inner binaries, and release installers all use the
-same validated arguments, branding lookup, timestamp retry policy, and
-signature verification.
-
-The Linux sandbox cannot invoke ``cmd.exe`` or ``signtool``. These tests pin
-the security-critical static contract; the Windows Tauri workflow is the
-platform-specific execution check.
-"""
+"""Security contracts for Tauri's Windows Authenticode signing path."""
 
 from __future__ import annotations
 

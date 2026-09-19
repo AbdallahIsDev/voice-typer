@@ -1,11 +1,4 @@
-"""BP-127: shared autostart interpreter-resolution core.
-
-``_prefer_pythonw`` + ``_probe_system_python`` (in
-``server_platform.autostart``) own the recipe all three platform
-registrars shared verbatim (pythonw preference → venv probe →
-can-import check). These tests pin the shared core directly so a
-future interpreter-handling fix is verified once, not per platform.
-"""
+"""BP-127: shared autostart interpreter-resolution core."""
 
 from __future__ import annotations
 
@@ -28,13 +21,7 @@ def test_prefer_pythonw_keeps_input_when_absent(tmp_path: Path) -> None:
 
 
 def test_venv_guard_stays_in_callers_not_helper() -> None:
-    """The ``sys.prefix`` venv guard is owned by the three registrars.
-
-    The shared probe deliberately has no guard (it answers "is this
-    candidate swappable?"). If a future cleanup drops a caller's guard,
-    venv users would get swap warnings on every registration, pin the
-    guard text in all three call sites.
-    """
+    """The ``sys.prefix`` venv guard is owned by the three registrars."""
     import inspect
 
     for mod_name in (

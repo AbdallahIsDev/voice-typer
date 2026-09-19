@@ -33,7 +33,6 @@ import pytest
 from voice_typer.server.env_validation import _validate_env_vars
 
 # All env vars touched by _validate_env_vars (kept in sync with the SUT
-# so the autouse fixture can wipe them between tests).
 _BOOL_VARS = (
     "VOICE_TYPER_QUIET",
     "VOICE_TYPER_DEBUG",
@@ -194,8 +193,6 @@ class TestConfigDirInHomePreserved:
         """A relative path that resolves under ``Path.home()`` (e.g.
         a subdirectory of the current working directory, when cwd is
         itself under home) is preserved."""
-        # tmp_path is typically /tmp/pytest-of-<user>/... which is NOT
-        # under Path.home(); chdir to a sub-dir of home instead.
         in_home_dir = Path.home() / ".voice-typer-test-cwd"
         in_home_dir.mkdir(exist_ok=True)
         monkeypatch.chdir(in_home_dir)

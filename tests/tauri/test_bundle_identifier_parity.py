@@ -1,38 +1,4 @@
-"""Tauri host identity guard (identifier, productName, version).
-
-The app ships one desktop shell, the Tauri host (``src-tauri/``), and
-three identity fields must stay in lockstep across the configs that
-feed them:
-
-- ``identifier`` (tauri.conf.json) becomes the macOS
-  ``CFBundleIdentifier`` (plus the Windows MSI/NSIS product identity,
-  Android package-name root, etc.). The documented invariant
-  (``docs/migration/signing-guide.md`` + ``docs/adr/0020``) is that the
-  Tauri ``identifier`` stays stable across releases. Drift means an
-  upgrade ships a different app identity (broken upgrades, orphaned
-  TCC/permission entries, duplicate dock/tray presence).
-- ``productName`` (tauri.conf.json) is the display name shown in the
-  menu bar, dock, Start menu, ``.app`` bundle name, etc. Note this is
-  NOT compared to ``package.json`` ``name``: npm names are
-  conventionally lowercase-hyphenated (``voice-typer-desktop``) and are
-  not display names.
-- ``version`` (tauri.conf.json) == ``version`` (package.json) — the
-  Tauri config inherits the npm package version, so the version chain
-  is tauri ↔ package.json. Drift shows two different version numbers
-  to users / the updater.
-
-The Tauri CLI also emits a build-log WARNING when the identifier ends
-in ``.app`` (it collides with the macOS application-bundle extension,
-e.g. ``com.voicetyper.app``). This module fails fast if either value
-regresses to a ``.app`` suffix, so the warning can't silently come
-back.
-
-CI merges a per-arch config (``tauri.<os>-<arch>.conf.json``) over the
-base ``tauri.conf.json`` via ``--config``; a per-arch ``identifier`` /
-``productName`` / ``version`` override would bypass this parity guard
-on that platform's build, so the tests also pin the base config as the
-single source of truth for all three identity fields.
-"""
+"""Tauri host identity guard (identifier, productName, version)."""
 
 from __future__ import annotations
 
@@ -102,24 +68,13 @@ def _fail_on_dot_app(value: str, label: str, file: Path) -> None:
 
 
 def _built_macos_bundle_root(tauri_conf: dict) -> Path | None:
-    """Locate the CI-built ``<productName>.app`` under ``src-tauri/target``.
-
-    Derives the expected bundle root from COMMITTED sources instead of
-    hardcoding a path: the bundle directory name comes from
-    ``tauri.conf.json`` ``productName`` (plus the ``.app`` suffix the
-    Tauri bundler appends), and the target dir follows the build
-    layout ``cargo tauri build --target universal-apple-darwin``
-    produces (``tauri-macos-build.yml``). Returns ``None`` when no
-    built bundle is present, e.g. a dev box with no ``cargo tauri
-    build`` output, so callers skip gracefully instead of failing.
-    """
+    """Locate the CI-built ``<productName>.app`` under ``src-tauri/target``."""
     product_name = tauri_conf.get("productName")
     assert isinstance(product_name, str) and product_name, (
         f"tauri.conf.json must have a non-empty string 'productName'; got {product_name!r}"
     )
     candidates = [
         # The universal build the tauri-macos-build.yml universal job
-        # produces (--target universal-apple-darwin).
         PROJECT_ROOT
         / "src-tauri"
         / "target"
@@ -138,29 +93,10 @@ def _built_macos_bundle_root(tauri_conf: dict) -> Path | None:
 
 
 class TestBuiltBundleIdentifierRoundTrip:
-    """The CI-built ``.app`` must carry the identifier the configs declare.
-
-    Identity parity (above) pins the CONFIG files; this class pins the
-    BUILT ARTIFACT: once ``cargo tauri build`` has produced
-    ``<productName>.app`` on the macOS CI runner, its
-    ``Contents/Info.plist`` must exist and its ``CFBundleIdentifier``
-    must round-trip through ``read_bundle_identifier`` to exactly the
-    base ``tauri.conf.json`` ``identifier``. A drift that only the
-    bundler could introduce (e.g. a per-arch identifier override that
-    slips past the config tests) dies on the artifact, not in the
-    release cut.
-
-    All tests skip gracefully when no built ``.app`` exists (dev box,
-    workflow legs before ``cargo tauri build``); they assert on the
-    artifact when it is present, which is exactly what the post-build
-    step added to ``tauri-macos-build.yml`` relies on.
-    """
+    """The CI-built ``.app`` must carry the identifier the configs declare."""
 
     def test_bundle_root_derivable_from_committed_sources(self, tauri_conf: dict):
-        """The expected bundle root is DERIVED (never hardcoded): the path
-        must resolve from ``tauri.conf.json`` ``productName`` + the build
-        layout, and its basename must be ``<productName>.app`` (Tauri
-        bundler convention), whether or not the artifact exists yet."""
+        """The expected bundle root is DERIVED (never hardcoded): the path"""
         root = _built_macos_bundle_root(tauri_conf)
         product_name = tauri_conf.get("productName")
         assert isinstance(product_name, str) and product_name, (
@@ -173,13 +109,7 @@ class TestBuiltBundleIdentifierRoundTrip:
             )
 
     def test_built_app_info_plist_round_trips_identifier(self, tauri_conf: dict):
-        """The built ``.app``'s Info.plist must round-trip the identifier.
-
-        Asserts (when the artifact exists): ``Contents/Info.plist`` is
-        present, and ``read_bundle_identifier`` (the same function the
-        runtime host-bundle resolver uses) returns exactly the base
-        ``tauri.conf.json`` ``identifier``.
-        """
+        """The built ``.app``'s Info.plist must round-trip the identifier."""
         root = _built_macos_bundle_root(tauri_conf)
         if root is None:
             pytest.skip("no built .app found under src-tauri/target (run cargo tauri build first)")
@@ -198,14 +128,7 @@ class TestBuiltBundleIdentifierRoundTrip:
 
 
 class TestSyntheticBundleRoundTrip:
-    """Synthetic-bundle round-trip (platform-independent, no build needed).
-
-    ``read_bundle_identifier`` + ``app_bundle_root`` are exercised
-    against an Info.plist written by the test itself, so the parser
-    contracts stay regression-locked on every platform, including the
-    Windows dev box and the Linux CI sandbox where a built ``.app``
-    never exists.
-    """
+    """Synthetic-bundle round-trip (platform-independent, no build needed)."""
 
     def test_synthetic_app_round_trips_identifier(self, tmp_path):
         app = tmp_path / "Synthetic.app"
@@ -222,18 +145,7 @@ class TestSyntheticBundleRoundTrip:
 
 
 class TestBuiltAppRealPsWalk:
-    """macOS-only: the REAL ``ps`` parent-chain walk against the built ``.app``.
-
-    The runtime host-bundle resolver (``resolve_host_bundle_id``) walks
-    the real process tree from the backend to the nearest ``.app`` and
-    reads its Info.plist. On CI, the real walk must resolve the
-    JUST-BUILT ``<productName>.app`` end-to-end: launch a real child
-    process whose executable lives inside the built bundle, run the
-    real ``ps`` walk from its pid, and require the resolved identifier
-    to match the configs. This is the post-build integration leg of
-    the macOS workflow (executed by the step added to
-    ``tauri-macos-build.yml`` after ``cargo tauri build``).
-    """
+    """macOS-only: the REAL ``ps`` parent-chain walk against the built ``.app``."""
 
     @pytest.mark.skipif(sys.platform != "darwin", reason="macos-only real ps walk")
     def test_real_ps_walk_resolves_built_app(self, tauri_conf: dict, tmp_path):
@@ -245,9 +157,6 @@ class TestBuiltAppRealPsWalk:
         if root is None:
             pytest.skip("no built .app found under src-tauri/target (run cargo tauri build first)")
         # A synthetic child executable INSIDE the built bundle: a copy
-        # of /bin/sleep (a shebang script would report the interpreter
-        # path in ps comm, not the bundle path, same premise as the
-        # backend-spawned sidecars the resolver actually sees).
         macos_dir = root / "Contents" / "MacOS"
         probe = macos_dir / "__ci_probe_sleep"
         shutil.copy2("/bin/sleep", probe)
@@ -256,7 +165,6 @@ class TestBuiltAppRealPsWalk:
         try:
             proc = subprocess.Popen([str(probe), "30"])
             # Premise: the live process's comm must resolve to the built
-            # bundle (robust to /var -> /private/var canonicalisation).
             line = mbid._process_chain_line(proc.pid)
             parts = line.split(None, 1)
             assert len(parts) == 2, f"ps must report '<ppid> <exe>'; got: {line!r}"

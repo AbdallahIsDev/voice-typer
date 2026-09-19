@@ -1,25 +1,4 @@
-"""§8.12: Pack version change during download.
-
-Spec (§8.12):
-
-  Partial downloads are saved per pack-version. If the needed version
-  is still the same, the download continues. If the version changed,
-  the old partial is discarded.
-
-Tested behaviors:
-
-  1. A partial for an OLD version (``v1``) is left untouched when
-     downloading a NEW version (``v2``). The new download starts from
-     offset 0 at its own partial path.
-  2. If the user previously started downloading ``v1`` and now needs
-     ``v2``, the ``v1`` partial is NOT used for the ``v2`` download
-     (different paths).
-  3. If a partial for ``v1`` is corrupt and the version is still
-     ``v1``, the resume path attempts to re-hash and either continues
-     or restarts (covered by §8.1 test).
-  4. The download path is per-version, each version has its own
-     ``pack-<version>.partial`` file.
-"""
+"""§8.12: Pack version change during download."""
 
 from __future__ import annotations
 
@@ -74,10 +53,8 @@ class TestVersionChangeDuringDownload:
         )
         assert ok
         # The v2 download started from offset 0 (its own partial was
-        # absent, the v1 partial was NOT reused).
         assert calls[0]["offset"] == 0
         # The v1 partial is still on disk (untouched, caller can clean
-        # it up separately, but the v2 download did not delete it).
         assert v1_partial.exists()
         assert v1_partial.read_bytes() == v1_body[:500]
         # The v2 partial now has the full v2 body.
@@ -116,19 +93,12 @@ class TestVersionChangeDuringDownload:
         assert calls[0]["offset"] == 1000
 
     def test_version_specific_lock_files(self, tmp_path: Path):
-        """The lock file is also per-version, no cross-version contention.
-
-        The lock files are SIBLINGS of the version dirs (children of the
-        pack root) so the §8.3 atomic swap cannot carry a lock's inode
-        away with the version directory it guards.
-        """
+        """The lock file is also per-version, no cross-version contention."""
         l1 = offline_pack.offline_pack_lock_path("v1", root=tmp_path)
         l2 = offline_pack.offline_pack_lock_path("v2", root=tmp_path)
         assert l1 != l2
         assert l1.name == "pack-v1.lock"
         assert l2.name == "pack-v2.lock"
-        # Sibling placement: same parent (the pack root), NOT inside the
-        # version directories.
         assert l1.parent == l2.parent == tmp_path
         assert l1.parent != offline_pack.offline_pack_dir_for_version("v1", root=tmp_path)
 

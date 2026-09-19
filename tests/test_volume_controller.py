@@ -1,36 +1,4 @@
-"""RW-9 regression tests for the ``VolumeController`` extraction.
-
-The three volume-side-effect methods (``_on_volume_crash_restore``,
-``_duck_volume``, ``_restore_volume``) were extracted from
-``VoiceTyperApp`` to ``voice_typer/server/volume_controller.py``.
-``VoiceTyperApp`` keeps thin delegate methods so callers
-(``RecordingController`` → ``app._duck_volume()``, ``app._do_cleanup``
-→ ``self._restore_volume(fade_ms=0)``, and the ``VolumeDucker``
-crash-restore callback wired in ``__init__``) keep working unchanged.
-
-These tests pin the contract of the extraction:
-
-1. ``VolumeController`` exposes the three methods and is callable.
-2. ``_duck_volume`` configures the ducker (smart-duck + poll interval),
-   then calls ``duck(level=…, fade_ms=…, per_session=False)`` using the
-   config-provided level / fade_ms.
-3. ``_duck_volume`` early-returns when ``config.volume_duck_enabled`` is
-   False (no duck call, no smart-duck setup).
-4. ``_duck_volume`` does NOT call ``duck()`` when ``initialize()`` returns
-   False (backend missing / failed).
-5. ``_duck_volume`` swallows exceptions from the ducker (never re-raises
- , dictation must continue even if volume control fails).
-6. ``_restore_volume`` calls ``restore(fade_ms=…, per_session=False)``.
-7. ``_restore_volume`` uses the configured fade when ``fade_ms`` is None.
-8. ``_restore_volume`` passes an explicit ``fade_ms`` straight through
-   (used by quit/restart with ``fade_ms=0``).
-9. ``_restore_volume`` early-returns when ducking is disabled.
-10. ``_restore_volume`` swallows exceptions.
-11. ``_on_volume_crash_restore`` notifies the tray with the restored
-    percentage.
-12. ``_on_volume_crash_restore`` swallows exceptions from ``tray.notify``
-    (a notification failure must not crash the app on startup).
-"""
+"""RW-9 regression tests for the ``VolumeController`` extraction."""
 
 from __future__ import annotations
 
@@ -40,8 +8,6 @@ import pytest
 from voice_typer.server.branding import APP_NAME
 from voice_typer.server.volume_controller import VolumeController
 from voice_typer.server.volume_ducker import DEFAULT_DUCK_LEVEL
-
-# ── Helpers ────────────────────────────────────────────────────────────────
 
 
 class _FakeState:
@@ -53,8 +19,7 @@ class _FakeState:
 
 @pytest.fixture
 def fake_app() -> MagicMock:
-    """A MagicMock app with ``config`` / ``tray`` / ``_volume_ducker``
-    wired as separate MagicMocks so tests can assert on call_args."""
+    """A MagicMock app with ``config`` / ``tray`` / ``_volume_ducker``"""
     app = MagicMock(name="VoiceTyperApp")
     # Default config: ducking enabled, sensible levels.
     app.config.volume_duck_enabled = True
@@ -71,9 +36,6 @@ def controller(fake_app: MagicMock) -> VolumeController:
     return VolumeController(fake_app)
 
 
-# ── 1. Method surface ──────────────────────────────────────────────────────
-
-
 class TestVolumeControllerSurface:
     """``VolumeController`` must expose the three extracted methods."""
 
@@ -84,9 +46,6 @@ class TestVolumeControllerSurface:
 
     def test_back_reference_is_app(self, fake_app: MagicMock, controller: VolumeController):
         assert controller._app is fake_app, "VolumeController._app must hold the back-reference passed to __init__"
-
-
-# ── 2-5. _duck_volume ─────────────────────────────────────────────────────
 
 
 class TestDuckVolume:
@@ -101,7 +60,6 @@ class TestDuckVolume:
         fake_app._volume_ducker.set_smart_duck_poll_interval.assert_called_once_with(500)
         # Backend re-initialised each time duck is requested.
         fake_app._volume_ducker.initialize.assert_called_once_with()
-        # duck() called with the configured level / fade, never per-session.
         fake_app._volume_ducker.duck.assert_called_once_with(
             level=0.25,
             fade_ms=200,
@@ -109,8 +67,7 @@ class TestDuckVolume:
         )
 
     def test_duck_uses_defaults_when_config_attrs_missing(self, fake_app, controller):
-        """If config is missing the optional duck knobs, defaults kick in
-        (level=DEFAULT_DUCK_LEVEL=0.20, fade_ms=200, poll_interval=500)."""
+        """If config is missing the optional duck knobs, defaults kick in"""
         del fake_app.config.volume_duck_level
         del fake_app.config.volume_duck_fade_ms
         del fake_app.config.volume_duck_smart_poll_interval_ms
@@ -125,10 +82,7 @@ class TestDuckVolume:
         fake_app._volume_ducker.set_smart_duck_poll_interval.assert_called_once_with(500)
 
     def test_duck_level_fallback_single_sourced(self, fake_app, controller):
-        """The missing-config duck-level fallback must be the shared
-        ``DEFAULT_DUCK_LEVEL`` constant (0.20, matching the config schema's
-        ``volume_duck_level`` default), imported from its single source —
-        not an independently-maintained literal."""
+        """The missing-config duck-level fallback must be the shared"""
         assert DEFAULT_DUCK_LEVEL == 0.20
         del fake_app.config.volume_duck_level
 
@@ -176,11 +130,7 @@ class TestDuckVolume:
         controller._duck_volume()
 
         fake_app._volume_ducker.set_smart_duck_enabled.assert_called_once_with(True)
-        # initialize() / duck() never reached because the exception short-circuited.
         fake_app._volume_ducker.duck.assert_not_called()
-
-
-# ── 6-10. _restore_volume ──────────────────────────────────────────────────
 
 
 class TestRestoreVolume:
@@ -230,12 +180,8 @@ class TestRestoreVolume:
         fake_app._volume_ducker.restore.assert_called_once()
 
 
-# ── 11-12. _on_volume_crash_restore ────────────────────────────────────────
-
-
 class TestOnVolumeCrashRestore:
-    """``_on_volume_crash_restore`` notifies the user about a stale
-    crash-recovery file."""
+    """``_on_volume_crash_restore`` notifies the user about a stale"""
 
     def test_notifies_tray_with_percent(self, fake_app, controller):
         state = _FakeState(linear=0.42)

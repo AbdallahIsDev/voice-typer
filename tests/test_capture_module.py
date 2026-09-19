@@ -1,15 +1,4 @@
-"""Phase 4.5: focused unit tests for
-``voice_typer.server.recording.capture.AudioCallbackDispatcher``.
-
-These tests exercise the public API of the new collaborator with a
-mocked ``recorder`` instance (a small ``_FakeRecorder`` helper class).
-No real audio hardware is touched, no PortAudio, no real audio
-worker thread, no subprocess. Each test sets up the fake's state,
-calls ``AudioCallbackDispatcher.dispatch_callback_body`` or
-``AudioCallbackDispatcher.audio_worker_loop``, and asserts on the
-observable side-effects (counters, ring-buffer contents, mock call
-counts).
-"""
+"""Phase 4.5: focused unit tests for"""
 
 from __future__ import annotations
 
@@ -29,17 +18,7 @@ from tests.fixtures.wait_helpers import wait_until
 
 
 class _FakeRecorder:
-    """Minimal stand-in for :class:`Recorder` that owns the shared state
-    touched by :class:`AudioCallbackDispatcher`.
-
-    Real ``threading.Event`` / ``collections.deque`` instances are used so
-    the dispatcher's synchronization and SPSC-ring-buffer assumptions
-    are exercised faithfully. The mono downmix is exercised by spying on
-    the module-level :func:`format.ensure_mono` the preroll branch calls
-    (delegating to the real implementation). ``_process_audio_chunk``
-    records its call args so tests can assert on the chunks the worker
-    loop drained.
-    """
+    """Minimal stand-in for :class:`Recorder` that owns the shared state"""
 
     def __init__(
         self,
@@ -100,7 +79,6 @@ class TestDispatchCallbackBodyPrerollPath:
         indata = np.arange(2 * 4, dtype=np.float32).reshape(4, 2)
         # Spy on the module-level downmix helper the preroll branch calls
         # (delegating to the REAL implementation so the downmix behavior
-        # is exercised, not stubbed).
         import voice_typer.server.recording.capture as capture_mod
         from voice_typer.server.recording.format import ensure_mono as real_ensure_mono
 
@@ -113,7 +91,6 @@ class TestDispatchCallbackBodyPrerollPath:
         with patch.object(capture_mod, "ensure_mono", _spy):
             result = dispatcher.dispatch_callback_body(fake, indata, 4, "tinfo", "status")
         assert result is None, "preroll path must signal early-bailout (None)"
-        # ensure_mono was called once with a COPY of the input (the
         # callback must NOT mutate the PortAudio-owned indata buffer).
         assert len(ensure_mono_calls) == 1
         mono_input = ensure_mono_calls[0]
@@ -151,15 +128,12 @@ class TestDispatchCallbackBodyRecordingPath:
         assert isinstance(result, tuple)
         assert len(result) == 5
         chunk_copy, frames, time_info, status, perf_ts = result
-        # chunk_copy is a fresh array, NOT the PortAudio-owned indata.
         assert chunk_copy is not indata
         # The copy preserves the input data.
         np.testing.assert_array_equal(chunk_copy, indata)
-        # frames / time_info / status are passed through unchanged.
         assert frames == 4
         assert time_info == "tinfo"
         assert status == "status"
-        # perf_ts is a real float from time.perf_counter().
         assert isinstance(perf_ts, float)
         assert perf_ts > 0
 
@@ -171,7 +145,6 @@ class TestDispatchCallbackBodyRecordingPath:
         assert fake._dropped_ring_chunks == 0
 
     def test_increments_dropped_counters_when_ring_buffer_full(self):
-        # maxlen=2, pre-fill the ring buffer to capacity, then call.
         fake = _FakeRecorder(recording=True, ring_maxlen=2)
         fake._ring_buffer.append(("pre-1", 4, "t1", "s1", 0.0))
         fake._ring_buffer.append(("pre-2", 4, "t2", "s2", 0.0))
@@ -195,18 +168,7 @@ class TestDispatchCallbackBodyRecordingPath:
         assert fake._dropped_ring_chunks == 0
 
     def test_payload_shape_is_compatible_with_ring_buffer_append_and_unpack(self):
-        """Smoke test simulating the primary agent's Option C delegate:
-
-            payload = self._capture.dispatch_callback_body(...)
-            if payload is None:
-                return
-            self._ring_buffer.append(payload)
-            self._worker_wake_event.set()
-
-        Verifies the payload tuple can be appended to a deque and later
-        unpacked by ``_process_audio_chunk(*chunk_data)`` in the worker
-        loop without shape mismatch.
-        """
+        """Smoke test simulating the primary agent's Option C delegate:"""
         fake = _FakeRecorder(recording=True, ring_maxlen=64)
         dispatcher = AudioCallbackDispatcher(fake)
         indata = np.arange(4, dtype=np.float32)
@@ -224,16 +186,8 @@ class TestDispatchCallbackBodyRecordingPath:
 
 
 # ── Source-inspection contract: dispatch_callback_body must NOT contain
-# the heavy-pipeline operations that the  source test pins
-# out of Recorder._audio_callback_dispatch. (The recorder-side check
-# is owned by the primary agent; this just guards the helper side.)
 def _strip_docstring(src: str) -> str:
-    """Return ``src`` with the leading ``\"\"\"``-delimited docstring removed.
-
-    Used by the source-inspection tests below so the helper's docstring
-    (which references the forbidden literals to explain the Option C
-    contract) does not trip the negative assertions on the body.
-    """
+    """Return ``src`` with the leading ``\"\"\"``-delimited docstring removed."""
     start = src.find('"""')
     if start == -1:
         return src
@@ -244,14 +198,11 @@ def _strip_docstring(src: str) -> str:
 
 
 class TestDispatchCallbackBodySourceContract:
-    """the helper must not introduce heavy-pipeline ops that
-    would leak into ``Recorder._audio_callback_dispatch`` if the primary
-    agent inlines them. The body should only do RT-safe work."""
+    """the helper must not introduce heavy-pipeline ops that"""
 
     def test_dispatch_callback_body_source_omits_heavy_ops(self):
         src = _strip_docstring(inspect.getsource(AudioCallbackDispatcher.dispatch_callback_body))
         # The forbidden literals, the same ones the  test
-        # checks are absent from Recorder._audio_callback_dispatch.
         for forbidden in (
             "compute_vad_prob",
             "_get_resample_poly",
@@ -264,13 +215,8 @@ class TestDispatchCallbackBodySourceContract:
             )
 
     def test_dispatch_callback_body_source_does_not_call_ring_buffer_append(self):
-        """The literal ``_ring_buffer.append`` MUST stay on
-        ``Recorder._audio_callback_dispatch`` (Option C). The helper
-        must NOT contain it, otherwise the source-inspection check on
-        the Recorder's method would still pass, but the helper would
-        be doing the append itself, breaking the Option C contract."""
+        """The literal ``_ring_buffer.append`` MUST stay on"""
         src = _strip_docstring(inspect.getsource(AudioCallbackDispatcher.dispatch_callback_body))
-        # The body READS _ring_buffer.maxlen and len(_ring_buffer) for
         # overflow detection, but must NOT append to it.
         assert "_ring_buffer.append" not in src, (
             "Option C contract: _ring_buffer.append must stay on "
@@ -279,9 +225,7 @@ class TestDispatchCallbackBodySourceContract:
         )
 
     def test_dispatch_callback_body_source_does_not_set_worker_wake_event(self):
-        """The literal ``_worker_wake_event.set()`` MUST stay on
-        ``Recorder._audio_callback_dispatch`` (Option C). The helper
-        only reads ``_worker_wake_event`` if at all."""
+        """The literal ``_worker_wake_event.set()`` MUST stay on"""
         src = _strip_docstring(inspect.getsource(AudioCallbackDispatcher.dispatch_callback_body))
         assert "_worker_wake_event.set" not in src, (
             "Option C contract: _worker_wake_event.set() must stay on "
@@ -294,10 +238,7 @@ class TestDispatchCallbackBodySourceContract:
 
 
 class TestAudioWorkerLoop:
-    """``AudioCallbackDispatcher.audio_worker_loop``, drains the ring
-    buffer and calls ``_process_audio_chunk`` until ``_worker_stop_event``
-    is set. Tests run the loop on a real thread to exercise the
-    ``_worker_wake_event.wait(timeout=...)`` path."""
+    """``AudioCallbackDispatcher.audio_worker_loop``, drains the ring"""
 
     def _start_worker(self, dispatcher: AudioCallbackDispatcher, fake: _FakeRecorder) -> threading.Thread:
         t = threading.Thread(
@@ -357,8 +298,7 @@ class TestAudioWorkerLoop:
         assert len(fake._ring_buffer) == 0
 
     def test_continues_on_chunk_processing_exception(self, caplog):
-        """A single bad chunk must NOT kill the worker, the loop logs
-        via ``log_rate_limited`` and continues to the next chunk."""
+        """A single bad chunk must NOT kill the worker, the loop logs"""
         fake = _FakeRecorder()
         fake._process_audio_chunk_raises = True
         # Two bad chunks, both should be attempted (and logged).
@@ -375,15 +315,13 @@ class TestAudioWorkerLoop:
         assert len(fake._ring_buffer) == 0
 
     def test_drains_remaining_chunks_on_stop_signal(self):
-        """Stop signal AFTER chunks were enqueued, the worker must
-        drain the buffer fully before exiting (no in-flight loss)."""
+        """Stop signal AFTER chunks were enqueued, the worker must"""
         fake = _FakeRecorder()
         for i in range(5):
             fake._ring_buffer.append((np.zeros(4, dtype=np.float32), 4, f"t{i}", f"s{i}", float(i)))
         dispatcher = AudioCallbackDispatcher(fake)
         t = self._start_worker(dispatcher, fake)
         # Wake, wait until the worker is mid-drain (at least one chunk
-        # processed), then stop, the drain loop must still complete.
         fake._worker_wake_event.set()
         assert wait_until(lambda: len(fake._process_audio_chunk_calls) >= 1)
         # Stop should set after wake, the drain loop completes first.
@@ -395,8 +333,7 @@ class TestAudioWorkerLoop:
         assert len(fake._ring_buffer) == 0
 
     def test_wakes_on_event_set(self):
-        """The worker must wake promptly when ``_worker_wake_event`` is
-        set (the audio callback signals via this event)."""
+        """The worker must wake promptly when ``_worker_wake_event`` is"""
         fake = _FakeRecorder()
         dispatcher = AudioCallbackDispatcher(fake)
         t = self._start_worker(dispatcher, fake)
@@ -404,16 +341,13 @@ class TestAudioWorkerLoop:
         assert wait_until(lambda: t.is_alive())
         # Set the wake event and confirm the worker doesn't crash.
         # (Aliveness is persistent state, a wake-handling crash would
-        # keep the thread dead regardless of when we check.)
         fake._worker_wake_event.set()
         assert t.is_alive(), "worker should still be running (no stop set)"
         # Now stop it cleanly.
         self._stop_and_join(fake, t)
 
     def test_returns_when_stop_event_already_set_at_entry(self):
-        """If the worker is started with stop already set (e.g. a race
-        between start and stop), it must NOT block on the wake event —
-        the `if not _worker_stop_event.is_set()` guard skips the wait."""
+        """If the worker is started with stop already set (e.g. a race"""
         fake = _FakeRecorder()
         fake._worker_stop_event.set()
         dispatcher = AudioCallbackDispatcher(fake)
@@ -428,9 +362,7 @@ class TestAudioWorkerLoop:
 
 
 class TestDispatchAndWorkerIntegration:
-    """End-to-end: the dispatch body's payload, when appended to the
-    ring buffer by the (simulated) Recorder delegate, is drained by
-    the worker loop and unpacked into ``_process_audio_chunk(*args)``."""
+    """End-to-end: the dispatch body's payload, when appended to the"""
 
     def test_payload_round_trips_through_worker_loop(self):
         fake = _FakeRecorder(recording=True, ring_maxlen=64)
@@ -467,9 +399,7 @@ class TestDispatchAndWorkerIntegration:
         assert len(fake._ring_buffer) == 0
 
     def test_preroll_path_does_not_deliver_chunks_to_worker(self):
-        """When the dispatch body takes the preroll branch (returns
-        None), the (simulated) Recorder delegate must NOT append to the
-        ring buffer, so the worker never sees those chunks."""
+        """When the dispatch body takes the preroll branch (returns"""
         fake = _FakeRecorder(recording=False, preroll_active=True)
         dispatcher = AudioCallbackDispatcher(fake)
         # Simulate the Option C delegate with the None-guard:

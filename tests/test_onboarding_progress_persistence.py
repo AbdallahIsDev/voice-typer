@@ -1,31 +1,4 @@
-"""regression: in-progress onboarding wizard state persists across
-Python-process restarts.
-
-Before the fix, ``OnboardingController`` stored ``_current_step``,
-``selected_microphone``, ``selected_hotkey``, and ``selected_model`` as
-INSTANCE variables only, never written to disk. ``onboarding_start()``
-always created a NEW ``OnboardingController()``. When the Python process
-restarted (app close/reopen), ``self._onboarding`` was lost. Only
-``apply_settings`` (called from the Done step via ``onboarding_apply``)
-persisted selections to ``config.json``. If a user closed the app
-mid-wizard, they lost ALL selections and restarted at the Welcome step
-on next launch.
-
-added a ``.onboarding_progress`` marker file alongside the
-existing ``.onboarding_started`` marker. State mutations (next/prev/
-set_microphone/set_hotkey/set_model) call ``_persist_progress()``;
-terminal transitions (mark_complete/skip/reset/apply_settings) call
-``_clear_progress()``. ``__init__`` calls ``_load_progress()`` to
-resume from the marker if it exists.
-
-This test pins the contract:
-  * ``next_step`` writes a progress file.
-  * A fresh ``OnboardingController`` instance reads it and resumes.
-  * ``apply_settings`` (via ``mark_complete``) clears the marker.
-  * ``skip`` clears the marker.
-  * ``reset`` clears the marker.
-  * Corrupt marker file is silently ignored (best-effort restore).
-"""
+"""regression: in-progress onboarding wizard state persists across"""
 
 from __future__ import annotations
 
@@ -51,8 +24,7 @@ def _new_controller(config_dir: Path) -> OnboardingController:
 
 
 def test_next_step_writes_progress_marker(config_dir: Path) -> None:
-    """``next_step()`` writes the ``.onboarding_progress`` file with the
-    current step + default selections."""
+    """``next_step()`` writes the ``.onboarding_progress`` file with the"""
     ctrl = _new_controller(config_dir)
     ctrl.next_step()  # step 0 → step 1
     progress_file = config_dir / ".onboarding_progress"
@@ -60,20 +32,14 @@ def test_next_step_writes_progress_marker(config_dir: Path) -> None:
     data = json.loads(progress_file.read_text(encoding="utf-8"))
     assert data["current_step"] == 1
     # Defaults are persisted alongside the step. The model default is
-    # the canonical ``DEFAULT_MODEL_SIZE`` sentinel, since the
-    # 2026-08-28 no-default-model change there is NO concrete default
-    # model (the old "tiny" default preselected a model the user never
-    # chose and whose weights were never installed).
     assert data["selected_hotkey"] == "<caps_lock>"
     assert data["selected_model"] == DEFAULT_MODEL_SIZE
     assert "selected_microphone" in data
 
 
 def test_new_controller_resumes_from_progress_marker(config_dir: Path) -> None:
-    """Closing the app mid-wizard and reopening resumes at the saved step
-    with the saved selections."""
+    """Closing the app mid-wizard and reopening resumes at the saved step"""
     # First instance: walk the wizard forward and pick selections
-    # (4-step essentials layout: Welcome → Consent → Model → Hotkey).
     ctrl1 = _new_controller(config_dir)
     ctrl1.next_step()  # → Consent (1)
     ctrl1.set_hotkey("<f5>")
@@ -84,8 +50,6 @@ def test_new_controller_resumes_from_progress_marker(config_dir: Path) -> None:
     ctrl2 = _new_controller(config_dir)
     # Resume state should match what ctrl1 left.
     assert ctrl2.current_step == 2, f"Expected step 2 (Model), got {ctrl2.current_step}"
-    # The Microphone step was removed (2026-09-14): the controller no
-    # longer collects a mic, the config keeps the System Default.
     assert ctrl2.selected_microphone is None
     assert ctrl2.selected_hotkey == "<f5>"
     assert ctrl2.selected_model == "large-v3-turbo"
@@ -103,8 +67,7 @@ def test_prev_step_persists_progress(config_dir: Path) -> None:
 
 
 def test_set_methods_persist_selections(config_dir: Path) -> None:
-    """``set_microphone`` / ``set_hotkey`` / ``set_model`` each persist
-    their selection so the user doesn't lose it on restart."""
+    """``set_microphone`` / ``set_hotkey`` / ``set_model`` each persist"""
     ctrl1 = _new_controller(config_dir)
     ctrl1.set_microphone("device-A")
     ctrl1.set_hotkey("<f8>")
@@ -117,8 +80,7 @@ def test_set_methods_persist_selections(config_dir: Path) -> None:
 
 
 def test_apply_settings_clears_progress_marker(config_dir: Path) -> None:
-    """``apply_settings`` (the Done-step action) clears the marker so a
-    subsequent launch starts fresh (wizard is complete)."""
+    """``apply_settings`` (the Done-step action) clears the marker so a"""
     ctrl = _new_controller(config_dir)
     ctrl.next_step()
     ctrl.set_hotkey("<f3>")
@@ -152,8 +114,7 @@ def test_skip_clears_progress_marker(config_dir: Path) -> None:
 
 
 def test_reset_clears_progress_marker(config_dir: Path) -> None:
-    """``reset`` (re-run onboarding affordance) clears the marker so the
-    next launch starts at the Welcome step."""
+    """``reset`` (re-run onboarding affordance) clears the marker so the"""
     ctrl = _new_controller(config_dir)
     ctrl.next_step()
     ctrl.set_microphone("temp")
@@ -171,9 +132,7 @@ def test_reset_clears_progress_marker(config_dir: Path) -> None:
 
 
 def test_corrupt_progress_marker_is_ignored(config_dir: Path) -> None:
-    """A corrupt progress marker file does NOT crash ``__init__``, the
-    controller falls back to defaults and lets the next mutation
-    overwrite the file."""
+    """controller falls back to defaults and lets the next mutation"""
     progress_file = config_dir / ".onboarding_progress"
     progress_file.write_text("{not valid json", encoding="utf-8")
 
@@ -188,10 +147,7 @@ def test_corrupt_progress_marker_is_ignored(config_dir: Path) -> None:
 
 
 def test_v1_progress_marker_is_ignored_after_step_insertion(config_dir: Path) -> None:
-    """A v1 (6-step) progress marker is IGNORED after the Consent step
-    insertion, restoring its ``current_step`` under a later layout
-    would resume the user at the wrong step. The wizard starts fresh
-    at Welcome instead."""
+    """A v1 (6-step) progress marker is IGNORED after the Consent step"""
     progress_file = config_dir / ".onboarding_progress"
     progress_file.write_text(
         json.dumps(
@@ -208,18 +164,12 @@ def test_v1_progress_marker_is_ignored_after_step_insertion(config_dir: Path) ->
     )
 
     ctrl = _new_controller(config_dir)
-    # v1 marker ignored → fresh start at Welcome with defaults
-    # (selected_model is the canonical no-model sentinel).
     assert ctrl.current_step == 0
     assert ctrl.selected_model == DEFAULT_MODEL_SIZE
 
 
 def test_v2_progress_marker_is_ignored_after_essentials_slimdown(config_dir: Path) -> None:
-    """A v2 (7-step) progress marker is IGNORED under the 4-step
-    essentials layout (2026-09-14): restoring its ``current_step``
-    would resume at the wrong step (old step 4 "Consent" → new step 1
-    "Consent", old step 5 "Model" → new step 2). The wizard starts
-    fresh at Welcome instead."""
+    """A v2 (7-step) progress marker is IGNORED under the 4-step"""
     progress_file = config_dir / ".onboarding_progress"
     progress_file.write_text(
         json.dumps(
@@ -236,15 +186,12 @@ def test_v2_progress_marker_is_ignored_after_essentials_slimdown(config_dir: Pat
     )
 
     ctrl = _new_controller(config_dir)
-    # v2 marker ignored → fresh start at Welcome with defaults
-    # (selected_model is the canonical no-model sentinel).
     assert ctrl.current_step == 0
     assert ctrl.selected_model == DEFAULT_MODEL_SIZE
 
 
 def test_v3_progress_marker_restores_consent_step(config_dir: Path) -> None:
-    """A v3 (4-step) progress marker resumes normally, including the
-    Consent step (index 1)."""
+    """A v3 (4-step) progress marker resumes normally, including the"""
     progress_file = config_dir / ".onboarding_progress"
     progress_file.write_text(
         json.dumps(
@@ -266,9 +213,7 @@ def test_v3_progress_marker_restores_consent_step(config_dir: Path) -> None:
 
 
 def test_progress_marker_uses_secure_atomic_write(config_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """The progress marker is written via ``_secure_atomic_write`` (0o600
-    on POSIX, O_NOFOLLOW symlink protection), matches the security
-    posture of ``mark_complete``. We assert the helper is invoked."""
+    """The progress marker is written via ``_secure_atomic_write`` (0o600"""
     from voice_typer.server import config as cfg_mod
 
     calls: list[Any] = []

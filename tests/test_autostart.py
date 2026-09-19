@@ -1,29 +1,4 @@
-"""Tests for the Windows autostart robustness fixes (EY-319 / TX-46).
-
-Covers:
-  - ``_autostart_command()`` validates the python_bin path exists and
-    falls back to the Tauri binary when no Python interpreter is
-    available.
-  - ``_is_app_autostart_runkey_registered()`` returns False when the
-    stored command points at a nonexistent file (stale entry detection).
-  - ``_is_app_autostart_runkey_registered()`` cleans up stale entries.
-  - ``_is_app_autostart_task_registered()`` returns False when the
-    task's ``<Command>`` path doesn't exist (stale task detection).
-  - ``_extract_command_from_task_xml()`` parses the Task Scheduler XML.
-  - ``_validate_runkey_command()`` validates a Run-key command line.
-  - Windows Startup-folder ``.bat`` fallback:
-      - ``_register_app_autostart_startup()`` writes the .bat.
-      - ``_unregister_app_autostart_startup()`` deletes the .bat.
-      - ``_is_app_autostart_startup_registered()`` validates the .bat.
-  - ``_enable_autostart_windows()`` falls back to the Startup folder.
-  - ``_disable_autostart_windows()`` removes all three mechanisms.
-  - ``_is_autostart_windows()`` checks all three mechanisms.
-
-Tests use ``unittest.mock.patch`` for ``winreg``, ``shutil.which``,
-``os.path.exists``, ``subprocess.run`` etc. so they run on the Linux
-test host. Windows-host validation is documented as
-"VALIDATE ON WINDOWS HOST" with exact commands.
-"""
+"""Tests for the Windows autostart robustness fixes (EY-319 / TX-46)."""
 
 from __future__ import annotations
 
@@ -33,20 +8,11 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
-
-# Owning-module handles for patch targets: ``SYSTEM`` lives on
-# ``platform_flags``; ``get_autostart_dir`` / ``_autostart_command`` live
-# on the ``autostart`` facade module; the Windows register/unregister/
-# probe helpers live on the ``autostart_windows`` module.
 from voice_typer.server.server_platform import (
     autostart as autostart_mod,
     autostart_windows as autostart_windows_mod,
     platform_flags,
 )
-
-# ---------------------------------------------------------------------------
-# Fixtures: fake winreg + win32 platform
-# ---------------------------------------------------------------------------
 
 
 @pytest.fixture
@@ -76,11 +42,6 @@ def win32_platform(monkeypatch, fake_winreg):
 
     monkeypatch.setattr(platform_flags, "SYSTEM", "win32")
     return server_platform
-
-
-# ---------------------------------------------------------------------------
-# _validate_runkey_command
-# ---------------------------------------------------------------------------
 
 
 class TestValidateRunkeyCommand:
@@ -126,10 +87,7 @@ class TestValidateRunkeyCommand:
         assert _validate_runkey_command(value) is True
 
     def test_doubled_backslash_path_is_invalid_on_windows(self, monkeypatch):
-        """A doubled-backslash path (freedesktop Exec quoting leaked onto
-        Windows) is a malformed command line, Path.exists() collapses the
-        doubled separator so it reports the path valid; the raw-string
-        check must catch it (AUTOSTART-QUOTING-FIX)."""
+        """A doubled-backslash path (freedesktop Exec quoting leaked onto"""
         from voice_typer.server.server_platform.autostart_windows import _validate_runkey_command
 
         monkeypatch.setattr(Path, "exists", lambda self: True)
@@ -143,8 +101,7 @@ class TestValidateRunkeyCommand:
             assert _validate_runkey_command(value) is False
 
     def test_doubled_backslash_unc_path_is_valid_on_windows(self, monkeypatch):
-        """UNC paths legitimately start with a doubled separator and must
-        NOT be flagged as malformed (AUTOSTART-QUOTING-FIX)."""
+        """UNC paths legitimately start with a doubled separator and must"""
         from voice_typer.server.server_platform.autostart_windows import _validate_runkey_command
 
         monkeypatch.setattr(Path, "exists", lambda self: True)
@@ -154,8 +111,7 @@ class TestValidateRunkeyCommand:
             assert _validate_runkey_command(value) is True
 
     def test_single_backslash_path_is_valid_on_windows(self, monkeypatch):
-        """A correctly-quoted single-backslash value remains valid on
-        Windows (AUTOSTART-QUOTING-FIX)."""
+        """A correctly-quoted single-backslash value remains valid on"""
         from voice_typer.server.server_platform.autostart_windows import _validate_runkey_command
 
         existing = {
@@ -178,11 +134,6 @@ class TestValidateRunkeyCommand:
 
         assert _validate_runkey_command("") is True
         assert _validate_runkey_command(None) is True  # type: ignore[arg-type]
-
-
-# ---------------------------------------------------------------------------
-# _extract_command_from_task_xml
-# ---------------------------------------------------------------------------
 
 
 class TestExtractCommandFromTaskXml:
@@ -220,17 +171,11 @@ class TestExtractCommandFromTaskXml:
         assert _extract_command_from_task_xml(xml) is None
 
 
-# ---------------------------------------------------------------------------
-# _is_app_autostart_runkey_registered (stale entry detection)
-# ---------------------------------------------------------------------------
-
-
 class TestIsAppAutostartRunkeyRegisteredStaleDetection:
     """``_is_app_autostart_runkey_registered`` detects stale entries."""
 
     def test_returns_false_when_command_path_does_not_exist(self, monkeypatch, fake_winreg, win32_platform):
-        """If the Run-key value exists but the exe path doesn't exist on
-        disk, the entry is stale, return False."""
+        """If the Run-key value exists but the exe path doesn't exist on"""
         from voice_typer.server.server_platform import (
             _is_app_autostart_runkey_registered,
         )
@@ -280,25 +225,11 @@ class TestIsAppAutostartRunkeyRegisteredStaleDetection:
         assert result is False
 
 
-# ---------------------------------------------------------------------------
-# Run-key submodule facade-patch seams
-# ---------------------------------------------------------------------------
-
-
 class TestRunkeySubmoduleFacadePatchSeams:
-    """The HKCU Run-key register/unregister/is trio lives in
-    ``_autostart_windows_runkey`` (extracted from the facade); its
-    facade-owned dependencies (``_run_key_name``,
-    ``_validate_runkey_command``, ``_cleanup_stale_runkey_entry``) must
-    be read through the facade module object at call time so the
-    documented patch contract (``monkeypatch.setattr(autostart_windows,
-    "X", ...)`` on facade-owned names) keeps propagating into the moved
-    submodule, the same idiom the Startup-.bat and sweep submodules
-    use."""
+    """``_autostart_windows_runkey`` (extracted from the facade); its"""
 
     def test_facade_patch_on_run_key_name_seen_by_unregister(self, monkeypatch, fake_winreg, win32_platform):
-        """Patching ``_run_key_name`` on the facade must change the value
-        name the moved ``_unregister_app_autostart_runkey`` deletes."""
+        """Patching ``_run_key_name`` on the facade must change the value"""
         from voice_typer.server.server_platform import _unregister_app_autostart_runkey
 
         monkeypatch.setattr(autostart_windows_mod, "_run_key_name", lambda: "SeamKey")
@@ -310,9 +241,7 @@ class TestRunkeySubmoduleFacadePatchSeams:
     def test_facade_patch_on_validate_runkey_command_seen_by_is_registered(
         self, monkeypatch, fake_winreg, win32_platform
     ):
-        """Patching ``_validate_runkey_command`` on the facade must make the
-        moved ``_is_app_autostart_runkey_registered`` treat the entry as
-        stale and trigger the (real) stale-entry cleanup."""
+        """stale and trigger the (real) stale-entry cleanup."""
         from voice_typer.server.server_platform import _is_app_autostart_runkey_registered
 
         fake_winreg.QueryValueEx = MagicMock(return_value=(r'"C:\Python\pythonw.exe" launcher.py --hidden', 1))
@@ -326,9 +255,7 @@ class TestRunkeySubmoduleFacadePatchSeams:
     def test_facade_patch_on_cleanup_stale_runkey_entry_seen_by_is_registered(
         self, monkeypatch, fake_winreg, win32_platform
     ):
-        """Patching ``_cleanup_stale_runkey_entry`` on the facade must
-        replace the cleanup the moved is-registered check performs
-        (patched function called instead of the real DeleteValue path)."""
+        """Patching ``_cleanup_stale_runkey_entry`` on the facade must"""
         from voice_typer.server.server_platform import _is_app_autostart_runkey_registered
 
         cleaned: list[str] = []
@@ -342,17 +269,11 @@ class TestRunkeySubmoduleFacadePatchSeams:
         fake_winreg.DeleteValue.assert_not_called()
 
 
-# ---------------------------------------------------------------------------
-# _is_app_autostart_task_registered (stale task detection)
-# ---------------------------------------------------------------------------
-
-
 class TestIsAppAutostartTaskRegisteredStaleDetection:
     """``_is_app_autostart_task_registered`` detects stale tasks."""
 
     def test_returns_false_when_command_path_does_not_exist(self, monkeypatch, fake_winreg, win32_platform):
-        """If the task exists but its <Command> path doesn't exist on disk,
-        the task is stale, return False."""
+        """If the task exists but its <Command> path doesn't exist on disk,"""
         from voice_typer.server import task_scheduler
         from voice_typer.server.server_platform import _is_app_autostart_task_registered
 
@@ -405,11 +326,6 @@ class TestIsAppAutostartTaskRegisteredStaleDetection:
         assert result is False
 
 
-# ---------------------------------------------------------------------------
-# Startup-folder .bat fallback
-# ---------------------------------------------------------------------------
-
-
 class TestStartupFolderBatFallback:
     """The Windows Startup-folder .bat tertiary fallback."""
 
@@ -452,7 +368,6 @@ class TestStartupFolderBatFallback:
 
         monkeypatch.setattr(autostart_mod, "get_autostart_dir", lambda: tmp_path)
         # Use the real hash-based name (don't patch _startup_bat_name —
-        # it's called directly by _startup_bat_path, not via _pkg).
         bat_name = server_platform._startup_bat_name()
         bat_path = tmp_path / bat_name
         bat_path.write_text("@echo off\r\n")
@@ -480,8 +395,7 @@ class TestStartupFolderBatFallback:
         assert result is False
 
     def test_is_registered_returns_true_when_bat_valid(self, monkeypatch, fake_winreg, win32_platform, tmp_path):
-        """``_is_app_autostart_startup_registered`` returns True when the .bat
-        exists and its target command path exists."""
+        """``_is_app_autostart_startup_registered`` returns True when the .bat"""
         from voice_typer.server import server_platform
 
         monkeypatch.setattr(autostart_mod, "get_autostart_dir", lambda: tmp_path)
@@ -493,7 +407,6 @@ class TestStartupFolderBatFallback:
             'start "" /B "C:\\Python\\pythonw.exe" "C:\\app\\launcher.py" --hidden\r\n'
         )
         # Patch Path.exists to return True for the .bat file AND the exe path.
-        # The .bat file is a real file on disk; the exe path is fictional.
         existing = {str(bat_path), r"C:\Python\pythonw.exe"}
         monkeypatch.setattr(Path, "exists", lambda self: str(self) in existing)
 
@@ -501,8 +414,7 @@ class TestStartupFolderBatFallback:
         assert result is True
 
     def test_is_registered_returns_false_when_bat_stale(self, monkeypatch, fake_winreg, win32_platform, tmp_path):
-        """``_is_app_autostart_startup_registered`` returns False and cleans up
-        when the .bat's target command path doesn't exist."""
+        """``_is_app_autostart_startup_registered`` returns False and cleans up"""
         from voice_typer.server import server_platform
 
         monkeypatch.setattr(autostart_mod, "get_autostart_dir", lambda: tmp_path)
@@ -514,27 +426,17 @@ class TestStartupFolderBatFallback:
             'start "" /B "C:\\Deleted\\pythonw.exe" "C:\\app\\launcher.py" --hidden\r\n'
         )
         # Don't patch Path.exists, the .bat file is a real file on disk
-        # (exists returns True), and the exe path C:\Deleted\pythonw.exe
-        # doesn't exist on Linux (exists returns False). The validation
-        # correctly detects the stale target and cleans up.
         result = server_platform._is_app_autostart_startup_registered()
         assert result is False
         # The stale .bat should have been deleted.
         assert not bat_path.exists()
 
 
-# ---------------------------------------------------------------------------
-# _enable_autostart_windows / _disable_autostart_windows / _is_autostart_windows
-# (three-mechanism integration)
-# ---------------------------------------------------------------------------
-
-
 class TestThreeMechanismIntegration:
     """The enable/disable/is_enabled functions handle all three mechanisms."""
 
     def test_enable_falls_back_to_startup_folder(self, monkeypatch, fake_winreg, win32_platform, tmp_path):
-        """When Run key AND Task Scheduler both fail, the Startup-folder .bat
-        is tried as a tertiary fallback."""
+        """When Run key AND Task Scheduler both fail, the Startup-folder .bat"""
         from voice_typer.server import server_platform
 
         monkeypatch.setattr(autostart_windows_mod, "_register_app_autostart_runkey", lambda: False)
@@ -557,9 +459,6 @@ class TestThreeMechanismIntegration:
         from voice_typer.server import server_platform
 
         # Force the Run-key branch deterministically: the enable order is
-        # Task Scheduler -> Startup .bat -> HKCU Run key (AUTOSTART-ORDER-
-        # FIX), so the two preferred mechanisms must fail for the Run key
-        # branch to run at all.
         monkeypatch.setattr(autostart_windows_mod, "_register_app_autostart_task", lambda: False)
         monkeypatch.setattr(autostart_windows_mod, "_register_app_autostart_startup", lambda: False)
         monkeypatch.setattr(autostart_windows_mod, "_register_app_autostart_runkey", lambda: True)
@@ -577,8 +476,7 @@ class TestThreeMechanismIntegration:
         assert len(startup_unregistered) == 1, "Startup .bat should be cleaned up when Run key succeeds"
 
     def test_disable_removes_all_three_mechanisms(self, monkeypatch, fake_winreg, win32_platform):
-        """``_disable_autostart_windows`` removes from Task Scheduler, Run key,
-        AND Startup folder."""
+        """``_disable_autostart_windows`` removes from Task Scheduler, Run key,"""
         from voice_typer.server import server_platform
 
         task_removed = []
@@ -607,8 +505,7 @@ class TestThreeMechanismIntegration:
         assert len(startup_removed) == 1
 
     def test_is_autostart_windows_checks_all_three(self, monkeypatch, fake_winreg, win32_platform):
-        """``_is_autostart_windows`` returns True if ANY of the three mechanisms
-        is registered."""
+        """``_is_autostart_windows`` returns True if ANY of the three mechanisms"""
         from voice_typer.server import server_platform
 
         # Only Startup folder.
@@ -622,11 +519,6 @@ class TestThreeMechanismIntegration:
         monkeypatch.setattr(autostart_windows_mod, "_is_app_autostart_runkey_registered", lambda: False)
         monkeypatch.setattr(autostart_windows_mod, "_is_app_autostart_startup_registered", lambda: False)
         assert server_platform._is_autostart_windows() is False
-
-
-# ---------------------------------------------------------------------------
-# _autostart_command (validation + Tauri binary fallback)
-# ---------------------------------------------------------------------------
 
 
 class TestAutostartCommandValidation:
@@ -643,19 +535,13 @@ class TestAutostartCommandValidation:
         assert "--hidden" in cmd
 
     def test_falls_back_to_tauri_binary_when_python_missing(self, monkeypatch, tmp_path):
-        """When the resolved Python path doesn't exist AND a Tauri binary is
-        found, the autostart command is the Tauri binary path."""
+        """When the resolved Python path doesn't exist AND a Tauri binary is"""
         from voice_typer.server import server_platform
 
-        # Mock _system_python_can_import_launcher to return False so the
-        # venv-swap doesn't replace sys.executable with the venv python
-        # (which exists on disk and would pass validation).
         monkeypatch.setattr(
             "voice_typer.server.server_platform.autostart._system_python_can_import_launcher",
             lambda python: False,
         )
-        # Make Path.exists return False for ALL python paths so the
-        # validation triggers the Tauri binary fallback.
         real_exists = Path.exists
 
         def fake_exists(self):
@@ -675,10 +561,6 @@ class TestAutostartCommandValidation:
 
         cmd = server_platform._autostart_command()
         # The command should be the Tauri binary path (quoted).
-        # AUTOSTART-QUOTING-FIX: on Windows the command is built with
-        # ``subprocess.list2cmdline`` (single backslashes preserved); on
-        # macOS/Linux it is escaped per the freedesktop Exec spec
-        # (backslashes doubled), assert the form matching the platform.
         raw = str(fake_tauri)
         if sys.platform == "win32":
             assert raw in cmd
@@ -724,21 +606,13 @@ class TestAutostartCommandValidation:
         )
 
 
-# ---------------------------------------------------------------------------
-# _app_autostart_command_and_args (validation + Tauri binary fallback)
-# ---------------------------------------------------------------------------
-
-
 class TestAppAutostartCommandAndArgsValidation:
     """``_app_autostart_command_and_args`` validates and falls back."""
 
     def test_falls_back_to_tauri_binary_when_python_missing(self, monkeypatch, tmp_path):
-        """When the resolved Python path doesn't exist AND a Tauri binary is
-        found, returns (tauri_binary, "")."""
+        """When the resolved Python path doesn't exist AND a Tauri binary is"""
         from voice_typer.server.server_platform import _app_autostart_command_and_args
 
-        # Mock _system_python_can_import_launcher to return False so the
-        # venv-swap doesn't replace sys.executable.
         monkeypatch.setattr(
             "voice_typer.server.server_platform.autostart._system_python_can_import_launcher",
             lambda python: False,
@@ -761,15 +635,8 @@ class TestAppAutostartCommandAndArgsValidation:
         assert args == ""
 
 
-# ---------------------------------------------------------------------------
-# SILENT-LOGON: pythonw preference after the PLAT-VENV system-Python swap
-# ---------------------------------------------------------------------------
-
-
 class TestSilentLogonPythonwPreference:
-    """When the venv probe passes, the system python.exe is swapped in —
-    the pythonw.exe sibling of the FINAL interpreter must be preferred so
-    the logon entry never flashes a console window."""
+    """When the venv probe passes, the system python.exe is swapped in —"""
 
     @pytest.fixture
     def _fake_env(self, monkeypatch, tmp_path):
@@ -794,8 +661,7 @@ class TestSilentLogonPythonwPreference:
         return system_pythonw
 
     def test_autostart_command_prefers_system_pythonw(self, monkeypatch, win32_platform, _fake_env):
-        """``_autostart_command`` swaps in the system pythonw.exe, not
-        python.exe, after the venv probe passes."""
+        """``_autostart_command`` swaps in the system pythonw.exe, not"""
         from voice_typer.server.server_platform import _autostart_command
 
         cmd = _autostart_command()
@@ -803,8 +669,7 @@ class TestSilentLogonPythonwPreference:
         assert "python.exe" not in cmd
 
     def test_task_command_prefers_system_pythonw(self, monkeypatch, win32_platform, _fake_env):
-        """``_app_autostart_command_and_args`` resolves the system
-        pythonw.exe as the Task Scheduler action."""
+        """``_app_autostart_command_and_args`` resolves the system"""
         from voice_typer.server.server_platform import _app_autostart_command_and_args
 
         python_bin, args = _app_autostart_command_and_args()

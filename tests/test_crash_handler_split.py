@@ -1,45 +1,4 @@
-"""tests for the ``crash_handler`` package split.
-
-The original 1255-LOC ``crash_handler.py`` was split into a package
-with 6 submodules + a facade ``__init__.py``. These
-tests verify:
-
-1. **Backward compatibility**, every name that tests previously
-   imported from ``voice_typer.server.crash_handler`` is still
-   accessible on the facade. This includes:
-     - Public functions: ``set_crash_handler_config_dir``,
-       ``report_pending_crash``, ``install_crash_handler``,
-       ``remove_crash_handler``, ``install_python_excepthook``.
-     - Private functions referenced by tests:
-       ``_vectored_handler_impl``, ``_crash_excepthook``,
-       ``_compute_crash_header``, ``_write_u32_hex``,
-       ``_write_u64_hex``, ``_format_redacted_traceback``,
-       ``_sweep_stale_diagnostics``.
-     - Constants: ``STATUS_HEAP_CORRUPTION``,
-       ``STATUS_ACCESS_VIOLATION``, ``STATUS_STACK_BUFFER_OVERRUN``,
-       ``STATUS_FATAL_APP_EXIT``, ``_CRASH_CODES``,
-       ``EXCEPTION_CONTINUE_SEARCH``.
-     - Module-level mutable state (read + writable):
-       ``_crash_file_path``, ``_PID``, ``_handler_handle``,
-       ``_kernel32``, ``_crash_written``, ``_python_crash_dir``,
-       ``_crash_header_bytes``, ``_original_excepthook``.
-     - Read-only references: ``_crash_msg_buf``,
-       ``_CRASH_MSG_LAYOUT``, ``_CRASH_MSG_BUF_SIZE``,
-       ``_vectored_handler``.
-
-2. **Per-platform guard**, on Linux, importing
-   ``voice_typer.server.crash_handler`` does NOT load
-   ``ctypes.wintypes`` (which would raise ``AttributeError`` on
-   non-Windows). The Win32 ctypes guard stays at module-load time
-   inside ``_win32_structs.py`` / ``_veh_kernel32.py`` /
-   ``_veh_callback.py``.
-
-3. **State proxying**, test mutations on
-   ``crash_handler._kernel32 = None`` (etc.) are observable by the
-   submodule functions that read/write the same state. This is the
-   key invariant that lets the existing test suite (which resets
-   module-level globals between tests) work without modification.
-"""
+"""tests for the ``crash_handler`` package split."""
 
 from __future__ import annotations
 
@@ -48,12 +7,7 @@ from pathlib import Path
 
 import pytest
 
-# ── 1. Backward compatibility: all previously-importable names ───────
-
-
-# Names that ``tests/test_crash_handler.py`` reads or writes on the
 # ``crash_handler`` module. Compiled from:
-#   grep -rn "crash_handler\." tests/test_crash_handler.py
 PUBLIC_FUNCTIONS = [
     "set_crash_handler_config_dir",
     "report_pending_crash",
@@ -126,7 +80,6 @@ READONLY_REFS = [
     "_NAME_ACCESS",
     "_NAME_STACK",
     "_NAME_FATAL",
-    # friendly names for the extended fatal codes
     "_NAME_ILLEGAL_INSTRUCTION",
     "_NAME_INT_DIVIDE_BY_ZERO",
     "_NAME_PRIVILEGED_INSTRUCTION",
@@ -174,13 +127,7 @@ class TestBackwardCompatNames:
             assert hasattr(crash_handler, name), f"crash_handler.{name} is missing, constant not re-exported by facade"
 
     def test_constants_have_correct_values(self):
-        """The status codes must match the original values exactly.
-
-        extended ``_CRASH_CODES`` from 4 codes to 13 codes, the
-        equality check on the original 4-code set is now a superset
-        check (the original 4 are still present), and the extended codes
-        are validated separately by ``test_extended_codes_present``.
-        """
+        """The status codes must match the original values exactly."""
         from voice_typer.server import crash_handler
 
         assert crash_handler.STATUS_HEAP_CORRUPTION == 0xC0000374
@@ -201,8 +148,7 @@ class TestBackwardCompatNames:
         )
 
     def test_extended_codes_present(self):
-        """the 9 extended fatal codes (added to ``_CRASH_CODES``)
-        are present and have the documented Windows NT status values."""
+        """the 9 extended fatal codes (added to ``_CRASH_CODES``)"""
         from voice_typer.server import crash_handler
 
         assert crash_handler.STATUS_ILLEGAL_INSTRUCTION == 0xC000001D
@@ -259,46 +205,21 @@ class TestBackwardCompatNames:
             )
 
 
-# ── 2. Per-platform guard: Linux import must not load ctypes.wintypes ──
-
-
 class TestPerPlatformGuard:
-    """On Linux, importing crash_handler must NOT load ``ctypes.wintypes``.
-
-    ``ctypes.wintypes`` only exists on Windows. Referencing it on Linux
-    raises ``AttributeError`` at module-load time. The per-platform guard
-    (``if sys.platform == "win32":``) must stay at module-load time
-    inside the submodules so Linux imports remain cheap and error-free.
-    """
+    """On Linux, importing crash_handler must NOT load ``ctypes.wintypes``."""
 
     @pytest.mark.skipif(
         sys.platform == "win32",
         reason="Windows-specific guard test, wintypes IS loaded on Windows",
     )
     def test_import_does_not_load_wintypes(self):
-        """On non-Windows, ``ctypes.wintypes`` must NOT be in
-        ``sys.modules`` after importing crash_handler."""
-        # Remove crash_handler and ctypes.wintypes from sys.modules so
-        # we can re-import fresh and check what gets loaded.
+        """On non-Windows, ``ctypes.wintypes`` must NOT be in"""
         mods_to_remove = [
             k
             for k in list(sys.modules)
             if k == "voice_typer.server.crash_handler" or k.startswith("voice_typer.server.crash_handler.")
         ]
         # Save the ORIGINAL module objects so they can be restored after
-        # the re-import below. Purging + re-importing gives
-        # ``sys.modules`` a module object with a NEW identity, while
-        # modules imported BEFORE the purge (e.g. ``logging_setup.py``
-        # binds ``from voice_typer.server import crash_handler`` at its
-        # own import time) still reference the OLD object. If the purge
-        # is not undone, every later ``monkeypatch.setattr(
-        # "voice_typer.server.crash_handler.<fn>", ...)`` in the same
-        # worker patches the NEW object while production code calls the
-        # OLD one, the real function runs and the test fails with
-        # "Expected 'mock' to be called once. Called 0 times." (observed
-        # intermittently on CI for ``test_logging_setup.py``'s crash
-        # handler tests; scheduling-dependent because it needs this test
-        # and the logging tests to share one xdist worker).
         saved_modules = {k: sys.modules[k] for k in mods_to_remove}
         for k in mods_to_remove:
             del sys.modules[k]
@@ -316,33 +237,14 @@ class TestPerPlatformGuard:
             "time inside _win32_structs.py / _veh_kernel32.py / _veh_callback.py."
         )
         # Restore the ORIGINAL module identities so pre-existing
-        # bindings (``logging_setup._crash_handler`` etc.) keep pointing
-        # at the objects they were imported with, otherwise the module
-        # graph stays fractured for every later test in this worker.
         for k, mod in saved_modules.items():
             sys.modules[k] = mod
         # Restore the parent-package attribute as well. The re-import
-        # above rebound ``voice_typer.server.crash_handler`` (the
-        # attribute on the parent package) to the NEW module object;
-        # restoring ``sys.modules`` alone does NOT undo that binding.
-        # After this test, every ``from voice_typer.server import
-        # crash_handler`` in this worker would resolve to the new module
-        # while pre-purge bindings (``startup_sequence._crash_handler``,
-        # collection-time bindings in test modules, the facade's own
-        # re-exported function objects) still reference the old one —
-        # ``monkeypatch.setattr("voice_typer.server.crash_handler.<fn>")``
-        # patches the new module while production code calls the old,
-        # and state written through the facade lands on the wrong object
-        # (CI-observed: test_threading_excepthook.py + test_notification
-        # _event_name.py failing intermittently, per-worker, on the
-        # ubuntu legs, exactly when this test shared the worker).
         import voice_typer.server as _server_pkg
 
         for k in mods_to_remove:
             if k == "voice_typer.server.crash_handler":
                 _server_pkg.crash_handler = saved_modules[k]
-        # Belt-and-braces: the package attribute must now agree with
-        # sys.modules, the invariant every later test relies on.
         assert _server_pkg.crash_handler is sys.modules["voice_typer.server.crash_handler"], (
             "purge/restore must leave the package attribute consistent with sys.modules"
         )
@@ -352,8 +254,7 @@ class TestPerPlatformGuard:
         reason="Windows-specific guard test",
     )
     def test_submodule_imports_are_cheap_on_linux(self):
-        """Each submodule can be imported independently on Linux without
-        triggering wintypes."""
+        """Each submodule can be imported independently on Linux without"""
         submodules = [
             "voice_typer.server.crash_handler._constants",
             "voice_typer.server.crash_handler._win32_structs",
@@ -363,12 +264,6 @@ class TestPerPlatformGuard:
             "voice_typer.server.crash_handler._python_excepthook",
         ]
         # Snapshot the ORIGINAL submodule objects (sys.modules entries +
-        # facade attributes) so the re-imports below can be fully undone
-        # , otherwise the facade's re-exported function objects keep
-        # referencing the old submodules while sys.modules and the
-        # facade attributes point at fresh ones, fracturing the module
-        # graph for every later test in this worker (same class of bug
-        # as the purge in test_import_does_not_load_wintypes).
         from voice_typer.server import crash_handler as _facade_mod
 
         _orig_submods = {m: sys.modules.get(m) for m in submodules}
@@ -387,7 +282,6 @@ class TestPerPlatformGuard:
                 )
         finally:
             # Undo the re-imports completely: restore the original
-            # sys.modules entries AND the facade attributes.
             for m, mod in _orig_submods.items():
                 if mod is None:
                     sys.modules.pop(m, None)
@@ -401,23 +295,11 @@ class TestPerPlatformGuard:
                     setattr(_facade_mod, attr, mod)
 
 
-# ── 3. State proxying: test mutations propagate to submodule functions ──
-
-
 class TestStateProxying:
-    """Test mutations on ``crash_handler.<state>`` must be observable by
-    the submodule functions that read/write the same state.
-
-    This is the key invariant that lets the existing test suite (which
-    resets module-level globals between tests via
-    ``crash_handler._crash_file_path = ""`` etc.) work without
-    modification after the split.
-    """
+    """the submodule functions that read/write the same state."""
 
     def test_set_crash_handler_config_dir_writes_visible_on_facade(self, tmp_path):
-        """``set_crash_handler_config_dir`` (defined in
-        ``_diagnostics_archive``) writes to the facade's state vars —
-        reads on ``crash_handler.<name>`` must see the new values."""
+        """``_diagnostics_archive``) writes to the facade's state vars —"""
         from voice_typer.server import crash_handler
 
         saved = {
@@ -429,9 +311,6 @@ class TestStateProxying:
         }
         try:
             crash_handler.set_crash_handler_config_dir(tmp_path)
-            # The function (in _diagnostics_archive) wrote to
-            # _ch._crash_file_path etc., reads on the facade must see
-            # the new values.
             assert crash_handler._crash_file_path != ""
             assert "crash_diagnostics" in crash_handler._crash_file_path
             import os
@@ -446,9 +325,7 @@ class TestStateProxying:
                 setattr(crash_handler, k, v)
 
     def test_facade_reset_visible_to_submodule_function(self, tmp_path):
-        """When a test resets ``crash_handler._crash_written = True``,
-        the next ``set_crash_handler_config_dir`` call must see the
-        reset and clear it back to False."""
+        """When a test resets ``crash_handler._crash_written = True``,"""
         from voice_typer.server import crash_handler
 
         saved = {
@@ -463,7 +340,6 @@ class TestStateProxying:
             crash_handler._crash_written = True
             crash_handler.set_crash_handler_config_dir(tmp_path)
             # The function must have observed _crash_written=True (via
-            # _ch._crash_written) and reset it to False.
             assert crash_handler._crash_written is False, (
                 "set_crash_handler_config_dir did not observe the facade-level "
                 "_crash_written=True reset, state proxying is broken."
@@ -473,18 +349,10 @@ class TestStateProxying:
                 setattr(crash_handler, k, v)
 
     def test_install_crash_handler_reads_facade_handler_handle(self, monkeypatch):
-        """``install_crash_handler`` (in _python_excepthook) reads
-        ``_ch._handler_handle``, a test that sets
-        ``crash_handler._handler_handle = None`` must be observed."""
+        """``install_crash_handler`` (in _python_excepthook) reads"""
         from voice_typer.server import crash_handler
 
         # Force the non-Windows short-circuit so the test is
-        # platform-independent: on a real Windows host the function
-        # would genuinely install the VEH and return True. With the
-        # platform guard fired, install_crash_handler must still read
-        # ``_ch._handler_handle`` first (the ``if
-        # _ch._handler_handle is not None: return True`` check) and
-        # return False for the None reset.
         monkeypatch.setattr(sys, "platform", "linux")
 
         saved = crash_handler._handler_handle
@@ -500,12 +368,8 @@ class TestStateProxying:
             crash_handler._handler_handle = saved
 
 
-# ── 4. Package structure ─────────────────────────────────────────────
-
-
 class TestPackageStructure:
-    """The crash_handler package must have the 6 submodules specified in
-    the split plan."""
+    """The crash_handler package must have the 6 submodules specified in"""
 
     EXPECTED_SUBMODULES = [
         "_constants",
@@ -528,16 +392,12 @@ class TestPackageStructure:
             assert (pkg_dir / f"{sub}.py").exists(), f"Submodule {sub}.py is missing from the crash_handler package"
 
     def test_facade_is_not_the_old_monolith(self):
-        """The facade __init__.py must be a thin re-export layer (~100 LOC),
-        not the original 1255-LOC monolith."""
+        """The facade __init__.py must be a thin re-export layer (~100 LOC),"""
         import voice_typer.server.crash_handler as ch
 
         init_path = Path(ch.__file__)
         loc = len(init_path.read_text().splitlines())
         # The facade holds mutable state + re-exports, allow up to ~250
-        # LOC for the state declarations + docstrings + re-export
-        # imports. The original was 1255 LOC; the facade must be
-        # substantially smaller.
         assert loc < 300, (
             f"crash_handler/__init__.py is {loc} LOC, expected a thin facade "
             f"(<300 LOC). The original monolith was 1255 LOC; the facade must "
@@ -545,8 +405,7 @@ class TestPackageStructure:
         )
 
     def test_old_monolith_removed(self):
-        """The old ``crash_handler.py`` file must be removed (replaced by
-        the package)."""
+        """The old ``crash_handler.py`` file must be removed (replaced by"""
         import voice_typer.server.crash_handler as ch
 
         pkg_dir = Path(ch.__file__).parent
@@ -556,12 +415,8 @@ class TestPackageStructure:
         )
 
 
-# ── 5. Functional smoke test (Linux-runnable surface) ────────────────
-
-
 class TestFunctionalSmoke:
-    """Quick functional smoke test on the Linux-runnable surface to
-    verify the split didn't break basic behavior."""
+    """Quick functional smoke test on the Linux-runnable surface to"""
 
     def test_write_u32_hex_writes_8_hex_digits(self):
         """``_write_u32_hex`` writes exactly 8 hex digits (no 0x prefix)."""
@@ -606,8 +461,7 @@ class TestFunctionalSmoke:
         )
 
     def test_vectored_handler_impl_returns_continue_search_on_none(self):
-        """``_vectored_handler_impl(None)`` returns EXCEPTION_CONTINUE_SEARCH
-        on Linux (the ``exception_pointers.contents`` access raises)."""
+        """``_vectored_handler_impl(None)`` returns EXCEPTION_CONTINUE_SEARCH"""
         from voice_typer.server import crash_handler
 
         result = crash_handler._vectored_handler_impl(None)

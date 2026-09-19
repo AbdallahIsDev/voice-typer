@@ -1,31 +1,4 @@
-"""Fix-6 : tray state transition tests.
-
-These tests pin the three fixes applied to ``voice_typer/server/tray.py``:
-
-  * **** (High): ``set_state`` now extends the
-    ``transcribing_changed`` predicate to ALSO cover RECORDING ⇄
-    non-RECORDING transitions. The menu cache is invalidated on every
-    RECORDING ⇄ non-RECORDING / TRANSCRIBING ⇄ non-TRANSCRIBING
-    transition, and ``_maybe_publish_tray_menu`` is called so the
-    Tauri host receives an updated menu (the "Stop Dictation" label
-    flips on RECORDING enter/exit, "Force Cancel" appears on
-    TRANSCRIBING enter/exit). Pre- the RECORDING transition
-    only invalidated the icon, the menu stayed stale until the next
-    state change (e.g. a microphone list refresh).
-
-  * **** (Medium): ``_publish_tray_state`` wraps the
-    check-then-publish-then-cache sequence in a dedicated
-    ``self._publish_lock`` so two concurrent callers (the 1s
-    elapsed-recording tick vs a state-change IPC) cannot both pass the
-    cache check and both emit. The lock is held ONLY across the tuple
-    comparison + the event-bus publish (NOT across ``_compute_tooltip``
-    or the icon-name lookup).
-
-  * **** (Low): ``_compute_tooltip`` truncates the return value
-    to 127 chars (with a trailing ``…`` if truncated) so the Win32
-    ``NOTIFYICONDATAW.szTip`` 128-char limit (127 + NUL) does not
-    silently truncate the tooltip at the OS layer.
-"""
+"""Fix-6 : tray state transition tests."""
 
 from __future__ import annotations
 
@@ -63,12 +36,7 @@ class _MockController:
 
 
 def _make_tray(monkeypatch, publish_calls: list[dict] | None = None) -> TrayIcon:
-    """Build a TrayIcon with ``publish_tray_state`` + ``_maybe_publish_tray_menu``
-    tracked.
-
-    Mirrors the helper in tests/test_tray_state_diff.py so
-    tests share the same setup shape.
-    """
+    """Build a TrayIcon with ``publish_tray_state`` + ``_maybe_publish_tray_menu``"""
     mock_pystray = MagicMock()
     mock_pystray.Icon = MagicMock
     mock_pystray.Menu = MagicMock
@@ -86,7 +54,6 @@ def _make_tray(monkeypatch, publish_calls: list[dict] | None = None) -> TrayIcon
     monkeypatch.setattr(tray_mod, "_make_icon", lambda state, size=0: MagicMock())
 
     # Track publish_tray_state calls; return True so the cache is updated
-    # (matches the Tauri-sidecar success path).
     def _fake_publish(*, icon=None, tooltip=None):
         if publish_calls is not None:
             publish_calls.append({"icon": icon, "tooltip": tooltip})
@@ -112,17 +79,11 @@ def _make_tray(monkeypatch, publish_calls: list[dict] | None = None) -> TrayIcon
     return tray
 
 
-# ─── RECORDING transition invalidates menu cache ─────────────────
-
-
 class TestRecordingTransitionInvalidatesMenuCache:
-    """``set_state`` must invalidate the menu cache AND call
-    ``_maybe_publish_tray_menu`` on RECORDING ⇄ non-RECORDING transitions,
-    not just TRANSCRIBING ⇄ non-TRANSCRIBING."""
+    """``set_state`` must invalidate the menu cache AND call"""
 
     def test_idle_to_recording_invalidates_menu_cache(self, monkeypatch):
-        """IDLE → RECORDING must clear ``_menu_cache_valid`` and push the
-        menu so the "Stop Dictation" label flips."""
+        """IDLE → RECORDING must clear ``_menu_cache_valid`` and push the"""
         tray = _make_tray(monkeypatch)
         # Start with a valid cache (simulate a prior build).
         tray._menu_cache_valid = True
@@ -144,8 +105,7 @@ class TestRecordingTransitionInvalidatesMenuCache:
         )
 
     def test_recording_to_idle_invalidates_menu_cache(self, monkeypatch):
-        """RECORDING → IDLE must clear ``_menu_cache_valid`` and push the
-        menu so the "Stop Dictation" label flips back to "Start Dictation"."""
+        """RECORDING → IDLE must clear ``_menu_cache_valid`` and push the"""
         tray = _make_tray(monkeypatch)
         tray._state = AppState.RECORDING
         tray._message = "recording"
@@ -168,10 +128,7 @@ class TestRecordingTransitionInvalidatesMenuCache:
         )
 
     def test_recording_to_transcribing_no_menu_publish(self, monkeypatch):
-        """RECORDING → TRANSCRIBING stays inside the {RECORDING, TRANSCRIBING}
-        set, so ``record_or_transcribe_changed`` is False and the menu is
-        NOT re-pushed (no label flip, both states have the same
-        ``is_recording`` / ``is_transcribing`` flags)."""
+        """RECORDING → TRANSCRIBING stays inside the {RECORDING, TRANSCRIBING}"""
         tray = _make_tray(monkeypatch)
         tray._state = AppState.RECORDING
         tray._message = "recording"
@@ -184,9 +141,6 @@ class TestRecordingTransitionInvalidatesMenuCache:
 
         tray.set_state(AppState.TRANSCRIBING, "transcribing")
 
-        # RECORDING and TRANSCRIBING are BOTH in the membership set, so
-        # the predicate is False, the menu cache stays valid and no
-        # menu publish fires.
         assert tray._menu_cache_valid is True, (
             "RECORDING → TRANSCRIBING stays inside the membership set, no cache invalidation ."
         )
@@ -196,10 +150,7 @@ class TestRecordingTransitionInvalidatesMenuCache:
         )
 
     def test_idle_to_transcribing_invalidates_menu_cache(self, monkeypatch):
-        """IDLE → TRANSCRIBING is the original  coverage and must
-        still invalidate the cache (regression guard for the predicate
-        refactor from ``transcribing_changed`` to
-        ``record_or_transcribe_changed``)."""
+        """IDLE → TRANSCRIBING is the original  coverage and must"""
         tray = _make_tray(monkeypatch)
         tray._menu_cache_valid = True
 
@@ -217,8 +168,7 @@ class TestRecordingTransitionInvalidatesMenuCache:
         assert len(menu_publish_calls) == 1
 
     def test_idle_to_error_no_menu_publish(self, monkeypatch):
-        """IDLE → ERROR is NOT in the membership set, so no menu publish
-        fires (no label flip). Guards against over-publishing."""
+        """IDLE → ERROR is NOT in the membership set, so no menu publish"""
         tray = _make_tray(monkeypatch)
         tray._menu_cache_valid = True
 
@@ -233,20 +183,13 @@ class TestRecordingTransitionInvalidatesMenuCache:
         assert menu_publish_calls == [], "IDLE → ERROR must NOT push the menu."
 
 
-# ─── _publish_tray_state thread safety ───────────────────────────
-
-
 class TestPublishTrayStateThreadSafe:
-    """the check-then-publish-then-cache sequence in
-    ``_publish_tray_state`` must be serialized by ``_publish_lock`` so two
-    concurrent callers cannot both pass the cache check and both emit."""
+    """``_publish_tray_state`` must be serialized by ``_publish_lock`` so two"""
 
     def test_publish_lock_declared(self):
         """TrayIcon.__init__ must declare ``_publish_lock`` as a Lock."""
         tray = _make_tray(MagicMock())
         assert hasattr(tray, "_publish_lock"), "TrayIcon must declare ``_publish_lock``, got no attribute."
-        # threading.Lock instances are not the Lock class directly (factory
-        # returns a C object); verify it can be acquired + released.
         with tray._publish_lock:
             pass
         assert tray._publish_lock is not tray._icon_lock, (
@@ -261,41 +204,21 @@ class TestPublishTrayStateThreadSafe:
         )
 
     def test_concurrent_publishes_no_duplicate_emit(self, monkeypatch):
-        """N threads call ``_publish_tray_state`` concurrently with the
-        SAME state + message. Without the lock, every thread passes the
-        cache check (cache is initially None) and emits, the publish
-        counter would be N. With the lock, the first thread emits + sets
-        the cache; subsequent threads see the cache hit and skip."""
+        """cache check (cache is initially None) and emits, the publish"""
         publish_calls: list[dict] = []
         tray = _make_tray(monkeypatch, publish_calls=publish_calls)
-        # Force a stable state + message so every thread computes the
-        # same (icon_name, tooltip) tuple.
         tray._state = AppState.IDLE
         tray._message = ""
         tray._last_published = None  # ensure cache miss
         # Pin the CPU-fallback flag: a parakeet CPU-fallback event
-        # arriving mid-test (event-bus subscriber registered in
-        # TrayIcon.__init__) would change the tooltip and legitimately
-        # emit a second publish: that is NOT the dedup race under
-        # test. Flipping it off makes the tuple deterministic.
         tray._cpu_fallback_active = False
 
         # Insert a tiny delay INSIDE the publish callback so concurrent
-        # threads race against each other (without the lock, the delay
-        # window is wide enough for multiple threads to pass the cache
-        # check before any thread writes ``_last_published``).
         import voice_typer.server.tray_menu as tray_menu_mod
 
         n_threads = 8
 
         # Stray publishes from OTHER TrayIcon instances in the same xdist
-        # worker (e.g. a module-scoped app fixture whose dictation flow
-        # flips its own tray to RECORDING) resolve this same module-level
-        # function while the patch is active, observed on CI as a
-        # ``{'icon': 'recording', ...}`` entry from a foreign tray inside
-        # this test's publish_calls. Only THIS test's ``pub-*`` workers
-        # assert the dedup invariant; foreign entries are recorded but
-        # excluded from the count.
         own_thread_names = {f"pub-{i}" for i in range(n_threads)}
 
         def _slow_publish(*, icon=None, tooltip=None):
@@ -324,8 +247,6 @@ class TestPublishTrayStateThreadSafe:
 
         assert not errors, f"concurrent _publish_tray_state raised: {errors}"
         # With the lock, exactly ONE publish fires from the test's own
-        # workers (the first thread sets the cache; subsequent threads
-        # see the hit and return early).
         own_publishes = [c for c in publish_calls if c.get("thread") in own_thread_names]
         assert len(own_publishes) == 1, (
             "Concurrent publishes with the same state must emit exactly ONCE "
@@ -335,11 +256,7 @@ class TestPublishTrayStateThreadSafe:
         )
 
     def test_concurrent_publishes_with_changing_message_no_crash(self, monkeypatch):
-        """Concurrent calls with DIFFERENT messages (every thread sets a
-        unique message before publishing) must not crash and must not
-        deadlock. The cache may emit multiple times (each unique message
-        is a cache miss), but the lock serializes the emit + cache write
-        so no torn read of ``_last_published`` is possible."""
+        """unique message before publishing) must not crash and must not"""
         publish_calls: list[dict] = []
         tray = _make_tray(monkeypatch, publish_calls=publish_calls)
 
@@ -351,8 +268,6 @@ class TestPublishTrayStateThreadSafe:
             try:
                 barrier.wait(timeout=5.0)
                 # Each thread sets a unique message → unique tooltip →
-                # cache miss → publish fires. The lock serializes the
-                # cache writes so no torn read.
                 tray._message = f"msg-{i}"
                 tray._publish_tray_state()
             except Exception as e:  # noqa: BLE001
@@ -367,23 +282,14 @@ class TestPublishTrayStateThreadSafe:
 
         assert not errors, f"concurrent _publish_tray_state raised: {errors}"
         # Each unique message is a cache miss → emits. The lock guarantees
-        # the cache is consistent, but the publishes themselves may dedupe
-        # in any order. We only assert no crash + at least one publish fired.
         assert len(publish_calls) >= 1, "Expected at least one publish to fire."
 
 
-# ─── _compute_tooltip truncation ─────────────────────────────────
-
-
 class TestComputeTooltipTruncation:
-    """``_compute_tooltip`` must truncate the return value to 127
-    chars (with a trailing ``…`` if truncated) so the Win32
-    ``NOTIFYICONDATAW.szTip`` 128-char limit (127 + NUL) does not
-    silently truncate at the OS layer."""
+    """``_compute_tooltip`` must truncate the return value to 127"""
 
     def test_short_tooltip_not_truncated(self, monkeypatch):
-        """A short tooltip (under 127 chars) is returned unchanged, no
-        spurious ``…`` appended."""
+        """A short tooltip (under 127 chars) is returned unchanged, no"""
         tray = _make_tray(monkeypatch)
         tray._state = AppState.IDLE
         tray._message = ""
@@ -394,8 +300,7 @@ class TestComputeTooltipTruncation:
         assert not tooltip.endswith("…"), "Short tooltip must NOT be truncated."
 
     def test_long_tooltip_truncated_to_127_chars(self, monkeypatch):
-        """A tooltip longer than 127 chars is truncated to exactly 127
-        chars, ending in ``…``."""
+        """A tooltip longer than 127 chars is truncated to exactly 127"""
         tray = _make_tray(monkeypatch)
         # Force a very long message so the tooltip exceeds 127 chars.
         long_message = "x" * 200
@@ -408,23 +313,16 @@ class TestComputeTooltipTruncation:
         assert tooltip.endswith("…"), "Truncated tooltip must end with ``…`` (U+2026) so the user sees the truncation."
 
     def test_tooltip_exactly_127_chars_not_truncated(self, monkeypatch):
-        """A tooltip that is exactly 127 chars long is NOT truncated;
-        the boundary is `> 127`, not `>= 127`."""
+        """A tooltip that is exactly 127 chars long is NOT truncated;"""
         tray = _make_tray(monkeypatch)
         tray._state = AppState.IDLE
 
         # Build a message that produces a tooltip of EXACTLY 127 chars.
-        # The tooltip format is ``<APP_NAME> | <message> [<model>] (<hotkey>)``;
-        # we tune the message length to land at the boundary.
         base = tray._compute_tooltip(AppState.IDLE, "")
         base_len = len(base)
         # We need the message to add (127 - base_len - 3) chars (the " | "
-        # separator is 3 chars: space, pipe, space).
         delta = 127 - base_len - 3
         if delta < 0:
-            # base is already > 127 (e.g. very long model name); skip the
-            # boundary test in that case, the long-tooltip test above
-            # already covers the truncation path.
             pytest.skip(
                 f"Base tooltip is already {base_len} chars, cannot construct a 127-char boundary case with this config."
             )
@@ -437,8 +335,7 @@ class TestComputeTooltipTruncation:
         )
 
     def test_tooltip_128_chars_truncated(self, monkeypatch):
-        """A tooltip of 128 chars (one over the limit) is truncated to
-        127 chars with a trailing ``…``."""
+        """A tooltip of 128 chars (one over the limit) is truncated to"""
         tray = _make_tray(monkeypatch)
         tray._state = AppState.IDLE
 
@@ -456,10 +353,7 @@ class TestComputeTooltipTruncation:
         assert tooltip.endswith("…"), "128-char tooltip must end with ``…``."
 
     def test_truncated_tooltip_uses_single_codepoint_ellipsis(self, monkeypatch):
-        """The truncation suffix must be the single Unicode codepoint
-        ``…`` (U+2026), not three ASCII dots ``...``, the single
-        codepoint occupies ONE char in the 127-char budget (vs three for
-        ``...``)."""
+        """The truncation suffix must be the single Unicode codepoint"""
         tray = _make_tray(monkeypatch)
         tray._state = AppState.IDLE
         long_message = "x" * 200
@@ -471,10 +365,7 @@ class TestComputeTooltipTruncation:
         assert len("…") == 1, "U+2026 must be a single Python char."
 
     def test_truncated_tooltip_is_deterministic_cache_key(self, monkeypatch):
-        """Two calls with the same long message must produce the SAME
-        truncated tooltip, the truncation is deterministic so the
-        ``_last_published`` tuple comparison in ``_publish_tray_state``
-        deduplicates correctly."""
+        """Two calls with the same long message must produce the SAME"""
         tray = _make_tray(monkeypatch)
         tray._state = AppState.IDLE
         long_message = "x" * 200

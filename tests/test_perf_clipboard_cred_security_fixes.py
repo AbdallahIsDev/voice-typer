@@ -1,28 +1,4 @@
-"""Tests for the three Medium-severity perf/reliability findings:
-
-* **IN-21**: ``security.redact_pii`` was missing the fast-path that
-  ``_redact_text`` has. Every direct caller (``llm_polish``,
-  transcription-PII gating, …) paid the full 8-12 ``re.sub`` cost
-  even on inputs that carried no PII / secret / URL-credential
-  trigger. Fix: delegate to ``_redact_text``, which gates the whole
-  pass behind ``_FAST_TRIGGER.search``.
-
-* **IN-22**: ``ClipboardManager.paste()`` called
-  ``_release_stuck_modifiers()`` BEFORE the rate-limit and
-  paste_enabled gates. A rate-limited or disabled paste still paid
-  4 pynput ``.release()`` round-trips (Ctrl / Shift / Alt / Cmd).
-  Fix: move the call AFTER both gates, just before
-  ``_is_safe_paste_target()``.
-
-* **IN-23**: ``credential_store._run_keyring_call`` spawned a fresh
-  daemon worker thread on every call; on a hung backend (D-Bus
-  waiting for a prompt, Keychain waiting for unlock) every call
-  timed out and left another orphaned thread running. Fix: track
-  orphan count + per-backend consecutive-timeout count; after 2
-  consecutive timeouts on the same backend, mark it "wedged" for a
-  60 s cooldown during which subsequent calls short-circuit
-  (``TimeoutError`` immediately, no thread spawned).
-"""
+"""Tests for the three Medium-severity perf/reliability findings:"""
 
 from __future__ import annotations
 
@@ -32,43 +8,22 @@ from unittest.mock import MagicMock
 
 import pytest
 
-# pynput / pynput.keyboard / pyperclip are mocked at collection time by
-# tests/clipboard/conftest.py (single source of truth, dedup).
-
-
-# ═════════════════════════════════════════════════════════════════════════
-# IN-21: security.redact_pii fast-path parity with _redact_text
-# ═════════════════════════════════════════════════════════════════════════
-
 
 class TestRedactPiiFastPath:
-    """IN-21: ``redact_pii`` must take the same fast-path as
-    ``_redact_text`` so callers that don't go through the log filter
-    (``llm_polish``, transcription-PII gating) get the 5-10x speedup
-    on inputs that carry no PII / secret / URL-credential trigger.
-    """
+    """``_redact_text`` so callers that don't go through the log filter"""
 
     def test_redact_pii_returns_input_unchanged_for_no_trigger(self) -> None:
-        """Inputs with no ``_FAST_TRIGGER`` match must be returned
-        verbatim, the substitution loop must not run."""
+        """Inputs with no ``_FAST_TRIGGER`` match must be returned"""
         from voice_typer.server.security import redact_pii
 
         # "hello world", no @, no +, no 3+ digits, no Bearer/Token/sk-/
-        # key=, no 20+ char alnum run. ``_FAST_TRIGGER.search`` misses
-        # → fast-path returns the input unchanged.
         text = "hello world"
         assert redact_pii(text) == text
         # Same identity check (the fast-path returns the SAME str
-        # object, not a copy: ``==`` would pass even for a copy, so
-        # use ``is`` for a stronger fast-path-taken assertion).
         assert redact_pii(text) is text
 
     def test_redact_pii_matches_redact_text_output(self) -> None:
-        """``redact_pii`` delegates to ``_redact_text`` so the two
-        functions must produce identical output across a range of
-        inputs (trigger and non-trigger). This is the strongest
-        behavioral pin, if someone re-inlines the logic in
-        ``redact_pii`` and lets it drift, this test catches it."""
+        """``redact_pii`` delegates to ``_redact_text`` so the two"""
         from voice_typer.server.security import _redact_text, redact_pii
 
         cases = [
@@ -93,8 +48,6 @@ class TestRedactPiiFastPath:
             "key: abcdefghijklmnopqrstuvwxyz0123456789abcd",
             # URL userinfo.
             "curl https://user:pass@example.com/path",
-            # Long path with no trigger (path delimiters prevent the
-            # 20+ char alnum alternation from matching).
             "/usr/local/lib/python3.11/site-packages/voice_typer",
         ]
         for text in cases:
@@ -105,10 +58,7 @@ class TestRedactPiiFastPath:
             )
 
     def test_redact_pii_still_redacts_real_pii(self) -> None:
-        """Regression guard: the fast-path delegation must not break
-        actual redaction (the existing test_redact_pii_regressions.py
-        covers this too, but the assertion is duplicated here so the
-        test file is self-contained)."""
+        """Regression guard: the fast-path delegation must not break"""
         from voice_typer.server.security import redact_pii
 
         assert "[EMAIL]" in redact_pii("contact john.doe@example.com")
@@ -120,17 +70,8 @@ class TestRedactPiiFastPath:
         assert secret not in redact_pii(f"Using API key: {secret}")
 
 
-# ═════════════════════════════════════════════════════════════════════════
-# IN-22: clipboard paste() must not call _release_stuck_modifiers on the
-#        rate-limited / disabled / pynput-unavailable early-return paths
-# ═════════════════════════════════════════════════════════════════════════
-
-
 class TestReleaseStuckModifiersGated:
-    """IN-22: ``_release_stuck_modifiers`` must run AFTER the
-    rate-limit, paste_enabled, and pynput-availability gates, not
-    before. A rate-limited or disabled paste cycle must NOT pay the
-    4 pynput ``.release()`` round-trips."""
+    """rate-limit, paste_enabled, and pynput-availability gates, not"""
 
     def _make_cm(self, **kwargs):
         from voice_typer.server.clipboard import ClipboardManager
@@ -142,14 +83,11 @@ class TestReleaseStuckModifiersGated:
         return cm
 
     def test_release_not_called_when_rate_limited(self, monkeypatch) -> None:
-        """Rate-limited paste must short-circuit BEFORE
-        ``_release_stuck_modifiers`` runs (previously it ran first,
-        paying 4 pynput calls per rate-limited attempt)."""
+        """Rate-limited paste must short-circuit BEFORE"""
         from voice_typer.server import clipboard as mod
         from voice_typer.server.clipboard import ClipboardManager
 
         # Force the rate-limit window to be active (last paste was
-        # "now" → next paste within the rate-limit window).
         monkeypatch.setattr(mod.time, "monotonic", lambda: 100.0)
         cm = self._make_cm(paste_enabled=True)
         cm._last_paste_time = 100.0  # == now → 0 ms since last paste → rate-limited
@@ -169,14 +107,11 @@ class TestReleaseStuckModifiersGated:
             f"_release_stuck_modifiers must NOT run on rate-limited paste; called {len(release_calls)} times"
         )
         # Keyboard controller also must not be touched (the spy above
-        # is the strongest signal, but this is a defense-in-depth
-        # assertion that no other pynput path fired).
         cm._keyboard.press.assert_not_called()
         cm._keyboard.release.assert_not_called()
 
     def test_release_not_called_when_paste_disabled(self, monkeypatch) -> None:
-        """paste_enabled=False must short-circuit BEFORE
-        ``_release_stuck_modifiers`` runs."""
+        """paste_enabled=False must short-circuit BEFORE"""
         from voice_typer.server import clipboard as mod
         from voice_typer.server.clipboard import ClipboardManager
 
@@ -200,9 +135,7 @@ class TestReleaseStuckModifiersGated:
         )
 
     def test_release_called_on_happy_path(self, monkeypatch) -> None:
-        """Positive assertion: on a paste cycle that actually sends a
-        keystroke, ``_release_stuck_modifiers`` MUST still be called
-        (the move is "after the gates", not "removed entirely")."""
+        """keystroke, ``_release_stuck_modifiers`` MUST still be called"""
         from voice_typer.server import clipboard as mod
         from voice_typer.server.clipboard import ClipboardManager
 
@@ -214,8 +147,6 @@ class TestReleaseStuckModifiersGated:
         cm = self._make_cm(paste_enabled=True)
         cm._keyboard = MagicMock()
         # Safety check passes, release fires after the gates but before
-        # the keystroke send, which is the property the original
-        # PLAT-STUCK fix needed.
         monkeypatch.setattr(ClipboardManager, "_is_safe_paste_target", lambda self: True)
         monkeypatch.setattr(ClipboardManager, "_detect_focused_process", lambda self: None)
 
@@ -234,74 +165,15 @@ class TestReleaseStuckModifiersGated:
         )
 
 
-# ═════════════════════════════════════════════════════════════════════════
-# IN-23: credential_store._run_keyring_call wedged-backend cooldown
-# ═════════════════════════════════════════════════════════════════════════
-
-
 # Module-level state symbols in ``voice_typer.server.credential_store``.
-# The production code (see ``credential_store._run_keyring_call``) uses a
-# SINGLE GLOBAL wedge/cooldown state, not a per-backend dict. The symbols
-# below are the actual production API; tests must mutate them under
-# ``_keyring_state_lock`` to avoid racing with the runner thread.
-#
-# NOTE: an earlier draft of this test file assumed a per-backend wedge dict
-# (``_wedged_backends``, ``_backend_consecutive_timeouts``) and a
-# ``_reset_orphan_state()`` helper. None of those exist in production, the
-# real API is the global trio below. The tests were rewritten to match the
-# production API.
 
 
 class TestRunKeyringCallWedgedCooldown:
-    """``_run_keyring_call`` must bound the orphan-thread leak
-    rate by short-circuiting calls when the backend has timed out twice
-    in a row, for a 60 s cooldown window.
-
-    Test strategy: monkeypatch ``_KEYRING_TIMEOUT_SECONDS`` to a tiny
-    value so we don't have to wait 5s per timeout; use a backend
-    method that sleeps longer than the timeout to force the timeout
-    path; assert that after 2 consecutive timeouts the 3rd call
-    raises ``TimeoutError`` immediately without spawning a thread.
-
-    Production API (verified in
-    ``voice_typer/server/credential_store/_backend.py``):
-
-    * ``_orphaned_thread_count`` , global int, bumped on each timeout
-      orphan, decremented when the orphan thread eventually finishes.
-    * ``_consecutive_timeouts``  , global int, bumped on each
-      consecutive timeout, reset to 0 on any non-timeout completion
-      (success OR non-timeout exception).
-    * ``_wedged_until``          , global float (monotonic timestamp).
-      While ``_wedged_until > now``, every call short-circuits with a
-      ``TimeoutError`` mentioning "wedged". WITHOUT spawning a thread.
-      Set on the 2nd consecutive timeout to ``now + _KEYRING_WEDGE_COOLDOWN_S``.
-    * ``_keyring_state_lock``    , module-level ``threading.Lock`` guarding
-      all of the above.
-    * ``_KEYRING_TIMEOUT_SECONDS``, per-call timeout (monkeypatched small
-      here so each timeout is fast).
-    * ``_KEYRING_WEDGE_COOLDOWN_S``, wedge cooldown duration (default 60s;
-      monkeypatched small here so cooldown-expiry tests don't wait a minute).
-    * ``_KEYRING_ORPHAN_WARN_THRESHOLD``, orphan count above which a
-      WARNING is logged (default 20; monkeypatched small here so the
-      warning is reachable from a short test).
-    """
+    """``_run_keyring_call`` must bound the orphan-thread leak"""
 
     @pytest.fixture(autouse=True)
     def _reset_orphan_state_between_tests(self):
-        """Clear the orphan / wedged state before AND after each test
-        so the module globals don't leak across tests.
-
-        The production code does NOT expose a ``_reset_orphan_state()``
-        helper (an earlier draft of this test assumed one). We mutate
-        the global state directly under the production lock so we don't
-        race with a still-running orphan thread from a prior test.
-
-        The counters are re-bound globals OWNED by
-        ``credential_store._backend`` and mutated there via bare-name
-        lookup, writing through the package module would only shadow
-        the PEP 562 delegation without reaching production code, so
-        every access below targets the owning submodule.
-        """
+        """Clear the orphan / wedged state before AND after each test"""
         from voice_typer.server import credential_store
 
         with credential_store._keyring_state_lock:
@@ -315,34 +187,11 @@ class TestRunKeyringCallWedgedCooldown:
             credential_store._backend._wedged_until = 0.0
 
     def _make_hung_backend_event(self):
-        """Build a fake keyring-like backend whose ``get_password``
-        blocks on a ``threading.Event`` (instead of ``time.sleep``).
-
-        Using an Event (rather than ``time.sleep(hang_seconds)``) lets
-        us deterministically release the orphan thread in a ``finally``
-        block, so the test doesn't leak orphan threads across tests
-        AND so the production code's "decrement on completion" path
-        runs before our assertions, eliminating the race that bedeviled
-        an earlier draft (which used ``time.sleep(0.5)`` and asserted
-        ``_orphaned_thread_count == 2``, flaky because the orphan
-        could finish + decrement between the timeout and the assertion).
-
-        Mirrors the pattern in
-        ``tests/test_credential_store_keyring_orphan.py`` (the canonical
-        test for this API).
-
-        Returns ``(backend, done_event)``, call ``done_event.set()`` in
-        a ``finally`` block to release the orphan.
-        """
+        """Build a fake keyring-like backend whose ``get_password``"""
         done = threading.Event()
 
         class _HungBackend:
-            """A keyring backend whose get_password blocks until
-            ``done`` is set (or 5s elapses, as a safety net).
-
-            Simulates a libsecret D-Bus call waiting for a prompt that
-            never comes, or a Keychain waiting for an unlock.
-            """
+            """A keyring backend whose get_password blocks until"""
 
             name = "HungBackend"
 
@@ -353,9 +202,7 @@ class TestRunKeyringCallWedgedCooldown:
         return _HungBackend(), done
 
     def test_first_timeout_increments_orphan_count(self, monkeypatch) -> None:
-        """The first timeout on a backend must increment the orphan
-        count (but NOT wedge the backend, wedging requires 2
-        consecutive timeouts)."""
+        """The first timeout on a backend must increment the orphan"""
         from voice_typer.server import credential_store
 
         monkeypatch.setattr(credential_store, "_KEYRING_TIMEOUT_SECONDS", 0.1)
@@ -369,7 +216,6 @@ class TestRunKeyringCallWedgedCooldown:
                 "first timeout must bump the orphan count to 1"
             )
             # First timeout must NOT wedge, that requires 2 consecutive
-            # timeouts. ``_wedged_until`` must still be 0.0 (no cooldown set).
             assert credential_store._backend._wedged_until == 0.0, (
                 "first timeout must not wedge the backend (need 2 consecutive)"
             )
@@ -378,9 +224,7 @@ class TestRunKeyringCallWedgedCooldown:
             done.set()
 
     def test_second_consecutive_timeout_wedges_backend(self, monkeypatch) -> None:
-        """After 2 consecutive timeouts on the same backend, the
-        global wedge cooldown must engage (``_wedged_until`` is set to
-        ``now + _KEYRING_WEDGE_COOLDOWN_S``)."""
+        """``now + _KEYRING_WEDGE_COOLDOWN_S``)."""
         from voice_typer.server import credential_store
 
         monkeypatch.setattr(credential_store, "_KEYRING_TIMEOUT_SECONDS", 0.1)
@@ -423,13 +267,7 @@ class TestRunKeyringCallWedgedCooldown:
             done2.set()
 
     def test_wedged_backend_short_circuits_without_spawning_thread(self, monkeypatch) -> None:
-        """The 3rd call (while wedge cooldown is active) must raise
-        ``TimeoutError`` IMMEDIATELY without spawning another worker
-        thread, this is the core of the IN-23 fix (bounding the orphan
-        leak rate).
-
-        We assert this by counting ``threading.Thread`` start calls.
-        """
+        """The 3rd call (while wedge cooldown is active) must raise"""
         from voice_typer.server import credential_store
 
         monkeypatch.setattr(credential_store, "_KEYRING_TIMEOUT_SECONDS", 0.1)
@@ -473,40 +311,25 @@ class TestRunKeyringCallWedgedCooldown:
                 credential_store._run_keyring_call(backend.get_password, "svc", "user")
 
             # The TimeoutError message must indicate the short-circuit
-            # path (so operators can distinguish "real timeout" from
-            # "wedged short-circuit" in logs).
             assert "wedged" in str(exc_info.value).lower(), (
                 f"wedge short-circuit TimeoutError must mention 'wedged'; got: {exc_info.value!s}"
             )
-            # NO new thread must have been spawned, this is the
-            # orphan-leak bound.
             assert spawn_count["n"] == 0, f"wedge short-circuit must NOT spawn a thread; spawned {spawn_count['n']}"
             # Orphan count stays at 2 (no new orphan from the short-circuit).
-            # The two prior orphans are still blocked on `done1`/`done2`
-            # (released in the `finally` below), so they haven't
-            # decremented yet.
             assert credential_store._backend._orphaned_thread_count == 2
         finally:
             done1.set()
             done2.set()
 
     def test_successful_call_resets_consecutive_timeout_count(self, monkeypatch) -> None:
-        """A successful call must reset the consecutive-timeout counter
-        so a future transient blip doesn't immediately re-wedge the
-        backend (the cooldown is a "two strikes in a row" rule, not
-        "two strikes ever")."""
+        """A successful call must reset the consecutive-timeout counter"""
         from voice_typer.server import credential_store
 
         monkeypatch.setattr(credential_store, "_KEYRING_TIMEOUT_SECONDS", 0.1)
         done = threading.Event()
 
         class _RecoveringBackend:
-            """Backend that hangs the first time, succeeds the second,
-            then hangs the third.
-
-            Simulates a backend that recovers after a transient blip
-            (e.g. D-Bus briefly slow on a cold boot).
-            """
+            """Backend that hangs the first time, succeeds the second,"""
 
             name = "RecoveringBackend"
             _calls = 0
@@ -533,7 +356,6 @@ class TestRunKeyringCallWedgedCooldown:
             )
 
             # Third call, timeout again. Consecutive count must be 1
-            # (NOT 2, the prior success reset it), so no wedge.
             with pytest.raises(TimeoutError):
                 credential_store._run_keyring_call(backend.get_password, "svc", "user")
             assert credential_store._backend._consecutive_timeouts == 1
@@ -544,23 +366,7 @@ class TestRunKeyringCallWedgedCooldown:
             done.set()
 
     def test_wedge_is_global_across_backends(self, monkeypatch) -> None:
-        """The production ``_run_keyring_call`` tracks wedge state
-        GLOBALLY (a single ``_wedged_until`` timestamp), not per
-        backend. Once a wedge fires on backend A, calls to ANY backend
-        (B, C, …) also short-circuit.
-
-        An earlier draft of this test assumed per-backend wedge dicts
-        (``_wedged_backends``), that API does NOT exist in production
-        (see ``credential_store._run_keyring_call``). The test was
-        rewritten to assert the actual production behavior: a wedge
-        from ANY backend short-circuits calls to ALL backends.
-
-        This is a defensible design choice: in practice there is only
-        one keyring backend per platform (SecretService on Linux,
-        Keychain on macOS, Windows Credential Manager on Windows), so
-        a per-backend wedge dict would be over-engineering. The global
-        wedge bounds the orphan leak rate regardless.
-        """
+        """The production ``_run_keyring_call`` tracks wedge state"""
         from voice_typer.server import credential_store
 
         monkeypatch.setattr(credential_store, "_KEYRING_TIMEOUT_SECONDS", 0.1)
@@ -585,8 +391,6 @@ class TestRunKeyringCallWedgedCooldown:
 
             def get_password(self, service, username):
                 # B is never actually called, the wedge short-circuits
-                # before its thread is spawned. But if it WERE called,
-                # it would hang too (defensive).
                 done_a2.wait(timeout=5.0)
                 return None
 
@@ -604,7 +408,6 @@ class TestRunKeyringCallWedgedCooldown:
             assert credential_store._backend._wedged_until > time.monotonic()
 
             # Backend B's call must short-circuit too (global wedge),
-            # raising the wedge TimeoutError WITHOUT spawning a thread.
             original_thread_start = threading.Thread.start
             b_spawn_count = {"n": 0}
 
@@ -620,7 +423,6 @@ class TestRunKeyringCallWedgedCooldown:
                 "backend B's call must short-circuit via the global wedge (TimeoutError message must mention 'wedged')"
             )
             # NO thread must have been spawned for backend B, the wedge
-            # short-circuited before the Thread() constructor ran.
             assert b_spawn_count["n"] == 0, (
                 "backend B's call must short-circuit (no thread spawned), "
                 "the wedge is global, so a wedge from A covers B too"
@@ -630,22 +432,7 @@ class TestRunKeyringCallWedgedCooldown:
             done_a2.set()
 
     def test_cooldown_expiry_retries_backend(self, monkeypatch) -> None:
-        """After the cooldown window elapses, the next call must
-        actually try the backend (spawn a thread) rather than
-        short-circuit.
-
-        NOTE: production code (``credential_store._run_keyring_call``
-        lines 188-190) RESETS ``_consecutive_timeouts`` to 0 when the
-        cooldown expires. So a single post-cooldown timeout does NOT
-        immediately re-wedge, the backend gets a fresh "two strikes"
-        count. To observe a re-wedge, we need 2 MORE consecutive
-        timeouts after the cooldown expires.
-
-        An earlier draft of this test assumed the consecutive count
-        was preserved across cooldown expiry (it wasn't, production
-        resets it). The test now reflects the actual production
-        behavior.
-        """
+        """After the cooldown window elapses, the next call must"""
         from voice_typer.server import credential_store
 
         monkeypatch.setattr(credential_store, "_KEYRING_TIMEOUT_SECONDS", 0.1)
@@ -654,9 +441,6 @@ class TestRunKeyringCallWedgedCooldown:
         done3 = threading.Event()
         done4 = threading.Event()
         # Capture the Events in a list so the inner ``get_password``
-        # method can index them by call-number without referencing the
-        # local ``doneN`` names (which are NOT in scope inside the
-        # method body, Python closures capture variables, not aliases).
         done_events = [done1, done2, done3, done4]
 
         class _HungBackend:
@@ -667,7 +451,6 @@ class TestRunKeyringCallWedgedCooldown:
             def get_password(self, service, username):
                 _HungBackend._call_n += 1
                 # Each of the 4 calls blocks on its own Event so we
-                # can release them all deterministically at the end.
                 idx = min(_HungBackend._call_n - 1, len(done_events) - 1)
                 done_events[idx].wait(timeout=5.0)
                 return None
@@ -683,15 +466,10 @@ class TestRunKeyringCallWedgedCooldown:
             assert credential_store._backend._wedged_until > time.monotonic()
 
             # Manually expire the cooldown by backdating the wedged-until
-            # timestamp to the past. Production code resets
-            # ``_consecutive_timeouts`` to 0 when it observes the
-            # expired wedge on the next call.
             with credential_store._keyring_state_lock:
                 credential_store._backend._wedged_until = time.monotonic() - 1.0
 
             # Next call must NOT short-circuit, it must spawn a thread
-            # (and time out for real). Consecutive count goes 0 → 1
-            # (NOT re-wedged, only 1 strike after the reset).
             original_thread_start = threading.Thread.start
             spawn_count = {"n": 0}
 
@@ -708,7 +486,6 @@ class TestRunKeyringCallWedgedCooldown:
             )
             assert spawn_count["n"] == 1, "post-cooldown call must spawn a thread"
             # After this single post-cooldown timeout: consecutive=1,
-            # NOT wedged (need 2 consecutive to wedge).
             assert credential_store._backend._consecutive_timeouts == 1
             assert credential_store._backend._wedged_until == 0.0, (
                 "single post-cooldown timeout must NOT re-wedge "
@@ -716,7 +493,6 @@ class TestRunKeyringCallWedgedCooldown:
             )
 
             # 2nd post-cooldown timeout, NOW the backend re-wedges
-            # (consecutive count: 1 → 2 ≥ 2).
             with pytest.raises(TimeoutError):
                 credential_store._run_keyring_call(backend.get_password, "svc", "user")
             assert credential_store._backend._wedged_until > time.monotonic(), (
@@ -729,25 +505,10 @@ class TestRunKeyringCallWedgedCooldown:
             done4.set()
 
     def test_warning_logged_when_orphan_count_exceeds_threshold(self, monkeypatch, caplog) -> None:
-        """When the orphan count crosses
-        ``_KEYRING_ORPHAN_WARN_THRESHOLD`` (default 20), a WARNING
-        must be logged so operators have a visible signal before
-        resource exhaustion bites."""
+        """When the orphan count crosses"""
         from voice_typer.server import credential_store
 
         # Lower the timeout + cooldown so the test runs fast. We also
-        # lower ``_KEYRING_ORPHAN_WARN_THRESHOLD`` to 1 so we only need
-        # 2 timeouts to cross it (the warning fires on the SAME timeout
-        # that engages the wedge, both check the incremented
-        # ``orphan_count`` in the same critical section, mirroring the
-        # pattern in ``test_credential_store_keyring_orphan.py``).
-        # The timeout is generously above the orphan-registration
-        # window: under parallel-suite CPU contention the worker thread
-        # may not reach its wait point for hundreds of milliseconds,
-        # which would let the outer call time out BEFORE the orphan is
-        # booked, the threshold warning then never fires (observed as
-        # a load-order flake on a 2-core runner). 0.5s keeps the test
-        # fast while making that scheduling undercut impossible.
         monkeypatch.setattr(credential_store, "_KEYRING_TIMEOUT_SECONDS", 0.5)
         monkeypatch.setattr(credential_store, "_KEYRING_WEDGE_COOLDOWN_S", 60.0)
         monkeypatch.setattr(credential_store, "_KEYRING_ORPHAN_WARN_THRESHOLD", 1)
@@ -773,10 +534,6 @@ class TestRunKeyringCallWedgedCooldown:
         try:
             with caplog.at_level("WARNING", logger="voice_typer.server.credential_store"):
                 # Spawn 2 orphans, 1st: orphan_count=1, no threshold log
-                # (1 > 1 is False). 2nd: orphan_count=2, threshold log
-                # fires (2 > 1 is True). Wedge also engages on the 2nd
-                # (both check the incremented orphan_count in the same
-                # critical section).
                 with pytest.raises(TimeoutError):
                     credential_store._run_keyring_call(backend.get_password, "svc", "user")
                 with pytest.raises(TimeoutError):

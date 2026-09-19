@@ -1,8 +1,4 @@
-"""E2E verification: exercises the 10 fixes together.
-
-This is a sanity check that the fixes don't interfere with each other
-and the core flows still work end-to-end.
-"""
+"""E2E verification: exercises the 10 fixes together."""
 
 import json
 import os
@@ -26,7 +22,6 @@ class TestEndToEndSmoke:
 
         from voice_typer.server.config import Config
 
-        # Write a default config (the case that previously triggered the bug)
         (temp_config / "config.json").write_text(
             json.dumps(
                 {
@@ -41,13 +36,6 @@ class TestEndToEndSmoke:
             "volume_duck_smart_poll_interval_ms" in r.message and "invalid value" in r.message for r in caplog.records
         )
 
-    # (Wave 3, 2026-08-14): STARTUP-1 (``_build_task_xml``) and
-    # STARTUP-2 (``_LOGON_DELAY``) tests were deleted, prewarm became
-    # a worker startup phase (master plan §6.2 P-1), so the OS-level
-    # scheduled-task XML builder (Windows Task Scheduler LogonTrigger)
-    # and the logon-delay constant were removed from ``task_scheduler.py``
-    # entirely. The worker exe now warms imports in its own startup
-    # phase (no OS-level scheduling), so there is no task XML or
     # logon delay to pin.
 
     def test_startup4_prewarm_filters_to_active_model(self, temp_config, monkeypatch):
@@ -104,30 +92,7 @@ class TestEndToEndSmoke:
         assert any(e["data"]["progress"] == 100 for e in progress_events)
 
     def test_recorder_rms_forwards_to_waveform(self):
-        """RecordingController.on_recorder_rms forwards (rms, peak) to update_level.
-
-          The RMS callback was moved from VoiceTyperApp._on_recorder_rms to
-          RecordingController.on_recorder_rms as part of the RecordingController
-          extraction (commit 9e53ffe). The callback is 2-arg
-          (``rms_callback(chunk_rms, chunk_peak)``: see the invariant comment
-          in ``recording/audio_pipeline.py``); the historical
-          ``audio_chunk=`` backward-compat kwarg was removed from both
-          ``on_recorder_rms`` and ``WaveformBubble.update_level`` after its
-          only consumer (the deps-era VAD gate) was deleted, the live
-          recorder callback never populated it and the visualizer is
-          RMS-only (BUBBLE-FIX-4.1: the Silero gate fed native-rate audio
-          to the 16 kHz model and biased the bars low).
-
-          The earlier revision of this test asserted
-          ``"rms_callback(chunk_rms, chunk_peak, filtered)" in inspect.getsource(recording)``
-        , but production code uses the 2-arg call ``rms_callback(chunk_rms, chunk_peak)``
-          (per the invariant comment at the call site); the 3-arg form appeared
-          only in a stale echo comment in the package ``__init__.py`` (since
-          deleted), giving false coverage. Replaced with a behavioral test that
-          constructs a RecordingController, invokes ``on_recorder_rms``, and
-          asserts the bubble's ``update_level`` received the values by
-          identity/position.
-        """
+        """RecordingController.on_recorder_rms forwards (rms, peak) to update_level."""
         import inspect
         from unittest.mock import MagicMock
 
@@ -141,8 +106,6 @@ class TestEndToEndSmoke:
         assert "audio_chunk" not in bubble_sig.parameters
 
         # Behavioral check: the controller must forward the exact values
-        # it received (positionally, 2-arg) to the bubble's update_level —
-        # proving the wiring is intact end-to-end.
         mock_app = MagicMock()
         controller = RecordingController(mock_app)
         controller.on_recorder_rms(0.42, 0.7)
@@ -156,15 +119,12 @@ class TestEndToEndSmoke:
         assert callable(AsrBackendRegistry.create)
 
     def test_asr_registry_initialized_in_app_init(self, tmp_config_dir, monkeypatch):
-        """ARCH-008: registry is set in VoiceTyperApp.__init__ (now via
-        ModelManager._registry, accessed as app.models.registry)."""
+        """ARCH-008: registry is set in VoiceTyperApp.__init__ (now via"""
         monkeypatch.setattr("voice_typer.server.server_platform.autostart.is_autostart_enabled", lambda: False)
         monkeypatch.setattr("voice_typer.server.server_platform.microphone_list.list_microphones", lambda: [])
         from voice_typer.server.app import VoiceTyperApp
 
         app = VoiceTyperApp()
-        # registry now lives on ModelManager; the legacy
-        # app._asr_registry @property delegate was removed.
         assert app.models._registry is not None
         assert app.models.registry is not None
 
@@ -175,7 +135,6 @@ class TestEndToEndSmoke:
         assert hasattr(tray_menu, "build_menu_for_tray")
         assert hasattr(tray_menu, "display_hotkey")
         assert hasattr(tray_menu, "wrap_callback")
-        # tray.py should delegate to tray_menu
         from voice_typer.server import tray
 
         assert tray.display_hotkey is tray_menu.display_hotkey
@@ -192,13 +151,7 @@ class TestEndToEndSmoke:
 
 
 class TestBrandingConstants:
-    """Smoke tests for ``voice_typer/server/branding.py``.
-
-    branding.py is a tiny constants-only module (BRAND-001: single source
-    of truth for the app name), its coverage value is low on its own, so
-    we fold the assertions into the existing e2e smoke file rather than
-    maintaining a dedicated test module.
-    """
+    """Smoke tests for ``voice_typer/server/branding.py``."""
 
     def test_branding_module_is_importable_in_isolation(self):
         """The branding module must be importable on its own (no heavy deps)."""
@@ -234,26 +187,9 @@ class TestBrandingConstants:
         assert APP_NAME == "Voice Typer"
 
     def test_app_module_uses_branding_app_name(self, monkeypatch):
-        """``voice_typer.server.app`` must source its APP_NAME from branding.
-
-        This is the BRAND-001 consistency guarantee: a single rename in
-        branding.py should propagate to every consumer, including the app
-        module's startup banner / tray notifications.
-
-        S2-CR-64: the previous test asserted the import line appeared
-        verbatim in ``inspect.getsource(app)``, brittle to cosmetic
-        refactor (e.g. switching to ``from voice_typer.server import
-        branding`` + ``branding.APP_NAME`` would break the test even
-        though the invariant holds). Replaced with a behavioral check
-        that mutates ``branding.APP_NAME`` to a sentinel value and
-        verifies the app module observes the mutation when it
-        re-resolves the attribute, proving app.APP_NAME is bound to
-        branding's namespace, not a local literal.
-        """
+        """``voice_typer.server.app`` must source its APP_NAME from branding."""
         from voice_typer.server import app, branding
 
-        # The app module must expose an APP_NAME attribute that points to
-        # the branding constant (i.e. it was imported, not redefined).
         assert hasattr(app, "APP_NAME"), "app module does not expose APP_NAME"
         assert app.APP_NAME is branding.APP_NAME, (
             "app.APP_NAME is not the branding.APP_NAME object, app module "
@@ -261,13 +197,6 @@ class TestBrandingConstants:
         )
 
         # Behavioral check: if app.APP_NAME is bound to branding.APP_NAME
-        # via the ``from voice_typer.server.branding import APP_NAME`` form,
-        # then ``app.APP_NAME`` is a *reference* taken at import time —
-        # mutating ``branding.APP_NAME`` afterwards would NOT propagate to
-        # ``app.APP_NAME``. To distinguish a fresh ``branding.APP_NAME``
-        # lookup (the desired pattern after migration) from a stale import
-        # binding, we reload the app module after mutating branding and
-        # verify the reload picks up the new value.
         import importlib
 
         sentinel = "VT-BRAND-SENTINEL-9f3a"
@@ -275,10 +204,6 @@ class TestBrandingConstants:
         monkeypatch.setattr(branding, "APP_NAME", sentinel)
         try:
             # A module reload re-executes the ``from ... import APP_NAME``
-            # line, so app.APP_NAME should now point at the *new*
-            # branding.APP_NAME sentinel. If the app module instead
-            # redefined APP_NAME as a local literal, the reload would
-            # re-bind it to the same literal, not the sentinel.
             importlib.reload(app)
             assert app.APP_NAME is sentinel or sentinel == app.APP_NAME, (
                 "After reloading app with branding.APP_NAME mutated, "
@@ -288,6 +213,5 @@ class TestBrandingConstants:
             )
         finally:
             # Restore branding.APP_NAME and reload app so other tests see
-            # the original constant.
             monkeypatch.setattr(branding, "APP_NAME", original)
             importlib.reload(app)

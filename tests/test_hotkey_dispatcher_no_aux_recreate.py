@@ -1,22 +1,4 @@
-"""AB-34 regression tests: ``HotkeyDispatcher.restart()`` must NOT
-re-create the ESC and repaste backends.
-
-Before AB-34, ``register()`` unconditionally called ``register_esc()``
-and ``register_repaste()`` on every invocation. Because ``restart()``
-calls ``register()`` to swap the MAIN dictation hotkey, a user changing
-only the main hotkey caused the ESC and repaste backends to be torn
-down and re-created even though their specs hadn't changed, costing
-subprocess spawns / thread creation / Win32 hook installs and briefly
-leaving ESC/repaste dead during the stop→start window.
-
-The fix (AB-34): ``register()`` accepts a ``skip_aux: bool = False``
-parameter. The FIRST call at startup passes ``skip_aux=False`` (default)
-so all 3 backends are installed. ``restart()`` passes ``skip_aux=True``
-so only the MAIN dictation hotkey is swapped.
-
-These tests pin the contract by mocking ``register_esc()`` and
-``register_repaste()`` and counting calls.
-"""
+"""AB-34 regression tests: ``HotkeyDispatcher.restart()`` must NOT"""
 
 from __future__ import annotations
 
@@ -34,12 +16,7 @@ def _make_mock_app(
     esc_cancel_enabled: bool = True,
     repaste_hotkey: str | None = "<f6>",
 ) -> SimpleNamespace:
-    """Build a minimal mock app satisfying the HotkeyDispatcher contract.
-
-    Defaults set ESC and repaste ON so the test exercises the skip path
-    (otherwise ``register_esc`` / ``register_repaste`` are no-ops anyway
-    and the test wouldn't catch an AB-34 regression).
-    """
+    """Build a minimal mock app satisfying the HotkeyDispatcher contract."""
     app = SimpleNamespace()
     app.config = SimpleNamespace(
         hotkey=hotkey,
@@ -63,11 +40,7 @@ def dispatcher() -> HotkeyDispatcher:
 
 
 def test_first_time_register_calls_aux_backends(dispatcher: HotkeyDispatcher, monkeypatch):
-    """AB-34: the FIRST call to ``register()`` (at startup) MUST install
-    all 3 backends: ``register_esc()`` and ``register_repaste()`` are
-    each called once. This pins the "first-time setup" contract so a
-    future refactor doesn't accidentally pass ``skip_aux=True`` to the
-    first call."""
+    """AB-34: the FIRST call to ``register()`` (at startup) MUST install"""
     new_backend = MagicMock()
     new_backend.is_alive.return_value = True
     monkeypatch.setattr(
@@ -75,8 +48,6 @@ def test_first_time_register_calls_aux_backends(dispatcher: HotkeyDispatcher, mo
         MagicMock(return_value=new_backend),
     )
 
-    # Spy on register_esc / register_repaste (don't replace, we want to
-    # verify they're called with their default behavior).
     register_esc_calls: list[int] = []
     register_repaste_calls: list[int] = []
     orig_esc = dispatcher.register_esc
@@ -110,11 +81,10 @@ def test_first_time_register_calls_aux_backends(dispatcher: HotkeyDispatcher, mo
 
 
 def test_restart_does_not_call_register_esc(dispatcher: HotkeyDispatcher, monkeypatch):
-    """AB-34: ``restart()`` swaps ONLY the main dictation hotkey. It
+    """
+    AB-34: ``restart()`` swaps ONLY the main dictation hotkey. It
     MUST NOT call ``register_esc()``, the ESC backend's spec hasn't
-    changed, so re-creating it would waste subprocess spawns / thread
-    creation / Win32 hook installs and briefly leave ESC dead during
-    the stop→start window."""
+    """
     old_backend = MagicMock()
     old_backend.is_alive.return_value = True
     dispatcher._hotkey_backend = old_backend
@@ -138,8 +108,7 @@ def test_restart_does_not_call_register_esc(dispatcher: HotkeyDispatcher, monkey
 
 
 def test_restart_does_not_call_register_repaste(dispatcher: HotkeyDispatcher, monkeypatch):
-    """AB-34: ``restart()`` MUST NOT call ``register_repaste()``, same
-    rationale as ``register_esc`` (the repaste spec hasn't changed)."""
+    """AB-34: ``restart()`` MUST NOT call ``register_repaste()``, same"""
     old_backend = MagicMock()
     old_backend.is_alive.return_value = True
     dispatcher._hotkey_backend = old_backend
@@ -162,10 +131,7 @@ def test_restart_does_not_call_register_repaste(dispatcher: HotkeyDispatcher, mo
 
 
 def test_restart_does_not_touch_existing_esc_or_repaste_backends(dispatcher: HotkeyDispatcher, monkeypatch):
-    """AB-34 (stronger): ``restart()`` MUST NOT stop or replace the
-    existing ESC and repaste backends. They keep running untouched
-    across a main-hotkey swap so the user can press ESC to cancel or
-    the repaste hotkey throughout the swap window."""
+    """existing ESC and repaste backends. They keep running untouched"""
     existing_esc = MagicMock()
     existing_repaste = MagicMock()
     dispatcher._hotkey_backend = MagicMock()
@@ -191,9 +157,7 @@ def test_restart_does_not_touch_existing_esc_or_repaste_backends(dispatcher: Hot
 
 
 def test_register_with_skip_aux_true_skips_aux_backends(dispatcher: HotkeyDispatcher, monkeypatch):
-    """AB-34 unit: ``register(skip_aux=True)`` skips ``register_esc()``
-    and ``register_repaste()`` while still installing the main backend.
-    This is the building block ``restart()`` relies on."""
+    """AB-34 unit: ``register(skip_aux=True)`` skips ``register_esc()``"""
     new_backend = MagicMock()
     new_backend.is_alive.return_value = True
     monkeypatch.setattr(
@@ -215,9 +179,7 @@ def test_register_with_skip_aux_true_skips_aux_backends(dispatcher: HotkeyDispat
 
 
 def test_register_with_skip_aux_false_calls_aux_backends(dispatcher: HotkeyDispatcher, monkeypatch):
-    """AB-34 negative: ``register(skip_aux=False)`` (the default) still
-    calls both aux backends. This pins the first-time-setup contract
-    so a future change can't accidentally make ``skip_aux`` always True."""
+    """AB-34 negative: ``register(skip_aux=False)`` (the default) still"""
     new_backend = MagicMock()
     new_backend.is_alive.return_value = True
     monkeypatch.setattr(
@@ -239,10 +201,7 @@ def test_register_with_skip_aux_false_calls_aux_backends(dispatcher: HotkeyDispa
 
 
 def test_restart_failure_path_does_not_call_aux_backends(dispatcher: HotkeyDispatcher, monkeypatch):
-    """AB-34: even on the failure/restore path, ``restart()`` must NOT
-    call ``register_esc()`` / ``register_repaste()``. The restore path
-    calls ``_create_and_start_main_backend(old_hotkey_str)`` directly
-    (not ``register()``), so aux backends are untouched."""
+    """AB-34: even on the failure/restore path, ``restart()`` must NOT"""
     old_backend = MagicMock()
     old_backend.is_alive.return_value = True
     dispatcher._hotkey_backend = old_backend
@@ -250,7 +209,6 @@ def test_restart_failure_path_does_not_call_aux_backends(dispatcher: HotkeyDispa
     restored_backend = MagicMock()
     restored_backend.is_alive.return_value = True
     # First call (for "<bad>") raises; second call (for "<f2>") returns
-    # the restored backend.
     factory = MagicMock(side_effect=[RuntimeError("invalid"), restored_backend])
     monkeypatch.setattr("voice_typer.server.hotkey_dispatcher.create_hotkey_backend", factory)
 
@@ -261,7 +219,6 @@ def test_restart_failure_path_does_not_call_aux_backends(dispatcher: HotkeyDispa
 
     dispatcher.restart("<bad>")
 
-    # Restore happened with the OLD spec.
     assert dispatcher._hotkey_backend is restored_backend
     assert dispatcher._app.config.hotkey == "<f2>"
     # Aux backends untouched.

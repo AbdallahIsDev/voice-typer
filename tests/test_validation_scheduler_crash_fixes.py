@@ -1,17 +1,4 @@
-"""SA-09 regression tests for findings XZ-R3-07, XZ-R3-08, XZ-R6-AS-06,
-XZ-R12-16, XZ-R17-08, XZ-R17-13.
-
-These tests pin the fixes applied by SA-09 to:
-- ``voice_typer/server/ipc/validation.py`` (XZ-R3-07, XZ-R3-08)
-- ``voice_typer/server/task_scheduler.py`` (XZ-R6-AS-06)
-- ``voice_typer/server/crash_recovery.py`` (XZ-R12-16, XZ-R17-08, XZ-R17-13)
-
-The platform-specific Windows registry / schtasks / WaitForSingleObject
-fixes (XZ-EH-009, XZ-EH-010, XZ-EH-011, XZ-EH-023) are exercised by
-the existing ``tests/test_task_scheduler.py`` suite (which runs the
-Windows-gated code paths via ``MagicMock`` on the Linux CI), the
-regression coverage for those is already in place.
-"""
+"""SA-09 regression tests for findings XZ-R3-07, XZ-R3-08, XZ-R6-AS-06,"""
 
 from __future__ import annotations
 
@@ -24,25 +11,15 @@ from pathlib import Path
 
 import pytest
 
-# max_payload_bytes top-level + min-scan ─────────────────────
-
 
 class TestMaxPayloadBytesTopLevel:
-    """XZ-R3-07: ``_validate_dict_payload`` accepts a top-level
-    ``max_payload_bytes`` kwarg AND scans all per-field rules for the
-    minimum (most restrictive) cap when the kwarg is absent.
-    """
+    """XZ-R3-07: ``_validate_dict_payload`` accepts a top-level"""
 
     def test_top_level_kwarg_takes_precedence_over_per_field_rule(self):
-        """When BOTH the top-level kwarg and a per-field rule are
-        present, the top-level kwarg wins (the per-field rule is
-        ignored)."""
+        """When BOTH the top-level kwarg and a per-field rule are"""
         from voice_typer.server.ipc.validation import _validate_dict_payload
 
         # Top-level cap is 50 bytes; per-field rule says 1 MiB.
-        # The payload (~30 bytes) fits under both, so the call succeeds
-        # , but we verify the precedence by sending a payload that
-        # exceeds the top-level cap but NOT the per-field cap.
         big_payload = {"x": "a" * 100}  # > 50 bytes, < 1 MiB
         validated, error = _validate_dict_payload(
             big_payload,
@@ -57,22 +34,10 @@ class TestMaxPayloadBytesTopLevel:
         assert error["data"]["code"] == "client.invalid_payload"
 
     def test_multi_field_per_field_rules_use_minimum(self):
-        """When MULTIPLE per-field rules declare ``max_payload_bytes``,
-        the helper uses the MINIMUM (most restrictive) cap, NOT the
-        first field's value.
-
-        Pre-XZ-R3-07 the helper broke after the first field, silently
-        ignoring the second field's stricter cap. This test would have
-        passed pre-fix (because the looser first-field cap allowed the
-        payload) and now passes post-fix (because the stricter
-        second-field cap rejects the payload).
-        """
+        """When MULTIPLE per-field rules declare ``max_payload_bytes``,"""
         from voice_typer.server.ipc.validation import _validate_dict_payload
 
         # Schema with two fields, the FIRST has a looser cap (1 MiB),
-        # the SECOND has a stricter cap (50 bytes). The payload (~70
-        # bytes) fits under the first cap but exceeds the second.
-        # Post-fix: the stricter (50-byte) cap applies → rejected.
         payload = {"a": "x" * 30, "b": "y" * 30}  # ~70 bytes total
         validated, error = _validate_dict_payload(
             payload,
@@ -91,8 +56,7 @@ class TestMaxPayloadBytesTopLevel:
         assert error["data"]["code"] == "client.invalid_payload"
 
     def test_single_field_rule_still_enforced(self):
-        """Backward compat: a single per-field ``max_payload_bytes``
-        rule still works (no top-level kwarg)."""
+        """Backward compat: a single per-field ``max_payload_bytes``"""
         from voice_typer.server.ipc.validation import _validate_dict_payload
 
         payload = {"x": "a" * 100}  # > 50 bytes
@@ -105,19 +69,11 @@ class TestMaxPayloadBytesTopLevel:
         assert error["data"]["code"] == "client.invalid_payload"
 
 
-# none_to_default rule ───────────────────────────────────────
-
-
 class TestNoneToDefault:
-    """XZ-R3-08: an explicit ``None`` value is treated as ABSENT and
-    the ``default`` rule fires (when ``none_to_default`` is True, which
-    is the implicit default for backward compat with the renderer's
-    pre-coercion behavior).
-    """
+    """is the implicit default for backward compat with the renderer's"""
 
     def test_explicit_none_uses_default_when_rule_opts_in(self):
-        """``{"title": null}`` is treated as ``{"title": "DefaultApp"}``
-        when the rule declares a default and doesn't opt out."""
+        """``{\"title\": null}`` is treated as ``{\"title\": \"DefaultApp\"}``"""
         from voice_typer.server.ipc.validation import _validate_dict_payload
 
         validated, error = _validate_dict_payload(
@@ -131,8 +87,7 @@ class TestNoneToDefault:
         )
 
     def test_explicit_none_fails_type_check_when_rule_opts_out(self):
-        """When ``none_to_default=False``, an explicit ``None`` fails
-        the type check (restoring the strict pre-XZ-R3-08 behavior)."""
+        """When ``none_to_default=False``, an explicit ``None`` fails"""
         from voice_typer.server.ipc.validation import _validate_dict_payload
 
         validated, error = _validate_dict_payload(
@@ -152,8 +107,7 @@ class TestNoneToDefault:
         assert error["data"]["field"] == "title"
 
     def test_explicit_none_without_default_still_fails_type_check(self):
-        """When the rule has no ``default``, ``none_to_default`` has
-        no effect, the explicit ``None`` fails the type check."""
+        """When the rule has no ``default``, ``none_to_default`` has"""
         from voice_typer.server.ipc.validation import _validate_dict_payload
 
         validated, error = _validate_dict_payload(
@@ -165,8 +119,7 @@ class TestNoneToDefault:
         assert error["data"]["code"] == "client.invalid_field"
 
     def test_absent_field_still_uses_default(self):
-        """Backward compat: an ABSENT field still uses the default
-        (the pre-XZ-R3-08 behavior is preserved for the absent case)."""
+        """Backward compat: an ABSENT field still uses the default"""
         from voice_typer.server.ipc.validation import _validate_dict_payload
 
         validated, error = _validate_dict_payload(
@@ -177,21 +130,14 @@ class TestNoneToDefault:
         assert validated == {"title": "DefaultApp"}
 
 
-# subprocess.list2cmdline for schtasks arg quoting ────────
-
-
 class TestList2CmdLine:
-    """XZ-R6-AS-06: ``_schtasks_elevated`` uses
-    ``subprocess.list2cmdline`` for proper Windows arg quoting instead
-    of the hand-rolled join that only quoted args containing space or
-    ``&``.
-    """
+    """XZ-R6-AS-06: ``_schtasks_elevated`` uses"""
 
     def test_source_uses_list2cmdline_not_handrolled_join(self):
-        """The source of ``_schtasks_elevated`` must reference
+        """
+        The source of ``_schtasks_elevated`` must reference
         ``subprocess.list2cmdline`` and must NOT use the old
-        hand-rolled join as the actual ``arg_str`` assignment
-        (comments referencing the old pattern for context are OK)."""
+        """
         from voice_typer.server.task_scheduler import _schtasks_elevated
 
         src = inspect.getsource(_schtasks_elevated)
@@ -201,20 +147,12 @@ class TestList2CmdLine:
             "injection vector)."
         )
         # The old hand-rolled join must NOT be assigned to arg_str
-        # (i.e., the executable line ``arg_str = " ".join(f'"{a}"' ...)``)
-        # must be gone. Comments referencing the old pattern are OK.
         assert 'arg_str = " ".join' not in src, (
             'XZ-R6-AS-06: the old hand-rolled arg-quoting join (arg_str = " ".join(f\'"{a}"\' ...)) must be removed'
         )
 
     def test_list2cmdline_quotes_embedded_double_quote(self):
-        """Sanity: ``subprocess.list2cmdline`` quotes an arg containing
-        an embedded ``\"`` so it can't break out of the cmd.exe
-        quoting layer. (This is a stdlib behavior test, we pin it
-        here so a future stdlib change that weakens the quoting is
-        caught.)"""
-        # An arg with an embedded double-quote must be quoted AND the
-        # embedded quote must be escaped.
+        """Sanity: ``subprocess.list2cmdline`` quotes an arg containing"""
         result = subprocess.list2cmdline(['arg with " quote'])
         assert result.startswith('"'), "list2cmdline must quote args containing special chars"
         # The embedded " must be escaped as \".
@@ -225,16 +163,10 @@ class TestList2CmdLine:
 
 
 class TestDelLockBasedCheck:
-    """XZ-R12-16: ``CrashRecovery._cleanup_flush_pending`` reads ``_entries``
-    under ``_lock`` (not bare) so a concurrent ``add()`` can't mutate the
-    deque mid-check.
-    """
+    """XZ-R12-16: ``CrashRecovery._cleanup_flush_pending`` reads ``_entries``"""
 
     def test_del_source_acquires_lock_for_empty_check(self):
-        """The source of ``_cleanup_flush_pending`` must acquire
-        ``self._lock`` for the empty-check (not just
-        ``if self._entries:`` as an executable statement). Comments
-        referencing the bare pattern are OK."""
+        """The source of ``_cleanup_flush_pending`` must acquire"""
         from voice_typer.server.crash_recovery import CrashRecovery
 
         src = inspect.getsource(CrashRecovery._cleanup_flush_pending)
@@ -245,14 +177,9 @@ class TestDelLockBasedCheck:
             "mid-read"
         )
         # The bare executable ``if self._entries:`` (without lock)
-        # must be GONE. We strip comments (lines starting with ``#``)
-        # before checking so the docstring/comment references to the
-        # old pattern don't trigger a false positive.
         executable_lines = [line for line in src.splitlines() if line.strip() and not line.strip().startswith("#")]
         executable_src = "\n".join(executable_lines)
         # The bare ``if self._entries:`` must NOT appear as an
-        # executable statement. The lock-guarded check uses
-        # ``has_entries = bool(self._entries)`` inside the ``with`` block.
         assert "\nif self._entries:\n" not in "\n" + executable_src + "\n", (
             "XZ-R12-16: the bare executable ``if self._entries:`` check must be replaced with a lock-guarded check"
         )
@@ -262,13 +189,10 @@ class TestDelLockBasedCheck:
 
 
 class TestDirEnsuredFlag:
-    """XZ-R17-08: ``_save_sync`` skips the per-save ``os.chmod`` after
-    the first successful chmod, guarded by ``_dir_ensured``.
-    """
+    """XZ-R17-08: ``_save_sync`` skips the per-save ``os.chmod`` after"""
 
     def test_dir_ensured_flag_exists(self):
-        """``CrashRecovery`` instances must have a ``_dir_ensured``
-        boolean attribute (defaulting to False)."""
+        """``CrashRecovery`` instances must have a ``_dir_ensured``"""
         from voice_typer.server.crash_recovery import CrashRecovery
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -280,18 +204,7 @@ class TestDirEnsuredFlag:
                 cr.shutdown()
 
     def test_chmod_called_once_then_skipped(self, monkeypatch):
-        """On POSIX, the DIRECTORY ``os.chmod`` is called on the first
-        save and skipped on subsequent saves (the ``_dir_ensured``
-        flag is set after the first successful chmod).
-
-        Note: every save also calls ``_secure_atomic_write`` which
-        ``os.chmod``s the temp file (and the final renamed file) for
-        ``0o600`` perms: that is per-save by design (the temp file
-        is freshly created each time) and is NOT what this regression
-        is guarding. We filter to the directory path so we only count
-        the dir-chmod that the ``_dir_ensured`` flag is intended to
-        deduplicate.
-        """
+        """On POSIX, the DIRECTORY ``os.chmod`` is called on the first"""
         from voice_typer.server import crash_recovery as cr_mod
         from voice_typer.server.crash_recovery import CrashRecovery
 
@@ -316,11 +229,6 @@ class TestDirEnsuredFlag:
                 import time
 
                 time.sleep(0.2)
-                # Filter to directory-mode chmod calls only (the
-                # ``_dir_ensured`` flag guards ``chmod(dir, 0o700)``).
-                # File-mode chmod calls (the temp file + final
-                # ``recovery.json`` for ``0o600``) happen
-                # every save and are out of scope for this regression.
                 config_dir = Path(tmpdir).resolve()
                 dir_chmod_calls = [p for p in chmod_calls if p.resolve() == config_dir and p.is_dir()]
                 first_dir_chmod_count = len(dir_chmod_calls)
@@ -330,7 +238,6 @@ class TestDirEnsuredFlag:
                     f"dir chmods in {chmod_calls!r})"
                 )
                 # Second add → second save → dir-chmod must NOT be
-                # called again (the _dir_ensured flag is set).
                 cr.add("second transcription")
                 time.sleep(0.2)
                 dir_chmod_calls = [p for p in chmod_calls if p.resolve() == config_dir and p.is_dir()]
@@ -349,16 +256,10 @@ class TestDirEnsuredFlag:
 
 
 class TestFinalSaveDoneDedup:
-    """XZ-R17-13: ``_final_save_done`` flag deduplicates the final
-    shutdown save between atexit and __del__. The flag is set ONLY by
-    ``_atexit_flush_all`` (NOT by ``shutdown()`` or ``_save_sync``)
-    so ``shutdown()``'s final save does NOT suppress a subsequent
-    ``__del__`` save for post-shutdown mutations.
-    """
+    """XZ-R17-13: ``_final_save_done`` flag deduplicates the final"""
 
     def test_final_save_done_flag_exists(self):
-        """``CrashRecovery`` instances must have a ``_final_save_done``
-        boolean attribute (defaulting to False)."""
+        """``CrashRecovery`` instances must have a ``_final_save_done``"""
         from voice_typer.server.crash_recovery import CrashRecovery
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -370,8 +271,7 @@ class TestFinalSaveDoneDedup:
                 cr.shutdown()
 
     def test_atexit_sets_final_save_done_flag(self, monkeypatch):
-        """``_atexit_flush_all`` must set ``_final_save_done = True``
-        after a successful save so the subsequent ``__del__`` skips."""
+        """``_atexit_flush_all`` must set ``_final_save_done = True``"""
         from voice_typer.server import crash_recovery as cr_mod
         from voice_typer.server.crash_recovery import CrashRecovery
 
@@ -388,12 +288,7 @@ class TestFinalSaveDoneDedup:
                 cr.shutdown()
 
     def test_shutdown_does_not_set_final_save_done(self, monkeypatch):
-        """``shutdown()``'s final save must NOT set
-        ``_final_save_done``, otherwise a post-shutdown ``__del__``
-        save for mutations that bypassed ``_enqueue_save`` would be
-        silently dropped (regression-tested by
-        ``test_del_saves_unpersisted_post_shutdown_mutations``).
-        """
+        """``shutdown()``'s final save must NOT set"""
         from voice_typer.server.crash_recovery import CrashRecovery
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -406,11 +301,7 @@ class TestFinalSaveDoneDedup:
             )
 
     def test_del_skips_when_atexit_already_saved(self, monkeypatch):
-        """When atexit has already set ``_final_save_done``, ``__del__``
-        must skip the redundant save (the regression test
-        ``test_del_saves_unpersisted_post_shutdown_mutations`` covers
-        the inverse, that __del__ DOES save when the flag is NOT
-        set)."""
+        """When atexit has already set ``_final_save_done``, ``__del__``"""
         from voice_typer.server import crash_recovery as cr_mod
         from voice_typer.server.crash_recovery import CrashRecovery
 
@@ -421,7 +312,6 @@ class TestFinalSaveDoneDedup:
             cr_mod._atexit_flush_all()
             assert cr._final_save_done is True
 
-            # Snapshot the file's mtime; __del__ (which would re-write
             # the file) must NOT change it.
             recovery_file = Path(tmpdir) / "recovery.json"
             assert recovery_file.exists()

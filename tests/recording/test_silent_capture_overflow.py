@@ -1,29 +1,4 @@
-"""Silent capture + ring-buffer overflow (device mismatch / worker overload).
-
-Covers the minimal fix for a session that recorded 13.2 s of
-``RMS=0.000000`` silence while dropping ~300 chunks to ring-buffer
-overflow:
-
-- The recorder opened PortAudio's raw ``device=None`` default (MME on
-  Windows) while the canonical enumeration listed the live WASAPI
-  endpoint, so the stream delivered ~silence and the native-rate filter
-  chain could not keep up with the 32 ms callback cadence.
-- ``_same_physical_microphone_candidates(None)`` now resolves the
-  System Default through the canonical ``list_microphones`` default
-  (WASAPI-first), falling back to ``[None]`` when the lookup fails.
-- ``_fallback_host_rank`` now prefers WASAPI over MME (matches the
-  canonical host-API selection).
-- ``AudioPipeline.apply_filter_chain`` bypasses the chain for
-  near-silence chunks when no resample would have run, so silent input
-  costs microseconds instead of a full RNNoise + IIR pass per chunk.
-  Two arms: peak-only (``peak < _NEAR_SILENCE_BYPASS_PEAK``) and
-  quiet-ambient RMS (peak below the ambient ceiling AND
-  ``rms < AUDIO_SILENCE_RMS``) for HVAC/quiet-room noise whose peak
-  rides just above the hard floor.
-
-All audio is synthetic (numpy zeros / constants); no real PortAudio /
-sounddevice stream is touched.
-"""
+"""Silent capture + ring-buffer overflow (device mismatch / worker overload)."""
 
 from __future__ import annotations
 
@@ -100,8 +75,7 @@ class TestNearSilenceBypass:
         recorder._audio_processor.process_chunk.assert_called_once()
 
     def test_bypass_deferred_while_chain_rate_differs(self):
-        """When the chain is mistuned (retune failed), silence still runs
-        the chain so the buffer keeps the chain-rate tag (no mixed rates)."""
+        """When the chain is mistuned (retune failed), silence still runs"""
         recorder, pipeline = _pipeline_stub(effective_sr=44100, processor=_chain_processor(16000))
         pipeline.apply_filter_chain(np.zeros(1411, dtype=np.float32))
         recorder._audio_processor.process_chunk.assert_called_once()
@@ -120,18 +94,11 @@ class TestNearSilenceBypass:
         assert not np.any(out)
 
     def test_bypass_ceiling_is_sane(self):
-        """Ambient RMS arm sits strictly above the peak floor and at or
-        below the quiet-speech peak band (typ. peaks >0.01)."""
+        """Ambient RMS arm sits strictly above the peak floor and at or"""
         assert _NEAR_SILENCE_BYPASS_PEAK < _NEAR_SILENCE_BYPASS_PEAK_CEILING <= 0.01
 
     def test_quiet_ambient_low_rms_skips_chain(self):
-        """Peak just above the hard floor, RMS at silence floor → bypass.
-
-        Simulates HVAC/quiet-room noise that the peak-only gate missed:
-        a couple of samples ride at peak 0.003 while the rest of the
-        32 ms chunk is digital silence, so RMS lands well below
-        ``AUDIO_SILENCE_RMS`` and the filter chain is pure cost.
-        """
+        """Peak just above the hard floor, RMS at silence floor → bypass."""
         chunk = np.zeros(512, dtype=np.float32)
         chunk[:2] = 0.003
         assert _NEAR_SILENCE_BYPASS_PEAK < 0.003 < _NEAR_SILENCE_BYPASS_PEAK_CEILING
@@ -144,8 +111,7 @@ class TestNearSilenceBypass:
         assert pipeline._buffer_sr == 16000
 
     def test_quiet_speech_onset_runs_chain(self):
-        """Sustained quiet speech (peak in the ambient band, RMS above
-        the silence floor) must still pay the filter chain."""
+        """Sustained quiet speech (peak in the ambient band, RMS above"""
         speech = np.full(512, 0.004, dtype=np.float32)
         assert _NEAR_SILENCE_BYPASS_PEAK < 0.004 < _NEAR_SILENCE_BYPASS_PEAK_CEILING
         assert float(np.sqrt(np.dot(speech, speech) / speech.size)) > AUDIO_SILENCE_RMS
@@ -155,8 +121,7 @@ class TestNearSilenceBypass:
         assert np.array_equal(out, speech)
 
     def test_peak_above_ceiling_low_rms_runs_chain(self):
-        """Speech-onset protection: a peak outside the ambient band
-        never takes the RMS arm, even when chunk RMS is silence-floor."""
+        """Speech-onset protection: a peak outside the ambient band"""
         chunk = np.zeros(4096, dtype=np.float32)
         chunk[0] = 0.02
         assert _NEAR_SILENCE_BYPASS_PEAK_CEILING < 0.02
@@ -166,8 +131,7 @@ class TestNearSilenceBypass:
         recorder._audio_processor.process_chunk.assert_called_once()
 
     def test_rms_arm_deferred_while_chain_rate_differs(self):
-        """RMS-arm silence still runs a mistuned chain so the buffer
-        keeps the chain-rate tag (no mixed rates)."""
+        """RMS-arm silence still runs a mistuned chain so the buffer"""
         chunk = np.zeros(1411, dtype=np.float32)
         chunk[:3] = 0.003
         recorder, pipeline = _pipeline_stub(effective_sr=44100, processor=_chain_processor(16000))
@@ -250,8 +214,7 @@ class TestCanonicalDefaultResolution:
         assert recorder._devices._same_physical_microphone_candidates(None) == [None]
 
     def test_explicit_device_untouched(self, _mock_sounddevice, monkeypatch):
-        """Non-null selections keep the legacy candidate path (the
-        canonical lookup only runs for the null System Default)."""
+        """Non-null selections keep the legacy candidate path (the"""
         monkeypatch.setattr(
             "voice_typer.server.server_platform.microphone_list.list_microphones",
             lambda: _canonical_mics(),

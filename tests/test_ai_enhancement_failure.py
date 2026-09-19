@@ -1,17 +1,4 @@
-"""Failure-path tests for the enhancement-steps mixin.
-
-Covers ``_apply_ai_enhancement`` (Step 7b, rule-based) and
-``_apply_llm_polish`` (Step 7, LLM) failure handling:
-
-* Rule-based enhancer failure must (1) return the ORIGINAL text (the
-  pipeline contract: failures degrade to un-enhanced text, never abort
-  the cycle), (2) publish ``text_enhancement_failed``, NOT
-  ``llm_polish_failed`` (the E9-class event-type mismatch this fix
-  removes), and (3) survive a raising event bus (suppress-wrap, so a
-  broken bus can never abort the whole dictation).
-* LLM-polish failure must still publish ``llm_polish_failed`` (its
-  correct owner) and notify once per session via the tray.
-"""
+"""Failure-path tests for the enhancement-steps mixin."""
 
 from __future__ import annotations
 
@@ -42,7 +29,6 @@ class _EnhancerHost(_EnhancementStepsMixin):
     """Minimal mixin host: only the attributes the steps read."""
 
     # Defined on the pipeline (orchestrator), not the mixin; the bare
-    # host needs it for ``_call_polish_with_timeout``.
     _LLM_POLISH_PIPELINE_TIMEOUT_S = 4.0
 
     def __init__(self, app: _FakeApp) -> None:
@@ -116,8 +102,6 @@ class TestAiEnhancementFailurePath:
         published = [e["type"] for e in event_spy.events]
         assert "text_enhancement_failed" in published
         # The E9-class mismatch: a rule-based failure must NOT be
-        # reported under the LLM-polish event name (that would surface
-        # the wrong toast in the renderer).
         assert "llm_polish_failed" not in published
 
     def test_failure_survives_raising_event_bus(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -156,7 +140,6 @@ class TestLlmPolishFailurePath:
         assert result2 == "world"
         published = [e["type"] for e in event_spy.events]
         assert published == ["llm_polish_failed", "llm_polish_failed"]
-        # notify-once per session: two failures → one tray notification.
         assert len(host._app.tray.notifications) == 1
         assert "LLM polish failed" in host._app.tray.notifications[0][1]
 

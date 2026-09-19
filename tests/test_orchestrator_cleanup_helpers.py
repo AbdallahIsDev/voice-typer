@@ -1,37 +1,4 @@
-"""Regression tests for the 7 cleanup helpers extracted
-from ``orchestrator.run()``'s 196-line finally block.
-
-Pre-refactor: ``DictationPipeline.run()``'s ``finally`` block inlined
-7 cleanup steps (sentinel unlink, audio zero, watchdog reset,
-streaming-session cancel, busy-event clear, transcription-thread
-clear, gc.collect). Each step had its own nested try/except with a
-``log.debug`` failure log. The 196-line finally block was the
-most-mutated code path in the dictation pipeline.
-
-Post-refactor: each cleanup step is now a named
-private method (``_cleanup_<purpose>``) on ``_OrchestratorMixin``.
-The finally block reads as 7 sequential calls. Each helper owns its
-own try/except with byte-identical log line TEXT (per C-LOG-1), no
-behavior change, just decomposition.
-
-These tests pin the contract:
-
-  1. Each helper can be called in isolation (no ``run()`` context
-     needed), required so future changes to one cleanup step don't
-     require re-running the entire ``run()`` to verify.
-  2. A failure in helper N does NOT prevent helper N+1 from running.
-     The original finally block guaranteed this via per-step
-     try/except; the extracted helpers must preserve it. This is the
-     critical contract, a single broken cleanup must not leak the
-     busy state, the watchdog thread, or the streaming-session slot.
-  3. The full finally block runs even on abort (``_PipelineAbortEmpty``),
-     cancel (``_PipelineAbortCancelled``), and body Exception paths —
-     the 7 helpers all fire regardless of why ``run()``'s try block
-     exited.
-  4. Log line TEXT is byte-identical to the pre-refactor inline blocks
-     (per C-LOG-1). The format strings ``"[PIPELINE] finally cleanup
-     step <name> failed"`` and ``"[TRANSCRIBE] ..."`` are pinned.
-"""
+"""Regression tests for the 7 cleanup helpers extracted"""
 
 from __future__ import annotations
 
@@ -52,14 +19,7 @@ from voice_typer.server.dictation_stages import (
 
 
 class _TestApp:
-    """Minimal non-magic test app for orchestrator helper tests.
-
-    Mirrors the stub pattern in
-    ``test_dictation_pipeline_finally_logging.py``: a custom class
-    (not ``MagicMock``) so the notify-once flag attributes default
-    to ``False`` via ``getattr(..., False)``, MagicMock would
-    auto-create truthy children.
-    """
+    """Minimal non-magic test app for orchestrator helper tests."""
 
     def __init__(self) -> None:
         self.tray = MagicMock()
@@ -85,13 +45,8 @@ class _TestApp:
         self._last_transcription: object = None
         self.models = MagicMock()
         # ``recording`` is a MagicMock, tests that need real lock
-        # semantics override it via ``_configure_recording_for_helpers``.
         self.recording = MagicMock()
         # ``recorder.recording`` is read by the streaming-session
-        # cleanup branch, make it False so the
-        # ``if session is not None and not recorder.recording``
-        # branch short-circuits when ``pop_streaming_session`` returns
-        # None (the default MagicMock return).
         self.recorder = MagicMock()
         self.recorder.recording = False
         self._busy_event = MagicMock()
@@ -103,7 +58,6 @@ class _TestApp:
 
     def __getattr__(self, name: str) -> MagicMock:
         # Auto-mock unknown attributes (like MagicMock) but DO NOT
-        # auto-create the notify-once flag names.
         if name in {
             "_vocab_fail_notified",
             "_template_fail_notified",
@@ -118,13 +72,7 @@ class _TestApp:
 
 
 def _new_pipeline(app: _TestApp) -> DictationPipeline:
-    """Build a fresh DictationPipeline tied to ``app`` via ``__new__``.
-
-    Mirrors how ``RecordingController._stop_impl`` constructs a new
-    pipeline per transcription cycle. Bypasses ``__init__`` (which
-    expects a real VoiceTyperApp) and manually sets the attributes
-    the cleanup helpers read.
-    """
+    """Build a fresh DictationPipeline tied to ``app`` via ``__new__``."""
     pipeline = DictationPipeline.__new__(DictationPipeline)
     pipeline._app = app
     pipeline._duration = 1.0
@@ -140,12 +88,8 @@ def _new_pipeline(app: _TestApp) -> DictationPipeline:
 
 
 def _configure_recording_for_helpers(app: _TestApp) -> None:
-    """Configure ``app.recording`` so the watchdog-reset and
+    """
     streaming-session-cleanup helpers short-circuit cleanly.
-
-    Without this, the MagicMock auto-creates child mocks for
-    ``_cancelled_cycle_ids`` (a set) and ``_cancelled_cycle_ids_lock``
-    (a lock) that don't support the ``with _cancelled_lock:`` /
     ``_cancelled_set.discard()`` contract.
     """
     app.recording._cancelled_cycle_ids = set()
@@ -157,15 +101,8 @@ def _configure_recording_for_helpers(app: _TestApp) -> None:
     app.recording._transcription_thread = None
 
 
-# ─── 1. Each helper can be called in isolation ─────────────────────
-
-
 class TestEachHelperCallableInIsolation:
-    """Contract: each ``_cleanup_*`` helper can be invoked directly
-    without setting up a full ``run()`` cycle. Required so a future
-    change to one step's teardown logic can be unit-tested without
-    spinning up the entire 11-stage pipeline.
-    """
+    """Contract: each ``_cleanup_*`` helper can be invoked directly"""
 
     def test_cleanup_sentinel_unlink_callable_in_isolation(self, monkeypatch) -> None:
         app = _TestApp()
@@ -173,8 +110,6 @@ class TestEachHelperCallableInIsolation:
         pipeline = _new_pipeline(app)
 
         # Sentinel file path is patched to a stub that returns False
-        # so the unlink branch is skipped, we just verify the helper
-        # returns None without raising.
         class _StubPath:
             def __truediv__(self, other: str) -> _StubPath:
                 return self
@@ -238,42 +173,29 @@ class TestEachHelperCallableInIsolation:
         pipeline = _new_pipeline(app)
         assert pipeline._cleanup_transcription_thread_clear() is None
         # The transcription_thread field must be cleared (set to None)
-        # under the watchdog_lock.
         assert app.recording._transcription_thread is None
 
     def test_cleanup_gc_collect_callable_in_isolation(self) -> None:
         app = _TestApp()
         _configure_recording_for_helpers(app)
         pipeline = _new_pipeline(app)
-        # gc.collect(0) should succeed and return without raising.
         assert pipeline._cleanup_gc_collect() is None
 
 
-# ─── 2. Failure in helper N does NOT prevent helper N+1 ────────────
-
-
 class TestFailureInOneHelperDoesNotBlockNext:
-    """Contract: a failure in cleanup helper N must NOT prevent
-    helper N+1 from running. The pre-refactor finally block guaranteed
-    this via per-step try/except; the extracted helpers must preserve
-    it (each helper owns its try/except).
-
+    """
+    Contract: a failure in cleanup helper N must NOT prevent
     This is the critical contract, a single broken cleanup must not
-    leak the busy state, the watchdog thread, or the streaming-session
-    slot.
     """
 
     def test_busyness_idle_failure_does_not_block_transcription_thread_clear(self, caplog) -> None:
-        """If ``_busyness.set_idle()`` raises, the next helper
-        (``_cleanup_transcription_thread_clear``) must STILL run and
-        clear the thread reference."""
+        """If ``_busyness.set_idle()`` raises, the next helper"""
         app = _TestApp()
         _configure_recording_for_helpers(app)
         # Inject a failure in the busyness-idle helper.
         app._busyness.set_idle.side_effect = RuntimeError("simulated coordinator torn down")
         pipeline = _new_pipeline(app)
         # Reset the recording._transcription_thread to a non-None sentinel
-        # so we can verify the helper N+1 actually cleared it.
         sentinel_thread = object()
         app.recording._transcription_thread = sentinel_thread
 
@@ -303,9 +225,7 @@ class TestFailureInOneHelperDoesNotBlockNext:
         )
 
     def test_gc_collect_failure_does_not_block_prior_helpers(self, caplog, monkeypatch) -> None:
-        """If ``gc.collect(0)`` raises, the PRIOR helpers (busy_event,
-        transcription_thread) must have already run. We verify this
-        by checking side-effects of the prior helpers."""
+        """If ``gc.collect(0)`` raises, the PRIOR helpers (busy_event,"""
         app = _TestApp()
         _configure_recording_for_helpers(app)
         # Set a real transcription_thread so the prior helper clears it.
@@ -341,7 +261,6 @@ class TestFailureInOneHelperDoesNotBlockNext:
         assert app.recording._transcription_thread is None, (
             "gc.collect failure must not block prior transcription_thread clear."
         )
-        # gc.collect helper logged its failure.
         gc_fail_logs = [
             r
             for r in caplog.records
@@ -353,18 +272,15 @@ class TestFailureInOneHelperDoesNotBlockNext:
         )
 
     def test_watchdog_reset_failure_does_not_block_streaming_session_cancel(self, caplog) -> None:
-        """If ``recording._reset_watchdog()`` raises, the next helper
-        (``_cleanup_streaming_session_cancel``) must STILL run."""
+        """If ``recording._reset_watchdog()`` raises, the next helper"""
         app = _TestApp()
         _configure_recording_for_helpers(app)
         # Inject a failure in the watchdog_reset helper.
         app.recording._reset_watchdog.side_effect = RuntimeError("simulated _reset_watchdog failure")
         # Make pop_streaming_session return a mock session so we can
-        # verify the streaming helper ran and tried to cancel it.
         mock_session = MagicMock()
         mock_session.cancel = MagicMock()
         app.recording.pop_streaming_session = MagicMock(return_value=mock_session)
-        # recorder.recording must be False so the cancel branch fires.
         app.recorder.recording = False
         pipeline = _new_pipeline(app)
 
@@ -387,7 +303,6 @@ class TestFailureInOneHelperDoesNotBlockNext:
             "failed' (per C-LOG-1)."
         )
         # Helper N+1 (streaming_session_cancel) STILL ran, pop_streaming_session
-        # was called and session.cancel() was invoked.
         assert app.recording.pop_streaming_session.called, (
             "a failure in _cleanup_watchdog_reset must NOT prevent "
             "_cleanup_streaming_session_cancel from calling pop_streaming_session()."
@@ -397,8 +312,7 @@ class TestFailureInOneHelperDoesNotBlockNext:
         )
 
     def test_sentinel_unlink_failure_does_not_block_audio_zero(self, caplog, monkeypatch) -> None:
-        """If ``_sentinel.unlink()`` raises, the next helper
-        (``_cleanup_audio_zero``) must STILL run and zero the audio."""
+        """If ``_sentinel.unlink()`` raises, the next helper"""
         app = _TestApp()
         _configure_recording_for_helpers(app)
         pipeline = _new_pipeline(app)
@@ -444,21 +358,8 @@ class TestFailureInOneHelperDoesNotBlockNext:
         assert pipeline._audio is None
 
 
-# ─── 3. Full finally block runs on abort / cancel / device-loss ─────
-
-
 class TestFinallyRunsOnAbortCancelAndException:
-    """Contract: the full 7-helper finally block must run on ALL
-    three exit paths from ``run()``'s try block —
-    ``_PipelineAbortEmpty`` (no speech detected),
-    ``_PipelineAbortCancelled`` (user cancelled mid-paste), and the
-    generic ``except Exception`` path (e.g. device loss / CUDA OOM).
-
-    We can't easily trigger the abort sentinels without a real
-    ``run()`` call, so we drive ``run()`` end-to-end with a stubbed
-    stage list and verify the helpers' side-effects fire on each exit
-    path.
-    """
+    """Contract: the full 7-helper finally block must run on ALL"""
 
     def _make_stages(self, exit_kind: str) -> list:
         """Build a fake stage list that raises the requested sentinel."""
@@ -519,8 +420,7 @@ class TestFinallyRunsOnAbortCancelAndException:
             )
 
     def test_finally_runs_on_abort_empty(self) -> None:
-        """On ``_PipelineAbortEmpty`` (EmptyCheckStage raised), the
-        finally block must still clear the busy_event."""
+        """On ``_PipelineAbortEmpty`` (EmptyCheckStage raised), the"""
         app = _TestApp()
         _configure_recording_for_helpers(app)
         self._drive_run(app, "abort_empty")
@@ -530,9 +430,7 @@ class TestFinallyRunsOnAbortCancelAndException:
         )
 
     def test_finally_runs_on_abort_cancelled(self) -> None:
-        """On ``_PipelineAbortCancelled`` (CancellationGuard raised
-        during paste), the finally block must still clear the
-        busy_event."""
+        """On ``_PipelineAbortCancelled`` (CancellationGuard raised"""
         app = _TestApp()
         _configure_recording_for_helpers(app)
         self._drive_run(app, "abort_cancelled")
@@ -542,9 +440,7 @@ class TestFinallyRunsOnAbortCancelAndException:
         )
 
     def test_finally_runs_on_device_loss_exception(self) -> None:
-        """On the generic ``except Exception`` path (e.g. CUDA device
-        loss), the finally block must still clear the busy_event AND
-        reset the watchdog."""
+        """On the generic ``except Exception`` path (e.g. CUDA device"""
         app = _TestApp()
         _configure_recording_for_helpers(app)
         self._drive_run(app, "device_loss")
@@ -559,16 +455,8 @@ class TestFinallyRunsOnAbortCancelAndException:
         )
 
 
-# ─── 4. Log line TEXT byte-identical (C-LOG-1 pin) ─────────────────
-
-
 class TestLogLineTextPinned:
-    """C-LOG-1 / C-LOG-2 pin: the log line TEXT passed to ``log.debug``
-    in each cleanup helper must be BYTE-IDENTICAL to the pre-refactor
-    inline finally block. We pin the exact strings here so a future
-    edit that subtly rewords the log line (e.g. "step" → "stage",
-    adding a trailing period) will fail this test.
-    """
+    """C-LOG-1 / C-LOG-2 pin: the log line TEXT passed to ``log.debug``"""
 
     @pytest.mark.parametrize(
         ("helper_name", "expected_log_substring"),
@@ -589,12 +477,7 @@ class TestLogLineTextPinned:
         ],
     )
     def test_each_helper_emits_pinned_log_line(self, helper_name: str, expected_log_substring: str, caplog) -> None:
-        """Pin the exact log line TEXT for each cleanup helper's
-        failure log. C-LOG-1, byte-identical to pre-refactor."""
-        # We trigger each helper's failure path differently, the
-        # simplest unified approach is to monkeypatch the helper's
-        # internals to raise. For most helpers, this means stubbing
-        # the relevant app attribute.
+        """Pin the exact log line TEXT for each cleanup helper's"""
         app = _TestApp()
         _configure_recording_for_helpers(app)
         pipeline = _new_pipeline(app)
@@ -614,7 +497,6 @@ class TestLogLineTextPinned:
                     return _FakeSentinelFile()
 
             # Patch via monkeypatch would require pytest fixture; instead
-            # we patch the module attribute directly using a try/finally.
             import voice_typer.server._paths as _paths_mod
 
             orig = _paths_mod.config_dir
@@ -626,10 +508,6 @@ class TestLogLineTextPinned:
                 _paths_mod.config_dir = orig
         elif helper_name == "_cleanup_audio_zero":
             # Subclass np.ndarray and override ``fill`` to raise. Plain
-            # monkeypatching of ``arr.fill`` is rejected by numpy (the
-            # method slot is read-only on the C-side). A subclass view
-            # passes the ``isinstance(self._audio, np.ndarray)`` check
-            # while still allowing Python-side method override.
             class _BrokenNdarray(np.ndarray):
                 def fill(self, value: int) -> None:  # type: ignore[override]
                     raise RuntimeError("pinned-log test: fill fails")
@@ -643,20 +521,12 @@ class TestLogLineTextPinned:
             with caplog.at_level(logging.DEBUG, logger="voice_typer.server.dictation_pipeline"):
                 pipeline._cleanup_watchdog_reset()
         elif helper_name == "_cleanup_streaming_session_cancel":
-            # pop_streaming_session raises → outer except logs
-            # "[TRANSCRIBE] finally: session cleanup failed".
             app.recording.pop_streaming_session.side_effect = RuntimeError(
                 "pinned-log test: pop_streaming_session fails"
             )
             with caplog.at_level(logging.DEBUG, logger="voice_typer.server.dictation_pipeline"):
                 pipeline._cleanup_streaming_session_cancel()
-            # NOTE: this helper has TWO log lines, outer except logs
-            # "[TRANSCRIBE] finally: session cleanup failed" and inner
-            # except logs "[PIPELINE] ... streaming_session_cancel failed".
             # We pin the OUTER one for this helper since pop_streaming_session
-            # is the outer call. The parametrize substring for this helper
-            # is the INNER one, to exercise the inner, we'd need a session
-            # whose .cancel() raises. We test the inner separately below.
             expected_log_substring = "[TRANSCRIBE] finally: session cleanup failed"
         elif helper_name == "_cleanup_busyness_idle":
             app._busyness.set_idle.side_effect = RuntimeError("pinned-log test: set_idle fails")
@@ -668,11 +538,6 @@ class TestLogLineTextPinned:
             with caplog.at_level(logging.DEBUG, logger="voice_typer.server.dictation_pipeline"):
                 pipeline._cleanup_transcription_thread_clear()
             # NOTE: this helper has TWO log lines, outer logs
-            # "[TRANSCRIBE] could not acquire recording._watchdog_lock..."
-            # and inner logs "[PIPELINE] ... transcription_thread_clear_unsafe failed".
-            # When the lock is absent, the inner branch ALSO needs to fail
-            # to fire. We test the OUTER log line here; the inner is tested
-            # separately below.
             expected_log_substring = (
                 "[TRANSCRIBE] could not acquire recording._watchdog_lock "
                 "to clear _transcription_thread; assigning without lock"
@@ -706,26 +571,18 @@ class TestLogLineTextPinned:
             "Log line TEXT must be byte-identical to the pre-refactor inline "
             "finally block."
         )
-        # exc_info=True must be attached so operators can see the traceback.
         assert debug_logs[0].exc_info is not None, (
             f"C-LOG-1 pin: helper {helper_name!r} failure log must carry "
             "exc_info=True so operators can see the traceback."
         )
 
     def test_streaming_session_cancel_inner_log_pinned(self, caplog) -> None:
-        """C-LOG-1 pin: when ``session.cancel()`` raises, the INNER
-          ``log.debug("[PIPELINE] finally cleanup step "
-          "streaming_session_cancel failed", exc_info=True)`` must fire
-        , distinct from the OUTER ``[TRANSCRIBE] finally: session
-          cleanup failed`` log."""
+        """C-LOG-1 pin: when ``session.cancel()`` raises, the INNER"""
         app = _TestApp()
         _configure_recording_for_helpers(app)
-        # pop_streaming_session succeeds (returns a session whose
-        # .cancel() raises).
         mock_session = MagicMock()
         mock_session.cancel.side_effect = RuntimeError("pinned-log test: session.cancel fails")
         app.recording.pop_streaming_session = MagicMock(return_value=mock_session)
-        # recorder.recording must be False so the cancel branch fires.
         app.recorder.recording = False
         pipeline = _new_pipeline(app)
 
@@ -744,25 +601,12 @@ class TestLogLineTextPinned:
         )
 
     def test_transcription_thread_clear_inner_log_pinned(self, caplog) -> None:
-        """C-LOG-1 pin: when the lock is absent AND the
-        ``_transcription_thread = None`` assignment raises, the INNER
-        ``log.debug("[PIPELINE] finally cleanup step "
-        "transcription_thread_clear_unsafe failed", exc_info=True)``
-        must fire, distinct from the OUTER ``[TRANSCRIBE] could not
-        acquire recording._watchdog_lock...`` log."""
+        """``_transcription_thread = None`` assignment raises, the INNER"""
         app = _TestApp()
         _configure_recording_for_helpers(app)
         # Remove the _watchdog_lock so the AttributeError path fires.
         del app.recording._watchdog_lock
 
-        # Make the assignment raise by replacing _recording with a
-        # MagicMock whose attribute setattr fails.
-        # Simpler: replace _recording with None so the inner
-        # ``if _recording is not None`` branch short-circuits (helper
-        # completes without firing the inner log). To exercise the
-        # inner log, we need _recording to be non-None AND the
-        # attribute assignment to raise. We use a class that raises
-        # on attribute delete/set.
         class _RefusesAttrWrite:
             _watchdog_lock = None  # forces the AttributeError path
 

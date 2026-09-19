@@ -1,28 +1,4 @@
-"""regression tests for the startup backup-file sweep.
-
-Background
-----------
-``voice_typer/server/startup_sequence.py`` previously had NO sweep for
-stale corrupt-quarantine / pre-migration backup files. The secure-file-IO
-corruption path writes ``config.json.corrupt-<ts>`` / ``history.db.corrupt-*``
-quarantine files; schema migrations write
-``config.json.pre-migration-v*.bak`` / ``history.db.pre-migration-v*.bak`` /
-``config.json.v*.bak`` / ``config.json.bak.failed-migration-*``;
-the crash-recovery path writes ``recovery.json.corrupt.*``.
-Without a sweep these accumulate indefinitely on disk (one per crash /
-per migration attempt).
-
-The fix mirrors the existing
-``log._sweep_stale_log_rotations`` (``log/__init__.py:95-156``) and
-``crash_handler._sweep_stale_diagnostics``
-(``crash_handler/_diagnostics_archive.py:363-425``) patterns: a
-best-effort, per-file-error-tolerant sweep called once per process
-startup that unlinks any matched file older than 15 days (mtime).
-
-These tests pin the behaviour in isolation, they call
-``_sweep_stale_backup_files(tmp_path)`` directly so they don't depend
-on the heavy ``app_for_startup`` fixture.
-"""
+"""regression tests for the startup backup-file sweep."""
 
 from __future__ import annotations
 
@@ -33,29 +9,17 @@ from pathlib import Path
 import pytest
 from voice_typer.server import startup_sequence as ss_mod
 
-# ── Helpers ────────────────────────────────────────────────────────────
-
 # 16 days in seconds, comfortably past the 15-day cutoff so the file
-# is unconditionally "stale" regardless of test runner clock skew.
 _STALE_AGE_SECONDS = 16 * 24 * 60 * 60
-# 1 day in seconds, comfortably inside the 15-day cutoff so the file
 # is unconditionally "fresh" (must NOT be deleted, forensic value).
 _FRESH_AGE_SECONDS = 1 * 24 * 60 * 60
 
 
 def _touch_with_age(path: Path, age_seconds: float) -> None:
-    """Create ``path`` (empty file) and backdate its mtime by ``age_seconds``.
-
-    Uses ``os.utime`` so the test does NOT have to actually sleep, the
-    mtime is set deterministically to ``now - age_seconds`` regardless
-    of how long the test takes.
-    """
+    """Create ``path`` (empty file) and backdate its mtime by ``age_seconds``."""
     path.write_text("stale-backup-content", encoding="utf-8")
     target_mtime = time.time() - age_seconds
     os.utime(path, (target_mtime, target_mtime))
-
-
-# ── (a) old .bak file (mtime > 30 days), deleted ─────────────────────
 
 
 class TestSweepDeletesStaleBackups:
@@ -104,12 +68,8 @@ class TestSweepDeletesStaleBackups:
             assert not (tmp_path / name).exists(), f"expected {name} to be purged (stale)"
 
 
-# ── (b) recent .bak file (mtime < 30 days), preserved ────────────────
-
-
 class TestSweepPreservesFreshBackups:
-    """``_sweep_stale_backup_files`` NEVER deletes files newer than 15 days
-    (forensic value: see CONSTRAINT 4 / NEVER DOWNGRADE)."""
+    """``_sweep_stale_backup_files`` NEVER deletes files newer than 15 days"""
 
     @pytest.mark.parametrize(
         "filename",
@@ -145,12 +105,8 @@ class TestSweepPreservesFreshBackups:
         assert fresh.exists(), "fresh file must be preserved"
 
 
-# ── (c) corrupt-* file deleted if old ─────────────────────────────────
-
-
 class TestSweepCorruptFiles:
-    """Explicit coverage for ``config.json.corrupt-*`` (the most common
-    pattern, written by the secure-file-IO corruption path)."""
+    """Explicit coverage for ``config.json.corrupt-*`` (the most common"""
 
     def test_old_corrupt_config_deleted(self, tmp_path: Path) -> None:
         path = tmp_path / "config.json.corrupt-1700000000"
@@ -177,9 +133,7 @@ class TestSweepCorruptFiles:
         assert not path.exists()
 
     def test_unmatched_files_preserved(self, tmp_path: Path) -> None:
-        """Files that don't match any glob pattern are NEVER touched —
-        even if old. This guards against the sweep being widened
-        accidentally (e.g. a glob typo that matches ``config.json``)."""
+        """Files that don't match any glob pattern are NEVER touched —"""
         unmatched_files = [
             "config.json",  # the live config, must NEVER be swept
             "history.db",  # the live history DB, must NEVER be swept
@@ -197,12 +151,8 @@ class TestSweepCorruptFiles:
             assert (tmp_path / name).exists(), f"unmatched file {name} must NOT be swept"
 
 
-# ── Per-file error tolerance ──────────────────────────────────────────
-
-
 class TestSweepErrorTolerance:
-    """A single unreadable / unstat-able file must NOT abort the sweep
-    (CONSTRAINT: per-file error handling)."""
+    """A single unreadable / unstat-able file must NOT abort the sweep"""
 
     def test_nonexistent_config_dir_is_noop(self, tmp_path: Path) -> None:
         """A missing / non-directory config_dir is silently skipped."""
@@ -235,16 +185,14 @@ class TestSweepErrorTolerance:
         assert bad.exists()
 
 
-# ── Boundary ──────────────────────────────────────────────────────────
-
-
 class TestSweepBoundary:
     """Edge cases around the 15-day cutoff and idempotency."""
 
     def test_exactly_15_days_preserved(self, tmp_path: Path) -> None:
-        """A file just under the 15-day cutoff is preserved (the check is
-        strict ``>``, so a file at 14d23h is NOT yet stale).
-        This pins the NEVER-DOWNGRADE boundary."""
+        """
+        A file just under the 15-day cutoff is preserved (the check is
+        This pins the NEVER-DOWNGRADE boundary.
+        """
         path = tmp_path / "config.json.corrupt-boundary"
         # 14d 23h, strictly under the 15-day cutoff (``>`` must NOT fire).
         just_under_15_days = ss_mod._BACKUP_RETENTION_MAX_AGE_SECONDS - 3600.0
@@ -255,8 +203,7 @@ class TestSweepBoundary:
         assert path.exists(), "file just under 15 days must be preserved (strict > comparison)"
 
     def test_sweep_is_idempotent(self, tmp_path: Path) -> None:
-        """Calling the sweep twice is a no-op the second time (no files
-        left to delete)."""
+        """Calling the sweep twice is a no-op the second time (no files"""
         path = tmp_path / "config.json.corrupt-1700000000"
         _touch_with_age(path, _STALE_AGE_SECONDS)
 

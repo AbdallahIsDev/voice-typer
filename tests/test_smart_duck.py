@@ -1,24 +1,4 @@
-"""Tests for the smart-duck feature (skip volume ducking when no audio is playing).
-
-Covers:
-- Smart-duck skip path: ``is_speaker_active() -> False`` → no fade, no
-  crash-recovery file written, ``_actually_ducked=False``.
-- Smart-duck normal path: ``is_speaker_active() -> True`` → duck
-  proceeds normally, ``_actually_ducked=True``.
-- ``restore()`` after smart-duck skip is a no-op (no fade).
-- ``restore()`` after normal duck fades back to saved volume.
-- Crash-recovery file is NOT written when smart-duck skips.
-- ``volume_duck_smart`` config field gates smart-duck behaviour.
-- ``set_smart_duck_enabled(False)`` restores the pre-smart-duck
-  always-duck behaviour.
-- The v1.1 BUGFIX: second ``duck()`` call after a smart-duck skip
-  must NOT call ``fade_to()`` (would fade the user's volume with no
-  saved state to restore from).
-- ``actually_ducked`` property distinguishes "logically ducked" from
-  "volume was actually changed".
-- Cross-platform ``is_speaker_active()`` for LinuxVolumeBackend
-  (pactl/wpctl/amixer parsing) and MacVolumeBackend (osascript).
-"""
+"""Tests for the smart-duck feature (skip volume ducking when no audio is playing)."""
 
 from __future__ import annotations
 
@@ -30,8 +10,6 @@ from voice_typer.server.volume_backends import (
     MacVolumeBackend,
 )
 from voice_typer.server.volume_ducker import VolumeDucker
-
-# ── Shared FakeBackend (matches the one in test_volume_ducker.py) ───────
 
 
 class FakeBackend(VolumeBackend):
@@ -81,11 +59,6 @@ class FakeBackend(VolumeBackend):
         return self._speaker_active
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# Smart-duck core behaviour
-# ═══════════════════════════════════════════════════════════════════════════
-
-
 class TestSmartDuckSkip:
     """When is_speaker_active() returns False, duck() should skip the fade."""
 
@@ -103,14 +76,7 @@ class TestSmartDuckSkip:
         assert ducker.actually_ducked is False, "actually_ducked should be False, we skipped the fade"
 
     def test_skip_does_not_write_crash_recovery(self, tmp_path):
-        """Smart-duck skip must NOT write a crash-recovery file.
-
-        Rationale: the crash-recovery file is the "I crashed while
-        ducked" signal.  If we skipped the duck, we didn't change the
-        volume, so there's nothing to recover from.  Writing a file
-        would cause the next launch to "restore" a volume that was
-        never changed, confusing and wrong.
-        """
+        """Smart-duck skip must NOT write a crash-recovery file."""
         from voice_typer.server.duck_crash_recovery import DuckCrashRecovery
 
         cr = DuckCrashRecovery(config_dir=tmp_path)
@@ -172,30 +138,8 @@ class TestSmartDuckNormal:
         assert ducker.actually_ducked is False  # after restore, no longer ducked
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# The v1.1 BUGFIX: second duck() after smart-duck skip
-# ═══════════════════════════════════════════════════════════════════════════
-
-
 class TestSmartDuckSecondDuckAfterSkip:
-    """Regression: v1 had a bug where calling duck() a second time after a
-    smart-duck skip would call fade_to(), fading the user's volume down to
-    the new duck level with no saved state to restore from.
-
-    Scenario:
-      1. duck(0.25) called, no audio playing → smart-duck skips, no fade.
-         _saved_state is set (so is_ducked reports True), _actually_ducked=False.
-      2. duck(0.15) called (e.g. config changed mid-dictation, or a second
-         dictation starts before stop).
-
-    v1 behaviour (BUG): the `else` branch of duck() runs because
-    _saved_state is non-None.  It calls fade_to(0.15), which fades the
-    user's volume from 0.5 to 0.15 with no saved state to restore from.
-
-    v1.1 behaviour (FIXED): the `else` branch checks _actually_ducked
-    first.  If False (smart-duck skipped), it just updates the logical
-    ducked_level and returns True without calling fade_to.
-    """
+    """the new duck level with no saved state to restore from."""
 
     def test_second_duck_after_skip_does_not_fade(self):
         backend = FakeBackend(current=0.5, speaker_active=False)
@@ -211,7 +155,6 @@ class TestSmartDuckSecondDuckAfterSkip:
         ok = ducker.duck(0.15)
         assert ok is True
         assert backend.fade_calls == [], f"Second duck() after smart-duck skip must NOT fade; got {backend.fade_calls}"
-        # ducked_level should be updated for restore() consistency
         assert ducker._ducked_level == 0.15
 
     def test_second_duck_after_normal_duck_does_fade(self):
@@ -225,11 +168,6 @@ class TestSmartDuckSecondDuckAfterSkip:
 
         ducker.duck(0.15)
         assert (0.15, 150) in backend.fade_calls, "Second duck() after a normal duck should fade to the new level"
-
-
-# ═══════════════════════════════════════════════════════════════════════════
-# Smart-duck config toggle
-# ═══════════════════════════════════════════════════════════════════════════
 
 
 class TestSmartDuckToggle:
@@ -270,11 +208,6 @@ class TestSmartDuckToggle:
         assert (0.25, 150) in backend.fade_calls
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# Cross-platform is_speaker_active(), Linux
-# ═══════════════════════════════════════════════════════════════════════════
-
-
 class TestLinuxIsSpeakerActive:
     """LinuxVolumeBackend.is_speaker_active(), pactl / wpctl / amixer."""
 
@@ -313,8 +246,6 @@ class TestLinuxIsSpeakerActive:
         """wpctl-only system (no pactl) → ALSA /proc/asound fallback."""
         b = LinuxVolumeBackend()
         b._tool = "wpctl"
-        # pactl list sink-inputs fails (None), wpctl-only system.
-        # Then _alsa_is_playing is called.
         b._run = lambda cmd, timeout=2.0: None if cmd[0] == "pactl" else "ok"
         # Mock _alsa_is_playing to return True
         b._alsa_is_playing = lambda: True
@@ -401,18 +332,8 @@ class TestLinuxAlsaProcfs:
         assert b._alsa_is_playing() is True
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# Cross-platform is_speaker_active(), macOS
-# ═══════════════════════════════════════════════════════════════════════════
-
-
 class TestMacIsSpeakerActive:
-    """MacVolumeBackend.is_speaker_active(), osascript fallback.
-
-    The CoreAudio pyobjc path can't be tested without macOS hardware
-    (it defers to osascript per the existing _get_default_output_device
-    comment).  We test the osascript fallback path.
-    """
+    """MacVolumeBackend.is_speaker_active(), osascript fallback."""
 
     def test_osascript_with_spotify_running_returns_true(self, monkeypatch):
         b = MacVolumeBackend()
@@ -421,14 +342,7 @@ class TestMacIsSpeakerActive:
         assert b.is_speaker_active() is True
 
     def test_osascript_fallback_returns_true_even_without_audio_apps(self, monkeypatch):
-        """osascript fallback: always True (safe duck-anyway default).
-
-        The foreground-app-name heuristic was removed from
-        ``MacVolumeBackend.is_speaker_active`` (a paused YouTube tab
-        still counted as "active", and the ducker disables smart-duck on
-        the osascript backend anyway). The osascript path now returns
-        True unconditionally so a needed duck is never silently skipped.
-        """
+        """osascript fallback: always True (safe duck-anyway default)."""
         b = MacVolumeBackend()
         b._use_coreaudio = False
         b._osascript_run = lambda script, timeout=2.0: "TextEdit, Finder, Mail"
@@ -465,11 +379,6 @@ class TestMacIsSpeakerActive:
         assert b.is_speaker_active() is True
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# Introspection
-# ═══════════════════════════════════════════════════════════════════════════
-
-
 class TestSmartDuckIntrospection:
     def test_actually_ducked_property(self):
         backend = FakeBackend(current=0.5, speaker_active=False)
@@ -497,11 +406,6 @@ class TestSmartDuckIntrospection:
         assert ducker.smart_duck_enabled is False
         ducker.set_smart_duck_enabled(True)
         assert ducker.smart_duck_enabled is True
-
-
-# ═══════════════════════════════════════════════════════════════════════════
-# Concurrency, smart-duck + restore race
-# ═══════════════════════════════════════════════════════════════════════════
 
 
 class TestSmartDuckConcurrency:

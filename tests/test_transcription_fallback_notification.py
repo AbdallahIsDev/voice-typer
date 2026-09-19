@@ -1,19 +1,4 @@
-"""Tests for the GPU→CPU fallback user notification (Whisper engine).
-
-The Whisper-family engine's ``with_gpu_fallback`` tears down the GPU
-model and reloads on CPU synchronously (5-50s freeze). These tests pin:
-
-1. ``with_gpu_fallback`` publishes the ``gpu_cpu_fallback`` event
-   BEFORE ``engine._reload_under_lock()`` starts, with the same payload
-   shape the parakeet engine uses for ``parakeet_cpu_fallback``
-   (``{"type": ..., "data": {"device": "cpu", "reason": str(err)[:200]}}``).
-2. A failing event publication never breaks the fallback (best-effort).
-3. ``tray_notifications.on_gpu_cpu_fallback`` flips
-   ``tray._cpu_fallback_active``, shows the toast, and re-applies tray
-   state; malformed payloads are ignored.
-4. The tray subscribes/unsubscribes the handler alongside the parakeet
-   one, and the real event bus delivery reaches it.
-"""
+"""Tests for the GPU→CPU fallback user notification (Whisper engine)."""
 
 from __future__ import annotations
 
@@ -22,12 +7,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
-# ─── shared doubles ──────────────────────────────────────────────────────
-
 
 class _RecordingEngine:
-    """Minimal engine double exposing exactly what ``with_gpu_fallback``
-    touches. Records every hook invocation so tests can assert order."""
+    """Minimal engine double exposing exactly what ``with_gpu_fallback``"""
 
     def __init__(self, calls: list[str] | None = None) -> None:
         self.calls = calls if calls is not None else []
@@ -48,8 +30,7 @@ class _RecordingEngine:
 
 
 def _make_inner(engine: _RecordingEngine):
-    """Return an ``inner`` transcribe callable that fails once with a
-    CUDA-classified error, then succeeds."""
+    """Return an ``inner`` transcribe callable that fails once with a"""
     state = {"attempts": 0}
 
     def inner(audio, *args, **kwargs):
@@ -64,20 +45,12 @@ def _make_inner(engine: _RecordingEngine):
 
 @pytest.fixture()
 def recorded_publish(monkeypatch):
-    """Replace ``event_bus.publish`` with a recording fake.
-
-    The production site imports the module lazily inside the function
-    and reads ``publish`` off it at call time, so patching the module
-    attribute intercepts the real lookup path.
-    """
+    """Replace ``event_bus.publish`` with a recording fake."""
     from voice_typer.server import event_bus
 
     published: list[dict] = []
     monkeypatch.setattr(event_bus, "publish", published.append)
     return published
-
-
-# ─── 1. publication happens before the reload ────────────────────────────
 
 
 class TestFallbackPublishesBeforeReload:
@@ -99,8 +72,6 @@ class TestFallbackPublishesBeforeReload:
 
         assert result == "transcribed"
         # Publish must land AFTER classification and BEFORE the model
-        # teardown/reload, the whole point is telling the user why the
-        # next seconds freeze.
         assert order == ["inner", "classify", "publish", "beam", "reload", "inner"], f"unexpected call order: {order}"
         assert len(published) == 1
         event = published[0]
@@ -145,9 +116,6 @@ class TestFallbackPublishesBeforeReload:
         assert "reload" not in engine.calls
 
 
-# ─── 2. publish failure must not break the fallback ──────────────────────
-
-
 class TestPublishFailureSuppressed:
     def test_raising_publish_does_not_break_fallback(self, monkeypatch):
         from voice_typer.server import event_bus
@@ -162,9 +130,6 @@ class TestPublishFailureSuppressed:
         result = with_gpu_fallback(engine, _make_inner(engine), b"audio-bytes")
         assert result == "transcribed"
         assert "reload" in engine.calls
-
-
-# ─── 3. the tray-side handler ────────────────────────────────────────────
 
 
 class TestOnGpuCpuFallbackHandler:
@@ -242,9 +207,6 @@ class TestOnGpuCpuFallbackHandler:
         tray._apply_state.assert_called_once()
 
 
-# ─── 4. wiring: delegate + subscribe/unsubscribe + real bus delivery ─────
-
-
 class TestSubscriptionWiring:
     def test_tray_delegate_routes_to_handler(self, monkeypatch):
         from voice_typer.server import tray_notifications as tn
@@ -266,8 +228,6 @@ class TestSubscriptionWiring:
         assert "_event_bus.subscribe(self._on_parakeet_cpu_fallback)" in src
         assert "_event_bus.subscribe(self._on_gpu_cpu_fallback)" in src
         # The new subscription must sit inside the same guarded block
-        # (a bare unguarded second subscribe would regress the
-        # WARNING-on-failure promotion).
         parakeet_idx = src.index("subscribe(self._on_parakeet_cpu_fallback)")
         gpu_idx = src.index("subscribe(self._on_gpu_cpu_fallback)")
         try_idx = src.index("try:", 0, parakeet_idx)
@@ -282,8 +242,7 @@ class TestSubscriptionWiring:
         assert "_event_bus.unsubscribe(tray._on_gpu_cpu_fallback)" in src
 
     def test_real_event_bus_delivers_published_event_to_subscribed_handler(self, monkeypatch):
-        """Round-trip over the REAL bus: publish → subscriber fan-out →
-        handler side effects (flag flip + toast request)."""
+        """Round-trip over the REAL bus: publish → subscriber fan-out →"""
         from voice_typer.server import event_bus, tray_notifications as tn
 
         tray = MagicMock()
@@ -293,8 +252,6 @@ class TestSubscriptionWiring:
         own_deliveries: list = []
         monkeypatch.setattr(tn, "notify", lambda t, title, message: None)
 
-        # Subscriber contract is callback(event); bind the tray here the
-        # same way TrayIcon.start binds it via its delegate method.
         subscriber = lambda event: (own_deliveries.append(1), tn.on_gpu_cpu_fallback(tray, event))  # noqa: E731
         event_bus.subscribe(subscriber)
         try:
@@ -309,9 +266,4 @@ class TestSubscriptionWiring:
 
         assert delivered is True
         assert tray._cpu_fallback_active is True
-        # This subscriber must receive the event at least once. Exact-once
-        # is the production contract, but under xdist the shared event_bus
-        # can deliver to a worker-local registration more than once when an
-        # earlier test left a live gpu_cpu_fallback path subscribed; pin
-        # delivery + tray state, not worker-polluted counts.
         assert len(own_deliveries) >= 1

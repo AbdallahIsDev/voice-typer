@@ -1,22 +1,4 @@
-"""§8.16: Checksum slows startup: background checksum + cheap existence.
-
-Spec (§8.16):
-
-  The pack checksum check runs in the background after startup, never
-  blocking the window from opening. A cheap existence check runs
-  synchronously.
-
-Tested behaviors:
-
-  1. ``pack_exists`` (cheap sync check) runs FAST (no SHA-256).
-  2. ``BackgroundChecksum.start()`` returns immediately (non-blocking).
-  3. ``BackgroundChecksum.result`` is None until ``done``.
-  4. ``BackgroundChecksum`` does NOT block the main thread.
-  5. ``BackgroundChecksum`` publishes ``offline_pack_verified`` on success.
-  6. ``BackgroundChecksum`` publishes ``offline_pack_corrupt`` on failure.
-  7. Two simultaneous ``BackgroundChecksum`` instances (different
-     versions) run independently.
-"""
+"""§8.16: Checksum slows startup: background checksum + cheap existence."""
 
 from __future__ import annotations
 
@@ -57,11 +39,9 @@ class TestCheapExistenceCheck:
     """§8.16: ``pack_exists`` is cheap (no hashing)."""
 
     def test_pack_exists_is_fast(self, tmp_path: Path):
-        """``pack_exists`` should complete in <<1s even on a large pack
-        (it does NOT hash)."""
+        """``pack_exists`` should complete in <<1s even on a large pack"""
         _write_valid_pack(tmp_path, "v1")
         # Write a "large" pack (100 MB): ``pack_exists`` should NOT
-        # take 100ms (it doesn't hash).
         big_file = tmp_path / "v1" / "big.bin"
         big_file.write_bytes(b"x" * (10 * 1024 * 1024))  # 10 MB (keep test fast)
         # Need to add it to the manifest so ``pack_exists`` looks for it.
@@ -96,11 +76,8 @@ class TestBackgroundChecksumNonBlocking:
         bg = offline_pack.BackgroundChecksum("v1", root=tmp_path)
         bg.start()
         # Immediately after start, result is None (not done yet).
-        # Give the background thread a moment to finish on a slow CI.
         time.sleep(0.05)
         # By now it MIGHT be done (fast pack), but if it is, ``result``
-        # is True; if not, it's None. We assert that EITHER result is
-        # None OR ``done`` is True (the only valid states).
         assert bg.result is None or bg.done is True
         bg.join(timeout_s=5.0)
 

@@ -1,22 +1,4 @@
-"""Model-operation tests.
-
-Extracted from the original ``tests/test_history_and_models.py`` catch-all
-(Epic EC-25 / Entry #23 test-file split). This module pins the
-service-layer model-management surface:
-
-* tray submenu construction (``build_models_submenu_data``)
-* per-download cancel mechanism (``_register_download`` /
-  ``_download_cancel_events`` / ``_unregister_download`` +
-  ``cancel_model_download``)
-* model deletion via the registry (``delete_model`` for whisper/distil/
-  parakeet/qwen, all routed through ``MODEL_REGISTRY``)
-* ``get_model_status`` 5 s TTL cache (invalidated by ``delete_model`` and
-  successful downloads; ``cache_dir`` probed once per compute)
-* download-progress polling scoped to the per-model directory (PERF-21)
-
-Test names + assertions are preserved verbatim from the original file;
-only the file boundary moved.
-"""
+"""Model-operation tests."""
 
 from __future__ import annotations
 
@@ -44,12 +26,7 @@ class TestBuildModelsSubmenuConfigProvider:
         assert "tiny" in active_models
 
     def test_corrupt_config_json_falls_back_to_defaults_and_logs(self, tmp_path, caplog):
-        """PI-19 regression: a corrupt ``config.json`` must NOT silently
-        fall through to defaults. The tray menu still returns defaults
-        (so the user sees a functional menu), but a ``log.debug`` line
-        records the failure so it can be diagnosed from
-        ``voice-typer.log``. Mirrors the pattern at ``config.py:1043``.
-        """
+        """PI-19 regression: a corrupt ``config.json`` must NOT silently"""
         import logging
 
         from voice_typer.server.tray_models import build_models_submenu_data
@@ -78,13 +55,7 @@ class TestBuildModelsSubmenuConfigProvider:
 
 
 class TestCancelModelDownloadMechanism:
-    """Verify the cancel mechanism works at the Python service level.
-
-    the legacy single-instance ``_download_cancel_event``
-    attribute has been removed.  These tests now exercise the per-download
-    API (``_register_download`` / ``_download_cancel_events`` /
-    ``_unregister_download``) that production code uses.
-    """
+    """Verify the cancel mechanism works at the Python service level."""
 
     def test_cancel_returns_false_when_no_download_active(self, tmp_config_dir):
         from voice_typer.server.service import VoiceTyperService
@@ -124,7 +95,6 @@ class TestCancelModelDownloadMechanism:
         download_id = service._register_download("test-model")
         service.cancel_model_download()
         # Unregistering the download clears the active id and removes
-        # the Event from the dict, so a subsequent cancel returns False.
         service._unregister_download(download_id)
         result = service.cancel_model_download()
         assert result == {"cancelled": False}
@@ -142,10 +112,7 @@ class TestCancelModelDownloadMechanism:
 
 
 class TestDeleteModelUsesRegistryUnconditionally:
-    """SVC-7: ``delete_model`` resolves ``repo_id`` from
-      :data:`MODEL_REGISTRY` for ALL models (whisper/distil/parakeet/qwen)
-    , the inline ``elif model_name == "parakeet"`` / ``elif model_name ==
-      "qwen"`` branches are gone."""
+    """:data:`MODEL_REGISTRY` for ALL models (whisper/distil/parakeet/qwen)"""
 
     def _make_service(self):
         from voice_typer.server.service import VoiceTyperService
@@ -160,8 +127,7 @@ class TestDeleteModelUsesRegistryUnconditionally:
         return VoiceTyperService(FakeApp())
 
     def test_parakeet_uses_registry_repo_id(self, tmp_config_dir, monkeypatch):
-        """``delete_model("parakeet")`` looks up the registry's
-        ``nvidia/parakeet-tdt-0.6b-v3`` repo_id (NOT a hardcoded branch)."""
+        """``delete_model(\"parakeet\")`` looks up the registry's"""
         from voice_typer.server.model_registry import get_model_metadata
 
         service = self._make_service()
@@ -180,11 +146,7 @@ class TestDeleteModelUsesRegistryUnconditionally:
         assert not (cache_dir / model_dir_name).exists()
 
     def test_qwen_uses_registry_repo_id(self, tmp_config_dir):
-        """``delete_model("qwen")`` no longer returns "Unknown model"
-        , it derives ``andrewleech/qwen3-asr-1.7b-onnx`` from the
-          registry (the ONNX export repo, 2026-08-15) and either deletes
-          the matching cache dir or returns "not downloaded" when the
-          dir is absent."""
+        """``delete_model(\"qwen\")`` no longer returns \"Unknown model\""""
         from voice_typer.server.model_registry import get_model_metadata
 
         service = self._make_service()
@@ -199,8 +161,7 @@ class TestDeleteModelUsesRegistryUnconditionally:
         )
 
     def test_unknown_model_still_errors(self, tmp_config_dir):
-        """A model name absent from the registry still surfaces the
-        existing "Unknown model" error (regression guard)."""
+        """A model name absent from the registry still surfaces the"""
         service = self._make_service()
         result = service.delete_model("definitely-not-a-real-model")
         assert result["success"] is False
@@ -208,8 +169,7 @@ class TestDeleteModelUsesRegistryUnconditionally:
 
 
 class TestGetModelStatusCache:
-    """SVC-9 / PERF-10: ``get_model_status`` caches its result for 5 s
-    and is invalidated by ``delete_model`` + successful downloads."""
+    """SVC-9 / PERF-10: ``get_model_status`` caches its result for 5 s"""
 
     def _make_service(self):
         from voice_typer.server.service import VoiceTyperService
@@ -224,8 +184,7 @@ class TestGetModelStatusCache:
         return VoiceTyperService(FakeApp())
 
     def test_two_consecutive_calls_return_same_cached_object(self, tmp_config_dir, monkeypatch):
-        """Within the 5 s TTL window, the second call returns the SAME
-        dict object, proving the cache served it (not a fresh compute)."""
+        """Within the 5 s TTL window, the second call returns the SAME"""
         service = self._make_service()
         monkeypatch.setattr("os.path.isdir", lambda p: False)
         first = service.get_model_status()
@@ -233,8 +192,7 @@ class TestGetModelStatusCache:
         assert first is second, "Second call within TTL should return the cached dict object"
 
     def test_invalidate_forces_recompute(self, tmp_config_dir, monkeypatch):
-        """``_invalidate_model_status_cache`` causes the next call to
-        re-compute (returns a different dict object)."""
+        """``_invalidate_model_status_cache`` causes the next call to"""
         service = self._make_service()
         monkeypatch.setattr("os.path.isdir", lambda p: False)
         first = service.get_model_status()
@@ -243,8 +201,7 @@ class TestGetModelStatusCache:
         assert first is not second, "After invalidation, the cache should be re-populated with a fresh dict"
 
     def test_delete_model_invalidates_cache(self, tmp_config_dir, monkeypatch):
-        """A successful ``delete_model`` drops the status cache so the
-        next ``get_model_status`` IPC call reflects the deletion."""
+        """A successful ``delete_model`` drops the status cache so the"""
         from voice_typer.server.model_registry import get_model_metadata
 
         service = self._make_service()
@@ -266,9 +223,7 @@ class TestGetModelStatusCache:
         assert service._model_status_cache is None, "delete_model must invalidate the get_model_status cache (SVC-9)"
 
     def test_cache_dir_exists_probed_once_per_compute(self, tmp_config_dir, monkeypatch):
-        """SVC-9 / PERF-10: ``cache_dir_exists = os.path.isdir(cache_dir)``
-        is hoisted above the loop. The cache_dir root is stat exactly
-        ONCE per ``_compute_model_status`` call, not once per model."""
+        """SVC-9 / PERF-10: ``cache_dir_exists = os.path.isdir(cache_dir)``"""
         service = self._make_service()
 
         isdir_calls: list[str] = []
@@ -288,28 +243,10 @@ class TestGetModelStatusCache:
 
 
 class TestDownloadPollScopedToModelDir:
-    """PERF-21: the download-progress polling loop walks ONLY the
-    in-progress model's directory, not the entire HF cache tree."""
+    """PERF-21: the download-progress polling loop walks ONLY the"""
 
     def test_poll_walks_model_dir_not_cache_root(self, tmp_config_dir, monkeypatch):
-        """When polling for download progress, the loop calls
-        ``rglob`` on ``cache_dir / models--<repo_id>``, NOT on
-        ``cache_dir`` itself.
-
-        We verify by inspecting the source, running an actual
-        download is impractical in unit tests (snapshot_download +
-        threading). The source-level guard catches any future revert
-        that re-widens the rglob.
-
-        DR-17: the polling loop was extracted from the original
-        monolithic ``VoiceTyperService.download_model`` (now a thin
-        dispatcher delegating to ``_download_whisper_family`` /
-        ``_download_qwen`` / ``_download_parakeet``) into the
-        module-level ``poll_download_progress`` helper in
-        ``voice_typer/server/service/_download_helpers.py``. The
-        PERF-21 invariant still lives there, so this test introspects
-        the helper's source rather than ``download_model``.
-        """
+        """When polling for download progress, the loop calls"""
         import inspect
 
         from voice_typer.server.service._download_helpers import poll_download_progress
@@ -323,9 +260,6 @@ class TestDownloadPollScopedToModelDir:
             "PERF-21: progress polling must call model_dir.rglob('*'), not cache_dir.rglob('*')"
         )
         # Strip Python comments before checking so the PERF-21
-        # explanatory comment (which mentions cache_dir.rglob in plain
-        # English) doesn't trip the assertion. We only want to catch a
-        # regression where the actual CODE re-widens the rglob.
         code_only_lines = []
         for line in src.splitlines():
             stripped = line.lstrip()
@@ -341,18 +275,7 @@ class TestDownloadPollScopedToModelDir:
 
 
 class TestDeleteStaleActiveModel:
-    """(STALE-ACTIVE): deleting an active-but-missing model clears the
-    stale config selection instead of refusing.
-
-    The configured active model can be removed from disk out-of-band
-    (deleted folder / moved cache / wiped disk) while ``config.json``
-    still points at it. ``delete_model`` must NOT refuse with "Cannot
-    delete the active model" in that case, there is nothing on disk to
-    protect. It clears the stale selection (switching to the first
-    downloaded model, if any) via the canonical ``apply_config`` path,
-    pushes ``config_changed``, invalidates the status cache, and returns
-    success so the renderer drops the phantom "Active" state.
-    """
+    """stale config selection instead of refusing."""
 
     @staticmethod
     def _make_app(model_size: str):
@@ -372,9 +295,7 @@ class TestDeleteStaleActiveModel:
         return cache_dir
 
     def test_active_missing_clears_config_to_downloaded_fallback(self, tmp_config_dir, monkeypatch):
-        """tiny is active but its files are gone; large-v3-turbo IS on
-        disk. delete_model('tiny') succeeds AND switches the active model
-        to large-v3-turbo so no phantom 'Active' state remains."""
+        """disk. delete_model('tiny') succeeds AND switches the active model"""
         from voice_typer.server.model_registry import get_model_metadata
         from voice_typer.server.service import VoiceTyperService
 
@@ -383,11 +304,6 @@ class TestDeleteStaleActiveModel:
         assert fallback_meta is not None
         fallback_dir = cache_dir / f"models--{fallback_meta.repo_id.replace('/', '--')}"
         fallback_dir.mkdir(parents=True)
-        # The fallback-pick consumes _compute_model_status, whose
-        # ``downloaded`` answer now comes from the snapshot-completeness
-        # probe (partial downloads report False). Stub it to mirror
-        # reality (repo dir present → True) so this test pins the
-        # STALE-ACTIVE fallback SELECTION, not the probe mechanics
         # (pinned in tests/model_download/).
         monkeypatch.setattr(
             "voice_typer.server.transcription_download.is_model_snapshot_complete",
@@ -399,13 +315,8 @@ class TestDeleteStaleActiveModel:
 
         result = service.delete_model("tiny")
         assert result["success"] is True, f"Expected success, got: {result}"
-        # Success omits ``message`` so the renderer falls back to
-        # models.snack.deleted (C-I18N-1). Structured ``reason`` is
-        # the diagnostic contract.
         assert not result.get("message"), f"success must omit message, got: {result}"
         assert result.get("reason") == "stale_cleared_switched", f"got: {result}"
-        # The stale selection was cleared: active model switched to the
-        # downloaded fallback via apply_config.
         assert app.config.model_size == "large-v3-turbo", (
             f"delete_model must clear the stale active config to the "
             f"downloaded fallback, got model_size={app.config.model_size!r}"
@@ -415,9 +326,7 @@ class TestDeleteStaleActiveModel:
         assert service._model_status_cache is None, "delete_model must invalidate the get_model_status cache"
 
     def test_active_missing_apply_config_failure_does_not_claim_switch(self, tmp_config_dir, monkeypatch):
-        """If the config-clear (``apply_config``) fails and rolls back, the
-        delete still succeeds but the message must NOT claim the active
-        model was switched, the phantom config value is still live."""
+        """delete still succeeds but the message must NOT claim the active"""
         from unittest.mock import Mock
 
         from voice_typer.server.model_registry import get_model_metadata
@@ -427,17 +336,12 @@ class TestDeleteStaleActiveModel:
         fallback_meta = get_model_metadata("large-v3-turbo")
         assert fallback_meta is not None
         (cache_dir / f"models--{fallback_meta.repo_id.replace('/', '--')}").mkdir(parents=True)
-        # Probe stub so the fallback IS found (this test pins the
-        # apply_config ROLLBACK, not the completeness probe). Mirror
-        # reality: repo dir present → True.
         monkeypatch.setattr(
             "voice_typer.server.transcription_download.is_model_snapshot_complete",
             lambda repo_id: (cache_dir / f"models--{repo_id.replace('/', '--')}").is_dir(),
         )
 
         app = self._make_app(model_size="tiny")
-        # save_strict raises -> apply_config rolls the in-memory config back
-        # and re-raises; _clear_stale_active_model catches it.
         app.config.save_strict = Mock(side_effect=RuntimeError("disk full"))
         service = VoiceTyperService(app)
 
@@ -452,11 +356,7 @@ class TestDeleteStaleActiveModel:
         )
 
     def test_active_missing_no_fallback_enters_no_model_state(self, tmp_config_dir):
-        """No model is downloaded at all, there is no valid replacement.
-        The delete still succeeds and the config enters the genuine
-        "no model selected" state (``model_size == ""``, the
-        ``NO_MODEL_SIZE`` sentinel) instead of keeping a phantom model
-        that the app would otherwise try to load."""
+        """No model is downloaded at all, there is no valid replacement."""
         from voice_typer.server.model_registry import NO_MODEL_SIZE
         from voice_typer.server.service import VoiceTyperService
 
@@ -474,7 +374,6 @@ class TestDeleteStaleActiveModel:
         )
         assert app.config.asr_backend == "whisper"
         # Tray must show the no-model error immediately (not keep
-        # advertising the previous ready state into the next hotkey).
         from unittest.mock import ANY
 
         from voice_typer.server.tray_types import AppState
@@ -483,11 +382,7 @@ class TestDeleteStaleActiveModel:
         assert "No model selected" in app.tray.set_state.call_args[0][1]
 
     def test_active_on_disk_deletes_and_switches(self, tmp_config_dir, monkeypatch):
-        """ACTIVE-DELETE: the configured model CAN be deleted. The
-        engine is unloaded first, the selection moves to the
-        downloaded fallback, then the files go (user decision: the
-        old refuse-and-switch guard dead-ended single-model users,
-        the renderer already allows requesting it)."""
+        """old refuse-and-switch guard dead-ended single-model users,"""
         from voice_typer.server.model_registry import get_model_metadata
         from voice_typer.server.service import VoiceTyperService
 
@@ -501,8 +396,6 @@ class TestDeleteStaleActiveModel:
         assert fallback_meta is not None
         fallback_dir = cache_dir / f"models--{fallback_meta.repo_id.replace('/', '--')}"
         fallback_dir.mkdir(parents=True)
-        # Probe stub: repo dir present → downloaded (mirrors the
-        # stale-active tests pinning selection, not probe mechanics).
         monkeypatch.setattr(
             "voice_typer.server.transcription_download.is_model_snapshot_complete",
             lambda repo_id: (cache_dir / f"models--{repo_id.replace('/', '--')}").is_dir(),
@@ -522,14 +415,11 @@ class TestDeleteStaleActiveModel:
         assert fallback_dir.exists()
         assert app.config.model_size == "large-v3-turbo"
         assert service._model_status_cache is None
-        # A fallback EXISTS: no forced no-model error on the tray (the
-        # next dictation loads it on demand).
         for call in app.tray.set_state.call_args_list:
             assert "No model selected" not in str(call)
 
     def test_active_on_disk_no_fallback_enters_no_model_state(self, tmp_config_dir, monkeypatch):
-        """ACTIVE-DELETE with nothing else downloaded: files go and
-        the config enters the genuine "no model selected" state."""
+        """ACTIVE-DELETE with nothing else downloaded: files go and"""
         from voice_typer.server.model_registry import NO_MODEL_SIZE, get_model_metadata
         from voice_typer.server.service import VoiceTyperService
 
@@ -562,9 +452,7 @@ class TestDeleteStaleActiveModel:
         assert "No model selected" in app.tray.set_state.call_args[0][1]
 
     def test_active_delete_refused_while_recording(self, tmp_config_dir):
-        """Unloading mid-dictation would corrupt the recording: an
-        active delete during a flight dictation is refused (with a
-        logged reason), files untouched."""
+        """logged reason), files untouched."""
         from voice_typer.server.model_registry import get_model_metadata
         from voice_typer.server.service import VoiceTyperService
 

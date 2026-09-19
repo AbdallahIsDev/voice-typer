@@ -1,20 +1,4 @@
-"""Regression tests for the backend hotkey validator (HOTKEY-VALIDATION-001).
-
-These tests pin the denylist-based validation policy introduced in
-``voice_typer/server/config_validators.py::_validate_hotkey``.  The
-validator mirrors the frontend ``validateHotkey`` in
-``voice_typer/client/src/renderer/src/components/hotkey/hotkey-validation.ts``.
-
-The policy is a DENYLIST design, not a blanket rule design:
-  - Allow Alt+<letter> by default (e.g. <alt>+<q>, <alt>+<r>).
-  - Allow Ctrl+Shift, Ctrl+Alt+<key>, Delete+End, and similar non-reserved
-    combinations.
-  - Block OS-reserved shortcuts (Alt+Tab, Alt+F4, Alt+Esc, Alt+Space,
-    Win+*, Cmd+<letter> on macOS, etc.).
-  - Block common Ctrl+<letter> app shortcuts (Copy/Paste/Undo/Save/etc.).
-  - Block Shift+<letter> (interferes with capitalization).
-  - Block Alt+Shift on Windows (language switching).
-"""
+"""Regression tests for the backend hotkey validator (HOTKEY-VALIDATION-001)."""
 
 from __future__ import annotations
 
@@ -27,8 +11,6 @@ from voice_typer.server.config_validators import (
     _RESERVED_HOTKEYS,
     _validate_hotkey,
 )
-
-# ── Allowed combinations ──────────────────────────────────────────────
 
 ALLOWED_HOTKEYS = [
     "<caps_lock>",
@@ -50,26 +32,13 @@ ALLOWED_HOTKEYS = [
     # Ctrl+Q is now allowed (user choice, no longer in blocked list).
     "<ctrl>+<q>",
     # Modifier-only release triggers: zero non-modifier keys is VALID
-    # (native + polling backends fire on modifier RELEASE via
-    # ``_run_modifier_only_polling_loop``; the frontend validateHotkey
-    # accepts them). Bare <win>/<cmd>/<super> stay blocked below.
     "<alt>",
     "<ctrl>",
     "<shift>",
     "<ctrl>+<shift>",
     "<ctrl>+<alt>",
-    # multi-key non-modifier combos (e.g. ``<delete>+<end>``) are
-    # NO LONGER allowed, they're structurally invalid for a global
-    # hotkey listener.  Moved to BLOCKED_HOTKEYS below.
-    # F-key combos with modifiers are allowed.
     "<shift>+<f5>",
     "<ctrl>+<f1>",
-    # ``<ctrl>+<alt>+<f2>`` switches to VT2 on Linux (a
-    # kernel-level console switch that pynput / the X server cannot
-    # intercept). The Linux reserved-shortcut table correctly blocks
-    # it, so this parametrize entry is skipped on Linux to avoid a
-    # false "expected to be allowed, but got: reserved by operating
-    # system (linux)" failure.
     pytest.param(
         "<ctrl>+<alt>+<f2>",
         marks=pytest.mark.skipif(
@@ -80,15 +49,7 @@ ALLOWED_HOTKEYS = [
 ]
 
 
-# ── Blocked combinations ─────────────────────────────────────────────
-
 # HOTKEY-VALIDATION-002 (Task 2.2.5): Win+<key> combos are Windows-only
-# reserved shortcuts. They are in a separate platform-conditional list
-# (WINDOWS_BLOCKED_HOTKEYS) so the test only expects them to be blocked
-# when running on Windows. On Linux, the "win" modifier name isn't used
-# (Linux uses "super"), and Super+<key> is handled by the per-platform
-# reserved list (Super+L, Super+D, Super+Tab). On macOS, the Win key
-# doesn't exist as a system modifier.
 WINDOWS_BLOCKED_HOTKEYS = [
     "<win>+<l>",
     "<win>+<e>",
@@ -104,16 +65,13 @@ BLOCKED_HOTKEYS = [
     "<alt>+<esc>",
     "<alt>+<space>",
     # Enter-based combos, interfere with typing, form submission,
-    # and messaging shortcuts.
     "<enter>",
     "<ctrl>+<enter>",
     "<shift>+<enter>",
     # Bare modifier keys, Win opens Start menu, Cmd is a system
-    # gesture on macOS. Blocked on all platforms.
     "<win>",
     "<cmd>",
     # Tab navigation, interferes with keyboard navigation
-    # and tab switching in browsers/applications.
     "<tab>",
     "<shift>+<tab>",
     "<ctrl>+<tab>",
@@ -156,13 +114,6 @@ BLOCKED_HOTKEYS = [
     "<shift>+<z>",
     "<shift>+<a>",
     "<shift>+<m>",
-    # multi-key non-modifier combos are structurally invalid for
-    # a global hotkey listener (pynput, the Windows low-level hook, and
-    # the macOS CGEventTap all register a single non-modifier key plus
-    # zero-or-more modifiers).  Such combos would either fail to register,
-    # fire spuriously when either key is pressed alone, or require the
-    # user to press both keys simultaneously in a way that's
-    # indistinguishable from typing.
     "<delete>+<end>",
     "<a>+<b>",
     "<f1>+<f2>",
@@ -200,18 +151,7 @@ class TestValidateHotkeyPlatformConditional:
         assert result is not None, "Alt+Shift should be blocked on Windows (language switching)"
 
     def test_alt_shift_allowed_on_linux_modifier_only(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Alt+Shift is ALLOWED on Linux, it's a modifier-only combo.
-
-        Modifier-only hotkeys (zero non-modifier keys) are valid release
-        triggers: the native backends + the Windows polling fallback
-        fire on modifier RELEASE via ``_run_modifier_only_polling_loop``,
-        and the frontend ``validateHotkey`` accepts them (rule 5:
-        "pure-modifier combos ... are valid modifier-only release
-        triggers"). The earlier rejection predates the runtime's
-        modifier-only support and made the backend reject captures the
-        renderer committed ("got 0" at set_config time). On Windows,
-        Alt+Shift stays blocked by the Stage 7 language-switching rule.
-        """
+        """Alt+Shift is ALLOWED on Linux, it's a modifier-only combo."""
         import voice_typer.server.config_validators as cv
 
         monkeypatch.setattr(cv._sys, "platform", "linux")
@@ -220,15 +160,7 @@ class TestValidateHotkeyPlatformConditional:
 
 
 class TestValidateHotkeyWindowsSpecific:
-    """Windows-specific blocks: Win+<key> is only blocked on Windows.
-
-    HOTKEY-VALIDATION-002 (Task 2.2.5): the prior code blanket-blocked
-    Win/Super+anything on BOTH Windows and Linux. This incorrectly rejected
-    <super>+<space> on Linux (a combo most Linux DEs allow reassigning).
-    The blanket block now applies only on Windows. On Linux, Super combos
-    are checked against the per-platform reserved list (Super+L, Super+D,
-    Super+Tab).
-    """
+    """Windows-specific blocks: Win+<key> is only blocked on Windows."""
 
     @pytest.mark.parametrize("hotkey", WINDOWS_BLOCKED_HOTKEYS)
     def test_win_combos_blocked_on_windows(self, hotkey: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -240,14 +172,7 @@ class TestValidateHotkeyWindowsSpecific:
         assert result is not None, f"Expected {hotkey!r} to be blocked on Windows, but it was allowed"
 
     def test_win_combo_allowed_on_linux(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """<win>+<r> is allowed on Linux because <super>+<r> isn't reserved.
-
-        CFG-2: ``win`` is now treated as an alias for ``super`` on Linux
-        for the per-platform reserved lookup (so ``<win>+<l>`` is blocked
-        on Linux just like ``<super>+<l>``).  This test confirms that the
-        alias doesn't over-block: combos whose ``super`` form isn't in the
-        Linux reserved list are still allowed.
-        """
+        """<win>+<r> is allowed on Linux because <super>+<r> isn't reserved."""
         import voice_typer.server.config_validators as cv
 
         monkeypatch.setattr(cv._sys, "platform", "linux")
@@ -295,11 +220,7 @@ class TestValidateHotkeyEdgeCases:
 
 
 class TestValidateHotkeySingleLetterRejection:
-    """HOTKEY-VALIDATION-002 (Task 2.2.5): single letters/digits can't be
-    standalone hotkeys, they'd interfere with normal typing. The prior fix
-    added letters/digits to KEY_CODE_TO_PYNPUT (so Alt+Q parses) but forgot
-    to add this validation rule, silently accepting <a>, <1>, etc.
-    """
+    """HOTKEY-VALIDATION-002 (Task 2.2.5): single letters/digits can't be"""
 
     @pytest.mark.parametrize("letter", list("abcdefghijklmnopqrstuvwxyz"))
     def test_rejects_single_letter(self, letter: str) -> None:
@@ -338,7 +259,6 @@ class TestReservedHotkeysTable:
                 assert entry == entry.lower(), f"Reserved hotkey {entry!r} for {platform} must be lowercase"
 
     def test_linux_does_not_reserve_super_space(self) -> None:
-        # Invariant: <super>+<space> is intentionally NOT reserved on Linux.
         # The frontend test "still offers <super>+<space> on Linux" pins this.
         assert "<super>+<space>" not in _RESERVED_HOTKEYS["linux"]
 
@@ -377,24 +297,8 @@ class TestHotkeyModifiers:
             assert mod in _HOTKEY_MODIFIERS
 
 
-# ──────────────────────────────────────────────────────────────────────────
-# whitespace bypass in reserved-shortcut lookup
-# ──────────────────────────────────────────────────────────────────────────
-
-
 class TestCfg1WhitespaceBypass:
-    """CFG-1 (Medium): a hotkey string with leading/trailing whitespace
-    must NOT bypass the reserved-shortcut denylist.
-
-    Before the fix, ``normalized = value.lower()`` left the whitespace in
-    place, so ``" <alt>+<tab> "`` compared unequal to every entry in
-    ``_UNIVERSAL_RESERVED_HOTKEYS`` and was silently accepted.  A
-    malicious IPC client (or a buggy renderer that forgot to trim) could
-    bypass the entire backend mirror of the reserved-shortcut table.
-
-    The fix is ``normalized = value.strip().lower()`` so the lookup
-    matches the denylist regardless of surrounding whitespace.
-    """
+    """CFG-1 (Medium): a hotkey string with leading/trailing whitespace"""
 
     @pytest.mark.parametrize(
         "padding",
@@ -407,56 +311,32 @@ class TestCfg1WhitespaceBypass:
         assert result is not None, f"Padded reserved hotkey {padded!r} should be blocked (CFG-1)"
 
     def test_ctrl_c_with_padding_is_blocked(self) -> None:
-        """``<ctrl>+<c>`` with surrounding whitespace is rejected via the
-        Ctrl+letter blanket rule."""
+        """``<ctrl>+<c>`` with surrounding whitespace is rejected via the"""
         result = _validate_hotkey("   <ctrl>+<c>   ")
         assert result is not None
         assert "Ctrl+C" in result or "reserved" in result.lower()
 
     def test_valid_hotkey_with_padding_is_allowed(self) -> None:
-        """A non-reserved hotkey with surrounding whitespace is still
-        accepted, the strip is for normalization only, not rejection."""
+        """A non-reserved hotkey with surrounding whitespace is still"""
         result = _validate_hotkey("  <f2>  ")
         assert result is None, "<f2> with whitespace should be allowed (CFG-1 doesn't over-block)"
 
     def test_tab_inside_combo_is_not_stripped(self) -> None:
-        """Whitespace BETWEEN tokens (e.g. ``<ctrl> + <c>``) is handled by
-        the parser, not the strip, the strip only affects leading/trailing
-        whitespace for the denylist lookup.  This test pins that behavior."""
+        """the parser, not the strip, the strip only affects leading/trailing"""
         # The parser may or may not accept "<ctrl> + <c>"; the strip
-        # shouldn't change the parser's verdict.  We just verify the
-        # function returns SOME result (either None or an error string),
-        # not None due to a strip-induced mismatch.
         result = _validate_hotkey("<ctrl> + <c>")
         assert isinstance(result, str | None)
 
 
-# ──────────────────────────────────────────────────────────────────────────
-# ``win`` alias for ``super`` on Linux per-platform reserved lookup
-# ──────────────────────────────────────────────────────────────────────────
-
-
 class TestCfg2WinAliasForSuperOnLinux:
-    """CFG-2 (Medium): on Linux, the physical Windows key is reported as
-    ``super`` by pynput / evdev.  A user (or a buggy renderer) may send
-    ``<win>+<l>`` instead of ``<super>+<l>``, expecting it to behave the
-    same.  Before the fix, ``<win>+<l>`` was silently allowed on Linux
-    even though ``<super>+<l>`` is in the Linux reserved list (Super+L
-    locks the screen on GNOME/KDE/Cinnamon/etc.), letting the user
-    assign a hotkey that conflicts with the screen-lock shortcut.
-
-    The fix normalizes ``<win>`` → ``<super>`` in the per-platform
-    reserved lookup on Linux only (Windows keeps its blanket Win+block;
-    macOS doesn't use either name).
-    """
+    """``super`` by pynput / evdev.  A user (or a buggy renderer) may send"""
 
     @pytest.mark.parametrize(
         "hotkey",
         ["<win>+<l>", "<win>+<d>", "<win>+<tab>"],
     )
     def test_win_alias_blocked_on_linux(self, hotkey: str, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Each Linux-reserved Super+<key> combo is also blocked when
-        sent with the ``win`` modifier name."""
+        """Each Linux-reserved Super+<key> combo is also blocked when"""
         import voice_typer.server.config_validators as cv
 
         monkeypatch.setattr(cv._sys, "platform", "linux")
@@ -464,9 +344,7 @@ class TestCfg2WinAliasForSuperOnLinux:
         assert result is not None, f"{hotkey!r} should be blocked on Linux (alias for reserved <super>+<key>), CFG-2"
 
     def test_win_non_reserved_combo_allowed_on_linux(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """A win+<key> combo whose super form is NOT reserved is still
-        allowed, the alias only triggers a block when it matches an
-        actual reserved entry."""
+        """A win+<key> combo whose super form is NOT reserved is still"""
         import voice_typer.server.config_validators as cv
 
         monkeypatch.setattr(cv._sys, "platform", "linux")
@@ -477,55 +355,29 @@ class TestCfg2WinAliasForSuperOnLinux:
         )
 
     def test_win_alias_not_applied_on_windows(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """On Windows, ``win`` is the correct modifier name and is
-        blanket-blocked (Win+anything is OS-shell-reserved).  The
-        Linux-only ``win``→``super`` normalization doesn't run."""
+        """On Windows, ``win`` is the correct modifier name and is"""
         import voice_typer.server.config_validators as cv
 
         monkeypatch.setattr(cv._sys, "platform", "win32")
         result = _validate_hotkey("<win>+<l>")
         assert result is not None
         # The block comes from the Win-blanket rule, not the per-platform
-        # reserved lookup.
         assert "Windows key combinations" in result or "reserved" in result.lower()
 
     def test_win_alias_not_applied_on_macos(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """On macOS, neither ``win`` nor ``super`` is a recognized
-        modifier (the system modifier is ``cmd``).  The Linux-only
-        normalization doesn't run."""
+        """On macOS, neither ``win`` nor ``super`` is a recognized"""
         import voice_typer.server.config_validators as cv
 
         monkeypatch.setattr(cv._sys, "platform", "darwin")
         # <win>+<f5> on macOS: win isn't a macOS modifier, and f5 isn't
-        # a Cmd+letter (so the Cmd-blanket doesn't fire).  Should be
-        # allowed.
         result = _validate_hotkey("<win>+<f5>")
         # Either allowed (None) or rejected by the multi-key check.
-        # The important thing is that it's NOT rejected as "reserved
-        # by operating system (darwin)" via the win→super alias.
         if result is not None:
             assert "reserved by operating system" not in result, "win→super alias must NOT be applied on macOS (CFG-2)"
 
 
-# ──────────────────────────────────────────────────────────────────────────
-# reject multi-key non-modifier combos
-# ──────────────────────────────────────────────────────────────────────────
-
-
 class TestCfg3MultiKeyComboRejection:
-    """CFG-3 (Medium): a hotkey with more than one non-modifier key is
-    structurally invalid for a global hotkey listener.
-
-    pynput, the Windows low-level hook (``WH_KEYBOARD_LL``), and the
-    macOS ``CGEventTap`` all register a single non-modifier key plus
-    zero-or-more modifiers.  A combo like ``<a>+<b>`` would either fail
-    to register, fire spuriously when either key is pressed alone, or
-    require the user to press both keys simultaneously in a way that's
-    indistinguishable from typing.
-
-    The renderer's hotkey picker already enforces single-non-modifier;
-    this is the backend mirror so a malicious IPC client can't bypass it.
-    """
+    """CFG-3 (Medium): a hotkey with more than one non-modifier key is"""
 
     @pytest.mark.parametrize(
         "hotkey",
@@ -559,10 +411,8 @@ class TestCfg3MultiKeyComboRejection:
         ],
     )
     def test_allows_single_non_modifier(self, hotkey: str, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Combos with at most one non-modifier key are still allowed
-        (CFG-3 doesn't over-block)."""
+        """Combos with at most one non-modifier key are still allowed"""
         # Pin platform to linux for determinism (some combos are
-        # platform-conditional).
         import voice_typer.server.config_validators as cv
 
         monkeypatch.setattr(cv._sys, "platform", "linux")
@@ -570,50 +420,17 @@ class TestCfg3MultiKeyComboRejection:
         assert result is None, f"{hotkey!r} has <=1 non-modifier key and should be allowed; got: {result!r}"
 
     def test_error_message_includes_count(self) -> None:
-        """The error message includes the actual count so the user knows
-        how many non-modifier keys their combo has."""
+        """The error message includes the actual count so the user knows"""
         result = _validate_hotkey("<a>+<b>+<c>")
         assert result is not None
         assert "3" in result, f"Error message should include the count '3'; got: {result!r}"
 
 
-# ──────────────────────────────────────────────────────────────────────────
-# caps_lock / capslock are NOT modifiers
-# ──────────────────────────────────────────────────────────────────────────
-
-
 class TestXe12CapsLockNotAModifier:
-    """XE-12-1 (Medium): ``caps_lock`` and ``capslock`` were previously
-    declared as modifiers in ``hotkey_reserved.json`` even though they
-    are NOT in the canonical ``hotkey_spec.MODIFIER_ALIASES``. The
-    canonical parser (correctly) treats ``caps_lock`` as a non-modifier
-    key (it's a toggle key, not a held modifier). The JSON list was
-    out of sync with the canonical parser, so:
-
-    - ``_HOTKEY_MODIFIERS`` (built from the JSON) contained
-      ``caps_lock`` / ``capslock``.
-    - ``_parse_hotkey_parts`` delegates to the canonical parser, which
-      classifies ``caps_lock`` as a non-modifier key.
-    - The Stage 5 multi-non-modifier check used ``_HOTKEY_MODIFIERS``
-      for the non-mod filter, so ``<caps_lock>+<v>`` was incorrectly
-      accepted (``caps_lock`` was in ``_HOTKEY_MODIFIERS``, so it was
-      filtered out of ``non_mods`` → ``non_mods == ["v"]`` → only one
-      non-modifier → accepted).
-
-    After the fix (remove ``caps_lock`` / ``capslock`` from the JSON
-    modifiers list), ``_HOTKEY_MODIFIERS`` no longer contains them, so
-    Stage 5 correctly sees ``<caps_lock>+<v>`` as having two
-    non-modifier keys (``caps_lock`` and ``v``) and rejects it.
-
-    These tests pin the fix and guard against accidental re-addition
-    of ``caps_lock`` / ``capslock`` to the JSON modifiers list.
-    """
+    """XE-12-1 (Medium): ``caps_lock`` and ``capslock`` were previously"""
 
     def test_caps_lock_not_in_hotkey_modifiers(self) -> None:
-        """``caps_lock`` and ``capslock`` must NOT be in
-        ``_HOTKEY_MODIFIERS`` (XE-12-1). They are toggle keys, not
-        held modifiers, the canonical ``hotkey_spec.MODIFIER_ALIASES``
-        correctly excludes them, and the JSON list must agree."""
+        """``_HOTKEY_MODIFIERS`` (XE-12-1). They are toggle keys, not"""
         assert "caps_lock" not in _HOTKEY_MODIFIERS, (
             "XE-12-1: 'caps_lock' must NOT be in _HOTKEY_MODIFIERS, it's a "
             "toggle key, not a modifier. Remove it from hotkey_reserved.json."
@@ -624,12 +441,8 @@ class TestXe12CapsLockNotAModifier:
         )
 
     def test_caps_lock_still_recognized_as_non_modifier_key(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """``<caps_lock>`` alone is still a valid single-key hotkey
-        (it's the default hotkey on every platform). XE-12-1 only
-        removes it from the MODIFIERS list, it remains a valid
-        non-modifier key."""
+        """``<caps_lock>`` alone is still a valid single-key hotkey"""
         # Pin platform to linux for determinism (some single-key
-        # checks are platform-conditional, e.g. <super> on Linux).
         import voice_typer.server.config_validators as cv
 
         monkeypatch.setattr(cv._sys, "platform", "linux")
@@ -640,15 +453,7 @@ class TestXe12CapsLockNotAModifier:
         assert _validate_hotkey("<capslock>") is None, "<capslock> (no underscore) should remain a valid hotkey"
 
     def test_caps_lock_plus_v_rejected(self) -> None:
-        """``<caps_lock>+<v>`` must be rejected, both ``caps_lock``
-        and ``v`` are non-modifier keys, so the combo has 2
-        non-modifiers and is structurally invalid for a global
-        hotkey listener (Stage 5).
-
-        Before XE-12-1, this was incorrectly accepted because
-        ``caps_lock`` was in ``_HOTKEY_MODIFIERS`` (filtered out of
-        ``non_mods`` → only ``v`` counted → 1 non-modifier → accepted).
-        """
+        """``<caps_lock>+<v>`` must be rejected, both ``caps_lock``"""
         result = _validate_hotkey("<caps_lock>+<v>")
         assert result is not None, (
             "XE-12-1: <caps_lock>+<v> must be rejected, caps_lock is not a "
@@ -659,19 +464,7 @@ class TestXe12CapsLockNotAModifier:
         )
 
     def test_caps_lock_plus_ctrl_plus_v_rejected(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """``<caps_lock>+<ctrl>+<v>`` must be rejected, even with
-        a real modifier (``ctrl``) present, the combo still has 2
-        non-modifier keys (``caps_lock`` and ``v``) and is structurally
-        invalid (Stage 5).
-
-        Before XE-12-1, this was incorrectly accepted because
-        ``caps_lock`` was in ``_HOTKEY_MODIFIERS`` (filtered out of
-        ``non_mods`` → only ``v`` counted → 1 non-modifier → accepted).
-        """
-        # Pin platform to linux for determinism (Ctrl+V is in the
-        # blocked-letters list, but Stage 5 runs FIRST and rejects
-        # the combo before Stage 8's Ctrl+letter check is reached —
-        # so the rejection reason is the same on every platform).
+        """a real modifier (``ctrl``) present, the combo still has 2"""
         import voice_typer.server.config_validators as cv
 
         monkeypatch.setattr(cv._sys, "platform", "linux")
@@ -685,12 +478,7 @@ class TestXe12CapsLockNotAModifier:
         )
 
     def test_capslock_no_underscore_plus_v_rejected(self) -> None:
-        """The ``capslock`` (no underscore) alias must also be
-        rejected in a combo. The canonical parser treats both
-        ``caps_lock`` and ``capslock`` as the same non-modifier key
-        (via ``_normalize_key_name`` in ``native_hotkeys``), so both
-        must be rejected by Stage 5 when combined with another
-        non-modifier key."""
+        """The ``capslock`` (no underscore) alias must also be"""
         result = _validate_hotkey("<capslock>+<v>")
         assert result is not None, (
             "XE-12-1: <capslock>+<v> must be rejected, capslock (no underscore) "
@@ -701,13 +489,7 @@ class TestXe12CapsLockNotAModifier:
         )
 
     def test_caps_lock_plus_caps_lock_dedups_to_single_key(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """``<caps_lock>+<caps_lock>`` is deduplicated by the canonical
-        parser to a single non-modifier key (``keys=("caps_lock",)``),
-        so it's effectively the same as ``<caps_lock>`` alone and is
-        accepted. This test pins that the XE-12-1 fix only rejects
-        combos with TWO DISTINCT non-modifier keys, it doesn't
-        over-block dedup-eligible combos.
-        """
+        """``<caps_lock>+<caps_lock>`` is deduplicated by the canonical"""
         import voice_typer.server.config_validators as cv
 
         monkeypatch.setattr(cv._sys, "platform", "linux")

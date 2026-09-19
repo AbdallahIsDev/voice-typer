@@ -1,22 +1,4 @@
-"""§8.11: App-data folder write blocked: fallback directory.
-
-Spec (§8.11):
-
-  Fall back to the user's roaming folder (Windows) / ``~/.voice-typer``
-  (POSIX). If that's blocked too, run in "core-only mode" with one
-  clear message. Rare, but handled.
-
-Tested behaviors:
-
-  1. ``fallback_pack_root`` returns a Windows roaming path on Windows.
-  2. ``fallback_pack_root`` returns ``~/.voice-typer/runtime-pack`` on
-     POSIX.
-  3. ``fallback_pack_root`` returns None when ``$HOME`` is unset (the
-     "core-only mode" escape).
-  4. ``pack_dir_for_version`` uses the fallback root when passed
-     explicitly.
-  5. The fallback path resolves correctly under a non-default ``root``.
-"""
+"""§8.11: App-data folder write blocked: fallback directory."""
 
 from __future__ import annotations
 
@@ -50,7 +32,6 @@ class TestFallbackPackRoot:
         """When ``$HOME`` is unset, no fallback is available → None."""
         monkeypatch.setattr(platform, "system", lambda: "Linux")
         # Make ``Path.home()`` return an empty Path (simulates
-        # ``$HOME`` unset on a misconfigured system).
         monkeypatch.setattr(Path, "home", classmethod(lambda cls: Path("")))
         root = offline_pack.fallback_offline_pack_root()
         assert root is None
@@ -95,8 +76,6 @@ class TestPackDirUsesFallback:
         fallback = tmp_path / "fb" / "runtime-pack"
         p = offline_pack.offline_pack_lock_path("v3", root=fallback)
         # The lock is a SIBLING of the version dir (the §8.3 swap renames
-        # the version dir to ``.trash``, a lock inside it would have its
-        # inode carried away).
         assert p == fallback / "pack-v3.lock"
 
 

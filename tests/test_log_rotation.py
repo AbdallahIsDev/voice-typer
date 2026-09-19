@@ -1,11 +1,4 @@
-"""Tests for ADR-0020 §11 logging changes.
-
-- The file handler uses the Tier-3 mid-session hard ceiling (40 MB)
-  with ZERO backups (single-file policy, the log truncates in place
-  instead of creating numbered ``.1`` backups).
-- ``bubble_level`` records are excluded from the file handler but NOT
-  from the console/stderr path.
-"""
+"""Tests for ADR-0020 §11 logging changes."""
 
 from __future__ import annotations
 
@@ -17,9 +10,7 @@ from voice_typer.server._log_constants import LOG_MAX_BYTES
 
 
 def test_file_handler_uses_ceiling_single_file(tmp_path, monkeypatch):
-    """setup_logging must configure the Tier-3 mid-session hard ceiling
-    as maxBytes and ZERO backups (single-file policy, the log truncates
-    in place instead of creating numbered ``.1`` backups)."""
+    """setup_logging must configure the Tier-3 mid-session hard ceiling"""
     monkeypatch.delenv("VOICE_TYPER_LOG_JSON", raising=False)
     vt_log.reset()
     vt_log.setup_logging(tmp_path)
@@ -31,8 +22,6 @@ def test_file_handler_uses_ceiling_single_file(tmp_path, monkeypatch):
     assert len(file_handlers) == 1
     fh = file_handlers[0]
     assert fh.maxBytes == LOG_MAX_BYTES, fh.maxBytes
-    # Single-file policy: backupCount is 0, the file is truncated in
-    # place when it exceeds maxBytes; numbered backups are never created.
     assert fh.backupCount == 0, fh.backupCount
     vt_log.reset()
 

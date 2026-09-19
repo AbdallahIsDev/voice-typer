@@ -1,10 +1,4 @@
-"""Tests that ``voice_typer/__main__.py`` documents its console-script role.
-
-Split out of the former ``tests/test_history_and_models.py`` catch-all
-(Phase 4.5). Verbatim mechanical move, same test names +
-assertions, only the file location changed. ``REPO_ROOT`` is recomputed
-relative to this file's new ``tests/app/`` location.
-"""
+"""Tests that ``voice_typer/__main__.py`` documents its console-script role."""
 
 from __future__ import annotations
 

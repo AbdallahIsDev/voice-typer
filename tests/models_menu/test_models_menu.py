@@ -1,17 +1,4 @@
-"""Tray models menu tests split out of the former ``tests/test_history_and_models.py``.
-
-Domain: tray menu: ``build_models_submenu_data`` config_provider
-support + corrupt-config fallback.
-
-The former ``TestTrayIconNoLongerReferencesStaleSvg`` /
-``TestTrayIconUsesGetchannelNotSplitIndex`` classes that lived here
-were merged into ``tests/test_tray_icon.py`` (Phase 4.5 / TC-15
-completion) so each tray-icon regression lives next to the rest of
-the tray-icon tests.
-
-Class/method names + assertions are preserved verbatim from the
-original monolith, only file location has changed.
-"""
+"""Domain: tray menu: ``build_models_submenu_data`` config_provider"""
 
 from __future__ import annotations
 
@@ -37,12 +24,7 @@ class TestBuildModelsSubmenuConfigProvider:
         assert "tiny" in active_models
 
     def test_corrupt_config_json_falls_back_to_defaults_and_logs(self, tmp_path, caplog):
-        """PI-19 regression: a corrupt ``config.json`` must NOT silently
-        fall through to defaults. The tray menu still returns defaults
-        (so the user sees a functional menu), but a ``log.debug`` line
-        records the failure so it can be diagnosed from
-        ``voice-typer.log``. Mirrors the pattern at ``config.py:1043``.
-        """
+        """PI-19 regression: a corrupt ``config.json`` must NOT silently"""
         import logging
 
         from voice_typer.server.tray_models import build_models_submenu_data
@@ -71,21 +53,10 @@ class TestBuildModelsSubmenuConfigProvider:
 
 
 class TestTrayModelLabelsCarryFamilyGlyphs:
-    """Family logo marks on the tray model labels.
-
-    Native tray menus are text-only (pystray's ``MenuItem`` has no
-    image support, verified 2026-08-15), so the family logos from the
-    Models page (``src/assets/models/``) cannot be rendered as real
-    images in the submenu. Each model label instead carries a per-family
-    Unicode mark approximating its brand: ``✱`` ≈ OpenAI (Whisper),
-    ``◉`` ≈ NVIDIA (Parakeet), ``⊙`` ≈ Qwen. The data builder's tuple
-    contract (name, downloaded, is_active, change_fn) is untouched —
-    the glyph is applied only at the MenuItem-label layer.
-    """
+    """Family logo marks on the tray model labels."""
 
     def _menu_labels(self, tmp_path, config):
-        """Build the menu with all candidates marked downloaded and
-        return the captured item labels."""
+        """Build the menu with all candidates marked downloaded and"""
         from unittest.mock import patch
 
         from voice_typer.server.tray_models import build_models_menu_items
@@ -113,8 +84,7 @@ class TestTrayModelLabelsCarryFamilyGlyphs:
         return captured
 
     def test_every_downloaded_model_label_has_its_family_glyph(self, tmp_path):
-        """Each downloaded candidate renders as ``<glyph> <name>`` with
-        the glyph matching its family (✱ Whisper / ◉ NVIDIA / ⊙ Qwen)."""
+        """Each downloaded candidate renders as ``<glyph> <name>`` with"""
         from unittest.mock import MagicMock
 
         config = MagicMock()
@@ -136,8 +106,7 @@ class TestTrayModelLabelsCarryFamilyGlyphs:
         )
 
     def test_unknown_model_falls_back_to_bare_name(self):
-        """A model name outside the tray catalog renders without a glyph
-        rather than raising or producing an empty prefix."""
+        """A model name outside the tray catalog renders without a glyph"""
         from voice_typer.server.tray_models import _menu_label
 
         assert _menu_label("future-model") == "future-model"

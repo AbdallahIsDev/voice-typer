@@ -1,14 +1,4 @@
-"""Regression tests split out of the former ``tests/test_bugfix_regressions.py``.
-
-This module is part of the ``tests/regressions/`` package created by
-REF-4. The class/method names, assertion logic, and imports below are
-preserved verbatim from the original 4446-line monolith, only file
-location has changed.
-
-Common preamble (imports + Linux test-env shim) is identical to the
-original file so that every test in this module sees the same global
-state the monolith provided.
-"""
+"""REF-4. The class/method names, assertion logic, and imports below are"""
 
 from __future__ import annotations
 
@@ -18,19 +8,8 @@ import re
 from pathlib import Path
 
 
-# the previous Linux test-env shim that aliased
-# ``ctypes.WINFUNCTYPE = ctypes.CFUNCTYPE`` and inserted a ``MagicMock``
-# for ``voice_typer.server.crash_handler`` into ``sys.modules`` has been
-# removed. ``crash_handler.py`` now gates the ``@ctypes.WINFUNCTYPE(...)``
-# decorator behind ``sys.platform == "win32"``, so the module imports
-# cleanly on Linux/macOS without any test-infrastructure shim.
 class TestSpanishTranslationComplete:
-    """UX-015.
-
-    The finding: no i18n framework, all UI hardcoded English. Fix:
-    added Spanish translation (es.json), registered it in i18n.ts,
-    and added a UI language selector in Settings.tsx.
-    """
+    """The finding: no i18n framework, all UI hardcoded English. Fix:"""
 
     def test_es_json_exists(self):
         es_path = (
@@ -78,17 +57,6 @@ class TestSpanishTranslationComplete:
 
     def test_i18n_ts_registers_spanish(self):
         # KEEP, pins  (Spanish translation registered in i18n.ts).
-        # A behavioral test would need to render a component and verify the
-        # Spanish label appears, which is heavy (requires a renderer test
-        # harness); the file-content check catches removal of the import
-        # or registration directly.
-        # the 745-LOC ``i18n.ts`` monolith was split into a focused
-        # ``i18n/`` package (locale.ts / store.ts / translate.ts / etc.).
-        # ``i18n.ts`` is now a thin re-export shim. The ``"es"`` literal
-        # lives in ``i18n/locale.ts`` (the SUPPORTED_LOCALES array); the
-        # ``ensureLocaleLoaded`` function lives in ``i18n/store.ts`` and
-        # is re-exported via ``i18n/index.ts``. Read both leaf modules
-        # so the test stays green on the split package.
         i18n_dir = (
             Path(__file__).resolve().parent.parent.parent
             / "voice_typer"
@@ -101,18 +69,10 @@ class TestSpanishTranslationComplete:
         src = "\n".join(
             (i18n_dir / name).read_text(encoding="utf-8") for name in ("i18n.ts", "index.ts", "locale.ts", "store.ts")
         )
-        # non-English locales are now dynamically imported via
-        # ensureLocaleLoaded() rather than static `import es from ...`.
-        # Verify "es" is listed in SUPPORTED_LOCALES and that the dynamic
-        # import mechanism (ensureLocaleLoaded) exists.
         assert '"es"' in src, "UX-015: SUPPORTED_LOCALES must include 'es'"
         assert "ensureLocaleLoaded" in src, "UX-015: i18n.ts must define ensureLocaleLoaded for dynamic locale loading"
 
     def test_i18n_ts_exports_locale_helpers(self):
-        # KEEP, pins  (i18n.ts exports SUPPORTED_LOCALES and
-        # getLocaleLabel). Same rationale as test_i18n_ts_registers_spanish.
-        # ``i18n.ts`` is now a re-export shim; the actual exports live in
-        # ``i18n/locale.ts`` and are re-exported via ``i18n/index.ts``.
         i18n_dir = (
             Path(__file__).resolve().parent.parent.parent
             / "voice_typer"
@@ -127,17 +87,6 @@ class TestSpanishTranslationComplete:
         assert "export function getLocaleLabel" in src, "UX-015: i18n.ts must export getLocaleLabel"
 
     def test_settings_tsx_has_ui_language_selector(self):
-        # KEEP, pins  (UI language selector in
-        # GeneralSettingsSection.tsx). A behavioral test would need to
-        # render the component and interact with the selector, which is
-        # heavy; the file-content check catches removal of the selector
-        # directly.
-        # The UI language selector was refactored out of
-        # Settings.tsx into the dedicated GeneralSettingsSection
-        # component (see components/settings/GeneralSettingsSection.tsx).
-        # We assert against the new location.
-        # Note: the label is now translated via t("settings.appLanguage")
-        # instead of the hardcoded "UI Language" string.
         settings_path = (
             Path(__file__).resolve().parent.parent.parent
             / "voice_typer"
@@ -160,10 +109,6 @@ class TestSpanishTranslationComplete:
 
     def test_i18n_ts_restores_locale_from_local_storage(self):
         # KEEP, pins  (i18n.ts restores locale from localStorage
-        # on startup). Same rationale as test_i18n_ts_registers_spanish.
-        # ``i18n.ts`` is now a re-export shim; the localStorage read lives
-        # in ``i18n/index.ts`` (initI18n auto-restore) and ``i18n/store.ts``
-        # (setLocale persistence). Read both leaf modules.
         i18n_dir = (
             Path(__file__).resolve().parent.parent.parent
             / "voice_typer"
@@ -179,14 +124,7 @@ class TestSpanishTranslationComplete:
 
 
 class TestTrayLocaleSwitchingRebuildsMenu:
-    """TRAY-008.
-
-    The finding: tray menu hardcoded English, `_()` is a flat dict.get
-    stub with no locale switching. Fix: added `set_tray_locale()` /
-    `get_tray_locale()` functions, `_TRAY_LABELS_ES` Spanish dict,
-    and `_TRAY_LABELS_LOCALES` locale→dict map. The `_()` function
-    now looks up the current locale first, falling back to English.
-    """
+    """TRAY-008."""
 
     def test_set_tray_locale_exists(self):
         from voice_typer.server import tray
@@ -250,10 +188,6 @@ class TestTrayLocaleSwitchingRebuildsMenu:
 
     def test_ipc_set_tray_locale_handler_exists(self):
         # KEEP, pins  (IPC handler for set_tray_locale exists
-        # and rebuilds the tray menu). The sibling test_locale_switching_to_spanish
-        # tests the locale switching behavior, but doesn't verify the IPC
-        # handler exists; the source-string check catches removal of the
-        # handler or the invalidate_menu_cache call directly.
         from voice_typer.server import ipc_server
 
         # REFACTOR: _dispatch was converted to a command registry.
@@ -268,15 +202,7 @@ class TestTrayLocaleSwitchingRebuildsMenu:
 
 
 class TestRendererLocalesUseAppNamePlaceholder:
-    """HU-43 / C-BRAND-1: renderer translation files must not contain
-    literal brand strings, the ``{appName}`` placeholder is substituted
-    with ``APP_NAME`` at load time via ``_withAppName`` (store.ts), so a
-    product rename touches one constant instead of hundreds of strings.
-
-    ``scripts/check_branding.py`` deliberately EXEMPTS renderer
-    translations (per C-BRAND-1 rationale), so this guard test is the CI
-    enforcement for the rule.
-    """
+    """HU-43 / C-BRAND-1: renderer translation files must not contain"""
 
     TRANSLATIONS_DIR = (
         Path(__file__).resolve().parent.parent.parent
@@ -291,8 +217,7 @@ class TestRendererLocalesUseAppNamePlaceholder:
     LOCALES = ("ar", "de", "en", "es", "fr", "hi", "ru", "zh")
 
     def test_no_literal_brand_string_in_any_locale(self):
-        """None of the 8 renderer locale files may contain a literal
-        brand string (the placeholder must be used instead)."""
+        """None of the 8 renderer locale files may contain a literal"""
         for name in self.LOCALES:
             path = self.TRANSLATIONS_DIR / f"{name}.json"
             assert path.exists(), f"{name}.json must exist"
@@ -302,35 +227,13 @@ class TestRendererLocalesUseAppNamePlaceholder:
             )
 
     def test_en_uses_appname_placeholder(self):
-        """The placeholder pattern must actually be in use (guards
-        against a vacuous migration that deleted the brand entirely)."""
+        """The placeholder pattern must actually be in use (guards"""
         en = json.loads((self.TRANSLATIONS_DIR / "en.json").read_text(encoding="utf-8"))
         assert "{appName}" in json.dumps(en), "en.json must use the {appName} placeholder somewhere (HU-43)"
 
 
 class TestNotifyPushCoversServerKeys:
-    """Drift guard for the ``set_tray_locale`` ``notify.*`` push.
-
-    ``trayLabelsForLocale`` (``i18n/push.ts``) maps every live server
-    tray-notification key (a ``notify.*`` literal that appears at a call
-    site in ``voice_typer/server`` AND is defined in the server's
-    ``_INITIAL_LABELS`` fallback) 1:1 to a renderer ``notify.*``
-    translation, so OS notifications follow the renderer locale like the
-    tray tooltip state messages. Two invariants keep that contract from
-    drifting:
-
-    1. Every live server key has a matching renderer ``en.json`` key.
-       A new server notification key without a renderer translation
-       would silently stay English for non-English locales.
-    2. The renderer English value is byte-identical to the server
-       fallback, so the English path is unchanged by the push (the
-       server registry's existing English entries win via
-       ``merge_labels`` setdefault semantics).
-
-    Dead keys (defined in ``_INITIAL_LABELS`` but never referenced, e.g.
-    ``notify.recording_controller.mic_unplugged``) are intentionally not
-    required to have a renderer translation.
-    """
+    """Drift guard for the ``set_tray_locale`` ``notify.*`` push."""
 
     REPO_ROOT = Path(__file__).resolve().parent.parent.parent
     TRANSLATIONS_DIR = REPO_ROOT / "voice_typer" / "client" / "src" / "renderer" / "src" / "i18n" / "translations"
@@ -338,9 +241,7 @@ class TestNotifyPushCoversServerKeys:
 
     @classmethod
     def _live_server_notify_keys(cls) -> set[str]:
-        """Keys referenced as ``"notify.<group>.<key>"`` literals in
-        server code (call sites) that also exist in ``_INITIAL_LABELS``.
-        Comments are stripped so docstring mentions don't count."""
+        """server code (call sites) that also exist in ``_INITIAL_LABELS``."""
         from voice_typer.server.i18n import _INITIAL_LABELS
 
         literals: set[str] = set()
@@ -374,13 +275,7 @@ class TestNotifyPushCoversServerKeys:
         )
 
     def test_renderer_notify_english_matches_server_fallback(self):
-        """Byte-identical English keeps the en-path notifications
-        unchanged after the push (server's own English wins via
-        ``merge_labels`` setdefault). Brand placeholders are normalized
-        before comparing: the renderer must use ``{appName}``
-        (C-BRAND-1, substituted with APP_NAME at registration) where
-        the server text carries the literal brand or the ``{app}``
-        token (formatted with the same APP_NAME at call time)."""
+        """Byte-identical English keeps the en-path notifications"""
         from voice_typer.server.branding import APP_NAME
         from voice_typer.server.i18n import _INITIAL_LABELS
 
@@ -399,32 +294,7 @@ class TestNotifyPushCoversServerKeys:
 
 
 class TestTrayTooltipHotkeyWordingRoundTrip:
-    """Round-trip guard for the tray tooltip's hotkey wording.
-
-    The tray tooltip state messages that reference the hotkey
-    (``state.recording_controller.model_failed_retry``,
-    ``state.model_manager.loading``,
-    ``state.model_manager.load_failed_retry``) exist on BOTH sides of
-    the IPC boundary: the server's ``_INITIAL_LABELS`` registry (the
-    pre-push English fallback) and the renderer's ``trayState.*``
-    translations, pushed 1:1 via ``trayLabelsForLocale`` in
-    ``i18n/push.ts`` so the tooltip follows the renderer locale. The
-    wording must stay generic ("press your hotkey") because the user
-    can remap the hotkey, a hardcoded "F2" in any locale would show a
-    stale key to a user who changed it.
-
-    Invariants under test:
-
-    1. Every server ``state.*`` message that mentions the hotkey is
-       pushed (has a ``trayState.*`` mapping) and the renderer English
-       says the same thing.
-    2. The English wording agrees VERBATIM between the two sides (same
-       contract as the ``notify.*`` push, the server's English wins
-       via ``merge_labels`` setdefault, so a drift would silently
-       change the English tooltip for everyone).
-    3. No locale's ``trayState`` tooltip hardcodes a concrete key
-       (``F2``, ``Ctrl+B``, …): "no F2 drift across languages".
-    """
+    """Round-trip guard for the tray tooltip's hotkey wording."""
 
     REPO_ROOT = Path(__file__).resolve().parent.parent.parent
     TRANSLATIONS_DIR = REPO_ROOT / "voice_typer" / "client" / "src" / "renderer" / "src" / "i18n" / "translations"
@@ -432,8 +302,6 @@ class TestTrayTooltipHotkeyWordingRoundTrip:
     LOCALES = ["en", "ar", "de", "es", "fr", "hi", "ru", "zh"]
 
     # Concrete key names / glyphs that must never appear in a tooltip
-    # string, the wording must reference "your hotkey", never a
-    # specific key (the user may have remapped it).
     _CONCRETE_KEY = re.compile(
         r"(?i)\b(F\d{1,2}|Ctrl|Control|Alt|Shift|Cmd|Command|"
         r"Super|Win|Meta|Esc|Tab|Space|Enter)\b"
@@ -451,8 +319,7 @@ class TestTrayTooltipHotkeyWordingRoundTrip:
 
     @classmethod
     def _push_state_pairs(cls) -> dict[str, str]:
-        """Server ``state.*`` key → renderer ``trayState.*`` key, parsed
-        out of ``trayLabelsForLocale`` in ``i18n/push.ts``."""
+        """Server ``state.*`` key → renderer ``trayState.*`` key, parsed"""
         src = cls.PUSH_TS.read_text(encoding="utf-8")
         pat = re.compile(
             r'\[\s*"(state\.[a-z_]+(?:\.[a-z_]+)*)",\s*'
@@ -474,8 +341,7 @@ class TestTrayTooltipHotkeyWordingRoundTrip:
 
     @classmethod
     def _locale_tray_state_values(cls, locale: str) -> list[str]:
-        """Every ``trayState`` string value in one locale (flat +
-        nested groups)."""
+        """Every ``trayState`` string value in one locale (flat +"""
         data = json.loads((cls.TRANSLATIONS_DIR / f"{locale}.json").read_text(encoding="utf-8"))
         values: list[str] = []
 
@@ -514,9 +380,7 @@ class TestTrayTooltipHotkeyWordingRoundTrip:
             )
 
     def test_no_hardcoded_hotkey_in_any_locale_tray_state(self):
-        """No locale's tray tooltip hardcodes a concrete key (F2,
-        Ctrl+B, …), the wording must stay generic so a remapped
-        hotkey never shows a stale key."""
+        """No locale's tray tooltip hardcodes a concrete key (F2,"""
         offenders: list[tuple[str, str]] = []
         for locale in self.LOCALES:
             for value in self._locale_tray_state_values(locale):

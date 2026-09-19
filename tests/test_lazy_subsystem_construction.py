@@ -1,33 +1,4 @@
-"""Lazy subsystem construction regression tests.
-
-Pins the god-constructor deferral work on ``VoiceTyperApp.__init__``:
-non-critical subsystems must NOT be eagerly constructed on the main
-thread before the tray icon appears. Two flavours of lazy property
-are verified:
-
-1. PASSIVE accessors (``_template_manager`` / ``_vocabulary_manager``):
-   the property getter returns the backing as-is (``None`` initially).
-   Construction happens in the lazy-fallback paths in
-   ``service/template.py`` and ``dictation_pipeline.py`` (which check
-   ``is None``, construct, and assign via the setter). An
-   auto-constructing getter would silently bypass those callers'
-   ``is None`` checks.
-
-2. AUTO-CONSTRUCTING accessors (``undo`` / ``audio_quality`` /
-   ``_duck_crash_recovery`` / ``_volume_ducker``): the property
-   getter constructs on first access if the backing is ``None`` and
-   caches the instance. These subsystems are always accessed via
-   method calls (e.g. ``app.undo.undo_last()``), never via
-   ``is None`` checks, so auto-construction is transparent.
-
-Both flavours expose a setter so existing tests that inject mocks
-via ``app.<attr> = MagicMock()`` keep working transparently.
-
-These tests run on the Linux sandbox, they don't require
-sounddevice, torch, or a display server. The autouse
-``mock_heavy_imports`` fixture in ``tests/conftest.py`` stubs the
-hardware-touching modules.
-"""
+"""Lazy subsystem construction regression tests."""
 
 from __future__ import annotations
 
@@ -35,14 +6,7 @@ from unittest.mock import MagicMock
 
 
 def _patch_app_platform_helpers(monkeypatch):
-    """Patch the platform helpers that ``VoiceTyperApp.__init__`` touches.
-
-    Mirrors the helper in ``tests/test_startup_perf.py``. The helpers are
-    resolved at call time from their canonical home
-    ``voice_typer.server.server_platform`` (deferred imports inside
-    ``startup_tasks.sync_autostart`` / ``load_microphones``), so that is
-    the module to patch.
-    """
+    """Patch the platform helpers that ``VoiceTyperApp.__init__`` touches."""
     from voice_typer.server.server_platform import autostart as autostart_mod
 
     monkeypatch.setattr(autostart_mod, "is_autostart_enabled", lambda: False)
@@ -51,23 +15,11 @@ def _patch_app_platform_helpers(monkeypatch):
     monkeypatch.setattr("voice_typer.server.server_platform.microphone_list.list_microphones", lambda: [])
 
 
-# ─── PASSIVE accessors: _template_manager / _vocabulary_manager ────────
-
-
 class TestPassiveManagerProperties:
-    """``_template_manager`` / ``_vocabulary_manager`` are PASSIVE —
-    the getter returns the backing as-is (``None`` initially) and
-    never auto-constructs. Construction is the responsibility of the
-    lazy-fallback paths in ``service/template.py`` /
-    ``dictation_pipeline.py`` (which check ``is None``, construct,
-    and assign via the setter).
-    """
+    """``_template_manager`` / ``_vocabulary_manager`` are PASSIVE —"""
 
     def test_template_manager_is_none_after_init(self, tmp_config_dir, monkeypatch):
-        """Accessing ``app._template_manager`` immediately after
-        ``__init__`` must return ``None``, the property is passive
-        and does NOT auto-construct on access.
-        """
+        """Accessing ``app._template_manager`` immediately after"""
         _patch_app_platform_helpers(monkeypatch)
         from voice_typer.server.app import VoiceTyperApp
 
@@ -78,9 +30,7 @@ class TestPassiveManagerProperties:
         )
 
     def test_vocabulary_manager_is_none_after_init(self, tmp_config_dir, monkeypatch):
-        """Accessing ``app._vocabulary_manager`` immediately after
-        ``__init__`` must return ``None``, the property is passive.
-        """
+        """Accessing ``app._vocabulary_manager`` immediately after"""
         _patch_app_platform_helpers(monkeypatch)
         from voice_typer.server.app import VoiceTyperApp
 
@@ -91,9 +41,7 @@ class TestPassiveManagerProperties:
         )
 
     def test_template_manager_setter_round_trip(self, tmp_config_dir, monkeypatch):
-        """The setter stores into the backing; a subsequent getter
-        call returns the stored value (no construction).
-        """
+        """The setter stores into the backing; a subsequent getter"""
         _patch_app_platform_helpers(monkeypatch)
         from voice_typer.server.app import VoiceTyperApp
 
@@ -106,9 +54,7 @@ class TestPassiveManagerProperties:
         )
 
     def test_vocabulary_manager_setter_round_trip(self, tmp_config_dir, monkeypatch):
-        """The setter stores into the backing; a subsequent getter
-        call returns the stored value (no construction).
-        """
+        """The setter stores into the backing; a subsequent getter"""
         _patch_app_platform_helpers(monkeypatch)
         from voice_typer.server.app import VoiceTyperApp
 
@@ -119,24 +65,13 @@ class TestPassiveManagerProperties:
 
 
 # ─── AUTO-CONSTRUCTING accessors: undo / audio_quality /
-#     _duck_crash_recovery / _volume_ducker ────────────────────────────
 
 
 class TestAutoConstructingControllerProperties:
-    """``undo`` / ``audio_quality`` / ``_duck_crash_recovery`` /
-    ``_volume_ducker`` are AUTO-CONSTRUCTING, the getter constructs
-    on first access if the backing is ``None`` and caches the instance.
-
-    The backings must start as ``None`` (no eager construction in
-    ``__init__``). First access triggers construction. Subsequent
-    accesses return the cached instance. The setter bypasses
-    construction (used by tests that inject mocks).
-    """
+    """``undo`` / ``audio_quality`` / ``_duck_crash_recovery`` /"""
 
     def test_undo_backing_is_none_after_init(self, tmp_config_dir, monkeypatch):
-        """``_undo_backing`` must be ``None`` after ``__init__`` —
-        UndoRepasteController is NOT eagerly constructed.
-        """
+        """``_undo_backing`` must be ``None`` after ``__init__`` —"""
         _patch_app_platform_helpers(monkeypatch)
         from voice_typer.server.app import VoiceTyperApp
 
@@ -146,9 +81,7 @@ class TestAutoConstructingControllerProperties:
         )
 
     def test_audio_quality_backing_is_none_after_init(self, tmp_config_dir, monkeypatch):
-        """``_audio_quality_backing`` must be ``None`` after ``__init__`` —
-        AudioQualityController is NOT eagerly constructed.
-        """
+        """``_audio_quality_backing`` must be ``None`` after ``__init__`` —"""
         _patch_app_platform_helpers(monkeypatch)
         from voice_typer.server.app import VoiceTyperApp
 
@@ -159,9 +92,7 @@ class TestAutoConstructingControllerProperties:
         )
 
     def test_duck_crash_recovery_backing_is_none_after_init(self, tmp_config_dir, monkeypatch):
-        """``_duck_crash_recovery_backing`` must be ``None`` after
-        ``__init__``, DuckCrashRecovery is NOT eagerly constructed.
-        """
+        """``_duck_crash_recovery_backing`` must be ``None`` after"""
         _patch_app_platform_helpers(monkeypatch)
         from voice_typer.server.app import VoiceTyperApp
 
@@ -172,9 +103,7 @@ class TestAutoConstructingControllerProperties:
         )
 
     def test_volume_ducker_backing_is_none_after_init(self, tmp_config_dir, monkeypatch):
-        """``_volume_ducker_backing`` must be ``None`` after ``__init__`` —
-        VolumeDucker is NOT eagerly constructed.
-        """
+        """``_volume_ducker_backing`` must be ``None`` after ``__init__`` —"""
         _patch_app_platform_helpers(monkeypatch)
         from voice_typer.server.app import VoiceTyperApp
 
@@ -185,14 +114,10 @@ class TestAutoConstructingControllerProperties:
 
 
 class TestAutoConstructOnAccess:
-    """First access of an auto-constructing property triggers
-    construction and caches the instance in the backing.
-    """
+    """First access of an auto-constructing property triggers"""
 
     def test_undo_constructs_on_first_access(self, tmp_config_dir, monkeypatch):
-        """Accessing ``app.undo`` constructs an UndoRepasteController
-        and caches it in ``_undo_backing``.
-        """
+        """Accessing ``app.undo`` constructs an UndoRepasteController"""
         _patch_app_platform_helpers(monkeypatch)
         from voice_typer.server.app import VoiceTyperApp
         from voice_typer.server.app_undo import UndoRepasteController
@@ -210,9 +135,7 @@ class TestAutoConstructOnAccess:
         )
 
     def test_audio_quality_constructs_on_first_access(self, tmp_config_dir, monkeypatch):
-        """Accessing ``app.audio_quality`` constructs an
-        AudioQualityController and caches it.
-        """
+        """AudioQualityController and caches it."""
         _patch_app_platform_helpers(monkeypatch)
         from voice_typer.server.app import VoiceTyperApp
         from voice_typer.server.audio_quality_controller import (
@@ -229,9 +152,7 @@ class TestAutoConstructOnAccess:
         assert instance._audio_quality_backing is controller
 
     def test_duck_crash_recovery_constructs_on_first_access(self, tmp_config_dir, monkeypatch):
-        """Accessing ``app._duck_crash_recovery`` constructs a
-        DuckCrashRecovery and caches it.
-        """
+        """DuckCrashRecovery and caches it."""
         _patch_app_platform_helpers(monkeypatch)
         from voice_typer.server.app import VoiceTyperApp
         from voice_typer.server.duck_crash_recovery import DuckCrashRecovery
@@ -246,10 +167,7 @@ class TestAutoConstructOnAccess:
         assert instance._duck_crash_recovery_backing is recovery
 
     def test_volume_ducker_constructs_on_first_access(self, tmp_config_dir, monkeypatch):
-        """Accessing ``app._volume_ducker`` constructs a VolumeDucker
-        (wired to the lazy ``_duck_crash_recovery`` and the
-        ``_on_volume_crash_restore`` callback) and caches it.
-        """
+        """Accessing ``app._volume_ducker`` constructs a VolumeDucker"""
         _patch_app_platform_helpers(monkeypatch)
         from voice_typer.server.app import VoiceTyperApp
         from voice_typer.server.volume_ducker import VolumeDucker
@@ -261,8 +179,6 @@ class TestAutoConstructOnAccess:
         assert instance._volume_ducker is ducker
         assert instance._volume_ducker_backing is ducker
         # The VolumeDucker must be wired to the lazy DuckCrashRecovery
-        # (accessing _duck_crash_recovery triggered construction as a
-        # side effect of the VolumeDucker constructor call).
         assert instance._duck_crash_recovery_backing is not None, (
             "Constructing VolumeDucker must trigger lazy construction of "
             "DuckCrashRecovery (the ducker's crash_recovery arg)."
@@ -270,17 +186,12 @@ class TestAutoConstructOnAccess:
         assert ducker._crash_recovery is instance._duck_crash_recovery
 
     def test_setter_bypasses_construction(self, tmp_config_dir, monkeypatch):
-        """Assigning via the setter stores directly into the backing —
-        a subsequent getter call returns the assigned value without
-        invoking the lazy constructor. This is the contract tests
-        rely on when they inject mocks via ``app.<attr> = MagicMock()``.
-        """
+        """Assigning via the setter stores directly into the backing —"""
         _patch_app_platform_helpers(monkeypatch)
         from voice_typer.server.app import VoiceTyperApp
 
         instance = VoiceTyperApp()
         # Each property: assign a sentinel via the setter, then verify
-        # the getter returns the sentinel (no construction).
         for attr, backing in (
             ("undo", "_undo_backing"),
             ("audio_quality", "_audio_quality_backing"),
@@ -297,9 +208,7 @@ class TestAutoConstructOnAccess:
 
 
 class TestNoEagerConstructionInInit:
-    """``VoiceTyperApp.__init__`` must NOT eagerly construct the four
-    deferred controllers. We verify by counting constructor calls.
-    """
+    """``VoiceTyperApp.__init__`` must NOT eagerly construct the four"""
 
     def test_undo_repaste_controller_not_constructed_in_init(self, tmp_config_dir, monkeypatch):
         _patch_app_platform_helpers(monkeypatch)

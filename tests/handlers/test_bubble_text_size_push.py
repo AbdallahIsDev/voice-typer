@@ -1,12 +1,4 @@
-"""``text_size`` propagation into the bubble config push.
-
-The bubble renderer's ``useThemeSync`` hook scales the pill's text with
-the user's UI text-size setting. That setting reaches the sandboxed
-bubble renderer ONLY via the ``bubble_config`` push event, so the push
-payload must carry ``text_size`` (with the same truthiness fallback the
-enum keys use, a missing/null value falls back to the config default
-14), and ``set_config({text_size: ...})`` must trigger a fresh push.
-"""
+"""``text_size`` propagation into the bubble config push."""
 
 from __future__ import annotations
 
@@ -48,15 +40,7 @@ class TestPushBubbleConfigCarriesTextSize:
             wiring.stop()
 
     def test_text_size_change_triggers_bubble_config_repush(self):
-        """The set_config handler's trigger list includes ``text_size``:
-        changing the UI text size must publish a fresh ``bubble_config``
-        so the bubble's font scale follows live (not only after restart).
-
-        The full set_config flow (validation, persistence, ack) is
-        covered by ``tests/handlers/test_config_handlers.py``; this pins
-        the trigger tuple itself, which is the piece the live font-scale
-        feature depends on.
-        """
+        """The set_config handler's trigger list includes ``text_size``:"""
         import inspect
 
         from voice_typer.server.handlers import config_handlers

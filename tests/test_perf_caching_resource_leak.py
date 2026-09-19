@@ -1,28 +1,4 @@
-"""Caching and resource-leak regression tests.
-
-Covers three fixes from the Group 2 performance/resource review:
-
-* **ER-37**: ``VocabularyManager.apply_to_text`` caches the compiled
-  phrase-correction regex so ``re.compile`` is called once per phrase
-  category per session (not per call). Cache is invalidated by every
-  mutation of ``self._data``.
-
-* **ER-72**: ``ClipboardManager.paste`` wraps ``Thread().start()`` in
-  try/except. On start failure the orphaned ``_pending_restores`` entry
-  is removed under the lock so it cannot leak for the process lifetime
-  (the entry holds ``self``, the snapshot, and the dictated text).
-
-* **ER-79**: ``credential_store._read_plaintext_fallback`` caches the
-  parsed ``config.json`` at module level with an ``st_mtime_ns`` check
-  so the 5-per-startup calls don't each re-read + re-parse the same
-  file.
-
-These tests are intentionally focused: they verify the caching /
-leak-prevention behaviour added by the fix, not the broader
-correctness of each module (which is covered by the existing
-test_vocabulary*.py / test_clipboard*.py / test_credential_store*.py
-suites).
-"""
+"""Caching and resource-leak regression tests."""
 
 from __future__ import annotations
 
@@ -31,34 +7,13 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
-
-# Warm import: ``VocabularyManager.apply_to_text`` lazily imports the
-# text_cleanup package on first call, and that first import executes the
-# package leaves' module-level ``re.compile`` calls. The ER-37 tests
-# count ``re.compile`` calls inside a patched window, importing the
-# package here (before any patching) keeps those import-time compiles
-# out of the count, exactly as when the module was a single preloaded
-# file.
 import voice_typer.server.text_cleanup  # noqa: E402,F401
 
 from tests.fixtures.clipboard_helpers import make_clipboard_manager  # noqa: E402
 
-# pynput / pynput.keyboard / pyperclip are mocked at collection time by
-# tests/clipboard/conftest.py (single source of truth, dedup).
-
-
-# ===========================================================================
-# VocabularyManager compiled-pattern cache
-# ===========================================================================
-
 
 def _make_vocab(tmp_path) -> object:
-    """Build a VocabularyManager with no bundled corrections.
-
-    ``bundled_path`` points at a non-existent file so the merge starts
-    from an empty baseline, the test then controls the exact entry
-    count via ``add_phrase`` / ``add_entry``.
-    """
+    """Build a VocabularyManager with no bundled corrections."""
     from voice_typer.server.vocabulary import VocabularyManager
 
     return VocabularyManager(
@@ -68,13 +23,7 @@ def _make_vocab(tmp_path) -> object:
 
 
 def test_apply_to_text_uses_cached_patterns(tmp_path) -> None:
-    """ER-37: ``re.compile`` is called once per phrase per session,
-    not once per phrase per call.
-
-    Before the fix, every ``apply_to_text`` call re-compiled every
-    phrase-correction pattern. With the cache, the first call compiles
-    N patterns and subsequent calls reuse them (0 new compiles).
-    """
+    """ER-37: ``re.compile`` is called once per phrase per session,"""
     import re
 
     vm = _make_vocab(tmp_path)
@@ -82,7 +31,6 @@ def test_apply_to_text_uses_cached_patterns(tmp_path) -> None:
     vm.add_phrase("phrase_corrections", "foo", "bar")
     vm.add_phrase("phrase_corrections", "hello", "world")
     vm.add_phrase("phrase_corrections", "alpha", "beta")
-    # add_phrase invalidates the cache.
     assert vm._combined_phrase_cache is None
 
     real_compile = re.compile
@@ -92,11 +40,6 @@ def test_apply_to_text_uses_cached_patterns(tmp_path) -> None:
         call_count["n"] += 1
         return real_compile(*args, **kwargs)
 
-    # Patch the public ``re.compile`` symbol. ``apply_to_text`` does
-    # ``import re as _re`` then ``_re.compile(...)``, this lookup hits
-    # the patched attribute. ``re.sub`` / ``re.match`` use the internal
-    # ``re._compile`` (not ``re.compile``), so they do NOT inflate the
-    # counter.
     with patch("re.compile", side_effect=counting_compile):
         vm.apply_to_text("foo hello alpha")
         first_batch = call_count["n"]
@@ -111,10 +54,7 @@ def test_apply_to_text_uses_cached_patterns(tmp_path) -> None:
 
 
 def test_apply_to_text_cache_rebuilt_after_invalidation(tmp_path) -> None:
-    """ER-37: after the cache is invalidated (e.g. by ``add_phrase``),
-    the next ``apply_to_text`` rebuilds it: ``re.compile`` is called
-    again for every phrase category (one combined-alternation
-    pattern)."""
+    """ER-37: after the cache is invalidated (e.g. by ``add_phrase``),"""
     import re
 
     vm = _make_vocab(tmp_path)
@@ -144,10 +84,7 @@ def test_apply_to_text_cache_rebuilt_after_invalidation(tmp_path) -> None:
 
 
 def test_cache_invalidated_on_add_entry(tmp_path) -> None:
-    """ER-37: ``add_entry`` (dict-based category mutation) invalidates
-    the compiled-pattern cache even though the cache only covers
-    phrase-based categories. This is the conservative choice, any
-    data mutation busts the cache."""
+    """ER-37: ``add_entry`` (dict-based category mutation) invalidates"""
     vm = _make_vocab(tmp_path)
     vm.apply_to_text("hello")  # build cache
     assert vm._combined_phrase_cache is not None, "cache should be built after first apply_to_text"
@@ -188,11 +125,6 @@ def test_apply_to_text_correctness_preserved(tmp_path) -> None:
     assert out1 == out2 == "bar hi earth test", f"correction output changed: {out1!r} vs {out2!r}"
 
 
-# ===========================================================================
-# ClipboardManager paste() thread-start leak
-# ===========================================================================
-
-
 @pytest.fixture(autouse=True)
 def _mock_display_env(monkeypatch):
     """Ensure DISPLAY is set and WAYLAND_DISPLAY is unset for clipboard tests."""
@@ -216,16 +148,7 @@ def _isolate_pending_restores():
 
 
 def test_pending_restores_no_leak_when_thread_start_fails() -> None:
-    """ER-72: when ``Thread().start()`` raises, the entry appended to
-    ``_pending_restores`` is removed under the lock, no leak.
-
-    Before the fix, ``paste()`` appended the entry BEFORE calling
-    ``.start()`` and did not catch the failure. A failed start (out of
-    thread resources / fd exhaustion / interpreter shutdown) left the
-    entry orphaned: no daemon thread existed to call the ``finally``
-    block that removes it, so the entry (holding ``self``, the
-    snapshot, and the dictated text) leaked for the process lifetime.
-    """
+    """``_pending_restores`` is removed under the lock, no leak."""
     import voice_typer.server.clipboard.manager as mgr_mod
     from voice_typer.server import clipboard as clip_mod
     from voice_typer.server.clipboard import ClipboardManager
@@ -263,21 +186,13 @@ def test_pending_restores_no_leak_when_thread_start_fails() -> None:
         exits.append(p)
     try:
         # Patch threading.Thread on the manager module's threading ref
-        # so the ``threading.Thread(...).start()`` call in paste() uses
-        # our FakeThread.
         with patch.object(mgr_mod.threading, "Thread", FakeThread):
-            # paste() should NOT raise even though start() failed.
             result = cm.paste(snapshot=snap, pasted_text="the dictation")
-            # paste() returns False here because the rate-limit / safety
-            # guards short-circuit after the thread-start section; the
-            # return value is irrelevant to this test, we only care
-            # that _pending_restores is empty.
             assert result in (True, False)
     finally:
         for p in reversed(exits):
             p.__exit__(None, None, None)
 
-    # core assertion: the orphaned entry must have been removed.
     with clip_mod._pending_restores_lock:
         assert clip_mod._pending_restores == [], (
             f"_pending_restores should be empty after failed thread start (no leak); got {clip_mod._pending_restores!r}"
@@ -285,8 +200,7 @@ def test_pending_restores_no_leak_when_thread_start_fails() -> None:
 
 
 def test_pending_restores_no_leak_warning_logged() -> None:
-    """ER-72: a failed ``Thread().start()`` logs a WARNING so the
-    operator can diagnose the resource starvation."""
+    """ER-72: a failed ``Thread().start()`` logs a WARNING so the"""
     import voice_typer.server.clipboard.manager as mgr_mod
     from voice_typer.server import clipboard as clip_mod
     from voice_typer.server.clipboard import ClipboardManager
@@ -323,11 +237,6 @@ def test_pending_restores_no_leak_warning_logged() -> None:
     try:
         mock_log = MagicMock()
         # ``manager.py`` does NOT define its own module-level ``log`` —
-        # it uses ``_cb.log`` (the ``voice_typer.server.clipboard``
-        # package logger, module alias ``_cb``), which is the same
-        # object as ``clip_mod.log``. So patching ``clip_mod.log`` is
-        # sufficient; patching ``mgr_mod.log`` would fail because that
-        # attribute does not exist on the manager module.
         with (
             patch.object(clip_mod, "log", mock_log),
             patch.object(mgr_mod.threading, "Thread", FakeThread),
@@ -344,14 +253,8 @@ def test_pending_restores_no_leak_warning_logged() -> None:
     )
 
 
-# ===========================================================================
-# credential_store._read_plaintext_fallback mtime cache
-# ===========================================================================
-
-
 def test_read_plaintext_fallback_uses_mtime_cache(monkeypatch, tmp_path) -> None:
-    """ER-79: repeated calls with the same ``st_mtime_ns`` hit the cache
-    , the underlying file read happens once, not once per provider."""
+    """ER-79: repeated calls with the same ``st_mtime_ns`` hit the cache"""
     import os
 
     from voice_typer.server import config as _config_mod, credential_store
@@ -376,8 +279,6 @@ def test_read_plaintext_fallback_uses_mtime_cache(monkeypatch, tmp_path) -> None
     monkeypatch.setattr(_config_mod, "_secure_read_text", counting_read)
 
     # Mock os.stat to return a controlled, fixed mtime_ns. ``Path.exists``
-    # also calls os.stat; the MagicMock return value is truthy so
-    # exists() returns True.
     fake_stat = MagicMock()
     fake_stat.st_mtime_ns = 999
     monkeypatch.setattr(os, "stat", lambda *a, **kw: fake_stat)
@@ -397,8 +298,7 @@ def test_read_plaintext_fallback_uses_mtime_cache(monkeypatch, tmp_path) -> None
 
 
 def test_read_plaintext_fallback_cache_is_per_path(monkeypatch, tmp_path) -> None:
-    """ER-79: the cache is keyed by absolute file path, two different
-    config dirs use separate cache entries."""
+    """ER-79: the cache is keyed by absolute file path, two different"""
     import os
 
     from voice_typer.server import config as _config_mod, credential_store

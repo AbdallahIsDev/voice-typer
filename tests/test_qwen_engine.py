@@ -9,16 +9,7 @@ import pytest
 
 @pytest.fixture(autouse=True)
 def real_faster_whisper(monkeypatch):
-    """Restore the REAL ``faster_whisper`` package for the mel path.
-
-    The session-scoped ``mock_heavy_imports`` fixture stubs
-    ``faster_whisper`` as a non-package MagicMock, which breaks the lazy
-    ``from faster_whisper.feature_extractor import FeatureExtractor`` in
-    ``qwen_onnx_model._log_mel_spectrogram``. Loads the real package
-    fresh and swaps it in for the test's duration (monkeypatch restores
-    the mock afterwards). Mirrors the autouse fixture in
-    ``tests/test_qwen_onnx_model.py``.
-    """
+    """Restore the REAL ``faster_whisper`` package for the mel path."""
     import importlib
     import sys
 
@@ -76,9 +67,7 @@ class TestQwenEngineUnit:
         assert isinstance(result, str)
 
     def test_load_failure_non_onnx_dir_returns_false(self, tmp_path):
-        """A torch/safetensors (non-ONNX) directory is refused, the
-        torch engine was removed; load() returns False with a migration
-        error instead of crashing."""
+        """error instead of crashing."""
         model_dir = tmp_path / "torch_qwen"
         model_dir.mkdir()
         (model_dir / "config.json").write_text('{"arch": "qwen3"}')
@@ -95,8 +84,7 @@ class TestQwenEngineUnit:
         assert engine.is_loaded is False
 
     def test_load_failure_incomplete_onnx_dir_raises(self, tmp_path):
-        """An ONNX-layout dir that fails mid-load raises RuntimeError
-        (fail-closed, no silent fallback)."""
+        """An ONNX-layout dir that fails mid-load raises RuntimeError"""
         from tests.test_qwen_onnx_model import make_onnx_dir, patch_ort, patch_tokenizer, scripted_sessions
 
         model_dir = make_onnx_dir(tmp_path, hidden=4, vocab=64)
@@ -113,7 +101,6 @@ class TestQwenEngineUnit:
         assert engine.is_loaded is True
 
         engine.unload()
-        # pyrefly: ignore [unnecessary-comparison]
         assert engine.is_loaded is False
 
     def test_transcribe_strips_whitespace(self):
@@ -136,11 +123,8 @@ class TestQwenEngineUnit:
         result = engine.transcribe(audio)
         assert result == ""
 
-    # ── abort contract (EO-6: AsrBackend Protocol parity) ──────────
-
     def test_request_abort_sets_abort_event(self):
-        """request_abort() must set the abort token; clear_abort() must
-        reset it before a fresh cycle (mirrors ParakeetEngine)."""
+        """request_abort() must set the abort token; clear_abort() must"""
         engine = self._make_engine()
         assert engine._abort_event.is_set() is False
         engine.request_abort()
@@ -149,9 +133,7 @@ class TestQwenEngineUnit:
         assert engine._abort_event.is_set() is False
 
     def test_chunk_loop_breaks_early_on_abort(self):
-        """When abort is requested mid-chunked-transcription, the
-        sequential chunk loop must stop after the current chunk instead
-        of decoding all remaining chunks."""
+        """sequential chunk loop must stop after the current chunk instead"""
         engine = self._make_engine()
         engine._model = MagicMock()
         mock_transcription = MagicMock()
@@ -163,11 +145,9 @@ class TestQwenEngineUnit:
 
         audio = np.ones(16000 * (_QWEN_CHUNK_SECONDS + 10), dtype=np.float32)
         # Request abort BEFORE transcribing: the first chunk iteration
-        # sees the event and breaks immediately.
         engine.request_abort()
         result = engine.transcribe(audio)
         # Loop breaks before any chunk is transcribed → empty result
-        # (no model call, no hallucination filter).
         assert result == ""
         engine._model.transcribe.assert_not_called()
 
@@ -265,11 +245,6 @@ class TestWhisperSkipWhenQwenActive:
         monkeypatch.setattr("atexit.register", lambda *a, **kw: None)
         from voice_typer.server.hotkeys import PynputHotkey
 
-        # ``create_hotkey_backend`` was moved from ``app.py`` to
-        # ``hotkeys/factory.py`` and is now imported directly by
-        # ``hotkey_dispatcher.py``. Patching ``app.create_hotkey_backend``
-        # silently no-ops (the attribute no longer exists on ``app``);
-        # patch the dispatcher's imported reference instead.
         monkeypatch.setattr(
             "voice_typer.server.hotkey_dispatcher.create_hotkey_backend",
             lambda hotkey_str, role=None: PynputHotkey(hotkey_str),
@@ -284,8 +259,6 @@ class TestWhisperSkipWhenQwenActive:
                 {
                     "asr_backend": "qwen",
                     "qwen_model_path": str(tmp_config_dir / "qwen_model"),
-                    # dictation now requires explicit voice-biometric
-                    # consent, without this the recorder refuses to start.
                     "voice_biometric_consent": True,
                 }
             )
@@ -304,8 +277,6 @@ class TestWhisperSkipWhenQwenActive:
         app.models._qwen_engine.load = MagicMock()
 
         # Never duck the developer's REAL system volume (the factory
-        # is also global-mocked in ``mock_heavy_imports_session``;
-        # belt-and-braces here so dictation tests never touch pycaw).
         app._volume_ducker = MagicMock()
         app._volume_ducker.initialize.return_value = False
 
@@ -314,8 +285,6 @@ class TestWhisperSkipWhenQwenActive:
     def test_startup_skips_whisper_when_qwen_active(self, monkeypatch, tmp_config_dir):
         """When Qwen backend is active and loaded, Whisper should NOT be loaded during startup."""
         app = self._make_app_with_qwen(monkeypatch, tmp_config_dir, qwen_loaded=True)
-        # Phase 1: the app-level test-seam delegates have been removed;
-        # patch the controllers / module-level functions directly.
         monkeypatch.setattr("voice_typer.server.startup_tasks.sync_autostart", MagicMock())
         monkeypatch.setattr("voice_typer.server.startup_tasks.load_microphones", MagicMock())
         app.hotkeys.register = MagicMock()
@@ -323,18 +292,14 @@ class TestWhisperSkipWhenQwenActive:
 
         # Track if Whisper load was attempted
         whisper_load_called = []
-        # Phase 2: ``app._try_load_model`` delegate removed; patch
-        # the ModelManager method directly.
+        # ``app._try_load_model`` delegate removed; patch
         original_try_load = app.models.try_load
 
         def track_try_load(*args, **kwargs):
             whisper_load_called.append(True)
             # Simulate successful load so it doesn't loop
-            # pyrefly: ignore [read-only]
             app.models.transcriber.is_loaded = True
-            # pyrefly: ignore [read-only]
             app.models.transcriber.device_info = "cpu (int8)"
-            # pyrefly: ignore [read-only]
             app.models.transcriber.loaded_via = "cpu/int8/small.en"
             original_try_load(*args, **kwargs)
 
@@ -347,7 +312,6 @@ class TestWhisperSkipWhenQwenActive:
             app.models._model_load_thread.join(timeout=5)
 
         # Qwen engine should have been loaded (via registry)
-        # pyrefly: ignore [missing-attribute]
         app.models._qwen_engine.load.assert_called_once()
         # Whisper should NOT have been loaded since Qwen succeeded
         assert len(whisper_load_called) == 0, "Whisper should not be loaded when Qwen is active and loaded"
@@ -355,8 +319,6 @@ class TestWhisperSkipWhenQwenActive:
     def test_startup_falls_back_to_whisper_when_qwen_fails(self, monkeypatch, tmp_config_dir):
         """When Qwen backend fails to load, Whisper should be loaded as fallback."""
         app = self._make_app_with_qwen(monkeypatch, tmp_config_dir, qwen_loaded=False)
-        # Phase 1: the app-level test-seam delegates have been removed;
-        # patch the controllers / module-level functions directly.
         monkeypatch.setattr("voice_typer.server.startup_tasks.sync_autostart", MagicMock())
         monkeypatch.setattr("voice_typer.server.startup_tasks.load_microphones", MagicMock())
         app.hotkeys.register = MagicMock()
@@ -375,7 +337,6 @@ class TestWhisperSkipWhenQwenActive:
         app.models.transcriber = mock_transcriber
 
         # Make Qwen load() raise so the registry falls back to Whisper
-        # pyrefly: ignore [missing-attribute]
         app.models._qwen_engine.load = MagicMock(side_effect=RuntimeError("Qwen unavailable"))
 
         app._do_startup()
@@ -385,7 +346,6 @@ class TestWhisperSkipWhenQwenActive:
             app.models._model_load_thread.join(timeout=5)
 
         # Qwen engine load should have been attempted (via registry)
-        # pyrefly: ignore [missing-attribute]
         app.models._qwen_engine.load.assert_called_once()
         # Whisper should have been loaded as fallback (via registry)
         app.models.transcriber.load.assert_called_once()
@@ -403,30 +363,11 @@ class TestWhisperSkipWhenQwenActive:
         app.models.transcriber.loaded_via = "cpu/int8/small.en"
 
         def mock_load(**kwargs):
-            # pyrefly: ignore [read-only]
             app.models.transcriber.is_loaded = True
 
         app.models.transcriber.load = mock_load
 
         # The source's lazy-load path goes through
-        # ``app.models.fallback_to_whisper`` →
-        # ``AsrBackendRegistry.load_with_fallback`` →
-        # ``transcription._pre_download_model``, which raises
-        # ``ConsentRequiredError`` because ``huggingface_consent`` is
-        # not set in this test's config (the config only sets
-        # ``voice_biometric_consent``). Without HF consent, the
-        # fallback fails and ``recorder.start`` is never called.
-        #
-        # The test's intent is to verify the *recording start* path
-        # after a successful lazy-load, NOT to verify the HF consent
-        # gate. Mock ``fallback_to_whisper`` to set ``is_loaded=True``
-        # on the mock transcriber, AND mock ``active_transcriber`` so
-        # the post-fallback read returns the now-loaded mock
-        # (``active_transcriber`` normally delegates to the registry,
-        # which the local ``transcriber`` mock would also be kept in
-        # sync with via the @property setter on
-        # ``app.models.transcriber``). Bypassing the registry here
-        # keeps the test focused on the start path.
         def fake_fallback(notify_on_failure=False):
             app.models.transcriber.is_loaded = True
 
@@ -532,12 +473,7 @@ class TestHallucinationDetection:
 
 
 class TestQwenOnnxFailClosed:
-    """The ONNX-only engine must be fail-closed: a non-ONNX directory
-    (the old torch/safetensors layout) is refused with False, and an
-    ONNX-layout directory that fails mid-load raises RuntimeError. The
-    old ``_verify_qwen_model_hashes`` helper + the torch manifest gate
-    were removed with the torch engine (2026-08-15).
-    """
+    """The ONNX-only engine must be fail-closed: a non-ONNX directory"""
 
     def _make_engine(self, model_path="/fake/qwen/model", **kwargs):
         from voice_typer.server.qwen_engine import QwenEngine
@@ -545,8 +481,7 @@ class TestQwenOnnxFailClosed:
         return QwenEngine(model_path=model_path, **kwargs)
 
     def test_torch_layout_dir_returns_false(self, tmp_path):
-        """A torch/safetensors Qwen dir (the ONLY layout before
-        2026-08-14) is refused with a migration error, not loaded."""
+        """A torch/safetensors Qwen dir (the ONLY layout before"""
         model_dir = tmp_path / "torch_qwen"
         model_dir.mkdir()
         (model_dir / "config.json").write_text('{"arch": "qwen3"}')
@@ -558,10 +493,7 @@ class TestQwenOnnxFailClosed:
         assert engine.is_loaded is False
 
     def test_missing_required_onnx_file_raises(self, tmp_path):
-        """An ONNX-layout dir missing a decoder session (a file
-        ``is_onnx_model_dir`` does NOT check, it only requires encoder
-        + embed_tokens.bin + tokenizer.json) raises RuntimeError
-        (fail-closed, no silent fallback)."""
+        """An ONNX-layout dir missing a decoder session (a file"""
         from tests.test_qwen_onnx_model import make_onnx_dir, patch_ort, patch_tokenizer, scripted_sessions
 
         model_dir = make_onnx_dir(tmp_path, hidden=4, vocab=64)

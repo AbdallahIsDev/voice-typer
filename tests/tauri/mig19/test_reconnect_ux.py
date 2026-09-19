@@ -1,160 +1,6 @@
-"""MIG-1.9 Phase 4: Reconnect UX validation (ADR-0020 §10).
-
-This file is the **Phase 4 reconnect-UX wiring check** for the MIG-1.9
-Tauri migration. ADR-0020 §10 mandates a WS-disconnect + backoff
-supervisor (see ``src-tauri/src/sidecar/supervisor.rs`` +
-``src-tauri/src/sidecar/ws.rs``). The **user-facing UX** for that
-backoff lives entirely in the React renderer:
-
-  1. The Zustand ``appStore`` (``voice_typer/client/src/renderer/src/
-     stores/appStore.ts``) holds a ``connectionStatus`` string literal
-     union that drives the entire reconnect UI (spinner, retry button,
-     "Restarting…" banner).
-
-  2. The Tauri bridge (``voice_typer/client/src/renderer/src/lib/
-     tauri-bridge.ts``) listens to the Rust host's ``supervisor_relaunching``
-     + ``supervisor_reconnected`` Tauri events and **synthesises** matching
-     ``python-event`` frames (``{type:"reconnecting", ...}`` and
-     ``{type:"reconnected", ...}``) so the existing
-     ``usePythonEvent`` React hook works unchanged on both predecessor
-     and Tauri runtimes.
-
-  3. The ``useConnection`` hook (``voice_typer/client/src/renderer/src/
-     hooks/useConnection.ts``) subscribes to those synthesised events
-     via ``usePythonEvent("reconnecting", ...)`` and
-     ``usePythonEvent("reconnected", ...)`` and transitions the
-     ``connectionStatus`` accordingly.
-
-  4. ``usePython`` (``voice_typer/client/src/renderer/src/hooks/
-     usePython.ts``) surfaces backend errors as JS exceptions so the
-     UI's catch handlers can flip the status to "disconnected" + show
-     the retry button.
-
-  5. ``App.tsx`` (``voice_typer/client/src/renderer/src/App.tsx``)
-     renders three distinct connection-status UI branches:
-       - ``connecting``      → spinner + "Starting Python backend…"
-       - ``restarting``      → spinner + "Restarting Voice Typer
-                                backend…" + the longer hint copy
-       - ``disconnected``    → "Lost connection to Python backend"
-                                + "Retry Connection" button
-
-Every test in this file is a **source-inspection** test (no JS runtime,
-no React testing library, no Tauri runtime), it reads the actual
-TypeScript source as text + uses regex / AST-light assertions to
-verify the contract clauses survive refactoring. The end-to-end UX
-flow (real respawn → real banner appears) is documented in the
-``VALIDATE ON HOST`` block below.
-
+"""
+Reconnect UX validation (ADR-0020 §10).
 KNOWN GAPS (report, do not fix)
--------------------------------
-
-GAP-A (RESOLVED): ``ConnectionStatus`` now includes the ``"reconnecting"``
-literal alongside ``"connecting"`` (cold start), ``"restarting"`` (full
-respawn), ``"connected"`` and ``"disconnected"``. The ``useConnection``
-hook sets ``"reconnecting"`` directly on the bridge's ``"reconnecting"``
-event, and it renders through the shared recovering UI
-(``isRecoveringStatus``) with the same spinner copy as ``"restarting"``.
-
-GAP-B (Tauri bridge relies on ``as unknown as PythonPushEvent`` cast
-to inject the synthesised ``reconnecting`` / ``reconnected`` events).
-The bridge listens to the Rust host's ``supervisor_relaunching`` /
-``supervisor_reconnected`` Tauri events and re-emits them through the
-``python-event`` callback so ``usePythonEvent`` (which only knows
-about the ``python-event`` channel) sees them. The synthesised frames
-``{type: "reconnecting", data: {reason: "supervisor_relaunching"}}`` are not
-part of the ``PythonPushEvent`` discriminated union in
-``types/ipc/push_events.ts`` (which only models server-published events, not
-host-bridged ones). The double cast through ``unknown`` is the
-type-system escape hatch. Functionally correct (the runtime shape
-matches what ``useConnection``'s ``usePythonEvent("reconnecting", …)``
-handler expects, it ignores ``data`` entirely), but the type
-boundary is leaky. Not blocking.
-
-GAP-C (no automated integration test of the disconnect → UI
-banner flow). This file is source-inspection only. The actual
-"kill the sidecar process → observe the 'Restarting…' banner within
-~500 ms → observe 'Retry Connection' button after 5 retries fail"
-flow requires a real Tauri build + a real sidecar process: see
-``VALIDATE ON HOST`` below. Not blocking.
-
-VALIDATE ON HOST
-================
-
-This file is the source-inspection gate. The actual end-to-end
-reconnect-UX validation MUST be executed by a human on a real host
-(ADR-0020 §6 / runbook). One host per platform:
-
-**VALIDATE ON HOST, Linux x64**::
-
-    # 1. Build the Tauri bundle (debug build is fine for UX testing):
-    cd src-tauri && cargo tauri build --target x86_64-unknown-linux-gnu --debug
-    cd ..
-
-    # 2. Install + launch the .deb (or run the binary directly):
-    sudo apt install ./target/x86_64-unknown-linux-gnu/release/bundle/deb/*.deb
-    voice-typer
-
-    # 3. Wait for the renderer to show the Home page (backend connected).
-    #    Then identify the sidecar PID and kill it to simulate a crash:
-    pgrep -f python-sidecar
-    kill -9 <pid-from-above>
-
-    # 4. Within ~500 ms, the renderer MUST show the "Restarting Voice
-    #    Typer backend…" spinner (connectionStatus="restarting"). Verify
-    #    by tailing the renderer console log (open DevTools with
-    #    Ctrl+Shift+I), you should see "[supervisor] respawn attempt 1 after
-    #    500ms" in the host log:
-    tail -n 50 ~/.local/share/voice-typer/logs/voice-typer.log | grep supervisor
-
-    # 5. After supervisor succeeds (≤5 retries × ≤8 s each), the renderer
-    #    MUST return to the Home page (connectionStatus="connected").
-    #    The transition is driven by the "supervisor_reconnected" Tauri event
-    #    → synthesised "reconnected" python-event → useConnection's
-    #    call("get_config") → setConnectionStatus("connected").
-
-    # 6. To validate the "disconnected → Retry Connection" branch,
-    #    kill the sidecar AND prevent supervisor from respawning (e.g. by
-    #    exhausting retries, rename the sidecar binary so respawn
-    #    fails, then re-run the app). After 5 respawn failures the
-    #    Rust host calls app.restart() which exits the process; the
-    #    "disconnected" branch is reachable only via the 60s health
-    #    check timeout in useConnection (call("get_status") fails).
-    #    Trigger that path by killing the sidecar while the renderer
-    #    is in the "connected" state, then waiting ~60 s.
-    #    Expected: "Lost connection to Python backend" + "Retry
-    #    Connection" button. Click the button → status flips to
-    #    "connecting" → "connected" (if sidecar respawned by then) or
-    #    back to "disconnected".
-
-**VALIDATE ON HOST, macOS**::
-
-    # Same flow; replace apt with the .dmg install:
-    cd src-tauri && cargo tauri build --target x86_64-apple-darwin --debug
-    open target/x86_64-apple-darwin/release/bundle/dmg/*.dmg
-    # Drag Voice Typer.app to /Applications, launch it.
-    # Sidecar PID:
-    pgrep -f python-sidecar
-    # Host log:
-    tail -n 50 "~/Library/Application Support/voice-typer/logs/voice-typer.log"
-
-**VALIDATE ON HOST, Windows**::
-
-    # Same flow; build the NSIS installer:
-    cd src-tauri && cargo tauri build --target x86_64-pc-windows-msvc --debug
-    # Install target/x86_64-pc-windows-msvc/release/bundle/nsis/*-setup.exe
-    # Sidecar PID (in PowerShell):
-    Get-Process python-sidecar | Select-Object Id, ProcessName
-    Stop-Process -Id <id> -Force
-    # Host log:
-    Get-Content "$env:APPDATA\\voice-typer\\logs\\voice-typer.log" -Tail 50
-
-TEST-HOST NOTES
----------------
-These are source-inspection tests (no mocking, no JS runtime, no
-Tauri runtime, no root required). They read the real TypeScript +
-Rust source files from the repo and assert against their contents
-using regex. The repo path is resolved relative to this file so the
-tests pass regardless of cwd.
 """
 
 from __future__ import annotations
@@ -164,32 +10,18 @@ from pathlib import Path
 
 import pytest
 
-# ─── Repo path resolution ──────────────────────────────────────────────
-# tests/tauri/mig19/test_reconnect_ux.py → repo root in 4 parents:
-#   parents[0]=mig19, parents[1]=tauri, parents[2]=tests, parents[3]=voice-typer.
 _THIS_FILE = Path(__file__).resolve()
 _REPO_ROOT = _THIS_FILE.parents[3]
 _CLIENT_SRC = _REPO_ROOT / "voice_typer" / "client" / "src"
 _RENDERER_SRC = _CLIENT_SRC / "renderer" / "src"
 _SRC_TAURI = _REPO_ROOT / "src-tauri"
 
-# ─── Source files inspected by these tests ─────────────────────────────
 _APP_STORE_TS = _RENDERER_SRC / "stores" / "appStore.ts"
 # ``tauri-bridge.ts`` was split into a ``tauri-bridge/`` directory
-# () with submodules ``index.ts``, ``detect.ts``,
-# ``python-namespace.ts``, ``bubble-namespace.ts``, ``window-namespace.ts``.
-# The fixture below concatenates all submodules so the static regex
-# assertions authored against the original monolith still match patterns
-# spread across the split files.
 _TAURI_BRIDGE_DIR = _RENDERER_SRC / "lib" / "tauri-bridge"
 _TAURI_BRIDGE_TS = _TAURI_BRIDGE_DIR / "index.ts"
 _USE_CONNECTION_TS = _RENDERER_SRC / "hooks" / "useConnection.ts"
 # ``hooks/usePython.ts`` is now a public barrel re-export; the call
-# implementation moved to ``lib/python-bridge/`` (``usePython.ts``,
-# ``error-envelope.ts``, ``command-timeouts.ts``). Like the
-# tauri-bridge fixture below, concatenate the barrel + implementation
-# modules so the static regex assertions authored against the original
-# monolith still match patterns spread across the split files.
 _USE_PYTHON_BARREL_TS = _RENDERER_SRC / "hooks" / "usePython.ts"
 _PYTHON_BRIDGE_DIR = _RENDERER_SRC / "lib" / "python-bridge"
 _USE_PYTHON_SOURCES = (
@@ -200,40 +32,22 @@ _USE_PYTHON_SOURCES = (
 )
 _APP_TSX = _RENDERER_SRC / "App.tsx"
 # RT-FIX-9 successor refactor: the per-state restart/disconnect copy
-# (``app.restartingBackend``, ``app.lostConnection``, the Retry
-# ``Button``) moved OUT of App.tsx into this component. Assertions that
-# used to grep App.tsx for those strings now read this file instead.
 _CONNECTION_STATUS_SCREEN_TSX = _RENDERER_SRC / "components" / "layout" / "ConnectionStatusScreen.tsx"
-# the former monolithic ipc types file was split
-# into a ``types/ipc/`` directory. The ``PythonPushEvent``
-# discriminated union + all *Event interfaces now live in
-# ``types/ipc/push_events.ts``.
 _IPC_TS = _RENDERER_SRC / "types" / "ipc" / "push_events.ts"
 _SUPERVISOR_RS = _SRC_TAURI / "src" / "sidecar" / "supervisor.rs"
 _WS_RS = _SRC_TAURI / "src" / "sidecar" / "ws.rs"
 
 # Expected connection-status literals (single source of truth).
-# GAP-A resolved: the union carries both "connecting" (cold start) and
-# "reconnecting" (transient recovery) - see the module docstring.
 _REQUIRED_STATUS_LITERALS = ("connected", "disconnected", "restarting", "reconnecting")
 # The "reconnecting" EVENT name (bridge-synthesised) is handled by
-# useConnection separately from the status literal of the same name.
 _DESIRED_RECONNECTING_LITERAL = "reconnecting"
 
-# ─── Expected Tauri event names emitted by the Rust host ───────────────
-# These are the events the Rust supervisor + WS reader emit on
-# disconnect / reconnect / exhaustion (see supervisor.rs:52,95,113 + ws.rs:193).
 _TAURI_EVENT_SUPERVISOR_RELAUNCHING = "supervisor_relaunching"
 _TAURI_EVENT_SUPERVISOR_RECONNECTED = "supervisor_reconnected"
 
 # ─── Expected synthesised python-event type names (bridge translation) ─
-# tauri-bridge.ts maps each Tauri event to a synthesised python-event
-# frame so usePythonEvent subscribers see a unified stream.
 _PY_EVENT_RECONNECTING = "reconnecting"
 _PY_EVENT_RECONNECTED = "reconnected"
-
-
-# ─── Shared fixtures ───────────────────────────────────────────────────
 
 
 @pytest.fixture(scope="module")
@@ -245,20 +59,9 @@ def app_store_source() -> str:
 
 @pytest.fixture(scope="module")
 def tauri_bridge_source() -> str:
-    """Read tauri-bridge as text (for static assertions).
-
-    XS-21: PVT-30 split the original ``tauri-bridge.ts`` monolith into a
-    ``tauri-bridge/`` directory with submodules (``index.ts`` + four
-    siblings). This fixture concatenates all ``*.ts`` files in that
-    directory (in a deterministic order: ``index.ts`` first, then the
-    rest alphabetically) so the static regex assertions authored against
-    the monolith still match patterns spread across the split files.
-    """
+    """Read tauri-bridge as text (for static assertions)."""
     assert _TAURI_BRIDGE_DIR.is_dir(), f"tauri-bridge/ directory not found: {_TAURI_BRIDGE_DIR}"
     sibling_files = sorted(p for p in _TAURI_BRIDGE_DIR.glob("*.ts"))
-    # Put index.ts first so the orchestrator (which imports the
-    # namespace factories + auto-installs) appears at the top of the
-    # concatenated source, preserves the natural reading order.
     ordered = [_TAURI_BRIDGE_TS] + [p for p in sibling_files if p.name != "index.ts"]
     parts: list[str] = []
     for path in ordered:
@@ -276,12 +79,7 @@ def use_connection_source() -> str:
 
 @pytest.fixture(scope="module")
 def use_python_source() -> str:
-    """Read the usePython implementation as text (for static assertions).
-
-    Concatenates the public barrel (``hooks/usePython.ts``) with the
-    implementation modules under ``lib/python-bridge/`` so assertions
-    written against the pre-split monolith keep matching.
-    """
+    """Read the usePython implementation as text (for static assertions)."""
     parts: list[str] = []
     for _path in _USE_PYTHON_SOURCES:
         assert _path.is_file(), f"usePython source not found: {_path}"
@@ -298,13 +96,7 @@ def app_tsx_source() -> str:
 
 @pytest.fixture(scope="module")
 def connection_status_screen_source() -> str:
-    """Read ConnectionStatusScreen.tsx as text (for static assertions).
-
-    The restart/disconnect copy keys (``app.restartingBackend``,
-    ``app.lostConnection``, ``app.retryConnection``) and the Retry
-    ``Button`` render moved from App.tsx into this component; the
-    assertions that used to grep App.tsx for them read this file now.
-    """
+    """Read ConnectionStatusScreen.tsx as text (for static assertions)."""
     assert _CONNECTION_STATUS_SCREEN_TSX.is_file(), (
         f"ConnectionStatusScreen.tsx not found: {_CONNECTION_STATUS_SCREEN_TSX}"
     )
@@ -313,13 +105,7 @@ def connection_status_screen_source() -> str:
 
 @pytest.fixture(scope="module")
 def ipc_ts_source() -> str:
-    """Read types/ipc/push_events.ts as text (for static assertions).
-
-    DT-31 / DT-FIX-7 split the former monolithic ipc types file into a
-    ``types/ipc/`` directory; the ``PythonPushEvent`` discriminated
-    union + all *Event interfaces (``StatusChangeEvent``, ``ErrorEvent``,
-    etc.) moved to ``types/ipc/push_events.ts``.
-    """
+    """Read types/ipc/push_events.ts as text (for static assertions)."""
     assert _IPC_TS.is_file(), f"types/ipc/push_events.ts not found: {_IPC_TS}"
     return _IPC_TS.read_text(encoding="utf-8")
 
@@ -333,14 +119,7 @@ def supervisor_rs_source() -> str:
 
 @pytest.fixture(scope="module")
 def ws_rs_source() -> str:
-    """Read the Rust WS bridge source: ws.rs plus its ws/reader.rs /
-    ws/writer.rs task submodules (for static assertions).
-
-    reader/writer module split: the disconnect-path
-    ``supervisor_relaunching`` emit moved into ``ws/reader.rs``'s
-    cleanup block, so the static assertions below read the union of
-    the three bridge files.
-    """
+    """Read the Rust WS bridge source: ws.rs plus its ws/reader.rs /"""
     assert _WS_RS.is_file(), f"ws.rs not found: {_WS_RS}"
     parts = [_WS_RS.read_text(encoding="utf-8")]
     for name in ("reader.rs", "writer.rs"):
@@ -350,41 +129,15 @@ def ws_rs_source() -> str:
     return "\n\n".join(parts)
 
 
-# ─── Test 1: ConnectionStatus union includes the required literals ─────
-
-
 def test_app_store_exists() -> None:
-    """Sanity: the Zustand store file exists at the expected path.
-
-    The hook (``useConnection``) imports ``ConnectionStatus`` + the
-    ``useAppStore`` Zustand store from this file. If the path changes
-    the rest of these tests will fail with a clearer message.
-    """
+    """Sanity: the Zustand store file exists at the expected path."""
     assert _APP_STORE_TS.is_file()
 
 
 def test_connection_status_union_includes_required_literals(
     app_store_source: str,
 ) -> None:
-    """ADR-0020 §10 + MIG-1.9: the ``ConnectionStatus`` union must
-    include the literals used by the reconnect UX.
-
-    The required literals are:
-      - ``"connected"``    , initial happy state after a successful
-                                ``get_config`` probe.
-      - ``"disconnected"`` , fatal state showing the "Lost
-                                connection" + retry button UI.
-      - ``"restarting"``   , transient state during respawn,
-                                shows the "Restarting Voice Typer
-                                backend…" spinner.
-      - ``"reconnecting"``   - transient recovery state: set
-                                directly by ``useConnection`` on the
-                                bridge's ``"reconnecting"`` python-event
-                                and rendered through the shared
-                                recovering UI (``isRecoveringStatus``).
-    and assert that the 4 required literals are present (including
-    ``"reconnecting"`` since GAP-A landed).
-    """
+    """ADR-0020 §10 + MIG-1.9: the ``ConnectionStatus`` union must"""
     # Extract: `export type ConnectionStatus = "a" | "b" | ... ;`
     union_re = re.compile(
         r"export\s+type\s+ConnectionStatus\s*=\s*([^;]+);",
@@ -407,11 +160,7 @@ def test_connection_status_union_includes_required_literals(
 def test_connection_status_union_documents_reconnecting_gap(
     app_store_source: str,
 ) -> None:
-    """GAP-A resolved: the ``"reconnecting"`` literal IS in the
-    ``ConnectionStatus`` union - the ``useConnection`` hook sets it
-    directly (no ``"restarting"`` workaround cast) and it renders
-    through the shared recovering UI (``isRecoveringStatus``).
-    """
+    """``ConnectionStatus`` union - the ``useConnection`` hook sets it"""
     union_re = re.compile(
         r"export\s+type\s+ConnectionStatus\s*=\s*([^;]+);",
         re.MULTILINE | re.DOTALL,
@@ -432,39 +181,11 @@ def test_connection_status_union_documents_reconnecting_gap(
     )
 
 
-# ─── Test 2: bridge emits "reconnecting" event when WS disconnects ────
-
-
 def test_bridge_subscribes_to_supervisor_relaunching_event(
     tauri_bridge_source: str,
 ) -> None:
-    """ADR-0020 §10 + MIG-1.9: the Tauri bridge must subscribe to the
-    Rust host's ``supervisor_relaunching`` Tauri event and synthesise a
-    matching ``python-event`` frame so the ``useConnection`` hook's
-    ``usePythonEvent("reconnecting", ...)`` subscription fires.
-
-    The Rust host emits ``supervisor_relaunching`` in two places:
-      - ``supervisor.rs:52``, supervisor exhausted retries (full-app
-                          relaunch path).
-      - ``supervisor.rs:113``, backoff schedule exhausted (same path).
-      - ``ws.rs:193``, emit IMMEDIATELY at disconnect start so
-                          the UI can show a "reconnecting…" banner
-                          BEFORE the backoff schedule runs.
-
-    The bridge must call ``tauri.event.listen("supervisor_relaunching", …)``
-    and re-emit a synthesised frame of the form
-    ``{type: "reconnecting", data: {reason: "supervisor_relaunching"}}`` via
-    the ``onEvent`` callback (so usePythonEvent sees it).
-    """
+    """matching ``python-event`` frame so the ``useConnection`` hook's"""
     # The bridge must register a Tauri event listener for the supervisor events.
-    # Post- split, the bridge inlines TWO separate
-    # `tauri.event.listen("supervisor_relaunching", ...)` and
-    # `tauri.event.listen("supervisor_reconnected", ...)` calls (one per event)
-    # in python-namespace.ts, rather than iterating an `supervisorEvents` table
-    # with a loop variable. We verify the literal string subscription:
-    #   (a) `.listen("supervisor_relaunching"` appears (subscription happens)
-    #   (b) the mapping to `type: "reconnecting"` + `reason: "supervisor_relaunching"`
-    #       appears nearby (covered by the mapping_re assertion below).
     listen_re = re.compile(
         r'\.listen\s*\(\s*["\']' + re.escape(_TAURI_EVENT_SUPERVISOR_RELAUNCHING) + r'["\']',
         re.MULTILINE | re.DOTALL,
@@ -477,10 +198,6 @@ def test_bridge_subscribes_to_supervisor_relaunching_event(
     )
 
     # The bridge must map supervisor_relaunching → synthesised "reconnecting" frame.
-    # Post-split, the mapping is inlined as:
-    #   const event = { type: "reconnecting", data: { reason: "supervisor_relaunching" } };
-    # We look for `type: "reconnecting"` + `reason: "supervisor_relaunching"` in
-    # the same source (both literals must appear).
     mapping_type_re = re.compile(
         r'type:\s*["\']' + re.escape(_PY_EVENT_RECONNECTING) + r'["\']',
         re.MULTILINE,
@@ -489,9 +206,6 @@ def test_bridge_subscribes_to_supervisor_relaunching_event(
         r'reason:\s*["\']' + re.escape(_TAURI_EVENT_SUPERVISOR_RELAUNCHING) + r'["\']',
         re.MULTILINE,
     )
-    # The reason literal may appear directly after `reason:` or in the
-    # fallback form `reason: reason || "supervisor_relaunching"` (used
-    # when the payload's own reason should win).
     mapping_reason_re = re.compile(
         r'reason:\s*["\']' + re.escape(_TAURI_EVENT_SUPERVISOR_RELAUNCHING) + r'["\']',
         re.MULTILINE,
@@ -510,10 +224,6 @@ def test_bridge_subscribes_to_supervisor_relaunching_event(
     )
 
     # The synthesised frame must be passed to the onEvent callback.
-    # Post-split, the bridge builds a `const event = { type: "...", data: {...} }`
-    # object and passes it to `handler(event)` (where `handler` is the
-    # callback wrapper from `makeListener`). We verify the handler(event)
-    # invocation pattern appears in the source.
     callback_re = re.compile(
         r"handler\s*\(\s*event\s*\)",
         re.MULTILINE,
@@ -525,20 +235,8 @@ def test_bridge_subscribes_to_supervisor_relaunching_event(
 
 
 def test_ws_rs_emits_supervisor_relaunching_on_disconnect(ws_rs_source: str) -> None:
-    """ADR-0020 §10 the WS reader task must emit ``supervisor_relaunching``
-    IMMEDIATELY when the sidecar closes the WebSocket, BEFORE the
-    backoff schedule runs.
-
-    The comment at ``ws.rs:187-191`` documents the contract:
-    "emit ``supervisor_relaunching`` IMMEDIATELY at disconnect start so the
-    UI can show a 'reconnecting…' banner before the backoff schedule
-    runs." Without this immediate emit, the renderer would stay on
-    "connected" for the duration of the first backoff sleep (500 ms)
-    + the respawn attempt, visible as a frozen UI with no feedback.
-    """
+    """ADR-0020 §10 the WS reader task must emit ``supervisor_relaunching``"""
     # The emit call site must reference supervisor_relaunching with reason
-    # "disconnected" (the  path, distinct from supervisor.rs:52,113
-    # which use "exhausted_retries" / "backoff_exhausted").
     emit_re = re.compile(
         r'emit\s*\(\s*["\']' + re.escape(_TAURI_EVENT_SUPERVISOR_RELAUNCHING) + r'["\']',
         re.MULTILINE,
@@ -557,25 +255,11 @@ def test_ws_rs_emits_supervisor_relaunching_on_disconnect(ws_rs_source: str) -> 
     )
 
 
-# ─── Test 3: bridge emits "connected" event when WS reconnects ────────
-
-
 def test_bridge_subscribes_to_supervisor_reconnected_event(
     tauri_bridge_source: str,
 ) -> None:
-    """ADR-0020 §10: the Tauri bridge must subscribe to the Rust host's
-    ``supervisor_reconnected`` Tauri event and synthesise a matching
-    ``python-event`` frame so the ``useConnection`` hook's
-    ``usePythonEvent("reconnected", ...)`` subscription fires.
-
-    The Rust host emits ``supervisor_reconnected`` at ``supervisor.rs:95`` after a
-    successful WS reconnect + re-auth (the supervisor's happy
-    path). The bridge translates it to a synthesised
-    ``{type: "reconnected", ...}`` frame.
-    """
+    """ADR-0020 §10: the Tauri bridge must subscribe to the Rust host's"""
     # Post- split: the bridge inlines a separate
-    # `tauri.event.listen("supervisor_reconnected", ...)` call. We verify the
-    # literal string subscription (not a loop variable).
     listen_re = re.compile(
         r'\.listen\s*\(\s*["\']' + re.escape(_TAURI_EVENT_SUPERVISOR_RECONNECTED) + r'["\']',
         re.MULTILINE | re.DOTALL,
@@ -588,7 +272,6 @@ def test_bridge_subscribes_to_supervisor_reconnected_event(
     )
 
     # Post-split, the mapping is inlined as:
-    #   const event = { type: "reconnected", data: { reason: "supervisor_reconnected" } };
     mapping_type_re = re.compile(
         r'type:\s*["\']' + re.escape(_PY_EVENT_RECONNECTED) + r'["\']',
         re.MULTILINE,
@@ -608,15 +291,7 @@ def test_bridge_subscribes_to_supervisor_reconnected_event(
 
 
 def test_supervisor_rs_emits_reconnected_on_success(supervisor_rs_source: str) -> None:
-    """ADR-0020 §10: the supervisor must emit ``supervisor_reconnected``
-    on a successful WS reconnect + re-auth.
-
-    The emit at ``supervisor.rs:95`` runs only on the happy path, after
-    ``spawn_sidecar_and_get_port`` succeeds AND ``reconnect_ws``
-    succeeds. Without this emit, the bridge would never synthesise
-    the ``"reconnected"`` python-event, and the renderer would stay
-    stuck on ``"restarting"`` forever.
-    """
+    """ADR-0020 §10: the supervisor must emit ``supervisor_reconnected``"""
     emit_re = re.compile(
         r'emit\s*\(\s*["\']' + re.escape(_TAURI_EVENT_SUPERVISOR_RECONNECTED) + r'["\']',
         re.MULTILINE,
@@ -631,20 +306,7 @@ def test_supervisor_rs_emits_reconnected_on_success(supervisor_rs_source: str) -
 def test_use_connection_handles_reconnected_event(
     use_connection_source: str,
 ) -> None:
-    """ADR-0020 §10: the ``useConnection`` hook must subscribe to the
-    synthesised ``"reconnected"`` python-event and transition the
-    status to ``"connected"`` (or ``"disconnected"`` if the post-
-    reconnect ``get_config`` probe fails).
-
-    The handler at ``useConnection.ts:244-251`` calls
-    ``call("get_config")`` and on success flips to ``"connected"``,
-    on failure flips to ``"disconnected"``. This double-check is
-    important: the WS being up does NOT guarantee the Python IPC
-    server is ready to dispatch commands (the supervisor
-    reconnects the WS before the IPC server has finished booting
-    its handlers). The probe validates end-to-end readiness.
-    """
-    # usePythonEvent("reconnected", ...) subscription
+    """status to ``\"connected\"`` (or ``\"disconnected\"`` if the post-"""
     sub_re = re.compile(
         r'usePythonEvent\s*\(\s*["\']' + re.escape(_PY_EVENT_RECONNECTED) + r'["\']',
         re.MULTILINE,
@@ -685,16 +347,7 @@ def test_use_connection_handles_reconnected_event(
 def test_use_connection_maps_reconnecting_event_to_restarting_status(
     use_connection_source: str,
 ) -> None:
-    """ADR-0020 §10: the ``useConnection`` hook must subscribe to the
-    synthesised ``"reconnecting"`` python-event (which the bridge
-    emits when the Rust host fires ``supervisor_relaunching``) and transition
-    the status to ``"reconnecting"``.
-
-    GAP-A landed: ``"reconnecting"`` is a first-class member of the
-    ``ConnectionStatus`` union (appStore.ts) and renders through the
-    shared recovering UI (``isRecoveringStatus``) alongside
-    ``"restarting"``, no workaround cast remains.
-    """
+    """synthesised ``\"reconnecting\"`` python-event (which the bridge"""
     sub_re = re.compile(
         r'usePythonEvent\s*\(\s*["\']' + re.escape(_PY_EVENT_RECONNECTING) + r'["\']',
         re.MULTILINE,
@@ -706,8 +359,6 @@ def test_use_connection_maps_reconnecting_event_to_restarting_status(
         "disconnect (CR-5) or exhausts supervisor retries (full-app relaunch)."
     )
 
-    # The handler must transition to "reconnecting" (the literal GAP-A
-    # added to the ConnectionStatus union).
     handler_re = re.compile(
         r'setConnectionStatus\s*\(\s*["\']reconnecting["\']',
         re.MULTILINE,
@@ -720,24 +371,7 @@ def test_use_connection_maps_reconnecting_event_to_restarting_status(
 
 
 def test_supervisor_rs_emits_relaunching_on_exhaustion(supervisor_rs_source: str) -> None:
-    """ADR-0020 §10: the supervisor must emit ``supervisor_relaunching``
-    when the backoff schedule is exhausted (before calling
-    ``app.restart()`` for the full-app relaunch).
-
-    The emit site in ``supervisor.rs`` is the **post-loop** exhaustion branch
-    (reason='backoff_exhausted') at the bottom of ``respawn_inner``.
-    The in-loop ``attempt >= SUPERVISOR_MAX_RETRIES`` guard that used to emit
-    ``reason='exhausted_retries'`` was intentionally removed as dead
-    code (``SUPERVISOR_BACKOFF_MS.len() == SUPERVISOR_MAX_RETRIES == 5``, so the
-    condition was always false: see the NF-R19-2 comment in supervisor.rs).
-    The single post-loop emit fires before ``app.restart()`` so the
-    renderer has a chance to render a "restarting…" banner during the
-    ``PRE_RESTART_DELAY_MS`` (500 ms) window before the process exits.
-
-    (The WS reader in ``ws.rs`` emits a *second* ``supervisor_relaunching``
-    with reason='disconnected' immediately at disconnect start, that
-    is verified separately in ``test_ws_rs_emits_supervisor_relaunching_on_disconnect``.)
-    """
+    """ADR-0020 §10: the supervisor must emit ``supervisor_relaunching``"""
     emit_re = re.compile(
         r'emit\s*\(\s*["\']' + re.escape(_TAURI_EVENT_SUPERVISOR_RELAUNCHING) + r'["\']',
         re.MULTILINE,
@@ -755,15 +389,7 @@ def test_supervisor_rs_emits_relaunching_on_exhaustion(supervisor_rs_source: str
 
 
 def test_supervisor_rs_calls_app_restart_after_exhaustion(supervisor_rs_source: str) -> None:
-    """ADR-0020 §10: after emitting ``supervisor_relaunching`` on exhaustion,
-    the supervisor must call ``app.restart()`` (full-app relaunch).
-
-    ``app.restart()`` exits the current process with the Tauri-
-    defined RESTART_EXIT_CODE so the Tauri launcher spawns a fresh
-    instance before the old one fully exits. The 500 ms
-    ``PRE_RESTART_DELAY_MS`` sleep before the call gives the renderer
-    time to render the "restarting…" banner.
-    """
+    """ADR-0020 §10: after emitting ``supervisor_relaunching`` on exhaustion,"""
     assert "app.restart()" in supervisor_rs_source, (
         "supervisor.rs must call app.restart() after emitting supervisor_relaunching "
         "on exhaustion, this is the full-app relaunch fallback when "
@@ -771,31 +397,14 @@ def test_supervisor_rs_calls_app_restart_after_exhaustion(supervisor_rs_source: 
     )
 
 
-# ─── Test 5: usePython surfaces connection errors to the UI ────────────
-
-
 def test_use_python_throws_when_bridge_missing(use_python_source: str) -> None:
-    """The ``usePython`` ``call`` function must reject with a JS Error when
-    the Python bridge is not installed (``window.python`` undefined).
-
-    This is the renderer-side error surface for "backend not
-    connected", the catch block in ``useConnection``'s connection-
-    probe effect catches this rejection and flips the status to
-    ``"disconnected"`` after the 5-retry cap.
-
-    The guard rejects instead of throwing (``return Promise.reject``),
-    which is the same observable contract for a caller awaiting the
-    promise, so this test accepts either synchronously-throwing form.
-    """
+    """The ``usePython`` ``call`` function must reject with a JS Error when"""
     assert "Python bridge not available" in use_python_source, (
         "usePython.ts must reject with an Error whose message is "
         "'Python bridge not available' when window.python is undefined. "
         "This is the renderer-side error surface for a missing backend."
     )
     # The guard must come BEFORE the call to api.call (so the error
-    # surfaces immediately, not after a 120s timeout). We split this
-    # into two checks because the source has a multi-line comment block
-    # between the guard and the withCommandTimeout call.
     guard_re = re.compile(
         r"if\s*\(\s*!api\s*\)\s*"
         r"(?:throw\s+new\s+Error|return\s+Promise\.reject\s*\(\s*new\s+Error)"
@@ -808,8 +417,6 @@ def test_use_python_throws_when_bridge_missing(use_python_source: str) -> None:
         "when `!api` (window.python undefined)."
     )
     # Find `withCommandTimeout(\s*api.call` AFTER the guard statement.
-    # There's a multi-line comment between them, so we search the
-    # remainder of the source from the guard position forward.
     rest = use_python_source[guard_match.end() :]
     call_re = re.compile(
         r"withCommandTimeout\s*\(\s*api\.call",
@@ -826,25 +433,7 @@ def test_use_python_throws_when_bridge_missing(use_python_source: str) -> None:
 def test_use_python_translates_error_envelopes_to_throws(
     use_python_source: str,
 ) -> None:
-    """The ``usePython`` ``call`` function must translate both error-
-    envelope shapes (the predecessor main-process ``{_error: "..."}``
-    synthetic envelope AND the Python server's
-    ``{type:"error", data:{code, message}}`` envelope) into real JS
-    Errors so callers using ``try { await python.call(...) } catch``
-    see failures instead of silent undefined-data reads.
-
-    The two envelope shapes:
-      1. ``{_error: "..."}``   , predecessor main-process synthetic errors
-                                    (backend-not-connected, send-exception).
-      2. ``{type:"error", data:{...}}``, Python server unhandled-dispatch
-                                    exceptions (with code + message).
-
-    On Tauri, NEITHER in-code check is reachable (the Rust ``dispatch``
-    command rejects the invoke promise on ``type:"error"`` BEFORE the
-    resolved value reaches JS), but the same ``usePython.ts`` bundle
-    ships under both hosts, these checks are load-bearing on predecessor
-    and harmless no-ops on Tauri.
-    """
+    """The ``usePython`` ``call`` function must translate both error-"""
     # Check 1: _error envelope
     assert '"_error"' in use_python_source, (
         "usePython.ts must inspect the resolved result for an `_error` "
@@ -862,17 +451,7 @@ def test_use_python_translates_error_envelopes_to_throws(
 def test_use_python_per_command_timeout_surfaces_hangs(
     use_python_source: str,
 ) -> None:
-    """The ``usePython`` ``call`` function must race the underlying
-    bridge call against a per-command timeout so a hung trivial
-    command (e.g. ``get_status``) surfaces an error in seconds
-    instead of the prior blanket 120s timeout.
-
-    The timeout table at the top of ``usePython.ts`` sets 5s for
-    ``get_status`` / ``get_config``, 120s for ``transcribe``, 600s
-    for ``download_model``. The ``withCommandTimeout`` helper wraps
-    the underlying call in a ``Promise.race`` against a
-    ``setTimeout``-driven rejection.
-    """
+    """The ``usePython`` ``call`` function must race the underlying"""
     assert "withCommandTimeout" in use_python_source, (
         "usePython.ts must wrap the underlying bridge call in "
         "withCommandTimeout(), without this a hung `get_status` would "
@@ -887,30 +466,10 @@ def test_use_python_per_command_timeout_surfaces_hangs(
     )
 
 
-# ─── Test 6: UI shows spinner / retry button when disconnected ────────
-
-
 def test_app_tsx_renders_connection_status_screen_when_connecting(
     app_tsx_source: str,
 ) -> None:
-    """``App.tsx`` must render the ``<ConnectionStatusScreen />``
-    component when ``connectionStatus === "connecting"`` (the initial
-    cold-start state, before the backend has acknowledged the first
-    ``get_config`` probe).
-
-    RT-FIX-9 (2026-07-24): App.tsx was refactored, the prior inline
-    ``connectionStatus === 'connecting' ? (<Spinner/>...)`` ternary
-    branches for connecting / restarting / disconnected were extracted
-    into a single ``<ConnectionStatusScreen status={connectionStatus}
-    lastError={...} onRetry={handleRetryConnection} ...>`` component
-    (see ``components/layout/ConnectionStatusScreen.tsx``). App.tsx
-    now renders ``ConnectionStatusScreen`` for every non-``connected``
-    state via a single ``connectionStatus === 'connected' ? renderPage()
-    : <ConnectionStatusScreen .../>`` branch.
-    """
-    # App.tsx must render <ConnectionStatusScreen ...> in the
-    # non-connected branch (covers connecting / restarting /
-    # disconnected states).
+    """``App.tsx`` must render the ``<ConnectionStatusScreen />``"""
     screen_branch_re = re.compile(
         r"<ConnectionStatusScreen\b",
         re.MULTILINE | re.DOTALL,
@@ -931,11 +490,6 @@ def test_app_tsx_renders_connection_status_screen_when_connecting(
     )
 
 
-# the prior per-state ``<Spinner/>`` + ``<Button/>`` assertions
-# were collapsed into a single ConnectionStatusScreen render. Keep the
-# legacy test names as aliases so any external test-selection scripts
-# that reference them still resolve, but route them through the new
-# assertion.
 test_app_tsx_renders_spinner_when_connecting = test_app_tsx_renders_connection_status_screen_when_connecting
 
 
@@ -943,25 +497,11 @@ def test_app_tsx_renders_connection_status_screen_when_restarting(
     app_tsx_source: str,
     connection_status_screen_source: str,
 ) -> None:
-    """``App.tsx`` must render the ``<ConnectionStatusScreen />``
-    component when ``connectionStatus === "restarting"`` (the respawn
-    state, driven by the bridge's synthesised "reconnecting"
-    python-event → useConnection's ``setConnectionStatus("restarting")``).
-
-    RT-FIX-9 (2026-07-24): see
-    ``test_app_tsx_renders_connection_status_screen_when_connecting``
-    for the refactor rationale. The restarting branch is rendered
-    inside ``ConnectionStatusScreen`` (which receives the
-    ``status === 'restarting'`` prop).
-    """
+    """``App.tsx`` must render the ``<ConnectionStatusScreen />``"""
     screen_branch_re = re.compile(r"<ConnectionStatusScreen\b", re.MULTILINE | re.DOTALL)
     assert screen_branch_re.search(app_tsx_source), (
         "App.tsx must render <ConnectionStatusScreen> for the restarting state."
     )
-    # The restarting branch must use the dedicated i18n copy (NOT the
-    # cold-start "firstLaunchHint" key which advertises a model download).
-    # (RT-FIX-9 successor refactor): the ``restartingBackend`` key moved
-    # into ``ConnectionStatusScreen.tsx`` together with the branch.
     assert "restartingBackend" in connection_status_screen_source, (
         "ConnectionStatusScreen.tsx must use the app.restartingBackend "
         "i18n key in the 'restarting' branch, distinct from "
@@ -977,19 +517,7 @@ def test_app_tsx_renders_retry_button_when_disconnected(
     app_tsx_source: str,
     connection_status_screen_source: str,
 ) -> None:
-    """``App.tsx`` must render a "Retry Connection" button + "Lost
-    connection to Python backend" message when
-    ``connectionStatus === "disconnected"``.
-
-    RT-FIX-9 (2026-07-24): the disconnected branch (including the Retry
-    button) was extracted into ``<ConnectionStatusScreen>``. App.tsx
-    passes ``onRetry={handleRetryConnection}`` to
-    ``ConnectionStatusScreen`` so the component renders the Retry
-    button internally.
-    """
-    # App.tsx must pass onRetry={handleRetryConnection} to
-    # <ConnectionStatusScreen> so the disconnected branch's Retry
-    # button is wired up.
+    """``App.tsx`` must render a \"Retry Connection\" button + \"Lost"""
     on_retry_re = re.compile(
         r"<ConnectionStatusScreen[^>]*\bonRetry=\{\s*handleRetryConnection\s*\}",
         re.MULTILINE | re.DOTALL,
@@ -1000,8 +528,6 @@ def test_app_tsx_renders_retry_button_when_disconnected(
         "render the Retry button."
     )
     # The disconnected branch must use the lostConnection i18n key.
-    # (RT-FIX-9 successor refactor): the ``lostConnection`` key moved
-    # into ``ConnectionStatusScreen.tsx`` together with the branch.
     assert "lostConnection" in connection_status_screen_source, (
         "ConnectionStatusScreen.tsx must use the app.lostConnection "
         "i18n key in the 'disconnected' branch, surfaces 'Lost "
@@ -1012,10 +538,7 @@ def test_app_tsx_renders_retry_button_when_disconnected(
 def test_app_tsx_destructures_handle_retry_connection(
     app_tsx_source: str,
 ) -> None:
-    """``App.tsx`` must destructure ``handleRetryConnection`` from the
-    ``useConnection`` hook's return value, so the disconnected-branch
-    retry button has a callback to fire.
-    """
+    """``useConnection`` hook's return value, so the disconnected-branch"""
     destructure_re = re.compile(
         r"handleRetryConnection\s*\}[\s\S]{0,200}?=\s*useConnection\s*\(",
         re.MULTILINE,
@@ -1027,21 +550,8 @@ def test_app_tsx_destructures_handle_retry_connection(
     )
 
 
-# ─── Test 7: i18n keys for the reconnect UX exist ──────────────────────
-
-
 def test_i18n_keys_exist_in_english_translations() -> None:
-    """The 4 reconnect-UX i18n keys must exist in the English
-    translations file (the canonical source for the i18n key set).
-
-    The 4 keys (all under the ``app.*`` namespace):
-      - ``app.startingBackend``   : "Starting Python backend…"
-      - ``app.firstLaunchHint``   , cold-start hint (30–60s model dl)
-      - ``app.restartingBackend`` : "Restarting Voice Typer backend…"
-      - ``app.restartingHint``    , restart hint (a few seconds)
-      - ``app.lostConnection``    : "Lost connection to Python backend"
-      - ``app.retryConnection``   : "Retry Connection" button label
-    """
+    """The 4 reconnect-UX i18n keys must exist in the English"""
     en_json = _RENDERER_SRC / "i18n" / "translations" / "en.json"
     assert en_json.is_file(), f"en.json not found: {en_json}"
     text = en_json.read_text(encoding="utf-8")
@@ -1068,22 +578,10 @@ def test_i18n_keys_exist_in_english_translations() -> None:
         )
 
 
-# ─── Test 8: useConnection exposes the retry callback ─────────────────
-
-
 def test_use_connection_returns_handle_retry_connection(
     use_connection_source: str,
 ) -> None:
-    """The ``useConnection`` hook must return ``handleRetryConnection``
-    so ``App.tsx`` can wire it to the disconnected-branch retry
-    button's ``onClick``.
-
-    The callback (``useConnection.ts:255-263``):
-      1. Sets the status to ``"connecting"`` (immediate UI feedback —
-         the spinner appears before the probe resolves).
-      2. Awaits ``call("get_config")``, if it succeeds, flips to
-         ``"connected"``; if it throws, flips to ``"disconnected"``.
-    """
+    """The ``useConnection`` hook must return ``handleRetryConnection``"""
     # The callback definition
     def_re = re.compile(
         r"const\s+handleRetryConnection\s*=\s*useCallback",
@@ -1121,10 +619,7 @@ def test_use_connection_returns_handle_retry_connection(
 def test_use_connection_returns_connection_status_and_last_error(
     use_connection_source: str,
 ) -> None:
-    """The ``useConnection`` hook must return ``connectionStatus``,
-    ``lastError``, and ``recordingState`` so ``App.tsx`` can read
-    them without prop-drilling through the Zustand store directly.
-    """
+    """The ``useConnection`` hook must return ``connectionStatus``,"""
     return_re = re.compile(
         r"return\s*\{\s*recordingState\s*,\s*connectionStatus\s*,\s*"
         r"lastError\s*,\s*handleRetryConnection\s*,?\s*\}",
@@ -1137,23 +632,8 @@ def test_use_connection_returns_connection_status_and_last_error(
     )
 
 
-# ─── Test 9: connection-probe effect has a retry cap ───────────────────
-
-
 def test_use_connection_probe_has_retry_cap(use_connection_source: str) -> None:
-    """The ``useConnection`` connection-probe effect must cap its
-    retries (``maxRetries = 5``) so a permanently-down backend
-    transitions to ``"disconnected"`` (showing the retry button)
-    instead of looping forever.
-
-    Without the cap, a backend that crashes during cold start would
-    leave the renderer stuck on ``"connecting"`` forever, the user
-    would see the spinner but no way to manually retry.
-    """
-    # Accept either a literal `5` or the shared CONNECTION_PROBE_MAX_RETRIES
-    # constant (extracted during the connectionStatus helper split). The
-    # product contract (value = 5) is pinned by connectionStatus unit tests;
-    # this source gate only requires the cap identifier to be wired.
+    """The ``useConnection`` connection-probe effect must cap its"""
     max_retries_re = re.compile(
         r"const\s+maxRetries\s*=\s*(?:5\b|CONNECTION_PROBE_MAX_RETRIES\b)",
         re.MULTILINE,
@@ -1169,26 +649,7 @@ def test_use_connection_probe_has_retry_cap(use_connection_source: str) -> None:
 def test_use_connection_periodic_health_check_flips_to_disconnected(
     use_connection_source: str,
 ) -> None:
-    """The ``useConnection`` periodic health check (15 s interval)
-    must flip the status to ``"disconnected"`` when its
-    ``call("get_status")`` probe fails.
-
-    This is the path that surfaces the retry button when the sidecar
-    dies AFTER the initial cold start (e.g. a crash mid-dictation).
-    Without it the renderer would stay on ``"connected"`` until the
-    user manually refreshes.
-
-    RT-FIX-9 (2026-07-24): the prior 60 s interval was reduced to
-    15 s (BG-92, a dead backend could sit undetected for up to a
-    minute before the user saw any feedback). The setInterval body
-    was also refactored from ``setInterval(async () => { ... },
-    60_000)`` to ``setInterval(() => probe(false), 15_000)`` (the
-    probe arrow function is now hoisted into the surrounding
-    useEffect scope so it can also be invoked from the retry path).
-    """
-    # Accept the literal 15_000 or the shared HEALTH_CHECK_INTERVAL_MS
-    # constant (value pinned by connectionStatus unit tests; this gate
-    # only requires the 15s interval to be wired via the hoisted probe).
+    """The ``useConnection`` periodic health check (15 s interval)"""
     interval_start_re = re.compile(
         r"setInterval\s*\(\s*\(\)\s*=>\s*probe\s*\(\s*false\s*\)\s*,\s*(?:15[_\s]*000|HEALTH_CHECK_INTERVAL_MS)\s*\)",
         re.MULTILINE,
@@ -1200,8 +661,6 @@ def test_use_connection_periodic_health_check_flips_to_disconnected(
         "is now a thin call to the hoisted probe arrow function)."
     )
     # The probe arrow function must define a catch block that calls
-    # setConnectionStatus('disconnected') on repeated failures. Look
-    # in the window after the probe definition.
     probe_def_re = re.compile(
         r"const\s+probe\s*=\s*async\s*\(\s*isRetry\s*:\s*boolean\s*\)\s*(?::\s*Promise<[^>]*>\s*)?=>\s*\{",
         re.MULTILINE,
@@ -1224,21 +683,10 @@ def test_use_connection_periodic_health_check_flips_to_disconnected(
     )
 
 
-# ─── Test 10: error event surfaces message via usePythonEvent ──────────
-
-
 def test_use_connection_subscribes_to_error_event(
     use_connection_source: str,
 ) -> None:
-    """The ``useConnection`` hook must subscribe to the
-    ``"error"`` python-event and surface the message via
-    ``setLastError`` so the UI can display it.
-
-    The handler at ``useConnection.ts:224-234`` checks for
-    ``data.message`` (a string) and forwards it to ``setLastError``.
-    ``App.tsx`` reads ``lastError`` from the hook return value and
-    can display it in a toast / banner.
-    """
+    """``\"error\"`` python-event and surface the message via"""
     sub_re = re.compile(
         r'usePythonEvent\s*\(\s*["\']error["\']',
         re.MULTILINE,
@@ -1272,14 +720,7 @@ def test_use_connection_subscribes_to_error_event(
 def test_use_connection_subscribes_to_status_change_event(
     use_connection_source: str,
 ) -> None:
-    """The ``useConnection`` hook must subscribe to the
-    ``"status_change"`` python-event so recording-state changes push
-    from the backend to the renderer (e.g. ``idle`` → ``recording``
-    → ``transcribing`` → ``idle``).
-
-    The handler also clears ``lastError`` (a status change implies
-    the backend recovered from any prior error).
-    """
+    """``\"status_change\"`` python-event so recording-state changes push"""
     sub_re = re.compile(
         r'usePythonEvent\s*\(\s*["\']status_change["\']',
         re.MULTILINE,
@@ -1291,24 +732,8 @@ def test_use_connection_subscribes_to_status_change_event(
     )
 
 
-# ─── Test 11: PythonPushEvent type guards the event stream shape ──────
-
-
 def test_ipc_types_define_python_push_event_union(ipc_ts_source: str) -> None:
-    """The ``PythonPushEvent`` discriminated union in
-    ``types/ipc/push_events.ts`` must include the ``StatusChangeEvent``
-    + ``ErrorEvent`` variants that ``useConnection``'s subscriptions
-    rely on.
-
-    Note (GAP-B): the synthesised ``reconnecting`` + ``reconnected``
-    frames from ``tauri-bridge.ts`` are NOT in this union, the
-    bridge casts through ``unknown`` to inject them. They're
-    host-bridged events, not server-published events.
-
-    DT-31 / DT-FIX-7: the ``PythonPushEvent`` union moved from the
-    former monolithic ipc types file to ``types/ipc/push_events.ts``;
-    the ``ipc_ts_source`` fixture reads the new split file.
-    """
+    """``types/ipc/push_events.ts`` must include the ``StatusChangeEvent``"""
     # StatusChangeEvent variant
     assert '"status_change"' in ipc_ts_source, (
         "types/ipc/push_events.ts must define a StatusChangeEvent variant "
@@ -1331,24 +756,10 @@ def test_ipc_types_define_python_push_event_union(ipc_ts_source: str) -> None:
     )
 
 
-# ─── Test 12: bridge installs window.python with the onEvent contract ──
-
-
 def test_bridge_installs_window_python_with_onevent(
     tauri_bridge_source: str,
 ) -> None:
-    """The ``installTauriBridge()`` function must install
-    ``window.python`` with an ``onEvent`` callback that the
-    ``usePythonEvent`` hook subscribes to.
-
-    The contract:
-      - ``window.python.call({type, data}) → Promise<data>``
-      - ``window.python.onEvent(callback) → () => void``
-    """
-    # window.python assignment, post- split, the bridge calls
-    # `createPythonNamespace(tauri)` and assigns the result to
-    # `window.python`. The old `window.python = python` (local variable)
-    # pattern no longer exists.
+    """The ``installTauriBridge()`` function must install"""
     assign_re = re.compile(
         r"window\.python\s*=\s*createPythonNamespace",
         re.MULTILINE,
@@ -1357,9 +768,6 @@ def test_bridge_installs_window_python_with_onevent(
         "tauri-bridge must assign `window.python = createPythonNamespace(tauri)` "
         "so the usePythonEvent hook can find the bridge at runtime."
     )
-    # onEvent must be a key on the returned object literal in
-    # python-namespace.ts. The factory function `createPythonNamespace`
-    # returns an object with `call:` and `onEvent:` keys.
     onevent_re = re.compile(
         r"onEvent\s*:",
         re.MULTILINE | re.DOTALL,
@@ -1370,7 +778,6 @@ def test_bridge_installs_window_python_with_onevent(
         "usePythonEvent uses to receive synthesised + server-published "
         "events."
     )
-    # onEvent must register a listen() for python-event (the generic channel)
     pyevent_listen_re = re.compile(
         r'tauri\.event\s*\n?\s*\.listen\s*\(\s*["\']python-event["\']',
         re.MULTILINE,
@@ -1383,10 +790,7 @@ def test_bridge_installs_window_python_with_onevent(
 
 
 def test_bridge_auto_installs_on_import(tauri_bridge_source: str) -> None:
-    """The ``installTauriBridge()`` function must be called
-    automatically when the module is imported (so ``main.tsx`` and
-    ``bubble-main.tsx`` don't have to remember to call it).
-    """
+    """The ``installTauriBridge()`` function must be called"""
     auto_install_re = re.compile(
         r"^installTauriBridge\s*\(\s*\)\s*;?\s*$",
         re.MULTILINE,
@@ -1398,14 +802,8 @@ def test_bridge_auto_installs_on_import(tauri_bridge_source: str) -> None:
     )
 
 
-# ─── Test 13: Spinner component is the shared loading indicator ────────
-
-
 def test_spinner_component_exists() -> None:
-    """The shared ``Spinner`` component must exist at
-    ``components/feedback/Spinner.tsx``: ``App.tsx`` imports it for
-    the ``connecting`` + ``restarting`` branches.
-    """
+    """The shared ``Spinner`` component must exist at"""
     spinner_path = _RENDERER_SRC / "components" / "feedback" / "Spinner.tsx"
     assert spinner_path.is_file(), (
         f"Spinner.tsx not found at {spinner_path}, App.tsx imports it for the connecting + restarting UI branches."
@@ -1413,15 +811,7 @@ def test_spinner_component_exists() -> None:
 
 
 def test_app_tsx_imports_connection_status_screen(app_tsx_source: str) -> None:
-    """``App.tsx`` must import the ``ConnectionStatusScreen`` component
-    so the connecting / restarting / disconnected branches can render
-    it.
-
-    RT-FIX-9 (2026-07-24): replaces the prior ``Spinner`` import test.
-    ``ConnectionStatusScreen`` now owns the inline ``Spinner`` (and
-    the Retry ``Button``); App.tsx imports ``ConnectionStatusScreen``
-    from ``@/components/layout/ConnectionStatusScreen``.
-    """
+    """``App.tsx`` must import the ``ConnectionStatusScreen`` component"""
     import_re = re.compile(
         r'import\s+\{\s*ConnectionStatusScreen\s*\}\s+from\s+["\']',
         re.MULTILINE,
@@ -1433,23 +823,14 @@ def test_app_tsx_imports_connection_status_screen(app_tsx_source: str) -> None:
     )
 
 
-# alias the legacy test name to the new assertion so any
-# external test-selection scripts that reference the old name still
-# resolve.
 test_app_tsx_imports_spinner = test_app_tsx_imports_connection_status_screen
 
 
 def test_app_tsx_imports_button_for_retry(
     connection_status_screen_source: str,
 ) -> None:
-    """The disconnected-branch UI must import a ``Button`` component so
-    it can render the "Retry Connection" button.
-
-    (RT-FIX-9 successor refactor): the Button moved from App.tsx into
-    ``ConnectionStatusScreen.tsx`` together with the branch.
-    """
+    """The disconnected-branch UI must import a ``Button`` component so"""
     # The Button import is platform-conditional (shadcn/ui), so we just
-    # look for any Button import line.
     import_re = re.compile(
         r'import\s+\{[^}]*\bButton\b[^}]*\}\s+from\s+["\']',
         re.MULTILINE,

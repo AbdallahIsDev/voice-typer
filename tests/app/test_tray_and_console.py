@@ -1,11 +1,4 @@
-"""split from tests/test_app.py.
-
-All heavy dependencies are mocked via the project-wide ``mock_heavy_imports``
-autouse fixture (in ``tests/conftest.py``), CR-60 hoisted the
-``force_pynput_hotkey_backend`` patch from the old local fixture into
-that project-wide fixture, so test modules no longer need a local
-override.
-"""
+"""All heavy dependencies are mocked via the project-wide ``mock_heavy_imports``"""
 
 import json
 from unittest.mock import MagicMock, patch
@@ -14,13 +7,6 @@ from unittest.mock import MagicMock, patch
 class TestTrayControllerProtocolCompliance:
     """Verify VoiceTyperApp implements all TrayController protocol methods."""
 
-    # toggle_autostart, set_notifications, set_silence_*,
-    # set_max_recording_time_seconds, create_desktop_shortcut removed
-    # from TrayController protocol, no caller existed.  The public
-    # methods are now just the ones the tray menu actually invokes.
-    # ARCH-DEAD-SETTINGS: show_settings / open_settings removed along
-    # with voice_typer.server.settings; the Tauri host/frontend owns the
-    # settings UI now.
     REQUIRED_PUBLIC_METHODS = [
         "toggle_dictation",
         "quit",
@@ -30,11 +16,7 @@ class TestTrayControllerProtocolCompliance:
         "_toggle_autostart",
         "_set_notifications",
         "_select_microphone",
-        # Phase 2: ``_change_model`` and ``_restart_hotkey`` removed —
-        # the tray now calls ``change_model`` (a TrayController Protocol
-        # method) which internally invokes ``self.models.change_model``
-        # directly. Hotkey changes go through ``app.hotkeys.restart``
-        # (see service.py), not a Protocol method on the controller.
+        # ``_change_model`` and ``_restart_hotkey`` removed —
     ]
 
     def test_app_has_all_traycontroller_public_methods(self, app):
@@ -67,12 +49,9 @@ class TestWin32ConsoleHandler:
         app._kernel32.FreeConsole.assert_called_once()
 
     def test_ctrl_logoff_event_invokes_fast_cleanup(self, app, monkeypatch):
-        """CTRL_LOGOFF_EVENT (5) must route to ``_do_fast_cleanup``
-        (XZ-R17-06), the critical-only path that ends with
-        ``os._exit(0)``, NOT a quit thread."""
+        """CTRL_LOGOFF_EVENT (5) must route to ``_do_fast_cleanup``"""
         fast_cleanup = MagicMock()
         monkeypatch.setattr(app.shutdown, "_do_fast_cleanup", fast_cleanup)
-        # stub os._exit so the fast-path's hard exit doesn't kill pytest
         monkeypatch.setattr("voice_typer.server.shutdown_controller.os._exit", lambda code=0: None)
 
         result = app._win32_console_handler(5)  # CTRL_LOGOFF_EVENT
@@ -81,8 +60,7 @@ class TestWin32ConsoleHandler:
         fast_cleanup.assert_called_once_with()
 
     def test_ctrl_shutdown_event_invokes_fast_cleanup(self, app, monkeypatch):
-        """CTRL_SHUTDOWN_EVENT (6) must route to ``_do_fast_cleanup``
-        (XZ-R17-06), NOT a quit thread."""
+        """CTRL_SHUTDOWN_EVENT (6) must route to ``_do_fast_cleanup``"""
         fast_cleanup = MagicMock()
         monkeypatch.setattr(app.shutdown, "_do_fast_cleanup", fast_cleanup)
         monkeypatch.setattr("voice_typer.server.shutdown_controller.os._exit", lambda code=0: None)
@@ -93,8 +71,7 @@ class TestWin32ConsoleHandler:
         fast_cleanup.assert_called_once_with()
 
     def test_ctrl_c_event_starts_quit_thread(self, app):
-        """CTRL_C_EVENT should start a quit thread (signal_handlers' own
-        threading module, not app's)."""
+        """CTRL_C_EVENT should start a quit thread (signal_handlers' own"""
         with patch("voice_typer.server.signal_handlers.threading.Thread") as mock_thread:
             mock_thread_instance = MagicMock()
             mock_thread.return_value = mock_thread_instance
@@ -110,9 +87,6 @@ class TestWin32ConsoleHandler:
         assert result is False
 
 
-# restart_app cleanup path ───────────────────────────────────
-
-
 class TestMicrophoneSelection:
     def test_select_mic_by_id_updates_config(self, app):
         app._select_microphone("3")
@@ -121,7 +95,6 @@ class TestMicrophoneSelection:
     def test_select_none_resets_to_default(self, app):
         app.config.microphone = "5"
         app._select_microphone(None)
-        # pyrefly: ignore [unnecessary-comparison]
         assert app.config.microphone is None
 
     def test_select_mic_saves_config(self, app, tmp_config_dir):
@@ -138,14 +111,10 @@ class TestMicrophoneSelection:
 
 
 class TestRefreshMicrophonesFailurePath:
-    """``app.refresh_microphones()`` (TrayController protocol)
-    must swallow ``startup_tasks.load_microphones`` failures and log a
-    warning instead of crashing the tray thread."""
+    """``app.refresh_microphones()`` (TrayController protocol)"""
 
     def test_refresh_microphones_logs_warning_when_load_fails(self, app, monkeypatch, caplog):
-        """When ``load_microphones`` raises (device enumeration error),
-        ``refresh_microphones`` must log a WARNING with exc_info and
-        must NOT propagate the exception to the tray caller."""
+        """When ``load_microphones`` raises (device enumeration error),"""
         import logging
 
         import voice_typer.server.startup_tasks as startup_tasks
@@ -168,9 +137,7 @@ class TestRefreshMicrophonesFailurePath:
         )
 
     def test_refresh_microphones_success_path_delegates(self, app, monkeypatch):
-        """Happy path: ``refresh_microphones`` delegates to
-        ``startup_tasks.load_microphones(app)`` with itself as the
-        argument (TrayController protocol contract)."""
+        """argument (TrayController protocol contract)."""
         import voice_typer.server.startup_tasks as startup_tasks
 
         calls = []
@@ -179,6 +146,3 @@ class TestRefreshMicrophonesFailurePath:
         app.refresh_microphones()
 
         assert calls == [app], "refresh_microphones must call startup_tasks.load_microphones(self)"
-
-
-# ─── Integration: real startup path ────────────────────────────────────

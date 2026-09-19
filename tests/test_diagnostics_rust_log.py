@@ -1,17 +1,4 @@
-"""Tests for the diagnostics export bundle's host-log collection.
-
-Covers the directory-driven contract (MO-108): ``scripts/diagnostics.py
-export`` collects the legacy Python host log
-(``<config_dir>/voice-typer.log``) plus EVERY regular file under
-``<config_dir>/logs/`` **under its on-disk basename** (no zip-side
-rename). On-disk ground truth: Python current log is
-``logs/voice-typer.log`` (``log/setup.py`` ``get_log_file_path``);
-Rust host log is ``logs/voice-typer-rust.log``
-(``platform/logging/init.rs:149``). The former ``rust-`` zip alias
-was removed after the Rust rename, because no two runtime logs share
-a basename anymore — a support bundle now labels every file the same
-way the runtime does.
-"""
+"""Tests for the diagnostics export bundle's host-log collection."""
 
 from __future__ import annotations
 
@@ -32,12 +19,7 @@ def _mock_sounddevice(monkeypatch):
 
 
 def _make_bundle(tmp_path: Path, monkeypatch, config_dir: Path) -> Path:
-    """Run ``export_diagnostics()`` with a temp CWD and return the zip path.
-
-    The zip is created in CWD by ``export_diagnostics``; we monkeypatch
-    ``Path.cwd`` via chdir to a temp dir so the test doesn't litter the
-    repo root.
-    """
+    """Run ``export_diagnostics()`` with a temp CWD and return the zip path."""
     # ``export_diagnostics`` writes to Path.cwd(). chdir to a temp output dir.
     out_dir = tmp_path / "output"
     out_dir.mkdir()
@@ -102,8 +84,6 @@ class TestExportCollectsRustLog:
         logs_dir = config_dir / "logs"
         logs_dir.mkdir()
         (logs_dir / "voice-typer-rust.log").write_text("current\n", encoding="utf-8")
-        # newline="" writes the exact bytes (no \n → \r\n translation
-        # on Windows) so the zip content comparison stays byte-exact.
         (logs_dir / "voice-typer-rust.log.1").write_text("rotated-1\n", encoding="utf-8", newline="")
         (logs_dir / "voice-typer-rust.log.2").write_text("rotated-2\n", encoding="utf-8", newline="")
 
@@ -159,8 +139,6 @@ class TestCollectLogTail:
 
         src = tmp_path / "src.log"
         # Write ~2MB of realistic log lines (each ~100 bytes), then a marker.
-        # Using real newlines exercises the readline()-skips-partial-line
-        # logic in _collect_log_tail.
         line = "x" * 90 + "\n"  # 91 bytes per line
         bulk = line * ((2 * 1024 * 1024) // len(line))  # ~2MB
         marker = "MARKER_LINE_AT_END\n"
@@ -169,8 +147,6 @@ class TestCollectLogTail:
         dest_dir.mkdir()
         _collect_log_tail(src, dest_dir, "out.log", max_bytes=1024 * 1024)
         out = (dest_dir / "out.log").read_text(encoding="utf-8")
-        # The tail must include the marker; the partial first line after the
-        # seek is skipped, so the output is the rest of the tail (≤1MB).
         assert "MARKER_LINE_AT_END" in out
         assert len(out) <= 1024 * 1024 + len(marker)
 

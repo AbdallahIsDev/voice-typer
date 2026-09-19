@@ -1,12 +1,4 @@
-"""Pinning test: the startup banner warns when debug logging is enabled.
-
-``VOICE_TYPER_DEBUG=1`` makes DEBUG records land in the log file. Those
-records routinely carry low-level context (absolute paths, device names,
-hostnames, IPC frame dumps) that the PIIRedactionFilter intentionally
-does NOT blanket-scrub. A one-time WARNING in the log itself reminds the
-user at every debug startup that the file is not share-by-default
-material, and warns anyone the log is sent to before reading it.
-"""
+"""Pinning test: the startup banner warns when debug logging is enabled."""
 
 from __future__ import annotations
 
@@ -18,12 +10,7 @@ from voice_typer.server import logging_setup
 
 @pytest.fixture()
 def _staged_state(monkeypatch: pytest.MonkeyPatch):
-    """Stage the minimal ``_startup_banner_state`` the banner path reads.
-
-    ``setup_logging`` (the public entry) installs handlers and crashes
-    handlers; the tests target the banner block's inputs directly via
-    the module-level state contract.
-    """
+    """Stage the minimal ``_startup_banner_state`` the banner path reads."""
     staged: dict[str, object] = {}
 
     def _stage(**kwargs: object) -> None:
@@ -35,8 +22,7 @@ def _staged_state(monkeypatch: pytest.MonkeyPatch):
 
 class TestDebugModePiiWarning:
     def test_warning_emitted_when_debug_enabled(self, caplog: pytest.LogCaptureFixture) -> None:
-        """With debug=True the banner must be followed by a WARNING that
-        names the env var and the sharing risk."""
+        """With debug=True the banner must be followed by a WARNING that"""
         with caplog.at_level(logging.WARNING, logger="voice_typer"):
             logging.getLogger("voice_typer").warning(
                 "[STARTUP] Debug logging is enabled (VOICE_TYPER_DEBUG=1), "
@@ -48,9 +34,7 @@ class TestDebugModePiiWarning:
         assert any("VOICE_TYPER_DEBUG=1" in r.message and "Do not share" in r.message for r in caplog.records)
 
     def test_warning_text_is_introspectable(self) -> None:
-        """The warning string must keep naming the env var (so users can
-        act on it) and the privacy rationale (so it is not dismissed as
-        boilerplate). Source-pinned so rewording keeps both properties."""
+        """The warning string must keep naming the env var (so users can"""
         import inspect
 
         src = inspect.getsource(logging_setup)

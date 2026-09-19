@@ -1,11 +1,4 @@
-"""Tests for ``scripts/build/update_native_manifests.py``.
-
-Covers the manifest-update script must (a) hash the binaries
-it finds in ``voice_typer/server/native/`` with
-``hashlib.sha256(path.read_bytes()).hexdigest()``, (b) write the
-sha256 back into ``binaries.json``, (c) update BOTH the arch-suffixed
-entry AND its legacy alias (where one exists), and (d) be idempotent.
-"""
+"""Tests for ``scripts/build/update_native_manifests.py``."""
 
 from __future__ import annotations
 
@@ -22,8 +15,6 @@ if str(_SCRIPTS_BUILD) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_BUILD))
 
 import update_native_manifests as unm  # noqa: E402  (path inserted above)
-
-# ─── Fixtures ────────────────────────────────────────────────────────────
 
 
 def _seed_manifest(path: Path) -> dict:
@@ -88,9 +79,6 @@ def _write_binary(native_dir: Path, name: str, content: bytes) -> Path:
     return p
 
 
-# ─── Tests ───────────────────────────────────────────────────────────────
-
-
 def test_sha256_matches_hashlib(native_dir: Path) -> None:
     """The recorded sha256 MUST equal ``hashlib.sha256(bytes).hexdigest()``."""
     bin_path = _write_binary(native_dir, "linux-key-listener", b"hello world\n")
@@ -117,9 +105,7 @@ def test_legacy_alias_is_updated(native_dir: Path) -> None:
     manifest = json.loads((native_dir / "binaries.json").read_text())
     # Direct (legacy) name.
     assert manifest["binaries"]["linux-key-listener"]["sha256"] == expected
-    # x86_64 arch-suffixed alias.
     assert manifest["binaries"]["linux-key-listener-x86_64"]["sha256"] == expected
-    # aarch64 entry is NOT touched (no legacy equivalent for aarch64).
     assert manifest["binaries"]["linux-key-listener-aarch64"]["sha256"] == ""
 
 
@@ -133,7 +119,6 @@ def test_windows_legacy_alias_updated(native_dir: Path) -> None:
     manifest = json.loads((native_dir / "binaries.json").read_text())
     assert manifest["binaries"]["windows-key-listener.exe"]["sha256"] == expected
     assert manifest["binaries"]["windows-key-listener-x86_64.exe"]["sha256"] == expected
-    # aarch64 entry is NOT touched.
     assert manifest["binaries"]["windows-key-listener-aarch64.exe"]["sha256"] == ""
 
 
@@ -191,7 +176,6 @@ def test_preserves_version_and_min_proto_version(native_dir: Path) -> None:
     entry = after["binaries"]["linux-key-listener-x86_64"]
     assert entry["version"] == "9.9.9"
     assert entry["min_proto_version"] == 42
-    # sha256 was still updated.
     assert entry["sha256"] == hashlib.sha256(b"payload").hexdigest()
 
 
@@ -262,8 +246,6 @@ def test_aarch64_binary_does_not_update_legacy(native_dir: Path) -> None:
     manifest = json.loads((native_dir / "binaries.json").read_text())
     assert manifest["binaries"]["linux-key-listener-aarch64"]["sha256"] == expected
     # Legacy ``linux-key-listener`` (always x86_64) MUST NOT be touched
-    # by an aarch64 build, that would let an aarch64 binary satisfy
-    # verification for an x86_64 host.
     assert manifest["binaries"]["linux-key-listener"]["sha256"] == ""
     assert manifest["binaries"]["linux-key-listener-x86_64"]["sha256"] == ""
 
@@ -293,33 +275,12 @@ def test_main_returns_one_on_too_many_args(native_dir: Path) -> None:
     assert rc == 1
 
 
-# ─── sha256_by_arch sync (legacy entries) ─────────────────────────────────
-
-
 class TestSha256ByArchSync:
-    """Legacy manifest entries carry a per-arch ``sha256_by_arch`` dict
-    (see the schema in ``binaries.json``). ``update_manifest`` must keep
-    the dict in sync for the arch the build ran on, otherwise every
-    manifest regen moves the flat ``sha256`` forward while the per-arch
-    hash stays stale, breaking the schema invariant
-    (``sha256 == sha256_by_arch.x86_64`` on an x86_64 tree) that the
-    checksum tests pin."""
+    """Legacy manifest entries carry a per-arch ``sha256_by_arch`` dict"""
 
     @staticmethod
     def _seed_manifest_with_by_arch(path: Path) -> dict[str, str]:
-        """Manifest whose legacy entries carry a ``sha256_by_arch`` dict.
-
-        The seed is HOST-AGNOSTIC: the host arch starts STALE (``old``)
-        so the lockstep test can prove it MOVES to the new hash, while
-        the non-built arch starts EMPTY (the dev-tree state) so the
-        not-fabricated assertion (``== ""``) holds on every CI runner —
-        x86_64 AND aarch64. Seeding ``old`` unconditionally for x86_64
-        broke the test on aarch64 hosts (the stale ``old`` landed on the
-        NON-built arch and the ``== ""`` assertion failed).
-
-        Returns the seeded ``sha256_by_arch`` dict so callers can assert
-        against the exact pre-update state.
-        """
+        """Manifest whose legacy entries carry a ``sha256_by_arch`` dict."""
         host_arch = unm._host_arch_key()
         assert host_arch in ("x86_64", "aarch64"), f"test expects a recognized host arch; got {host_arch!r}"
         other_arch = "aarch64" if host_arch == "x86_64" else "x86_64"
@@ -345,8 +306,7 @@ class TestSha256ByArchSync:
         return by_arch
 
     def test_host_arch_entry_updated_in_lockstep_with_flat(self, tmp_path: Path) -> None:
-        """A rebuilt legacy binary updates flat sha256 AND the host-arch
-        ``sha256_by_arch`` entry (and leaves the other arch untouched)."""
+        """A rebuilt legacy binary updates flat sha256 AND the host-arch"""
         nd = tmp_path / "native"
         nd.mkdir()
         self._seed_manifest_with_by_arch(nd / "binaries.json")
@@ -373,8 +333,7 @@ class TestSha256ByArchSync:
         assert manifest["binaries"]["linux-key-listener-x86_64"]["sha256"] == expected
 
     def test_unknown_machine_leaves_by_arch_untouched(self, tmp_path: Path, monkeypatch) -> None:
-        """An unrecognized ``platform.machine()`` must not corrupt the
-        ``sha256_by_arch`` dict, only the flat field moves on."""
+        """An unrecognized ``platform.machine()`` must not corrupt the"""
         nd = tmp_path / "native"
         nd.mkdir()
         seeded_by_arch = self._seed_manifest_with_by_arch(nd / "binaries.json")

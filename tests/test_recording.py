@@ -47,10 +47,7 @@ class TestResolveDevice:
 
 
 def _force_resample_fallback(monkeypatch) -> None:
-    """Force ``resample_audio``'s cached-taps fast path to fail so tests that
-    pin the documented ``_get_resample_poly`` patch seam execute the fallback
-    exactly as they did before the cached-taps path was wired (the fast path
-    has its own dedicated numeric-equivalence tests)."""
+    """pin the documented ``_get_resample_poly`` patch seam execute the fallback"""
 
     def _raise(up: int, down: int):
         raise ValueError("forced fallback: test pins the poly seam")
@@ -79,7 +76,6 @@ class TestStopAudioPrep:
         audio = r.stop()
 
         np.testing.assert_array_equal(audio, np.array([1.0, 2.0, 3.0], dtype=np.float32))
-        # buffer is replaced with a fresh deque (not cleared in-place)
         assert len(r._audio_pipeline._buffer) == 0, (
             f"Expected empty buffer after stop(), got {r._audio_pipeline._buffer!r}"
         )
@@ -113,11 +109,6 @@ class TestStopAudioPrep:
     def test_stop_skips_resample_when_rate_matches_target(self, monkeypatch):
         from voice_typer.server.recording import Recorder
 
-        # Patch the resample ENTRY POINT (not the resolver): Recorder's
-        # background scipy preloader legitimately resolves the resolver
-        # asynchronously, so a resolver mock is a racy seam here. The
-        # contract under test is that stop() performs NO resampling when
-        # the effective rate already matches the target.
         resample_audio_mock = MagicMock(return_value=None)
         monkeypatch.setattr(
             "voice_typer.server.recording.format.resample_audio",
@@ -232,7 +223,6 @@ class TestStopAudioPrep:
         monkeypatch.setattr(recording_mod.sd, "InputStream", FallbackStream)
 
         # Disable the prewarm InputStream probe  so it doesn't
-        # race with start() and add an extra entry to opened_devices.
         monkeypatch.setattr(Recorder, "_prewarm_input_stream", lambda self, **kw: None)
 
         config = MagicMock(sample_rate=16000, microphone="9")
@@ -244,13 +234,10 @@ class TestStopAudioPrep:
         assert r.recording is True
         assert r._stream_lifecycle._stream is not None
         # Session-local fallback ONLY: the saved selection must survive
-        # unchanged (rewriting it here silently replaced the user's
-        # choice with an arbitrary fallback index that went stale).
         assert config.microphone == "9"
         config.save.assert_not_called()
 
         # Clean up worker threads spawned by start() so they don't trip
-        # the "no leaked worker threads" checks in later tests.
         r.stop()
 
     def test_start_falls_back_to_all_devices_when_configured_mic_fails(self, monkeypatch):
@@ -310,16 +297,13 @@ class TestStopAudioPrep:
         r.start()
 
         # Should try device 1 (configured), then 0 (same-name fallback),
-        # then fall back to all devices and succeed with device 2
         assert 2 in opened_devices
         assert r.recording is True
         assert r._stream_lifecycle._stream is not None
         # Session-local fallback ONLY: the saved selection stays "1"
-        # even though this session ran on device 2.
         assert config.microphone == "1"
 
         # Clean up worker threads spawned by start() so they don't trip
-        # the "no leaked worker threads" checks in later tests.
         r.stop()
 
     def test_snapshot_returns_audio_without_clearing_buffer(self):
@@ -341,13 +325,6 @@ class TestStopAudioPrep:
         np.testing.assert_array_equal(snapshot, np.array([1.0, 2.0, 3.0], dtype=np.float32))
         assert len(r._audio_pipeline._buffer) == 2
 
-        # stop() now securely zeroes the cached resampled array
-        # in-place via _secure_clear_caches() (which calls
-        # _secure_clear_array → arr.fill(0)).  snapshot() returns a VIEW
-        # into that cached array (), so the view's contents
-        # are zeroed by stop().  Capture a COPY of the snapshot before
-        # stop() so we can compare the post-stop audio against the
-        # pre-stop snapshot values.
         snapshot_copy = snapshot.copy()
         stopped = r.stop()
         np.testing.assert_array_equal(stopped, snapshot_copy)
@@ -417,27 +394,10 @@ class TestStopAudioPrep:
 
 
 class TestStopCallbackBackoff:
-    """PERF-the backoff loop in Recorder.stop() was
-    inverted (Event.wait() returned True when callback was running, but
-    the loop treated True as "completed"). The fix replaced it with a
-    polling loop: ``while self._is_in_audio_callback.is_set(): sleep(5ms)``
-    with a 300ms hard deadline.
-
-    Round 0 forward-port: the manual poll loop was REMOVED because
-    PortAudio's ``stream.stop()`` already blocks until the in-flight
-    callback returns, the manual poll was redundant and added up to
-    300ms of latency on every F2-press-to-stop.  These tests were
-    updated to verify the new contract:
-    1. 0ms common case (flag already clear → no wait, stream.stop called).
-    2. ``stream.stop()`` is called and trusted to drain the callback
-       (no manual poll loop).
-    3. ``stop()`` returns promptly after ``stream.stop()`` returns
-       (no extra blocking).
-    """
+    """PERF-the backoff loop in Recorder.stop() was"""
 
     def test_zero_ms_common_case_when_flag_already_clear(self, monkeypatch):
-        """When _is_in_audio_callback is NOT set (no callback in flight),
-        the polling loop exits immediately on the first check, 0ms wait."""
+        """When _is_in_audio_callback is NOT set (no callback in flight),"""
         from voice_typer.server.recording import Recorder
 
         config = MagicMock(sample_rate=16000, microphone=None)
@@ -461,11 +421,7 @@ class TestStopCallbackBackoff:
         assert len(sleep_calls) == 0, f"Expected 0 sleep calls (flag clear), got {len(sleep_calls)}"
 
     def test_stream_stop_called_when_callback_in_flight(self, monkeypatch):
-        """When ``_is_in_audio_callback`` IS set (callback in flight),
-        ``stop()`` delegates to ``stream.stop()`` which itself blocks until
-        the in-flight callback returns (PortAudio contract).  No manual
-        poll loop is needed, Round 0 forward-port removed the redundant
-        300ms poll."""
+        """When ``_is_in_audio_callback`` IS set (callback in flight),"""
         from voice_typer.server.recording import Recorder
 
         config = MagicMock(sample_rate=16000, microphone=None)
@@ -476,9 +432,6 @@ class TestStopCallbackBackoff:
         r._stream_lifecycle._stream = MagicMock()
         r._audio_pipeline._buffer = [np.array([[1.0]], dtype=np.float32)]
 
-        # Set the flag (callback in flight).  stream.stop() (a MagicMock)
-        # returns immediately without clearing the flag, that's fine
-        # because the new contract trusts PortAudio to drain the callback.
         r._is_in_audio_callback.set()
 
         stop_called = {"n": 0}
@@ -492,25 +445,11 @@ class TestStopCallbackBackoff:
 
         r.stop()
 
-        # stream.stop() must have been called exactly once.
         assert stop_called["n"] == 1, f"Expected stream.stop() called once, got {stop_called['n']}"
-        # The flag may still be set (PortAudio cleared it internally) —
-        # that's acceptable; the new contract does not poll it.
         assert r._stream_lifecycle._stream is None or r._stream_lifecycle._stream.stop.called
 
     def test_stop_returns_promptly_after_stream_stop(self, monkeypatch):
-        """When ``_is_in_audio_callback`` stays set (callback hung),
-        ``stop()`` is bounded by the 300ms hard deadline in
-        ``_teardown_stream``. After the deadline, ``stream.close()`` is
-        called and ``stop()`` returns regardless of the flag state.
-
-        PERF-(Round 0 forward-port) re-introduced the manual
-        poll loop after discovering PortAudio's ``stream.stop()`` does
-        not always drain the in-flight callback before returning, the
-        poll is a safety net against use-after-free in ``stream.close()``.
-        See ``_teardown_stream`` docstring (recording.py:1563) for the
-        full AUDIO-009/AUDIO-015 history.
-        """
+        """When ``_is_in_audio_callback`` stays set (callback hung),"""
         import time as real_time
 
         import voice_typer.server.recording as rec_mod
@@ -527,11 +466,6 @@ class TestStopCallbackBackoff:
         # Flag stays set (callback never completes from our perspective).
         r._is_in_audio_callback.set()
 
-        # Mock time.sleep to a no-op so the test doesn't physically
-        # sleep 300ms. The poll loop's real perf_counter deadline still
-        # bounds the spin: each iteration advances perf_counter by a
-        # few µs, so the 300ms budget is exhausted after ~300ms of real
-        # time and the loop breaks via the ``remaining <= 0`` guard.
         sleep_calls = []
         monkeypatch.setattr(
             rec_mod.time,
@@ -539,20 +473,15 @@ class TestStopCallbackBackoff:
             lambda s: sleep_calls.append(s),
         )
 
-        # stop() should return within the 300ms poll budget + small
-        # overhead. Use real perf_counter (not mocked) so the loop's
-        # deadline check actually advances.
         t0 = real_time.perf_counter()
         r.stop()
         elapsed = real_time.perf_counter() - t0
 
         # The poll loop ran, sleep was called while the callback flag
-        # was set.
         assert len(sleep_calls) > 0, (
             f"Expected poll loop to run with callback flag set, got {len(sleep_calls)} sleep calls"
         )
         # The 300ms hard deadline bounded the wait. 1.0s gives ample
-        # headroom over the 300ms budget + per-iteration overhead.
         assert elapsed < 1.0, f"stop() took {elapsed:.3f}s, expected < 1.0s (300ms poll budget + overhead)"
         # Stream was fully torn down: close() called, _stream set to None.
         assert r._stream_lifecycle._stream is None, (
@@ -560,8 +489,7 @@ class TestStopCallbackBackoff:
         )
 
     def test_user_stop_pending_flag_set_during_stop(self, monkeypatch):
-        """STREAM-FIX: stop() must set _user_stop_pending before
-        stream.stop() so _stream_finished_callback doesn't warn."""
+        """STREAM-FIX: stop() must set _user_stop_pending before"""
         from voice_typer.server.recording import Recorder
 
         config = MagicMock(sample_rate=16000, microphone=None)
@@ -699,7 +627,6 @@ class TestSilenceDetection:
         assert r._silence_warning_count == 0
 
         # Clean up worker threads spawned by start() so they don't trip
-        # the "no leaked worker threads" checks in later tests.
         r.stop()
 
     def test_cache_reset_on_stop(self):
@@ -772,12 +699,6 @@ class TestResampleFallback:
 
         # Set the error time far enough in the past that retry is allowed
         monkeypatch.setattr(resampling_mod, "_resample_poly_error", RuntimeError("transient error"))
-        # use time.monotonic() to match the source code at
-        # recording.py:163 (which reads time.monotonic() - error_time).
-        # Pre-fix this used time.time() (wall clock) which differs from
-        # the monotonic clock by an arbitrary offset, under NTP/DST
-        # adjustments the wall clock can jump backwards and cause the
-        # retry-timeout comparison to behave unexpectedly.
         monkeypatch.setattr(
             resampling_mod,
             "_resample_poly_error_time",
@@ -804,17 +725,13 @@ class TestResampleFallback:
 
         # Set the error time very recently (within retry interval)
         monkeypatch.setattr(resampling_mod, "_resample_poly_error", RuntimeError("recent error"))
-        # use time.monotonic() to match source code at
-        # recording.py:163. See test_resample_retry_after_timeout for
-        # the full rationale.
         monkeypatch.setattr(resampling_mod, "_resample_poly_error_time", time.monotonic())
 
         # The error should still be set (not cleared for retry yet)
         assert resampling_mod._resample_poly_error is not None
 
     def test_fallback_to_np_interp_when_scipy_unavailable(self, monkeypatch):
-        """When scipy.signal.resample_poly raises ResampleUnavailable,
-        _resample_chunk should fall back to np.interp and produce valid output."""
+        """When scipy.signal.resample_poly raises ResampleUnavailable,"""
         from voice_typer.server.recording import Recorder, ResampleUnavailable
 
         def raising_get_resample():
@@ -838,8 +755,7 @@ class TestResampleFallback:
         assert abs(len(result) - expected_len) <= 1
 
     def test_resample_fallback_quality_with_known_sine(self, monkeypatch):
-        """The np.interp fallback should produce reasonable quality
-        when resampling a known sine wave."""
+        """The np.interp fallback should produce reasonable quality"""
         from voice_typer.server.recording import Recorder, ResampleUnavailable
 
         def raising_get_resample():
@@ -864,7 +780,6 @@ class TestResampleFallback:
         assert len(result) > 0
 
         # The resampled sine wave should have reasonable amplitude
-        # (not all zeros, not clipped)
         rms = float(np.sqrt(np.mean(result.astype(np.float64) ** 2)))
         assert rms > 0.01, f"Resampled sine wave RMS too low: {rms}"
         assert rms < 1.0, f"Resampled sine wave RMS too high (clipped?): {rms}"
@@ -993,26 +908,11 @@ class TestRecordingParametrized:
         assert r._silence_timer == 0.0
 
 
-# ─── B-3/S-3: scipy preloader no longer spawns at import time ────────────
-
-
 class TestScipyPreloaderDeferredSpawn:
-    """B-3/S-3: ``recording.py`` must NOT spawn a background thread at
-    module import time. The scipy preloader is now started lazily from
-    ``Recorder.__init__`` so importing the module is side-effect-free
-    (every test that imported recording.py previously triggered a real
-    scipy.signal.resample_poly import in a background thread).
-    """
+    """B-3/S-3: ``recording.py`` must NOT spawn a background thread at"""
 
     def test_no_scipy_preloader_thread_after_pure_import(self):
-        """Importing the recording module does not start the preloader thread.
-
-        We verify by importing the module in a fresh subprocess and
-        checking that no thread named ``scipy-preloader`` exists. A
-        subprocess is required because the test process itself has
-        already imported recording.py (and thus may have a Recorder
-        that started the preloader).
-        """
+        """Importing the recording module does not start the preloader thread."""
         import subprocess
 
         code = (
@@ -1040,13 +940,7 @@ class TestScipyPreloaderDeferredSpawn:
         assert "OK" in result.stdout
 
     def test_start_scipy_preloader_is_idempotent(self, monkeypatch):
-        """Calling ``_start_scipy_preloader`` twice does not spawn two threads.
-
-        B-3: the preloader is started from ``Recorder.__init__``, which
-        can be called many times (one per Recorder instance). The
-        function must be idempotent: if a preloader is already alive,
-        don't start a second one.
-        """
+        """Calling ``_start_scipy_preloader`` twice does not spawn two threads."""
         from voice_typer.server import recording
 
         # Reset state, other tests may have left a preloader running.
@@ -1057,13 +951,8 @@ class TestScipyPreloaderDeferredSpawn:
         first_thread = recording.resampling._scipy_preloader_thread
         assert first_thread is not None, "first call should start a thread"
         assert first_thread.is_alive() or first_thread.is_alive() is False
-        # ^ Thread may have already finished (scipy import is fast on
-        # warm cache). Either way, the reference should be set.
 
         # Second call: if first is still alive, must be a no-op.
-        # If first has exited but _resample_poly is still None (failed),
-        # a new thread is allowed, but we patch is_alive to True to
-        # simulate "still loading" and verify idempotency.
         import unittest.mock as _mock
 
         with _mock.patch.object(first_thread, "is_alive", return_value=True):
@@ -1075,9 +964,7 @@ class TestScipyPreloaderDeferredSpawn:
             )
 
     def test_start_scipy_preloader_skips_when_scipy_already_loaded(self, monkeypatch):
-        """If scipy already loaded successfully (cached), don't spawn a
-        new preloader thread, it would be a wasted thread.
-        """
+        """new preloader thread, it would be a wasted thread."""
         from voice_typer.server import recording
 
         # Simulate scipy already loaded.
@@ -1090,22 +977,11 @@ class TestScipyPreloaderDeferredSpawn:
         )
 
 
-# the fix..+ /9 regression tests ──────────────────
-
-
 class TestRec1StaleWorkerGuard:
-    """when ``_stop_audio_worker``'s join times out (worker still
-    alive), the stop event must NOT be cleared and the thread reference
-    must NOT be nulled, otherwise the next ``_start_audio_worker``
-    spawns a SECOND worker that races with the stale one on the same
-    ring buffer (SPSC invariant violation).
-    """
+    """when ``_stop_audio_worker``'s join times out (worker still"""
 
     def test_stop_audio_worker_keeps_stop_event_when_still_alive(self, monkeypatch):
-        """When the worker is still alive after join, stop_event.is_set()
-        must remain True so the stale worker exits on its next iteration.
-        The thread reference must also remain non-None so the next
-        _start_audio_worker detects the stale worker via is_alive()."""
+        """When the worker is still alive after join, stop_event.is_set()"""
         from voice_typer.server.recording import Recorder
 
         config = MagicMock(sample_rate=16000, microphone=None)
@@ -1120,7 +996,6 @@ class TestRec1StaleWorkerGuard:
         # Stop event starts cleared (simulating a healthy worker).
         r._worker_stop_event.clear()
         # Set the stop event the way _stop_audio_worker does (we'll
-        # call _stop_audio_worker which sets it, then checks is_alive).
         r._stop_audio_worker(timeout=0.01, drain=False)
 
         # The stop event must STILL be set (worker hasn't exited).
@@ -1130,7 +1005,6 @@ class TestRec1StaleWorkerGuard:
             "stale worker, causing it to keep looping on the ring buffer."
         )
         # The thread reference must NOT be None (so _start_audio_worker
-        # can detect the stale worker via is_alive()).
         assert r._worker_thread is not None, (
             "regression: _stop_audio_worker nulled the thread "
             "reference even though the worker is still alive. The next "
@@ -1139,9 +1013,7 @@ class TestRec1StaleWorkerGuard:
         )
 
     def test_start_audio_worker_creates_fresh_events_for_stale_worker(self, monkeypatch):
-        """When _start_audio_worker is called with a stale worker alive
-        (stop_event set), it must create fresh stop/wake events so the
-        new worker doesn't share events with the dying stale one."""
+        """When _start_audio_worker is called with a stale worker alive"""
         from voice_typer.server.recording import Recorder
 
         config = MagicMock(sample_rate=16000, microphone=None)
@@ -1156,7 +1028,6 @@ class TestRec1StaleWorkerGuard:
         r._worker_stop_event.set()
 
         # Start a new worker. With the fix, this should detect the stale
-        # worker and create fresh events.
         r._start_audio_worker()
 
         try:
@@ -1182,8 +1053,7 @@ class TestRec1StaleWorkerGuard:
             r._worker_thread.join(timeout=1.0)
 
     def test_stop_audio_worker_clears_when_worker_dead(self):
-        """when the worker IS dead, stop event is cleared and
-        thread ref is nulled (the normal path)."""
+        """when the worker IS dead, stop event is cleared and"""
         from voice_typer.server.recording import Recorder
 
         config = MagicMock(sample_rate=16000, microphone=None)
@@ -1203,10 +1073,7 @@ class TestRec1StaleWorkerGuard:
 
 
 class TestRec2StartRollbackOnWorkerFailure:
-    """if ``_start_audio_worker`` (or any worker starter) raises
-    after the stream is open and ``_recording_event`` is set, ``start()``
-    must roll back: tear down the stream, clear the event, bump
-    ``_stop_generation``, and re-raise the original exception."""
+    """if ``_start_audio_worker`` (or any worker starter) raises"""
 
     def test_start_rolls_back_stream_when_audio_worker_raises(self, monkeypatch):
         import voice_typer.server.recording as recording_mod
@@ -1257,17 +1124,13 @@ class TestRec2StartRollbackOnWorkerFailure:
         with pytest.raises(RuntimeError, match="simulated worker-start failure"):
             r.start()
 
-        # stream must be torn down.
         assert len(teardown_calls) >= 1, (
             "regression: start() did not call _teardown_stream() on worker-start failure, leaked PortAudio stream."
         )
-        # recording event must be cleared.
         assert not r._recording_event.is_set(), (
             "regression: _recording_event was not cleared after "
             "worker-start failure, recorder stuck in 'recording' state."
         )
-        # stop_generation must be bumped so stale disconnect
-        # handlers bail out.
         assert r._stop_generation == gen_before + 1, (
             "regression: _stop_generation was not incremented after "
             "worker-start failure, stale disconnect handlers may race."
@@ -1277,9 +1140,7 @@ class TestRec2StartRollbackOnWorkerFailure:
 
 
 class TestRec3DeadNoOpRemoved:
-    """the dead no-op expression
-    ``float(np.sqrt(np.mean(np.square(chunk), dtype=np.float64)))``
-    in ``audio_quality.py:analyze_chunk`` must be removed."""
+    """the dead no-op expression"""
 
     def test_analyze_chunk_has_no_bare_rms_expression(self):
         import inspect
@@ -1288,24 +1149,19 @@ class TestRec3DeadNoOpRemoved:
 
         src = inspect.getsource(AudioQualityAnalyzer.analyze_chunk)
         # The bare no-op expression must NOT appear as a statement.
-        # It's OK if it appears in a comment explaining the removal.
-        # We check that the first non-comment, non-docstring line is
-        # not the bare expression.
         lines = src.splitlines()
         for line in lines:
             stripped = line.strip()
             if not stripped or stripped.startswith("#") or stripped.startswith('"""'):
                 continue
             # The bare expression would be a statement like
-            # "float(np.sqrt(...))" with no assignment.
             assert not (stripped.startswith("float(np.sqrt(") and stripped.endswith(")")), (
                 f"regression: dead no-op expression found: {stripped}"
             )
 
 
 class TestRec4CounterReset:
-    """``_dropped_chunks`` and ``_rms_callback_error_count`` must
-    be declared in ``__init__`` and reset to 0 in ``start()``."""
+    """``_dropped_chunks`` and ``_rms_callback_error_count`` must"""
 
     def test_counters_declared_in_init(self):
         from voice_typer.server.recording import Recorder
@@ -1359,8 +1215,7 @@ class TestRec4CounterReset:
 
 
 class TestRec5StartLock:
-    """``_start_lock`` serializes ``start()`` vs ``discard()`` so
-    they cannot race on the half-open stream state."""
+    """``_start_lock`` serializes ``start()`` vs ``discard()`` so"""
 
     def test_start_lock_exists(self):
         import inspect
@@ -1384,9 +1239,7 @@ class TestRec5StartLock:
         assert isinstance(r._start_lock, type(threading.Lock())), "_start_lock must be a threading.Lock instance"
 
     def test_concurrent_start_and_discard_no_crash(self, monkeypatch):
-        """start() and discard() called from two threads concurrently
-        must not crash. Without _start_lock, this could race on the
-        half-open stream state."""
+        """start() and discard() called from two threads concurrently"""
         import threading
 
         import voice_typer.server.recording as recording_mod
@@ -1442,16 +1295,11 @@ class TestRec5StartLock:
         assert not errors, f"concurrent start()/discard() raised: {errors}"
 
         # Clean up the workers started by the hammer loop. start() spins
-        # up audio-worker / event-worker daemon threads; without a final
-        # stop() they linger and trip the "no leaked worker threads"
-        # assertions in later tests (e.g.
-        # tests/test_recorder_worker_lifecycle.py::TestConcurrentStartStopNoLeak).
         r.stop()
 
 
 class TestRec6FallbackHostRank:
-    """``_fallback_host_rank`` must rank macOS and Linux host
-    APIs, not just Windows ones."""
+    """``_fallback_host_rank`` must rank macOS and Linux host"""
 
     def test_windows_hosts_unchanged(self):
         from voice_typer.server.recording import Recorder
@@ -1513,9 +1361,7 @@ class TestRec6FallbackHostRank:
 
 
 class TestRec7DelCleanup:
-    """``__del__`` must defensively clear ``_recording_event``,
-    set all worker stop events, and call ``_teardown_stream()`` —
-    not just stop the mic watcher."""
+    """``__del__`` must defensively clear ``_recording_event``,"""
 
     def test_del_clears_recording_event(self):
         from voice_typer.server.recording import Recorder
@@ -1565,15 +1411,13 @@ class TestRec7DelCleanup:
         from voice_typer.server.recording import Recorder
 
         # Create a Recorder without calling __init__, simulates
-        # GC during a partially-failed construction.
         r = Recorder.__new__(Recorder)
         # __del__ must not raise even with missing attributes.
         r.__del__()
 
 
 class TestRec8BufferOpsLocked:
-    """``_buffer.clear()`` and the ``_buffer`` rebind in ``start()``
-    must be wrapped in ``with self._lock:``."""
+    """``_buffer.clear()`` and the ``_buffer`` rebind in ``start()``"""
 
     def test_buffer_clear_under_lock(self):
         import inspect
@@ -1584,15 +1428,6 @@ class TestRec8BufferOpsLocked:
             start_recording,
         )
 
-        # The buffer-clear + rebind logic was extracted from the
-        # pre-refactor ``Recorder._start_impl`` (which no longer exists)
-        # into the ``discard_recording`` and ``take_snapshot`` functions
-        # in ``_recorder_split`` (the buffer swap lives in
-        # ``discard_recording``). The source-string contract pins the
-        # ``with recorder._audio_pipeline._lock:`` + contiguous-buffer swap literal pair
-        # on the actual implementation site: the old buffer is captured,
-        # a fresh empty buffer is swapped in under the lock, and the old
-        # backing array is zeroed by the background secure-clear worker
         # (SEC-audit-008).
         discard_src = inspect.getsource(discard_recording)
         assert "with recorder._audio_pipeline._lock:" in discard_src, (
@@ -1605,20 +1440,10 @@ class TestRec8BufferOpsLocked:
             "discard_recording does not securely zero the discarded buffer"
         )
         # ``start_recording`` delegates the cache-clearance + session
-        # reset to ``Recorder._secure_clear_session_caches`` /
-        # ``_reset_session_state`` (the latter delegates to
-        # ``SessionState.reset_session_state``). The buffer-clear call
-        # happens inside the collaborator. Verify the delegation is
-        # present in the start body so a future regression that removes
-        # the call surfaces here.
         start_src = inspect.getsource(start_recording)
         assert "_secure_clear_session_caches" in start_src, (
             "start_recording no longer calls _secure_clear_session_caches"
         )
-        # ``Recorder.start`` itself acquires ``_start_lock`` (the
-        # source-inspection contract that lives on the entry-point).
-        # Confirm the lock literal still pins to ``Recorder.start`` so
-        # the start lock contract remains testable.
         start_method_src = inspect.getsource(Recorder.start)
         assert "with self._start_lock:" in start_method_src, "Recorder.start no longer acquires self._start_lock"
 
@@ -1631,13 +1456,6 @@ class TestRec8BufferOpsLocked:
         )
 
         # The buffer swap (``recorder._audio_pipeline._buffer = _fresh_recording_buffer_like(...)``)
-        # is wrapped in ``with recorder._audio_pipeline._lock:`` at BOTH sites that
-        # perform it: ``discard_recording`` (the discard path) and
-        # ``stop_recording`` (the stop path, O(1) fresh-buffer swap
-        # inside the lock; the old buffer is frozen and exported outside
-        # it). Verify the literal pair at each site so a future
-        # regression that drops the lock acquisition on either path
-        # surfaces here.
         for fn in (discard_recording, stop_recording):
             src = inspect.getsource(fn)
             assert "with recorder._audio_pipeline._lock:" in src, (
@@ -1649,30 +1467,10 @@ class TestRec8BufferOpsLocked:
 
 
 class TestAudio69RebuildOnSampleRateMismatch:
-    """(CALL REMOVAL): ``start()`` no longer rebuilds the
-    AudioProcessor chain when the device's native sample rate
-    differs from the chain's construction rate. The chain stays at
-    its construction rate (typically WHISPER_SAMPLE_RATE = 16 kHz)
-    and the per-chunk resample in ``AudioProcessor.process_chunk``
-    (invoked from ``audio_pipeline.process_audio_chunk`` with
-    ``input_sample_rate=recorder._effective_sr``) handles the
-    native-rate → 16 kHz downsample on the worker thread.
-
-    These tests cover the start-path retune behavior. The retune was
-    re-added to ``start()`` in a non-blocking, failure-tolerant wrapper
-    (try/except that logs-but-continues). When ``set_sample_rate`` is
-    available, ``start()`` calls it to retune the chain to the device's
-    native rate, eliminating the 3x resample roundtrip per chunk for
-    RNNoise-enabled chains. When ``set_sample_rate`` is unavailable,
-    ``rebuild_from_config`` is used as a fallback. The per-chunk resample
-    in ``process_chunk`` remains as the ultimate fallback if both fail.
-    """
+    """AudioProcessor chain when the device's native sample rate"""
 
     def test_rebuild_called_when_sample_rate_mismatches(self, monkeypatch):
-        """When the device native rate (48 kHz) differs from the chain rate
-        (16 kHz) AND ``set_sample_rate`` is unavailable,
-        ``rebuild_from_config`` is called from ``start()`` as a fallback
-        to retune the chain to the device's native rate."""
+        """When the device native rate (48 kHz) differs from the chain rate"""
         import voice_typer.server.recording as recording_mod
         from voice_typer.server.recording import Recorder
 
@@ -1707,23 +1505,18 @@ class TestAudio69RebuildOnSampleRateMismatch:
         # Attach a mock audio processor built for 16 kHz.
         audio_proc = MagicMock()
         audio_proc._sample_rate = 16000
-        # set_sample_rate is NOT available pre-, previously the
-        # fallback path would have called rebuild_from_config.
         del audio_proc.set_sample_rate
         r._audio_processor = audio_proc
 
         r.start()
         try:
             # With set_sample_rate unavailable, rebuild_from_config is
-            # called as the retune fallback.
             audio_proc.rebuild_from_config.assert_called_once()
         finally:
             r.stop()
 
     def test_rebuild_skipped_when_sample_rate_matches(self, monkeypatch):
-        """If the audio processor's _sample_rate matches the device rate,
-        no rebuild is needed (this was already true previously; the test
-        pins the unchanged behavior)."""
+        """If the audio processor's _sample_rate matches the device rate,"""
         import voice_typer.server.recording as recording_mod
         from voice_typer.server.recording import Recorder
 
@@ -1767,10 +1560,7 @@ class TestAudio69RebuildOnSampleRateMismatch:
             r.stop()
 
     def test_set_sample_rate_preferred_when_available(self, monkeypatch):
-        """When ``set_sample_rate`` is available AND the device native rate
-        (48 kHz) differs from the chain rate (16 kHz), ``set_sample_rate``
-        is called from ``start()`` to retune the chain. This eliminates
-        the 3x resample roundtrip per chunk for RNNoise-enabled chains."""
+        """When ``set_sample_rate`` is available AND the device native rate"""
         import voice_typer.server.recording as recording_mod
         from voice_typer.server.recording import Recorder
 
@@ -1804,24 +1594,19 @@ class TestAudio69RebuildOnSampleRateMismatch:
         r = Recorder(config)
         audio_proc = MagicMock()
         audio_proc._sample_rate = 16000
-        # set_sample_rate IS available, previously start() would have
-        # preferred it. After the refactor it's never called.
         audio_proc.set_sample_rate = MagicMock()
         r._audio_processor = audio_proc
 
         r.start()
         try:
-            # set_sample_rate IS called from start() when available.
             audio_proc.set_sample_rate.assert_called_once_with(48000)
-            # rebuild_from_config is NOT called (set_sample_rate preferred).
             audio_proc.rebuild_from_config.assert_not_called()
         finally:
             r.stop()
 
 
 class TestRec2StartFailurePathCoverage:
-    """Additional coverage: rollback also fires when
-    ``_start_event_worker`` raises (not just ``_start_audio_worker``)."""
+    """Additional coverage: rollback also fires when"""
 
     def test_start_rolls_back_when_event_worker_raises(self, monkeypatch):
         import voice_typer.server.recording as recording_mod
@@ -1872,20 +1657,8 @@ class TestRec2StartFailurePathCoverage:
         assert r._stream_lifecycle._stream is None
 
 
-# ── Rate-scaled pre-roll duration (regression) ─────────────────────────
-
-
 class TestPrerollDurationAtNativeRates:
-    """Rate-scaled pre-roll regression: the pre-roll deque must hold the
-    CONFIGURED ``pre_roll_buffer_seconds`` as a DURATION (≈ seconds of
-    audio), not a chunk count computed for a fixed 512-sample block.
-
-    The stream delivers ~32 ms chunks at every native rate
-    (``scaled_audio_blocksize``, 512 @ 16 kHz, 1536 @ 48 kHz). With the
-    stream scaled but the pre-roll math still fixed-512, a 1.0 s
-    pre-roll over-captured ~3.04 s of pre-speech audio at 48 kHz
-    (~6.1 s at 96 kHz).
-    """
+    """audio), not a chunk count computed for a fixed 512-sample block."""
 
     @pytest.mark.parametrize("native_rate", [16000, 48000], ids=["16kHz-native", "48kHz-native"])
     def test_preroll_holds_configured_duration_at_native_rate(self, monkeypatch, native_rate):
@@ -1907,7 +1680,6 @@ class TestPrerollDurationAtNativeRates:
             actual_maxlen = r._preroll_buffer.maxlen or 0
             duration_s = actual_maxlen * blocksize / native_rate
             # DURATION contract: ≈ the configured 1.0 s (+ the 2-chunk
-            # sizing slack) at every native rate.
             assert 0.95 <= duration_s <= 1.15, (
                 f"At {native_rate}Hz the pre-roll deque holds {actual_maxlen} "
                 f"chunks × {blocksize} samples = {duration_s:.3f}s, must be "
@@ -1920,9 +1692,7 @@ class TestPrerollDurationAtNativeRates:
             r.stop()
 
     def test_preroll_duration_parity_16khz_vs_48khz(self, monkeypatch):
-        """DURATION parity: 16 kHz and 48 kHz devices must capture the
-        same ≈1.0 s of pre-speech audio (chunk counts equal too —
-        rate-invariant ~32 ms chunks)."""
+        """same ≈1.0 s of pre-speech audio (chunk counts equal too —"""
         import voice_typer.server.recording as recording_mod
         from voice_typer.server._audio_constants import scaled_audio_blocksize
 

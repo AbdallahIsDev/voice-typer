@@ -1,24 +1,4 @@
-"""§8.10: Pack missing on launch: cheap existence check + background checksum.
-
-Spec (§8.10):
-
-  At every launch, the slim-core sidecar checks ``pack-<version>/worker.exe``
-  existence. Missing → silent re-download. A full checksum check runs
-  in the background so startup is never slowed.
-
-Tested behaviors:
-
-  1. ``pack_exists`` returns True when manifest + all declared files
-     are present (NO hashing, cheap check).
-  2. ``pack_exists`` returns False when manifest is missing.
-  3. ``pack_exists`` returns False when a declared file is missing.
-  4. ``pack_exists`` returns False when manifest is malformed (fail
-     closed, never trust a partial).
-  5. ``BackgroundChecksum`` runs on a daemon thread; ``result`` is
-     True (verified) or False (corrupt).
-  6. ``BackgroundChecksum`` publishes ``offline_pack_verified`` on success and
-     ``offline_pack_corrupt`` on failure.
-"""
+"""§8.10: Pack missing on launch: cheap existence check + background checksum."""
 
 from __future__ import annotations
 
@@ -147,13 +127,7 @@ class TestBackgroundChecksum:
 
 
 class TestLaunchCheck:
-    """§8.10 / §8.16: ``startup_tasks.check_offline_pack_on_launch``.
-
-    The fire-and-forget daemon task wired into ``StartupSequence``:
-    cheap existence check on launch; present → background checksum;
-    missing → ``offline_pack_missing`` event + consent-gated
-    re-download. Never raises.
-    """
+    """§8.10 / §8.16: ``startup_tasks.check_offline_pack_on_launch``."""
 
     def test_pack_present_starts_background_checksum(self, monkeypatch):
         """Pack present → BackgroundChecksum spawned with the version."""
@@ -171,7 +145,6 @@ class TestLaunchCheck:
         result = startup_tasks.check_offline_pack_on_launch(SimpleNamespace(config=None))
         assert result == {"checked": True, "installed_version": "v1", "checksum": "background"}
         # BackgroundChecksum spawned with the detected version (event_bus
-        # is the real module, non-None).
         assert started[0][0] == "v1"
         assert started[0][1] is not None
 
@@ -194,7 +167,6 @@ class TestLaunchCheck:
         assert result["checked"] is True
         assert result["installed_version"] is None
         assert result["update_check"]["success"] is True
-        # offline_pack_missing published BEFORE the download attempt.
         assert published[0][0] == "offline_pack_missing"
         assert calls == [{"config": app.config, "trigger_download": True}]
 
@@ -253,18 +225,12 @@ class TestLaunchCheck:
         )
         result = startup_tasks.check_offline_pack_on_launch(SimpleNamespace(config=None))
         # The launch check itself succeeded (checked=True); the re-download
-        # check returned a graceful failure, nothing propagated.
         assert result["checked"] is True
         assert result["installed_version"] is None
         assert result["update_check"]["success"] is False
 
     def test_launch_check_uses_short_manifest_timeout(self, monkeypatch):
-        """Launch path bounds the remote fetch with ``LAUNCH_MANIFEST_TIMEOUT_S``.
-
-        The check runs on a fire-and-forget daemon thread at logon; a
-        stalled logon network must not pin it for the 30 s interactive
-        default.
-        """
+        """Launch path bounds the remote fetch with ``LAUNCH_MANIFEST_TIMEOUT_S``."""
         monkeypatch.setattr(update_check, "_local_offline_pack_version", lambda: None)
         monkeypatch.setattr(offline_pack, "_publish_event", lambda bus, etype, payload: None)
         captured: dict = {}

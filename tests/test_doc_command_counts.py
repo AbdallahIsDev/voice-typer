@@ -1,19 +1,4 @@
-"""Doc-parity test: top-level docs must agree with the live command counts.
-
-Post-predecessor cutover the IPC surface is two-way:
-
-    Python ``_COMMAND_REGISTRY``   : 75  (registry total)
-    Rust host ``allowed_commands()``: 71  (registry − 4 host-dispatched)
-
-The host-dispatched delta (``shutdown``, ``tray_click``, ``heartbeat``,
-``relaunch_ack``) is documented in ``tests/test_security_doc_command_count.py``.
-This test asserts that the prose counts in the top-level docs stay in
-lockstep with the actual registry / Rust-allowlist counts.
-
-Scope: this test ONLY parses prose from the doc files. The
-authoritative source-of-truth parsers live in
-``tests/test_security_doc_command_count.py``.
-"""
+"""Doc-parity test: top-level docs must agree with the live command counts."""
 
 from __future__ import annotations
 
@@ -86,13 +71,7 @@ def test_features_md_states_command_counts() -> None:
 
 
 def test_changelog_md_states_command_counts() -> None:
-    """CHANGELOG.md may keep a historical triple; pin whatever it states.
-
-    Historical CHANGELOG entries record pre-cutover three-way counts.
-    Only assert the prose still exists and is self-consistent with the
-    CURRENT two-way surface when the prose names Python/Rust (TS is
-    historical).
-    """
+    """CHANGELOG.md may keep a historical triple; pin whatever it states."""
     text = CHANGELOG_MD.read_text(encoding="utf-8")
     m = re.search(
         r"TS allowlist\s*=\s*(\d+),\s*Rust allowlist\s*=\s*(\d+),\s*Python registry\s*=\s*(\d+)",
@@ -113,7 +92,6 @@ def test_contributing_md_states_registry_count() -> None:
     m = re.search(r"reuses the (\d+)-command registry", text)
     if m is None:
         # Wording may have been updated during the two-way collapse;
-        # fall back to any "N-command registry" mention.
         m = re.search(r"(\d+)-command\s+(_COMMAND_)?registry", text)
     assert m is not None, (
         "CONTRIBUTING.md no longer documents the 'N-command registry' count. Update this test or restore the prose."

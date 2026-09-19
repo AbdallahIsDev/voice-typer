@@ -1,14 +1,4 @@
-"""Tests for the runtime-neutral backend PID-file leaf module.
-
-Covers the three helpers extracted from the single-instance subsystem
-(the symbols that stay LIVE in Tauri mode):
-
-- ``_backend_pid_file``, path resolution through the owning
-  ``voice_typer.server.config`` module (honors
-  ``voice_typer.server.config._config_dir`` monkeypatching)
-- ``_is_pid_alive``, PID liveness contract on POSIX
-- ``_clear_backend_pid_file``, best-effort removal (idempotent)
-"""
+"""Tests for the runtime-neutral backend PID-file leaf module."""
 
 from __future__ import annotations
 
@@ -34,9 +24,7 @@ class TestBackendPidFile:
         assert pid_file.parent == _tmp_config_dir / "run"
 
     def test_resolves_through_owning_config_module(self, _tmp_config_dir, monkeypatch):
-        """Call-time resolution through ``voice_typer.server.config``:
-        re-patching the owning module's ``_config_dir`` mid-flight is
-        honored by the next call (C-ARCH-2 owning-module contract)."""
+        """Call-time resolution through ``voice_typer.server.config``:"""
         other = _tmp_config_dir / "other"
         monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: other)
         assert backend_pid._backend_pid_file() == other / "run" / "backend.pid"
@@ -53,14 +41,7 @@ class TestIsPidAlive:
         assert backend_pid._is_pid_alive(-1) is False
 
     def test_reaped_pid_is_dead(self):
-        """A short-lived subprocess that has been reaped reports dead.
-
-        Uses ``subprocess.run`` (not ``os.fork``, fork in the
-        multi-threaded pytest process trips a DeprecationWarning). The
-        child is fully reaped by ``run`` returning, so its PID slot is
-        free; PID recycling within microseconds is the accepted
-        theoretical hazard shared by every PID-liveness probe.
-        """
+        """A short-lived subprocess that has been reaped reports dead."""
         import subprocess
         import sys
 

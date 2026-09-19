@@ -1,19 +1,4 @@
-"""Availability guards for the schema-V5 trigram CJK index.
-
-On SQLite builds older than 3.34 the FTS5 ``trigram`` tokenizer does not
-exist (distro-linked CPython can carry such a libsqlite3, e.g. Ubuntu
-20.04's 3.31). In that environment:
-
-* the V5 migration must be SKIPPED with the recorded version left
-  un-bumped (so a future SQLite upgrade retries it on the next launch);
-* every lockstep rebuild/optimize/reindex site must degrade to the
-  unicode61 index only instead of raising ``no such table``;
-* the search router must fall back to the bounded LIKE path (same
-  true-substring semantics, unindexed) instead of raising.
-
-Pinned here by monkeypatching ``sqlite3.sqlite_version_info`` to an old
-distro build.
-"""
+"""Availability guards for the schema-V5 trigram CJK index."""
 
 from __future__ import annotations
 
@@ -65,9 +50,7 @@ class TestTrigramHelpers:
 
 class TestMigrationSkippedOnOldSQLite:
     def test_v5_skipped_version_stays_below_5(self, old_sqlite, tmp_path):
-        """A fresh DB on old SQLite must open cleanly at version 4, the
-        V5 migration is skipped, the trigram table is absent, and the
-        unicode61 schema is fully applied."""
+        """unicode61 schema is fully applied."""
         from voice_typer.server.history_db import HistoryDB
         from voice_typer.server.history_db_internals import schema as schema_mod
 
@@ -92,8 +75,7 @@ class TestMigrationSkippedOnOldSQLite:
             db.close()
 
     def test_search_degrades_to_like_without_trigram_table(self, old_sqlite, tmp_path):
-        """With V5 skipped, CJK queries must still return correct rows via
-        the bounded LIKE fallback, never raise ``no such table``."""
+        """With V5 skipped, CJK queries must still return correct rows via"""
         from voice_typer.server.history_db import HistoryDB
 
         db = HistoryDB(db_path=tmp_path / "old-sqlite-search.db")
@@ -102,7 +84,6 @@ class TestMigrationSkippedOnOldSQLite:
             db.add_transcription("The quick brown fox")
             db.flush()
             # 3-char CJK query: trigram-eligible by the router heuristic —
-            # must take the LIKE fallback because the table is absent.
             texts = [r["text"] for r in db.search("你好吗")]
             assert any("今天你好吗" in t for t in texts), f"CJK LIKE fallback broken: {texts}"
             # Latin queries keep the unicode61 FTS path, unchanged.
@@ -112,8 +93,7 @@ class TestMigrationSkippedOnOldSQLite:
             db.close()
 
     def test_modern_sqlite_still_migrates_to_v5(self, tmp_path):
-        """Sanity: without the patch, a fresh DB reaches version 5 and
-        the trigram table exists (the guard only fires on old SQLite)."""
+        """Sanity: without the patch, a fresh DB reaches version 5 and"""
         from voice_typer.server.history_db import HistoryDB
         from voice_typer.server.history_db_internals import schema as schema_mod
 

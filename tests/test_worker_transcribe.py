@@ -1,28 +1,4 @@
-"""Worker ``transcribe_offline`` tests (master plan §7.4).
-
-The worker's core contract: the slim-core sidecar forwards
-``{audio_path, sample_rate, language}`` over the worker's WS hop and
-the worker transcribes the file, pushing the result back via the
-``transcribe_offline_result`` event.
-
-These tests cover:
-
-1. **Dispatch**, a ``transcribe_offline`` frame through the real
-   ``_handle_connection`` dispatch loop produces a
-   ``transcribe_offline_result`` push event (mocked transcriber, real
-   auth + frame loop). Mirrors the mocked-connection pattern from
-   ``test_worker_startup.py``.
-2. **Audio loading**, :func:`_load_wav_float32` decodes mono + stereo
-   WAVs into float32 [-1, 1] with the native sample rate.
-3. **Resampling**, :func:`_resample_to_16k` is a no-op at 16 kHz and
-   delegates to the shared resampler otherwise (48 kHz → 16 kHz).
-4. **Error paths**, missing path / missing file / decode failure /
-   engine failure each produce a structured result payload (never a
-   raised exception, never a dropped result event).
-
-The engine is always mocked (``unittest.mock``), no real model
-download / GPU / audio hardware (E6: external deps mocked).
-"""
+"""The worker's core contract: the slim-core sidecar forwards"""
 
 from __future__ import annotations
 
@@ -108,9 +84,6 @@ def _make_fake_websocket(frames: list[dict]) -> MagicMock:
     return ws
 
 
-# ─── 1. Dispatch ────────────────────────────────────────────────────────
-
-
 async def test_transcribe_offline_dispatch_emits_result_event(monkeypatch) -> None:
     """A transcribe_offline frame → transcribe_offline_result push event."""
     monkeypatch.setenv("VOICE_TYPER_IPC_TOKEN", _TEST_TOKEN)
@@ -187,9 +160,6 @@ async def test_transcribe_offline_dispatch_engine_error_still_emits_result(monke
     assert "boom" in result_frames[0]["data"]["error"]
 
 
-# ─── 2. Audio loading ───────────────────────────────────────────────────
-
-
 def test_load_wav_float32_mono() -> None:
     tmp = Path("/tmp")
     path = tmp / f"vt-wav-mono-{np.random.randint(0, 1_000_000)}.wav"
@@ -224,9 +194,6 @@ def test_load_wav_float32_missing_file_raises() -> None:
         _load_wav_float32("/nonexistent/definitely-missing.wav")
 
 
-# ─── 3. Resampling ──────────────────────────────────────────────────────
-
-
 def test_resample_to_16k_noop_at_16k() -> None:
     audio = np.zeros(1600, dtype=np.float32)
     out = _resample_to_16k(audio, 16000)
@@ -239,9 +206,6 @@ def test_resample_to_16k_downscales_48k() -> None:
     out = _resample_to_16k(audio, 48000)
     assert out.shape == (16000,)
     assert out.dtype == np.float32
-
-
-# ─── 4. Error paths (WorkerTranscriber) ─────────────────────────────────
 
 
 def test_transcribe_file_missing_path() -> None:

@@ -1,16 +1,4 @@
-"""Tests for the duration-aware VAD policy (``vad_policy``) + wiring.
-
-Policy under test:
-- master switch OFF → raw audio, engine filter OFF (model-testing mode)
-- SHORT audio (<2 s): never trim, engine filter ON (today's behavior —
-  1-2 word dictations must never lose words to a trimmer)
-- LONG audio (>30 s): never trim, engine filter ON (the engine needs
-  its filter for segmentation/memory)
-- MEDIUM clean audio: edge-trim (view, no copy) + engine filter OFF
-  (skips the redundant full-audio Silero rescan)
-- Uncertain input (high silence, near-silence level, no stats with
-  junk): today's behavior (no trim, filter ON)
-"""
+"""Tests for the duration-aware VAD policy (``vad_policy``) + wiring."""
 
 import numpy as np
 import pytest
@@ -83,7 +71,6 @@ class TestTrimEdgeSilence:
 
     def test_min_remaining_guard(self):
         # A 0.1 s blip that trimming would shrink below MIN_REMAINING_S:
-        # refuse (the hallucination gate owns near-silence input).
         audio = _speech_like(0.1, lead_sil=0.4, trail_sil=0.45)
         view, leading = trim_edge_silence(audio, SR)
         assert leading == 0

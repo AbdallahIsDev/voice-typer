@@ -1,25 +1,4 @@
-"""Focused tests for the ``_ensure_mono`` downmix contract.
-
-Pins the allocation/no-copy behavior of
-:func:`voice_typer.server.recording.format.ensure_mono` (invoked
-directly):
-
-- the stereo (2-channel) fast path returns a FRESH caller-owned array
-  (exactly one clear output allocation, aliased to nothing, neither
-  the per-thread scratch nor the input), with output bytes identical
-  to the ``(L+R) / 2`` element-wise computation the scratch+copy
-  revision produced;
-- the already-mono paths are genuinely no-copy (1-D passthrough
-  returns the input object; a 2-D single-column input returns a
-  zero-copy ``reshape(-1)`` view of it);
-- the rare >2-channel fallback stays correct and independent.
-
-The presence/type of the ``_mono_scratch_local`` holder in
-``Recorder.__init__`` is pinned by
-``tests/test_recorder_mono_and_disconnect_fixes.py`` (downmix
-correctness + independence + thread isolation are covered there too);
-this file owns the no-copy / ownership contract.
-"""
+"""Focused tests for the ``_ensure_mono`` downmix contract."""
 
 from __future__ import annotations
 
@@ -30,13 +9,10 @@ from tests.fixtures.recorder_test_helpers import make_recorder
 
 
 class TestEnsureMonoNoCopyContract:
-    """The downmix returns either a view of the caller's input or one
-    fresh output allocation, never a shared scratch alias."""
+    """The downmix returns either a view of the caller's input or one"""
 
     def test_stereo_downmix_returns_caller_owned_array(self):
-        """The stereo result must own its storage (``base is None``),
-        so storing it in ``_buffer`` / ``_preroll_buffer`` cannot alias
-        any reusable scratch or the input chunk."""
+        """The stereo result must own its storage (``base is None``),"""
         r = make_recorder()
         audio = np.array([[1.0, 3.0], [2.0, 4.0], [5.0, 7.0]], dtype=np.float32)
         result = ensure_mono(r, audio)
@@ -45,18 +21,13 @@ class TestEnsureMonoNoCopyContract:
         assert result.flags.owndata
 
     def test_stereo_downmix_bytes_identical_to_elementwise_formula(self):
-        """The output must be bit-identical to the element-wise
-        ``(L+R) * 0.5`` float32 computation (the same operations the
-        scratch+``view.copy()`` revision performed, in the same
-        order)."""
+        """The output must be bit-identical to the element-wise"""
         r = make_recorder()
         rng = np.random.default_rng(42)
         audio = (rng.standard_normal((512, 2)) * 0.5).astype(np.float32)
         result = ensure_mono(r, audio)
         expected = np.add(audio[:, 0], audio[:, 1], out=np.empty(512, dtype=np.float32))
         expected *= 0.5
-        # assert_array_equal (not allclose): the operations are
-        # identical, so the bytes must match exactly.
         np.testing.assert_array_equal(result, expected)
         assert result.dtype == np.float32
 
@@ -76,8 +47,7 @@ class TestEnsureMonoNoCopyContract:
         assert result is audio
 
     def test_single_column_2d_input_is_zero_copy_view(self):
-        """A 2-D single-column input is reshaped to 1-D as a VIEW of
-        the input (no copy), the other already-mono path."""
+        """A 2-D single-column input is reshaped to 1-D as a VIEW of"""
         r = make_recorder()
         audio = np.array([[1.0], [2.0], [3.0]], dtype=np.float32)
         result = ensure_mono(r, audio)
@@ -85,8 +55,7 @@ class TestEnsureMonoNoCopyContract:
         assert result.base is audio, "(n,1) reshape must be a zero-copy view of the input"
 
     def test_multi_channel_fallback_correct_and_independent(self):
-        """>2-channel input falls back to ``np.mean`` and returns an
-        array that does not alias the input."""
+        """>2-channel input falls back to ``np.mean`` and returns an"""
         r = make_recorder()
         audio = np.array([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]], dtype=np.float32)
         result = ensure_mono(r, audio)
@@ -95,8 +64,7 @@ class TestEnsureMonoNoCopyContract:
         assert result is not audio
 
     def test_successive_stereo_calls_do_not_share_storage(self):
-        """Each stereo call must get its own output storage, no
-        result may alias a previous call's result."""
+        """Each stereo call must get its own output storage, no"""
         r = make_recorder()
         results = []
         for i in range(10):

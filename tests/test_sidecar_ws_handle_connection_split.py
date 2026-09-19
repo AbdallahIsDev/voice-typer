@@ -1,27 +1,4 @@
-"""UE-29 regression tests for the ``_handle_connection_inner`` refactor.
-
-The finding ``UE-29`` called ``_handle_connection_inner`` a 375-line
-monolith (spaghetti). The fix extracts five named helpers and turns
-the orchestrator into a ~30-line coordinator:
-
-  * :func:`sidecar_ws._check_duplicate_auth`, XZ-R18-06 single-
-    connection invariant.
-  * :func:`sidecar_ws._emit_ready_if_first`, ADR-0020 round-2 ready
-    event on first authenticated connection.
-  * :func:`sidecar_ws._install_subscriber`, event_bus subscriber
-    registration + initial ``state_changed`` snapshot.
-  * :func:`sidecar_ws._start_writer`, per-connection writer task.
-  * :func:`sidecar_ws._read_loop`, read/dispatch loop body.
-
-These tests are purely structural (source inspection), they assert
-the helpers exist as module-level callables, the orchestrator is
-short, and the helpers are actually invoked from the orchestrator.
-They do NOT exercise the runtime behavior (that's covered by the
-existing ``tests/test_sidecar_ws_auth_failed.py`` /
-``tests/test_sidecar_ws_protocol_version.py`` /
-``tests/test_sidecar_ws_connection_cap.py`` suites, which all pass on
-the refactored module).
-"""
+"""UE-29 regression tests for the ``_handle_connection_inner`` refactor."""
 
 from __future__ import annotations
 
@@ -41,12 +18,8 @@ def _src() -> str:
         return f.read()
 
 
-# ── Helpers exist as module-level callables ──────────────────────────
-
-
 class TestHelpersExist:
-    """UE-29: the five extracted helpers must exist as module-level
-    callables on :mod:`voice_typer.server.sidecar_ws`."""
+    """UE-29: the five extracted helpers must exist as module-level"""
 
     def test_check_duplicate_auth_exists(self) -> None:
         assert hasattr(sidecar_ws, "_check_duplicate_auth"), "UE-29: sidecar_ws._check_duplicate_auth helper must exist"
@@ -69,17 +42,11 @@ class TestHelpersExist:
         assert callable(sidecar_ws._read_loop)
 
 
-# ── Orchestrator is a short coordinator ──────────────────────────────
-
-
 class TestOrchestratorIsShort:
-    """UE-29: ``_handle_connection_inner`` must be a short coordinator
-    (~30 lines) that delegates to the extracted helpers, NOT the
-    original ~375-line monolith."""
+    """UE-29: ``_handle_connection_inner`` must be a short coordinator"""
 
     def test_orchestrator_invokes_all_five_helpers(self) -> None:
-        """The orchestrator body must reference all five extracted
-        helpers by name."""
+        """The orchestrator body must reference all five extracted"""
         src = inspect.getsource(sidecar_ws._handle_connection_inner)
         for helper in [
             "_check_duplicate_auth",
@@ -91,16 +58,7 @@ class TestOrchestratorIsShort:
             assert helper in src, f"UE-29: _handle_connection_inner must delegate to {helper}"
 
     def test_orchestrator_is_under_120_lines(self) -> None:
-        """The orchestrator (including docstring) must remain well under
-        the original 375 lines. The threshold is 120 (bumped from the
-        original 80 after IN-35 / XV-84 added the send-timeout + bytes-
-        buffer handling to the orchestrator's sibling ``_start_writer``
-        helper, and the orchestrator grew to 110 lines accommodating
-        the round-2 ready emission + duplicate-auth rejection + the
-        shutdown-aware TOCTOU gates). 120 still catches future monolith
-        regressions (a re-inlined read loop or writer would push it
-        well past 200) while accommodating the legitimate lifecycle
-        plumbing."""
+        """The orchestrator (including docstring) must remain well under"""
         src = inspect.getsource(sidecar_ws._handle_connection_inner)
         line_count = len(src.splitlines())
         assert line_count < 120, (
@@ -110,36 +68,29 @@ class TestOrchestratorIsShort:
         )
 
     def test_orchestrator_does_not_contain_inline_read_loop(self) -> None:
-        """The orchestrator must NOT contain the inline ``async for raw
-        in websocket:`` read loop, that belongs in ``_read_loop``."""
+        """The orchestrator must NOT contain the inline ``async for raw"""
         src = inspect.getsource(sidecar_ws._handle_connection_inner)
         assert "async for raw in websocket:" not in src, (
             "UE-29: _handle_connection_inner must NOT contain the inline read loop, extract to _read_loop"
         )
 
     def test_orchestrator_does_not_define_inner_push_to_ws(self) -> None:
-        """The orchestrator must NOT define ``_push_to_ws`` as an inner
-        closure, that belongs in ``_install_subscriber``."""
+        """The orchestrator must NOT define ``_push_to_ws`` as an inner"""
         src = inspect.getsource(sidecar_ws._handle_connection_inner)
         assert "def _push_to_ws" not in src, (
             "UE-29: _handle_connection_inner must NOT define _push_to_ws inline, extract to _install_subscriber"
         )
 
     def test_orchestrator_does_not_define_inner_writer(self) -> None:
-        """The orchestrator must NOT define ``_writer`` as an inner
-        closure, that belongs in ``_start_writer``."""
+        """The orchestrator must NOT define ``_writer`` as an inner"""
         src = inspect.getsource(sidecar_ws._handle_connection_inner)
         assert "async def _writer" not in src, (
             "UE-29: _handle_connection_inner must NOT define _writer inline, extract to _start_writer"
         )
 
 
-# ── Helpers have the right signatures ────────────────────────────────
-
-
 class TestHelperSignatures:
-    """UE-29: the extracted helpers must have the expected signatures
-    so the orchestrator can delegate cleanly."""
+    """UE-29: the extracted helpers must have the expected signatures"""
 
     def test_check_duplicate_auth_signature(self) -> None:
         sig = inspect.signature(sidecar_ws._check_duplicate_auth)
@@ -175,19 +126,11 @@ class TestHelperSignatures:
         )
 
 
-# ── Behavior preserved: orchestrator still owns lifecycle ───────────
-
-
 class TestLifecycleOwnership:
-    """UE-29: the orchestrator must STILL own the connection-lifecycle
-    ``try/except/finally``, the helpers don't clean up after
-    themselves; the orchestrator guarantees subscriber unsubscribe +
-    writer-task cancel + active-connection slot clear on EVERY exit
-    path (clean close, abnormal close, unexpected exception)."""
+    """UE-29: the orchestrator must STILL own the connection-lifecycle"""
 
     def test_orchestrator_has_finally_block(self) -> None:
-        """The orchestrator must have a ``finally:`` block that runs
-        cleanup regardless of how the read loop exited."""
+        """The orchestrator must have a ``finally:`` block that runs"""
         src = inspect.getsource(sidecar_ws._handle_connection_inner)
         assert "finally:" in src, (
             "UE-29: _handle_connection_inner must retain the finally block "
@@ -208,24 +151,21 @@ class TestLifecycleOwnership:
         assert "writer_task.cancel()" in src, "UE-29: orchestrator must cancel writer_task in the finally block"
 
     def test_orchestrator_clears_active_connection_slot(self) -> None:
-        """The finally block must clear ``server._active_ws_connection``
-        under ``server._lock`` (XZ-R18-06 compare-and-clear)."""
+        """The finally block must clear ``server._active_ws_connection``"""
         src = inspect.getsource(sidecar_ws._handle_connection_inner)
         assert "_active_ws_connection" in src, (
             "UE-29: orchestrator must clear _active_ws_connection in the finally block"
         )
 
     def test_orchestrator_handles_connection_closed_ok(self) -> None:
-        """The orchestrator must catch ``ConnectionClosedOK`` (clean
-        WebSocket close) and log at DEBUG. NOT propagate."""
+        """The orchestrator must catch ``ConnectionClosedOK`` (clean"""
         src = inspect.getsource(sidecar_ws._handle_connection_inner)
         assert "except ConnectionClosedOK:" in src, (
             "UE-29: orchestrator must catch ConnectionClosedOK for clean-close logging"
         )
 
     def test_orchestrator_handles_connection_closed_error(self) -> None:
-        """The orchestrator must catch ``ConnectionClosedError``
-        (abnormal close) and log at DEBUG."""
+        """The orchestrator must catch ``ConnectionClosedError``"""
         src = inspect.getsource(sidecar_ws._handle_connection_inner)
         assert "except ConnectionClosedError" in src, (
             "UE-29: orchestrator must catch ConnectionClosedError for abnormal-close logging"

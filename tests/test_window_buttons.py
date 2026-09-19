@@ -1,10 +1,4 @@
-"""Tests for voice_typer.server.server_platform.window_buttons.
-
-Covers the Linux window-button system snapshot used by the renderer's
-"follow system" title-bar mode: DE classification, button-layout parsing,
-the gsettings probe contract (mocked, no subprocess in tests), the
-per-process cache, and non-Linux degradation.
-"""
+"""Tests for voice_typer.server.server_platform.window_buttons."""
 
 from __future__ import annotations
 
@@ -47,8 +41,6 @@ class TestDetectDesktopEnvironment:
         assert wb.detect_desktop_environment(env) == "kde"
 
     def test_defaults_to_os_environ(self):
-        # No env argument → reads the real process env. On CI/dev machines
-        # this is "unknown" or a real DE, either way it must not raise.
         assert isinstance(wb.detect_desktop_environment(), str)
 
 
@@ -56,7 +48,6 @@ class TestParseButtonLayout:
     @pytest.mark.parametrize(
         ("value", "expected"),
         [
-            # gsettings returns a quoted GVariant string.
             ("'appmenu:minimize,maximize,close'", {"side": "right", "buttons": ["minimize", "maximize", "close"]}),
             ("'close,minimize,maximize:'", {"side": "left", "buttons": ["close", "minimize", "maximize"]}),
             ("'minimize,maximize'", {"side": "right", "buttons": ["minimize", "maximize"]}),
@@ -77,7 +68,6 @@ class TestParseButtonLayout:
 class TestSystemWindowButtons:
     def test_non_linux_platform_has_no_layout_and_no_subprocess(self):
         # This dev/CI machine may be non-Linux; force the non-Linux branch
-        # deterministically and assert the gsettings probe is never called.
         with (
             patch.object(wb.platform, "system", return_value="Windows"),
             patch.object(wb, "_query_gsettings") as probe,
@@ -116,7 +106,6 @@ class TestSystemWindowButtons:
 
     def test_real_platform_smoke(self):
         # On the real platform the function must never raise and must
-        # always expose both keys (this machine: Windows → layout None).
         snap = wb.system_window_buttons(force_refresh=True)
         assert set(snap) == {"desktop_environment", "layout"}
         if platform.system() != "Linux":

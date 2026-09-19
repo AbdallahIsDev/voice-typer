@@ -1,35 +1,4 @@
-"""Regression tests for GT-FIX-01 (Group 5: Reliability & Observability) in
-``voice_typer/server/log.py``.
-
-Covers six findings from the comprehensive review:
-
-* **GT-2 (Critical)**, custom formatters must append ``exc_info`` /
-  tracebacks.  ``log.exception(...)`` / ``log.error(..., exc_info=True)``
-  used to silently lose their stack trace because none of the three
-  custom :class:`logging.Formatter` subclasses called
-  ``super().format()`` or appended ``record.exc_text``.
-* **GT-13 (High)**, a stderr :class:`_FlushingStreamHandler` must be
-  attached even when stderr is not a TTY (Tauri sidecar / piped) so
-  early startup failures remain visible when the rotating-file write
-  silently fails (disk full, read-only config dir, bad perms).
-* **GT-65 (Medium)**, :func:`_apply_per_module_log_levels` must log
-  a WARNING for each skipped ``VOICE_TYPER_LOG_LEVEL_MODULES`` entry
-  so a typo no longer silently disables DEBUG output.
-* **GT-61 (Medium)**, timestamps must be distinguishable and
-  cross-timezone readable.  Text output (file + terminal) is a clean
-  space-separated local timestamp with seconds precision
-  (``YYYY-MM-DD  HH:MM:SS``, two spaces between date and time in the
-  file; time-only ``HH:MM:SS`` on the terminal, the date lives only in
-  the file).  JSON output keeps the millisecond fraction + UTC ``Z``
-  suffix for log aggregators.
-* **GT-62 (Medium)**, :class:`_BubbleLevelExclusionFilter` must keep
-  WARNING+ records unconditionally (cheap path) so a legitimate
-  ``"bubble_level handler crashed"`` error is never dropped from the
-  file.
-* **GT-64 (Medium)**, :func:`set_module_level` and
-  :func:`get_module_levels` provide a runtime API for changing a
-  subsystem's log level without restarting the sidecar.
-"""
+"""``voice_typer/server/log.py``."""
 
 from __future__ import annotations
 
@@ -55,20 +24,10 @@ from voice_typer.server.log import (
     setup_logging,
 )
 
-# ─── Test isolation ────────────────────────────────────────────────────────
-
 
 @pytest.fixture(autouse=True)
 def _restore_logging_state():
-    """Snapshot and restore the ``voice_typer`` logger + override registry.
-
-    Tests that call :func:`setup_logging` mutate the global
-    ``voice_typer`` logger (handlers, filters, level) and the module-level
-    :data:`_module_level_overrides` dict.  Without snapshot/restore the
-    state would leak across tests and break isolation, especially
-    relevant because :func:`set_module_level` (GT-64) mutates the
-    registry.
-    """
+    """Snapshot and restore the ``voice_typer`` logger + override registry."""
     vt_root = logging.getLogger("voice_typer")
     saved_vt_handlers = list(vt_root.handlers)
     saved_vt_filters = list(vt_root.filters)
@@ -82,9 +41,6 @@ def _restore_logging_state():
     vt_root.setLevel(saved_vt_level)
     _module_level_overrides.clear()
     _module_level_overrides.update(saved_overrides)
-
-
-# formatters must append exc_info ─────────────────────────────────
 
 
 def _make_record_with_exc(msg: str = "boom") -> logging.LogRecord:
@@ -110,9 +66,7 @@ def _make_record_with_exc(msg: str = "boom") -> logging.LogRecord:
 
 
 def test_file_formatter_appends_traceback() -> None:
-    """GT-2: ``_FileFormatter.format`` appends the traceback after the
-    message body so ``log.exception(...)`` records keep their stack
-    trace in the file."""
+    """message body so ``log.exception(...)`` records keep their stack"""
     line = _FileFormatter().format(_make_record_with_exc("outer boom"))
     assert "Traceback (most recent call last)" in line, (
         f"GT-2 regression: traceback missing from file-format output:\n{line!r}"
@@ -122,9 +76,7 @@ def test_file_formatter_appends_traceback() -> None:
 
 
 def test_color_formatter_appends_traceback() -> None:
-    """GT-2: ``_ColorFormatter.format`` appends the traceback (plain
-    text, no ANSI) so terminal output of ``log.exception(...)`` is
-    diagnostic."""
+    """``_ColorFormatter.format`` appends the traceback (plain"""
     line = _ColorFormatter().format(_make_record_with_exc("color boom"))
     assert "Traceback (most recent call last)" in line
     assert "RuntimeError: intentional test exception" in line
@@ -132,8 +84,7 @@ def test_color_formatter_appends_traceback() -> None:
 
 
 def test_json_formatter_includes_traceback_field() -> None:
-    """GT-2: ``_JsonFormatter.format`` adds a ``traceback`` field so
-    JSON aggregators can index / alert on stack traces."""
+    """``_JsonFormatter.format`` adds a ``traceback`` field so"""
     out = _JsonFormatter().format(_make_record_with_exc("json boom"))
     parsed = json.loads(out)
     assert "traceback" in parsed, f"GT-2 regression: no 'traceback' key in JSON payload: {parsed}"
@@ -142,8 +93,7 @@ def test_json_formatter_includes_traceback_field() -> None:
 
 
 def test_file_formatter_no_traceback_when_no_exc_info() -> None:
-    """A record without ``exc_info`` must not produce a traceback block
-    (regression guard that GT-2 doesn't add noise to normal records)."""
+    """A record without ``exc_info`` must not produce a traceback block"""
     record = logging.LogRecord(
         name="voice_typer.server.fake",
         level=logging.INFO,
@@ -160,8 +110,7 @@ def test_file_formatter_no_traceback_when_no_exc_info() -> None:
 
 
 def test_exception_log_reaches_file_on_disk(tmp_path: Path) -> None:
-    """GT-2 end-to-end: ``log.exception(...)`` writes a line containing
-    ``'Traceback (most recent call last)'`` to ``voice-typer.log`` on disk."""
+    """end-to-end: ``log.exception(...)`` writes a line containing"""
     reset()
     config_dir = tmp_path / "cfg"
     config_dir.mkdir()
@@ -184,20 +133,10 @@ def test_exception_log_reaches_file_on_disk(tmp_path: Path) -> None:
         reset()
 
 
-# always attach a stderr StreamHandler ───────────────────────────
-
-
 def test_setup_logging_attaches_stream_handler_without_tty(tmp_path: Path, monkeypatch) -> None:
-    """GT-13: even when stderr is NOT a TTY and --port mode is NOT
-    active (the Tauri sidecar case), ``setup_logging`` attaches a
-    :class:`_FlushingStreamHandler` to the ``voice_typer`` logger so
-    early startup failures remain visible when the rotating-file write
-    silently fails (disk full / read-only config dir / bad perms)."""
+    """even when stderr is NOT a TTY and --port mode is NOT"""
 
     # Stub isatty() so the code path under test is exercised, pytest
-    # captures stderr via a non-TTY wrapper, but to make this test
-    # resilient against a future pytest that does provide a TTY we
-    # force the non-TTY answer explicitly.
     class _FakeNonTtyStderr:
         def isatty(self) -> bool:
             return False
@@ -222,18 +161,7 @@ def test_setup_logging_attaches_stream_handler_without_tty(tmp_path: Path, monke
 
 
 def test_port_mode_with_redirected_stderr_uses_plain_formatter(tmp_path: Path, monkeypatch) -> None:
-    """A ``--port`` run with a NON-TTY stderr (the launcher
-    redirects the backend's stderr to a log file) must use
-    the plain ``_FileFormatter`` on the stream handler, no ANSI escape
-    codes in the log file.
-
-    Regression: ``do_color = sys.stderr.isatty() or port_mode`` forced
-    colours whenever ``--port`` was in argv, and the predecessor TCP path
-    (``python -m ipc_server --port N``) IS such a run, so every backend
-    line landed in that log file with raw ``\x1b[...`` codes
-    mixed with the predecessor + Vite output. Colors now require a real
-    TTY; redirected output stays plain.
-    """
+    """A ``--port`` run with a NON-TTY stderr (the launcher"""
 
     class _FakeNonTtyStderr:
         def isatty(self) -> bool:
@@ -258,10 +186,7 @@ def test_port_mode_with_redirected_stderr_uses_plain_formatter(tmp_path: Path, m
 
 
 def test_port_mode_with_tty_stderr_keeps_color_formatter(tmp_path: Path, monkeypatch) -> None:
-    """A real terminal (TTY stderr) keeps the coloured
-    ``_ColorFormatter`` even in ``--port`` mode, the palette is
-    terminal-only, so an interactive ``python -m ipc_server --port N``
-    run is unchanged."""
+    """A real terminal (TTY stderr) keeps the coloured"""
 
     class _FakeTtyStderr:
         def isatty(self) -> bool:
@@ -286,8 +211,7 @@ def test_port_mode_with_tty_stderr_keeps_color_formatter(tmp_path: Path, monkeyp
 
 
 def test_setup_logging_no_duplicate_stream_handlers_when_reinvoked(tmp_path: Path, monkeypatch) -> None:
-    """GT-13 must not break idempotency, repeated ``setup_logging``
-    calls do not duplicate the stderr stream handler."""
+    """must not break idempotency, repeated ``setup_logging``"""
     monkeypatch.delenv("VOICE_TYPER_LOG_JSON", raising=False)
     reset()
     config_dir = tmp_path / "cfg"
@@ -304,21 +228,7 @@ def test_setup_logging_no_duplicate_stream_handlers_when_reinvoked(tmp_path: Pat
 
 
 def test_winerror1_on_write_is_benign_and_silent(monkeypatch) -> None:
-    """On a Windows console, ``write()`` itself can raise WinError 1
-    (ERROR_INVALID_FUNCTION) even though the data reached the OS, the
-    raise comes from the underlying flush.  This is benign and must be
-    silent: NO diagnostic, handler stays attached, later writes still
-    reach the stream.
-
-    The quirk is a Windows-console behaviour and production gates the
-    benign path on ``os.name == "nt"``, so the gate is exercised by
-    pinning ``os.name`` ONLY around each direct ``handler.emit()``
-    call. The handler is constructed directly instead of via
-    ``setup_logging``: Python 3.10's ``pathlib.Path`` dispatches on
-    ``os.name`` at INSTANTIATION time, so a test-wide patch would make
-    pytest's own failure-reporting machinery instantiate WindowsPath on
-    POSIX and crash the xdist worker (observed on ubuntu-22.04 py3.10).
-    """
+    """On a Windows console, ``write()`` itself can raise WinError 1"""
     import errno
 
     written: list[str] = []
@@ -332,10 +242,6 @@ def test_winerror1_on_write_is_benign_and_silent(monkeypatch) -> None:
 
         def write(self, s: str) -> None:
             written.append(s)
-            # Mimic a console handle: the data WAS written but the
-            # internal flush raises ERROR_INVALID_FUNCTION.  Python maps
-            # WinError 1 to errno=EINVAL with winerror=1 (verified via
-            # ctypes.WinError(1): errno=22, winerror=1).
             exc = OSError(errno.EINVAL, "Incorrect function")
             exc.winerror = 1
             raise exc
@@ -376,9 +282,10 @@ def test_winerror1_on_write_is_benign_and_silent(monkeypatch) -> None:
 
 
 def test_broken_console_stream_silently_swallowed(tmp_path: Path, monkeypatch) -> None:
-    """A Windows console flush that raises WinError 1 (ERROR_INVALID_FUNCTION)
-    is a benign, expected quirk, not actual degradation.  The handler must
-    NOT emit a diagnostic, must NOT detach, and must keep writing."""
+    """
+    A Windows console flush that raises WinError 1 (ERROR_INVALID_FUNCTION)
+    NOT emit a diagnostic, must NOT detach, and must keep writing.
+    """
     written: list[str] = []
     flushed = 0
 
@@ -412,7 +319,6 @@ def test_broken_console_stream_silently_swallowed(tmp_path: Path, monkeypatch) -
         logger.info("first line")
 
         # The benign flush error produces NO diagnostic (write suceeded,
-        # flush error is swallowed silently).
         assert not stream._flushed_once, "benign flush error must NOT trip the broken-stream diagnostic"
         assert stream in root.handlers, "handler must stay attached"
         assert any("first line" in w for w in written), "line must reach the stream"
@@ -425,13 +331,8 @@ def test_broken_console_stream_silently_swallowed(tmp_path: Path, monkeypatch) -
         reset()
 
 
-# warn on skipped per-module entries ────────────────────────────
-
-
 def test_apply_per_module_log_levels_warns_on_unknown_level(tmp_path: Path, monkeypatch, caplog) -> None:
-    """GT-65: an invalid level name logs a WARNING so the operator can
-    see *which* entry was skipped (previously a silent trap, a typo
-    silently disabled DEBUG output)."""
+    """an invalid level name logs a WARNING so the operator can"""
     monkeypatch.setenv(
         "VOICE_TYPER_LOG_LEVEL_MODULES",
         "voice_typer.server.typo_module=BOGUS,voice_typer.server.real_module=INFO",
@@ -445,7 +346,6 @@ def test_apply_per_module_log_levels_warns_on_unknown_level(tmp_path: Path, monk
         skipped = [r for r in caplog.records if "skipping invalid" in r.getMessage()]
         assert skipped, "GT-65 regression: no WARNING emitted for the invalid VOICE_TYPER_LOG_LEVEL_MODULES entry"
         # The skipped entry's raw text is included so the operator can
-        # see which entry was ignored.
         assert any("BOGUS" in r.getMessage() for r in skipped)
         # The valid entry still applied.
         assert logging.getLogger("voice_typer.server.real_module").level == logging.INFO
@@ -454,7 +354,7 @@ def test_apply_per_module_log_levels_warns_on_unknown_level(tmp_path: Path, monk
 
 
 def test_apply_per_module_log_levels_warns_on_missing_equals(tmp_path: Path, monkeypatch, caplog) -> None:
-    """GT-65: an entry missing the ``=`` separator logs a WARNING."""
+    """an entry missing the ``=`` separator logs a WARNING."""
     monkeypatch.setenv(
         "VOICE_TYPER_LOG_LEVEL_MODULES",
         "voice_typer.server.no_separator,voice_typer.server.ok=DEBUG",
@@ -472,13 +372,7 @@ def test_apply_per_module_log_levels_warns_on_missing_equals(tmp_path: Path, mon
         reset()
 
 
-# timestamps: millis, clean text format, UTC Z for JSON ────────────────
-
-
 # Text output (file): clean space-separated local timestamp
-# `YYYY-MM-DD  HH:MM:SS`, TWO spaces between the date and the time,
-# seconds-only precision (no millisecond fraction), no ``T`` separator,
-# no tz offset, reads naturally.
 _TS_RE_TEXT = re.compile(r"\d{4}-\d{2}-\d{2}  \d{2}:\d{2}:\d{2}")
 # Terminal output: time only `HH:MM:SS` (no date, no millis).
 _TS_RE_TERM = re.compile(r"\d{2}:\d{2}:\d{2}")
@@ -487,10 +381,7 @@ _ISO_RE_JSON = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z")
 
 
 def test_file_formatter_clean_timestamp_no_millis() -> None:
-    """``_FileFormatter`` emits a clean space-separated timestamp with
-    seconds-only precision: ``YYYY-MM-DD  HH:MM:SS``, TWO spaces
-    between the date and the time, no millisecond fraction, no ``T``
-    separator, no timezone offset."""
+    """seconds-only precision: ``YYYY-MM-DD  HH:MM:SS``, TWO spaces"""
     record = logging.LogRecord(
         name="voice_typer.server.fake",
         level=logging.INFO,
@@ -513,9 +404,7 @@ def test_file_formatter_clean_timestamp_no_millis() -> None:
 
 
 def test_color_formatter_clean_timestamp_time_only() -> None:
-    """``_ColorFormatter`` (terminal) emits a TIME-ONLY timestamp
-    ``HH:MM:SS``, the date is deliberately kept out of console output
-    (it lives only in the log file).  No millis, no tz offset."""
+    """``_ColorFormatter`` (terminal) emits a TIME-ONLY timestamp"""
     record = logging.LogRecord(
         name="voice_typer.server.fake",
         level=logging.INFO,
@@ -537,8 +426,7 @@ def test_color_formatter_clean_timestamp_time_only() -> None:
 
 
 def test_json_formatter_iso_timestamp_utc_z_suffix() -> None:
-    """GT-61: ``_JsonFormatter`` emits an ISO 8601 UTC timestamp with
-    milliseconds and a ``Z`` suffix (the format log aggregators expect)."""
+    """``_JsonFormatter`` emits an ISO 8601 UTC timestamp with"""
     record = logging.LogRecord(
         name="voice_typer.server.fake",
         level=logging.INFO,
@@ -555,13 +443,11 @@ def test_json_formatter_iso_timestamp_utc_z_suffix() -> None:
     )
 
 
-# cheap pre-filter for _BubbleLevelExclusionFilter ───────────────
-
-
 def test_bubble_filter_keeps_warning_records_mentioning_marker() -> None:
-    """GT-62: a WARNING (or higher) record whose message mentions
+    """
+    a WARNING (or higher) record whose message mentions
     ``bubble_level`` must NOT be dropped, it's the most diagnostic
-    record in a bubble-related failure and must reach the file."""
+    """
     filt = _BubbleLevelExclusionFilter()
     for level in (logging.WARNING, logging.ERROR, logging.CRITICAL):
         rec = logging.LogRecord(
@@ -580,9 +466,7 @@ def test_bubble_filter_keeps_warning_records_mentioning_marker() -> None:
 
 
 def test_bubble_filter_still_drops_debug_bubble_records() -> None:
-    """GT-62: the high-frequency DEBUG ``bubble_level`` push (emitted by
-    ``IPCServer._send`` at ~60 Hz) must still be dropped from the file
-    to preserve the original noise-suppression behaviour."""
+    """``IPCServer._send`` at ~60 Hz) must still be dropped from the file"""
     filt = _BubbleLevelExclusionFilter()
     rec = logging.LogRecord(
         name="voice_typer.server.ipc",
@@ -600,8 +484,7 @@ def test_bubble_filter_still_drops_debug_bubble_records() -> None:
 
 
 def test_bubble_filter_keeps_unrelated_info_records() -> None:
-    """GT-62: INFO records that do NOT mention ``bubble_level`` are kept
-    (regression guard)."""
+    """INFO records that do NOT mention ``bubble_level`` are kept"""
     filt = _BubbleLevelExclusionFilter()
     rec = logging.LogRecord(
         name="voice_typer.server.ipc",
@@ -615,13 +498,8 @@ def test_bubble_filter_keeps_unrelated_info_records() -> None:
     assert filt.filter(rec) is True
 
 
-# runtime log-level change API ───────────────────────────────────
-
-
 def test_set_module_level_changes_logger_level() -> None:
-    """GT-64: :func:`set_module_level` immediately applies the new level
-    to the named logger so a subsystem's DEBUG output can be enabled
-    without restarting the sidecar."""
+    """func:`set_module_level` immediately applies the new level"""
     log = logging.getLogger("voice_typer.server.gt64_target")
     log.setLevel(logging.INFO)
     set_module_level("voice_typer.server.gt64_target", "DEBUG")
@@ -629,7 +507,7 @@ def test_set_module_level_changes_logger_level() -> None:
 
 
 def test_set_module_level_case_insensitive() -> None:
-    """GT-64: level name is case-insensitive (``"debug"`` == ``"DEBUG"``)."""
+    """level name is case-insensitive (``\"debug\"`` == ``\"DEBUG\"``)."""
     log = logging.getLogger("voice_typer.server.gt64_case")
     log.setLevel(logging.WARNING)
     set_module_level("voice_typer.server.gt64_case", "warning")
@@ -637,21 +515,19 @@ def test_set_module_level_case_insensitive() -> None:
 
 
 def test_set_module_level_invalid_raises_value_error() -> None:
-    """GT-64: an unknown level name raises :class:`ValueError` (rather
-    than silently no-op'ing)."""
+    """an unknown level name raises :class:`ValueError` (rather"""
     with pytest.raises(ValueError):
         set_module_level("voice_typer.server.gt64_bad", "NOPE")
 
 
 def test_set_module_level_empty_name_raises_value_error() -> None:
-    """GT-64: an empty module name raises :class:`ValueError`."""
+    """an empty module name raises :class:`ValueError`."""
     with pytest.raises(ValueError):
         set_module_level("", "DEBUG")
 
 
 def test_get_module_levels_returns_set_overrides() -> None:
-    """GT-64: :func:`get_module_levels` returns the dict of explicitly-set
-    overrides, with level *names* as values (JSON-serialisable for IPC)."""
+    """func:`get_module_levels` returns the dict of explicitly-set"""
     set_module_level("voice_typer.server.gt64_a", "DEBUG")
     set_module_level("voice_typer.server.gt64_b", "WARNING")
     overrides = get_module_levels()
@@ -660,7 +536,7 @@ def test_get_module_levels_returns_set_overrides() -> None:
 
 
 def test_get_module_levels_returns_fresh_dict() -> None:
-    """GT-64: mutating the returned dict does not affect internal state."""
+    """mutating the returned dict does not affect internal state."""
     set_module_level("voice_typer.server.gt64_iso", "INFO")
     snap = get_module_levels()
     snap["voice_typer.server.gt64_iso"] = "DEBUG"  # mutate the snapshot
@@ -671,8 +547,7 @@ def test_get_module_levels_returns_fresh_dict() -> None:
 
 
 def test_set_module_level_emits_info_audit_log(tmp_path: Path, caplog) -> None:
-    """GT-64: :func:`set_module_level` emits an INFO log so the change
-    is visible in the rotating file (audit trail)."""
+    """func:`set_module_level` emits an INFO log so the change"""
     reset()
     config_dir = tmp_path / "cfg"
     config_dir.mkdir()
@@ -689,8 +564,7 @@ def test_set_module_level_emits_info_audit_log(tmp_path: Path, caplog) -> None:
 
 
 def test_get_module_levels_includes_env_var_overrides(tmp_path: Path, monkeypatch) -> None:
-    """GT-64: overrides applied via ``VOICE_TYPER_LOG_LEVEL_MODULES`` at
-    startup are also visible via :func:`get_module_levels`."""
+    """overrides applied via ``VOICE_TYPER_LOG_LEVEL_MODULES`` at"""
     monkeypatch.setenv(
         "VOICE_TYPER_LOG_LEVEL_MODULES",
         "voice_typer.server.gt64_env_a=DEBUG,voice_typer.server.gt64_env_b=WARNING",

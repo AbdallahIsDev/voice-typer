@@ -1,27 +1,4 @@
-"""§8.4: Consent gate.
-
-Spec (§8.4):
-
-  The pack download is consent-gated, same as model downloads. The
-  consent is requested once (on first launch or first offline-
-  transcription attempt) via the existing consent UI. After consent,
-  the pack downloads silently (no progress bar in the main UI, but a
-  "Preparing…" line in the relevant areas).
-
-  CRITICAL: the consent flag is ``offline_pack_consent``, NOT
-  ``huggingface_consent``, because the pack download phones home to
-  GitHub Releases (revealing user IP to Microsoft).
-
-Tested behaviors:
-
-  1. ``config=None`` → ``OfflinePackConsentRequiredError`` raised.
-  2. ``config.offline_pack_consent=False`` → error raised.
-  3. ``config.offline_pack_consent=True`` → no error (download proceeds).
-  4. The exception's ``consent_field`` is ``"offline_pack_consent"``.
-  5. The exception's ``provider`` is ``"github"`` (not ``"huggingface"``).
-  6. ``huggingface_consent=True`` alone does NOT authorize the pack
-     download (separate consent flags).
-"""
+"""§8.4: Consent gate."""
 
 from __future__ import annotations
 
@@ -67,12 +44,7 @@ class TestConsentGate:
         assert exc_info.value.provider == "github"
 
     def test_huggingface_consent_alone_does_not_authorize(self):
-        """``huggingface_consent=True`` MUST NOT authorize pack download.
-
-        This is the core safety property: the two consent flags are
-        independent. A user who consented to HuggingFace model
-        downloads has NOT consented to GitHub Releases phone-home.
-        """
+        """``huggingface_consent=True`` MUST NOT authorize pack download."""
         with pytest.raises(offline_pack.OfflinePackConsentRequiredError):
             offline_pack.require_offline_pack_consent(
                 _config(offline_pack_consent=False, huggingface_consent=True),

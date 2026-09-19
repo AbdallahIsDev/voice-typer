@@ -1,22 +1,4 @@
-"""CR-069: split from tests/test_feature_hardening_regressions.py (L358-466).
-
-Source marker: ``tests/test_new_conc_004_rms_callback.py``.
-
-Regression tests for NEW-CONC-004: log.debug exc_info on hot path.
-
-Previously ``Recorder``'s audio callback logged
-``log.debug("[RECORDING] on_rms_level callback raised", exc_info=True)``
-on EVERY callback raise.  The audio callback fires at ~16 Hz; a buggy
-downstream consumer would trigger full traceback formatting 16 times
-per second, a significant CPU cost on the audio thread that can
-cause XRUNs.
-
-The fix only formats the traceback on the 1st occurrence and every
-100th subsequent occurrence; the rest are logged without exc_info.
-
-Class/method names, assertion logic, and imports below are preserved
-verbatim from the original monolith, only file location has changed.
-"""
+"""Source marker: ``tests/test_new_conc_004_rms_callback.py``."""
 
 # === Source: tests/test_new_conc_004_rms_callback.py ===
 
@@ -46,8 +28,7 @@ def _make_recorder() -> Recorder:
 
 
 class TestRmsCallbackErrorSuppression:
-    """NEW-CONC-004: traceback formatting must be suppressed after the
-    first occurrence."""
+    """NEW-CONC-004: traceback formatting must be suppressed after the"""
 
     def test_first_error_logs_with_exc_info(self, caplog):
         """The first callback raise must log with exc_info=True."""
@@ -96,9 +77,7 @@ class TestRmsCallbackErrorSuppression:
         assert len(with_exc_info) == 1, f"Expected 1 record with exc_info (first occurrence); got {len(with_exc_info)}"
 
     def test_100th_occurrence_logs_with_exc_info(self, caplog):
-        """Every 100th occurrence must re-log with exc_info so the
-        developer sees the traceback periodically (in case it changed
-        due to a code update)."""
+        """developer sees the traceback periodically (in case it changed"""
         rec = _make_recorder()
 
         with caplog.at_level(logging.DEBUG, logger="voice_typer.server.recording"):

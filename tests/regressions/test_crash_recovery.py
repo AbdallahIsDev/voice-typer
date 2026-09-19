@@ -1,14 +1,4 @@
-"""Regression tests split out of the former ``tests/test_bugfix_regressions.py``.
-
-This module is part of the ``tests/regressions/`` package.
-The class/method names, assertion logic, and imports below are
-preserved verbatim from the original 4446-line monolith, only file
-location has changed.
-
-Common preamble (imports + Linux test-env shim) is identical to the
-original file so that every test in this module sees the same global
-state the monolith provided.
-"""
+"""The class/method names, assertion logic, and imports below are"""
 
 from __future__ import annotations
 
@@ -31,34 +21,11 @@ def _mock_recovery_owner_acl(monkeypatch):
     )
 
 
-# the previous Linux test-env shim that aliased
-# ``ctypes.WINFUNCTYPE = ctypes.CFUNCTYPE`` and inserted a ``MagicMock``
-# for ``voice_typer.server.crash_handler`` into ``sys.modules`` has been
-# removed. ``crash_handler.py`` now gates the ``@ctypes.WINFUNCTYPE(...)``
-# decorator behind ``sys.platform == "win32"`` (see crash_handler.py near
-# the ``_vectored_handler_impl`` definition), so the module imports
-# cleanly on Linux/macOS without any test-infrastructure shim.
-#
-# The MagicMock injection here was actively harmful: it polluted
-# ``sys.modules`` for any subsequent test that imported
-# ``voice_typer.server.app`` (which does
-# ``from voice_typer.server import crash_handler as _crash_handler``),
-# causing AttributeError on real crash_handler API calls.
-#
-# Tests that need to mock crash_handler should do so per-test via
-# ``monkeypatch.setattr`` or ``unittest.mock.patch`` (context-managed).
-
-
 class TestSubprocessCrashRecoveryHandler:
     """Test the Python exit handler logic."""
 
     def test_exit_handler_logic_exists(self):
-        """Tauri host must reap/kill the Python sidecar on host exit.
-
-        Post-predecessor cutover the pythonProcess.on('exit') handler lives
-        in the Rust supervisor, not predecessor main. Pin the supervisor
-        spawn/respawn wiring so a sidecar cannot outlive the host.
-        """
+        """Tauri host must reap/kill the Python sidecar on host exit."""
         supervisor = (
             Path(__file__).resolve().parent.parent.parent / "src-tauri" / "src" / "sidecar" / "ws" / "supervisor.rs"
         )
@@ -93,41 +60,14 @@ class TestCrashRecoveryLoadsStaleState:
 
 
 class TestSidecarCrashDetectionBehavioral:
-    """behavioral test of sidecar crash detection.
-
-    The pre-existing ``test_exit_handler_logic_exists`` above is a
-    source-string check, it asserts the literal ``proc.on('exit'``
-    substring is present in ``start-python.ts``. A refactor that keeps
-    the substring while breaking the behavior would still pass.
-
-    This class adds a BEHAVIORAL test that spawns a REAL Python
-    subprocess (mimicking the sidecar), binds a real TCP port (the
-    IPC port), sends SIGKILL, and verifies the parent detects the
-    exit within a bounded time. A regression in the OS-level process
-    exit detection (or in ``subprocess.Popen.poll()`` semantics) would
-    fail this test.
-
-    NOTE: This test exercises the OS-level subprocess-exit detection
-    contract that ``pythonProcess.on('exit')`` in start-python.ts
-    relies on. A full predecessor-side behavioral test (spawning the
-    actual predecessor main process + Python sidecar together) is
-    deferred, it requires a running predecessor app and is too heavy
-    for unit-test CI. This test provides the behavioral coverage at
-    the subprocess level.
-    """
+    """behavioral test of sidecar crash detection."""
 
     @pytest.mark.skipif(
         sys.platform == "win32",
         reason="signal.pause() is POSIX-only, the sidecar subprocess script cannot run on Windows",
     )
     def test_parent_detects_sigkilled_sidecar_within_bounded_time(self, tmp_path):
-        """When a sidecar subprocess is SIGKILLed, the parent's
-        ``Popen.poll()`` must return the (negative) signal within a
-        bounded time (≤ 2s on Linux). This is the contract
-        ``pythonProcess.on('exit')`` relies on, if the OS took
-        unbounded time to deliver the exit signal, the restart/quit
-        path would never fire.
-        """
+        """When a sidecar subprocess is SIGKILLed, the parent's"""
         import socket
         import subprocess
         import sys
@@ -140,9 +80,6 @@ class TestSidecarCrashDetectionBehavioral:
         s.close()
 
         # Spawn a REAL Python subprocess that binds the port and waits
-        # for SIGKILL. This mimics the voice-typer sidecar's IPC
-        # socket bind. We use ``-c`` so the test is self-contained
-        # (no fixture file needed).
         sidecar_script = (
             "import socket, signal, time\n"
             f"srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)\n"
@@ -178,7 +115,6 @@ class TestSidecarCrashDetectionBehavioral:
             assert ready, "sidecar did not signal readiness within 5s, cannot proceed with crash-detection test"
 
             # Verify the port is actually bound (the sidecar is
-            # listening, mimicking the real IPC server).
             test_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             test_sock.settimeout(1.0)
             try:
@@ -190,10 +126,6 @@ class TestSidecarCrashDetectionBehavioral:
 
             # SIGKILL the sidecar (mimics a hard crash).
             proc.kill()
-            # Poll for exit detection within a bounded time. The
-            # contract: Popen.poll() must return the (negative) signal
-            # code within 2s on Linux. If it returns None forever,
-            # the parent would never detect the crash.
             deadline = time.monotonic() + 2.0
             exit_code = None
             while time.monotonic() < deadline:

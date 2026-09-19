@@ -1,13 +1,4 @@
-"""Tests for :class:`voice_typer.server._busyness.BusynessCoordinator`.
-
-AC-66: extract BusynessCoordinator that owns the legacy
-``_busy_event`` + ``_lock`` primitives and exposes intent-revealing
-methods (``is_busy`` / ``set_busy`` / ``set_idle`` / ``wait_idle``).
-
-These tests verify the coordinator's API surface + the NON-inverted
-semantic (``is_busy()`` returns True while busy, vs the legacy
-``_busy_event.is_set()`` which returned True when NOT busy).
-"""
+"""Tests for :class:`voice_typer.server._busyness.BusynessCoordinator`."""
 
 from __future__ import annotations
 
@@ -26,7 +17,6 @@ class TestBusynessCoordinatorInitialState:
 
     def test_fresh_coordinator_wait_idle_returns_immediately(self) -> None:
         bc = BusynessCoordinator()
-        # wait_idle should return True immediately when already idle.
         start = time.perf_counter()
         result = bc.wait_idle(timeout=0.1)
         elapsed = time.perf_counter() - start
@@ -105,20 +95,17 @@ class TestBusynessCoordinatorLock:
 
         bc = BusynessCoordinator()
         lk = bc.lock
-        # duck-typed: must support acquire/release + context-manager protocol.
         assert hasattr(lk, "acquire")
         assert hasattr(lk, "release")
         assert hasattr(lk, "__enter__")
         assert hasattr(lk, "__exit__")
         # ``threading.Lock`` factory returns _thread.lock (not Lock class),
-        # so we duck-type instead of isinstance.
         assert callable(lk.acquire)
 
     def test_lock_can_be_acquired_and_released(self) -> None:
         bc = BusynessCoordinator()
         lk = bc.lock
         assert lk.acquire(blocking=False) is True
-        # second acquire (non-blocking) should fail (lock already held).
         assert lk.acquire(blocking=False) is False
         lk.release()
         # After release, should be acquirable again.

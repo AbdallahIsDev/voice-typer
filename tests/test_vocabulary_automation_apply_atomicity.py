@@ -1,45 +1,4 @@
-"""Atomicity regression tests for ``VocabularyAutomation`` apply / dismiss.
-
-The pre-fix implementation of ``auto_apply_high_confidence_suggestions``
-released ``self._lock`` between the snapshot and the per-suggestion
-apply call.  Two concurrent callers could both pass the
-``suggestion.applied`` check before either set the flag, both call
-``_vm.add_entry(...)``, and produce DUPLICATE entries in the
-``misspellings`` category.  The same race affected the public
-``apply_suggestion`` and ``dismiss_suggestion`` methods (check outside
-the lock, mutation outside the lock, lock only acquired for the
-``_pending`` rebuild).
-
-The fix moves the check, the side effect, and the mutation ALL under
-``self._lock``:
-
-* ``apply_suggestion`` acquires the lock and delegates to
-  ``_apply_suggestion_locked``.
-* ``dismiss_suggestion`` acquires the lock and delegates to
-  ``_dismiss_suggestion_locked``.
-* ``auto_apply_high_confidence_suggestions`` holds the lock for the
-  entire iteration and calls ``_apply_suggestion_locked`` directly
-  (no lock re-acquisition, no race window between iterations).
-
-These tests pin the atomicity contract by:
-
-1. **Source-level inspection**, verify the lock IS held across the
-   check-and-apply (a static guarantee that survives even when the
-   GIL masks the race at runtime).
-2. **Concurrency stress**, many threads calling
-   ``auto_apply_high_confidence_suggestions`` simultaneously on the
-   same pending list must produce exactly ONE ``add_entry`` call per
-   qualifying suggestion (not N).
-3. **Concurrency stress**, many threads calling ``apply_suggestion``
-   on the SAME suggestion must produce exactly ONE ``add_entry`` call.
-4. **Concurrency stress**, mixed ``apply_suggestion`` +
-   ``auto_apply_high_confidence_suggestions`` racing on the same
-   suggestion must produce exactly ONE ``add_entry`` call.
-5. **Idempotency**, a follow-up call to ``apply_suggestion`` after a
-   successful apply is a no-op (``add_entry`` not called again).
-6. **Dismiss wins**, once dismissed, ``apply_suggestion`` is a no-op
-   (and vice versa).
-"""
+"""Atomicity regression tests for ``VocabularyAutomation`` apply / dismiss."""
 
 from __future__ import annotations
 
@@ -55,9 +14,6 @@ import pytest
 VOCAB_AUTO_SOURCE = Path(
     inspect.getsourcefile(__import__("voice_typer.server.vocabulary_automation", fromlist=["x"]))
 ).read_text()
-
-
-# ─── Fixtures ──────────────────────────────────────────────────────────────
 
 
 @pytest.fixture
@@ -115,9 +71,6 @@ def _make_suggestion(original="definately", corrected="definitely", confidence=0
     )
 
 
-# ─── 1. Source-level atomicity ────────────────────────────────────────────
-
-
 def _func_node(source: str, name: str) -> ast.FunctionDef | None:
     """Return the AST FunctionDef for ``name`` in ``source`` (or None)."""
     tree = ast.parse(source)
@@ -136,9 +89,7 @@ def _first_with(body: list[ast.stmt]) -> ast.With | None:
 
 
 def _body_after_docstring(body: list[ast.stmt]) -> list[ast.stmt]:
-    """Strip a leading docstring (ast.Expr with Constant str value) from
-    a function body so the atomicity assertions check the actual code,
-    not the docstring."""
+    """a function body so the atomicity assertions check the actual code,"""
     if (
         body
         and isinstance(body[0], ast.Expr)
@@ -150,17 +101,12 @@ def _body_after_docstring(body: list[ast.stmt]) -> list[ast.stmt]:
 
 
 class TestSourceLevelAtomicity:
-    """The lock-acquisition pattern is statically verifiable, runtime
-    tests can pass even when the lock is missing (the GIL masks the
-    race on CPython).  These tests parse the source AST to verify
-    the lock IS held across the check-and-apply."""
+    """The lock-acquisition pattern is statically verifiable, runtime"""
 
     def test_apply_suggestion_holds_lock_for_whole_body(self):
         node = _func_node(VOCAB_AUTO_SOURCE, "apply_suggestion")
         assert node is not None, "apply_suggestion must exist"
         # The body (after the docstring) must be a single `with self._lock:`
-        # statement that delegates to _apply_suggestion_locked.  No check or
-        # side effect may live outside the `with` block.
         body = _body_after_docstring(node.body)
         assert len(body) == 1, (
             f"apply_suggestion body must be a single `with self._lock:` "
@@ -188,17 +134,10 @@ class TestSourceLevelAtomicity:
         assert ctx.attr == "_lock"
 
     def test_auto_apply_holds_lock_across_iteration(self):
-        """``auto_apply_high_confidence_suggestions`` must hold the
-        lock for the ENTIRE iteration loop, not just for the snapshot.
-        The pre-fix code did ``with self._lock: snapshot = list(...)``
-        then released the lock and iterated unlocked, that opened the
-        race window."""
+        """lock for the ENTIRE iteration loop, not just for the snapshot."""
         node = _func_node(VOCAB_AUTO_SOURCE, "auto_apply_high_confidence_suggestions")
         assert node is not None
         body = _body_after_docstring(node.body)
-        # The first (and only meaningful) top-level statement after the
-        # docstring must be a `with self._lock:` block whose body
-        # contains the for loop.
         with_stmts = [s for s in body if isinstance(s, ast.With)]
         assert len(with_stmts) >= 1, "auto_apply_high_confidence_suggestions must wrap the loop in `with self._lock:`"
         with_stmt = with_stmts[0]
@@ -213,12 +152,7 @@ class TestSourceLevelAtomicity:
         )
 
     def test_auto_apply_calls_inner_locked_helper_not_public_apply(self):
-        """Inside the lock, ``auto_apply_high_confidence_suggestions``
-        must call ``_apply_suggestion_locked`` (the lock-held helper),
-        NOT the public ``apply_suggestion`` (which would deadlock on a
-        non-reentrant Lock, or (if someone switched to RLock) would
-        re-check and re-apply, reintroducing the race window between
-        the iteration's check and the inner apply)."""
+        """Inside the lock, ``auto_apply_high_confidence_suggestions``"""
         node = _func_node(VOCAB_AUTO_SOURCE, "auto_apply_high_confidence_suggestions")
         assert node is not None
         calls = [n for n in ast.walk(node) if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)]
@@ -234,15 +168,8 @@ class TestSourceLevelAtomicity:
         )
 
 
-# ─── 2. Concurrency stress: auto_apply ────────────────────────────────────
-
-
 class _CountingVM:
-    """Wraps a real VocabularyManager and counts ``add_entry`` calls.
-
-    Used by the concurrency tests to assert that the SAME suggestion
-    is not applied more than once across N racing threads.
-    """
+    """Wraps a real VocabularyManager and counts ``add_entry`` calls."""
 
     def __init__(self, real_vm):
         self._real = real_vm
@@ -262,10 +189,7 @@ class _CountingVM:
 
 class TestAutoApplyConcurrency:
     def test_concurrent_auto_apply_no_duplicates(self, vm, config):
-        """N threads call ``auto_apply_high_confidence_suggestions``
-        on the same pending list.  Each qualifying suggestion must be
-        applied EXACTLY once, total ``add_entry`` calls must equal
-        the number of qualifying suggestions, not N× that."""
+        """N threads call ``auto_apply_high_confidence_suggestions``"""
         from voice_typer.server.vocabulary_automation import VocabularyAutomation
 
         counting_vm = _CountingVM(vm)
@@ -302,13 +226,9 @@ class TestAutoApplyConcurrency:
         assert automation.get_pending_suggestions() == []
 
 
-# ─── 3. Concurrency stress: apply_suggestion on the SAME suggestion ──────
-
-
 class TestApplySuggestionConcurrency:
     def test_concurrent_apply_same_suggestion_no_duplicates(self, vm, config):
-        """N threads call ``apply_suggestion`` on the SAME suggestion
-        simultaneously.  ``add_entry`` must be called exactly once."""
+        """N threads call ``apply_suggestion`` on the SAME suggestion"""
         from voice_typer.server.vocabulary_automation import VocabularyAutomation
 
         counting_vm = _CountingVM(vm)
@@ -335,14 +255,9 @@ class TestApplySuggestionConcurrency:
         assert suggestion.applied
 
 
-# ─── 4. Mixed auto_apply + manual apply race ─────────────────────────────
-
-
 class TestMixedApplyAutoApplyRace:
     def test_auto_apply_and_manual_apply_no_duplicates(self, vm, config):
-        """Mix ``apply_suggestion`` and
-        ``auto_apply_high_confidence_suggestions`` racing on the same
-        suggestion.  ``add_entry`` must be called exactly once."""
+        """``auto_apply_high_confidence_suggestions`` racing on the same"""
         from voice_typer.server.vocabulary_automation import VocabularyAutomation
 
         counting_vm = _CountingVM(vm)
@@ -375,9 +290,6 @@ class TestMixedApplyAutoApplyRace:
         assert suggestion.applied
 
 
-# ─── 5. Idempotency on the same thread ───────────────────────────────────
-
-
 class TestIdempotency:
     def test_apply_twice_calls_add_entry_once(self, automation, vm):
         suggestion = _make_suggestion(original="teh", corrected="the")
@@ -388,11 +300,6 @@ class TestIdempotency:
 
         miss = vm.get_category("misspellings")
         assert miss.get("teh") == "the"
-        # Verify no duplicate by re-reading: a dict-based category
-        # would silently overwrite, so check via a counting wrapper
-        # would be ideal, but the concurrency tests above already
-        # pin this.  Here we just verify the applied flag is set
-        # and the suggestion is no longer pending.
         assert suggestion.applied
         assert suggestion not in automation.get_pending_suggestions()
 
@@ -423,9 +330,6 @@ class TestIdempotency:
         assert suggestion.applied
         # ``dismissed`` must NOT be flipped (apply already won).
         assert not suggestion.dismissed
-
-
-# ─── 6. Return value of _apply_suggestion_locked ─────────────────────────
 
 
 class TestApplyLockedReturnValue:

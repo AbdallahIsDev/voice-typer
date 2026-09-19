@@ -1,13 +1,4 @@
-"""Pin the Tauri sidecar/worker spawn env against predecessor parity regressions.
-
-MO-111: predecessor always passed ``KMP_DUPLICATE_LIB_OK=TRUE`` to its
-console-less Python child (the Intel OpenMP runtime aborts at
-ORT/ctranslate2 import when two OpenMP runtimes land in one process). The
-Tauri spawn paths ``.env_clear()`` the host env, so the var must be
-re-added EXPLICITLY on every sidecar/worker spawn builder. These tests
-grep the four spawn modules for the literal so a spawn path that drops
-the var fails loudly instead of silently hanging on affected machines.
-"""
+"""Pin the Tauri sidecar/worker spawn env against predecessor parity regressions."""
 
 from __future__ import annotations
 
@@ -48,13 +39,9 @@ def test_worker_release_spawn_sets_kmp_duplicate_lib_ok() -> None:
 
 
 def test_every_env_clear_spawn_path_sets_kmp() -> None:
-    """Every ``.env_clear()`` in the spawn modules must be followed by a
-    KMP var set in the same module (the clear is what drops the var; a
-    new env_clear path that forgets the re-add is exactly the MO-111
-    regression class)."""
+    """new env_clear path that forgets the re-add is exactly the MO-111"""
     for name in ("release_mode.rs", "dev_mode.rs", "worker.rs"):
         # Only real spawn-builder clears count: the module doc comments
-        # also mention `.env_clear()` in prose, so strip comments first.
         src = _spawn_source(name)
         code = "\n".join(line.split("//")[0] for line in src.splitlines())
         clears = code.count(".env_clear()")

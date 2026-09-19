@@ -1,24 +1,4 @@
-"""XZ-R17-06 + XZ-R17-11 regression tests for shutdown_controller.py.
-
-XZ-R17-06: Windows logoff/shutdown fast cleanup path.
-- ``_do_fast_cleanup()`` runs ONLY critical-resource cleanup with 1s
-  timeouts (crash_recovery.flush, history_db.flush, recorder.stop,
-  _clear_backend_pid_file, mutex release) targeting <3s total.
-- Idempotent with ``_do_cleanup()`` via the shared ``_cleanup_done`` guard.
-
-UE-1 (XZ-R17-06 follow-up): ``_do_fast_cleanup()`` now ends with
-``os._exit(0)`` (the OS is killing us; bypassing atexit is correct).
-Tests that invoke ``_do_fast_cleanup()`` directly MUST mock
-``os._exit`` via the autouse ``_stub_os_exit`` fixture below so the
-test runner doesn't actually exit. ``win32_console_handler`` now
-routes logoff/shutdown events to ``_do_fast_cleanup()`` instead of
-``controller.quit()``: see TestWin32RoutingFastCleanup below.
-
-XZ-R17-11: null hotkey backend refs after parallel stop.
-- ``_teardown_hotkeys()`` nulls ``_hotkey_backend``, ``_esc_backend``,
-  ``_repaste_backend`` after the parallel stop so a subsequent
-  ``_do_cleanup`` pass does NOT re-enter ``stop()`` on torn-down backends.
-"""
+"""XZ-R17-06 + XZ-R17-11 regression tests for shutdown_controller.py."""
 
 from __future__ import annotations
 
@@ -33,11 +13,7 @@ from voice_typer.server.shutdown_controller import ShutdownController
 
 @pytest.fixture(autouse=True)
 def _stub_os_exit(monkeypatch):
-    """UE-1: ``_do_fast_cleanup()`` ends with ``os._exit(0)``. Stub it
-    so the test runner doesn't actually exit when tests invoke
-    ``_do_fast_cleanup()`` directly. Tests that need to assert on the
-    call can read the recorded calls from the same fixture by depending
-    on ``_stub_os_exit``."""
+    """UE-1: ``_do_fast_cleanup()`` ends with ``os._exit(0)``. Stub it"""
     calls: list[int] = []
     monkeypatch.setattr(
         "voice_typer.server.shutdown_controller.os._exit",
@@ -88,33 +64,17 @@ class TestFastCleanup:  # noqa: N801
         )
 
     def test_do_fast_cleanup_idempotent(self, _stub_os_exit):
-        """Calling _do_fast_cleanup twice is safe, the second invocation
-        STILL runs the critical flushes (they are idempotent; running
-        them twice is bounded by 1s timeouts and safe).
-
-        UE-1: the second call still calls ``os._exit(0)`` (because the
+        """
+        Calling _do_fast_cleanup twice is safe, the second invocation
         Windows logoff/shutdown callback must not return True without
-        exiting). The previous ``if not already_done:`` gate skipped
-        the second invocation's flushes, which created a false
-        positive under quit-during-logoff (the slow ``_do_cleanup``
-        had set ``_cleanup_done = True`` but not yet reached the
-        parallel batch when the fast path fired; the fast path's
-        flushes were skipped, and ``os._exit(0)`` killed the slow
-        path mid-flight, both paths skipped the critical writes).
-        The fix removes the gate so the flushes run unconditionally.
         """
         controller, app = _make_controller_with_app()
         controller._do_fast_cleanup()
         # Second call: arm a spy on crash_recovery.flush, it MUST be
-        # called (unconditional flush, running twice is safe), AND
-        # os._exit(0) MUST fire again.
         app._crash_recovery = MagicMock()
         app._crash_recovery.flush = MagicMock()
         controller._do_fast_cleanup()
         app._crash_recovery.flush.assert_called_once_with(timeout=1.0)
-        # os._exit(0) must have been called twice (once per
-        # invocation), the second call still exits to honor the OS
-        # force-kill window even though cleanup already ran.
         assert _stub_os_exit == [0, 0], (
             f"UE-1: both _do_fast_cleanup invocations must call os._exit(0); got {_stub_os_exit}"
         )
@@ -151,14 +111,6 @@ class TestFastCleanup:  # noqa: N801
 
     def test_do_fast_cleanup_releases_mutex_handle(self, _stub_os_exit):
         """_do_fast_cleanup releases the mutex handle (POSIX path)."""
-        # POSIX-only: on Windows ``_do_fast_cleanup`` takes the
-        # ``ctypes.windll.kernel32.CloseHandle`` branch (the OS closes
-        # the handle; there is no ``release()``). ``is_windows()`` is
-        # the real module-level import in ``shutdown_controller.py``,
-        # so passing a MagicMock into the real ctypes function triggers
-        # unittest.mock's child-mock recursion (native stack overflow
-        # on Windows). Skip on non-POSIX rather than exercising the
-        # Windows branch with a mock.
         if os.name != "posix":
             pytest.skip("XZ-R17-06 POSIX-only test (Windows uses CloseHandle, not flock release)")
         controller, app = _make_controller_with_app()
@@ -169,22 +121,13 @@ class TestFastCleanup:  # noqa: N801
         assert app._mutex_handle is None
 
     def test_do_fast_cleanup_never_raises(self, _stub_os_exit):
-        """_do_fast_cleanup must never propagate exceptions (best-effort).
-
-        UE-1: even if a cleanup step raises, the method must still
-        reach ``os._exit(0)`` (the outer ``try/except`` in
-        ``win32_console_handler`` is the safety net for the rare case
-        where the exit itself is unreachable)."""
+        """_do_fast_cleanup must never propagate exceptions (best-effort)."""
         controller, app = _make_controller_with_app()
         app._crash_recovery = MagicMock()
         app._crash_recovery.flush.side_effect = RuntimeError("simulated failure")
         # Must not raise.
         controller._do_fast_cleanup()
-        # os._exit(0) must still be called.
         assert _stub_os_exit == [0]
-
-
-# null hotkey backend refs ──────────────────────────────
 
 
 class TestNullHotkeyRefs:  # noqa: N801
@@ -209,7 +152,6 @@ class TestNullHotkeyRefs:  # noqa: N801
         backend2.stop.assert_called_once()
         backend3.stop.assert_called_once()
 
-        # refs should now be None.
         assert app.hotkeys._hotkey_backend is None, "_hotkey_backend must be nulled after _teardown_hotkeys (XZ-R17-11)"
         assert app.hotkeys._esc_backend is None, "_esc_backend must be nulled after _teardown_hotkeys (XZ-R17-11)"
         assert app.hotkeys._repaste_backend is None, (
@@ -227,7 +169,6 @@ class TestNullHotkeyRefs:  # noqa: N801
 
         # Second call, no backends, should not raise.
         controller._teardown_hotkeys()
-        # backend.stop was called only once (first call).
         backend.stop.assert_called_once()
 
 
@@ -235,15 +176,10 @@ class TestNullHotkeyRefs:  # noqa: N801
 
 
 class TestFastCleanupOsExit:  # noqa: N801
-    """UE-1: ``_do_fast_cleanup()`` must end with ``os._exit(0)`` so the
-    Windows logoff/shutdown callback returns control to the OS via the
-    async-signal-safe exit primitive (bypassing atexit handlers that
-    could race our own cleanup)."""
+    """could race our own cleanup)."""
 
     def test_do_fast_cleanup_calls_os_exit_zero(self, _stub_os_exit):
-        """``_do_fast_cleanup()`` must call ``os._exit(0)`` exactly once
-        at the end (cleanup is complete; bypassing atexit is acceptable
-        because the OS is killing us)."""
+        """``_do_fast_cleanup()`` must call ``os._exit(0)`` exactly once"""
         controller, _ = _make_controller_with_app()
         controller._do_fast_cleanup()
         assert _stub_os_exit == [0], (
@@ -251,24 +187,9 @@ class TestFastCleanupOsExit:  # noqa: N801
         )
 
     def test_do_fast_cleanup_calls_os_exit_even_when_cleanup_done_already(self, _stub_os_exit):
-        """When ``_cleanup_done`` is already True (prior cleanup ran),
-        ``_do_fast_cleanup`` STILL runs its critical flushes
-        UNCONDITIONALLY (the writes are idempotent, running them
-        twice is safe) AND calls ``os._exit(0)``, we're being
-        invoked from the Windows logoff/shutdown callback and must
-        not return True (which would let the OS re-evaluate us).
-
-        The previous ``if not already_done:`` gate created a false
-        positive under quit-during-logoff: the slow ``_do_cleanup``
-        had set ``_cleanup_done = True`` at its start but had not yet
-        reached the parallel batch when the fast path fired; the fast
-        path's flushes were skipped, and ``os._exit(0)`` killed the
-        slow path mid-flight, both paths skipped the critical writes.
-        The fix removes the gate so the flushes run unconditionally."""
+        """When ``_cleanup_done`` is already True (prior cleanup ran),"""
         controller, app = _make_controller_with_app()
         app._cleanup_done = True
-        # crash_recovery.flush MUST be called even though _cleanup_done
-        # is True (unconditional flush, running twice is safe).
         app._crash_recovery = MagicMock()
         controller._do_fast_cleanup()
         app._crash_recovery.flush.assert_called_once_with(timeout=1.0)
@@ -278,8 +199,7 @@ class TestFastCleanupOsExit:  # noqa: N801
         )
 
     def test_do_fast_cleanup_calls_os_exit_after_all_cleanup_steps(self, _stub_os_exit, monkeypatch):
-        """All critical cleanup steps must run BEFORE ``os._exit(0)``.
-        Verify by recording the order of calls."""
+        """All critical cleanup steps must run BEFORE ``os._exit(0)``."""
         controller, app = _make_controller_with_app()
         call_order: list[str] = []
 
@@ -292,7 +212,6 @@ class TestFastCleanupOsExit:  # noqa: N801
         def _record_os_exit(code=0):
             call_order.append("os._exit")
             # Don't actually exit (the autouse fixture already prevents
-            # the real exit; this spy is just for ordering).
 
         app._crash_recovery = MagicMock()
         app._crash_recovery.flush.side_effect = _record_crash_flush
@@ -316,18 +235,11 @@ class TestFastCleanupOsExit:  # noqa: N801
         assert history_idx < exit_idx, f"UE-1: history_db.flush must run BEFORE os._exit; got order: {call_order}"
 
 
-# win32_console_handler routing ──────────────────────────────
-
-
 class TestWin32RoutingFastCleanup:  # noqa: N801
-    """UE-1: ``win32_console_handler`` must route
-    ``CTRL_LOGOFF_EVENT`` (5) / ``CTRL_SHUTDOWN_EVENT`` (6) to
-    ``controller._do_fast_cleanup()`` (NOT ``controller.quit()``)."""
+    """UE-1: ``win32_console_handler`` must route"""
 
     def test_logoff_event_routes_to_fast_cleanup(self, _stub_os_exit):
-        """CTRL_LOGOFF_EVENT (5) must invoke ``_do_fast_cleanup``, the
-        critical-only path that runs in <3s with a final ``os._exit(0)``
-        (Windows force-kills the process after ~5s)."""
+        """critical-only path that runs in <3s with a final ``os._exit(0)``"""
         from voice_typer.server.signal_handlers import win32_console_handler
 
         controller, _ = _make_controller_with_app()
@@ -373,10 +285,7 @@ class TestWin32RoutingFastCleanup:  # noqa: N801
         controller.quit.assert_not_called(), ("UE-1: CTRL_SHUTDOWN_EVENT must NOT invoke controller.quit()")
 
     def test_logoff_event_calls_fast_cleanup_synchronously(self, _stub_os_exit):
-        """The fast-cleanup dispatch must be SYNCHRONOUS (not on a daemon
-        thread), the Win32 console-control callback runs on a dedicated
-        OS thread and returning True signals "handled". Spawning a daemon
-        thread would race the OS force-kill (~5s)."""
+        """The fast-cleanup dispatch must be SYNCHRONOUS (not on a daemon"""
         from voice_typer.server.signal_handlers import win32_console_handler
 
         controller, _ = _make_controller_with_app()
@@ -399,10 +308,7 @@ class TestWin32RoutingFastCleanup:  # noqa: N801
         )
 
     def test_ctrl_c_still_routes_to_quit(self):
-        """Sanity: Ctrl+C (0) / Ctrl+Break (1) must STILL route to
-        ``controller.quit()``, only logoff/shutdown were changed to
-        ``_do_fast_cleanup()``. Ctrl+C is a user-initiated signal with
-        no OS-imposed deadline, so the slow path is correct."""
+        """no OS-imposed deadline, so the slow path is correct."""
         from voice_typer.server.signal_handlers import win32_console_handler
 
         controller, _ = _make_controller_with_app()
@@ -414,12 +320,7 @@ class TestWin32RoutingFastCleanup:  # noqa: N801
             controller._do_fast_cleanup.reset_mock()
             result = win32_console_handler(controller, ctrl_type)
             assert result is True, f"win32_console_handler must return True for ctrl_type={ctrl_type}"
-            # ``win32_console_handler`` dispatches ``controller.quit`` on a
             # daemon thread (RACE-016), so the call may not have landed
-            # yet when the handler returns. Poll instead of asserting
-            # synchronously, the immediate assertion is a scheduling
-            # race that fails on loaded CI workers ("Expected 'mock' to
-            # be called once. Called 0 times.").
             deadline = time.monotonic() + 2.0
             while controller.quit.call_count == 0 and time.monotonic() < deadline:
                 time.sleep(0.01)

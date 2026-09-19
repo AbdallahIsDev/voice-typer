@@ -1,28 +1,6 @@
-r"""Tauri renderer-facing surface parity (static contract tests).
-
-The IPC surface is **two-way** (Python
-``_COMMAND_REGISTRY`` ↔ Rust ``allowed_commands()``). This module
-enumerates the renderer-facing surface that remains under Tauri —
-the ``PythonPushEvent`` union members the renderer types consume, the
-Tauri bridge namespaces, and the command allowlists — and asserts they
-agree with the Rust host + Python registry.
-
+"""
+Tauri renderer-facing surface parity (static contract tests).
 Do not reintroduce a TypeScript ``ALLOWED_COMMANDS`` Set.
-
-Parity gaps that historically surfaced silently (e.g. ``setLocale``
-missing on Tauri; ``show_window`` / ``notification`` unhandled on Tauri
-until host listeners were added) are why this file exists.
-
-Robustness
-----------
-
-All parsers normalize comments/whitespace, brace-match object literals
-(string-aware), and fail loudly on empty parses so a regex regression can
-never silently turn these into vacuous passes. A dedicated self-check
-class proves the enumerators detect planted synthetic drift.
-
-These tests run on every platform (pure text inspection; no build, no
-runtime). They complement (not replace) the runtime host validation.
 """
 
 from __future__ import annotations
@@ -30,10 +8,6 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-# ── Project paths ────────────────────────────────────────────────────────
-# This file lives at tests/tauri/bridge_parity/test_host_surface_parity.py.
-# parents[0] = bridge_parity/, parents[1] = tauri/, parents[2] = tests/,
-# parents[3] = <project root>.
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 
 CLIENT_SRC = PROJECT_ROOT / "voice_typer" / "client" / "src"
@@ -59,46 +33,22 @@ for _required in (
 ):
     assert _required.exists(), f"parity-test input missing: {_required}"
 
-# ── Reviewed exceptions ──────────────────────────────────────────────────
 
 # Push-event union members that are NEVER published by the Python sidecar
-# (`event_bus.publish`). Each is SYNTHESIZED by the host bridge when the
-# transport layer drops/re-establishes the connection (under Tauri by
-# `lib/tauri-bridge/python-namespace.ts` translating the supervisor
-# `supervisor_relaunching` / `supervisor_reconnected` host events). They are
-# deliberately absent from the Rust WS-reader allowlist because no inbound
-# WS frame ever carries them. If a name here ever gains a server-side
-# publisher, remove it from this map, the parity test will then require it
-# in `ALLOWED_EVENT_TYPES`.
 HOST_SYNTHESIZED_PUSH_EVENTS: dict[str, str] = {
     # Host bridge starts a reconnect attempt after a transport drop;
-    # consumed by hooks/useConnection.ts to flip the UI to "restarting".
     "reconnecting": "synthesized by the host bridge during reconnect attempts",
     # Host bridge successfully reconnected; consumed by useConnection.ts
-    # to restore the "connected" UI state.
     "reconnected": "synthesized by the host bridge after a successful reconnect",
 }
 
-# Preload-exposed `window.window_` methods with NO Tauri implementation.
 # Kept as reviewed, contract for window-namespace methods the Tauri
-# bridge still does not implement. Adding a method here without
-# implementing it under Tauri requires updating the WindowBridge
-# docstring too, and implementing a method under Tauri REQUIRES deleting
-# its entry (the staleness assertion fails while the entry survives).
-#
-# (predecessor preload comparison removed with predecessor main; this map now
-# documents known Tauri gaps against the renderer's expected surface.)
 TAURI_MISSING_WINDOW_METHODS: dict[str, str] = {
     # Share-stats image clipboard copy is not implemented under Tauri
-    # (save/reveal are; copy falls back to the renderer web-API path).
     "copyStatsImage": ("no Rust clipboard command counterpart yet; stats-image copy is renderer web-API only"),
 }
 
 # Host-dispatched / host-only commands that live in the Python
-# ``_COMMAND_REGISTRY`` but are intentionally ABSENT from the Rust
-# renderer allowlist (see allowlist.rs). The Tauri host sends them via
-# ``dispatch_inner`` / host-supervised paths; a compromised WebView must
-# not be able to ``invoke('dispatch', ...)`` them.
 DOCUMENTED_COMMAND_ASYMMETRY: dict[frozenset[str], str] = {
     frozenset({"heartbeat", "relaunch_ack"}): (
         "sent by the Tauri HOST directly via dispatch_inner / "
@@ -111,20 +61,12 @@ DOCUMENTED_COMMAND_ASYMMETRY: dict[frozenset[str], str] = {
 }
 
 
-# ── Parsing helpers ──────────────────────────────────────────────────────
-
-
 def _read(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
 def _strip_line_comments(text: str) -> str:
-    """Remove ``/* */`` and ``//`` comments while preserving ``://`` (URLs).
-
-    Block comments are stripped FIRST so JSDoc prose (which quotes code
-    like ``ALLOWED_COMMANDS = new Set([``) can never bind a parser anchor
-    or leak quoted words into an extracted literal slice.
-    """
+    """Remove ``/* */`` and ``//`` comments while preserving ``://`` (URLs)."""
     text = re.sub(r"/\*.*?\*/", "", text, flags=re.DOTALL)
     return re.sub(r"(?<!:)//[^\n]*", "", text)
 
@@ -140,10 +82,7 @@ _KEY_RE = re.compile(r"([A-Za-z_$][\w$]*)\s*:")
 
 
 def _match_delimiter(text: str, open_idx: int) -> int:
-    """Index of the delimiter matching the bracket at ``open_idx``.
-
-    String-aware so braces/parens inside literals never skew the count.
-    """
+    """Index of the delimiter matching the bracket at ``open_idx``."""
     depth = 0
     i = open_idx
     n = len(text)
@@ -166,15 +105,7 @@ def _match_delimiter(text: str, open_idx: int) -> int:
 
 
 def _object_literal_keys(body: str) -> list[str]:
-    """Top-level property keys of an object-literal BODY (outer braces removed).
-
-    Tracks brace nesting AND paren grouping so type annotations inside
-    arrow-function parameter lists (``(msg: { type: string }) => ...``)
-    never leak pseudo-keys. A candidate key must start at brace depth 0
-    and paren depth 0, and the previous significant character must be a
-    `,` or `{` (or body start), this rejects ternary branches like
-    ``cond ? a : b``.
-    """
+    """Top-level property keys of an object-literal BODY (outer braces removed)."""
     keys: list[str] = []
     brace_depth = 0
     paren_depth = 0
@@ -239,12 +170,7 @@ def _extract_python_registry(src: str) -> list[str]:
 
 
 def _parse_ts_push_event_union(push_events_src: str) -> set[str]:
-    """Event-name literals of every ``PythonPushEvent`` union member.
-
-    Resolves the union membership list (interface NAMES) through each
-    interface's declared ``type: "<literal>"`` so future additions to the
-    union are picked up automatically.
-    """
+    """Event-name literals of every ``PythonPushEvent`` union member."""
     text = _strip_line_comments(push_events_src)
     anchor = re.search(r"export\s+type\s+PythonPushEvent\s*=", text)
     assert anchor, "PythonPushEvent union declaration not found"
@@ -288,7 +214,7 @@ def _factory_return_keys(ts_src: str, factory_name: str) -> set[str]:
 
 
 def _rust_listen_event_names() -> set[str]:
-    """Every ``.listen("<name>"`` registration across the Rust host tree."""
+    """Every ``.listen(\"<name>\"`` registration across the Rust host tree."""
     names: set[str] = set()
     for rs_file in sorted(SRC_TAURI_SRC.rglob("*.rs")):
         names |= set(re.findall(r'\.listen\(\s*"([^"]+)"', _read(rs_file)))
@@ -296,11 +222,9 @@ def _rust_listen_event_names() -> set[str]:
 
 
 def _translate_event_sources(event_protocol_src: str) -> set[str]:
-    """Source names of ``"<snake>" => "<kebab>"`` arms in translate_event_name."""
+    """Source names of ``\"<snake>\" => \"<kebab>\"`` arms in translate_event_name."""
     return {m.group(1) for m in re.finditer(r'"(\w+)"\s*=>\s*&?"[^"]+"', event_protocol_src)}
 
-
-# ── Parsed surfaces (module-level; fail collection loudly if empty) ─────
 
 PYTHON_PUSH_EVENTS: frozenset[str] = frozenset(_parse_ts_push_event_union(_read(PUSH_EVENTS_TS)))
 RUST_ALLOWED_EVENT_TYPES: tuple[str, ...] = tuple(
@@ -309,10 +233,6 @@ RUST_ALLOWED_EVENT_TYPES: tuple[str, ...] = tuple(
 RUST_EVENT_SET: frozenset[str] = frozenset(RUST_ALLOWED_EVENT_TYPES)
 RUST_LISTEN_EVENTS: frozenset[str] = frozenset(_rust_listen_event_names())
 BUBBLE_TRANSLATE_SOURCES: frozenset[str] = frozenset(_translate_event_sources(_read(EVENT_PROTOCOL_RS)))
-# reader/writer module split: ``bubble_level``'s quoted literal (the
-# typed-only explicit emit in the coalesced fast path) moved into
-# ws/reader.rs, concatenate the bridge modules so the bubble-route
-# check below sees the full delivery surface.
 WS_RS_TEXT = "\n\n".join(
     [_read(WS_RS)]
     + [
@@ -345,11 +265,6 @@ for _name, _surface in (
     assert _surface, f"parser produced an EMPTY surface ({_name}), regex regression"
 
 
-# ═════════════════════════════════════════════════════════════════════════
-# Push-event surface parity
-# ═════════════════════════════════════════════════════════════════════════
-
-
 class TestPushEventSurfaceParity:
     """``PythonPushEvent`` union vs Rust WS-reader allowlist."""
 
@@ -360,12 +275,7 @@ class TestPushEventSurfaceParity:
         assert len(PYTHON_PUSH_EVENTS) >= 40
 
     def test_every_renderer_push_event_is_allowlisted_in_the_rust_ws_reader(self):
-        """Union members reach the renderer under Tauri only via the allowlist.
-
-        The Rust WS reader DROPS any inbound frame whose ``type`` is not in
-        ``ALLOWED_EVENT_TYPES``, so an event typed in TS but missing there
-        silently never fires on Tauri.
-        """
+        """Union members reach the renderer under Tauri only via the allowlist."""
         missing = sorted(PYTHON_PUSH_EVENTS - RUST_EVENT_SET - set(HOST_SYNTHESIZED_PUSH_EVENTS))
         assert not missing, (
             f"PythonPushEvent members absent from ALLOWED_EVENT_TYPES (dropped by the Tauri WS reader): {missing}"
@@ -384,13 +294,8 @@ class TestPushEventSurfaceParity:
         assert not duplicates, f"duplicate entries: {duplicates}"
 
     def test_native_push_events_have_tauri_listeners(self):
-        """Host-handled push events need an ``app.listen`` registration.
-
-        Bubble-only events are delivered via translate_event_name rename
-        or an explicit WS-reader emit instead of app.listen.
-        """
+        """Host-handled push events need an ``app.listen`` registration."""
         # Events the host must listen for (window/tray lifecycle). Bubble
-        # delivery is covered by the bubble-route check below.
         native = {"show_window", "notification", "quit_app", "relaunch_app"}
         missing_listen = sorted(native - RUST_LISTEN_EVENTS)
         assert not missing_listen, (
@@ -408,11 +313,6 @@ class TestPushEventSurfaceParity:
         )
 
 
-# ═════════════════════════════════════════════════════════════════════════
-# Tauri bridge namespace surface
-# ═════════════════════════════════════════════════════════════════════════
-
-
 class TestTauriBridgeSurface:
     """Tauri bridge namespaces expose the renderer's expected methods."""
 
@@ -424,13 +324,9 @@ class TestTauriBridgeSurface:
     def test_window_namespace_methods_have_a_tauri_implementation_or_reviewed_exception(
         self,
     ):
-        # Without the predecessor preload there is no external "expected
-        # method list" to diff against; instead pin the reviewed gap set
-        # so a newly implemented method must clear its exception entry.
         # The current Tauri window namespace must not be empty.
         assert TAURI_WINDOW_METHODS, "Tauri window_ namespace parsed empty"
         # Stale exception entries: methods listed as missing but that are
-        # now implemented.
         stale = sorted(set(TAURI_MISSING_WINDOW_METHODS) & TAURI_WINDOW_METHODS)
         assert not stale, (
             "TAURI_MISSING_WINDOW_METHODS lists methods the Tauri bridge "
@@ -438,18 +334,11 @@ class TestTauriBridgeSurface:
         )
 
 
-# ═════════════════════════════════════════════════════════════════════════
-# Command allowlist parity (Python registry ↔ Rust)
-# ═════════════════════════════════════════════════════════════════════════
-
-
 class TestCommandAllowlistParity:
     def test_command_allowlists_stay_in_lockstep_across_python_and_rust(self):
-        """Renderer↔host command gate parity (defense-in-depth cross-check).
-
+        """
+        Renderer↔host command gate parity (defense-in-depth cross-check).
         Two-way contract: every Rust-allowlisted command is registered
-        in Python, and the ONLY Python commands outside the Rust
-        allowlist are the documented host-dispatched / host-only set.
         """
         registry_only = PYTHON_COMMAND_REGISTRY - RUST_ALLOWED_COMMANDS
         rust_only = RUST_ALLOWED_COMMANDS - PYTHON_COMMAND_REGISTRY
@@ -468,11 +357,6 @@ class TestCommandAllowlistParity:
         )
 
 
-# ═════════════════════════════════════════════════════════════════════════
-# Enumerator self-check (fail-capability proof)
-# ═════════════════════════════════════════════════════════════════════════
-
-
 _SYNTHETIC_UNION = """
 export interface FakeAlphaEvent {
 	type: "fake_alpha";
@@ -489,12 +373,7 @@ _SYNTHETIC_RUST_ANCHOR = r"ALLOWED_EVENT_TYPES:\s*&\[&str\]\s*=\s*&\["
 
 
 class TestEnumeratorSelfCheck:
-    """Prove the parsers DETECT drift (a planted member fails the contract).
-
-    These run the SAME helpers against synthetic fixtures, committed green
-    by construction, so a future regex regression that made the parsers
-    vacuous would fail here instead of silently passing the real surfaces.
-    """
+    """Prove the parsers DETECT drift (a planted member fails the contract)."""
 
     def test_planted_member_without_rust_allowlist_entry_is_detected(self):
         events = _parse_ts_push_event_union(_SYNTHETIC_UNION)

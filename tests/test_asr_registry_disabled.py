@@ -1,37 +1,4 @@
-"""Circuit-breaker gate regression tests for
-``AsrBackendRegistry.load_active``.
-
-Pre-fix (OI-15): ``AsrBackendRegistry.load_active`` (asr_registry.py:473)
-bypassed the ``_is_disabled`` gate that ``load_with_fallback`` honoured
-on its primary-backend path (asr_registry.py:690). A backend in
-``_disabled_backends`` (either because the circuit breaker tripped after
-``_MAX_CONSECUTIVE_FAILURES`` load failures, or because the user
-explicitly disabled it) would be silently re-attempted by
-``load_active``, and on success, ``_record_success`` would discard it
-from ``_disabled_backends``, defeating both the circuit breaker and the
-user's explicit disable intent.
-
-The fix adds the same ``_is_disabled(self.active_name)`` guard at the
-top of ``load_active`` that ``load_with_fallback`` has on its
-primary-backend path.
-
-These tests pin the contract:
-
-1. ``load_active`` returns None when the active backend is in
-   ``_disabled_backends`` (the gate fires).
-2. ``load_active`` does NOT call ``backend.load()`` when disabled (no
-   silent re-enable attempt).
-3. ``load_active`` does NOT call ``_record_success`` when disabled
-   (which would silently discard the backend from
-   ``_disabled_backends``).
-4. ``load_active`` still proceeds normally when NOT disabled (the fix
-   doesn't break the legitimate load path).
-5. The disabled state survives a ``load_active`` call (the gate doesn't
-   accidentally clear it).
-6. ``reset_failures`` is the documented recovery path, after calling
-   it, ``load_active`` proceeds normally (the gate doesn't block
-   legitimate circuit-breaker recovery).
-"""
+"""``AsrBackendRegistry.load_active``."""
 
 from __future__ import annotations
 
@@ -55,8 +22,7 @@ class _Config:
 
 
 def _make_registry(*, asr_backend: str = "parakeet") -> tuple[AsrBackendRegistry, MagicMock]:
-    """Build a registry with a single registered mock backend whose
-    ``load`` succeeds. Returns ``(registry, backend)``."""
+    """Build a registry with a single registered mock backend whose"""
     registry = AsrBackendRegistry(_Config(asr_backend))
     backend = MagicMock()
     backend.is_loaded = False
@@ -64,17 +30,11 @@ def _make_registry(*, asr_backend: str = "parakeet") -> tuple[AsrBackendRegistry
     return registry, backend
 
 
-# ── OI-15: load_active must honour the _is_disabled gate ─────────────
-
-
 class TestLoadActiveDisabledGate:
-    """``load_active`` must refuse to load a backend that's in
-    ``_disabled_backends``, mirrors ``load_with_fallback``'s
-    primary-backend skip."""
+    """``_disabled_backends``, mirrors ``load_with_fallback``'s"""
 
     def test_load_active_returns_none_when_active_backend_disabled(self):
-        """When the active backend is in ``_disabled_backends``,
-        ``load_active`` must return None without attempting to load."""
+        """When the active backend is in ``_disabled_backends``,"""
         registry, _ = _make_registry()
         # Simulate the circuit breaker tripping.
         registry._disabled_backends.add("parakeet")
@@ -88,10 +48,7 @@ class TestLoadActiveDisabledGate:
         )
 
     def test_load_active_does_not_call_backend_load_when_disabled(self):
-        """When disabled, ``load_active`` must NOT call
-        ``backend.load()``, calling it would risk a partially-loaded
-        backend (the exact failure mode ``_is_disabled`` exists to
-        prevent)."""
+        """When disabled, ``load_active`` must NOT call"""
         registry, backend = _make_registry()
         registry._disabled_backends.add("parakeet")
 
@@ -106,10 +63,7 @@ class TestLoadActiveDisabledGate:
         )
 
     def test_load_active_does_not_call_record_success_when_disabled(self):
-        """When disabled, ``load_active`` must NOT call
-        ``_record_success`` (even indirectly). ``_record_success``
-        discards the backend from ``_disabled_backends``, which would
-        silently re-enable it."""
+        """When disabled, ``load_active`` must NOT call"""
         registry, _ = _make_registry()
         registry._disabled_backends.add("parakeet")
 
@@ -131,9 +85,7 @@ class TestLoadActiveDisabledGate:
         )
 
     def test_load_active_does_not_clear_disabled_state(self):
-        """A ``load_active`` call on a disabled backend must leave the
-        disabled state intact (the gate is read-only on
-        ``_disabled_backends``)."""
+        """``_disabled_backends``)."""
         registry, _ = _make_registry()
         registry._disabled_backends.add("parakeet")
         assert registry._is_disabled("parakeet")
@@ -148,8 +100,7 @@ class TestLoadActiveDisabledGate:
         )
 
     def test_load_active_logs_warning_when_disabled(self):
-        """The disabled-gate path must emit a warning so the operator
-        can see WHY load_active returned None (vs. a silent no-op)."""
+        """The disabled-gate path must emit a warning so the operator"""
         registry, _ = _make_registry()
         registry._disabled_backends.add("parakeet")
 
@@ -164,17 +115,11 @@ class TestLoadActiveDisabledGate:
         )
 
 
-# ── OI-15: load_active must still work when NOT disabled ─────────────
-
-
 class TestLoadActiveNotDisabled:
-    """The disabled-gate must NOT block the legitimate load path. When
-    the active backend is NOT disabled, ``load_active`` must proceed
-    normally (call backend.load, _record_success, return backend)."""
+    """The disabled-gate must NOT block the legitimate load path. When"""
 
     def test_load_active_proceeds_when_not_disabled(self):
-        """When the active backend is NOT disabled, ``load_active``
-        must call ``backend.load()`` and return the backend."""
+        """When the active backend is NOT disabled, ``load_active``"""
         registry, backend = _make_registry()
         assert not registry._is_disabled("parakeet")
 
@@ -184,12 +129,9 @@ class TestLoadActiveNotDisabled:
         assert result is backend
 
     def test_load_active_calls_record_success_when_not_disabled(self):
-        """When NOT disabled and load succeeds, ``load_active`` must
-        call ``_record_success`` (resets the failure counter, normal
-        circuit-breaker bookkeeping)."""
+        """When NOT disabled and load succeeds, ``load_active`` must"""
         registry, _ = _make_registry()
         # Pre-seed a non-tripping failure count to verify _record_success
-        # resets it.
         registry._failure_counts["parakeet"] = 1
 
         registry.load_active(progress_callback=lambda msg: None)
@@ -201,18 +143,14 @@ class TestLoadActiveNotDisabled:
         )
 
 
-# ── OI-15: legitimate circuit-breaker recovery via reset_failures ────
-
-
 class TestLoadActiveAfterResetFailures:
-    """The disabled gate must not block legitimate circuit-breaker
-    recovery. ``reset_failures`` is the documented recovery path —
-    after calling it, ``load_active`` must proceed normally."""
+    """The disabled gate must not block legitimate circuit-breaker"""
 
     def test_load_active_works_after_reset_failures(self):
-        """After ``reset_failures(name)`` clears the disabled state,
+        """
+        After ``reset_failures(name)`` clears the disabled state,
         ``load_active`` must proceed normally (the gate must not block
-        legitimate recovery)."""
+        """
         registry, backend = _make_registry()
         registry._disabled_backends.add("parakeet")
         registry._failure_counts["parakeet"] = registry._MAX_CONSECUTIVE_FAILURES
@@ -228,10 +166,7 @@ class TestLoadActiveAfterResetFailures:
         assert result is backend
 
     def test_load_active_blocked_for_one_disabled_but_not_others(self):
-        """If backend A is disabled but backend B is not, the gate must
-        only block the active one. Switching active to B and calling
-        ``load_active`` must proceed (the gate is name-scoped, not
-        global)."""
+        """If backend A is disabled but backend B is not, the gate must"""
         registry = AsrBackendRegistry(_Config(asr_backend="parakeet"))
         parakeet = MagicMock()
         parakeet.is_loaded = True
@@ -245,26 +180,18 @@ class TestLoadActiveAfterResetFailures:
         assert registry._is_disabled("parakeet")
         assert not registry._is_disabled("whisper")
 
-        # load_active with parakeet active → blocked by the gate.
         result = registry.load_active(progress_callback=lambda msg: None)
         assert result is None
         parakeet.load.assert_not_called()
 
-        # Switch active to whisper (not disabled) by mutating the
-        # config's asr_backend field (active_name reads this property).
         registry._config.asr_backend = "whisper"
         result = registry.load_active(progress_callback=lambda msg: None)
         assert result is whisper
         whisper.load.assert_called_once()
 
 
-# ── OI-15: source-level guard ─────────────────────────────────────────
-
-
 class TestLoadActiveDisabledGateSource:
-    """Source-level guard: ``load_active`` must contain the
-    ``_is_disabled`` gate. This catches a future refactor that
-    accidentally removes it."""
+    """accidentally removes it."""
 
     def test_load_active_source_contains_is_disabled_check(self):
         src = inspect.getsource(AsrBackendRegistry.load_active)
@@ -278,15 +205,10 @@ class TestLoadActiveDisabledGateSource:
         )
 
     def test_load_active_gate_before_get_active(self):
-        """The ``_is_disabled`` gate must come BEFORE backend resolution —
-        otherwise a successful resolution + ``backend.load`` would run
-        before the gate fires, defeating the purpose. Resolution is by
+        """
+        The ``_is_disabled`` gate must come BEFORE backend resolution —
         NAME (``self.get(``): ``load_active`` must NOT route through
-        ``get_active()`` — that is the transcription-time readiness
-        selector (fail-loud None when only unloaded remains), and using
-        it here bricked every load path (cold boot, model switch,
-        reload-after-idle-unload returned None without calling
-        ``backend.load()``)."""
+        """
         src = inspect.getsource(AsrBackendRegistry.load_active)
         gate_idx = src.find("_is_disabled")
         resolve_idx = src.find("self.get(")

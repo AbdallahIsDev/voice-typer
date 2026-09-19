@@ -1,66 +1,14 @@
-"""None-guard regression tests for lazy-init delegate methods.
-
-The ``undo`` (UndoRepasteController) and ``audio_quality``
-(AudioQualityController) properties in ``voice_typer/server/app.py``
-are auto-constructing lazy properties: the first access triggers
-construction and caches the instance. If construction raises (missing
-optional dep, broken state, monkeypatched constructor that raises for
-a test), the property logs a warning and returns ``None``.
-
-Five delegate methods in ``VoiceTyperApp`` previously dereferenced the
-property's return value directly:
-
-  * ``_on_audio_quality_chunk``      -> ``self.audio_quality._on_audio_quality_chunk(...)``
-  * ``_rebuild_audio_processor``     -> ``self.audio_quality._rebuild_audio_processor(...)``
-  * ``_finalize_audio_quality_report`` -> ``self.audio_quality._finalize_audio_quality_report(...)``
-  * ``repaste_last``                 -> ``self.undo.repaste_last()``
-  * ``undo_last``                    -> ``self.undo.undo_last()``
-
-When the lazy property returned ``None`` (because lazy-init failed),
-each delegate crashed with ``AttributeError: 'NoneType' object has no
-attribute 'X'``, taking down the audio callback thread (for the
-audio_quality delegates) or the hotkey / tray-menu handler (for the
-undo delegates).
-
-These tests construct a real ``VoiceTyperApp`` (with the heavy
-imports mocked by the autouse ``mock_heavy_imports`` fixture in
-``tests/conftest.py``), then monkeypatch the controller constructors
-to raise, then call each delegate and assert:
-
-  (a) no ``AttributeError`` is raised,
-  (b) the delegate returns ``None`` (matching the existing
-      ``log.warning`` + ``return None`` style used by the lazy-init
-      properties themselves),
-  (c) a warning is emitted on the ``voice_typer.server.app`` logger
-      so the silent failure is at least visible in logs.
-
-The tests are intentionally minimal: they cover only the lazy-init
-None path (the regression). The happy path (delegate forwards to the
-real controller) is already covered by ``tests/app/test_undo_repaste.py``
-and ``tests/test_audio_quality_controller.py``.
-"""
+"""None-guard regression tests for lazy-init delegate methods."""
 
 import logging
 from unittest.mock import MagicMock
 
 import pytest
 
-# ── Fixtures ────────────────────────────────────────────────────────────
-#
-# Mirror the fixture style in tests/test_app_cleanup.py so this file
-# can run independently. The autouse ``mock_heavy_imports`` fixture
-# from tests/conftest.py applies, mocking sounddevice / faster_whisper /
-# pynput / pystray / PIL / pyperclip so the tests run headless.
-
 
 @pytest.fixture
 def app(tmp_config_dir, monkeypatch):
-    """Create a VoiceTyperApp with mocked dependencies for None-guard tests.
-
-    Minimal setup, we only need the app instance so we can force the
-    lazy-init of ``undo`` / ``audio_quality`` to fail by monkeypatching
-    the controller constructors to raise.
-    """
+    """Create a VoiceTyperApp with mocked dependencies for None-guard tests."""
     monkeypatch.setattr("voice_typer.server.server_platform.autostart.is_autostart_enabled", lambda: False)
     monkeypatch.setattr("voice_typer.server.server_platform.autostart.enable_autostart", lambda: True)
     monkeypatch.setattr("voice_typer.server.server_platform.autostart.disable_autostart", lambda: True)
@@ -74,18 +22,8 @@ def app(tmp_config_dir, monkeypatch):
     return instance
 
 
-# ── Helpers ─────────────────────────────────────────────────────────────
-
-
 def _force_undo_lazy_init_failure(monkeypatch):
-    """Monkeypatch ``UndoRepasteController.__init__`` to raise.
-
-    The lazy property ``VoiceTyperApp.undo`` calls
-    ``UndoRepasteController(self)`` inside a ``try/except Exception``
-    block, so any exception from the constructor causes the property
-    to log a warning and return ``None``, which is the path we want
-    to exercise.
-    """
+    """Monkeypatch ``UndoRepasteController.__init__`` to raise."""
 
     def _boom(self, *args, **kwargs):
         raise RuntimeError("simulated UndoRepasteController lazy-init failure")
@@ -105,24 +43,13 @@ def _force_audio_quality_lazy_init_failure(monkeypatch):
     )
 
 
-# ── undo / repaste None-guard ──────────────────────────────────────────
-
-
 class TestUndoNoneGuard:
-    """``app.undo_last()`` / ``app.repaste_last()`` must not crash when
-    ``self.undo`` returns ``None`` (lazy-init failed).
-    """
+    """``app.undo_last()`` / ``app.repaste_last()`` must not crash when"""
 
     def test_undo_last_returns_none_when_lazy_init_fails(self, app, monkeypatch, caplog):
-        """When ``UndoRepasteController(self)`` raises, ``app.undo_last()``
-        must return ``None`` and emit a warning instead of crashing with
-        ``AttributeError: 'NoneType' object has no attribute 'undo_last'``.
-        """
+        """When ``UndoRepasteController(self)`` raises, ``app.undo_last()``"""
         _force_undo_lazy_init_failure(monkeypatch)
 
-        # Belt-and-suspenders: assert the property really does return None
-        # under the monkeypatch, guards against a future refactor that
-        # changes the lazy-init contract.
         assert app.undo is None
 
         with caplog.at_level(logging.WARNING, logger="voice_typer.server.app"):
@@ -134,10 +61,7 @@ class TestUndoNoneGuard:
         )
 
     def test_repaste_last_returns_none_when_lazy_init_fails(self, app, monkeypatch, caplog):
-        """When ``UndoRepasteController(self)`` raises,
-        ``app.repaste_last()`` must return ``None`` and emit a warning
-        instead of crashing.
-        """
+        """When ``UndoRepasteController(self)`` raises,"""
         _force_undo_lazy_init_failure(monkeypatch)
         assert app.undo is None
 
@@ -150,11 +74,7 @@ class TestUndoNoneGuard:
         )
 
     def test_undo_last_does_not_raise_attribute_error(self, app, monkeypatch):
-        """Regression: previously ``app.undo_last()`` raised
-        ``AttributeError: 'NoneType' object has no attribute 'undo_last'``
-        when ``self.undo`` returned ``None``. This test is the explicit
-        assertion form so the regression is named in the test report.
-        """
+        """``AttributeError: 'NoneType' object has no attribute 'undo_last'``"""
         _force_undo_lazy_init_failure(monkeypatch)
 
         try:
@@ -162,11 +82,7 @@ class TestUndoNoneGuard:
         except AttributeError as exc:
             pytest.fail(f"undo_last() must not raise AttributeError when the controller is unavailable; got: {exc!r}")
         except Exception as exc:  # pragma: no cover - defensive
-            # The implementation may legitimately re-raise other
-            # exceptions (e.g. RuntimeError) per the task spec, but
             # AttributeError is the documented regression and MUST NOT
-            # occur. Surface any other exception type as a test failure
-            # too so we catch silent style drift.
             pytest.fail(
                 f"undo_last() raised an unexpected exception type when "
                 f"the controller was unavailable; expected None return, "
@@ -174,26 +90,14 @@ class TestUndoNoneGuard:
             )
 
 
-# ── audio_quality None-guard ───────────────────────────────────────────
-
-
 class TestAudioQualityNoneGuard:
-    """``app._on_audio_quality_chunk()`` / ``_rebuild_audio_processor()`` /
+    """
+    ``app._on_audio_quality_chunk()`` / ``_rebuild_audio_processor()`` /
     ``_finalize_audio_quality_report()`` must not crash when
-    ``self.audio_quality`` returns ``None`` (lazy-init failed).
     """
 
     def test_on_audio_quality_chunk_returns_none_when_lazy_init_fails(self, app, monkeypatch, caplog):
-        """When ``AudioQualityController(self)`` raises,
-        ``app._on_audio_quality_chunk(rms, peak)`` must return ``None``
-        and emit a warning instead of crashing.
-
-        This is the most important guard of the five: the delegate is
-        called from the real-time audio callback thread, where an
-        unhandled ``AttributeError`` would kill the callback thread
-        mid-stream and silently halt audio quality monitoring for the
-        rest of the session.
-        """
+        """When ``AudioQualityController(self)`` raises,"""
         _force_audio_quality_lazy_init_failure(monkeypatch)
         assert app.audio_quality is None
 
@@ -206,10 +110,7 @@ class TestAudioQualityNoneGuard:
         )
 
     def test_rebuild_audio_processor_returns_none_when_lazy_init_fails(self, app, monkeypatch, caplog):
-        """When ``AudioQualityController(self)`` raises,
-        ``app._rebuild_audio_processor()`` must return ``None`` and emit
-        a warning instead of crashing.
-        """
+        """When ``AudioQualityController(self)`` raises,"""
         _force_audio_quality_lazy_init_failure(monkeypatch)
         assert app.audio_quality is None
 
@@ -220,15 +121,11 @@ class TestAudioQualityNoneGuard:
         assert any("audio_quality controller unavailable" in rec.getMessage() for rec in caplog.records)
 
     def test_finalize_audio_quality_report_returns_none_when_lazy_init_fails(self, app, monkeypatch, caplog):
-        """When ``AudioQualityController(self)`` raises,
-        ``app._finalize_audio_quality_report(audio)`` must return
-        ``None`` and emit a warning instead of crashing.
-        """
+        """When ``AudioQualityController(self)`` raises,"""
         _force_audio_quality_lazy_init_failure(monkeypatch)
         assert app.audio_quality is None
 
         # The ``audio`` arg is annotated ``Any`` precisely so this test
-        # can pass a MagicMock without needing numpy installed.
         fake_audio = MagicMock(name="audio_array")
 
         with caplog.at_level(logging.WARNING, logger="voice_typer.server.app"):
@@ -238,11 +135,7 @@ class TestAudioQualityNoneGuard:
         assert any("audio_quality controller unavailable" in rec.getMessage() for rec in caplog.records)
 
     def test_on_audio_quality_chunk_does_not_raise_attribute_error(self, app, monkeypatch):
-        """Regression: previously ``app._on_audio_quality_chunk()``
-        raised ``AttributeError: 'NoneType' object has no attribute
-        '_on_audio_quality_chunk'`` when ``self.audio_quality``
-        returned ``None``.
-        """
+        """raised ``AttributeError: 'NoneType' object has no attribute"""
         _force_audio_quality_lazy_init_failure(monkeypatch)
 
         try:
@@ -260,22 +153,11 @@ class TestAudioQualityNoneGuard:
             )
 
 
-# ── Happy-path sanity check (controller present → delegates forward) ──
-
-
 class TestHappyPathForwarding:
-    """Sanity check: when the lazy property returns a real controller,
-    the delegate must still forward the call (i.e. the None-guard did
-    not accidentally short-circuit the happy path).
-
-    Uses MagicMock collaborators injected via the property setter (which
-    bypasses lazy construction: see the property docstring).
-    """
+    """Sanity check: when the lazy property returns a real controller,"""
 
     def test_undo_last_forwards_to_controller(self, app):
-        """``app.undo_last()`` must call ``self.undo.undo_last()`` when
-        the controller is present.
-        """
+        """``app.undo_last()`` must call ``self.undo.undo_last()`` when"""
         fake_undo = MagicMock(name="UndoRepasteController")
         app.undo = fake_undo
 
@@ -284,9 +166,7 @@ class TestHappyPathForwarding:
         fake_undo.undo_last.assert_called_once_with()
 
     def test_repaste_last_forwards_to_controller(self, app):
-        """``app.repaste_last()`` must call ``self.undo.repaste_last()``
-        when the controller is present.
-        """
+        """``app.repaste_last()`` must call ``self.undo.repaste_last()``"""
         fake_undo = MagicMock(name="UndoRepasteController")
         app.undo = fake_undo
 
@@ -295,10 +175,7 @@ class TestHappyPathForwarding:
         fake_undo.repaste_last.assert_called_once_with()
 
     def test_on_audio_quality_chunk_forwards_to_controller(self, app):
-        """``app._on_audio_quality_chunk(rms, peak)`` must call
-        ``self.audio_quality._on_audio_quality_chunk(rms, peak)`` when
-        the controller is present.
-        """
+        """``app._on_audio_quality_chunk(rms, peak)`` must call"""
         fake_aq = MagicMock(name="AudioQualityController")
         app.audio_quality = fake_aq
 

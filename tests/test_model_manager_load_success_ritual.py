@@ -1,24 +1,4 @@
-"""Shared post-load "success ritual" (``LoadingMixin._on_load_success``).
-
-Six model-load paths (``load_background``, ``fallback_to_whisper``,
-``try_load``, ``ensure_active_engine_loaded``'s reload branch,
-``_change_model_load_phase``, ``_set_active_backend_blocking``) used to
-hand-roll the same completion sequence, LRU touch + evict,
-deliberate-unload flag clear, tray "Ready" message, and three of the
-copies had drifted to hardcoded English strings ("Ready -- …") instead
-of the localized ``state.model_manager.ready_whisper`` /
-``state.model_manager.ready_other`` keys (which exist in the server's
-English fallback catalog and in ALL 8 renderer locales via
-``set_tray_locale``).
-
-These tests pin:
-1. the ritual's observable behavior (touch + evict + flag clear +
-   localized IDLE tray message) through the composed ``ModelManager``,
-2. that all six load paths route their success branch through the
-   shared helper and that NO load path can regress to a hardcoded
-   English "Ready -- " f-string,
-3. the collapsed ``_backend_for_model_size`` mapping.
-"""
+"""Shared post-load \"success ritual\" (``LoadingMixin._on_load_success``)."""
 
 from __future__ import annotations
 
@@ -31,9 +11,7 @@ from voice_typer.server.model_manager import ModelManager
 
 
 def _make_manager(backend_name: str = "parakeet"):
-    """Composed ModelManager with a mock registry whose active backend
-    reports success. Mirrors ``tests/test_model_idle_unload.py``'s
-    fixture pattern (mock registry swapped onto ``mm._registry``)."""
+    """Composed ModelManager with a mock registry whose active backend"""
     app = MagicMock(name="app")
     app.config.asr_backend = backend_name
     app.config.model_size = "small.en"
@@ -75,8 +53,7 @@ def _idle_messages(app: MagicMock) -> list[str]:
 
 class TestOnLoadSuccessRitual:
     def test_helper_emits_localized_ready_message_for_non_whisper(self):
-        """A non-whisper engine must get ``ready_other`` (localized key)
-        , never a hardcoded English string and never the whisper key."""
+        """A non-whisper engine must get ``ready_other`` (localized key)"""
         from voice_typer.server import i18n
 
         mm, app, _engine, _registry = _make_manager(backend_name="parakeet")
@@ -111,8 +88,7 @@ class TestOnLoadSuccessRitual:
         assert "parakeet" not in mm._deliberately_unloaded
 
     def test_helper_swallows_lru_tracking_failure(self):
-        """A tracking failure must not break the load (non-fatal), the
-        tray still gets the localized ready message."""
+        """A tracking failure must not break the load (non-fatal), the"""
         from voice_typer.server import i18n
 
         mm, app, _engine, _registry = _make_manager(backend_name="parakeet")
@@ -126,9 +102,7 @@ class TestOnLoadSuccessRitual:
 
 
 class TestAllLoadPathsUseSharedRitual:
-    """Every load path must produce a LOCALIZED message (never a
-    hardcoded English "Ready -- " f-string) and must route through the
-    shared helper."""
+    """shared helper."""
 
     @pytest.mark.parametrize(
         ("mixin", "func_name"),
@@ -142,10 +116,7 @@ class TestAllLoadPathsUseSharedRitual:
         ],
     )
     def test_path_delegates_to_on_load_success(self, mixin, func_name):
-        """Source pin: each of the six load paths calls
-        ``_on_load_success`` on its success branch, and none of them
-        still contains the inlined ritual (touch/evict + direct IDLE
-        ready set_state)."""
+        """Source pin: each of the six load paths calls"""
         from voice_typer.server.model_manager import _change, _loading
 
         owner = _loading.LoadingMixin if mixin == "loading" else _change.ChangeMixin
@@ -163,10 +134,7 @@ class TestAllLoadPathsUseSharedRitual:
             )
 
     def test_no_hardcoded_english_ready_remains_in_load_paths(self):
-        """No model-manager module may hardcode an interpolated English
-        "Ready -- " f-string, the tray message must come from the i18n
-        keys (the per-path ``AppState.IDLE`` absence pin above rules out
-        any non-i18n ready set_state outside the helper)."""
+        """No model-manager module may hardcode an interpolated English"""
         from voice_typer.server.model_manager import _change, _loading
 
         for module in (_loading, _change):
@@ -178,8 +146,7 @@ class TestAllLoadPathsUseSharedRitual:
             )
 
     def test_ritual_body_exists_once(self):
-        """The touch+evict+clear+set_state sequence must be defined once
-        (in ``_on_load_success``), not re-copied per load path."""
+        """The touch+evict+clear+set_state sequence must be defined once"""
         from voice_typer.server.model_manager import _loading
 
         assert inspect.getsource(_loading).count("def _on_load_success(") == 1, (
@@ -189,10 +156,7 @@ class TestAllLoadPathsUseSharedRitual:
 
 class TestChangeModelLoadPhaseLocalizedSuccess:
     def test_successful_load_shows_localized_ready_message(self):
-        """End-to-end through ``_change_model_load_phase``: a successful
-        ``load_active`` must produce the localized ``ready_other`` tray
-        message (previously the hardcoded "Ready -- Parakeet ASR" on the
-        backend-switch path)."""
+        """End-to-end through ``_change_model_load_phase``: a successful"""
         from voice_typer.server import i18n
         from voice_typer.server.tray_types import AppState
 
@@ -211,10 +175,7 @@ class TestChangeModelLoadPhaseLocalizedSuccess:
 
 class TestEnsureActiveEngineReloadLocalizedSuccess:
     def test_reload_after_idle_unload_shows_localized_ready_message(self):
-        """End-to-end through the reload-after-idle-unload branch of
-        ``ensure_active_engine_loaded``: the tray must end on the
-        localized ready message (previously the hardcoded English
-        "Ready -- parakeet/cpu")."""
+        """\"Ready -- parakeet/cpu\")."""
         from voice_typer.server import i18n
 
         mm, app, engine, _registry = _make_manager(backend_name="parakeet")
@@ -229,8 +190,7 @@ class TestEnsureActiveEngineReloadLocalizedSuccess:
 
 
 class TestBackendForModelSize:
-    """The model_size → backend mapping collapsed from two verbatim
-    if/elif copies into one helper."""
+    """The model_size → backend mapping collapsed from two verbatim"""
 
     @pytest.mark.parametrize(
         ("model_size", "expected"),
@@ -249,8 +209,7 @@ class TestBackendForModelSize:
         assert _backend_for_model_size(model_size) == expected
 
     def test_change_pipeline_uses_the_helper(self):
-        """Both change-model entry points must go through the helper —
-        the duplicated if/elif copies are gone."""
+        """Both change-model entry points must go through the helper —"""
         from voice_typer.server.model_manager import _change
 
         for fn in (

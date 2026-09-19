@@ -1,18 +1,4 @@
-"""Tests for the recorder device-cache pre-warm + cached channel lookup.
-
-Covers the recorder-side half of the start() hot-path optimization:
-``Recorder._prewarm_device_cache`` spawns a background daemon thread to
-populate ``DeviceManager._device_list_cache`` so the first ``start()``
-call doesn't pay the 50-200ms PortAudio enumeration cost on the hotkey
-critical path, and ``Recorder._cached_max_input_channels`` consults
-that cache instead of issuing a fresh ``sd.query_devices()`` RPC per
-candidate.
-
-The device_manager-side methods (``_same_physical_microphone_candidates``
-and ``_resolve_effective_sample_rate``) still issue direct RPCs and are
-out of scope for this test file (they live in ``device_manager.py``,
-owned by a different fix bundle).
-"""
+"""Tests for the recorder device-cache pre-warm + cached channel lookup."""
 
 from __future__ import annotations
 
@@ -35,24 +21,12 @@ def _mock_sounddevice(monkeypatch):
 
 
 def _make_recorder(config=None):
-    """Build a real ``Recorder`` (mock config unless one is injected).
-
-    Both branches delegate to the single canonical factory
-    ``tests.fixtures.recorder_test_helpers.make_recorder``: the
-    mock-config default goes through its public
-    ``make_fake_recorder`` alias (same factory, pre-populated config
-    fields), and an injected config goes through its
-    ``config=`` parameter (real ``Recorder`` construction with the
-    caller-owned config).
-    """
+    """Build a real ``Recorder`` (mock config unless one is injected)."""
     if config is None:
         from tests.fixtures.ipc_test_helpers import make_fake_recorder
 
         return make_fake_recorder()
     return make_recorder(config)
-
-
-# ── _prewarm_device_cache ────────────────────────────────────────────────
 
 
 class TestPrewarmDeviceCache:
@@ -62,12 +36,8 @@ class TestPrewarmDeviceCache:
         """The pre-warm thread is a daemon named ``recorder-device-cache-prewarm``."""
         r = _make_recorder()
         # The thread is started in __init__; it may have already finished
-        # (mock returns [] instantly) but the name should be observable
-        # in the brief window after construction. Re-invoke to make the
-        # test deterministic.
         r._prewarm_device_cache()
         # Find the prewarm thread (it may have exited already, so enumerate
-        # in a short retry loop).
         deadline = time.perf_counter() + 2.0
         found = None
         while time.perf_counter() < deadline:
@@ -78,9 +48,6 @@ class TestPrewarmDeviceCache:
             if found is not None:
                 break
             time.sleep(0.005)
-        # If the thread already exited (mock is fast), we can't observe it
-        # directly, but the cache should be populated, which is the real
-        # contract. Verify the cache is populated as a fallback assertion.
         if found is None:
             assert r._devices._device_list_cache is not None, (
                 "pre-warm thread should have populated the cache (even if it already exited)"
@@ -150,16 +117,8 @@ class TestPrewarmDeviceCache:
         assert r._devices._device_list_cache is None or r._devices._device_list_cache == []
 
 
-# ── hidden-start gate for the stream prewarm ─────────────────────────────
-
-
 def _wait_for_prewarm_threads_to_exit(timeout: float = 5.0) -> None:
-    """Block until no ``recorder-device-cache-prewarm`` threads are alive.
-
-    The prewarm runs on a daemon thread; the gate decision (skip vs
-    open the stream) is made INSIDE that thread, so the assertion must
-    wait for the thread to have run before it can observe the effect.
-    """
+    """Block until no ``recorder-device-cache-prewarm`` threads are alive."""
     deadline = time.perf_counter() + timeout
     while time.perf_counter() < deadline:
         if not any(t.name == "recorder-device-cache-prewarm" and t.is_alive() for t in threading.enumerate()):
@@ -168,18 +127,10 @@ def _wait_for_prewarm_threads_to_exit(timeout: float = 5.0) -> None:
 
 
 class TestPrewarmHiddenStartGate:
-    """Opening an InputStream lights the OS mic indicator, while the
-    app started hidden (autostart, ``VT_START_HIDDEN=1``) that must not
-    happen. The stream-open phase of the prewarm is gated on the
-    hidden-start env; the device-list cache warm (a query-only
-    enumeration that does NOT touch the microphone) keeps running for
-    every launch.
-    """
+    """app started hidden (autostart, ``VT_START_HIDDEN=1``) that must not"""
 
     def test_hidden_start_skips_stream_prewarm(self, monkeypatch):
-        """``VT_START_HIDDEN=1`` → the prewarm thread must NOT open an
-        InputStream (``Recorder._prewarm_input_stream`` stays uncalled)
-        while the device-list cache still gets warmed."""
+        """InputStream (``Recorder._prewarm_input_stream`` stays uncalled)"""
         from voice_typer.server.recording import Recorder
 
         monkeypatch.setenv("VT_START_HIDDEN", "1")
@@ -188,8 +139,6 @@ class TestPrewarmHiddenStartGate:
 
         r = _make_recorder()
         # Re-invoke for determinism (the __init__ prewarm may have
-        # finished before the env was observable, it wasn't: env is set
-        # before construction, but re-invoking costs nothing).
         r._prewarm_device_cache()
         _wait_for_prewarm_threads_to_exit()
 
@@ -213,9 +162,7 @@ class TestPrewarmHiddenStartGate:
         )
 
     def test_visible_start_runs_stream_prewarm(self, monkeypatch):
-        """No ``VT_START_HIDDEN`` → the prewarm still opens the stream
-        (prewarm's purpose (warm PortAudio before first dictation) is
-        preserved for the normal visible-launch path)."""
+        """No ``VT_START_HIDDEN`` → the prewarm still opens the stream"""
         from voice_typer.server.recording import Recorder
 
         monkeypatch.delenv("VT_START_HIDDEN", raising=False)
@@ -233,18 +180,8 @@ class TestPrewarmHiddenStartGate:
         )
 
 
-# ── prewarm stream start() failure must not leak the handle ──────────────
-
-
 class TestPrewarmStreamStartFailureCloses:
-    """``prewarm_input_stream`` must close the stream when ``start()``
-    raises after a successful constructor open.
-
-    Pre-fix, ``start()`` sat OUTSIDE the try/finally that stops+closes;
-    a start() failure leaked the opened stream handle (the OS mic
-    indicator stays lit, the exact C-BG-1 concern, on the visible-launch
-    prewarm path).
-    """
+    """``prewarm_input_stream`` must close the stream when ``start()``"""
 
     def test_start_failure_still_closes_stream(self, monkeypatch):
         import voice_typer.server.recording as recording_mod
@@ -266,8 +203,6 @@ class TestPrewarmStreamStartFailureCloses:
                 events.append("close")
 
         # Construct with the hidden-start gate ON so the __init__ prewarm
-        # thread skips its own stream open (keeps ``events`` deterministic);
-        # the direct call below runs with the gate OFF.
         monkeypatch.setenv("VT_START_HIDDEN", "1")
         r = _make_recorder()
         monkeypatch.delenv("VT_START_HIDDEN", raising=False)
@@ -281,9 +216,6 @@ class TestPrewarmStreamStartFailureCloses:
             "stays lit)"
         )
         assert "stop" not in events, "stop() must only run when start() succeeded"
-
-
-# ── _cached_max_input_channels ───────────────────────────────────────────
 
 
 class TestCachedMaxInputChannels:
@@ -317,17 +249,7 @@ class TestCachedMaxInputChannels:
         assert r._cached_max_input_channels(0) == 1
 
     def test_falls_back_to_direct_query_for_default_device(self, monkeypatch):
-        """For ``device=None`` (OS default), the channel count must come
-        from the CACHED device-list entry for the OS-default device.
-
-        ``System Default`` (``config.microphone: null``) is the
-        fresh-install default selection, so this is the MAJORITY path —
-        it must be served from the prewarmed cache like the
-        explicit-device path: the only live call is the OS-default
-        identity resolution (``sd.query_devices(kind="input")``), and
-        the channel count is read from the cached list entry with the
-        resolved index.
-        """
+        """For ``device=None`` (OS default), the channel count must come"""
         import voice_typer.server.recording as recording_mod
 
         calls = []
@@ -352,7 +274,6 @@ class TestCachedMaxInputChannels:
         assert r._cached_max_input_channels(None) == 2
         assert (None, "input") in calls, "must resolve the OS default input device"
         # Repeated calls within the same device-list generation are served
-        # from the cache, no additional PortAudio queries.
         count_before = len(calls)
         assert r._cached_max_input_channels(None) == 2
         assert len(calls) == count_before, (
@@ -361,10 +282,7 @@ class TestCachedMaxInputChannels:
         )
 
     def test_default_device_cache_miss_uses_resolved_query_info(self, monkeypatch):
-        """If the OS-default device is NOT yet in the cached list (cold
-        cache / hot-plug race), fall back to the resolved device dict's
-        own ``max_input_channels``, no downgrade vs the pre-fix
-        authoritative single-device query."""
+        """If the OS-default device is NOT yet in the cached list (cold"""
         import voice_typer.server.recording as recording_mod
 
         def query_devices(device=None, kind=None):
@@ -396,9 +314,7 @@ class TestCachedMaxInputChannels:
         assert r._cached_max_input_channels(None) == 1
 
     def test_default_device_requery_after_device_list_refresh(self, monkeypatch):
-        """A new device-list generation (TTL refresh / event
-        invalidation) must re-resolve the default device instead of
-        serving the stale memoized channel count."""
+        """A new device-list generation (TTL refresh / event"""
         import voice_typer.server.recording as recording_mod
 
         state = {"index": 3, "max_input_channels": 2}
@@ -426,9 +342,6 @@ class TestCachedMaxInputChannels:
         r._devices._device_list_cache_time = time.monotonic() - 5.0
         assert r._cached_max_input_channels(None) == 2
 
-        # Generation 2: OS default switched to device 5 (1 channel) and
-        # the cached list was refreshed, the stamp change must force a
-        # re-resolve, not serve the memoized 2.
         state["index"] = 5
         state["max_input_channels"] = 1
         r._devices._device_list_cache = [
@@ -443,19 +356,11 @@ class TestCachedMaxInputChannels:
         )
 
 
-# ── start() integration: cached lookup is used ───────────────────────────
-
-
 class TestStartUsesCachedLookup:
-    """``start()`` should use ``_cached_max_input_channels`` instead of a
-    direct ``sd.query_devices(candidate)`` RPC for channel detection."""
+    """``start()`` should use ``_cached_max_input_channels`` instead of a"""
 
     def test_start_does_not_call_query_devices_for_channels_on_int_candidate(self, monkeypatch):
-        """With a warm cache, ``start()`` must NOT issue
-        ``sd.query_devices(<int>)`` for the channel-detection step
-        (the cached lookup handles it). The ``_resolve_effective_sample_rate``
-        delegator (in device_manager.py) still calls ``sd.query_devices``,
-        so we filter to only positional-int calls."""
+        """With a warm cache, ``start()`` must NOT issue"""
         import voice_typer.server.recording as recording_mod
 
         devices = [
@@ -496,22 +401,15 @@ class TestStartUsesCachedLookup:
 
         def capture_init(self, *a, **kw):
             # Capture the full kwargs so we can filter out prewarm calls
-            # (the prewarm uses callback=None; start() uses a real callback).
             opened.append(kw)
             orig_init(self, *a, **kw)
 
         OkStream.__init__ = capture_init
         monkeypatch.setattr(recording_mod.sd, "InputStream", OkStream)
 
-        # recording_channels=5 requests 5 channels; the cached lookup
-        # returns max_input_channels=2, so the ``elif channels > max_ch``
-        # branch caps channels at 2. This proves the cached value flowed
-        # through (a cache miss would return 1, capping channels at 1).
         config = MagicMock(sample_rate=16000, microphone="0", recording_channels=5)
         r = make_recorder(config)
         # Pre-populate the cache so _cached_max_input_channels(0) returns 2
-        # without a direct query_devices(0) call. The pre-warm thread may
-        # have already done this, but we set it explicitly for determinism.
         r._devices._device_list_cache = [
             {"index": 0, "name": "Test Mic", "max_input_channels": 2},
         ]
@@ -520,7 +418,6 @@ class TestStartUsesCachedLookup:
         r.start()
         try:
             # Filter out prewarm calls (callback=None), only keep real
-            # start() calls (which pass a real callback closure).
             real_opens = [kw for kw in opened if kw.get("callback") is not None]
             assert real_opens, "start() should have opened an InputStream with a callback"
             channels_used = real_opens[0].get("channels")

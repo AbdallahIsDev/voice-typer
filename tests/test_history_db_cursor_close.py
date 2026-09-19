@@ -1,17 +1,4 @@
-"""DJ-18 regression tests: every cursor in history_db is closed.
-
-Each cursor site in ``history_db.py`` / ``history_db_internals/schema.py``
-/ ``history_db_internals/retention.py`` must close its cursor
-deterministically (either via ``with contextlib.closing(conn.cursor())
-as cursor:`` or via an explicit ``finally: cursor.close()``). These
-tests wrap the real ``sqlite3.Connection`` in a ``TrackedConnection``
-that records every cursor created and every cursor closed, then
-verify the counts match after each public operation.
-
-The TrackedConnection delegates all real DB work to the wrapped
-connection; it only intercepts ``cursor()`` to return a
-``TrackedCursor`` that records its own ``close()`` call.
-"""
+"""DJ-18 regression tests: every cursor in history_db is closed."""
 
 from __future__ import annotations
 
@@ -64,12 +51,7 @@ class TrackedCursor:
 
 
 class TrackedConnection:
-    """Wraps a real ``sqlite3.Connection`` so its cursors are tracked.
-
-    Delegates ``execute``/``commit``/``rollback``/``close``/``row_factory``
-    to the underlying connection; only ``cursor()`` is intercepted to
-    return a :class:`TrackedCursor`.
-    """
+    """Wraps a real ``sqlite3.Connection`` so its cursors are tracked."""
 
     def __init__(self, real_conn: sqlite3.Connection) -> None:
         self._real = real_conn
@@ -81,8 +63,6 @@ class TrackedConnection:
         return TrackedCursor(self._real.cursor(), self)
 
     def execute(self, sql, *args, **kwargs):
-        # ``conn.execute(...)`` returns a cursor that auto-closes when
-        # iterated, explicitly does NOT require tracking those.
         return self._real.execute(sql, *args, **kwargs)
 
     def commit(self):
@@ -117,11 +97,6 @@ def db(tmp_path):
     db_instance.close()
 
 
-# ──────────────────────────────────────────────────────────────────
-# Read-method cursor close ()
-# ──────────────────────────────────────────────────────────────────
-
-
 @pytest.mark.parametrize(
     "method,kwargs,setup",
     [
@@ -151,11 +126,6 @@ def test_read_method_closes_cursor(db, monkeypatch, method, kwargs, setup):
     )
 
 
-# ──────────────────────────────────────────────────────────────────
-# Write-method cursor close ()
-# ──────────────────────────────────────────────────────────────────
-
-
 @pytest.mark.parametrize(
     "method,kwargs,setup",
     [
@@ -166,12 +136,7 @@ def test_read_method_closes_cursor(db, monkeypatch, method, kwargs, setup):
     ],
 )
 def test_write_method_closes_cursor(db, monkeypatch, method, kwargs, setup):
-    """Each write method's inner closure must close its cursor.
-
-    Patches ``_submit_write`` to run the closure with a tracked
-    connection (instead of submitting to the writer thread), so we
-    can verify cursor close on the actual closure body.
-    """
+    """Each write method's inner closure must close its cursor."""
     setup(db)
 
     real_conn = db._open_write_conn() if not db._shutdown.is_set() else None
@@ -181,9 +146,6 @@ def test_write_method_closes_cursor(db, monkeypatch, method, kwargs, setup):
     try:
 
         def capture(fn, *, wait=True):
-            # Run the closure directly on the tracked connection so
-            # we can observe cursor close. ``fn`` is the inner closure
-            # defined in the public method (e.g. ``_do_delete``).
             return fn(tracked)
 
         monkeypatch.setattr(db, "_submit_write", capture)
@@ -203,14 +165,8 @@ def test_write_method_closes_cursor(db, monkeypatch, method, kwargs, setup):
     )
 
 
-# ──────────────────────────────────────────────────────────────────
-# _drain_batchable_inserts cursor close (, writer-thread path)
-# ──────────────────────────────────────────────────────────────────
-
-
 def test_drain_batchable_inserts_closes_cursor(db):
-    """``_drain_batchable_inserts`` must close its cursor even on the
-    multi-row INSERT path (DJ-18)."""
+    """``_drain_batchable_inserts`` must close its cursor even on the"""
     from voice_typer.server.history_db import _BatchableInsert
 
     real_conn = db._open_write_conn() if not db._shutdown.is_set() else None
@@ -240,8 +196,7 @@ def test_drain_batchable_inserts_closes_cursor(db):
 
 
 def test_drain_batchable_inserts_closes_cursor_on_exception(db, monkeypatch):
-    """``_drain_batchable_inserts`` must close the cursor even when the
-    INSERT raises (DJ-18: ``finally: cursor.close()``)."""
+    """``_drain_batchable_inserts`` must close the cursor even when the"""
     from voice_typer.server.history_db import _BatchableInsert
 
     real_conn = db._open_write_conn() if not db._shutdown.is_set() else None
@@ -250,10 +205,6 @@ def test_drain_batchable_inserts_closes_cursor_on_exception(db, monkeypatch):
     tracked = TrackedConnection(real_conn)
 
     # Force the multi-row INSERT path to raise by making the real
-    # cursor.execute blow up. We override cursor() on the tracked
-    # connection so the FailingCursor still increments
-    # ``cursors_created`` (the real cursor() method's bookkeeping is
-    # bypassed when we replace it on the instance).
     real_cursor_method = tracked._real.cursor
 
     class FailingCursor(TrackedCursor):
@@ -291,11 +242,6 @@ def test_drain_batchable_inserts_closes_cursor_on_exception(db, monkeypatch):
     )
 
 
-# ──────────────────────────────────────────────────────────────────
-# _do_retention cursor close (, writer-thread path)
-# ──────────────────────────────────────────────────────────────────
-
-
 def test_apply_retention_closes_cursor(db):
     """``apply_retention`` (retention.py) must close its cursor (DJ-18)."""
     # Seed the DB with rows so retention has something to delete.
@@ -313,8 +259,6 @@ def test_apply_retention_closes_cursor(db):
             return fn(tracked)
 
         # ``apply_retention`` ultimately calls ``db._submit_write``
-        # with the ``_do_retention`` closure. Patch _submit_write to
-        # run the closure on our tracked conn.
         with pytest.MonkeyPatch().context() as mp:
             mp.setattr(db, "_submit_write", capture)
             db.apply_retention(max_entries=2)
@@ -326,11 +270,6 @@ def test_apply_retention_closes_cursor(db):
     assert tracked.all_cursors_closed(), (
         f"apply_retention leaked cursors: created={tracked.cursors_created}, closed={tracked.cursors_closed}"
     )
-
-
-# ──────────────────────────────────────────────────────────────────
-# schema.init_schema cursor close ()
-# ──────────────────────────────────────────────────────────────────
 
 
 def test_init_schema_closes_cursor(tmp_path):
@@ -354,11 +293,6 @@ def test_init_schema_closes_cursor(tmp_path):
     assert tracked.all_cursors_closed(), (
         f"init_schema leaked cursors: created={tracked.cursors_created}, closed={tracked.cursors_closed}"
     )
-
-
-# ──────────────────────────────────────────────────────────────────
-# Helpers
-# ──────────────────────────────────────────────────────────────────
 
 
 def _add_and_flush(db, text: str) -> None:

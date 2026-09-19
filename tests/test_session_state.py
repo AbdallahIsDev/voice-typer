@@ -1,10 +1,4 @@
-"""Tests for the session-liveness marker (``voice_typer/server/session_state.py``).
-
-The marker is the mechanism that distinguishes a genuine crash from an
-expected restart: written when a real session begins, removed on every
-clean-shutdown path, and checked at the next launch before the
-"previous session crashed" notification fires.
-"""
+"""Tests for the session-liveness marker (``voice_typer/server/session_state.py``)."""
 
 from __future__ import annotations
 
@@ -24,8 +18,7 @@ class TestSessionMarkerLifecycle:
         assert session_state.was_previous_session_abnormal(tmp_path) is True
 
     def test_clear_marker_restores_clean_state(self, tmp_path: Path) -> None:
-        """Clearing on clean shutdown makes the next launch treat the
-        previous session as clean (no crash notification)."""
+        """Clearing on clean shutdown makes the next launch treat the"""
         session_state.mark_session_active(tmp_path)
         session_state.clear_session_marker(tmp_path)
         assert session_state.was_previous_session_abnormal(tmp_path) is False

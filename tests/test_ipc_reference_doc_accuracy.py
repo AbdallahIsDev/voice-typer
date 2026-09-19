@@ -1,23 +1,4 @@
-"""/ Hard rule 8: doc-parity test for docs/ipc-reference.md.
-
-Asserts that every command in ``_COMMAND_REGISTRY`` has a row in
-``docs/ipc-reference.md`` and vice versa (modulo the explicit
-"Removed / never-existed commands" list at the bottom of the doc —
-those names are documented for searchability but are intentionally
-absent from the registry).
-
-Parses both sources the same way ``tests/test_security_doc_command_count.py``
-parses them so the two tests stay consistent if the registry file shape
-changes.
-
-Asserts the documented "Commands (N total ...)" header count matches
-the actual registry size (currently 69 = 67 renderer-reachable + 2
-host-only).
-
-Asserts the documented "Push events (N typed)" header count matches
-the count of ``type: "<name>"`` literals in the renderer's
-``types/ipc/push_events.ts`` (currently 36).
-"""
+"""/ Hard rule 8: doc-parity test for docs/ipc-reference.md."""
 
 from __future__ import annotations
 
@@ -32,11 +13,7 @@ PUSH_EVENTS_TS = REPO_ROOT / "voice_typer" / "client" / "src" / "renderer" / "sr
 
 
 def _command_registry_entries() -> set[str]:
-    """Mirror of ``test_security_doc_command_count._command_registry_entries``.
-
-    Kept inline (not imported) so this test has no cross-file dependency
-    on the security-doc test module's private helpers.
-    """
+    """Mirror of ``test_security_doc_command_count._command_registry_entries``."""
     sources = [IPC_REGISTRY_PY, IPC_SERVER_PY]
     src = None
     for candidate in sources:
@@ -64,7 +41,6 @@ def _doc_command_rows() -> set[str]:
     """Return command names from the doc's ``| <cmd> | _handle_... |`` rows."""
     text = IPC_REFERENCE_MD.read_text(encoding="utf-8")
     # Stop at the "Removed / never-existed commands" section so we don't
-    # pick up the removed-command names as if they were live rows.
     removed_marker = "## Removed / never-existed commands"
     if removed_marker in text:
         text = text.split(removed_marker)[0]
@@ -84,7 +60,6 @@ def _doc_removed_commands_section() -> set[str]:
     if next_section:
         after = after[: next_section.start()]
     # The removed commands are listed as inline-code tokens:
-    # `` `apply_vocabulary_suggestion`, `delete_all_personal_data`, ...``
     return set(re.findall(r"`([a-z_]+)`", after))
 
 
@@ -96,26 +71,8 @@ def _doc_commands_header_count() -> int | None:
 
 
 def _push_event_types() -> set[str]:
-    """Return the set of ``type: "<name>"`` literals in push_events.ts.
-
-    Excludes the WebSocket-transport auth/error frames (which appear
-    near the bottom of the file in a separate interface declaration
-    used only by the WS transport, not by the renderer's push-event
-    union).
-    """
+    """Return the set of ``type: \"<name>\"`` literals in push_events.ts."""
     src = PUSH_EVENTS_TS.read_text(encoding="utf-8")
-    # Slice at the ``// WebSocket transport auth frame`` marker (or
-    # similar) so the WS-only ``type: "auth"`` and the duplicate
-    # ``type: "error"`` near the bottom of the file are not counted.
-    # If the marker isn't present, take the whole file, the test
-    # will simply assert the larger count and we'll notice the drift.
-    # Slice at the ``export const IPC_PROTOCOL_VERSION`` marker so the
-    # WS-transport ``AuthFrame`` and ``ProtocolVersionMismatchError``
-    # interfaces (which declare their own ``type: "auth"`` and
-    # ``type: "error"`` literals) are not counted as push events.
-    # The historical-comment mention of ``type: "the legacy relaunch event name"``
-    # lives in a ``*`` JSDoc line above this marker, so slicing here
-    # also drops that.
     cutoff_markers = [
         "\nexport const IPC_PROTOCOL_VERSION",
         "\nexport interface AuthFrame",
@@ -130,11 +87,6 @@ def _push_event_types() -> set[str]:
         if idx != -1:
             cutoff = min(cutoff, idx)
     body = src[:cutoff]
-    # Strip JSDoc / line-comment lines so historical mentions of
-    # deleted types (e.g. ``*  : the legacy the legacy relaunch event type
-    # (type: "the legacy relaunch event name")``) are not picked up as live type
-    # literals. Only lines that begin with whitespace + ``type: "..."``
-    # (inside an interface body, indented) count as real declarations.
     live_lines = [line for line in body.splitlines() if not line.lstrip().startswith(("*", "//", "/*"))]
     body = "\n".join(live_lines)
     return set(re.findall(r'type:\s*"([a-z_]+)"', body))
@@ -159,13 +111,7 @@ def _doc_push_event_rows() -> set[str]:
 
 
 def test_ipc_reference_doc_has_row_for_every_registry_command() -> None:
-    """Every ``_COMMAND_REGISTRY`` key MUST have a row in ipc-reference.md.
-
-    Catches the regression where a new IPC command is added to the
-    registry but the doc isn't updated. The inverse direction
-    (doc has a row but the command isn't in the registry) is covered
-    by the next test.
-    """
+    """Every ``_COMMAND_REGISTRY`` key MUST have a row in ipc-reference.md."""
     registry = _command_registry_entries()
     doc_rows = _doc_command_rows()
     missing_from_doc = registry - doc_rows
@@ -177,13 +123,7 @@ def test_ipc_reference_doc_has_row_for_every_registry_command() -> None:
 
 
 def test_ipc_reference_doc_rows_are_all_in_registry_or_removed_section() -> None:
-    """Every doc row MUST be in the registry OR in the removed-commands section.
-
-    Catches the regression where the doc lists a command that was
-    removed from the registry without being moved to the
-    'Removed / never-existed commands' section. Also catches typos in
-    command names.
-    """
+    """Every doc row MUST be in the registry OR in the removed-commands section."""
     registry = _command_registry_entries()
     doc_rows = _doc_command_rows()
     removed = _doc_removed_commands_section()
@@ -248,14 +188,7 @@ def test_ipc_reference_doc_push_event_rows_match_source_types() -> None:
 
 
 def test_ipc_reference_doc_mentions_host_only_commands() -> None:
-    """The two host-only commands MUST be present in the doc.
-
-    ``shutdown`` and ``tray_click`` are host-only (routed by the Rust
-    host directly, never via the renderer's ``dispatch`` path). They
-    MUST be documented in the doc with the ``—`` allowlist marker so
-    contributors don't accidentally add them to the renderer
-    allowlist.
-    """
+    """The two host-only commands MUST be present in the doc."""
     doc_rows = _doc_command_rows()
     host_only = {"shutdown", "tray_click"}
     missing = host_only - doc_rows
@@ -267,16 +200,7 @@ def test_ipc_reference_doc_mentions_host_only_commands() -> None:
 
 
 def test_ipc_reference_doc_removed_section_lists_known_dead_commands() -> None:
-    """The 'Removed / never-existed commands' section lists the 15 dead names.
-
-    These are commands that appeared in older drafts of the doc but
-    were never in ``_COMMAND_REGISTRY``. The section exists so
-    search-engine queries landing on the page find the canonical
-    "this command does not exist" answer. If any of these names
-    actually gets added to the registry, this test will fail loudly
-    so the entry can be moved out of the removed section into a
-    proper namespace table.
-    """
+    """The 'Removed / never-existed commands' section lists the 15 dead names."""
     removed_section = _doc_removed_commands_section()
     expected_dead = {
         "apply_vocabulary_suggestion",
@@ -302,9 +226,6 @@ def test_ipc_reference_doc_removed_section_lists_known_dead_commands() -> None:
         f"back so search-engine queries find the canonical 'this command "
         f"does not exist' answer."
     )
-    # None of the dead names should secretly have been added to the
-    # registry, that would mean the doc's "Removed / never-existed"
-    # claim is now a lie.
     registry = _command_registry_entries()
     resurrected = expected_dead & registry
     assert not resurrected, (

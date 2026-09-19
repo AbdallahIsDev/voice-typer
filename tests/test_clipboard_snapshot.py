@@ -1,23 +1,4 @@
-"""Tests for ``voice_typer.server.clipboard_snapshot.ClipboardSnapshot``.
-
-ADR-0010 §10.1: tests for the new multi-format clipboard snapshot module.
-
-These tests cover:
-
-* Windows ``_capture_windows`` failure paths (locked clipboard, empty
-  clipboard, builtin format-name lookup).
-* Platform dispatch in ``restore()`` (linux-x11 happy path, unknown
-  platform failure).
-* Linux X11 / Wayland capture-returns-None when the required CLI
-  tool (``xclip`` / ``wl-paste``) is missing.
-* Linux X11 / Wayland ``_restore_*`` early-return ``True`` when the
-  snapshot has no items.
-
-Platform-specific Windows / macOS code paths are guarded by
-``pytest.skipif`` so the suite runs on the Linux CI box. The Win32
-``_capture_windows`` tests install a ``MagicMock`` for
-``ctypes.windll`` so the Windows-only branches execute on Linux.
-"""
+"""Tests for ``voice_typer.server.clipboard_snapshot.ClipboardSnapshot``."""
 
 from __future__ import annotations
 
@@ -26,19 +7,12 @@ import sys
 from unittest.mock import MagicMock, patch
 
 import pytest
-
-# pynput / pynput.keyboard / pyperclip are mocked at collection time by
-# tests/clipboard/conftest.py (single source of truth, dedup).
 from voice_typer.server import clipboard_snapshot as snap_mod  # noqa: E402
 from voice_typer.server.clipboard_snapshot import (  # noqa: E402
     _BUILTIN_FORMAT_NAMES,
     ClipboardSnapshot,
     _builtin_format_name,
 )
-
-# ---------------------------------------------------------------------------
-# Windows builtin format-name lookup (pure data, no platform dep)
-# ---------------------------------------------------------------------------
 
 
 class TestBuiltinFormatName:
@@ -68,11 +42,6 @@ class TestBuiltinFormatName:
             assert required_id in _BUILTIN_FORMAT_NAMES
 
 
-# ---------------------------------------------------------------------------
-# Windows _capture_windows failure paths
-# ---------------------------------------------------------------------------
-
-
 _WINDOWS_ONLY = pytest.mark.skipif(
     sys.platform != "win32" and "CI_MOCK_WIN32" not in os.environ,
     reason="Windows-only capture path (requires ctypes.windll mock)",
@@ -80,10 +49,7 @@ _WINDOWS_ONLY = pytest.mark.skipif(
 
 
 def _install_fake_windll(user32: MagicMock) -> MagicMock:
-    """Install a fake ``ctypes.windll`` exposing ``user32``/``kernel32``.
-
-    Returns the windll mock so callers can configure ``kernel32`` too.
-    """
+    """Install a fake ``ctypes.windll`` exposing ``user32``/``kernel32``."""
     windll = MagicMock()
     windll.user32 = user32
     windll.kernel32 = MagicMock()
@@ -91,12 +57,7 @@ def _install_fake_windll(user32: MagicMock) -> MagicMock:
 
 
 class TestCaptureWindowsFailures:
-    """``ClipboardSnapshot._capture_windows`` failure paths.
-
-    These tests run on Linux by mocking ``ctypes.windll`` so the Win32
-    ctypes calls resolve to MagicMocks. They install the
-    ``CI_MOCK_WIN32`` marker so the skip guard above lets them run.
-    """
+    """``ClipboardSnapshot._capture_windows`` failure paths."""
 
     @pytest.fixture(autouse=True)
     def _enable_win32_mock(self):
@@ -122,8 +83,6 @@ class TestCaptureWindowsFailures:
         assert result is None
         user32.OpenClipboard.assert_called_once_with(0)
         # CloseClipboard may or may not be called when OpenClipboard fails —
-        # the production code's try/finally only closes if open succeeded.
-        # So we don't assert on CloseClipboard here.
 
     def test_capture_returns_none_on_empty_clipboard(self):
         """EnumClipboardFormats returning 0 immediately → empty clipboard → None."""
@@ -139,10 +98,7 @@ class TestCaptureWindowsFailures:
         user32.CloseClipboard.assert_called_once()
 
     def test_capture_skips_format_exceeding_size_cap(self):
-        """A format whose GlobalSize exceeds the cap is skipped (no
-        ``string_at`` copy), protecting Python heap from pathological
-        clipboard payloads (200 MB RTF blob, oversized private data).
-        """
+        """A format whose GlobalSize exceeds the cap is skipped (no"""
         from voice_typer.server.clipboard_snapshot import _MAX_FORMAT_BYTES
 
         user32 = MagicMock()
@@ -150,7 +106,6 @@ class TestCaptureWindowsFailures:
         # First call returns CF_UNICODETEXT (13); second returns 0 (end).
         user32.EnumClipboardFormats.side_effect = [13, 0]
         # GetClipboardFormatNameW returns 0 for builtins (CF_UNICODETEXT
-        # is builtin → name lookup falls back to _builtin_format_name).
         user32.GetClipboardFormatNameW.return_value = 0
         user32.GetClipboardData.return_value = 1234  # non-zero handle
 
@@ -179,9 +134,7 @@ class TestCaptureWindowsFailures:
         assert "exceeds" in log_msg or "cap" in log_msg
 
     def test_capture_keeps_format_under_size_cap(self):
-        """A format whose GlobalSize is under the cap is captured
-        normally (GlobalLock + string_at copy runs).
-        """
+        """A format whose GlobalSize is under the cap is captured"""
         from voice_typer.server.clipboard_snapshot import _MAX_FORMAT_BYTES
 
         user32 = MagicMock()
@@ -219,11 +172,6 @@ class TestCaptureWindowsFailures:
         kernel32.GlobalUnlock.assert_called_once_with(1234)
 
 
-# ---------------------------------------------------------------------------
-# Platform dispatch in restore()
-# ---------------------------------------------------------------------------
-
-
 class TestRestorePlatformDispatch:
     """``ClipboardSnapshot.restore`` dispatches on ``self.platform``."""
 
@@ -253,18 +201,8 @@ class TestRestorePlatformDispatch:
         mock_log.warning.assert_called_once()
 
 
-# ---------------------------------------------------------------------------
-# Linux X11 / Wayland capture failure paths
-# ---------------------------------------------------------------------------
-
-
 class TestCaptureLinuxMissingTool:
-    """Capture returns None when xclip / wl-paste is missing.
-
-    Documents ADR-0010 §4.5 / §4.6 limitation: text-only on Linux, and
-    requires xclip / wl-paste to be installed. When the tool is absent
-    (FileNotFoundError), capture returns None for that target.
-    """
+    """Capture returns None when xclip / wl-paste is missing."""
 
     def test_capture_x11_returns_none_when_xclip_missing(self):
         """xclip not installed → _capture_x11 returns None."""
@@ -283,23 +221,11 @@ class TestCaptureLinuxMissingTool:
         assert result is None
 
 
-# ---------------------------------------------------------------------------
-# Linux X11 / Wayland restore with empty items
-# ---------------------------------------------------------------------------
-
-
 class TestRestoreLinuxEmptyItems:
-    """``_restore_x11`` / ``_restore_wayland`` short-circuit on empty items.
-
-    ADR-0010 §4.5 / §4.6: when the snapshot has no items (e.g. capture
-    returned an empty list), restore returns True without invoking the
-    CLI tool. This makes the restore a no-op for snapshots of empty
-    clipboards, which is the safe behavior.
-    """
+    """``_restore_x11`` / ``_restore_wayland`` short-circuit on empty items."""
 
     def test_restore_x11_with_empty_items_returns_true(self):
         snap = ClipboardSnapshot(platform="linux-x11", items=[], captured_at=0.0)
-        # subprocess.run should NOT be called when items is empty.
         import subprocess
 
         with patch.object(subprocess, "run") as mock_run:

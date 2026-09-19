@@ -1,30 +1,4 @@
-"""Coverage tests for ``scripts/check_branding.py``.
-
-The original scanner only walked ``voice_typer/server``,
-``voice_typer/client/src``, ``src-tauri/src``, and two top-level
-Python files. It missed the live build-config file that legitimately
-needs literal "Voice Typer" strings in its productName/title fields
-(``src-tauri/tauri.conf.json``). These tests pin the current behavior:
-
-* The live build-config file IS scanned (a non-allowlisted literal in
-  it is flagged).
-* The productName / title fields are allowlisted as a documented
-  "build-config literal" exception to C-BRAND-1, they are NOT flagged.
-* A clean build-config file (only productName / title literals) passes.
-* The deleted legacy client builder config is NOT a
-  scan target (previous host removed 2026-09-17); do not reintroduce it.
-
-A second gap (found when the bubble aria fallbacks shipped with the
-brand embedded inside LONGER string literals): the scanner's literal
-pattern only matched the brand as a QUOTED STANDALONE literal, so a
-source line like ``"Voice Typer blocked indicator"`` passed untouched.
-The substring-in-literal tests below pin the scanner's second pattern
-plus the exemptions it must keep intact (comments, renderer locale
-files, the source-of-truth branding files, APP_NAME-composed lines).
-The substring pattern's scope is ALL non-test .ts/.tsx under
-``voice_typer/client/src/`` (renderer tree; the predecessor main/preload
-trees are deleted), and the test-file exemption stays.
-"""
+"""Coverage tests for ``scripts/check_branding.py``."""
 
 from __future__ import annotations
 
@@ -40,14 +14,7 @@ _SCRIPT_PATH = Path(__file__).resolve().parent.parent / "scripts" / "check_brand
 
 
 def _run_check_branding(cwd: Path) -> subprocess.CompletedProcess:
-    """Run ``scripts/check_branding.py`` with cwd set to ``cwd``.
-
-    Running in a fresh cwd lets each test fixture own a fake project
-    root (with its own branding.py, src-tauri/tauri.conf.json, etc.)
-    without polluting the real repo or other tests. The script reads
-    ``Path("voice_typer/server/branding.py")`` relative to cwd at
-    module-import time, so cwd must contain that file.
-    """
+    """Run ``scripts/check_branding.py`` with cwd set to ``cwd``."""
     return subprocess.run(
         [sys.executable, str(_SCRIPT_PATH)],
         cwd=cwd,
@@ -58,25 +25,11 @@ def _run_check_branding(cwd: Path) -> subprocess.CompletedProcess:
 
 
 def _violation_lines(result: subprocess.CompletedProcess) -> list[str]:
-    """Extract the per-line violation entries from the script's stdout.
-
-    The script prints::
-
-        ERROR: Found N hardcoded references to 'Voice Typer' ...
-
-          <abs_path>:<lineno>:  <stripped_line>
-
-    We pull out the ``<stripped_line>`` portion of each violation so
-    tests can assert exactly which source lines were flagged (and,
-    more importantly, which were NOT, e.g. allowlisted productName
-    / title lines must never appear in this list).
-    """
+    """Extract the per-line violation entries from the script's stdout."""
     lines = result.stdout.splitlines()
     out: list[str] = []
     for line in lines:
         # Violation rows are indented and look like
-        # ``  /path/to/file:42:  <source line>``. Match anything that
-        # has the ``:LINENO:`` separator followed by the source text.
         m = re.match(r"^\s+\S+:\d+:\s+(.*)$", line)
         if m:
             out.append(m.group(1))
@@ -84,16 +37,9 @@ def _violation_lines(result: subprocess.CompletedProcess) -> list[str]:
 
 
 def _make_fake_project_root(tmp_path: Path) -> Path:
-    """Lay down the minimum files check_branding.py needs to boot.
-
-    * ``voice_typer/server/branding.py``, provides APP_NAME.
-    * The two build-config files are added per-test (so each test
-      controls their exact contents).
-
+    """
+    Lay down the minimum files check_branding.py needs to boot.
     We do NOT create ``src-tauri/src/branding.rs``, the script's
-    cross-language parity check is skipped when that file is absent
-    (``_read_rust_app_name`` returns None), so the fake root doesn't
-    need a Rust mirror.
     """
     root = tmp_path / "fake_root"
     (root / "voice_typer" / "server").mkdir(parents=True)
@@ -110,13 +56,7 @@ def _write_renderer_source(root: Path, rel_path: str, content: str) -> Path:
 
 
 def test_tauri_conf_json_is_scanned(tmp_path):
-    """A non-allowlisted literal in tauri.conf.json IS flagged.
-
-    The ``description`` field is NOT in the productName/title allowlist,
-    so a literal ``"Voice Typer"`` value there must be flagged. This
-    proves the file is actually being scanned (the original scanner
-    never looked at src-tauri/tauri.conf.json).
-    """
+    """A non-allowlisted literal in tauri.conf.json IS flagged."""
     root = _make_fake_project_root(tmp_path)
     (root / "src-tauri").mkdir(parents=True)
     (root / "src-tauri" / "tauri.conf.json").write_text(
@@ -134,7 +74,6 @@ def test_tauri_conf_json_is_scanned(tmp_path):
         f"stderr:\n{result.stderr}"
     )
     violations = _violation_lines(result)
-    # Exactly ONE violation: the description line. The allowlisted
     # productName / title lines must NOT appear in the violations list.
     assert len(violations) == 1, (
         f"expected exactly 1 violation (description only); got {len(violations)}:\n{violations}"
@@ -146,10 +85,9 @@ def test_tauri_conf_json_is_scanned(tmp_path):
 
 
 def test_deleted_builder_yml_is_not_a_scan_target(tmp_path):
-    """Deleted legacy builder config is NOT scanned (previous host removed).
-
+    """
+    Deleted legacy builder config is NOT scanned (previous host removed).
     Writing that path must not cause a branding violation: the scanner
-    no longer lists it in SCAN_DIRS / BUILD_CONFIG_FILES.
     """
     root = _make_fake_project_root(tmp_path)
     (root / "voice_typer" / "client").mkdir(parents=True)
@@ -166,12 +104,7 @@ def test_deleted_builder_yml_is_not_a_scan_target(tmp_path):
 
 
 def test_build_config_allowlist_only_passes(tmp_path):
-    """A clean build-config file (only productName / title literals) passes.
-
-    ``tauri.conf.json`` with ONLY the allowlisted productName / title
-    fields must exit 0. This proves the allowlist actually exempts those
-    fields (not just that the scanner skipped the files entirely).
-    """
+    """A clean build-config file (only productName / title literals) passes."""
     root = _make_fake_project_root(tmp_path)
     (root / "src-tauri").mkdir(parents=True)
     (root / "src-tauri" / "tauri.conf.json").write_text(
@@ -187,11 +120,7 @@ def test_build_config_allowlist_only_passes(tmp_path):
 
 
 def test_real_project_branding_scan_passes():
-    """Smoke test: running the scanner against the REAL project root exits 0.
-
-    Guards against an allowlist that is too narrow and would flag the
-    real tauri.conf.json in CI.
-    """
+    """Smoke test: running the scanner against the REAL project root exits 0."""
     repo_root = Path(__file__).resolve().parent.parent
     result = _run_check_branding(repo_root)
     assert result.returncode == 0, (
@@ -200,23 +129,11 @@ def test_real_project_branding_scan_passes():
     )
 
 
-# ── Substring-in-literal pattern (brand embedded inside LONGER string
-# literals) ─────────────────────────────────────────────────────────────
-#
-# The historical gap: the literal pattern matched the brand only as a
-# quoted STANDALONE literal (quote + brand + quote). A source line like
-#     return tf("bubble.blockedIndicatorAria", "Voice Typer blocked indicator");
-# embeds the brand inside a longer literal and passed the scanner
-# untouched, exactly how the hardcoded bubble aria fallbacks shipped.
 # The tests below pin the substring pattern for ALL non-test client
-# .ts/.tsx source (main / preload / shared / renderer, the scope was
-# widened from renderer-only once the last legacy main-process literal
-# was migrated to ``${APP_NAME}``) and the exemptions it must keep.
 
 
 def test_substring_in_literal_in_renderer_ts_source_is_flagged(tmp_path):
-    """The brand inside a LONGER string literal in renderer .ts source
-    is flagged (the bubble-aria class of violation)."""
+    """The brand inside a LONGER string literal in renderer .ts source"""
     root = _make_fake_project_root(tmp_path)
     _write_renderer_source(
         root,
@@ -265,9 +182,7 @@ def test_substring_literal_on_comment_line_is_not_flagged(tmp_path):
 
 
 def test_substring_literal_in_renderer_locale_file_is_not_flagged(tmp_path):
-    """Renderer locale files keep their exemption under the substring
-    pattern (they localize via the {appName} placeholder, but the whole
-    translations directory is exempt)."""
+    """Renderer locale files keep their exemption under the substring"""
     root = _make_fake_project_root(tmp_path)
     _write_renderer_source(
         root,
@@ -281,8 +196,7 @@ def test_substring_literal_in_renderer_locale_file_is_not_flagged(tmp_path):
 
 
 def test_source_of_truth_branding_file_is_not_flagged(tmp_path):
-    """The renderer source-of-truth branding.ts keeps its exemption (the
-    one file allowed to define the literal)."""
+    """The renderer source-of-truth branding.ts keeps its exemption (the"""
     root = _make_fake_project_root(tmp_path)
     _write_renderer_source(
         root,
@@ -294,8 +208,7 @@ def test_source_of_truth_branding_file_is_not_flagged(tmp_path):
 
 
 def test_standalone_literal_in_renderer_source_flagged_exactly_once(tmp_path):
-    """A standalone quoted literal is still flagged, and only once (the
-    substring pattern must not double-report the same line)."""
+    """A standalone quoted literal is still flagged, and only once (the"""
     root = _make_fake_project_root(tmp_path)
     _write_renderer_source(
         root,
@@ -312,8 +225,7 @@ def test_standalone_literal_in_renderer_source_flagged_exactly_once(tmp_path):
 
 
 def test_app_name_composed_line_is_not_flagged(tmp_path):
-    """A line that composes the string from the APP_NAME constant is the
-    CORRECT pattern and must never be flagged."""
+    """A line that composes the string from the APP_NAME constant is the"""
     root = _make_fake_project_root(tmp_path)
     _write_renderer_source(
         root,
@@ -327,14 +239,7 @@ def test_app_name_composed_line_is_not_flagged(tmp_path):
 
 
 def test_renderer_test_files_are_out_of_substring_scope(tmp_path):
-    """Renderer test files are outside the substring pattern's scope.
-
-    Test files assert golden OUTPUT values (e.g. the aria label after
-    {appName} substitution) as literal expectations, pinning the
-    literal in the test is the point of a golden assertion. This test
-    documents the scope boundary; widening the pattern to tests would
-    require migrating those golden assertions first.
-    """
+    """Renderer test files are outside the substring pattern's scope."""
     root = _make_fake_project_root(tmp_path)
     _write_renderer_source(
         root,
@@ -353,16 +258,7 @@ def test_renderer_test_files_are_out_of_substring_scope(tmp_path):
 
 
 def test_main_process_ts_substring_literal_is_flagged(tmp_path):
-    """Main-process .ts source is IN the substring pattern's scope.
-
-    The scope was originally renderer-only because the repo carried a
-    legacy log literal (``src/main/single_instance.ts``: "is not
-    <brand>" inside a template literal). That literal was migrated to
-    ``${APP_NAME}``, an audit confirmed zero other non-comment
-    non-exempt brand literals in main/preload/shared non-test TS, and
-    the pattern was widened to the full client source tree, so a
-    fixture main-process violation now FAILS the checker.
-    """
+    """Main-process .ts source is IN the substring pattern's scope."""
     root = _make_fake_project_root(tmp_path)
     _write_renderer_source(
         root,
@@ -414,10 +310,7 @@ def test_substring_in_literal_in_shared_ts_source_is_flagged(tmp_path):
 
 
 def test_main_process_app_name_composed_line_is_not_flagged(tmp_path):
-    """The migrated single_instance.ts pattern (brand via ``${APP_NAME}``
-    in a template literal) is the CORRECT pattern and must not be
-    flagged, pins that the real main-process file passes the widened
-    scan."""
+    """The migrated single_instance.ts pattern (brand via ``${APP_NAME}``"""
     root = _make_fake_project_root(tmp_path)
     _write_renderer_source(
         root,
@@ -431,8 +324,7 @@ def test_main_process_app_name_composed_line_is_not_flagged(tmp_path):
 
 
 def test_main_process_test_files_are_out_of_substring_scope(tmp_path):
-    """Main-process test files stay OUT of the substring pattern's scope
-    even under the widened client-tree prefix (golden-output pins)."""
+    """Main-process test files stay OUT of the substring pattern's scope"""
     root = _make_fake_project_root(tmp_path)
     _write_renderer_source(
         root,
@@ -446,8 +338,7 @@ def test_main_process_test_files_are_out_of_substring_scope(tmp_path):
 
 
 def test_clean_renderer_source_with_placeholder_passes(tmp_path):
-    """A renderer source file that routes the brand through the i18n
-    {appName} placeholder (no literal brand at all) passes."""
+    """A renderer source file that routes the brand through the i18n"""
     root = _make_fake_project_root(tmp_path)
     _write_renderer_source(
         root,

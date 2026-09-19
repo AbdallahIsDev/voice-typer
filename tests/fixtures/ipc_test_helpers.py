@@ -1,46 +1,4 @@
-"""Test helpers for IPC server DI (ARCH-REFAC-004).
-
-This module provides ready-made fakes that satisfy
-:class:`voice_typer.server.providers.AppProtocol` and
-:class:`voice_typer.server.providers.ServiceProtocol`.  Tests that want
-to exercise :class:`voice_typer.server.ipc_server.IPCServer` in
-isolation (without coupling to the real ``VoiceTyperApp`` /
-``VoiceTyperService``) can use these helpers instead of building a
-``MagicMock`` from scratch each time.
-
-Why a separate module?
-----------------------
-
-Before ARCH-REFAC-004, every test that touched the IPC layer built its
-own ``MockApp`` / ``MagicMock`` fixture inline (see
-``tests/test_server.py:MockApp`` for the canonical example).  The
-fixtures drifted: some included ``_volume_ducker``, some didn't; some
-stuffed values into ``config.__dict__``, some used ``MockConfig``.
-The drift made it hard to add a new ``self.app.X`` access in a handler
-without breaking half the IPC tests.
-
-These helpers provide a single, canonical fake that mirrors
-``AppProtocol`` exactly.  When a handler starts reading a new
-``self.app.X`` field, the introspection regression test in
-``tests/test_di_providers.py`` fails, and ``make_fake_app`` is the
-single place to update so every test gets the new attribute.
-
-Usage
------
-
-::
-
-    from tests.fixtures.ipc_test_helpers import make_ipc_server_with_fakes
-
-    def test_something():
-        server, fake_app, fake_service = make_ipc_server_with_fakes()
-        result = server._dispatch({"type": "get_status"})
-        assert result["type"] == "status"
-        fake_service.get_status.assert_called_once()
-
-The fakes are plain ``MagicMock`` instances, so assertions use the
-standard mock API (``assert_called_once``, ``return_value``, etc.).
-"""
+"""Test helpers for IPC server DI (ARCH-REFAC-004)."""
 
 from __future__ import annotations
 
@@ -49,60 +7,10 @@ from unittest.mock import MagicMock
 
 
 def make_fake_app() -> MagicMock:
-    """Return a ``MagicMock`` configured to satisfy ``AppProtocol``.
-
-    The returned mock has every attribute named in
-    :class:`voice_typer.server.providers.AppProtocol` pre-populated
-    with a sensible child mock so attribute access (e.g.
-    ``fake_app.config.hotkey``) doesn't AttributeError and behaves
-    like a real attribute (not an auto-created child mock that would
-    make ``assert_called_once`` flaky).
-
-    Specifically, the following attributes are explicitly configured:
-
-    - ``config``, ``history_db``, ``models``, ``recording``,
-      ``hotkeys``, ``recorder``, ``tray``: child ``MagicMock()``.
-    - ``_ipc_server``: ``None`` (matches the real app's state before
-      ``IPCServer.start()`` sets the back-reference).
-    - ``_shutting_down``: ``False`` (matches the real app's running
-      state, the IPC ``_send`` path checks
-      ``getattr(self.app, '_shutting_down', False) is True`` and a
-      child mock would be truthy but not ``is True``, so the shutdown
-      short-circuit must be tested by setting ``_shutting_down = True``
-      explicitly).
-    - ``_esc_cancel_paused``: ``False`` so the ESC cancel handler
-      doesn't skip cancel when the frontend isn't in capture mode.
-
-    The methods declared on ``AppProtocol`` (``change_model``,
-    ``toggle_dictation``, ``undo_last``, ``repaste_last``,
-    ``restart_app``, ``quit_app``, ``quit``, ``start``) are
-    auto-stubbed by ``MagicMock``, calling them returns a child mock
-    and records the call for later assertion.  No explicit
-    configuration is needed.
-
-    TASK-2 (ADR 0008 §3.1): the ``_audio_processor``,
-    ``_volume_ducker``, and ``_config_mutation_lock`` attributes were
-    REMOVED from this fake.  They are no longer on ``AppProtocol``
-    because the ``get_audio_status``, ``get_volume_backend_status``,
-    and ``apply_config`` IPC paths now go through :class:`ServiceProtocol`
-    methods that wrap the private-attribute access inside the service
-    layer.  Tests that exercise those code paths against a fake app
-    should configure a fake service (see :func:`make_fake_service`)
-    and inject it via ``IPCServer(app, service=fake_service)``.
-
-    Returns
-    -------
-    MagicMock
-        A mock that satisfies ``AppProtocol`` structurally.  Caller
-        is free to override any attribute (e.g.
-        ``fake_app.config.model_size = "tiny"``) before passing the
-        mock to ``IPCServer(app, service=fake_service)``.
-    """
+    """Return a ``MagicMock`` configured to satisfy ``AppProtocol``."""
     app = MagicMock(name="fake_app")
 
     # Public domain objects, pre-create them so callers can configure
-    # them (e.g. ``fake_app.config.hotkey = "<f3>"``) without fighting
-    # MagicMock's auto-child behavior.
     app.config = MagicMock(name="fake_app.config")
     app.history_db = MagicMock(name="fake_app.history_db")
     app.models = MagicMock(name="fake_app.models")
@@ -111,53 +19,23 @@ def make_fake_app() -> MagicMock:
     app.recorder = MagicMock(name="fake_app.recorder")
     app.tray = MagicMock(name="fake_app.tray")
     # The lifecycle tray-state hook (``_hook_tray_set_state``) checks
-    # ``app.tray.set_state._vt_wrapped`` to dedupe; a fresh child mock
-    # reports truthy which would short-circuit the hook on first call.
-    # A real ``TrayManager.set_state`` has no such attribute until the
-    # hook wraps it, so ``False`` is the production-faithful default
-    # (the hook actually wraps on the first call, exactly like
-    # production).
     app.tray.set_state._vt_wrapped = False
     # Per-correction usage tracker (``correction_usage.py``), read by
-    # the vocabulary service (``get_correction_usage`` IPC + the
-    # prune-after-save path). Child mock so handlers can stub
-    # ``record_dictation`` / ``get_snapshot`` / ``prune_entries``.
     app.correction_usage = MagicMock(name="fake_app.correction_usage")
 
     # Private attributes still accessed by ipc_server / handlers.
-    # _ipc_server is set by IPCServer.start(); pre-None to match real app.
     app._ipc_server = None
-    # _shutting_down must be `False` (not a truthy child mock) so the
     # IPC _send shutdown short-circuit logic gates correctly.
     app._shutting_down = False
-    # _esc_cancel_paused must be `False` so the ESC cancel handler
-    # doesn't skip cancel when the frontend isn't in capture mode.
     app._esc_cancel_paused = False
 
     return app
 
 
 def make_fake_service() -> MagicMock:
-    """Return a ``MagicMock`` configured to satisfy ``ServiceProtocol``.
-
-    The returned mock auto-stubs every method declared on
-    :class:`voice_typer.server.providers.ServiceProtocol`.  By
-    default, calling any of those methods returns a child ``MagicMock``
-    (which is truthy and iterable, satisfying most assertion patterns).
-
-    Tests that need a specific return value (e.g.
-    ``fake_service.get_status.return_value = {"status": "recording"}``)
-    can set it after construction.
-
-    Returns
-    -------
-    MagicMock
-        A mock that satisfies ``ServiceProtocol`` structurally.
-    """
+    """Return a ``MagicMock`` configured to satisfy ``ServiceProtocol``."""
     service = MagicMock(name="fake_service")
     # Pre-populate common return values so basic dispatch tests work
-    # without per-test configuration.  Tests that need different
-    # values can override these after construction.
     service.get_status.return_value = {
         "status": "idle",
         "xruns_since_start": 0,
@@ -196,59 +74,16 @@ def make_fake_service() -> MagicMock:
     service.save_vocabulary_with_diff.return_value = {"ok": True, "added": 0, "removed": 0}
     service.get_templates.return_value = []
     service.save_templates.return_value = True
-    # export_diagnostics mock removed, the service method no longer
-    # exists (dead bundle pipeline deleted; support bundles come from
-    # the CLI scripts/diagnostics.py export).
     return service
 
 
 # Sentinel for ``make_ipc_server_with_fakes(thread_registry=...)``:
-# "leave the app's ``_thread_registry`` as the MagicMock auto-stub".
 _UNSET_THREAD_REGISTRY = object()
 
 
 def make_ipc_server_with_fakes(*, thread_registry: Any = _UNSET_THREAD_REGISTRY) -> tuple[Any, MagicMock, MagicMock]:
-    """Construct an ``IPCServer`` with a fake app and fake service.
-
-    This is the canonical DI-mode construction for tests that want to
-    exercise the IPC dispatch layer (``_dispatch``, ``_send``, the
-    ``_handle_*`` mixins) without coupling to ``VoiceTyperApp`` /
-    ``VoiceTyperService`` internals.
-
-    The returned server has:
-
-    - ``server.app``, the fake app from :func:`make_fake_app`
-    - ``server.service``, the fake service from :func:`make_fake_service`
-      (NOT a real ``VoiceTyperService``; the DI seam in
-      ``IPCServer.__init__`` stored it verbatim).
-
-    Parameters
-    ----------
-    thread_registry : Any, optional
-        By default the fake app's ``_thread_registry`` stays the
-        MagicMock auto-stub (so tests asserting on
-        ``app._thread_registry.register(...)`` calls keep recording).
-        Pass ``thread_registry=None`` to disable the central
-        thread-registry registration path in ``start()``/``stop()``
-        (the lifecycle methods read it via ``getattr`` and skip it
-        when ``None``), or any registry stub to inject it.
-
-    Returns
-    -------
-    tuple
-        ``(server, fake_app, fake_service)``, the server is ready to
-        ``start()`` (or just to call ``_dispatch`` on directly, which
-        is the typical test pattern).  The fake app and service are
-        returned so the test can configure return values and assert
-        on calls.
-    """
+    """Construct an ``IPCServer`` with a fake app and fake service."""
     # Imported here (not at module top) so importing this fixtures
-    # module doesn't transitively import the entire server stack
-    # (which would slow down test collection and could fail if e.g.
-    # pystray isn't mocked yet).  The conftest.py autouse fixture
-    # mocks heavy imports before any test runs, so by the time this
-    # function is called, ``voice_typer.server.ipc_server`` is safe
-    # to import.
     from voice_typer.server.ipc_server import IPCServer
 
     fake_app = make_fake_app()
@@ -265,70 +100,7 @@ def make_bare_ipc_server(
     *,
     send_path: bool = False,
 ) -> Any:
-    """Build a bare ``IPCServer`` via the ``__new__`` bypass.
-
-    Canonical replacement for the ``_make_ipc_server`` helpers that were
-    copy-pasted across ``tests/test_notification_event_name.py``,
-    ``tests/tauri/mig15/test_toast_windows.py``,
-    ``tests/tauri/mig16/test_toast_macos.py`` and
-    ``tests/tauri/mig17/test_toast_linux.py``. Those four copies had
-    drifted: three of them set only ``app`` / ``service`` /
-    ``app._config_mutation_lock``; the fourth (toast_linux) additionally
-    set ``server._dispatch_lock`` because ``__new__`` skips
-    ``__init__`` and ``_dispatch`` acquires that lock, without it a
-    dispatch raises ``AttributeError``. This factory merges both shapes
-    so every caller gets the lock fix.
-
-    The bypass exists so handler-mixin tests can run the validation +
-    publish path without a real ``VoiceTyperApp`` (no torch, no pystray,
-    no real tray) and without paying ``IPCServer.__init__``'s full
-    wiring cost. Only use it when the test touches attributes the
-    mixins read directly; tests that exercise ``_dispatch`` or the
-    server lifecycle should prefer :func:`make_ipc_server_with_fakes`.
-
-    Sets exactly:
-
-    - ``server.app``: ``MagicMock`` with ``_config_mutation_lock`` set
-      to a fresh ``threading.RLock`` (the config handlers acquire the
-      app-level lock).
-    - ``server.service``, plain ``MagicMock``.
-    - ``server._dispatch_lock``, fresh ``threading.RLock`` (mirrors
-      ``IPCServer.__init__``; ``RLock`` so a handler that re-enters
-      ``_dispatch`` on the same thread doesn't self-deadlock).
-
-    With ``send_path=True`` it additionally initializes the instance
-    state that ``OutputMixin._send`` / ``push`` touch, mirroring the
-    production ``__init__`` values, the canonical fixture for the TCP
-    outbound-path tests that used to re-create this attribute block
-    inline via ``IPCServer.__new__``:
-
-    - ``app._shutting_down = False`` (bool so any ``is True`` shutdown
-      gate sees a real ``False``).
-    - ``server._lock`` / ``server._tcp_write_lock``, fresh RLocks.
-    - ``server._pending_tcp``: ``_PendingBuffer(maxlen=_TCP_PENDING_BUFFER_CAP)``
-      (the production bounded FIFO shape).
-    - ``server._tcp_mode = True``, ``server._cached_shutting_down = False``,
-      ``server._tcp_client = None``.
-
-    Parameters
-    ----------
-    app : MagicMock, optional
-        Pre-built fake app to inject instead of a fresh mock. The
-        ``_config_mutation_lock`` fix-up is applied when the injected
-        app doesn't already expose a real lock.
-    service : MagicMock, optional
-        Pre-built fake service to inject instead of a fresh mock.
-    send_path : bool, optional
-        Initialize the ``_send``/``push`` instance state (see above).
-        Off by default so existing bare-fixture consumers see exactly
-        the attributes they always saw.
-
-    Returns
-    -------
-    Any
-        The bare ``IPCServer`` instance. Configure the mocks via
-        ``server.app`` / ``server.service``.
-    """
+    """Build a bare ``IPCServer`` via the ``__new__`` bypass."""
     import threading
 
     from voice_typer.server.ipc.sender import _TCP_PENDING_BUFFER_CAP, _PendingBuffer
@@ -347,7 +119,6 @@ def make_bare_ipc_server(
     server._dispatch_lock = threading.RLock()
     if send_path:
         # Sender-path fixture state, exactly what ``OutputMixin._send``
-        # and ``push`` read/write (mirrors ``IPCServer.__init__``).
         app._shutting_down = False
         server._lock = threading.RLock()
         server._tcp_write_lock = threading.RLock()
@@ -359,32 +130,12 @@ def make_bare_ipc_server(
 
 
 def make_buffered_mock_tcp_client() -> MagicMock:
-    """Mock tcp_client simulating ``_TCPLineIO`` buffer-then-flush.
-
-    Canonical stand-in for the real ``_TCPLineIO`` client used by the
-    TCP outbound-path (``OutputMixin._send``) tests, which previously
-    re-created this helper inline in four test files.
-
-    ``write()`` appends to an in-memory buffer; ``flush()`` issues a
-    single ``sendall`` for the whole buffer (mirrors the real
-    ``_TCPLineIO`` behavior so tests can count/inspect ``sendall``
-    calls without a real socketpair). ``_reset_write_buffer`` clears
-    the buffer (mirrors the drain-failure reset path).
-
-    Returns
-    -------
-    MagicMock
-        The client mock; ``client.conn.sendall.call_args_list`` holds
-        the bytes written to the wire.
-    """
+    """Mock tcp_client simulating ``_TCPLineIO`` buffer-then-flush."""
     tcp_client = MagicMock()
     tcp_client.conn = MagicMock()
     write_buffer: list[bytes] = []
 
     def mock_write(text: str | bytes) -> None:
-        # The real ``_TCPLineIO.write`` accepts BOTH ``str`` and
-        # pre-encoded ``bytes`` (the sender's ``line_bytes`` fast path
-        # passes bytes and skips the re-encode). Mirror that contract.
         write_buffer.append(text.encode("utf-8") if isinstance(text, str) else text)
 
     def mock_flush() -> None:
@@ -402,29 +153,7 @@ def make_buffered_mock_tcp_client() -> MagicMock:
 
 
 def make_fake_sidecar_ws_server(**overrides: Any) -> Any:
-    """Return the canonical fake sidecar-WS server for WS transport tests.
-
-    Public alias over
-    :func:`tests.fixtures.sidecar_ws_test_helpers._make_fake_server`
-    (the single canonical factory behind the former inline copies) so
-    test files don't have to reach for that module's private name.
-    See that helper's docstring for the full list of pre-configured
-    attributes (``_ws_dispatch_pool = None``, ``app._shutting_down =
-    False``, ``_ready_emitted = True``, ...) and why each one exists.
-
-    Parameters
-    ----------
-    **overrides:
-        Applied as attribute overrides post-construction, e.g.
-        ``make_fake_sidecar_ws_server(_dispatch=MagicMock(
-        return_value={"type": "result", "data": {}}))``.
-
-    Returns
-    -------
-    Any
-        A ``MagicMock`` shaped like an ``IPCServer`` for
-        ``sidecar_ws._make_dispatch`` / ``_handle_connection``.
-    """
+    """Return the canonical fake sidecar-WS server for WS transport tests."""
     from tests.fixtures.sidecar_ws_test_helpers import _make_fake_server
 
     server = _make_fake_server()
@@ -434,29 +163,7 @@ def make_fake_sidecar_ws_server(**overrides: Any) -> Any:
 
 
 def make_fake_recorder(**config_overrides: Any) -> Any:
-    """Return the canonical minimal ``Recorder`` for secure-clear tests.
-
-    Public alias over
-    :func:`tests.fixtures.recorder_test_helpers.make_recorder` (the
-    single canonical factory that replaced the duplicated inline
-    ``_make_recorder`` helpers). Builds a real ``Recorder`` with a
-    mocked config (VAD availability patched out to skip the torch
-    import cost); see that helper's docstring for the pre-populated
-    config fields.
-
-    Parameters
-    ----------
-    **config_overrides:
-        Applied to ``rec.config`` BEFORE the ``Recorder`` constructor
-        runs (so constructor-read fields like
-        ``pre_roll_buffer_seconds`` are honoured), e.g.
-        ``make_fake_recorder(sample_rate=48000)``.
-
-    Returns
-    -------
-    Any
-        A real ``Recorder`` instance whose config is a ``MagicMock``.
-    """
+    """Return the canonical minimal ``Recorder`` for secure-clear tests."""
     from tests.fixtures.recorder_test_helpers import make_recorder as _mk
 
     return _mk(**config_overrides)

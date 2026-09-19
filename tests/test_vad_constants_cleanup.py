@@ -1,26 +1,4 @@
-"""XZ-CC-1 regression: dead ``_DEFAULT_VAD_*`` constants must not come back.
-
-The original finding flagged six duplicated VAD default constants spread
-across ``vad_processor.py`` (canonical) and ``recording/recorder.py``
-(compat shim). The recorder comment admitted four of the six were "no
-longer referenced internally after VadProcessor extraction", pure
-dead-code duplication. The fix removed the four dead constants from
-``recorder.py`` and from ``recording/__init__.py``'s public re-exports,
-leaving only the two genuinely used (``_DEFAULT_VAD_SPEECH_THRESHOLD_DB``
-/ ``_DEFAULT_VAD_SILENCE_THRESHOLD_DB``) which were also subsequently
-removed (DT-11) in favor of importing the canonical ``DEFAULT_VAD_*``
-names directly.
-
-This test pins the removal so a future merge / refactor that
-re-introduces the dead aliases (e.g. by re-running an old compat-shim
-generator) is caught at test time.
-
-Note: ``recording/__init__.py`` was historically listed as the primary
-fix site for XZ-CC-1. After the Phase 4.5 package split, the actual
-file is ``voice_typer/server/recording/__init__.py`` (no top-level
-``recording/`` package exists in the current repo layout). This test
-targets the real path.
-"""
+"""regression: dead ``_DEFAULT_VAD_*`` constants must not come back."""
 
 from __future__ import annotations
 
@@ -64,8 +42,6 @@ def _imported_names(path: Path) -> set[str]:
     for node in ast.walk(tree):
         if isinstance(node, ast.ImportFrom):
             for alias in node.names:
-                # Use the local alias if ``as`` was used; otherwise the
-                # original name.
                 names.add(alias.asname or alias.name)
         elif isinstance(node, ast.Import):
             for alias in node.names:
@@ -74,7 +50,7 @@ def _imported_names(path: Path) -> set[str]:
 
 
 class TestDeadVadConstantsRemoved:
-    """XZ-CC-1: the four dead ``_DEFAULT_VAD_*`` compat-shim constants must stay gone."""
+    """the four dead ``_DEFAULT_VAD_*`` compat-shim constants must stay gone."""
 
     def test_dead_constants_not_in_recorder_module(self) -> None:
         """``recorder.py`` must NOT re-define or import the dead constants."""

@@ -1,8 +1,4 @@
-"""Tests for the audio filter chain (ADR 0007).
-
-Tests each filter in isolation, then the FilterChain composition,
-then the chain builder, and finally the preset system.
-"""
+"""Tests for the audio filter chain (ADR 0007)."""
 
 from __future__ import annotations
 
@@ -34,10 +30,6 @@ from voice_typer.server.audio_presets import (
     apply_preset,
     get_preset_filters,
 )
-
-# ═══════════════════════════════════════════════════════════════════════════
-# DSP helper tests
-# ═══════════════════════════════════════════════════════════════════════════
 
 
 class TestDSPHelpers:
@@ -78,11 +70,6 @@ class TestDSPHelpers:
 
     def test_antidenormal_epsilon_is_tiny(self):
         assert 0 < ANTIDENORMAL_EPSILON < 1e-9
-
-
-# ═══════════════════════════════════════════════════════════════════════════
-# HighPassFilter tests
-# ═══════════════════════════════════════════════════════════════════════════
 
 
 class TestHighPassFilter:
@@ -131,16 +118,7 @@ class TestHighPassFilter:
 
     @pytest.mark.parametrize("sample_rate", [16000, 22050, 44100, 48000, 88200, 96000])
     def test_finite_output_at_native_sample_rates(self, sample_rate):
-        """The SOS-form high-pass must stay finite at every native rate.
-
-        The old float32 ``b``/``a`` transfer-function form rounded the
-        order-4 high-pass's tightly clustered poles outside the unit
-        circle at 44.1/48/96 kHz, so the recursion diverged to inf/NaN
-        within ~150 ms of audio (first non-finite chunk observed at
-        chunk 14 of 512-sample chunks at 48 kHz). SOS sections keep
-        every section's poles far enough from the unit circle that the
-        same float32 rounding stays stable.
-        """
+        """The SOS-form high-pass must stay finite at every native rate."""
         f = HighPassFilter(cutoff_hz=80.0, sample_rate=sample_rate)
         chunk = np.zeros(512, dtype=np.float32)
         chunk[0] = 0.5  # impulse excites the IIR recursion
@@ -174,16 +152,7 @@ class TestHighPassFilter:
 
     @pytest.mark.parametrize("sample_rate", [8000, 16000, 22050, 44100, 48000, 88200, 96000])
     def test_design_poles_strictly_inside_unit_circle(self, sample_rate):
-        """Design-time stability gate: float32 SOS poles satisfy max|pole| < 1.
-
-        Guards the failure mode that made the old float32 b/a form
-        diverge: coefficient rounding moving tightly-clustered poles
-        OUTSIDE the unit circle at native rates. The filter must build
-        (not degrade) at every rate, and the coefficients it actually
-        stores must have all poles strictly inside z=1, checked here
-        independently of the production gate so a design change that
-        weakens stability is caught even if the gate itself regressed.
-        """
+        """Design-time stability gate: float32 SOS poles satisfy max|pole| < 1."""
         from scipy.signal import sos2zpk
 
         f = HighPassFilter(cutoff_hz=80.0, sample_rate=sample_rate)
@@ -195,17 +164,7 @@ class TestHighPassFilter:
         assert max_pole < 1.0, f"max|pole|={max_pole:.6f} >= 1 at {sample_rate} Hz"
 
     def test_unstable_design_degrades_to_passthrough(self, monkeypatch):
-        """A design whose float32 poles land on/outside z=1 must never run.
-
-        Simulates a hypothetical future design change (order/cutoff) that
-        produces an unstable float32 SOS: the design-time pole gate must
-        route construction to the degraded-passthrough path (same
-        contract as any other init failure) instead of running a
-        recursion known to diverge to inf/NaN.
-
-        The fake SOS section ``[1, 0, 0 | 1, 0, 1.1]`` has poles at
-        ±j·sqrt(1.1) → |pole| ≈ 1.049 > 1.
-        """
+        """A design whose float32 poles land on/outside z=1 must never run."""
         import scipy.signal
 
         unstable_sos = np.array([[1.0, 0.0, 0.0, 1.0, 0.0, 1.1]], dtype=np.float32)
@@ -218,11 +177,6 @@ class TestHighPassFilter:
         out = f.process(audio, 48000)
         assert out is not None
         assert out is audio or np.array_equal(out, audio)
-
-
-# ═══════════════════════════════════════════════════════════════════════════
-# NoiseGate tests
-# ═══════════════════════════════════════════════════════════════════════════
 
 
 class TestNoiseGate:
@@ -280,11 +234,6 @@ class TestNoiseGate:
         assert g._held_time == 0.0
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# Equalizer tests
-# ═══════════════════════════════════════════════════════════════════════════
-
-
 class TestEqualizer:
     def test_construction(self):
         eq = Equalizer(sample_rate=16000)
@@ -307,7 +256,6 @@ class TestEqualizer:
         input_rms = float(np.sqrt(np.mean(audio[4000:] ** 2)))
         output_rms = float(np.sqrt(np.mean(result[4000:] ** 2)))
         # The OBS EQ design normalizes by 0.5, so with 0dB gains the output
-        # is half the input. This matches OBS behavior.
         assert output_rms > 0  # not silent
         assert output_rms < input_rms * 1.5  # not wildly amplified
 
@@ -321,11 +269,6 @@ class TestEqualizer:
         eq.process(audio, 16000)
         eq.reset()
         assert eq._delay1 == 0.0
-
-
-# ═══════════════════════════════════════════════════════════════════════════
-# Compressor tests
-# ═══════════════════════════════════════════════════════════════════════════
 
 
 class TestCompressor:
@@ -378,11 +321,6 @@ class TestCompressor:
         assert c._envelope == 0.0
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# Limiter tests
-# ═══════════════════════════════════════════════════════════════════════════
-
-
 class TestLimiter:
     def test_construction(self):
         lim = Limiter(sample_rate=16000)
@@ -416,11 +354,6 @@ class TestLimiter:
         assert lim._envelope == 0.0
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# NotchFilter tests
-# ═══════════════════════════════════════════════════════════════════════════
-
-
 class TestNotchFilter:
     def test_construction(self):
         n = NotchFilter(frequency_hz=60.0, sample_rate=16000)
@@ -450,11 +383,6 @@ class TestNotchFilter:
         assert result_rms < input_rms * 0.5  # significantly attenuated
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# NoiseSuppressor tests
-# ═══════════════════════════════════════════════════════════════════════════
-
-
 class TestNoiseSuppressor:
     def test_none_method_is_passthrough(self):
         ns = NoiseSuppressor(method="none", sample_rate=16000)
@@ -474,11 +402,6 @@ class TestNoiseSuppressor:
         if ns._method == "none":
             assert ns.is_degraded is True
             assert "rnnoise" in ns.degraded_reason.lower()
-
-
-# ═══════════════════════════════════════════════════════════════════════════
-# FilterChain tests
-# ═══════════════════════════════════════════════════════════════════════════
 
 
 class TestFilterChain:
@@ -548,11 +471,6 @@ class TestFilterChain:
         assert chain.total_latency_ms == pytest.approx(eq.latency_ms)
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# Chain builder tests
-# ═══════════════════════════════════════════════════════════════════════════
-
-
 class TestChainBuilder:
     def test_builds_chain_from_dict(self):
         chain = build_chain_from_dict(
@@ -605,14 +523,8 @@ class TestChainBuilder:
     def test_defaults_used_when_keys_missing(self):
         chain = build_chain_from_dict({}, sample_rate=16000)
         # With defaults, should have HP, Gate, EQ, Comp, Limiter
-        # (RNNoise may be degraded if library missing)
         names = chain.filter_names
         assert len(names) >= 4
-
-
-# ═══════════════════════════════════════════════════════════════════════════
-# Preset tests
-# ═══════════════════════════════════════════════════════════════════════════
 
 
 class TestPresets:
@@ -679,24 +591,8 @@ class TestPresets:
         assert get_preset_filters(PRESET_CUSTOM) == {}
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# AudioFilter base-class default behavior
-# ═══════════════════════════════════════════════════════════════════════════
-
-
 class _MinimalFilter(AudioFilter):
-    """Minimal AudioFilter subclass for base-class default-behavior tests.
-
-    Implements the two abstract methods (``process`` / ``reset``) with
-    the simplest possible bodies so the base class's default property
-    implementations (``is_degraded`` / ``degraded_reason`` /
-    ``latency_ms``) can be exercised WITHOUT being shadowed by a
-    subclass override.
-
-    ``process`` is a passthrough (returns the input array unchanged) so
-    the base-class ``process`` contract (``np.ndarray | None`` return)
-    can be verified without coupling to a specific DSP implementation.
-    """
+    """Minimal AudioFilter subclass for base-class default-behavior tests."""
 
     name = "MinimalFilter"
 
@@ -708,30 +604,10 @@ class _MinimalFilter(AudioFilter):
 
 
 class TestAudioFilterBase:
-    """pin the base-class default behavior of
-    :class:`voice_typer.server.audio_filters.base.AudioFilter`.
-
-    The ABC declares ``process`` / ``reset`` as abstract, but provides
-    concrete default implementations for ``latency_ms``, ``is_degraded``,
-    and ``degraded_reason``. These defaults are the contract every
-    concrete filter inherits UNLESS it overrides them, so a future
-    refactor that accidentally changes the defaults (e.g. flipping
-    ``is_degraded`` to ``True``) would silently flip every filter's
-    degraded state. These tests pin the defaults via a minimal subclass
-    that does NOT override them.
-    """
+    """:class:`voice_typer.server.audio_filters.base.AudioFilter`."""
 
     def test_base_process_returns_input_unchanged(self) -> None:
-        """A minimal AudioFilter subclass whose ``process`` returns the
-        input array unchanged (passthrough) must return the SAME array
-        object (same identity), the base class imposes no transformation.
-
-        This pins the base-class ``process`` contract: the return type
-        is ``np.ndarray | None``, and a passthrough implementation must
-        return the input verbatim (not a copy, not a view) so downstream
-        filters in the chain see the exact bytes the upstream filter
-        produced.
-        """
+        """input array unchanged (passthrough) must return the SAME array"""
         f = _MinimalFilter()
         audio = np.array([0.1, 0.2, 0.3, 0.4], dtype=np.float32)
         result = f.process(audio, 16000)
@@ -743,13 +619,9 @@ class TestAudioFilterBase:
         np.testing.assert_array_equal(result, audio)
 
     def test_base_reset_is_noop(self) -> None:
-        """The base-class ``reset`` is a no-op for stateless filters —
-        calling it must NOT raise. Concrete stateful filters override
-        ``reset`` to zero their state arrays; the base class itself
-        does nothing (the abstract method body is ``...``).
-
+        """
+        The base-class ``reset`` is a no-op for stateless filters —
         A minimal subclass whose ``reset`` body is ``pass`` must not
-        raise on invocation, and must be safe to call repeatedly.
         """
         f = _MinimalFilter()
         # Must not raise.
@@ -759,15 +631,7 @@ class TestAudioFilterBase:
         f.reset()
 
     def test_base_is_degraded_defaults_false(self) -> None:
-        """The base-class ``is_degraded`` property defaults to ``False``.
-
-        A filter that has NOT fallen back to a degraded mode (e.g.
-        missing library) reports ``is_degraded == False`` so the UI
-        doesn't show a spurious warning. A future refactor that flips
-        the default to ``True`` would mark EVERY filter as degraded
-        (since most don't override the property), this test pins the
-        default against that regression.
-        """
+        """The base-class ``is_degraded`` property defaults to ``False``."""
         f = _MinimalFilter()
         assert f.is_degraded is False, (
             "AudioFilter.is_degraded must default to False, a "
@@ -776,25 +640,14 @@ class TestAudioFilterBase:
         )
 
     def test_base_degraded_reason_defaults_empty_string(self) -> None:
-        """The base-class ``degraded_reason`` property defaults to ``""``
-        (empty string). When ``is_degraded`` is ``False``, the reason
-        must be empty so the UI doesn't display a stale message from a
-        prior degraded state.
-        """
+        """The base-class ``degraded_reason`` property defaults to ``\"\"``"""
         f = _MinimalFilter()
         assert f.degraded_reason == "", (
             "AudioFilter.degraded_reason must default to empty string when is_degraded is False"
         )
 
     def test_base_latency_ms_defaults_zero(self) -> None:
-        """The base-class ``latency_ms`` property defaults to ``0.0``.
-
-        Sample-by-sample filters (HighPass, NoiseGate, Compressor,
-        Limiter) add zero latency, they process each sample as it
-        arrives. Only frame-buffered filters (NoiseSuppressor with
-        RNNoise) override this to report their frame latency (~10ms
-        for one 480-sample RNNoise frame).
-        """
+        """The base-class ``latency_ms`` property defaults to ``0.0``."""
         f = _MinimalFilter()
         assert f.latency_ms == 0.0, (
             "AudioFilter.latency_ms must default to 0.0, sample-by-sample filters add zero latency"

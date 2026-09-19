@@ -1,14 +1,5 @@
-"""Parity test for the i18n keys added by the translation pass.
-
-This test asserts that every key introduced by the fix (covering
-review entries ZU-2, ZU-5, ZU-17, ZU-21, ZU-22, ZU-25, ZU-26, ZU-31, ZU-35,
-ZU-37, ZU-11) exists as a leaf in ALL 8 locale files (en/ar/de/es/fr/hi/ru/zh).
-
-It complements ``tests/test_i18n_completeness.py`` (which enforces structural
-parity against en.json as a whole) by pinning the specific additions
-so that future regressions (e.g. a locale file getting truncated) are caught
-with a focused failure message naming the missing key + locale.
-
+"""
+Parity test for the i18n keys added by the translation pass.
 Offline-only, no network calls (C-DATA-1). No task IDs in source (C-STYLE-1).
 """
 
@@ -43,50 +34,35 @@ def _flatten_keys(obj: dict, prefix: str = "") -> dict[str, str]:
     return flat
 
 
-# ---------------------------------------------------------------------------
-# Catalog of every key added by , grouped by review entry.
-# ---------------------------------------------------------------------------
-
 ZU_FIX_14_NEW_KEYS: dict[str, list[str]] = {
-    # error toast action labels
     "ZU-2": [
         "errors.viewLogsAction",
         "errors.copyErrorAction",
     ],
-    # open models folder button (replaces the flat models.openFolder string)
     "ZU-5": [
         "models.openFolder.label",
         "models.openFolder.aria",
     ],
-    # low-disk-space banner interpolation
     "ZU-25": [
         "models.disk.freeSpace",
         # (models.disk.lowSpaceTitle / lowSpaceBody / models.status.insufficientDisk
-        # already existed in every locale before  and are therefore not
-        # asserted here, they are covered by the broader structural-parity test.)
     ],
-    # vocabulary no-results empty-state description
     "ZU-26": [
         "vocabulary.noResultsDescription",
     ],
-    # backend respawn-exhausted connection screen
     "ZU-17": [
         "connection.respawnFailed",
         "connection.respawnFailedHint",
     ],
-    # caps-lock / screen-reader conflict warning
     "ZU-11": [
         "hotkeyPicker.capsLockSrConflictWarning",
     ],
-    # aria-live announcement of pasted transcription
     "ZU-37": [
         "a11y.transcriptionPasted",
     ],
-    # dashboard no-data description (now interpolates {hotkey})
     "ZU-31": [
         "analytics.noDataDescription",
     ],
-    # main-process fatal dialog strings
     "ZU-35": [
         "dialog.pythonCrash.title",
         "dialog.pythonCrash.body",
@@ -98,19 +74,6 @@ ZU_FIX_14_NEW_KEYS: dict[str, list[str]] = {
         "dialog.restartLoopBreak.title",
         "dialog.restartLoopBreak.body",
     ],
-    # ICU-style plural forms for the analytics day-count tooltip family.
-    # All 6 CLDR plural suffixes are present in every locale so that key-parity
-    # is satisfied (en/de/es/fr/zh/hi only USE _one/_other at runtime, but the
-    # unused _zero/_two/_few/_many leaves are kept in lockstep so the broader
-    # structural-parity test stays green).
-    # NOTE: the vocabulary entry-count label is NOT an ICU plural family, the
-    # renderer folds the live count into the search placeholder via the plain
-    # {count} interpolation key vocabulary.searchPlaceholderCount (no CLDR
-    # suffixes), so only the analytics tooltip family is pinned here.
-    # vocabulary.importSuccess_* / templates.importSuccess_* are NOT
-    # catalogued either: the import-success keys use the Singular/Plural suffix
-    # convention (importSuccessSingular/importSuccessPlural) in en.json and the
-    # renderer, so the ICU plural forms for those two families do not exist.
     "ZU-21": [
         "vocabulary.searchPlaceholderCount",
         "analytics.dayCountTooltip_one",
@@ -141,12 +104,7 @@ def test_zu_fix_14_keys_exist_in_locale(locale: str, locale_flats: dict[str, dic
 
 @pytest.mark.parametrize("locale", ALL_LOCALES)
 def test_zu_fix_14_no_english_fallback(locale: str, locale_flats: dict[str, dict[str, str]]) -> None:
-    """Non-English locales must NOT have English-fallback values for keys.
-
-    English is allowed to equal itself. This catches the case where a new key
-    was added to en.json but the locale file was propagated with the English
-    placeholder value and never translated.
-    """
+    """Non-English locales must NOT have English-fallback values for keys."""
     if locale == "en":
         pytest.skip("English is allowed to equal itself.")
     en_flat = locale_flats["en"]
@@ -193,12 +151,7 @@ def test_zu_fix_14_review_entry_keys_catalogued(review_id: str, expected_keys: l
 
 
 def test_zu_fix_21_russian_plural_forms_present(locale_flats: dict[str, dict[str, str]]) -> None:
-    """Russian must have all four CLDR plural forms (_one/_few/_many/_other).
-
-    Russian uses 4 plural categories per CLDR. The 2-form locales (en/de/es/fr/zh/hi)
-    have _one + _other semantically; the unused _zero/_two/_few/_many leaves are
-    kept in lockstep to satisfy structural parity but are not picked at runtime.
-    """
+    """Russian must have all four CLDR plural forms (_one/_few/_many/_other)."""
     ru = locale_flats["ru"]
     for form in ("_one", "_few", "_many", "_other"):
         for family in ("analytics.dayCountTooltip",):
@@ -207,10 +160,7 @@ def test_zu_fix_21_russian_plural_forms_present(locale_flats: dict[str, dict[str
 
 
 def test_zu_fix_21_arabic_plural_forms_present(locale_flats: dict[str, dict[str, str]]) -> None:
-    """Arabic must have all six CLDR plural forms.
-
-    Arabic uses 6 plural categories per CLDR (_zero/_one/_two/_few/_many/_other).
-    """
+    """Arabic must have all six CLDR plural forms."""
     ar = locale_flats["ar"]
     for form in ("_zero", "_one", "_two", "_few", "_many", "_other"):
         for family in ("analytics.dayCountTooltip",):
@@ -219,35 +169,21 @@ def test_zu_fix_21_arabic_plural_forms_present(locale_flats: dict[str, dict[str,
 
 
 def test_zu_fix_22_priority_translations_completed(locale_flats: dict[str, dict[str, str]]) -> None:
-    """ZU-22 priority untranslated strings are now translated in zh and ru.
-
-    Specifically: the onboarding test-hotkey keys (the dedicated
-    Permissions step was removed 2026-09-14; its 18 other keys were
-    deleted from every locale, so they can no longer appear here),
-    microphoneTest.detectedIssueCodes.* (6 keys), hotkeyValidation.holding,
-    microphone.loading, vocabulary.loading, templates.loading. These were
-    the priority items called out in the orchestrator brief for the zh/ru
-    locales.
-    """
+    """ZU-22 priority untranslated strings are now translated in zh and ru."""
     en = locale_flats["en"]
     priority_keys = [
-        # onboarding test-hotkey keys (Permissions step removed
-        # 2026-09-14; the HotkeyStep test button still uses these)
         "onboarding.permissionsTestLabel",
         "onboarding.permissionsTestSuccess",
         "onboarding.permissionsTestButton",
-        # microphoneTest.detectedIssueCodes.* (6 keys)
         "microphoneTest.detectedIssueCodes.high_noise",
         "microphoneTest.detectedIssueCodes.moderate_noise",
         "microphoneTest.detectedIssueCodes.clipping",
         "microphoneTest.detectedIssueCodes.volume_too_low",
         "microphoneTest.detectedIssueCodes.volume_low",
         "microphoneTest.detectedIssueCodes.no_voice",
-        # loading states (3 keys)
         "microphone.loading",
         "vocabulary.loading",
         "templates.loading",
-        # hotkeyValidation.holding
         "hotkeyValidation.holding",
     ]
     for locale in ("zh", "ru"):
@@ -274,13 +210,7 @@ def test_zu_fix_22_search_hints_translated(locale_flats: dict[str, dict[str, str
 
 
 def _no_duplicate_json_keys(pairs: list[tuple[str, object]]) -> dict:
-    """object_pairs_hook that raises on ANY duplicate sibling key.
-
-    ``json.loads`` silently keeps the LAST duplicate, so a copy-pasted
-    namespace (e.g. a second top-level ``"errors"`` block) shadows the
-    original without any error. This hook turns that into a hard
-    failure naming the duplicated key.
-    """
+    """object_pairs_hook that raises on ANY duplicate sibling key."""
     result: dict = {}
     for key, value in pairs:
         if key in result:
@@ -291,12 +221,7 @@ def _no_duplicate_json_keys(pairs: list[tuple[str, object]]) -> dict:
 
 @pytest.mark.parametrize("locale", ALL_LOCALES)
 def test_no_duplicate_keys_in_any_locale(locale):
-    """No translation file may contain duplicate sibling JSON keys.
-
-    Duplicate keys parse silently (last-wins), shadowing the earlier
-    block's translations, a standing drift trap that key-presence
-    tests cannot see because they read the merged view.
-    """
+    """No translation file may contain duplicate sibling JSON keys."""
     path = TRANSLATIONS_DIR / f"{locale}.json"
     with path.open(encoding="utf-8") as f:
         try:

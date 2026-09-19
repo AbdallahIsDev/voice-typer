@@ -1,26 +1,4 @@
-"""Regression tests for two already-fixed review.md entries that touch
-files in this agent's owned lane (WAVE2-A16):
-
-* ``save_vocabulary_with_diff`` must update the live
-  in-memory ``VocabularyManager`` after writing the user file. The bug
-  was that the IPC handler wrote the user JSON directly without
-  reloading ``self._app._vocabulary_manager._data``, so
-  ``dictation_pipeline.apply_to_text()`` kept using stale state until
-  app restart. Fix: after ``_secure_atomic_write``, call
-  ``live_vm._load_and_merge()`` under ``live_vm._lock``.
-
-* ``audio_chain_builder.build_chain_from_dict`` used
-  to mirror ``Config`` noise-filter defaults in a parallel ``_DEFAULTS``
-  dict that drifted whenever a default was bumped on ``Config``. Fix:
-  drop ``_DEFAULTS``; build a real ``Config()`` instance and apply the
-  dict overrides via ``setattr`` so there is exactly one source of
-  truth.
-
-These tests pin the fixes in place so a future refactor cannot silently
-regress either behaviour. They live in ``tests/`` (not in the owned
-source files) because tests are exempt from the stay-in-your-lane rule
-per the task brief's "TESTS REQUIRED" clause.
-"""
+"""Regression tests for two already-fixed review.md entries that touch"""
 
 from __future__ import annotations
 
@@ -29,16 +7,10 @@ from unittest.mock import MagicMock
 
 import pytest
 
-# ──────────────────────────────────────────────────────────────────────────
-# save_vocabulary_with_diff reloads the live VocabularyManager
-# ──────────────────────────────────────────────────────────────────────────
-
 
 @pytest.fixture
 def vocab_dir(tmp_config_dir):
-    """Point ``_config_dir`` at a tmp_path so the user vocab file is
-    written under the test's tmp_path instead of the real config dir.
-    """
+    """Point ``_config_dir`` at a tmp_path so the user vocab file is"""
     return tmp_config_dir
 
 
@@ -60,9 +32,7 @@ def bundled(tmp_path):
 
 @pytest.fixture
 def live_vm(vocab_dir, bundled):
-    """A real VocabularyManager with a populated ``_data`` / ``_lock``
-    so the reload path can be exercised against a live object.
-    """
+    """A real VocabularyManager with a populated ``_data`` / ``_lock``"""
     from voice_typer.server.vocabulary import VocabularyManager
 
     return VocabularyManager(config_dir=vocab_dir, bundled_path=bundled)
@@ -70,15 +40,7 @@ def live_vm(vocab_dir, bundled):
 
 @pytest.fixture
 def vocab_mixin(live_vm):
-    """A bare ``VocabularyMixin`` instance whose ``self._app`` is a
-    MagicMock exposing ``_vocabulary_manager`` set to the live vm.
-
-    ``VocabularyMixin`` is a ``ServiceMixinBase`` subclass, it has no
-    ``__init__`` of its own, so we can construct it via ``__new__`` and
-    bind ``self._app`` manually. This mirrors how
-    ``tests/app/test_notify_once_flags.py`` builds minimal
-    mixin fixtures without booting the full ``VoiceTyperService``.
-    """
+    """MagicMock exposing ``_vocabulary_manager`` set to the live vm."""
     from voice_typer.server.service.vocabulary import VocabularyMixin
 
     instance = VocabularyMixin.__new__(VocabularyMixin)
@@ -89,18 +51,10 @@ def vocab_mixin(live_vm):
 
 
 class TestSaveVocabularyWithDiffReloadsLiveManager:
-    """``save_vocabulary_with_diff`` MUST reload the live
-    VocabularyManager's in-memory ``_data`` after writing the user file.
-    """
+    """``save_vocabulary_with_diff`` MUST reload the live"""
 
     def test_calls_load_and_merge_on_live_vm(self, vocab_mixin, live_vm, vocab_dir):
-        """After ``save_vocabulary_with_diff`` writes the user file, the
-        live ``VocabularyManager._load_and_merge`` must be called so the
-        in-memory ``_data`` reflects the just-written file.
-
-        We monkeypatch ``live_vm._load_and_merge`` to a counting wrapper
-        and assert it was invoked at least once during the call.
-        """
+        """in-memory ``_data`` reflects the just-written file."""
         original = live_vm._load_and_merge
         calls = {"n": 0}
 
@@ -116,8 +70,6 @@ class TestSaveVocabularyWithDiffReloadsLiveManager:
         vocab_mixin.save_vocabulary_with_diff({"misspellings": {"teh": "TEH (custom)"}})
 
         # The reload MUST have happened. Without the fix,
-        # ``_load_and_merge`` is never called and the live ``_data``
-        # stays stale until app restart.
         assert calls["n"] >= 1, (
             "save_vocabulary_with_diff did NOT reload the live "
             "VocabularyManager after writing the user file. The in-memory "
@@ -125,13 +77,7 @@ class TestSaveVocabularyWithDiffReloadsLiveManager:
         )
 
     def test_live_vm_data_reflects_written_file(self, vocab_mixin, live_vm, vocab_dir):
-        """End-to-end regression: after a save, the live vm's ``_data``
-        must contain the just-written user entry.
-
-        This catches a regression where the reload is silently skipped
-        (e.g. because the ``hasattr(live_vm, '_load_and_merge')`` guard
-        was tightened too aggressively).
-        """
+        """End-to-end regression: after a save, the live vm's ``_data``"""
         vocab_mixin.save_vocabulary_with_diff({"misspellings": {"teh": "TEH (custom override)"}})
 
         miss = live_vm.get_category("misspellings")
@@ -142,11 +88,7 @@ class TestSaveVocabularyWithDiffReloadsLiveManager:
         )
 
     def test_no_live_vm_uses_fallback_path(self, vocab_dir):
-        """When ``self._app._vocabulary_manager`` is None (cold start /
-        test fixtures), the function must NOT crash, it should fall
-        back to constructing a throwaway VocabularyManager for the
-        bundled-defaults diff computation.
-        """
+        """When ``self._app._vocabulary_manager`` is None (cold start /"""
         from voice_typer.server.service.vocabulary import VocabularyMixin
 
         instance = VocabularyMixin.__new__(VocabularyMixin)
@@ -161,11 +103,7 @@ class TestSaveVocabularyWithDiffReloadsLiveManager:
         assert "imported_categories" in result
 
     def test_reload_failure_does_not_break_save(self, vocab_mixin, live_vm, vocab_dir):
-        """If ``_load_and_merge`` raises (e.g. user file got nuked
-        mid-write by an external process), the function must still
-        return a normal result, the save itself has already
-        succeeded; the reload is best-effort.
-        """
+        """If ``_load_and_merge`` raises (e.g. user file got nuked"""
 
         def _boom():
             raise RuntimeError("disk evaporated")
@@ -177,25 +115,11 @@ class TestSaveVocabularyWithDiffReloadsLiveManager:
         assert "imported_categories" in result
 
 
-# ──────────────────────────────────────────────────────────────────────────
-# audio_chain_builder has no parallel _DEFAULTS dict
-# ──────────────────────────────────────────────────────────────────────────
-
-
 class TestAudioChainBuilderNoDefaultsDrift:
-    """``build_chain_from_dict`` must source its defaults from
-    a real ``Config()`` instance, NOT from a parallel ``_DEFAULTS``
-    dict that can silently drift when ``Config`` defaults change.
-
-    The old ``_DEFAULTS`` dict was removed; this test pins the absence
-    so a future "convenience" refactor can't reintroduce the drift
-    hazard.
-    """
+    """a real ``Config()`` instance, NOT from a parallel ``_DEFAULTS``"""
 
     def test_no_parallel_defaults_dict_in_module(self):
-        """The ``audio_chain_builder`` module must NOT define a
-        module-level ``_DEFAULTS`` dict that shadows ``Config`` defaults.
-        """
+        """module-level ``_DEFAULTS`` dict that shadows ``Config`` defaults."""
         import voice_typer.server.audio_chain_builder as mod
 
         assert not hasattr(mod, "_DEFAULTS"), (
@@ -205,19 +129,13 @@ class TestAudioChainBuilderNoDefaultsDrift:
         )
 
     def test_build_chain_from_dict_uses_config_defaults(self):
-        """``build_chain_from_dict({})`` must build a chain whose
-        filters reflect the CURRENT ``Config()`` defaults, proving
-        the dict path sources from ``Config`` rather than a frozen
-        snapshot.
-        """
+        """``build_chain_from_dict({})`` must build a chain whose"""
         from voice_typer.server.audio_chain_builder import build_chain_from_dict
         from voice_typer.server.config import Config
 
         cfg = Config()
 
         # With an empty overrides dict, the chain should match what
-        # ``build_chain(cfg)`` would produce. We compare filter NAMES
-        # (the structural shape) rather than instances.
         chain_from_dict = build_chain_from_dict({})
         chain_from_config = build_chain_from_dict(
             {
@@ -238,17 +156,11 @@ class TestAudioChainBuilderNoDefaultsDrift:
         )
 
     def test_build_chain_from_dict_applies_overrides(self):
-        """``build_chain_from_dict`` must apply user overrides on top
-        of ``Config()`` defaults, e.g. enabling a filter that's off
-        by default must produce a chain with that filter present.
-        """
+        """``build_chain_from_dict`` must apply user overrides on top"""
         from voice_typer.server.audio_chain_builder import build_chain_from_dict
         from voice_typer.server.config import Config
 
         # Whatever Config() says about noise_filter_notch, the override
-        # MUST win, that's the whole point of the dict path. Filter
-        # names are formatted as "Notch(<freq>Hz)" etc., so we match
-        # on the leading class-name prefix.
         cfg = Config()
         opposite = not cfg.noise_filter_notch
 
@@ -278,22 +190,10 @@ class TestAudioChainBuilderNoDefaultsDrift:
 
 
 class TestBuildChainFilterOrder:
-    """Pins the ACTUAL construction order of ``build_chain``.
-
-    The module docstring historically claimed the notch filter runs
-    AFTER the high-pass while the code appends it FIRST, a doc/code
-    drift that made future tuning sessions trust the wrong chain.
-    These tests pin the code order the (corrected) docstring describes:
-    Notch → HighPass → NoiseSuppressor → NoiseGate → Equalizer →
-    Compressor → Limiter, with the notch FIRST (ahead of the
-    high-pass) so mains hum is stripped before any other stage sees
-    the signal.
-    """
+    """Pins the ACTUAL construction order of ``build_chain``."""
 
     def test_notch_runs_before_highpass(self):
-        """With notch + high-pass enabled and everything else off, the
-        notch must come FIRST in the chain (hum removal ahead of the
-        rumble filter)."""
+        """rumble filter)."""
         from voice_typer.server.audio_chain_builder import build_chain_from_dict
 
         chain = build_chain_from_dict(
@@ -312,10 +212,7 @@ class TestBuildChainFilterOrder:
         assert prefixes == ["Notch", "HighPass"], f"expected Notch before HighPass, got {names}"
 
     def test_full_chain_order_all_filters_enabled(self):
-        """All filters on → the chain order must be
-        Notch → HighPass → NoiseSuppressor → NoiseGate → Equalizer →
-        Compressor → Limiter (limiter always last: brick-wall safety
-        net)."""
+        """All filters on → the chain order must be"""
         from voice_typer.server.audio_chain_builder import build_chain_from_dict
         from voice_typer.server.config import Config
 
@@ -343,9 +240,7 @@ class TestBuildChainFilterOrder:
         ], f"unexpected chain order: {prefixes}"
 
     def test_build_chain_docstring_matches_actual_order(self):
-        """The ``build_chain`` docstring must describe the order the
-        code builds: notch FIRST (the doc drift this pins said "after
-        HighPass")."""
+        """code builds: notch FIRST (the doc drift this pins said \"after"""
         import inspect
 
         from voice_typer.server.audio_chain_builder import build_chain

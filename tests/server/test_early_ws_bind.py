@@ -1,31 +1,4 @@
-"""Early server-started (bind-before-build) launch-order contracts.
-
-Covers the flag-gated bind-before-build reorder of the ws (Tauri sidecar) launch
-path in ``voice_typer.server.ipc.entrypoint`` plus the bounded pre-app
-dispatch buffer it relies on in ``voice_typer.server.sidecar_ws``:
-
-- Flag selection (``VT_EARLY_SERVER_STARTED`` env var, default OFF).
-- Flag ON: the WS transport (``sidecar_ws.run``, bind + emit
-  ``server_started``) is entered BEFORE ``VoiceTyperApp()`` construction
-  completes; construction + late bind + ``server.start()`` +
-  ``app.start()`` run on the ws-startup daemon thread.
-- Flag OFF: the exact build-then-serve order (construct → build server →
-  ``server.start()`` → startup thread → ``sidecar_ws.run``) with no
-  early-bind attributes on the server.
-- The bounded pre-app dispatch buffer: pre-ready frames are buffered
-  (no handler runs, response deferred), the cap is enforced with
-  drop-oldest + an immediate retryable ``server.not_initialized`` busy
-  error to the DROPPED frame (id echoed, C-WS-2 TEXT frame via
-  ``_safe_send``), and the drain replays buffered frames through the
-  read-loop's own ``_dispatch_and_respond`` once the app is bound.
-
-All tests are hermetic: no real sockets (``sidecar_ws.run`` is faked in
-the entrypoint tests; the two run()-install tests stop the real loop at
-the banner, before any connection exists), no real app construction,
-heavy imports monkeypatched. The C-WS-1 ready-first ordering itself is
-pinned by ``tests/test_sidecar_ws_ready_ordering.py`` /
-``test_sidecar_ws_handle_connection_split.py`` and is NOT edited here.
-"""
+"""Early server-started (bind-before-build) launch-order contracts."""
 
 from __future__ import annotations
 
@@ -42,17 +15,9 @@ from voice_typer.server import sidecar_ws
 from voice_typer.server.ipc import entrypoint
 from voice_typer.server.ipc.validation import ErrorCodes
 
-# ── flag selection ────────────────────────────────────────────────────
-
 
 class TestEarlyServerStartedFlag:
-    """``VT_EARLY_SERVER_STARTED`` selects the new launch order.
-
-    Default OFF (one-release migration escape hatch, NOT a user
-    setting, no config.json involvement). ``1``/``true`` (case
-    insensitive) opt in; unset/``0``/anything else keeps the default
-    order.
-    """
+    """``VT_EARLY_SERVER_STARTED`` selects the new launch order."""
 
     def test_unset_defaults_off(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv("VT_EARLY_SERVER_STARTED", raising=False)
@@ -76,9 +41,6 @@ class TestEarlyServerStartedFlag:
             assert entrypoint._early_server_started_enabled() is False, (
                 f"unexpected value {value!r} must keep the default (build-then-serve) order"
             )
-
-
-# ── the ws-startup thread body (early variant) ─────────────────────────
 
 
 class _FakeApp:
@@ -123,10 +85,7 @@ class _FakeServer:
 
 
 class TestWsStartupThreadEarlyBind:
-    """The early ws-startup thread constructs the app, late-binds it into
-    the pre-bound server (app + rebuilt service + ``server.start()``),
-    raises the ready flag, flushes the buffered frames, and only then
-    runs ``app.start()`` through the existing fail-fast wrapper."""
+    """The early ws-startup thread constructs the app, late-binds it into"""
 
     def test_constructs_binds_starts_server_flushes_then_app_start(self, monkeypatch: pytest.MonkeyPatch) -> None:
         events: list[str] = []
@@ -174,10 +133,7 @@ class TestWsStartupThreadEarlyBind:
         )
 
     def test_construction_failure_exits_process_with_crash_code(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """A construction failure on the early thread must terminate the
-        process (os._exit, this is a daemon thread) with EXIT_CRASH and
-        write the SAME construction diagnostic the main-path failure
-        handler writes, so the Tauri supervisor respawns."""
+        """write the SAME construction diagnostic the main-path failure"""
         from voice_typer.__main__ import EXIT_CRASH
 
         exit_calls: list[int] = []
@@ -211,9 +167,7 @@ class TestWsStartupThreadEarlyBind:
         )
 
     def test_system_exit_during_construction_also_terminates(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """A BaseException (e.g. SystemExit) escaping construction on the
-        daemon thread must also terminate the process, matching the
-        fail-fast semantics of the existing app.start() wrapper."""
+        """fail-fast semantics of the existing app.start() wrapper."""
         from voice_typer.__main__ import EXIT_CRASH
 
         exit_calls: list[int] = []
@@ -243,13 +197,8 @@ class TestWsStartupThreadEarlyBind:
         )
 
 
-# ── main() launch-order: flag ON ───────────────────────────────────────
-
-
 class TestMainEarlyWsBind:
-    """``main()`` with the flag ON (ws mode): the WS transport is entered
-    BEFORE construction completes, and the server is built with a
-    deferred app (None) plus the early-bind marker."""
+    """``main()`` with the flag ON (ws mode): the WS transport is entered"""
 
     @staticmethod
     def _patch_common(monkeypatch: pytest.MonkeyPatch, events: list) -> None:
@@ -319,8 +268,6 @@ class TestMainEarlyWsBind:
             os.environ.pop("TAURI_SIDECAR", None)
 
         # The core bind-before-build contract: the WS transport (bind +
-        # server_started emission in production) was entered while the app
-        # construction was STILL BLOCKED, construction had not completed.
         assert events[-1] == "run:entered", (
             f"sidecar_ws.run must be entered before construction completes; events: {events}"
         )
@@ -348,9 +295,7 @@ class TestMainEarlyWsBind:
         assert server._early_bind_app_ready is True
 
     def test_port_flag_is_rejected_even_with_early_bind_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """TCP transport was removed: ``--port`` hard-exits EXIT_BAD_ARGS
-        even when ``VT_EARLY_SERVER_STARTED`` is set (the early-bind
-        reorder is WS-only)."""
+        """even when ``VT_EARLY_SERVER_STARTED`` is set (the early-bind"""
         monkeypatch.setenv("VT_EARLY_SERVER_STARTED", "1")
         monkeypatch.setattr(sys, "argv", ["ipc_server", "--port", "9876"])
         with pytest.raises(SystemExit) as exc_info:
@@ -360,14 +305,8 @@ class TestMainEarlyWsBind:
         assert exc_info.value.code == 4
 
 
-# ── main() launch-order: flag OFF (default-order parity) ────────────
-
-
 class TestMainFlagOffParity:
-    """Flag OFF/unset: the entrypoint keeps the exact default order —
-    construction on the main thread, server built over the real app,
-    ``server.start()`` BEFORE the startup thread and ``sidecar_ws.run``,
-    and no early-bind state anywhere."""
+    """Flag OFF/unset: the entrypoint keeps the exact default order —"""
 
     def test_phase1_order_preserved_without_flag(self, monkeypatch: pytest.MonkeyPatch) -> None:
         events: list[str] = []
@@ -410,23 +349,16 @@ class TestMainFlagOffParity:
             os.environ.pop("TAURI_SIDECAR", None)
 
         # Default main-thread order (the ws-startup thread may interleave
-        # its own events (app.start) anywhere after the thread start; the
-        # launch ORDER under test is the main-thread sequence).
         main_thread_events = [e for e in events if e in ("construct:done", "server.start", "run:entered")]
         assert main_thread_events == ["construct:done", "server.start", "run:entered"], (
             "flag OFF must keep the exact default main-thread order: construct → "
             f"server.start → sidecar_ws.run (got {main_thread_events}; full: {events})"
         )
-        # app.start() runs on the ws-startup thread, confirm the thread
-        # did its job (bounded wait; the daemon thread is real).
         for _ in range(200):
             if "app.start" in events:
                 break
             time.sleep(0.05)
         assert "app.start" in events
-
-
-# ── the bounded pre-app dispatch buffer (sidecar_ws) ───────────────────
 
 
 class _BufferHarness:
@@ -450,8 +382,7 @@ class _BufferHarness:
 
 
 class TestEarlyBindDispatchBuffer:
-    """Pre-app frames are buffered (bounded); post-bind frames pass
-    straight through to the real dispatch closure."""
+    """Pre-app frames are buffered (bounded); post-bind frames pass"""
 
     def test_pre_ready_frame_is_buffered_not_dispatched(self) -> None:
         h = _BufferHarness()
@@ -477,10 +408,7 @@ class TestEarlyBindDispatchBuffer:
         assert list(h.buffer) == [], "nothing is buffered once the app is bound"
 
     def test_buffer_is_bounded_with_drop_oldest_and_busy_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """On overflow the OLDEST frame is dropped from the buffer and
-        immediately answered with a retryable busy error carrying its
-        request id (sent through ``_safe_send``, C-WS-2 TEXT frame);
-        the buffer never exceeds the cap."""
+        """immediately answered with a retryable busy error carrying its"""
         from voice_typer.server.sidecar_ws_internals import outbound as outbound_mod
 
         sent: list[tuple[object, dict]] = []
@@ -514,10 +442,7 @@ class TestEarlyBindDispatchBuffer:
         assert h.inner_calls == []
 
     def test_flush_drains_buffer_through_read_loop_respond(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """After the app binds, ``flush_early_dispatch_buffer`` marshals
-        the drain onto the WS loop and replays every buffered frame
-        through the read loop's own ``_dispatch_and_respond`` (id echo +
-        safe send + close-on-failure semantics reused verbatim)."""
+        """After the app binds, ``flush_early_dispatch_buffer`` marshals"""
         from voice_typer.server.sidecar_ws_internals import read_loop as read_loop_mod
 
         replayed: list[tuple[dict, object, object]] = []
@@ -525,7 +450,6 @@ class TestEarlyBindDispatchBuffer:
         async def _fake_respond(msg, request_id, websocket, dispatch) -> None:
             replayed.append((msg, request_id, websocket))
             # The drain passes the WRAPPED dispatch, post-bind it must
-            # passthrough to the inner closure.
             result = await dispatch(msg, websocket)
             assert result == {"type": "ok"}
 
@@ -541,8 +465,6 @@ class TestEarlyBindDispatchBuffer:
             for msg, ws in buffered:
                 await h.wrapped(msg, ws)
             # The app lands on the ws-startup thread in production; here
-            # simulate the bind + flush from a foreign thread while the
-            # loop is live.
             h.server._early_bind_app_ready = True
             h.server._ws_loop = asyncio.get_running_loop()
             sidecar_ws.flush_early_dispatch_buffer(h.server)
@@ -560,9 +482,7 @@ class TestEarlyBindDispatchBuffer:
         assert len(h.inner_calls) == 2, "each replayed frame must reach the real dispatch"
 
     def test_flush_without_a_live_loop_is_a_noop(self) -> None:
-        """Flush before the WS loop exists (construction finished before
-        run() started): nothing was buffered yet, so the flush must be a
-        safe no-op."""
+        """Flush before the WS loop exists (construction finished before"""
         h = _BufferHarness()
         msg = {"type": "get_status", "id": 3}
         ws = h.websockets[0]
@@ -574,19 +494,8 @@ class TestEarlyBindDispatchBuffer:
         assert h.inner_calls == []
 
 
-# ── run() installs the wrapper only in early mode ──────────────────────
-
-
 class TestRunInstallsEarlyWrapperGated:
-    """``sidecar_ws.run`` must install the early-bind buffer wrapper ONLY
-    when the entrypoint marked the server (``_early_ws_bind``); without
-    the marker the dispatch closure is used verbatim (flag-off parity
-    inside the transport itself).
-
-    The real ``run()`` is driven until the stdout banner (bind + port
-    read-back happen before it), then stopped via a raising banner, no
-    connection is ever accepted, so no real client exists.
-    """
+    """``sidecar_ws.run`` must install the early-bind buffer wrapper ONLY"""
 
     class _StopRunError(Exception):
         pass

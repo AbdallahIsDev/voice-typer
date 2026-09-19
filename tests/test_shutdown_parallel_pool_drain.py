@@ -1,39 +1,4 @@
-"""parallel pool drain, ASR unload inner
-timeout, and ``join_leaked_workers`` wired into the shutdown
-watchdog.
-
-These tests pin the three fixes applied to
-``voice_typer/server/shutdown_controller.py`` in task:
-
-* **(Medium)**: ``_do_cleanup``'s early bookend runs
-  ``ipc_server.stop`` (TCP pool drain) and the WS dispatch pool
-  drain CONCURRENTLY in a 2-item ``_run_parallel_with_timeout``
-  batch (instead of sequentially). They touch disjoint pools, so
-  parallelisation is safe. The DJ-9 ``ws_drained_event`` wait
-  still gates the parallel subsystem batch. Cuts early-bookend
-  worst case from 12s to ~7s.
-
-* **(Medium)**: ``_teardown_asr_models`` wraps
-  ``registry.unload()`` in ``_run_with_timeout("asr_registry.unload",
-  registry.unload, timeout=8.0)``. If it returns ``TIMEOUT``, logs
-  at WARNING and still proceeds to ``release_gpu_memory()``. The 8s
-  inner timeout leaves 2s slack within the 10s parallel-batch
-  deadline.
-
-* **(Low)**: ``_watchdog`` calls
-  ``join_leaked_workers(total_budget=1.0)`` just before ``os._exit(0)``.
-  The function was defined in ``_timeout_utils.py`` but never called
-, the ``_LEAKED_WORKERS`` registry accumulated without being
-  drained. The 1.0s shared budget keeps the watchdog's
-  ``SHUTDOWN_WATCHDOG_TIMEOUT_S`` (2.0s) ceiling intact (shared-deadline
-  mode caps at 10 workers × 0.2s each = 2.0s worst case, well within
-  the 2s watchdog budget).
-
-The tests run headless on Linux, they stub every external
-dependency (real ``VoiceTyperApp``, filesystem PID/devnull paths,
-Win32 kernel32, ``release_gpu_memory``) so they don't touch real
-subsystems.
-"""
+"""parallel pool drain, ASR unload inner"""
 
 from __future__ import annotations
 
@@ -47,16 +12,9 @@ import pytest
 from voice_typer.server._timeout_utils import TIMEOUT
 from voice_typer.server.shutdown_controller import ShutdownController
 
-# ── Fake app ───────────────────────────────────────────────────────────
-
 
 class _FakeApp:
-    """Minimal duck-typed stand-in for ``VoiceTyperApp``.
-
-    Mirrors the collaborator surface that ``ShutdownController._do_cleanup``
-    touches. Every subsystem is a ``MagicMock`` so we can assert call counts
-    and ordering without running real teardown code.
-    """
+    """Minimal duck-typed stand-in for ``VoiceTyperApp``."""
 
     def __init__(self) -> None:
         # Shutdown state (mirrors VoiceTyperApp.__init__)
@@ -67,7 +25,6 @@ class _FakeApp:
         self._mutex_handle = None
 
         # Subsystem collaborators (MagicMock so any attribute/method call
-        # is recorded and returns a MagicMock by default).
         self.recorder = MagicMock()
         self.recorder.recording = False
         self.recording = MagicMock()
@@ -85,13 +42,10 @@ class _FakeApp:
         self.models = MagicMock()
         self.models.registry = MagicMock()
 
-        # Methods on VoiceTyperApp that _do_cleanup calls (kept on the
-        # app as delegates to other controllers).
         self._cancel_pending_timers = MagicMock()
         self._restore_volume = MagicMock()
 
         # ``_do_cleanup`` delegate on VoiceTyperApp, not used by tests
-        # that call ``controller._do_cleanup()`` directly.
         self._do_cleanup = MagicMock()
 
         # IPC server, left as None here; the test wires it as needed.
@@ -100,13 +54,7 @@ class _FakeApp:
 
 @pytest.fixture
 def _stub_shutdown_environment(tmp_config_dir, monkeypatch):
-    """Stub the module-level helpers ``_do_cleanup`` touches so it
-    doesn't touch the real filesystem / Win32 API / devnull FDs.
-
-    Uses ``raising=False`` so missing attributes on the ``app`` module
-    (e.g. ``_close_devnull_files`` which may have been refactored away)
-    don't cause a setup error.
-    """
+    """Stub the module-level helpers ``_do_cleanup`` touches so it"""
     monkeypatch.setattr(
         "voice_typer.server.backend_pid._clear_backend_pid_file",
         lambda: None,
@@ -125,34 +73,11 @@ def _stub_shutdown_environment(tmp_config_dir, monkeypatch):
     monkeypatch.setattr("voice_typer.server.platform_utils.is_windows", lambda: False, raising=False)
 
 
-# ipc_server.stop + WS pool drain run concurrently ────────────
-
-
 class TestParallelPoolDrain:
-    """``ipc_server.stop`` and the WS dispatch pool drain must
-    run concurrently (not sequentially) via
-    ``_run_parallel_with_timeout``."""
+    """``ipc_server.stop`` and the WS dispatch pool drain must"""
 
     def test_ipc_stop_and_ws_drain_run_concurrently(self, _stub_shutdown_environment):
-        """both ``ipc_server.stop`` and the WS dispatch pool drain
-        must run concurrently in a 2-item ``_run_parallel_with_timeout``
-        batch.
-
-        Test plan:
-        (a) Wire ``fake_app._ipc_server`` with:
-            - ``stop`` = a function that records its start time, sleeps
-              0.3s, then returns.
-            - ``_ws_dispatch_pool`` = a REAL ``ThreadPoolExecutor`` with
-              a 0.3s-sleeping task submitted (so the pool drain blocks
-              for ~0.3s on the in-flight task).
-        (b) Invoke ``controller._do_cleanup()``.
-        (c) Assert:
-            1. Total elapsed time < 0.5s (sequential would be ~0.6s;
-               parallel is ~0.3s).
-            2. ``ipc_server.stop`` and the WS pool drain's
-               ``shutdown(wait=True)`` call both started within a 0.15s
-               window of each other (i.e. they overlap, concurrent).
-        """
+        """both ``ipc_server.stop`` and the WS dispatch pool drain"""
         fake_app = _FakeApp()
         fake_app._ipc_server = MagicMock()
 
@@ -175,12 +100,9 @@ class TestParallelPoolDrain:
 
         ws_pool.submit(sleepy_ws_handler)
         # Let the worker actually start the task (otherwise it'd be
-        # QUEUED and cancel_futures=True would cancel it, defeating the
-        # test's premise, the drain must block on a RUNNING handler).
         time.sleep(0.05)
         fake_app._ipc_server._ws_dispatch_pool = ws_pool
         # ``_ws_drained_event`` is a MagicMock → ``.wait(timeout=2.0)``
-        # returns a truthy MagicMock instantly (no 2s delay).
 
         # Track the WS pool drain's ``shutdown(wait=True)`` call time.
         ws_drain_start: list[float] = []
@@ -202,14 +124,6 @@ class TestParallelPoolDrain:
         elapsed = time.monotonic() - start
 
         # (c)(1) Total elapsed < 2.0s, sequential would be ~0.8s
-        # (0.3s ipc_stop + 0.3s ws_drain + ~0.2s for the rest of
-        # _do_cleanup's parallel batch of 14 teardown helpers).
-        # Parallel is ~0.5s (max(0.3, 0.3) + ~0.2s rest). The previous
-        # 0.7s threshold was calibrated to a quiet local box and flaked
-        # under CI runner CPU jitter (-n auto load on GitHub Actions
-        # ubuntu-latest can push thread-spawn latency past 0.7s). Bumped
-        # to 2.0s, still < the ~5s a fully-sequential implementation
-        # would take (sum of 14 teardown helpers each ≥0.1s).
         assert elapsed < 2.0, (
             f"ipc_server.stop + WS drain should run CONCURRENTLY "
             f"(parallel ~0.5s, not sequential ~0.8s); elapsed={elapsed:.2f}s"
@@ -221,14 +135,6 @@ class TestParallelPoolDrain:
             f"ws_dispatch_pool shutdown(wait=True) must be called exactly once; got {len(ws_drain_start)} calls"
         )
 
-        # They must overlap: the two start times must be within 1.0s of
-        # each other (concurrent start). If sequential, ipc_stop would
-        # finish (~0.3s) before the WS drain starts, so the gap would be
-        # ~0.3s. The previous 0.15s threshold flaked under CI runner CPU
-        # jitter, bumped to 1.0s while still catching the regression
-        # (a fully-sequential dispatch would have a gap ≥0.3s; the
-        # parallel path has both starts within microseconds of each
-        # other modulo thread-scheduling latency).
         gap = abs(ipc_stop_start[0] - ws_drain_start[0])
         assert gap < 1.0, (
             f"ipc_server.stop and WS pool drain must start "
@@ -239,16 +145,7 @@ class TestParallelPoolDrain:
         )
 
     def test_uses_run_parallel_with_timeout_with_three_items(self, _stub_shutdown_environment, monkeypatch):
-        """the early bookend must delegate to
-        ``_run_parallel_with_timeout`` with a 3-item list (one for
-        ``ipc_server.stop``, one for the WS dispatch pool drain, one
-        for the WS encode pool drain).
-
-        This is a structural assertion, it spies on
-        ``_run_parallel_with_timeout`` and verifies the batch has
-        exactly 3 items with the expected descriptions. The concurrency
-        timing test (above) verifies the items actually run in parallel.
-        """
+        """``ipc_server.stop``, one for the WS dispatch pool drain, one"""
         # Spy on _run_parallel_with_timeout.
         captured_batches: list[list] = []
 
@@ -262,11 +159,6 @@ class TestParallelPoolDrain:
 
         monkeypatch.setattr(
             # The early-bookend call site lives in the extracted
-            # ``shutdown/ws_drain.py`` body (``drain_ws_dispatch_pool``)
-            # , patch the name where that body resolves it. (It
-            # previously lived on ``CleanupMixin`` in the ``_cleanup``
-            # leaf of the controller package; the mixin method there is
-            # now a thin delegate.)
             "voice_typer.server.shutdown.ws_drain._run_parallel_with_timeout",
             spy,
         )
@@ -274,10 +166,6 @@ class TestParallelPoolDrain:
         fake_app = _FakeApp()
         fake_app._ipc_server = MagicMock()
         # MagicMock.stop returns instantly; MagicMock._ws_dispatch_pool.shutdown
-        # returns instantly (no real pool → _drain_ws_dispatch_pool early-returns
-        # because hasattr(mock_pool, "shutdown") is True but the shutdown call
-        # is a no-op MagicMock). Same for the auto-vivified
-        # ``_ws_encode_pool`` MagicMock.
         controller = ShutdownController(fake_app)
         controller._do_cleanup()
 
@@ -302,11 +190,6 @@ class TestParallelPoolDrain:
         )
         assert "ws_encode_pool.drain" in descs, f"early-bookend batch must contain 'ws_encode_pool.drain'; got {descs}"
         # Timeouts: ipc_server.stop has a 2.0s hard ceiling (PERF-
-        # SHUTDOWN-002, it returns in ms since the drains are gated on
-        # ``app._shutting_down``, and 2.0s bounds a regression); the WS
-        # dispatch pool drain keeps a 5.0s budget (in-flight WS handlers can
-        # legitimately run longer); the WS encode pool drain is bounded
-        # at 2.0s (encodes are pure CPU, milliseconds in practice).
         timeouts = {desc: timeout for desc, _func, timeout in early_bookend}
         assert timeouts["ipc_server.stop"] == 2.0, (
             f"ipc_server.stop must have timeout=2.0 (hard ceiling after PERF-SHUTDOWN-002); "
@@ -321,16 +204,10 @@ class TestParallelPoolDrain:
 
 
 class TestEncodePoolDrain:
-    """The WS frame-encode pool must be drained alongside the dispatch
-    pool in the early-bookend batch (previously ``shutdown_encode_pool``
-    existed and was exported but was never wired into the shutdown path,
-    so the pool's non-daemon workers were only joined via ``atexit``)."""
+    """The WS frame-encode pool must be drained alongside the dispatch"""
 
     def test_encode_pool_drain_cancels_and_joins(self, _stub_shutdown_environment):
-        """a REAL encode pool with an in-flight task gets
-        ``shutdown(wait=False, cancel_futures=True)`` (via
-        ``shutdown_encode_pool``) AND a bounded ``shutdown(wait=True)``
-        join, and the server/singleton refs are dropped."""
+        """a REAL encode pool with an in-flight task gets"""
         fake_app = _FakeApp()
         fake_app._ipc_server = MagicMock()
 
@@ -355,7 +232,6 @@ class TestEncodePoolDrain:
             if kwargs.get("wait", False):
                 with join_lock:
                     # Recorded AFTER the wait=True join returns, i.e. after
-                    # every running task has finished.
                     encode_wait_join.append(time.monotonic())
             return result
 
@@ -371,20 +247,16 @@ class TestEncodePoolDrain:
             f"ws_encode_pool drain must perform a shutdown(wait=True) join; got {len(encode_wait_join)} calls"
         )
         # The in-flight encode was NOT cancelled and the join waited for it:
-        # the wait=True call returns only after the 0.3s task completed.
         assert task_end, "in-flight encode must not be cancelled by the drain"
         assert encode_wait_join[0] >= task_end[0], (
             "ws_encode_pool drain must wait for the in-flight encode to finish "
             "(wait=True join must return after the running task)"
         )
-        # shutdown_encode_pool drops the server attribute (bounded: total
-        # drain stays well under the 2.0s item budget).
         assert fake_app._ipc_server._ws_encode_pool is None
         assert elapsed < 2.0, f"ws_encode_pool drain must stay bounded (<2s); elapsed={elapsed:.2f}s"
 
     def test_no_encode_pool_attribute_skips_drain_item(self, _stub_shutdown_environment, monkeypatch):
-        """a server without ``_ws_encode_pool`` must not add the
-        encode-pool item (nothing to drain)."""
+        """a server without ``_ws_encode_pool`` must not add the"""
         captured_batches: list[list] = []
 
         import voice_typer.server.shutdown.ws_drain as _ws_drain
@@ -423,14 +295,10 @@ class TestEncodePoolDrain:
 
 
 class TestAsrUnloadInnerTimeout:
-    """``_teardown_asr_models`` wraps ``registry.unload()`` in
-    ``_run_with_timeout("asr_registry.unload", registry.unload,
-    timeout=8.0)``."""
+    """``_run_with_timeout(\"asr_registry.unload\", registry.unload,"""
 
     def test_teardown_asr_models_calls_run_with_timeout_with_8s_timeout(self, monkeypatch):
-        """``_teardown_asr_models`` must call ``_run_with_timeout``
-        with ``description="asr_registry.unload"`` and ``timeout=8.0``
-        on ``registry.unload()``."""
+        """``_teardown_asr_models`` must call ``_run_with_timeout``"""
         fake_app = _FakeApp()
         # ``fake_app.models.registry`` is already a MagicMock.
         registry = fake_app.models.registry
@@ -450,7 +318,6 @@ class TestAsrUnloadInnerTimeout:
         def spy_rwt(description, func, timeout=5.0):
             captured_calls.append({"description": description, "func": func, "timeout": timeout})
             # Call the real _run_with_timeout so the unload actually runs
-            # (and release_gpu_memory is reached).
             return original_rwt(description, func, timeout=timeout)
 
         monkeypatch.setattr("voice_typer.server.shutdown_controller._run_with_timeout", spy_rwt)
@@ -474,14 +341,10 @@ class TestAsrUnloadInnerTimeout:
             "_run_with_timeout must be called with registry.unload as the func"
         )
         # The unload must actually have been invoked (via the real
-        # _run_with_timeout call).
         registry.unload.assert_called_once_with()
 
     def test_teardown_asr_models_still_calls_release_gpu_memory_on_timeout(self, monkeypatch):
-        """when ``registry.unload()`` times out (returns
-        ``TIMEOUT``), ``_teardown_asr_models`` must STILL call
-        ``release_gpu_memory()``, the GPU cache clear is independent of
-        the model unload and is safe to run even if the unload hung."""
+        """when ``registry.unload()`` times out (returns"""
         fake_app = _FakeApp()
         registry = fake_app.models.registry
 
@@ -503,9 +366,6 @@ class TestAsrUnloadInnerTimeout:
         def fake_release():
             gpu_release_calls.append(True)
 
-        # Patch release_gpu_memory in the asr_utils module so the
-        # ``from voice_typer.server.asr_utils import release_gpu_memory``
-        # inside _teardown_asr_models picks up the fake.
         monkeypatch.setattr("voice_typer.server.asr_utils.release_gpu_memory", fake_release)
 
         ctrl._teardown_asr_models()
@@ -515,22 +375,15 @@ class TestAsrUnloadInnerTimeout:
             f"registry.unload() times out; got {len(gpu_release_calls)} calls"
         )
         # registry.unload must NOT have been called directly (it was
-        # wrapped in _run_with_timeout, which returned TIMEOUT without
-        # calling func, because we replaced _run_with_timeout entirely).
-        # This confirms the unload went through _run_with_timeout.
         registry.unload.assert_not_called()
 
     def test_teardown_asr_models_logs_warning_on_timeout(self, caplog):
-        """when ``registry.unload()`` times out, a WARNING must
-        be logged (not DEBUG) so the user knows the GPU memory may not
-        be fully released."""
+        """when ``registry.unload()`` times out, a WARNING must"""
         fake_app = _FakeApp()
         ctrl = ShutdownController.__new__(ShutdownController)
         ctrl._app = fake_app
 
         # Patch _run_with_timeout at the module level via direct
-        # attribute replacement on the module (no monkeypatch needed —
-        # we restore it in finally).
         import voice_typer.server.shutdown_controller as _sc_module
 
         original_rwt = _sc_module._run_with_timeout
@@ -569,47 +422,10 @@ class TestAsrUnloadInnerTimeout:
 
 
 class TestWatchdogJoinLeakedWorkers:
-    """SU-26: ``_watchdog`` must call
-    ``join_leaked_workers(total_budget=1.0)`` just before ``os._exit(0)``
-    so leaked daemon workers get a bounded window to release resources.
-
-    The watchdog uses shared-deadline mode
-    (``total_budget=1.0``) instead of per-worker mode
-    (``timeout=0.5``). Shared-deadline mode caps the iteration at the
-    first 10 workers and uses ``min(0.2, remaining_budget)`` per
-    worker, so the worst-case wall time is ``min(2.0, total_budget)``
-    seconds, bounded regardless of how many workers are in the
-    registry. Per-worker mode with N leaked workers would block for
-    ``N * 0.5`` seconds (e.g. 20 workers → 10s, far exceeding the 2s
-    watchdog budget).
-    """
+    """SU-26: ``_watchdog`` must call"""
 
     def test_watchdog_calls_join_leaked_workers_with_1_0s_total_budget(self, monkeypatch):
-        """SU-26: ``_watchdog`` calls
-        ``join_leaked_workers(total_budget=1.0)`` before ``os._exit(0)``.
-
-        Test plan:
-        (a) Use ``timeout_s=0.0`` so the watchdog fires immediately
-            (``time.sleep(0.0)`` returns instantly in CPython, no
-            need to patch ``time.sleep``, which would also clobber the
-            test's own ``time.sleep`` calls since ``time`` is a singleton
-            module).
-        (b) Patch ``os._exit`` to record the call and NOT kill the test
-            process.
-        (c) Patch ``join_leaked_workers`` in the shutdown_controller
-            module to record the call (and return 0, no leaked workers).
-        (d) Call ``_arm_shutdown_watchdog(timeout_s=0.0)``, starts the
-            daemon watchdog thread.
-        (e) Poll until ``os._exit`` is recorded (i.e. the watchdog has
-            run to completion). The watchdog is a daemon thread that
-            fires within microseconds of ``timeout_s=0.0``.
-        (f) Assert:
-            1. ``join_leaked_workers`` was called exactly once with
-               ``total_budget=1.0`` (shared-deadline mode).
-            2. ``os._exit`` was called exactly once with code ``0``.
-            3. ``join_leaked_workers`` was called BEFORE ``os._exit``
-               (recorded via a shared call-order list).
-        """
+        """SU-26: ``_watchdog`` calls"""
         ctrl = ShutdownController.__new__(ShutdownController)
         ctrl._app = MagicMock()
 
@@ -622,10 +438,6 @@ class TestWatchdogJoinLeakedWorkers:
         monkeypatch.setattr("os._exit", fake_exit)
 
         # (c) Patch join_leaked_workers in the shutdown_controller module.
-        # The watchdog now calls ``join_leaked_workers(total_budget=1.0)``
-        # (shared-deadline mode). The fake accepts both ``timeout`` (legacy,
-        # per-worker mode) and ``total_budget`` (new, shared-deadline mode)
-        # kwargs so the test records whichever mode is used.
         join_calls: list[dict] = []
 
         def fake_join(timeout: float = 1.0, *, total_budget: float | None = None):
@@ -638,10 +450,6 @@ class TestWatchdogJoinLeakedWorkers:
         # (d) Arm the watchdog with timeout_s=0.0 → fires immediately.
         ctrl._arm_shutdown_watchdog(timeout_s=0.0)
 
-        # (e) Poll until the watchdog has called os._exit (i.e. run to
-        # completion). The watchdog is a daemon thread; with timeout_s=0.0
-        # it fires within microseconds. We poll with the REAL time.sleep
-        # (not patched) for up to 2s.
         deadline = time.monotonic() + 2.0
         while "os._exit" not in call_order and time.monotonic() < deadline:
             time.sleep(0.001)

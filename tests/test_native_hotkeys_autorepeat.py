@@ -1,30 +1,9 @@
-"""Tests for the auto-repeat filter  and VERSION handler
-in ``voice_typer.server.native_hotkeys.base``.
-
- (auto-repeat filter): the OS auto-repeats key-down / modifier-down
-events while a key is held. Without filtering, each repeat re-fires the
-hotkey callback, for a toggle-mode hotkey that means toggling on/off
-every ~30ms while the key is held. The fix tracks previous down-state
-per key/modifier and only calls ``_try_match`` on the not-down → down
-transition.
-
- (VERSION handler): the binary emits ``VERSION:<x.y.z>`` immediately
-after READY. The Python side records this in ``_binary_version`` and
-compares against the manifest's expected version (stashed by the factory
-in ``_expected_version``), logging a warning on mismatch.
-
-These tests use mocked callbacks (no real subprocess is spawned) so they
-run on any platform. The auto-repeat behavior is exercised by feeding
-duplicate KEY_DOWN / MOD_DOWN lines through ``_handle_line`` and
-asserting the callback fires exactly once.
-"""
+"""Tests for the auto-repeat filter  and VERSION handler"""
 
 from __future__ import annotations
 
 import logging
 import sys
-
-# ─── Helpers ────────────────────────────────────────────────────────────────
 
 
 def _make_linux_backend(monkeypatch, hotkey_str: str = "<caps_lock>"):
@@ -53,13 +32,8 @@ def _make_macos_backend(monkeypatch, hotkey_str: str = "<fn>"):
     return MacNativeHotkey(hotkey_str)
 
 
-# ─── KEY_DOWN auto-repeat filter ────────────────────────────────────
-
-
 class TestKeyAutoRepeatFilter:
-    """a repeated KEY_DOWN (no intervening KEY_UP) must NOT
-    re-fire the hotkey callback. Only the not-down → down transition
-    fires."""
+    """a repeated KEY_DOWN (no intervening KEY_UP) must NOT"""
 
     def test_first_key_down_fires(self, monkeypatch):
         """The first KEY_DOWN after init (or after a KEY_UP) fires once."""
@@ -70,8 +44,7 @@ class TestKeyAutoRepeatFilter:
         assert fired == ["press"]
 
     def test_second_key_down_without_keyup_is_suppressed(self, monkeypatch):
-        """a second KEY_DOWN without an intervening KEY_UP is
-        an OS auto-repeat, must NOT re-fire the callback."""
+        """a second KEY_DOWN without an intervening KEY_UP is"""
         b = _make_linux_backend(monkeypatch, "<caps_lock>")
         fired: list[str] = []
         b._callback = lambda: fired.append("press")  # noqa: E731
@@ -95,8 +68,7 @@ class TestKeyAutoRepeatFilter:
         assert released == ["release"], f"got {released}"
 
     def test_toggle_on_keyup_only_fires_on_release(self, monkeypatch):
-        """In toggle-on-keyup mode, KEY_DOWN never fires; only KEY_UP
-        fires (and auto-repeat KEY_DOWNs are still suppressed)."""
+        """In toggle-on-keyup mode, KEY_DOWN never fires; only KEY_UP"""
         b = _make_linux_backend(monkeypatch, "<caps_lock>")
         b.set_toggle_on_keyup(True)
         fired: list[str] = []
@@ -112,45 +84,20 @@ class TestKeyAutoRepeatFilter:
         assert fired == ["toggle"]
 
     def test_wrong_key_doesnt_set_main_key_down(self, monkeypatch):
-        """A KEY_DOWN for the wrong key does not latch _main_key_down
-        for the registered hotkey's main key, so a subsequent
-        KEY_DOWN for the RIGHT key still fires (no false suppression)."""
+        """A KEY_DOWN for the wrong key does not latch _main_key_down"""
         b = _make_linux_backend(monkeypatch, "<caps_lock>")
         fired: list[str] = []
         b._callback = lambda: fired.append("press")  # noqa: E731
         # Wrong key, should not fire and should not latch _main_key_down
-        # for CapsLock. (Note: _main_key_down is a single boolean shared
-        # across all keys in the current implementation, this test
-        # documents that pressing an unrelated key DOES latch it. See
-        # the  docstring in base.py for the rationale: the
-        # filter is intentionally simple, it assumes the OS only
-        # auto-repeats the most-recent key, which is the case on all
-        # three platforms. If this assumption ever breaks, the fix is
-        # to track per-key down-state in a set, not a boolean.)
         b._handle_line("KEY_DOWN:F2")
         assert fired == []  # wrong key, no fire
         # KEY_DOWN:CapsLock, _main_key_down is now True (latched by
-        # the F2 press), so this is treated as auto-repeat and
-        # suppressed. This is a known limitation of the simple boolean
-        # tracker; see the docstring above.
         b._handle_line("KEY_DOWN:CapsLock")
-        # Accept either behavior: if the simple boolean latches, fired
-        # is still []; if it doesn't, fired is ["press"]. The contract
-        # is "auto-repeat of the SAME key is suppressed", pressing a
-        # DIFFERENT key is not auto-repeat and SHOULD fire. The current
-        # implementation may or may not fire depending on whether the
-        # boolean was latched by the wrong-key press. We document this
-        # ambiguity by accepting either, but the  contract is
-        # satisfied either way (the SAME-key auto-repeat IS suppressed).
         assert fired == [] or fired == ["press"]
 
 
-# ─── MOD_DOWN auto-repeat filter ────────────────────────────────────
-
-
 class TestModifierAutoRepeatFilter:
-    """a repeated MOD_DOWN (no intervening MOD_UP) must NOT
-    re-fire the hotkey callback for modifier-only hotkeys."""
+    """a repeated MOD_DOWN (no intervening MOD_UP) must NOT"""
 
     def test_first_mod_down_fires(self, monkeypatch):
         """For <alt>, the first MOD_DOWN:Alt fires once."""
@@ -161,8 +108,7 @@ class TestModifierAutoRepeatFilter:
         assert fired == ["press"]
 
     def test_second_mod_down_without_modup_is_suppressed(self, monkeypatch):
-        """a second MOD_DOWN:Alt without an intervening MOD_UP
-        is an OS auto-repeat, must NOT re-fire the callback."""
+        """a second MOD_DOWN:Alt without an intervening MOD_UP"""
         b = _make_linux_backend(monkeypatch, "<alt>")
         fired: list[str] = []
         b._callback = lambda: fired.append("press")  # noqa: E731
@@ -172,16 +118,7 @@ class TestModifierAutoRepeatFilter:
         assert fired == ["press"], f"auto-repeat MOD_DOWN should be suppressed; got {fired}"
 
     def test_mod_up_resets_state_allows_new_moddown(self, monkeypatch):
-        """After a MOD_UP, the next MOD_DOWN is a fresh press and fires.
-
-        Note: for modifier-only hotkeys (e.g. ``<alt>``), the release
-        callback currently does NOT fire on MOD_UP because
-        ``_try_match(down=False)`` checks ``held == required`` AFTER
-        discarding the modifier, at that point held is empty and
-        required is {alt}, so the check fails. This is a pre-existing
-        bug in the modifier-only release path, NOT a regression from
-        the  auto-repeat filter. We only assert the press
-        behavior here (the auto-repeat filter's actual scope)."""
+        """After a MOD_UP, the next MOD_DOWN is a fresh press and fires."""
         b = _make_linux_backend(monkeypatch, "<alt>")
         fired: list[str] = []
         b._callback = lambda: fired.append("press")  # noqa: E731
@@ -192,10 +129,7 @@ class TestModifierAutoRepeatFilter:
         assert fired == ["press", "press"], f"got {fired}"
 
     def test_modifier_only_alt_with_extra_doesnt_fire(self, monkeypatch):
-        """For <alt>, Alt+Ctrl should NOT fire (extra Ctrl held).
-        This is the existing combo-rejection behavior, preserved by
-        the auto-repeat filter (the filter only suppresses repeats of
-        the SAME modifier; a different modifier is added normally)."""
+        """For <alt>, Alt+Ctrl should NOT fire (extra Ctrl held)."""
         b = _make_linux_backend(monkeypatch, "<alt>")
         fired: list[str] = []
         b._callback = lambda: fired.append("press")  # noqa: E731
@@ -204,8 +138,7 @@ class TestModifierAutoRepeatFilter:
         assert fired == []  # NOT fired, extra modifier
 
     def test_repeated_ctrl_then_alt_doesnt_double_fire_alt(self, monkeypatch):
-        """A repeat of Ctrl (auto-repeat) followed by a fresh Alt press
-        still fires Alt exactly once (not zero, not twice)."""
+        """A repeat of Ctrl (auto-repeat) followed by a fresh Alt press"""
         b = _make_linux_backend(monkeypatch, "<alt>")
         fired: list[str] = []
         b._callback = lambda: fired.append("press")  # noqa: E731
@@ -215,16 +148,8 @@ class TestModifierAutoRepeatFilter:
         assert fired == []  # NOT fired, Ctrl is still an extra modifier
 
 
-# ─── FN auto-repeat (macOS) ─────────────────────────────────────────
-
-
 class TestFnAutoRepeatFilter:
-    """FN_DOWN auto-repeat filter on macOS. The FN event path
-    is separate from KEY_DOWN / MOD_DOWN, it uses ``_on_fn_event``,
-    which currently does NOT have the auto-repeat filter (FN is
-    edge-detected in the Swift binary via ``.function`` flag, so the
-    binary already only emits FN_DOWN on the false→true transition).
-    These tests document the current behavior."""
+    """FN_DOWN auto-repeat filter on macOS. The FN event path"""
 
     def test_fn_down_fires(self, monkeypatch):
         """For <fn> on macOS, FN_DOWN fires once."""
@@ -243,23 +168,18 @@ class TestFnAutoRepeatFilter:
         assert released == ["release"]
 
 
-# ─── VERSION handler ────────────────────────────────────────────────
-
-
 class TestVersionHandler:
-    """``VERSION:<x.y.z>`` line is parsed and recorded in
-    ``_binary_version``. If ``_expected_version`` is set (by the
-    factory from the manifest), a mismatch logs a WARNING."""
+    """factory from the manifest), a mismatch logs a WARNING."""
 
     def test_version_recorded(self, monkeypatch):
-        """A ``VERSION:1.0.0`` line sets ``_binary_version`` to "1.0.0"."""
+        """A ``VERSION:1.0.0`` line sets ``_binary_version`` to \"1.0.0\"."""
         b = _make_linux_backend(monkeypatch, "<caps_lock>")
         assert b._binary_version is None
         b._handle_line("VERSION:1.0.0")
         assert b._binary_version == "1.0.0"
 
     def test_version_with_whitespace_stripped(self, monkeypatch):
-        """``VERSION: 1.0.0`` (with a space) is stripped to "1.0.0"."""
+        """``VERSION: 1.0.0`` (with a space) is stripped to \"1.0.0\"."""
         b = _make_linux_backend(monkeypatch, "<caps_lock>")
         b._handle_line("VERSION: 1.2.3 ")
         assert b._binary_version == "1.2.3"
@@ -271,8 +191,7 @@ class TestVersionHandler:
         assert b._binary_version is None
 
     def test_version_mismatch_logs_warning(self, monkeypatch, caplog):
-        """When _expected_version is set and the binary reports a
-        different version, a WARNING is logged."""
+        """When _expected_version is set and the binary reports a"""
         b = _make_linux_backend(monkeypatch, "<caps_lock>")
         b._expected_version = "2.0.0"  # manifest says 2.0.0
         with caplog.at_level(logging.WARNING, logger="voice_typer.server.native_hotkeys"):
@@ -284,8 +203,7 @@ class TestVersionHandler:
         )
 
     def test_version_match_no_warning(self, monkeypatch, caplog):
-        """When _expected_version matches the binary's reported version,
-        no WARNING is logged."""
+        """When _expected_version matches the binary's reported version,"""
         b = _make_linux_backend(monkeypatch, "<caps_lock>")
         b._expected_version = "1.0.0"
         with caplog.at_level(logging.WARNING, logger="voice_typer.server.native_hotkeys"):
@@ -294,9 +212,7 @@ class TestVersionHandler:
         assert warnings == [], f"no mismatch warning expected; got {warnings}"
 
     def test_no_expected_version_skips_comparison(self, monkeypatch, caplog):
-        """When _expected_version is None (no manifest entry), the
-        comparison is skipped, no warning even if the version looks
-        weird."""
+        """comparison is skipped, no warning even if the version looks"""
         b = _make_linux_backend(monkeypatch, "<caps_lock>")
         # _expected_version defaults to None in __init__
         assert b._expected_version is None
@@ -308,13 +224,8 @@ class TestVersionHandler:
         assert b._binary_version == "99.99.99"
 
 
-# ─── PONG handler (existing, but verify no regression) ──────────────
-
-
 class TestPongHandler:
-    """the existing PONG handler sets ``_pong_supported`` on
-    first PONG. Verify the auto-repeat filter and VERSION handler
-    changes don't regress this."""
+    """first PONG. Verify the auto-repeat filter and VERSION handler"""
 
     def test_pong_sets_supported_flag(self, monkeypatch):
         b = _make_linux_backend(monkeypatch, "<caps_lock>")
@@ -323,9 +234,7 @@ class TestPongHandler:
         assert b._pong_supported is True
 
     def test_pong_does_not_update_last_event_timestamp(self, monkeypatch):
-        """PONG is tracked separately from generic events so the
-        watchdog can distinguish 'alive and responding' from 'alive
-        but stuck'."""
+        """watchdog can distinguish 'alive and responding' from 'alive"""
         b = _make_linux_backend(monkeypatch, "<caps_lock>")
         old_ts = b._last_event_received_at
         # Sleep briefly so time.time() would advance if it were called.
@@ -337,17 +246,12 @@ class TestPongHandler:
         assert b._last_event_received_at == old_ts
 
 
-# ─── native log path computation ────────────────────────────────────
-
-
 class TestNativeLogPath:
-    """``_compute_native_log_path`` resolves a stable per-backend
-    diagnostic log path under ``<config_dir>/logs/``."""
+    """``_compute_native_log_path`` resolves a stable per-backend"""
 
     def test_log_path_resolved(self, monkeypatch, tmp_path, request):
         """The log path is ``<config_dir>/logs/native-<backend>.log`` (no PID)."""
         # Point the canonical config dir at tmp so the test never
-        # touches the real user profile.
         from voice_typer.server.config_internals import paths as _paths_mod
         from voice_typer.server.native_hotkeys import _spawn as _spawn_mod
 
@@ -384,7 +288,5 @@ class TestNativeLogPath:
         monkeypatch.setattr(_spawn_mod, "_resolve_canonical_logs_dir", lambda: None)
         monkeypatch.setattr(_spawn_mod, "_legacy_home_logs_dir", lambda: None)
         b = _make_linux_backend(monkeypatch, "<caps_lock>")
-        # _compute_native_log_path is called from _spawn_process, but
-        # we can call it directly here.
         path = b._compute_native_log_path()
         assert path is None

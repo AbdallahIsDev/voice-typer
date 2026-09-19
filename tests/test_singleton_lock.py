@@ -1,30 +1,4 @@
-"""XZ-9 / XV-103 regression tests: module-level singleton init race.
-
-The two module-level caches in ``voice_typer.server.clipboard_target_safety`` —
-
-* ``_WE_ELEVATED`` (cached "are we elevated?" bool)
-* ``_UIA_SINGLETON`` (cached ``IUIAutomation`` COM proxy)
-
-— are populated lazily on first call. Before XV-103 they had no lock
-guarding the check-then-act pattern, so two threads calling
-``_get_we_elevated`` / ``_get_uia_singleton`` concurrently on the cold
-path could both observe ``None`` / ``False``, both run the Win32 /
-comtypes init, and stomp each other's write to the module-level cache.
-
-These tests pin the XV-103 fix:
-
-1. The module exposes ``_WE_ELEVATED_LOCK`` and ``_UIA_SINGLETON_LOCK``
-   as ``threading.Lock`` instances.
-2. The fast path (cache hit) does NOT acquire the lock, verified by
-   asserting the lock is un-acquired after a populated-cache call.
-3. The cold path serializes concurrent callers, verified by spawning
-   N threads that all hit the cold path simultaneously and asserting
-   the underlying Win32 / comtypes init runs exactly once.
-
-The tests mock ``ctypes.windll`` and ``comtypes`` so they run on Linux
-without Windows or comtypes installed. They mirror the mocking strategy
-of ``tests/clipboard/win32/test_win32_copy_paste.py``.
-"""
+"""XZ-9 / XV-103 regression tests: module-level singleton init race."""
 
 from __future__ import annotations
 
@@ -41,29 +15,15 @@ from voice_typer.server import (
     clipboard_target_safety as safety_mod,  # noqa: E402
 )
 
-# ---------------------------------------------------------------------------
-# Helpers / fixtures
-# ---------------------------------------------------------------------------
-
 
 def _set_byref_value(byref_obj: Any, value: int) -> None:
-    """Mutate the c_ulong instance wrapped by ``ctypes.byref``.
-
-    Mirrors the helper in ``test_win32_copy_paste.py``: fakes the
-    kernel writing an output DWORD into a by-ref buffer.
-    """
+    """Mutate the c_ulong instance wrapped by ``ctypes.byref``."""
     byref_obj._obj.value = value
 
 
 @pytest.fixture
 def reset_caches():
-    """Reset both module-level caches before AND after each test.
-
-    XV-103: the locks themselves are NOT reset (they're stateless), only
-    the cached values they protect. This mirrors what the existing
-    ``_reset_we_elevated`` / ``_reset_uia_singleton`` fixtures in
-    ``test_win32_copy_paste.py`` do.
-    """
+    """Reset both module-level caches before AND after each test."""
     safety_mod._WE_ELEVATED = None
     safety_mod._UIA_SINGLETON = None
     safety_mod._UIA_MODULE = None
@@ -77,12 +37,7 @@ def reset_caches():
 
 @pytest.fixture
 def fake_win32_elevated():
-    """Mock ``ctypes.windll`` so ``_get_we_elevated`` runs its Win32 branch.
-
-    Configures advapi32.OpenProcessToken to succeed and GetTokenInformation
-    to report "elevated = 1". The ``ctypes.cast`` patch makes the DWORD
-    dereference yield 1 (we ARE elevated).
-    """
+    """Mock ``ctypes.windll`` so ``_get_we_elevated`` runs its Win32 branch."""
     mock_user32 = MagicMock()
     mock_kernel32 = MagicMock()
     mock_advapi32 = MagicMock()
@@ -117,12 +72,7 @@ def fake_win32_elevated():
 
 @pytest.fixture
 def fake_comtypes_uia():
-    """Mock ``comtypes`` / ``comtypes.client`` so ``_get_uia_singleton``
-    runs its COM branch.
-
-    ``CoCreateInstance`` returns a sentinel object so the test can assert
-    it was called exactly once across concurrent threads.
-    """
+    """Mock ``comtypes`` / ``comtypes.client`` so ``_get_uia_singleton``"""
     fake_uia_mod = MagicMock(name="UIA_module")
     fake_uia = MagicMock(name="uia_instance")
     fake_comtypes = MagicMock(name="comtypes")
@@ -147,21 +97,12 @@ def fake_comtypes_uia():
         }
 
 
-# ===========================================================================
-# Lock existence
-# ===========================================================================
-
-
 class TestLocksExist:
     """XV-103 contract: the safety module exposes two module-level locks."""
 
     def test_we_elevated_lock_is_threading_lock(self):
         """``_WE_ELEVATED_LOCK`` is a ``threading.Lock`` (or RLock)."""
         lock = safety_mod._WE_ELEVATED_LOCK
-        # threading.Lock returns a _thread.lock object; RLock returns a
-        # threading._RLock. Both expose ``acquire``/``release`` and support
-        # the context-manager protocol. Use ``hasattr`` rather than
-        # isinstance to stay lock-type-agnostic.
         assert hasattr(lock, "acquire")
         assert hasattr(lock, "release")
         # Must be usable as a context manager (the impl uses ``with lock:``).
@@ -177,46 +118,31 @@ class TestLocksExist:
             pass
 
 
-# ===========================================================================
-# _get_we_elevated: lock semantics + concurrent init
-# ===========================================================================
-
-
 class TestGetWeElevatedLockSemantics:
     """XV-103: ``_get_we_elevated`` uses double-checked locking."""
 
     def test_fast_path_does_not_block_on_lock(self, fake_win32_elevated, reset_caches):
-        """When the cache is already populated, the lock is NOT held.
-
+        """
+        When the cache is already populated, the lock is NOT held.
         This pins the "double-checked" half of the pattern: the fast path
-        must check the cache BEFORE acquiring the lock so concurrent
-        readers don't serialize on the lock once init is done.
         """
         # Prime the cache.
         first = safety_mod._get_we_elevated()
         assert first is True
 
         # If the fast path erroneously acquired the lock, we'd block here
-        # forever (we hold the lock on the main thread). Acquire it
-        # ourselves first to prove the fast path doesn't need it.
         lock = safety_mod._WE_ELEVATED_LOCK
         acquired = lock.acquire(blocking=False)
         assert acquired, "Lock should be free if fast path doesn't acquire it"
         try:
             # Fast path: cache is populated, this should return immediately
-            # WITHOUT trying to acquire the lock we already hold.
             result = safety_mod._get_we_elevated()
             assert result is True
         finally:
             lock.release()
 
     def test_cold_path_acquires_lock(self, fake_win32_elevated, reset_caches):
-        """When the cache is empty, the lock IS acquired.
-
-        We pre-acquire the lock on the main thread and verify that a
-        background thread calling ``_get_we_elevated`` blocks until we
-        release it. (This is the "cold path locks" half of the pattern.)
-        """
+        """When the cache is empty, the lock IS acquired."""
         lock = safety_mod._WE_ELEVATED_LOCK
         lock.acquire()
         try:
@@ -240,37 +166,17 @@ class TestGetWeElevatedLockSemantics:
             assert result_holder["value"] is True
         finally:
             # Defensive: ensure we don't leave the lock held if the assert
-            # above fired before release(). Lock.release on an un-held lock
-            # raises RuntimeError, so swallow it.
             with contextlib.suppress(RuntimeError):
                 lock.release()
 
     def test_concurrent_cold_path_calls_init_once(self, fake_win32_elevated, reset_caches):
-        """N threads hitting the cold path → OpenProcessToken called once.
-
-        This is the XV-103 regression: before the lock, N threads could
-        all observe ``_WE_ELEVATED is None`` and all run the Win32 token
-        query, leaking handles and stomping the cache. With the lock,
-        only the first thread runs init; the rest take the fast path
-        once the first releases the lock.
-
-        Determinism note: a plain ``MagicMock`` returns instantly, so on
-        CPython the GIL can let one thread complete the whole init
-        before another observes the cache is still ``None``. We add a
-        small ``time.sleep`` to the OpenProcessToken side_effect so the
-        init holds the GIL long enough for all racing threads to observe
-        the empty cache, making the test reliably fail without the lock.
-        """
+        """N threads hitting the cold path → OpenProcessToken called once."""
         n_threads = 16
         barrier = threading.Barrier(n_threads)
         results: list[bool] = []
         results_lock = threading.Lock()
 
         # Widen the race window: the mock OpenProcessToken sleeps briefly
-        # (releasing the GIL) so other threads get a chance to observe
-        # the still-empty cache and enter the cold path too. With the
-        # lock, only one thread enters the cold path; the others
-        # block on the lock and then take the fast path.
         advapi32 = fake_win32_elevated["advapi32"]
 
         def _slow_open_process_token(*args, **kwargs):
@@ -297,17 +203,9 @@ class TestGetWeElevatedLockSemantics:
         assert len(results) == n_threads
         assert all(r is True for r in results), f"All threads should see elevated=True; got {results}"
 
-        # contract: the Win32 OpenProcessToken call must happen
-        # EXACTLY once across all N threads. Before the lock, this would
-        # be N calls.
         assert advapi32.OpenProcessToken.call_count == 1, (
             f"OpenProcessToken should be called once (lock serializes init); got {advapi32.OpenProcessToken.call_count}"
         )
-
-
-# ===========================================================================
-# _get_uia_singleton: lock semantics + concurrent init
-# ===========================================================================
 
 
 class TestGetUiaSingletonLockSemantics:
@@ -354,28 +252,13 @@ class TestGetUiaSingletonLockSemantics:
                 lock.release()
 
     def test_concurrent_cold_path_calls_init_once(self, fake_comtypes_uia, reset_caches):
-        """N threads hitting the cold path → CoCreateInstance called once.
-
-        This is the XV-103 regression: before the lock, N threads could
-        all observe ``_UIA_SINGLETON_INIT_ATTEMPTED is False`` and all
-        run ``comtypes.client.GetModule`` + ``CoCreateInstance``, leaking
-        COM proxies. With the lock, only the first thread runs init.
-
-        Determinism note: a plain ``MagicMock`` returns instantly, so on
-        CPython the GIL can let one thread complete the whole init
-        before another observes the flag is still ``False``. We add a
-        small ``time.sleep`` to the CoCreateInstance side_effect so the
-        init holds the GIL long enough for all racing threads to observe
-        the un-attempted init, making the test reliably fail without
-        the lock.
-        """
+        """N threads hitting the cold path → CoCreateInstance called once."""
         n_threads = 16
         barrier = threading.Barrier(n_threads)
         results: list[Any] = []
         results_lock = threading.Lock()
 
         # Widen the race window so all threads observe the un-attempted
-        # init before any one of them sets the flag.
         comtypes = fake_comtypes_uia["comtypes"]
         expected_uia = fake_comtypes_uia["uia"]
 
@@ -402,7 +285,6 @@ class TestGetUiaSingletonLockSemantics:
         assert len(results) == n_threads
         assert all(r is expected_uia for r in results), "All threads should see the same cached UIA singleton"
 
-        # contract: CoCreateInstance must be called EXACTLY once.
         assert comtypes.CoCreateInstance.call_count == 1, (
             f"CoCreateInstance should be called once (lock serializes init); got {comtypes.CoCreateInstance.call_count}"
         )
@@ -412,14 +294,7 @@ class TestGetUiaSingletonLockSemantics:
         )
 
     def test_init_failure_does_not_deadlock(self, fake_win32_elevated, reset_caches):
-        """If comtypes raises during init, the lock is released.
-
-        Regression for the XV-103 fix: the ``with _UIA_SINGLETON_LOCK:``
-        must be a context manager so an exception in the cold path
-        releases the lock. We force ``comtypes.client.GetModule`` to
-        raise and verify (a) the function returns None and (b) the lock
-        is releasable afterwards.
-        """
+        """If comtypes raises during init, the lock is released."""
         fake_comtypes = MagicMock(name="comtypes")
         fake_comtypes_client = MagicMock(name="comtypes.client")
         fake_comtypes.client = fake_comtypes_client
@@ -443,25 +318,12 @@ class TestGetUiaSingletonLockSemantics:
         lock.release()
 
 
-# ===========================================================================
-# Cross-cutting: lock is non-reentrant safe (no double-acquire from same
-# thread in the cold path).
-# ===========================================================================
-
-
 class TestLockReentrancy:
-    """XV-103: the locks are non-reentrant, so the cold path must NOT
-    call any function that itself re-enters the same lock.
-
-    We can't easily assert "no re-entrancy" structurally, but we CAN
-    assert that the cold path's init code doesn't call back into the
-    same getter (which would deadlock with a non-reentrant Lock).
-    """
+    """XV-103: the locks are non-reentrant, so the cold path must NOT"""
 
     def test_we_elevated_cold_path_does_not_reenter(self, fake_win32_elevated, reset_caches):
         """Cold path must not call ``_get_we_elevated`` recursively."""
         # Spy on _get_we_elevated: wrap the real function and count
-        # re-entrant calls while the original is executing.
         original = safety_mod._get_we_elevated
         state: dict[str, Any] = {"depth": 0, "max_depth": 0}
 
@@ -477,6 +339,4 @@ class TestLockReentrancy:
             result = safety_mod._get_we_elevated()
 
         assert result is True
-        # max_depth == 1 means the function was called once and did NOT
-        # re-enter itself (which would deadlock with a non-reentrant Lock).
         assert state["max_depth"] == 1, f"_get_we_elevated must not re-enter itself; max depth = {state['max_depth']}"

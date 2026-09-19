@@ -1,23 +1,4 @@
-"""Tests for :mod:`voice_typer.server.recording_controller` audio-callback
-shutdown paths.
-
-These tests pin the XV-134 contract: ``on_silence_auto_stop`` and
-``on_max_duration_auto_stop`` MUST dispatch ``_stop_dictation`` off the
-audio callback thread (which holds ``Recorder._lock``) so the stop
-sequence doesn't deadlock.  Previously both call sites used
-``self._app._schedule_timer(0, ...)`` which built a ``threading.Timer``
-object, appended it to ``_pending_timers``, and started a Timer thread
-that immediately fired, paying the Timer scheduling cost and polluting
-the pending-timer list with a zero-delay entry that was never going to
-be cancelled meaningfully.
-
-XV-134 (fixed in :mod:`voice_typer.server.timer_coordinator`) makes
-``_schedule_timer(0, func)`` short-circuit to a plain daemon thread via
-the new ``TimerCoordinator.defer`` method.  These tests verify the
-recording-controller call sites still trigger the off-thread dispatch
-end-to-end, they don't re-test the TimerCoordinator internals (those
-are covered by ``tests/test_timer_coordinator.py``).
-"""
+"""Tests for :mod:`voice_typer.server.recording_controller` audio-callback"""
 
 from __future__ import annotations
 
@@ -27,13 +8,7 @@ from unittest.mock import MagicMock
 
 
 def _make_minimal_controller():
-    """Build a RecordingController with only the attributes the
-    auto-stop callbacks read.
-
-    The full ``__init__`` pulls in models, recorder, tray, etc., none
-    of which the auto-stop callbacks touch.  Using ``__new__`` keeps
-    the test fast and dependency-free.
-    """
+    """auto-stop callbacks read."""
     from voice_typer.server.recording_controller import RecordingController
 
     ctrl = RecordingController.__new__(RecordingController)
@@ -41,22 +16,11 @@ def _make_minimal_controller():
     return ctrl
 
 
-# silence / max-duration auto-stop dispatch ────────────────────
-
-
 class TestSilenceAutoStopDispatch:
-    """XV-134: ``on_silence_auto_stop`` dispatches ``_stop_dictation``
-    on a background thread (not the calling thread)."""
+    """XV-134: ``on_silence_auto_stop`` dispatches ``_stop_dictation``"""
 
     def test_schedules_stop_dictation_with_zero_delay(self):
-        """The callback must call ``self._app._schedule_timer(0, ...)``
-        so the stop sequence runs off the audio callback thread.
-
-        XV-134 makes that call short-circuit to a daemon thread, we
-        verify the call site still passes ``0`` (the contract that
-        triggers the short-circuit) and that the dispatched callback
-        actually runs.
-        """
+        """The callback must call ``self._app._schedule_timer(0, ...)``"""
         ctrl = _make_minimal_controller()
         captured: list[tuple] = []
 
@@ -86,18 +50,11 @@ class TestSilenceAutoStopDispatch:
         assert func == ctrl._app._stop_dictation
 
     def test_stop_dictation_actually_runs_asynchronously(self):
-        """XV-134: the dispatched ``_stop_dictation`` runs on a
-        background thread, NOT on the calling (audio callback) thread.
-
-        This is the deadlock-avoidance guarantee the original comment
-        documents: calling ``recorder.stop()`` directly from the audio
-        callback would re-acquire ``Recorder._lock`` and deadlock.
-        """
+        """background thread, NOT on the calling (audio callback) thread."""
         ctrl = _make_minimal_controller()
         ran_on: list[threading.Thread] = []
 
         # Use a real TimerCoordinator so 's short-circuit path
-        # actually fires.
         from voice_typer.server.timer_coordinator import TimerCoordinator
 
         coordinator = TimerCoordinator(app=None)
@@ -123,8 +80,7 @@ class TestSilenceAutoStopDispatch:
         assert ran_on[0].daemon, "deferred thread should be daemon=True"
 
     def test_tray_notification_fired_synchronously(self):
-        """The user-facing notification fires on the calling thread
-        (immediate feedback), only the stop sequence is deferred."""
+        """The user-facing notification fires on the calling thread"""
         ctrl = _make_minimal_controller()
         notify_on: list[threading.Thread] = []
 
@@ -143,8 +99,7 @@ class TestSilenceAutoStopDispatch:
 
 
 class TestMaxDurationAutoStopDispatch:
-    """XV-134: ``on_max_duration_auto_stop`` dispatches ``_stop_dictation``
-    on a background thread (mirrors the silence-auto-stop path)."""
+    """XV-134: ``on_max_duration_auto_stop`` dispatches ``_stop_dictation``"""
 
     def test_schedules_stop_dictation_with_zero_delay(self):
         ctrl = _make_minimal_controller()
@@ -193,26 +148,11 @@ class TestMaxDurationAutoStopDispatch:
         assert ran_on[0].daemon
 
 
-# lifecycle lock serializes toggle / start / stop / cancel ─────
-
-
 class TestLifecycleLockSerialization:
-    """GT-22: ``_toggle_lock`` is an RLock acquired at the entry of
-    ``start()``, ``stop()``, AND ``cancel()`` so concurrent lifecycle
-    calls from different threads serialize.
-
-    Pre-fix, ``_toggle_lock`` was a plain ``Lock`` only held inside
-    ``toggle()``. Auto-stop Timer threads called ``self.stop()`` directly
-    (via ``_schedule_timer(0, _stop_dictation)``), bypassing the lock —
-    a near-simultaneous ``toggle()`` + ``stop()`` could both pass the
-    ``not app.recorder.recording`` check before either called
-    ``recorder.stop()``.
-    """
+    """``start()``, ``stop()``, AND ``cancel()`` so concurrent lifecycle"""
 
     def test_toggle_lock_is_an_rlock(self):
-        """The lifecycle lock must be an RLock (re-entrant) so the
-        toggle() -> app._stop_dictation() -> self.stop() path does not
-        self-deadlock when start/stop/cancel acquire the same lock."""
+        """toggle() -> app._stop_dictation() -> self.stop() path does not"""
         from unittest.mock import MagicMock
 
         from voice_typer.server.recording_controller import RecordingController
@@ -225,15 +165,7 @@ class TestLifecycleLockSerialization:
         )
 
     def test_concurrent_stop_calls_serialize_on_toggle_lock(self):
-        """GT-22: two threads calling ``stop()`` concurrently must
-        serialize on ``_toggle_lock``, while one is inside the
-        critical section, the other must block (not enter concurrently).
-
-        We assert serialization directly: the first thread holds the
-        lock inside ``RecordingLifecycle._stop_impl`` (blocked on a
-        release-event), and we verify a second ``stop()`` call cannot
-        proceed until the first releases.
-        """
+        """two threads calling ``stop()`` concurrently must"""
         import threading
         from unittest.mock import MagicMock
 
@@ -258,8 +190,6 @@ class TestLifecycleLockSerialization:
         app.recorder.recording = True  # both stops enter the body
 
         # Inner impl holds the lock until we release it, then signals
-        # completion. With the RLock held by thread A, thread B's
-        # ``with self._toggle_lock:`` in ``stop()`` must block.
         release_event = threading.Event()
         entered_event = threading.Event()
         enter_count = [0]
@@ -269,13 +199,9 @@ class TestLifecycleLockSerialization:
             with enter_lock:
                 enter_count[0] += 1
             entered_event.set()
-            # Block while holding the RLock, a second ``stop()`` on a
-            # different thread CANNOT enter here unless the lock is
-            # mis-implemented (plain Lock with no acquisition, etc.).
             release_event.wait(timeout=2.0)
 
         # Patch the lifecycle's _stop_impl (the real owner after MO-7).
-        # Access ``_lifecycle`` first to trigger lazy construction.
         ctrl._lifecycle._stop_impl = blocking_stop_impl
 
         # First stopper thread: enters _stop_impl, blocks holding lock.
@@ -309,16 +235,7 @@ class TestLifecycleLockSerialization:
         )
 
     def test_reentrant_toggle_to_start_does_not_deadlock(self):
-        """GT-22: ``toggle()`` acquires ``_toggle_lock`` and then calls
-        ``app._start_dictation()`` which delegates to ``self.start()`` —
-        which acquires the same lock. The RLock must permit this
-        re-entrant acquisition without deadlock.
-
-        We construct the controller via its real ``__init__`` so all
-        the lock attributes (``_streaming_session_lock`` etc.) exist,
-        then monkey-patch the app's delegates so the re-entrant call
-        path is exercised end-to-end.
-        """
+        """``toggle()`` acquires ``_toggle_lock`` and then calls"""
         import threading
         from unittest.mock import MagicMock
 
@@ -336,7 +253,6 @@ class TestLifecycleLockSerialization:
         app._cycle_counter = 0
         app._cycle_id = "#test"
         app.models._model_load_thread = None
-        # config attr reads in _start_impl
         app.config.voice_biometric_consent = True
         app.config.streaming_transcription = False
 
@@ -363,14 +279,10 @@ class TestLifecycleLockSerialization:
 
 
 class TestTranscriptionThreadSnapshot:
-    """GT-46: ``_force_recover_from_stuck_transcription`` must snapshot
-    ``self._transcription_thread`` and ``self._watchdog_firings`` under
-    ``_watchdog_lock`` before the read-check-notify block."""
+    """``_force_recover_from_stuck_transcription`` must snapshot"""
 
     def test_force_recover_acquires_watchdog_lock_for_snapshot(self):
-        """The snapshot block in ``_force_recover_from_stuck_transcription``
-        acquires ``_watchdog_lock`` so a concurrent ``stop()`` cannot
-        mutate ``_transcription_thread`` mid-check."""
+        """The snapshot block in ``_force_recover_from_stuck_transcription``"""
         import threading
         from unittest.mock import MagicMock
 
@@ -402,16 +314,10 @@ class TestTranscriptionThreadSnapshot:
                 observed_locked.set()
 
         # Start the observer FIRST so it queues for the lock before
-        # force_recover acquires it for the snapshot. If force_recover
-        # does NOT acquire the lock, the observer gets it immediately
-        # (observed_locked set early, before force_recover returns).
         obs = threading.Thread(target=observer, name="lock-observer")
         obs.start()
         time.sleep(0.05)  # let observer block on the lock
 
-        # Now call force_recover. If it acquires the lock for the
-        # snapshot, the observer stays blocked until the snapshot
-        # completes (and observed_locked stays unset during the call).
         ctrl._force_recover_from_stuck_transcription(force=True)
 
         obs.join(timeout=2.0)
@@ -422,10 +328,7 @@ class TestTranscriptionThreadSnapshot:
         )
 
     def test_force_recover_uses_snapshot_for_alive_check(self):
-        """When ``_transcription_thread`` is a still-alive thread and
-        ``force=False``, ``_force_recover_from_stuck_transcription`` must
-        take the 'worker still alive' branch (TRANSCRIBING tray state)
-        and NOT force-recover (no IDLE tray state)."""
+        """``force=False``, ``_force_recover_from_stuck_transcription`` must"""
         import threading
         from unittest.mock import MagicMock
 
@@ -473,22 +376,11 @@ class TestTranscriptionThreadSnapshot:
             live_thread.join(timeout=1.0)
 
 
-# set_thread_registry holds _buffer_clear_worker_lock ─────────
-
-
 class TestSetThreadRegistryLock:
-    """GT-47: ``set_thread_registry`` must hold ``_buffer_clear_worker_lock``
-    while reading ``_buffer_clear_worker`` and calling ``registry.register``.
-
-    Pre-fix the read happened outside the lock, a concurrent
-    ``_stop_buffer_clear_worker`` could clear the global to ``None``
-    between the read and the register, leaving the central registry
-    with a stale/dead thread reference.
-    """
+    """``set_thread_registry`` must hold ``_buffer_clear_worker_lock``"""
 
     def test_set_thread_registry_skips_register_for_dead_worker(self, monkeypatch):
-        """GT-47: if the worker is None or dead, ``register`` must NOT
-        be called (no stale reference registered)."""
+        """if the worker is None or dead, ``register`` must NOT"""
         import voice_typer.server.recording.buffer as buf_mod
 
         monkeypatch.setattr(buf_mod, "_buffer_clear_worker", None)
@@ -504,24 +396,11 @@ class TestSetThreadRegistryLock:
         assert register_calls == [], "GT-47: register must not be called when worker is None"
 
 
-# timer callback during shutdown is suppressed ───────────────
-
-
 class TestTimerShutdownSuppression:
-    """GT-72: a scheduled timer whose ``guarded_func`` has already
-    passed the unlocked generation check must re-check the generation
-    UNDER ``_pending_timers_lock`` and consult
-    ``app._shutting_down_event`` before calling ``func()``.
-
-    Without the re-check, a callback that races with
-    ``_cancel_pending_timers`` (or the start of shutdown) would still
-    fire into app state being torn down.
-    """
+    """a scheduled timer whose ``guarded_func`` has already"""
 
     def test_callback_suppressed_when_shutdown_event_set(self):
-        """If ``app._shutting_down_event`` is set when the timer fires,
-        the user callback must NOT run, even if the generation matches
-        (no cancel has happened)."""
+        """If ``app._shutting_down_event`` is set when the timer fires,"""
         import threading
 
         from voice_typer.server.timer_coordinator import TimerCoordinator
@@ -561,12 +440,7 @@ class TestTimerShutdownSuppression:
         assert fired.wait(timeout=1.0), "GT-72: callback must fire normally when not shutting down"
 
     def test_callback_suppressed_after_cancel_via_locked_recheck(self):
-        """GT-72 TOCTOU: extract ``guarded_func`` from a scheduled
-        timer (via the Timer's ``function`` attribute, which is set in
-        ``threading.Timer.__init__`` and not cleared by ``cancel()``),
-        bump the generation via ``_cancel_pending_timers``, then invoke
-        ``guarded_func`` directly. The captured gen no longer matches
-        the current gen -> the callback is suppressed."""
+        """TOCTOU: extract ``guarded_func`` from a scheduled"""
         import threading
 
         from voice_typer.server.timer_coordinator import TimerCoordinator
@@ -581,7 +455,6 @@ class TestTimerShutdownSuppression:
         fired = threading.Event()
         timer = coord._schedule_timer(10.0, fired.set)  # won't fire naturally
 
-        # threading.Timer stores its target as ``function``.
         guarded = getattr(timer, "function", None)
         assert guarded is not None, "could not extract guarded_func from Timer"
 
@@ -591,6 +464,5 @@ class TestTimerShutdownSuppression:
         coord._cancel_pending_timers()
 
         # Now invoke guarded_func directly. The captured gen no longer
-        # matches the current gen -> suppressed.
         guarded()
         assert not fired.is_set(), "GT-72: callback with stale captured gen must be suppressed"

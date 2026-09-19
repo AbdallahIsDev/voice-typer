@@ -1,16 +1,4 @@
-"""Tests for the module-level TTL cache in
-``voice_typer.server.server_platform.microphone_list``.
-
-Covers the fix where ``list_microphones()`` previously invoked
-``sd.query_devices(kind="input")``, ``sd.query_hostapis()``, and
-``sd.query_devices()`` on every call. A 5 s TTL cache was added so a
-device-restart sequence (``find_microphone_by_name`` →
-``find_microphone_by_id`` → ``list_microphones``) doesn't re-query
-PortAudio 2-3 times in 50-200 ms each. The cache is invalidated
-immediately by ``invalidate_microphone_list_cache`` (called from
-``MicrophoneDeviceWatcher._invoke_callback`` on OS device-change
-events).
-"""
+"""``voice_typer.server.server_platform.microphone_list``."""
 
 from __future__ import annotations
 
@@ -23,8 +11,7 @@ import pytest
 
 @pytest.fixture(autouse=True)
 def _reset_cache_between_tests(monkeypatch):
-    """Reset the module-level cache before AND after each test so the
-    cache state set by one test doesn't leak into another."""
+    """Reset the module-level cache before AND after each test so the"""
     from voice_typer.server.server_platform import microphone_list as _ml
 
     _ml.invalidate_microphone_list_cache()
@@ -33,12 +20,7 @@ def _reset_cache_between_tests(monkeypatch):
 
 
 def _install_fake_sounddevice(monkeypatch, devices, hostapis=None, default_input=None):
-    """Install a fake ``sounddevice`` module into ``sys.modules`` that
-    returns the supplied device list / host-api list / default input.
-
-    Returns the fake module so the test can inspect ``query_devices``
-    call counts via ``fake_sd.query_devices.call_count``.
-    """
+    """returns the supplied device list / host-api list / default input."""
     if hostapis is None:
         hostapis = [{"name": "ALSA"}, {"name": "MME"}]
     if default_input is None:
@@ -55,9 +37,7 @@ def _install_fake_sounddevice(monkeypatch, devices, hostapis=None, default_input
 
 class TestListMicrophonesCache:
     def test_second_call_within_ttl_hits_cache(self, monkeypatch):
-        """Two consecutive ``list_microphones()`` calls within the TTL
-          window must invoke the underlying PortAudio query exactly once
-        , the second call is served from the cache."""
+        """Two consecutive ``list_microphones()`` calls within the TTL"""
         from voice_typer.server.server_platform import microphone_list as _ml
 
         devices = [
@@ -78,7 +58,6 @@ class TestListMicrophonesCache:
         first_call_count = fake_sd.query_devices.call_count
 
         # Second call within TTL, must be served from cache (no new
-        # PortAudio calls).
         result2 = _ml.list_microphones()
         assert fake_sd.query_devices.call_count == first_call_count, (
             "second list_microphones() call within TTL must NOT re-query PortAudio"
@@ -87,9 +66,7 @@ class TestListMicrophonesCache:
         assert result2 == result1
 
     def test_invalidate_forces_fresh_query(self, monkeypatch):
-        """``invalidate_microphone_list_cache()`` must force the next
-        ``list_microphones()`` to re-query PortAudio even if the TTL
-        has not expired."""
+        """``invalidate_microphone_list_cache()`` must force the next"""
         from voice_typer.server.server_platform import microphone_list as _ml
 
         devices = [
@@ -113,11 +90,7 @@ class TestListMicrophonesCache:
         )
 
     def test_sounddevice_module_swap_invalidates_cache(self, monkeypatch):
-        """When ``sys.modules['sounddevice']`` is swapped for a
-        different module object (e.g. a test patches it to a
-        MagicMock that raises), the cache must treat the entry as
-        stale and re-query. This protects the existing
-        ``test_returns_empty_on_failure`` test pattern."""
+        """stale and re-query. This protects the existing"""
         from voice_typer.server.server_platform import microphone_list as _ml
 
         devices = [
@@ -146,8 +119,7 @@ class TestListMicrophonesCache:
         )
 
     def test_cache_returns_shallow_copy_not_internal_list(self, monkeypatch):
-        """The cached list returned to callers must be a fresh shallow
-        copy, mutating the outer list must not corrupt the cache."""
+        """The cached list returned to callers must be a fresh shallow"""
         from voice_typer.server.server_platform import microphone_list as _ml
 
         devices = [
@@ -170,8 +142,7 @@ class TestListMicrophonesCache:
         )
 
     def test_ttl_expiry_forces_fresh_query(self, monkeypatch):
-        """After the TTL window elapses, the next call must re-query
-        PortAudio even without an explicit invalidate call."""
+        """After the TTL window elapses, the next call must re-query"""
         from voice_typer.server.server_platform import microphone_list as _ml
 
         devices = [
@@ -203,11 +174,7 @@ class TestListMicrophonesCache:
 
 class TestInvalidateExported:
     def test_invalidate_is_re_exported_from_package(self):
-        """``invalidate_microphone_list_cache`` must be importable from
-        ``voice_typer.server.server_platform`` (the package re-exports
-        it from ``.microphone_list``) so callers (notably
-        ``microphone_watcher._invoke_callback``) can reach it without
-        importing the submodule directly."""
+        """``voice_typer.server.server_platform`` (the package re-exports"""
         from voice_typer.server import server_platform as sp
 
         assert hasattr(sp, "invalidate_microphone_list_cache")

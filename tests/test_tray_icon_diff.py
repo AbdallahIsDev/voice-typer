@@ -1,30 +1,4 @@
-"""DJ-36: ``_apply_state`` skips the ``_make_icon`` redraw when state
-is unchanged.
-
-Context: the 1s elapsed-recording tick (UX-11) calls
-``_on_elapsed_tick`` → ``_apply_state(state, message)``. Pre-DJ-36 this
-re-malloc'd a fresh PIL image + pystray icon handle every second via
-``_make_icon(state)`` even though the icon depends only on ``state``
-(not on ``message`` / elapsed time). On Windows the rapid
-``DestroyIcon`` / ``CreateIcon`` cycle also tickled a stale-handle bug
-(CR-16 / GT-E1-8, pystray WinError 1402).
-
-DJ-36 fix: cache the last-applied STATE on ``self._last_applied_state``
-and skip the ``self._icon.icon = _make_icon(state)`` assignment when
-``state == self._last_applied_state``. The tooltip
-(``self._icon.title``) is still updated unconditionally so the elapsed
-``mm:ss`` stays live.
-
-These tests pin the contract:
-
-1. First ``_apply_state`` for a given state invokes ``_make_icon``.
-2. Subsequent ``_apply_state`` calls with the SAME state do NOT invoke
-   ``_make_icon`` (cache hit), even when the message changes.
-3. ``_apply_state`` with a DIFFERENT state invokes ``_make_icon`` again.
-4. The tooltip (``self._icon.title``) is updated even when
-   ``_make_icon`` is skipped (so elapsed ``mm:ss`` stays live).
-5. ``stop()`` clears the cache so a restarted tray redraws.
-"""
+"""DJ-36: ``_apply_state`` skips the ``_make_icon`` redraw when state"""
 
 from __future__ import annotations
 
@@ -93,7 +67,6 @@ def _make_tray(monkeypatch) -> TrayIcon:
     monkeypatch.setattr(tray_menu_mod, "pystray", mock_pystray)
 
     # Stub _make_icon so we can count calls; returns a fresh MagicMock
-    # each call so we can also assert the icon attribute changes.
     make_icon_calls: list[AppState] = []
     monkeypatch.setattr(
         tray_mod,
@@ -116,7 +89,6 @@ def _make_tray(monkeypatch) -> TrayIcon:
     # Stash the call log on the tray for the test to read.
     tray._test_make_icon_calls = make_icon_calls  # type: ignore[attr-defined]
     # Disable the elapsed-timer side-effects, we're testing _apply_state
-    # in isolation, not the recording-tick path.
     monkeypatch.setattr(tray, "_start_elapsed_timer", lambda: None)
     monkeypatch.setattr(tray, "_cancel_elapsed_timer", lambda: None)
     return tray
@@ -126,8 +98,7 @@ class TestApplyStateIconDiff:
     """DJ-36: ``_make_icon`` is NOT called when state is unchanged."""
 
     def test_first_apply_invokes_make_icon(self, monkeypatch):
-        """The first ``_apply_state`` for a given state invokes
-        ``_make_icon`` (cache miss: ``_last_applied_state`` is None)."""
+        """The first ``_apply_state`` for a given state invokes"""
         tray = _make_tray(monkeypatch)
         tray.start(bg_work=None)
         tray.run()
@@ -139,8 +110,7 @@ class TestApplyStateIconDiff:
         assert calls[0] == AppState.IDLE
 
     def test_same_state_skips_make_icon(self, monkeypatch):
-        """Subsequent ``_apply_state`` with the SAME state does NOT
-        invoke ``_make_icon``, the icon PNG depends only on state."""
+        """Subsequent ``_apply_state`` with the SAME state does NOT"""
         tray = _make_tray(monkeypatch)
         tray.start(bg_work=None)
         tray.run()
@@ -179,9 +149,7 @@ class TestApplyStateIconDiff:
         assert calls[2] == AppState.IDLE
 
     def test_tooltip_updated_even_when_icon_skipped(self, monkeypatch):
-        """The tooltip (``self._icon.title``) is updated even when
-        ``_make_icon`` is skipped, so the elapsed ``mm:ss`` stays live
-        during the 1s recording tick."""
+        """The tooltip (``self._icon.title``) is updated even when"""
         tray = _make_tray(monkeypatch)
         tray.start(bg_work=None)
         tray.run()
@@ -200,8 +168,7 @@ class TestApplyStateIconDiff:
         assert second_title != first_title, "Tooltip should differ across calls"
 
     def test_stop_clears_cache_so_next_apply_redraws(self, monkeypatch):
-        """``stop()`` resets ``_last_applied_state`` so a restarted tray
-        redraws the icon on the first ``_apply_state`` (no stale cache)."""
+        """``stop()`` resets ``_last_applied_state`` so a restarted tray"""
         tray = _make_tray(monkeypatch)
         tray.start(bg_work=None)
         tray.run()

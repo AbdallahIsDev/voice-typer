@@ -1,13 +1,4 @@
-"""Tests for PROD-006 / SEC-audit-005: Model integrity verification.
-
-These tests cover two concerns:
-1. Structural checks (missing dir, empty dir, no config, empty model file) —
-   the original PROD-006 suite.
-2. SEC-audit-005 manifest enforcement, every HuggingFace repo must have a
-   pinned 40-char commit SHA (NOT the mutable 'main' branch) and at least
-   config.json pinned in the files dict, so verify_model_integrity() actually
-   enforces file-level integrity rather than silently soft-passing.
-"""
+"""Tests for PROD-006 / SEC-audit-005: Model integrity verification."""
 
 import hashlib
 import re
@@ -15,7 +6,6 @@ import tempfile
 from pathlib import Path
 
 # A HuggingFace commit SHA is a 40-char lowercase hex string (Git SHA-1).
-# We accept exactly this format and reject 'main' / 'master' / branch names.
 _COMMIT_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 # A SHA-256 hex digest is 64 chars lowercase hex.
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -72,20 +62,8 @@ def test_verify_model_integrity_empty_model_file(isolated_integrity_cache):
         assert _ok(_verify_model_integrity("test/model", tmp)) is False
 
 
-# ── SEC-audit-005: Manifest enforcement regression tests ──────────────────
-
-
 def test_model_hashes_revisions_are_pinned_commit_shas():
-    """SEC-audit-005: Every HuggingFace repo entry in model_hashes.json must
-    have a 40-char hex commit SHA as 'revision', NOT 'main' or any other
-    mutable branch reference.
-
-    A mutable-branch revision defeats the supply-chain protection entirely:
-    a compromised HuggingFace repo could push a malicious new commit to
-    'main', and Voice Typer would silently download and load it. Pinning to
-    an immutable commit SHA guarantees the downloaded model files are
-    bit-identical to the audited version.
-    """
+    """SEC-audit-005: Every HuggingFace repo entry in model_hashes.json must"""
     from voice_typer.server.security import MODEL_HASHES
 
     assert MODEL_HASHES, "MODEL_HASHES is empty, manifest failed to load"
@@ -103,17 +81,7 @@ def test_model_hashes_revisions_are_pinned_commit_shas():
 
 
 def test_model_hashes_have_pinned_config_json():
-    """SEC-audit-005: Every HuggingFace repo entry must pin config.json in
-    the 'files' dict with a valid SHA-256 digest.
-
-    config.json controls model architecture (encoder/decoder dimensions,
-    layer count, vocabulary size). Tampering with config.json can change
-    model behavior in subtle ways (e.g. reducing layer count to weaken
-    transcription quality, or altering output projection to inject adversarial
-    tokens). The pinned revision SHA alone doesn't verify post-download file
-    integrity, the files dict is the belt-and-suspenders check that catches
-    local filesystem tampering or a corrupted download.
-    """
+    """the 'files' dict with a valid SHA-256 digest."""
     from voice_typer.server.security import MODEL_HASHES
 
     for repo_id, entry in MODEL_HASHES.items():
@@ -135,16 +103,7 @@ def test_model_hashes_have_pinned_config_json():
 
 
 def test_model_hashes_fallback_matches_json(monkeypatch):
-    """The hardcoded fallback in security._load_model_hashes() must stay in
-    sync with model_hashes.json.
-
-    The fallback only runs when the JSON file is missing or unreadable
-    (e.g. broken install, isolated test env). If the fallback regresses to
-    'main' while the JSON has pinned SHAs, a broken-install scenario would
-    silently downgrade to the insecure state. This test forces the fallback
-    path and verifies every HuggingFace repo has the same revision + files
-    as the JSON-loaded manifest.
-    """
+    """sync with model_hashes.json."""
     from voice_typer.server import security
 
     # Snapshot the JSON-loaded manifest (normal path).
@@ -181,13 +140,7 @@ def test_model_hashes_fallback_matches_json(monkeypatch):
 
 
 def test_verify_model_integrity_hard_fails_on_hash_mismatch(monkeypatch, tmp_path, isolated_integrity_cache):
-    """SEC-audit-005: verify_model_integrity() must return False when a pinned
-    file's SHA-256 doesn't match, preventing a tampered model from loading.
-
-    Before the fix, an empty 'files' dict caused verify_model_integrity() to
-    soft-pass (return True) with only a WARNING log. Now that 'files' is
-    populated, a mismatch must hard-fail.
-    """
+    """SEC-audit-005: verify_model_integrity() must return False when a pinned"""
     from voice_typer.server import security
 
     fake_manifest = {
@@ -201,8 +154,6 @@ def test_verify_model_integrity_hard_fails_on_hash_mismatch(monkeypatch, tmp_pat
     }
     monkeypatch.setattr(security, "MODEL_HASHES", fake_manifest)
 
-    # Create a model dir with a model file + config.json (with content that
-    # obviously doesn't hash to all-zeros).
     (tmp_path / "model.safetensors").write_bytes(b"\x00" * 100)
     (tmp_path / "config.json").write_text('{"model_type": "tampered"}')
 
@@ -215,8 +166,7 @@ def test_verify_model_integrity_hard_fails_on_hash_mismatch(monkeypatch, tmp_pat
 
 
 def test_verify_model_integrity_passes_when_all_hashes_match(monkeypatch, tmp_path, isolated_integrity_cache):
-    """SEC-audit-005: verify_model_integrity() returns True when all pinned
-    file hashes match, verifying the happy path of hash enforcement."""
+    """SEC-audit-005: verify_model_integrity() returns True when all pinned"""
     from voice_typer.server import security
 
     config_content = b'{"model_type": "verified"}'
@@ -240,8 +190,7 @@ def test_verify_model_integrity_passes_when_all_hashes_match(monkeypatch, tmp_pa
 
 
 def test_verify_model_integrity_fails_when_pinned_file_missing(monkeypatch, tmp_path, isolated_integrity_cache):
-    """SEC-audit-005: verify_model_integrity() returns False when a pinned
-    file is missing from the model directory."""
+    """SEC-audit-005: verify_model_integrity() returns False when a pinned"""
     from voice_typer.server import security
 
     fake_manifest = {
@@ -265,10 +214,7 @@ def test_verify_model_integrity_fails_when_pinned_file_missing(monkeypatch, tmp_
 
 
 def test_allow_patterns_parakeet_omits_bin():
-    """SEC-audit-005 / G4-M-39: the Parakeet allowlist must NOT include
-    ``*.bin``, the pickle-serialised format is a remote-code-execution
-    vector and Parakeet ships ``model.safetensors`` only.
-    """
+    """SEC-audit-005 / G4-M-39: the Parakeet allowlist must NOT include"""
     from voice_typer.server._model_integrity import ALLOW_PATTERNS_PARAKEET
 
     assert "*.safetensors" in ALLOW_PATTERNS_PARAKEET
@@ -280,10 +226,7 @@ def test_allow_patterns_parakeet_omits_bin():
 
 
 def test_allow_patterns_whisper_includes_bin():
-    """SEC-audit-005 / G4-M-39: the Whisper allowlist keeps ``*.bin``
-    because CTranslate2 (``faster_whisper``) consumes ``model.bin``
-    natively and never via ``torch.load`` (the pickle-vector path).
-    """
+    """SEC-audit-005 / G4-M-39: the Whisper allowlist keeps ``*.bin``"""
     from voice_typer.server._model_integrity import ALLOW_PATTERNS_WHISPER
 
     assert "*.bin" in ALLOW_PATTERNS_WHISPER
@@ -291,13 +234,7 @@ def test_allow_patterns_whisper_includes_bin():
 
 
 def test_allow_patterns_backward_compat_alias_removed():
-    """GT-E1-3: the bare ``ALLOW_PATTERNS`` backward-compat alias was
-    removed because no production caller imports it (all callers use
-    the backend-specific ``ALLOW_PATTERNS_PARAKEET`` / ``ALLOW_PATTERNS_WHISPER``
-    explicitly). If a future contributor re-introduces the alias, this
-    test fails so they are forced to either delete it again or wire a
-    real caller.
-    """
+    """GT-E1-3: the bare ``ALLOW_PATTERNS`` backward-compat alias was"""
     import voice_typer.server._model_integrity as mi
 
     assert not hasattr(mi, "ALLOW_PATTERNS"), (
@@ -309,20 +246,7 @@ def test_allow_patterns_backward_compat_alias_removed():
 
 
 def test_pinned_files_are_fetchable_by_allow_patterns():
-    """Every file pinned in the integrity manifest must match its
-    backend family's download allow-patterns.
-
-    The download, the completeness probe, and the integrity check must
-    agree on the file set: downloads fetch ONLY allow-pattern files,
-    the probe verifies ONLY allow-pattern files, but
-    ``verify_model_integrity`` hard-fails on ANY missing pinned file.
-    A pinned-but-unfetchable file makes the model permanently
-    unloadable — downloads "complete", status shows downloaded, yet
-    every load refuses (observed 2026-09-16: faster-whisper
-    ``vocabulary.json`` / ``vocabulary.txt`` pinned for turbo/tiny
-    but absent from ``ALLOW_PATTERNS_WHISPER``, so no download could
-    ever pass verification).
-    """
+    """Every file pinned in the integrity manifest must match its"""
     import fnmatch
 
     from voice_typer.server._model_integrity import (
@@ -335,8 +259,6 @@ def test_pinned_files_are_fetchable_by_allow_patterns():
     def patterns_for(repo_id: str) -> list[str]:
         if "parakeet" in repo_id:
             # Both parakeet download paths: the legacy safetensors
-            # repo (nvidia, existing caches) and the current ONNX
-            # export (grikdotnet, fresh downloads).
             return list(ALLOW_PATTERNS_PARAKEET) + list(ALLOW_PATTERNS_PARAKEET_ONNX)
         return list(ALLOW_PATTERNS_WHISPER)
 

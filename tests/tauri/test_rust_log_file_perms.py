@@ -1,44 +1,4 @@
-"""Regression guard: Rust log file permissions on POSIX.
-
-The Rust host's rotating file logger in
-``src-tauri/src/platform/logging/`` (split into per-concern submodules:
-``rotating.rs`` holds ``RotatingFileWriter``, ``init.rs`` holds
-``init_file_logger``) must create log files with mode
-``0o600`` (owner rw only) on POSIX systems, and the parent
-``<config_dir>/logs/`` directory must be ``0o700``. Previously the log
-file inherited the process umask (typically 0o022), producing ``0o644``
-— readable by group + others. The dictation log may contain raw
-transcription text + PII (XZ-LOG-02), so it must be owner-only.
-
-This test has two layers:
-
-1. **Source-parsing layer (always runs, no cargo required):** verifies
-   that ``platform/logging/rotating.rs`` contains the
-   ``OpenOptionsExt::mode(0o600)``
-   call in ``RotatingFileWriter::write_line_level``, the belt-and-suspenders
-   ``set_permissions(..., 0o600)`` call after rotation, and that
-   ``platform/logging/init.rs`` contains the
-   ``set_permissions(..., 0o700)`` call on the ``logs/`` dir in
-   ``init_file_logger``. This is a fast regression guard that catches a
-   future refactor that accidentally drops the chmod calls.
-
-2. **Runtime layer (runs only when cargo + GTK/WebKit dev libs are
-   available):** invokes ``cargo test --manifest-path src-tauri/Cargo.toml``
-   with the specific Rust unit test name
-   ``test_rotating_file_writer_log_file_mode_is_0o600_on_posix`` and
-   asserts the test passes. This is the authoritative check on POSIX
-   hosts. On Windows + macOS the source-parsing layer is the only guard
-   (cargo is invoked but the test is ``#[cfg(unix)]``-gated, so it
-   no-ops on Windows). When cargo or the system libs are missing, the
-   runtime layer is skipped (not failed), the source-parsing layer
-   still runs.
-
-The two-layer design mirrors the pattern in
-``tests/test_security_doc_command_count.py`` (source-parsing parity
-test) and the runtime Rust unit tests in
-``src-tauri/src/platform/logging_tests.rs`` (the sibling test module
-of the ``platform::logging`` submodules).
-"""
+"""Regression guard: Rust log file permissions on POSIX."""
 
 from __future__ import annotations
 
@@ -54,18 +14,12 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 # The logging module is split into ``platform/logging/`` submodules;
-# the POSIX-permission call sites live in exactly two of them:
-# ``rotating.rs`` (file 0o600) and ``init.rs`` (logs-dir 0o700).
 LOGGING_DIR = REPO_ROOT / "src-tauri" / "src" / "platform" / "logging"
 LOGGING_ROTATING_RS = LOGGING_DIR / "rotating.rs"
 LOGGING_INIT_RS = LOGGING_DIR / "init.rs"
 SIDECAR_CARGO_TOML = REPO_ROOT / "src-tauri" / "Cargo.toml"
 
 # Target triples tauri.conf.json's externalBin / bundle.resources entries
-# cover (mirrors the "Create dummy sidecar + resource placeholders" step
-# in the Tauri Linux smoke workflow, outside a full bundle build the
-# tauri-build build script still validates those paths and hard-fails
-# cargo without them).
 _TAURI_TRIPLES = (
     "x86_64-pc-windows-msvc",
     "aarch64-pc-windows-msvc",
@@ -78,11 +32,7 @@ _SIDECAR_NAMES = ("python-sidecar", "voice-typer-worker")
 
 
 def _create_cargo_build_placeholders() -> list[Path]:
-    """Create the dummy sidecar + resource placeholders the tauri-build
-    build script requires to run ``cargo test`` outside a full bundle
-    build. Only creates files that do NOT already exist (never clobbers
-    real build artifacts). Returns the created paths for cleanup.
-    """
+    """Create the dummy sidecar + resource placeholders the tauri-build"""
     src_tauri = SIDECAR_CARGO_TOML.parent
     created: list[Path] = []
 
@@ -103,9 +53,6 @@ def _create_cargo_build_placeholders() -> list[Path]:
         "resources/native/linux-key-listener",
     ):
         _stub(listener)
-    # frontendDist: tauri-build's build script validates that the
-    # configured frontend dist directory exists. CI pytest checkouts
-    # don't build the client, so stub it with a minimal index.html.
     renderer_dir = REPO_ROOT / "voice_typer" / "client" / "out" / "renderer"
     if not renderer_dir.exists():
         renderer_dir.mkdir(parents=True, exist_ok=True)
@@ -133,15 +80,8 @@ def _cleanup_cargo_build_placeholders(created: list[Path]) -> None:
             d.parent.rmdir()
 
 
-# ─── Layer 1: source-parsing regression guard ──────────────────────────
-
-
 def _rotating_rs_source() -> str:
-    """Return the full source of ``platform/logging/rotating.rs``.
-
-    Asserts the file exists, a missing file is a hard error (the test
-    infrastructure is broken, not the security posture).
-    """
+    """Return the full source of ``platform/logging/rotating.rs``."""
     assert LOGGING_ROTATING_RS.is_file(), (
         f"{LOGGING_ROTATING_RS} not found, the Rust host's "
         f"rotating file writer source has moved or been deleted. Update "
@@ -151,11 +91,7 @@ def _rotating_rs_source() -> str:
 
 
 def _init_rs_source() -> str:
-    """Return the full source of ``platform/logging/init.rs``.
-
-    Asserts the file exists, a missing file is a hard error (the test
-    infrastructure is broken, not the security posture).
-    """
+    """Return the full source of ``platform/logging/init.rs``."""
     assert LOGGING_INIT_RS.is_file(), (
         f"{LOGGING_INIT_RS} not found, the Rust host's "
         f"logger-init source has moved or been deleted. Update "
@@ -165,17 +101,7 @@ def _init_rs_source() -> str:
 
 
 def test_pi7_openoptions_mode_0o600_present_in_write_line_level() -> None:
-    """``mode(0o600)`` must be present in the file's file-open path.
-
-    This is the primary defense: a freshly-created log file gets mode
-    ``0o600`` regardless of the process umask. Pre-hardening the call was
-    absent and the file inherited umask (typically 0o644).
-
-    FR-44 moved the file-open logic from ``write_line`` (the historical
-    name, since folded into ``write_line_level``) into a dedicated
-    writer thread helper; the 0o600 mode is still set there. Search the
-    whole file rather than just the write function.
-    """
+    """``mode(0o600)`` must be present in the file's file-open path."""
     src = _rotating_rs_source()
     assert re.search(r"\.mode\(0o600\)", src), (
         "`OpenOptionsExt::mode(0o600)` call missing "
@@ -185,19 +111,9 @@ def test_pi7_openoptions_mode_0o600_present_in_write_line_level() -> None:
 
 
 def test_pi7_chmod_0o600_belt_and_suspenders_in_write_line_level() -> None:
-    """The rotating writer must chmod the log file to ``0o600`` (belt-and-suspenders).
-
-    ``OpenOptionsExt::mode(0o600)`` only applies to NEW files, a leftover
-    0o644 log file from a pre-hardening build would stay world-readable
-    otherwise. The ``set_permissions(..., 0o600)`` call re-asserts the
-    mode on open so pre-existing files are hardened. FR-44 moved the
-    file-open logic onto a dedicated writer thread; the re-assert lives
-    there now.
-    """
+    """The rotating writer must chmod the log file to ``0o600`` (belt-and-suspenders)."""
     src = _rotating_rs_source()
     # The belt-and-suspenders `set_permissions(..., 0o600)` call must be
-    # present somewhere in the rotating writer (it re-asserts 0o600 for
-    # log files left behind by a pre-hardening build).
     chmod_calls = re.findall(
         r"set_permissions\([^,]+,\s*std::fs::Permissions::from_mode\(0o600\)",
         src,
@@ -211,14 +127,7 @@ def test_pi7_chmod_0o600_belt_and_suspenders_in_write_line_level() -> None:
 
 
 def test_pi7_chmod_0o700_on_logs_dir_in_init_file_logger() -> None:
-    """``init_file_logger`` must chmod the ``<config_dir>/logs/`` dir to ``0o700``.
-
-    Mirrors the Python side's ``os.chmod(config_dir, 0o700)`` at
-    ``voice_typer/server/log.py:891-893``. Without this, the dir is
-    world-traversable on POSIX, a non-owner user could ``ls`` the
-    directory to enumerate log file names (which include timestamps
-    + rotation counters, a metadata leak).
-    """
+    """``init_file_logger`` must chmod the ``<config_dir>/logs/`` dir to ``0o700``."""
     src = _init_rs_source()
     # Slice the init_file_logger function body.
     m = re.search(r"fn init_file_logger\([^)]*\)[^{]*\{", src)
@@ -246,28 +155,15 @@ def test_pi7_chmod_0o700_on_logs_dir_in_init_file_logger() -> None:
 
 
 def test_pi7_unix_cfg_gates_present() -> None:
-    """All ``mode(...)`` + ``set_permissions(... 0o6XX)`` calls must be ``#[cfg(unix)]``-gated.
-
-    ``OpenOptionsExt::mode`` and ``PermissionsExt::from_mode`` are
-    POSIX-only APIs, calling them unconditionally would break the
-    Windows build. This test counts the ``#[cfg(unix)]`` blocks vs the
-    chmod/mode call sites and asserts they match.
-    """
-    # Scan every submodule that carries POSIX-only call sites, the
-    # mode/chmod calls live in rotating.rs (file perms) + init.rs
-    # (logs-dir perms) after the logging module split.
+    """All ``mode(...)`` + ``set_permissions(... 0o6XX)`` calls must be ``#[cfg(unix)]``-gated."""
     src = _rotating_rs_source() + "\n" + _init_rs_source()
     # Count `#[cfg(unix)]` attribute lines (allow indented forms).
     cfg_unix_count = len(re.findall(r"#\[cfg\(unix\)\]", src))
     # Count the actual POSIX-only call sites: `.mode(0o600)`,
-    # `Permissions::from_mode(0o600)`, `Permissions::from_mode(0o700)`.
     mode_calls = len(re.findall(r"\.mode\(0o[67]00\)", src))
     perm_calls = len(re.findall(r"Permissions::from_mode\(0o[67]00\)", src))
     total_calls = mode_calls + perm_calls
     # Each call site must be gated by a `#[cfg(unix)]`. The `from_mode`
-    # calls inside the tests module (which have their own
-    # `#[cfg(unix)]` on the test fn) are also counted here, that's
-    # fine, the test fns are themselves gated.
     assert cfg_unix_count >= total_calls, (
         f"found {total_calls} POSIX-only mode/perm "
         f"call sites but only {cfg_unix_count} `#[cfg(unix)]` gates. "
@@ -275,9 +171,6 @@ def test_pi7_unix_cfg_gates_present() -> None:
         f"call must be inside a `#[cfg(unix)]` block to keep the "
         f"Windows build compiling."
     )
-
-
-# ─── Layer 2: runtime cargo test (POSIX-only, optional) ────────────────
 
 
 def _cargo_available() -> bool:
@@ -305,34 +198,15 @@ def _cargo_available() -> bool:
     reason="cargo not available, source-parsing layer (above) is the only guard",
 )
 def test_pi7_rust_unit_test_log_file_mode_0o600_passes() -> None:
-    """Run the Rust unit test ``test_rotating_file_writer_log_file_mode_is_0o600_on_posix``.
-
-    This is the authoritative check on POSIX: actually create a
-    ``RotatingFileWriter``, write a line, and assert the resulting log
-    file mode is ``0o600``. Skipped if cargo is not installed or the
-    GTK/WebKit dev libs aren't available (the Tauri crate fails to
-    compile without them, out of scope for this test).
-    """
+    """Run the Rust unit test ``test_rotating_file_writer_log_file_mode_is_0o600_on_posix``."""
     cargo = shutil.which("cargo")
     assert cargo is not None  # belt-and-suspenders (skipif above)
 
-    # tauri-build's build script validates the externalBin / bundle
-    # resource paths from tauri.conf.json even for `cargo test`, on a
-    # CI checkout without a prior bundle step those files don't exist
-    # and the build fails before any Rust test runs (observed on the
-    # macos-14 leg). Create the same placeholders the Tauri Linux smoke
-    # workflow creates, and clean them up afterwards.
     placeholders = _create_cargo_build_placeholders()
 
     # Use a per-test temp target dir so we don't collide with other
-    # cargo invocations (and so we don't write into the project's
-    # target/ dir, which the user may have a clean state for).
     env = os.environ.copy()
     # PKG_CONFIG_PATH is needed on Linux so the tauri crate's build
-    # script can find gtk+-3.0 / webkit2gtk-4.1. If unset, cargo
-    # will fail at the gdk-sys build step, we treat that as a skip.
-    # (The user can set PKG_CONFIG_PATH in their shell to enable this
-    # test; otherwise the source-parsing layer is the only guard.)
 
     try:
         try:
@@ -342,11 +216,7 @@ def test_pi7_rust_unit_test_log_file_mode_0o600_passes() -> None:
                     "test",
                     "--manifest-path",
                     str(SIDECAR_CARGO_TOML),
-                    # The crate is a bin-only package (no src/lib.rs), so
-                    # ``--lib`` fails with "no library targets found" even
-                    # when the test passes. Target the bin's unit tests
                     # explicitly (C-TEST-5: Rust tests live in logging_tests.rs
-                    # wired via #[cfg(test)] mod tests;).
                     "--bin",
                     "voice-typer-tauri",
                     "--quiet",
@@ -372,9 +242,6 @@ def test_pi7_rust_unit_test_log_file_mode_0o600_passes() -> None:
 
         if result.returncode != 0:
             # Distinguish "cargo failed to compile (system libs missing)"
-            # and "the tauri-build build script rejected this checkout"
-            # from "the test itself failed". Environment failures are a
-            # skip; a test failure is a hard error.
             stderr = result.stderr.decode("utf-8", errors="replace")
             if "pkg-config" in stderr or "gdk-3.0" in stderr or "webkit2gtk" in stderr:
                 pytest.skip(
@@ -384,14 +251,6 @@ def test_pi7_rust_unit_test_log_file_mode_0o600_passes() -> None:
                     f"excerpt: {stderr[:200]}"
                 )
             if "failed to run custom build command" in stderr:
-                # tauri-build's build script rejected the checkout (its
-                # own error text is in the "--- stderr" section cargo
-                # only prints on failure). This is an environment gap in
-                # the CI pytest leg (no client build, no bundler
-                # placeholders beyond what this test stubs), NOT a
-                # permissions regression. Skip with the full output so
-                # the gap is diagnosable; the source-parsing layer
-                # (above) still guards the mode(0o600) calls.
                 pytest.skip(
                     "cargo test failed in the tauri-build build script "
                     "(checkout environment, not the perms contract). "

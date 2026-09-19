@@ -1,19 +1,4 @@
-"""Health-checker query-efficiency tests.
-
-Covers two behaviour changes in
-``voice_typer/server/recording/device_manager.py``:
-
-1. **BT classification uses the device-list cache** (and the previous
-   cycle's stashed default-input probe) instead of always live-querying
-   PortAudio.
-
-2. **One PortAudio RPC per health cycle on the System Default path**:
-   the default-change probe result is stashed so the next cycle's BT
-   classification reuses it, instead of issuing two identical
-   ``sd.query_devices(kind="input")`` calls per iteration.
-
-All ``sounddevice`` calls are mocked so the tests run on any platform.
-"""
+"""Health-checker query-efficiency tests."""
 
 from __future__ import annotations
 
@@ -29,7 +14,6 @@ def _mock_sounddevice(monkeypatch):
     mock_sd = MagicMock()
     mock_sd.query_devices.return_value = []
     monkeypatch.setitem(sys.modules, "sounddevice", mock_sd)
-    # device_manager holds a lazy proxy; ensure it resolves to the mock.
     import voice_typer.server.recording.device_manager as dm_mod
 
     monkeypatch.setattr(dm_mod, "sd", mock_sd)
@@ -92,9 +76,7 @@ class TestBtClassificationUsesCache:
         self,
         _mock_sounddevice,
     ):
-        """Health-checker classification must not burn a live query on
-        the first cycle (the default-change probe later in the same
-        cycle is the only RPC)."""
+        """the first cycle (the default-change probe later in the same"""
         dm = _make_device_manager(microphone=None)
         dm._last_default_input_info = None
 
@@ -104,8 +86,7 @@ class TestBtClassificationUsesCache:
         _mock_sounddevice.query_devices.assert_not_called()
 
     def test_default_path_disconnect_retry_still_live_queries(self, _mock_sounddevice):
-        """The disconnect-retry path needs a classification NOW, so the
-        live fallback stays enabled by default."""
+        """The disconnect-retry path needs a classification NOW, so the"""
         dm = _make_device_manager(microphone=None)
         dm._last_default_input_info = None
         live = {"index": 2, "name": "BT Mic", "default_samplerate": 16000}
@@ -129,9 +110,7 @@ class TestBtClassificationUsesCache:
 
 
 class TestDefaultInputProbeStash:
-    """``_check_default_input_device_changed`` stashes its probe result
-    and accepts a pre-queried dict so the health checker can share one
-    RPC per cycle."""
+    """``_check_default_input_device_changed`` stashes its probe result"""
 
     def test_probe_result_is_stashed(self, _mock_sounddevice):
         dm = _make_device_manager(microphone=None)
@@ -179,8 +158,7 @@ class TestDefaultInputProbeStash:
 
 
 class TestEffectiveIntervalClassification:
-    """``_effective_device_check_interval_s`` classifies from cache/stash
-    without a live query on the health-checker path."""
+    """``_effective_device_check_interval_s`` classifies from cache/stash"""
 
     def test_bt_default_uses_short_interval_from_stash(self, _mock_sounddevice):
         dm = _make_device_manager(microphone=None)

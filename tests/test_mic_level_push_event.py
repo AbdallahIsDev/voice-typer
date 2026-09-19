@@ -1,26 +1,4 @@
-"""TY-18: ``mic_level`` push event publishing tests.
-
-Verifies that ``voice_typer.server.level_monitor`` publishes
-``{type: "mic_level", data: {level, peak, active}}`` events via
-``event_bus.publish`` (so Agent C's ``useMicrophoneTest`` can subscribe
-to a push event instead of polling the backend at 10 Hz).
-
-Specifically:
-
-1. ``mic_level`` events are published when monitoring is ACTIVE (the
-   level worker thread enqueues them; the mic_level worker thread
-   drains + publishes).
-2. ``mic_level`` events are NOT published when monitoring is INACTIVE
-   (the early-return in ``_process_level_chunk`` short-circuits before
-   the ``_push_mic_level`` call site).
-3. Coalescing to ≤30 Hz works, calling ``_push_mic_level`` 100 times
-   in <33ms publishes AT MOST a handful of events (not 100).
-4. The published payload shape matches the spec
-   (``{type, data: {level, peak, active}}``).
-5. ``active`` field reflects the current ``_monitor_active`` value.
-
-All ``sounddevice`` calls are mocked so the tests run on any platform.
-"""
+"""TY-18: ``mic_level`` push event publishing tests."""
 
 from __future__ import annotations
 
@@ -30,10 +8,6 @@ import time
 
 import numpy as np
 import pytest
-
-# ═══════════════════════════════════════════════════════════════════════════
-# Test fixtures
-# ═══════════════════════════════════════════════════════════════════════════
 
 
 def _reset_level_monitor_state():
@@ -56,15 +30,11 @@ def _reset_level_monitor_state():
     lm._dropped_level_chunks = 0
     lm._last_drop_log_time = 0.0
     lm._level_ring_buffer.clear()
-    # reset disconnect-detection state.
     lm._consecutive_zero_chunks = 0
     lm._device_lost_emitted = False
     # Stop any worker threads from a previous test.
     lm._stop_level_worker()
     lm._stop_mic_level_worker()
-    # clear the mic_level queue + reset throttle timestamp so a
-    # previous test's last-push time doesn't suppress the first push
-    # in this test.
     while lm._mic_level_queue:
         try:
             lm._mic_level_queue.popleft()
@@ -115,11 +85,7 @@ def _wire_stream_with_callback_capture(monkeypatch):
 
 
 def _patch_event_bus_publish(monkeypatch):
-    """Patch ``event_bus.publish`` to capture emitted events.
-
-    Returns a list (thread-safe via a lock) that the patched publish
-    appends to.
-    """
+    """Patch ``event_bus.publish`` to capture emitted events."""
     captured: list[dict] = []
     lock = threading.Lock()
 
@@ -135,8 +101,7 @@ def _patch_event_bus_publish(monkeypatch):
 
 
 def _wait_for_event_count(captured, predicate, expected, timeout=2.0):
-    """Poll ``captured`` until ``predicate`` matches ``expected`` count
-    or ``timeout`` elapses."""
+    """Poll ``captured`` until ``predicate`` matches ``expected`` count"""
     deadline = time.perf_counter() + timeout
     while time.perf_counter() < deadline:
         count = sum(1 for e in captured if predicate(e))
@@ -144,11 +109,6 @@ def _wait_for_event_count(captured, predicate, expected, timeout=2.0):
             return True
         time.sleep(0.005)
     return False
-
-
-# ═══════════════════════════════════════════════════════════════════════════
-# mic_level events published when monitoring is active
-# ═══════════════════════════════════════════════════════════════════════════
 
 
 class TestMicLevelPublishedWhenActive:
@@ -181,25 +141,16 @@ class TestMicLevelPublishedWhenActive:
         assert "level" in data, f"TY-18: data.level missing; got {data}"
         assert "peak" in data, f"TY-18: data.peak missing; got {data}"
         assert "active" in data, f"TY-18: data.active missing; got {data}"
-        # active must reflect _monitor_active (True when monitoring).
         assert data["active"] is True, (
             f"TY-18: data.active must be True when monitoring is active; got {data['active']}"
         )
-        # level/peak are floats.
         assert isinstance(data["level"], float), f"TY-18: data.level must be a float; got {type(data['level'])}"
         assert isinstance(data["peak"], float), f"TY-18: data.peak must be a float; got {type(data['peak'])}"
 
         lm.stop_monitoring()
 
     def test_payload_values_match_chunk(self, monkeypatch):
-        """The published ``level`` / ``peak`` carry the DISPLAY contract
-        (EMA-smoothed level scaled by ``_LEVEL_DISPLAY_GAIN``, capped at
-        1.0; EMA-smoothed peak), the same values a
-        ``microphone_test_get_level`` poll returns for the same state.
-        The push replaced that poll on the Microphone page; pushing raw
-        instantaneous RMS here collapsed the live meter to ~0% because
-        the renderer writes ``width = level * 100%`` with no client-side
-        gain."""
+        """The published ``level`` / ``peak`` carry the DISPLAY contract"""
         import voice_typer.server.level_monitor as lm
 
         holder = _wire_stream_with_callback_capture(monkeypatch)
@@ -223,8 +174,6 @@ class TestMicLevelPublishedWhenActive:
         flat = chunk.ravel()
         raw_rms = float(np.sqrt(np.dot(flat, flat) / flat.size))
         raw_peak = max(float(flat.max()), -float(flat.min()))
-        # Smoothed state after one chunk: level = 0.4 * raw_rms (EMA from
-        # 0), peak = max(0 * 0.8, raw_peak) = raw_peak.
         expected_level = min(1.0, 0.4 * raw_rms * lm._LEVEL_DISPLAY_GAIN)
         assert abs(evt["data"]["level"] - expected_level) < 1e-6, (
             f"pushed level {evt['data']['level']} != display-gain value {expected_level}"
@@ -236,11 +185,7 @@ class TestMicLevelPublishedWhenActive:
         lm.stop_monitoring()
 
     def test_push_payload_matches_get_level_poll(self, monkeypatch):
-        """PARITY CONTRACT: the ``mic_level`` push payload must be
-        interchangeable with the ``microphone_test_get_level`` poll
-        response it replaced, same smoothed state in, same level/peak
-        out. Guards against the push path drifting from the poll path's
-        scaling again."""
+        """PARITY CONTRACT: the ``mic_level`` push payload must be"""
         import voice_typer.server.level_monitor as lm
 
         holder = _wire_stream_with_callback_capture(monkeypatch)
@@ -248,17 +193,6 @@ class TestMicLevelPublishedWhenActive:
         lm._level_processor = None
         lm.start_monitoring(mic_id=None)
 
-        # Two chunks with distinct amplitudes so smoothing matters (the
-        # second chunk's EMA depends on the first). Amplitudes chosen so
-        # the final display value stays below the 1.0 cap.
-        #
-        # The inter-chunk wait is CONDITION-BASED, not clock-based: we
-        # wait until the push carrying chunk 1's smoothed state has
-        # actually landed BEFORE sending chunk 2. A fixed
-        # coalesce-window sleep lets the worker's latest-only drain
-        # merge both chunks under CPU contention (full-suite xdist
-        # load), dropping the intermediate EMA state and flaking the
-        # final assertion.
         smoothed_a = 0.4 * 0.3  # EMA from zero after chunk 1
         smoothed_b = 0.6 * smoothed_a + 0.4 * 0.05  # EMA after chunk 2
         expected_level_a = min(1.0, smoothed_a * lm._LEVEL_DISPLAY_GAIN)
@@ -266,7 +200,6 @@ class TestMicLevelPublishedWhenActive:
             holder["callback"](np.ones((512, 1), dtype=np.float32) * amp, 512, None, None)
             if amp == 0.3:
                 # Wait until chunk 1's push landed (level ≈ its own
-                # smoothed state) so chunk 2 cannot merge with it...
                 _deadline = time.monotonic() + 5.0
                 _landed = False
                 while time.monotonic() < _deadline and not _landed:
@@ -284,22 +217,13 @@ class TestMicLevelPublishedWhenActive:
                     "or the callback wiring is broken)"
                 )
             # ...then outlast the 30 Hz coalesce gate before the NEXT
-            # chunk: ``_push_mic_level`` DROPS any chunk arriving within
-            # ``_MIC_LEVEL_COALESCE_SEC`` of the last push, so sending
-            # chunk 2 immediately after chunk 1's landing would have it
-            # silently dropped. Waiting from the LANDING (which happens
-            # after the gate timestamp was taken) guarantees the gate
-            # has fully elapsed.
             deadline = time.monotonic() + lm._MIC_LEVEL_COALESCE_SEC + 0.005
             while time.monotonic() < deadline:
                 time.sleep(0.001)
 
         # Wait until a push lands carrying the FINAL smoothed state
-        # (don't assert an exact event count, the mic-level worker's
-        # latest-only drain may legally merge back-to-back payloads).
         expected_level = min(1.0, smoothed_b * lm._LEVEL_DISPLAY_GAIN)
         # Peak state: chunk 1 sets it to 0.3; chunk 2 decays it
-        # (0.3 * 0.8) and takes max with chunk 2's raw peak (0.05).
         expected_peak = max(0.3 * 0.8, 0.05)
         deadline = time.monotonic() + 2.0
         matched = None
@@ -337,16 +261,8 @@ class TestMicLevelPublishedWhenActive:
         lm.stop_monitoring()
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# forwarded event name matches the Tauri host allowlist
-# ═══════════════════════════════════════════════════════════════════════════
-
-
 class TestForwardedEventNameAllowlist:
-    """The published event name must survive the Tauri host's
-    ``ALLOWED_EVENT_TYPES`` allowlist untranslated, otherwise the host's
-    WS reader silently drops every frame ([WS-READER] dropping unknown
-    event type) and the meter freezes."""
+    """The published event name must survive the Tauri host's"""
 
     def test_mic_level_and_device_lost_are_forwarded(self):
         from tests.test_event_types_parity import _rust_allowed_event_types
@@ -364,19 +280,11 @@ class TestForwardedEventNameAllowlist:
         assert "device_lost" in eb.EVENT_TYPES
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# mic_level NOT published when monitoring is inactive
-# ═══════════════════════════════════════════════════════════════════════════
-
-
 class TestMicLevelNotPublishedWhenInactive:
-    """TY-18: ``mic_level`` events are NOT published when monitoring is
-    inactive (the early-return in ``_process_level_chunk`` short-circuits
-    before the ``_push_mic_level`` call site)."""
+    """TY-18: ``mic_level`` events are NOT published when monitoring is"""
 
     def test_no_mic_level_when_monitor_inactive(self, monkeypatch):
-        """If ``_monitor_active`` is False, processing a chunk does NOT
-        emit a ``mic_level`` event."""
+        """If ``_monitor_active`` is False, processing a chunk does NOT"""
         import voice_typer.server.level_monitor as lm
 
         _wire_stream_with_callback_capture(monkeypatch)
@@ -385,7 +293,6 @@ class TestMicLevelNotPublishedWhenInactive:
 
         chunk = np.ones((512, 1), dtype=np.float32) * 0.25
         # Call _process_level_chunk directly (bypass the ring buffer
-        # so we don't need the level worker running).
         lm._process_level_chunk(chunk, None)
 
         # Allow any deferred publishes to land.
@@ -396,8 +303,7 @@ class TestMicLevelNotPublishedWhenInactive:
         )
 
     def test_no_mic_level_after_stop_monitoring(self, monkeypatch):
-        """After ``stop_monitoring``, processing a chunk does NOT emit a
-        ``mic_level`` event."""
+        """After ``stop_monitoring``, processing a chunk does NOT emit a"""
         import voice_typer.server.level_monitor as lm
 
         _wire_stream_with_callback_capture(monkeypatch)
@@ -416,20 +322,11 @@ class TestMicLevelNotPublishedWhenInactive:
         )
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# coalescing to ≤30 Hz
-# ═══════════════════════════════════════════════════════════════════════════
-
-
 class TestCoalescing30Hz:
-    """TY-18: ``_push_mic_level`` coalesces to ≤30 Hz via a monotonic-clock
-    gate. Calling it 100 times in <33ms publishes AT MOST a few events."""
+    """TY-18: ``_push_mic_level`` coalesces to ≤30 Hz via a monotonic-clock"""
 
     def test_push_mic_level_coalesces_rapid_calls(self, monkeypatch):
-        """Calling ``_push_mic_level`` 100 times back-to-back (no time
-        gap) results in AT MOST 1 queued event (the first call sets the
-        last-push timestamp; subsequent calls within the 33ms window are
-        suppressed)."""
+        """Calling ``_push_mic_level`` 100 times back-to-back (no time"""
         import voice_typer.server.level_monitor as lm
 
         _wire_stream_with_callback_capture(monkeypatch)
@@ -437,14 +334,10 @@ class TestCoalescing30Hz:
         lm._mic_level_last_push_ts = 0.0  # ensure first call passes the gate
 
         # Call _push_mic_level 100 times in a tight loop. Total elapsed
-        # time is well under the 33ms coalesce window.
         for _ in range(100):
             lm._push_mic_level(0.5, 0.7, True)
 
         # At most 1 event should be in the queue (the first call passes
-        # the gate; subsequent 99 are suppressed within the 33ms window).
-        # (Could be 0 if the loop somehow took >33ms, unlikely but
-        # allowed; the test asserts the upper bound.)
         queued = len(lm._mic_level_queue)
         assert queued <= 1, (
             f"TY-18: 100 back-to-back _push_mic_level calls must coalesce "
@@ -452,8 +345,7 @@ class TestCoalescing30Hz:
         )
 
     def test_push_mic_level_emits_after_coalesce_window(self, monkeypatch):
-        """After sleeping > 33ms, a new ``_push_mic_level`` call passes
-        the gate and enqueues an event."""
+        """After sleeping > 33ms, a new ``_push_mic_level`` call passes"""
         import voice_typer.server.level_monitor as lm
 
         _wire_stream_with_callback_capture(monkeypatch)
@@ -470,12 +362,6 @@ class TestCoalescing30Hz:
         assert len(lm._mic_level_queue) == 1, "TY-18: second call within coalesce window must be suppressed"
 
         # Sleep past the 30 Hz window (33.3ms) + margin. NOTE: a fixed
-        # ``time.sleep`` is NOT reliable here, on Windows the waitable
-        # timer can fire up to one tick (~15.6ms) EARLY, so a sleep with
-        # a small margin may return before the coalesce window has truly
-        # elapsed (32ms < 33.3ms), suppressing the third call. Busy-wait
-        # on ``time.monotonic()`` until the window has definitively
-        # passed, regardless of sleep granularity.
         deadline = time.monotonic() + lm._MIC_LEVEL_COALESCE_SEC + 0.005
         while time.monotonic() < deadline:
             time.sleep(0.001)
@@ -487,14 +373,7 @@ class TestCoalescing30Hz:
         )
 
     def test_coalesced_rate_under_load(self, monkeypatch):
-        """Under sustained chunk-rate load (~94 Hz at 48 kHz / 512), the
-        ``mic_level`` publish rate stays ≤30 Hz.
-
-        We can't easily simulate a 48 kHz device without real audio, so
-        we call ``_push_mic_level`` in a tight loop for 200ms and verify
-        the queue growth is bounded by ~30 Hz * 0.2s = ~6 events (with
-        some margin for timing jitter).
-        """
+        """``mic_level`` publish rate stays ≤30 Hz."""
         import voice_typer.server.level_monitor as lm
 
         _wire_stream_with_callback_capture(monkeypatch)
@@ -510,9 +389,6 @@ class TestCoalescing30Hz:
             elapsed = time.monotonic() - start
 
         # Queue growth is bounded by the 30 Hz gate. Over 200ms, at most
-        # ~7 events should pass (30 Hz * 0.2s = 6, +1 for the initial).
-        # Allow generous margin for timing jitter (we care about the
-        # upper bound, not exact count).
         queued = len(lm._mic_level_queue)
         upper_bound = int(0.2 / lm._MIC_LEVEL_COALESCE_SEC) + 2  # +2 margin
         assert queued <= upper_bound, (
@@ -521,14 +397,8 @@ class TestCoalescing30Hz:
         )
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# worker thread lifecycle
-# ═══════════════════════════════════════════════════════════════════════════
-
-
 class TestWorkerLifecycle:
-    """TY-18: the mic_level push worker thread is started by
-    ``start_monitoring`` and stopped by ``stop_monitoring`` (idempotent)."""
+    """TY-18: the mic_level push worker thread is started by"""
 
     def test_worker_started_on_start_monitoring(self, monkeypatch):
         """``start_monitoring`` starts the mic_level push worker thread."""
@@ -560,8 +430,7 @@ class TestWorkerLifecycle:
             assert not thread_ref.is_alive(), "TY-18: mic_level push worker must be stopped after stop_monitoring"
 
     def test_worker_idempotent_restart(self, monkeypatch):
-        """Calling ``_ensure_mic_level_worker_running`` twice doesn't
-        spawn a second worker (idempotent)."""
+        """Calling ``_ensure_mic_level_worker_running`` twice doesn't"""
         import voice_typer.server.level_monitor as lm
 
         _wire_stream_with_callback_capture(monkeypatch)

@@ -1,25 +1,4 @@
-"""§8.18: SmartScreen / MOTW / Gatekeeper: code signing.
-
-Spec (§8.18):
-
-  macOS: the worker is signed with Developer ID + notarized via
-  ``notarytool`` + stapled. Gatekeeper handles the quarantine.
-
-  Windows/Linux: pack integrity is enforced by the per-file SHA-256
-  manifest (the fail-closed gate the install stage runs before the
-  swap), the Windows Authenticode check existed only as an
-  unconditional-None stub with zero production callers and was
-  removed.
-
-Tested behaviors:
-
-  1. ``verify_offline_pack_signature_macos`` returns None on non-macOS.
-  2. On macOS, when ``codesign`` is unavailable (FileNotFoundError),
-     the function returns None.
-  3. On macOS, when ``codesign --verify`` succeeds + ``spctl --assess``
-     succeeds, returns True.
-  4. On macOS, when ``codesign --verify`` fails, returns False.
-"""
+"""§8.18: SmartScreen / MOTW / Gatekeeper: code signing."""
 
 from __future__ import annotations
 
@@ -68,8 +47,7 @@ class TestMacOSSigning:
         assert offline_pack.verify_offline_pack_signature_macos(Path("/fake/worker")) is True
 
     def test_codesign_failure_returns_false(self, monkeypatch):
-        """When ``codesign --verify`` fails, returns False (without
-        even calling ``spctl``)."""
+        """When ``codesign --verify`` fails, returns False (without"""
         monkeypatch.setattr(platform, "system", lambda: "Darwin")
         call_count = {"n": 0}
 

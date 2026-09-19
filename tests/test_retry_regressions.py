@@ -1,31 +1,4 @@
-"""Sub-Agent I5-retry regression tests.
-
-Covers the 8 findings I5 was asked to fix in retry mode:
-
-- CR-16  . Recorder._start_lock added; start()/discard() bodies wrapped.
-             (REC-5 lock-existence + threading.Lock type assertions live in
-             ``tests/test_recording.py::TestRec5StartLock``, these tests
-             cover the _runtime_ behaviour: serialised entry, no race
-             crash. REC-8 source-string assertions updated to use
-             ``Recorder.start`` instead of the removed ``_start_impl``.)
-- R18-F12. Pre-roll audio is routed through the filter chain (was raw).
-- R18-F13, XRUN threshold callback re-arms every Nth xrun; partial
-             chunk is dropped when PortAudio reports an xrun status.
-- R18-F14, VAD threshold clamping (covered in test_vad_processor.py).
-             One extra assertion here verifies the floor is exposed via
-             the ``MIN_VAD_*`` constants.
-- R4-F10 , FilterChain.process catches filter exceptions (covered in
-             test_audio_filters.py::TestR4F10FilterChainExceptionHandling).
-             One extra assertion here verifies the module-level ``log``
-             exists (without it the except branch raised NameError).
-- R3-F6  : ``_dropped_level_chunks`` emits a rate-limited WARNING log
-             when the level-monitor ring buffer overflows.
-- R3-F14 , Dead ``list(_test_peak_history)`` expression removed
-             (verified by source-string assertion).
-- R4-F8  , Buffer-clear worker registers with the app's
-             ``ThreadRegistry``; ``_stop_buffer_clear_worker`` test-only
-             helper joins cleanly.
-"""
+"""Covers the 8 findings I5 was asked to fix in retry mode:"""
 
 from __future__ import annotations
 
@@ -39,10 +12,6 @@ from unittest.mock import MagicMock
 
 import numpy as np
 import pytest
-
-# ═══════════════════════════════════════════════════════════════════════════
-# Shared helpers (mirror tests/test_audio_callback.py patterns)
-# ═══════════════════════════════════════════════════════════════════════════
 
 
 class _OkStream:
@@ -90,25 +59,11 @@ def _drain_ring_buffer(rec, timeout=3.0):
         time.sleep(0.005)
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# _start_lock runtime behaviour
-# ═══════════════════════════════════════════════════════════════════════════
-
-
 class TestStartLockRuntime:
-    """``_start_lock`` serializes start()/discard() at runtime.
-
-    The source-string + threading.Lock type assertions live in
-    ``tests/test_recording.py::TestRec5StartLock``; these tests cover the
-    runtime contract: the lock is reentrant-safe under concurrent
-    start()+discard() storms and is held for the duration of both
-    methods.
-    """
+    """``_start_lock`` serializes start()/discard() at runtime."""
 
     def test_start_lock_released_after_start(self, monkeypatch):
-        """After start() returns, ``_start_lock`` must NOT be held
-        (otherwise a subsequent discard() from another thread would
-        deadlock)."""
+        """After start() returns, ``_start_lock`` must NOT be held"""
         import voice_typer.server.recording as recording_mod
         from voice_typer.server.recording import Recorder
 
@@ -140,11 +95,7 @@ class TestStartLockRuntime:
         assert not r._start_lock.locked(), "discard() must release _start_lock before returning"
 
     def test_start_lock_serializes_start_and_discard(self, monkeypatch):
-        """When start() and discard() are called concurrently from two
-        threads, the lock must serialize them: at most ONE of the two
-        methods can be inside the critical section at any time. We
-        verify by holding a fake lock in start() long enough for
-        discard() to wait."""
+        """When start() and discard() are called concurrently from two"""
         import voice_typer.server.recording as recording_mod
         from voice_typer.server.recording import Recorder
 
@@ -154,9 +105,6 @@ class TestStartLockRuntime:
         r = Recorder(config)
 
         # Replace _start_lock with a CountingLock that tracks
-        # concurrent holders. threading.Lock's acquire/release are
-        # C-level and can't be monkey-patched, so we substitute a
-        # pure-Python context-manager lock.
         class CountingLock:
             def __init__(self):
                 self._real = threading.Lock()
@@ -218,7 +166,6 @@ class TestStartLockRuntime:
         assert not t1.is_alive() and not t2.is_alive(), "start()/discard() deadlocked on _start_lock"
         assert not errors, f"concurrent start()/discard() raised: {errors}"
         # The lock must NEVER have had 2 concurrent holders (
-        # serialization guarantee).
         assert counting._max_concurrent <= 1, (
             f"_start_lock must serialize start()/discard(), "
             f"saw {counting._max_concurrent} concurrent holders (must "
@@ -226,9 +173,7 @@ class TestStartLockRuntime:
         )
 
     def test_concurrent_start_discard_no_deadlock(self, monkeypatch):
-        """20 threads each calling start()+discard() in a tight loop
-        must NOT deadlock. The _start_lock must be released even when
-        start() raises (e.g. device-open failure)."""
+        """20 threads each calling start()+discard() in a tight loop"""
         import voice_typer.server.recording as recording_mod
         from voice_typer.server.recording import Recorder
 
@@ -257,7 +202,6 @@ class TestStartLockRuntime:
         for t in threads:
             t.start()
         # If _start_lock deadlocks, this join times out and pytest's
-        # --timeout=30 kills the suite.
         for t in threads:
             t.join(timeout=10.0)
             assert not t.is_alive(), "start()/discard() deadlocked on _start_lock"
@@ -268,32 +212,17 @@ class TestStartLockRuntime:
             pass  # lock must be free
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# R18-F12: pre-roll audio is routed through the filter chain
-# ═══════════════════════════════════════════════════════════════════════════
-
-
 class TestPreRollFiltered:
     """R18-F12: pre-roll audio must go through the filter chain (was raw)."""
 
     def _make_preroll_firing_stream(self, n_chunks=5, amplitude=0.3):
-        """Build an _OkStream subclass that fires ``n_chunks`` mock
-        audio callbacks from ``start()``. Because ``start()`` is called
-        by ``Recorder.start()`` BEFORE ``_recording_event.set()``, the
-        fired chunks flow into ``_preroll_buffer`` (via the
-        ``_audio_callback_dispatch`` early-return guard), exactly the
-        production code path, just driven by a mock stream instead of
-        a real microphone."""
+        """Build an _OkStream subclass that fires ``n_chunks`` mock"""
 
         class _PrerollFiringStream:
             def __init__(self, *args, **kwargs):
                 self._cb = kwargs.get("callback")
 
             def start(self):
-                # Fire n_chunks of mock audio. These callbacks run on
-                # the test thread (synchronous), production runs them
-                # on the PortAudio audio thread, but the dispatch path
-                # is identical.
                 if self._cb is None:
                     return
                 chunk = np.ones((512, 1), dtype=np.float32) * amplitude
@@ -309,10 +238,7 @@ class TestPreRollFiltered:
         return _PrerollFiringStream
 
     def test_preroll_chunks_passed_through_audio_processor(self, monkeypatch):
-        """Each pre-roll chunk prepended to the buffer in start() must be
-        passed through ``audio_processor.process_chunk`` so the
-        transcriber receives filtered audio (not raw). Pre-fix, the
-        pre-roll bypassed the chain entirely."""
+        """Each pre-roll chunk prepended to the buffer in start() must be"""
         import voice_typer.server.recording as recording_mod
         from voice_typer.server.recording import Recorder
 
@@ -349,7 +275,6 @@ class TestPreRollFiltered:
 
         def _process_chunk(audio, input_sample_rate=None):
             # Return the audio scaled by 0.5 so we can verify it was
-            # actually used (not the raw pre-roll chunk).
             return audio * 0.5
 
         processor.process_chunk.side_effect = _process_chunk
@@ -364,28 +289,16 @@ class TestPreRollFiltered:
         assert r._preroll_active, "pre-roll must be enabled by config"
 
         # Reset the call log so we only count process_chunk invocations
-        # triggered by start()'s pre-roll prepend.
         processor.process_chunk.reset_mock()
 
         r.start()
         try:
             # The mock stream fired n_preroll_chunks callbacks during
-            # start(), those chunks should have been captured by
-            # _preroll_buffer. Verify the buffer was populated (the
-            # clear at L1311 happens BEFORE stream.start(), so the
-            # fired chunks survive).
             assert len(r._preroll_buffer) >= n_preroll_chunks or len(r._audio_pipeline._buffer) >= n_preroll_chunks, (
                 f"pre-roll chunks not captured, preroll_buffer has "
                 f"{len(r._preroll_buffer)}, buffer has {len(r._audio_pipeline._buffer)}"
             )
 
-            # start() should have called process_chunk once per pre-roll
-            # chunk (R18-F12). Pre-fix, the count was 0. process_chunk
-            # runs on the ASYNC audio worker thread draining the ring
-            # buffer, wait (bounded, event-free) for it to drain all
-            # fired chunks before pinning the exact count, else a slow
-            # CI worker races the assert (observed: 3 of 5 on a loaded
-            # ubuntu runner).
             deadline = time.monotonic() + 5.0
             while processor.process_chunk.call_count < n_preroll_chunks and time.monotonic() < deadline:
                 time.sleep(0.05)
@@ -403,13 +316,11 @@ class TestPreRollFiltered:
                     "live callback path)"
                 )
             # The buffer should contain the FILTERED chunks (scaled by
-            # 0.5), not the raw chunks (0.3 amplitude).
             assert len(r._audio_pipeline._buffer) >= n_preroll_chunks, (
                 f"pre-roll chunks must be prepended to the buffer, "
                 f"expected >= {n_preroll_chunks}, got {len(r._audio_pipeline._buffer)}"
             )
             # Verify at least one prepended chunk has the filtered
-            # amplitude (0.3 * 0.5 = 0.15).
             first_chunk = r._audio_pipeline._buffer[0]
             max_abs = float(np.max(np.abs(first_chunk)))
             assert 0.05 < max_abs < 0.25, (
@@ -421,8 +332,7 @@ class TestPreRollFiltered:
             r.stop()
 
     def test_preroll_filter_failure_falls_back_to_raw(self, monkeypatch):
-        """If process_chunk raises, the raw pre-roll chunk is used
-        (pre-roll is best-effort; must NEVER block start())."""
+        """If process_chunk raises, the raw pre-roll chunk is used"""
         import voice_typer.server.recording as recording_mod
         from voice_typer.server.recording import Recorder
 
@@ -467,10 +377,6 @@ class TestPreRollFiltered:
         r.start()
         try:
             # Raw chunk (0.3 amplitude) was stored because filter failed.
-            # Accept the chunk in either buffer: the mock stream fires
-            # synchronously during start(), and depending on scheduling
-            # the prepend to ``_buffer`` may not have run yet, mirror
-            # the sibling test's either-or robustness (R18-F12).
             stored_chunks = list(r._preroll_buffer) or list(r._audio_pipeline._buffer)
             assert len(stored_chunks) >= 1, "raw pre-roll chunk must be stored on filter failure"
             first_chunk = stored_chunks[0]
@@ -482,19 +388,11 @@ class TestPreRollFiltered:
             r.stop()
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# R18-F13: xrun threshold re-arm + drop partial chunk on xrun status
-# ═══════════════════════════════════════════════════════════════════════════
-
-
 class TestXrunReArm:
-    """R18-F13: xrun threshold callback re-arms every Nth xrun; partial
-    chunk is dropped when PortAudio reports an xrun status."""
+    """R18-F13: xrun threshold callback re-arms every Nth xrun; partial"""
 
     def test_threshold_callback_re_arms_every_nth_xrun(self, monkeypatch):
-        """The on_xrun_threshold callback must fire at the threshold AND
-        at every multiple of the threshold (was: only fired exactly at
-        the threshold, never re-armed)."""
+        """at every multiple of the threshold (was: only fired exactly at"""
         import voice_typer.server.recording as recording_mod
         from voice_typer.server.recording import Recorder
 
@@ -502,8 +400,6 @@ class TestXrunReArm:
 
         config = MagicMock(sample_rate=16000, microphone=None)
         r = Recorder(config)
-        # Use a small threshold for fast testing.
-        # STATE-OWNERSHIP: the xrun threshold lives on the owning
         # AudioPipeline (C-ARCH-2: patch the owning submodule's attribute).
         r._audio_pipeline._xrun_threshold = 3
         on_xrun = MagicMock()
@@ -512,7 +408,6 @@ class TestXrunReArm:
         r.start()
         try:
             # Push 6 chunks with non-zero status (xrun indicator).
-            # Status=2 simulates PortAudio CallbackFlags.input_overflow.
             chunk = np.ones((512, 1), dtype=np.float32) * 0.3
             for _ in range(6):
                 r._current_callback(chunk, 512, None, 2)
@@ -534,8 +429,7 @@ class TestXrunReArm:
             r.stop()
 
     def test_threshold_callback_does_not_fire_between_multiples(self, monkeypatch):
-        """Between multiples of the threshold, the callback must NOT
-        fire (i.e. xruns 4 and 5 with threshold=3 don't fire)."""
+        """Between multiples of the threshold, the callback must NOT"""
         import voice_typer.server.recording as recording_mod
         from voice_typer.server.recording import Recorder
 
@@ -563,9 +457,7 @@ class TestXrunReArm:
             r.stop()
 
     def test_partial_chunk_dropped_on_xrun_status(self, monkeypatch):
-        """When PortAudio reports an xrun (status != 0), the in-flight
-        chunk is dropped (NOT appended to the buffer). The chunk is
-        partially stale and would corrupt the transcriber's input."""
+        """When PortAudio reports an xrun (status != 0), the in-flight"""
         import voice_typer.server.recording as recording_mod
         from voice_typer.server.recording import Recorder
 
@@ -596,9 +488,7 @@ class TestXrunReArm:
             r.stop()
 
     def test_clean_chunk_still_appended_on_zero_status(self, monkeypatch):
-        """Sanity check: a chunk with status=0 (no xrun) is still
-        appended to the buffer. R18-F13 must not break the normal
-        path."""
+        """Sanity check: a chunk with status=0 (no xrun) is still"""
         import voice_typer.server.recording as recording_mod
         from voice_typer.server.recording import Recorder
 
@@ -623,18 +513,8 @@ class TestXrunReArm:
             r.stop()
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# FilterChain module-level log (was undefined → NameError on except)
-# ═══════════════════════════════════════════════════════════════════════════
-
-
 class TestBaseLogDefined:
-    """R4-F10: FilterChain.process catches filter exceptions and logs
-    via the module-level ``log``. The except branch referenced ``log``
-    which was UNDEFINED pre-fix → NameError on the first filter
-    exception (worse than the original bug). The runtime exception
-    isolation is covered in test_audio_filters.py; this test pins the
-    ``log`` symbol so it can never go missing again."""
+    """R4-F10: FilterChain.process catches filter exceptions and logs"""
 
     def test_base_module_has_log_symbol(self):
         from voice_typer.server.audio_filters import base
@@ -648,26 +528,15 @@ class TestBaseLogDefined:
         assert isinstance(base.log, logging.Logger), f"R4-F10: base.log must be a logging.Logger, got {type(base.log)}"
 
     def test_filterchain_process_log_line_present_in_source(self):
-        """Source-string pin: the FilterChain.process body must contain
-        ``log.warning(...)`` so the except branch is wired to the
-        module logger."""
+        """Source-string pin: the FilterChain.process body must contain"""
         from voice_typer.server.audio_filters.base import FilterChain
 
         src = inspect.getsource(FilterChain.process)
         assert "log.warning" in src, "R4-F10: FilterChain.process must call log.warning in the except branch"
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# R18-F14: VAD threshold clamping (constants exposed)
-# ═══════════════════════════════════════════════════════════════════════════
-
-
 class TestVadThresholdConstants:
-    """R18-F14: ``MIN_VAD_SPEECH_THRESHOLD_DB = -55`` and
-    ``MIN_VAD_SILENCE_THRESHOLD_DB = -65`` are exposed as module
-    constants. The very-quiet-room calibration test lives in
-    test_vad_processor.py; this test pins the constants so a refactor
-    can't silently remove the floor."""
+    """``MIN_VAD_SILENCE_THRESHOLD_DB = -65`` are exposed as module"""
 
     def test_min_threshold_constants_exposed(self):
         from voice_typer.server import vad_processor
@@ -676,35 +545,19 @@ class TestVadThresholdConstants:
         assert hasattr(vad_processor, "MIN_VAD_SILENCE_THRESHOLD_DB")
         assert vad_processor.MIN_VAD_SPEECH_THRESHOLD_DB == -55.0
         assert vad_processor.MIN_VAD_SILENCE_THRESHOLD_DB == -65.0
-        # Speech floor must be ABOVE silence floor (otherwise the
-        # speech/silence hysteresis inverts).
         assert vad_processor.MIN_VAD_SPEECH_THRESHOLD_DB > vad_processor.MIN_VAD_SILENCE_THRESHOLD_DB, (
             "speech threshold floor must be above silence threshold floor"
         )
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# R3-F6: _dropped_level_chunks rate-limited WARNING log
-# ═══════════════════════════════════════════════════════════════════════════
-
-
 class TestDroppedLevelChunksLog:
-    """R3-F6: when the level-monitor ring buffer overflows, the
-    callback increments ``_dropped_level_chunks`` and emits a
-    rate-limited WARNING via ``log_rate_limited``. Pre-fix the counter
-    was incremented silently with no diagnostic surfaced."""
+    """rate-limited WARNING via ``log_rate_limited``. Pre-fix the counter"""
 
     def test_dropped_chunks_counter_increments_on_ring_overflow(self, monkeypatch, caplog):
-        """Force the level-monitor ring buffer to overflow by pushing
-        more chunks than the worker can drain. The counter must
-        increment and a WARNING must be logged."""
+        """Force the level-monitor ring buffer to overflow by pushing"""
         import voice_typer.server.level_monitor as lm
         from voice_typer.server.log_rate_limit import reset as reset_rate_limit
 
-        # Clean slate: an earlier file in the same xdist worker can leak a
-        # live level monitor; without this stop, start_monitoring() below
-        # takes the "Already monitoring, no-op" branch, never constructs
-        # the (captured) stream, and holder["cb"] stays None.
         with contextlib.suppress(Exception):
             lm.stop_monitoring()
         # Reset rate-limit counters so the first overflow fires at WARNING.
@@ -738,15 +591,12 @@ class TestDroppedLevelChunksLog:
         }
 
         # Block the level worker so the ring buffer fills up. We do
-        # this by holding _monitor_lock for the duration of the push —
-        # the worker acquires _monitor_lock to drain, so it stalls.
         result = lm.start_monitoring(mic_id=None)
         assert result["success"] is True
 
         try:
             chunk = np.ones((512, 1), dtype=np.float32) * 0.25
             # Capacity is _LEVEL_RING_BUFFER_CAPACITY = 64. Push 70
-            # chunks while holding the lock so the worker can't drain.
             with lm._monitor_lock:
                 for _ in range(70):
                     holder["cb"](chunk, 512, None, None)
@@ -759,9 +609,7 @@ class TestDroppedLevelChunksLog:
             reset_rate_limit()
 
     def test_rate_limited_warning_fires_on_first_drop(self, monkeypatch, caplog):
-        """The first overflow must emit a WARNING log via
-        ``log_rate_limited``. Subsequent overflows within the
-        every_n=100 window go to DEBUG."""
+        """The first overflow must emit a WARNING log via"""
         import voice_typer.server.level_monitor as lm
         from voice_typer.server.log_rate_limit import reset as reset_rate_limit
 
@@ -806,7 +654,6 @@ class TestDroppedLevelChunksLog:
                     holder["cb"](chunk, 512, None, None)
 
             # At least one WARNING record must mention "ring buffer full"
-            # or "dropped".
             warnings = [
                 r
                 for r in caplog.records
@@ -823,31 +670,18 @@ class TestDroppedLevelChunksLog:
             reset_rate_limit()
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# R3-F14: dead ``list(_test_peak_history)`` expression removed
-# ═══════════════════════════════════════════════════════════════════════════
-
-
 class TestDeadListExpressionRemoved:
-    """R3-F14: the dead ``list(_test_peak_history)`` expression at
-    level_monitor.py:607 (old line numbering) was computed and
-    immediately discarded. The expression is now removed; this test
-    pins the removal so it doesn't get re-added by a future edit."""
+    """R3-F14: the dead ``list(_test_peak_history)`` expression at"""
 
     def test_no_dead_list_test_peak_history_in_stop_test_recording(self):
         from voice_typer.server import level_monitor
 
         src = inspect.getsource(level_monitor.stop_test_recording)
-        # The dead expression was ``list(_test_peak_history)`` on a
-        # line by itself (no assignment, no use of the result). After
         # removal the function must NOT contain that bare expression.
-        # We check that the function still REFERENCES _test_peak_history
-        # (it's cleared later) but not as a bare ``list(...)`` call.
         assert "_test_peak_history" in src, (
             "stop_test_recording must still reference _test_peak_history (for the .clear() / reassignment)"
         )
         # Look for the dead pattern: a line whose stripped form is
-        # exactly ``list(_test_peak_history)`` with no ``=`` before it.
         for line in src.splitlines():
             stripped = line.strip()
             if stripped == "list(_test_peak_history)":
@@ -856,16 +690,8 @@ class TestDeadListExpressionRemoved:
                 )
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# buffer-clear worker ThreadRegistry registration + _stop_buffer_clear_worker
-# ═══════════════════════════════════════════════════════════════════════════
-
-
 class TestBufferClearWorkerRegistry:
-    """R4-F8: when a ThreadRegistry is set via ``set_thread_registry``,
-    the lazily-started buffer-clear worker must register itself so
-    ``shutdown_all()`` can join it during ``VoiceTyperApp.quit()``.
-    Also covers the ``_stop_buffer_clear_worker`` test-only helper."""
+    """R4-F8: when a ThreadRegistry is set via ``set_thread_registry``,"""
 
     def test_set_thread_registry_constant_and_helper_exist(self):
         """Smoke-check that the R4-F8 surface area is importable."""
@@ -877,13 +703,10 @@ class TestBufferClearWorkerRegistry:
         assert buffer.BUFFER_CLEAR_WORKER_NAME == "buffer-clear-bg"
 
     def test_worker_registers_with_thread_registry(self, monkeypatch):
-        """When ``set_thread_registry`` is called BEFORE the worker is
-        started, the next ``_ensure_buffer_clear_worker`` call must
-        register the new worker with the registry."""
+        """When ``set_thread_registry`` is called BEFORE the worker is"""
         from voice_typer.server.recording import buffer
 
         # Stop any worker that may have been started by an earlier test
-        # so we exercise the lazy-start path cleanly.
         buffer._stop_buffer_clear_worker(timeout=2.0)
 
         registry = MagicMock()
@@ -920,9 +743,7 @@ class TestBufferClearWorkerRegistry:
             buffer.set_thread_registry(None)
 
     def test_set_thread_registry_registers_already_running_worker(self):
-        """If the worker is ALREADY running when set_thread_registry is
-        called, the registry must register it immediately (mirrors the
-        scipy-preloader pattern in recorder.py)."""
+        """If the worker is ALREADY running when set_thread_registry is"""
         from voice_typer.server.recording import buffer
 
         buffer._stop_buffer_clear_worker(timeout=2.0)
@@ -942,7 +763,6 @@ class TestBufferClearWorkerRegistry:
         buffer.set_thread_registry(registry)
 
         try:
-            # set_thread_registry must register the already-running worker.
             assert registry.register.called, (
                 "R4-F8: set_thread_registry must register an already-"
                 "running buffer-clear worker (mirrors scipy-preloader)"
@@ -952,9 +772,7 @@ class TestBufferClearWorkerRegistry:
             buffer.set_thread_registry(None)
 
     def test_stop_buffer_clear_worker_joins_cleanly(self):
-        """The test-only ``_stop_buffer_clear_worker`` helper must
-        send the None sentinel and join the worker thread cleanly
-        within the timeout."""
+        """The test-only ``_stop_buffer_clear_worker`` helper must"""
         from voice_typer.server.recording import buffer
 
         # Make sure a worker is running.
@@ -974,8 +792,7 @@ class TestBufferClearWorkerRegistry:
         )
 
     def test_stop_buffer_clear_worker_idempotent(self):
-        """Calling _stop_buffer_clear_worker when no worker is running
-        must be a no-op returning True (safe to call multiple times)."""
+        """Calling _stop_buffer_clear_worker when no worker is running"""
         from voice_typer.server.recording import buffer
 
         buffer._stop_buffer_clear_worker(timeout=1.0)  # ensure no worker

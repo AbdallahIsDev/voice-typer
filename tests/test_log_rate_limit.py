@@ -1,19 +1,4 @@
-"""Tests for :mod:`voice_typer.server.log_rate_limit` (B-5).
-
-Verifies the contract documented in
-:func:`voice_typer.server.log_rate_limit.log_rate_limited`:
-
-- The 1st occurrence logs at the configured level with ``exc_info=True``.
-- Occurrences 2-99 log at ``DEBUG`` without ``exc_info``.
-- The 100th occurrence logs at the configured level with ``exc_info=True``.
-- Counters are per-message-key (distinct messages / explicit ``key``
-  overrides get independent counters).
-- The function is thread-safe under concurrent access.
-- ``*args`` %-format arguments are forwarded to the configured-level
-  call and passed (lazily, XV-125) as positional ``%-format`` args to
-  the DEBUG fallback, the framework only renders them if DEBUG is
-  enabled.
-"""
+"""Tests for :mod:`voice_typer.server.log_rate_limit` (B-5)."""
 
 from __future__ import annotations
 
@@ -25,30 +10,11 @@ import pytest
 from voice_typer.server import log_rate_limit
 from voice_typer.server.log_rate_limit import log_rate_limited, reset
 
-# Hint for xdist schedulers that respect ``xdist_group`` (loadgroup /
-# loadscope): pin every test in this module, and its sibling
-# ``test_log_rate_limit_lru.py``, onto a single worker. Both modules
-# mutate the process-wide module-level dicts in
-# ``voice_typer.server.log_rate_limit`` (``_RATE_LIMIT_COUNTS`` and the
-# summary dicts), reset via autouse fixtures; grouping them on one
-# worker is defense-in-depth for that shared state. xdist's default
-# ``load`` scheduler does NOT strictly honor this marker, it is a
-# hint, not a correctness guarantee. No-op when xdist isn't active.
-# (C-TEST-5.)
 pytestmark = pytest.mark.xdist_group("log_rate_limit")
 
 
 class FakeLogger:
-    """Minimal logger stub that records ``log`` and ``debug`` calls.
-
-    A plain :class:`unittest.mock.MagicMock` does not work here because
-    ``MagicMock(spec=logging.Logger)`` excludes the ``name`` attribute
-    (it is an *instance* attribute on :class:`logging.Logger`, not a
-    class attribute, so ``dir(logging.Logger)`` omits it and the spec
-    rejects access).  This stub exposes a string ``name`` plus two
-    recording ``MagicMock`` methods so the tests can assert on call
-    args/counts precisely.
-    """
+    """Minimal logger stub that records ``log`` and ``debug`` calls."""
 
     def __init__(self, name: str = "voice_typer.test.fake") -> None:
         self.name = name
@@ -58,17 +24,10 @@ class FakeLogger:
 
 @pytest.fixture(autouse=True)
 def _isolate_counters():
-    """Clear the module-level counter dict before and after each test.
-
-    Without this, test execution order would determine pass/fail because
-    counters persist across calls.
-    """
+    """Clear the module-level counter dict before and after each test."""
     reset()
     yield
     reset()
-
-
-# ── 1. First occurrence ───────────────────────────────────────────────
 
 
 def test_first_occurrence_logs_at_configured_level_with_exc_info():
@@ -119,16 +78,12 @@ def test_first_occurrence_forwards_args_and_kwargs():
     logger.debug.assert_not_called()
 
 
-# ── 2. Occurrences 2..N-1 ────────────────────────────────────────────
-
-
 def test_occurrences_2_through_99_log_at_debug_without_exc_info():
     """Occurrences 2..99 must log at DEBUG and must not include exc_info."""
     logger = FakeLogger()
     msg = "rate-limit-test"
 
     # 99 calls → counter values 1..99 → 1st logs at ERROR (1) plus 98
-    # suppressed occurrences (2..99) that must each go to DEBUG.
     for _ in range(99):
         log_rate_limited(logger, logging.ERROR, msg, exc_info=True, every_n=100)
 
@@ -139,7 +94,6 @@ def test_occurrences_2_through_99_log_at_debug_without_exc_info():
     # Every DEBUG call must omit exc_info (the expensive traceback).
     for call in logger.debug.call_args_list:
         # The DEBUG branch always passes (format, rendered_msg, count)
-        # positionally and never sets exc_info in kwargs.
         assert "exc_info" not in call.kwargs
         fmt, rendered, count = call.args
         assert fmt == "%s (suppressed occurrence %d)"
@@ -149,39 +103,19 @@ def test_occurrences_2_through_99_log_at_debug_without_exc_info():
 
 
 def test_suppressed_occurrence_renders_format_args():
-    """When *args are passed, the DEBUG fallback forwards them lazily.
-
-    XV-125: the previous implementation eagerly rendered ``msg % args``
-    before calling ``logger.debug``, defeating the lazy-formatting
-    guarantee that ``logging`` provides (the framework only renders the
-    format string when the level is enabled).  The fix passes the
-    caller's *msg* (with the suppressed-occurrence suffix appended) as
-    the format string and ``*args, count`` as positional ``%-format``
-    args, so the actual ``%`` substitution is deferred until the
-    framework confirms DEBUG is enabled.
-    """
+    """When *args are passed, the DEBUG fallback forwards them lazily."""
     logger = FakeLogger()
 
     # First call (1st occurrence) → logger.log at ERROR with raw msg + args.
     log_rate_limited(logger, logging.ERROR, "chunk %d failed", 7, every_n=100, exc_info=True)
     logger.log.assert_called_once_with(logging.ERROR, "chunk %d failed", 7, exc_info=True)
 
-    # Second call (suppressed) → DEBUG with the caller's *msg* as the
-    # format string (suffix appended) and ``*args, count`` as positional
-    # %-format args.  The framework renders "chunk 7 failed (suppressed
-    # occurrence 2)" only if DEBUG is enabled.
     log_rate_limited(logger, logging.ERROR, "chunk %d failed", 7, every_n=100, exc_info=True)
     logger.debug.assert_called_once_with("chunk %d failed (suppressed occurrence %d)", 7, 2)
 
 
 def test_suppressed_occurrence_no_args_uses_literal_substitution():
-    """When *args is empty, the DEBUG fallback passes *msg* as a literal
-    ``%s`` substitution, so a literal ``%`` in *msg* (e.g. ``"100% done"``)
-    is NOT re-interpreted as a format spec.
-
-    XV-125: this branch preserves the pre-fix behaviour for callers that
-    pass a literal ``%`` in *msg* without any *args*.
-    """
+    """When *args is empty, the DEBUG fallback passes *msg* as a literal"""
     logger = FakeLogger()
 
     # First call (1st occurrence) → logger.log at ERROR.
@@ -191,9 +125,6 @@ def test_suppressed_occurrence_no_args_uses_literal_substitution():
     # Second call (suppressed) → DEBUG with msg as a literal %s arg.
     log_rate_limited(logger, logging.ERROR, "100% done", every_n=100)
     logger.debug.assert_called_once_with("%s (suppressed occurrence %d)", "100% done", 2)
-
-
-# ── 3. Nth occurrence ────────────────────────────────────────────────
 
 
 def test_occurrence_100_logs_at_configured_level_with_exc_info():
@@ -246,9 +177,6 @@ def test_occurrence_200_logs_at_configured_level():
     logger.debug.assert_not_called()
 
 
-# ── 4. Per-message-key counters ──────────────────────────────────────
-
-
 def test_distinct_messages_get_independent_counters():
     """Two different message strings must not share a counter."""
     logger = FakeLogger()
@@ -260,15 +188,13 @@ def test_distinct_messages_get_independent_counters():
     assert logger.debug.call_count == 1  # the 2nd was suppressed
 
     # First occurrence of message B must log at the configured level,
-    # independent of how many times message A has fired.
     logger.log.reset_mock()
     log_rate_limited(logger, logging.ERROR, "message B", every_n=100)
     logger.log.assert_called_once_with(logging.ERROR, "message B", exc_info=False)
 
 
 def test_explicit_key_buckets_dynamic_messages():
-    """An explicit ``key=`` overrides the message-based counter so
-    dynamic message texts can be bucketed under a single counter."""
+    """An explicit ``key=`` overrides the message-based counter so"""
     logger = FakeLogger()
 
     # Same key, different message text → should share a counter.
@@ -281,8 +207,7 @@ def test_explicit_key_buckets_dynamic_messages():
 
 
 def test_same_message_under_different_keys_get_independent_counters():
-    """Two call sites that happen to share a message string but pass
-    different keys must get independent counters."""
+    """Two call sites that happen to share a message string but pass"""
     logger = FakeLogger()
     msg = "shared message text"
 
@@ -290,18 +215,12 @@ def test_same_message_under_different_keys_get_independent_counters():
     log_rate_limited(logger, logging.ERROR, msg, key="site-A", every_n=100)
     log_rate_limited(logger, logging.ERROR, msg, key="site-B", every_n=100)
 
-    # site-A: 1st logged at level, 2nd suppressed → 1 log + 1 debug.
-    # site-B: 1st logged at level → 1 more log.
     assert logger.log.call_count == 2
     assert logger.debug.call_count == 1
 
 
-# ── 5. Thread safety ────────────────────────────────────────────────
-
-
 def test_concurrent_calls_do_not_crash_and_total_count_is_consistent():
-    """Many threads calling concurrently must not raise and must produce
-    a final counter equal to the total number of calls."""
+    """Many threads calling concurrently must not raise and must produce"""
     logger = FakeLogger(name="voice_typer.test.concurrent")
     msg = "concurrent-test"
     n_threads = 16
@@ -328,21 +247,11 @@ def test_concurrent_calls_do_not_crash_and_total_count_is_consistent():
     assert log_rate_limit._RATE_LIMIT_COUNTS[counter_key] == expected_total
 
     # The configured-level call should have fired roughly
-    # (1 + every 100th) × n_threads times.  We don't assert an exact
-    # count here because thread interleaving can cause two threads to
-    # observe the same count value and both log at level, which is the
-    # explicitly-documented acceptable trade-off.  The invariant we DO
-    # assert is that the configured-level path fired at least once
-    # (the very first call) and never more than 2× the expected count
-    # (a generous upper bound that catches gross lock failures).
     expected_level_calls_lower_bound = n_threads  # ≥1 per thread
     expected_level_calls_upper_bound = 2 * (n_threads * (1 + calls_per_thread // 100))
     actual_level_calls = logger.log.call_count
     assert actual_level_calls >= expected_level_calls_lower_bound
     assert actual_level_calls <= expected_level_calls_upper_bound
-
-
-# ── 6. Edge cases ────────────────────────────────────────────────────
 
 
 def test_every_n_le_1_disables_rate_limiting():
@@ -355,8 +264,7 @@ def test_every_n_le_1_disables_rate_limiting():
 
 
 def test_every_n_zero_logs_only_first():
-    """``every_n=0`` (or negative) disables the modulo branch, only the
-    1st occurrence logs at the configured level."""
+    """``every_n=0`` (or negative) disables the modulo branch, only the"""
     logger = FakeLogger()
     for _ in range(50):
         log_rate_limited(logger, logging.ERROR, "first-only", every_n=0)
@@ -408,12 +316,8 @@ def test_logger_name_is_part_of_counter_key():
     assert logger_b.log.call_count == 1
 
 
-# ── 7. Integration test with a real Logger + caplog ──────────────────
-
-
 def test_integration_with_real_logger_and_caplog(caplog):
-    """End-to-end: a real ``logging.Logger`` emits the expected records
-    with the expected levels and ``exc_info`` attribute."""
+    """End-to-end: a real ``logging.Logger`` emits the expected records"""
     real_logger = logging.getLogger("voice_typer.test.log_rate_limit.integration")
     msg = "[RECORDING] Audio worker thread error processing chunk"
 
@@ -452,7 +356,6 @@ def test_integration_with_real_logger_and_caplog(caplog):
         assert r.exc_info[0] is RuntimeError
 
     # DEBUG records must NOT carry exc_info (the whole point of the
-    # rate-limit, avoid the expensive traceback capture on hot paths).
     for r in debug_records:
         assert r.exc_info is None
 
@@ -465,37 +368,10 @@ def test_integration_with_real_logger_and_caplog(caplog):
 
 
 class TestGt66PeriodicInfoSummary:
-    """GT-66: emit a periodic summary per counter key, every 60s of
-    wall-clock time, if any counter incremented >0 since the last
-    summary, log::
-
-        log.log(max(INFO, level),
-                '[rate-limit] %d suppressed occurrences of %s in last 60s',
-                 delta, key)
-
-    YJ-45: the format string uses ``%s`` (NOT ``%r``) so the counter key
-    appears in the log line WITHOUT inner ``repr()`` quotes, keeping
-    the line grep-friendly (``grep '<key>' log`` finds it instead of
-    ``grep "'<key>'" log``). The summary is routed through the module
-    logger (``voice_typer.server.log_rate_limit``) so it's always
-    visible at the file handler's INFO level regardless of the caller's
-    logger level.  The first suppressed occurrence seeds the timer (so
-    the first 60-second window starts ticking from the second call, not
-    from process boot).
-
-    UE-16: the summary severity tracks the caller's configured
-    ``level`` (clamped to >= INFO) so an ERROR-rate-limited path
-    surfaces an ERROR summary (not INFO), alerting rules keyed on
-    ``level>=ERROR`` continue to fire on the recurrence. The existing
-    tests below use ``logging.ERROR`` as the rate-limited level, so the
-    summaries are now emitted at ERROR severity; assertions filter on
-    ``levelno >= INFO`` (not ``== INFO``) to match the new contract.
-    """
+    """wall-clock time, if any counter incremented >0 since the last"""
 
     def test_first_suppressed_occurrence_does_not_emit_summary(self, caplog):
-        """The first suppressed occurrence seeds the timer, no summary
-        is emitted until 60s have elapsed.
-        """
+        """The first suppressed occurrence seeds the timer, no summary"""
         logger = FakeLogger()
         msg = "gt-66-seed-test"
 
@@ -509,10 +385,7 @@ class TestGt66PeriodicInfoSummary:
         )
 
     def test_summary_fires_after_interval_with_delta(self, monkeypatch, caplog):
-        """When 60s+ of wall-clock has elapsed AND delta > 0 since the
-        last summary, an INFO summary fires with the delta count and
-        the counter key.
-        """
+        """the counter key."""
         logger = FakeLogger()
         msg = "gt-66-summary-test"
 
@@ -538,16 +411,6 @@ class TestGt66PeriodicInfoSummary:
         )
         msg_text = summaries[0].getMessage()
         assert "11 suppressed occurrences" in msg_text, f"expected delta=11 in summary; got {msg_text!r}"
-        # the counter key is formatted with %s (not %r), so it
-        # appears in the message WITHOUT inner repr() quotes. Asserting
-        # the bare key (not ``repr(msg)``) keeps the line grep-friendly.
-        #
-        # (review Issue 3): the previous assertion
-        # ``assert msg in msg_text`` was too weak: ``msg`` is always a
-        # substring of ``repr(msg)``, so the test PASSED with BOTH
-        # ``%s`` ( fix) AND ``%r`` (reverted). The added
-        # ``repr(msg) not in msg_text`` assertion makes the test FAIL
-        # if production code reverts to ``%r``, pinning the  fix.
         assert msg in msg_text, f"expected counter key {msg!r} in summary; got {msg_text!r}"
         assert repr(msg) not in msg_text, (
             f"YJ-45 regression: log line contains repr() quotes (production code reverted %s → %r): {msg_text!r}"
@@ -555,15 +418,7 @@ class TestGt66PeriodicInfoSummary:
         assert "in last 60s" in msg_text
 
     def test_summary_resets_delta_after_emission(self, monkeypatch, caplog):
-        """After an INFO summary fires, the per-key delta is reset to 0.
-
-        PI-25: with deadline-based cadence, the second summary fires on
-        the *first* call after the next deadline, so its delta reflects
-        only the occurrences accumulated SINCE the previous fire (here:
-        1, from count=12 alone), not the cumulative total since process
-        start (which would be 13).  The 1 vs. 13 distinction is what
-        proves the reset.
-        """
+        """After an INFO summary fires, the per-key delta is reset to 0."""
         logger = FakeLogger()
         msg = "gt-66-reset-test"
 
@@ -592,10 +447,6 @@ class TestGt66PeriodicInfoSummary:
         first = summaries[0].getMessage()
         second = summaries[1].getMessage()
         assert "10 suppressed occurrences" in first, f"first summary: {first!r}"
-        # the second summary fires on the first call after the
-        # deadline (count=12 at t=122), so its delta is 1, NOT the
-        # cumulative count of 13.  The "1" proves the delta was reset
-        # after the first summary emission.
         assert "1 suppressed occurrences" in second, (
             f"GT-66 regression: delta not reset after first summary; "
             f"second summary should report 1 (delta since previous fire, "
@@ -603,9 +454,7 @@ class TestGt66PeriodicInfoSummary:
         )
 
     def test_summary_does_not_fire_within_same_window(self, monkeypatch, caplog):
-        """Multiple suppressed occurrences within the same 60-second
-        window do NOT each emit a summary.
-        """
+        """Multiple suppressed occurrences within the same 60-second"""
         logger = FakeLogger()
         msg = "gt-66-window-test"
 
@@ -630,17 +479,7 @@ class TestGt66PeriodicInfoSummary:
         )
 
     def test_summary_per_key_independent(self, monkeypatch, caplog):
-        """Each counter key has its own summary cadence, a summary for
-        key A does not reset key B's delta.
-
-        PI-25: per-key independence means each key has its OWN deadline
-        state.  When both keys are seeded at the same time (t=0) and
-        both cross their deadlines simultaneously (t=61), BOTH keys
-        fire their own summaries: that is the correct behavior.  The
-        test previously expected only key A to fire, which would only
-        be true if the cadence were GLOBAL (a single shared timer); the
-        contract is per-key, so both fire.
-        """
+        """key A does not reset key B's delta."""
         logger = FakeLogger()
         msg_a = "gt-66-key-a"
         msg_b = "gt-66-key-b"
@@ -662,18 +501,11 @@ class TestGt66PeriodicInfoSummary:
             log_rate_limited(logger, logging.ERROR, msg_b, every_n=100)
 
         summaries = [r for r in caplog.records if r.levelno >= logging.INFO and "[rate-limit]" in r.message]
-        # both keys were seeded at t=0 and both cross their
-        # 60s deadlines at t=61, so both fire, per-key independence
-        # means each key fires on its own cadence, not "first key wins".
         assert len(summaries) == 2, (
             f"expected 2 summaries (both keys fire on their own cadence); "
             f"got {len(summaries)}: {[r.message for r in summaries]!r}"
         )
         summary_msgs = [s.getMessage() for s in summaries]
-        # counter key is formatted with %s (not %r), so the bare
-        # key appears in the message WITHOUT repr() quotes. Pin the fix
-        # with both a positive (``msg in m``) and negative
-        # (``repr(msg) not in m``) check per key.
         assert any(msg_a in m for m in summary_msgs), f"key A summary missing; got: {summary_msgs!r}"
         assert any(msg_b in m for m in summary_msgs), f"key B summary missing; got: {summary_msgs!r}"
         assert all(repr(msg_a) not in m for m in summary_msgs if msg_a in m), (
@@ -690,16 +522,10 @@ class TestGt66PeriodicInfoSummary:
 
 
 class TestEviction:
-    """GT-B1-12: ``_RATE_LIMIT_COUNTS`` is capped at ``_MAX_COUNTERS``
-    (1024) entries with LRU eviction.  When eviction fires, a WARNING
-    is logged through the module logger so the operator notices caller
-    misuse (dynamic messages without an explicit ``key=``).
-    """
+    """GT-B1-12: ``_RATE_LIMIT_COUNTS`` is capped at ``_MAX_COUNTERS``"""
 
     def test_dict_capped_at_max_counters(self):
-        """After >_MAX_COUNTERS distinct keys, the dict size is exactly
-        _MAX_COUNTERS (no unbounded growth).
-        """
+        """After >_MAX_COUNTERS distinct keys, the dict size is exactly"""
         logger = FakeLogger()
         for i in range(log_rate_limit._MAX_COUNTERS + 50):
             log_rate_limited(
@@ -716,9 +542,7 @@ class TestEviction:
         )
 
     def test_eviction_removes_least_recently_used(self):
-        """The first-inserted key (least-recently-used) is evicted when
-        the cap is exceeded; the most-recently-used key survives.
-        """
+        """The first-inserted key (least-recently-used) is evicted when"""
         logger = FakeLogger()
         for i in range(log_rate_limit._MAX_COUNTERS):
             log_rate_limited(
@@ -739,9 +563,7 @@ class TestEviction:
         assert new_key in log_rate_limit._RATE_LIMIT_COUNTS, "newly-inserted key should be present"
 
     def test_access_marks_key_as_most_recently_used(self):
-        """Re-accessing an existing key moves it to the MRU end so it
-        survives eviction on the next insert.
-        """
+        """Re-accessing an existing key moves it to the MRU end so it"""
         logger = FakeLogger()
         for i in range(log_rate_limit._MAX_COUNTERS):
             log_rate_limited(
@@ -762,10 +584,7 @@ class TestEviction:
         )
 
     def test_eviction_logs_warning_through_module_logger(self, caplog):
-        """When eviction fires, a WARNING is emitted through the module
-        logger (``voice_typer.server.log_rate_limit``) so the operator
-        notices the caller misuse.
-        """
+        """When eviction fires, a WARNING is emitted through the module"""
         logger = FakeLogger()
         with caplog.at_level(logging.WARNING, logger="voice_typer.server.log_rate_limit"):
             for i in range(log_rate_limit._MAX_COUNTERS + 5):
@@ -805,9 +624,7 @@ class TestEviction:
         )
 
     def test_reset_clears_summary_and_eviction_state(self):
-        """``reset()`` clears the LRU dict AND the GT-66 summary dicts
-        so the next test starts from a clean slate.
-        """
+        """``reset()`` clears the LRU dict AND the GT-66 summary dicts"""
         logger = FakeLogger()
         for i in range(10):
             log_rate_limited(logger, logging.ERROR, f"reset-test-{i}", every_n=100)
@@ -821,17 +638,7 @@ class TestEviction:
         assert not log_rate_limit._RATE_LIMIT_SUPPRESSED_SINCE_SUMMARY
 
     def test_eviction_prunes_summary_dicts(self, monkeypatch, caplog):
-        """UE-16: when a counter is LRU-evicted from
-        ``_RATE_LIMIT_COUNTS``, its entries in
-        ``_RATE_LIMIT_NEXT_SUMMARY_DEADLINE`` and
-        ``_RATE_LIMIT_SUPPRESSED_SINCE_SUMMARY`` must ALSO be pruned.
-
-        Pre-UE-16 the two summary dicts were keyed by the same
-        ``counter_key`` tuple as ``_RATE_LIMIT_COUNTS`` but were never
-        pruned on eviction, so a caller that drove >1024 distinct
-        dynamic messages would leak summary state forever (the summary
-        dicts were never bounded).
-        """
+        """``_RATE_LIMIT_SUPPRESSED_SINCE_SUMMARY`` must ALSO be pruned."""
         logger = FakeLogger()
         for i in range(log_rate_limit._MAX_COUNTERS):
             log_rate_limited(logger, logging.ERROR, f"ue16-msg-{i}", every_n=100)
@@ -856,9 +663,7 @@ class TestEviction:
         )
 
     def test_eviction_keeps_summary_dicts_bounded(self):
-        """UE-16: driving >>_MAX_COUNTERS distinct keys must NOT cause
-        the summary dicts to grow beyond ``_MAX_COUNTERS`` entries.
-        """
+        """UE-16: driving >>_MAX_COUNTERS distinct keys must NOT cause"""
         logger = FakeLogger()
         for i in range(log_rate_limit._MAX_COUNTERS * 3):
             log_rate_limited(logger, logging.ERROR, f"ue16-bound-{i}", every_n=100)
@@ -887,24 +692,10 @@ class TestEviction:
 
 
 class TestUe16SummarySeverity:
-    """UE-16: the GT-66 summary severity is ``max(logging.INFO, level)``
-    so an ERROR-rate-limited path surfaces an ERROR summary (not INFO).
-
-    Pre-UE-16 the summary was hardcoded at ``_log.info(...)``, so a
-    caller invoking ``log_rate_limited(log, logging.CRITICAL, ...)``
-    whose error fired 1000x in 60s would see one CRITICAL line then ~60s
-    later an INFO summary. The CRITICAL severity was lost; alerting
-    rules keyed on ``level>=ERROR`` missed the recurrence.
-
-    Post-UE-16 the summary escalates to the caller's configured level
-    (clamped to >= INFO so a DEBUG-caller's summary still surfaces at
-    the file handler's default level).
-    """
+    """UE-16: the GT-66 summary severity is ``max(logging.INFO, level)``"""
 
     def _force_summary(self, monkeypatch, caplog, level: int, msg: str):
-        """Helper: fire >60s of suppressed occurrences for *msg* at
-        *level* and return the resulting summary records.
-        """
+        """Helper: fire >60s of suppressed occurrences for *msg* at"""
         logger = FakeLogger()
         fake_time = [0.0]
         monkeypatch.setattr(

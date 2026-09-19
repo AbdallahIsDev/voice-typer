@@ -1,10 +1,6 @@
-"""Tests for the broad ``except Exception: pass`` cleanup.
-
+"""
+Tests for the broad ``except Exception: pass`` cleanup.
 Pins the contracts that:
-1. Production code in the owned-files set no longer contains bare
-   ``except Exception: pass`` blocks (they swallow real bugs).
-2. The narrowed exception handlers still catch the documented
-   platform-specific failures.
 """
 
 from __future__ import annotations
@@ -43,13 +39,10 @@ _OWNED_FILES = [
 
 
 def _find_broad_except_pass(filepath: str) -> list[tuple[int, str]]:
-    """Return ``[(line_number, snippet)]`` for every bare
-    ``except Exception: pass`` block in ``filepath``."""
+    """Return ``[(line_number, snippet)]`` for every bare"""
     p = pathlib.Path(filepath)
     if not p.exists():
         return []
-    # UTF-8 explicitly: several owned files contain non-ASCII identifiers
-    # (e.g. § comments, non-breaking spaces) that crash getpreferredencoding()
     # cp1252 on Windows. C-TEST-5-gen.
     src = p.read_text(encoding="utf-8")
     try:
@@ -74,14 +67,7 @@ def _find_broad_except_pass(filepath: str) -> list[tuple[int, str]]:
 
 
 class TestNoBroadExceptPassInOwnedFiles:
-    """XS-36: ``except Exception: pass`` swallows real bugs. Every site
-    in the owned-files set must either:
-      * Catch a narrower exception type (``except OSError:``,
-        ``except (KeyError, TypeError):``, etc.), OR
-      * Log the failure at ``debug`` level with ``exc_info=True`` (so the
-        bug is diagnosable without surfacing to the user), OR
-      * Use ``contextlib.suppress(SpecificException)``.
-    """
+    """``except Exception: pass`` swallows real bugs. Every site"""
 
     def test_no_broad_except_pass_remains(self):
         violations: list[str] = []
@@ -97,44 +83,22 @@ class TestNoBroadExceptPassInOwnedFiles:
 
 
 class TestNarrowedExceptionHandlers:
-    """Spot-check that the narrowed handlers catch the documented
-    platform-specific exceptions."""
+    """Spot-check that the narrowed handlers catch the documented"""
 
     def test_ipc_server_sigusr1_handler_catches_attribute_error(self):
         """``signal.SIGUSR1`` is missing on Windows → ``AttributeError``."""
         import voice_typer.server.ipc_server as mod
 
-        # The module imports successfully on every platform because the
-        # SIGUSR1 setup is wrapped in ``except (AttributeError, ...)``.
         assert hasattr(mod, "IPCServer"), "ipc_server module failed to import"
 
     def test_task_scheduler_schtasks_catches_filenotfound_and_timeout(self):
-        """``task_scheduler._schtasks`` runs ``schtasks`` via
-        ``subprocess.run`` with two narrowed exception handlers
-        (``FileNotFoundError`` for non-Windows hosts without schtasks.exe
-        + ``subprocess.TimeoutExpired`` for a hung Task Scheduler
-        service). Both handlers return a sentinel ``(rc, output)``
-        tuple instead of propagating, the caller (autostart register /
-        unregister / query) treats the sentinel as a soft failure and
-        falls through without crashing the IPC handler.
-
-        (Wave 3, 2026-08-14): the previous test pinned the narrowed
-        ``except (IndexError, ValueError, OSError):`` clause inside
-        ``task_scheduler._prewarm_command`` (the python-executable
-        resolver for the deleted prewarm binary). ``_prewarm_command``
-        was removed in lockstep with the prewarm binary (prewarm became
-        a worker startup phase, master plan §6.2 P-1), so the test was
-        re-pinned on the surviving ``_schtasks`` wrapper which carries
-        the SAME narrowed-handler discipline (``FileNotFoundError`` +
-        ``TimeoutExpired`` instead of a broad ``except Exception:``).
-        """
+        """``task_scheduler._schtasks`` runs ``schtasks`` via"""
         import inspect
 
         from voice_typer.server import task_scheduler
 
         src = inspect.getsource(task_scheduler._schtasks)
-        # The narrowed handlers MUST be present (XS-36: no broad
-        # ``except Exception: pass``).
+        # The narrowed handlers MUST be present (: no broad
         assert "except FileNotFoundError:" in src, (
             "task_scheduler._schtasks should catch FileNotFoundError (schtasks.exe "
             "missing on non-Windows hosts) instead of broad Exception"
@@ -145,12 +109,7 @@ class TestNarrowedExceptionHandlers:
         )
 
     def test_recorder_rec1_join_catches_runtime_error(self):
-        """``pre_thread.join()`` on an un-started thread raises
-        ``RuntimeError``, the REC-1 wrapper catches it, narrowed to
-        RuntimeError only. Both XS-36-approved forms are accepted:
-        ``except RuntimeError:`` or ``contextlib.suppress(RuntimeError)``
-        (the latter is what the file's docstring endorses for this
-        site)."""
+        """``pre_thread.join()`` on an un-started thread raises"""
         import inspect
 
         from voice_typer.server.recording.recorder import Recorder

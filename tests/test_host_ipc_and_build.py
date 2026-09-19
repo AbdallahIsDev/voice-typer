@@ -1,10 +1,6 @@
-"""Tests for IPC infrastructure, build tooling, CI, package metadata,
-and type-safety fixes.
-
+"""
+Tests for IPC infrastructure, build tooling, CI, package metadata,
 Post-predecessor cutover: the predecessor main/preload source pins were
-deleted with the TS shell. Remaining tests here cover the Python
-IPC/service layer only. Renderer-callable command parity lives in
-``tests/test_ipc_command_parity.py`` (Python registry ↔ Rust allowlist).
 """
 
 from __future__ import annotations
@@ -29,8 +25,6 @@ def _read(rel: str) -> str:
 class TestVersionReadsFromPackageMetadata:
     """__version__ reads from package metadata."""
 
-    # REQUIRES-PYTHON-RUNNER: imports the `voice_typer` Python package to
-    # read `__version__`; out of scope for a TS-string vitest rewrite.
     def test_version_uses_importlib_metadata(self):
         from voice_typer import __version__
 
@@ -40,8 +34,6 @@ class TestVersionReadsFromPackageMetadata:
 
 
 # REQUIRES-PYTHON-RUNNER: imports `voice_typer.server.config` +
-# `voice_typer.server.ipc_server.IPCServer` and invokes `_dispatch`;
-# out of scope for a TS-string vitest rewrite.
 class TestSetConfigRejectsSensitiveAttrs:
     """set_config rejects trusted-path fields from the renderer."""
 
@@ -55,11 +47,6 @@ class TestSetConfigRejectsSensitiveAttrs:
 
         app = MagicMock()
         app.config = cfg
-        # the app-level test-seam delegates (``_sync_autostart``,
-        # ``_register_esc_hotkey``, etc.) were removed; production now calls
-        # ``startup_tasks.*`` / ``app.hotkeys.*`` directly, so there is
-        # nothing on the app object to pre-stub here. ``app`` is a MagicMock,
-        # so any attribute the code touches is auto-stubbed on access.
 
         server = IPCServer(app)
 
@@ -88,7 +75,6 @@ class TestSetConfigRejectsSensitiveAttrs:
 
 
 # REQUIRES-PYTHON-RUNNER: imports `voice_typer.server.ipc_server.IPCServer`
-# and invokes `_dispatch`; out of scope for a TS-string vitest rewrite.
 class TestUnknownIPCCommandCode:
     """Unknown-command error includes code: unknown_command."""
 
@@ -104,9 +90,6 @@ class TestUnknownIPCCommandCode:
         result = server._dispatch({"id": 7, "type": "totally_made_up_command"})
 
         assert result["type"] == "error"
-        # namespaced the error code as ``server.unknown_command``;
-        # the bare ``unknown_command`` is preserved as ``legacy_code``
-        # for back-compat with any consumer still reading ``code``.
         code = result["data"]["code"]
         assert code in ("unknown_command", "server.unknown_command")
         assert result["data"]["command"] == "totally_made_up_command"
@@ -117,14 +100,12 @@ class TestEntryPointImportable:
     """The main entry point must be importable."""
 
     # REQUIRES-PYTHON-RUNNER: imports `voice_typer.server.ipc_server.main`;
-    # out of scope for a TS-string vitest rewrite.
     def test_ipc_server_main_importable(self):
         from voice_typer.server.ipc_server import main
 
         assert callable(main)
 
     # REQUIRES-PYTHON-RUNNER: imports `voice_typer.server.app`;
-    # out of scope for a TS-string vitest rewrite.
     def test_app_main_re_export_exists(self):
         import voice_typer.server.app as app_mod
 
@@ -132,7 +113,6 @@ class TestEntryPointImportable:
         assert callable(app_mod.main)
 
     # REQUIRES-PYTHON-RUNNER: imports `voice_typer.server.__main__`;
-    # out of scope for a TS-string vitest rewrite.
     def test_dunder_main_imports_from_ipc_server(self):
         import voice_typer.server.__main__ as main_mod
 
@@ -141,8 +121,6 @@ class TestEntryPointImportable:
 
 
 # REQUIRES-PYTHON-RUNNER: imports `voice_typer.server.vocabulary` +
-# `voice_typer.server.service` + `voice_typer.server.ipc_server`;
-# out of scope for a TS-string vitest rewrite.
 class TestGetVocabularyHandler:
     """get_vocabulary handler uses get_all(), not list_entries()."""
 
@@ -165,13 +143,6 @@ class TestGetVocabularyHandler:
 
         app = MagicMock()
         app.config.config_dir = tmp_path
-        # ``get_vocabulary`` prefers the app's LIVE ``_vocabulary_manager``
-        # (``getattr(self._app, "_vocabulary_manager", None)``). On a
-        # ``MagicMock`` app that attribute auto-creates another MagicMock,
-        # which satisfies the duck-typed ``hasattr(vm, "get_all")`` check
-        # and yields empty data. Pin the cold-start path instead (the
-        # documented test-fixture route) so a REAL ``VocabularyManager``
-        # is constructed from the bundled defaults.
         app._vocabulary_manager = None
         service = VoiceTyperService(app)
 
@@ -188,10 +159,6 @@ class TestGetVocabularyHandler:
 
         app = MagicMock()
         app.config = config_module.Config()
-        # Same as test_service_get_vocabulary_uses_get_all: force the
-        # cold-start path so ``IPCServer``'s real ``VoiceTyperService``
-        # builds a concrete ``VocabularyManager`` (bundled defaults)
-        # instead of feeding its own auto-created MagicMock manager.
         app._vocabulary_manager = None
         server = IPCServer(app)
 
@@ -201,8 +168,6 @@ class TestGetVocabularyHandler:
 
 
 # REQUIRES-PYTHON-RUNNER: imports `voice_typer.server.app` +
-# `voice_typer.server.ipc_server`; introspects Python module source via
-# `inspect.getsource`; out of scope for a TS-string vitest rewrite.
 class TestVoiceTyperAppSingleton:
     """VoiceTyperApp uses _ensure_single_instance for singleton enforcement."""
 
@@ -224,7 +189,6 @@ class TestVoiceTyperAppSingleton:
 
 
 # REQUIRES-PYTHON-RUNNER: imports `voice_typer.server.ipc_server.IPCServer`
-# and invokes `_dispatch`; out of scope for a TS-string vitest rewrite.
 class TestIPCDispatchInvalidData:
     """_dispatch must not crash when data is not a dict."""
 
@@ -289,7 +253,6 @@ class TestIPCDispatchInvalidData:
 
 
 # REQUIRES-PYTHON-RUNNER: reads `voice_typer/server/ipc_server.py` Python
-# source; out of scope for a TS-string vitest rewrite.
 class TestExceptExceptionNotBaseException:
     """ipc_server.main() catches Exception, not BaseException."""
 
@@ -301,9 +264,6 @@ class TestExceptExceptionNotBaseException:
 
 
 # REQUIRES-PYTHON-RUNNER: imports `voice_typer.server.audio_processor` +
-# `voice_typer.server.volume_ducker` + `voice_typer.server.volume_backends`
-# and introspects Python source via `inspect.getsource`; out of scope for
-# a TS-string vitest rewrite.
 class TestTypeIgnoreBugsFixed:
     """type:ignore real bugs are fixed."""
 
@@ -327,11 +287,6 @@ class TestTypeIgnoreBugsFixed:
 
     def test_volume_backends_bare_type_ignore_fixed(self):
         # Session 1 (PVT-architecture refactor) split the monolithic
-        # `volume_backends.py` into a `volume_backends/` subfolder:
-        # `__init__.py`, `linux.py`, `macos.py`, `windows.py`. The test
-        # originally checked the monolithic file. Updated to scan the
-        # new subfolder instead. Falls back to the monolithic file if
-        # it exists (legacy deployments).
         monolith = REPO_ROOT / "voice_typer" / "server" / "volume_backends.py"
         subfolder = REPO_ROOT / "voice_typer" / "server" / "volume_backends"
         candidates = []
@@ -353,9 +308,6 @@ class TestTypeIgnoreBugsFixed:
             assert "ignoreisc]" not in src
 
 
-# REQUIRES-PYTHON-RUNNER: imports `voice_typer.server.vad` and
-# introspects Python source via `inspect.getsource`; out of scope for
-# a TS-string vitest rewrite.
 class TestVadStderrRedirect:
     """vad.py loads the bundled model offline, no torch.hub, no noisy stderr."""
 
@@ -363,19 +315,7 @@ class TestVadStderrRedirect:
         from voice_typer.server import vad
 
         src = inspect.getsource(vad)
-        # ERR-LINT-001 history: the ``redirect_stderr`` guard existed to
-        # suppress torch.hub.load's "Using cache found in..." message.
-        # The hub fallback was removed entirely (offline-only model
-        # file via ``InferenceSession``), so the redirect is gone by
-        # design. The offline contract is now pinned instead: the
-        # bundled model must be loaded via ``onnxruntime.InferenceSession``
         # and the network hub path must NOT exist.
-        #
-        # Phase 1a (companion §2.4): the assertion was retargeted from
-        # ``torch.jit.load`` to ``InferenceSession`` because vad.py was
-        # rewritten to the ORT backend (silero_vad.onnx replaces
-        # silero_vad.jit as the active model file at runtime; the .jit
-        # is RETAINED until Phase 1c per companion §2.5).
         assert "InferenceSession" in src, (
             "vad.py must load the bundled silero_vad.onnx via "
             "onnxruntime.InferenceSession (offline-only, C-DATA-1), "
@@ -389,17 +329,8 @@ class TestVadStderrRedirect:
 
 
 # REQUIRES-PYTHON-RUNNER: imports `voice_typer.server.startup_sequence`
-# and introspects Python source via `inspect.getsource`; out of scope for
-# a TS-string vitest rewrite.
 class TestMacOSAccessibilityCheck:
-    """macOS accessibility permission check exists in the startup path.
-
-    the body of ``_do_startup`` was extracted into
-    :class:`voice_typer.server.startup_sequence.StartupSequence`. The
-    macOS accessibility check now lives in
-    ``StartupSequence._phase_5_platform_warnings``, so these source-string
-    checks are retargeted there. Intent unchanged.
-    """
+    """macOS accessibility permission check exists in the startup path."""
 
     def test_accessibility_check_in_startup_source(self):
         from voice_typer.server.startup_sequence import StartupSequence
@@ -416,18 +347,12 @@ class TestMacOSAccessibilityCheck:
 
 
 # REQUIRES-PYTHON-RUNNER: imports `voice_typer.server.app.VoiceTyperApp`
-# and instantiates it; out of scope for a TS-string vitest rewrite.
 class TestRestartAppStopsBackends:
     """restart_app stops all hotkey backends."""
 
     def test_restart_calls_stop_on_all_three_backends(self, monkeypatch, tmp_path):
         from voice_typer.server import app as app_module
 
-        # sounddevice / faster_whisper / pynput / pystray / pyperclip are
-        # already stubbed by the session + autouse mock_heavy_imports
-        # fixtures in tests/conftest.py. PIL is deliberately NOT mocked
-        # at that level (see tests/clipboard/conftest.py rationale), so
-        # constructing a real VoiceTyperApp here needs the PIL trio.
         for mod_name in [
             "PIL",
             "PIL.Image",
@@ -445,14 +370,6 @@ class TestRestartAppStopsBackends:
             patch.object(server_platform, "list_microphones", return_value=[]),
         ):
             app = app_module.VoiceTyperApp()
-            # production ``_teardown_hotkey_backends`` (in
-            # ``voice_typer/server/shutdown_controller.py``) nulls the
-            # ``app.hotkeys._hotkey_backend`` / ``_esc_backend`` /
-            # ``_repaste_backend`` attributes AFTER calling ``stop()``
-            # on each one, so re-reading ``app.hotkeys.<attr>`` after
-            # ``restart_app()`` returns ``None``, not the mock we
-            # installed. Capture the mock references BEFORE the call
-            # so we can still assert ``stop`` was invoked on them.
             hotkey_backend_mock = MagicMock()
             esc_backend_mock = MagicMock()
             repaste_backend_mock = MagicMock()
@@ -473,8 +390,6 @@ class TestRestartAppStopsBackends:
 
 
 # REQUIRES-PYTHON-RUNNER: imports `voice_typer.server.app.VoiceTyperApp`
-# and introspects Python source via `inspect.getsource`; out of scope
-# for a TS-string vitest rewrite.
 class TestRestartFiltersEnvVarsWithAllowlist:
     """restart_app does not leak env vars via os.environ.copy()."""
 

@@ -1,20 +1,4 @@
-"""Regression: fresh-install history persistence when ``<config>/db/`` is absent.
-
-On a fresh install no legacy root ``history.db`` exists, so the O2
-legacy-DB migration (``history_db._maybe_migrate_legacy_db``) never
-creates the ``db/`` subdirectory. ``open_write_conn`` used to run its
-parent-directory ``mkdir`` only on POSIX, so on Windows the first
-``HistoryDB()`` construction failed with SQLite "unable to open database
-file", the writer refused every write, and transcription history was
-silently lost for the whole session. Existing installs only worked
-because an upgrade-era migration had already created the directory.
-
-These tests pin the fixed contract on BOTH platform branches (patched,
-so the suite passes on any host): constructing a ``HistoryDB`` whose
-parent directory does not exist yet must initialize cleanly, persist a
-transcription, and read it back via ``get_latest_text``. The reader-side
-lazy connection creation mirrors the writer and is pinned too.
-"""
+"""Regression: fresh-install history persistence when ``<config>/db/`` is absent."""
 
 from __future__ import annotations
 
@@ -34,12 +18,7 @@ def fresh_db_path(tmp_path):
 
 @pytest.fixture
 def patch_platform(monkeypatch):
-    """Install an ``is_windows`` override in BOTH history-db internal modules.
-
-    The production modules import ``is_windows`` by name at module scope,
-    so each submodule's binding must be patched for the platform branch
-    under test to be simulated faithfully.
-    """
+    """Install an ``is_windows`` override in BOTH history-db internal modules."""
 
     def _install(is_windows: bool) -> None:
         monkeypatch.setattr(schema_mod, "is_windows", lambda: is_windows)
@@ -67,21 +46,13 @@ def test_fresh_install_missing_db_dir_persists(fresh_db_path, patch_platform, pl
 
 @pytest.mark.parametrize("platform_name", ["windows", "posix"])
 def test_reader_recreates_deleted_db_dir(fresh_db_path, patch_platform, platform_name):
-    """The reader's lazy connection creation mirrors the writer's mkdir.
-
-    After the directory disappears mid-session (e.g. deleted while the app
-    runs), a new thread-local read connection must restore the parent
-    directory and open a usable connection instead of raising
-    "unable to open database file".
-    """
+    """The reader's lazy connection creation mirrors the writer's mkdir."""
     patch_platform(platform_name == "windows")
     db = HistoryDB(db_path=fresh_db_path)
     try:
         db.add_transcription("before delete")
         db.flush()
     finally:
-        # close() is idempotent; it releases the file handles so the
-        # directory can be removed on Windows too.
         db.close()
     shutil.rmtree(fresh_db_path.parent)
     assert not fresh_db_path.parent.exists()

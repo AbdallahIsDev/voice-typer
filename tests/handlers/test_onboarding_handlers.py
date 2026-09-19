@@ -1,47 +1,4 @@
-"""Unit tests for ``OnboardingHandlersMixin`` (CR-12).
-
-Covers the onboarding-wizard IPC handlers defined in
-``voice_typer/server/handlers/onboarding_handlers.py``:
-
-Step-navigation handlers (return ``{type: onboarding_step, data: <step>}``):
-- ``_handle_onboarding_start``
-- ``_handle_onboarding_next_step``
-- ``_handle_onboarding_prev_step``
-
-Status handlers (return their own ``onboarding_*`` type):
-- ``_handle_onboarding_is_first_run`` → ``onboarding_first_run``
-- ``_handle_onboarding_get_microphones`` → ``onboarding_microphones``
-- ``_handle_onboarding_get_model_options`` → ``onboarding_models``
-- ``_handle_onboarding_get_hotkey_presets`` → ``onboarding_hotkey_presets``
-
-Set-style handlers (validate a single field, return ``{type: ack|error, data: <result>}``):
-- ``_handle_onboarding_set_microphone``, validates ``mic_id: str`` (required).
-- ``_handle_onboarding_set_hotkey``, validates ``hotkey: str`` (default ``<caps_lock>``).
-- ``_handle_onboarding_set_model``, validates ``model: str`` (default: the canonical
-  ``DEFAULT_MODEL_SIZE`` sentinel, no concrete default model).
-- ``_handle_onboarding_set_backend`` (validates ``backend: str`` (required) the explicit local-vs-cloud choice).
-
-Decision handlers (return ack or error based on whether the service
-result contains an ``error`` key):
-- ``_handle_onboarding_skip``
-- ``_handle_onboarding_apply``
-
-The interesting invariant for the set_* handlers: the response type
-is ``ack`` if the service returned a success result, but ``error``
-if the service returned a dict containing an ``error`` key (the
-service uses this to signal e.g. "microphone not found").  This is
-the only handler in the IPC layer that branches on the service
-return value's shape rather than on exceptions.
-
-UE-15 (2026-07-30): ``_handle_onboarding_get_step``,
-``_handle_onboarding_get_model_catalog``, and
-``_handle_onboarding_request_keyboard_permission`` were deleted from
-``OnboardingHandlersMixin`` (the renderer no longer invokes them).
-The corresponding ``TestOnboardingStepNavigation.test_get_step_*``,
-``TestOnboardingGetModelCatalogHandler``, and any
-``TestOnboardingRequestKeyboardPermission`` classes were removed in
-lockstep.
-"""
+"""Unit tests for ``OnboardingHandlersMixin`` (CR-12)."""
 
 from __future__ import annotations
 
@@ -64,7 +21,6 @@ class TestOnboardingIsFirstRun:
         fake_service.onboarding_is_first_run.side_effect = RuntimeError("disk error")
         resp = ipc_server._handle_onboarding_is_first_run({}, {})
         assert resp["type"] == "error"
-        # generic WS-path envelope (no ``str(exc)`` leak).
         assert resp["data"]["code"] == "server.internal_error"
         assert resp["data"]["message"] == "internal error"
 
@@ -92,7 +48,6 @@ class TestOnboardingStepNavigation:
         fake_service.onboarding_next_step.side_effect = RuntimeError("at last step")
         resp = ipc_server._handle_onboarding_next_step({}, {})
         assert resp["type"] == "error"
-        # generic WS-path envelope (no ``str(exc)`` leak).
         assert resp["data"]["code"] == "server.internal_error"
         assert resp["data"]["message"] == "internal error"
 
@@ -111,7 +66,6 @@ class TestOnboardingSetMicrophone:
         resp = ipc_server._handle_onboarding_set_microphone({}, {})
         assert resp["type"] == "error"
         # Validator emits the namespaced code (the bare-form
-        # ``legacy_code`` alias was removed once the renderer migrated).
         assert resp["data"]["code"] == "client.missing_field"
         assert resp["data"]["field"] == "mic_id"
         fake_service.onboarding_set_microphone.assert_not_called()
@@ -120,18 +74,11 @@ class TestOnboardingSetMicrophone:
         resp = ipc_server._handle_onboarding_set_microphone({"mic_id": 123}, {})
         assert resp["type"] == "error"
         # Namespaced ``client.invalid_field`` (the bare-form
-        # ``legacy_code`` alias was removed once the renderer migrated).
         assert resp["data"]["code"] == "client.invalid_field"
         assert resp["data"]["field"] == "mic_id"
 
     def test_service_returns_error_dict_flips_response_type_to_error(self, ipc_server, fake_service):
-        """If the service returns ``{"error": ...}``, the handler flips
-        the response type to ``error`` (not ``ack``).
-
-        This is the only handler that branches on the service return
-        value's shape, the onboarding flow uses it to signal "mic_id
-        not found" without raising an exception.
-        """
+        """If the service returns ``{\"error\": ...}``, the handler flips"""
         fake_service.onboarding_set_microphone.return_value = {
             "error": "microphone not found",
         }
@@ -160,15 +107,12 @@ class TestOnboardingSetHotkey:
         resp = ipc_server._handle_onboarding_set_hotkey({"hotkey": 99}, {})
         assert resp["type"] == "error"
         # Namespaced ``client.invalid_field`` (the bare-form
-        # ``legacy_code`` alias was removed once the renderer migrated).
         assert resp["data"]["code"] == "client.invalid_field"
         assert resp["data"]["field"] == "hotkey"
 
 
 class TestOnboardingSetModel:
-    """``_handle_onboarding_set_model``, validates ``model`` (default: the
-    canonical ``DEFAULT_MODEL_SIZE`` sentinel, no concrete default
-    model since the 2026-08-28 no-default-model change)."""
+    """canonical ``DEFAULT_MODEL_SIZE`` sentinel, no concrete default"""
 
     def test_happy_path_with_explicit_model(self, ipc_server, fake_service):
         fake_service.onboarding_set_model.return_value = {"ok": True}
@@ -177,16 +121,7 @@ class TestOnboardingSetModel:
         fake_service.onboarding_set_model.assert_called_once_with("tiny")
 
     def test_missing_model_uses_default_tiny(self, ipc_server, fake_service):
-        """Missing ``model`` field → the handler falls back to the
-        canonical ``DEFAULT_MODEL_SIZE`` (the schema default on the
-        ``onboarding_set_model`` command).
-
-        Historically the fallback was the hardcoded string ``"tiny"``;
-        the 2026-08-28 no-default-model change replaced every concrete
-        default with the ``DEFAULT_MODEL_SIZE`` sentinel (empty string,
-        "user has not picked a model yet"), so this test now pins the
-        handler to that single source of truth instead of a model name.
-        """
+        """``onboarding_set_model`` command)."""
         fake_service.onboarding_set_model.return_value = {"ok": True}
         resp = ipc_server._handle_onboarding_set_model({}, {})
         assert resp["type"] == "ack"
@@ -196,19 +131,12 @@ class TestOnboardingSetModel:
         resp = ipc_server._handle_onboarding_set_model({"model": ["small"]}, {})
         assert resp["type"] == "error"
         # Namespaced ``client.invalid_field`` (the bare-form
-        # ``legacy_code`` alias was removed once the renderer migrated).
         assert resp["data"]["code"] == "client.invalid_field"
         assert resp["data"]["field"] == "model"
 
 
 class TestOnboardingSetBackend:
-    """``_handle_onboarding_set_backend``, validates ``backend`` (required).
-
-    The Model-step backend choice ("local" vs "cloud") is the user's
-    explicit decision, the app never auto-downloads a model. The field
-    is required (no default) so the wizard cannot silently fall back to
-    one backend when the renderer forgot to send the choice.
-    """
+    """``_handle_onboarding_set_backend``, validates ``backend`` (required)."""
 
     def test_happy_path_with_local(self, ipc_server, fake_service):
         fake_service.onboarding_set_backend.return_value = {"ok": True}
@@ -223,12 +151,10 @@ class TestOnboardingSetBackend:
         fake_service.onboarding_set_backend.assert_called_once_with("cloud")
 
     def test_missing_backend_returns_missing_field_error(self, ipc_server, fake_service):
-        """``backend`` is required, an empty payload must NOT silently
-        default to one of the choices."""
+        """``backend`` is required, an empty payload must NOT silently"""
         resp = ipc_server._handle_onboarding_set_backend({}, {})
         assert resp["type"] == "error"
         # Required field absent → ``client.missing_field`` (not
-        # ``client.invalid_field``, which is for wrong-type values).
         assert resp["data"]["code"] == "client.missing_field"
         assert resp["data"]["field"] == "backend"
 
@@ -239,8 +165,7 @@ class TestOnboardingSetBackend:
         assert resp["data"]["field"] == "backend"
 
     def test_service_error_flips_response_to_error(self, ipc_server, fake_service):
-        """An invalid choice surfaces the service's ValueError as an
-        error envelope (``{type: error}``), never a silent ack."""
+        """An invalid choice surfaces the service's ValueError as an"""
         fake_service.onboarding_set_backend.return_value = {
             "error": "unknown onboarding backend choice: 'nope'",
         }
@@ -259,7 +184,7 @@ class TestOnboardingSkipAndApply:
         assert resp["data"] == {"ok": True, "skipped": True}
 
     def test_skip_with_error_in_result_returns_error_type(self, ipc_server, fake_service):
-        """A ``{"error": ...}`` result flips the type to ``error``."""
+        """A ``{\"error\": ...}`` result flips the type to ``error``."""
         fake_service.onboarding_skip.return_value = {"error": "cannot skip welcome step"}
         resp = ipc_server._handle_onboarding_skip({}, {})
         assert resp["type"] == "error"
@@ -274,7 +199,6 @@ class TestOnboardingSkipAndApply:
         fake_service.onboarding_apply.side_effect = RuntimeError("config save failed")
         resp = ipc_server._handle_onboarding_apply({}, {})
         assert resp["type"] == "error"
-        # generic WS-path envelope (no ``str(exc)`` leak).
         assert resp["data"]["code"] == "server.internal_error"
         assert resp["data"]["message"] == "internal error"
 
@@ -310,22 +234,12 @@ class TestOnboardingListHandlers:
         fake_service.onboarding_get_microphones.side_effect = RuntimeError("portaudio")
         resp = ipc_server._handle_onboarding_get_microphones({}, {})
         assert resp["type"] == "error"
-        # generic WS-path envelope (no ``str(exc)`` leak).
         assert resp["data"]["code"] == "server.internal_error"
         assert resp["data"]["message"] == "internal error"
 
 
-# new onboarding IPC handlers ( / ) ────────────────
-
-
 class TestOnboardingCheckPermissionsHandler:
-    """``_handle_onboarding_check_permissions``, UX-4 / UX-27.
-
-    Returns the OS-level keyboard-monitoring permission state plus
-    platform-specific setup instructions. The wizard's new Permissions
-    step uses this to render a macOS Accessibility walkthrough or a
-    Linux input-group + udev-rule walkthrough.
-    """
+    """``_handle_onboarding_check_permissions``, UX-4 / UX-27."""
 
     def test_happy_path_returns_onboarding_permissions(self, ipc_server, fake_service):
         resp = ipc_server._handle_onboarding_check_permissions({}, {})
@@ -337,22 +251,14 @@ class TestOnboardingCheckPermissionsHandler:
         assert isinstance(data["needed"], bool)
 
     def test_does_not_call_service(self, ipc_server, fake_service):
-        """The handler must NOT delegate to ``self.service``, the
-        permission probe lives in ``voice_typer.server.permissions``
-        and is shared with the hotkey-adapter runtime path."""
+        """permission probe lives in ``voice_typer.server.permissions``"""
         # If the handler tried to call self.service.onboarding_check_permissions,
-        # MagicMock would auto-create the attribute and return a MagicMock,
-        # which would not be a dict, the handler would still return a
-        # valid response, but the assertion below catches the case where
-        # the handler actually invokes a service method (MagicMock would
-        # record the call).
         fake_service.onboarding_check_permissions = None  # type: ignore[attr-defined]
         resp = ipc_server._handle_onboarding_check_permissions({}, {})
         assert resp["type"] == "onboarding_permissions"
 
     def test_check_permissions_failure_returns_error(self, ipc_server, fake_service, monkeypatch):
-        """If the permission probe raises, the handler returns an
-        ``error`` response."""
+        """If the permission probe raises, the handler returns an"""
         from voice_typer.server import onboarding as onboarding_mod
 
         def _boom(self):
@@ -361,53 +267,33 @@ class TestOnboardingCheckPermissionsHandler:
         monkeypatch.setattr(onboarding_mod.OnboardingController, "check_permissions", _boom)
         resp = ipc_server._handle_onboarding_check_permissions({}, {})
         assert resp["type"] == "error"
-        # generic WS-path envelope (no ``str(exc)`` leak).
         assert resp["data"]["code"] == "server.internal_error"
         assert resp["data"]["message"] == "internal error"
 
 
-# ──────────────────────────────────────────────────────────────────────
-# service-returned ``{"error": str(exc)}`` redaction
-# ──────────────────────────────────────────────────────────────────────
-
-
 class TestXzEh002ServiceErrorRedaction:
-    """XZ-EH-002: the five ``set_*`` / ``skip`` / ``apply`` handlers
-    pass the service-returned dict straight to ``resp["data"]``. The
-    service's ``str(exc)`` can contain secrets (API keys, file paths);
-    the handler now applies ``_redact_service_error`` before
-    forwarding so the redacted form lands in the IPC response.
-
-    These tests cover the redaction path: feed each handler a
-    service-returned dict whose ``"error"`` value contains a known
-    secret pattern, and assert the secret is replaced with ``***`` in
-    the response's ``data["error"]`` field.
-    """
+    """XZ-EH-002: the five ``set_*`` / ``skip`` / ``apply`` handlers"""
 
     _SECRET_BEARER = "Bearer abcdefghijklmnopqrstuvwxyz0123456789"
     _SECRET_SK = "sk-abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJ"
 
     def test_apply_redacts_bearer_token(self, ipc_server, fake_service):
-        """``onboarding_apply`` service error containing a Bearer token
-        is redacted before landing in the IPC response."""
+        """``onboarding_apply`` service error containing a Bearer token"""
         fake_service.onboarding_apply.return_value = {
             "error": f"config write failed: auth header={self._SECRET_BEARER}"
         }
         resp = ipc_server._handle_onboarding_apply({}, {})
         assert resp["type"] == "error"
         # The Bearer token prefix is preserved but the secret suffix
-        # is replaced with ``***`` by ``redact_secret``.
         assert "Bearer ***" in resp["data"]["error"]
         assert self._SECRET_BEARER not in resp["data"]["error"]
 
     def test_apply_redacts_openai_key(self, ipc_server, fake_service):
-        """``onboarding_apply`` service error containing an OpenAI
-        ``sk-...`` key is redacted."""
+        """``onboarding_apply`` service error containing an OpenAI"""
         fake_service.onboarding_apply.return_value = {"error": f"cloud config error: invalid key {self._SECRET_SK}"}
         resp = ipc_server._handle_onboarding_apply({}, {})
         assert resp["type"] == "error"
         # ``sk-...`` is fully replaced with ``***`` by ``redact_secret``
-        # (no prefix preservation for the bare ``sk-`` form).
         assert self._SECRET_SK not in resp["data"]["error"]
         assert "***" in resp["data"]["error"]
 
@@ -443,9 +329,7 @@ class TestXzEh002ServiceErrorRedaction:
         assert self._SECRET_SK not in resp["data"]["error"]
 
     def test_success_result_not_mutated_by_redaction(self, ipc_server, fake_service):
-        """When the service returns a success dict (no ``"error"`` key),
-        ``_redact_service_error`` is a no-op and the result is passed
-        through unchanged (no spurious ``"error"`` key added)."""
+        """When the service returns a success dict (no ``\"error\"`` key),"""
         fake_service.onboarding_apply.return_value = {"ok": True, "step": "done"}
         resp = ipc_server._handle_onboarding_apply({}, {})
         assert resp["type"] == "ack"
@@ -454,17 +338,7 @@ class TestXzEh002ServiceErrorRedaction:
         assert "error" not in resp["data"]
 
     def test_none_error_value_treated_as_success(self, ipc_server, fake_service):
-        """XZ-EH-015: if the service returns ``{"error": None}`` (key
-        present but value ``None``), the handler must treat it as a
-        SUCCESS (``ack``) - not misreport it as ``error``.
-
-        Previously the handler checked ``"error" in result`` (key
-        presence), which flipped the response type to ``error`` even
-        though the service clearly intended success. The fix checks
-        ``result.get("error") is not None`` so a ``None`` value is
-        treated as "no error". The full typed-exception migration was
-        deferred - cross-file work outside this finding's scope.
-        """
+        """XZ-EH-015: if the service returns ``{\"error\": None}`` (key"""
         fake_service.onboarding_apply.return_value = {"error": None}
         resp = ipc_server._handle_onboarding_apply({}, {})
         # XZ-EH-015: {"error": None} -> type is "ack" (was "error").
@@ -473,36 +347,25 @@ class TestXzEh002ServiceErrorRedaction:
         assert resp["data"]["error"] is None
 
     def test_explicit_string_error_still_flips_to_error_type(self, ipc_server, fake_service):
-        """XZ-EH-015 sanity: a real string-valued ``error`` is still
-        reported as ``error`` (the fix only changes the None case)."""
+        """XZ-EH-015 sanity: a real string-valued ``error`` is still"""
         fake_service.onboarding_apply.return_value = {"error": "config write failed"}
         resp = ipc_server._handle_onboarding_apply({}, {})
         assert resp["type"] == "error"
         assert resp["data"]["error"] == "config write failed"
 
     def test_none_error_in_set_microphone_treated_as_success(self, ipc_server, fake_service):
-        """XZ-EH-015: the same {"error": None} -> ack fix applies to all
-        five set_*/skip/apply handlers. Pin the set_microphone path."""
+        """XZ-EH-015: the same {\"error\": None} -> ack fix applies to all"""
         fake_service.onboarding_set_microphone.return_value = {"error": None, "ok": True}
         resp = ipc_server._handle_onboarding_set_microphone({"mic_id": "usb_1"}, {})
         assert resp["type"] == "ack"
         assert resp["data"]["error"] is None
 
 
-# ==============================================================================
-# Merged from tests/test_config_onboarding_handler_fixes.py —
-#   onboarding-handler regression pins (start re-run guard, service-error WARNING breadcrumbs, mark_started failure
-#   logged not swallowed)
-# ==============================================================================
-
-
 class TestOnboardingStartRerunGuard:
-    """DE-39: ``_handle_onboarding_start`` refuses to re-run the wizard
-    after completion unless the caller passes ``{"force": true}``."""
+    """DE-39: ``_handle_onboarding_start`` refuses to re-run the wizard"""
 
     def test_first_run_true_proceeds_normally(self, ipc_server, fake_service):
-        """When ``onboarding_is_first_run`` returns True, the handler
-        delegates to ``service.onboarding_start`` as before."""
+        """When ``onboarding_is_first_run`` returns True, the handler"""
         fake_service.onboarding_is_first_run.return_value = {"is_first_run": True}
         fake_service.onboarding_start.return_value = {
             "step": 0,
@@ -517,10 +380,7 @@ class TestOnboardingStartRerunGuard:
         fake_service.onboarding_start.assert_called_once()
 
     def test_first_run_false_without_force_returns_already_complete_error(self, ipc_server, fake_service):
-        """When onboarding is already complete and no ``force`` flag is
-        passed, the handler returns an error envelope with
-        ``code: 'onboarding_already_complete'``, and does NOT call
-        ``service.onboarding_start``."""
+        """When onboarding is already complete and no ``force`` flag is"""
         fake_service.onboarding_is_first_run.return_value = {"is_first_run": False}
 
         resp = ipc_server._handle_onboarding_start({}, {})
@@ -533,9 +393,7 @@ class TestOnboardingStartRerunGuard:
         fake_service.onboarding_start.assert_not_called()
 
     def test_first_run_false_with_force_proceeds(self, ipc_server, fake_service):
-        """When ``force: true`` is passed, the handler re-runs the
-        wizard even though onboarding is already complete (used by
-        Settings → Troubleshooting → Re-run Setup Wizard)."""
+        """Settings → Troubleshooting → Re-run Setup Wizard)."""
         fake_service.onboarding_is_first_run.return_value = {"is_first_run": False}
         fake_service.onboarding_start.return_value = {
             "step": 0,
@@ -550,15 +408,7 @@ class TestOnboardingStartRerunGuard:
         fake_service.onboarding_start.assert_called_once()
 
     def test_first_run_false_with_force_falsy_string_does_not_proceed(self, ipc_server, fake_service):
-        """``force`` must be a real boolean True, the string
-        ``"false"`` is truthy in Python but the handler uses
-        ``bool(data.get("force", False))`` which coerces it to True.
-
-        Wait, actually, ``bool("false")`` is True in Python because
-        non-empty strings are truthy. So this test asserts that a
-        NON-empty string value for ``force`` does proceed (matching
-        Python truthiness). The guard only blocks when ``force`` is
-        falsy (None, False, 0, empty string, missing key)."""
+        """``force`` must be a real boolean True, the string"""
         fake_service.onboarding_is_first_run.return_value = {"is_first_run": False}
         fake_service.onboarding_start.return_value = {
             "step": 0,
@@ -572,9 +422,7 @@ class TestOnboardingStartRerunGuard:
         assert resp["data"]["code"] == "onboarding_already_complete"
 
     def test_non_dict_data_does_not_crash_guard(self, ipc_server, fake_service):
-        """DE-39: the guard must not crash when ``data`` is None or a
-        non-dict (renderer may send no payload). The handler coerces
-        to ``{}`` before reading ``force``."""
+        """non-dict (renderer may send no payload). The handler coerces"""
         fake_service.onboarding_is_first_run.return_value = {"is_first_run": False}
 
         # None payload, must not raise TypeError.
@@ -583,8 +431,7 @@ class TestOnboardingStartRerunGuard:
         assert resp["data"]["code"] == "onboarding_already_complete"
 
     def test_guard_logs_warning_when_blocking(self, ipc_server, fake_service, caplog):
-        """DE-39: when the guard blocks, the handler logs a WARNING so
-        operators can see the rejection in ``voice-typer.log``."""
+        """DE-39: when the guard blocks, the handler logs a WARNING so"""
         fake_service.onboarding_is_first_run.return_value = {"is_first_run": False}
 
         with caplog.at_level(logging.WARNING, logger="voice_typer.server.ipc_server"):
@@ -599,8 +446,7 @@ class TestOnboardingStartRerunGuard:
 
 
 class TestServiceErrorsLogged:
-    """DE-40: when a service returns ``{"error": ...}``, the handler
-    must log a WARNING with the command name and the error string."""
+    """DE-40: when a service returns ``{\"error\": ...}``, the handler"""
 
     @pytest.mark.parametrize(
         "handler_name, service_method, payload",
@@ -638,9 +484,7 @@ class TestServiceErrorsLogged:
         service_method,
         payload,
     ):
-        """Each of the 6 onboarding handlers that delegate ack-vs-error
-        to the service's return dict shape must log the service-returned
-        error at WARNING so the failure leaves a server-side breadcrumb."""
+        """Each of the 6 onboarding handlers that delegate ack-vs-error"""
         service_mock = getattr(fake_service, service_method)
         service_mock.return_value = {"error": "service-layer failure"}
         handler = getattr(ipc_server, handler_name)
@@ -665,9 +509,7 @@ class TestServiceErrorsLogged:
         )
 
     def test_service_success_does_not_log_warning(self, ipc_server, fake_service, caplog):
-        """DE-40: when the service returns success (no ``error`` key),
-        NO warning is logged, the handler's ack-vs-error branch only
-        logs on the error path."""
+        """DE-40: when the service returns success (no ``error`` key),"""
         fake_service.onboarding_apply.return_value = {"ok": True}
 
         with caplog.at_level(logging.WARNING, logger="voice_typer.server.ipc_server"):
@@ -685,13 +527,10 @@ class TestServiceErrorsLogged:
 
 
 class TestMarkStartedFailureLogged:
-    """DE-41: ``OnboardingController().mark_started()`` failures in
-    ``_handle_onboarding_start`` are logged at WARNING with
-    ``exc_info=True`` instead of being silently swallowed."""
+    """``exc_info=True`` instead of being silently swallowed."""
 
     def test_mark_started_failure_logs_warning_with_exc_info(self, ipc_server, fake_service, monkeypatch, caplog):
-        """When ``mark_started`` raises, the handler must emit a WARNING
-        with ``exc_info=True`` (was ``except Exception: pass``)."""
+        """When ``mark_started`` raises, the handler must emit a WARNING"""
         fake_service.onboarding_is_first_run.return_value = {"is_first_run": True}
         fake_service.onboarding_start.return_value = {
             "step": 0,
@@ -710,8 +549,6 @@ class TestMarkStartedFailureLogged:
         with caplog.at_level(logging.WARNING, logger="voice_typer.server.ipc_server"):
             resp = ipc_server._handle_onboarding_start({}, {})
 
-        # Response is still success, mark_started is best-effort and
-        # must not abort the wizard.
         assert resp["type"] == "onboarding_step"
 
         warnings = [
@@ -722,7 +559,6 @@ class TestMarkStartedFailureLogged:
             and "mark_started failed" in r.getMessage()
         ]
         assert warnings, "DE-41: mark_started failure must be logged at WARNING"
-        # exc_info must be attached so the traceback lands in voice-typer.log.
         assert any(r.exc_info is not None for r in warnings), (
             "DE-41: warning must carry exc_info=True so the traceback is logged"
         )
@@ -753,27 +589,13 @@ class TestMarkStartedFailureLogged:
         assert not warnings, "DE-41: success path must not emit the mark_started warning"
 
 
-# ──────────────────────────────────────────────────────────────────────
-# onboarding_apply service-error logging pipeline
-# ──────────────────────────────────────────────────────────────────────
-
-
 class TestOnboardingApplyServiceErrorLogging:
-    """``_handle_onboarding_apply`` logs the service-returned error twice
-    server-side: WARNING with the RAW string first (operator breadcrumb
-    tying the renderer's error toast back to the service call), then
-    ERROR with the REDACTED form (the ERROR-level log filter operators
-    commonly tail). Only the redacted form reaches the IPC response.
-    The sibling ack-vs-error handlers log the WARNING only, the
-    ERROR-level mirror is apply-specific.
-    """
+    """``_handle_onboarding_apply`` logs the service-returned error twice"""
 
     _SECRET_SK = "sk-abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJ"
 
     def test_apply_logs_raw_warning_then_redacted_error(self, ipc_server, fake_service, caplog):
-        """A service error is logged at WARNING with the raw string and at
-        ERROR with the redacted string; the response carries the redacted
-        form only."""
+        """A service error is logged at WARNING with the raw string and at"""
         raw_error = f"config write failed: invalid key {self._SECRET_SK}"
         fake_service.onboarding_apply.return_value = {"error": raw_error}
 
@@ -807,8 +629,7 @@ class TestOnboardingApplyServiceErrorLogging:
         assert "***" in errors[0].getMessage()
 
     def test_skip_error_has_no_error_level_mirror(self, ipc_server, fake_service, caplog):
-        """The ERROR-level redacted mirror is apply-specific, the other
-        ack-vs-error handlers (skip pinned here) log the WARNING only."""
+        """The ERROR-level redacted mirror is apply-specific, the other"""
         fake_service.onboarding_skip.return_value = {"error": "cannot skip welcome step"}
 
         with caplog.at_level(logging.WARNING, logger="voice_typer.server.ipc_server"):

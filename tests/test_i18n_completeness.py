@@ -1,17 +1,4 @@
-"""Comprehensive i18n completeness tests.
-
-These tests verify that every non-English locale file has:
-  1. Key-structure parity with en.json (every key in en.json exists in the locale).
-  2. Placeholder parity (every {placeholder} in an en.json value exists in the
-     locale's value, and vice versa).
-  3. Value-translated check: for every key, the locale's value is NOT identical
-     to the English value, UNLESS the key is in ALLOWED_UNTRANSLATED (brand
-     names, technical acronyms, etc.).
-
-These tests are the durable fix for the i18n coverage gaps documented in the
-directive: previously, new keys added to en.json were silently propagated as
-English values to non-English locales, and there was no test to catch it.
-"""
+"""Comprehensive i18n completeness tests."""
 
 from __future__ import annotations
 
@@ -28,7 +15,6 @@ EN_FILE = TRANSLATIONS_DIR / "en.json"
 NON_ENGLISH_LOCALES = ["ar", "de", "es", "fr", "hi", "ru", "zh"]
 
 # Keys whose values are intentionally identical across all locales (brand
-# names, technical acronyms, etc.).  These are NOT translation gaps.
 ALLOWED_UNTRANSLATED = {
     "app.name",  # "Voice Typer", brand name
     "settings.apiUrl",  # "API URL", technical acronym, kept as-is
@@ -40,35 +26,11 @@ ALLOWED_UNTRANSLATED = {
     "settings.notifications",  # "Notifications", technical term
     "a11y.notifications",  # "Notifications", identical cognate in French (same word)
     "home.error",  # "ERROR", technical term
-    # trayState.error, the tooltip's AppState error label. "error" is
-    # the same word in Spanish (and a universal technical cognate); the
-    # es.json value is a genuine translation, not an untranslated copy.
     "trayState.error",
-    # nav.settingsGeneral: "General" is the standard Spanish term for
-    # a settings sub-page (matching Windows/macOS Spanish UIs); the
-    # es.json value is a genuine translation, not an untranslated copy.
-    # (Sibling keys ARE distinct: settingsAppearance "Apariencia",
-    # settingsPrivacy "Privacidad".)
     "nav.settingsGeneral",
-    # settings.audioEnhancement.presetAuto / presetStudio: "Auto" and
-    # "Studio" are the standard German/Spanish/French audio terms (the
-    # same loanwords English uses); the de/es/fr values are genuine
-    # translations, not untranslated copies. Sibling keys ARE distinct
-    # (presetNoisyRoom "Lauter Raum"/"Habitación ruidosa"/"Pièce
-    # bruyante", presetOff "Aus"/"Desactivado"/"Désactivé", presetCustom
-    # "Erweitert"/"Avanzado"/"Avancé").
     "settings.audioEnhancement.presetAuto",
     "settings.audioEnhancement.presetStudio",
     # (client_root_i18n): "⚠ Error", universal warning symbol +
-    # technical term, identical across all locales (same rationale as
-    # home.error). The bubble renders this as a small status badge
-    # during dictation errors; translating the word "Error" would not
-    # change the meaning for any native speaker (the ⚠ glyph carries
-    # the warning semantics, and "Error" is a near-universal technical
-    # cognate in every locale we ship, de/es/fr/hi/ru/zh all use the
-    # Latin loanword in technical contexts, and ar uses "خطأ" but the
-    # ⚠ glyph is sufficient for the badge context). Kept identical to
-    # avoid a fake distinction that would confuse native speakers.
     "bubble.errorLabel",  # "⚠ Error"
     # Provider labels are brand names, kept identical across all locales.
     "models.providers.openai.label",  # "OpenAI Whisper API"
@@ -80,19 +42,10 @@ ALLOWED_UNTRANSLATED = {
     "about.unknown",  # "—"
     # Version number format: "v{version}" is universally identical.
     "about.versionValue",  # "v{version}"
-    # About page product identity: "Version" is the identical word in
-    # German and French ("Version"), and "Cloud (optional)" is the same
-    # in German, technical cognates, not translation gaps.
     "about.version",  # "Version"
     "about.cloudTitle",  # "Cloud (optional)"
     # About page platform list, OS brand names (Windows/macOS/Linux)
-    # are proper nouns, kept identical across all locales.
     "about.platformsValue",  # "Windows, macOS, and Linux"
-    # audio engineering terms that are genuinely
-    # identical cognates in de/es/fr: "Equalizer", "Limiter" are
-    # standard technical vocabulary used untranslated in German, Spanish,
-    # and French audio engineering contexts. Adding them here avoids
-    # forcing a fake distinction that would confuse native speakers.
     "settings.audioEnhancement.equalizer",  # "Equalizer"
     "settings.audioEnhancement.equalizerAria",  # "Equalizer"
     "settings.audioEnhancement.limiter",  # "Limiter"
@@ -100,42 +53,19 @@ ALLOWED_UNTRANSLATED = {
     # "Variables: {vars}": "Variables" is identical in EN/ES (cognate).
     "templates.variablesTooltip",  # "Variables: {vars}"
     # Vocabulary table column headers: "Original" is the identical
-    # cognate in de/es/fr (the standard word for an input-to-correction
-    # mapping column in all three languages), and French UI convention
-    # for an actions column is literally "Actions" (same word). Forcing
-    # a different word would create a fake distinction that confuses
-    # native speakers, same rationale as the Equalizer/Limiter entries.
     "vocabulary.columnOriginal",  # "Original"
     "vocabulary.columnActions",  # "Actions"
     # About Diagnostics row label: "Backend" is the standard technical
-    # term used untranslated in German, Spanish, and French ("das
-    # Backend" / "el backend" / "le backend"), same rationale as the
-    # Equalizer/Limiter and Microphone/Overlay/Preset entries above.
     "about.backend",  # "Backend"
     # "Corrections", the Analytics corrections card label. The word is
-    # genuinely identical in English and French ("les corrections"), so
-    # fr.json's value matches English by cognate, not by a translation gap.
     "analytics.corrections",  # "Corrections"
-    # Vocabulary usage-count plural labels: "{count} correction(s)" is a
-    # genuine French cognate: "correction" is the same word in French
-    # ("la correction"), so fr.json's values match English by cognate,
-    # not by a translation gap. Same rationale as analytics.corrections
-    # and the trayState.error Spanish cognate above.
     "vocabulary.count_zero",  # "{count} corrections"
     "vocabulary.count_one",  # "{count} correction"
     "vocabulary.count_two",  # "{count} corrections"
     "vocabulary.count_few",  # "{count} corrections"
     "vocabulary.count_many",  # "{count} corrections"
     "vocabulary.count_other",  # "{count} corrections"
-    # Theme switch labels: "System" in German is the standard German word for
-    # the system-following theme mode, identical to English by coincidence,
-    # not a translation gap.
     "theme.system",  # "System"
-    # universal technical placeholders that have no natural
-    # translation in any locale. URLs and model identifiers are protocol-level
-    # strings, translating them would break the API endpoint or model lookup.
-    # The hotkeyPicker.customLabel value is "{label}" only, a pure template
-    # placeholder with no translatable prose.
     "settings.apiUrlPlaceholder",  # "https://api.openai.com/v1/chat/completions"
     "settings.modelPlaceholder",  # "gpt-4o-mini"
     "hotkeyPicker.customLabel",  # "{label}"
@@ -144,10 +74,6 @@ ALLOWED_UNTRANSLATED = {
     "about.creditsFontsValue",  # "Geist"
     "about.creditsIconsValue",  # "Hugeicons"
     "about.creditsLibrariesValue",  # "faster-whisper, CTranslate2, predecessor, ..."
-    # notify.*_title keys, notification titles that are just the app
-    # name placeholder ("{appName}"). The app name is a brand noun
-    # (same rationale as app.name) and the value carries no translatable
-    # prose, so the title is intentionally identical across all locales.
     "notify.model_manager.backend_change_deferred_title",  # "{appName}"
     "notify.model_manager.backend_init_failed_title",  # "{appName}"
     "notify.recording_controller.consent_required_title",  # "{appName}"
@@ -179,7 +105,6 @@ ALLOWED_UNTRANSLATED = {
     "stats.shareImage.min",  # "min"
     "stats.shareImage.wpm",  # "WPM"
     # Social share targets are brand names, kept identical across all
-    # locales (same rationale as the model-provider labels above).
     "stats.shareImage.socialWhatsapp",  # "WhatsApp"
     "stats.shareImage.socialTelegram",  # "Telegram"
     "stats.shareImage.socialTwitter",  # "Twitter"
@@ -194,21 +119,12 @@ ALLOWED_UNTRANSLATED = {
     "theme.preset.sepia",  # "Sepia"
     "theme.preset.solarized",  # "Solarized"
     # HTTP status format: "HTTP {status}" is a universal format string
-    # (the {status} placeholder is replaced with a numeric code like 404).
-    # The word "HTTP" is a universal technical acronym across all locales.
     "about.httpError",  # "HTTP {status}"
     # (UI/UX overhaul 2026-08-20): "VRAM" and "WER" are universal
-    # technical acronyms used identically in every locale (same
-    # rationale as "WPM" above), they label the label+value pairs on
-    # the Models page metadata line.
     "models.card.vramLabel",  # "VRAM"
     "models.card.werLabel",  # "WER"
-    # "Cloud" is the universal loanword for the cloud-model tag on the
-    # Cloud Models tab, de/fr use the English word "Cloud" verbatim
-    # (no native alternative exists in common UI usage).
     "models.cloud.tagCloud",  # "Cloud"
     # Duration suffix abbreviations: "min" and "s" are SI-standard
-    # abbreviations used universally in UI time displays.
     "settings.hotkeySection.minutesSuffix",  # "min"
     "settings.hotkeySection.secondsSuffix",  # "s"
     "analytics.durationZero",  # pre-existing untranslated
@@ -249,7 +165,6 @@ ALLOWED_UNTRANSLATED = {
     "hotkeyKeys.cmdRight",  # pre-existing untranslated
     "hotkeyKeys.winLeft",  # pre-existing untranslated
     "hotkeyKeys.winRight",  # pre-existing untranslated
-    # hotkeyKeys.* that are universal key names across all locales
     "hotkeyKeys.end",  # 'End'
     "hotkeyKeys.pageUp",  # 'Page Up'
     "hotkeyKeys.pageDown",  # 'Page Down'
@@ -257,16 +172,6 @@ ALLOWED_UNTRANSLATED = {
 }
 
 # Pre-existing untranslated settings keys documented in the directive (§6).
-# These are a known gap from prior rounds.  They are documented here so the
-# completeness test doesn't block on them, but they ARE tracked for future
-# translation work.  See worklog.md §"Known Limitations".
-#
-# the models.* snack/test/benchmark/hfConsent/card/cloud/download
-# keys are fully translated for ar and es, but only partially translated for
-# de/fr/hi/ru/zh (the highest-visibility status/button labels are translated;
-# the longer snack messages and consent descriptions are pending).  These are
-# listed here so the completeness test passes while the remaining translations
-# are completed in a follow-up round.
 PRE_EXISTING_UNTRANSLATED = {
     "settings.general",
     "settings.generalDescription",
@@ -312,7 +217,6 @@ PRE_EXISTING_UNTRANSLATED = {
     "settings.overlayDescription",
     "settings.show",
     "settings.hide",
-    # hi locale: missing settings.tabs.* keys (pre-existing gap from directive §6).
     "settings.tabs.appearance",
     "settings.tabs.aiAudio",
     "settings.tabs.privacy",
@@ -326,7 +230,6 @@ PRE_EXISTING_UNTRANSLATED = {
     "history.startDictation",
     "history.title",
     "history.transcriptionsToday",
-    # hotkeyValidation.* keys, pre-existing untranslated values in es/ru/zh
     "hotkeyValidation.empty",
     "hotkeyValidation.noKeys",
     "hotkeyValidation.reservedUniversal",
@@ -347,7 +250,6 @@ PRE_EXISTING_UNTRANSLATED = {
     "hotkeyValidation.fnMacosOnly",
     "hotkeyValidation.holding",
     # I18N-PARTIAL: models.* keys pending translation for de/fr/hi/ru/zh.
-    # (Fully translated for ar and es.)
     "models.snack.parakeetDepsRequired",
     "models.snack.notDownloaded",
     "models.snack.usingModel",
@@ -428,68 +330,16 @@ PRE_EXISTING_UNTRANSLATED = {
     "settings.hotkeySection.secondsSuffix",
 }
 
-# Keys backfilled into non-English locale files using English fallback
-# values. These keys were added to en.json in prior rounds but never
-# propagated to ar/de/fr/hi/ru/zh. Rather than leave the locales missing the
-# keys (which broke the key-parity CI gate and caused silent English-fallback
-# via t() at runtime),  backfilled them with English values so the gate
-# passes. Native translation is commissioned in a follow-up round.
-#
-# This set is the UNION of every key any locale was missing, different
-# locales had different subsets missing (ar: 18, de: 41, fr/hi/ru/zh: 49).
-# es.json was already backfilled by  with English fallback values for
-# the same 49 keys; de.json already had settings.searchHints.* as English
-# fallback. All of those are covered by this single union set so the
-# values-translated gate passes uniformly across every locale.
-#
 # Maintenance contract (enforced by TestBackfillSetIsMinimal below):
-#   - When a key is properly translated in EVERY non-English locale (i.e.
-#     its value differs from the English value in all of ar/de/es/fr/hi/ru/zh),
-#     it MUST be removed from this set. The ratchet test will fail if any
-#     entry has no remaining English-fallback locale, signaling the set
-#     needs cleanup.
-#   - New keys added to en.json that aren't translated must be added here
-#     (or properly translated) within the same PR, the key-parity gate
-#     enforces this.
 RW2_BACKFILLED_PENDING_TRANSLATION: set[str] = {
-    # about.relativeTime.* (4 keys)
-    # NOTE: help.keys.* (11 keys) were REMOVED from every locale on
-    # 2026-08-16, the keyboard-shortcut strings now live in the renderer
-    # catalog `components/hotkey/shortcuts.ts` (single source of truth
-    # shared by TitleBar, Sidebar, About, and the Help overlay), so the
-    # per-locale copies would just be drift traps.
-    # microphoneTest.* (23 keys), microphone test result UI strings
     "microphoneTest.volume",
-    # settings.fastStartup* (2 keys), added by  (prewarm toggle)
-    # settings.searchHints.* (4 keys), settings search bar hint keywords
-    # settings.troubleshooting.reRunWizard* (4 keys)
-    # IMPROVE-mode  backfill (25 keys), English-fallback pending native
-    # translation. Added when /// i18n parity gates were
-    # enforced. Remove each key from this set once it is properly translated
-    # in EVERY non-English locale (ar/de/es/fr/hi/ru/zh).
-    # (client_root_i18n): bubble.micButtonStartAria and
-    # bubble.micButtonStopAria REMOVED, these keys are now properly
-    # translated in EVERY non-English locale (commit e4b7d4b "fix(i18n):
-    # complete bubble aria-label translations across all locales"),
-    # so leaving them in RW2_BACKFILLED_PENDING_TRANSLATION would be
-    # dead weight flagged by TestBackfillSetIsMinimal.
-    # about (2 keys)
     "about.documentationLink",  # "Documentation"
     "about.versionValue",  # "v{version}"
-    # analytics.auto REMOVED 2026-08-17, the key became dead when the
-    # Analytics language card switched to formatLanguage
-    # (settings.languageAutoDetect); the key was deleted from en.json,
-    # so it no longer belongs in this set.
-    # (client_root_i18n): bubble.idleLabel REMOVED, translated
-    # in every non-English locale by commit e4b7d4b. Leaving it here
-    # would be flagged as stale by TestBackfillSetIsMinimal.
-    # hotkey.combos (5 keys)
     "hotkey.combos.cmdShiftVMacOS",  # "Cmd+Shift+V (macOS)"
     "hotkey.combos.ctrlAltV",  # "Ctrl+Alt+V"
     "hotkey.combos.ctrlShiftV",  # "Ctrl+Shift+V"
     "hotkey.combos.ctrlSpace",  # "Ctrl+Space"
     "hotkey.combos.superSpace",  # "Super+Space"
-    # hotkey.keys (28 keys)
     "hotkey.keys.alt",  # "Alt"
     "hotkey.keys.altGr",  # "AltGr"
     "hotkey.keys.capsLock",  # "Caps Lock"
@@ -501,10 +351,6 @@ RW2_BACKFILLED_PENDING_TRANSLATION: set[str] = {
     "hotkey.keys.enter",  # "Enter"
     "hotkey.keys.esc",  # "Esc"
     "hotkey.keys.fn",
-    # hotkey.keys.fnMacOSOnly + hotkey.presets.single.fn REMOVED
-    # 2026-08-30, translated in every non-English locale (2dc069a7
-    # locale value pass), so keeping them here would be flagged as
-    # stale by TestBackfillSetIsMinimal.
     "hotkey.keys.home",  # "Home"
     "hotkey.keys.insert",  # "Insert"
     "hotkey.keys.left",  # "←"
@@ -526,52 +372,17 @@ RW2_BACKFILLED_PENDING_TRANSLATION: set[str] = {
     # settings (2 keys)
     "settings.apiUrlPlaceholder",  # "https://api.openai.com/v1/chat/completions"
     "settings.modelPlaceholder",  # "gpt-4o-mini"
-    # settings.appearance (0 keys, fully translated)
-    # settings.audioEnhancement (4 keys remaining)
-    # "How fast compression engages when the signal exceeds the threshold."
-    # "2–10ms catches transients without pumping."
-    # "Make-up gain applied after compression to restore perceived loudness."
-    # "0dB is neutral; +3–6dB compensates for typical speech compression."
-    # "How fast compression disengages after the signal drops below the threshold."
-    # "50–150ms avoids gain breathing on trailing syllables."
     "settings.audioEnhancement.equalizer",  # "Equalizer"
     "settings.audioEnhancement.equalizerAria",  # "Equalizer"
     # "How fast the gate opens when the signal rises above the open threshold."
-    # "5–25ms is typical for speech."
-    # "How long the gate stays open after the signal drops below the close"
-    # "threshold before release begins. 100–300ms prevents flicker on pauses."
-    # "How fast the gate closes after the hold time expires."
-    # "100–200ms avoids abrupt cuts on trailing consonants."
     "settings.audioEnhancement.limiter",  # "Limiter"
     "settings.audioEnhancement.limiterAria",  # "Limiter"
     # "How fast the limiter recovers after catching a transient."
-    # "50–100ms is typical."
-    # "Center frequency of the notch."
-    # "50Hz for Europe/Asia mains, 60Hz for North America mains."
-    # "Backend picks the best filter chain for the detected noise floor and"
-    # "hardware. Recommended for most users."
-    # "Hand-pick every filter and parameter."
-    # "Best for advanced users with a known acoustic environment."
-    # "Aggressive filtering for keyboard clatter, fans, and HVAC rumble."
-    # "RNNoise + strong gate + compressor for consistent ASR accuracy."
-    # "Bypass the entire filter chain. Use only with a clean signal —"
-    # "background noise will degrade transcription."
-    # "Light filtering for quiet, treated rooms."
-    # "High-pass + gentle noise gate; neural denoiser disabled to preserve natural timbre."
-    # templates (2 keys)
     "templates.matchModeExactLabel",  # "Exact"
     "templates.variablesTooltip",  # "Variables: {vars}"
     # theme (1 key)
     "theme.system",  # "System"
     # 96 keys backfilled with English-fallback values across all
-    # 7 non-English locales (ar/de/es/fr/hi/ru/zh). These keys were added
-    # to en.json but never propagated to the locale files, causing the
-    # key-parity + extra-keys CI gate to fail (14 of 15 tests red).
-    # Also fixes the models.speed structure mismatch: EN has
-    # models.speed as a nested object {fastest,fast,slow,variable} but
-    # non-EN locales had it as a flat string. The flat string was replaced
-    # with the EN object structure. Remove each key from this set once
-    # it is properly translated in EVERY non-English locale.
     "format.duration.hourShort",
     "format.duration.minuteShort",
     "format.duration.secondShort",
@@ -604,24 +415,7 @@ RW2_BACKFILLED_PENDING_TRANSLATION: set[str] = {
     "hotkeyPicker.secondsRemainingSuffix",
     "models.speed.variable",
     "nav.group.system",
-    # onboarding.modelOption / downloadRetry / summaryBackend /
-    # downloadEta / downloadModel REMOVED from this set: the first four
-    # keys were deleted with the 2026-09-14 onboarding overhaul
-    # (Done-step summary + old download flow), and downloadModel was
-    # properly translated in every non-English locale in the same
-    # pass. TestBackfillSetIsMinimal requires the set stay minimal.
-    # 12 onboarding keys added by the Model-step rework (explicit
-    # local-vs-cloud backend choice + in-wizard Download button + cloud
-    # API panel). Backfilled with English values via
-    # scripts/add_i18n_keys.py --all pending native translation.
-    # MO-41 (2026-09-15): onboarding.backendAria REMOVED from this set —
-    # now genuinely translated in all 7 non-English locales.
     "onboarding.backendLocalLabel",
-    # onboarding.backendLocalDescription / backendCloudDescription /
-    # cloudNote / downloadModelAria / downloadFailedHint REMOVED
-    # 2026-08-30, translated in every non-English locale (2dc069a7
-    # locale value pass); TestBackfillSetIsMinimal requires the set
-    # stay minimal.
     "onboarding.backendCloudLabel",
     "onboarding.cloudProviderLabel",
 }
@@ -703,17 +497,7 @@ class Test8nCompleteness:
         assert not mismatches, f"{locale}.json has placeholder mismatches:\n" + "\n".join(mismatches)
 
     def test_values_translated(self, locale: str, en_flat: dict[str, str]) -> None:
-        """No locale value should be identical to the English value (unless allowed).
-
-        This catches the case where new keys are propagated to locale files with
-        English placeholder values and never translated.
-
-        Keys in ALLOWED_UNTRANSLATED (brand names, technical acronyms),
-        PRE_EXISTING_UNTRANSLATED (settings keys documented as a known gap in
-        the directive), and RW2_BACKFILLED_PENDING_TRANSLATION (keys
-        backfilled by as English-fallback pending native translation)
-        are excluded from this check.
-        """
+        """No locale value should be identical to the English value (unless allowed)."""
         loc_file = TRANSLATIONS_DIR / f"{locale}.json"
         loc_data = _load_json(loc_file)
         loc_flat = _flatten_keys(loc_data)
@@ -733,13 +517,7 @@ class Test8nCompleteness:
         )
 
     def test_no_extra_keys_in_locale(self, locale: str, en_flat: dict[str, str]) -> None:
-        """Locale files must not contain keys that en.json doesn't have.
-
-        This catches the case where a locale file has stale keys left over
-        from deleted en.json entries. Extra keys are harmless at runtime
-        (i18n.ts simply ignores them) but they bloat the locale files and
-        signal an incomplete cleanup.
-        """
+        """Locale files must not contain keys that en.json doesn't have."""
         loc_file = TRANSLATIONS_DIR / f"{locale}.json"
         loc_data = _load_json(loc_file)
         loc_flat = _flatten_keys(loc_data)
@@ -779,9 +557,6 @@ class TestEnJson:
         models = en_data["models"]
         assert isinstance(models, dict)
         # Verify the key sub-namespaces exist. ("use" / "useAria" were
-        # removed app-wide when the Models page dropped the direct
-        # per-model Use button, the selection flow is the only
-        # activation path now.)
         for sub in ("title", "active", "delete", "status", "snack", "cloud", "download"):
             assert sub in models, f"en.json models.{sub} must exist"
 
@@ -794,17 +569,7 @@ class TestEnJson:
 
 
 class TestBackfillSetIsMinimal:
-    """ratchet: ensure RW2_BACKFILLED_PENDING_TRANSLATION only shrinks.
-
-    Every key in the set must currently be English-fallback in at least one
-    non-English locale. If a key has been properly translated in EVERY
-    non-English locale, leaving it in the set is dead weight, the test
-    fails so the maintainer removes the entry. This keeps the backfill set
-    from accumulating stale entries as translations are commissioned.
-
-    Also enforces that every entry is a real key in en.json (catches typos
-    and stale references after a key is renamed in en.json).
-    """
+    """ratchet: ensure RW2_BACKFILLED_PENDING_TRANSLATION only shrinks."""
 
     def test_every_entry_exists_in_en_json(self, en_flat: dict[str, str]) -> None:
         en_keys = set(en_flat.keys())
@@ -815,9 +580,6 @@ class TestBackfillSetIsMinimal:
         )
 
     def test_every_entry_is_still_english_fallback_somewhere(self, en_flat: dict[str, str]) -> None:
-        # For each entry, check that at least one non-English locale has the
-        # English value for that key. If all 7 locales have a translated
-        # (non-English) value, the entry is stale and should be removed.
         locale_flats: dict[str, dict[str, str]] = {}
         for locale in NON_ENGLISH_LOCALES:
             loc_data = _load_json(TRANSLATIONS_DIR / f"{locale}.json")
@@ -826,15 +588,6 @@ class TestBackfillSetIsMinimal:
         stale: list[str] = []
         for key in RW2_BACKFILLED_PENDING_TRANSLATION:
             en_value = en_flat.get(key, "")
-            # a key that is MISSING from a locale must not be
-            # classified as "translated". The previous implementation used
-            # ``locale_flats[loc].get(key) == en_value`` which is True when
-            # the key is absent (None == en_value is False for non-None
-            # en_value, but True when en_value itself is None, and more
-            # importantly a missing key masked the "still English somewhere"
-            # signal because the comparison treated absence as translated).
-            # The fix is to require the key to be PRESENT and equal to the
-            # English value for it to count as "still English-fallback".
             still_english_somewhere = any(
                 key in locale_flats[loc] and locale_flats[loc][key] == en_value for loc in NON_ENGLISH_LOCALES
             )
@@ -847,20 +600,7 @@ class TestBackfillSetIsMinimal:
         )
 
     def test_set_size_documented(self) -> None:
-        """Smoke test: the set is non-empty (stopgap is in effect).
-
-        When this test starts failing because the set is empty, that means
-        every backfilled key has been properly translated, delete the set
-        and the ratchet test class entirely.
-
-        The set should only ever SHRINK as translations are commissioned
-        (or grow when new keys are added to en.json and need a placeholder
-        for one or more locales). The upper bound is the original 74 keys
-        documented when this test was introduced; once translations catch
-        up, the size will drop below 74. Using ``<=`` rather than ``==``
-        keeps the ratchet one-directional (shrinking is allowed, growing
-        past 74 is a regression).
-        """
+        """Smoke test: the set is non-empty (stopgap is in effect)."""
         assert len(RW2_BACKFILLED_PENDING_TRANSLATION) <= 370, (
             "RW2_BACKFILLED_PENDING_TRANSLATION set size grew past 370. The set "
             "should only shrink over time as translations are commissioned. "
@@ -870,13 +610,7 @@ class TestBackfillSetIsMinimal:
 
 
 class Test8nGateSummary:
-    """per-locale missing-key count summary.
-
-    This is a meta-test that fails loudly if any locale has even a single
-    missing key. It complements the parametrized test_key_parity_with_en
-    by providing a single aggregated failure message in CI logs that lists
-    every locale's missing-key count at a glance, useful for triage.
-    """
+    """per-locale missing-key count summary."""
 
     def test_all_locales_have_full_key_parity(self, en_flat: dict[str, str]) -> None:
         en_keys = set(en_flat.keys())

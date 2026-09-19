@@ -1,8 +1,4 @@
-"""Log hygiene: single choke-point per event, fail-loud registry.
-
-Covers the dedupe fixes (audio chain pair, suppressor once-per-process,
-resource single-drive collapse) with mocks, no real audio or network.
-"""
+"""Log hygiene: single choke-point per event, fail-loud registry."""
 
 from __future__ import annotations
 

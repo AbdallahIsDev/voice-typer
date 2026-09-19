@@ -1,16 +1,4 @@
-"""Tests for the Qwen3-ASR ONNX Runtime backend (``qwen_onnx_model.py``).
-
-PLAN_ONNX_INTEGRATION.md §4.3 Option C-2: the pre-exported
-``andrewleech/qwen3-asr-*-onnx`` models run via onnxruntime with no
-torch/transformers. These tests mock the ORT sessions + tokenizer (no
-weights, the model dirs are multi-GB and user-downloaded) and verify:
-
-- the mel → encoder → prompt → greedy-decode pipeline logic,
-- the ONNX auto-detect branch in ``QwenEngine.load()``,
-- the torch-only touchpoints are correctly guarded for ONNX models
-  (``_warm_up_model`` skip, ``unload`` close, CUDA-fallback skip,
-  device pinned to ``cpu``).
-"""
+"""Tests for the Qwen3-ASR ONNX Runtime backend (``qwen_onnx_model.py``)."""
 
 from __future__ import annotations
 
@@ -33,16 +21,11 @@ from voice_typer.server.qwen_onnx_model import (
 )
 
 # The Qwen3 special-token ids are pinned by the export tool
-# (andrewleech/qwen3-asr-onnx src/prompt.py). Keep them as an explicit
-# pin so an upstream contract drift is caught here, not on a user host.
 _MODULE_EOS_IDS = {151643, 151645}  # <|endoftext|>, <|im_end|>
 _MODULE_IM_START = 151644
 _MODULE_AUDIO_START = 151669
 _MODULE_AUDIO_END = 151670
 _MODULE_AUDIO_PAD = 151676
-
-
-# ─── helpers ─────────────────────────────────────────────────────────
 
 
 def make_onnx_dir(
@@ -73,15 +56,7 @@ def make_onnx_dir(
 
 @pytest.fixture(autouse=True)
 def real_faster_whisper(monkeypatch):
-    """Restore the REAL ``faster_whisper`` package for the mel path.
-
-    The session-scoped ``mock_heavy_imports`` fixture stubs
-    ``faster_whisper`` as a non-package MagicMock, which breaks the lazy
-    ``from faster_whisper.feature_extractor import FeatureExtractor`` in
-    ``qwen_onnx_model._log_mel_spectrogram``. Loads the real package
-    fresh and swaps it in for the test's duration (monkeypatch restores
-    the mock afterwards).
-    """
+    """Restore the REAL ``faster_whisper`` package for the mel path."""
     import importlib
     import sys
 
@@ -128,12 +103,7 @@ def scripted_sessions(
     eos_ids=frozenset({2, 3}),
     decoder_format: str = "v3",
 ) -> dict[str, FakeSession]:
-    """Return encoder/decoder fake sessions that produce a scripted decode.
-
-    ``first_token`` is argmax'd from the prefill logits; the first
-    ``decoder_step`` call then argmax's an EOS id so the loop stops after
-    one autoregressive step.
-    """
+    """Return encoder/decoder fake sessions that produce a scripted decode."""
 
     def encoder_run(feed, call):
         # [1, 128, T] -> [1, 4, hidden]
@@ -205,14 +175,9 @@ def loaded_model(tmp_path, *, hidden: int = 4, vocab: int = 64, **kw) -> QwenOnn
     return model
 
 
-# ─── pure helpers ────────────────────────────────────────────────────
-
-
 class TestFeatExtractOutputLengths:
     def test_reference_values(self):
         # 30 s of 16 kHz audio -> 3000 mel frames -> 390 audio tokens
-        # (13 tokens per 100-frame conv window; the value printed in the
-        # model card / export-tool README for the full 30 s context).
         assert _get_feat_extract_output_lengths(3000) == 390
         assert _get_feat_extract_output_lengths(0) == 0
         assert _get_feat_extract_output_lengths(100) == 13
@@ -229,11 +194,9 @@ class TestBuildPromptIds:
         assert ids[0] == _MODULE_IM_START
         assert _MODULE_AUDIO_START in ids
         assert _MODULE_AUDIO_END in ids
-        # exactly 4 contiguous <|audio_pad|> tokens
         start, end = _audio_pad_range(ids)
         assert end - start == 4
         assert ids[start:end] == [_MODULE_AUDIO_PAD] * 4
-        # ends with the assistant turn opening
         assert ids[-1] == _newline_id()
         assert _MODULE_IM_START in ids[-6:]
 
@@ -243,7 +206,6 @@ class TestBuildPromptIds:
 
     def test_audio_pad_count_matches_feature_length(self):
         # The prompt's pad count must equal the encoder output length
-        # formula for the same audio (transcribe() clamps as a fallback).
         frames = 3000
         ids = _build_prompt_ids(_get_feat_extract_output_lengths(frames))
         start, end = _audio_pad_range(ids)
@@ -316,9 +278,6 @@ class TestIsOnnxModelDir:
         assert not is_onnx_model_dir(d)
 
 
-# ─── QwenOnnxModel loading ───────────────────────────────────────────
-
-
 class TestFromPretrained:
     def test_loads_sessions_and_metadata(self, tmp_path):
         d = make_onnx_dir(tmp_path, hidden=8, vocab=16)
@@ -348,7 +307,6 @@ class TestFromPretrained:
 
     def test_unreadable_config_defaults_hidden(self, tmp_path):
         # No config.json -> hidden defaults to the 1.7B arch value (2048);
-        # the embed file must then be a multiple of 2048 to load.
         d = make_onnx_dir(tmp_path, with_config=False)
         (d / "embed_tokens.bin").unlink()
         np.zeros((1, 2048), dtype=np.float16).tofile(d / "embed_tokens.bin")
@@ -357,9 +315,6 @@ class TestFromPretrained:
             model.from_pretrained()
         assert model._hidden_size == 2048
         assert model._embed_tokens.shape == (1, 2048)
-
-
-# ─── QwenOnnxModel inference ─────────────────────────────────────────
 
 
 class TestTranscribe:
@@ -372,20 +327,16 @@ class TestTranscribe:
 
     def test_greedy_decode_pipeline(self, tmp_path):
         model = loaded_model(tmp_path, vocab=64)
-        # shrink the EOS ids so the small vocab can hold them
         with mock.patch.object(qom, "_EOS_TOKEN_IDS", frozenset({2, 3})), patch_tokenizer():
             (result,) = model.transcribe((np.zeros(16000, dtype=np.float32), 16000))
         assert model._sessions["encoder"].run_calls == 1
         assert model._sessions["decoder_init"].run_calls == 1
-        # prefill produced token 7; one step produced EOS -> loop stopped
         assert model._sessions["decoder_step"].run_calls == 1
         assert result.text  # tokenizer decoded a non-empty string
 
     def test_decoder_init_v1_input_embeds_format(self, tmp_path):
         """The v1 export format takes input_embeds (prompt embedded)."""
         d = make_onnx_dir(tmp_path, vocab=64)
-        # v1 embeds the WHOLE prompt server-side, so the embed matrix
-        # must cover the special-token ids (up to <|audio_pad|> = 151676).
         (d / "embed_tokens.bin").unlink()
         np.zeros((qom._AUDIO_PAD_TOKEN_ID + 2, 4), dtype=np.float16).tofile(d / "embed_tokens.bin")
         sessions = scripted_sessions(vocab=64, decoder_format="v1")
@@ -396,13 +347,10 @@ class TestTranscribe:
         with mock.patch.object(qom, "_EOS_TOKEN_IDS", frozenset({2, 3})), patch_tokenizer():
             (result,) = model.transcribe((np.zeros(16000, dtype=np.float32), 16000))
         assert result.text
-        # the v1 init path embedded the prompt + scattered the encoder
-        # output; the run succeeded, which is the observable contract.
         assert sessions["decoder_init"].run_calls == 1
 
     def test_first_token_eos_stops_immediately(self, tmp_path):
         model = loaded_model(tmp_path, vocab=64)
-        # make the prefill argmax an EOS id directly
         sessions = model._sessions
 
         def init_run(feed, call):
@@ -441,21 +389,11 @@ class TestTranscribe:
         assert _MODULE_AUDIO_PAD == qom._AUDIO_PAD_TOKEN_ID
 
     def test_module_pins_prompt_word_token_ids(self):
-        """The prompt scaffolding word ids were VERIFIED 2026-08-15
-        against the REAL tokenizer.json shipped in both
-        andrewleech/qwen3-asr-1.7b-onnx and qwen3-asr-0.6b-onnx:
-        "system" -> [8948], "user" -> [872], "assistant" -> [77091],
-        "\n" -> [198]. The export tool's src/prompt.py hardcodes
-        system=[9125]/user=[882], which decode to " Current"/" time" in
-        the real vocab and are WRONG, these pins protect against a
-        regression to the tool's values."""
+        """The prompt scaffolding word ids were VERIFIED 2026-08-15"""
         assert qom._SYSTEM_TOKEN_IDS == (8948,)
         assert qom._USER_TOKEN_IDS == (872,)
         assert qom._ASSISTANT_TOKEN_IDS == (77091,)
         assert qom._NEWLINE_TOKEN_ID == 198
-
-
-# ─── QwenEngine integration (ONNX auto-detect + torch guards) ────────
 
 
 class TestQwenEngineOnnxIntegration:
@@ -473,14 +411,11 @@ class TestQwenEngineOnnxIntegration:
             assert engine.load() is True
         assert engine._onnx_model is not None
         assert engine.is_loaded
-        # device pinned to cpu, the CUDA branch / warm-up must not fire
         assert engine.device == "cpu"
         assert engine.device_info == "qwen/cpu"
 
     def test_load_incomplete_onnx_dir_fails_closed(self, tmp_path):
         # ``is_onnx_model_dir`` only requires encoder + embed + tokenizer,
-        # so a missing decoder session still routes to the ONNX branch and
-        # fails closed there (fail-closed, no silent torch fallback).
         engine, d, sessions = self._make_engine(tmp_path)
         (d / "decoder_step.onnx").unlink()
         with patch_ort(sessions), patch_tokenizer(), pytest.raises(RuntimeError):
@@ -489,9 +424,7 @@ class TestQwenEngineOnnxIntegration:
         assert not engine.is_loaded
 
     def test_no_warm_up_model_attribute(self, tmp_path):
-        """The torch warm-up pass was removed with the torch engine
-        (2026-08-15), the ONNX backend has nothing to prime (no CUDA
-        kernels; the ORT sessions are already loaded)."""
+        """(2026-08-15), the ONNX backend has nothing to prime (no CUDA"""
         from voice_typer.server.qwen_engine import QwenEngine
 
         assert not hasattr(QwenEngine, "_warm_up_model"), (
@@ -515,7 +448,6 @@ class TestQwenEngineOnnxIntegration:
         with patch_ort(sessions), patch_tokenizer():
             engine.load()
         # ONNX model is pinned to cpu, even a "cuda"-looking error must
-        # be re-raised, never routed into the torch .to() fallback path.
         with (
             mock.patch.object(engine, "transcribe", side_effect=RuntimeError("cuda error: launch failed")),
             pytest.raises(RuntimeError),

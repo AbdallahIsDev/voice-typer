@@ -1,17 +1,4 @@
-"""Regression tests: ``relaunch_app`` event name parity (Python ↔ Tauri).
-
-The Python sidecar publishes ``{"type": "relaunch_app"}`` via
-``event_bus.publish``. The Tauri Rust host listens for ``relaunch_app``.
-The predecessor main process (and its ``handle-message.ts`` dispatch) was
-removed with the predecessor shell; these tests pin the Python catalogue
-and the Tauri host listener stay on the same wire name.
-
-Assertions
-----------
-1. ``event_bus.py`` canonical event catalogue MUST list ``relaunch_app``
-   and MUST NOT list the legacy ``the legacy relaunch event name``.
-2. The Tauri host source MUST reference ``relaunch_app``.
-"""
+"""Regression tests: ``relaunch_app`` event name parity (Python ↔ Tauri)."""
 
 from __future__ import annotations
 

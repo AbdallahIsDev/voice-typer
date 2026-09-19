@@ -1,10 +1,4 @@
-"""Tests for ``VocabularyManager._save_user`` retry behaviour and shared
-vocabulary/text-cleanup constants.
-
-Split out of the former ``tests/test_history_and_models.py`` catch-all
-(Phase 4.5 / TC-15). Verbatim mechanical move, same test names +
-assertions, only the file location changed.
-"""
+"""Tests for ``VocabularyManager._save_user`` retry behaviour and shared"""
 
 from __future__ import annotations
 

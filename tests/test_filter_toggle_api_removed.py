@@ -1,22 +1,4 @@
-"""Regression pins: the dead three-layer runtime filter-toggle API.
-
-``set_filter_enabled`` was scaffolded at THREE layers (the
-``audio_chain_builder`` module function, the ``AudioProcessor``
-method, and the ``FilterChain`` method) as the server-side surface for
-a renderer-facing runtime filter-toggle IPC command. That command was
-never wired, the docstrings on all three layers stated the IPC
-handler was "NOT wired in this change", and no production or test
-caller ever invoked any layer (repo-wide search found only the three
-definitions). The dead layers were deleted (E15 dead-code removal);
-these tests pin the ABSENCE so the scaffold cannot silently creep back.
-
-The SURVIVING mechanism is also pinned: the per-filter ``enabled`` flag
-(:attr:`voice_typer.server.audio_filters.base.AudioFilter.enabled`)
-consulted by :meth:`FilterChain.process` (a disabled filter is skipped
-without calling its ``process`` method, so internal state survives the
-bypass window). That flag remains the architectural extension point on
-the ABC; only the unreachable toggle API on top of it was removed.
-"""
+"""Regression pins: the dead three-layer runtime filter-toggle API."""
 
 from __future__ import annotations
 
@@ -28,9 +10,7 @@ class TestFilterToggleApiRemoved:
     """No layer of the runtime filter-toggle API may reappear."""
 
     def test_chain_builder_module_function_removed(self) -> None:
-        """``audio_chain_builder`` must not define a module-level
-        ``set_filter_enabled``, it had zero callers and duplicated the
-        chain-level method."""
+        """``audio_chain_builder`` must not define a module-level"""
         import voice_typer.server.audio_chain_builder as mod
 
         assert not hasattr(mod, "set_filter_enabled"), (
@@ -40,8 +20,7 @@ class TestFilterToggleApiRemoved:
         )
 
     def test_audio_processor_method_removed(self) -> None:
-        """``AudioProcessor`` must not define ``set_filter_enabled`` —
-        the method had zero callers (IPC never wired)."""
+        """``AudioProcessor`` must not define ``set_filter_enabled`` —"""
         from voice_typer.server.audio_processor import AudioProcessor
 
         assert not hasattr(AudioProcessor, "set_filter_enabled"), (
@@ -51,8 +30,7 @@ class TestFilterToggleApiRemoved:
         )
 
     def test_filter_chain_method_removed(self) -> None:
-        """``FilterChain`` must not define ``set_filter_enabled``, the
-        method had zero callers outside the two deleted wrapper layers."""
+        """``FilterChain`` must not define ``set_filter_enabled``, the"""
         assert not hasattr(FilterChain, "set_filter_enabled"), (
             "FilterChain re-introduced the dead set_filter_enabled "
             "method. It had zero callers, wire a real IPC command first "
@@ -78,12 +56,7 @@ class _StubFilter:
 
 
 class TestEnabledFlagMechanismSurvives:
-    """The per-filter ``enabled`` flag consulted by ``process`` stays.
-
-    This is the load-bearing half of the removed API: a filter whose
-    ``enabled`` flag is False must be skipped without calling its
-    ``process`` method (state-preserving bypass).
-    """
+    """The per-filter ``enabled`` flag consulted by ``process`` stays."""
 
     def test_process_skips_disabled_filter(self) -> None:
         stub = _StubFilter()

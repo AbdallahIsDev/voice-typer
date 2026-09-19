@@ -1,13 +1,4 @@
-"""Tests for the clipboard injection fixes.
-
-Covers the Wayland terminal-paste key sequence, the new terminal
-process names, the Win32 SendInput Shift+Insert helper, the Win32
-clipboard-monitor exclusion tag, and the macOS Secure Input detection
-helper. All tests are cross-platform (they mock ``ctypes.windll`` /
-``subprocess.run`` so they run on Linux CI), the patterns mirror
-``tests/test_clipboard_win32_return_value.py`` and
-``tests/test_clipboard.py``.
-"""
+"""Tests for the clipboard injection fixes."""
 
 from __future__ import annotations
 
@@ -21,8 +12,6 @@ from voice_typer.server.clipboard import ClipboardManager  # noqa: E402
 from voice_typer.server.clipboard_target_safety import (  # noqa: E402
     _is_secure_input_enabled,
 )
-
-# ─── new terminal process names ────────────────────────────
 
 
 class TestNewTerminalProcessNames:
@@ -58,9 +47,6 @@ class TestNewTerminalProcessNames:
     def test_is_terminal_process_rejects_non_terminal(self):
         assert ClipboardManager._is_terminal_process("notepad.exe") is False
         assert ClipboardManager._is_terminal_process("firefox") is False
-
-
-# ───  + Wayland terminal paste key sequence ──────────
 
 
 class TestWaylandTerminalPaste:
@@ -155,17 +141,9 @@ class TestWaylandTerminalPaste:
             clip_mod._linux_paste_via_wtype("hello")
 
 
-# ─── Win32 SendInput Shift+Insert helper ───────────────────
-
-
 @pytest.fixture
 def fake_win32_shift_insert():
-    """Mock ``ctypes.windll`` so the Win32 code path runs on Linux.
-
-    Same shape as the ``fake_win32`` fixture in
-    ``tests/test_clipboard_win32_return_value.py`` (lines 63-84),
-    local to this file so we don't cross-import a private fixture.
-    """
+    """Mock ``ctypes.windll`` so the Win32 code path runs on Linux."""
     mock_user32 = MagicMock()
     mock_kernel32 = MagicMock()
     mock_windll = MagicMock()
@@ -193,7 +171,6 @@ class TestSendShiftInsertWin32:
     def test_returns_false_on_partial_success(self, fake_win32_shift_insert):
         """SendInput returning 1..3 → returns False (no double-paste)."""
         # First SendInput (4-event batch) returns 2 (partial); second
-        # SendInput (2-event KEYUP cleanup) return value ignored.
         fake_win32_shift_insert["user32"].SendInput.side_effect = [2, 2]
         result = clip_mod._send_shift_insert_win32()
         assert result is False, f"must return False on partial success; got {result!r}"
@@ -216,9 +193,6 @@ class TestSendShiftInsertWin32:
             mock_key.insert = "insert_key"
             result = cm._send_shift_insert_win32()
         assert result is True
-
-
-# ─── Win32 clipboard-monitor exclusion tag ─────────────────
 
 
 class TestWin32ExcludeClipboardFromMonitoring:
@@ -318,20 +292,14 @@ class TestWin32ExcludeClipboardFromMonitoring:
         result = cm.copy("hello world")
 
         assert called == [True], "copy() must call _win32_exclude_clipboard_from_monitoring on Windows"
-        # copy() returns None or a snapshot on success.
         assert result is None or hasattr(result, "restore")
-
-
-# ─── IME composition guard ─────────────────────────────────
 
 
 class TestImeCompositionGuard:
     """paste is deferred when IME composition is in progress."""
 
     def _make_cm(self) -> ClipboardManager:
-        """Delegate to the shared canonical factory (XS-42 helper dedup),
-        keeping this suite's save-restore-disabled / "test" sentinel
-        arrangement."""
+        """Delegate to the shared canonical factory (XS-42 helper dedup),"""
         from tests.fixtures.clipboard_helpers import make_clipboard_manager
 
         return make_clipboard_manager(save_restore=False, last_copied_text="test")
@@ -356,8 +324,6 @@ class TestImeCompositionGuard:
         fake_event_bus = MagicMock()
         monkeypatch.setitem(sys.modules, "voice_typer.server.event_bus", fake_event_bus)
         # The lazy import inside paste() does
-        # ``from voice_typer.server import event_bus``, patch the
-        # attribute on the parent package too.
         import voice_typer.server as server_pkg  # noqa: WPS433
 
         monkeypatch.setattr(server_pkg, "event_bus", fake_event_bus, raising=False)
@@ -400,16 +366,11 @@ class TestImeCompositionGuard:
         mock_key = MagicMock()
         monkeypatch.setattr(clip_mod, "_Key", mock_key)
 
-        # Stub _send_ctrl_v_win32 (non-terminal Windows path) so the
-        # paste "succeeds" without sending real keystrokes.
         monkeypatch.setattr(cm, "_send_ctrl_v_win32", lambda: True)
 
         result = cm.paste()
 
         assert result is True, f"paste must proceed when IME is NOT composing; got {result!r}"
-
-
-# ─── macOS Secure Input detection ──────────────────────────
 
 
 class TestSecureInputDetection:
@@ -418,7 +379,6 @@ class TestSecureInputDetection:
     def test_returns_false_on_non_macos(self, monkeypatch):
         """On non-macOS, the helper short-circuits to False."""
         # The default test platform is Linux, so is_macos() returns False.
-        # Force the safety_mod.is_macos to return False for clarity.
         import voice_typer.server.clipboard_target_safety as safety_mod
 
         monkeypatch.setattr(safety_mod, "is_macos", lambda: False)
@@ -429,7 +389,6 @@ class TestSecureInputDetection:
         import voice_typer.server.clipboard_target_safety as safety_mod
 
         # Reset the once-only warning flag so this test sees the first
-        # detection (which publishes the tray toast).
         monkeypatch.setattr(safety_mod, "_MACOS_SECURE_INPUT_WARNED", False)
         monkeypatch.setattr(safety_mod, "is_macos", lambda: True)
 

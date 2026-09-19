@@ -1,21 +1,4 @@
-"""Tests for CJK / fullwidth substring search in ``HistoryDB.search``.
-
-The FTS5 index tokenizes with ``unicode61``, which indexes a contiguous
-CJK run (Chinese/Japanese/Korean text has no whitespace word boundaries)
-as a SINGLE token, so a phrase-wrapped MATCH only finds rows where the
-entire run equals the query, and searching "你好" never matched
-"今天你好吗".
-
-The contract pinned here: any query containing a character from the
-CJK / fullwidth codepoint ranges is NOT served by the unicode61 index.
-Since schema V5, queries of length >= 3 take the trigram index
-(``transcriptions_fts_cjk``, indexed substring matching: see
-``tests/test_history_db_trigram_cjk.py``); shorter queries keep the
-bounded LIKE path, which gives true substring semantics for every
-length (1-char included) across Chinese, Japanese kana/kanji, Hangul,
-and fullwidth forms. Latin-only queries keep taking the unicode61 FTS5
-path, unchanged.
-"""
+"""Tests for CJK / fullwidth substring search in ``HistoryDB.search``."""
 
 import pytest
 
@@ -86,7 +69,7 @@ class TestCjkWideCharDetection:
 
 class TestChineseSubstringSearch:
     def test_two_char_query_matches_containing_row(self, db):
-        """The headline case: "你好" must find "今天你好吗"."""
+        """The headline case: \"你好\" must find \"今天你好吗\"."""
         texts = [r["text"] for r in db.search("你好")]
         assert "今天你好吗" in texts
         assert "你好" in texts
@@ -99,8 +82,7 @@ class TestChineseSubstringSearch:
         assert "東京タワーへ行く" not in texts
 
     def test_multi_char_query_spanning_word_boundary(self, db):
-        """CJK has no spaces; a query may span what Latin thinking calls
-        a word boundary. "天你" sits across "今天" + "你好"."""
+        """CJK has no spaces; a query may span what Latin thinking calls"""
         assert [r["text"] for r in db.search("天你")] == ["今天你好吗"]
 
     def test_fullwidth_punctuation_query(self, db):
@@ -133,16 +115,14 @@ class TestHangulSubstringSearch:
 
 class TestMixedScriptQuery:
     def test_contiguous_mixed_fragment_matches(self, db):
-        """A mixed-script query takes the LIKE path: the whole capped
-        query is one literal substring pattern."""
+        """A mixed-script query takes the LIKE path: the whole capped"""
         assert [r["text"] for r in db.search("with 你好")] == ["Meeting notes with 你好 mixed"]
 
     def test_mixed_query_without_match_returns_empty(self, db):
         assert db.search("notes 你好") == []
 
     def test_cjk_query_with_percent_stays_literal(self, db):
-        """LIKE wildcards in the query stay escaped: "100%折" matches
-        the literal percent row, not an unbounded wildcard pattern."""
+        """LIKE wildcards in the query stay escaped: \"100%折\" matches"""
         assert [r["text"] for r in db.search("100%折")] == ["价格是100%折扣"]
         assert db.search("你好%") == []
 
@@ -185,8 +165,7 @@ class TestCjkSearchOrderingAndPagination:
             db2.close()
 
     def test_cursor_pagination_on_cjk_query(self, db, tmp_path):
-        """The cursor path (before_timestamp + before_id) must work on
-        the CJK LIKE branch exactly like the FTS branch."""
+        """The cursor path (before_timestamp + before_id) must work on"""
         recent = db.get_recent(limit=10)
         anchor = recent[0]
         results = db.search(

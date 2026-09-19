@@ -1,25 +1,4 @@
-"""Tests for the ER-88 resampling fallback anti-aliasing + warning fix.
-
-These tests cover the linear-interp fallback path in
-``voice_typer.server.recording.resampling.resample_audio`` (used when
-``scipy.signal.resample_poly`` is unavailable). Pre-fix, the fallback
-used pure ``np.interp`` with no anti-aliasing filter, when
-DOWNSAMPLING (e.g. 48k→16k, 44.1k→16k), energy above the target
-Nyquist (8 kHz) aliased into the speech band, silently degrading ASR
-accuracy on the streaming partial-transcription path.
-
-Post-fix, the fallback applies a short windowed-sinc FIR low-pass
-filter at ``target_sr / 2`` BEFORE the linear-interp decimation, and
-emits a one-time WARNING so the streaming path surfaces the quality
-degradation (it normally suppresses per-call logging via
-``log_resample=False``).
-
-The tests are placed under the ``test_recording_controller_*`` namespace
-because ``recording_controller`` is the primary consumer of the
-resampling pipeline (via ``DictationPipeline``) and this sub-agent owns
-that test-file pattern. The module under test lives in
-``voice_typer.server.recording.resampling``.
-"""
+"""Tests for the ER-88 resampling fallback anti-aliasing + warning fix."""
 
 from __future__ import annotations
 
@@ -41,8 +20,7 @@ def _mock_sounddevice(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def _reset_linear_interp_warning_flag():
-    """Reset the one-time warning flag before each test so we can assert
-    the warning fires on the first fallback invocation per test."""
+    """Reset the one-time warning flag before each test so we can assert"""
     import voice_typer.server.recording.resampling as res_mod
 
     res_mod._linear_interp_warned = False
@@ -51,8 +29,7 @@ def _reset_linear_interp_warning_flag():
 
 
 def _force_linear_interp_fallback(monkeypatch):
-    """Patch ``_get_resample_poly`` to raise ``ResampleUnavailableError``
-    so the linear-interp fallback path is exercised deterministically."""
+    """Patch ``_get_resample_poly`` to raise ``ResampleUnavailableError``"""
     import voice_typer.server.recording.resampling as res_mod
     from voice_typer.server.recording.exceptions import ResampleUnavailableError
 
@@ -60,8 +37,6 @@ def _force_linear_interp_fallback(monkeypatch):
         raise ResampleUnavailableError("scipy not available for test")
 
     # Patch via the package namespace so the production code's
-    # ``_recording_pkg._get_resample_poly()`` lookup picks up the patch
-    # (same pattern as tests/test_recording.py::TestResampleFallback).
     monkeypatch.setattr(
         "voice_typer.server.recording.resampling._get_resample_poly",
         raising_get_resample,
@@ -69,23 +44,11 @@ def _force_linear_interp_fallback(monkeypatch):
     return res_mod
 
 
-# ────────────────────────────────────────────────────────────────────────────
-# Test 1: downsampling via linear-interp fallback applies an anti-aliasing
-# FIR filter, high-frequency energy above target_sr/2 is attenuated.
-# ────────────────────────────────────────────────────────────────────────────
 class TestLinearInterpAntialiasing:
-    """ER-88: the no-scipy linear-interp fallback applies an anti-aliasing
-    FIR low-pass filter at ``target_sr / 2`` before decimating, so energy
-    above the target Nyquist does not alias into the speech band."""
+    """ER-88: the no-scipy linear-interp fallback applies an anti-aliasing"""
 
     def test_downsampling_attenuates_above_target_nyquist(self, monkeypatch):
-        """A 12 kHz sine (above 8 kHz target Nyquist) at 48 kHz must be
-        strongly attenuated after 48k→16k linear-interp resampling.
-
-        Pre-fix, np.interp aliases 12 kHz energy into the 0-8 kHz band,
-        producing a strong aliased component. Post-fix, the anti-aliasing
-        FIR low-passes at 8 kHz first, so the 12 kHz energy is suppressed.
-        """
+        """A 12 kHz sine (above 8 kHz target Nyquist) at 48 kHz must be"""
         _force_linear_interp_fallback(monkeypatch)
         from voice_typer.server.recording.resampling import resample_audio
 
@@ -103,16 +66,9 @@ class TestLinearInterpAntialiasing:
             f"Expected ~{expected_len} samples after 48k→16k resample, got {len(result)}"
         )
         # Skip the FIR transient (first/last 31 samples ≈ filter length).
-        # The middle of the result should be near-zero (12 kHz attenuated
-        # by the low-pass at 8 kHz). Allow some residual, the 31-tap FIR
-        # has finite stop-band attenuation (~40 dB), so a small aliased
-        # component is expected, but it must be MUCH smaller than the
-        # 0.5-amplitude input.
         middle = result[100:-100]
         peak = float(np.max(np.abs(middle)))
         # Pre-fix (no anti-aliasing), peak would be ~0.5 (full aliasing).
-        # Post-fix (FIR applied), peak should be < 0.1 (~ -14 dB attenuation
-        # , well below the input amplitude).
         assert peak < 0.1, (
             f"ER-88: 12 kHz signal should be attenuated by the anti-aliasing "
             f"FIR (peak < 0.1); got peak={peak:.4f}. The linear-interp "
@@ -120,14 +76,7 @@ class TestLinearInterpAntialiasing:
         )
 
     def test_upsampling_skips_antialiasing_filter(self, monkeypatch):
-        """Upsampling (target_sr > effective_sr) must NOT apply the FIR —
-        linear interp's natural (sin x / x) response already attenuates
-        the upper half of the source band, so an additional FIR would
-        needlessly attenuate legitimate signal.
-
-        A 4 kHz sine at 16 kHz upsampled to 48 kHz should retain most of
-        its amplitude (4 kHz is well below the 8 kHz source Nyquist).
-        """
+        """Upsampling (target_sr > effective_sr) must NOT apply the FIR —"""
         _force_linear_interp_fallback(monkeypatch)
         from voice_typer.server.recording.resampling import resample_audio
 
@@ -139,13 +88,9 @@ class TestLinearInterpAntialiasing:
 
         result = resample_audio(low_freq_audio, sr_in, 48000, log_resample=False)
 
-        # Upsampling should preserve the signal (linear interp of a
-        # 4 kHz sine at 16 kHz → 48 kHz retains ~0.5 amplitude after
-        # the (sin x / x) response, close to 0.5 but slightly less).
         middle = result[100:-100]
         peak = float(np.max(np.abs(middle)))
         # The (sin x / x) response at 4 kHz/16 kHz = 0.25 normalized →
-        # attenuation is small. Allow some slack.
         assert peak > 0.3, (
             f"ER-88: 4 kHz signal should be preserved on upsampling "
             f"(peak > 0.3, no anti-aliasing filter applied); got "
@@ -154,8 +99,7 @@ class TestLinearInterpAntialiasing:
         )
 
     def test_antialias_fir_cache_returns_same_filter_for_same_ratio(self, monkeypatch):
-        """The anti-aliasing FIR cache must return the same filter object
-        for the same (effective_sr, target_sr) pair (memoization)."""
+        """The anti-aliasing FIR cache must return the same filter object"""
         res_mod = _force_linear_interp_fallback(monkeypatch)
         # Clear the cache to start fresh.
         res_mod._antialias_fir_cache.clear()
@@ -169,8 +113,7 @@ class TestLinearInterpAntialiasing:
         )
 
     def test_antialias_fir_returns_none_for_upsampling(self, monkeypatch):
-        """Upsampling / same-rate resampling returns ``None`` (no filter
-        needed, linear interp's natural response suffices)."""
+        """Upsampling / same-rate resampling returns ``None`` (no filter"""
         res_mod = _force_linear_interp_fallback(monkeypatch)
         assert res_mod._get_antialias_fir(16000, 48000) is None, (
             "ER-88: upsampling must return None (no anti-aliasing needed)."
@@ -180,8 +123,7 @@ class TestLinearInterpAntialiasing:
         )
 
     def test_fir_normalized_dc_gain_is_one(self, monkeypatch):
-        """The FIR's DC gain must be 1.0 so a constant (DC) signal passes
-        through unchanged, prevents amplitude drift on silent/DC chunks."""
+        """The FIR's DC gain must be 1.0 so a constant (DC) signal passes"""
         res_mod = _force_linear_interp_fallback(monkeypatch)
         fir = res_mod._get_antialias_fir(48000, 16000)
         assert fir is not None
@@ -192,15 +134,8 @@ class TestLinearInterpAntialiasing:
         )
 
 
-# ────────────────────────────────────────────────────────────────────────────
-# Test 2: one-time WARNING is emitted on the first linear-interp fallback
-# use, even when the caller passes log_resample=False (the streaming path).
-# ────────────────────────────────────────────────────────────────────────────
 class TestLinearInterpOneTimeWarning:
-    """ER-88: a one-time WARNING is emitted on the first linear-interp
-    fallback invocation, even when ``log_resample=False`` (the streaming
-    partial-transcription path's default). Subsequent invocations are
-    silent (avoids log spam at 16 Hz)."""
+    """ER-88: a one-time WARNING is emitted on the first linear-interp"""
 
     def test_first_fallback_call_emits_warning_even_when_log_resample_false(self, monkeypatch, caplog):
         _force_linear_interp_fallback(monkeypatch)
@@ -211,8 +146,6 @@ class TestLinearInterpOneTimeWarning:
             logging.WARNING,
             logger="voice_typer.server.recording",
         ):
-            # log_resample=False, simulates the streaming partial path
-            # which suppresses per-call INFO logs.
             resample_audio(audio, 48000, 16000, log_resample=False)
 
         warning_messages = [r.message for r in caplog.records if r.levelno >= logging.WARNING]
@@ -222,14 +155,12 @@ class TestLinearInterpOneTimeWarning:
         )
 
     def test_second_fallback_call_does_not_repeat_warning(self, monkeypatch, caplog):
-        """The one-time warning must NOT repeat on subsequent calls (the
-        streaming path runs at ~16 Hz; spam would drown the log)."""
+        """The one-time warning must NOT repeat on subsequent calls (the"""
         _force_linear_interp_fallback(monkeypatch)
         from voice_typer.server.recording.resampling import resample_audio
 
         audio = np.ones(4800, dtype=np.float32)
         # First call: emits the warning (drain the caplog so we only see
-        # the second call's records below).
         with caplog.at_level(
             logging.WARNING,
             logger="voice_typer.server.recording",
@@ -250,8 +181,7 @@ class TestLinearInterpOneTimeWarning:
         )
 
     def test_warning_mentions_anti_aliasing_status(self, monkeypatch, caplog):
-        """The warning message must indicate whether the anti-aliasing
-        FIR was applied (downsampling) or not (upsampling/same-rate)."""
+        """The warning message must indicate whether the anti-aliasing"""
         _force_linear_interp_fallback(monkeypatch)
         from voice_typer.server.recording.resampling import resample_audio
 
@@ -268,16 +198,8 @@ class TestLinearInterpOneTimeWarning:
         )
 
 
-# ────────────────────────────────────────────────────────────────────────────
-# Test 3: the existing length contract is preserved (anti-aliasing filter
-# uses mode="same" so output length is unchanged).
-# ────────────────────────────────────────────────────────────────────────────
 class TestLengthContractPreserved:
-    """ER-88: the anti-aliasing FIR uses ``np.convolve(., mode='same')``
-    so the linear-interp path's output length is unchanged from pre-fix
-    behavior. Existing callers (and tests) that depend on the
-    ``int(len(input) * target_sr / effective_sr)`` length formula
-    continue to hold."""
+    """ER-88: the anti-aliasing FIR uses ``np.convolve(., mode='same')``"""
 
     def test_downsampled_length_matches_legacy_formula(self, monkeypatch):
         _force_linear_interp_fallback(monkeypatch)
@@ -304,26 +226,8 @@ class TestLengthContractPreserved:
         )
 
 
-# ────────────────────────────────────────────────────────────────────────────
-# Test 4: the cached-FIR-taps fast path is numerically equivalent to
-# ``resample_poly``, exercised UNMOCKED (real scipy ``upfirdn``, real
-# taps). The earlier tests mocked ``upfirdn``, which is exactly why the
-# tuple-unpacking bug survived: every call raised ``ValueError`` inside
-# the fast path and silently fell back to ``resample_poly``.
-# ────────────────────────────────────────────────────────────────────────────
 class TestCachedTapsFastPathNumericEquivalence:
-    """The cached-taps path must run (no exception churn, no fallback)
-    and produce output matching ``scipy.signal.resample_poly``.
-
-    * Uncapped ratios (48k→16k: up=1, down=3): BIT-identical output —
-      the cached design is scipy's design, and the shared
-      ``_resample_via_cached_taps`` helper applies scipy's exact
-      ``raw[n_pre_remove : n_pre_remove + n_out]`` trim.
-    * Capped "ugly" ratios (44.1k→16k): same length + finite + strongly
-      correlated, the intentionally shorter FIR trades transition-band
-      width for ~30× fewer MACs, so exact equality does not hold by
-      design.
-    """
+    """The cached-taps path must run (no exception churn, no fallback)"""
 
     def test_fast_path_bit_matches_resample_poly_at_48k(self):
         """48k→16k float32: fast path output is bit-identical to resample_poly."""
@@ -354,14 +258,7 @@ class TestCachedTapsFastPathNumericEquivalence:
         )
 
     def test_fast_path_runs_without_fallback(self, monkeypatch):
-        """The fast path must not raise-and-fall-back on every call.
-
-        ``_get_resample_poly`` is patched to a function whose RESULT
-        raises if invoked: if the ``upfirdn`` fast path worked, the
-        fallback is never touched and the resample succeeds; if the
-        old tuple bug were present (``ValueError`` on every call), the
-        fallback would run and blow up the test.
-        """
+        """The fast path must not raise-and-fall-back on every call."""
         from voice_typer.server.recording import resampling
 
         def _boom(*args, **kwargs):
@@ -374,8 +271,7 @@ class TestCachedTapsFastPathNumericEquivalence:
         assert np.all(np.isfinite(result))
 
     def test_upfirdn_receives_unpacked_taps_array(self, monkeypatch):
-        """Spy on the real ``upfirdn``: its first positional argument
-        must be the taps ARRAY, not the 3-tuple (the original defect)."""
+        """Spy on the real ``upfirdn``: its first positional argument"""
         from voice_typer.server.recording import resampling
 
         calls: list[object] = []
@@ -399,9 +295,7 @@ class TestCachedTapsFastPathNumericEquivalence:
         )
 
     def test_capped_ratio_44k1_same_length_and_correlated(self):
-        """44.1k→16k (capped half_len): same length as resample_poly,
-        finite, and strongly correlated (intentional design deviation,
-        not a bug)."""
+        """44.1k→16k (capped half_len): same length as resample_poly,"""
         import math
 
         from scipy.signal import resample_poly

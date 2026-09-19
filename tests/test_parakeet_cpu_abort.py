@@ -1,32 +1,4 @@
-"""CPU-fallback abort regression tests for ``ParakeetEngine``.
-
-These tests pin the OI-14 contract for the ONNX engine: the chunk loop
-in ``_transcribe_chunks`` checks ``_abort_event`` BETWEEN chunks so a
-long audio split into N chunks stops after the current chunk rather
-than decoding all remaining ones. The same chunk loop is used by both
-the GPU path and the post-fallback CPU path, so the abort contract
-covers both.
-
-The general inter-chunk abort contract (for the non-fallback path) is
-covered by ``tests/test_parakeet_onnx_abort.py``. This file focuses on
-source-level regression guards and the CPU-fallback-specific abort
-behavior for single-segment audio (which is what
-``transcribe_with_fallback`` actually re-runs after a CUDA error: see
-the note below).
-
-NOTE: ``transcribe_with_fallback``'s post-fallback re-transcribe
-currently calls ``_transcribe_segment`` directly on the full audio
-(not ``transcribe()``, which chunk-splits). For multi-chunk audio this
-is a latent gap (the full audio gets passed to a single
-``recognize()`` call which would exceed the model's input length);
-documenting this gap is out of scope for the RunOptions/warmup fix
-slice, the tests here use single-segment audio to match the actual
-fallback behavior.
-
-NOTE: mid-run termination of a single-segment ``recognize()`` call is
-NOT supported (onnx-asr 0.12.0 does not forward ``RunOptions`` to
-``session.run``: see the note on ``ParakeetEngine._abort_event``).
-"""
+"""CPU-fallback abort regression tests for ``ParakeetEngine``."""
 
 from __future__ import annotations
 
@@ -38,8 +10,6 @@ import pytest
 from voice_typer.server.parakeet_engine import (  # noqa: E402
     ParakeetEngine,
 )
-
-# ─── Helpers ────────────────────────────────────────────────────────────
 
 
 def _mock_onnx_asr_module(recognize_side_effect=None) -> MagicMock:
@@ -91,13 +61,7 @@ def _reset_parakeet_engine_class_state():
 
 
 def _make_engine_with_cuda_loaded():
-    """Build a ParakeetEngine with a mocked CUDA-loaded ONNX model.
-
-    Returns ``(engine, mock_onnx_asr, mock_onnxruntime)``. The GPU
-    model's ``recognize()`` will be reconfigured by the caller (e.g. to
-    raise a CUDA OOM); the CPU-fallback recreated model uses the
-    default ``"hello world"`` return value.
-    """
+    """Build a ParakeetEngine with a mocked CUDA-loaded ONNX model."""
     mock_onnx_asr = _mock_onnx_asr_module(recognize_side_effect="hello world")
     mock_onnxruntime = _mock_onnxruntime_module()
     with patch.dict(
@@ -111,26 +75,14 @@ def _make_engine_with_cuda_loaded():
     return engine, mock_onnx_asr, mock_onnxruntime
 
 
-# ─── Tests ──────────────────────────────────────────────────────────────
-
-
 class TestParakeetCpuFallbackAbortGate:
-    """Source-level guards + behavioral smoke tests for the inter-chunk
-    abort gate used by both the GPU path and the post-fallback CPU path.
-
+    """
+    Source-level guards + behavioral smoke tests for the inter-chunk
     The original OI-14 contract (ESC stops the chunk loop with bounded
-    latency) is preserved through the chunk-loop abort gate in
-    ``_transcribe_chunks``. The inter-chunk behavioral tests live in
-    ``tests/test_parakeet_onnx_abort.py``; this class adds source-level
-    guards + a CPU-fallback-specific behavioral smoke test.
     """
 
     def test_chunk_loop_has_abort_gate_in_source(self):
-        """Source-level guard: ``_transcribe_chunks`` must contain the
-        abort gate (``_abort_event.is_set()`` + ``break``). Catches a
-        future refactor that accidentally removes the gate, without
-        it, ESC during a multi-chunk CPU decode would wait for the
-        full audio to finish (the OI-14 regression)."""
+        """future refactor that accidentally removes the gate, without"""
         import inspect
 
         src = inspect.getsource(ParakeetEngine._transcribe_chunks)
@@ -145,10 +97,7 @@ class TestParakeetCpuFallbackAbortGate:
         )
 
     def test_abort_gate_at_loop_top_in_source(self):
-        """Source-level guard: the abort check must appear BEFORE the
-        ``_transcribe_segment`` call inside the chunk loop (not after).
-        A bottom-of-loop check would decode one extra chunk after ESC
-        before breaking, defeating the bounded-latency contract."""
+        """``_transcribe_segment`` call inside the chunk loop (not after)."""
         import inspect
 
         src = inspect.getsource(ParakeetEngine._transcribe_chunks)
@@ -164,32 +113,14 @@ class TestParakeetCpuFallbackAbortGate:
         )
 
     def test_abort_event_clears_on_clear_abort(self):
-        """``clear_abort()`` must clear ``_abort_event`` so a stale
-        abort from the previous transcription cycle does NOT suppress
-        the next one (e.g. user hit ESC, aborted, then started a new
-        recording)."""
+        """``clear_abort()`` must clear ``_abort_event`` so a stale"""
         engine, _, _ = _make_engine_with_cuda_loaded()
         engine._abort_event.set()
         engine.clear_abort()
         assert not engine._abort_event.is_set()
 
     def test_fallback_re_runs_audio_on_cpu_after_cuda_error(self):
-        """Behavioral smoke test: after a CUDA error triggers
-        ``transcribe_with_fallback``'s CPU fallback (session recreation
-        on CPU), the re-transcribe call respects the same ``_abort_event``
-        contract, setting abort before the fallback re-transcribe means
-        the (single-segment) ``_transcribe_segment`` call still runs
-        (the abort gate is BETWEEN chunks, not mid-segment) but the
-        next ``transcribe()`` call on this engine would short-circuit.
-
-        This test uses single-segment audio (≤25s) to match the actual
-        fallback behavior: ``transcribe_with_fallback`` calls
-        ``_transcribe_segment`` directly on the full audio after
-        recreation (does NOT re-route through ``transcribe()`` for
-        chunk-splitting). The latent gap for multi-chunk audio is
-        documented in the module docstring; out of scope for this
-        slice.
-        """
+        """Behavioral smoke test: after a CUDA error triggers"""
         # GPU model: raise a CUDA OOM on the first chunk.
         gpu_model = MagicMock(name="gpu_model")
         gpu_model.recognize.side_effect = RuntimeError("CUDA out of memory")
@@ -216,5 +147,4 @@ class TestParakeetCpuFallbackAbortGate:
             f"for the re-transcribe. Got {cpu_model.recognize.call_count} calls."
         )
         # The fallback mutated device to "cpu" (session stays on CPU
-        # until the next load()).
         assert engine.device == "cpu"

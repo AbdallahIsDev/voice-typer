@@ -1,12 +1,6 @@
-"""Tests for the streaming partial-transcription broadcaster.
-
+"""
+Tests for the streaming partial-transcription broadcaster.
 Covers the coalescing contract (latest-value-wins, ≤4 Hz throttle,
-unchanged/empty suppression, forced flush) AND the bubble-channel
-mirror: every eligible publish must also emit a ``bubble_set_state``
-payload carrying the live ``transcript`` while the session is active,
-and must NOT emit one after ``stop()`` or on a forced finalize flush
-(a late ``state:"recording"`` would flip the pill out of its
-transcribing/idle state).
 """
 
 from __future__ import annotations
@@ -99,11 +93,7 @@ def test_empty_text_is_suppressed(published):
 
 
 def test_flush_bypasses_throttle_but_skips_bubble_mirror(published):
-    """finalize()'s synchronous flush lands the last partial for
-    main-window consumers, but must NOT re-assert ``recording`` on the
-    bubble channel, the lifecycle has already moved the pill to
-    transcribing by then.
-    """
+    """transcribing by then."""
     clock = FakeClock()
     b = PartialTranscriptionBroadcaster(cycle_id="c1", min_interval_seconds=0.25, clock=clock)
     b.push("final words")
@@ -123,8 +113,7 @@ def test_no_bubble_mirror_after_stop(published):
 
 
 def test_worker_thread_drains_pending_slot():
-    """End-to-end worker path: push wakes the lazy worker which drains
-    the slot without test intervention (real threads, real clock)."""
+    """End-to-end worker path: push wakes the lazy worker which drains"""
     received: list[str] = []
     seen = threading.Event()
 

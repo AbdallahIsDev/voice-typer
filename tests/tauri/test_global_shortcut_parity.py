@@ -1,9 +1,6 @@
-"""Bubble-dismiss global shortcut pin (MO-125).
-
-Post-predecessor cutover the predecessor accelerator source is gone; the
-Tauri host registers the binding Rust-side via
+"""
+Bubble-dismiss global shortcut pin (MO-125).
 ``tauri-plugin-global-shortcut``. These tests pin the Rust constant
-to the shared TS display constant so the two stay in lockstep.
 """
 
 from __future__ import annotations
@@ -36,8 +33,6 @@ def test_rust_registers_the_same_binding() -> None:
     match = re.search(r'BUBBLE_DISMISS_ACCELERATOR:\s*&str\s*=\s*"([^"]+)"', source)
     assert match, "the Rust accelerator constant is missing"
     # `CmdOrCtrl+Shift+D` and `CommandOrControl+Shift+D` are the same
-    # binding in different spellings; the Rust global-hotkey parser
-    # accepts the former.
     assert match.group(1) == "CmdOrCtrl+Shift+D", (
         "the Rust binding diverged from the shared TS constant (CommandOrControl+Shift+D)"
     )

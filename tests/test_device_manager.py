@@ -1,22 +1,4 @@
-"""Tests for ``voice_typer.server.recording.device_manager.DeviceManager``.
-
-Covers the DJ (Group 2, Performance & Resources) Phase 4 fixes owned by
-fix-agent F2:
-
-- **DJ-68**: ``_invalidate_device_cache`` also fires the registered
-  service-layer cache invalidator (``set_service_cache_invalidator``).
-- **DJ-69**: ``_resolve_device`` parses the compound
-  ``"<index>|<name>|<host_api>"`` form, prefers name-based resolution via
-  ``find_microphone_by_name``, falls back to the saved index, and emits
-  a one-time name-mismatch warning.
-- **DJ-70**: ``_get_max_retries_for_device`` returns 6 for Bluetooth
-  devices (``bluetooth``/``hfp``/``hands-free`` in the name OR 8/16 kHz
-  sample rate) and 3 for everything else; ``_get_retry_sleep_for_device``
-  returns ``_bt_retry_sleep_seconds`` for BT and 0.0 otherwise.
-
-The tests use a headless mock for ``sounddevice`` so they don't touch
-real audio hardware and run on any platform.
-"""
+"""Tests for ``voice_typer.server.recording.device_manager.DeviceManager``."""
 
 from __future__ import annotations
 
@@ -36,14 +18,7 @@ def _mock_sounddevice(monkeypatch):
 
 
 def _make_device_manager(recorder=None, config=None):
-    """Construct a ``DeviceManager`` with a mocked ``recorder`` back-reference.
-
-    ``DeviceManager.__init__`` tries to start a real
-    ``MicrophoneDeviceWatcher``, we patch that out so no thread is
-    spawned. The watcher startup is exercised elsewhere (in
-    ``tests/test_microphone_watcher.py``); here we only test the
-    DeviceManager-specific methods.
-    """
+    """Construct a ``DeviceManager`` with a mocked ``recorder`` back-reference."""
     from voice_typer.server.recording.device_manager import DeviceManager
 
     if recorder is None:
@@ -52,22 +27,15 @@ def _make_device_manager(recorder=None, config=None):
             config = MagicMock(sample_rate=16000, microphone=None)
         recorder.config = config
         # ``_resolve_device`` reads ``recorder.config.microphone`` —
-        # ``MagicMock`` returns a new MagicMock for that attribute by
-        # default, which breaks the ``mic is None`` check. Force None.
         recorder.config.microphone = None
     return DeviceManager(recorder)
-
-
-# service-layer cache invalidation callback ─────────────────
 
 
 class TestServiceCacheInvalidator:
     """``_invalidate_device_cache`` also calls the registered service callback."""
 
     def test_invalidator_callback_fires_on_cache_invalidation(self):
-        """When ``_invalidate_device_cache`` runs, the registered service
-        cache invalidator is invoked (so the UI's mic dropdown refreshes
-        immediately after a hot-plug, not 5s later)."""
+        """When ``_invalidate_device_cache`` runs, the registered service"""
         dm = _make_device_manager()
         called = {"count": 0}
 
@@ -87,8 +55,7 @@ class TestServiceCacheInvalidator:
         assert called["count"] == 1, "DJ-68: service invalidator must fire"
 
     def test_invalidator_not_called_when_not_registered(self):
-        """When no callback is registered, ``_invalidate_device_cache`` is
-        a silent no-op for the service layer (preserves pre-fix behavior)."""
+        """When no callback is registered, ``_invalidate_device_cache`` is"""
         dm = _make_device_manager()
         # No set_service_cache_invalidator call.
         assert not hasattr(dm, "_service_cache_invalidator") or dm._service_cache_invalidator is None
@@ -97,8 +64,7 @@ class TestServiceCacheInvalidator:
         assert dm._device_list_cache is None
 
     def test_invalidator_callback_exception_is_swallowed(self, caplog):
-        """If the service invalidator raises, the exception is logged and
-        swallowed (the DeviceManager cache was still invalidated)."""
+        """If the service invalidator raises, the exception is logged and"""
         dm = _make_device_manager()
 
         def raising_invalidator():
@@ -134,20 +100,11 @@ class TestServiceCacheInvalidator:
         assert called["count"] == 1, "unregistered callback must NOT fire"
 
 
-# proactive disconnect recovery on hot-plug ─────────────────
-
-
 class TestHotplugDisconnectRecovery:
-    """TY-5 (High): when a hot-plug event arrives AND a device disconnect
-    is currently in-progress (``_device_disconnected=True``), the
-    ``_invalidate_device_cache`` hook proactively triggers a re-attempt
-    of the disconnect handler on a fresh daemon thread."""
+    """TY-5 (High): when a hot-plug event arrives AND a device disconnect"""
 
     def test_hotplug_triggers_recovery_when_disconnected(self):
-        """When ``_device_disconnected=True`` and recording is still
-        active, a hot-plug event spawns a fresh disconnect-handler
-        thread so the recorder can retry the restart against the newly-
-        plugged device."""
+        """When ``_device_disconnected=True`` and recording is still"""
         dm = _make_device_manager()
         dm._device_disconnected = True
         dm.recorder._recording_event.is_set.return_value = True
@@ -162,9 +119,7 @@ class TestHotplugDisconnectRecovery:
         assert spawn_calls[0]["single_flight"] is True
 
     def test_hotplug_no_recovery_when_not_disconnected(self):
-        """When ``_device_disconnected=False`` (normal operation), a
-        hot-plug event ONLY invalidates the cache, no recovery spawn
-        is needed."""
+        """hot-plug event ONLY invalidates the cache, no recovery spawn"""
         dm = _make_device_manager()
         dm._device_disconnected = False
         spawn_calls: list[dict] = []
@@ -176,8 +131,7 @@ class TestHotplugDisconnectRecovery:
         assert spawn_calls == [], "TY-5: no recovery spawn expected when not disconnected"
 
     def test_hotplug_no_recovery_when_recording_stopped(self):
-        """When recording has been deliberately stopped, a hot-plug event
-        does NOT spawn a recovery handler."""
+        """When recording has been deliberately stopped, a hot-plug event"""
         dm = _make_device_manager()
         dm._device_disconnected = True
         dm.recorder._recording_event.is_set.return_value = False
@@ -190,13 +144,8 @@ class TestHotplugDisconnectRecovery:
         assert spawn_calls == [], "TY-5: no recovery spawn when recording has been stopped"
 
 
-# name-based device resolution ──────────────────────────────
-
-
 class TestNameBasedDeviceResolution:
-    """``_resolve_device`` parses ``"<index>|<name>|<host_api>"`` and prefers
-    name-based resolution (so a saved index that now points at a different
-    physical device is not silently substituted)."""
+    """``_resolve_device`` parses ``\"<index>|<name>|<host_api>\"`` and prefers"""
 
     def test_none_microphone_returns_none(self):
         """``config.microphone is None`` → system default → return None."""
@@ -205,14 +154,13 @@ class TestNameBasedDeviceResolution:
         assert dm._resolve_device() is None
 
     def test_bare_index_string_still_works(self):
-        """Legacy ``config.microphone = "5"`` → return int 5 (backward compat)."""
+        """Legacy ``config.microphone = \"5\"`` → return int 5 (backward compat)."""
         dm = _make_device_manager()
         dm.recorder.config.microphone = "5"
         assert dm._resolve_device() == 5
 
     def test_compound_form_prefers_name_resolution(self, monkeypatch):
-        """``"5|USB Mic A|CoreAudio"`` → name lookup returns index 7 → return 7
-        (the saved index 5 is NOT used because name resolution succeeded)."""
+        """``\"5|USB Mic A|CoreAudio\"`` → name lookup returns index 7 → return 7"""
         dm = _make_device_manager()
         dm.recorder.config.microphone = "5|USB Mic A|CoreAudio"
 
@@ -238,8 +186,7 @@ class TestNameBasedDeviceResolution:
         assert result == 5, "DJ-69: must fall back to saved index when name lookup fails"
 
     def test_compound_form_warns_on_name_mismatch(self, monkeypatch, caplog):
-        """When name resolution fails AND the saved index now points at a
-        device with a different name, a one-time WARNING is logged."""
+        """When name resolution fails AND the saved index now points at a"""
         dm = _make_device_manager()
         dm.recorder.config.microphone = "5|USB Mic A|CoreAudio"
 
@@ -271,8 +218,7 @@ class TestNameBasedDeviceResolution:
         )
 
     def test_compound_form_no_warn_when_saved_index_gone(self, monkeypatch, caplog):
-        """When the saved index is no longer queryable, no mismatch warning
-        is emitted (name resolution was the right call)."""
+        """When the saved index is no longer queryable, no mismatch warning"""
         dm = _make_device_manager()
         dm.recorder.config.microphone = "5|Gone Mic|CoreAudio"
 
@@ -318,21 +264,7 @@ class TestNameBasedDeviceResolution:
         ],
     )
     def test_compound_form_no_warn_when_query_raises_any_exception(self, monkeypatch, caplog, exc):
-        """The DJ-69 diagnostic probe's ``except`` clause must catch any
-        Exception raised by ``sd.query_devices(saved_index)``, not just
-        ``(KeyError, TypeError, AttributeError)``.
-
-        ``sounddevice.query_devices(invalid_index)`` raises
-        ``sounddevice.PortAudioError`` (a subclass of ``Exception``,
-        not ``OSError`` or ``RuntimeError``) in production. A previous
-        narrowing to ``(KeyError, TypeError, AttributeError)`` let
-        ``PortAudioError`` / ``RuntimeError`` / ``OSError`` propagate
-        and crash the device-resolution path on a hot-swapped-out
-        saved index. The fix broadens the clause to ``Exception``
-        because the warning is purely diagnostic, no caller of
-        ``_resolve_device`` is prepared to handle a raised exception
-        from this probe.
-        """
+        """The DJ-69 diagnostic probe's ``except`` clause must catch any"""
         dm = _make_device_manager()
         dm.recorder.config.microphone = "5|Gone Mic|CoreAudio"
 
@@ -351,8 +283,6 @@ class TestNameBasedDeviceResolution:
             logger="voice_typer.server.recording",
         ):
             # Must NOT raise, the diagnostic probe's except clause
-            # swallows the exception and falls through to the
-            # ``return saved_index`` fallback.
             result = dm._resolve_device()
 
         assert result == 5, (
@@ -369,9 +299,7 @@ class TestNameBasedDeviceResolution:
 
 
 class TestBTAwareRetryPolicy:
-    """``_get_max_retries_for_device`` returns 6 for Bluetooth devices and 3
-    otherwise; ``_get_retry_sleep_for_device`` returns
-    ``_bt_retry_sleep_seconds`` for BT and 0.0 otherwise."""
+    """``_get_max_retries_for_device`` returns 6 for Bluetooth devices and 3"""
 
     def test_baseline_retries_for_non_bt_device(self):
         """A non-Bluetooth device (48 kHz, name without BT keywords) → 3 retries."""
@@ -387,27 +315,26 @@ class TestBTAwareRetryPolicy:
         assert dm._get_retry_sleep_for_device(None) == 0.0
 
     def test_bt_retries_for_name_keyword(self):
-        """A device named ``"Bluetooth Headset"`` → 6 retries + 0.75s sleep."""
+        """A device named ``\"Bluetooth Headset\"`` → 6 retries + 0.75s sleep."""
         dm = _make_device_manager()
         info = {"name": "Bluetooth Headset", "default_samplerate": 48000}
         assert dm._get_max_retries_for_device(info) == 6
         assert dm._get_retry_sleep_for_device(info) == pytest.approx(0.75)
 
     def test_bt_retries_for_hfp_keyword(self):
-        """A device named ``"Headset HFP"`` → 6 retries (HFP keyword)."""
+        """A device named ``\"Headset HFP\"`` → 6 retries (HFP keyword)."""
         dm = _make_device_manager()
         info = {"name": "Headset HFP", "default_samplerate": 48000}
         assert dm._get_max_retries_for_device(info) == 6
 
     def test_bt_retries_for_hands_free_keyword(self):
-        """A device named ``"Hands-Free Device"`` → 6 retries."""
+        """A device named ``\"Hands-Free Device\"`` → 6 retries."""
         dm = _make_device_manager()
         info = {"name": "Hands-Free Device", "default_samplerate": 48000}
         assert dm._get_max_retries_for_device(info) == 6
 
     def test_bt_retries_for_8khz_sample_rate(self):
-        """A device at 8 kHz (HFP/HSP signature) → 6 retries, even without
-        a BT keyword in the name."""
+        """A device at 8 kHz (HFP/HSP signature) → 6 retries, even without"""
         dm = _make_device_manager()
         info = {"name": "Generic Mic", "default_samplerate": 8000}
         assert dm._get_max_retries_for_device(info) == 6
@@ -427,9 +354,7 @@ class TestBTAwareRetryPolicy:
         assert dm._get_retry_sleep_for_device(info) == pytest.approx(1.0)
 
     def test_build_device_info_for_retry_policy_returns_none_on_error(self):
-        """``_build_device_info_for_retry_policy`` returns None when
-        ``sd.query_devices`` raises (so the retry policy falls back to
-        the baseline budget)."""
+        """``_build_device_info_for_retry_policy`` returns None when"""
         dm = _make_device_manager()
         # Default mock returns []; force a raise.
         import voice_typer.server.recording.device_manager as dm_mod
@@ -438,8 +363,6 @@ class TestBTAwareRetryPolicy:
             raise RuntimeError("portaudio boom")
 
         # ``_resolve_device`` reads ``recorder.config.microphone`` —
-        # set it to a valid bare index so ``_resolve_device`` returns
-        # an int and we reach the ``sd.query_devices(device)`` call.
         dm.recorder.config.microphone = "0"
         monkeypatch_target = dm_mod.sd
         original = monkeypatch_target.query_devices
@@ -454,9 +377,7 @@ class TestBTAwareRetryPolicy:
 
 
 class TestRetuneAudioProcessorHelper:
-    """DJ-99: the ``retune_audio_processor`` helper consolidates the
-    inline retune block from ``Recorder.start()`` and
-    ``DisconnectHandler.restart_stream()``."""
+    """``DisconnectHandler.restart_stream()``."""
 
     def test_no_op_when_proc_sr_matches_effective_sr(self, caplog):
         """When ``proc._sample_rate == effective_sr``, the helper is a no-op."""
@@ -476,8 +397,7 @@ class TestRetuneAudioProcessorHelper:
         proc.rebuild_from_config.assert_not_called()
 
     def test_set_sample_rate_called_when_available(self, caplog):
-        """When ``set_sample_rate`` exists and ``_sample_rate`` differs, it is
-        called with the new rate."""
+        """When ``set_sample_rate`` exists and ``_sample_rate`` differs, it is"""
         from voice_typer.server.recording.disconnect_handler import retune_audio_processor
 
         proc = MagicMock()
@@ -499,8 +419,7 @@ class TestRetuneAudioProcessorHelper:
         )
 
     def test_rebuild_from_config_fallback_when_set_sr_unavailable(self, caplog):
-        """When ``set_sample_rate`` is not callable, ``rebuild_from_config``
-        is the fallback."""
+        """When ``set_sample_rate`` is not callable, ``rebuild_from_config``"""
         from voice_typer.server.recording.disconnect_handler import retune_audio_processor
 
         proc = MagicMock()
@@ -518,8 +437,7 @@ class TestRetuneAudioProcessorHelper:
         proc.rebuild_from_config.assert_called_once_with(config)
 
     def test_set_sample_rate_failure_is_logged(self, caplog):
-        """When ``set_sample_rate`` raises, a WARNING is logged (and the
-        helper does not re-raise)."""
+        """When ``set_sample_rate`` raises, a WARNING is logged (and the"""
         from voice_typer.server.recording.disconnect_handler import retune_audio_processor
 
         proc = MagicMock()
@@ -539,8 +457,7 @@ class TestRetuneAudioProcessorHelper:
         )
 
     def test_no_op_when_proc_sr_is_none(self):
-        """When ``proc._sample_rate`` is None, the helper is a no-op
-        (mirrors the original inline guard)."""
+        """When ``proc._sample_rate`` is None, the helper is a no-op"""
         from voice_typer.server.recording.disconnect_handler import retune_audio_processor
 
         proc = MagicMock()

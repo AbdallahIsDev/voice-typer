@@ -1,34 +1,4 @@
-"""SI-fix-6 regression tests: early publication of ``_recorder_force_closed``.
-
-These tests pin the SI-20 fix: when ``recorder.stop()`` (or
-``recorder.discard()``) times out in ``ShutdownController._teardown_recorder``,
-the ``self._recorder_force_closed`` flag must be published IMMEDIATELY
-(inside the stop/discard timeout branch), not only at the end-of-function
-assignment.
-
-Context
--------
-``_teardown_sounddevice`` runs concurrently with ``_teardown_recorder`` in
-the XV-7 parallel batch. It bounds its wait on
-``self._recorder_teardown_done`` at 9.5s, but ``_teardown_recorder``'s
-worst case is ~18s (5s stop + 5s discard + 5s mic watcher + 3s
-transcription join). Pre-fix, ``_recorder_force_closed`` was ONLY
-assigned at the end of ``_teardown_recorder`` (after the 3s transcription
-join), so if the helper took >9.5s, ``_teardown_sounddevice`` would
-proceed to ``sd.stop()`` while the leaked recorder worker was still
-accessing the PortAudio stream (the DE-54 deadlock).
-
-The fix publishes ``self._recorder_force_closed = True`` inside both the
-``recorder.stop()`` and ``recorder.discard()`` timeout branches. The
-end-of-function assignment is kept as a redundant safety net.
-
-Test strategy
--------------
-Hook the transcription-thread join step (which runs AFTER the
-force-closed publish but BEFORE the end-of-function assignment) and
-capture ``controller._recorder_force_closed`` at that moment. If the
-early publish worked, the captured value must be ``True``.
-"""
+"""SI-fix-6 regression tests: early publication of ``_recorder_force_closed``."""
 
 from __future__ import annotations
 
@@ -39,14 +9,9 @@ import pytest
 import voice_typer.server.shutdown_controller
 from voice_typer.server.shutdown_controller import ShutdownController
 
-# ── Fixtures (minimal duck-typed stand-ins, mirroring test_shutdown_controller.py) ──
-
 
 class _FakeApp:
-    """Minimal duck-typed stand-in for ``VoiceTyperApp``.
-
-    Only the attributes touched by ``_teardown_recorder`` are populated.
-    """
+    """Minimal duck-typed stand-in for ``VoiceTyperApp``."""
 
     def __init__(self):
         self._shutting_down = False
@@ -90,35 +55,20 @@ def fake_app(tmp_config_dir, monkeypatch):
 
 @pytest.fixture
 def controller(fake_app):
-    """A ``ShutdownController`` wrapping ``fake_app``.
-
-    Resets the early-publication flag and the done-Event so each test
-    starts from a clean state (``_do_cleanup`` does this reset; calling
-    ``_teardown_recorder`` directly bypasses it).
-    """
+    """A ``ShutdownController`` wrapping ``fake_app``."""
     ctrl = ShutdownController(fake_app)
     ctrl._recorder_force_closed = False
     ctrl._recorder_teardown_done.clear()
     return ctrl
 
 
-# early publication of _recorder_force_closed ──────────────────
-
-
 class TestForceClosedPublishedEarly:
-    """SI-20: ``self._recorder_force_closed`` must be True BEFORE the
-    transcription-thread join (i.e. before the end-of-function
-    assignment) when ``recorder.stop()`` times out."""
+    """transcription-thread join (i.e. before the end-of-function"""
 
     def test_force_closed_true_at_transcription_join_after_stop_timeout(self, controller, fake_app, monkeypatch):
-        """When ``recorder.stop()`` times out, the flag must be
-        observable (True) at the moment the transcription-thread join
-        runs (which is the step immediately before the end-of-function
-        publish)."""
+        """When ``recorder.stop()`` times out, the flag must be"""
         fake_app.recorder.recording = True
 
-        # Use a fast _run_with_timeout so recorder.stop() times out in
-        # 0.1s (not the production 5s), keeps the test under 1s.
         _sc = voice_typer.server.shutdown_controller
         original_run_with_timeout = _sc._run_with_timeout
 
@@ -129,7 +79,6 @@ class TestForceClosedPublishedEarly:
 
         monkeypatch.setattr(_sc, "_run_with_timeout", _fast_run_with_timeout)
 
-        # recorder.stop() blocks until the timeout fires (0.1s).
         blocked = threading.Event()
 
         def _blocking_stop():
@@ -137,17 +86,11 @@ class TestForceClosedPublishedEarly:
 
         fake_app.recorder.stop = _blocking_stop
 
-        # Capture controller._recorder_force_closed at the moment the
-        # transcription-thread join runs. The join is the step BEFORE
-        # the end-of-function assignment, so if the flag is True here,
-        # the early publish worked.
         flag_at_transcription_join: list = []
 
         def _capture_flag_then_block(timeout=3.0):
             flag_at_transcription_join.append(controller._recorder_force_closed)
             # Block briefly so the join's timeout path is exercised
-            # (we want to observe the flag, not let the thread finish
-            # immediately).
             blocked.wait(timeout=2.0)
 
         transcription_thread = MagicMock()
@@ -156,8 +99,6 @@ class TestForceClosedPublishedEarly:
         fake_app.recording._transcription_thread = transcription_thread
 
         # Run _teardown_recorder directly (not via _do_cleanup) so we
-        # exercise just this helper without the parallel batch /
-        # sounddevice teardown noise.
         controller._teardown_recorder()
         blocked.set()
 
@@ -169,9 +110,7 @@ class TestForceClosedPublishedEarly:
         )
 
     def test_force_closed_true_at_mic_watcher_skip_after_stop_timeout(self, controller, fake_app, monkeypatch):
-        """When ``recorder.stop()`` times out, the flag must be True at
-        the moment the 'skipping recorder.shutdown_mic_watcher' warning
-        is emitted (the step immediately after the timeout branch)."""
+        """When ``recorder.stop()`` times out, the flag must be True at"""
         fake_app.recorder.recording = True
 
         _sc = voice_typer.server.shutdown_controller
@@ -192,12 +131,6 @@ class TestForceClosedPublishedEarly:
         fake_app.recorder.stop = _blocking_stop
 
         # Capture the flag at the moment the 'skipping
-        # recorder.shutdown_mic_watcher' warning is emitted. This
-        # warning fires inside the mic-watcher-skip branch, which is
-        # the step immediately AFTER the recorder.stop() timeout
-        # branch. After the teardowns/ extraction, the warning is
-        # emitted from the ``shutdown.teardowns.recorder`` module's
-        # own logger, not ``shutdown_controller``'s logger.
         from voice_typer.server.shutdown.teardowns import recorder as _teardown_recorder_mod
 
         flag_at_warning: list = []
@@ -221,8 +154,7 @@ class TestForceClosedPublishedEarly:
         )
 
     def test_force_closed_true_at_transcription_join_after_discard_timeout(self, controller, fake_app, monkeypatch):
-        """Companion: the same early-publication contract must hold for
-        the ``recorder.discard()`` fallback timeout path."""
+        """Companion: the same early-publication contract must hold for"""
         fake_app.recorder.recording = True
 
         # Make recorder.stop() RAISE so the discard() fallback runs.
@@ -267,9 +199,7 @@ class TestForceClosedPublishedEarly:
         )
 
     def test_force_closed_stays_false_when_stop_completes_normally(self, controller, fake_app):
-        """Negative test: when ``recorder.stop()`` completes normally
-        (no timeout), the flag must remain False throughout the helper
-        (including at the transcription-thread join)."""
+        """Negative test: when ``recorder.stop()`` completes normally"""
         fake_app.recorder.recording = True
 
         flag_at_transcription_join: list = []
@@ -284,8 +214,6 @@ class TestForceClosedPublishedEarly:
 
         controller._teardown_recorder()
 
-        # recorder.stop() is a MagicMock, completes immediately, no
-        # timeout. Flag must be False at the join.
         assert flag_at_transcription_join == [False], (
             "SI-20: controller._recorder_force_closed must remain False "
             "when recorder.stop() completes normally; got "
@@ -295,8 +223,7 @@ class TestForceClosedPublishedEarly:
         assert controller._recorder_force_closed is False
 
     def test_recorder_teardown_done_event_set_at_end(self, controller, fake_app):
-        """Sanity: the done-Event must still be set at end-of-function
-        (the early publish does not skip the Event signal)."""
+        """Sanity: the done-Event must still be set at end-of-function"""
         fake_app.recorder.recording = True
 
         assert not controller._recorder_teardown_done.is_set()

@@ -1,26 +1,4 @@
-"""FR-3 regression test: ``custom_theme: null`` is accepted by the IPC
-validator and handled as "clear custom_theme" by Config.
-
-Pre-fix, the IPC validator (``config_validators.py``) rejected
-``custom_theme: None`` with ``"must be dict, got NoneType"`` because
-the expected_type was the bare ``dict``. The renderer's ``useTheme.ts``
-sends ``custom_theme: null`` when the user clicks "Clear custom theme /
-revert to preset", so the user's clear action silently failed (server
-returned ``code: "invalid_field"`` while the local React state still
-held the cleared theme). On next restart the stale custom_theme dict
-reappeared.
-
-Post-fix, the validator accepts ``None`` (returns None for None) and
-the IPC allowlist's expected_type is widened to ``(dict, type(None))``
-so the pre-validator type check passes for ``None``. Config.load()
-already handled None (line ~1416: ``if "custom_theme" in data and
-data["custom_theme"] is not None:``), and Config.save() serializes
-None as JSON ``null``, so the round-trip just works.
-
-Platform note: validated ON LINUX (sandbox). The validator is pure
-Python (no platform-specific code); Windows/macOS validation is
-redundant but listed for completeness.
-"""
+"""FR-3 regression test: ``custom_theme: null`` is accepted by the IPC"""
 
 from __future__ import annotations
 
@@ -58,8 +36,7 @@ class TestValidatorAcceptsNone:
     """FR-3: ``_make_custom_theme_validator`` accepts None."""
 
     def test_validator_returns_none_for_none(self) -> None:
-        """The validator must return ``None`` (success) for input
-        ``None``, not an error string."""
+        """The validator must return ``None`` (success) for input"""
         validator = _make_custom_theme_validator()
         result = validator(None)
         assert result is None, (
@@ -71,8 +48,7 @@ class TestValidatorAcceptsNone:
         )
 
     def test_validator_still_rejects_non_dict_non_none(self) -> None:
-        """Non-dict, non-None values must still be rejected (e.g.
-        integer, list, string)."""
+        """Non-dict, non-None values must still be rejected (e.g."""
         validator = _make_custom_theme_validator()
         for bad_value in (42, [1, 2, 3], "not a dict", 3.14):
             result = validator(bad_value)
@@ -85,8 +61,7 @@ class TestValidatorAcceptsNone:
             )
 
     def test_validator_still_accepts_valid_dict(self) -> None:
-        """A valid custom_theme dict must still pass, FR-3 only widens
-        the accepted set, it doesn't loosen the dict-shape rules."""
+        """A valid custom_theme dict must still pass, FR-3 only widens"""
         validator = _make_custom_theme_validator()
         result = validator(VALID_CUSTOM_THEME)
         assert result is None, f"FR-3: validator rejected a valid custom_theme dict with {result!r}"
@@ -101,13 +76,10 @@ class TestValidatorAcceptsNone:
 
 
 class TestAllowlistAcceptsNone:
-    """FR-3: the IPC_CONFIG_ALLOWLIST entry accepts None at the
-    type-check stage (before the field validator runs)."""
+    """FR-3: the IPC_CONFIG_ALLOWLIST entry accepts None at the"""
 
     def test_allowlist_expected_type_is_tuple_including_none(self) -> None:
-        """The expected_type for ``custom_theme`` must be a tuple that
-        includes ``type(None)`` so the pre-validator type check passes
-        for None. Pre-fix it was the bare ``dict``."""
+        """includes ``type(None)`` so the pre-validator type check passes"""
         spec = IPC_CONFIG_ALLOWLIST["custom_theme"]
         expected_type = spec[0]
         assert isinstance(expected_type, tuple), (
@@ -120,8 +92,7 @@ class TestAllowlistAcceptsNone:
 
 
 class TestValidateConfigUpdateAcceptsNone:
-    """FR-3 end-to-end: ``validate_config_update({'custom_theme': None})``
-    succeeds and returns the value in the validated dict."""
+    """FR-3 end-to-end: ``validate_config_update({'custom_theme': None})``"""
 
     def test_validate_config_update_accepts_none_custom_theme(self) -> None:
         validated, errors = validate_config_update({"custom_theme": None})
@@ -139,8 +110,7 @@ class TestValidateConfigUpdateAcceptsNone:
         assert validated["custom_theme"] == VALID_CUSTOM_THEME
 
     def test_validate_config_update_still_rejects_int(self) -> None:
-        """Non-dict non-None values must still be rejected by the type
-        check (before the field validator even runs)."""
+        """Non-dict non-None values must still be rejected by the type"""
         validated, errors = validate_config_update({"custom_theme": 42})
         assert errors, (
             "FR-3: validate_config_update should still reject non-dict "
@@ -154,9 +124,7 @@ class TestConfigRoundTripWithNone:
     """FR-3: Config.load() and Config.save() round-trip None correctly."""
 
     def test_save_load_round_trip_with_none(self, tmp_config_dir: Path) -> None:
-        """Saving a Config with custom_theme=None, then loading it,
-        must produce a Config with custom_theme=None (not a dict, not
-        a stale value)."""
+        """Saving a Config with custom_theme=None, then loading it,"""
 
         # Construct a Config with a valid custom_theme, save it.
         cfg1 = Config()
@@ -168,7 +136,6 @@ class TestConfigRoundTripWithNone:
         assert on_disk["custom_theme"] == VALID_CUSTOM_THEME
 
         # Now simulate the user clearing the custom theme: load,
-        # set custom_theme to None, save.
         cfg2 = Config.load()
         assert cfg2.custom_theme == VALID_CUSTOM_THEME
         cfg2.custom_theme = None
@@ -186,16 +153,13 @@ class TestConfigRoundTripWithNone:
         assert cfg3.custom_theme is None
 
     def test_load_treats_null_as_clear(self, tmp_config_dir: Path) -> None:
-        """A hand-edited config.json with ``"custom_theme": null`` must
-        load as Config.custom_theme = None (no validation error, no
-        reset warning)."""
+        """A hand-edited config.json with ``\"custom_theme\": null`` must"""
         config_file = tmp_config_dir / "config.json"
         config_file.write_text(json.dumps({"custom_theme": None, "hotkey": "<caps_lock>"}))
 
         cfg = Config.load()
         assert cfg.custom_theme is None
         # No load warnings about custom_theme (the pre-fix
-        # validator would have rejected None and added a warning).
         warnings = cfg.last_load_warnings or []
         assert not any("custom_theme" in w for w in warnings), (
             f"FR-3: Config.load() emitted unexpected custom_theme warnings for None value: {warnings}"

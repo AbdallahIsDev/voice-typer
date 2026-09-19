@@ -1,8 +1,4 @@
-"""Tests for UAC/Winlogon focus scenarios.
-
-TEST-017: Mock Win32 APIs that simulate UAC/Winlogon scenarios.
-Test that the app doesn't crash when foreground window is a secure desktop.
-"""
+"""Tests for UAC/Winlogon focus scenarios."""
 
 from __future__ import annotations
 
@@ -17,8 +13,7 @@ class TestUACFocus:
     """Test that the app handles UAC/Winlogon secure desktop gracefully."""
 
     def test_uac_foreground_window_does_not_crash(self, monkeypatch):
-        """When the foreground window is on a secure desktop, the app
-        should not crash when trying to bring itself to front."""
+        """When the foreground window is on a secure desktop, the app"""
         mock_ctypes = MagicMock()
         mock_user32 = MagicMock()
 
@@ -37,7 +32,6 @@ class TestUACFocus:
         monkeypatch.setitem(sys.modules, "ctypes.wintypes", mock_ctypes.wintypes)
 
         # The tray_window module should handle this gracefully
-        # (not crash, not raise an exception)
         try:
             from voice_typer.server.tray_window import bring_app_to_front
 
@@ -48,25 +42,12 @@ class TestUACFocus:
             pytest.skip("tray_window module not available")
 
     def test_winlogon_desktop_detection(self, monkeypatch):
-        """When the desktop is Winlogon, the app should detect it
-        and skip foreground manipulation.
-
-        S2-CR-61: the original test set up Win32 mocks but ended with
-        ``assert True``, never invoking the SUT, so the mock setup was
-        dead code and gave zero coverage. We now invoke
-        ``tray_window.bring_app_to_front()`` against the same mocks
-        and assert (a) the return is a bool, (b) it returns ``False``
-        (no matching window found under NULL foreground), and (c)
-        ``GetForegroundWindow`` was actually called, proving the SUT
-        read the mock setup rather than short-circuiting.
-        """
+        """When the desktop is Winlogon, the app should detect it"""
         mock_ctypes = MagicMock()
         mock_user32 = MagicMock()
 
         # GetForegroundWindow returns 0 (no foreground, secure desktop)
         mock_user32.GetForegroundWindow.return_value = 0
-        # EnumWindows callback wrapping needs CFUNCTYPE, provide it so
-        # the Win32 code path doesn't AttributeError under the mock.
         mock_ctypes.CFUNCTYPE = MagicMock(return_value=MagicMock())
         mock_ctypes.windll.user32 = mock_user32
         mock_ctypes.windll.kernel32 = MagicMock()
@@ -76,25 +57,21 @@ class TestUACFocus:
         monkeypatch.setitem(sys.modules, "ctypes.wintypes", mock_ctypes.wintypes)
 
         # Force the Win32 code path on any platform so the SUT actually
-        # runs against the mocks (not just the no-op non-Windows branch).
         from voice_typer.server import tray_window
 
         monkeypatch.setattr(tray_window, "is_windows", lambda: True)
 
         # Invoke the SUT, this is the missing piece the original
-        # ``assert True`` skipped.
         result = tray_window.bring_app_to_front()
 
         # (a) The SUT must return a bool per its contract.
         assert isinstance(result, bool), f"bring_app_to_front must return a bool, got {type(result).__name__}"
         # (b) With NULL foreground HWND and no matching window title,
-        # the SUT must report it could not bring anything to front.
         assert result is False, (
             "bring_app_to_front must return False when no matching "
             "window is found (NULL foreground / Winlogon secure desktop)."
         )
         # (c) The SUT must have actually consulted the Win32 foreground
-        # state, otherwise the mock setup is dead code (false coverage).
         assert mock_user32.GetForegroundWindow.called, (
             "bring_app_to_front did not call GetForegroundWindow, the Win32 mock setup was not exercised by the SUT."
         )
@@ -112,8 +89,6 @@ class TestUACFocusCrossPlatform:
         try:
             from voice_typer.server.tray_window import bring_app_to_front
 
-            # On non-Windows, this is expected to be a no-op or use a
-            # different mechanism. Either way, it should not crash.
             result = bring_app_to_front()
             assert isinstance(result, bool)
         except ImportError:

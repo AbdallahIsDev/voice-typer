@@ -1,26 +1,4 @@
-"""Integration tests: at-rest encryption of dictated history text.
-
-Exercises ``HistoryDB`` end-to-end with the encryption key sourced from
-a faked OS keyring (the sandbox has ``keyring.backends.fail.Keyring`` —
-the fake-injection pattern is copied from ``tests/test_credential_store.py``):
-
-- encrypt-on-write: raw DB rows hold ``enc:v1:`` ciphertext + flag 1,
-  while every read API returns decrypted PLAINTEXT,
-- FTS5 search still matches an encrypted row's plaintext terms (the
-  guarded triggers keep plaintext tokens in the index),
-- key-loss policy: keyring wiped after encrypted rows exist → reads
-  return "<decryption failed>", NEW writes stay plaintext (flag 0), and
-  the DEK is NOT regenerated,
-- schema v3 → v4 migration: a legacy DB gains the flag column and its
-  rows are backfilled to ciphertext in bounded batches,
-- restore() round-trip with encryption on,
-- plaintext mode parity: with no usable keyring the behavior is
-  byte-identical to the pre-encryption contract (flag 0, plaintext,
-  status "disabled").
-
-The process-global DEK + keyring caches are reset around EVERY test so
-the encryption state never leaks into other test files.
-"""
+"""Integration tests: at-rest encryption of dictated history text."""
 
 from __future__ import annotations
 
@@ -37,18 +15,9 @@ from voice_typer.server import _text_crypto, credential_store
 _FLAG_SQL = "SELECT text, text_is_encrypted FROM transcriptions WHERE id = ?"
 
 
-# ── Fixtures ─────────────────────────────────────────────────────────────
-
-
 @pytest.fixture(autouse=True)
 def _clean_caches():
-    """Reset the process-global DEK + keyring caches around each test.
-
-    Critical for suite isolation: without the post-test reset a DEK
-    resolved here would leak into plaintext-mode tests in other files
-    (the cache lives on the ``_text_crypto`` module, shared by every
-    HistoryDB instance in the process).
-    """
+    """Reset the process-global DEK + keyring caches around each test."""
     _text_crypto.reset_dek_cache()
     credential_store._reset_keyring_cache()
     yield
@@ -131,9 +100,6 @@ def plaintext_db(tmp_path, keyring_unavailable):
         db.close()
 
 
-# ── Helpers ──────────────────────────────────────────────────────────────
-
-
 def _raw_row(db, row_id: int) -> tuple:
     """Read ``(text, text_is_encrypted)`` straight from the DB file."""
     conn = sqlite3.connect(str(db.db_path))
@@ -167,9 +133,6 @@ def _first_row_id(db) -> int:
     rows = db.get_recent(limit=1)
     assert rows, "expected at least one row"
     return rows[0]["id"]
-
-
-# ── Encrypt-on-write ─────────────────────────────────────────────────────
 
 
 class TestEncryptOnWrite:
@@ -236,9 +199,6 @@ class TestEncryptOnWrite:
         assert (KEYRING_SERVICE_NAME, DATA_ENCRYPTION_KEY_USERNAME) in keyring_available
 
 
-# ── FTS search over encrypted rows ───────────────────────────────────────
-
-
 class TestFtsSearchOverEncryptedRows:
     def test_fts_matches_plaintext_terms_of_encrypted_row(self, encrypted_db):
         db = encrypted_db
@@ -253,13 +213,7 @@ class TestFtsSearchOverEncryptedRows:
         assert _raw_row(db, results[0]["id"])[1] == 1
 
     def test_fts_survives_favorite_toggle_on_encrypted_row(self, encrypted_db):
-        """The guarded AFTER-UPDATE trigger must not corrupt the index.
-
-        A favorite toggle on an encrypted row has an UNCHANGED flag —
-        without the strict ``NEW=0 AND OLD=0`` guard the FTS5 'delete'
-        would run with ciphertext tokens and corrupt the index
-        ("database disk image is malformed").
-        """
+        """The guarded AFTER-UPDATE trigger must not corrupt the index."""
         db = encrypted_db
         db.add_transcription("favorite encryption target words")
         db.flush()
@@ -271,9 +225,7 @@ class TestFtsSearchOverEncryptedRows:
         assert db.get_favorites(limit=10)[0]["id"] == row_id
 
     def test_delete_encrypted_row_keeps_db_healthy(self, encrypted_db):
-        """The guarded AFTER-DELETE trigger skips token removal for
-        encrypted rows; the JOIN filters the stale rowid and the DB
-        stays consistent."""
+        """encrypted rows; the JOIN filters the stale rowid and the DB"""
         db = encrypted_db
         db.add_transcription("deletable encrypted content")
         db.flush()
@@ -313,13 +265,9 @@ def _wait_for_search(db, term: str, expected: int, timeout_s: float = 10.0) -> N
     pytest.fail(f"search({term!r}) never reached {expected} results (last: {last})")
 
 
-# ── Key-loss policy ──────────────────────────────────────────────────────
-
-
 class TestKeyLossPolicy:
     def test_keyring_wiped_after_encrypted_rows_exist(self, tmp_path, monkeypatch):
-        """Encrypted rows + missing DEK → placeholder reads, plaintext
-        new writes, NO regeneration."""
+        """Encrypted rows + missing DEK → placeholder reads, plaintext"""
         from voice_typer.server.history_db import HistoryDB
 
         db_path = tmp_path / "keyloss.db"
@@ -391,9 +339,6 @@ class TestKeyLossPolicy:
             db2.close()
 
 
-# ── Schema migration v3 → v4 + backfill ──────────────────────────────────
-
-
 def _build_legacy_v3_db(db_path: Path, rows: list[str]) -> None:
     """Create a pre-encryption schema-v3 database with plaintext rows."""
     conn = sqlite3.connect(str(db_path))
@@ -451,8 +396,6 @@ class TestMigrationAndBackfill:
 
         db = HistoryDB(db_path=db_path)
         try:
-            # Migration: column exists, version bumped past the
-            # encryption migration (now _CURRENT_SCHEMA_VERSION).
             conn = sqlite3.connect(str(db_path))
             try:
                 cols = {r[1] for r in conn.execute("PRAGMA table_info(transcriptions)")}
@@ -504,8 +447,7 @@ class TestMigrationAndBackfill:
             db.close()
 
     def test_migration_without_keyring_stays_plaintext(self, tmp_path, keyring_unavailable):
-        """A legacy DB opened where no keyring exists: migration runs
-        (column + triggers), the backfill is skipped, rows stay readable."""
+        """A legacy DB opened where no keyring exists: migration runs"""
         from voice_typer.server.history_db import HistoryDB
 
         db_path = tmp_path / "legacy_nokeyring.db"
@@ -526,14 +468,9 @@ class TestMigrationAndBackfill:
             db.close()
 
 
-# ── Decrypt-aware FTS re-index after a startup rebuild ───────────────────
-
-
 class TestFtsRebuildReindex:
     def test_startup_rebuild_restores_plaintext_tokens(self, tmp_path, keyring_available):
-        """A startup FTS5 'rebuild' (flag='1' from a prior failed rebuild)
-        re-tokenizes encrypted rows with ciphertext; the decrypt-aware
-        re-index must restore plaintext tokens so search works again."""
+        """A startup FTS5 'rebuild' (flag='1' from a prior failed rebuild)"""
         from voice_typer.server.history_db import HistoryDB
 
         db_path = tmp_path / "reindex.db"
@@ -545,8 +482,6 @@ class TestFtsRebuildReindex:
         assert len(db.search("reindex")) == 1
         db.close()
 
-        # Simulate a prior session's failed delete-time rebuild → the
-        # next launch's startup sweep runs a full FTS5 'rebuild'.
         conn = sqlite3.connect(str(db_path))
         try:
             conn.execute("INSERT OR REPLACE INTO schema_meta (key, value) VALUES ('fts5_rebuild_failed', '1')")
@@ -554,8 +489,6 @@ class TestFtsRebuildReindex:
         finally:
             conn.close()
 
-        # Session 2: startup rebuild indexes CIPHERTEXT tokens, then the
-        # decrypt-aware re-index restores the plaintext tokens.
         db2 = HistoryDB(db_path=db_path)
         try:
             assert db2.encryption_status() == "active"
@@ -571,8 +504,7 @@ class TestFtsRebuildReindex:
             db2.close()
 
     def test_startup_rebuild_without_dek_skips_reindex(self, tmp_path, monkeypatch):
-        """Key-loss mode: the re-index has no plaintext to insert and is
-        skipped, search stays degraded, nothing corrupts."""
+        """Key-loss mode: the re-index has no plaintext to insert and is"""
         from voice_typer.server.history_db import HistoryDB
 
         db_path = tmp_path / "reindex_nokey.db"
@@ -605,9 +537,6 @@ class TestFtsRebuildReindex:
                 conn.close()
         finally:
             db2.close()
-
-
-# ── restore() round-trip ─────────────────────────────────────────────────
 
 
 class TestRestoreWithEncryption:
@@ -647,9 +576,6 @@ class TestRestoreWithEncryption:
         assert db.get_transcription_text(new_id)["text"] == "plain restore target"
 
 
-# ── Plaintext-mode parity (zero-regression guarantee) ────────────────────
-
-
 class TestPlaintextModeParity:
     def test_no_keyring_behaves_exactly_as_before(self, plaintext_db):
         db = plaintext_db
@@ -682,8 +608,7 @@ class TestPlaintextModeParity:
         assert db.get_history_count() == 3
 
     def test_cleartext_db_opened_with_keyring_later_backfills(self, tmp_path, monkeypatch):
-        """A plaintext DB (written without a keyring) is encrypted once a
-        keyring appears, without regenerating or losing anything."""
+        """A plaintext DB (written without a keyring) is encrypted once a"""
         from voice_typer.server.history_db import HistoryDB
 
         db_path = tmp_path / "late_keyring.db"
@@ -696,7 +621,6 @@ class TestPlaintextModeParity:
         assert db.encryption_status() == "disabled"
         db.close()
 
-        # Session 2: keyring appears → backfill encrypts the old rows.
         _make_fake_keyring(monkeypatch, available=True)
         _text_crypto.reset_dek_cache()
         credential_store._reset_keyring_cache()

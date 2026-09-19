@@ -1,25 +1,4 @@
-"""Unit tests for ``HistoryHandlersMixin`` (CR-12).
-
-Covers the 8 history IPC handlers defined in
-``voice_typer/server/handlers/history_handlers.py``:
-
-- ``_handle_get_history``, bounded limit/offset pagination.
-- ``_handle_get_today_stats``, returns today's transcription stats.
-- ``_handle_delete_history``, validates ``id``, deletes row, broadcasts
-  ``history_changed`` event.
-- ``_handle_restore_history``, validates ``record`` dict, re-inserts.
-- ``_handle_clear_history``, clears all rows, broadcasts event.
-- ``_handle_toggle_favorite``, validates ``id``, toggles fav flag.
-- ``_handle_get_favorites``, bounded pagination of favorites only.
-- ``_handle_search_history``, bounded pagination of search results.
-
-Most validation goes through the shared ``_validate_dict_payload``
-helper, so the error responses have the structured
-``{code: missing_field|invalid_field|invalid_payload, field: <name>}``
-shape.  The limit/offset handlers use ``_bound_history_limit`` /
-``_bound_history_offset`` which clamp bad values to safe defaults
-rather than rejecting them.
-"""
+"""Unit tests for ``HistoryHandlersMixin`` (CR-12)."""
 
 from __future__ import annotations
 
@@ -45,23 +24,14 @@ class TestGetHistory:
         fake_service.get_history.assert_called_once_with(50, 0)
 
     def test_huge_limit_is_clamped_to_max(self, ipc_server, fake_service):
-        """SEC-010: ``limit > 500`` is clamped to 500 (DoS protection).
-
-        The handler doesn't reject the request, it silently clamps
-        so a misbehaving caller gets a valid (but bounded) response.
-        """
+        """SEC-010: ``limit > 500`` is clamped to 500 (DoS protection)."""
         resp = ipc_server._handle_get_history({"limit": 1000000}, {})
         assert resp["type"] == "history"
         # _HISTORY_LIMIT_MAX = 500.
         fake_service.get_history.assert_called_once_with(500, 0)
 
     def test_non_dict_data_falls_back_to_defaults(self, ipc_server, fake_service):
-        """Non-dict ``data`` (list/string) → defaults (not an error).
-
-        The handler's ``raw = (data or {}) if isinstance(data, dict) else {}``
-        guard converts non-dict payloads to an empty dict so the
-        bounding helpers see their defaults.
-        """
+        """Non-dict ``data`` (list/string) → defaults (not an error)."""
         resp = ipc_server._handle_get_history(["not", "a", "dict"], {})
         assert resp["type"] == "history"
         fake_service.get_history.assert_called_once_with(50, 0)
@@ -80,7 +50,6 @@ class TestGetTodayStats:
         fake_service.get_today_stats.side_effect = RuntimeError("db locked")
         resp = ipc_server._handle_get_today_stats({}, {})
         assert resp["type"] == "error"
-        # generic WS-path envelope (no ``str(exc)`` leak).
         assert resp["data"]["code"] == "server.internal_error"
         assert resp["data"]["message"] == "internal error"
 
@@ -100,7 +69,6 @@ class TestDeleteHistory:
         assert resp["type"] == "ack"
         fake_service.delete_history.assert_called_once_with(42)
         # F11-FIX: a delete must broadcast history_changed so cached
-        # renderer pages (Home, History, Dashboard) invalidate.
         assert any(
             e.get("type") == "history_changed" and e.get("data", {}).get("reason") == "deleted" for e in captured
         ), f"expected history_changed/deleted event, got: {captured}"
@@ -119,11 +87,7 @@ class TestDeleteHistory:
         fake_service.delete_history.assert_not_called()
 
     def test_string_id_is_accepted(self, ipc_server, fake_service):
-        """The schema declares ``id: (int, str)``, string IDs are valid.
-
-        HistoryDB row IDs are ints, but the renderer sometimes sends
-        them as strings (form inputs).  The handler accepts both.
-        """
+        """The schema declares ``id: (int, str)``, string IDs are valid."""
         resp = ipc_server._handle_delete_history({"id": "42"}, {})
         assert resp["type"] == "ack"
         fake_service.delete_history.assert_called_once_with("42")
@@ -175,7 +139,6 @@ class TestClearHistory:
         fake_service.clear_history.side_effect = RuntimeError("db error")
         resp = ipc_server._handle_clear_history({}, {})
         assert resp["type"] == "error"
-        # generic WS-path envelope (no ``str(exc)`` leak).
         assert resp["data"]["code"] == "server.internal_error"
         assert resp["data"]["message"] == "internal error"
 
@@ -223,7 +186,7 @@ class TestSearchHistory:
         fake_service.search_history.assert_called_once_with("hello", 10, 0)
 
     def test_empty_query_returns_results(self, ipc_server, fake_service):
-        """Empty query string → service is called with "" (returns all)."""
+        """Empty query string → service is called with \"\" (returns all)."""
         fake_service.search_history.return_value = []
         resp = ipc_server._handle_search_history({}, {})
         assert resp["type"] == "history"
@@ -235,16 +198,9 @@ class TestSearchHistory:
         fake_service.search_history.assert_called_once_with("", 50, 0)
 
 
-# ──────────────────────────────────────────────────────────────────────
-# Keyset-cursor (``before_timestamp`` / ``before_id``) contract shared
-# by the three list-returning handlers.
-# ──────────────────────────────────────────────────────────────────────
-
 _CURSOR_TIMESTAMP = "2026-06-06 10:11:12"
 
 # (handler attribute, service method, base payload, expected positional
-# service args). ``search_history`` carries the query as its first
-# positional argument; the other two take ``(limit, offset)`` directly.
 _CURSOR_SITES = [
     ("_handle_get_history", "get_history", {}, (50, 0)),
     ("_handle_get_favorites", "get_favorites", {}, (50, 0)),
@@ -253,16 +209,7 @@ _CURSOR_SITES = [
 
 
 class TestHistoryKeysetCursor:
-    """Keyset-cursor extraction shared by the three list handlers.
-
-    Pins the cursor contract for ALL THREE handlers (the older cursor
-    suite in ``tests/test_cursor_pagination.py`` exercises the
-    validation rejects only on ``get_history``): a full cursor enables
-    the keyset kwargs, a numeric-string ``before_id`` is coerced to
-    int, a partial cursor degrades to the OFFSET path, and a negative
-    ``before_id`` is rejected with the exact ``client.invalid_field``
-    envelope (code + field + message) without touching the service.
-    """
+    """Keyset-cursor extraction shared by the three list handlers."""
 
     @pytest.mark.parametrize(
         ("handler_name", "service_method", "base_payload", "positional_args"),
@@ -271,8 +218,7 @@ class TestHistoryKeysetCursor:
     def test_string_before_id_is_coerced_to_int(
         self, ipc_server, fake_service, handler_name, service_method, base_payload, positional_args
     ):
-        """``before_id: "42"`` (numeric string from a form input) is
-        coerced to ``42`` and still enables the keyset path."""
+        """``before_id: \"42\"`` (numeric string from a form input) is"""
         service = getattr(fake_service, service_method)
         service.return_value = []
         payload = {**base_payload, "before_timestamp": _CURSOR_TIMESTAMP, "before_id": "42"}
@@ -289,8 +235,7 @@ class TestHistoryKeysetCursor:
     def test_negative_int_before_id_rejected(
         self, ipc_server, fake_service, handler_name, service_method, base_payload, positional_args
     ):
-        """``before_id: -1`` is rejected with the exact invalid-field
-        envelope; the service is never called."""
+        """``before_id: -1`` is rejected with the exact invalid-field"""
         service = getattr(fake_service, service_method)
         payload = {**base_payload, "before_timestamp": _CURSOR_TIMESTAMP, "before_id": -1}
 
@@ -311,8 +256,7 @@ class TestHistoryKeysetCursor:
     def test_negative_string_before_id_rejected(
         self, ipc_server, fake_service, handler_name, service_method, base_payload, positional_args
     ):
-        """``before_id: "-5"`` (numeric string) narrows to ``-5`` and is
-        rejected by the same non-negative invariant."""
+        """``before_id: \"-5\"`` (numeric string) narrows to ``-5`` and is"""
         service = getattr(fake_service, service_method)
         payload = {**base_payload, "before_timestamp": _CURSOR_TIMESTAMP, "before_id": "-5"}
 
@@ -333,8 +277,7 @@ class TestHistoryKeysetCursor:
     def test_bool_before_id_rejected_by_schema(
         self, ipc_server, fake_service, handler_name, service_method, base_payload, positional_args
     ):
-        """``before_id: true`` is rejected by the schema's ``reject_bool``
-        rule (bool subclasses int), invalid-field on ``before_id``."""
+        """``before_id: true`` is rejected by the schema's ``reject_bool``"""
         service = getattr(fake_service, service_method)
         payload = {**base_payload, "before_timestamp": _CURSOR_TIMESTAMP, "before_id": True}
 
@@ -352,8 +295,7 @@ class TestHistoryKeysetCursor:
     def test_timestamp_only_uses_offset_path(
         self, ipc_server, fake_service, handler_name, service_method, base_payload, positional_args
     ):
-        """Only ``before_timestamp`` supplied (no ``before_id``) → no
-        cursor kwargs splatted; the service takes the OFFSET branch."""
+        """Only ``before_timestamp`` supplied (no ``before_id``) → no"""
         service = getattr(fake_service, service_method)
         service.return_value = []
         payload = {**base_payload, "before_timestamp": _CURSOR_TIMESTAMP}
@@ -370,8 +312,7 @@ class TestHistoryKeysetCursor:
     def test_before_id_only_uses_offset_path(
         self, ipc_server, fake_service, handler_name, service_method, base_payload, positional_args
     ):
-        """Only ``before_id`` supplied (no ``before_timestamp``) → no
-        cursor kwargs splatted; the service takes the OFFSET branch."""
+        """Only ``before_id`` supplied (no ``before_timestamp``) → no"""
         service = getattr(fake_service, service_method)
         service.return_value = []
         payload = {**base_payload, "before_id": 42}

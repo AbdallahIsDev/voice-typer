@@ -1,23 +1,4 @@
-"""Tests for ``voice_typer.server.recording.vad_helpers``.
-
-``vad_helpers.py`` holds the module-level VAD-method bodies extracted
-from the ``Recorder`` god-class (Phase 4.5 split):
-
-- :func:`refresh_vad_caches`, per-chunk VAD cache refresh (called
-  by ``start_recording`` and ``Recorder.on_config_changed()``).
-- :func:`vad_auto_calibrate`, ambient-noise auto-calibration gating
-  on the cached ``_cached_vad_enabled`` scalar.
-- :func:`vad_update`, VAD state-machine delegation to
-  ``VadProcessor.update_frame``.
-
-The historical ``Recorder`` ``_vad_*`` property shims were removed: the
-VAD state is owned by the ``VadProcessor`` instance at
-``recorder._vad`` and every consumer reads/writes
-``recorder._vad.<attr>`` directly. The owner-surface tests below pin
-the ``VadProcessor`` attribute names that the migrated consumers
-(``session_state.reset_session_state``, ``audio_pipeline``,
-``regressions/test_audio.py``) rely on.
-"""
+"""Tests for ``voice_typer.server.recording.vad_helpers``."""
 
 from __future__ import annotations
 
@@ -37,27 +18,12 @@ from voice_typer.server.recording.vad_helpers import (
 )
 from voice_typer.server.vad_processor import VadProcessor, VadState
 
-# ---------------------------------------------------------------------------
-# Mock host, provides the attributes the module-level functions read.
-# ---------------------------------------------------------------------------
-
 
 class _MockRecorder:
-    """Minimal host for the VAD method bodies.
-
-    Tests set ``self._vad`` to a MagicMock (or a real ``VadProcessor``
-    when state-machine behavior is needed). The module-level functions
-    (``refresh_vad_caches`` / ``vad_auto_calibrate`` / ``vad_update``)
-    read ``_buffer_sr`` / ``_effective_sr`` / ``_recording_start_time``
-    / the ``_cached_vad_*`` caches, all of which default to ``None``.
-    """
+    """Minimal host for the VAD method bodies."""
 
     def __init__(self, vad=None):
         self._vad = vad if vad is not None else MagicMock()
-        # STATE-OWNERSHIP: the buffer sample-rate scalar lives on
-        # the owning ``AudioPipeline``; production reads it via
-        # ``recorder._audio_pipeline._buffer_sr``. This mock plays BOTH
-        # roles, so self-delegate the pipeline attribute.
         self._audio_pipeline = self
         # Attributes read by refresh_vad_caches / vad_auto_calibrate.
         self._buffer_sr: int | None = None
@@ -72,8 +38,7 @@ class _MockRecorder:
 
 
 def _real_vad() -> VadProcessor:
-    """Build a real ``VadProcessor`` against a minimal config stand-in
-    (all enhancement filters off → VAD disabled)."""
+    """Build a real ``VadProcessor`` against a minimal config stand-in"""
     config = SimpleNamespace(
         sample_rate=16000,
         microphone=None,
@@ -88,18 +53,8 @@ def _real_vad() -> VadProcessor:
     return VadProcessor(config)
 
 
-# ---------------------------------------------------------------------------
-# VadProcessor owner surface, the attribute names the migrated
-# consumers (session_state / audio_pipeline / tests) rely on
-# ---------------------------------------------------------------------------
-
-
 class TestVadProcessorOwnerSurface:
-    """``VadProcessor`` owns the VAD state under the public attribute
-    names (``state``, ``consecutive_speech_frames``, ...) that all
-    consumers access via ``recorder._vad.<attr>`` after the ``Recorder``
-    property shims were removed. Values round-trip verbatim through the
-    read/write properties (no coercion)."""
+    """``VadProcessor`` owns the VAD state under the public attribute"""
 
     def test_vad_state_round_trips(self):
         vad = _real_vad()
@@ -120,7 +75,6 @@ class TestVadProcessorOwnerSurface:
 
     def test_vad_thresholds_round_trip(self):
         # Values are clamped to a floor by the VadProcessor setters
-        # (R18-F14); use values above the floor for the round-trip.
         vad = _real_vad()
         vad.speech_threshold_db = -35.5
         vad.silence_threshold_db = -55.0
@@ -167,9 +121,7 @@ class TestVadProcessorOwnerSurface:
 
 
 class TestVadEnabledProperty:
-    """``VadProcessor.vad_enabled`` is the cached read-only property
-    (5s TTL safety net + explicit refresh via ``on_config_changed()``)
-    that the VAD gate reads via ``recorder._vad.vad_enabled``."""
+    """``VadProcessor.vad_enabled`` is the cached read-only property"""
 
     def test_vad_enabled_reflects_config(self):
         vad = _real_vad()
@@ -180,8 +132,7 @@ class TestVadEnabledProperty:
         assert vad.vad_enabled is True
 
     def test_vad_enabled_is_read_only(self):
-        """``vad_enabled`` has no setter, assigning to it raises
-        ``AttributeError`` (the standard property-setter behavior)."""
+        """``vad_enabled`` has no setter, assigning to it raises"""
         vad = _real_vad()
         try:
             vad.vad_enabled = True
@@ -191,53 +142,37 @@ class TestVadEnabledProperty:
 
 
 class TestVadOwnerEdgeCases:
-    """Edge cases: unicode values, large integers, None coalescing.
+    """
+    Edge cases: unicode values, large integers, None coalescing.
     Pins that the owner properties pass values through verbatim
-    without coercion."""
+    """
 
     def test_unicode_value_round_trips(self):
-        """A unicode string stored on ``calibration_status``
-        (e.g. a localized status message with CJK characters) must
-        survive the round-trip unchanged."""
+        """A unicode string stored on ``calibration_status``"""
         vad = _real_vad()
         unicode_status = "校准完成 ✓"
         vad.calibration_status = unicode_status
         assert vad.calibration_status == unicode_status
 
     def test_none_value_round_trips(self):
-        """``None`` stored on ``calibration_rms_values`` must survive —
-        this mirrors the ``_buffer_sr=None`` edge case in
-        ``refresh_vad_caches`` (see below)."""
+        """``None`` stored on ``calibration_rms_values`` must survive —"""
         vad = _real_vad()
         vad.calibration_rms_values = None
         assert vad.calibration_rms_values is None
 
     def test_large_int_round_trips(self):
-        """Large integer values (e.g. frame counters at long recording
-        durations) must survive the round-trip without truncation."""
+        """Large integer values (e.g. frame counters at long recording"""
         vad = _real_vad()
         large_count = 2**31 - 1  # INT32_MAX
         vad.consecutive_speech_frames = large_count
         assert vad.consecutive_speech_frames == large_count
 
 
-# ---------------------------------------------------------------------------
-# refresh_vad_caches, sample-rate resample-ratio computation
-# ---------------------------------------------------------------------------
-
-
 class TestRefreshVadCaches:
-    """``refresh_vad_caches`` computes the per-chunk VAD caches. The
-    interesting branch is the resample-ratio computation: when
-    ``_buffer_sr`` (or ``_effective_sr`` fallback) is NOT in
-    ``SILERO_VAD_SAMPLE_RATES`` ({8000, 16000}), the cache stores the
-    (up, down) integer ratio so the per-chunk VAD path avoids
-    recomputing ``math.gcd``. When the rate IS 8000 or 16000, no
-    resample is needed and the cache is set to ``None``."""
+    """interesting branch is the resample-ratio computation: when"""
 
     def test_buffer_sr_16000_skips_resample(self):
-        """WHISPER_SAMPLE_RATE (16000) is in SILERO_VAD_SAMPLE_RATES —
-        no resample needed, cache is None."""
+        """WHISPER_SAMPLE_RATE (16000) is in SILERO_VAD_SAMPLE_RATES —"""
         rec = _MockRecorder()
         rec._vad.vad_enabled = True
         rec._vad.use_silero_vad = True
@@ -271,9 +206,7 @@ class TestRefreshVadCaches:
         assert rec._cached_vad_resample_sr == 8000
 
     def test_buffer_sr_48000_computes_resample_ratio(self):
-        """48000 (a common native device rate) is NOT in
-        SILERO_VAD_SAMPLE_RATES, the cache stores the (up, down)
-        integer ratio derived from ``math.gcd(48000, 16000)``."""
+        """SILERO_VAD_SAMPLE_RATES, the cache stores the (up, down)"""
         rec = _MockRecorder()
         rec._vad.vad_enabled = True
         rec._vad.use_silero_vad = True
@@ -290,8 +223,7 @@ class TestRefreshVadCaches:
         assert rec._cached_vad_resample_sr == 48000
 
     def test_buffer_sr_none_falls_back_to_effective_sr(self):
-        """When ``_buffer_sr`` is None (before the first chunk arrives),
-        the cache key falls back to ``_effective_sr``."""
+        """When ``_buffer_sr`` is None (before the first chunk arrives),"""
         rec = _MockRecorder()
         rec._vad.vad_enabled = True
         rec._vad.use_silero_vad = False
@@ -306,9 +238,7 @@ class TestRefreshVadCaches:
         assert rec._cached_vad_resample_sr == 16000
 
     def test_both_sample_rates_none(self):
-        """When both ``_buffer_sr`` and ``_effective_sr`` are None,
-        ``vad_sr`` is None, no resample cache is set (the
-        ``vad_sr is not None`` guard short-circuits)."""
+        """When both ``_buffer_sr`` and ``_effective_sr`` are None,"""
         rec = _MockRecorder()
         rec._vad.vad_enabled = False
         rec._vad.use_silero_vad = False
@@ -325,8 +255,7 @@ class TestRefreshVadCaches:
         assert rec._cached_use_silero_vad is False
 
     def test_buffer_sr_44100_computes_resample_ratio(self):
-        """44100 (CD audio rate) is NOT in SILERO_VAD_SAMPLE_RATES —
-        the cache stores the (up, down) ratio with gcd=100."""
+        """44100 (CD audio rate) is NOT in SILERO_VAD_SAMPLE_RATES —"""
         rec = _MockRecorder()
         rec._vad.vad_enabled = True
         rec._vad.use_silero_vad = True
@@ -341,22 +270,11 @@ class TestRefreshVadCaches:
         assert rec._cached_vad_resample_up_down == expected
 
 
-# ---------------------------------------------------------------------------
-# vad_auto_calibrate, gating on _vad_enabled
-# ---------------------------------------------------------------------------
-
-
 class TestVadAutoCalibrate:
-    """``vad_auto_calibrate`` short-circuits when the cached
-    ``_cached_vad_enabled`` scalar is False (the VAD-GATE: don't even
-    call ``time.perf_counter()`` on every chunk in raw mode). When
-    enabled, it delegates to ``self._vad.auto_calibrate(chunk_rms,
-    elapsed, chunk_duration)`` where ``elapsed`` is computed from
-    ``self._recording_start_time``."""
+    """``vad_auto_calibrate`` short-circuits when the cached"""
 
     def test_disabled_vad_skips_auto_calibrate(self):
-        """When ``_cached_vad_enabled`` is False, ``vad_auto_calibrate``
-        must NOT call ``self._vad.auto_calibrate`` (the short-circuit)."""
+        """When ``_cached_vad_enabled`` is False, ``vad_auto_calibrate``"""
         rec = _MockRecorder()
         rec._cached_vad_enabled = False
         rec._recording_start_time = time.perf_counter()
@@ -366,10 +284,7 @@ class TestVadAutoCalibrate:
         rec._vad.auto_calibrate.assert_not_called()
 
     def test_enabled_vad_calls_auto_calibrate_with_elapsed(self):
-        """When ``_cached_vad_enabled`` is True, ``vad_auto_calibrate``
-        delegates to ``self._vad.auto_calibrate(chunk_rms, elapsed,
-        chunk_duration)``. ``elapsed`` is computed from
-        ``self._recording_start_time``."""
+        """When ``_cached_vad_enabled`` is True, ``vad_auto_calibrate``"""
         rec = _MockRecorder()
         rec._cached_vad_enabled = True
         # Set the recording start time 1.5s in the past.
@@ -379,18 +294,13 @@ class TestVadAutoCalibrate:
 
         rec._vad.auto_calibrate.assert_called_once()
         call_args = rec._vad.auto_calibrate.call_args
-        # call_args[0] is the positional args tuple.
         assert call_args[0][0] == 0.05  # chunk_rms
         assert call_args[0][2] == 0.06  # chunk_duration
-        # elapsed should be ~1.5 (allow some tolerance for test timing).
         elapsed = call_args[0][1]
         assert 1.4 <= elapsed <= 2.0, f"elapsed={elapsed} not near 1.5"
 
     def test_zero_chunk_rms_does_not_short_circuit(self):
-        """An empty/zero chunk_rms (e.g. silent audio frame) must NOT
-        short-circuit when VAD is enabled, it's passed through to
-        ``self._vad.auto_calibrate`` so the calibration can update its
-        noise-floor estimate."""
+        """An empty/zero chunk_rms (e.g. silent audio frame) must NOT"""
         rec = _MockRecorder()
         rec._cached_vad_enabled = True
         rec._recording_start_time = time.perf_counter()
@@ -401,15 +311,8 @@ class TestVadAutoCalibrate:
         assert rec._vad.auto_calibrate.call_args[0][0] == 0.0
 
 
-# ---------------------------------------------------------------------------
-# vad_update, state-machine delegation
-# ---------------------------------------------------------------------------
-
-
 class TestVadUpdate:
-    """``vad_update`` delegates to ``self._vad.update_frame(chunk_rms_db,
-    vad_prob)`` and returns the resulting ``VadState``. The VadProcessor
-    owns the hysteresis transitions; this function is a thin pass-through."""
+    """``vad_update`` delegates to ``self._vad.update_frame(chunk_rms_db,"""
 
     def test_vad_update_delegates_and_returns_state(self):
         rec = _MockRecorder()
@@ -422,9 +325,7 @@ class TestVadUpdate:
         assert result is expected_state
 
     def test_vad_update_with_none_vad_prob(self):
-        """When Silero VAD is disabled or no probability is available,
-        ``vad_prob`` is None, the function still delegates (the
-        VadProcessor falls back to RMS-based detection)."""
+        """When Silero VAD is disabled or no probability is available,"""
         rec = _MockRecorder()
         rec._vad.update_frame.return_value = VadState.SILENCE
 
@@ -434,10 +335,7 @@ class TestVadUpdate:
         assert result is VadState.SILENCE
 
     def test_vad_update_returns_unknown_state(self):
-        """VAD-GATE: when VAD is disabled, the VadProcessor's
-        ``update_frame`` returns ``VadState.UNKNOWN`` immediately. The
-        caller's silence-timer logic sees UNKNOWN and treats it as
-        "not silence" (no silence warnings, no VAD-based auto-stop)."""
+        """VAD-GATE: when VAD is disabled, the VadProcessor's"""
         rec = _MockRecorder()
         rec._vad.update_frame.return_value = VadState.UNKNOWN
 
@@ -446,45 +344,15 @@ class TestVadUpdate:
         assert result is VadState.UNKNOWN
 
 
-# ---------------------------------------------------------------------------
-# SILERO_VAD_SAMPLE_RATES sanity check (pins the constant the
-# refresh_vad_caches branch depends on, a silent change to the set
-# would break the resample-ratio logic).
-# ---------------------------------------------------------------------------
-
-
 def test_silero_vad_sample_rates_constant():
-    """Pin the SILERO_VAD_SAMPLE_RATES set: {8000, 16000}. The
-    refresh_vad_caches resample-ratio branch keys off this set, so a
-    silent change (e.g. adding 32000) would alter the cache behavior
-    for existing rates."""
+    """silent change (e.g. adding 32000) would alter the cache behavior"""
     assert frozenset({8000, 16000}) == SILERO_VAD_SAMPLE_RATES
     assert WHISPER_SAMPLE_RATE == 16000
-    # WHISPER_SAMPLE_RATE must be in SILERO_VAD_SAMPLE_RATES so the
-    # default path (buffer_sr == 16000) skips resampling.
     assert WHISPER_SAMPLE_RATE in SILERO_VAD_SAMPLE_RATES
 
 
-# ---------------------------------------------------------------------------
-# Docstring contract, the grey-zone description must match the real
-# VadProcessor grey-zone behavior (documentation-drift regression).
-# ---------------------------------------------------------------------------
-
-
 def test_vad_update_docstring_matches_real_grey_zone_behavior():
-    """``vad_update``'s docstring must describe the ACTUAL grey-zone
-    behavior of ``VadProcessor.update_frame``.
-
-    The docstring used to claim the grey zone is a "pass branch, no
-    counter resets", but the real processor bounds the grey-zone hold:
-    below the hold limit the counters pass through untouched, and once
-    the grey run hits the hold limit the processor force-transitions
-    (SPEECH → seeds the silence counter to the hangover; SILENCE →
-    seeds the speech counter toward promotion; UNKNOWN → decays both
-    counters). A maintainer tuning the hysteresis from the stale doc
-    would misunderstand the machine (the behavior is pinned by
-    ``tests/test_vad_processor.py::TestGreyZoneDecay``).
-    """
+    """``vad_update``'s docstring must describe the ACTUAL grey-zone"""
     import inspect
 
     from voice_typer.server.recording import vad_helpers

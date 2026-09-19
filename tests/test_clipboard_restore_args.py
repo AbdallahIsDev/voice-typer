@@ -1,24 +1,4 @@
-"""CR-2 regression guard: verify ``_delayed_restore`` 4-arg signature.
-
-Finding CR-2 (Critical): ``voice_typer/server/clipboard.py`` spawned
-a daemon thread with 4 positional args but the target method
-``_delayed_restore`` only accepted 3 (``snapshot, pasted_text,
-delay``). Every paste call raised ``TypeError`` which was swallowed
-by a broad ``except Exception``, silently leaving the user's
-clipboard clobbered with the transcribed text.
-
-Fix-B updates the signature to accept a 4th ``_pending_entry``
-argument (the tuple appended to the module-level
-``_pending_restores`` list at spawn time). On completion the method
-removes its entry so the atexit handler doesn't double-restore.
-
-This test asserts:
-1. ``_delayed_restore`` accepts 4 args without ``TypeError``.
-2. After a normal completion, the ``_pending_entry`` is removed
-   from ``_pending_restores``.
-3. After a failure (e.g. snapshot.restore raises), the entry is
-   STILL removed (the ``finally`` block must run).
-"""
+"""regression guard: verify ``_delayed_restore`` 4-arg signature."""
 
 from __future__ import annotations
 
@@ -29,18 +9,7 @@ import pytest
 
 
 def _make_manager():
-    """Build a ClipboardManager with all heavy deps mocked out.
-
-    Imports are local so the autouse mock fixture has installed its
-    ``sounddevice``/``pynput``/``pyperclip`` mocks first.
-
-    Note: no return-type annotation: ``ClipboardManager`` is only
-    imported inside this function body (deferred so the autouse
-    ``mock_heavy_imports`` fixture in ``conftest.py`` can install the
-    pynput/pyperclip ``sys.modules`` mocks first). An annotation would
-    trigger ruff F821 (undefined name) since the symbol is not in
-    module scope.
-    """
+    """Build a ClipboardManager with all heavy deps mocked out."""
     from voice_typer.server.clipboard import ClipboardManager
 
     return ClipboardManager()
@@ -52,13 +21,10 @@ def test_delayed_restore_signature_accepts_four_args() -> None:
 
     sig = inspect.signature(cb.ClipboardManager._delayed_restore)
     params = list(sig.parameters.values())
-    # self, snapshot, pasted_text, delay, pending_entry
     assert len(params) >= 5, (
         f"_delayed_restore must accept 4 args + self (5 params), got {len(params)}: {[p.name for p in params]}"
     )
     # Accept either ``pending_entry`` (current) or ``_pending_entry``
-    # (legacy naming), the leading underscore is a private-vs-public
-    # convention only and does not affect the call site.
     assert params[4].name in {"pending_entry", "_pending_entry"}, (
         f"4th positional arg must be named 'pending_entry' or '_pending_entry', got {params[4].name!r}"
     )
@@ -81,7 +47,6 @@ def test_delayed_restore_removes_pending_entry_on_success() -> None:
     assert entry in before
 
     # Patch the clipboard-read helper so the "current == pasted_text"
-    # defensive check passes.
     with pytest.MonkeyPatch.context() as mp:
         mp.setattr(cb, "_paste_from_clipboard", lambda: "pasted")
         mgr._delayed_restore(snapshot, "pasted", delay, entry)
@@ -93,8 +58,7 @@ def test_delayed_restore_removes_pending_entry_on_success() -> None:
 
 
 def test_delayed_restore_removes_pending_entry_on_failure() -> None:
-    """Even if snapshot.restore raises, the entry must still be removed
-    (finally block must run)."""
+    """Even if snapshot.restore raises, the entry must still be removed"""
     from voice_typer.server import clipboard as cb
 
     mgr = _make_manager()
@@ -114,11 +78,7 @@ def test_delayed_restore_removes_pending_entry_on_failure() -> None:
 
 
 def test_delayed_restore_without_pending_entry_still_works() -> None:
-    """Calling without a _pending_entry (legacy 3-arg call) must not raise.
-
-    The 4th arg has a default of None so older callers that haven't
-    been updated keep working.
-    """
+    """Calling without a _pending_entry (legacy 3-arg call) must not raise."""
     from voice_typer.server import clipboard as cb
 
     mgr = _make_manager()
@@ -135,10 +95,7 @@ def test_delayed_restore_without_pending_entry_still_works() -> None:
 
 
 def test_delayed_restore_skips_when_entry_already_taken_by_atexit() -> None:
-    """CR-84: if the atexit handler has already cleared
-    _pending_restores (taken ownership), the daemon thread must
-    short-circuit BEFORE calling snapshot.restore(), the platform
-    clipboard APIs are not thread-safe."""
+    """if the atexit handler has already cleared"""
     from voice_typer.server import clipboard as cb
 
     mgr = _make_manager()
@@ -159,19 +116,13 @@ def test_delayed_restore_skips_when_entry_already_taken_by_atexit() -> None:
 
 
 def test_spawn_site_passes_four_args() -> None:
-    """The paste() method must spawn the thread with 4 positional args
-    (including the pending_entry). This catches a regression where
-    the spawn site is reverted to 3 args.
-    """
+    """The paste() method must spawn the thread with 4 positional args"""
     import re
     from pathlib import Path
 
     from voice_typer.server import clipboard as cb
 
     # The clipboard package was split (): the spawn site may live
-    # in ``__init__.py`` or in a submodule (e.g. ``manager.py``). Walk
-    # all .py files in the package AND its subpackages (the manager
-    # split put paste() in ``manager/_paste.py``) and look for the spawn.
     pkg_dir = Path(cb.__file__).parent
     candidates = sorted(pkg_dir.rglob("*.py"))
 

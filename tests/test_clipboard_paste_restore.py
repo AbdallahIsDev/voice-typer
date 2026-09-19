@@ -1,43 +1,4 @@
-"""Regression test for ``_delayed_restore`` signature mismatch.
-
-Before the fix, ``paste()`` spawned the daemon thread with 4 positional
-arguments::
-
-    threading.Thread(
-        target=self._delayed_restore,
-        args=(snapshot, expected, delay, _pending_entry),
-        ...
-    ).start()
-
-but ``_delayed_restore(self, snapshot, pasted_text, delay)`` accepted
-only 3. Every paste() invocation silently killed the daemon thread
-with::
-
-    TypeError: _delayed_restore() takes 4 positional arguments but 5
-    were given
-
-The user's original clipboard content was NEVER restored by the daemon
-thread, and the entry appended to ``_pending_restores`` was NEVER
-removed, accumulating one ``ClipboardSnapshot`` per paste for the
-entire session (memory leak + atexit double-restore).
-
-These tests drive the production ``paste()`` path end-to-end (NOT
-direct ``_delayed_restore`` calls), mocking only the platform-specific
-keystroke + clipboard-read primitives so they run on a headless Linux
-box. They assert:
-
-* (a) the pending entry is removed from ``_pending_restores`` after
-  the daemon thread completes, proving the signature mismatch is gone
-  AND the cleanup runs.
-* (b) the original clipboard content is restored via
-  ``snapshot.restore()`` when the clipboard still holds the pasted
-  text.
-* (c) the entry is removed even when the defensive check skips the
-  restore (clipboard changed), proving the ``finally`` block fires on
-  the "skip" path, not just the "restore" path.
-* (d) the entry is removed even when ``snapshot.restore()`` raises —
-  proving the ``finally`` block fires on the exception path.
-"""
+"""Regression test for ``_delayed_restore`` signature mismatch."""
 
 from __future__ import annotations
 
@@ -45,25 +6,10 @@ import time
 from unittest.mock import MagicMock, patch
 
 import pytest
-
-# pynput / pynput.keyboard / pyperclip are mocked at collection time by
-# tests/clipboard/conftest.py (single source of truth, dedup).
 from voice_typer.server import clipboard as clip_mod  # noqa: E402
 from voice_typer.server.clipboard import ClipboardManager  # noqa: E402
 
 from tests.fixtures.clipboard_helpers import make_clipboard_manager, make_clipboard_snapshot  # noqa: E402
-
-# ---------------------------------------------------------------------------
-# Display-env isolation
-# ---------------------------------------------------------------------------
-# Previously this module mutated the process environment at import time
-# (setting DISPLAY=":99" and removing WAYLAND_DISPLAY) to keep clipboard
-# code happy on a headless Linux box. Those mutations leaked into the
-# entire test session. The autouse fixture below uses ``monkeypatch`` so
-# the mutations are auto-restored after each test (no cross-test leak).
-# could consolidate this into ``tests/conftest.py`` as a
-# session-scoped fixture; for now it is duplicated per-file because
-# conftest.py is owned by another sub-agent.
 
 
 @pytest.fixture(autouse=True)
@@ -74,11 +20,6 @@ def _mock_display_env(monkeypatch):
     yield
 
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
 def _drain_pending_restores() -> None:
     """Clear the module-level ``_pending_restores`` list (test isolation)."""
     with clip_mod._pending_restores_lock:
@@ -86,22 +27,7 @@ def _drain_pending_restores() -> None:
 
 
 def _patch_paste_plumbing():
-    """Context manager bundle that takes ``paste()`` past every guard
-    on a headless Linux box so the keystroke branch runs and returns
-    True.
-
-    Mocks:
-    * ``is_windows`` / ``is_macos`` → False (forces the Linux pynput
-      branch).
-    * ``_Controller`` / ``_Key`` → MagicMocks so the
-      ``_Controller is None`` early-return guard does not fire.
-    * ``ClipboardManager._is_safe_paste_target`` → True.
-    * ``ClipboardManager._detect_focused_process`` → None (no
-      terminal / rich-editor special-casing).
-    * ``ClipboardManager._release_stuck_modifiers`` → noop.
-    * ``ClipboardManager._safe_key_press`` → noop (the actual
-      keystroke primitive).
-    """
+    """Context manager bundle that takes ``paste()`` past every guard"""
     return (
         patch.object(clip_mod, "is_windows", return_value=False),
         patch.object(clip_mod, "is_macos", return_value=False),
@@ -137,32 +63,11 @@ def _isolate_pending_restores():
     _drain_pending_restores()
 
 
-# ===========================================================================
-# regression tests, drives the production paste() path end-to-end
-# ===========================================================================
-
-
 class TestPasteRestoresAndUnregisters:
-    """End-to-end ``paste()`` tests proving  is fixed.
-
-    Each test:
-    1. Calls the production ``paste(snapshot=...)`` (NOT
-       ``_delayed_restore`` directly).
-    2. Waits for the daemon thread to finish.
-    3. Asserts the pending entry was removed from ``_pending_restores``
-       ( root cause) AND the original snapshot was restored
-       ( user-visible symptom).
-    """
+    """End-to-end ``paste()`` tests proving  is fixed."""
 
     def test_paste_restores_clipboard_and_removes_pending_entry(self):
-        """paste(snapshot=...) restores the original clipboard content
-        and removes its entry from ``_pending_restores`` once the daemon
-        thread finishes.
-
-        Before  fix: the daemon thread died with TypeError, the
-        snapshot was never restored, and the entry stayed in
-        ``_pending_restores`` forever.
-        """
+        """paste(snapshot=...) restores the original clipboard content"""
         cm = make_clipboard_manager(restore_delay_ms=10)  # 10ms so the test is fast
         snap = make_clipboard_snapshot()
         mock_pyper = MagicMock()
@@ -180,8 +85,6 @@ class TestPasteRestoresAndUnregisters:
                 assert result is True, "paste() should report keystroke sent"
 
                 # Wait for the daemon thread to finish. The restore delay
-                # is 10ms; give a generous 2s ceiling so CI flakes don't
-                # occur on a slow box.
                 deadline = time.monotonic() + 2.0
                 while time.monotonic() < deadline:
                     with clip_mod._pending_restores_lock:
@@ -200,15 +103,7 @@ class TestPasteRestoresAndUnregisters:
         mock_restore.assert_called_once()
 
     def test_paste_removes_pending_entry_even_when_restore_skipped(self):
-        """If the user copied something else during the restore delay,
-        ``_delayed_restore`` defensively skips ``snapshot.restore()`` —
-        but it MUST still remove the pending entry.
-
-        Before  fix: the daemon thread died with TypeError BEFORE
-        the defensive check, so the entry leaked.
-        After  fix: the ``finally`` block fires on the skip path
-        too.
-        """
+        """If the user copied something else during the restore delay,"""
         cm = make_clipboard_manager(restore_delay_ms=10)
         snap = make_clipboard_snapshot()
         mock_pyper = MagicMock()
@@ -245,14 +140,7 @@ class TestPasteRestoresAndUnregisters:
         mock_restore.assert_not_called()
 
     def test_paste_removes_pending_entry_even_when_restore_raises(self):
-        """If ``snapshot.restore()`` raises, the exception is logged but
-        the pending entry is STILL removed (``finally`` block).
-
-        Before  fix: the daemon thread died with TypeError BEFORE
-        even attempting restore.
-        After  fix: the ``finally`` block fires on the exception
-        path too.
-        """
+        """If ``snapshot.restore()`` raises, the exception is logged but"""
         cm = make_clipboard_manager(restore_delay_ms=10)
         snap = make_clipboard_snapshot()
         mock_pyper = MagicMock()
@@ -282,15 +170,7 @@ class TestPasteRestoresAndUnregisters:
             assert clip_mod._pending_restores == []
 
     def test_paste_does_not_leak_entries_across_many_invocations(self):
-        """Stress test simulating a heavy-dictation user (the
-        memory-leak symptom called out in 's impact statement).
-
-        Runs ``paste(snapshot=...)`` 25 times back-to-back. After all
-        daemon threads finish, ``_pending_restores`` should be empty.
-
-        Before  fix: this would have left 25 entries lingering
-        (one per paste) for the lifetime of the process.
-        """
+        """memory-leak symptom called out in 's impact statement)."""
         cm = make_clipboard_manager(restore_delay_ms=5)
         mock_pyper = MagicMock()
         mock_pyper.paste.return_value = "dictation"
@@ -326,11 +206,7 @@ class TestPasteRestoresAndUnregisters:
             )
 
     def test_paste_with_none_snapshot_does_not_touch_pending_restores(self):
-        """Sanity: when ``snapshot is None``, paste() must NOT append
-        anything to ``_pending_restores`` (no borrow → no restore
-        needed). This documents the pre-existing branch and ensures
-        our fix doesn't accidentally register a None entry.
-        """
+        """Sanity: when ``snapshot is None``, paste() must NOT append"""
         cm = make_clipboard_manager(restore_delay_ms=10)
         exits = _enter_all(_patch_paste_plumbing())
         try:
@@ -343,21 +219,8 @@ class TestPasteRestoresAndUnregisters:
             assert clip_mod._pending_restores == []
 
 
-# ===========================================================================
-# Direct unit test proving the signature accepts the 4-arg call
-# (defense-in-depth, the end-to-end tests above already cover this)
-# ===========================================================================
-
-
 class TestDelayedRestoreSignature:
-    """Directly verify ``_delayed_restore`` accepts the 4 positional args
-    that ``paste()`` passes (snapshot, pasted_text, delay, pending_entry).
-
-    This is a focused regression for the literal TypeError that
-    reported. The end-to-end tests above exercise the production
-    ``paste()`` path, but if a future refactor inlines the call
-    differently, this test will still catch a signature drift.
-    """
+    """Directly verify ``_delayed_restore`` accepts the 4 positional args"""
 
     def test_delayed_restore_accepts_pending_entry_kwarg(self):
         cm = make_clipboard_manager()
@@ -379,8 +242,7 @@ class TestDelayedRestoreSignature:
             assert entry not in clip_mod._pending_restores
 
     def test_delayed_restore_accepts_pending_entry_positional(self):
-        """The production call site at paste() line 1018-1020 passes
-        ``pending_entry`` positionally. Verify that path works too."""
+        """The production call site at paste() line 1018-1020 passes"""
         cm = make_clipboard_manager()
         snap = make_clipboard_snapshot()
         entry = ("sentinel-entry-positional",)
@@ -399,11 +261,7 @@ class TestDelayedRestoreSignature:
             assert entry not in clip_mod._pending_restores
 
     def test_delayed_restore_legacy_3_arg_call_still_works(self):
-        """Existing tests at ``test_clipboard_borrow_restore.py:301/318``
-        call ``_delayed_restore`` with only 3 positional args (no
-        pending_entry). The new signature must remain backward
-        compatible (``pending_entry`` defaults to None → no removal).
-        """
+        """Existing tests at ``test_clipboard_borrow_restore.py:301/318``"""
         cm = make_clipboard_manager()
         snap = make_clipboard_snapshot()
         with (

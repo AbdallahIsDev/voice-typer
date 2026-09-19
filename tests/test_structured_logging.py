@@ -1,17 +1,4 @@
-"""structured (JSON) logging + correlation-id propagation.
-
-Covers:
-* ``_JsonFormatter`` emits a flat, stable JSON schema with
-  ts / level / component / session_id / message.
-* ``topic`` and ``correlation_id`` appear only when present (no noise
-  in the common case).
-* PIIRedactionFilter still scrubs secrets before the JSON formatter
-  runs (same guarantee as the text formatters).
-* ``VOICE_TYPER_LOG_JSON`` env gate selects the JSON formatter in
-  ``setup_logging`` (end-to-end: log line on disk is valid JSON).
-* Correlation id flows through a ``_correlation_id`` context manager
-  and resets cleanly afterwards.
-"""
+"""structured (JSON) logging + correlation-id propagation."""
 
 from __future__ import annotations
 
@@ -36,9 +23,6 @@ def _record(msg, *, level=logging.INFO, name="voice_typer.server.fake", session=
     rec.session_id = session
     rec.component = name
     return rec
-
-
-# ─── Schema ────────────────────────────────────────────────────────────
 
 
 def test_json_formatter_flat_schema() -> None:
@@ -89,9 +73,6 @@ def test_json_formatter_unicode_preserved() -> None:
     assert "日本語" in parsed["message"]
 
 
-# ─── PII redaction still applies ────────────────────────────────────────
-
-
 def test_json_formatter_pii_redacted() -> None:
     """the PII filter runs before the formatter, so JSON is scrubbed too."""
     from voice_typer.server.security import PIIRedactionFilter
@@ -117,9 +98,6 @@ def test_json_formatter_api_key_redacted() -> None:
     json.loads(out)
 
 
-# ─── Env gate ─────────────────────────────────────────────────────────
-
-
 def test_json_env_gate_default_off(monkeypatch) -> None:
     monkeypatch.delenv("VOICE_TYPER_LOG_JSON", raising=False)
     assert _json_logging_enabled() is False
@@ -130,9 +108,6 @@ def test_json_env_gate_on(monkeypatch) -> None:
     assert _json_logging_enabled() is True
     monkeypatch.setenv("VOICE_TYPER_LOG_JSON", "true")
     assert _json_logging_enabled() is True
-
-
-# ─── End-to-end: setup_logging picks JSON formatter when gated ────────
 
 
 def test_setup_logging_emits_json_when_gated(tmp_path: Path, monkeypatch) -> None:
@@ -183,10 +158,6 @@ def test_setup_logging_default_is_text(tmp_path: Path, monkeypatch) -> None:
 
         content = (config_dir / "logs" / "voice-typer.log").read_text(encoding="utf-8")
         # Text format: a session_id bracket + level label, not JSON braces.
-        # Text format: a session_id bracket + level label, not JSON braces.
-        # The session id is generated at runtime (uuid4 hex), so the literal
-        # ``a3f1b2c4`` placeholder will NOT be in the file, the actual
-        # 8-char session_id (matching ``[0-9a-f]{8}``) will be.
         assert "[a3f1b2c4]" not in content
         assert "INFO" in content
         assert "[HOTKEY] RegisterHotKey succeeded" in content
@@ -194,9 +165,6 @@ def test_setup_logging_default_is_text(tmp_path: Path, monkeypatch) -> None:
         assert not content.lstrip().startswith("{")
     finally:
         reset()
-
-
-# ─── Correlation-id context manager ───────────────────────────────────
 
 
 def test_correlation_id_context_manager_sets_and_resets() -> None:
@@ -218,9 +186,7 @@ def test_correlation_id_context_manager_noop_on_empty() -> None:
 
 
 def test_set_reset_token_roundtrip_restores_prior() -> None:
-    """``set_correlation_id`` returns a token whose ``reset`` restores the
-    *previous* value, the primitive that stops concurrent requests from
-    leaking each other's correlation id."""
+    """leaking each other's correlation id."""
     assert get_correlation_id() == ""
     tok_a = set_correlation_id("req-A")
     try:
@@ -229,7 +195,6 @@ def test_set_reset_token_roundtrip_restores_prior() -> None:
         tok_b = set_correlation_id("req-B")
         assert get_correlation_id() == "req-B"
         # ...and resetting the inner token returns to the outer value,
-        # NOT to the empty default.
         reset_correlation_id(tok_b)
         assert get_correlation_id() == "req-A"
     finally:

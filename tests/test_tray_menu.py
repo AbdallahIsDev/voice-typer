@@ -1,10 +1,4 @@
-"""#13: tests for the extracted tray_menu module.
-
-Verifies that:
-- display_hotkey formats pynput hotkey strings correctly
-- wrap_callback suppresses SystemExit (ERR-QUIT-002)
-- build_menu_for_tray (the shipped renderer) produces the expected menu structure
-"""
+"""#13: tests for the extracted tray_menu module."""
 
 from unittest.mock import MagicMock
 
@@ -12,11 +6,7 @@ import pytest
 
 
 def _make_fake_tray(hotkey="<f2>", state="idle", left_click="open_app"):
-    """A minimal fake TrayIcon satisfying build_menu_for_tray's reads.
-
-    Covers only the attributes the shipped renderer consults; tests
-    driving it assert on the pystray MenuItem calls the renderer makes.
-    """
+    """A minimal fake TrayIcon satisfying build_menu_for_tray's reads."""
     from voice_typer.server.tray_types import AppState
 
     states = {
@@ -42,11 +32,7 @@ def _make_fake_tray(hotkey="<f2>", state="idle", left_click="open_app"):
 
 
 def _install_fake_pystray(monkeypatch):
-    """Replace tray_menu.pystray with a recording fake.
-
-    Returns ``(items_created, restore)`` where ``items_created`` collects
-    every MenuItem the renderer builds (label/default captured).
-    """
+    """Replace tray_menu.pystray with a recording fake."""
     import voice_typer.server.tray_menu as tray_menu_mod
 
     items_created = []
@@ -64,8 +50,6 @@ def _install_fake_pystray(monkeypatch):
     fake.MenuItem = fake_menu_item
     fake.Menu = MagicMock(return_value=MagicMock())
     monkeypatch.setattr(tray_menu_mod, "pystray", fake)
-    # Identity-localize so assertions can pin the exact i18n keys the
-    # shipped renderer emits (the real `_` translates keys to labels).
     monkeypatch.setattr(tray_menu_mod, "_", lambda k: k)
     return items_created
 
@@ -110,8 +94,7 @@ class TestWrapCallback:
         assert called == ["yes"]
 
     def test_system_exit_suppressed(self):
-        """ERR-QUIT-002: SystemExit must be suppressed (not re-raised)
-        so pystray doesn't print a traceback."""
+        """ERR-QUIT-002: SystemExit must be suppressed (not re-raised)"""
         from voice_typer.server.tray_menu import wrap_callback
 
         def cb():
@@ -141,7 +124,6 @@ class TestBuildMenuForTray:
 
         result = build_menu_for_tray(_make_fake_tray())
         labels = [it.label for it in items_created]
-        # labels now use localization keys by default
         assert any("toggle_dictation" in lbl for lbl in labels)
         assert "open_app" in labels
         assert "models" in labels
@@ -193,9 +175,6 @@ class TestBuildMenuForTray:
         assert second is first
 
 
-# =============================================================================
-# === Merged from test_new_perf_consolidated.py (: tray models cache) ===
-# =============================================================================
 """Regression tests for NEW-PERF-004: tray models submenu caching.
 
 Previously, every tray right-click triggered:
@@ -231,14 +210,7 @@ def _shared_store_size() -> int:
 
 
 class TestHfDownloadCache:
-    """The HuggingFace download check must consult the shared store.
-
-    BP-158 replaced the tray-side 5 s TTL dict with the shared
-    ``model_availability`` store (mtime freshness + explicit
-    invalidation). These tests pin the replacement contract:
-    repeated checks with an unchanged layout probe once; a layout
-    change re-probes; invalidation forces a re-probe.
-    """
+    """The HuggingFace download check must consult the shared store."""
 
     @pytest.fixture(autouse=True)
     def _clean_cache(self):
@@ -248,14 +220,11 @@ class TestHfDownloadCache:
         invalidate_model_availability_cache()
 
     def test_exists_called_once_with_unchanged_layout(self, tmp_path):
-        """With an unchanged layout, the filesystem probe runs once —
-        subsequent calls are served from the shared store.
-        """
+        """With an unchanged layout, the filesystem probe runs once —"""
         repo_id = "test/repo"
         config_dir = tmp_path
 
         # Patch Path.is_dir to count calls (the availability probe's
-        # first gate is the repo-dir existence check).
         original_is_dir = Path.is_dir
         call_count = [0]
 
@@ -276,14 +245,10 @@ class TestHfDownloadCache:
         assert result1 == result2 == result3
 
     def test_layout_change_forces_reprobe(self, tmp_path, monkeypatch):
-        """A layout change (new mtime) busts the fingerprint, the next
-        call must re-probe even with no explicit invalidation."""
+        """A layout change (new mtime) busts the fingerprint, the next"""
         repo_id = "test/repo"
         config_dir = tmp_path
 
-        # Production probe reads the REAL HF cache by repo_id (ignores
-        # config_dir). Pin a counting stub so verdicts and re-probe
-        # observability are deterministic under xdist / shared patches.
         probe_calls = [0]
 
         def counting_probe(_repo_id: str) -> bool:
@@ -302,7 +267,6 @@ class TestHfDownloadCache:
         assert probe_calls[0] == 1, "unchanged layout must be served from the shared store (no re-probe)"
 
         # Simulate a layout change: create the snapshot dir so its mtime
-        # differs from the stored (missing-dir) fingerprint.
         snap = config_dir / "huggingface" / "hub" / "models--test--repo"
         snap.mkdir(parents=True)
 
@@ -317,7 +281,6 @@ class TestHfDownloadCache:
         _check_hf_model_downloaded("org/repo2", config_dir)
 
         # Both should be False (neither exists in tmp_path) but stored
-        # separately.
         store = _shared_store._store_snapshot_for_test()
         assert any(k[0] == "org/repo1" and k[1] == str(config_dir) for k in store)
         assert any(k[0] == "org/repo2" and k[1] == str(config_dir) for k in store)
@@ -367,11 +330,7 @@ class TestBuildModelsSubmenuUsesCache:
         invalidate_model_availability_cache()
 
     def test_two_consecutive_builds_return_five_candidates(self, tmp_path):
-        """Two consecutive ``build_models_submenu_data`` calls must both
-        return the 5 candidates (tiny / large-v3 / large-v3-turbo /
-        parakeet / qwen, the catalog; ``large-v3`` was restored
-        2026-08-15 at the user's request). No qwen_asr pip gate exists
-        anymore, Qwen is a built-in ONNX backend (2026-08-15)."""
+        """Two consecutive ``build_models_submenu_data`` calls must both"""
         # Provide a Config-like object so we skip the disk read.
         config_provider = MagicMock()
         config_provider.model_size = "tiny"
@@ -396,16 +355,7 @@ class TestBuildModelsSubmenuUsesCache:
 
 
 class TestQwenTrayAvailabilityAlignsWithModelsPage:
-    """Qwen's ``downloaded`` flag in the tray submenu must mirror the
-    Models page's ``get_model_status`` semantics.
-
-    The Models page defines ``downloaded`` as model WEIGHTS on disk
-    (``qwen_model_path`` directory OR the HF cache holding the ONNX
-    export repo). Qwen is a built-in ONNX backend now (2026-08-15 —
-    qwen_onnx_model.py, no ``qwen_asr`` pip package), so there is no
-    separate ``deps_ok`` package gate: ``downloaded`` alone drives
-    selectability.
-    """
+    """Models page's ``get_model_status`` semantics."""
 
     @pytest.fixture(autouse=True)
     def _clean_cache(self):
@@ -433,26 +383,19 @@ class TestQwenTrayAvailabilityAlignsWithModelsPage:
         return qwen_row[1]
 
     def test_hidden_when_nothing_on_disk(self, tmp_path):
-        """No ``qwen_model_path`` dir and no HF cache → Qwen must NOT be
-        listed as downloaded (weights are the only gate now)."""
+        """No ``qwen_model_path`` dir and no HF cache → Qwen must NOT be"""
         downloaded = self._qwen_downloaded_flag(tmp_path, self._make_config(qwen_model_path=None))
         assert downloaded is False
 
     def test_visible_when_model_path_points_at_existing_dir(self, tmp_path):
-        """``qwen_model_path`` pointing at an existing directory → Qwen
-        listed (matches ``_compute_model_status``)."""
+        """``qwen_model_path`` pointing at an existing directory → Qwen"""
         model_dir = tmp_path / "qwen-weights"
         model_dir.mkdir()
         downloaded = self._qwen_downloaded_flag(tmp_path, self._make_config(qwen_model_path=str(model_dir)))
         assert downloaded is True
 
     def test_visible_when_hf_cache_holds_repo(self, tmp_path, monkeypatch):
-        """HF cache holding the Qwen ONNX repo dir → Qwen listed
-        (matches ``_compute_model_status``'s ``qwen_in_cache``). The
-        availability check delegates completeness to
-        ``is_model_snapshot_complete``, stub it True here (the
-        cache-layout mechanics are pinned in
-        tests/model_download/test_download_abort_gate.py)."""
+        """HF cache holding the Qwen ONNX repo dir → Qwen listed"""
         repo_dir = tmp_path / "huggingface" / "hub" / "models--andrewleech--qwen3-asr-1.7b-onnx"
         repo_dir.mkdir(parents=True)
         monkeypatch.setattr(
@@ -463,8 +406,7 @@ class TestQwenTrayAvailabilityAlignsWithModelsPage:
         assert downloaded is True
 
     def test_config_json_path_used_when_no_provider(self, tmp_path):
-        """config_provider=None reads ``qwen_model_path`` from config.json
-        on disk (the live-config fallback path)."""
+        """config_provider=None reads ``qwen_model_path`` from config.json"""
         import json
 
         model_dir = tmp_path / "qwen-weights"

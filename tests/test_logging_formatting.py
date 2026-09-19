@@ -1,8 +1,4 @@
-"""Regression tests for terminal log formatting.
-
-These checks cover Windows console compatibility and topic color
-coverage without requiring a real Windows console.
-"""
+"""Regression tests for terminal log formatting."""
 
 from __future__ import annotations
 
@@ -13,14 +9,6 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 # Mock heavy imports that require a display / hardware so the test can
-# import _ColorFormatter from app.py on headless CI.
-#
-# NOTE: PIL is deliberately NOT mocked here. app.py transitively imports
-# tray.py, which imports pystray (mocked below), but tray.py never
-# imports PIL at module load time, tray_icon.py uses lazy imports for
-# PIL inside its drawing functions. Mocking PIL at module level here
-# would permanently pollute ``sys.modules`` and break later tests that
-# need real PIL (e.g. tests/test_tray_icon.py with @pytest.mark.real_pil).
 for _mod in (
     "sounddevice",
     "pynput",

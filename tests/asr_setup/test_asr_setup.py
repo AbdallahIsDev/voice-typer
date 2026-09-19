@@ -1,13 +1,4 @@
-"""ASR setup / recording / streaming tests split out of the former ``tests/test_history_and_models.py``.
-
-Domain: ASR backend setup + recording infrastructure, asr_setup
-no longer caches _config_dir, ResampleUnavailable typed exception,
-StreamingTextAssembler._prune_old_entries invariant, and the
-CloudEngine urlopen timeout (``_REQUEST_TIMEOUT_SECONDS`` = 10 s).
-
-Class/method names + assertions are preserved verbatim from the
-original monolith, only file location has changed.
-"""
+"""Domain: ASR backend setup + recording infrastructure, asr_setup"""
 
 from __future__ import annotations
 
@@ -18,12 +9,7 @@ import numpy as np
 
 
 class TestCloudEngineUlopenTimeout:
-    """The cloud engine passes timeout=10 to urlopen.
-
-    ``CloudEngine._REQUEST_TIMEOUT_SECONDS`` was reduced from 30s to
-    10s so a single stuck request cannot block the transcription
-    thread for up to 35s (30s request + retry backoff).
-    """
+    """The cloud engine passes timeout=10 to urlopen."""
 
     def test_openai_compatible_uses_10s_timeout(self):
         from voice_typer.server import cloud_engines

@@ -1,17 +1,4 @@
-"""Unit tests for the extracted VadProcessor class.
-
-These tests exercise the state machine, auto-calibration, and VAD-enabled
-cache in isolation, without instantiating a full ``Recorder`` (which
-pulls in sounddevice, the audio worker thread, the device-health
-checker, the scipy preloader, etc.).
-
-The behavior under test was previously covered indirectly via
-``tests/test_bugfix_regressions.py::TestVadGreyZonePreservesCounters``
-and ``TestVadAutoCalibrationBehavior`` which drove the API through
-``Recorder``'s delegation shims. These tests pin the same behavior at
-the new ``VadProcessor`` API surface so future refactors of
-``Recorder`` can't accidentally regress the VAD layer.
-"""
+"""Unit tests for the extracted VadProcessor class."""
 
 from __future__ import annotations
 
@@ -31,16 +18,9 @@ from voice_typer.server.vad_processor import (
     VadState,
 )
 
-# ── Fixtures ───────────────────────────────────────────────────────────
-
 
 def _config_with_vad_enabled() -> MagicMock:
-    """Return a MagicMock config with at least one noise filter on.
-
-    The ``compute_vad_enabled`` gate returns True when ANY noise_filter_*
-    flag is True. Tests that exercise the state machine need this so
-    ``vad_enabled`` doesn't short-circuit to UNKNOWN.
-    """
+    """Return a MagicMock config with at least one noise filter on."""
     cfg = MagicMock()
     cfg.use_silero_vad = False  # force RMS path (no torch in test env)
     cfg.vad_speech_threshold = 0.5
@@ -73,17 +53,8 @@ def _config_with_vad_disabled() -> MagicMock:
 
 @pytest.fixture(autouse=True)
 def _silence_vad_unavailable_warning(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Suppress the Silero-unavailable warning in test output.
-
-    Tests construct VadProcessor with ``use_silero_vad=False`` so the
-    lazy ``is_available`` import is skipped, but the
-    auto-fixture keeps things quiet even when a config has
-    ``use_silero_vad=True``.
-    """
+    """Suppress the Silero-unavailable warning in test output."""
     pass
-
-
-# ── __init__ / defaults ────────────────────────────────────────────────
 
 
 class TestVadProcessorInit:
@@ -119,7 +90,6 @@ class TestVadProcessorInit:
         vp = VadProcessor(cfg)
         assert vp.use_silero_vad is False
         # When use_silero_vad is False, the lazy torch import is skipped
-        # and silero_available stays False.
         assert vp.silero_available is False
 
     def test_silero_thresholds_read_from_config(self) -> None:
@@ -129,9 +99,6 @@ class TestVadProcessorInit:
         vp = VadProcessor(cfg)
         assert vp.speech_threshold == 0.7
         assert vp.silence_threshold == 0.2
-
-
-# ── State machine transitions ──────────────────────────────────────────
 
 
 class TestStateTransitions:
@@ -190,8 +157,7 @@ class TestStateTransitions:
         assert vp.state == VadState.SILENCE
 
     def test_speech_to_silence_requires_hangover_frames(self) -> None:
-        """AUDIO-018: SPEECH → SILENCE requires ``hangover_frames``
-        consecutive quiet frames (not ``silence_frames``)."""
+        """AUDIO-018: SPEECH → SILENCE requires ``hangover_frames``"""
         vp = VadProcessor(_config_with_vad_enabled())
         vp.speech_threshold_db = -30.0
         vp.silence_threshold_db = -50.0
@@ -209,8 +175,7 @@ class TestStateTransitions:
         assert vp.state == VadState.SILENCE
 
     def test_silence_to_speech_requires_speech_frames(self) -> None:
-        """AUDIO-018: SILENCE → SPEECH requires ``speech_frames``
-        consecutive loud frames (not ``hangover_frames``)."""
+        """AUDIO-018: SILENCE → SPEECH requires ``speech_frames``"""
         vp = VadProcessor(_config_with_vad_enabled())
         vp.speech_threshold_db = -30.0
         vp.silence_threshold_db = -50.0
@@ -229,11 +194,9 @@ class TestStateTransitions:
         assert vp.state == VadState.SPEECH
 
     def test_returns_unknown_when_vad_disabled(self) -> None:
-        """VAD-GATE: returns UNKNOWN without updating any state when VAD
-        is disabled (all audio enhancements off)."""
+        """VAD-GATE: returns UNKNOWN without updating any state when VAD"""
         vp = VadProcessor(_config_with_vad_disabled())
         # The vad_enabled cache may already be set from __init__'s
-        # vad-check; force-refresh and confirm it's disabled.
         assert vp.vad_enabled is False
         result = vp.update_frame(-20.0)
         assert result == VadState.UNKNOWN
@@ -247,21 +210,16 @@ class TestStateTransitions:
 
 
 class TestGreyZoneDecay:
-    """AUDIO-5: bound grey-zone hold so soft-speech tails don't stall the
-    silence timer indefinitely. After ``_grey_zone_hold_limit`` (30)
-    consecutive grey-zone frames, both counters decay by 1; the cycle
-    repeats so the grey-zone hold is bounded to ~1s at 30 Hz."""
+    """silence timer indefinitely. After ``_grey_zone_hold_limit`` (30)"""
 
     def test_grey_zone_decay_after_hold_limit(self) -> None:
-        """First ``hold_limit - 1`` grey-zone chunks must NOT decay; the
-        30th triggers a single decay cycle (speech/silence each -= 1)."""
+        """First ``hold_limit - 1`` grey-zone chunks must NOT decay; the"""
         vp = VadProcessor(_config_with_vad_enabled())
         # Default thresholds: silence=-50 dB, speech=-40 dB → -45 dB is grey.
         assert vp.silence_threshold_db == DEFAULT_VAD_SILENCE_THRESHOLD_DB
         assert vp.speech_threshold_db == DEFAULT_VAD_SPEECH_THRESHOLD_DB
         grey_db = (vp.silence_threshold_db + vp.speech_threshold_db) / 2.0  # -45 dB
         # Pre-load history so decay is observable (grey-zone preserves
-        # counters unchanged, so this baseline holds until the 30th frame).
         vp.consecutive_speech_frames = 5
         vp.consecutive_silence_frames = 5
 
@@ -274,8 +232,6 @@ class TestGreyZoneDecay:
         assert vp._consecutive_grey_frames == 29
 
         # 6 more grey-zone chunks (total 35): the 30th triggers one decay
-        # cycle (speech 5→4, silence 5→4, grey reset to 0). Frames 31-35
-        # then re-accumulate grey to 5, no second decay yet.
         for _ in range(6):
             vp.update_frame(grey_db)
         assert vp.consecutive_speech_frames == 4, (
@@ -288,8 +244,7 @@ class TestGreyZoneDecay:
         assert vp._consecutive_grey_frames == 5
 
     def test_grey_zone_resets_on_clear_frame(self) -> None:
-        """A clear loud (or quiet) frame resets ``_consecutive_grey_frames``
-        to 0 so the decay cycle restarts from scratch on the next grey run."""
+        """A clear loud (or quiet) frame resets ``_consecutive_grey_frames``"""
         vp = VadProcessor(_config_with_vad_enabled())
         # Default thresholds: silence=-50 dB, speech=-40 dB → -45 dB is grey.
         grey_db = (vp.silence_threshold_db + vp.speech_threshold_db) / 2.0
@@ -307,8 +262,7 @@ class TestGreyZoneDecay:
         assert vp.consecutive_silence_frames == 0
 
     def test_grey_zone_decay_is_periodic(self) -> None:
-        """AUDIO-5: decay repeats every ``hold_limit`` frames, 60 grey
-        chunks (2 cycles) must decay each counter by 2 from the baseline."""
+        """AUDIO-5: decay repeats every ``hold_limit`` frames, 60 grey"""
         vp = VadProcessor(_config_with_vad_enabled())
         grey_db = (vp.silence_threshold_db + vp.speech_threshold_db) / 2.0
         vp.consecutive_speech_frames = 5
@@ -321,16 +275,7 @@ class TestGreyZoneDecay:
         assert vp.consecutive_silence_frames == 3, "AUDIO-5: 60 grey chunks (2 cycles) must decay silence by 2"
 
     def test_grey_zone_soft_tail_exits_speech(self) -> None:
-        """AUDIO-5 (root cause): a sustained grey tail after SPEECH must
-        transition to SILENCE, not stay locked in SPEECH.
-
-        The recorder's silence timer only advances when ``update_frame``
-        returns SILENCE (recorder.py:2420). Without this, a soft-spoken
-        phrase ending (audio hovering in the grey zone) keeps returning
-        SPEECH, holding the silence timer at 0, so auto-stop never fires
-        and the tail is held/cut off. After the grey-hold limit (~1s) the
-        state must flip to SILENCE so the timer can advance/trigger.
-        """
+        """AUDIO-5 (root cause): a sustained grey tail after SPEECH must"""
         vp = VadProcessor(_config_with_vad_enabled())
         # Clearly loud to drive into SPEECH (need >= speech_frames loud frames).
         loud_db = vp.speech_threshold_db + 5.0
@@ -348,10 +293,7 @@ class TestGreyZoneDecay:
         )
 
     def test_grey_zone_soft_tail_resumes_on_loud(self) -> None:
-        """AUDIO-5: if the speaker resumes (a loud frame) during/after the
-        grey tail, the state must flip back to SPEECH and the silence timer
-        would reset, i.e. we don't permanently wedge in SILENCE.
-        """
+        """grey tail, the state must flip back to SPEECH and the silence timer"""
         vp = VadProcessor(_config_with_vad_enabled())
         loud_db = vp.speech_threshold_db + 5.0
         for _ in range(vp.speech_frames + 2):
@@ -361,13 +303,9 @@ class TestGreyZoneDecay:
             vp.update_frame(grey_db)
         assert vp.state == VadState.SILENCE
         # Speaker resumes, needs >= speech_frames consecutive loud frames
-        # to flip back to SPEECH (hysteresis), same as the initial onset.
         for _ in range(vp.speech_frames + 2):
             vp.update_frame(loud_db)
         assert vp.state == VadState.SPEECH, "AUDIO-5: loud frames after the grey tail must resume SPEECH"
-
-
-# ── Auto-calibration ───────────────────────────────────────────────────
 
 
 class TestAutoCalibration:
@@ -387,13 +325,9 @@ class TestAutoCalibration:
         vp.calibration_duration = 1.5
         target_rms = 0.01  # -40 dBFS
         # Feed enough samples to exceed the calibration window (1.5s).
-        # 50 samples at 0.05s spacing → last sample at 2.5s elapsed.
         for i in range(50):
             vp.auto_calibrate(target_rms, elapsed_seconds=0.05 * i + 0.05)
         assert vp.calibrated is True
-        # noise_db = 20 * log10(0.01) = -40 dB
-        # silence = noise + 6 = -34 dB
-        # speech = noise + 18 = -22 dB
         assert abs(vp.silence_threshold_db - (-34.0)) < 0.1
         assert abs(vp.speech_threshold_db - (-22.0)) < 0.1
         assert vp.speech_threshold_db > vp.silence_threshold_db
@@ -422,15 +356,7 @@ class TestAutoCalibration:
         assert vp.calibration_rms_values == []
 
     def test_calibration_handles_zero_rms(self) -> None:
-        """Zero RMS would cause log10(0), must fall back to -90 dB, then CLAMP to the floors.
-
-        The raw math yields silence=-84 / speech=-72, but the
-        clamping floors (-65 / -55 dBFS) apply because the
-        calibration writes through the threshold SETTERS: a
-        digital-silence noise floor must not push speech detection
-        into the noise floor (ambient noise would then read as SPEECH
-        and silence-based auto-stop could never fire).
-        """
+        """Zero RMS would cause log10(0), must fall back to -90 dB, then CLAMP to the floors."""
         from voice_typer.server.vad_processor import (
             MIN_VAD_SILENCE_THRESHOLD_DB,
             MIN_VAD_SPEECH_THRESHOLD_DB,
@@ -441,24 +367,11 @@ class TestAutoCalibration:
         for i in range(20):
             vp.auto_calibrate(0.0, elapsed_seconds=0.01 * i + 0.01)
         assert vp.calibrated is True
-        # noise_db = -90 (fallback)
-        # silence = -90 + 6 = -84 → clamped to the -65 floor
-        # speech = -90 + 18 = -72 → clamped to the -55 floor
         assert vp.silence_threshold_db == pytest.approx(MIN_VAD_SILENCE_THRESHOLD_DB, abs=0.1)
         assert vp.speech_threshold_db == pytest.approx(MIN_VAD_SPEECH_THRESHOLD_DB, abs=0.1)
 
     def test_calibration_clamps_quiet_mic_thresholds_to_floors(self) -> None:
-        """A quiet-mic calibration below the floors must clamp to the floors.
-
-        Regression for the clamping-setter bypass: the calibration used to
-        write the underscore attributes directly, so a noise floor
-        below ~-71 dBFS produced UNclamped thresholds (e.g. -69/-57
-        from a -75 dBFS floor). Ambient noise then sat above the
-        speech threshold → every frame read as SPEECH → silence
-        auto-stop never fired and recordings ran to the maximum
-        duration. The dB fallback path only runs when Silero VAD is
-        unavailable (``use_silero_vad=False`` here).
-        """
+        """A quiet-mic calibration below the floors must clamp to the floors."""
         from voice_typer.server.vad_processor import (
             MIN_VAD_SILENCE_THRESHOLD_DB,
             MIN_VAD_SPEECH_THRESHOLD_DB,
@@ -467,8 +380,6 @@ class TestAutoCalibration:
         vp = VadProcessor(_config_with_vad_enabled())
         vp.calibration_duration = 0.1
         # RMS ≈ 1.78e-4 → noise_db = 20*log10(1.78e-4) ≈ -75 dBFS.
-        # Raw math: silence = -69, speech = -57, BOTH below their
-        # floors → both must clamp.
         quiet_rms = 10 ** (-75.0 / 20.0)
         for i in range(20):
             vp.auto_calibrate(quiet_rms, elapsed_seconds=0.01 * i + 0.01)
@@ -483,15 +394,9 @@ class TestAutoCalibration:
         assert vp.speech_threshold_db > vp.silence_threshold_db
 
     def test_calibration_skipped_when_silero_active(self, caplog: pytest.LogCaptureFixture) -> None:
-        """AUDIO-4: when Silero VAD is the active backend, dB-threshold
-        calibration has no effect (update_frame uses probability thresholds).
-        ``auto_calibrate`` must skip with a one-time INFO log and not collect
-        any RMS values.
-        """
+        """AUDIO-4: when Silero VAD is the active backend, dB-threshold"""
         cfg = _config_with_vad_enabled()
         cfg.use_silero_vad = True
-        # Inject a stub ``vad_check_available_fn`` that returns True so
-        # ``__init__`` sets ``silero_available=True`` without importing torch.
         vp = VadProcessor(cfg, vad_check_available_fn=lambda: True)
         assert vp.use_silero_vad is True
         assert vp.silero_available is True
@@ -500,15 +405,11 @@ class TestAutoCalibration:
         with caplog.at_level(logging.INFO, logger="voice_typer.server.vad_processor"):
             vp.auto_calibrate(0.01, elapsed_seconds=10.0)
 
-        # calibrated is True (set by the skip branch to prevent re-entry)
         assert vp.calibrated is True
-        # no RMS values were collected (skip happened before append)
         assert vp.calibration_rms_values == []
-        # the one-time INFO log was emitted
         assert any("auto-calibration skipped" in record.getMessage() for record in caplog.records), (
             f"expected skip log, got: {[r.getMessage() for r in caplog.records]}"
         )
-        # status is explicit + inspectable (not a silent no-op)
         assert vp.calibration_status == "skipped_silero"
 
         # Re-entry is prevented (calibrated flag short-circuits).
@@ -520,13 +421,8 @@ class TestAutoCalibration:
         assert vp.calibration_status == "skipped_silero"
 
 
-# ── Silero-probability auto-calibration ───────────────────────────────
-
-
 def _config_with_silero_and_auto_calibrate() -> MagicMock:
-    """Return a MagicMock config with Silero VAD + vad_auto_calibrate
-    enabled. The Silero backend is stubbed via vad_check_available_fn
-    in the test body (no torch import required)."""
+    """Return a MagicMock config with Silero VAD + vad_auto_calibrate"""
     cfg = MagicMock()
     cfg.use_silero_vad = True
     cfg.vad_speech_threshold = 0.5  # static default - calibration overrides
@@ -543,22 +439,13 @@ def _config_with_silero_and_auto_calibrate() -> MagicMock:
 
 
 class TestSileroAutoCalibrationEr42:
-    """When vad_auto_calibrate=True and Silero is the active
-    backend, the probability thresholds are derived from the first few
-    seconds of Silero probabilities (noise floor) instead of relying on
-    the static config defaults. Default off for backwards compat.
-    """
+    """When vad_auto_calibrate=True and Silero is the active"""
 
     def test_flag_defaults_off(self) -> None:
-        """Backwards compat: when the config doesn't set
-        vad_auto_calibrate, the flag is False (existing skipped_silero
-        behavior preserved). MagicMock auto-creates attributes as
-        MagicMock instances (not bools), so the isinstance guard in
-        __init__ treats them as False."""
+        """Backwards compat: when the config doesn't set"""
         cfg = _config_with_vad_enabled()
         cfg.use_silero_vad = True
         # Don't set vad_auto_calibrate - getattr default is False,
-        # and MagicMock auto-attr would be caught by isinstance guard.
         vp = VadProcessor(cfg, vad_check_available_fn=lambda: True)
         assert vp.vad_auto_calibrate is False
 
@@ -569,8 +456,7 @@ class TestSileroAutoCalibrationEr42:
         assert vp.vad_auto_calibrate is True
 
     def test_silero_calibration_collects_probs_until_duration_elapsed(self) -> None:
-        """Before the calibration window elapses, samples are collected
-        but thresholds are NOT yet derived (calibrated stays False)."""
+        """Before the calibration window elapses, samples are collected"""
         vp = VadProcessor(
             _config_with_silero_and_auto_calibrate(),
             vad_check_available_fn=lambda: True,
@@ -585,11 +471,7 @@ class TestSileroAutoCalibrationEr42:
         assert vp.silence_threshold == 0.3
 
     def test_silero_calibration_sets_thresholds_relative_to_noise_floor(self) -> None:
-        """After the calibration window, thresholds are derived from
-        the median of collected probabilities:
-            silence = noise_floor + MARGIN (0.05)
-            speech  = silence + SPEECH_DELTA (0.15)
-        """
+        """the median of collected probabilities:"""
         from voice_typer.server.vad_processor import (
             DEFAULT_VAD_SILERO_CALIBRATION_MARGIN,
             DEFAULT_VAD_SILERO_SPEECH_DELTA,
@@ -604,7 +486,6 @@ class TestSileroAutoCalibrationEr42:
             vp.auto_calibrate(0.01, elapsed_seconds=0.05 * i + 0.05, vad_prob=0.10)
         assert vp.calibrated is True
         assert vp.calibration_status == "calibrated_silero"
-        # noise_floor = 0.10, silence = 0.15, speech = 0.30
         assert vp.silence_threshold == pytest.approx(0.10 + DEFAULT_VAD_SILERO_CALIBRATION_MARGIN, abs=0.001)
         assert vp.speech_threshold == pytest.approx(
             0.10 + DEFAULT_VAD_SILERO_CALIBRATION_MARGIN + DEFAULT_VAD_SILERO_SPEECH_DELTA,
@@ -613,8 +494,7 @@ class TestSileroAutoCalibrationEr42:
         assert vp.speech_threshold > vp.silence_threshold
 
     def test_silero_calibration_is_idempotent_after_calibrated(self) -> None:
-        """Once calibrated, subsequent calls with new vad_prob samples
-        are no-ops (thresholds don't change)."""
+        """Once calibrated, subsequent calls with new vad_prob samples"""
         vp = VadProcessor(
             _config_with_silero_and_auto_calibrate(),
             vad_check_available_fn=lambda: True,
@@ -631,8 +511,7 @@ class TestSileroAutoCalibrationEr42:
         assert vp.speech_threshold == speech_after_first
 
     def test_silero_calibration_uses_median_not_mean(self) -> None:
-        """Median (not mean) is used so a few transient speech bursts
-        during the calibration window don't pull the floor up."""
+        """Median (not mean) is used so a few transient speech bursts"""
         vp = VadProcessor(
             _config_with_silero_and_auto_calibrate(),
             vad_check_available_fn=lambda: True,
@@ -643,13 +522,11 @@ class TestSileroAutoCalibrationEr42:
         for i in range(10):
             vp.auto_calibrate(0.5, elapsed_seconds=0.05 * (40 + i) + 0.05, vad_prob=0.80)
         assert vp.calibrated is True
-        # noise_floor (median) = 0.10 -> silence = 0.15, speech = 0.30.
         assert vp.silence_threshold == pytest.approx(0.15, abs=0.01)
         assert vp.speech_threshold == pytest.approx(0.30, abs=0.01)
 
     def test_silero_calibration_thresholds_clamped_to_unit_interval(self) -> None:
-        """A very high noise floor clamps thresholds to 1.0 and the
-        minimum-spread guard kicks in so speech >= silence."""
+        """A very high noise floor clamps thresholds to 1.0 and the"""
         vp = VadProcessor(
             _config_with_silero_and_auto_calibrate(),
             vad_check_available_fn=lambda: True,
@@ -663,9 +540,7 @@ class TestSileroAutoCalibrationEr42:
         assert vp.speech_threshold >= vp.silence_threshold
 
     def test_silero_calibration_no_vad_prob_emits_warning_and_skips(self, caplog: pytest.LogCaptureFixture) -> None:
-        """When the flag is on but the caller doesn't pass
-        vad_prob, the calibration is skipped with a WARNING so the
-        misconfiguration is visible (not silent)."""
+        """When the flag is on but the caller doesn't pass"""
         vp = VadProcessor(
             _config_with_silero_and_auto_calibrate(),
             vad_check_available_fn=lambda: True,
@@ -682,9 +557,7 @@ class TestSileroAutoCalibrationEr42:
         )
 
     def test_flag_off_preserves_existing_skipped_silero_behavior(self, caplog: pytest.LogCaptureFixture) -> None:
-        """Backwards compat: with the flag OFF (default), the existing
-        skipped_silero behavior is preserved - even if the caller
-        passes vad_prob, no calibration runs."""
+        """Backwards compat: with the flag OFF (default), the existing"""
         cfg = _config_with_silero_and_auto_calibrate()
         cfg.vad_auto_calibrate = False  # explicitly off
         vp = VadProcessor(cfg, vad_check_available_fn=lambda: True)
@@ -697,8 +570,7 @@ class TestSileroAutoCalibrationEr42:
         assert vp.calibration_prob_values == []
 
     def test_silero_calibration_reset_restores_config_defaults(self) -> None:
-        """reset() restores the Silero probability thresholds to the
-        config defaults and clears the collected prob samples."""
+        """reset() restores the Silero probability thresholds to the"""
         vp = VadProcessor(
             _config_with_silero_and_auto_calibrate(),
             vad_check_available_fn=lambda: True,
@@ -710,7 +582,6 @@ class TestSileroAutoCalibrationEr42:
         assert vp.speech_threshold != 0.5
         assert vp.silence_threshold != 0.3
         # 30 samples are collected (calibration fires at elapsed=1.5s,
-        # the 30th sample; remaining 20 calls are no-ops once calibrated).
         assert len(vp.calibration_prob_values) > 0
         vp.reset()
         assert vp.speech_threshold == 0.5
@@ -720,8 +591,7 @@ class TestSileroAutoCalibrationEr42:
         assert vp.calibration_status == "pending"
 
     def test_silero_calibration_status_calibrated_silero(self) -> None:
-        """The new calibrated_silero status is set after a successful
-        Silero-probability calibration."""
+        """The new calibrated_silero status is set after a successful"""
         vp = VadProcessor(
             _config_with_silero_and_auto_calibrate(),
             vad_check_available_fn=lambda: True,
@@ -733,13 +603,8 @@ class TestSileroAutoCalibrationEr42:
         assert vp.calibrated is True
 
 
-# calibration_status () ──────────────────────────────────────
-
-
 class TestCalibrationStatus:
-    """AUDIO-4: calibration_status must be explicit + inspectable so a
-    no-op skip is never silent. Covered across every auto_calibrate branch.
-    """
+    """no-op skip is never silent. Covered across every auto_calibrate branch."""
 
     def test_status_pending_until_run(self) -> None:
         vp = VadProcessor(_config_with_vad_enabled())
@@ -780,9 +645,6 @@ class TestCalibrationStatus:
         assert vp.calibrated is False
 
 
-# ── reset() ────────────────────────────────────────────────────────────
-
-
 class TestReset:
     def test_reset_restores_unknown_state(self) -> None:
         vp = VadProcessor(_config_with_vad_enabled())
@@ -813,9 +675,6 @@ class TestReset:
         vp.reset()
         assert vp.calibration_rms_values == []
         assert vp.calibrated is False
-
-
-# ── vad_enabled cache + on_config_changed ─────────────────────────────
 
 
 class TestVadEnabledCache:
@@ -852,8 +711,7 @@ class TestVadEnabledCache:
         assert vp.vad_enabled is False
 
     def test_vad_enabled_ttl_safety_net(self) -> None:
-        """If on_config_changed() is not called, the 5s TTL forces a
-        re-evaluation on the next read."""
+        """If on_config_changed() is not called, the 5s TTL forces a"""
         cfg = _config_with_vad_enabled()
         vp = VadProcessor(cfg)
         assert vp.vad_enabled is True
@@ -863,9 +721,6 @@ class TestVadEnabledCache:
         # Backdate the cache timestamp so the TTL triggers
         vp.vad_enabled_cache_ts = time.perf_counter() - 10.0
         assert vp.vad_enabled is False
-
-
-# ── compute_vad_enabled (direct) ──────────────────────────────────────
 
 
 class TestComputeVadEnabled:
@@ -909,9 +764,7 @@ class TestComputeVadEnabled:
         assert vp.compute_vad_enabled(cfg) is False
 
     def test_use_silero_vad_does_not_force_vad_enabled(self) -> None:
-        """VAD-GATE: use_silero_vad controls WHICH path (Silero vs RMS),
-        not WHETHER VAD runs. So setting it True with all filters off
-        must still return False."""
+        """VAD-GATE: use_silero_vad controls WHICH path (Silero vs RMS),"""
         vp = VadProcessor(_config_with_vad_disabled())
         cfg = MagicMock(
             noise_filter_highpass=False,
@@ -926,13 +779,8 @@ class TestComputeVadEnabled:
         assert vp.compute_vad_enabled(cfg) is False
 
 
-# ── Property delegation (read/write) ──────────────────────────────────
-
-
 class TestPropertyDelegation:
-    """VadProcessor exposes its private state via read/write properties
-    so the Recorder delegation shims (``rec._vad.state = X``) work
-    transparently. Pin that contract here."""
+    """VadProcessor exposes its private state via read/write properties"""
 
     def test_state_read_write(self) -> None:
         vp = VadProcessor(_config_with_vad_enabled())
@@ -960,27 +808,11 @@ class TestPropertyDelegation:
         assert vp.silero_available is True
 
 
-# ── Thread-safety (concurrent access) ─────────────────────────────────
-
-
 class TestThreadSafety:
-    """VadProcessor is called from multiple threads: the audio worker
-    thread (``update_frame``, ``auto_calibrate``), the main thread
-    (``reset``, ``on_config_changed``), and tests. Verify no crashes or
-    corruption under concurrent access.
-
-    The VadProcessor does NOT use internal locks, it relies on CPython's
-    GIL for atomic attribute reads/writes. The state-machine counters are
-    only mutated from the audio worker thread (single producer), and the
-    ``vad_enabled`` cache fields are simple Python attributes whose
-    reads/writes are atomic under the GIL. The worst case race (audio
-    worker reads cache while main thread refreshes it) yields a
-    one-chunk-stale value, which is acceptable.
-    """
+    """VadProcessor is called from multiple threads: the audio worker"""
 
     def test_concurrent_update_frame_and_on_config_changed_no_crash(self) -> None:
-        """A config-change hook firing while the audio worker is updating
-        the state machine must not crash or corrupt internal state."""
+        """A config-change hook firing while the audio worker is updating"""
         import threading
 
         vp = VadProcessor(_config_with_vad_enabled())
@@ -1023,10 +855,7 @@ class TestThreadSafety:
         assert vp.state in (VadState.UNKNOWN, VadState.SILENCE, VadState.SPEECH)
 
     def test_concurrent_update_frame_and_reset_no_crash(self) -> None:
-        """``Recorder.start()`` calls ``reset()`` on the main thread. If
-        the audio worker is still mid-``update_frame`` (e.g. during a
-        stop→start transition with a slow join), the reset must not
-        corrupt the worker's in-flight mutation."""
+        """``Recorder.start()`` calls ``reset()`` on the main thread. If"""
         import threading
 
         vp = VadProcessor(_config_with_vad_enabled())
@@ -1061,23 +890,11 @@ class TestThreadSafety:
         t1.join(timeout=2.0)
         t2.join(timeout=2.0)
         assert errors == [], f"concurrent access raised: {errors}"
-        # After reset wins the final race, state must be UNKNOWN and
-        # counters zeroed. After update_frame wins, state may be any
-        # valid member. Either way, no exception.
         assert vp.state in (VadState.UNKNOWN, VadState.SILENCE, VadState.SPEECH)
 
 
-# ── Availability predicate contract ───────────────────────────────────
-
-
 class TestVadAvailabilityContract:
-    """The Silero availability predicate is ``vad.is_available``.
-
-    The historical ``_check_vad_available`` wrapper called
-    ``is_available()`` and then re-checked the same model-path existence
-    predicate ``is_available()`` already covers, a redundant
-    double-check that could drift out of sync with the real predicate.
-    It was removed; callers use ``is_available`` directly."""
+    """The Silero availability predicate is ``vad.is_available``."""
 
     def test_redundant_check_wrapper_is_removed(self) -> None:
         import voice_typer.server.vad as vad_module
@@ -1089,8 +906,7 @@ class TestVadAvailabilityContract:
         )
 
     def test_lazy_default_resolves_is_available_true(self, monkeypatch) -> None:
-        """With the injected callable unset, VadProcessor's lazy default
-        resolves to ``vad.is_available`` and its result is honored."""
+        """With the injected callable unset, VadProcessor's lazy default"""
         from voice_typer.server import vad as vad_module
         from voice_typer.server.vad_processor import VadProcessor
 

@@ -164,8 +164,6 @@ class TestVocabularyImportExport:
                 "technical_terms": {"dockr": "docker"},
             }
         )
-        # import_json now returns a tuple of
-        # (categories_imported, dropped_entries).
         count, dropped = vm.import_json(json_str, merge=True)
         assert count >= 1
         assert dropped == 0
@@ -181,16 +179,11 @@ class TestVocabularyImportExport:
         assert dropped == 0
 
 
-# regression tests ──────────────────────────────────────
-
-
 class TestVocabularyImportValidation:
     """G4-M-37: import_json must validate entries before mutating state."""
 
     def test_import_json_rejects_oversized_entries(self, vm, caplog):
-        """Entries whose key/pattern or value/replacement exceed the
-        SEC-011 length caps must be dropped with a logged warning.
-        """
+        """SEC-011 length caps must be dropped with a logged warning."""
         import logging
 
         from voice_typer.server.vocabulary import (
@@ -225,8 +218,7 @@ class TestVocabularyImportValidation:
         assert any("Dropped" in r.getMessage() and "2" in r.getMessage() for r in caplog.records)
 
     def test_import_json_rejects_oversized_phrase_entries(self, vm):
-        """List-based categories (phrase_corrections) must also drop
-        oversized entries (mirrors text_cleanup._load_external_corrections)."""
+        """List-based categories (phrase_corrections) must also drop"""
         from voice_typer.server.vocabulary import MAX_PATTERN_LENGTH
 
         long_phrase = "x" * (MAX_PATTERN_LENGTH + 1)
@@ -264,15 +256,12 @@ class TestVocabularyImportValidation:
         assert dropped == 1
 
     def test_import_json_rejects_category_over_cap(self, vm, monkeypatch):
-        """If ``len(existing) + len(new)`` would exceed
-        MAX_CORRECTIONS_ENTRIES, the entire category import must be
-        dropped (no partial mutation of ``self._data``)."""
+        """If ``len(existing) + len(new)`` would exceed"""
         import voice_typer.server.vocabulary as vocab_mod
 
         # Lower the cap so the test doesn't have to build 5000 entries.
         monkeypatch.setattr(vocab_mod, "MAX_CORRECTIONS_ENTRIES", 3)
         # The bundled misspellings already has 2 entries (teh, recieve).
-        # Importing 2 more would put us at 4 > 3 -> entire category rejected.
         json_str = json.dumps(
             {
                 "misspellings": {
@@ -292,8 +281,7 @@ class TestVocabularyImportValidation:
         assert "recieve" in miss
 
     def test_import_json_malformed_entry_in_list_dropped(self, vm):
-        """Malformed entries in list categories (wrong shape, missing
-        fields) must be counted as dropped, not silently swallowed."""
+        """Malformed entries in list categories (wrong shape, missing"""
         json_str = json.dumps(
             {
                 "phrase_corrections": [
@@ -311,24 +299,11 @@ class TestVocabularyImportValidation:
         assert dropped == 3
 
 
-# regression tests ────────────────────────────────────────────────
-
-
 class TestVocabularyBackupAndQuarantine:
-    """PI-8: vocabulary.py now routes persistence through PersistedJSON,
-    which provides single-slot .bak before overwrite + corrupt-file
-    quarantine on load failure. These tests pin the new behavior so a
-    future refactor that drops the helper (or replaces it with a
-    bare _secure_atomic_write) doesn't silently regress PI-8."""
+    """PI-8: vocabulary.py now routes persistence through PersistedJSON,"""
 
     def test_vocabulary_creates_bak_on_overwrite(self, vocab_dir, bundled):
-        """PI-8: save vocab A, save vocab B, assert .bak file contains A.
-
-        The .bak is single-slot: each save overwrites the previous .bak
-        (so re-saves don't accumulate backup files). The .bak holds the
-        PREVIOUS content, byte-for-byte, so the user can recover their
-        last good state if a save turns out to be wrong.
-        """
+        """PI-8: save vocab A, save vocab B, assert .bak file contains A."""
         from voice_typer.server.vocabulary import VOCAB_FILENAME, VocabularyManager
 
         user_file = vocab_dir / VOCAB_FILENAME
@@ -353,8 +328,6 @@ class TestVocabularyBackupAndQuarantine:
         content_b = user_file.read_text(encoding="utf-8")
         assert '"whitespace"' in content_b
         # The .bak must now exist and contain vocab A's content
-        # (byte-for-byte), so the user can recover their previous
-        # state if vocab B turns out to be wrong.
         assert bak_file.exists(), "PI-8 regression: .bak file should exist after the second save overwrites the first"
         bak_content = bak_file.read_text(encoding="utf-8")
         assert bak_content == content_a, (
@@ -364,16 +337,7 @@ class TestVocabularyBackupAndQuarantine:
         assert '"whitespace"' not in bak_content
 
     def test_vocabulary_quarantines_corrupt_file(self, vocab_dir, bundled):
-        """PI-8: write corrupt JSON to the vocab file, call load, assert
-        the file is moved to .corrupt-<ts> and load returns the default
-        (empty user vocab, bundled still loads).
-
-        Without quarantine, the next save would atomically overwrite the
-        corrupt file with the in-memory defaults, destroying any chance
-        of forensic recovery. Quarantine preserves the corrupt file at
-        ``<path>.corrupt-<timestamp>`` so the user can inspect what
-        truncation pattern led to the parse failure.
-        """
+        """PI-8: write corrupt JSON to the vocab file, call load, assert"""
         from voice_typer.server.vocabulary import VOCAB_FILENAME, VocabularyManager
 
         user_file = vocab_dir / VOCAB_FILENAME
@@ -382,10 +346,6 @@ class TestVocabularyBackupAndQuarantine:
         user_file.write_text(corrupt_payload, encoding="utf-8")
         assert user_file.exists()
 
-        # Construct a VocabularyManager, this calls _load_user which
-        # must detect the corrupt JSON, quarantine it, and fall back
-        # to the default (empty user vocab). Bundled corrections still
-        # load normally (they're a separate file).
         vm = VocabularyManager(config_dir=vocab_dir, bundled_path=bundled)
 
         # The corrupt file must have been renamed to .corrupt-<ts>.
@@ -395,11 +355,8 @@ class TestVocabularyBackupAndQuarantine:
         corrupt_files = list(vocab_dir.glob(f"{VOCAB_FILENAME}.corrupt-*"))
         assert len(corrupt_files) == 1, f"PI-8 regression: expected exactly one .corrupt-<ts> file, got {corrupt_files}"
         # The quarantined file must contain the original corrupt payload
-        # (byte-for-byte) so the user can inspect what went wrong.
         assert corrupt_files[0].read_text(encoding="utf-8") == corrupt_payload
 
-        # Load must have returned the default (empty user vocab). The
-        # bundled misspellings ("teh" -> "the") still load.
         miss = vm.get_category("misspellings")
         assert isinstance(miss, dict)
         assert "teh" in miss  # bundled
@@ -408,8 +365,7 @@ class TestVocabularyBackupAndQuarantine:
 
 
 class TestTemplatesEnforcesCaps:
-    """G4-M-38: templates.add() and templates.import_json() must enforce
-    MAX_TEMPLATES, MAX_TRIGGER_LENGTH, MAX_OUTPUT_LENGTH caps."""
+    """G4-M-38: templates.add() and templates.import_json() must enforce"""
 
     def test_templates_add_enforces_max_count(self, tmp_path, monkeypatch):
         """add() must reject new templates once MAX_TEMPLATES is reached."""
@@ -457,8 +413,7 @@ class TestTemplatesEnforcesCaps:
         assert len(tm._templates) == 0
 
     def test_templates_import_json_drops_oversized(self, tmp_path, monkeypatch, caplog):
-        """import_json() must drop oversized entries with a warning
-        (mirrors text_cleanup._load_external_corrections)."""
+        """import_json() must drop oversized entries with a warning"""
         import logging
 
         import voice_typer.server.templates as templates_mod
@@ -486,8 +441,7 @@ class TestTemplatesEnforcesCaps:
         assert any("Dropped" in r.getMessage() for r in caplog.records)
 
     def test_templates_import_json_truncates_at_cap(self, tmp_path, monkeypatch):
-        """import_json() must truncate the import if it would exceed
-        MAX_TEMPLATES."""
+        """import_json() must truncate the import if it would exceed"""
         import voice_typer.server.templates as templates_mod
 
         monkeypatch.setattr(templates_mod, "MAX_TEMPLATES", 3)
@@ -501,21 +455,11 @@ class TestTemplatesEnforcesCaps:
         assert len(tm._templates) == 3
 
 
-# regression tests ────────────────────────────────────────────
-
-
 class TestVocabularyGetCategoryLockAndSnapshot:
-    """FR-38: ``VocabularyManager.get_category`` must acquire
-    ``self._lock`` and return a SHALLOW COPY of the underlying
-    container. Pre-fix, the method bypassed the lock and returned
-    the live internal ``self._data[category]`` dict/list, so a
-    concurrent ``add_entry`` / ``remove_entry`` / ``import_json``
-    mutation could mutate the dict mid-iteration, raising
-    ``RuntimeError: dictionary changed size during iteration``."""
+    """FR-38: ``VocabularyManager.get_category`` must acquire"""
 
     def test_get_category_dict_returns_copy(self, vm):
-        """Mutating the returned dict must NOT affect the manager's
-        internal state."""
+        """Mutating the returned dict must NOT affect the manager's"""
         miss = vm.get_category("misspellings")
         assert isinstance(miss, dict)
         # Snapshot the original state.
@@ -531,8 +475,7 @@ class TestVocabularyGetCategoryLockAndSnapshot:
         assert len(miss_again) == original_len
 
     def test_get_category_list_returns_copy(self, vm):
-        """Mutating the returned list must NOT affect the manager's
-        internal state."""
+        """Mutating the returned list must NOT affect the manager's"""
         phrases = vm.get_category("phrase_corrections")
         assert isinstance(phrases, list)
         original_len = len(phrases)
@@ -547,13 +490,7 @@ class TestVocabularyGetCategoryLockAndSnapshot:
         assert not any(p == ["__injected__", "__injected__"] for p in phrases_again)
 
     def test_get_category_concurrent_with_mutation(self, vm):
-        """Iterating ``get_category``'s return value while another
-        thread mutates the same category must NOT raise
-        ``RuntimeError: dictionary changed size during iteration``.
-
-        Pre-fix, this test would intermittently raise RuntimeError
-        because the returned dict was the LIVE internal container.
-        """
+        """Iterating ``get_category``'s return value while another"""
         import threading
         import time
 
@@ -567,12 +504,8 @@ class TestVocabularyGetCategoryLockAndSnapshot:
         def reader():
             while not stop.is_set():
                 try:
-                    # get_category must return a SNAPSHOT under the
-                    # lock, iterating it can't see a concurrent
-                    # mutation.
                     tech = vm.get_category("technical_terms")
                     # Iterate the snapshot, pre-fix this could see
-                    # a half-applied mutation and raise RuntimeError.
                     for k in tech:
                         _ = tech[k]
                 except Exception as exc:
@@ -584,7 +517,6 @@ class TestVocabularyGetCategoryLockAndSnapshot:
         t.start()
         try:
             # Aggressively mutate the same category while the reader
-            # iterates snapshots.
             for i in range(100):
                 vm.add_entry("technical_terms", f"concurrent-{i}", f"cval-{i}")
                 if i % 2 == 0:
@@ -596,8 +528,7 @@ class TestVocabularyGetCategoryLockAndSnapshot:
         assert errors == [], f"get_category raised during concurrent mutation (FR-38 regression): {errors}"
 
     def test_get_category_unknown_returns_empty_list(self, vm):
-        """An unknown category must return an empty list (not crash
-        or return None)."""
+        """An unknown category must return an empty list (not crash"""
         result = vm.get_category("nonexistent_category")
         assert isinstance(result, list)
         assert result == []

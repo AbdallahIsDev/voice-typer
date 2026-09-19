@@ -1,30 +1,4 @@
-"""Regression tests for the Windows branch of ``_acquire_migration_lock``.
-
-Finding (Medium): the Windows branch wrapped
-``msvcrt.locking(fd, msvcrt.LK_LOCK, 1)`` in
-``with contextlib.suppress(OSError):``. ``msvcrt.locking(LK_LOCK)``
-raises ``PermissionError`` (a subclass of ``OSError``) after ~10s
-timeout when the lock cannot be acquired. The suppress silently
-swallowed this and returned the fd as if the lock had been acquired.
-Two app instances could both pass and clobber each other's
-``config.json`` write, with no trace in logs.
-
-Fix: replace the ``contextlib.suppress`` with an explicit
-``try: msvcrt.locking(...); except OSError: log.warning(...)``.
-The fd is still returned (fail-open stance preserved, the caller
-``migrate_secrets_to_keyring`` already handles the
-``lock_fd is None`` case separately), but the failure is now
-VISIBLE in logs so a subsequent race condition is diagnosable.
-
-Platform note
---------------
-
-These tests run on Linux by mocking ``msvcrt`` in ``sys.modules``
-and forcing ``_is_windows()`` to return ``True`` so the Windows
-code path is exercised. The POSIX branch (``fcntl.flock``) is
-unchanged, it blocks indefinitely and never raises, so the
-``contextlib.suppress`` is harmless there and is not tested here.
-"""
+"""Regression tests for the Windows branch of ``_acquire_migration_lock``."""
 
 from __future__ import annotations
 
@@ -37,8 +11,6 @@ import types
 import pytest
 from voice_typer.server import credential_store
 
-# ── Fixtures ────────────────────────────────────────────────────────────
-
 
 @pytest.fixture(autouse=True)
 def _isolated_config_dir(tmp_config_dir):
@@ -47,18 +19,7 @@ def _isolated_config_dir(tmp_config_dir):
 
 
 def _install_fake_msvcrt(monkeypatch, *, locking_impl):
-    """Install a fake ``msvcrt`` module in ``sys.modules``.
-
-    ``locking_impl`` is the callable used as ``msvcrt.locking``. The
-    fake module also exposes ``LK_LOCK`` and ``LK_NBLCK`` so the
-    :func:`_acquire_migration_lock` Windows branch can run regardless
-    of which lock mode production code selects.
-
-    The production code uses ``LK_NBLCK`` (non-blocking) inside a
-    polled retry loop, not ``LK_LOCK`` (which blocks internally for
-    ~1s on Windows before raising ``OSError``). Both constants are
-    provided so this fixture is robust to either implementation.
-    """
+    """Install a fake ``msvcrt`` module in ``sys.modules``."""
     fake = types.ModuleType("msvcrt")
     fake.locking = locking_impl  # type: ignore[attr-defined]
     fake.LK_LOCK = 1  # type: ignore[attr-defined]
@@ -67,22 +28,11 @@ def _install_fake_msvcrt(monkeypatch, *, locking_impl):
     return fake
 
 
-# ── Tests ───────────────────────────────────────────────────────────────
-
-
 class TestWindowsMigrationLockTimeout:
     """Windows branch must log visibly when ``msvcrt.locking`` times out."""
 
     def test_timeout_logs_warning_and_returns_fd(self, tmp_path, monkeypatch, caplog):
-        """When ``msvcrt.locking`` raises ``OSError`` (timeout), the
-        function must log a visible WARNING and STILL return the fd
-        (fail-open, but visible).
-
-        Previously the timeout was swallowed by
-        ``contextlib.suppress(OSError)`` and the fd was returned
-        silently, two app instances could both pass and clobber each
-        other's ``config.json`` write with no trace in logs.
-        """
+        """function must log a visible WARNING and STILL return the fd"""
         # Force the Windows branch.
         monkeypatch.setattr(credential_store, "_is_windows", lambda: True)
 
@@ -121,8 +71,7 @@ class TestWindowsMigrationLockTimeout:
             returned.close()
 
     def test_timeout_warning_message_mentions_race(self, tmp_path, monkeypatch, caplog):
-        """The warning text must mention 'race possible' so operators
-        grep-ing logs for race conditions can find it."""
+        """The warning text must mention 'race possible' so operators"""
         monkeypatch.setattr(credential_store, "_is_windows", lambda: True)
 
         def _locking_raises(fd, mode, nbytes):
@@ -146,9 +95,7 @@ class TestWindowsMigrationLockTimeout:
                 returned.close()
 
     def test_success_does_not_log_warning(self, tmp_path, monkeypatch, caplog):
-        """When ``msvcrt.locking`` succeeds, no warning is logged and
-        the fd is returned. This guards against the fix accidentally
-        logging on the happy path."""
+        """the fd is returned. This guards against the fix accidentally"""
         monkeypatch.setattr(credential_store, "_is_windows", lambda: True)
 
         calls: list[tuple] = []
@@ -175,15 +122,7 @@ class TestWindowsMigrationLockTimeout:
                 returned.close()
 
     def test_timeout_does_not_raise_to_caller(self, tmp_path, monkeypatch):
-        """The Windows timeout must NOT propagate as an exception —
-        the fail-open contract is that the caller
-        (``migrate_secrets_to_keyring``) gets a usable fd back.
-
-        If the exception propagated, the caller's ``except Exception``
-        would set ``lock_fd = None`` (a different fail-open path) —
-        which is also valid, but the spec says return the fd anyway
-        so the timeout is logged ONCE at the lock helper layer (not
-        re-logged by the caller as 'could not acquire lock')."""
+        """The Windows timeout must NOT propagate as an exception —"""
         monkeypatch.setattr(credential_store, "_is_windows", lambda: True)
 
         def _locking_raises(fd, mode, nbytes):
@@ -201,13 +140,7 @@ class TestWindowsMigrationLockTimeout:
                 returned.close()
 
     def test_timeout_warning_visible_through_migrate(self, tmp_path, monkeypatch, caplog):
-        """End-to-end: ``migrate_secrets_to_keyring`` must still
-        complete (fail-open) when the Windows lock times out, the
-        warning is the only observable effect at this layer.
-
-        This guards against a future refactor that catches the warning
-        at the caller and turns it back into a silent fail-open.
-        """
+        """End-to-end: ``migrate_secrets_to_keyring`` must still"""
         monkeypatch.setattr(credential_store, "_is_windows", lambda: True)
 
         def _locking_raises(fd, mode, nbytes):
@@ -215,9 +148,6 @@ class TestWindowsMigrationLockTimeout:
 
         _install_fake_msvcrt(monkeypatch, locking_impl=_locking_raises)
 
-        # Pre-populate config.json with secrets_migrated=True so the
-        # migration function returns quickly after acquiring (or
-        # failing to acquire) the lock.
         config_file = tmp_path / "config.json"
         config_file.write_text(json.dumps({"secrets_migrated": True}))
 
@@ -225,7 +155,6 @@ class TestWindowsMigrationLockTimeout:
             count = credential_store.migrate_secrets_to_keyring()
 
         # Migration completes (fail-open), no exception, count is 0
-        # because secrets_migrated was already True.
         assert count == 0, (
             f"migrate_secrets_to_keyring returned {count}, expected 0 "
             "since secrets_migrated was already True. The function must "
@@ -239,14 +168,10 @@ class TestWindowsMigrationLockTimeout:
 
 
 class TestPosixBranchUnchanged:
-    """Sanity-check that the POSIX branch (``fcntl.flock``) is
-    unchanged, it must NOT emit a warning when the lock is acquired
-    successfully. This guards against the fix accidentally applying
-    to both branches."""
+    """Sanity-check that the POSIX branch (``fcntl.flock``) is"""
 
     def test_posix_success_no_warning(self, tmp_path, monkeypatch, caplog):
-        """On POSIX (the test host), ``fcntl.flock`` succeeds without
-        raising, no warning should be logged."""
+        """On POSIX (the test host), ``fcntl.flock`` succeeds without"""
         # _is_windows() returns False on Linux by default, no patch.
         lock_file = tmp_path / "config.json.lock"
 
@@ -266,15 +191,7 @@ class TestPosixBranchUnchanged:
 
 
 class TestLockAbortDefersRetry:
-    """BP-131: a lock-acquire failure must DEFER migration, not mark it done.
-
-    Pre-fix, the abort branch wrote ``secrets_migrated=True`` while
-    logging "the next launch will retry", the retry gate then skipped
-    migration forever and plaintext keys persisted with zero
-    diagnostic. Post-fix the abort records the
-    ``secrets_migrated_keyring_was_unavailable`` deferral diagnostic
-    and leaves ``secrets_migrated`` unset so the next launch retries.
-    """
+    """BP-131: a lock-acquire failure must DEFER migration, not mark it done."""
 
     def test_lock_abort_records_deferral_not_success(self, tmp_config_dir, monkeypatch):
         """Abort path: no success flag, deferral diagnostic present."""

@@ -1,57 +1,4 @@
-"""Tests for the ``permissions`` package split.
-
-The original 1144-LOC ``permissions.py`` monolith was split into a
-package with 4 focused submodules + a facade ``__init__.py``.
-These tests verify:
-
-1. **Backward compatibility**, every name that tests previously
-   imported from ``voice_typer.server.permissions`` is still
-   accessible on the facade. This includes:
-     - Public functions: ``check_keyboard_permission``,
-       ``check_microphone_permission``, ``verify_microphone_accessible``,
-       ``request_keyboard_permission``,
-       ``request_microphone_permission``,
-       ``request_microphone_permission_result``,
-       ``schedule_permission_retry``, ``cancel_permission_retry``,
-       ``permission_error_is_permission_denied``,
-       ``show_permission_notification``,
-       ``_is_pyobjc_available``, ``reset_pyobjc_cache``.
-     - Enums: ``PermissionState``, ``MicrophonePermissionState``.
-     - Constants: ``LINUX_UDEV_RULE``,
-       ``PERMISSION_RETRY_INTERVAL_SECONDS``,
-       ``PERMISSION_RETRY_MAX_ATTEMPTS``.
-     - Module-level mutable state (read + writable):
-       ``_retry_timer``, ``_retry_count``, ``_cancelled``,
-       ``_retry_lock``, ``_PYOBJC_AVAILABLE``.
-     - Platform check helpers (re-exported from platform_utils so
-       tests can monkeypatch a single namespace):
-       ``is_windows``, ``is_macos``, ``is_linux``.
-     - Stdlib module refs that tests patch via
-       ``monkeypatch.setattr(permissions.<mod>, <attr>, <value>)``:
-       ``subprocess``, ``os``, ``shutil``, ``threading``.
-
-Note: this file deliberately omits task-ID / session-prefix tags
-from source code per C-STYLE-1 (the corresponding review entries
-live only in metadata files like ``review.md`` / ``worklog.md``).
-
-2. **State proxying**, test mutations on
-   ``permissions._PYOBJC_AVAILABLE = True`` (etc.) are observable by
-   the submodule functions that read/write the same state. This is the
-   key invariant that lets the existing test suite (which resets
-   module-level globals between tests) work without modification.
-
-3. **Function-patch propagation**, monkeypatches on
-   ``permissions.<function>`` (e.g. ``check_keyboard_permission``,
-   ``_open_macos_accessibility_settings``, ``schedule_permission_retry``)
-   are observed by other submodule functions that call them. This is
-   the key invariant that lets the existing test suite (which patches
-   functions on the facade to isolate behaviors) work without
-   modification.
-
-4. **Package structure**, the package directory contains the 4
-   submodules specified in the split plan
-   (``checker``, ``mic``, ``accessibility``, ``filesystem``).
-"""
+"""Tests for the ``permissions`` package split."""
 
 from __future__ import annotations
 
@@ -60,13 +7,6 @@ from pathlib import Path
 
 import pytest
 
-# ── 1. Backward compatibility: all previously-importable names ───────
-
-
-# Names that ``tests/test_permissions.py`` (including the merged
-# microphone-permission regression suite) read or call on the
-# ``permissions`` module. Compiled from:
-#   grep -rn "permissions\." tests/test_permissions*.py
 PUBLIC_FUNCTIONS = [
     "check_keyboard_permission",
     "check_microphone_permission",
@@ -169,18 +109,14 @@ class TestBackwardCompatNames:
         assert permissions.PERMISSION_RETRY_MAX_ATTEMPTS == 5
 
     def test_mutable_state_present(self):
-        """Mutable state vars must be present on the facade (so tests can
-        read/write them and have the writes propagate to submodule
-        functions)."""
+        """Mutable state vars must be present on the facade (so tests can"""
         from voice_typer.server import permissions
 
         for name in MUTABLE_STATE:
             assert hasattr(permissions, name), f"permissions.{name} is missing, mutable state not declared on facade"
 
     def test_mutable_state_writable(self):
-        """Test mutations on facade state must propagate (the key
-        invariant of the split, mirrors the crash_handler split's
-        TestStateProxying test)."""
+        """Test mutations on facade state must propagate (the key"""
         from voice_typer.server import permissions
 
         # Save original values.
@@ -203,10 +139,7 @@ class TestBackwardCompatNames:
                 setattr(permissions, k, v)
 
     def test_platform_helpers_importable(self):
-        """``is_windows`` / ``is_macos`` / ``is_linux`` must be re-exported
-        on the facade so tests can monkeypatch a single namespace
-        (mirrors the onboarding.py comment about re-exporting platform
-        helpers from permissions)."""
+        """``is_windows`` / ``is_macos`` / ``is_linux`` must be re-exported"""
         from voice_typer.server import permissions
 
         for name in PLATFORM_HELPERS:
@@ -216,46 +149,28 @@ class TestBackwardCompatNames:
             assert callable(getattr(permissions, name)), f"permissions.{name} is not callable"
 
     def test_stdlib_module_refs_present(self):
-        """Stdlib module references (``subprocess``, ``os``, ``shutil``,
-        ``threading``) must be present as facade attributes so tests can
-        do ``monkeypatch.setattr(permissions.subprocess, 'Popen', ...)``."""
+        """Stdlib module references (``subprocess``, ``os``, ``shutil``,"""
         from voice_typer.server import permissions
 
         for name in STDLIB_MODULE_REFS:
             assert hasattr(permissions, name), f"permissions.{name} is missing, stdlib module ref not on facade"
 
 
-# ── 2. State proxying: test mutations propagate to submodule functions ──
-
-
 class TestStateProxying:
-    """Test mutations on ``permissions.<state>`` must be observable by
-    the submodule functions that read/write the same state.
-
-    This is the key invariant that lets the existing test suite (which
-    resets module-level globals between tests via
-    ``permissions._PYOBJC_AVAILABLE = None`` etc.) work without
-    modification after the split.
-    """
+    """the submodule functions that read/write the same state."""
 
     def test_reset_pyobjc_cache_clears_facade_state(self):
-        """``reset_pyobjc_cache`` (defined in ``checker``) writes to
-        ``_p._PYOBJC_AVAILABLE = None``, reads on
-        ``permissions._PYOBJC_AVAILABLE`` must see the new value."""
+        """``permissions._PYOBJC_AVAILABLE`` must see the new value."""
         from voice_typer.server import permissions
 
         # Prime the cache.
         permissions._PYOBJC_AVAILABLE = True
         # The function (in checker) writes to _p._PYOBJC_AVAILABLE —
-        # reads on the facade must see the new value.
         permissions.reset_pyobjc_cache()
         assert permissions._PYOBJC_AVAILABLE is None
 
     def test_facade_reset_visible_to_submodule_function(self):
-        """When a test sets ``permissions._PYOBJC_AVAILABLE = False``,
-        the next ``_is_pyobjc_available`` call must return False
-        WITHOUT re-probing (i.e. it must observe the facade-level
-        cache value)."""
+        """When a test sets ``permissions._PYOBJC_AVAILABLE = False``,"""
         from voice_typer.server import permissions
 
         saved = permissions._PYOBJC_AVAILABLE
@@ -263,9 +178,6 @@ class TestStateProxying:
             # Simulate a test that sets the cache.
             permissions._PYOBJC_AVAILABLE = False
             # The function must observe the facade-level cache value
-            # (via _p._PYOBJC_AVAILABLE) and return False without
-            # re-probing (which would re-attempt the ApplicationServices
-            # import).
             result = permissions._is_pyobjc_available()
             assert result is False, (
                 "_is_pyobjc_available did not observe the facade-level "
@@ -277,10 +189,7 @@ class TestStateProxying:
             permissions._PYOBJC_AVAILABLE = saved
 
     def test_check_macos_accessibility_short_circuits_on_cached_false(self):
-        """When ``permissions._PYOBJC_AVAILABLE = False`` is set on the
-        facade, ``_check_macos_accessibility`` (defined in
-        ``accessibility``) must short-circuit to UNKNOWN without
-        attempting the pyobjc imports."""
+        """``accessibility``) must short-circuit to UNKNOWN without"""
         from voice_typer.server import permissions
 
         saved = permissions._PYOBJC_AVAILABLE
@@ -289,7 +198,6 @@ class TestStateProxying:
             permissions._PYOBJC_AVAILABLE = False
 
             # Even if ApplicationServices were importable, we shouldn't
-            # attempt the import. Patch the builtins to fail loudly if it does.
             original_import = __import__
 
             def fail_appservices(name, *args, **kwargs):
@@ -306,10 +214,7 @@ class TestStateProxying:
             permissions._PYOBJC_AVAILABLE = saved
 
     def test_check_macos_microphone_short_circuits_on_cached_false(self):
-        """When ``permissions._PYOBJC_AVAILABLE = False`` is set on the
-        facade, ``_check_macos_microphone`` (defined in ``mic``) must
-        short-circuit to UNKNOWN without attempting the AVFoundation
-        import."""
+        """facade, ``_check_macos_microphone`` (defined in ``mic``) must"""
         from voice_typer.server import permissions
 
         saved = permissions._PYOBJC_AVAILABLE
@@ -332,19 +237,11 @@ class TestStateProxying:
             permissions._PYOBJC_AVAILABLE = saved
 
 
-# ── 3. Function-patch propagation ──────────────────────────────────────
-
-
 class TestFunctionPatchPropagation:
-    """Monkeypatches on ``permissions.<function>`` must be observed by
-    other submodule functions that call them. This is the key invariant
-    that lets the existing test suite (which patches functions on the
-    facade to isolate behaviors) work without modification."""
+    """other submodule functions that call them. This is the key invariant"""
 
     def test_check_keyboard_permission_uses_patched_is_macos(self, monkeypatch):
-        """``check_keyboard_permission`` (in checker) calls
-        ``_p.is_macos()``, a monkeypatch on ``permissions.is_macos``
-        must be observed."""
+        """``check_keyboard_permission`` (in checker) calls"""
         from unittest.mock import patch
 
         from voice_typer.server import permissions
@@ -358,9 +255,7 @@ class TestFunctionPatchPropagation:
         assert result == permissions.PermissionState.UNKNOWN
 
     def test_check_keyboard_permission_dispatches_to_patched_probe(self, monkeypatch):
-        """``check_keyboard_permission`` (in checker) calls
-        ``_p._check_macos_accessibility()``, a monkeypatch on
-        ``permissions._check_macos_accessibility`` must be observed."""
+        """``check_keyboard_permission`` (in checker) calls"""
         from voice_typer.server import permissions
 
         monkeypatch.setattr(permissions, "is_windows", lambda: False)
@@ -376,10 +271,7 @@ class TestFunctionPatchPropagation:
         assert result == permissions.PermissionState.DENIED
 
     def test_request_keyboard_permission_calls_patched_open_settings(self, monkeypatch):
-        """``request_keyboard_permission`` (in checker) calls
-        ``_p._open_macos_accessibility_settings()``, a monkeypatch on
-        ``permissions._open_macos_accessibility_settings`` must be
-        observed."""
+        """``request_keyboard_permission`` (in checker) calls"""
         from voice_typer.server import permissions
 
         monkeypatch.setattr(permissions, "is_windows", lambda: False)
@@ -398,9 +290,7 @@ class TestFunctionPatchPropagation:
         assert called == ["opened"]
 
     def test_request_keyboard_permission_calls_patched_schedule_retry(self, monkeypatch):
-        """``request_keyboard_permission`` (in checker) calls
-        ``_p.schedule_permission_retry()``, a monkeypatch on
-        ``permissions.schedule_permission_retry`` must be observed."""
+        """``request_keyboard_permission`` (in checker) calls"""
         from voice_typer.server import permissions
 
         monkeypatch.setattr(permissions, "is_windows", lambda: False)
@@ -420,10 +310,7 @@ class TestFunctionPatchPropagation:
         assert scheduled == [cb]
 
     def test_schedule_permission_retry_calls_patched_check(self, monkeypatch):
-        """``schedule_permission_retry`` (in checker) calls
-        ``_p.check_keyboard_permission()`` from within its ``_poll``
-        callback, a monkeypatch on ``permissions.check_keyboard_permission``
-        must be observed."""
+        """``schedule_permission_retry`` (in checker) calls"""
         import time
         from unittest.mock import MagicMock
 
@@ -441,10 +328,7 @@ class TestFunctionPatchPropagation:
         permissions.cancel_permission_retry()
 
     def test_schedule_permission_retry_calls_patched_cancel(self, monkeypatch):
-        """``schedule_permission_retry`` (in checker) calls
-        ``_p.cancel_permission_retry()`` to cancel any existing timer —
-        a monkeypatch on ``permissions.cancel_permission_retry`` must be
-        observed."""
+        """``schedule_permission_retry`` (in checker) calls"""
         from unittest.mock import MagicMock
 
         from voice_typer.server import permissions
@@ -463,24 +347,18 @@ class TestFunctionPatchPropagation:
         try:
             permissions.schedule_permission_retry(MagicMock(), interval=10.0, max_attempts=1)
             # ``schedule_permission_retry`` must have called the patched
-            # ``cancel_permission_retry`` (the patched version appends to
-            # cancel_called).
             assert cancel_called == ["cancelled"], (
                 "schedule_permission_retry did not call the patched cancel_permission_retry, "
                 "function-patch propagation is broken."
             )
         finally:
-            # Restore the real cancel_permission_retry on the facade and
-            # call it to clean up the timer.
             from voice_typer.server.permissions.checker import cancel_permission_retry as real_cancel
 
             monkeypatch.setattr(permissions, "cancel_permission_retry", real_cancel)
             permissions.cancel_permission_retry()
 
     def test_check_microphone_permission_dispatches_to_patched_probe(self, monkeypatch):
-        """``check_microphone_permission`` (in checker) calls
-        ``_p._check_macos_microphone()`` (etc.), a monkeypatch on
-        ``permissions._check_macos_microphone`` must be observed."""
+        """``check_microphone_permission`` (in checker) calls"""
         from voice_typer.server import permissions
 
         monkeypatch.setattr(permissions, "is_windows", lambda: False)
@@ -495,9 +373,7 @@ class TestFunctionPatchPropagation:
         assert result == permissions.MicrophonePermissionState.DENIED
 
     def test_verify_microphone_accessible_calls_patched_check(self, monkeypatch):
-        """``verify_microphone_accessible`` (in checker) calls
-        ``_p.check_microphone_permission()``, a monkeypatch on
-        ``permissions.check_microphone_permission`` must be observed."""
+        """``verify_microphone_accessible`` (in checker) calls"""
         from voice_typer.server import permissions
 
         monkeypatch.setattr(
@@ -509,10 +385,7 @@ class TestFunctionPatchPropagation:
         permissions.verify_microphone_accessible()
 
     def test_request_microphone_permission_calls_patched_helpers(self, monkeypatch):
-        """``request_microphone_permission`` (in checker) calls
-        ``_p._open_macos_microphone_settings()`` and
-        ``_p._trigger_macos_microphone_consent_prompt()``, monkeypatches
-        on those facade attributes must be observed."""
+        """``request_microphone_permission`` (in checker) calls"""
         from voice_typer.server import permissions
 
         monkeypatch.setattr(permissions, "is_windows", lambda: False)
@@ -535,9 +408,7 @@ class TestFunctionPatchPropagation:
         assert called == ["opened", "triggered"]
 
     def test_open_linux_pkexec_prompt_calls_patched_find_script(self, monkeypatch):
-        """``_open_linux_pkexec_prompt`` (in filesystem) calls
-        ``_p._find_linux_install_script()``, a monkeypatch on
-        ``permissions._find_linux_install_script`` must be observed."""
+        """``_open_linux_pkexec_prompt`` (in filesystem) calls"""
         from pathlib import Path
 
         from voice_typer.server import permissions
@@ -548,18 +419,13 @@ class TestFunctionPatchPropagation:
             lambda: Path("/fake/install_permissions.py"),
         )
         # Force ``shutil.which('pkexec')`` to return None so the prompt
-        # logs an error and returns without invoking subprocess.
         monkeypatch.setattr(permissions.shutil, "which", lambda cmd: None)
         # Should not raise, just log.
         permissions._open_linux_pkexec_prompt()
 
 
-# ── 4. Package structure ─────────────────────────────────────────────
-
-
 class TestPackageStructure:
-    """The ``permissions`` package must have the 4 submodules specified
-    in the split plan."""
+    """The ``permissions`` package must have the 4 submodules specified"""
 
     EXPECTED_SUBMODULES = [
         "checker",
@@ -580,19 +446,12 @@ class TestPackageStructure:
             assert (pkg_dir / f"{sub}.py").exists(), f"Submodule {sub}.py is missing from the permissions package"
 
     def test_facade_is_not_the_old_monolith(self):
-        """The facade __init__.py must be a thin re-export layer, not
-        the original 1144-LOC monolith. Allow up to ~300 LOC for the
-        state declarations + docstrings + re-export imports (mirrors
-        the crash_handler split's test_facade_is_not_the_old_monolith
-        test)."""
+        """The facade __init__.py must be a thin re-export layer, not"""
         import voice_typer.server.permissions as p
 
         init_path = Path(p.__file__)
         loc = len(init_path.read_text().splitlines())
         # The facade holds mutable state + re-exports, allow up to ~250
-        # LOC for the state declarations + docstrings + re-export
-        # imports. The original was 1144 LOC; the facade must be
-        # substantially smaller.
         assert loc < 300, (
             f"permissions/__init__.py is {loc} LOC, expected a thin facade "
             f"(<300 LOC). The original monolith was 1144 LOC; the facade must "
@@ -600,8 +459,7 @@ class TestPackageStructure:
         )
 
     def test_old_monolith_removed(self):
-        """The old ``permissions.py`` file must be removed (replaced by
-        the package)."""
+        """The old ``permissions.py`` file must be removed (replaced by"""
         import voice_typer.server.permissions as p
 
         pkg_dir = Path(p.__file__).parent
@@ -611,12 +469,8 @@ class TestPackageStructure:
         )
 
 
-# ── 5. Functional smoke test (Linux-runnable surface) ────────────────
-
-
 class TestFunctionalSmoke:
-    """Quick functional smoke test on the Linux-runnable surface to
-    verify the split didn't break basic behavior."""
+    """Quick functional smoke test on the Linux-runnable surface to"""
 
     def test_permission_error_classifier_recognizes_accessibility(self):
         from voice_typer.server.permissions import permission_error_is_permission_denied
@@ -682,8 +536,7 @@ class TestFunctionalSmoke:
         assert MicrophonePermissionState.UNKNOWN.value == "unknown"
 
     def test_find_linux_install_script_returns_path_or_none(self):
-        """``_find_linux_install_script`` returns a ``Path`` (dev mode) or
-        ``None`` (installed package); never raises."""
+        """``_find_linux_install_script`` returns a ``Path`` (dev mode) or"""
         from voice_typer.server.permissions import _find_linux_install_script
 
         result = _find_linux_install_script()

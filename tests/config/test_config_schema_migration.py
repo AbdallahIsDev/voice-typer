@@ -4,10 +4,6 @@ import json
 
 from voice_typer.server.config import _CURRENT_SCHEMA_VERSION, Config, _default_hotkey_for_platform
 
-# the default hotkey is now platform-aware
-# (Fn on macOS, Caps Lock on Windows/Linux, F2 on unknown platforms).
-# Tests that assert the default hotkey use this helper instead of
-# hard-coding "<f2>".
 EXPECTED_DEFAULT_HOTKEY = _default_hotkey_for_platform()
 
 
@@ -39,17 +35,7 @@ class TestConfigSchemaVersion:
 
 
 class TestCfg8DeprecatedFieldsRemoved:
-    """the deprecated noise-filter and volume-duck fields
-    were still in ``IPC_CONFIG_ALLOWLIST``, letting a malicious IPC
-    client mutate dead Config fields.  The renderer's Settings UI
-    never sends them via ``set_config`` (they were superseded by the
-    new ADR 0007 §5.1 filter-chain fields), so removing them from the
-    allowlist is safe, they're silently dropped, just like any other
-    unknown key.
-
-    The Config dataclass still carries the deprecated fields for
-    backward-compat with old config.json files on disk.
-    """
+    """the deprecated noise-filter and volume-duck fields"""
 
     DEPRECATED_REMOVED = [
         "noise_filter_enabled",
@@ -58,19 +44,10 @@ class TestCfg8DeprecatedFieldsRemoved:
         "noise_filter_post_capture",
         "volume_duck_per_session",
         "volume_duck_smart",
-        # also removed from IPC_CONFIG_ALLOWLIST, these were
-        # declared, validated, and persisted but never read at runtime
-        # (ADR 0007 §4.3 / §5.2). The Config dataclass fields themselves
-        # were also removed; existing config.json values are silently
-        # scrubbed by the v3 schema migration.
         "silence_rms_threshold",
         "silence_peak_threshold",
         "normalize_audio",
         "normalize_target_peak",
-        # fully removed from the Config dataclass AND the IPC allowlist
-        # (2026-08-24). PTT uses the main ``hotkey`` field. Existing
-        # config.json values are silently scrubbed by the v5 schema
-        # migration.
         "push_to_talk_hotkey",
     ]
 
@@ -103,8 +80,7 @@ class TestCfg8DeprecatedFieldsRemoved:
             )
 
     def test_non_deprecated_fields_still_present(self):
-        """Sanity: the non-deprecated filter/duck fields ARE still in
-        the allowlist (the fix doesn't over-prune)."""
+        """Sanity: the non-deprecated filter/duck fields ARE still in"""
         from voice_typer.server.config import IPC_CONFIG_ALLOWLIST
 
         for field in self.NON_DEPRECATED_KEPT:
@@ -113,10 +89,10 @@ class TestCfg8DeprecatedFieldsRemoved:
             )
 
     def test_deprecated_fields_silently_dropped_by_validate_config_update(self):
-        """Setting a deprecated field via ``set_config`` is silently
-        dropped (no error, no apply), same contract as any other
-        unknown key.  This preserves the existing
-        ``test_ignores_unknown_fields_without_crashing`` contract."""
+        """
+        Setting a deprecated field via ``set_config`` is silently
+        ``test_ignores_unknown_fields_without_crashing`` contract.
+        """
         from voice_typer.server.config import validate_config_update
 
         payload = {field: True for field in self.DEPRECATED_REMOVED}
@@ -130,8 +106,7 @@ class TestCfg8DeprecatedFieldsRemoved:
             assert field not in validated
 
     def test_deprecated_and_valid_fields_in_same_payload(self):
-        """A payload with both deprecated and valid fields: valid fields
-        are applied, deprecated fields are silently dropped, no errors."""
+        """A payload with both deprecated and valid fields: valid fields"""
         from voice_typer.server.config import validate_config_update
 
         validated, errors = validate_config_update(
@@ -151,20 +126,14 @@ class TestCfg8DeprecatedFieldsRemoved:
         }
 
 
-# ──────────────────────────────────────────────────────────────────────────
-# deprecated fields silently scrubbed on load (backward compat)
-# ──────────────────────────────────────────────────────────────────────────
-
-
 class TestValidatorAndMigrationTypes:
-    """the validator entry points and migration
-    functions are now typed with parameterised generics instead of bare
+    """
+    the validator entry points and migration
     ``dict``/``list``. These tests pin the new type contracts.
     """
 
     def test_validate_config_update_returns_tuple_of_correct_types(self):
-        """``validate_config_update`` must return a 2-tuple whose first
-        element is a ``dict`` and whose second is a ``list`` of ``str``."""
+        """``validate_config_update`` must return a 2-tuple whose first"""
         from voice_typer.server.config import validate_config_update
 
         validated, errors = validate_config_update({"hotkey": "<f4>"})
@@ -183,8 +152,7 @@ class TestValidatorAndMigrationTypes:
             assert isinstance(e, str)
 
     def test_ipc_config_allowlist_is_dict_of_fieldspec(self):
-        """``IPC_CONFIG_ALLOWLIST`` is now typed as
-        ``dict[str, FieldSpec]`` (parameterised), not a bare ``dict``."""
+        """``IPC_CONFIG_ALLOWLIST`` is now typed as"""
         import typing
 
         import voice_typer.server.config_validators as cv
@@ -207,16 +175,8 @@ class TestValidatorAndMigrationTypes:
         assert "silence_rms_threshold" not in result
 
 
-# ──────────────────────────────────────────────────────────────────────────
-# v5 migration: prune the dead ``push_to_talk_hotkey`` field
-# ──────────────────────────────────────────────────────────────────────────
-
-
 class TestV5PushToTalkHotkeyPrune:
-    """The ``push_to_talk_hotkey`` field was fully removed from the
-    Config dataclass (PTT uses the main ``hotkey``). The v5 migration
-    prunes the key from existing config files so they load cleanly.
-    """
+    """Config dataclass (PTT uses the main ``hotkey``). The v5 migration"""
 
     def test_migrate_to_v5_prunes_push_to_talk_hotkey(self):
         from voice_typer.server.config_internals.migrations import _migrate_to_v5
@@ -234,8 +194,7 @@ class TestV5PushToTalkHotkeyPrune:
         assert result["_load_warnings"] == []
 
     def test_load_prunes_push_to_talk_hotkey_from_v4_config(self, tmp_path, tmp_config_dir):
-        """A v4 config file carrying ``push_to_talk_hotkey`` loads cleanly
-        at the current schema version with the key pruned."""
+        """A v4 config file carrying ``push_to_talk_hotkey`` loads cleanly"""
         config_file = tmp_path / "config.json"
         config_file.write_text(
             json.dumps(

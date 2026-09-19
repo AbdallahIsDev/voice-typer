@@ -1,16 +1,4 @@
-"""XV-123: tests for the cached pyobjc availability flag in permissions.py.
-
-The previous code re-attempted ``from AVFoundation import ...`` /
-``from ApplicationServices import ...`` / ``from CoreFoundation import
-...`` on EVERY call to ``_check_macos_microphone`` /
-``_check_macos_accessibility``. When pyobjc was missing (e.g. on Linux
-or CI), every call paid the full import-lookup cost. XV-123 caches the
-availability at module level so subsequent calls are O(1).
-
-These tests are platform-agnostic: they monkeypatch
-``_is_pyobjc_available`` to simulate the "pyobjc missing" /
-"pyobjc available" branches without actually requiring macOS frameworks.
-"""
+"""XV-123: tests for the cached pyobjc availability flag in permissions.py."""
 
 from __future__ import annotations
 
@@ -30,8 +18,7 @@ from voice_typer.server.permissions import (
 
 @pytest.fixture(autouse=True)
 def _reset_pyobjc_cache_between_tests():
-    """Each test starts with a clean cache so the cache state from a
-    previous test doesn't leak in."""
+    """Each test starts with a clean cache so the cache state from a"""
     reset_pyobjc_cache()
     yield
     reset_pyobjc_cache()
@@ -51,8 +38,7 @@ class TestPyobjcCacheBasics:
         assert result == permissions._PYOBJC_AVAILABLE
 
     def test_subsequent_probes_return_cached_value(self):
-        """Calling ``_is_pyobjc_available`` twice returns the same value
-        without re-probing."""
+        """Calling ``_is_pyobjc_available`` twice returns the same value"""
         first = _is_pyobjc_available()
         second = _is_pyobjc_available()
         assert first == second
@@ -66,12 +52,7 @@ class TestPyobjcCacheBasics:
         assert permissions._PYOBJC_AVAILABLE is None
 
     def test_cached_probes_do_not_re_import(self):
-        """Once cached, subsequent probes don't re-attempt the import.
-
-        Verified by patching ``builtins.__import__`` to count
-        ApplicationServices import attempts, only the FIRST probe should
-        trigger the import.
-        """
+        """Once cached, subsequent probes don't re-attempt the import."""
         original_import = __import__
         call_count = {"n": 0}
 
@@ -94,12 +75,10 @@ class TestPyobjcCacheMissingPath:
     """When pyobjc is missing, the macOS probes short-circuit to UNKNOWN."""
 
     def test_microphone_returns_unknown_when_pyobjc_missing(self):
-        """``_check_macos_microphone`` returns UNKNOWN without attempting
-        the AVFoundation import when the cache says pyobjc is missing."""
+        """``_check_macos_microphone`` returns UNKNOWN without attempting"""
         # Force the cache to "missing".
         with patch.object(permissions, "_PYOBJC_AVAILABLE", False):
             # Even if AVFoundation were importable, we shouldn't attempt
-            # the import. Patch the builtins to fail loudly if it does.
             original_import = __import__
 
             def fail_avfoundation(name, *args, **kwargs):
@@ -112,9 +91,7 @@ class TestPyobjcCacheMissingPath:
             assert result == MicrophonePermissionState.UNKNOWN
 
     def test_accessibility_returns_unknown_when_pyobjc_missing(self):
-        """``_check_macos_accessibility`` returns UNKNOWN without attempting
-        the ApplicationServices / CoreFoundation imports when the cache
-        says pyobjc is missing."""
+        """``_check_macos_accessibility`` returns UNKNOWN without attempting"""
         with patch.object(permissions, "_PYOBJC_AVAILABLE", False):
             original_import = __import__
 
@@ -129,19 +106,14 @@ class TestPyobjcCacheMissingPath:
 
 
 class TestPyobjcCacheAvailablePath:
-    """When pyobjc is available, the macOS probes attempt the imports
-    (and the per-probe ImportError falls back to UNKNOWN + cache update)."""
+    """When pyobjc is available, the macOS probes attempt the imports"""
 
     def test_microphone_attempts_avfoundation_when_cached_available(self):
-        """``_check_macos_microphone`` attempts the AVFoundation import
-        when the cache says pyobjc is available. If AVFoundation itself
-        is missing (partial pyobjc install), the cache is updated to
-        ``False`` so future probes short-circuit."""
+        """``_check_macos_microphone`` attempts the AVFoundation import"""
         with patch.object(permissions, "_PYOBJC_AVAILABLE", True):
             # Simulate AVFoundation missing despite cache saying available.
             with patch("builtins.__import__", side_effect=__import__):
                 # Actually: we need to make the AVFoundation import fail.
-                # Use a direct module patch.
                 import sys
 
                 original = sys.modules.get("AVFoundation")
@@ -154,15 +126,10 @@ class TestPyobjcCacheAvailablePath:
                     else:
                         sys.modules["AVFoundation"] = original
             assert result == MicrophonePermissionState.UNKNOWN
-            # invariant: cache is updated to False so future
-            # calls short-circuit.
             assert permissions._PYOBJC_AVAILABLE is False
 
     def test_accessibility_attempts_imports_when_cached_available(self):
-        """``_check_macos_accessibility`` attempts the ApplicationServices
-        and CoreFoundation imports when the cache says pyobjc is
-        available. If they're missing (partial install), the cache is
-        updated to ``False``."""
+        """``_check_macos_accessibility`` attempts the ApplicationServices"""
         with patch.object(permissions, "_PYOBJC_AVAILABLE", True):
             import sys
 
@@ -178,8 +145,7 @@ class TestPyobjcCacheAvailablePath:
             assert permissions._PYOBJC_AVAILABLE is False
 
     def test_accessibility_returns_granted_when_pyobjc_works(self):
-        """End-to-end: with pyobjc available and the macOS APIs mocked,
-        ``_check_macos_accessibility`` returns GRANTED."""
+        """End-to-end: with pyobjc available and the macOS APIs mocked,"""
         with patch.object(permissions, "_PYOBJC_AVAILABLE", True):
             # Mock the ApplicationServices and CoreFoundation modules.
             mock_appservices = MagicMock()
@@ -209,8 +175,7 @@ class TestPyobjcCacheAvailablePath:
             mock_appservices.AXIsProcessTrustedWithOptions.assert_called_once()
 
     def test_microphone_returns_granted_when_pyobjc_works(self):
-        """End-to-end: with pyobjc available and AVFoundation mocked,
-        ``_check_macos_microphone`` returns GRANTED."""
+        """End-to-end: with pyobjc available and AVFoundation mocked,"""
         with patch.object(permissions, "_PYOBJC_AVAILABLE", True):
             mock_avfoundation = MagicMock()
             mock_avfoundation.AVCaptureDevice.authorizationStatusForMediaType_.return_value = 2  # Authorized
@@ -235,9 +200,7 @@ class TestPyobjcCachePerformance:
     """XV-123: cached probes are dramatically faster than re-importing."""
 
     def test_cached_probes_are_o1(self):
-        """1000 cached probes should complete in well under 10ms (the
-        cost of a single import attempt when pyobjc is missing is
-        typically 0.1-1ms; 1000 such imports would be 100-1000ms)."""
+        """cost of a single import attempt when pyobjc is missing is"""
         import time
 
         # Prime the cache.
@@ -250,8 +213,6 @@ class TestPyobjcCachePerformance:
         elapsed_ms = (time.perf_counter() - t0) * 1000
 
         # 10ms is generous, typical cached probes are <0.1ms total
-        # for 1000 calls. The point is to verify the cache is consulted
-        # (not that we're at any particular speed).
         assert elapsed_ms < 10.0, f"1000 cached probes took {elapsed_ms:.2f}ms, cache not consulted?"
 
 

@@ -1,9 +1,6 @@
-"""Regression test for CR-43: test_llm_connection must require llm_polish_consent.
-
+"""
+Regression test for CR-43: test_llm_connection must require llm_polish_consent.
 Also covers VT-SEC-8-3: exception messages returned from service.py
-methods must be passed through ``redact_secret(redact_url(...))`` so
-that secrets (API keys, Bearer tokens, URL userinfo) are scrubbed
-before they reach the IPC layer (and therefore the renderer / logs).
 """
 
 from unittest.mock import MagicMock, patch
@@ -49,18 +46,7 @@ class TestServiceErrorRedaction:
     """VT-SEC-8-3: service.py error returns must use redact_secret(redact_url(str(exc)))."""
 
     def test_test_llm_connection_exception_is_redacted(self):
-        """Exception messages in test_llm_connection must be redacted.
-
-        The exception payload contains a URL with embedded userinfo
-        (``user:pass@``). ``redact_url`` must strip the credentials
-        before the message is returned to the caller.
-
-        Note: ``redact_url`` relies on ``urlparse`` to detect the URL,
-        so the exception message must be a parseable URL (no leading
-        prose) for the userinfo-stripping to fire.  We use a bare URL
-        here so the test meaningfully verifies that ``redact_url`` is
-        being applied to exception strings.
-        """
+        """Exception messages in test_llm_connection must be redacted."""
         mock_app = MagicMock()
         mock_app.config.llm_polish_consent = True
         mock_app.config.llm_api_key = "sk-secret-key-12345"
@@ -86,9 +72,5 @@ class TestServiceErrorRedaction:
             service = VoiceTyperService(mock_app)
             result = service.test_llm_connection()
             assert result["success"] is False
-            # The Bearer token must be redacted, the literal key value
-            # must not survive into the returned message.
             assert "sk-secret-key-12345" not in result["message"]
-            # The "Bearer " prefix is preserved by redact_secret, but
-            # the secret value following it is replaced with "***".
             assert "Bearer ***" in result["message"]

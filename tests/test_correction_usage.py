@@ -1,15 +1,4 @@
-"""Tests for per-correction usage tracking (``correction_usage.py``).
-
-Covers:
-
-- ``CorrectionUsageTracker`` unit behaviour: record_corrections /
-  record_dictation counting, last-trigger timestamps, persistence +
-  reload, pruning (dead entries + old days).
-- Integration with ``VocabularyManager.apply_to_text``: phrase and
-  word-level corrections both report hits during real dictation, while
-  ``track_usage=False`` (the "Test corrections" preview path) records
-  nothing.
-"""
+"""Tests for per-correction usage tracking (``correction_usage.py``)."""
 
 from __future__ import annotations
 
@@ -47,7 +36,6 @@ class TestCorrectionUsageTracker:
         entry = snap["entries"]["misspellings"]["recieve"]
         assert entry["count"] == 3
         assert entry["last_ts"] == now + 100
-        # per-day total aggregates both calls.
         assert snap["corrections_by_day"][_day(now)] == 3
 
     def test_phrase_and_word_hits_are_distinct_keys(self, tracker: CorrectionUsageTracker):
@@ -77,7 +65,6 @@ class TestCorrectionUsageTracker:
         snap = t2.get_snapshot()
         assert snap["entries"]["misspellings"]["recieve"]["count"] == 4
         assert snap["dictations_by_day"][_day(now)] == 1
-        # schema version pinned on disk.
         assert snap["version"] == 1
 
     def test_prune_entries_drops_deleted_corrections(self, tmp_path: Path):
@@ -109,7 +96,6 @@ class TestCorrectionUsageTracker:
         t.record_corrections([("misspellings", "recieve", 1)], ts=1_700_000_000.0)  # 2023-11-14
         t.record_corrections([("misspellings", "recieve", 1)], ts=1_900_000_000.0)  # 2030-03-17
         # Force an old key older than KEEP_DAYS by writing one directly
-        # (the debounced flush prunes on the next flush).
         with t._lock:
             t._data["corrections_by_day"]["2000-01-01"] = 99
             t._data["dictations_by_day"]["2000-01-01"] = 99
@@ -136,48 +122,29 @@ class TestCorrectionUsageTracker:
 
 
 class TestDebouncedFlushSweeper:
-    """The debounced flush runs on the shared background sweeper
-    thread, NOT on the dictation path.
-
-    ``record_corrections`` / ``record_dictation`` are called between
-    "transcription done" and "text pasted"; a full json.dumps + atomic
-    write + .bak rotation there is a periodic latency spike right
-    before the paste. These tests pin the moved contract: recording
-    returns promptly even when the save is slow, the save still happens
-    (off-thread) once the debounce window elapses, and the forced
-    ``flush()`` on ``get_snapshot`` is preserved so IPC reads stay
-    consistent.
-    """
+    """The debounced flush runs on the shared background sweeper"""
 
     @pytest.fixture(autouse=True)
     def _quiesce_shared_sweeper(self):
-        """Stop the shared sweeper after each test.
-
-        The sweeper is process-wide; a slow-disk simulation (or a
-        shortened debounce window) must never leak into later tests.
-        """
+        """Stop the shared sweeper after each test."""
         yield
         with contextlib.suppress(Exception):
             correction_usage.stop_flush_sweeper()
 
     def test_record_dictation_does_not_block_on_slow_save(self, tracker, monkeypatch):
-        """E6 pin: the caller returns promptly while the usage-file
-        save is still in flight on the sweeper thread."""
+        """E6 pin: the caller returns promptly while the usage-file"""
         entered = threading.Event()
         release = threading.Event()
         real_save = tracker._store.save
 
         def slow_save(*args, **kwargs):
             entered.set()
-            # Simulate a slow disk: the save blocks until the test
             # releases it. The dictation caller must NOT wait for this.
             release.wait(timeout=10.0)
             return real_save(*args, **kwargs)
 
         monkeypatch.setattr(tracker._store, "save", slow_save)
         # Make the debounce window already elapsed, so the very next
-        # record is flush-due (the exact condition that used to trigger
-        # the inline flush).
         with tracker._lock:
             tracker._last_flush = 0.0
 
@@ -192,29 +159,22 @@ class TestDebouncedFlushSweeper:
                 "never on the dictation path"
             )
             # The save itself still runs (on the sweeper thread) without
-            # the caller having waited for it.
             assert entered.wait(timeout=5.0), "sweeper never attempted the save"
         finally:
             release.set()
 
     def test_sweeper_persists_after_debounce_window(self, tmp_path, monkeypatch):
-        """End-to-end: pending increments reach disk without any explicit
-        flush(), once the debounce window has elapsed."""
+        """End-to-end: pending increments reach disk without any explicit"""
         monkeypatch.setattr(correction_usage, "FLUSH_INTERVAL_S", 0.2)
         t = CorrectionUsageTracker(tmp_path)
 
         # First dictation: the very first flush is immediately due
-        # ("never flushed yet"), then get_snapshot re-flushes forcibly —
-        # the file now exists with count 1 and the debounce window is
-        # freshly reset.
         t.record_dictation()
         t.get_snapshot()
         path = tmp_path / CORRECTION_USAGE_FILENAME
         today = _day(time.time())
 
         # Second dictation lands INSIDE the debounce window: the file
-        # may not reflect it yet, but the sweeper must persist it once
-        # the window elapses, with no explicit flush() call.
         t.record_dictation()
         deadline = time.monotonic() + 5.0
         raw: dict = {}
@@ -229,8 +189,7 @@ class TestDebouncedFlushSweeper:
         )
 
     def test_flush_if_due_honors_debounce_window(self, tracker):
-        """White-box: inside the window → report remaining time and do
-        NOT write; after the window → flush."""
+        """White-box: inside the window → report remaining time and do"""
         now = time.time()
         with tracker._lock:
             tracker._dirty = True
@@ -247,9 +206,7 @@ class TestDebouncedFlushSweeper:
         assert tracker._dirty is False, "the due flush must have written the file"
 
     def test_snapshot_forced_flush_still_writes_file(self, tmp_path):
-        """get_snapshot keeps its forced flush: the IPC read path must
-        persist pending increments so the served snapshot and the file
-        agree."""
+        """get_snapshot keeps its forced flush: the IPC read path must"""
         t = CorrectionUsageTracker(tmp_path)
         t.record_corrections([("misspellings", "recieve", 1)])
         # No explicit flush(), only the snapshot read.
@@ -260,8 +217,7 @@ class TestDebouncedFlushSweeper:
         assert raw["version"] == 1  # schema untouched (persistence model unchanged)
 
     def test_shared_sweeper_is_a_single_thread(self, tracker):
-        """Recording from several trackers must not spawn one thread per
-        tracker, the sweeper is a process-wide singleton."""
+        """Recording from several trackers must not spawn one thread per"""
         before = threading.active_count()
         tracker.record_dictation()
         tracker.record_corrections([("misspellings", "recieve", 1)])
@@ -274,16 +230,13 @@ class TestDebouncedFlushSweeper:
         )
 
     def test_flush_write_outside_lock_does_not_block_recorders(self, tracker, monkeypatch):
-        """A dictation record landing DURING an in-flight (slow) flush
-        save must not wait for the save: flush snapshots the payload
-        under the instance lock and writes OUTSIDE it."""
+        """A dictation record landing DURING an in-flight (slow) flush"""
         entered = threading.Event()
         release = threading.Event()
         real_save = tracker._store.save
 
         def slow_save(*args, **kwargs):
             entered.set()
-            # Simulate a slow disk: the write blocks until the test
             # releases it. A recorder landing mid-save must NOT wait.
             release.wait(timeout=10.0)
             return real_save(*args, **kwargs)
@@ -301,9 +254,6 @@ class TestDebouncedFlushSweeper:
         worker.start()
         assert entered.wait(timeout=5.0), "flush never started the save"
 
-        # The write is in flight and the instance lock is RELEASED: a
-        # record landing right now must return promptly instead of
-        # stalling for the whole save duration.
         start = time.perf_counter()
         tracker.record_dictation()
         elapsed = time.perf_counter() - start
@@ -316,18 +266,14 @@ class TestDebouncedFlushSweeper:
         assert flush_done.wait(timeout=5.0), "flush never finished after release"
         worker.join(timeout=5.0)
 
-        # The mid-save record was only re-armed for the next flush, it
         # must NOT be lost: a follow-up flush persists it.
         snap = tracker.get_snapshot()
         assert snap["dictations_by_day"][_day(time.time())] == 2
         assert snap["version"] == 1  # schema untouched (C-PERSIST-2)
 
     def test_flush_failure_keeps_increments_pending(self, tracker, tmp_path, monkeypatch):
-        """A failed save must not raise out of flush() and must keep the
-        increments pending so the next flush retries them."""
+        """A failed save must not raise out of flush() and must keep the"""
         # Keep the sweeper out of this test, only the explicit flush
-        # calls below may attempt saves, so the failure/retry sequence
-        # is deterministic.
         monkeypatch.setattr(tracker, "_schedule_flush", lambda: None)
         attempts = {"n": 0}
         real_save = tracker._store.save
@@ -351,14 +297,8 @@ class TestDebouncedFlushSweeper:
         assert raw["dictations_by_day"][_day(time.time())] == 1
 
     def test_flush_ordering_newer_payload_lands_last(self, tracker, tmp_path, monkeypatch):
-        """Snapshot order must equal save order: the payload snapshot is
-        taken while the save lock is held, so a flusher queued behind an
-        in-flight save cannot snapshot until that save has landed, an
-        interleaved snapshot/save sequence can therefore never write an
-        OLDER payload over a NEWER one on disk."""
+        """Snapshot order must equal save order: the payload snapshot is"""
         # Keep the sweeper out of this test, only the explicit flush
-        # threads below may attempt saves, so the interleaving is
-        # deterministic.
         monkeypatch.setattr(tracker, "_schedule_flush", lambda: None)
 
         slow_save_in_flight = threading.Event()
@@ -369,7 +309,6 @@ class TestDebouncedFlushSweeper:
         def gate_save(payload, **kwargs):
             if not slow_save_in_flight.is_set():
                 # Save #1 (the first flusher): park mid-write while
-                # holding the save lock, like a slow disk would.
                 slow_save_in_flight.set()
                 saves.append(payload)
                 release_slow_save.wait(timeout=10.0)
@@ -380,8 +319,6 @@ class TestDebouncedFlushSweeper:
         monkeypatch.setattr(tracker._store, "save", gate_save)
 
         # Probe flush's snapshot step (prune runs under the instance
-        # lock right before the payload deepcopy) to observe WHEN each
-        # flusher snapshots.
         first_snapshot_done = threading.Event()
         second_snapshot_done = threading.Event()
         real_prune = tracker._prune_days
@@ -408,7 +345,6 @@ class TestDebouncedFlushSweeper:
         worker_a.start()
         assert slow_save_in_flight.wait(timeout=5.0), "flusher A never started its save"
         # Flusher A is parked mid-save while HOLDING the save lock; its
-        # snapshot already happened (prune fired before the save).
         assert first_snapshot_done.is_set(), "flusher A must snapshot before its save"
 
         # A NEWER increment lands while save #1 is in flight.
@@ -426,11 +362,6 @@ class TestDebouncedFlushSweeper:
         worker_b.start()
         assert flusher_b_started.wait(timeout=5.0), "flusher B never ran"
         # While save #1 is parked (save lock held), flusher B must NOT be
-        # able to reach its snapshot: with snapshot-then-write as two
-        # separate critical sections, B could snapshot here and complete
-        # its (newer) write while A's older snapshot was still queued —
-        # letting the older payload land last. The held save lock forbids
-        # exactly that.
         time.sleep(0.2)
         assert not second_snapshot_done.is_set(), (
             "a flusher queued behind an in-flight save snapshotted BEFORE that "
@@ -444,9 +375,6 @@ class TestDebouncedFlushSweeper:
         worker_b.join(timeout=5.0)
         assert second_snapshot_done.is_set(), "flusher B never snapshotted after the save landed"
 
-        # Two saves, in snapshot order: the OLDER payload first, the
-        # NEWER payload LAST (an older-payload-last order would leave
-        # the file stale even though the newer flush ran).
         assert len(saves) == 2, f"expected exactly 2 saves, got {len(saves)}"
         assert saves[0]["dictations_by_day"][today] == 1, "first save must carry the older payload"
         assert saves[-1]["dictations_by_day"][today] == 2, "the NEWER payload must land LAST on disk"
@@ -456,15 +384,7 @@ class TestDebouncedFlushSweeper:
 
 
 class TestSweeperStopRestartRace:
-    """The stop→restart race on the shared sweeper thread.
-
-    ``stop_flush_sweeper`` can time out its join while the sweeper is
-    still inside one slow save pass; a record landing between that stop
-    and the next restart used to restart the sweeper WITHOUT invalidating
-    the stale thread, leaving TWO permanent sweeper loops. The sweeper is
-    now bound to a generation counter: stop and restart both bump it, and
-    a stale thread exits at its next loop check instead of resurrecting.
-    """
+    """The stop→restart race on the shared sweeper thread."""
 
     @pytest.fixture(autouse=True)
     def _quiesce_shared_sweeper(self):
@@ -480,14 +400,11 @@ class TestSweeperStopRestartRace:
 
         def slow_save(*args, **kwargs):
             entered.set()
-            # Hold the save open so the stop's join times out while the
-            # stale thread is still mid-pass.
             release.wait(timeout=10.0)
             return real_save(*args, **kwargs)
 
         monkeypatch.setattr(tracker._store, "save", slow_save)
         # Make the first record flush-due immediately so the sweeper is
-        # inside the slow save when the stop lands.
         with tracker._lock:
             tracker._last_flush = 0.0
         tracker.record_dictation()
@@ -500,9 +417,6 @@ class TestSweeperStopRestartRace:
         # A record lands between the stop and the next restart…
         tracker.record_dictation()
         # …starting a replacement. Release the slow save so the stale
-        # thread can finish its in-flight pass; it must then EXIT (its
-        # generation is stale) instead of looping forever beside the
-        # replacement.
         release.set()
         deadline = time.monotonic() + 5.0
         sweepers: list[threading.Thread] = []
@@ -517,13 +431,11 @@ class TestSweeperStopRestartRace:
             f"got {len(sweepers)}, the stale thread survived a timed-out stop"
         )
         # The survivor must be the REGISTERED replacement (not the stale
-        # thread with the replacement somehow dead).
         replacement = correction_usage._sweeper_thread
         assert replacement is not None and replacement.is_alive()
         assert replacement is sweepers[0]
 
         # Nothing was lost across the race: the mid-race record is still
-        # persisted (forced flush on read).
         snap = tracker.get_snapshot()
         assert snap["dictations_by_day"][_day(time.time())] == 2
 
@@ -547,8 +459,6 @@ class TestApplyToTextTracking:
         snap = vm.usage_tracker.get_snapshot()
         assert snap["entries"]["misspellings"]["recieve"]["count"] == 1
         assert snap["entries"]["phrase_corrections"]["to 2"]["count"] == 1
-        # per-day total = 2 firings, dictation NOT counted here (that's
-        # the storage-step hook).
         assert snap["corrections_by_day"] != {}
 
     def test_multiple_firings_in_one_pass_count_each(self, tmp_path: Path, empty_bundled: Path):
@@ -580,10 +490,6 @@ class TestApplyToTextTracking:
         assert tracker.get_snapshot()["entries"]["misspellings"]["recieve"]["count"] == 1
 
     def test_corrupt_file_does_not_kill_recording(self, tmp_path: Path):
-        # A hand-edited / partially-written file with a non-dict bucket
-        # must not silently disable usage tracking for the session (the
-        # caller catches exceptions, so an AttributeError here would be
-        # invisible). The good bucket still records.
         (tmp_path / CORRECTION_USAGE_FILENAME).write_text(
             json.dumps(
                 {
@@ -601,23 +507,12 @@ class TestApplyToTextTracking:
         t.record_dictation()
         snap = t.get_snapshot()
         assert snap["entries"]["misspellings"] == "corrupt-string"
-        # corrections_by_day / dictations_by_day remain untouched (the
-        # corrupt buckets were skipped, not overwritten).
         assert snap["corrections_by_day"] == "corrupt-string"
         assert snap["dictations_by_day"] == "corrupt-string"
 
 
 class TestEndToEndAppToIpc:
-    """Real-workflow: dictation pass → app property → service snapshot.
-
-    Exercises the FULL wiring the unit tests deliberately bypass: the
-    app's ``correction_usage`` property must expose the LIVE
-    vocabulary manager's tracker (one shared writer), the storage-step
-    ``record_dictation`` hook must land in the same instance, and the
-    service's ``get_correction_usage`` must serve the merged snapshot
-    back out, i.e. exactly what the renderer's Vocabulary page and
-    Analytics card read.
-    """
+    """Real-workflow: dictation pass → app property → service snapshot."""
 
     def test_dictation_to_service_snapshot(self, tmp_path: Path, empty_bundled: Path):
         from types import SimpleNamespace
@@ -629,25 +524,20 @@ class TestEndToEndAppToIpc:
         vm.add_entry("misspellings", "recieve", "receive")
 
         # Build an app WITHOUT running ``VoiceTyperApp.__init__`` (it
-        # boots the whole backend); exercise the real ``correction_usage``
-        # property against the real ``_vocabulary_manager`` property.
         app = object.__new__(VoiceTyperApp)
         app._vocabulary_manager_backing = vm
         app.config = SimpleNamespace(config_dir=tmp_path)
 
         # The property must expose the LIVE manager's tracker, one
-        # shared writer for dictation hits + the IPC read path.
         assert app.correction_usage is vm.usage_tracker
 
         # Dictation path: corrections fire into the shared tracker…
         out = vm.apply_to_text("I recieve the file")
         assert out == "I receive the file"
         # …and the storage-step hook records the completed dictation
-        # through the SAME app property (as storage_step.py does).
         app.correction_usage.record_dictation()
 
         # Service path: the exact call the ``get_correction_usage`` IPC
-        # handler makes.
         svc = object.__new__(VocabularyMixin)
         svc._app = app
         snap = svc.get_correction_usage()

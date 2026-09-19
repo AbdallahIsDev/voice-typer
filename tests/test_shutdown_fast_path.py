@@ -1,23 +1,4 @@
-"""shutdown fast-path + abortable per-phase cleanup.
-
-These tests pin the ``_do_cleanup`` structure introduced by the
-fixes. The architecture has evolved since the original
-contract was written:
-
-  * ``_teardown_history_db`` and ``_teardown_crash_recovery`` run
-    SEQUENTIALLY (post-drain, BEFORE the parallel batch) via the
-    ``sequenced_items`` list.
-  * ``_teardown_asr_models`` is FIRST in the parallel batch.
-  * the WS pool drain has a 5s timeout; if it doesn't complete,
-    the cleanup path logs a WARNING and proceeds (does NOT call
-    ``os._exit``, the os._exit path is reserved for the Windows
-    logoff/shutdown fast path in ``_do_fast_cleanup``).
-  * the Windows logoff/shutdown fast path is implemented as a
-    SEPARATE method ``_do_fast_cleanup`` (NOT a ``_critical_only_mode``
-    flag on ``_do_cleanup``). The fast path runs critical flushes
-    (crash_recovery, history_db, recorder.stop, pid_file, mutex,
-    restore_volume) with 1s timeouts and ends with ``os._exit(0)``.
-"""
+"""shutdown fast-path + abortable per-phase cleanup."""
 
 from __future__ import annotations
 
@@ -25,15 +6,6 @@ import os
 import threading
 from unittest.mock import MagicMock
 
-# The pre-split ``shutdown_controller.py`` module is now a package,
-# and the orchestration bodies have since been extracted into the
-# sibling ``shutdown/`` package: the sequenced/parallel plan lists live
-# in the ``build_sequenced_plan`` / ``build_parallel_plan`` bodies in
-# ``shutdown/plan.py``; the ``_do_fast_cleanup`` body lives in
-# ``shutdown/cleanup.py`` and the ``_drain_ws_dispatch_pool`` body in
-# ``shutdown/ws_drain.py`` (the ``shutdown_controller/_plans.py`` and
-# ``shutdown_controller/_cleanup.py`` leaves hold thin delegates whose
-# signatures are pinned by the method-existence tests below).
 _PLANS_BODY_PATH = os.path.join(
     os.path.dirname(__file__),
     "..",
@@ -73,17 +45,11 @@ def _src(path: str) -> str:
         return f.read()
 
 
-# ── Static (source-inspection) contract tests ───────────────────────
-
-
 class TestSequentialHistoryAndCrashRecovery:
-    """``_teardown_history_db`` and ``_teardown_crash_recovery``
-    run SEQUENTIALLY (post-drain), NOT in the parallel batch."""
+    """``_teardown_history_db`` and ``_teardown_crash_recovery``"""
 
     def test_history_db_and_crash_recovery_not_in_parallel_batch(self) -> None:
-        """The parallel batch (``parallel_items`` list) must NOT contain
-        ``_teardown_history_db`` or ``_teardown_crash_recovery``, they
-        live in the ``sequenced_items`` list instead."""
+        """The parallel batch (``parallel_items`` list) must NOT contain"""
         s = _src(_PLANS_BODY_PATH)
         # Find the ``parallel_items`` list literal.
         parallel_idx = s.find("parallel_items")
@@ -102,8 +68,7 @@ class TestSequentialHistoryAndCrashRecovery:
     def test_history_db_and_crash_recovery_run_sequentially_before_parallel(
         self,
     ) -> None:
-        """Both helpers must be invoked via the ``sequenced_items`` list
-        BEFORE the ``parallel_items`` block."""
+        """Both helpers must be invoked via the ``sequenced_items`` list"""
         s = _src(_PLANS_BODY_PATH)
         # The sequenced_items list contains both helpers as tuples.
         seq_history = s.find('"teardown_history_db"', s.find("sequenced_items"))
@@ -111,7 +76,6 @@ class TestSequentialHistoryAndCrashRecovery:
         seq_crash = s.find('"teardown_crash_recovery"', s.find("sequenced_items"))
         assert seq_crash > -1, "_teardown_crash_recovery must be in the sequenced_items list"
         # The sequenced_items list must come BEFORE the parallel_items
-        # list in the source (the sequenced phase runs first).
         parallel_idx = s.find("parallel_items")
         assert parallel_idx > -1
         sequenced_idx = s.find("sequenced_items")
@@ -122,33 +86,16 @@ class TestSequentialHistoryAndCrashRecovery:
 
 
 class TestOsExitOnStuckWsDrain:
-    """the WS pool drain has a 5s timeout. The architecture
-    evolution moved the ``os._exit(0)`` call to the Windows
-    logoff/shutdown fast path (``_do_fast_cleanup``); the normal
-    ``_do_cleanup`` path logs a WARNING and proceeds (so a stuck WS
-    handler doesn't block the rest of teardown)."""
+    """the WS pool drain has a 5s timeout. The architecture"""
 
     def test_ws_drain_timeout_branch_exists(self) -> None:
-        """The ``if join_thread.is_alive():`` branch (the drain-timeout
-        detector) must exist in the WS-drain body and log a WARNING.
-
-        NOTE: the module docstring ALSO mentions the branch (as a
-        ``code``-formatted comment), so a plain ``s.find`` would anchor
-        on the docstring occurrence. We anchor inside the
-        ``drain_ws_dispatch_pool`` function body, the actual code —
-        instead. (The body was extracted from the
-        ``CleanupMixin._drain_ws_dispatch_pool`` method into
-        ``shutdown/ws_drain.py``; the bounds changed from a method's
-        ``\n    def `` to a module-level function's ``\ndef ``.)
-        """
+        """The ``if join_thread.is_alive():`` branch (the drain-timeout"""
         s = _src(_WS_DRAIN_BODY_PATH)
         method_idx = s.find("def drain_ws_dispatch_pool(controller, app) -> None:")
         assert method_idx > -1, "drain_ws_dispatch_pool function must exist"
         next_def = s.find("\ndef ", method_idx + 1)
         body = s[method_idx:next_def] if next_def > -1 else s[method_idx:]
         # The function docstring ALSO mentions the branch; use the LAST
-        # occurrence in the function body (the actual code) so the
-        # comment doesn't shadow it.
         drain_timeout_idx = body.rfind("if join_thread.is_alive():")
         assert drain_timeout_idx > -1, (
             "the ws-drain timeout branch (if join_thread.is_alive():) must exist in _drain_ws_dispatch_pool"
@@ -160,9 +107,7 @@ class TestOsExitOnStuckWsDrain:
         )
 
     def test_do_fast_cleanup_calls_os_exit(self) -> None:
-        """``_do_fast_cleanup`` (the Windows logoff/shutdown fast path)
-        must end with ``os._exit(0)`` so the Win32 console-control
-        callback does not return True to the OS without exiting."""
+        """``_do_fast_cleanup`` (the Windows logoff/shutdown fast path)"""
         s = _src(_FAST_CLEANUP_BODY_PATH)
         fast_path_idx = s.find("def do_fast_cleanup(controller) -> None:")
         assert fast_path_idx > -1, "do_fast_cleanup body must exist (the Windows logoff/shutdown fast path)"
@@ -175,29 +120,21 @@ class TestOsExitOnStuckWsDrain:
 
 
 class TestDoFastCleanup:
-    """the Windows logoff/shutdown fast path is implemented as a
-    separate ``_do_fast_cleanup`` method (NOT a ``_critical_only_mode``
-    flag on ``_do_cleanup``). The fast path runs critical flushes with
-    1s timeouts and ends with ``os._exit(0)``."""
+    """separate ``_do_fast_cleanup`` method (NOT a ``_critical_only_mode``"""
 
     def test_do_fast_cleanup_method_exists(self) -> None:
-        """``_do_fast_cleanup`` must be defined as a method on
-        ``ShutdownController``."""
+        """``_do_fast_cleanup`` must be defined as a method on"""
         s = _src(_CLEANUP_DELEGATE_PATH)
         assert "def _do_fast_cleanup(self) -> None:" in s, "_do_fast_cleanup method must be defined"
 
     def test_do_fast_cleanup_invokes_critical_flushes(self) -> None:
-        """``_do_fast_cleanup`` must invoke the critical flushes:
-        crash_recovery.flush, history_db.flush, recorder.stop,
-        _clear_backend_pid_file, mutex release, restore_volume."""
+        """``_do_fast_cleanup`` must invoke the critical flushes:"""
         s = _src(_FAST_CLEANUP_BODY_PATH)
         helper_idx = s.find("def do_fast_cleanup(controller) -> None:")
         assert helper_idx > -1
         # Slice to the next ``def `` (end of the function body).
         next_def = s.find("\ndef ", helper_idx + 1)
         body = s[helper_idx:next_def] if next_def > -1 else s[helper_idx:]
-        # Each critical flush is wrapped in try/except; we assert the
-        # call site exists.
         for expected in [
             "crash_recovery",
             "history_db",
@@ -207,9 +144,6 @@ class TestDoFastCleanup:
             "_restore_volume",
         ]:
             assert expected in body, f"_do_fast_cleanup must touch critical resource: {expected}"
-
-
-# ── Dynamic test: verify _do_cleanup runs all helpers in normal mode ──
 
 
 class _FakeApp:
@@ -225,14 +159,10 @@ class _FakeApp:
 
 
 class TestNormalModeRunsAllHelpers:
-    """Dynamic test: ``_do_cleanup`` (normal mode) runs every helper in
-    the sequenced phase + parallel batch + late bookend. There is no
-    ``_critical_only_mode`` flag, the Windows logoff/shutdown fast path
-    is a separate ``_do_fast_cleanup`` method (tested above)."""
+    """the sequenced phase + parallel batch + late bookend. There is no"""
 
     def test_normal_mode_runs_all_tier_helpers(self) -> None:
-        """``_do_cleanup`` must call ALL tier helpers (sequenced + parallel
-        + late bookend) in normal mode."""
+        """``_do_cleanup`` must call ALL tier helpers (sequenced + parallel"""
         from voice_typer.server.shutdown_controller import ShutdownController
 
         fake_app = _FakeApp()
@@ -283,5 +213,4 @@ class TestNormalModeRunsAllHelpers:
         ctrl._teardown_crash_recovery.assert_called_once()
         ctrl._teardown_history_db.assert_called_once()
 
-        # tray.stop MUST have been called (late bookend).
         fake_app.tray.stop.assert_called_once_with()

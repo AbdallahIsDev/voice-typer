@@ -1,19 +1,4 @@
-"""Share-stats image export parity pins (MO-121).
-
-predecessor served the Analytics/Dashboard share image through native
-main-process handlers (`main/ipc/stats-image-handlers.ts`); under Tauri
-only the reveal half existed (MO-120b), so Save-As degraded to a bare
-anchor download. These tests pin the Rust port's contract:
-
-- the command exists, is registered, and is main-window-gated;
-- the localized dialog title mirrors the predecessor main locale key
-  `dialog.export.statsImage` (the Rust parity test pins the byte
-  equality; this test pins that the KEY stays in all 8 locales);
-- the TS bridge installs `saveStatsImage` so the hook's anchor
-  fallback is no longer the Tauri path;
-- the host-side payload validation constants mirror the predecessor
-  handler's (25 MB cap, decoded-PNG signature).
-"""
+"""Share-stats image export parity pins (MO-121)."""
 
 from __future__ import annotations
 
@@ -39,7 +24,6 @@ def _read(path: Path) -> str:
 def test_save_stats_image_is_registered_and_gated() -> None:
     main_rs = _read(MAIN_RS)
     # The registration lives in the generate_handler! list; the import
-    # use-site is asserted separately below.
     assert re.search(r"^\s+save_stats_image,\s*$", main_rs, re.MULTILINE), (
         "save_stats_image must be registered in main.rs's generate_handler! list"
     )
@@ -70,8 +54,6 @@ def test_bridge_installs_save_stats_image() -> None:
         "anchor download (the MO-121 defect)"
     )
     # `copyStatsImage` must stay ABSENT as a bridge method (the web-API
-    # clipboard path owns image copies under Tauri). Strip comments
-    # first: the deliberate-omission note mentions the name.
     code = re.sub(r"//[^\n]*", "", ns)
     assert "copyStatsImage" not in code, (
         "copyStatsImage must stay absent (the web-API clipboard path owns "

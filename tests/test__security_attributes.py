@@ -1,45 +1,4 @@
-"""Real unit tests for ``voice_typer.server._security_attributes``.
-
-These tests exercise the Win32 DACL / SECURITY_ATTRIBUTES builder
-(``_create_restrictive_security_attributes``) on Linux by mocking
-``ctypes.windll`` (which only exists on Windows) and patching
-``is_windows`` to return True. The strategy mirrors
-``tests/clipboard/win32/test_win32_copy_paste.py``:
-
-1. Patch ``_security_attributes.is_windows`` → ``True`` so the
-   ``if not is_windows(): return None`` early-exit is skipped.
-2. Patch ``ctypes.windll`` (``create=True`` since it doesn't exist on
-   POSIX) with a ``MagicMock`` exposing ``advapi32`` and ``kernel32``.
-3. For functions that receive ``ctypes.byref(dword)`` output
-   parameters (``GetTokenInformation``), install ``side_effect``
-   callbacks that mutate ``byref_obj._obj.value`` to fake the kernel
-   writing into the buffer, same pattern as
-   ``_set_byref_value`` in the clipboard coverage tests.
-4. For the SID pointer read out of ``TOKEN_USER``, write a fake
-   non-zero pointer into the buffer at offset ``0`` (the location of
-   ``TOKEN_USER.User.Sid`` after the CR-001 struct-offset fix —
-   ``TOKEN_USER`` is just ``SID_AND_ATTRIBUTES`` whose first field is
-   ``Sid`` at offset 0) so the ``if not p_sid: return None`` check
-   passes.
-
-The SUT returns ``None`` on any failure (the caller then falls back to
-a default NULL ``lpMutexAttributes`` for ``CreateMutexW``, which uses
-the per-user default DACL, safe baseline). The success path returns a
-ctypes ``SECURITY_ATTRIBUTES`` structure.
-
-SetEntriesInAclW return-code semantics (post-CR-003)
-----------------------------------------------------
-``SetEntriesInAclW`` returns a ``DWORD`` Win32 error code (0 =
-``ERROR_SUCCESS`` = success). The SUT checks
-``if SetEntriesInAclW(...) != 0``, so a *successful* return (0)
-proceeds to call ``SetSecurityDescriptorDacl(sd, True, new_acl,
-False)`` (the success branch that uses ``new_acl``), and a *failed*
-return (non-zero) returns ``None`` *directly* (CR-003 removed the
-NULL-DACL fallback that pre-fix called ``SetSecurityDescriptorDacl``
-with ``dacl=None``, that fallback was a security bug because a NULL
-DACL grants EVERY token ``MUTEX_ALL_ACCESS``). See
-``TestSetEntriesInAclSemantics`` below for the pinned behaviour.
-"""
+"""Real unit tests for ``voice_typer.server._security_attributes``."""
 
 from __future__ import annotations
 
@@ -53,34 +12,14 @@ from voice_typer.server._security_attributes import (
     _create_restrictive_security_attributes,
 )
 
-# ── Helpers ────────────────────────────────────────────────────────────
-
 
 def _set_byref_value(byref_obj, value):
-    """Mutate the underlying ``c_ulong``/``c_void_p`` wrapped by ``ctypes.byref``.
-
-    ``ctypes.byref(obj)`` returns a ``CArgObject`` whose ``_obj``
-    attribute is the wrapped instance. We use this to fake the kernel
-    writing an output value into a ``wintypes.DWORD`` passed by-ref.
-    Same pattern as ``tests/clipboard/win32/test_win32_copy_paste.py``.
-    """
+    """Mutate the underlying ``c_ulong``/``c_void_p`` wrapped by ``ctypes.byref``."""
     byref_obj._obj.value = value
 
 
 def _write_sid_pointer_into_buf(buf, ptr_value=0xDEADBEEF):
-    """Write a non-zero pointer at offset ``0`` in ``buf``.
-
-    The SUT (post-CR-001) reads ``p_sid`` from ``TOKEN_USER.User.Sid``,
-    which is at offset 0 of the buffer (``TOKEN_USER`` is just
-    ``SID_AND_ATTRIBUTES`` whose first field ``Sid`` is a pointer at
-    offset 0 on x64). We write a fake non-zero pointer there so the
-    ``if not p_sid: return None`` check passes.
-
-    Pre-CR-001 the SUT read from ``addressof(buf) + sizeof(LPVOID)``
-    (= 8 on x64, the ``Attributes`` DWORD), and the corresponding
-    helper wrote at that offset. Both the SUT and the helper are now
-    aligned on offset 0.
-    """
+    """Write a non-zero pointer at offset ``0`` in ``buf``."""
     offset = 0
     fake_ptr = ctypes.c_void_p(ptr_value)
     ctypes.memmove(
@@ -91,12 +30,7 @@ def _write_sid_pointer_into_buf(buf, ptr_value=0xDEADBEEF):
 
 
 def _gti_success_side_effect(token, info_class, buf, buf_len, ret_len_ref):
-    """Side effect for ``GetTokenInformation`` that simulates success.
-
-    Sets ``ret_len`` to 64 on every call (so the SUT allocates a
-    non-empty buffer). On the second call (``buf is not None``) writes
-    a fake SID pointer into ``buf`` and returns 1 (BOOL success).
-    """
+    """Side effect for ``GetTokenInformation`` that simulates success."""
     _set_byref_value(ret_len_ref, 64)
     if buf is not None:
         _write_sid_pointer_into_buf(buf)
@@ -105,33 +39,16 @@ def _gti_success_side_effect(token, info_class, buf, buf_len, ret_len_ref):
 
 
 def _configure_full_success(advapi32):
-    """Configure ``advapi32`` mocks for the full success path.
-
-    Note: ``SetEntriesInAclW`` returns ``DWORD`` (0 = ``ERROR_SUCCESS``
-    = success). The SUT's ``if SetEntriesInAclW(...) != 0`` check means
-    a successful return (0) skips the early-return and proceeds to call
-    ``SetSecurityDescriptorDacl(sd, True, new_acl, False)`` (the success
-    branch). A failed return (non-zero) returns ``None`` *directly*
-    (CR-003 removed the NULL-DACL fallback: see the module docstring's
-    "SetEntriesInAclW return-code semantics" note).
-    """
+    """Configure ``advapi32`` mocks for the full success path."""
     advapi32.GetTokenInformation.side_effect = _gti_success_side_effect
     advapi32.InitializeSecurityDescriptor.return_value = 1  # BOOL success
     advapi32.SetEntriesInAclW.return_value = 0  # ERROR_SUCCESS
     advapi32.SetSecurityDescriptorDacl.return_value = 1  # BOOL success
 
 
-# ── Fixture ────────────────────────────────────────────────────────────
-
-
 @pytest.fixture
 def fake_windll():
-    """Mock ``ctypes.windll`` and ``is_windows`` so the Windows-only
-    code path runs on Linux.
-
-    Yields a dict with ``advapi32`` and ``kernel32`` MagicMock handles
-    that tests can configure per-case.
-    """
+    """Mock ``ctypes.windll`` and ``is_windows`` so the Windows-only"""
     mock_windll = MagicMock()
     mock_advapi32 = MagicMock()
     mock_kernel32 = MagicMock()
@@ -139,7 +56,6 @@ def fake_windll():
     mock_windll.kernel32 = mock_kernel32
 
     # Sane defaults, OpenProcessToken succeeds, GetCurrentProcess
-    # returns a pseudo-handle, CloseHandle succeeds.
     mock_kernel32.GetCurrentProcess.return_value = 0xFFFFFFFF
     mock_kernel32.CloseHandle.return_value = 1
     mock_advapi32.OpenProcessToken.return_value = 1  # BOOL success
@@ -155,37 +71,26 @@ def fake_windll():
         }
 
 
-# ── Tests: platform guard ──────────────────────────────────────────────
-
-
 class TestPlatformGuard:
     def test_returns_none_on_non_windows(self):
-        """On non-Windows, the function returns None immediately
-        without touching the Win32 APIs."""
+        """On non-Windows, the function returns None immediately"""
         with (
             patch.object(sa_mod, "is_windows", return_value=False),
             patch("ctypes.windll", MagicMock(), create=True) as mock_wd,
         ):
             assert _create_restrictive_security_attributes() is None
-            # windll was never accessed (early return before `import ctypes`)
             mock_wd.advapi32.assert_not_called()
-
-
-# ── Tests: error paths ─────────────────────────────────────────────────
 
 
 class TestErrorPaths:
     def test_open_process_token_failure_returns_none(self, fake_windll):
-        """When ``OpenProcessToken`` returns 0, the function returns
-        None and ``CloseHandle`` is NOT called (the token was never
-        opened; the ``return`` precedes the ``try`` block)."""
+        """When ``OpenProcessToken`` returns 0, the function returns"""
         fake_windll["advapi32"].OpenProcessToken.return_value = 0
         assert _create_restrictive_security_attributes() is None
         fake_windll["kernel32"].CloseHandle.assert_not_called()
 
     def test_get_token_information_second_call_failure_returns_none(self, fake_windll):
-        """When the second ``GetTokenInformation`` (data query) returns
-        0, the function returns None."""
+        """When the second ``GetTokenInformation`` (data query) returns"""
 
         def _fail_second(token, info_class, buf, buf_len, ret_len_ref):
             _set_byref_value(ret_len_ref, 64)
@@ -217,17 +122,14 @@ class TestErrorPaths:
         assert _create_restrictive_security_attributes() is None
 
     def test_set_entries_in_acl_success_dacl_failure_returns_none(self, fake_windll):
-        """``SetEntriesInAclW=0`` (success) → success branch; if
-        ``SetSecurityDescriptorDacl`` fails → None."""
+        """``SetEntriesInAclW=0`` (success) → success branch; if"""
         adv = fake_windll["advapi32"]
         _configure_full_success(adv)
         adv.SetSecurityDescriptorDacl.return_value = 0  # BOOL failure
         assert _create_restrictive_security_attributes() is None
 
     def test_set_entries_in_acl_failure_returns_none(self, fake_windll):
-        """``SetEntriesInAclW=non-zero`` (failure) → returns None directly
-        (CR-003: no NULL-DACL fallback; ``SetSecurityDescriptorDacl`` is
-        never called)."""
+        """``SetEntriesInAclW=non-zero`` (failure) → returns None directly"""
         adv = fake_windll["advapi32"]
         adv.GetTokenInformation.side_effect = _gti_success_side_effect
         adv.InitializeSecurityDescriptor.return_value = 1
@@ -235,24 +137,17 @@ class TestErrorPaths:
         adv.SetSecurityDescriptorDacl.return_value = 0  # would fail if reached
         assert _create_restrictive_security_attributes() is None
         # the SUT must NOT call SetSecurityDescriptorDacl on the
-        # SetEntriesInAclW failure path (no NULL-DACL fallback).
         adv.SetSecurityDescriptorDacl.assert_not_called()
 
     def test_exception_during_execution_returns_none(self, fake_windll):
-        """Any unexpected exception is caught by the outer ``except
-        Exception`` and converted to a None return (never propagated)."""
+        """Any unexpected exception is caught by the outer ``except"""
         fake_windll["advapi32"].GetTokenInformation.side_effect = RuntimeError("kaboom")
         assert _create_restrictive_security_attributes() is None
 
 
-# ── Tests: DACL construction ───────────────────────────────────────────
-
-
 class TestDaclConstruction:
     def test_explicit_access_grants_mutex_all_access(self, fake_windll):
-        """The ``EXPLICIT_ACCESS`` ACE grants ``0x1F0003``
-        (``MUTEX_ALL_ACCESS``), uses ``GRANT_ACCESS`` (0) and
-        ``NO_INHERITANCE`` (0)."""
+        """The ``EXPLICIT_ACCESS`` ACE grants ``0x1F0003``"""
         adv = fake_windll["advapi32"]
         _configure_full_success(adv)
         _create_restrictive_security_attributes()
@@ -264,11 +159,7 @@ class TestDaclConstruction:
         assert ea.grfInheritance == 0  # NO_INHERITANCE
 
     def test_win32_api_call_arguments(self, fake_windll):
-        """Verify the Win32 API calls receive the expected arguments:
-        ``OpenProcessToken(TOKEN_QUERY=0x0008)``,
-        ``InitializeSecurityDescriptor(revision=1)``,
-        ``SetEntriesInAclW(cEntries=1)``, and
-        ``SetSecurityDescriptorDacl(bDaclPresent=True)``."""
+        """Verify the Win32 API calls receive the expected arguments:"""
         adv = fake_windll["advapi32"]
         _configure_full_success(adv)
         _create_restrictive_security_attributes()
@@ -292,13 +183,9 @@ class TestDaclConstruction:
         assert sdd_args[3] is False  # bDaclDefaulted
 
 
-# ── Tests: SECURITY_ATTRIBUTES output ──────────────────────────────────
-
-
 class TestSecurityAttributesOutput:
     def test_success_returns_security_attributes(self, fake_windll):
-        """Full success path returns a ctypes Structure with the
-        expected SECURITY_ATTRIBUTES fields (not None)."""
+        """Full success path returns a ctypes Structure with the"""
         adv = fake_windll["advapi32"]
         _configure_full_success(adv)
         sa = _create_restrictive_security_attributes()
@@ -308,9 +195,7 @@ class TestSecurityAttributesOutput:
         assert hasattr(sa, "bInheritHandle")
 
     def test_security_attributes_field_values(self, fake_windll):
-        """``sa.nLength == sizeof(SECURITY_ATTRIBUTES)``,
-        ``bInheritHandle`` is falsy, ``lpSecurityDescriptor`` is
-        non-NULL, and ``_sd_ref``/``_acl_ref`` keep buffers alive."""
+        """``sa.nLength == sizeof(SECURITY_ATTRIBUTES)``,"""
         adv = fake_windll["advapi32"]
         _configure_full_success(adv)
         sa = _create_restrictive_security_attributes()
@@ -324,25 +209,20 @@ class TestSecurityAttributesOutput:
 
         assert sa.nLength == ctypes.sizeof(SECURITY_ATTRIBUTES)
         assert not sa.bInheritHandle  # False / 0
-        # lpSecurityDescriptor is a c_void_p value, non-zero means it
-        # points at the allocated SD buffer.
         assert int(sa.lpSecurityDescriptor or 0) != 0
         # Reference-keeping attributes (prevents GC while mutex holds SA)
         assert hasattr(sa, "_sd_ref")
         assert hasattr(sa, "_acl_ref")
 
     def test_close_handle_called_in_finally_on_success(self, fake_windll):
-        """On the success path, ``CloseHandle`` is called exactly once
-        in the ``finally`` block."""
+        """On the success path, ``CloseHandle`` is called exactly once"""
         adv = fake_windll["advapi32"]
         _configure_full_success(adv)
         _create_restrictive_security_attributes()
         fake_windll["kernel32"].CloseHandle.assert_called_once()
 
     def test_close_handle_called_in_finally_on_mid_path_failure(self, fake_windll):
-        """``CloseHandle`` is called even when a mid-path failure
-        occurs after the token was opened (the ``finally`` block always
-        runs)."""
+        """``CloseHandle`` is called even when a mid-path failure"""
         adv = fake_windll["advapi32"]
         adv.GetTokenInformation.side_effect = _gti_success_side_effect
         adv.InitializeSecurityDescriptor.return_value = 0  # failure
@@ -354,23 +234,10 @@ class TestSecurityAttributesOutput:
 
 
 class TestSetEntriesInAclSemantics:
-    """Document the corrected-check behaviour around ``SetEntriesInAclW``.
-
-    ``SetEntriesInAclW`` returns ``DWORD`` (0 = ``ERROR_SUCCESS`` =
-    success). The SUT checks ``if SetEntriesInAclW(...) != 0``, so a
-    *successful* return (0) skips the early-return and proceeds to call
-    ``SetSecurityDescriptorDacl(sd, True, new_acl, False)`` (the success
-    branch that uses ``new_acl``). A *failed* return (non-zero) returns
-    ``None`` *directly*, CR-003 removed the NULL-DACL fallback (which
-    was a security bug: a NULL DACL grants EVERY token
-    ``MUTEX_ALL_ACCESS``). The SUT therefore does NOT call
-    ``SetSecurityDescriptorDacl`` on the failure path.
-    """
+    """Document the corrected-check behaviour around ``SetEntriesInAclW``."""
 
     def test_failure_return_returns_none_without_dacl_call(self, fake_windll):
-        """``SetEntriesInAclW=non-zero`` (error) → returns ``None`` directly
-        (CR-003: no NULL-DACL fallback). ``SetSecurityDescriptorDacl`` is
-        NOT called."""
+        """``SetEntriesInAclW=non-zero`` (error) → returns ``None`` directly"""
         adv = fake_windll["advapi32"]
         adv.GetTokenInformation.side_effect = _gti_success_side_effect
         adv.InitializeSecurityDescriptor.return_value = 1
@@ -379,16 +246,12 @@ class TestSetEntriesInAclSemantics:
         result = _create_restrictive_security_attributes()
         assert result is None
         # the SUT must NOT call SetSecurityDescriptorDacl on the
-        # SetEntriesInAclW failure path (no NULL-DACL fallback).
         adv.SetSecurityDescriptorDacl.assert_not_called()
 
     def test_success_return_uses_new_acl(self, fake_windll):
-        """``SetEntriesInAclW=0`` (``ERROR_SUCCESS``) → success branch →
-        ``SetSecurityDescriptorDacl`` called with ``new_acl``
-        (non-None)."""
+        """``SetEntriesInAclW=0`` (``ERROR_SUCCESS``) → success branch →"""
         adv = fake_windll["advapi32"]
         _configure_full_success(adv)
         _create_restrictive_security_attributes()
         args = adv.SetSecurityDescriptorDacl.call_args[0]
-        # args = (sd, True, new_acl, False); success branch uses new_acl
         assert args[2] is not None

@@ -1,20 +1,4 @@
-"""Tests for ``_TCPLineIO.write_raw``: the direct-to-socket batched write.
-
-``write_raw`` complements the ``write`` + ``flush`` buffer-then-send
-pattern with a single-call API for callers that have ALREADY
-concatenated a batch of lines into one string. It issues exactly one
-``sendall`` syscall (the common case, buffer empty) so a caller
-building a 100-entry drain batch as a single string gets one kernel
-transition instead of 100 ``write`` appends + 1 ``flush``.
-
-These tests pin the three behavioural contracts:
-
-1. **Empty buffer → single sendall**, the documented fast path.
-2. **Non-empty buffer → flush-then-send**, preserves publish order
-   when a caller mixes ``write`` and ``write_raw`` in the same cycle.
-3. **sendall failure propagates**, the raw text is NOT buffered for
-   retry (callers must treat the connection as dead).
-"""
+"""Tests for ``_TCPLineIO.write_raw``: the direct-to-socket batched write."""
 
 from __future__ import annotations
 
@@ -34,8 +18,7 @@ def _make_io():
 
 
 class TestWriteRawEmptyBuffer:
-    """``write_raw`` with an empty buffer must issue exactly one
-    ``sendall`` with the encoded text."""
+    """``write_raw`` with an empty buffer must issue exactly one"""
 
     def test_single_sendall_for_batch_string(self):
         io_obj = _make_io()
@@ -45,9 +28,6 @@ class TestWriteRawEmptyBuffer:
 
     def test_empty_string_is_still_one_sendall(self):
         # An empty string is a degenerate case but the contract is
-        # "exactly one sendall", we do NOT short-circuit because the
-        # caller explicitly asked for a raw write (contrast with
-        # ``flush`` which no-ops on an empty buffer).
         io_obj = _make_io()
         io_obj.write_raw("")
         assert io_obj.conn.sendall.call_count == 1
@@ -66,8 +46,7 @@ class TestWriteRawEmptyBuffer:
 
 
 class TestWriteRawNonEmptyBuffer:
-    """When the buffer is non-empty, ``write_raw`` must flush it FIRST
-    (preserving publish order) then send the raw text."""
+    """When the buffer is non-empty, ``write_raw`` must flush it FIRST"""
 
     def test_flushes_buffer_before_raw_send(self):
         io_obj = _make_io()
@@ -88,8 +67,7 @@ class TestWriteRawNonEmptyBuffer:
 
 
 class TestWriteRawFailure:
-    """``write_raw`` must propagate ``sendall`` failures without
-    buffering the raw text for retry."""
+    """``write_raw`` must propagate ``sendall`` failures without"""
 
     def test_sendall_failure_propagates(self):
         io_obj = _make_io()

@@ -1,29 +1,4 @@
-"""§8.3: Atomic swap (Windows + POSIX variants).
-
-Spec (§8.3):
-
-  On Windows, the worker exe must be stopped BEFORE the swap. The swap
-  is: download to ``pack-<new-version>/`` → verify → stop worker →
-  rename ``pack-<old>`` → ``pack-<old>.trash`` → rename ``pack-<new>``
-  → ``pack-<current>`` → start worker → delete ``pack-<old>.trash``.
-
-  On POSIX, the rename-over is atomic and the worker can keep running
-  (the old inode stays alive until the process exits).
-
-Tested behaviors (POSIX runs natively; Windows paths are simulated via
-``platform.system()`` monkeypatching):
-
-  1. POSIX: ``os.replace(new, current)`` is atomic, current is replaced.
-  2. Windows: stop_worker is called before the swap, start_worker after.
-  3. Windows: on swap failure (rename raises), the trash is restored
-     (rollback) and start_worker is still called.
-  4. Windows: trash directory is deleted after the swap.
-  5. Windows: pre-existing trash is removed before the swap.
-  6. POSIX: on second-rename failure (new → current, after current →
-     trash succeeded), the previous pack is restored from the trash —
-     the mirror of the Windows rollback; the installed pack is never
-     left missing.
-"""
+"""§8.3: Atomic swap (Windows + POSIX variants)."""
 
 from __future__ import annotations
 
@@ -49,16 +24,11 @@ class TestPosixAtomicSwap:
         (cur_dir / "worker").write_bytes(b"old-worker")
         trash = offline_pack.atomic_swap_offline_pack(new_dir, cur_dir)
         # POSIX returns the trash path too (best-effort cleanup
-        # attempted; if the worker is still running on it, the rmtree
-        # silently fails and the trash remains, but for this test
-        # there's no worker so the trash is gone).
         assert trash is not None
         assert str(trash).endswith("current.trash")
         # The new content is now at cur_dir.
         assert (cur_dir / "worker").read_bytes() == b"new-worker"
-        # new_dir is gone (renamed).
         assert not new_dir.exists()
-        # Trash was deleted (no worker holding it open).
         assert not Path(trash).exists()
 
     def test_posix_does_not_call_stop_or_start(self, tmp_path: Path, monkeypatch):
@@ -74,18 +44,7 @@ class TestPosixAtomicSwap:
         start.assert_not_called()
 
     def test_posix_second_rename_failure_restores_previous_pack(self, tmp_path: Path, monkeypatch):
-        """POSIX rollback: when the SECOND rename (new → current) fails
-        after current → trash succeeded, the previous pack is restored
-        from the trash, the mirror of the Windows rollback (without it,
-        the installed pack is left MISSING until the next install).
-
-        The first ``os.replace`` whose destination is ``cur_dir`` is the
-        second rename (the first rename's destination is the trash); the
-        SECOND one whose destination is ``cur_dir`` is the rollback's
-        restore, the fake fails only the first, letting the restore
-        through. The assertions hold on Windows too (that branch rolls
-        back identically).
-        """
+        """POSIX rollback: when the SECOND rename (new → current) fails"""
         monkeypatch.setattr(platform, "system", lambda: "Linux")
         new_dir = tmp_path / "v2"
         cur_dir = tmp_path / "current"
@@ -131,12 +90,10 @@ class TestWindowsAtomicSwap:
         cur_dir.mkdir()
         (cur_dir / "worker.exe").write_bytes(b"old-worker")
         trash = offline_pack.atomic_swap_offline_pack(new_dir, cur_dir, stop_worker=stop, start_worker=start)
-        # stop called BEFORE start.
         stop.assert_called_once()
         start.assert_called_once()
         # New content at cur_dir.
         assert (cur_dir / "worker.exe").read_bytes() == b"new-worker"
-        # Trash was deleted.
         assert trash is not None
         assert not Path(trash).exists()
 
@@ -167,8 +124,6 @@ class TestWindowsAtomicSwap:
         cur_dir.mkdir()
         (cur_dir / "worker.exe").write_bytes(b"old")
         offline_pack.atomic_swap_offline_pack(new_dir, cur_dir)
-        # Stale trash was deleted (then re-created and deleted again
-        # in the normal swap flow).
         assert not trash_path.exists()
 
     def test_windows_rollback_on_new_to_current_failure(self, tmp_path: Path, monkeypatch):
@@ -183,8 +138,6 @@ class TestWindowsAtomicSwap:
         cur_dir.mkdir()
         (cur_dir / "worker.exe").write_bytes(b"old-content")
         # Make the second os.replace (new → current) fail by making
-        # ``new_dir`` non-existent right before the call. We patch
-        # ``os.replace`` to fail on the second call.
         original_replace = os.replace
         call_count = {"n": 0}
 
@@ -200,7 +153,6 @@ class TestWindowsAtomicSwap:
         # Worker was stopped, then started again on rollback.
         stop.assert_called_once()
         start.assert_called_once()
-        # The old content is restored at cur_dir.
         assert (cur_dir / "worker.exe").read_bytes() == b"old-content"
 
     def test_windows_starts_worker_on_first_rename_failure(self, tmp_path: Path, monkeypatch):

@@ -25,44 +25,21 @@ class TestApplyConfigReRegistersHotkeyForPushToTalk:
     """Hotkey is re-registered when recording_mode or hotkey changes."""
 
     def test_service_apply_config_side_effects_handles_recording_mode(self):
-        # (session-1) extracted apply_config_side_effects from
-        # service.py into config_applier.py. The recording_mode / hotkey
-        # re-registration logic now lives in config_applier.py.
         config_applier_py = (REPO_ROOT / "voice_typer" / "server" / "config_applier.py").read_text(encoding="utf-8")
         assert "recording_mode" in config_applier_py
         assert "app.hotkeys.restart" in config_applier_py
 
     def test_service_handles_hotkey_change(self):
-        # (session-1) extracted apply_config_side_effects from
-        # service.py into config_applier.py. The hotkey-in-updates check
-        # now lives in config_applier.py.
         config_applier_py = (REPO_ROOT / "voice_typer" / "server" / "config_applier.py").read_text(encoding="utf-8")
         assert '"hotkey" in updates' in config_applier_py
 
 
 class TestFallbackListenerChecksAllModifiersHeld:
-    """Fallback listener checks all modifiers are held before firing.
-
-    HOTKEYS-12: previously this test pinned the source text of
-    ``PynputHotkey._start_fallback`` via ``inspect.getsource``. That
-    made the test brittle, any cosmetic refactor (renaming a local
-    variable, adding a comment) would break it even if the behavior
-    was unchanged. The behavioral tests below verify the actual
-    contract: ``_parse_hotkey_to_pynput`` returns the modifier_keys
-    tuple that the fallback listener uses to gate the callback fire,
-    and the tuple contains ALL configured modifiers (not just one).
-    The on_press handler in ``_start_fallback`` then requires
-    ``len(held_modifiers) >= len(modifier_keys)`` before firing.
-    """
+    """Fallback listener checks all modifiers are held before firing."""
 
     @staticmethod
     def _make_fake_pynput():
-        """Build minimal pynput.keyboard.Key / KeyCode stand-ins.
-
-        ``_parse_hotkey_to_pynput`` only uses ``hasattr``/``getattr`` on
-        the ``key`` object and ``key_code.from_char`` / ``from_vk`` on
-        the ``key_code`` object, so simple namespace classes work.
-        """
+        """Build minimal pynput.keyboard.Key / KeyCode stand-ins."""
 
         class _FakeKey:
             def __init__(self, name):
@@ -94,9 +71,7 @@ class TestFallbackListenerChecksAllModifiersHeld:
         return _FakeKey, _FakeKeyCode
 
     def test_parse_returns_modifier_tuple_for_combo(self):
-        """For ``<ctrl>+1``, the parser returns ``(modifier_keys, target)``
-        where ``modifier_keys`` contains ctrl, the fallback listener
-        uses this tuple to require ALL modifiers held before firing."""
+        """For ``<ctrl>+1``, the parser returns ``(modifier_keys, target)``"""
         from voice_typer.server.hotkeys import _parse_hotkey_to_pynput
 
         Key, KeyCode = self._make_fake_pynput()  # noqa: N806
@@ -107,8 +82,7 @@ class TestFallbackListenerChecksAllModifiersHeld:
         assert match_key is not None
 
     def test_parse_returns_single_key_for_no_modifiers(self):
-        """For ``<f2>`` (no modifiers), the parser returns the bare
-        target key, the fallback listener doesn't gate on modifiers."""
+        """For ``<f2>`` (no modifiers), the parser returns the bare"""
         from voice_typer.server.hotkeys import _parse_hotkey_to_pynput
 
         Key, KeyCode = self._make_fake_pynput()  # noqa: N806
@@ -118,9 +92,7 @@ class TestFallbackListenerChecksAllModifiersHeld:
         assert not isinstance(result, tuple), f"expected bare key for single-key hotkey, got tuple {result}"
 
     def test_parse_returns_all_modifiers_for_multi_combo(self):
-        """For ``<ctrl>+<alt>+v``, the parser returns ALL modifiers
-        (ctrl AND alt), the fallback listener requires BOTH held
-        before firing the callback."""
+        """For ``<ctrl>+<alt>+v``, the parser returns ALL modifiers"""
         from voice_typer.server.hotkeys import _parse_hotkey_to_pynput
 
         Key, KeyCode = self._make_fake_pynput()  # noqa: N806
@@ -134,8 +106,7 @@ class TestFallbackListenerChecksAllModifiersHeld:
         )
 
     def test_parse_returns_no_modifiers_for_bare_modifier(self):
-        """For ``<alt>`` alone, the parser returns the bare modifier key
-        (single-modifier hotkey, no main key, no modifier tuple)."""
+        """For ``<alt>`` alone, the parser returns the bare modifier key"""
         from voice_typer.server.hotkeys import _parse_hotkey_to_pynput
 
         Key, KeyCode = self._make_fake_pynput()  # noqa: N806
@@ -225,40 +196,6 @@ class TestExtendedVKMap:
         assert "num_add" in _VK_MAP
 
 
-# ==============================================================================
-# Merged from tests/test_hotkeys_fixes.py —
-#   hotkey subsystem regression pins (Wayland per-role socket paths, factory/adapter role propagation,
-#   permission-grant legacy-stop ordering, LL-hook worker dispatch, modifier-only VK matching, polling-cadence
-#   docstring)
-# ==============================================================================
-# Regression tests for the hotkeys subsystem.
-#
-# Covers four findings:
-#
-# IN-24 (Critical): ``WaylandHotkey`` socket-path collision. When
-# ``HotkeyDispatcher`` creates three backends (dictation / ESC /
-# repaste) on a Wayland session, each backend used to bind the SAME
-# socket path (``$XDG_RUNTIME_DIR/voice-typer-hotkey.sock``). The
-# second ``start()`` would ``os.unlink`` the first backend's socket
-# and bind a new one, silently killing the first backend's IPC
-# listener. The fix: each backend gets a per-role suffix
-# (``voice-typer-hotkey-{role}.sock``).
-#
-# IN-27 (Medium): ``_NativeBackendAdapter._on_permission_granted`` did
-# not stop the legacy backend before restarting native, leaving both
-# backends running simultaneously (double-fire on the same keypress).
-# The fix: stop the legacy backend BEFORE restarting native.
-#
-# IN-25 / IN-26 (Windows code): statically analyzed on Linux, the
-# ``_hook_callback_queue`` worker thread and the modifier-VK matching
-# in ``_hook_proc`` are exercised via mock-based tests that don't
-# require Windows.
-#
-# These tests run on Linux (the orchestrator's acceptance platform).
-# Windows-specific code paths are mocked.
-#
-
-
 def _make_tmp_xdg(tmp_path: Path) -> str:
     """Return a tmp dir suitable for ``$XDG_RUNTIME_DIR``."""
     xdg = tmp_path / "xdg-runtime"
@@ -268,18 +205,7 @@ def _make_tmp_xdg(tmp_path: Path) -> str:
 
 @pytest.fixture
 def xdg_runtime(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> str:
-    """Set ``$XDG_RUNTIME_DIR`` to a per-test tmp dir.
-
-    ``$XDG_RUNTIME_DIR`` is the path prefix where the AF_UNIX socket
-    is bound.  Linux ``sun_path`` is capped at 108 bytes; the standard
-    pytest ``tmp_path`` fixture creates deeply-nested paths like
-    ``/tmp/pytest-of-USER/pytest-NN/test_xxx0/xdg-runtime/`` which
-    on its own consumes 80+ bytes.  The 30+ byte
-    ``voice-typer-hotkey-dictation.sock`` filename would push the
-    full path past the AF_UNIX limit.  We override the tmp root with
-    a short, dedicated ``/tmp/vt-xdg`` dir so the full path stays
-    well under the limit on all platforms.
-    """
+    """Set ``$XDG_RUNTIME_DIR`` to a per-test tmp dir."""
     import os as _os
 
     short_xdg = _os.path.join(_os.path.realpath(_os.sep), "tmp", "vt-xdg")
@@ -289,19 +215,10 @@ def xdg_runtime(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> str:
 
 
 class TestWaylandSocketPathPerInstance:
-    """IN-24: each ``WaylandHotkey`` instance gets its own socket path.
-
-    Without per-instance paths, the three backends created by
-    ``HotkeyDispatcher`` (dictation / ESC / repaste) would collide on
-    the same ``voice-typer-hotkey.sock``, the second ``start()``
-    unlinks the first backend's socket and the third unlinks the
-    second's, leaving only the last backend's socket alive.
-    """
+    """IN-24: each ``WaylandHotkey`` instance gets its own socket path."""
 
     def test_no_role_uses_historical_path(self, xdg_runtime: str) -> None:
-        """A backend constructed without ``role`` uses the historical
-        ``voice-typer-hotkey.sock`` path (backward compat with tests
-        and direct construction)."""
+        """A backend constructed without ``role`` uses the historical"""
         from voice_typer.server.hotkeys.wayland import WaylandHotkey
 
         backend = WaylandHotkey("<f8>")
@@ -310,8 +227,7 @@ class TestWaylandSocketPathPerInstance:
         assert "voice-typer-hotkey-" not in backend.SOCKET_PATH
 
     def test_dictation_role_uses_suffixed_path(self, xdg_runtime: str) -> None:
-        """A backend constructed with ``role="dictation"`` uses
-        ``voice-typer-hotkey-dictation.sock``."""
+        """A backend constructed with ``role=\"dictation\"`` uses"""
         from voice_typer.server.hotkeys.wayland import WaylandHotkey
 
         backend = WaylandHotkey("<f8>", role="dictation")
@@ -319,8 +235,7 @@ class TestWaylandSocketPathPerInstance:
         assert backend.SOCKET_PATH.endswith("voice-typer-hotkey-dictation.sock")
 
     def test_esc_role_uses_suffixed_path(self, xdg_runtime: str) -> None:
-        """A backend constructed with ``role="esc"`` uses
-        ``voice-typer-hotkey-esc.sock``."""
+        """A backend constructed with ``role=\"esc\"`` uses"""
         from voice_typer.server.hotkeys.wayland import WaylandHotkey
 
         backend = WaylandHotkey("<esc>", role="esc")
@@ -328,8 +243,7 @@ class TestWaylandSocketPathPerInstance:
         assert backend.SOCKET_PATH.endswith("voice-typer-hotkey-esc.sock")
 
     def test_repaste_role_uses_suffixed_path(self, xdg_runtime: str) -> None:
-        """A backend constructed with ``role="repaste"`` uses
-        ``voice-typer-hotkey-repaste.sock``."""
+        """A backend constructed with ``role=\"repaste\"`` uses"""
         from voice_typer.server.hotkeys.wayland import WaylandHotkey
 
         backend = WaylandHotkey("<f6>", role="repaste")
@@ -337,13 +251,7 @@ class TestWaylandSocketPathPerInstance:
         assert backend.SOCKET_PATH.endswith("voice-typer-hotkey-repaste.sock")
 
     def test_three_roles_produce_three_distinct_paths(self, xdg_runtime: str) -> None:
-        """The three roles used by ``HotkeyDispatcher`` produce three
-        DISTINCT socket paths, no collision.
-
-        This is the core IN-24 regression: before the fix, all three
-        backends shared the same path and the second ``start()``
-        unlinked the first's socket.
-        """
+        """The three roles used by ``HotkeyDispatcher`` produce three"""
         from voice_typer.server.hotkeys.wayland import WaylandHotkey
 
         paths = set()
@@ -354,9 +262,7 @@ class TestWaylandSocketPathPerInstance:
         assert len(paths) == 3, f"Expected 3 distinct socket paths for dictation/esc/repaste; got {len(paths)}: {paths}"
 
     def test_role_sanitized_to_filename_safe(self, xdg_runtime: str) -> None:
-        """Hostile / mistyped roles are sanitized to filename-safe
-        characters so they can't escape ``$XDG_RUNTIME_DIR`` or inject
-        path separators."""
+        """Hostile / mistyped roles are sanitized to filename-safe"""
         from voice_typer.server.hotkeys.wayland import WaylandHotkey
 
         # Path separators and special chars are replaced with '-'.
@@ -371,8 +277,7 @@ class TestWaylandSocketPathPerInstance:
         assert path.startswith(xdg_runtime + os.sep)
 
     def test_role_none_and_empty_produce_same_path(self, xdg_runtime: str) -> None:
-        """``role=None`` and ``role=""`` both produce the historical
-        ``voice-typer-hotkey.sock`` path (no suffix)."""
+        """``role=None`` and ``role=\"\"`` both produce the historical"""
         from voice_typer.server.hotkeys.wayland import WaylandHotkey
 
         none_backend = WaylandHotkey("<f8>", role=None)
@@ -386,15 +291,7 @@ class TestWaylandSocketPathPerInstance:
         reason="AF_UNIX sockets not available on Windows (POSIX/Linux-only test)",
     )
     def test_two_backends_with_different_roles_can_bind_simultaneously(self, xdg_runtime: str) -> None:
-        """End-to-end: two ``WaylandHotkey`` instances with different
-        roles can both ``start()`` and bind their sockets without one
-        unlinking the other's socket.
-
-        Before IN-24, the second ``start()`` would unlink the first
-        backend's socket (the ``Clean up stale socket`` step in
-        ``_start_socket_server``), killing the first backend's IPC
-        listener.
-        """
+        """End-to-end: two ``WaylandHotkey`` instances with different"""
         from voice_typer.server.hotkeys.wayland import WaylandHotkey
 
         dictation = WaylandHotkey("<f8>", role="dictation")
@@ -411,7 +308,6 @@ class TestWaylandSocketPathPerInstance:
             assert esc.is_alive(), "esc backend should be alive after start()"
 
             # Both sockets must exist on disk (the second start() did
-            # NOT unlink the first's socket).
             assert dictation.SOCKET_PATH is not None
             assert esc.SOCKET_PATH is not None
             assert dictation.SOCKET_PATH != esc.SOCKET_PATH, (
@@ -424,7 +320,6 @@ class TestWaylandSocketPathPerInstance:
             assert os.path.exists(esc.SOCKET_PATH), f"esc socket must exist; path={esc.SOCKET_PATH}"
 
             # Both backends must respond to pings (proving both accept
-            # loops are running, not just bound).
             for backend in (dictation, esc):
                 client = _socket.socket(_socket.AF_UNIX, _socket.SOCK_STREAM)
                 client.settimeout(2.0)
@@ -441,17 +336,13 @@ class TestWaylandSocketPathPerInstance:
 
 
 # --------------------------------------------------------------------------- #
-# IN-24: Factory threads role through to WaylandHotkey
-# --------------------------------------------------------------------------- #
 
 
 class TestFactoryRolePropagation:
-    """IN-24: ``create_hotkey_backend(hotkey_str, role=...)`` passes
-    ``role`` to ``WaylandHotkey`` on Wayland sessions."""
+    """IN-24: ``create_hotkey_backend(hotkey_str, role=...)`` passes"""
 
     def test_factory_passes_role_to_wayland(self, monkeypatch, tmp_path):
-        """On a Wayland session, ``create_hotkey_backend(hotkey, role='esc')``
-        constructs a ``WaylandHotkey`` with ``role='esc'``."""
+        """On a Wayland session, ``create_hotkey_backend(hotkey, role='esc')``"""
         from voice_typer.server.hotkeys import factory as factory_mod
 
         # Simulate Linux + Wayland.
@@ -486,8 +377,7 @@ class TestFactoryRolePropagation:
         backend.stop()
 
     def test_factory_default_role_none(self, monkeypatch, tmp_path):
-        """Without ``role``, the factory constructs a ``WaylandHotkey``
-        with ``role=None`` (historical path)."""
+        """Without ``role``, the factory constructs a ``WaylandHotkey``"""
         from voice_typer.server.hotkeys import factory as factory_mod
 
         monkeypatch.setattr(sys, "platform", "linux")
@@ -515,18 +405,13 @@ class TestFactoryRolePropagation:
 
 
 # --------------------------------------------------------------------------- #
-# IN-24: _NativeBackendAdapter threads role to legacy WaylandHotkey
-# --------------------------------------------------------------------------- #
 
 
 class TestAdapterRolePropagation:
-    """IN-24: ``_NativeBackendAdapter(role=...)`` passes ``role`` to a
-    legacy ``WaylandHotkey`` when the native backend fails and the
-    adapter swaps to legacy."""
+    """adapter swaps to legacy."""
 
     def test_adapter_stores_role(self):
-        """``_NativeBackendAdapter(native, role='esc')`` stores
-        ``self._role = 'esc'``."""
+        """``_NativeBackendAdapter(native, role='esc')`` stores"""
         from voice_typer.server.hotkeys import _NativeBackendAdapter
 
         native = MagicMock()
@@ -535,9 +420,7 @@ class TestAdapterRolePropagation:
         assert adapter._role == "esc"
 
     def test_adapter_default_role_none(self):
-        """``_NativeBackendAdapter(native)`` defaults to ``role=None``
-        (backward compat with existing tests that construct with one
-        arg)."""
+        """``_NativeBackendAdapter(native)`` defaults to ``role=None``"""
         from voice_typer.server.hotkeys import _NativeBackendAdapter
 
         native = MagicMock()
@@ -546,23 +429,18 @@ class TestAdapterRolePropagation:
         assert adapter._role is None
 
     def test_adapter_passes_role_to_wayland_legacy(self, monkeypatch, tmp_path):
-        """When the adapter swaps to a legacy ``WaylandHotkey`` on a
-        Wayland session, it passes ``self._role`` so the legacy
-        backend gets the correct socket path."""
+        """Wayland session, it passes ``self._role`` so the legacy"""
         from voice_typer.server.hotkeys import _NativeBackendAdapter, factory
 
         # Simulate Linux + Wayland.
         monkeypatch.setattr(sys, "platform", "linux")
         monkeypatch.setattr(factory, "is_linux", lambda: True)
         monkeypatch.setattr(factory, "is_windows", lambda: False)
-        # native_adapter imports is_linux from the package, not from factory.
-        # Patch the package-level binding.
         import voice_typer.server.hotkeys as hotkeys_pkg
 
         monkeypatch.setattr(hotkeys_pkg, "is_linux", lambda: True)
         monkeypatch.setattr(hotkeys_pkg, "is_windows", lambda: False)
 
-        # native_adapter has its own is_linux wrapper; patch the package.
         monkeypatch.setenv("WAYLAND_DISPLAY", "wayland-0")
         monkeypatch.setenv("XDG_SESSION_TYPE", "wayland")
         xdg = tmp_path / "xdg-runtime"
@@ -588,8 +466,6 @@ class TestAdapterRolePropagation:
         assert legacy.SOCKET_PATH.endswith("voice-typer-hotkey-esc.sock")
 
 
-# --------------------------------------------------------------------------- #
-# IN-27: _on_permission_granted stops legacy before restarting native
 # --------------------------------------------------------------------------- #
 
 
@@ -619,20 +495,10 @@ def _make_mock_legacy_backend(hotkey_str: str = "<f2>"):
 
 
 class TestPermissionGrantedStopsLegacy:
-    """IN-27: ``_on_permission_granted`` must stop the legacy backend
-    BEFORE restarting native.
-
-    Before the fix, the legacy backend was left running alongside the
-    native backend after a permission-grant recovery, both backends
-    would fire the same callback on the same keypress (double-toggle,
-    double-ESC-cancel, double-repaste) until the next ``_retry_native``
-    cycle (~5 minutes later) cleaned it up.
-    """
+    """IN-27: ``_on_permission_granted`` must stop the legacy backend"""
 
     def test_permission_granted_stops_legacy_before_native_restart(self, monkeypatch):
-        """When ``_on_permission_granted`` is called and the adapter
-        is in FALLBACK state (legacy running), the legacy backend must
-        be stopped BEFORE ``native.start()`` is called."""
+        """When ``_on_permission_granted`` is called and the adapter"""
         from voice_typer.server.hotkeys import _NativeBackendAdapter
 
         native = _make_mock_native_backend()
@@ -665,8 +531,6 @@ class TestPermissionGrantedStopsLegacy:
         legacy.stop.assert_called_once()
         # The native backend MUST have been (re)started.
         native.start.assert_called_once()
-        # The legacy stop must happen BEFORE the native start (so
-        # there's no window where both backends are alive).
         assert "legacy_stop" in call_order, f"legacy.stop not called; order={call_order}"
         assert "native_start" in call_order, f"native.start not called; order={call_order}"
         assert call_order.index("legacy_stop") < call_order.index("native_start"), (
@@ -674,8 +538,7 @@ class TestPermissionGrantedStopsLegacy:
         )
 
     def test_permission_granted_clears_legacy_ref(self, monkeypatch):
-        """After ``_on_permission_granted``, ``self._legacy`` must be
-        ``None`` (the legacy backend is no longer active)."""
+        """After ``_on_permission_granted``, ``self._legacy`` must be"""
         from voice_typer.server.hotkeys import _NativeBackendAdapter
 
         native = _make_mock_native_backend()
@@ -693,8 +556,7 @@ class TestPermissionGrantedStopsLegacy:
         )
 
     def test_permission_granted_no_legacy_does_not_raise(self, monkeypatch):
-        """If there's no legacy backend (adapter is already in NATIVE
-        state), ``_on_permission_granted`` must not raise."""
+        """If there's no legacy backend (adapter is already in NATIVE"""
         from voice_typer.server.hotkeys import _NativeBackendAdapter
 
         native = _make_mock_native_backend()
@@ -708,8 +570,7 @@ class TestPermissionGrantedStopsLegacy:
         native.start.assert_called_once()
 
     def test_permission_granted_legacy_stop_failure_does_not_block_restart(self, monkeypatch):
-        """If ``legacy.stop()`` raises, the native restart must still
-        proceed (best-effort cleanup)."""
+        """If ``legacy.stop()`` raises, the native restart must still"""
         from voice_typer.server.hotkeys import _NativeBackendAdapter
 
         native = _make_mock_native_backend()
@@ -729,23 +590,13 @@ class TestPermissionGrantedStopsLegacy:
 
 
 # --------------------------------------------------------------------------- #
-# IN-25: LL hook callback dispatched to worker thread (Windows, mocked)
-# --------------------------------------------------------------------------- #
 
 
 class TestLLHookCallbackWorker:
-    """IN-25: the LL hook proc dispatches callbacks to a dedicated
-    worker thread via a bounded queue, so the hook proc returns
-    within ~1ms (Windows marks hooks that take longer as unresponsive).
-
-    Windows-specific code is mocked on Linux, these tests verify the
-    queue/worker plumbing, not the actual Win32 hook installation.
-    """
+    """IN-25: the LL hook proc dispatches callbacks to a dedicated"""
 
     def test_hook_callback_queue_initialized_in_init(self):
-        """``__init__`` must initialize ``_hook_callback_queue`` and
-        ``_hook_callback_thread`` so attribute access before
-        ``start()`` doesn't raise."""
+        """``_hook_callback_thread`` so attribute access before"""
         from voice_typer.server.hotkeys.windows_native import WindowsNativeHotkey
 
         backend = WindowsNativeHotkey("<f2>")
@@ -756,8 +607,7 @@ class TestLLHookCallbackWorker:
         assert backend._hook_callback_queue.maxsize > 0
 
     def test_enqueue_hook_callback_runs_callback_in_worker(self):
-        """``_enqueue_hook_callback`` puts the callable on the queue;
-        the worker thread runs it asynchronously."""
+        """``_enqueue_hook_callback`` puts the callable on the queue;"""
         from voice_typer.server.hotkeys.windows_native import WindowsNativeHotkey
 
         backend = WindowsNativeHotkey("<f2>")
@@ -781,9 +631,7 @@ class TestLLHookCallbackWorker:
                 backend._hook_callback_thread.join(timeout=2.0)
 
     def test_enqueue_none_is_noop(self):
-        """``_enqueue_hook_callback(None)`` must not enqueue anything
-        (the None sentinel is used by ``stop()`` to shut down the
-        worker, it must not be treated as a callback)."""
+        """``_enqueue_hook_callback(None)`` must not enqueue anything"""
         from voice_typer.server.hotkeys.windows_native import WindowsNativeHotkey
 
         backend = WindowsNativeHotkey("<f2>")
@@ -793,8 +641,7 @@ class TestLLHookCallbackWorker:
         assert backend._hook_callback_queue.empty()
 
     def test_enqueue_drops_on_full_queue(self, caplog):
-        """When the queue is full, ``_enqueue_hook_callback`` drops the
-        callback and logs a WARNING (does not block the hook proc)."""
+        """When the queue is full, ``_enqueue_hook_callback`` drops the"""
         import logging
 
         from voice_typer.server.hotkeys.windows_native import WindowsNativeHotkey
@@ -812,18 +659,10 @@ class TestLLHookCallbackWorker:
 
 
 # --------------------------------------------------------------------------- #
-# IN-26: Modifier-only hotkeys use the LL hook (Windows, mocked)
-# --------------------------------------------------------------------------- #
 
 
 class TestModifierOnlyLLHook:
-    """IN-26: modifier-only hotkeys (e.g. ``<alt>``) use the LL hook
-    instead of being forced onto the 125Hz polling loop.
-
-    The fix drops the ``not self._is_modifier_only`` guard on
-    ``simple_key`` and extends ``_hook_proc`` to match modifier VKs
-    when ``backend._vk is None``.
-    """
+    """IN-26: modifier-only hotkeys (e.g. ``<alt>``) use the LL hook"""
 
     def test_compute_modifier_vks_alt(self):
         """``_compute_modifier_vks(_MOD_ALT)`` returns ``[VK_MENU]``."""
@@ -834,9 +673,7 @@ class TestModifierOnlyLLHook:
         assert _VK_MENU in vks
 
     def test_compute_modifier_vks_win_includes_both_lwin_and_rwin(self):
-        """``_compute_modifier_vks(_MOD_WIN)`` returns BOTH ``VK_LWIN``
-        and ``VK_RWIN`` (the Win key has no combined VK like
-        ``VK_MENU`` for Alt)."""
+        """``_compute_modifier_vks(_MOD_WIN)`` returns BOTH ``VK_LWIN``"""
         from voice_typer.server.hotkeys.win32_vk import _MOD_WIN, _VK_LWIN, _VK_RWIN
         from voice_typer.server.hotkeys.windows_native import WindowsNativeHotkey
 
@@ -845,20 +682,14 @@ class TestModifierOnlyLLHook:
         assert _VK_RWIN in vks
 
     def test_compute_modifier_vks_empty_for_no_modifiers(self):
-        """``_compute_modifier_vks(0)`` returns an empty list (no
-        modifiers configured)."""
+        """``_compute_modifier_vks(0)`` returns an empty list (no"""
         from voice_typer.server.hotkeys.windows_native import WindowsNativeHotkey
 
         vks = WindowsNativeHotkey._compute_modifier_vks(0)
         assert vks == []
 
     def test_modifier_vks_for_hook_populated_at_start_time(self):
-        """``self._modifier_vks_for_hook`` must be populated in
-        ``start()`` so the LL hook proc closure can read it.
-
-        This test uses mocking to avoid the Windows-only ``ctypes.windll``
-        calls, we verify the attribute is set, not that the hook is
-        actually installed."""
+        """``start()`` so the LL hook proc closure can read it."""
         import ctypes
 
         from voice_typer.server.hotkeys.win32_vk import _VK_MENU
@@ -899,15 +730,7 @@ class TestModifierOnlyLLHook:
         )
 
     def test_simple_key_guard_dropped_for_modifier_only(self):
-        """IN-26: the ``not self._is_modifier_only`` guard on
-        ``simple_key`` must be removed so modifier-only specs use the
-        LL hook path. Verified via source inspection.
-
-        Note: there's a SEPARATE ``not self._is_modifier_only`` guard
-        earlier in ``start()`` that raises ``ValueError`` when the
-        hotkey can't be parsed at all (no VK AND no modifiers), that
-        guard is correct and must stay. This test only checks the
-        ``simple_key`` assignment."""
+        """LL hook path. Verified via source inspection."""
         import inspect
 
         from voice_typer.server.hotkeys.windows_native import WindowsNativeHotkey
@@ -926,38 +749,17 @@ class TestModifierOnlyLLHook:
 
 
 # --------------------------------------------------------------------------- #
-# AB-52: factory.py docstring cadence claim
-# --------------------------------------------------------------------------- #
 
 
 class TestFactoryDocstringCadence:
-    """AB-52: ``hotkeys/factory.py``'s ``create_hotkey_backend`` docstring
-    used to claim ``GetAsyncKeyState`` polling runs at "1 kHz", but the
-    actual polling loop in ``WindowsNativeHotkey._run_polling_loop`` calls
-    ``kernel32.Sleep(8)`` with ``timeBeginPeriod(8)``, which yields an
-    ~8 ms cadence ≈ 125 Hz (NOT 1 kHz, the docstring was 8× off).
-
-    The mismatch was purely a stale docstring (the runtime code has been
-    correct at 125 Hz since PERF-01/CPU-01). AB-52 in review.md marked
-    the finding "Won't Fix" because the runtime is correct, but the
-    docstring still misleads reviewers/operators who read "1 kHz" and
-    assume sub-millisecond polling latency.
-
-    This test pins the corrected wording so a future contributor cannot
-    silently regress the docstring back to "1 kHz".
-    """
+    """AB-52: ``hotkeys/factory.py``'s ``create_hotkey_backend`` docstring"""
 
     def test_factory_docstring_does_not_claim_1khz(self):
-        """The ``create_hotkey_backend`` docstring must NOT claim the
-        Windows polling fallback runs at "1 kHz", that was the stale
-        claim AB-52 flagged. Any form of "1kHz" / "1 kHz" / "1000Hz" /
-        "1000 Hz" is a regression.
-        """
+        """Windows polling fallback runs at \"1 kHz\", that was the stale"""
         from voice_typer.server.hotkeys.factory import create_hotkey_backend
 
         doc = create_hotkey_backend.__doc__ or ""
         # Strip whitespace and lowercase so "1 kHz", "1kHz", "1KHz" all
-        # collapse to "1khz" for a single substring check.
         flat = doc.replace(" ", "").lower()
         assert "1khz" not in flat, (
             "AB-52 regression: factory.py create_hotkey_backend docstring "
@@ -972,12 +774,7 @@ class TestFactoryDocstringCadence:
         )
 
     def test_factory_docstring_documents_125hz_cadence(self):
-        """The ``create_hotkey_backend`` docstring MUST document the
-        actual ~125 Hz / 8 ms polling cadence so reviewers see the
-        real number (and the rationale for not polling faster). Any
-        of these forms satisfies the pin: ``125 Hz``, ``125Hz``,
-        ``8 ms``, ``8ms``, or ``Sleep(8)``.
-        """
+        """real number (and the rationale for not polling faster). Any"""
         from voice_typer.server.hotkeys.factory import create_hotkey_backend
 
         doc = create_hotkey_backend.__doc__ or ""

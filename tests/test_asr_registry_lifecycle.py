@@ -1,13 +1,4 @@
-"""ARCH-007/008: tests for AsrBackendRegistry.create() and the unified
-construction path.
-
-Verifies that:
-- AsrBackendRegistry.create() constructs and registers each backend type
-- The three previously-triplicated construction sites in app.py now all
-  delegate to the registry (one chokepoint)
-- The registry is initialized in __init__ (not lazily) so _start_dictation
-  can rely on it existing
-"""
+"""ARCH-007/008: tests for AsrBackendRegistry.create() and the unified"""
 
 import inspect
 from unittest.mock import MagicMock
@@ -117,23 +108,13 @@ class TestAppConstructionDelegatesToRegistry:
     """ARCH-007: All 3 construction sites in app.py delegate to registry.create()."""
 
     def test_no_direct_transcription_engine_construction_in_app(self):
-        """app.py source must NOT contain 'X = TranscriptionEngine(...)' assignments.
-
-        Previously the code had three sites like:
-            self.transcriber = TranscriptionEngine(model_size=..., device=..., ...)
-        All three now go through AsrBackendRegistry.create() instead.
-
-        We look for the assignment pattern ('= TranscriptionEngine(')
-        which only matches real constructor calls, not text mentions
-        in comments/docstrings.
-        """
+        """app.py source must NOT contain 'X = TranscriptionEngine(...)' assignments."""
         import re
 
         from voice_typer.server import app
 
         src = inspect.getsource(app)
         # Match lines like "self.transcriber = TranscriptionEngine(...)"
-        # but NOT comments (# ...) or docstring text mentioning the pattern.
         construction_pattern = re.compile(r"^[^#]*=\s*TranscriptionEngine\(", re.MULTILINE)
         matches = construction_pattern.findall(src)
         assert not matches, (
@@ -148,21 +129,13 @@ class TestAsrRegistryInitializedInAppInit:
     """ARCH-008: registry is initialized in __init__ (not lazily)."""
 
     def test_asr_registry_exists_after_init(self, tmp_config_dir, monkeypatch):
-        """VoiceTyperApp.__init__ must initialize ModelManager (and thus
-        the AsrBackendRegistry) before any engine field is accessed.
-
-        ARCH-REFAC-003: the registry used to be exposed via
-        ``app._asr_registry`` (@property delegate); it now lives on
-        ``app.models._registry`` / ``app.models.registry``.
-        """
+        """VoiceTyperApp.__init__ must initialize ModelManager (and thus"""
         # Mock heavy deps so __init__ doesn't fail
         monkeypatch.setattr("voice_typer.server.server_platform.autostart.is_autostart_enabled", lambda: False)
         monkeypatch.setattr("voice_typer.server.server_platform.microphone_list.list_microphones", lambda: [])
         from voice_typer.server.app import VoiceTyperApp
 
         app = VoiceTyperApp()
-        # The registry must exist on ModelManager from __init__ time so
-        # _start_dictation and other code paths can rely on it existing.
         assert hasattr(app.models, "_registry"), (
             "ModelManager._registry must be set in __init__ so _start_dictation "
             "and other code paths can rely on it existing"
@@ -172,18 +145,7 @@ class TestAsrRegistryInitializedInAppInit:
 
 
 class TestLegacyFieldPropertyDelegatesToRegistry:
-    """ARCH-047: the three legacy engine attributes
-    (``transcriber`` / ``_qwen_engine`` / ``_parakeet_engine``) are now
-    ``@property`` accessors that delegate directly to
-    ``self._registry.get(...)``, no mirrored state, no sync step.
-
-    Their ``@property.setter`` counterparts delegate to
-    ``self._registry.register(...)`` / ``unregister(...)`` so test code
-    that assigns to these attributes continues to work transparently.
-    These tests verify the setter's no-churn / unregister-on-None /
-    replace-on-change semantics that were previously implemented by the
-    (now-deleted) ``_sync_registry_from_fields`` method.
-    """
+    """ARCH-047: the three legacy engine attributes"""
 
     def _make_mm(self):
         from voice_typer.server.asr_registry import AsrBackendRegistry
@@ -195,16 +157,13 @@ class TestLegacyFieldPropertyDelegatesToRegistry:
 
         registry = AsrBackendRegistry(_Config())
         # Bypass __init__, we only need the registry. The three legacy
-        # engine attributes are now @property accessors that delegate to
-        # ``registry.get(...)``, so they don't need to be initialized.
         mm = ModelManager.__new__(ModelManager)
         mm._registry = registry
         mm._app = None
         return mm, registry
 
     def test_setter_no_churn_when_same_instance(self, monkeypatch):
-        """Re-assigning the SAME instance must NOT log
-        'unregistered backend' / 'registered backend'."""
+        """Re-assigning the SAME instance must NOT log"""
         mm, registry = self._make_mm()
 
         # Set a transcriber instance, should register.
@@ -213,9 +172,6 @@ class TestLegacyFieldPropertyDelegatesToRegistry:
         assert registry.get("whisper") is transcriber
 
         # Re-assign the SAME instance, registry must NOT churn. The
-        # setter short-circuits when ``current is value``, so no
-        # unregister/register pair fires. We approximate "no churn" by
-        # checking the registered object identity is unchanged.
         mm.transcriber = transcriber
         assert registry.get("whisper") is transcriber
 
@@ -249,8 +205,6 @@ class TestLegacyFieldPropertyDelegatesToRegistry:
         # Initially the registry has no whisper backend.
         assert mm.transcriber is None
 
-        # Register a backend directly via the registry and confirm the
-        # property reads it back.
         obj = object()
         registry.register("whisper", obj)
         assert mm.transcriber is obj
@@ -264,9 +218,7 @@ class TestLegacyFieldPropertyDelegatesToRegistry:
         assert mm._parakeet_engine is parakeet_obj
 
     def test_setter_handles_qwen_and_parakeet(self, monkeypatch):
-        """The @property setters for _qwen_engine / _parakeet_engine
-        delegate to ``register("qwen", ...)`` / ``register("parakeet", ...)``
-        just like the whisper setter."""
+        """The @property setters for _qwen_engine / _parakeet_engine"""
         mm, registry = self._make_mm()
 
         mm._qwen_engine = "qwen_value"
@@ -288,19 +240,10 @@ class TestLegacyFieldPropertyDelegatesToRegistry:
 
 
 class TestSetActiveBackend:
-    """G4-CR-08: ``ModelManager.set_active_backend`` must exist and switch
-    the active ASR backend WITHOUT changing ``model_size``.
-
-    Previously the IPC handler caught the ``AttributeError`` raised by
-    the missing method, logged a warning, and returned ``ack``, the
-    actual backend swap never happened. These tests use the REAL
-    :class:`ModelManager` (not a MagicMock) so a missing method shows
-    up as a real test failure instead of being masked by mock auto-stub.
-    """
+    """G4-CR-08: ``ModelManager.set_active_backend`` must exist and switch"""
 
     def test_set_active_backend_method_exists_on_real_model_manager(self):
-        """``ModelManager`` must define ``set_active_backend`` (not rely on
-        ``MagicMock`` auto-stub)."""
+        """``ModelManager`` must define ``set_active_backend`` (not rely on"""
         from voice_typer.server.model_manager import ModelManager
 
         assert hasattr(ModelManager, "set_active_backend"), (
@@ -308,9 +251,6 @@ class TestSetActiveBackend:
             "Previously this method was missing and the IPC handler "
             "silently swallowed the AttributeError."
         )
-        # The method must be callable on the class itself (not just an
-        # instance attribute), this is what distinguishes a real method
-        # from a MagicMock auto-stub.
         assert callable(ModelManager.set_active_backend)
 
     def test_set_active_backend_rejects_unknown_backend(self):
@@ -321,8 +261,6 @@ class TestSetActiveBackend:
         mm = ModelManager.__new__(ModelManager)
         mm._app = MagicMock()
         mm._model_change_lock = __import__("threading").RLock()
-        # The ValueError must be raised BEFORE any lock acquisition or
-        # config mutation, the validation happens at the top of the method.
         try:
             mm.set_active_backend("nonexistent-backend")
         except ValueError as e:
@@ -335,8 +273,7 @@ class TestSetActiveBackend:
             raise AssertionError("set_active_backend with unknown backend should raise ValueError")
 
     def test_set_active_backend_noop_when_already_active(self):
-        """If the new backend equals the current one, the method returns
-        early without unloading/reloading."""
+        """If the new backend equals the current one, the method returns"""
         import threading as _threading
         from unittest.mock import MagicMock
 
@@ -387,8 +324,7 @@ class TestSetActiveBackend:
         )
 
     def test_set_active_backend_switches_backend_and_preserves_model_size(self):
-        """Switching whisper → qwen unloads whisper, sets config.asr_backend=qwen,
-        and leaves model_size untouched."""
+        """Switching whisper → qwen unloads whisper, sets config.asr_backend=qwen,"""
         import threading as _threading
         from unittest.mock import MagicMock
 
@@ -405,7 +341,6 @@ class TestSetActiveBackend:
         config = _Config()
         registry = AsrBackendRegistry(config)
         # Pre-register a whisper engine so _change_model_unload_phase has
-        # something to unload.
         whisper_engine = MagicMock()
         whisper_engine.is_loaded = True
         registry.register("whisper", whisper_engine)
@@ -452,18 +387,13 @@ class TestSetActiveBackend:
         # Switch to qwen.
         mm.set_active_backend("qwen")
         # Join the background BackendChange thread so its
-        # ``asr_backend_ready`` publish completes inside this test
-        # (doesn't leak into a later test's event_bus subscription
-        # window).
         bg_thread = getattr(mm, "_backend_change_thread", None)
         if bg_thread is not None:
             bg_thread.join(timeout=5.0)
 
-        # config.asr_backend must be updated to qwen.
         assert config.asr_backend == "qwen", (
             f"set_active_backend('qwen') should set config.asr_backend='qwen', got {config.asr_backend!r}"
         )
-        # model_size must be PRESERVED (: "WITHOUT changing model_size").
         assert config.model_size == "small.en", (
             f"set_active_backend should NOT change model_size; expected 'small.en', got {config.model_size!r}"
         )
@@ -473,17 +403,11 @@ class TestSetActiveBackend:
         whisper_engine.unload.assert_called()
 
 
-# whisper fallback constructs whisper on cold boot ───────
-
-
 class TestWhisperFallbackConstructsOnColdBoot:
-    """G4-H-19: when the primary backend fails AND no whisper engine was
-    pre-registered, ``load_with_fallback`` must construct one on-the-fly
-    via ``create("whisper", ...)`` instead of silently no-op'ing."""
+    """G4-H-19: when the primary backend fails AND no whisper engine was"""
 
     def test_load_with_fallback_constructs_whisper_when_missing(self, monkeypatch):
-        """Primary backend fails → whisper engine not registered → registry
-        constructs whisper via ``create()`` and loads it as fallback."""
+        """Primary backend fails → whisper engine not registered → registry"""
         # Construct a fake whisper engine that the create() path will return.
         fake_whisper_engine = MagicMock()
         fake_whisper_engine.is_loaded = False  # not yet loaded
@@ -518,8 +442,6 @@ class TestWhisperFallbackConstructsOnColdBoot:
         registry = AsrBackendRegistry(_Config())
         # Pre-register the parakeet engine (simulating _ensure_engine having run).
         registry.register("parakeet", failing_engine)
-        # IMPORTANT: do NOT register a whisper engine, this is the
-        # cold-boot scenario  addresses.
 
         result = registry.load_with_fallback(progress_callback=lambda msg: None)
 
@@ -532,9 +454,6 @@ class TestWhisperFallbackConstructsOnColdBoot:
             "load_with_fallback should return the whisper fallback engine "
             "when the primary backend fails and whisper was not pre-registered."
         )
-
-
-# circuit breaker tests ──────────────────────────────────
 
 
 class TestCircuitBreaker:
@@ -575,7 +494,6 @@ class TestCircuitBreaker:
             call_count["n"] += 1
             if call_count["n"] == 1:
                 raise RuntimeError("first call fails")
-            # second call succeeds (no raise)
 
         engine.load.side_effect = fake_load
 
@@ -597,14 +515,11 @@ class TestCircuitBreaker:
         assert registry.failure_count("whisper") == 0, "Failure counter should reset to 0 after a successful load."
 
     def test_backend_disabled_after_max_consecutive_failures(self, monkeypatch):
-        """After ``_MAX_CONSECUTIVE_FAILURES`` failures, the backend is
-        added to ``_disabled_backends`` and the one-shot callback fires."""
+        """After ``_MAX_CONSECUTIVE_FAILURES`` failures, the backend is"""
         failing_engine = MagicMock()
         failing_engine.is_loaded = False
         failing_engine.load.side_effect = RuntimeError("persistent failure")
 
-        # Stub create("whisper", ...) so the fallback doesn't try to
-        # import the real TranscriptionEngine module.
         whisper_engine = MagicMock()
         whisper_engine.is_loaded = False
         whisper_engine.load.side_effect = RuntimeError("whisper also fails")
@@ -650,7 +565,6 @@ class TestCircuitBreaker:
         registry.load_with_fallback(progress_callback=lambda msg: None)
         failing_engine.load.assert_not_called()
         # Disabled backends should be skipped, load_with_fallback should
-        # go straight to the whisper fallback.
 
     def test_reset_failures_clears_disabled_state(self):
         """``reset_failures(name)`` clears both the counter and disabled state."""
@@ -667,8 +581,7 @@ class TestCircuitBreaker:
         assert registry.failure_count("parakeet") == 0
 
     def test_persisted_disabled_backends_restored_on_init(self):
-        """If ``config.disabled_backends`` is set, the registry restores
-        the disabled state on construction."""
+        """If ``config.disabled_backends`` is set, the registry restores"""
 
         class _Config:
             asr_backend = "whisper"

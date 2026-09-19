@@ -1,20 +1,4 @@
-"""Regression guards for the Microphone page device-selection + test fixes.
-
-Covers two root causes:
-
-1. FALSE ``device_lost`` on intentional stream stop/switch, PortAudio's
-   ``PaStreamFinishedCallback`` fires not only when a device vanishes but
-   also on every ``stop()``/``close()``, i.e. exactly what selecting a
-   different microphone (monitor restart) or leaving the page does.
-   The identity-aware guard must suppress the intentional transitions and
-   still report a genuine finish of the CURRENT stream.
-
-2. Mic-test WAV transport, completed WAVs (~1 MB each) exceed the 1 MiB
-   single-frame IPC cap, so stop persists them to disk under the config
-   dir and serves bytes via chunked ``microphone_test_read_audio`` reads:
-   keep-only-latest purge on start, containment (path traversal rejected),
-   slice/eof correctness, and per-chunk size caps.
-"""
+"""Regression guards for the Microphone page device-selection + test fixes."""
 
 from __future__ import annotations
 
@@ -26,10 +10,6 @@ from typing import Any, cast
 
 import numpy as np
 import pytest
-
-# ═══════════════════════════════════════════════════════════════════════
-# 1. finished-callback identity guard
-# ═══════════════════════════════════════════════════════════════════════
 
 
 class _FakeStream:
@@ -56,12 +36,7 @@ class _FakeStream:
 
 @pytest.fixture()
 def monitor_env(monkeypatch):
-    """Reset level_monitor state + mock sounddevice + capture publishes.
-
-    SNAPSHOTS every ``_state`` attribute touched below and restores the
-    exact prior values afterwards, so sibling test modules running in the
-    same xdist worker are not disturbed by hard-coded baseline resets.
-    """
+    """Reset level_monitor state + mock sounddevice + capture publishes."""
     import sounddevice as sd
     import voice_typer.server.level_monitor as lm
     from voice_typer.server.level_monitor._state import _state
@@ -124,8 +99,6 @@ def monitor_env(monkeypatch):
     monkeypatch.setattr(sd, "query_devices", _QueryDevices())
     yield {"captured": captured}
 
-    # teardown: stop workers, then restore the exact prior global state
-    # (snapshot taken before the hard-coded reset below).
     lm._stop_level_worker()
     lm._stop_mic_level_worker()
     _restore()
@@ -147,10 +120,7 @@ def _current_finished_cb():
 
 class TestFinishedCallbackIdentityGuard:
     def test_device_switch_restart_does_not_emit_device_lost(self, monitor_env):
-        """THE bug: selecting a concrete valid mic restarts the monitor;
-        closing the OLD stream fired its finished_callback and emitted a
-        bogus ``device_lost`` ("Selected microphone disconnected") for a
-        perfectly healthy new stream."""
+        """THE bug: selecting a concrete valid mic restarts the monitor;"""
         import voice_typer.server.level_monitor as lm
 
         captured = monitor_env["captured"]
@@ -165,7 +135,6 @@ class TestFinishedCallbackIdentityGuard:
         assert lm.start_monitoring(mic_id="WASAPI|Realtek")["success"]
         assert id(_st._monitor_stream) != old_stream_id, "fixture: restart expected"
 
-        # PortAudio fires the OLD stream's finished callback after close().
         old_cb()
 
         assert _device_lost(captured) == [], "intentional device switch must NOT emit device_lost"
@@ -210,11 +179,6 @@ class TestFinishedCallbackIdentityGuard:
         cb()  # double fire within the same episode
         assert len(_device_lost(captured)) == 1
         assert _state._device_lost_emitted is True
-
-
-# ═══════════════════════════════════════════════════════════════════════
-# 2. mic-test disk transport + chunked read endpoint
-# ═══════════════════════════════════════════════════════════════════════
 
 
 def _tiny_wav_bytes(sample_rate=16000, seconds=0.05) -> bytes:
@@ -300,7 +264,6 @@ class TestTestRecordingDiskTransport:
 
         assert seen == payload
         # Single-frame safety: every chunk response must fit the 1 MiB cap
-        # even after base64 inflation (~4/3x).
         for encoded_len in chunks:
             assert encoded_len < 1024 * 1024
 
@@ -344,19 +307,7 @@ class TestTestRecordingDiskTransport:
 
 
 class TestChunkedTransportIntegrity:
-    """Playback corruption + rate-limit regressions (post-recording pipeline).
-
-    Two real bugs this pins:
-    1. Interior slices whose BYTE length is not a multiple of 3 carry their
-       own base64 "=" padding; the renderer joins fragments verbatim, so a
-       256*1024-byte default slice (% 3 == 1) injected mid-stream padding
-       and corrupted every multi-chunk playback ("Could not play the test
-       recording"). Non-final slices must be 3-byte aligned.
-    2. The per-command rate-limiter COST for ``microphone_test_read_audio``
-       was mistakenly set to 30, as heavy as model downloads. Eight cheap
-       slice reads consumed the entire shared 200/s burst budget, the tail
-       chunks were rejected, and auto-stop completion lost its audio.
-    """
+    """Playback corruption + rate-limit regressions (post-recording pipeline)."""
 
     def test_interior_slices_are_base64_join_safe(self, tmp_path, monkeypatch):
         import base64
@@ -379,8 +330,6 @@ class TestChunkedTransportIntegrity:
             assert res["success"] is True
             chunk_bytes = base64.b64decode(res["data_b64"])
             if not res["eof"]:
-                # INVARIANT: non-final fragments must be padding-free so
-                # verbatim base64 joining stays valid.
                 assert len(chunk_bytes) % 3 == 0, (
                     "interior slice is not 3-byte aligned, joined base64 would be corrupted by mid-stream padding"
                 )
@@ -394,23 +343,17 @@ class TestChunkedTransportIntegrity:
         assert len(interior_sizes) >= 2, "fixture expected multiple slices"
 
     def test_rate_limiter_cost_is_cheap_read(self):
-        """The read command is a bounded small-file disk read; a heavy cost
-        weight made every completed test blow the shared burst window."""
+        """The read command is a bounded small-file disk read; a heavy cost"""
         from voice_typer.server.ipc.rate_limiter import COMMAND_COSTS
 
         assert COMMAND_COSTS.get("microphone_test_read_audio") == 1
 
 
 class TestHonestMetricsContract:
-    """C-MIC-20: transcription-derived metrics must be gated on engine
-    availability; audio-derived metrics (volume/noise/clipping/voice) are
-    always computed from the captured WAV regardless of model state."""
+    """C-MIC-20: transcription-derived metrics must be gated on engine"""
 
     def test_no_engine_marks_transcription_unavailable_but_keeps_quality(self, tmp_path, monkeypatch):
-        """Without a loaded ASR engine the stop envelope still carries the
-        full AUDIO analysis (quality dict) plus the explicit
-        ``transcription_unavailable`` marker, the frontend renders N/A
-        instead of a fabricated 0% for the transcription-quality row."""
+        """full AUDIO analysis (quality dict) plus the explicit"""
         from types import SimpleNamespace
 
         from voice_typer.server import level_monitor as lm
@@ -433,8 +376,6 @@ class TestHonestMetricsContract:
             },
         )
         mixin = MicrophoneTestMixin()
-        # ``Any``: the double satisfies only the narrow surface the
-        # transcription path touches; AppProtocol's full shape isn't needed.
         mixin._app = cast(Any, SimpleNamespace(models=None))  # no model subsystem at all
 
         result: dict = mixin.microphone_test_stop()
@@ -446,13 +387,7 @@ class TestHonestMetricsContract:
 
 
 class TestBookkeepingFailureClosesStartedStream:
-    """Started-stream leak: bookkeeping after ``stream.start()`` must close it.
-
-    ``start_monitoring`` opens the PortAudio stream first and then runs
-    fallible bookkeeping (worker spawn, processor rebuild). When that
-    bookkeeping throws, the already-started stream must be
-    ``stop()``/``close()``d instead of leaked.
-    """
+    """Started-stream leak: bookkeeping after ``stream.start()`` must close it."""
 
     def test_bookkeeping_failure_closes_started_stream(self, monitor_env, monkeypatch):
         import voice_typer.server.level_monitor as lm
@@ -461,9 +396,6 @@ class TestBookkeepingFailureClosesStartedStream:
         def _boom():
             raise RuntimeError("worker spawn failed")
 
-        # Patch the OWNING submodule's attribute (call-time import
-        # contract): ``start_monitoring`` resolves this global from
-        # ``monitoring`` at call time.
         monkeypatch.setattr(
             "voice_typer.server.level_monitor.monitoring._ensure_mic_level_worker_running",
             _boom,
@@ -480,13 +412,7 @@ class TestBookkeepingFailureClosesStartedStream:
 
 
 class TestTinySliceGuard:
-    """Zero-length slice edge: 1-2 byte requests aligned down to 0 bytes.
-
-    The base64-join invariant clamps interior slices to multiples of 3,
-    so a 1-2 byte request used to return success with ``bytes_read=0``
-    and ``eof=False`` mid-file — a busy-loop hazard for fetchers that
-    advance by ``bytes_read``. The endpoint must always make progress.
-    """
+    """Zero-length slice edge: 1-2 byte requests aligned down to 0 bytes."""
 
     def test_single_byte_requests_make_progress(self, tmp_path, monkeypatch):
         from voice_typer.server.level_monitor import test_recording as tr
@@ -573,8 +499,6 @@ class TestChunkCapacityConservativeBound:
             cap = state._test_raw_chunks.maxlen
             assert cap == int(30.0 * 48000 / 512) + 1
             # At 48 kHz the stream emits ~32 ms (1536-sample) chunks, far
-            # fewer than the 512-sample math assumes — the bound must
-            # cover the scaled rate with room to spare.
             needed = int(30.0 * 48000 / scaled_audio_blocksize(48000)) + 1
             assert cap is not None and cap >= needed
         finally:

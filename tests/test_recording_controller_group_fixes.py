@@ -1,37 +1,4 @@
-"""Tests for the DE-2K fix group (recording_controller.py).
-
-Each test pins a specific finding from the comprehensive review:
-
-- ``DE-8``: ``start()`` except block must ``recorder.discard()`` to
-  avoid a leaked PortAudio input stream and a permanently locked-out
-  F2 (recording=True short-circuits subsequent ``start()`` calls).
-- ``DE-9``, voice_biometric_consent check must fail CLOSED (refuse
-  to record) when the config read raises, instead of failing OPEN.
-- ``DE-12``: ``stop()`` and ``cancel()`` acquire ``_toggle_lock`` so
-  two concurrent callers (toggle thread + silence-auto-stop Timer
-  thread) can't both pass the ``recorder.recording`` check and both
-  call ``recorder.stop()`` / start a transcription thread.
-- ``DE-13``: ``_force_recover_from_stuck_transcription`` calls
-  ``gc.collect()`` after recovery as a best-effort release of
-  orphaned audio-buffer cycles held by the just-cancelled streaming
-  session. The stuck thread's local reference is documented as
-  unfixable without restructuring ``DictationPipeline.run`` (which
-  is outside this file's ownership).
-- ``DE-51``: ``start()`` except block publishes a generic user-facing
-  message to both the renderer (event_bus) and the tray notification,
-  NOT the raw exception text (which may contain absolute file paths,
-  device names, hostnames, or audio metadata).
-- ``DE-52`` / ``UE-9-F1``: ``stop()`` uses ``pop_streaming_session()``
-  (atomic get-and-clear) + public ``session.cancel()`` instead of
-  ``get_streaming_session`` + setting the private cancel event (which
-  left the session in the slot, leaking worker thread + audio chunk
-  references until the next ``start()``).
-- ``DE-55``: ``_start_watchdog_thread()`` ``join(timeout=0.1)``s the
-  previous thread before deciding to reuse vs create new, so a dying
-  thread (in the window between ``_watchdog_stop_event.set()`` and
-  thread exit) doesn't get "reused" and leave transcription B with
-  no watchdog.
-"""
+"""Tests for the DE-2K fix group (recording_controller.py)."""
 
 from __future__ import annotations
 
@@ -44,22 +11,15 @@ from voice_typer.server.recording_controller import RecordingController
 
 
 def _make_controller() -> RecordingController:
-    """Build a RecordingController with a fully-mocked app.
-
-    The mock app provides every attribute the controller reads/writes
-    during the code paths under test. Individual tests override the
-    specific mock attributes / side_effects they need.
-    """
+    """Build a RecordingController with a fully-mocked app."""
     from voice_typer.server.recording_controller import RecordingController
 
     app = MagicMock()
     # ``threading.Event`` for the busy flag, MagicMock's auto-event
-    # would not implement is_set/clear/set semantics correctly.
     app.config.hotkey = "<f2>"
     app._busy_event = threading.Event()
     app._busy_event.set()  # not busy = set (per the project's convention)
     # Production resets via the coordinator (``_busyness.set_idle()``) -
-    # wire the mock through to this real Event so assertions observe it.
     app._busyness.set_idle.side_effect = lambda: app._busy_event.set()
     app._busyness.set_busy.side_effect = lambda: app._busy_event.clear()
     app._cycle_counter = 0
@@ -68,9 +28,6 @@ def _make_controller() -> RecordingController:
     app.recorder.recording = False
     app.recorder.last_rms = 0.0
     # ``_stop_impl`` reads ``_dropped_ring_chunks`` after
-    # ``recorder.stop()`` and logs a WARNING if > 0. MagicMock auto-
-    # creates attributes as truthy MagicMocks, so set it to 0 explicitly
-    # to avoid spurious WARNINGs in every stop() test.
     app.recorder._dropped_ring_chunks = 0
     app.config = MagicMock()
     app.config.voice_biometric_consent = True
@@ -104,18 +61,13 @@ def _make_controller() -> RecordingController:
     return ctrl, app
 
 
-# mic device leak on partial-start failure ────────────────────
-
-
 class TestMicLeakOnPartialStartFailure:
-    """DE-8: ``start()`` except block must ``recorder.discard()`` if
-    ``recorder.start()`` succeeded but a subsequent step raised."""
+    """DE-8: ``start()`` except block must ``recorder.discard()`` if"""
 
     def test_discard_called_when_streaming_session_start_raises(self):
         ctrl, app = _make_controller()
 
         # Simulate recorder.start() succeeding (stream opened,
-        # recording=True) but a subsequent step in the try block raising.
         def fake_recorder_start():
             app.recorder.recording = True  # PortAudio stream now open
 
@@ -127,24 +79,18 @@ class TestMicLeakOnPartialStartFailure:
 
         ctrl.start()
 
-        # discard() MUST have been called best-effort to release
-        # the PortAudio input stream.
         assert app.recorder.discard.called, (
             "DE-8: recorder.discard() must be called in start() except block "
             "to release the PortAudio input stream when a partial-start "
             "failure occurs after recorder.start() succeeded."
         )
-        # recording flag MUST have been reset so the next F2 press
-        # doesn't short-circuit on recording==True.
         assert app.recorder.recording is False, (
             "DE-8: app.recorder.recording must be reset to False after a "
             "partial-start failure so the next start() call doesn't no-op."
         )
 
     def test_discard_failure_does_not_propagate(self):
-        """If ``recorder.discard()`` itself raises, the except block
-        must not propagate, the rest of the cleanup (tray state,
-        notification, IPC event) must still run."""
+        """If ``recorder.discard()`` itself raises, the except block"""
         ctrl, app = _make_controller()
 
         def fake_recorder_start():
@@ -162,19 +108,13 @@ class TestMicLeakOnPartialStartFailure:
         assert app.tray.notify.called
 
 
-# consent check fails CLOSED ──────────────────────────────────
-
-
 class TestConsentCheckFailsClosed:
-    """DE-9: if the consent-check ``getattr`` raises, recording must NOT
-    start (fail CLOSED), not silently fail open."""
+    """DE-9: if the consent-check ``getattr`` raises, recording must NOT"""
 
     def test_corrupted_config_does_not_start_recording(self):
         ctrl, app = _make_controller()
 
         # Make getattr(app.config, "voice_biometric_consent", False) raise.
-        # MagicMock's __getattr__ doesn't raise by default, so we replace
-        # the config with an object whose attribute access raises.
         class CorruptedConfig:
             def __getattr__(self, name):
                 raise RuntimeError("simulated corrupted config read")
@@ -184,12 +124,10 @@ class TestConsentCheckFailsClosed:
 
         ctrl.start()
 
-        # recorder.start() MUST NOT have been called.
         assert not app.recorder.start.called, (
             "DE-9: recorder.start() must NOT be called when the consent check "
             "raises, fail CLOSED to enforce the GDPR Art. 9 consent gate."
         )
-        # tray state MUST be ERROR.
         tray_states = [call.args[0] for call in app.tray.set_state.call_args_list]
         from voice_typer.server.tray_types import AppState
 
@@ -198,9 +136,7 @@ class TestConsentCheckFailsClosed:
         )
 
     def test_consent_false_does_not_start_recording(self):
-        """Pre-existing behavior (consent=False refuses to start) must
-        still work after the DE-9 fix, the fix only changes the
-        exception path, not the consent=False path."""
+        """Pre-existing behavior (consent=False refuses to start) must"""
         ctrl, app = _make_controller()
         app.config.voice_biometric_consent = False
         app.recorder.start = MagicMock()
@@ -210,18 +146,11 @@ class TestConsentCheckFailsClosed:
         assert not app.recorder.start.called
 
 
-# stop() and cancel() acquire _toggle_lock ──────────────────
-
-
 class TestStopAndCancelSerialized:
-    """DE-12: ``stop()`` and ``cancel()`` acquire ``_toggle_lock`` so
-    concurrent callers can't both pass the ``recorder.recording``
-    check and double-call ``recorder.stop()`` / start transcription."""
+    """DE-12: ``stop()`` and ``cancel()`` acquire ``_toggle_lock`` so"""
 
     def test_toggle_lock_is_rlock(self):
-        """``_toggle_lock`` must be an RLock so the call path
-        ``toggle() → _toggle_impl() → app._stop_dictation() → stop()``
-        doesn't self-deadlock."""
+        """``_toggle_lock`` must be an RLock so the call path"""
         ctrl, _ = _make_controller()
         assert isinstance(ctrl._toggle_lock, type(threading.RLock())), (
             "DE-12: _toggle_lock must be an RLock (reentrant) so stop()/cancel() "
@@ -229,13 +158,11 @@ class TestStopAndCancelSerialized:
         )
 
     def test_concurrent_stop_calls_invoke_recorder_stop_once(self):
-        """Two concurrent ``stop()`` calls must serialize —
-        ``recorder.stop()`` must be called exactly once."""
+        """Two concurrent ``stop()`` calls must serialize —"""
         ctrl, app = _make_controller()
         app.recorder.recording = True
 
         # Make recorder.stop() block briefly so the second caller
-        # definitely arrives while the first is still inside.
         def slow_recorder_stop():
             time.sleep(0.05)
             app.recorder.recording = False
@@ -245,7 +172,6 @@ class TestStopAndCancelSerialized:
         app.recorder.stop.side_effect = slow_recorder_stop
 
         # Patch DictationPipeline import inside _stop_impl so we don't
-        # actually run a transcription.
         with patch("voice_typer.server.dictation_pipeline.DictationPipeline") as pipeline_mock:
             pipeline = MagicMock()
             pipeline_mock.return_value = pipeline
@@ -262,8 +188,7 @@ class TestStopAndCancelSerialized:
         )
 
     def test_stop_call_from_toggle_does_not_deadlock(self):
-        """The re-entrant call path ``toggle() → _stop_dictation() →
-        stop()`` must not self-deadlock on the RLock."""
+        """The re-entrant call path ``toggle() → _stop_dictation() →"""
         ctrl, app = _make_controller()
         app.recorder.recording = True
         app._busy_event.set()  # not busy
@@ -276,9 +201,6 @@ class TestStopAndCancelSerialized:
         app.recorder.stop.side_effect = slow_recorder_stop
 
         with patch("voice_typer.server.dictation_pipeline.DictationPipeline"):
-            # toggle() acquires _toggle_lock, then calls _stop_dictation()
-            # → stop() which re-acquires (RLock allows) and runs.
-            # If _toggle_lock were a plain Lock, this would deadlock.
             done = threading.Event()
 
             def run_toggle():
@@ -291,32 +213,16 @@ class TestStopAndCancelSerialized:
             t.join(timeout=1.0)
 
 
-# gc.collect() after force-recovery ──────────────────────────
-
-
 class TestForceRecoveryGcCollect:
-    """DE-13: ``_force_recover_from_stuck_transcription`` calls
-    ``gc.collect()`` after recovery as a best-effort release of
-    orphaned audio-buffer cycles."""
+    """DE-13: ``_force_recover_from_stuck_transcription`` calls"""
 
     def test_gc_collect_called_after_force_recovery(self):
         ctrl, app = _make_controller()
         app._busy_event.clear()  # busy = True (force-recovery is needed)
-        # Make the transcription thread appear alive so we exercise the
-        # ``force=True`` path (firings >= max_firings).
         ctrl._transcription_thread = MagicMock()
         ctrl._transcription_thread.is_alive.return_value = True
         ctrl._watchdog_firings = ctrl._watchdog_max_firings
 
-        # The ``gc.collect()`` call lives in
-        # ``transcription_watchdog.TranscriptionWatchdog.force_recover``
-        # (transcription_watchdog.py:300). ``recording_controller``'s
-        # 1-line delegator forwards to that helper, so the patch target
-        # is the watchdog module's ``gc.collect`` attribute (``gc`` is a
-        # stdlib singleton, so patching it here intercepts the helper's
-        # call). The legacy ``recording_controller.gc.collect`` path
-        # stopped resolving once ``recording_controller`` dropped its
-        # ``import gc`` (the helper now owns it).
         with patch("voice_typer.server.transcription_watchdog.gc.collect") as gc_collect:
             ctrl._force_recover_from_stuck_transcription(force=True)
 
@@ -326,8 +232,7 @@ class TestForceRecoveryGcCollect:
         )
 
     def test_force_recovery_still_resets_busy_and_tray(self):
-        """DE-13's gc.collect() addition must not break the existing
-        recovery contract (busy flag cleared, tray set to IDLE)."""
+        """DE-13's gc.collect() addition must not break the existing"""
         ctrl, app = _make_controller()
         app._busy_event.clear()  # busy
         ctrl._transcription_thread = None  # no live thread → force-recover path
@@ -341,12 +246,7 @@ class TestForceRecoveryGcCollect:
         assert AppState.IDLE in tray_states
 
     def test_force_recovery_clears_current_audio_slot(self):
-        """DE-13 (privacy): ``_force_recover_from_stuck_transcription`` must
-        clear ``self._current_audio`` so the raw voice bytes are eligible
-        for GC after a user-initiated cancel. The shared clearable slot is
-        the privacy mechanism, the closed-over ``audio`` local in
-        ``transcribe_thread`` (pre-fix) kept the bytes alive for the entire
-        lifetime of the stuck ctranslate2 call (5-30 min)."""
+        """DE-13 (privacy): ``_force_recover_from_stuck_transcription`` must"""
         ctrl, app = _make_controller()
         app._busy_event.clear()  # busy = True (force-recovery is needed)
         ctrl._transcription_thread = None  # no live thread → force-recover path
@@ -364,13 +264,8 @@ class TestForceRecoveryGcCollect:
         )
 
 
-# generic message instead of raw exception ───────────────────
-
-
 class TestGenericErrorMessage:
-    """DE-51: ``start()`` except block publishes a generic user-facing
-    message to both event_bus and tray, NOT the raw exception text
-    (which can contain absolute file paths, device names, hostnames)."""
+    """DE-51: ``start()`` except block publishes a generic user-facing"""
 
     def test_tray_notify_does_not_contain_exception_text(self):
         ctrl, app = _make_controller()
@@ -382,10 +277,8 @@ class TestGenericErrorMessage:
         with patch("voice_typer.server.event_bus.publish") as publish:
             ctrl.start()
 
-        # tray.notify must not include the sensitive path.
         notify_call = app.tray.notify.call_args
         assert notify_call is not None, "tray.notify must be called on start() failure"
-        # notify(APP_NAME, message), args[1] is the message.
         notify_msg = notify_call.args[1]
         assert sensitive_path not in notify_msg, (
             f"DE-51: tray.notify message must NOT contain the raw exception text "
@@ -393,7 +286,6 @@ class TestGenericErrorMessage:
         )
         assert "Could not start recording" in notify_msg
 
-        # event_bus.publish must not include the sensitive path.
         publish.assert_called()
         publish_call = publish.call_args
         payload = publish_call.args[0]
@@ -405,46 +297,16 @@ class TestGenericErrorMessage:
         assert "Could not start recording" in msg
 
 
-# stop() pops + cancels the streaming session ───────
 # (supersedes the  partial deferral): ``_stop_impl`` now
-# uses the atomic ``_cancel_streaming_session()`` helper
-# (``pop_streaming_session()`` + public ``session.cancel()``) instead
-# of get + private-attr poke. The session is popped from the slot
-# (clearing ``self._streaming_session``) and cancelled via the public
-# API. This eliminates the stale-session reference that previously
-# persisted across the entire transcription window.
-#
-# NOTE ( /  coordination): popping the session here means
-# ``DictationPipeline._transcribe`` can no longer read it via
-# ``get_streaming_session()``, it falls back to direct batch
-# transcription. The  sibling fix (``dictation_pipeline.py``)
-# updates the pipeline to use ``pop_streaming_session()`` before
-# ``finalize()``.
 
 
 class TestStopDoesNotPreCancelStreamingSession:
-    """Regression guard for the streaming-finalize fast-path fix.
-
-    Previously ``stop()`` pre-cancelled the streaming session (via
-    ``_cancel_streaming_session()`` in ``_stop_impl``) BEFORE
-    ``DictationPipeline`` was constructed. This caused the pipeline's
-    ``pop_streaming_session()`` call to return ``None``, silently
-    falling back to batch transcription and discarding the incremental
-    streaming transcript (the root cause of the failing test
-    ``test_stop_dictation_uses_streaming_final_text``).
-
-    The fix removed the pre-cancellation from the normal stop path. The
-    pipeline's ``finally`` block now pops + cancels the session with the
-    correct "recorder not recording" guard. On the normal stop path
-    (duration > 0.5s, where a pipeline IS constructed), ``_stop_impl``
-    must NOT touch the session.
-    """
+    """Regression guard for the streaming-finalize fast-path fix."""
 
     def test_stop_does_not_cancel_session_on_normal_path(self):
         ctrl, app = _make_controller()
         app.recorder.recording = True
         # Return ~1s of audio so the early-return path (which calls
-        # _cancel_streaming_session and pops the session) doesn't fire.
         app.recorder.stop.return_value = b"\x00" * 16000
 
         fake_session = MagicMock()
@@ -454,7 +316,6 @@ class TestStopDoesNotPreCancelStreamingSession:
         with patch("voice_typer.server.dictation_pipeline.DictationPipeline"):
             ctrl.stop()
 
-        # The pipeline's finally block (patched out here) owns the
         # pop + cancel. _stop_impl must NOT pre-cancel.
         assert not fake_session.cancel.called, (
             "_stop_impl must NOT pre-cancel the streaming session; "
@@ -467,29 +328,14 @@ class TestStopDoesNotPreCancelStreamingSession:
         )
 
 
-# watchdog thread reuse race ─────────────────────────────────
-
-
 class TestWatchdogThreadReuseRace:
-    """DE-55: ``_start_watchdog_thread()`` ``join(timeout=0.1)``s the
-    previous thread before deciding to reuse vs create new."""
+    """DE-55: ``_start_watchdog_thread()`` ``join(timeout=0.1)``s the"""
 
     def test_dying_thread_is_joined_and_new_thread_created(self):
-        """If the previous watchdog thread is alive at the is_alive()
-        check but exits during the join (the race window between
-        ``_watchdog_stop_event.set()`` and thread exit), a NEW thread
-        must be created, not silently reused.
-
-        Uses a MagicMock for the previous thread to deterministically
-        simulate the "alive at check, dead after join" state. A real
-        thread-based test is flaky under load (the thread might not
-        exit within the 0.1s join timeout when the GIL is contended
-        by other test fixtures)."""
+        """If the previous watchdog thread is alive at the is_alive()"""
         ctrl, _ = _make_controller()
 
         # Mock the previous thread: is_alive() returns True before
-        # join() (so we enter the if block), then False after join()
-        # (so we fall through to create a new thread).
         prev_thread = MagicMock()
         is_alive_returns = [True, False]
 
@@ -503,10 +349,7 @@ class TestWatchdogThreadReuseRace:
 
         ctrl._start_watchdog_thread()
 
-        # join(timeout=0.1) must have been called on the
-        # previous thread.
         prev_thread.join.assert_called_once_with(timeout=0.1)
-        # a NEW thread must have been created (not the mock).
         assert ctrl._watchdog_thread is not prev_thread, (
             "DE-55: _start_watchdog_thread must NOT reuse a dying thread, a "
             "new thread must be created after the join completes."
@@ -517,16 +360,13 @@ class TestWatchdogThreadReuseRace:
             "DE-55: the new watchdog thread must be alive (running _watchdog_loop)."
         )
         # Cleanup: stop the new thread. Capture the reference before
-        # stopping, _stop_watchdog_thread nulls the attribute after join.
         new_thread = ctrl._watchdog_thread
         ctrl._stop_watchdog_thread()
         if new_thread is not None and new_thread.is_alive():
             new_thread.join(timeout=1.0)
 
     def test_actively_running_thread_is_reused(self):
-        """If the previous watchdog thread is actively running (join
-        times out without the thread exiting), it's reused, no new
-        thread is created."""
+        """If the previous watchdog thread is actively running (join"""
         ctrl, _ = _make_controller()
 
         # Start a real watchdog thread via _start_watchdog_thread.

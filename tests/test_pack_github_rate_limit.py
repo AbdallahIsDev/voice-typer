@@ -1,22 +1,4 @@
-"""§8.7: GitHub rate limit: exponential backoff + ``X-RateLimit-Reset``.
-
-Spec (§8.7):
-
-  Automatic retries with exponential backoff (1s, 2s, 4s, 8s, max 3
-  attempts). On 403 (rate limit), respect the ``X-RateLimit-Reset``
-  header.
-
-Tested behaviors:
-
-  1. ``PACK_RATE_LIMIT_BACKOFF_S == (1.0, 2.0, 4.0)``.
-  2. ``PACK_RATE_LIMIT_MAX_ATTEMPTS == 3``.
-  3. A 403 response raises ``_RateLimitedError`` (the internal sentinel).
-  4. The download retries up to 3 times on 403, then raises
-     ``PackRateLimitError``.
-  5. ``X-RateLimit-Reset`` header is respected, the sleep time is
-     at least ``reset_at - now``.
-  6. A 200 response on the second attempt succeeds (one retry needed).
-"""
+"""§8.7: GitHub rate limit: exponential backoff + ``X-RateLimit-Reset``."""
 
 from __future__ import annotations
 
@@ -109,16 +91,12 @@ class TestRateLimitRetry:
         assert dest.read_bytes() == full
 
     def test_x_ratelimit_reset_extends_sleep(self, tmp_path: Path, monkeypatch):
-        """When ``X-RateLimit-Reset`` is in the future, the sleep is at
-        least ``reset_at - now`` (even if backoff says less)."""
+        """When ``X-RateLimit-Reset`` is in the future, the sleep is at"""
         sleeps: list[float] = []
         monkeypatch.setattr(offline_pack.time, "sleep", lambda s: sleeps.append(s))
-        # reset_at = now + 10s (well past the 1s default backoff).
         reset_at = time.time() + 10.0
         full = b"x" * 100
         expected = hashlib.sha256(full).hexdigest()
-        # fail_count=10 ensures we hit the 1st backoff (1.0s); with
-        # reset_at=now+10, sleep should be ~10s, not 1s.
         fake, _, _ = _make_rate_limited_transport(fail_count=10, reset_at=reset_at, full_body=full)
         dest = tmp_path / "pack-v1.partial"
         with pytest.raises(offline_pack.OfflinePackRateLimitError):
@@ -149,7 +127,6 @@ class TestRateLimitRetry:
                 version="v1",
                 http_get=fake,
             )
-        # max(1.0, negative) = 1.0, default backoff used.
         assert sleeps[0] == 1.0
 
 

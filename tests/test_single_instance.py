@@ -1,29 +1,4 @@
 # Regression tests for , ,
-#
-# These tests pin the three findings assigned to fix sub-agent :
-#
-# (Medium): POSIX single-instance PID-recycling false positive.
-#     On ``O_EXCL`` failure, ``_ensure_single_instance_posix`` must
-#     attempt ``fcntl.flock(fd, LOCK_EX | LOCK_NB)`` on the existing
-#     lockfile FIRST, before any PID liveness check. ``flock`` is the
-#     crash-safe primitive (kernel auto-releases on process death);
-#     the old PID-check-first behavior was fooled by PID recycling
-#     after a hard crash (SIGKILL, OOM, power loss).
-#
-# (Medium): POSIX single-instance flock fd never closed in
-#     ``_do_cleanup``. The POSIX fd must now be wrapped in a
-#     ``_PosixSingleInstanceHandle`` (int subclass) whose ``release()``
-#     method closes the fd (and best-effort unlinks the lockfile).
-#     ``release()`` is idempotent and safe to call after the underlying
-#     fd has been closed by other means.
-#
-# (Low): Startup sequence futures awaited sequentially
-#     summing timeouts. The prewarm + mic parallel work must use
-#     ``concurrent.futures.wait({f1, f2}, timeout=10)`` to enforce a
-#     SINGLE shared 10s budget, not per-future ``result(timeout=10)``
-#     which could sum to 20s on stuck tasks.
-#
-# Run: python -m pytest tests/test_single_instance.py -q --no-cov
 
 from __future__ import annotations
 
@@ -33,9 +8,6 @@ import time
 
 import pytest
 
-# ``fcntl`` is POSIX-only; skip the entire module on
-# Windows. The Windows mutex path is exercised in
-# tests/regressions/test_security.py instead.
 pytest.importorskip("fcntl")
 import fcntl  # noqa: E402
 
@@ -44,43 +16,21 @@ from voice_typer.server._paths import RUN_SUBDIR  # noqa: E402
 
 
 def _lock_file(config_dir):
-    """Canonical lockfile path: ``<config_dir>/run/backend.lock``.
-
-    Mirrors ``_ensure_single_instance_posix``, which keeps transient
-    runtime state under the ``run/`` subdir of the config dir. The
-    parent directory is created eagerly so tests that pre-seed a stale
-    lockfile have somewhere to put it.
-    """
+    """Canonical lockfile path: ``<config_dir>/run/backend.lock``."""
     lock = config_dir / RUN_SUBDIR / "backend.lock"
     lock.parent.mkdir(parents=True, exist_ok=True)
     return lock
 
 
-# Re-use the heavyweight ``app_for_startup`` fixture from
-# test_startup_sequence.py rather than duplicating ~30 lines of
-# VoiceTyperApp construction + hardware mocking. Pytest discovers
-# fixtures imported into a test module's namespace.
 from tests.test_startup_sequence import app_for_startup  # noqa: E402,F401,F811
-
-# ── Fixtures ───────────────────────────────────────────────────────────
 
 
 @pytest.fixture
 def isolated_config_dir(monkeypatch, tmp_path):
-    """Redirect ``_config_dir()`` to a tmp path so tests don't clobber
-    the real config dir.
-
-    Mirrors the fixture in ``tests/test_single_instance_posix.py`` —
-    duplicated here so this test file is self-contained and doesn't
-    depend on import-time ordering of the other file.
-    """
+    """Redirect ``_config_dir()`` to a tmp path so tests don't clobber"""
     from voice_typer.server import app as app_mod, config as config_mod
 
     # Redirect the OWNING module's binding (C-ARCH-2 canonical contract):
-    # ``_ensure_single_instance_posix`` and ``_backend_pid_file`` resolve
-    # ``_config_dir`` at call time through ``voice_typer.server.config``
-    # (config-dir resolution was moved off the app module). The app-module patch
-    # is kept for any legacy consumer still reading that binding.
     monkeypatch.setattr(config_mod, "_config_dir", lambda: tmp_path)
     monkeypatch.setattr(app_mod, "_config_dir", lambda: tmp_path)
     monkeypatch.setattr(
@@ -92,12 +42,7 @@ def isolated_config_dir(monkeypatch, tmp_path):
 
 @contextlib.contextmanager
 def _hold_flock(lock_path):
-    """Open ``lock_path`` and hold ``flock(LOCK_EX)`` for the duration
-    of the ``with`` block.
-
-    Used to simulate a LIVE process holding the lockfile's flock —
-    which is what the GT-41 logic checks FIRST.
-    """
+    """Open ``lock_path`` and hold ``flock(LOCK_EX)`` for the duration"""
     fd = os.open(str(lock_path), os.O_RDWR | os.O_CREAT, 0o600)
     try:
         fcntl.flock(fd, fcntl.LOCK_EX)
@@ -109,43 +54,17 @@ def _hold_flock(lock_path):
             os.close(fd)
 
 
-# flock-first on stale O_EXCL ─────────────────────────────────
-
-
 class TestFlockAcquiredAfterStaleOExcl:
-    """GT-41: On ``O_EXCL`` failure, ``flock`` must be attempted FIRST.
-
-    The old code read the PID and called ``_is_pid_alive`` before
-    trying ``flock``. If the OS had recycled the dead process's PID
-    to an unrelated process, the next launch falsely exited with
-    "another instance is already running".
-
-    The new code opens the existing lockfile, attempts
-    ``flock(LOCK_EX | LOCK_NB)``. If flock succeeds, the previous
-    holder is dead (kernel released the flock) and we proceed. If
-    flock fails with ``EWOULDBLOCK``, another LIVE process holds it
-    and we exit.
-    """
+    """On ``O_EXCL`` failure, ``flock`` must be attempted FIRST."""
 
     def test_flock_succeeds_when_previous_holder_dead(self, isolated_config_dir):
-        """A stale lockfile (dead PID, no live flock holder) is
-        reclaimed via flock, no sys.exit, handle returned.
-
-        This is the GT-41 fix: even though the lockfile contains a
-        recycled PID that happens to be alive (we use our own PID),
-        the flock check correctly determines the previous holder is
-        dead (no one holds the flock) and proceeds.
-        """
+        """A stale lockfile (dead PID, no live flock holder) is"""
         lock_file = _lock_file(isolated_config_dir)
-        # Write OUR OWN (alive!) PID into the lockfile, this is the
-        # PID-recycling false-positive scenario. The old code would
-        # exit here; the new code checks flock first and proceeds.
         lock_file.write_text(f"{os.getpid()}\n")
 
         handle = None
         try:
             handle = si_mod._ensure_single_instance_posix(silent=True)
-            # handle is a _PosixSingleInstanceHandle (int subclass).
             assert isinstance(handle, int)
             assert handle > 0
             assert hasattr(handle, "release")
@@ -155,8 +74,7 @@ class TestFlockAcquiredAfterStaleOExcl:
                     handle.release()
 
     def test_lockfile_pid_refreshed_after_flock_reclaim(self, isolated_config_dir):
-        """After flock reclaim, the lockfile contains OUR PID (not the
-        dead process's recycled PID)."""
+        """After flock reclaim, the lockfile contains OUR PID (not the"""
         # Use a bogus (definitely dead) PID, the simplest case.
         bogus_pid = 2_000_000
         lock_file = _lock_file(isolated_config_dir)
@@ -174,13 +92,7 @@ class TestFlockAcquiredAfterStaleOExcl:
                     handle.release()
 
     def test_flock_failure_ewouldblock_exits_with_pid_diagnostic(self, isolated_config_dir, capsys):
-        """When another LIVE process holds the flock (EWOULDBLOCK),
-        the new code reads the PID for a diagnostic message and exits.
-
-        This is the correct duplicate-launch rejection path, but
-        driven by flock (crash-safe), not by PID liveness (which can
-        be fooled by PID recycling).
-        """
+        """When another LIVE process holds the flock (EWOULDBLOCK),"""
         lock_file = _lock_file(isolated_config_dir)
         lock_file.write_text(f"{os.getpid()}\n")
 
@@ -196,15 +108,7 @@ class TestFlockAcquiredAfterStaleOExcl:
         assert str(os.getpid()) in captured.err
 
     def test_no_pid_liveness_check_before_flock(self, isolated_config_dir, monkeypatch):
-        """GT-41: ``_is_pid_alive`` must NOT be called when flock is
-        available. We monkeypatch ``_is_pid_alive`` to raise, if the
-        new code calls it on the flock-first path, the test fails.
-
-        Note: ``_is_pid_alive`` MAY still be called on the legacy
-        fallback path (when ``os.open(O_RDWR)`` on the existing
-        lockfile fails). To ensure we hit the flock-first path, we
-        make ``os.open(O_RDWR)`` succeed normally.
-        """
+        """``_is_pid_alive`` must NOT be called when flock is"""
         lock_file = _lock_file(isolated_config_dir)
         lock_file.write_text(f"{os.getpid()}\n")
 
@@ -221,8 +125,6 @@ class TestFlockAcquiredAfterStaleOExcl:
 
         handle = None
         try:
-            # Must NOT raise, flock succeeds (no live holder), so
-            # _is_pid_alive is never called.
             handle = si_mod._ensure_single_instance_posix(silent=True)
             assert isinstance(handle, int)
         finally:
@@ -235,20 +137,10 @@ class TestFlockAcquiredAfterStaleOExcl:
 
 
 class TestPosixSingleInstanceHandleRelease:
-    """GT-42: The POSIX fd is wrapped in a ``_PosixSingleInstanceHandle``
-    (int subclass) whose ``release()`` method closes the fd and
-    best-effort unlinks the lockfile.
-
-    This enables ``shutdown_controller._do_cleanup`` (owned by
-    GT-FIX-07) to call ``app._single_instance_handle.release()`` to
-    explicitly release the POSIX lock, mirroring the Windows
-    ``CloseHandle`` step.
-    """
+    """The POSIX fd is wrapped in a ``_PosixSingleInstanceHandle``"""
 
     def test_handle_is_int_subclass(self, isolated_config_dir):
-        """The returned handle subclasses ``int`` so existing callers
-        that treat it as a raw fd (``isinstance(h, int)``,
-        ``os.close(h)``) continue to work."""
+        """The returned handle subclasses ``int`` so existing callers"""
         handle = None
         try:
             handle = si_mod._ensure_single_instance_posix(silent=True)
@@ -260,8 +152,7 @@ class TestPosixSingleInstanceHandleRelease:
                     handle.release()
 
     def test_release_closes_fd(self, isolated_config_dir):
-        """``release()`` closes the underlying fd, subsequent
-        ``os.fsync(fd)`` raises ``OSError(EBADF)``."""
+        """``release()`` closes the underlying fd, subsequent"""
         handle = si_mod._ensure_single_instance_posix(silent=True)
         # Sanity: the fd is valid before release.
         os.fsync(int(handle))
@@ -273,8 +164,7 @@ class TestPosixSingleInstanceHandleRelease:
             os.fsync(int(handle))
 
     def test_release_unlinks_lockfile(self, isolated_config_dir):
-        """``release()`` best-effort unlinks the lockfile so the next
-        launch sees a clean state."""
+        """``release()`` best-effort unlinks the lockfile so the next"""
         lock_file = _lock_file(isolated_config_dir)
         handle = si_mod._ensure_single_instance_posix(silent=True)
         assert lock_file.exists()
@@ -285,8 +175,7 @@ class TestPosixSingleInstanceHandleRelease:
         assert not lock_file.exists()
 
     def test_release_is_idempotent(self, isolated_config_dir):
-        """``release()`` is idempotent, subsequent calls are no-ops
-        (no OSError propagates)."""
+        """``release()`` is idempotent, subsequent calls are no-ops"""
         handle = si_mod._ensure_single_instance_posix(silent=True)
         handle.release()
         # Second call must NOT raise.
@@ -295,10 +184,7 @@ class TestPosixSingleInstanceHandleRelease:
         handle.release()
 
     def test_release_safe_after_manual_os_close(self, isolated_config_dir):
-        """``release()`` is safe to call after the underlying fd has
-        already been closed by other means (e.g. test teardown via
-        ``os.close(handle)``). The OSError from the double-close is
-        suppressed at DEBUG level."""
+        """``release()`` is safe to call after the underlying fd has"""
         handle = si_mod._ensure_single_instance_posix(silent=True)
         # Close the fd directly (bypassing release).
         os.close(int(handle))
@@ -306,39 +192,19 @@ class TestPosixSingleInstanceHandleRelease:
         handle.release()
 
 
-# shared 10s budget for startup parallel work ──────────────
-
-
 class TestStartupSharedBudget:
-    """BP-129: the dead prewarm ceremony is gone; autostart sync is
-    fire-and-forget.
-
-    GT-A1-3 → DJ-4 pinned a fire-and-forget ``sync_prewarm_task``
-    dispatch; BP-129 deleted that dispatch entirely (the OS-level
-    prewarm task no longer exists, prewarm is a worker startup
-    phase). These tests pin the current design: NO prewarm thread is
-    spawned, the autostart sync runs on its own daemon thread (never
-    waited on), and only ``load_microphones`` runs in the bounded
-    parallel pool (5s budget).
-    """
+    """BP-129: the dead prewarm ceremony is gone; autostart sync is"""
 
     def test_no_prewarm_thread_and_mic_alone_in_bounded_pool(
         self,
         app_for_startup,  # noqa: F811 - pytest fixture injected by name (imported at module top)
         monkeypatch,
     ):
-        """Startup must (a) NOT dispatch any prewarm thread, (b) dispatch
-        the autostart sync on a fire-and-forget daemon thread, and (c)
-        run ONLY ``load_microphones`` through
-        ``_run_parallel_with_timeout`` with the 5s budget.
-        """
+        """Startup must (a) NOT dispatch any prewarm thread, (b) dispatch"""
         import threading
 
         from voice_typer.server import _timeout_utils, startup_tasks
 
-        # Stub the heavy IO tasks so they complete instantly. The
-        # prewarm stub stays patched so a regressed dispatch would
-        # noisily hit the mock instead of silently passing.
         prewarm_calls: list = []
         monkeypatch.setattr(
             startup_tasks,
@@ -355,8 +221,6 @@ class TestStartupSharedBudget:
         monkeypatch.setattr(startup_tasks, "start_accessibility_pulse", lambda app, s: None)
 
         # Spy on ``_run_parallel_with_timeout`` (startup_sequence imports
-        # it function-locally from ``_timeout_utils``, so patch the
-        # source module, the local import resolves at call time).
         pool_calls: list[list] = []
         real_run = _timeout_utils._run_parallel_with_timeout
 
@@ -377,7 +241,6 @@ class TestStartupSharedBudget:
         monkeypatch.setattr(threading.Thread, "start", spy_start)
 
         # Run the startup sequence. Configure_corrections would
-        # normally load corrections.json; stub it.
         monkeypatch.setattr(
             "voice_typer.server.startup_sequence._phases_early.configure_corrections",
             lambda config_dir: None,
@@ -388,7 +251,6 @@ class TestStartupSharedBudget:
         StartupSequence(app_for_startup).run()
 
         # BP-129: no prewarm thread may be spawned and the stub must
-        # never be called (dead ceremony deleted, not dispatched).
         prewarm_spawns = [t for t in started_threads if t[0] == "startup-prewarm-sync"]
         assert prewarm_spawns == [], (
             "BP-129: the prewarm sync ceremony is deleted, no "
@@ -407,7 +269,6 @@ class TestStartupSharedBudget:
         )
 
         # ...and must NOT appear in the bounded parallel pool: only the
-        # mic task runs there, with the 5s budget.
         assert len(pool_calls) == 1, (
             f"BP-129: _run_parallel_with_timeout must be called exactly once (mic only). Got {len(pool_calls)} calls."
         )
@@ -418,18 +279,10 @@ class TestStartupSharedBudget:
         assert budget == 5.0, f"BP-129: mic task must use the 5s budget. Got {budget}."
 
     def test_slow_autostart_does_not_delay_startup(self, app_for_startup, monkeypatch):  # noqa: F811 - pytest fixture injected by name (imported at module top)
-        """Behavioral test: with BOTH autostart sync and mic enumeration
-        slow (4.0s), startup returns within the mic budget (~0.5s,
-        monkeypatched), neither fire-and-forget thread may be waited on.
-
-        Any regressed design that waits on either task blocks for at
-        least the full slow-task duration (4.0s); the correct design
-        returns after ~0.5s plus scheduler slack.
-        """
+        """Behavioral test: with BOTH autostart sync and mic enumeration"""
         from voice_typer.server import _timeout_utils, startup_tasks
 
         # Slow tasks, far beyond the (patched) 0.5s budget, so every
-        # wait-on-task design is unambiguous.
         def slow_task(app, evt=None):
             time.sleep(4.0)
 
@@ -443,9 +296,6 @@ class TestStartupSharedBudget:
         monkeypatch.setattr(startup_tasks, "ensure_desktop_shortcut", lambda app: None)
         monkeypatch.setattr(startup_tasks, "start_accessibility_pulse", lambda app, s: None)
 
-        # Patch the pool budget 5.0 → 0.5 so the test runs fast. The
-        # behavior under test (bounded budget vs unbounded wait) is
-        # identical with any budget value.
         real_run = _timeout_utils._run_parallel_with_timeout
 
         def fast_run(items):
@@ -466,11 +316,6 @@ class TestStartupSharedBudget:
         elapsed = time.monotonic() - start
 
         # Assert elapsed stays near the single mic budget (0.5s) plus
-        # slack for run()'s other phases, and is FAR below the 4.0s
-        # slow-task duration: waiting on either task would blow past
-        # this bound. The wide 0.5s-vs-4.0s gap leaves multi-second
-        # headroom for loaded-CI scheduling jitter while still catching
-        # every wait-on-task regression.
         assert elapsed < 2.5, (
             f"startup must NOT wait on the fire-and-forget autostart "
             f"thread - elapsed {elapsed:.2f}s suggests a startup task "

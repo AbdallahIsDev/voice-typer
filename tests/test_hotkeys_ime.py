@@ -1,15 +1,4 @@
-"""Tests for IME false-fire scenarios.
-
-TEST-018 / PLAT-020: The IME-composition gate is implemented in
-``WindowsNativeHotkey._is_ime_composing()`` (a static method on the
-hotkey backend). The dispatcher no longer carries per-hotkey callbacks
-or a mutable ``_ime_composing`` flag, instead, the Win32 polling loop
-calls ``_is_ime_composing()`` each iteration and skips the callback
-while the IME is composing.
-
-These tests verify the actual implementation rather than the legacy
-dispatcher API that was removed.
-"""
+"""Tests for IME false-fire scenarios."""
 
 from __future__ import annotations
 
@@ -19,10 +8,7 @@ import pytest
 
 
 def _import_ime_check():
-    """Import the WindowsNativeHotkey class (and its _is_ime_composing method).
-
-    Returns None if the class cannot be imported.
-    """
+    """Import the WindowsNativeHotkey class (and its _is_ime_composing method)."""
     try:
         from voice_typer.server.hotkeys import WindowsNativeHotkey
 

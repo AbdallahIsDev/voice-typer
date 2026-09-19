@@ -1,20 +1,4 @@
-"""Tests for ``VoiceTyperService.import_model()``: scanning directories for
-HuggingFace model cache folders and importing recognized models into the
-app's HF cache.
-
-Covers:
-- Happy path: scanning a dir with HF cache subdirs matching MODEL_REGISTRY
-- Empty directory
-- No recognized models
-- Permission denied on read
-- Selected directory IS a model cache dir
-- Overwrite when model already exists in cache
-- Mixed success/failure
-
-The catalog was pruned 2026-08-15 to `tiny` + `large-v3-turbo` (Whisper)
-plus `parakeet` / `qwen`, so the tests use those repos. Import only
-recognizes models in MODEL_REGISTRY.
-"""
+"""app's HF cache."""
 
 from __future__ import annotations
 
@@ -25,32 +9,18 @@ from unittest.mock import MagicMock
 
 import pytest
 
-# ── Kept-catalog repos ────────────────────────────────────────────────
 _REPO_TINY = "Systran/faster-whisper-tiny"
 _REPO_TURBO = "mobiuslabsgmbh/faster-whisper-large-v3-turbo"
 _REPO_PARKEET = "grikdotnet/parakeet-tdt-0.6b-fp16"
 
 
-# ── Helpers ─────────────────────────────────────────────────────────────
-
-
 def _hf_cache_dir_name(repo_id: str) -> str:
-    """Convert a HuggingFace repo ID to the cache directory name.
-
-    Example: ``Systran/faster-whisper-tiny`` → ``models--Systran--faster-whisper-tiny``
-    """
+    """Convert a HuggingFace repo ID to the cache directory name."""
     return f"models--{repo_id.replace('/', '--')}"
 
 
 def _make_model_cache_dir(parent: Path, repo_id: str) -> Path:
-    """Create a minimal HF cache subdirectory structure under ``parent``.
-
-    HF cache dirs contain:
-      - blobs/ (empty)
-      - refs/ (empty)
-      - snapshots/ (empty)
-      - .no_exist (placeholder file)
-    """
+    """Create a minimal HF cache subdirectory structure under ``parent``."""
     dir_name = _hf_cache_dir_name(repo_id)
     model_dir = parent / dir_name
     model_dir.mkdir(parents=True, exist_ok=True)
@@ -61,31 +31,20 @@ def _make_model_cache_dir(parent: Path, repo_id: str) -> Path:
     return model_dir
 
 
-# ── Fixtures ────────────────────────────────────────────────────────────
-
-
 @pytest.fixture
 def service():
-    """Build a VoiceTyperService with a mock app.
-
-    Returns a service whose ``import_model()`` is ready to call with a
-    monkeypatched ``_config_dir`` (set by each test via ``tmp_path``).
-    """
+    """Build a VoiceTyperService with a mock app."""
     from voice_typer.server.service import VoiceTyperService
 
     mock_app = MagicMock()
     return VoiceTyperService(mock_app)
 
 
-# ── Tests ───────────────────────────────────────────────────────────────
-
-
 class TestImportModelHappyPath:
     """Core scenario: scanning a directory with HF cache subfolders."""
 
     def test_imports_recognized_models(self, service, tmp_path, monkeypatch):
-        """Create a source dir with tiny + large-v3-turbo HF cache subdirs;
-        call import_model; verify both are copied to the app's HF cache."""
+        """Create a source dir with tiny + large-v3-turbo HF cache subdirs;"""
         app_hf = tmp_path / "app_hf" / "huggingface" / "hub"
         monkeypatch.setattr(
             "voice_typer.server.config._config_dir",
@@ -185,8 +144,7 @@ class TestImportModelEdgeCases:
         assert result["errors"] == []
 
     def test_selected_dir_is_itself_a_model_cache_dir(self, service, tmp_path, monkeypatch):
-        """User selects a ``models--Systran--faster-whisper-tiny`` directory
-        directly (not its parent)."""
+        """User selects a ``models--Systran--faster-whisper-tiny`` directory"""
         app_hf = tmp_path / "app_hf" / "huggingface" / "hub"
         monkeypatch.setattr(
             "voice_typer.server.config._config_dir",
@@ -209,8 +167,7 @@ class TestImportModelEdgeCases:
         assert (app_hf / model_dir.name).exists()
 
     def test_overwrite_existing_model(self, service, tmp_path, monkeypatch):
-        """Import a model that already exists in the app's HF cache;
-        verify it is replaced (old rmtree + new copytree)."""
+        """Import a model that already exists in the app's HF cache;"""
         app_hf = tmp_path / "app_hf" / "huggingface" / "hub"
         monkeypatch.setattr(
             "voice_typer.server.config._config_dir",
@@ -266,8 +223,7 @@ class TestImportModelEdgeCases:
         assert "Permission denied" in result["errors"][0]["error"]
 
     def test_partial_import_failure(self, service, tmp_path, monkeypatch):
-        """One model succeeds, another fails (simulated via shutil.copytree
-        raising on a specific directory)."""
+        """One model succeeds, another fails (simulated via shutil.copytree"""
         monkeypatch.setattr(
             "voice_typer.server.config._config_dir",
             lambda: tmp_path / "app_hf",
@@ -278,7 +234,6 @@ class TestImportModelEdgeCases:
 
         # tiny will succeed
         _make_model_cache_dir(src_dir, _REPO_TINY)
-        # large-v3-turbo will fail (monkeypatched copytree)
         _make_model_cache_dir(src_dir, _REPO_TURBO)
 
         original_copytree = shutil.copytree
@@ -305,8 +260,7 @@ class TestImportModelEdgeCases:
         assert "Disk full" in result["errors"][0]["error"]
 
     def test_tray_cache_invalidated_on_success(self, service, tmp_path, monkeypatch):
-        """When at least one model is imported, the tray models cache
-        must be invalidated."""
+        """When at least one model is imported, the tray models cache"""
         invalidate_called = [False]
 
         def _mock_invalidate():
@@ -363,8 +317,7 @@ class TestImportModelIntegration:
     """Tests that exercise the full import_model path end-to-end."""
 
     def test_import_creates_app_cache_dir_if_missing(self, service, tmp_path, monkeypatch):
-        """The app's HF cache dir doesn't exist before the call;
-        import_model must create it."""
+        """The app's HF cache dir doesn't exist before the call;"""
         app_hf = tmp_path / "app_hf" / "huggingface" / "hub"
         monkeypatch.setattr(
             "voice_typer.server.config._config_dir",
@@ -389,8 +342,7 @@ class TestImportModelIntegration:
         assert app_hf.exists(), "import_model should create the app's HF cache dir if missing"
 
     def test_found_includes_all_matched_models(self, service, tmp_path, monkeypatch):
-        """``found`` list includes all models matched in the registry,
-        even if some fail to import."""
+        """``found`` list includes all models matched in the registry,"""
         monkeypatch.setattr(
             "voice_typer.server.config._config_dir",
             lambda: tmp_path / "app_hf",
@@ -433,8 +385,7 @@ class TestImportModelProtocolDrift:
     """Guard: import_model must be declared on ServiceProtocol."""
 
     def test_service_protocol_declares_import_model(self):
-        """``ServiceProtocol`` must declare ``import_model`` so the
-        protocol-drift detection test passes."""
+        """``ServiceProtocol`` must declare ``import_model`` so the"""
         from voice_typer.server.providers import ServiceProtocol
 
         assert hasattr(ServiceProtocol, "import_model"), "ServiceProtocol must declare import_model method"

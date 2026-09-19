@@ -1,18 +1,4 @@
-"""Startup-log defects in the native hotkey backend.
-
-Covers two boot-time log defects observed on Windows with the native
-hotkey backend:
-
-1. The line parser logged ``Unrecognized line`` for known-good
-   diagnostic lines the binary emits to stderr (merged into stdout):
-   startup banner (spec/log_file), stdin-reader notice, hook-installed
-   notice, and the READY-emitted notice carrying the binary version.
-2. ``Checksum OK`` was logged once per hotkey role (dictation / ESC /
-   repaste, including pooled/delegated roles that spawn no subprocess)
-   because every backend build re-hashed the same file. Verification is
-   now cached per process keyed on path+size/mtime; a changed file is
-   re-verified before first use.
-"""
+"""Startup-log defects in the native hotkey backend."""
 
 from __future__ import annotations
 

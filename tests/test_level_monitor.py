@@ -1,27 +1,4 @@
-"""Tests for ``voice_typer.server.level_monitor`` (XV-54, XV-55, XV-58).
-
-Covers the XV findings fixed by FA7:
-
-- **XV-54**: ``_test_chunks`` is no longer populated by the worker
-  thread in production; ``stop_test_recording`` derives the processed
-  ``audio`` from ``raw_audio.copy()``. (``_test_chunks`` is kept as a
-  backward-compat shim for tests outside this module's scope that
-  append to it directly, but it is no longer the source of the
-  processed audio.)
-- **XV-55**: the heavy computation (filter chain via
-  ``_level_processor.process_chunk``, ``np.abs`` / ``np.sqrt`` /
-  ``np.mean`` for RMS/peak, raw-audio quality metrics) runs OUTSIDE
-  ``_monitor_lock`` in ``_process_level_chunk``. The lock is acquired
-  only for the shared-state writes (``_monitor_level``,
-  ``_monitor_peak``, ``_test_raw_chunks`` append, quality-metric
-  appends).
-- **XV-58**: ``_dropped_level_chunks`` is logged with 5s throttling
-  inside ``_level_worker_loop`` and exposed via
-  ``get_level_diagnostics()``.
-
-All ``sounddevice`` calls are mocked so the tests run on any platform
-(no real audio hardware required).
-"""
+"""Tests for ``voice_typer.server.level_monitor`` (XV-54, XV-55, XV-58)."""
 
 from __future__ import annotations
 
@@ -35,10 +12,6 @@ import numpy as np
 import pytest
 
 from tests.fixtures.wait_helpers import wait_for_event, wait_until
-
-# ═══════════════════════════════════════════════════════════════════════════
-# Test fixtures
-# ═══════════════════════════════════════════════════════════════════════════
 
 
 def _reset_level_monitor_state():
@@ -60,10 +33,6 @@ def _reset_level_monitor_state():
     lm._monitor_mic_id = None
     lm._level_processor = None
     # Reset the processor-config stash + cosmetic-bar flag too, without
-    # these, a prior test's ``update_level_processor`` stash clobbers the
-    # next test's injected mock on ``start_monitoring`` (it rebuilds the
-    # processor from the stash), and a leaked filtered-mode opt-in flips
-    # whether the filter chain runs for later tests.
     lm._level_processor_config = None
     lm._level_bar_filtered = False
     lm._dropped_level_chunks = 0
@@ -72,18 +41,10 @@ def _reset_level_monitor_state():
     # Stop any worker thread from a previous test.
     lm._stop_level_worker()
     # Disarm a leaked auto-stop timer: a test that started a recording
-    # and then failed before stop/cancel leaves a live threading.Timer
-    # on _state. start_test_recording overwrites the slot without
-    # cancelling, orphaning the old timer, if it fires during a later
-    # test it flips _test_mode to False mid-recording and that test's
-    # chunks stop accumulating. The fixture must cancel it explicitly.
     leaked_timer = lm._test_auto_stop_timer
     if leaked_timer is not None:
         leaked_timer.cancel()
     lm._test_auto_stop_timer = None
-    # Cancel leaked TTL-expiry timers: stop_test_recording arms one daemon
-    # Timer per persisted test. A fire is harmless (exact missing paths),
-    # but the module set must not grow across tests.
     from voice_typer.server.level_monitor import test_recording as _tr
 
     for _t in list(_tr._test_recording_expiry_timers):
@@ -95,11 +56,6 @@ def _reset_level_monitor_state():
     lm._test_rms_history.clear()
     lm._test_clip_count = 0
     lm._test_silence_blocks = 0
-    # reset the cumulative dropped-chunks counter (and the
-    # per-burst level-worker error counters) so a drop-heavy test
-    # doesn't leak its totals into the next test's assertions. This
-    # is the ONLY place the cumulative counter is reset, production
-    # code NEVER resets it.
     _lm_worker._reset_worker_error_state_for_tests()
 
 
@@ -112,25 +68,7 @@ def _reset_level_monitor():
 
 @pytest.fixture(autouse=True)
 def _isolate_test_recordings_dir(tmp_path, monkeypatch):
-    """Point the mic-test WAV transport at a per-test directory.
-
-    ``stop_test_recording`` persists the captured WAVs under the real
-    per-user config dir and returns small ``{"path", "bytes"}`` refs,
-    and ``start_test_recording`` purges every ``*.wav`` in that
-    directory (keep-only-latest). Production is single-owner: one app
-    instance (predecessor single-instance lock + Python mutex) owns the
-    directory, so purge-vs-read never overlaps. Under
-    ``pytest -n auto --dist=loadgroup`` that assumption is violated by
-    the test environment itself: unmarked tests schedule per nodeid
-    across xdist worker PROCESSES, so this file and other level-monitor
-    test files (e.g. the perf/reliability suite) run concurrently
-    against the SAME real directory. A foreign worker's purge can
-    delete the files this process's ``stop_test_recording`` just wrote
-    and this test is about to read back, a FileNotFoundError that
-    never reproduces solo or single-file. Redirecting the transport to
-    a per-test tmp dir restores the single-owner assumption for every
-    test here.
-    """
+    """Point the mic-test WAV transport at a per-test directory."""
     from voice_typer.server.level_monitor import test_recording as _tr
 
     recordings = tmp_path / "mic-test-recordings"
@@ -144,11 +82,7 @@ def _isolate_test_recordings_dir(tmp_path, monkeypatch):
 
 
 def _wire_stream_with_callback_capture(monkeypatch):
-    """Wire a mock ``sd.InputStream`` that captures the callback for direct invocation.
-
-    Returns ``(mock_stream, captured_callback_holder)`` where the holder is a
-    one-element list the test can read the captured callback from.
-    """
+    """Wire a mock ``sd.InputStream`` that captures the callback for direct invocation."""
     import sounddevice as sd
 
     holder = {"callback": None}
@@ -176,21 +110,8 @@ def _wire_stream_with_callback_capture(monkeypatch):
     return holder
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# only _test_raw_chunks is populated; audio derived from raw_audio.copy()
-# ═══════════════════════════════════════════════════════════════════════════
-
-
 class TestRecordingTransportIsolation:
-    """The mic-test WAV transport must be scoped to the per-test tmp dir.
-
-    Guard for the ``_isolate_test_recordings_dir`` fixture: if the
-    transport ever reverts to the real per-user config dir while the
-    suite runs under ``-n auto --dist=loadgroup``, a concurrent xdist
-    worker's keep-only-latest purge can delete this test's WAVs between
-    ``stop_test_recording`` and the read-back, the intermittent
-    FileNotFoundError class the fixture eliminates.
-    """
+    """The mic-test WAV transport must be scoped to the per-test tmp dir."""
 
     def test_recordings_dir_scoped_to_test_tmp(self, tmp_path):
         from voice_typer.server.level_monitor import test_recording as _tr
@@ -201,27 +122,10 @@ class TestRecordingTransportIsolation:
 
 
 class TestOnlyRawChunksPopulated:
-    """XV-54: the worker thread populates ONLY ``_test_raw_chunks``.
-
-    Previously both ``_test_chunks`` (filtered-then-stored) and
-    ``_test_raw_chunks`` (raw) were populated, storing two copies of
-    every chunk in memory (~2× peak test-audio footprint, up to ~22 MB
-    at 48 kHz / 30 s). The filtered audio is now derived from
-    ``raw_audio.copy()`` at stop time, so only one copy is stored
-    during the test.
-
-    ``_test_chunks`` is kept as a backward-compat shim for tests
-    outside this module's scope that append to it directly, but it is
-    no longer the source of the processed ``audio``.
-    """
+    """XV-54: the worker thread populates ONLY ``_test_raw_chunks``."""
 
     def test_worker_does_not_append_to_test_chunks(self, monkeypatch):
-        """Processing a chunk via the worker should NOT append to _test_chunks.
-
-        XV-54: only ``_test_raw_chunks`` is populated in production.
-        ``_test_chunks`` remains an empty bounded deque (kept as a
-        backward-compat shim for tests outside this module's scope).
-        """
+        """Processing a chunk via the worker should NOT append to _test_chunks."""
         import voice_typer.server.level_monitor as lm
 
         holder = _wire_stream_with_callback_capture(monkeypatch)
@@ -235,7 +139,6 @@ class TestOnlyRawChunksPopulated:
         # Wait for the worker thread to process the chunk.
         assert wait_until(lambda: len(lm._test_raw_chunks) > 0, timeout=1.0)
 
-        # only _test_raw_chunks should have been appended to.
         assert len(lm._test_raw_chunks) == 1, (
             f"worker should append to _test_raw_chunks; got len={len(lm._test_raw_chunks)}"
         )
@@ -248,13 +151,7 @@ class TestOnlyRawChunksPopulated:
         lm.stop_monitoring()
 
     def test_stop_derives_audio_from_raw_audio_copy(self, monkeypatch):
-        """stop_test_recording builds ``audio`` from ``raw_audio.copy()``.
-
-        XV-54: previously ``audio`` was concatenated from ``_test_chunks``
-        (the filtered-then-stored chunks). Now it's derived from
-        ``raw_audio.copy()`` so the filter chain runs at stop time on
-        the raw audio, not on a pre-filtered copy.
-        """
+        """stop_test_recording builds ``audio`` from ``raw_audio.copy()``."""
         import voice_typer.server.level_monitor as lm
 
         holder = _wire_stream_with_callback_capture(monkeypatch)
@@ -275,8 +172,6 @@ class TestOnlyRawChunksPopulated:
         assert result["duration_ms"] > 0
 
         # File-reference transport: the stop response carries small
-        # {"path","bytes"} refs, and each persisted file must decode as
-        # a valid non-empty WAV.
         import io as _io
         import wave as _wave
         from pathlib import Path as _Path
@@ -290,9 +185,7 @@ class TestOnlyRawChunksPopulated:
                 assert wf.getnframes() > 0
 
     def test_stop_returns_no_audio_when_only_test_chunks_populated(self, monkeypatch):
-        """XV-54: if only ``_test_chunks`` is populated (NOT _test_raw_chunks),
-        stop returns "No audio captured", confirming the source of truth
-        is ``_test_raw_chunks``."""
+        """XV-54: if only ``_test_chunks`` is populated (NOT _test_raw_chunks),"""
         import voice_typer.server.level_monitor as lm
 
         _wire_stream_with_callback_capture(monkeypatch)
@@ -300,23 +193,18 @@ class TestOnlyRawChunksPopulated:
         lm.start_test_recording(duration=5.0)
 
         # Simulate a legacy test that appends to _test_chunks only (not
-        # _test_raw_chunks). : stop_test_recording ignores _test_chunks
-        # and reads only from _test_raw_chunks.
         chunk = np.ones((512, 1), dtype=np.float32) * 0.25
         lm._test_chunks.append(chunk)
         # _test_raw_chunks is empty.
 
         result = lm.stop_test_recording()
-        # _test_raw_chunks is the source of truth. With it empty,
-        # stop returns "No audio captured" (no file persisted).
         assert result["success"] is True
         assert result["audio_file"] is None
         assert result["raw_audio_file"] is None
         assert result["message"] == "No audio captured"
 
     def test_no_duplicate_storage_in_production(self, monkeypatch):
-        """XV-54 memory savings: in production (via the worker), only one
-        copy of each chunk is stored (in _test_raw_chunks), not two."""
+        """XV-54 memory savings: in production (via the worker), only one"""
         import voice_typer.server.level_monitor as lm
 
         holder = _wire_stream_with_callback_capture(monkeypatch)
@@ -331,7 +219,6 @@ class TestOnlyRawChunksPopulated:
         # Wait for the worker.
         assert wait_until(lambda: len(lm._test_raw_chunks) >= 5, timeout=1.0)
 
-        # only ONE copy of each chunk is stored.
         assert len(lm._test_raw_chunks) == 5
         assert len(lm._test_chunks) == 0  # NOT populated by the worker
         # Total chunks stored: 5 (was 10 before ).
@@ -342,38 +229,16 @@ class TestOnlyRawChunksPopulated:
         lm.stop_monitoring()
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# heavy work runs OUTSIDE _monitor_lock in _process_level_chunk
-# ═══════════════════════════════════════════════════════════════════════════
-
-
 class TestHeavyWorkOutsideLock:
-    """XV-55: the filter chain + RMS/peak + quality metrics run OUTSIDE
-    ``_monitor_lock`` so ``get_level()`` / ``stop_test_recording()`` /
-    other worker iterations are not blocked waiting for the lock while
-    RNNoise churns.
-
-    The lock is acquired only for the shared-state writes
-    (``_monitor_level``, ``_monitor_peak``, ``_test_raw_chunks`` append,
-    quality-metric appends).
-    """
+    """XV-55: the filter chain + RMS/peak + quality metrics run OUTSIDE"""
 
     def test_get_level_not_blocked_by_slow_filter(self, monkeypatch):
-        """XV-55: a 50ms slow filter on the worker thread must NOT block
-        ``get_level()`` (which acquires ``_monitor_lock``).
-
-        Before XV-55, the worker held ``_monitor_lock`` for the entire
-        chunk processing, so a 50ms RNNoise call would freeze the
-        level bar for 50ms per chunk. After XV-55, the heavy work runs
-        outside the lock and ``get_level()`` returns immediately.
-        """
+        """XV-55: a 50ms slow filter on the worker thread must NOT block"""
         import voice_typer.server.level_monitor as lm
 
         holder = _wire_stream_with_callback_capture(monkeypatch)
 
         # Install a slow filter (50ms per chunk, simulates RNNoise).
-        # The filter signals when it has been ENTERED so the test waits
-        # on real readiness instead of a fixed grace sleep.
         slow_filter_started = threading.Event()
 
         def slow_filter(chunk):
@@ -385,10 +250,6 @@ class TestHeavyWorkOutsideLock:
         slow_processor.process_chunk.side_effect = slow_filter
         lm._level_processor = slow_processor
         # Cosmetic-bar mode (the default) SKIPS the filter chain entirely,
-        # so the worker would never enter the slow filter. Opt into the
-        # filtered level bar, the same code path in _process_level_chunk —
-        # and clear the config stash so start_monitoring's rebuild can't
-        # clobber the injected mock.
         lm._level_processor_config = None
         lm._level_bar_filtered = True
 
@@ -401,21 +262,12 @@ class TestHeavyWorkOutsideLock:
             # Wait until the worker has entered the slow filter.
             assert wait_for_event(slow_filter_started, timeout=1.0), "worker never entered the slow filter"
 
-            # While the worker is busy (in the slow filter, OUTSIDE the
-            # lock), get_level() should return immediately (well under
-            # the 50ms filter cost).
             t0 = time.perf_counter()
             level = lm.get_level()
             elapsed_ms = (time.perf_counter() - t0) * 1000.0
 
             assert isinstance(level, dict)
             assert "level" in level
-            # get_level() should NOT block on the slow filter.
-            # The lock is held only for the brief shared-state writes
-            # (sub-microsecond), so get_level() returns in microseconds
-            # even while the worker is mid-filter. Tight 10ms upper bound
-            # (the pre- behavior would have blocked ~50ms, N×50ms
-            # when the worker falls behind and multiple chunks queue up).
             assert elapsed_ms < 10.0, (
                 f"XV-55: get_level() took {elapsed_ms:.2f}ms with a 50ms slow "
                 f"filter on the worker, heavy work must run OUTSIDE _monitor_lock."
@@ -424,23 +276,12 @@ class TestHeavyWorkOutsideLock:
             lm.stop_monitoring()
 
     def test_get_level_not_blocked_when_worker_falls_behind(self, monkeypatch):
-        """XV-55 regression: ``get_level()`` must NOT block for N×50ms when
-        the worker has fallen behind and multiple slow chunks are queued.
-
-        Pre-XV-55 the worker held ``_monitor_lock`` for the entire
-        chunk processing, so a 50ms RNNoise call × N queued chunks =
-        N×50ms of blocked ``get_level()`` (visible as a frozen level
-        bar under sustained CPU load). After XV-55 the heavy work runs
-        outside the lock, so ``get_level()`` returns in microseconds
-        regardless of how many chunks are queued.
-        """
+        """XV-55 regression: ``get_level()`` must NOT block for N×50ms when"""
         import voice_typer.server.level_monitor as lm
 
         holder = _wire_stream_with_callback_capture(monkeypatch)
 
         # 50ms per chunk, simulates RNNoise on a slow CPU. The filter
-        # signals when it has been ENTERED so the test waits on real
-        # readiness instead of a fixed grace sleep.
         slow_filter_started = threading.Event()
 
         def slow_filter(chunk):
@@ -451,17 +292,12 @@ class TestHeavyWorkOutsideLock:
         slow_processor = MagicMock()
         slow_processor.process_chunk.side_effect = slow_filter
         lm._level_processor = slow_processor
-        # Opt into the filtered level bar (cosmetic-bar mode skips the
-        # filter chain) and clear the config stash so start_monitoring's
-        # rebuild can't clobber the injected mock.
         lm._level_processor_config = None
         lm._level_bar_filtered = True
 
         lm.start_monitoring(mic_id=None)
         try:
             # Queue 5 chunks via the callback. At 50ms/chunk the worker
-            # needs ~250ms to drain them, plenty of time for us to
-            # sample get_level() mid-drain and confirm it isn't blocked.
             chunk = np.ones((512, 1), dtype=np.float32) * 0.25
             for _ in range(5):
                 holder["callback"](chunk, 512, None, None)
@@ -470,9 +306,6 @@ class TestHeavyWorkOutsideLock:
             assert wait_for_event(slow_filter_started, timeout=1.0), "worker never entered the slow filter"
 
             # Sample get_level() 3 times spread across the drain window.
-            # Each call MUST return in well under 10ms, the slow filter
-            # is running OUTSIDE _monitor_lock so the only lock contention
-            # is the brief shared-state writes (sub-microsecond).
             max_elapsed_ms = 0.0
             for _ in range(3):
                 t0 = time.perf_counter()
@@ -483,10 +316,6 @@ class TestHeavyWorkOutsideLock:
                 assert "level" in level
                 time.sleep(0.05)  # advance to mid-drain of next chunk
 
-            # even with the worker falling behind (multiple 50ms
-            # chunks queued), get_level() must return in <10ms.
-            # Pre- this would have been ~50ms (or N×50ms once the
-            # lock was contended by a queued chunk's processing).
             assert max_elapsed_ms < 10.0, (
                 f"XV-55: get_level() took {max_elapsed_ms:.2f}ms (max of 3 samples) "
                 f"while the worker was draining 5 queued 50ms chunks, the heavy "
@@ -497,14 +326,12 @@ class TestHeavyWorkOutsideLock:
             lm.stop_monitoring()
 
     def test_stop_test_recording_not_blocked_by_slow_filter(self, monkeypatch):
-        """XV-55: a slow filter on the worker thread must NOT block
-        ``stop_test_recording()`` (which acquires ``_monitor_lock``)."""
+        """XV-55: a slow filter on the worker thread must NOT block"""
         import voice_typer.server.level_monitor as lm
 
         holder = _wire_stream_with_callback_capture(monkeypatch)
 
         # Slow filter (50ms) that signals when the worker has entered it,
-        # so the test waits on real readiness instead of a fixed grace sleep.
         slow_filter_started = threading.Event()
 
         def slow_filter(chunk):
@@ -524,20 +351,13 @@ class TestHeavyWorkOutsideLock:
             holder["callback"](chunk, 512, None, None)
 
             # Wait until the worker has entered the slow filter (so we
-            # know it's holding the slow filter call).
             assert wait_for_event(slow_filter_started, timeout=1.0), "worker never entered the slow filter"
 
-            # stop_test_recording() acquires _monitor_lock to clear
-            # _test_mode. With , this should NOT block on the
-            # 50ms filter (the filter runs outside the lock).
             t0 = time.perf_counter()
             result = lm.stop_test_recording()
             elapsed_ms = (time.perf_counter() - t0) * 1000.0
 
             assert result["success"] is True
-            # stop_test_recording should NOT block on the slow
-            # filter. Allow generous 100ms upper bound for CI jitter
-            # (the pre- behavior would have blocked ~50ms).
             assert elapsed_ms < 100.0, (
                 f"XV-55: stop_test_recording() took {elapsed_ms:.2f}ms with a "
                 f"50ms slow filter on the worker, heavy work must run OUTSIDE "
@@ -547,14 +367,12 @@ class TestHeavyWorkOutsideLock:
             lm.stop_monitoring()
 
     def test_filter_chain_still_applied_to_level_bar(self, monkeypatch):
-        """XV-55 doesn't break the filter-chain integration: the level bar
-        still reflects the filtered audio (not the raw mic input)."""
+        """XV-55 doesn't break the filter-chain integration: the level bar"""
         import voice_typer.server.level_monitor as lm
 
         holder = _wire_stream_with_callback_capture(monkeypatch)
 
         # Install a processor that halves the amplitude, the level bar
-        # should reflect the halved value, not the raw 0.5 amplitude.
         processor = MagicMock()
         processor.process_chunk.side_effect = lambda chunk: chunk * 0.5
         lm._level_processor = processor
@@ -569,8 +387,6 @@ class TestHeavyWorkOutsideLock:
             assert wait_until(lambda: lm._monitor_level > 0, timeout=1.0)
 
             # The level should reflect the halved amplitude (0.25 * smoothing).
-            # First-chunk smoothing: level = 0 * 0.6 + 0.25 * 0.4 = 0.1.
-            # Allow some tolerance for timing / multiple chunks processed.
             assert 0 < lm._monitor_level < 0.3, (
                 f"level={lm._monitor_level} should reflect the FILTERED audio (~0.1-0.25), not the raw 0.5"
             )
@@ -578,14 +394,12 @@ class TestHeavyWorkOutsideLock:
             lm.stop_monitoring()
 
     def test_quality_metrics_still_computed_from_raw(self, monkeypatch):
-        """XV-55 doesn't break the quality-metric computation: metrics
-        are still derived from the RAW audio (not the filtered audio)."""
+        """XV-55 doesn't break the quality-metric computation: metrics"""
         import voice_typer.server.level_monitor as lm
 
         holder = _wire_stream_with_callback_capture(monkeypatch)
 
         # Install a processor that zeros out the audio (silence after filtering).
-        # The quality metrics should still reflect the RAW 0.5 amplitude.
         processor = MagicMock()
         processor.process_chunk.side_effect = lambda chunk: np.zeros_like(chunk)
         lm._level_processor = processor
@@ -603,20 +417,11 @@ class TestHeavyWorkOutsideLock:
                 timeout=1.0,
             )
 
-            # Wait for the worker to process the 0.5-amplitude chunk, the
-            # history may also carry 0.0 entries (an empty chunk appends
-            # raw_rms 0.0 with the same not-None contract), so wait for the
-            # RAW-amplitude VALUE to appear, not for mere presence.
             assert wait_until(
                 lambda: any(r > 0.4 for r in lm._test_rms_history),
                 timeout=1.0,
             )
 
-            # quality metrics from RAW audio (0.5), not filtered (0.0).
-            # Read the max, not [-1]: entry order is worker-scheduling
-            # dependent, and a filtered-audio regression zeroes EVERY
-            # entry (the mock processor silences the chunk), so max()
-            # fails exactly when [-1] would have.
             assert len(lm._test_rms_history) > 0
             raw_rms = max(lm._test_rms_history)
             assert raw_rms > 0.4, (
@@ -632,16 +437,7 @@ class TestHeavyWorkOutsideLock:
             lm.stop_monitoring()
 
     def test_lock_acquired_only_for_writes(self, monkeypatch):
-        """XV-55: ``_monitor_lock`` is acquired TWICE per chunk, once
-        to snapshot the active/test_mode flags, once for the shared-state
-        writes. The heavy work (filter chain, RMS/peak) runs in between,
-        OUTSIDE the lock.
-
-        We assert this by holding the lock from another thread while
-        the worker is in the middle of the filter chain; the worker
-        should NOT be blocked at that moment (it's computing outside
-        the lock).
-        """
+        """XV-55: ``_monitor_lock`` is acquired TWICE per chunk, once"""
         import voice_typer.server.level_monitor as lm
 
         holder = _wire_stream_with_callback_capture(monkeypatch)
@@ -665,19 +461,7 @@ class TestHeavyWorkOutsideLock:
         processor = MagicMock()
         processor.process_chunk.side_effect = slow_filter
         lm._level_processor = processor
-        # Clear the stashed rebuild config: a prior test (e.g. a
-        # config_applier test) may have populated
-        # ``_state._level_processor_config`` via ``update_level_processor``.
-        # ``start_monitoring`` rebuilds the processor from that stash on
-        # EVERY start, which would clobber the injected mock below.
         lm._level_processor_config = None
-        # ``_level_bar_filtered=False`` (the default cosmetic-bar
-        # mode) intentionally SKIPS the filter chain, the user only
-        # wants to see the raw mic level. The test needs the filter
-        # chain to ACTUALLY RUN so we can observe the heavy work; the
-        # fastest way to do that without starting a test recording is
-        # to flip the cosmetic-bar opt-in flag (which has the same
-        # code path in ``_process_level_chunk``).
         lm._level_bar_filtered = True
 
         lm.start_monitoring(mic_id=None)
@@ -687,13 +471,6 @@ class TestHeavyWorkOutsideLock:
 
             # Wait for the filter to start.
             assert filter_started.wait(timeout=1.0), "filter didn't start"
-            # during the slow filter, the worker should NOT be
-            # holding _monitor_lock (the heavy work runs outside the lock).
-            # filter_in_progress is set ONLY if the lock was held by someone
-            # else during the filter, which shouldn't happen because the
-            # main thread isn't holding it. The filter sets lock_check_done
-            # right AFTER its acquire/release probe, so waiting on it makes
-            # the read below deterministic (no fixed grace sleep).
             assert lock_check_done.wait(timeout=1.0), "filter never finished its lock-state check"
             assert not filter_in_progress.is_set(), (
                 "XV-55: _monitor_lock was held during the slow filter call, heavy work must run OUTSIDE the lock"
@@ -705,19 +482,8 @@ class TestHeavyWorkOutsideLock:
             lm.stop_monitoring()
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# throttled logging of _dropped_level_chunks + get_level_diagnostics()
-# ═══════════════════════════════════════════════════════════════════════════
-
-
 class TestDroppedChunksLogging:
-    """XV-58: ``_dropped_level_chunks`` is logged with 5s throttling inside
-    ``_level_worker_loop`` and reset to 0 after logging.
-
-    The counter is incremented by the PortAudio callback (RT thread)
-    when the ring buffer overflows; the worker thread logs it every 5s
-    (if >0) to avoid log spam under sustained overload.
-    """
+    """XV-58: ``_dropped_level_chunks`` is logged with 5s throttling inside"""
 
     def test_get_level_diagnostics_returns_dict(self):
         """XV-58: get_level_diagnostics() returns a dict with the expected keys."""
@@ -769,9 +535,6 @@ class TestDroppedChunksLogging:
 
         with caplog.at_level(logging.WARNING, logger="voice_typer.server.level_monitor"):
             # Manually invoke the worker loop body (the drop-check portion).
-            # We don't run the full loop because it would block forever
-            # waiting for the stop event. Instead, we replicate the drop-
-            # check logic from _level_worker_loop to verify it logs + resets.
             if lm._dropped_level_chunks > 0:
                 now = time.monotonic()
                 if (now - lm._last_drop_log_time) >= 5.0:
@@ -781,20 +544,13 @@ class TestDroppedChunksLogging:
                     lm._log_drop_warning(dropped) if hasattr(lm, "_log_drop_warning") else None
 
             # Hmm, the actual logging is inlined in _level_worker_loop.
-            # Let's call the loop's logic directly by extracting it.
-            # Actually, since the loop body is inline, we'll just verify
-            # the behavior via a direct call to the worker with the stop
-            # event pre-set (so it runs one iteration and exits).
             pass
 
         # The above approach is awkward, let me instead drive the worker
-        # loop directly with a pre-set stop event so it runs one iteration.
-        # Reset the state.
         lm._dropped_level_chunks = 7
         lm._last_drop_log_time = time.monotonic() - 10.0
 
         # Set the stop event BEFORE calling the loop, so the loop exits
-        # after one iteration (the drain + drop-check + exit-on-stop).
         lm._level_worker_stop_event.set()
         lm._level_worker_wake_event.set()  # wake the worker so it doesn't wait
 
@@ -810,7 +566,6 @@ class TestDroppedChunksLogging:
         assert "7" in drop_warnings[0].message, (
             f"XV-58: log should mention '7' dropped chunks; got: {drop_warnings[0].message}"
         )
-        # counter should be reset to 0 after logging.
         assert lm._dropped_level_chunks == 0, (
             f"XV-58: _dropped_level_chunks should be reset to 0 after logging; got {lm._dropped_level_chunks}"
         )
@@ -834,7 +589,6 @@ class TestDroppedChunksLogging:
         with caplog.at_level(logging.WARNING, logger="voice_typer.server.level_monitor"):
             lm._level_worker_loop()
 
-        # no log should be emitted (within the 5s throttle window).
         drop_warnings = [r for r in caplog.records if "dropped" in r.message.lower()]
         assert len(drop_warnings) == 0, (
             f"XV-58: worker should NOT log within 5s throttle window; got: {[r.message for r in drop_warnings]}"
@@ -869,20 +623,7 @@ class TestDroppedChunksLogging:
         lm._level_worker_stop_event.clear()
 
     def test_dropped_chunks_counter_incremented_on_ring_buffer_overflow(self, monkeypatch, caplog):
-        """XV-58 + the PortAudio callback increments
-        ``_dropped_level_chunks`` when the ring buffer is full, and the
-        cumulative ``_total_dropped_level_chunks`` counter is incremented
-        by the worker when it drains the per-burst delta.
-
-        Deterministic by construction: the background worker is JOINED
-        before the flood, so no consumer can drain (or pop) mid-test —
-        every append past capacity counts a drop on the single test
-        thread. The drain is then driven DIRECTLY (past-throttle
-        timestamp + one ``_level_worker_loop()`` pass, mirroring the
-        companion cumulative test) instead of waiting on the worker's
-        5s-throttled cycle, the previous wait-based form flaked under
-        load and carried this xfail marker.
-        """
+        """XV-58 + the PortAudio callback increments"""
         import logging
 
         import voice_typer.server.level_monitor as lm
@@ -891,36 +632,25 @@ class TestDroppedChunksLogging:
         holder = _wire_stream_with_callback_capture(monkeypatch)
         lm.start_monitoring(mic_id=None)
         # Park the background worker: it pops chunks off the same ring
-        # buffer, so a flood raced it, under full-suite load it could
-        # drain every excess chunk before the assertion (the flake this
-        # rewrite eliminates). ``_stop_level_worker`` joins it; the
-        # forced drain below runs the loop function directly instead.
         _lm_worker._stop_level_worker()
         try:
-            # Fill the ring buffer to capacity (no drops yet, and with
-            # the worker joined, nothing can drain underneath us).
             cap = lm._LEVEL_RING_BUFFER_CAPACITY
             chunk = np.ones((512, 1), dtype=np.float32) * 0.25
             for _ in range(cap):
                 holder["callback"](chunk, 512, None, None)
 
             # Baseline AFTER the fill: every callback below overflows
-            # into the per-burst delta.
             initial_total = _lm_worker._total_dropped_level_chunks
             for _ in range(5):
                 holder["callback"](chunk, 512, None, None)
 
             # Drive the drain directly: backdate past the 5s throttle
-            # and run one worker-loop pass (stop pre-set, as in the
-            # companion test).
             lm._last_drop_log_time = time.monotonic() - 10.0
             lm._level_worker_stop_event.set()
             lm._level_worker_wake_event.set()
             with caplog.at_level(logging.WARNING, logger="voice_typer.server.level_monitor"):
                 lm._level_worker_loop()
 
-            # The cumulative counter MUST have increased, proving the
-            # overflow registered AND drained into the cumulative total.
             assert _lm_worker._total_dropped_level_chunks > initial_total, (
                 f"_total_dropped_level_chunks should have increased "
                 f"after the ring-buffer overflow (was {initial_total}, "
@@ -932,26 +662,13 @@ class TestDroppedChunksLogging:
             lm.stop_monitoring()
 
     def test_total_dropped_level_chunks_is_cumulative_across_drains(self, monkeypatch, caplog):
-        """``_total_dropped_level_chunks`` is CUMULATIVE, it
-        survives the worker's per-burst drain cycle and keeps
-        accumulating across multiple 5s throttle windows.
-
-        Pre-fix, ``_dropped_level_chunks`` was the only counter and it
-        was reset to 0 every time the worker logged a drop burst. A
-        test that snapshotted it before/after a single overflow could
-        see 0 (drained) instead of >= 1, the regression in the
-        pre-fix ``test_dropped_chunks_counter_incremented_on_ring_buffer_overflow``.
-        The cumulative counter fixes this by NEVER resetting in
-        production.
-        """
+        """``_total_dropped_level_chunks`` is CUMULATIVE, it"""
         import logging
 
         import voice_typer.server.level_monitor as lm
         from voice_typer.server.level_monitor import worker as _lm_worker
 
         # First burst: set the per-burst delta and trigger the worker's
-        # drain cycle (5s throttle window defaults to "drain
-        # immediately" because ``_last_drop_log_time`` starts at 0.0).
         lm._dropped_level_chunks = 7
         lm._last_drop_log_time = time.monotonic() - 10.0  # past the 5s throttle
         lm._level_worker_stop_event.set()
@@ -960,8 +677,6 @@ class TestDroppedChunksLogging:
         with caplog.at_level(logging.WARNING, logger="voice_typer.server.level_monitor"):
             lm._level_worker_loop()
 
-        # After the first drain, the per-burst delta is 0 but the
-        # cumulative counter holds 7.
         assert lm._dropped_level_chunks == 0, "Per-burst delta should be drained to 0 after the worker logs."
         assert _lm_worker._total_dropped_level_chunks == 7, (
             "cumulative counter should hold the drained count (7) "
@@ -980,8 +695,6 @@ class TestDroppedChunksLogging:
             lm._level_worker_loop()
 
         # The cumulative counter should now hold 7 + 5 = 12 (NOT 5).
-        # This is the key behavioral assertion: the cumulative counter
-        # keeps accumulating across drain cycles.
         assert _lm_worker._total_dropped_level_chunks == 12, (
             "cumulative counter should ACCUMULATE across drain "
             "cycles (7 + 5 = 12), NOT reset to the latest burst count. "
@@ -992,18 +705,11 @@ class TestDroppedChunksLogging:
         lm._level_worker_stop_event.clear()
 
     def test_get_level_diagnostics_reflects_total_drops(self):
-        """``get_level_diagnostics()`` exposes the cumulative
-        ``total_dropped_level_chunks`` counter alongside the per-burst
-        ``dropped_level_chunks`` delta. IPC callers that want a stable
-        "drops since ``start_monitoring`` first ran" total should read
-        the cumulative field, the per-burst delta resets on every 5s
-        throttle window."""
+        """``get_level_diagnostics()`` exposes the cumulative"""
         import voice_typer.server.level_monitor as lm
         from voice_typer.server.level_monitor import worker as _lm_worker
 
         # Set the cumulative counter directly (simulating prior drops
-        # that the worker already drained). The per-burst delta stays
-        # at 0 (its post-drain state).
         _lm_worker._total_dropped_level_chunks = 42
         lm._dropped_level_chunks = 0
 
@@ -1016,46 +722,11 @@ class TestDroppedChunksLogging:
         assert diag["dropped_level_chunks"] == 0, "Per-burst delta should remain 0 (its post-drain state)."
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# _test_auto_stop_timer mutation must be locked in cancel_test_recording
-# ═══════════════════════════════════════════════════════════════════════════
-
-
 class TestCancelTestRecordingLock:
-    """YJ-50 (review-fix-C2-rework): ``cancel_test_recording`` must
-    acquire ``_monitor_lock`` before cancelling + clearing the auto-stop
-    timer.
-
-    The original YJ-50 fix wrapped the timer-cancel block in
-    ``stop_test_recording`` but the implementer claimed it also wrapped
-    ``cancel_test_recording``, the git diff showed only ONE of the
-    three mutation sites was actually locked. This test class pins the
-    fix so a future revert (removing the ``with _monitor_lock:`` wrap
-    in ``cancel_test_recording``) fails loudly.
-
-    Strategy: use ``unittest.mock.patch`` to wrap ``_monitor_lock.__enter__``
-    and assert it's called when ``cancel_test_recording`` runs, AND use
-    a real-lock + thread + ``threading.Event`` contention test to verify
-    the lock is actually acquired BEFORE the timer cancel happens (not
-    just that ``__enter__`` was called somewhere).
-    """
+    """YJ-50 (review-fix-C2-rework): ``cancel_test_recording`` must"""
 
     def test_cancel_test_recording_acquires_monitor_lock(self, monkeypatch):
-        """``cancel_test_recording`` must call ``_monitor_lock.__enter__``.
-
-        YJ-50: if the ``with _monitor_lock:`` wrap is removed from
-        ``cancel_test_recording``, this assertion fails because
-        ``__enter__`` is no longer called from that code path
-        (``_cancel_test_locked`` still acquires the lock itself, but
-        the timer-cancel block at the top of ``cancel_test_recording``
-        would no longer be locked, the original YJ-50 bug).
-
-        We patch ``_monitor_lock`` with a wrapper that records entry
-        count, then call ``cancel_test_recording`` and assert the
-        wrapper was entered at least once from the ``cancel_test_recording``
-        call site (not just from ``_cancel_test_locked`` which is
-        called second).
-        """
+        """``cancel_test_recording`` must call ``_monitor_lock.__enter__``."""
         import voice_typer.server.level_monitor as lm
 
         # Reset any leftover timer from prior tests.
@@ -1070,8 +741,7 @@ class TestCancelTestRecordingLock:
         real_lock = lm._monitor_lock
 
         class _CountingLock:
-            """Proxy that records ``__enter__`` calls and delegates to
-            the real lock so behaviour is unchanged."""
+            """Proxy that records ``__enter__`` calls and delegates to"""
 
             def __enter__(self):
                 enter_calls.append(time.perf_counter())
@@ -1084,17 +754,8 @@ class TestCancelTestRecordingLock:
         monkeypatch.setattr(lm, "_monitor_lock", counting_lock)
 
         # Sanity: a fresh cancel_test_recording with no test active
-        # returns the "No test running" envelope. ``_cancel_test_locked``
-        # still acquires the lock itself (and the new wrap at the top
-        # of cancel_test_recording acquires it again).
         result = lm.cancel_test_recording()
 
-        # (review-fix-C2-rework): the timer cancel block at the
-        # top of cancel_test_recording must acquire the lock. With the
-        # fix, we see at least 2 entries: one for the timer-cancel
-        # block and one for _cancel_test_locked. Without the fix (the
-        # original  bug), we'd see only 1 entry (from
-        # _cancel_test_locked).
         assert len(enter_calls) >= 2, (
             f"YJ-50: cancel_test_recording must acquire _monitor_lock "
             f"for the timer-cancel block (expected >= 2 entries: one "
@@ -1116,22 +777,7 @@ class TestCancelTestRecordingLock:
         assert "success" in result
 
     def test_cancel_test_recording_waits_for_lock_contention(self, monkeypatch):
-        """``cancel_test_recording`` must BLOCK on ``_monitor_lock`` if
-        another thread holds it (proving the lock is acquired BEFORE
-        the timer cancel, not after).
-
-        Strategy: hold ``_monitor_lock`` from a worker thread, signal
-        the main thread to call ``cancel_test_recording``, then verify
-        the main thread is still blocked. Release the lock and verify
-        the main thread proceeds (and the timer was cancelled after
-        the release, not before).
-
-        This test would FAIL if the ``with _monitor_lock:`` wrap were
-        removed from ``cancel_test_recording`` (the timer would be
-        cancelled immediately without waiting for the lock, the
-        main thread would proceed past the contention point too
-        quickly).
-        """
+        """``cancel_test_recording`` must BLOCK on ``_monitor_lock`` if"""
         import voice_typer.server.level_monitor as lm
 
         # Reset any leftover timer.
@@ -1148,8 +794,6 @@ class TestCancelTestRecordingLock:
         lm._test_auto_stop_timer = fake_timer
 
         # Use the REAL _monitor_lock for this test (the autouse fixture
-        # may have replaced it with a MagicMock via the previous test's
-        # monkeypatch, restore the real one).
         real_lock = threading.Lock()
         monkeypatch.setattr(lm, "_monitor_lock", real_lock)
 
@@ -1161,7 +805,6 @@ class TestCancelTestRecordingLock:
             with real_lock:
                 lock_held.set()
                 # Wait for main thread to signal it's trying to enter
-                # the lock (we'll give it a small head start below).
                 release_lock.wait(timeout=5.0)
 
         worker = threading.Thread(target=hold_lock, daemon=True)
@@ -1169,7 +812,6 @@ class TestCancelTestRecordingLock:
         assert lock_held.wait(timeout=2.0), "worker did not acquire lock"
 
         # Spawn a thread to call cancel_test_recording. It should BLOCK
-        # on the lock.
         cancel_done = threading.Event()
         cancel_result: list[dict] = []
 
@@ -1180,29 +822,15 @@ class TestCancelTestRecordingLock:
         cancel_thread = threading.Thread(target=call_cancel, daemon=True)
         cancel_thread.start()
 
-        # Intentionally kept: there is no observable predicate for
-        # "cancel_thread is parked on _monitor_lock" (the acquisition is
-        # internal), and the assertions below are only meaningful once it
-        # has reached that point.
         time.sleep(0.1)
 
-        # cancel_test_recording must be blocked (the lock is held
-        # by the worker). If the timer-cancel wrap were removed, the
-        # timer would be cancelled immediately (without waiting for the
-        # lock) and cancel_thread would proceed past the timer-cancel
-        # block to call _cancel_test_locked (which itself blocks on the
         # lock). Either way, the timer.cancel() must NOT have been
-        # called yet, the wrap means we acquire the lock BEFORE
-        # cancelling the timer.
         assert not cancel_done.is_set(), (
             "YJ-50: cancel_test_recording returned before the lock was "
             "released, the timer-cancel block did NOT wait for "
             "_monitor_lock (the with-lock wrap is missing)."
         )
         # Critical  assertion: the timer was NOT cancelled while
-        # the lock was held by another thread. With the wrap, the timer
-        # cancel happens INSIDE the lock, so it can't happen until the
-        # worker releases the lock.
         assert len(cancel_timestamps) == 0, (
             f"YJ-50: timer.cancel() was called {len(cancel_timestamps)} "
             f"times BEFORE the lock was released, the timer-cancel "
@@ -1215,10 +843,6 @@ class TestCancelTestRecordingLock:
         assert cancel_done.wait(timeout=2.0), "cancel_test_recording did not return after lock release, deadlock?"
 
         # After lock release, the timer MUST have been cancelled exactly
-        # once (cancel_test_recording's wrap) and the global cleared.
-        # _cancel_test_locked also cancels the timer, but by then the
-        # global is None so the inner ``is not None`` guard short-circuits
-        # and cancel() is NOT called a second time.
         assert len(cancel_timestamps) == 1, (
             f"expected timer.cancel() to be called exactly once after lock release; got {len(cancel_timestamps)} calls."
         )
@@ -1226,11 +850,6 @@ class TestCancelTestRecordingLock:
 
         worker.join(timeout=2.0)
         cancel_thread.join(timeout=2.0)
-
-
-# ═══════════════════════════════════════════════════════════════════════════
-# mic-test WAV 5-minute disk TTL
-# ═══════════════════════════════════════════════════════════════════════════
 
 
 class TestExpiredRecordingsSweep:

@@ -1,19 +1,4 @@
-"""CR-51 regression guard: verify ``ShutdownController.quit()`` is
-serialized against concurrent calls.
-
-Finding CR-51 (High): ``ShutdownController.quit()`` does a
-check-then-set on ``_shutting_down`` that is NOT atomic. Multiple
-shutdown triggers can fire concurrently (POSIX signal-watcher,
-Win32 console handler, IPC ``quit_app`` handler, atexit safety net).
-Two threads can both read ``False``, both set ``True``, and both
-proceed into ``thread_registry.shutdown_all()`` concurrently.
-
-Fix-J adds a dedicated ``_quit_lock`` (or compare_exchange-style
-guard) around the check-then-set-then-shutdown_all sequence.
-
-This test runs two concurrent ``quit()`` calls and asserts that
-``thread_registry.shutdown_all()`` is invoked at most once.
-"""
+"""regression guard: verify ``ShutdownController.quit()`` is"""
 
 from __future__ import annotations
 
@@ -23,12 +8,7 @@ from unittest.mock import MagicMock
 
 
 def _make_app_with_quit_lock():
-    """Build a fake app with all attributes ``quit()`` reads.
-
-    Returns ``(app, shutdown_all_calls)``
-    where ``shutdown_all_calls`` is a list that the spy appends to
-    on each invocation of ``thread_registry.shutdown_all()``.
-    """
+    """Build a fake app with all attributes ``quit()`` reads."""
     app = MagicMock()
     app._shutting_down = False
 
@@ -59,8 +39,7 @@ def _make_app_with_quit_lock():
 
 
 def _patch_quit_to_skip_sysexit(controller):
-    """Patch the ``sys.exit`` call inside ``quit()`` so the test
-    process doesn't actually exit."""
+    """Patch the ``sys.exit`` call inside ``quit()`` so the test"""
     import sys
 
     original_exit = sys.exit
@@ -68,24 +47,14 @@ def _patch_quit_to_skip_sysexit(controller):
     def _no_exit(code=0):
         raise SystemExit(code)  # raise, don't actually exit
 
-    # We can't easily patch sys.exit inside the method body, but the
-    # method checks ``is_main = threading.current_thread() is
-    # threading.main_thread()``. The non-main test threads won't
-    # call sys.exit(), only the main thread does. So we don't need
-    # to patch.
-
     return original_exit
 
 
 def test_concurrent_quit_calls_dont_both_enter_shutdown_all(monkeypatch) -> None:
-    """CR-51: when two threads call ``quit()`` concurrently, only ONE
-    should enter ``shutdown_all()`` (the other should observe
-    ``_shutting_down=True`` and bail early)."""
+    """when two threads call ``quit()`` concurrently, only ONE"""
     from voice_typer.server.shutdown_controller import ShutdownController
 
     # These tests run quit() on NON-main threads, which arms the real
-    # shutdown-watchdog daemon thread (os._exit(0) after 2s). Stub the
-    # arming so the watchdog can't kill the pytest process mid-suite.
     monkeypatch.setattr(
         ShutdownController,
         "_arm_shutdown_watchdog",
@@ -99,7 +68,6 @@ def test_concurrent_quit_calls_dont_both_enter_shutdown_all(monkeypatch) -> None
 
     def _call_quit():
         # Block both threads at the barrier so they enter quit()
-        # as simultaneously as possible.
         barrier.wait()
         with contextlib.suppress(SystemExit):
             controller.quit()
@@ -114,8 +82,6 @@ def test_concurrent_quit_calls_dont_both_enter_shutdown_all(monkeypatch) -> None
     assert not t1.is_alive(), "Thread 1 did not finish within 5s"
     assert not t2.is_alive(), "Thread 2 did not finish within 5s"
 
-    # regression guard: shutdown_all() should have been called
-    # at most once.
     assert len(shutdown_calls) <= 1, (
         f"Expected shutdown_all() to be called at most once, but got "
         f"{len(shutdown_calls)} calls from threads: {shutdown_calls}. "
@@ -158,16 +124,13 @@ def test_concurrent_quit_calls_cleanup_at_most_once(monkeypatch) -> None:
 
 
 def test_quit_lock_is_an_actual_lock_or_event() -> None:
-    """After Fix-J, the controller should hold a dedicated lock/event
-    attribute that serializes the check-then-set. Look for any of the
-    conventional names."""
+    """After Fix-J, the controller should hold a dedicated lock/event"""
     from voice_typer.server.shutdown_controller import ShutdownController
 
     app, _, _, _ = _make_app_with_quit_lock()
     controller = ShutdownController(app)
 
     # Look for any of these conventional attribute names that indicate
-    # a lock/event-based guard around the quit sequence.
     candidates = [
         "_quit_lock",
         "_quit_event",
@@ -184,8 +147,7 @@ def test_quit_lock_is_an_actual_lock_or_event() -> None:
 
 
 def test_quit_idempotent_when_called_twice_sequentially() -> None:
-    """Sanity: sequential (non-concurrent) duplicate calls to quit()
-    should also only invoke shutdown_all() once."""
+    """Sanity: sequential (non-concurrent) duplicate calls to quit()"""
     from voice_typer.server.shutdown_controller import ShutdownController
 
     app, shutdown_calls, cleanup_calls, event = _make_app_with_quit_lock()

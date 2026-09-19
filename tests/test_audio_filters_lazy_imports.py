@@ -1,31 +1,4 @@
-"""Tests for SU-8 / SU-11 / SU-31: lazy numpy/scipy imports + pre-allocated buffers.
-
-Three guarantees are asserted here:
-
-(a) ``import voice_typer.server.audio_filters`` does NOT pull numpy or
-    scipy into ``sys.modules``. This is the cold-start optimization —
-    the audio_filters package (and every filter class definition) must
-    load without paying the ~250-335ms numpy import cost or the ~700ms
-    scipy import cost. numpy/scipy are deferred to the first
-    ``process()`` call (which happens ~1s after dictation begins, well
-    outside the cold-start window). Verified in a clean subprocess so
-    the assertion is not contaminated by other tests that already
-    imported numpy/scipy in the same process.
-
-(b) ``Equalizer.process()`` with pre-allocated b/a/zi buffers (SU-11)
-    produces byte-identical output to a fresh-allocation reference
-    implementation. The reference replicates the pre-optimization
-    algorithm exactly (inline ``[lf]`` / ``[1.0, -(1-lf)]`` lists +
-    ``np.array([state])`` zi construction) so any drift introduced by
-    the pre-allocated buffers is caught as a byte mismatch.
-
-(c) ``NoiseGate.process()`` with pre-allocated abs_x / i_arr /
-    y_with_init / attenuation_arr buffers (SU-31) produces byte-identical
-    output to a fresh-allocation reference implementation. The reference
-    replicates the pre-optimization peak-hold + state-machine algorithm
-    exactly so any drift introduced by the in-place copyto/abs/multiply
-    pattern is caught as a byte mismatch.
-"""
+"""Tests for SU-8 / SU-11 / SU-31: lazy numpy/scipy imports + pre-allocated buffers."""
 
 from __future__ import annotations
 
@@ -36,24 +9,14 @@ from pathlib import Path
 import numpy as np
 
 # These imports pull numpy/scipy into the test process's sys.modules,
-# but assertion (a) runs in a clean subprocess so that is fine.
 from scipy.signal import lfilter as _scipy_lfilter
 from voice_typer.server.audio_filters import Equalizer, NoiseGate
-
-# ═══════════════════════════════════════════════════════════════════════════
-# (a) Module import must not pull numpy / scipy
-# ═══════════════════════════════════════════════════════════════════════════
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 
 def test_import_audio_filters_does_not_pull_numpy_or_scipy() -> None:
-    """``import voice_typer.server.audio_filters`` stays lazy.
-
-    Runs in a clean subprocess so the assertion is not contaminated by
-    numpy/scipy having been imported earlier in the same pytest process
-    (which is the case for every other test in this file).
-    """
+    """``import voice_typer.server.audio_filters`` stays lazy."""
     result = subprocess.run(
         [
             sys.executable,
@@ -111,23 +74,12 @@ def test_import_audio_filters_submodules_do_not_pull_numpy_or_scipy() -> None:
     assert "OK" in result.stdout
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# (b) Equalizer.process() byte-identical to fresh-allocation reference
-# ═══════════════════════════════════════════════════════════════════════════
-
-
 def _equalizer_reference_process(
     eq: Equalizer,
     audio: np.ndarray,
     sample_rate: int,
 ) -> np.ndarray:
-    """Fresh-allocation reference (mirrors the pre-SU-11 process body).
-
-    Uses inline ``[lf]`` / ``[1.0, -(1-lf)]`` Python lists and
-    ``np.array([state])`` zi construction, exactly the code path that
-    allocated fresh arrays per call before SU-11 pre-allocated the b/a
-    coefficient arrays and zi buffers in ``__init__``.
-    """
+    """Fresh-allocation reference (mirrors the pre-SU-11 process body)."""
     samples = np.ravel(audio).astype(np.float32, copy=False)
     n = len(samples)
     if n == 0:
@@ -206,11 +158,6 @@ class TestEqualizerByteIdentical:
             assert out_opt is not None
             np.testing.assert_array_equal(out_opt, out_ref)
             # Carry the state forward identically for the reference.
-            # We do this by reading the optimized filter's post-process
-            # state and copying it into the reference filter so both
-            # start the next chunk from the same state. (The optimized
-            # filter's state IS the reference, if they diverge here,
-            # the next chunk's output will differ and the test fails.)
             eq_ref._delay1 = eq_opt._delay1
             eq_ref._delay2 = eq_opt._delay2
             eq_ref._delay3 = eq_opt._delay3
@@ -242,23 +189,12 @@ class TestEqualizerByteIdentical:
         assert eq._delay_buf.dtype == np.float64
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# (c) NoiseGate.process() byte-identical to fresh-allocation reference
-# ═══════════════════════════════════════════════════════════════════════════
-
-
 def _noise_gate_reference_process(
     gate: NoiseGate,
     audio: np.ndarray,
     sample_rate: int,
 ) -> np.ndarray:
-    """Fresh-allocation reference (mirrors the pre-SU-31 process body).
-
-    Uses ``np.abs(samples).astype(np.float64)``, ``np.arange(n)``,
-    ``np.empty(n + 1)``, and ``np.empty(n)``, exactly the code path
-    that allocated 4 fresh arrays per call before SU-31 pre-allocated
-    the reusable buffers.
-    """
+    """Fresh-allocation reference (mirrors the pre-SU-31 process body)."""
     samples = np.ravel(audio).astype(np.float32, copy=False)
     n = len(samples)
     if n == 0:
@@ -266,8 +202,6 @@ def _noise_gate_reference_process(
     dt = 1.0 / sample_rate
 
     if not gate._calibrated:
-        # Calibration branch is unchanged by, replicate it for
-        # completeness so the reference is correct when adaptive=True.
         remaining = gate._calibration_target - gate._calibration_count
         if remaining > 0:
             take = min(remaining, len(samples))
@@ -324,7 +258,6 @@ def _noise_gate_reference_process(
 
     output = (samples.astype(np.float64) * attenuation_arr).astype(np.float32)
     # NOTE: we do NOT mutate gate state here, the caller is responsible
-    # for syncing state between optimized and reference instances.
     return output.reshape(audio.shape)
 
 

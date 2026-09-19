@@ -1,16 +1,4 @@
-"""Tests for voice_typer.server.vocabulary_automation: P5 confidence-based suggestions.
-
-These tests cover the VocabularyAutomation class and its helpers:
-  * CorrectionSuggestion dataclass
-  * _levenshtein helper
-  * analyze_transcription (low-confidence + vocabulary-match signals)
-  * apply_suggestion / dismiss_suggestion / get_pending_suggestions
-  * auto_apply_high_confidence_suggestions
-  * Respects the ``vocabulary_automation_enabled`` config flag.
-
-The tests use a real VocabularyManager with a temp config dir so the
-vocabulary CRUD side-effects (file writes) don't leak to disk.
-"""
+"""Tests for voice_typer.server.vocabulary_automation: P5 confidence-based suggestions."""
 
 from __future__ import annotations
 
@@ -18,8 +6,6 @@ import json
 from types import SimpleNamespace
 
 import pytest
-
-# ─── Fixtures ───────────────────────────────────────────────────────────────
 
 
 @pytest.fixture
@@ -70,9 +56,6 @@ def automation(vm, config):
     return VocabularyAutomation(vm, config)
 
 
-# ─── _levenshtein helper ────────────────────────────────────────────────────
-
-
 class TestLevenshtein:
     def test_identical_strings(self):
         from voice_typer.server.vocabulary_automation import _levenshtein
@@ -97,7 +80,6 @@ class TestLevenshtein:
     def test_classic_example(self):
         from voice_typer.server.vocabulary_automation import _levenshtein
 
-        # kitten → sitting: 3 edits (k→s, e→i, +g)
         assert _levenshtein("kitten", "sitting") == 3
 
     def test_bounded_short_circuit(self):
@@ -118,9 +100,6 @@ class TestLevenshtein:
         assert _levenshtein("", "abc") == 3
         assert _levenshtein("abc", "") == 3
         assert _levenshtein("", "") == 0
-
-
-# ─── CorrectionSuggestion dataclass ─────────────────────────────────────────
 
 
 class TestCorrectionSuggestion:
@@ -145,9 +124,6 @@ class TestCorrectionSuggestion:
         assert d["timestamp"] == 12345.0
 
 
-# ─── analyze_transcription ──────────────────────────────────────────────────
-
-
 class TestAnalyzeTranscription:
     def test_analyze_transcription_flags_low_confidence_words(self, automation):
         """Words with confidence below the threshold should be flagged."""
@@ -163,13 +139,7 @@ class TestAnalyzeTranscription:
             assert s.confidence < 0.7
 
     def test_analyze_transcription_suggests_vocabulary_matches(self, automation, vm):
-        """Words close to a vocabulary entry should be suggested as corrections.
-
-        We add a vocabulary entry "definitely" and feed in "definately"
-        (a common misspelling).  Even with high confidence (so the
-        low-confidence branch doesn't fire), the Levenshtein-match
-        branch should suggest the correction.
-        """
+        """Words close to a vocabulary entry should be suggested as corrections."""
         vm.add_entry("misspellings", "definately", "definitely")
         # Re-create automation so it sees the updated vocabulary.
         from voice_typer.server.vocabulary_automation import VocabularyAutomation
@@ -187,8 +157,6 @@ class TestAnalyzeTranscription:
             confidence=0.95,  # high confidence, low-confidence branch won't fire
         )
         # Should have flagged "definately" via the Levenshtein-match
-        # branch (since the user has explicitly added this correction
-        # to the vocabulary).
         matches = [s for s in suggestions if s.original == "definately"]
         assert len(matches) >= 1
         assert matches[0].corrected == "definitely"
@@ -228,8 +196,6 @@ class TestAnalyzeTranscription:
     def test_analyze_transcription_uses_segment_confidence(self, automation):
         """Per-segment confidence should override the global confidence."""
         # Build segments where the first segment has high confidence
-        # and the second has low confidence.  Only words from the
-        # second segment should be flagged.
         segments = [
             {"text": "hello world", "avg_logprob": -0.05},  # exp(-0.05) ≈ 0.95
             {"text": "suspicious word", "avg_logprob": -1.5},  # exp(-1.5) ≈ 0.22
@@ -245,9 +211,6 @@ class TestAnalyzeTranscription:
         assert "word" in flagged
         assert "hello" not in flagged
         assert "world" not in flagged
-
-
-# ─── apply_suggestion ───────────────────────────────────────────────────────
 
 
 class TestApplySuggestion:
@@ -304,11 +267,7 @@ class TestApplySuggestion:
         automation.apply_suggestion(suggestion)
         miss = vm.get_category("misspellings")
         # The original bundled "teh" → "the" entry is still there,
-        # plus no duplicates.
         assert miss.get("teh") == "the"
-
-
-# ─── dismiss_suggestion ─────────────────────────────────────────────────────
 
 
 class TestDismissSuggestion:
@@ -348,9 +307,6 @@ class TestDismissSuggestion:
         assert "definately" not in miss or miss.get("definately") != "definitely"
 
 
-# ─── get_pending_suggestions ────────────────────────────────────────────────
-
-
 class TestGetPendingSuggestions:
     def test_returns_copy_not_internal_list(self, automation):
         """get_pending_suggestions should return a copy so callers can't mutate internals."""
@@ -368,9 +324,6 @@ class TestGetPendingSuggestions:
         pending.clear()  # mutate the returned list
         # Internal list should be unaffected.
         assert len(automation._pending) == 1
-
-
-# ─── auto_apply_high_confidence_suggestions ────────────────────────────────
 
 
 class TestAutoApplyHighConfidence:
@@ -408,11 +361,7 @@ class TestAutoApplyHighConfidence:
         assert "definately" not in pending_originals
 
     def test_auto_apply_skips_no_match_suggestions(self, automation, vm):
-        """Suggestions where corrected == original should NOT be auto-applied.
-
-          These represent "low-confidence word with no vocabulary match"
-        , the user needs to supply the correction themselves.
-        """
+        """Suggestions where corrected == original should NOT be auto-applied."""
         from voice_typer.server.vocabulary_automation import CorrectionSuggestion
 
         s = CorrectionSuggestion(
@@ -428,9 +377,6 @@ class TestAutoApplyHighConfidence:
         # Should still be pending.
         pending = automation.get_pending_suggestions()
         assert any(p.original == "xyzzy" for p in pending)
-
-
-# ─── Disabled-flag integration ──────────────────────────────────────────────
 
 
 class TestRespectsDisabledFlag:

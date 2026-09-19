@@ -1,21 +1,9 @@
-"""Property-based tests for streaming.py using hypothesis.
-
-TEST-009: Property-based tests for streaming, random word timings,
-verify committed_text is always sorted and non-empty when words are added.
-"""
+"""Property-based tests for streaming.py using hypothesis."""
 
 from __future__ import annotations
 
 import pytest
 
-# single-assignment pytestmark. The previous code first set
-# ``pytestmark = pytest.mark.skipif(True, ...)`` then reassigned it to
-# ``pytest.mark.skipif(False, ...)`` inside the ``try`` block if
-# hypothesis imported cleanly. The reassignment worked but was
-# confusing, the two-stage pattern read as "always skip first, then
-# maybe un-skip". The single-assignment form below is equivalent and
-# clearer: detect hypothesis up front, then set the skipif mark based
-# on the result.
 try:
     from hypothesis import HealthCheck, given, settings, strategies as st
 
@@ -70,36 +58,18 @@ if HAS_HYPOTHESIS:
         @given(words=st.lists(word_timing_strategy(), min_size=1, max_size=50))
         @settings(max_examples=50, suppress_health_check=[HealthCheck.too_slow])
         def test_committed_text_sorted_by_time(self, words):
-            """Words in committed_text should be ordered by start_seconds.
-
-              TEST-009: Pre-fix this test only asserted ``isinstance(result, str)``
-            , the docstring promised sort-order verification but the body
-              delivered a type check. Now we verify the actual chronological
-              order by comparing the emitted word sequence against the input
-              sorted by ``start_seconds``.
-            """
+            """Words in committed_text should be ordered by start_seconds."""
             assembler = StreamingTextAssembler()
             for wt in words:
                 assembler.add_words([wt], commit_horizon_seconds=wt.end_seconds + 1.0)
             result = assembler.committed_text
             assert isinstance(result, str)
 
-            # verify sort order. The committed_text joins words
-            # with spaces; we split to get the word sequence and compare
-            # against the input sorted by the same key the assembler uses:
-            # (start_seconds, end_seconds).
             emitted_words = result.split()
-            # Build expected order: sort input words by the same key the
-            # assembler uses ((start_seconds, end_seconds)) then extract
-            # the .word field. This handles the case where two words share
-            # the same start_seconds (the assembler breaks ties by
-            # end_seconds).
             sorted_input = sorted(words, key=lambda w: (w.start_seconds, w.end_seconds))
             # Extract expected word texts (strip to match assembler's strip())
             expected_words = [w.word.strip() for w in sorted_input if w.word.strip()]
             # The assembler may deduplicate, so the emitted list may be
-            # shorter. Verify that every emitted word appears in the
-            # expected list AND in the same relative order.
             expected_idx = 0
             for emitted in emitted_words:
                 # Find this word in the remaining expected list

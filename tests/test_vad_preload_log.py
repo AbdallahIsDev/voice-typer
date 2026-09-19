@@ -1,17 +1,4 @@
-"""Tests for the merged Silero VAD preload log lines.
-
-``vad.preload()`` emits ONE INFO line covering both the model load and
-the warm-up (they are one event):
-
-- success → ``[VAD] Silero VAD model loaded from local ONNX, preloaded
-  + warmed <duration>``
-- warm-up failure → ``[VAD] Silero VAD model loaded from local ONNX,
-  not warmed``
-- repeat call → no second INFO (guarded by ``_preload_warmed_logged``).
-
-The old behavior logged "loaded from local ONNX" AND "preloaded +
-warmed" as two separate INFO lines for the same startup event.
-"""
+"""Tests for the merged Silero VAD preload log lines."""
 
 from __future__ import annotations
 
@@ -70,8 +57,7 @@ def test_repeat_call_does_not_duplicate_info(caplog, _fake_model):
 
 
 def test_lazy_load_path_no_longer_logs_info(caplog, _fake_model):
-    """``_load_model()`` demoted to DEBUG, the merged preload line is
-    the single INFO marker, so a plain load must not emit one."""
+    """``_load_model()`` demoted to DEBUG, the merged preload line is"""
     with caplog.at_level(logging.DEBUG, logger=vad.log.name):
         session, _names = vad._load_model()
     assert session is not None

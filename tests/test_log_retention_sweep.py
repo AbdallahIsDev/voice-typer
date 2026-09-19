@@ -1,29 +1,4 @@
-"""Tests for ``_sweep_stale_logs``: the three-tier log cleanup design.
-
-Tiers:
-  1. AGE (primary): at session start, any log file in ``logs/`` whose
-     last write is older than ``LOG_AGE_RETENTION_SECONDS`` (7 days) is
-     deleted.
-  2. SIZE FALLBACK: at session start, any log file larger than
-     ``LOG_SIZE_FALLBACK_BYTES`` (25 MB) is deleted even if freshly
-     written.
-  3. MID-SESSION HARD CEILING: the file handlers truncate in place at
-     ``LOG_MAX_BYTES`` (40 MB), covered by the handler tests, not here.
-
-The sweep runs at the TOP of ``setup_logging``, BEFORE the rotating
-file handler opens ``voice-typer.log``, so the active file itself can
-be deleted when stale/oversized ("cleans everything up and starts
-fresh"). These tests pin:
-
-1. Files older than the age cutoff are deleted (any name, active or
-   rotation).
-2. Files newer than the cutoff are kept.
-3. Oversized files are deleted even when freshly written (Tier 2).
-4. Files under both thresholds are kept.
-5. Lock files (``*.lock``) are NEVER deleted.
-6. ``setup_logging`` invokes the sweep before opening the log file.
-7. A missing/empty logs dir is a no-op (no crash).
-"""
+"""Tests for ``_sweep_stale_logs``: the three-tier log cleanup design."""
 
 from __future__ import annotations
 
@@ -75,9 +50,7 @@ def test_keeps_recent_log_files(tmp_path: Path) -> None:
 
 
 def test_deletes_stale_active_log(tmp_path: Path) -> None:
-    """The active ``voice-typer.log`` IS deleted when older than the
-    retention, the sweep runs before the handler opens it, so a stale
-    session's log is removed and a fresh one created ("starts fresh")."""
+    """retention, the sweep runs before the handler opens it, so a stale"""
     active = _logs_dir(tmp_path) / "voice-typer.log"
     active.write_text("stale session", encoding="utf-8")
     _set_mtime_days_ago(active, days=8)
@@ -100,11 +73,9 @@ def test_keeps_fresh_active_log(tmp_path: Path) -> None:
 
 
 def test_size_fallback_deletes_oversized_fresh_file(tmp_path: Path) -> None:
-    """Tier 2: a freshly-written file larger than the size fallback is
-    deleted even though its age is well within retention."""
+    """Tier 2: a freshly-written file larger than the size fallback is"""
     oversized = _logs_dir(tmp_path) / "voice-typer.log"
     oversized.write_bytes(b"x" * (LOG_SIZE_FALLBACK_BYTES + 1))
-    # mtime is NOW (freshly written), only size triggers the delete.
 
     vt_log._sweep_stale_logs(tmp_path)
 
@@ -112,8 +83,7 @@ def test_size_fallback_deletes_oversized_fresh_file(tmp_path: Path) -> None:
 
 
 def test_size_fallback_keeps_file_under_cap(tmp_path: Path) -> None:
-    """A file between the fallback and the ceiling but under the
-    fallback... i.e. under LOG_SIZE_FALLBACK_BYTES, kept."""
+    """A file between the fallback and the ceiling but under the"""
     under = _logs_dir(tmp_path) / "voice-typer.log"
     under.write_bytes(b"x" * (LOG_SIZE_FALLBACK_BYTES - 1024))
 
@@ -123,10 +93,7 @@ def test_size_fallback_keeps_file_under_cap(tmp_path: Path) -> None:
 
 
 def test_ceiling_above_fallback_invariant() -> None:
-    """Ordering invariant: the mid-session hard ceiling (40 MB) must be
-    strictly above the session-start size fallback (25 MB) so a file the
-    ceiling truncates mid-session is always caught by the fallback at
-    the next startup."""
+    """Ordering invariant: the mid-session hard ceiling (40 MB) must be"""
     assert LOG_MAX_BYTES > LOG_SIZE_FALLBACK_BYTES, "Tier-3 ceiling must exceed the Tier-2 fallback"
 
 
@@ -180,8 +147,7 @@ def test_empty_dir_is_noop(tmp_path: Path) -> None:
 
 
 def test_setup_logging_invokes_sweep(tmp_path: Path, monkeypatch) -> None:
-    """``setup_logging`` calls ``_sweep_stale_logs`` once at startup,
-    BEFORE the file handler opens the log file."""
+    """``setup_logging`` calls ``_sweep_stale_logs`` once at startup,"""
     monkeypatch.delenv("VOICE_TYPER_LOG_JSON", raising=False)
     vt_log.reset()
 
@@ -212,10 +178,7 @@ def test_setup_logging_invokes_sweep(tmp_path: Path, monkeypatch) -> None:
 
 
 def test_sweep_runs_before_handler_opens_log(tmp_path: Path, monkeypatch) -> None:
-    """The sweep must run BEFORE the rotating file handler opens
-    ``voice-typer.log``, on Windows an open handle blocks the unlink,
-    so a stale active log could never be deleted if the handler opened
-    first. Pin the ordering via a handler-construction spy."""
+    """The sweep must run BEFORE the rotating file handler opens"""
     monkeypatch.delenv("VOICE_TYPER_LOG_JSON", raising=False)
     vt_log.reset()
 

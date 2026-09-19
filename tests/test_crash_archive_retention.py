@@ -1,33 +1,4 @@
-"""Regression tests for VEH crash-diagnostics archive retention + truncate.
-
-Covers two related disk-bounding fixes:
-
-  - **AP-39**: ``_enforce_archive_retention`` was only invoked from
-    ``_archive_crash_file()`` for ROOT-level crash files; archive-subdir
-    files (where the VEH callback writes directly) were never bounded,
-    so the archive grew unbounded across crashes. The fix:
-      1. ``report_pending_crash`` now calls ``_enforce_archive_retention``
-         on the archive subdir (with an ``if archive_dir.exists():`` guard
-         for the first-run case).
-      2. ``_sweep_stale_diagnostics`` now globs the archive subdir too
-         (it previously only walked the config_dir root) so the 30-day
-         mtime cutoff + keep-last-``_MAX_ACTIVE_FILES`` cap also applies
-         to VEH-written archive files.
-
-  - **AP-40**: ``_write_to_file`` opened the crash file with
-    ``OPEN_ALWAYS`` + ``SetFilePointer(FILE_END)``, which APPENDED to any
-    pre-existing file at the same path. When the OS recycled a PID and
-    the recycled process also crashed, the new ~10 KiB crash record was
-    concatenated onto the stale one. The fix replaces ``OPEN_ALWAYS``
-    with ``CREATE_ALWAYS`` (truncates) and removes the seek-to-end call,
-    matching the Python excepthook's ``O_WRONLY | O_CREAT | O_TRUNC``
-    semantics.
-
-These tests are Linux-runnable: the AP-40 tests mock the kernel32
-function pointers (``_func_create_file_w`` etc.) on the
-``crash_handler`` facade so the write path runs headless; the AP-39
-tests use a real ``tmp_path`` directory.
-"""
+"""Regression tests for VEH crash-diagnostics archive retention + truncate."""
 
 from __future__ import annotations
 
@@ -46,20 +17,12 @@ from voice_typer.server.crash_handler._constants import (
     OPEN_ALWAYS,
 )
 
-# ─── Fixtures ────────────────────────────────────────────────────────────
-
 _UNSET = object()
 
 
 @pytest.fixture(autouse=True)
 def _reset_crash_handler_module_state():
-    """Reset module-level globals between tests.
-
-    Mirrors the autouse fixture in ``tests/test_crash_handler.py`` so
-    state leaks between tests don't cause flaky failures. Includes the
-    kernel32 function pointers (``_func_*``) so the AP-40 mocked-write
-    tests don't leak mocks into the next test.
-    """
+    """Reset module-level globals between tests."""
     keys = (
         "_crash_file_path",
         "_PID",
@@ -84,28 +47,16 @@ def _reset_crash_handler_module_state():
             setattr(crash_handler, k, v)
 
 
-# ─── AP-39: archive retention ────────────────────────────────────────────
-
-
 class TestAp39ArchiveRetention:
-    """AP-39: the archive subdir must be bounded so VEH-written crash
-    files don't accumulate unbounded across crashes.
-    """
+    """AP-39: the archive subdir must be bounded so VEH-written crash"""
 
     def test_enforce_archive_retention_keeps_last_5(self, tmp_path):
-        """``_enforce_archive_retention`` deletes the oldest files beyond
-        the ``_ARCHIVE_RETENTION_KEEP`` cap (5). Direct unit test on the
-        retention function.
-        """
+        """``_enforce_archive_retention`` deletes the oldest files beyond"""
         archive_dir = tmp_path / _CRASH_DIAGNOSTICS_DIR
         archive_dir.mkdir()
-        # Create 10 crash files with strictly increasing mtimes so the
-        # sort order is deterministic.
         for i in range(10):
             f = archive_dir / f"crash_diagnostics.{1000 + i}.txt"
             f.write_text(f"crash {i}\n", encoding="utf-8")
-            # Set mtime to i seconds past the epoch + a fixed base so
-            # the sort order is strictly increasing.
             mtime = 1_000_000_000 + i
             os.utime(f, (mtime, mtime))
 
@@ -122,20 +73,9 @@ class TestAp39ArchiveRetention:
         )
 
     def test_report_pending_crash_bounds_archive_subdir(self, tmp_path):
-        """AP-39: ``report_pending_crash`` calls
-        ``_enforce_archive_retention`` on the archive subdir so
-        VEH-written crash files (which land directly in the archive
-        subdir) are bounded. Pre-fix, the retention call only ran for
-        ROOT-level files moved via ``_archive_crash_file`` —
-        archive-subdir files grew unbounded.
-        """
+        """AP-39: ``report_pending_crash`` calls"""
         archive_dir = tmp_path / _CRASH_DIAGNOSTICS_DIR
         archive_dir.mkdir()
-        # Create 10 unreported crash files in the archive subdir (the
-        # new VEH write path). Each has a distinct PID and an
-        # INCREASING mtime within the last 30 days (so the
-        # ``_sweep_stale_diagnostics`` mtime cutoff does NOT delete
-        # them, we want to test the retention cap, not the sweep).
         base = time.time() - 100
         for i in range(10):
             f = archive_dir / f"crash_diagnostics.{2000 + i}.txt"
@@ -151,10 +91,6 @@ class TestAp39ArchiveRetention:
         # The function should surface the crashes (non-None summary).
         assert result is not None, "AP-39: report_pending_crash must surface archive-subdir crash files"
         # After processing, the archive subdir's .txt files must be
-        # bounded to _ARCHIVE_RETENTION_KEEP. Pre-fix the archive would
-        # have 10 .txt files; post-fix it has at most 5.
-        # (``.reported`` sidecars may also exist alongside the surviving
-        # .txt files, they're NOT counted toward the cap.)
         txt_files = list(archive_dir.glob("crash_diagnostics.*.txt"))
         assert len(txt_files) <= _ARCHIVE_RETENTION_KEEP, (
             f"AP-39: archive subdir .txt files must be bounded to "
@@ -166,9 +102,6 @@ class TestAp39ArchiveRetention:
         assert surviving_pids == {2005, 2006, 2007, 2008, 2009}, (
             f"AP-39: retention must keep the NEWEST 5 .txt files by mtime; got PIDs {surviving_pids}"
         )
-        # No orphan sidecars, every remaining sidecar must have a
-        # corresponding .txt file (retention cleans up sidecars when
-        # deleting .txt files).
         sidecars = list(archive_dir.glob("*.reported"))
         for sidecar in sidecars:
             txt_counterpart = archive_dir / sidecar.name[: -len(".reported")]
@@ -179,10 +112,7 @@ class TestAp39ArchiveRetention:
             )
 
     def test_report_pending_crash_handles_missing_archive_subdir(self, tmp_path):
-        """AP-39: the retention call is guarded by
-        ``if archive_dir.exists():`` so the first-run case (no archive
-        subdir yet, no crashes recorded) does NOT raise.
-        """
+        """``if archive_dir.exists():`` so the first-run case (no archive"""
         # No archive subdir exists, first run.
         assert not (tmp_path / _CRASH_DIAGNOSTICS_DIR).exists()
 
@@ -195,13 +125,7 @@ class TestAp39ArchiveRetention:
         )
 
     def test_sweep_stale_diagnostics_walks_archive_subdir(self, tmp_path):
-        """AP-39: ``_sweep_stale_diagnostics`` now globs the archive
-        subdir too. Pre-fix, it only walked the config_dir root, so
-        VEH-written crash files in the archive subdir were never swept
-        by the 30-day mtime cutoff. This test creates an OLD crash file
-        in the archive subdir (mtime > 30 days ago) and asserts the
-        sweep deletes it.
-        """
+        """AP-39: ``_sweep_stale_diagnostics`` now globs the archive"""
         archive_dir = tmp_path / _CRASH_DIAGNOSTICS_DIR
         archive_dir.mkdir()
         # Create a stale file (mtime = 31 days ago).
@@ -221,11 +145,7 @@ class TestAp39ArchiveRetention:
         assert fresh_file.exists(), "AP-39: _sweep_stale_diagnostics must NOT delete fresh files in the archive subdir"
 
     def test_sweep_stale_diagnostics_bounds_archive_to_max_active(self, tmp_path):
-        """AP-39: ``_sweep_stale_diagnostics`` enforces the
-        ``_MAX_ACTIVE_FILES`` cap on the archive subdir (in addition to
-        the 30-day mtime cutoff). If more than ``_MAX_ACTIVE_FILES``
-        fresh files accumulate, the oldest beyond the cap are deleted.
-        """
+        """the 30-day mtime cutoff). If more than ``_MAX_ACTIVE_FILES``"""
         archive_dir = tmp_path / _CRASH_DIAGNOSTICS_DIR
         archive_dir.mkdir()
         # Create more files than _MAX_ACTIVE_FILES, all fresh (mtime=now).
@@ -245,24 +165,11 @@ class TestAp39ArchiveRetention:
         )
 
 
-# ─── AP-40: VEH write truncates (no append) ──────────────────────────────
-
-
 class TestAp40VehWriteTruncates:
-    """AP-40: ``_write_to_file`` opens with ``CREATE_ALWAYS`` (truncates)
-    and does NOT seek to ``FILE_END``. Pre-fix, ``OPEN_ALWAYS`` +
-    seek-to-end appended to any pre-existing file at the same path —
-    when the OS recycled a PID and the recycled process also crashed,
-    the new crash record was concatenated onto the stale one.
-    """
+    """AP-40: ``_write_to_file`` opens with ``CREATE_ALWAYS`` (truncates)"""
 
     def test_write_to_file_uses_create_always_not_open_always(self, monkeypatch):
-        """AP-40: the ``CreateFileW`` creation disposition is
-        ``CREATE_ALWAYS`` (2), not ``OPEN_ALWAYS`` (4). ``CREATE_ALWAYS``
-        truncates any pre-existing file at the path; ``OPEN_ALWAYS``
-        opens without truncating (and the old code then seeked to end,
-        causing append).
-        """
+        """AP-40: the ``CreateFileW`` creation disposition is"""
         create_file_w = MagicMock()
         # Return a non-NULL handle so the write proceeds.
         create_file_w.return_value.value = 42
@@ -288,11 +195,7 @@ class TestAp40VehWriteTruncates:
         )
 
     def test_write_to_file_does_not_seek_to_end(self, monkeypatch):
-        """AP-40: ``SetFilePointer(handle, 0, None, FILE_END)`` is NOT
-        called. Pre-fix, the seek-to-end paired with ``OPEN_ALWAYS``
-        caused the write to append. With ``CREATE_ALWAYS`` the file is
-        already empty (truncated), so no seek is needed.
-        """
+        """AP-40: ``SetFilePointer(handle, 0, None, FILE_END)`` is NOT"""
         create_file_w = MagicMock()
         create_file_w.return_value.value = 42
         write_file = MagicMock(return_value=True)
@@ -317,16 +220,7 @@ class TestAp40VehWriteTruncates:
         )
 
     def test_write_to_file_truncates_existing_content(self, monkeypatch, tmp_path):
-        """AP-40: end-to-end truncation check. A file with stale content
-        is overwritten (not appended to) when ``_write_to_file`` is
-        called with the same path. The mock ``_func_create_file_w``
-        inspects the creation disposition: if it's ``CREATE_ALWAYS``
-        (2), the file is opened in ``wb`` mode (truncate); if it's
-        ``OPEN_ALWAYS`` (4) (the old behavior) the file is opened in
-        ``ab`` mode (append). The test asserts the final file content
-        is EXACTLY the new data (no leftover stale content), which only
-        passes if the production code passed ``CREATE_ALWAYS``.
-        """
+        """AP-40: end-to-end truncation check. A file with stale content"""
         crash_file = tmp_path / "crash_diagnostics.5000.txt"
         stale_content = b"OLD STALE CONTENT FROM A PREVIOUS CRASH"
         crash_file.write_bytes(stale_content)
@@ -335,13 +229,9 @@ class TestAp40VehWriteTruncates:
         open_files: dict[int, object] = {}
 
         def mock_create_file_w(path, access, share, security, creation, flags, template):
-            # ``path`` is a ctypes.c_wchar_p; the underlying str is in
-            # ``path.value`` (strip the trailing NUL).
             path_str = path.value if hasattr(path, "value") else path
             path_str = path_str.rstrip("\0")
             # Simulate the Win32 creation disposition:
-            #   CREATE_ALWAYS (2) -> 'wb' (truncate)
-            #   OPEN_ALWAYS  (4) -> 'ab' (append, the OLD buggy behavior)
             if creation == 2:
                 mode = "wb"
             elif creation == 4:
@@ -358,7 +248,6 @@ class TestAp40VehWriteTruncates:
             f = open_files[handle.value]
             f.write(bytes(data))
             # Set written.value via the byref object so the production
-            # code's ``written.value == len(data)`` check passes.
             written_ptr._obj.value = length
             return True
 
@@ -384,18 +273,12 @@ class TestAp40VehWriteTruncates:
             f"{new_data!r}; got {final_content!r}"
         )
         # Sanity: the stale content must NOT be present anywhere in the
-        # final file (it would be if the write had appended).
         assert stale_content not in final_content, (
             "AP-40: stale content leaked into the final file, the write appended instead of truncating"
         )
 
     def test_write_to_file_deletes_empty_file_on_write_failure(self, monkeypatch, tmp_path):
-        """AP-40 (non-regression): the ``CREATE_ALWAYS`` change must not
-        break the existing failure path, if ``WriteFile`` fails (e.g.
-        heap corruption), the empty file is deleted so 0-byte diagnostic
-        files don't accumulate. This invariant predates AP-40 but is
-        sensitive to the open-mode change, so we re-assert it here.
-        """
+        """AP-40 (non-regression): the ``CREATE_ALWAYS`` change must not"""
         crash_file = tmp_path / "crash_diagnostics.6000.txt"
         crash_file.write_bytes(b"pre-existing content")
 
@@ -440,22 +323,11 @@ class TestAp40VehWriteTruncates:
         )
 
 
-# ─── AP-40: constant value sanity ────────────────────────────────────────
-
-
 class TestAp40CreateAlwaysConstant:
-    """AP-40: ``CREATE_ALWAYS`` is defined locally in ``_veh_callback``
-    (value 2, the Win32 ``CreateFileW`` creation disposition for
-    "truncate existing or create new"). ``OPEN_ALWAYS`` (4) is still
-    re-exported from ``_constants`` for backward compatibility with
-    tests that import it, but is no longer used in the write path.
-    """
+    """AP-40: ``CREATE_ALWAYS`` is defined locally in ``_veh_callback``"""
 
     def test_create_always_is_defined_in_veh_callback(self):
-        """``CREATE_ALWAYS`` is a module-level constant in
-        ``_veh_callback`` with value 2 (the Win32 creation disposition
-        that truncates any existing file at the path).
-        """
+        """``_veh_callback`` with value 2 (the Win32 creation disposition"""
         assert hasattr(_veh_callback, "CREATE_ALWAYS"), (
             "AP-40: _veh_callback must define CREATE_ALWAYS as a module-level constant"
         )
@@ -465,29 +337,15 @@ class TestAp40CreateAlwaysConstant:
         )
 
     def test_open_always_still_re_exported_for_backward_compat(self):
-        """``OPEN_ALWAYS`` remains on the ``crash_handler`` facade
-        (re-exported from ``_constants``) so existing tests that import
-        it (e.g. ``tests/test_crash_handler_split.py``) still pass. The
-        AP-40 fix removed its USE in ``_write_to_file`` but not its
-        definition (other code or future tests may still reference it).
-        """
+        """``OPEN_ALWAYS`` remains on the ``crash_handler`` facade"""
         assert hasattr(crash_handler, "OPEN_ALWAYS"), (
             "AP-40: OPEN_ALWAYS must remain re-exported on the crash_handler facade for backward compatibility"
         )
         assert crash_handler.OPEN_ALWAYS == OPEN_ALWAYS == 4
 
 
-# ─── HU-9: secure (symlink-refusing) crash-file read ─────────────────────
-
-
 class TestHu9SecureCrashFileRead:
-    """HU-9: crash-diagnostics / python_crash files are read through
-    ``_secure_read_text`` (POSIX ``O_NOFOLLOW``, Windows reparse-point
-    check), the same helper the recovery-file load path uses. A symlink
-    planted at a crash-file path is REFUSED and the file is treated as
-    empty (fail-closed): its content can never reach the log, the user
-    summary, or the archive.
-    """
+    """HU-9: crash-diagnostics / python_crash files are read through"""
 
     def test_crash_diagnostics_read_refusal_fails_closed(self, tmp_path, caplog, monkeypatch):
         crash_file = tmp_path / "crash_diagnostics.7000.txt"
@@ -507,7 +365,6 @@ class TestHu9SecureCrashFileRead:
         # The refusal is a WARNING so operators see the attack attempt.
         assert any("Refusing to read diagnostics file" in r.getMessage() for r in caplog.records)
         # The file is still archived + marked reported (finally block),
-        # and the next scan does not re-surface it.
         archive_dir = tmp_path / _CRASH_DIAGNOSTICS_DIR
         archived = list(archive_dir.glob("crash_diagnostics.*.txt"))
         assert len(archived) == 1, "HU-9: refused file must still be archived (finally block)"

@@ -1,14 +1,4 @@
-"""regression test: ``available_backends`` @property must NOT be
-called with parens.
-
-Pre-fix bug: ``model_manager.py:363`` called
-``self._registry.available_backends()``, but ``available_backends`` is
-a ``@property`` returning ``list[str]``. Calling ``()`` on the
-returned list raised ``TypeError: 'list' object is not callable`` on
-the all-backends-fail path, masking the diagnostic ``log.warning``
-that lists attempted backends + primary backend (actionable
-diagnostic info for the user / support).
-"""
+"""regression test: ``available_backends`` @property must NOT be"""
 
 from __future__ import annotations
 
@@ -19,13 +9,8 @@ from voice_typer.server.model_manager import ModelManager
 
 
 def _make_mm_with_failing_registry() -> tuple[ModelManager, MagicMock]:
-    """Construct a ModelManager whose registry's
-    ``load_with_fallback`` returns falsy (simulating all backends
-    failed). Returns the ModelManager and the mock app for
-    inspection.
-    """
+    """Construct a ModelManager whose registry's"""
     # Build a minimal mock app with the attributes ModelManager.__init__
-    # and load_background read.
     app = MagicMock(name="app")
     app.config.asr_backend = "whisper"
     app.config.model_size = "tiny"
@@ -42,21 +27,14 @@ def _make_mm_with_failing_registry() -> tuple[ModelManager, MagicMock]:
     mm = ModelManager(app)
 
     # Replace the registry with a mock whose ``load_with_fallback``
-    # returns falsy (the all-backends-fail path).
     mock_registry = MagicMock(name="registry")
     mock_registry.load_with_fallback.return_value = None  # falsy → fail path
-    # ``available_backends`` is a @property, mock it as a list, NOT a
-    # callable. The OLD buggy code would call this with parens and
-    # raise TypeError. The  fix accesses it as a property.
     mock_registry.available_backends = ["whisper", "parakeet"]
     mock_registry.active_name = "whisper"
     mock_registry.get_active.return_value = None
     mm._registry = mock_registry
 
     # Stub _ensure_engine so we don't actually try to construct a real
-    # TranscriptionEngine. (_sync_registry_from_fields was removed, the
-    # @property setters on transcriber / _qwen_engine / _parakeet_engine
-    # now keep the registry in sync automatically.)
     mm._ensure_engine = MagicMock()
     # Stub touch_model + _evict_lru_model so they don't touch LRU state.
     mm.touch_model = MagicMock()
@@ -66,19 +44,13 @@ def _make_mm_with_failing_registry() -> tuple[ModelManager, MagicMock]:
 
 
 class TestAvailableBackendsPropertyNoParens:
-    """``available_backends`` is a @property, must be accessed
-    WITHOUT parens."""
+    """``available_backends`` is a @property, must be accessed"""
 
     def test_source_does_not_call_available_backends_with_parens(self):
-        """Source guard: ``load_background`` must NOT call
-        ``available_backends()`` (with parens). It must access it as a
-        property: ``available_backends`` (no parens)."""
+        """Source guard: ``load_background`` must NOT call"""
         import inspect
 
         src = inspect.getsource(ModelManager.load_background)
-        # The buggy form: ``self._registry.available_backends()`` with
-        # parens. We strip whitespace inside the parens to be robust
-        # against formatting.
         assert "available_backends()" not in src, (
             "regression: load_background calls "
             "self._registry.available_backends() with parens, but "
@@ -94,25 +66,12 @@ class TestAvailableBackendsPropertyNoParens:
         )
 
     def test_all_backends_fail_emits_warning_with_backend_names(self, caplog):
-        """End-to-end: when ``load_with_fallback`` returns falsy (all
-        backends failed), the diagnostic ``log.warning`` MUST be
-        emitted with the backend names, NOT a ``TypeError`` from
-        calling the ``available_backends`` property with parens.
-
-        Pre-fix: this test would fail with ``TypeError: 'list' object
-        is not callable`` raised from inside ``load_background`` (the
-        ``except Exception`` block would catch it and log
-        ``[STARTUP] Background model load crashed``, masking the
-        diagnostic ``log.warning`` that lists the attempted backends).
-        """
+        """End-to-end: when ``load_with_fallback`` returns falsy (all"""
         mm, app = _make_mm_with_failing_registry()
 
         with caplog.at_level(logging.WARNING, logger="voice_typer.server.model_manager"):
             mm.load_background()
 
-        # The diagnostic log.warning MUST be present (it lists the
-        # attempted backends + primary). Pre-fix, the TypeError raised
-        # by ``available_backends()`` masked this warning.
         diagnostic_warnings = [
             r
             for r in caplog.records
@@ -124,8 +83,6 @@ class TestAvailableBackendsPropertyNoParens:
             "Pre-fix, this warning was masked by a TypeError raised when "
             "calling available_backends() (a @property) with parens."
         )
-        # The warning message must include the backend names from the
-        # (mocked) ``available_backends`` property.
         warning_msg = diagnostic_warnings[0].getMessage()
         assert "whisper" in warning_msg and "parakeet" in warning_msg, (
             f"the diagnostic log.warning must list the attempted backends (whisper, parakeet). Got: {warning_msg!r}"
@@ -136,14 +93,9 @@ class TestAvailableBackendsPropertyNoParens:
         )
 
     def test_all_backends_fail_does_not_raise_typeerror(self, caplog):
-        """the all-backends-fail path must NOT raise
-        ``TypeError: 'list' object is not callable`` (the pre-fix bug
-        from calling ``available_backends()`` with parens)."""
+        """the all-backends-fail path must NOT raise"""
         mm, app = _make_mm_with_failing_registry()
 
-        # Capture all log records at any level, we want to assert the
-        # ``Background model load crashed`` exception log is NOT present
-        # (that would indicate load_background hit the outer except).
         with caplog.at_level(logging.DEBUG, logger="voice_typer.server.model_manager"):
             mm.load_background()
 
@@ -157,27 +109,11 @@ class TestAvailableBackendsPropertyNoParens:
         )
 
 
-# ─── Dedicated coverage for ModelManager lifecycle paths ───────────────
-#
 # These tests exercise the constructor wiring and the high-level
-# methods (``fallback_to_whisper``, ``change_model``, ``_evict_lru_model``)
-# that previously had NO direct test file, every other test site used
-# ``ModelManager.__new__(ModelManager)`` to bypass ``__init__``, so the
-# constructor wiring and these specific code paths were never
-# exercised end-to-end.
 
 
 def _make_mm_with_mock_registry():
-    """Build a ModelManager via the real ``__init__`` with a MagicMock
-    app, then swap the registry for a MagicMock.
-
-    The real ``__init__`` runs so its wiring (locks, LRU state,
-    ``_model_load_thread = None``, etc.) is exercised. The registry
-    is then replaced because constructing a real ``AsrBackendRegistry``
-    is fine (it doesn't load any engines) but every method we want to
-    assert on (``load_with_fallback``, ``create``, ``unload``...) is
-    easier to verify via mocks.
-    """
+    """Build a ModelManager via the real ``__init__`` with a MagicMock"""
     import threading
 
     app = MagicMock(name="app")
@@ -193,17 +129,11 @@ def _make_mm_with_mock_registry():
     app._pending_dictation = False
     app._thread_registry = MagicMock()
     # ``_config_mutation_lock`` is acquired as a context manager by
-    # ``_change_model_blocking``. A MagicMock context manager works
-    # but a real RLock is more faithful (and exposes ``_is_owned``
-    # for the re-entrancy assertion).
     app._config_mutation_lock = threading.RLock()
 
     mm = ModelManager(app)
 
     # Swap the real registry for a mock, but keep its ``available_backends``
-    # as a list (it's a @property on the real registry, so MagicMock's
-    # auto-attribute would be a MagicMock, which the ``callable()`` branch
-    # in ``load_background`` would try to invoke).
     mock_registry = MagicMock(name="registry")
     mock_registry.available_backends = ["whisper", "parakeet"]
     mock_registry.active_name = "whisper"
@@ -211,7 +141,6 @@ def _make_mm_with_mock_registry():
     mm._registry = mock_registry
 
     # Stub the LRU-touch + eviction helpers so the load paths don't
-    # actually try to track / evict (those are tested directly below).
     mm.touch_model = MagicMock()
     mm._evict_lru_model = MagicMock()
 
@@ -219,15 +148,10 @@ def _make_mm_with_mock_registry():
 
 
 class TestInitWiring:
-    """``ModelManager.__init__`` must wire the registry, all locks, and
-    the LRU / pending-state fields. Previously every test site used
-    ``__new__`` so this wiring was never asserted.
-    """
+    """``__new__`` so this wiring was never asserted."""
 
     def test_init_creates_registry_and_locks(self):
-        """``__init__`` must construct an ``AsrBackendRegistry`` and the
-        four locks (``_model_change_lock`` is an RLock so
-        ``apply_pending_model_change`` can re-enter ``change_model``)."""
+        """four locks (``_model_change_lock`` is an RLock so"""
         from unittest.mock import MagicMock
 
         from voice_typer.server.asr_registry import AsrBackendRegistry
@@ -245,21 +169,13 @@ class TestInitWiring:
 
         # Registry is constructed eagerly (not lazy).
         assert isinstance(mm._registry, AsrBackendRegistry), "__init__ must construct an AsrBackendRegistry eagerly"
-        # _model_change_lock must be an RLock (re-entrant for
-        # apply_pending_model_change -> change_model).
         assert hasattr(mm._model_change_lock, "_is_owned"), "_model_change_lock must be an RLock (re-entrant)"
         # _model_lru_lock is a plain Lock (no re-entrancy needed).
         assert not hasattr(mm._model_lru_lock, "_is_owned"), "_model_lru_lock must be a plain Lock"
-        # _lazy_init_lock is a plain Lock (was a hasattr-based lazy
-        # init before the LAZY-INIT-LOCK-FIX, must now exist on
-        # __init__).
         assert hasattr(mm, "_lazy_init_lock"), "__init__ must set _lazy_init_lock (LAZY-INIT-LOCK-FIX)"
 
     def test_init_initializes_lru_and_pending_state(self):
-        """``__init__`` must zero out the LRU tracking dict and the
-        pending-state fields so the first ``change_model`` /
-        ``toggle_dictation`` doesn't read stale state from a previous
-        instance."""
+        """pending-state fields so the first ``change_model`` /"""
         from unittest.mock import MagicMock
 
         app = MagicMock()
@@ -282,13 +198,7 @@ class TestInitWiring:
 
 
 class TestFallbackToWhisper:
-    """``fallback_to_whisper`` must find an INSTALLED model, switch the
-    config to it + persist, ensure the engine exists, load via the
-    registry, and update tray state, OR refuse with "no model
-    installed" when nothing is on disk (the old hardcoded whisper/tiny
-    fallback was removed: the tiny model is being phased out, so the
-    fallback now degrades to ANY downloaded model).
-    """
+    """registry, and update tray state, OR refuse with \"no model"""
 
     def test_success_path_switches_to_installed_model_and_sets_idle_tray(self):
         from voice_typer.server.tray_types import AppState
@@ -304,7 +214,6 @@ class TestFallbackToWhisper:
         assert app.config.asr_backend == "whisper"
         assert app.config.model_size == "large-v3"
         app.config.save.assert_called_once()
-        # load_with_fallback invoked with a progress_callback.
         assert mm._registry.load_with_fallback.called
         # LRU touched + eviction considered on success.
         mm.touch_model.assert_called_once()
@@ -326,12 +235,10 @@ class TestFallbackToWhisper:
         # Tray transitioned to ERROR on failure.
         tray_states = [c.args[0] for c in app.tray.set_state.call_args_list]
         assert AppState.ERROR in tray_states, f"fallback_to_whisper failure must set tray to ERROR; got {tray_states}"
-        # notify_on_failure=True -> tray.notify_safety fired.
         app.tray.notify_safety.assert_called_once()
 
     def test_no_installed_model_refuses_with_not_downloaded(self):
-        """Nothing on disk → refuse with the 'open Models' error; do NOT
-        try to load a phantom model or touch the tray as IDLE."""
+        """Nothing on disk → refuse with the 'open Models' error; do NOT"""
         from voice_typer.server.tray_types import AppState
 
         mm, app = _make_mm_with_mock_registry()
@@ -340,8 +247,6 @@ class TestFallbackToWhisper:
 
         mm.fallback_to_whisper(notify_on_failure=True)
 
-        # The refusal message was surfaced, no load was attempted, and
-        # the app was NOT left in a running (IDLE) state.
         mm._notify_model_load_refused.assert_called_once()
         mm._registry.load_with_fallback.assert_not_called()
         tray_states = [c.args[0] for c in app.tray.set_state.call_args_list]
@@ -349,11 +254,7 @@ class TestFallbackToWhisper:
 
 
 class TestChangeModelBlocking:
-    """``_change_model_blocking`` is the synchronous body of
-    ``change_model``. Must run the setattr + unload + load cycle in
-    order, holding ``_model_change_lock`` throughout, and publish the
-    ``asr_backend_ready`` event on completion.
-    """
+    """``asr_backend_ready`` event on completion."""
 
     def test_blocking_change_runs_unload_then_load_and_publishes(self):
         mm, app = _make_mm_with_mock_registry()
@@ -375,29 +276,15 @@ class TestChangeModelBlocking:
 
         mm._change_model_blocking("parakeet")
 
-        # setattr phase: config was mutated to parakeet.
         assert app.config.asr_backend == "parakeet"
         assert app.config.model_size == "parakeet"
         app.config.save.assert_called_once()
-        # unload phase: registry.unload + unregister for the OLD backend ("whisper").
-        # ``unregister`` is called once, directly in
-        # ``_change_model_unload_phase``. The legacy
-        # ``self.transcriber = None`` setter call that previously ran
-        # here was dead code: by the time the elif was reached,
-        # ``self._registry.unregister("whisper")`` above had already
-        # cleared the registry entry, so ``self.transcriber`` (which
-        # delegates to ``registry.get("whisper")``) was always ``None``
-        # in production and the elif branch was never taken. The dead
-        # elif was removed; this assertion was tightened from
-        # ``["whisper", "whisper"]`` to ``["whisper"]`` to reflect
-        # the real production call count.
         mm._registry.unload.assert_called_once_with("whisper")
         unregister_calls = [c.args[0] for c in mm._registry.unregister.call_args_list]
         assert unregister_calls == ["whisper"], (
             f"Expected unregister('whisper') once (direct only, the legacy "
             f"setter-call branch was dead code, removed); got {unregister_calls}"
         )
-        # load phase: _ensure_engine called with the NEW backend ("parakeet").
         mm._ensure_engine.assert_called_once_with("parakeet")
         mm._registry.load_active.assert_called_once()
         # LRU touched for the new backend, eviction considered.
@@ -407,10 +294,7 @@ class TestChangeModelBlocking:
         mm._publish_backend_ready_event.assert_called_once_with("parakeet", "parakeet")
 
     def test_blocking_change_defers_when_recording(self):
-        """When a recording is in progress, ``_change_model_setattr_phase``
-        returns ``deferred=True`` and the load phase is skipped, the
-        change is captured in ``_pending_model_change`` for
-        ``apply_pending_model_change`` to apply later."""
+        """When a recording is in progress, ``_change_model_setattr_phase``"""
         mm, app = _make_mm_with_mock_registry()
         app.recorder.recording = True  # recording in progress
         app._busy_event.is_set.return_value = True
@@ -436,10 +320,7 @@ class TestChangeModelBlocking:
 
 
 class TestChangeModelAckShape:
-    """``change_model`` (the IPC entry point) must return an ack dict
-    shaped ``{"status": "loading", "previous": {...}, "pending": {...}}``
-    and spawn the background thread, it must NOT block on the load.
-    """
+    """``change_model`` (the IPC entry point) must return an ack dict"""
 
     def test_returns_loading_ack_with_previous_and_pending(self):
         mm, app = _make_mm_with_mock_registry()
@@ -447,8 +328,6 @@ class TestChangeModelAckShape:
         app.config.model_size = "tiny"
         mm.cancel_idle_unload_timer = MagicMock()
 
-        # Swap _change_model_background for a no-op so we don't spawn a
-        # real thread (we only care about the ack shape here).
         mm._change_model_background = MagicMock()
 
         ack = mm.change_model("parakeet")
@@ -460,9 +339,7 @@ class TestChangeModelAckShape:
         mm._change_model_background.assert_called_once_with("parakeet")
 
     def test_change_model_size_routing(self):
-        """``change_model`` routes ``model_size`` to a backend name:
-        ``"parakeet"`` -> parakeet, ``"qwen"`` -> qwen, anything else
-        -> whisper. Verifies the routing for all three branches."""
+        """``change_model`` routes ``model_size`` to a backend name:"""
         mm, app = _make_mm_with_mock_registry()
         mm.cancel_idle_unload_timer = MagicMock()
         mm._change_model_background = MagicMock()
@@ -473,16 +350,13 @@ class TestChangeModelAckShape:
         # qwen
         ack = mm.change_model("qwen")
         assert ack["pending"]["backend"] == "qwen"
-        # anything else -> whisper
         ack = mm.change_model("base.en")
         assert ack["pending"]["backend"] == "whisper"
         assert ack["pending"]["model_size"] == "base.en"
 
 
 class TestChangeModelNoop:
-    """Re-selecting the already-LOADED model must not unload + fully
-    reload the engine (~19s of CUDA re-init for zero state change:
-    tray click on the checked row, onboarding re-apply)."""
+    """Re-selecting the already-LOADED model must not unload + fully"""
 
     def test_same_loaded_model_returns_ready_without_spawn(self):
         mm, app = _make_mm_with_mock_registry()
@@ -500,8 +374,7 @@ class TestChangeModelNoop:
         mm._change_model_background.assert_not_called()
 
     def test_same_size_but_unloaded_proceeds(self):
-        """Same size with NO loaded engine is a legitimate retry (e.g.
-        re-select after a failed load), it must take the normal path."""
+        """Same size with NO loaded engine is a legitimate retry (e.g."""
         mm, app = _make_mm_with_mock_registry()
         mm.cancel_idle_unload_timer = MagicMock()
         mm._change_model_background = MagicMock()
@@ -513,8 +386,7 @@ class TestChangeModelNoop:
         mm._change_model_background.assert_called_once_with("tiny")
 
     def test_different_size_proceeds_despite_loaded_engine(self):
-        """A different size on the same backend still reloads (fresh
-        engine needs the new size kwarg), the guard is size-scoped."""
+        """A different size on the same backend still reloads (fresh"""
         mm, app = _make_mm_with_mock_registry()
         mm.cancel_idle_unload_timer = MagicMock()
         mm._change_model_background = MagicMock()
@@ -528,22 +400,14 @@ class TestChangeModelNoop:
 
 
 class TestLRUEviction:
-    """``_evict_lru_model`` must unload the oldest backend when more than
-    ``_MAX_LOADED_MODELS`` are loaded. Previously this path was only
-    exercised incidentally via ``load_background``, no test asserted
-    the eviction trigger directly.
-    """
+    """``_evict_lru_model`` must unload the oldest backend when more than"""
 
     def test_no_eviction_when_at_or_below_max(self):
-        """When ``len(_model_access_times) <= _MAX_LOADED_MODELS``,
-        ``_evict_lru_model`` is a no-op, no engine is unloaded."""
+        """When ``len(_model_access_times) <= _MAX_LOADED_MODELS``,"""
         import time
         from unittest.mock import MagicMock
 
         mm, _app = _make_mm_with_mock_registry()
-        # Restore the real ``_evict_lru_model`` (the helper stubs it so
-        # the load/change tests don't actually evict). We're testing
-        # the real method here.
         del mm._evict_lru_model
         # Exactly _MAX_LOADED_MODELS entries -> no eviction.
         mm._model_access_times = {
@@ -557,17 +421,7 @@ class TestLRUEviction:
         mm._registry.get.assert_not_called()
 
     def test_evicts_oldest_backend_when_over_max(self):
-        """When ``len(_model_access_times) > _MAX_LOADED_MODELS``, the
-        entry with the OLDEST timestamp is unloaded + unregistered +
-        removed from tracking.
-
-        Previously this path called ``engine.unload()`` directly and
-        left the backend in the registry (so a subsequent
-        ``_ensure_engine`` returned a stale, unloaded handle). Now it
-        goes through ``self._registry.unload(name)`` (busy-check
-        honoured) + ``self._registry.unregister(name)`` (so the stale
-        slot is cleared), mirroring ``_change_model_unload_phase``.
-        """
+        """entry with the OLDEST timestamp is unloaded + unregistered +"""
         import time
         from unittest.mock import MagicMock
 
@@ -580,8 +434,6 @@ class TestLRUEviction:
             "parakeet": now - 10.0,
             "qwen": now,
         }
-        # registry is a MagicMock, registry.unload / unregister both
-        # succeed by default. We assert on the call args below.
         mm._registry.get = MagicMock(return_value=MagicMock(name="oldest-engine"))
 
         mm._evict_lru_model()
@@ -595,15 +447,7 @@ class TestLRUEviction:
         assert "qwen" in mm._model_access_times
 
     def test_eviction_respects_busy_check(self):
-        """If the registry reports the oldest backend as busy
-        (``registry.unload`` raises ``RuntimeError``), eviction MUST
-        skip the backend rather than tearing it down mid-transcription.
-
-        Pre-fix: ``_evict_lru_model`` called ``engine.unload()``
-        directly, bypassing ``registry.unload``'s busy-check, a
-        concurrent transcription would have its model freed
-        mid-flight, crashing the C-level ctranslate2 / torch call.
-        """
+        """If the registry reports the oldest backend as busy"""
         import time
 
         mm, _app = _make_mm_with_mock_registry()
@@ -614,43 +458,19 @@ class TestLRUEviction:
             "parakeet": now - 10.0,
             "qwen": now,
         }
-        # registry.unload raises RuntimeError (busy-check refused).
         mm._registry.unload.side_effect = RuntimeError("cannot unload busy backend: whisper")
 
         mm._evict_lru_model()
 
-        # The busy backend was NOT torn down, unload raised, so
-        # ``unregister`` MUST NOT be called (otherwise we'd leave a
-        # half-torn-down backend in the registry).
         mm._registry.unload.assert_called_once_with("whisper")
         mm._registry.unregister.assert_not_called()
         # Tracking dict is unchanged, eviction was skipped, NOT
-        # partially applied. (The del happens AFTER the unload block
-        # in the implementation, so a RuntimeError return leaves the
-        # entry in place.)
         assert "whisper" in mm._model_access_times
         assert "parakeet" in mm._model_access_times
         assert "qwen" in mm._model_access_times
 
     def test_eviction_survives_engine_without_unload_method(self):
-        """Eviction must not raise even if ``registry.unload`` /
-        ``registry.unregister`` / ``release_gpu_memory`` encounter
-        non-busy errors. The implementation wraps each step in
-        try/except so a partial failure (e.g. a backend whose
-        ``unload()`` raised a non-RuntimeError) doesn't leak an
-        exception to the caller (``load_background`` /
-        ``change_model``) which would mask the success of the load
-        itself, AND still removes the entry from the LRU tracking so
-        a subsequent ``_ensure_engine`` constructs a fresh engine.
-
-        Previously this test set up an engine without ``unload()`` to
-        exercise the ``hasattr`` guard in the direct-call path. With
-        the registry-mediated unload, ``registry.unload`` (a MagicMock
-        by default) swallows backend errors internally, so we
-        explicitly make it raise a non-RuntimeError to exercise the
-        new ``except Exception`` branch (RuntimeError is reserved for
-        the busy-check skip path: see ``test_eviction_respects_busy_check``).
-        """
+        """Eviction must not raise even if ``registry.unload`` /"""
         import time
 
         mm, _app = _make_mm_with_mock_registry()
@@ -661,25 +481,13 @@ class TestLRUEviction:
             "parakeet": now - 10.0,
             "qwen": now,
         }
-        # Make registry.unload raise a NON-RuntimeError (e.g. backend's
         # unload() raised ValueError). Eviction must NOT raise, it
-        # logs + continues to unregister + remove from tracking.
-        # (RuntimeError is the busy-check skip path, not exercised
-        # here.)
         mm._registry.unload.side_effect = ValueError("backend unload crashed")
 
         # Must NOT raise.
         mm._evict_lru_model()
 
-        # Tracking still cleared, eviction is best-effort, a
-        # backend-unload crash doesn't leave the entry pinned forever
-        # (the registry unregister + tracking removal still happen so
-        # a subsequent _ensure_engine constructs a fresh engine).
         assert "whisper" not in mm._model_access_times
-
-
-# ── LRU model eviction (split from the former review-round catch-all
-# tests/test_remaining_fixes.py) ──────────────────────────────────────
 
 
 class TestLRUModelEviction:
@@ -725,9 +533,6 @@ class TestLRUModelEviction:
         mm._model_lru_lock.__enter__ = MagicMock(return_value=None)
         mm._model_lru_lock.__exit__ = MagicMock(return_value=False)
 
-        # Eviction unloads via the registry (so the busy-check in
-        # ``AsrBackendRegistry.unload`` is honoured) and then unregisters
-        # the backend + drops it from the LRU tracking.
         mm._registry = MagicMock()
 
         mm._evict_lru_model()

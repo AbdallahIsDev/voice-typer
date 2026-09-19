@@ -1,34 +1,4 @@
-"""MIG-1.6 Phase 0-M Gate Check 5: `enigo` paste validation (macOS).
-
-FZ-19 / PVT-051 (deletion): this file ORIGINALLY validated the Rust
-``paste_text`` Tauri command on macOS (short-text enigo injection,
-long-text clipboard + Cmd+V). The ``paste_text`` command was deleted
-as dead production code: the Python sidecar owns the paste path
-end-to-end via
-``voice_typer/server/dictation_pipeline.py::_dispatch_paste``
-(clipboard write + Ctrl/Cmd+V keystroke), and no Python or TS code
-ever invoked ``invoke('paste_text', ...)``. The Tauri command
-registration in ``main.rs::generate_handler!``, the ``use`` import,
-the wrapper function in ``sidecar_cmds.rs``, the ``PasteTextArgs``
-struct, the ``#[deprecated]`` attribute, the ``commands::paste``
-module declaration, and the entire ``src-tauri/src/commands/paste.rs``
-file were all removed in FZ-19.
-
-What remains is a single regression-guard test that pins the absence
-of the ``paste_text`` symbol from the Rust host source so a future
-contributor cannot accidentally re-wire the dead path. The filename
-keeps the ``macos`` token so the file still skips on non-macOS hosts
-(preserving the original gate's per-platform scope), but the
-assertion itself is cross-platform.
-
-VALIDATE ON MACOS HOST:
-1. Launch Voice Typer + open TextEdit
-2. Dictate a short phrase (< 300 chars), verify text appears in
-   TextEdit. The paste is driven by the Python sidecar's
-   ``dictation_pipeline.py::_dispatch_paste`` (clipboard + Cmd+V),
-   NOT by a Rust Tauri command. No ``invoke('paste_text', ...)``
-   call should appear in the renderer or the host.
-"""
+"""`enigo` paste validation (macOS)."""
 
 from __future__ import annotations
 
@@ -36,16 +6,11 @@ from pathlib import Path
 
 import pytest
 
-# ─── Path constants ──────────────────────────────────────────────────────
-
 REPO_ROOT = Path(__file__).resolve().parents[3]  # tests/tauri/mig16/<this> → repo root
 SIDECAR_CMDS_RS = REPO_ROOT / "src-tauri" / "src" / "commands" / "sidecar_cmds.rs"
 MAIN_RS = REPO_ROOT / "src-tauri" / "src" / "main.rs"
 COMMANDS_MOD_RS = REPO_ROOT / "src-tauri" / "src" / "commands" / "mod.rs"
 PASTE_RS = REPO_ROOT / "src-tauri" / "src" / "commands" / "paste.rs"
-
-
-# ─── Source-reading fixtures ─────────────────────────────────────────────
 
 
 @pytest.fixture(scope="module")
@@ -69,17 +34,8 @@ def commands_mod_src() -> str:
     return COMMANDS_MOD_RS.read_text(encoding="utf-8")
 
 
-# paste_text deletion regression guard ───────────────
-
-
 def test_paste_text_symbol_absent_from_sidecar_cmds(sidecar_cmds_src: str) -> None:
-    """FZ-19: ``sidecar_cmds.rs`` must NOT define the ``paste_text`` command.
-
-    The deprecated ``paste_text`` Tauri command wrapper that used to
-    live here (delegating to ``commands::paste::execute_paste``) was
-    deleted along with the ``paste.rs`` module. The Python sidecar
-    owns the paste path; no Tauri command is needed.
-    """
+    """FZ-19: ``sidecar_cmds.rs`` must NOT define the ``paste_text`` command."""
     assert "paste_text" not in sidecar_cmds_src, (
         "sidecar_cmds.rs must NOT define `paste_text`, the dead Tauri "
         "command was deleted in FZ-19 / PVT-051 (Python sidecar owns the "

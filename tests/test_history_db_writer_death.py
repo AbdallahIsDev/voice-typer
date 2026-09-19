@@ -1,26 +1,4 @@
-"""FR-10: regression tests for dead-writer / init-error detection in
-``history_db.add_transcription``, ``history_db._submit_write``, and
-``history_db.flush``.
-
-The previous implementation only gated on ``self._shutdown.is_set()``.
-When the writer thread died during schema init (migration failure sets
-``_init_error``, or corruption recovery failure) or mid-loop, the
-writer thread exited but ``_shutdown`` was never set. ``add_transcription``
-enqueued a ``_BatchableInsert`` to the dead writer's queue and returned
-placeholder ``1``, the INSERT never executed. The subsequent ``flush()``
-call blocked on ``future.result(timeout=_WRITE_FUTURE_TIMEOUT)`` = 30s
-before the TimeoutError handler noticed the dead writer and raised
-``HistoryDBError``. Every subsequent dictation repeated: instant enqueue
-→ 30s flush hang → HistoryDBError caught → NO notification (notify-once
-flag).
-
-The fix adds an early-return guard in all three methods that delegates
-to ``health_check()`` so the failure is instant and surfaces a clear
-``log.error`` line. ``_submit_write(wait=True)`` raises ``HistoryDBError``
-so blocking callers (delete/clear_all/etc.) catch it via their existing
-except clause. ``add_transcription`` returns ``-1`` and ``flush`` returns
-immediately (both consistent with their existing failure sentinels).
-"""
+"""``history_db.flush``."""
 
 from __future__ import annotations
 
@@ -43,25 +21,14 @@ def db(tmp_path):
 
 
 def _kill_writer(db) -> None:
-    """Force the writer thread into the "dead" state without setting _shutdown.
-
-    We patch ``_writer_thread.is_alive`` to return ``False`` and set
-    ``_init_error`` so the FR-10 guard's two conditions are exercised
-    independently of the writer's actual liveness (which would require
-    a real crash mid-loop).
-    """
+    """Force the writer thread into the \"dead\" state without setting _shutdown."""
     db._init_error = RuntimeError("simulated writer death (FR-10 test)")
     # Replace ``is_alive`` so the guard sees a dead thread.
     db._writer_thread.is_alive = lambda: False  # type: ignore[method-assign]
 
 
-# ── add_transcription ────────────────────────────────────────────────────
-
-
 class TestAddTranscriptionDeadWriter:
-    """FR-10: ``add_transcription`` returns -1 immediately when the
-    writer is dead (instead of enqueuing to a dead queue and returning
-    a misleading success placeholder)."""
+    """writer is dead (instead of enqueuing to a dead queue and returning"""
 
     def test_returns_neg1_when_init_error_set(self, db, caplog):
         db._init_error = RuntimeError("migration failed")
@@ -92,9 +59,6 @@ class TestAddTranscriptionDeadWriter:
         )
 
 
-# ── _submit_write ────────────────────────────────────────────────────────
-
-
 class TestSubmitWriteDeadWriter:
     """FR-10: ``_submit_write`` refuses instantly when the writer is dead."""
 
@@ -111,9 +75,7 @@ class TestSubmitWriteDeadWriter:
         assert result is None
 
     def test_does_not_block_for_30_seconds(self, db):
-        """The pre-FR-10 implementation would block 30s on
-        ``future.result(timeout=_WRITE_FUTURE_TIMEOUT)`` before raising.
-        The early-return guard must make the failure path instant."""
+        """``future.result(timeout=_WRITE_FUTURE_TIMEOUT)`` before raising."""
         _kill_writer(db)
         start = time.monotonic()
         with contextlib.suppress(Exception):
@@ -126,12 +88,8 @@ class TestSubmitWriteDeadWriter:
         )
 
 
-# ── flush ────────────────────────────────────────────────────────────────
-
-
 class TestFlushDeadWriter:
-    """FR-10: ``flush`` returns immediately (no 30s hang) when the
-    writer is dead."""
+    """FR-10: ``flush`` returns immediately (no 30s hang) when the"""
 
     def test_flush_does_not_block_when_writer_dead(self, db):
         _kill_writer(db)
@@ -144,9 +102,7 @@ class TestFlushDeadWriter:
         )
 
     def test_flush_does_not_raise_when_writer_dead(self, db):
-        """flush() is wrapped in ``contextlib.suppress(HistoryDBError)``
-        internally so callers (e.g. dictation_pipeline._store_result)
-        see it as a no-op even when the writer is dead."""
+        """flush() is wrapped in ``contextlib.suppress(HistoryDBError)``"""
         _kill_writer(db)
         # Must not raise.
         db.flush()
@@ -160,13 +116,8 @@ class TestFlushDeadWriter:
         )
 
 
-# ── health_check wiring ─────────────────────────────────────────────────
-
-
 class TestHealthCheckWiring:
-    """FR-10: the failure path delegates to ``health_check()`` so the
-    diagnostic surface is centralized and the IPC diagnostics handler
-    can call ``health_check()`` directly to surface the same signal."""
+    """diagnostic surface is centralized and the IPC diagnostics handler"""
 
     def test_health_check_reports_init_error(self, db):
         db._init_error = RuntimeError("schema init failed")
@@ -187,9 +138,7 @@ class TestHealthCheckWiring:
         assert result["error"] is None
 
     def test_submit_write_failure_uses_health_check_message(self, db, caplog):
-        """The ``_submit_write`` failure log must include the
-        ``health_check`` error message (so the centralized diagnostic
-        is what surfaces, not a separate ad-hoc string)."""
+        """``health_check`` error message (so the centralized diagnostic"""
         from voice_typer.server.history_db import HistoryDBError
 
         db._init_error = RuntimeError("a very specific init error")
@@ -205,11 +154,7 @@ class TestHealthCheckWiring:
 
 
 class TestDictationPipelineHistoryFailNotification:
-    """FR-10 + FR-28: when ``add_transcription`` returns ``<= 0``
-    (writer dead), ``dictation_pipeline._store_result`` raises a
-    RuntimeError that's caught by the existing except clause and
-    triggers the notify-once tray message, instead of silently
-    treating the placeholder as success."""
+    """FR-10 + FR-28: when ``add_transcription`` returns ``<= 0``"""
 
     def _make_pipeline(self, history_enabled=True):
         from voice_typer.server.dictation_pipeline import DictationPipeline
@@ -238,7 +183,6 @@ class TestDictationPipelineHistoryFailNotification:
         app.history_db.flush.assert_not_called()
         # Tray notify must have been called (notify-once).
         app.tray.notify.assert_called_once()
-        # notify-once flag must now be True.
         assert app._history_fail_notified is True
 
     def test_store_result_does_not_notify_again_after_first_failure(self):
@@ -251,8 +195,7 @@ class TestDictationPipelineHistoryFailNotification:
         assert app.tray.notify.call_count == 1
 
     def test_store_result_skips_history_when_disabled(self):
-        """FR-28: when ``history_enabled`` is False, add_transcription
-        is NOT called at all."""
+        """FR-28: when ``history_enabled`` is False, add_transcription"""
         pipeline, app = self._make_pipeline(history_enabled=False)
         pipeline._store_result("hello")
         app.history_db.add_transcription.assert_not_called()
@@ -264,17 +207,7 @@ class TestDictationPipelineHistoryFailNotification:
 
 
 class TestDelDoesNotJoinWriter:
-    """FR-31: ``HistoryDB.__del__`` must NOT call ``close()`` (which
-    joins the writer thread with a 10s timeout).
-
-    Pre-fix, ``__del__`` called ``self.close()``. If a HistoryDB was
-    GC'd while the writer was stuck (mid-VACUUM, antivirus-locked WAL),
-    the GC pause blocked for up to 10s, visible to the user as a
-    frozen UI. The writer is a daemon thread and will be killed at
-    process exit regardless; the only thing ``__del__`` needs to do is
-    close read connections (to suppress ``ResourceWarning``) and signal
-    ``_shutdown`` so the writer exits on its next iteration.
-    """
+    """joins the writer thread with a 10s timeout)."""
 
     def test_del_does_not_call_close(self):
         """The source of ``__del__`` must not invoke ``self.close()``."""
@@ -284,8 +217,6 @@ class TestDelDoesNotJoinWriter:
 
         src = inspect.getsource(HistoryDB.__del__)
         # ``self.close()`` would join the writer thread (10s timeout).
-        # ``close`` may appear in the docstring (referencing the method
-        # by name), we only forbid the call form.
         assert "self.close()" not in src, (
             "FR-31 regression: __del__ must NOT call self.close(), that "
             "joins the writer thread with a 10s timeout and can freeze GC. "
@@ -293,8 +224,7 @@ class TestDelDoesNotJoinWriter:
         )
 
     def test_del_does_not_join_writer_thread(self):
-        """The source of ``__del__`` must not call
-        ``self._writer_thread.join(...)`` (the 10s-blocking call)."""
+        """The source of ``__del__`` must not call"""
         import inspect
 
         from voice_typer.server.history_db import HistoryDB
@@ -306,11 +236,7 @@ class TestDelDoesNotJoinWriter:
         )
 
     def test_del_signals_shutdown_and_closes_read_conns(self):
-        """``__del__`` must set ``_shutdown`` and close ``_all_read_connections``.
-
-        This is the non-blocking substitute for the old ``self.close()``
-        call, enough to suppress ResourceWarnings without blocking GC.
-        """
+        """``__del__`` must set ``_shutdown`` and close ``_all_read_connections``."""
         import inspect
 
         from voice_typer.server.history_db import HistoryDB
@@ -326,14 +252,7 @@ class TestDelDoesNotJoinWriter:
         )
 
     def test_del_does_not_block_when_writer_is_stuck(self, db, monkeypatch):
-        """End-to-end: if the writer thread is "stuck" (we simulate by
-        making ``Thread.join`` raise), ``__del__`` must complete in
-        well under the old 10s timeout, proving it never calls join.
-
-        We patch ``_writer_thread.join`` to raise (so any accidental
-        call would surface immediately) and assert ``__del__`` returns
-        in under 1 second. Pre-FR-31 this would have taken up to 10s.
-        """
+        """We patch ``_writer_thread.join`` to raise (so any accidental"""
         import time as _time
 
         def _boom_join(*a, **kw):
@@ -349,9 +268,7 @@ class TestDelDoesNotJoinWriter:
         )
 
     def test_del_safe_on_partially_constructed_instance(self):
-        """``__del__`` must not raise even on a partially-constructed
-        HistoryDB (e.g. if ``__init__`` raised before ``_shutdown`` /
-        ``_read_local`` were set). Mirrors the REC-7 / SA-09 patterns."""
+        """``__del__`` must not raise even on a partially-constructed"""
         from voice_typer.server.history_db import HistoryDB
 
         instance = HistoryDB.__new__(HistoryDB)

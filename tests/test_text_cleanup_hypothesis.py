@@ -1,8 +1,4 @@
-"""Property-based tests for text_cleanup using hypothesis.
-
-TEST-009: Property-based tests for clean_transcribed_text.
-TEST-013: Fuzzing for _load_external_corrections() with random JSON-like inputs.
-"""
+"""Property-based tests for text_cleanup using hypothesis."""
 
 from __future__ import annotations
 

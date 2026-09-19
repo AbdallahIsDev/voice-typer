@@ -1,11 +1,4 @@
-"""Focused tests for :func:`voice_typer.server.platform_utils.is_wayland_session`.
-
-Covers the env-var + platform heuristic with monkeypatched ``XDG_SESSION_TYPE``
-and ``WAYLAND_DISPLAY`` (and ``sys.platform`` for the platform gate). These
-tests pin the contract that the four Wayland-detection call sites
-(``clipboard/linux.py`` broad mode, ``hotkeys/factory.py``,
-``hotkeys/native_adapter.py``, ``startup_sequence.py``) rely on.
-"""
+"""Focused tests for :func:`voice_typer.server.platform_utils.is_wayland_session`."""
 
 from __future__ import annotations
 
@@ -13,7 +6,6 @@ import pytest
 from voice_typer.server.platform_utils import is_wayland_session
 
 # Path to the ``sys`` module bound in ``platform_utils``'s namespace —
-# patching ``sys.platform`` there propagates to ``is_wayland_session``.
 _PU_SYS = "voice_typer.server.platform_utils.sys.platform"
 
 
@@ -88,7 +80,7 @@ class TestIsWaylandSession:
         assert is_wayland_session() is False
 
     def test_empty_xdg_session_type_on_linux(self, monkeypatch):
-        """Linux + XDG_SESSION_TYPE="" (empty) + no WAYLAND_DISPLAY → False."""
+        """Linux + XDG_SESSION_TYPE=\"\" (empty) + no WAYLAND_DISPLAY → False."""
         monkeypatch.setattr(_PU_SYS, "linux")
         monkeypatch.setenv("XDG_SESSION_TYPE", "")
         monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)

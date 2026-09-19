@@ -1,20 +1,4 @@
-"""Unit tests for ``DictationHandlersMixin`` (CR-12).
-
-Covers the 3 dictation IPC handlers defined in
-``voice_typer/server/handlers/dictation_handlers.py``:
-
-- ``_handle_toggle_dictation``, start/stop the recording loop.
-- ``_handle_undo_last``, undo the last transcription via backspace keystrokes.
-- ``_handle_force_cancel_transcription``, force-reset a stuck
-  transcription (PR-2 Finding #3, manual escape hatch when the
-  3×90s watchdog timeout is too slow).
-
-All three handlers delegate to the service layer and return either
-``{type: ack}`` (toggle/undo) or ``{type: <cmd>_result, data: <result>}``
-(force_cancel).  Each has a service-raises path that produces the
-CR-20 generic WS-path error envelope
-``{type: error, data: {code: "server.internal_error", message: "internal error"}}``.
-"""
+"""Unit tests for ``DictationHandlersMixin`` (CR-12)."""
 
 from __future__ import annotations
 
@@ -31,7 +15,6 @@ class TestToggleDictation:
         fake_service.toggle_dictation.side_effect = RuntimeError("mic in use")
         resp = ipc_server._handle_toggle_dictation({}, {})
         assert resp["type"] == "error"
-        # generic WS-path envelope (no ``str(exc)`` leak).
         assert resp["data"]["code"] == "server.internal_error"
         assert resp["data"]["message"] == "internal error"
 
@@ -48,7 +31,6 @@ class TestUndoLast:
         fake_service.undo_last.side_effect = RuntimeError("nothing to undo")
         resp = ipc_server._handle_undo_last({}, {})
         assert resp["type"] == "error"
-        # generic WS-path envelope (no ``str(exc)`` leak).
         assert resp["data"]["code"] == "server.internal_error"
         assert resp["data"]["message"] == "internal error"
 
@@ -73,15 +55,11 @@ class TestForceCancelTranscription:
         fake_service.force_cancel_transcription.side_effect = RuntimeError("no transcription in progress")
         resp = ipc_server._handle_force_cancel_transcription({}, {})
         assert resp["type"] == "error"
-        # generic WS-path envelope (no ``str(exc)`` leak).
         assert resp["data"]["code"] == "server.internal_error"
         assert resp["data"]["message"] == "internal error"
 
     def test_failure_result_is_passed_through_not_converted_to_error(self, ipc_server, fake_service):
-        """A ``{success: False}`` return value is NOT converted to an error
-        response, the renderer distinguishes "cancel succeeded" from
-        "cancel failed but the IPC call worked" using ``data.success``.
-        """
+        """A ``{success: False}`` return value is NOT converted to an error"""
         fake_service.force_cancel_transcription.return_value = {
             "success": False,
             "message": "Nothing to cancel.",
@@ -93,30 +71,11 @@ class TestForceCancelTranscription:
         assert resp["data"]["success"] is False
 
 
-# typed cloud/LLM exception → IPC error code mapping ────────────
-
-
 class TestCloudErrorMapping:
-    """PI-17: when the service raises a typed ``CloudEngineError``
-    subclass (e.g. ``CloudAuthError`` from a 401 cloud response), the
-    dictation handler's catch-all routes the exception through
-    ``HandlerBase._respond_with_error`` which ``isinstance``-checks
-    the type and emits the matching namespaced IPC error code
-    (``server.cloud_auth_failed`` / ``server.cloud_rate_limited`` /
-    ``server.cloud_server_error`` / ``server.cloud_network_error`` /
-    ``server.cloud_config_error`` / ``server.cloud_engine_error``).
-
-    The fallback for a non-cloud ``RuntimeError`` (e.g. "mic in use")
-    stays as ``server.internal_error``, that's the existing CR-20
-    behavior and remains correct for non-cloud errors.
-    """
+    """PI-17: when the service raises a typed ``CloudEngineError``"""
 
     def test_cloud_auth_error_maps_to_specific_code(self, ipc_server, fake_service):
-        """A ``CloudAuthError`` from the service produces
-        ``{code: "server.cloud_auth_failed", message: "cloud API key
-        invalid or revoked"}``, NOT the generic
-        ``server.internal_error`` envelope.
-        """
+        """A ``CloudAuthError`` from the service produces"""
         from voice_typer.server.asr_errors import CloudAuthError
 
         fake_service.toggle_dictation.side_effect = CloudAuthError("401 from cloud provider")
@@ -158,11 +117,7 @@ class TestCloudErrorMapping:
         assert resp["data"]["code"] == "server.cloud_server_error"
 
     def test_cloud_engine_error_base_maps_to_specific_code(self, ipc_server, fake_service):
-        """The typed base ``CloudEngineError`` (raised when the HTTP
-        status doesn't fit one of the specific subclasses, e.g. 4xx
-        other than 401/403/429) maps to ``server.cloud_engine_error``,
-        NOT the generic ``server.internal_error``.
-        """
+        """The typed base ``CloudEngineError`` (raised when the HTTP"""
         from voice_typer.server.asr_errors import CloudEngineError
 
         fake_service.toggle_dictation.side_effect = CloudEngineError("unknown cloud failure")
@@ -171,12 +126,7 @@ class TestCloudErrorMapping:
         assert resp["data"]["code"] == "server.cloud_engine_error"
 
     def test_consent_required_error_maps_to_consent_code(self, ipc_server, fake_service):
-        """A ``ConsentRequiredError`` from the service produces
-        ``{code: "client.consent_required", ...}`` plus the structured
-        consent fields (engine_name, consent_field, model_id) so the
-        renderer can surface a consent dialog deep-linked to the exact
-        toggle in Settings (NEW-PRIV-006).
-        """
+        """A ``ConsentRequiredError`` from the service produces"""
         from voice_typer.server.asr_errors import ConsentRequiredError
 
         fake_service.toggle_dictation.side_effect = ConsentRequiredError(

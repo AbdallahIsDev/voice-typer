@@ -1,28 +1,4 @@
-"""Tests for the ADR-0010 §10.2 borrow/restore cycle.
-
-These tests exercise the new ``ClipboardManager.copy`` / ``paste`` /
-``restore_now`` / ``_delayed_restore`` / ``refresh_config`` API surface
-introduced by ADR-0010. They mock ``ClipboardSnapshot.capture()`` and
-``ClipboardSnapshot.restore()`` so they run on any platform without
-touching the real clipboard.
-
-ADR-0010 design principles covered here:
-
-* DP1, every borrow is paired with a restore (``test_paste_schedules_
-  restore_thread``).
-* DP2: ``restore_now`` restores even when no paste is sent.
-* DP3, restore runs on a daemon thread.
-* DP4, snapshots are passed as values, not stored as instance state.
-* DP7: ``clipboard_save_restore`` flag actually gates capture.
-
-The fixture below constructs a ``ClipboardManager`` directly via
-``ClipboardManager.__new__`` so we can set the cached config flags
-without paying the pynput-import cost. ``DISPLAY`` is set to ``:99``
-(Xvfb is running) and ``WAYLAND_DISPLAY`` is popped from the
-environment (per-test via the autouse ``_mock_display_env`` fixture
-below: see XS-22) so any incidental pynput usage doesn't crash the
-suite.
-"""
+"""Tests for the ADR-0010 §10.2 borrow/restore cycle."""
 
 from __future__ import annotations
 
@@ -30,9 +6,6 @@ import threading
 from unittest.mock import MagicMock, patch
 
 import pytest
-
-# pynput / pynput.keyboard / pyperclip are mocked at collection time by
-# tests/clipboard/conftest.py (single source of truth, dedup).
 from voice_typer.server import clipboard as clip_mod  # noqa: E402
 from voice_typer.server.clipboard import (  # noqa: E402
     ClipboardCopyError,
@@ -42,18 +15,6 @@ from voice_typer.server.clipboard_snapshot import ClipboardSnapshot  # noqa: E40
 
 from tests.fixtures.clipboard_helpers import make_clipboard_manager, make_clipboard_snapshot  # noqa: E402
 
-# ---------------------------------------------------------------------------
-# Display-env isolation
-# ---------------------------------------------------------------------------
-# Previously this module mutated the process environment at import time
-# (setting DISPLAY=":99" and removing WAYLAND_DISPLAY) to keep clipboard
-# code happy on a headless Linux box. Those mutations leaked into the
-# entire test session. The autouse fixture below uses ``monkeypatch`` so
-# the mutations are auto-restored after each test (no cross-test leak).
-# could consolidate this into ``tests/conftest.py`` as a
-# session-scoped fixture; for now it is duplicated per-file because
-# conftest.py is owned by another sub-agent.
-
 
 @pytest.fixture(autouse=True)
 def _mock_display_env(monkeypatch):
@@ -61,17 +22,6 @@ def _mock_display_env(monkeypatch):
     monkeypatch.setenv("DISPLAY", ":99")
     monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
     yield
-
-
-# ---------------------------------------------------------------------------
-# Helper: build a ClipboardManager via __new__ so we control cached flags
-# without paying the pynput import cost.
-# ---------------------------------------------------------------------------
-
-
-# ===========================================================================
-# copy(), snapshot capture paths (ADR-0010 §5.2)
-# ===========================================================================
 
 
 class TestCopySnapshotCapture:
@@ -129,11 +79,7 @@ class TestCopySnapshotCapture:
             cm.copy("hello")
 
     def test_copy_restores_snapshot_on_failure(self):
-        """If copy fails after a snapshot was captured, the snapshot is restored.
-
-        ADR-0010 §5.2: "The snapshot, if captured, is restored before
-        raising so the clipboard is never left torn."
-        """
+        """If copy fails after a snapshot was captured, the snapshot is restored."""
         cm = make_clipboard_manager(save_restore=True)
         sentinel = make_clipboard_snapshot()
         mock_pyper = MagicMock()
@@ -154,11 +100,6 @@ class TestCopySnapshotCapture:
             mock_restore.assert_called_once()
 
 
-# ===========================================================================
-# paste(), restore scheduling and gates (ADR-0010 §5.3)
-# ===========================================================================
-
-
 class TestPasteRestoreScheduling:
     """``paste()`` schedules a daemon-thread restore when given a snapshot."""
 
@@ -167,11 +108,6 @@ class TestPasteRestoreScheduling:
         cm = make_clipboard_manager()
         snap = make_clipboard_snapshot()
 
-        # Avoid the real paste-keystroke path: stub _send_ctrl_v_win32 and
-        # the safety check so paste() returns True after scheduling.
-        # ADR-0010 §5.3: paste() now checks ``_Controller is None`` (was
-        # ``_Key is None``); patch both so the early-return guard doesn't
-        # fire on the Linux branch (is_windows=False).
         with (
             patch.object(clip_mod, "is_windows", return_value=False),
             patch.object(clip_mod, "is_macos", return_value=False),
@@ -221,12 +157,8 @@ class TestPasteRestoreScheduling:
             mock_time.monotonic.return_value = 100.0
             mock_time.sleep = MagicMock()
             # On Linux without pynput, paste() would early-return False.
-            # Patch _Controller so the early-return guard doesn't fire.
             with patch.object(clip_mod, "_Controller", MagicMock()), patch.object(clip_mod, "_Key", MagicMock()):
                 result = cm.paste(force=True)
-        # force=True bypasses the paste_enabled gate; the keystroke may
-        # still fail (we're on Linux with a mocked keyboard), but the
-        # important thing is we got PAST the gate.
         assert result in (True, False)
 
     def test_paste_returns_false_when_paste_enabled_false_without_force(self):
@@ -236,11 +168,6 @@ class TestPasteRestoreScheduling:
             mock_time.monotonic.return_value = 100.0
             result = cm.paste()
         assert result is False
-
-
-# ===========================================================================
-# restore_now(), immediate restore without paste (ADR-0010 §5.4 / DP2)
-# ===========================================================================
 
 
 class TestRestoreNow:
@@ -260,11 +187,6 @@ class TestRestoreNow:
         with patch.object(clip_mod, "log"):
             # Must not raise.
             cm.restore_now(None)
-
-
-# ===========================================================================
-# _delayed_restore(), daemon-thread restore (ADR-0010 §5.3 / DP3)
-# ===========================================================================
 
 
 class TestDelayedRestore:
@@ -305,24 +227,7 @@ class TestDelayedRestore:
         mock_restore.assert_called_once()
 
     def test_delayed_restore_accepts_4_arg_pending_entry_from_paste_call_site(self):
-        """regression guard: ``paste()`` spawns the daemon thread
-        with 4 positional args ``(snapshot, expected, delay, _pending_entry)``,
-        so ``_delayed_restore`` MUST accept 4 positional args without
-        raising ``TypeError``.
-
-        The original  bug was that the production signature was
-        3-arg while the call site passed 4, the daemon thread died
-        immediately on every ``paste()`` invocation, silently breaking
-        clipboard restore. The fix added ``pending_entry: Any = None``
-        to the signature.
-
-        This test invokes the SUT with the EXACT 4-arg shape that
-        ``paste()`` uses (verified via static call-site inspection at
-        ``voice_typer/server/clipboard/manager.py``), so a future
-        regression that removes the 4th parameter from the signature
-        fails this test directly rather than silently breaking every
-        paste restore in production.
-        """
+        """regression guard: ``paste()`` spawns the daemon thread"""
         import inspect
 
         from voice_typer.server.clipboard.manager import ClipboardManager
@@ -348,8 +253,6 @@ class TestDelayedRestore:
         )
 
         # (2) Behavioral contract: calling with the 4-arg shape must
-        # not raise TypeError. This is the exact call shape ``paste()``
-        # uses at the Thread() constructor.
         cm = make_clipboard_manager()
         snap = make_clipboard_snapshot()
         pending_entry = (cm, snap, "original text", 0.0)
@@ -364,11 +267,6 @@ class TestDelayedRestore:
             mock_time.sleep = MagicMock()
             # Must not raise TypeError, the original bug.
             cm._delayed_restore(snap, "original text", 0.0, pending_entry)
-
-
-# ===========================================================================
-# refresh_config(), sync cached flags from runtime config (ADR-0010 §5.5)
-# ===========================================================================
 
 
 class TestRefreshConfig:

@@ -1,9 +1,4 @@
-"""Consolidated diagnostics CLI script tests.
-
-Split from the former catch-all test module (
-2026-08-25). Verifies ``scripts/diagnostics.py``, the consolidated
-developer-facing diagnostic CLI, exists and keeps its subcommands.
-"""
+"""Consolidated diagnostics CLI script tests."""
 
 from __future__ import annotations
 

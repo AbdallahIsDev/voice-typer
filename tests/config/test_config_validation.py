@@ -5,10 +5,6 @@ import json
 import pytest
 from voice_typer.server.config import Config, _default_hotkey_for_platform
 
-# the default hotkey is now platform-aware
-# (Fn on macOS, Caps Lock on Windows/Linux, F2 on unknown platforms).
-# Tests that assert the default hotkey use this helper instead of
-# hard-coding "<f2>".
 EXPECTED_DEFAULT_HOTKEY = _default_hotkey_for_platform()
 
 
@@ -55,19 +51,10 @@ class TestNonNumericFieldValidation:
         c = Config()
         assert c.silence_warning_seconds == 20.0
         assert c.stop_on_silence_seconds == 60.0
-        # SIMPLIFY-001: single explicit field replaces the old 3-field split
         assert c.max_recording_time_seconds == 900
 
     def test_startup6_int_field_not_treated_as_bool(self, tmp_path, tmp_config_dir, caplog):
-        """STARTUP-6: volume_duck_smart_poll_interval_ms (int) must NOT be
-        flagged as an invalid bool when loading its default value 500.
-
-        Previously this field was misclassified in bool_fields, causing the
-        bool validator to log a spurious
-        "had invalid value 500, resetting to default 500" warning on every
-        startup. The value 500 is the default and is in the valid 50-5000
-        range; no warning should fire.
-        """
+        """STARTUP-6: volume_duck_smart_poll_interval_ms (int) must NOT be"""
         config_file = tmp_path / "config.json"
         # Write the default value explicitly, this is what Config.save() produces
         config_file.write_text(json.dumps({"volume_duck_smart_poll_interval_ms": 500}))
@@ -83,8 +70,7 @@ class TestNonNumericFieldValidation:
         ), f"Spurious validation warning logged: {[r.message for r in caplog.records]}"
 
     def test_startup6_int_field_preserves_user_value(self, tmp_path, tmp_config_dir):
-        """STARTUP-6: a non-default but in-range int value should also
-        be preserved without being coerced or warned about."""
+        """STARTUP-6: a non-default but in-range int value should also"""
         config_file = tmp_path / "config.json"
         config_file.write_text(json.dumps({"volume_duck_smart_poll_interval_ms": 1500}))
         c = Config.load()
@@ -92,15 +78,7 @@ class TestNonNumericFieldValidation:
 
 
 class TestCfg5AccumulateAllErrors:
-    """``validate_config_update`` previously stopped at the
-    first invalid field (``break``), forcing the user to fix-and-resubmit
-    N times to discover N problems.  The fix accumulates ALL errors so
-    the renderer can surface every problem in a single round-trip.
-
-    Atomicity is preserved: the dispatcher still rejects the entire
-    payload when ANY error is present (no partial apply), but the error
-    list now carries every invalid field, not just the first.
-    """
+    """first invalid field (``break``), forcing the user to fix-and-resubmit"""
 
     def test_three_invalid_fields_return_three_errors(self):
         """Three distinct validation failures produce three error strings."""
@@ -121,10 +99,7 @@ class TestCfg5AccumulateAllErrors:
         assert "autostart" in joined
 
     def test_valid_fields_are_still_in_validated_when_errors_present(self):
-        """When some fields are valid and others are invalid, the valid
-        ones appear in ``validated`` (the dispatcher still ignores
-        ``validated`` when ``errors`` is non-empty, but it's preserved
-        for introspection/testing)."""
+        """When some fields are valid and others are invalid, the valid"""
         from voice_typer.server.config import validate_config_update
 
         validated, errors = validate_config_update(
@@ -141,8 +116,7 @@ class TestCfg5AccumulateAllErrors:
         assert "autostart" not in validated
 
     def test_single_invalid_field_still_returns_single_error(self):
-        """Backwards compat: a single invalid field still returns
-        exactly one error (no regression for the common case)."""
+        """Backwards compat: a single invalid field still returns"""
         from voice_typer.server.config import validate_config_update
 
         validated, errors = validate_config_update(
@@ -169,9 +143,7 @@ class TestCfg5AccumulateAllErrors:
         assert validated == {"hotkey": "<f4>", "autostart": False, "language": "fr"}
 
     def test_unknown_keys_silently_dropped_even_when_errors_present(self):
-        """Unknown keys are silently dropped (debug-logged), regardless
-        of whether other fields produced errors.  They never appear in
-        the error list."""
+        """Unknown keys are silently dropped (debug-logged), regardless"""
         from voice_typer.server.config import validate_config_update
 
         validated, errors = validate_config_update(
@@ -192,9 +164,7 @@ class TestCfg5AccumulateAllErrors:
             assert "another_unknown" not in err
 
     def test_type_error_and_range_error_both_returned(self):
-        """A type error (wrong type) and a range error (right type, bad
-        value) on different fields both surface, the function doesn't
-        abort after the first kind."""
+        """A type error (wrong type) and a range error (right type, bad"""
         from voice_typer.server.config import validate_config_update
 
         validated, errors = validate_config_update(
@@ -208,20 +178,8 @@ class TestCfg5AccumulateAllErrors:
         assert any("best_of" in e for e in errors)
 
 
-# ──────────────────────────────────────────────────────────────────────────
-# string validators reject control characters
-# ──────────────────────────────────────────────────────────────────────────
-
-
 class TestCfg6ControlCharRejection:
-    """``_make_str_validator`` and
-    ``_make_optional_str_validator`` previously accepted any string
-    under the length cap, including strings with embedded C0 control
-    characters (newline, tab, NUL, etc.).  These are never part of a
-    legitimate config value (hotkey, language code, API key, URL, model
-    name) and are a classic log-poisoning / header-injection vector
-    when echoed into logs or HTTP headers.
-    """
+    """under the length cap, including strings with embedded C0 control"""
 
     @pytest.mark.parametrize(
         "char",
@@ -249,10 +207,7 @@ class TestCfg6ControlCharRejection:
         assert v("héllo wörld 中文") is None
 
     def test_str_validator_accepts_high_codepoints(self):
-        """High Unicode codepoints (>= 0xA0) are NOT control chars and
-        must pass.  C0 (0x00-0x1f), DEL (0x7f), and C1 controls (0x80-0x9f)
-        are rejected (C1 rejection prevents terminal/log poisoning via CSI
-        escape sequences)."""
+        """must pass.  C0 (0x00-0x1f), DEL (0x7f), and C1 controls (0x80-0x9f)"""
         from voice_typer.server.config_validators import _make_str_validator
 
         v = _make_str_validator()
@@ -263,8 +218,7 @@ class TestCfg6ControlCharRejection:
         assert v("emoji 😀") is None
 
     def test_optional_str_validator_rejects_control_char(self):
-        """_make_optional_str_validator (used for ``microphone``) also
-        rejects control characters in non-None values."""
+        """_make_optional_str_validator (used for ``microphone``) also"""
         from voice_typer.server.config_validators import _make_optional_str_validator
 
         v = _make_optional_str_validator()
@@ -274,8 +228,7 @@ class TestCfg6ControlCharRejection:
         assert "control" in result.lower()
 
     def test_str_validator_via_ipc_rejects_control_char_in_api_key(self):
-        """End-to-end: a ``cloud_api_key`` with a newline is rejected
-        by ``validate_config_update`` (which uses _make_str_validator)."""
+        """End-to-end: a ``cloud_api_key`` with a newline is rejected"""
         from voice_typer.server.config import validate_config_update
 
         validated, errors = validate_config_update(
@@ -300,20 +253,8 @@ class TestCfg6ControlCharRejection:
         assert "control" in errors[0].lower()
 
 
-# ──────────────────────────────────────────────────────────────────────────
-# URL validator rejects embedded credentials
-# ──────────────────────────────────────────────────────────────────────────
-
-
 class TestCfg7UrlCredentialsRejection:
-    """``_make_url_validator`` previously accepted URLs
-    with embedded credentials (``user:pass@host``).  Such URLs are a
-    credentials-leak vector: the renderer would otherwise persist them
-    to config.json on disk, echo them into logs, and potentially leak
-    them to a proxy.  Legitimate API endpoints (OpenAI, Groq,
-    Deepgram, Ollama) never use embedded credentials, auth is via
-    the ``X-Api-Key`` / ``Authorization`` header, supplied separately.
-    """
+    """credentials-leak vector: the renderer would otherwise persist them"""
 
     def test_rejects_user_password_url(self):
         """A URL with both username and password is rejected."""
@@ -325,8 +266,7 @@ class TestCfg7UrlCredentialsRejection:
         assert "credential" in result.lower()
 
     def test_rejects_user_only_url(self):
-        """A URL with username but no password is also rejected —
-        the username alone is a credential leak."""
+        """A URL with username but no password is also rejected —"""
         from voice_typer.server.config_validators import _make_url_validator
 
         v = _make_url_validator(allow_empty=False)
@@ -335,8 +275,7 @@ class TestCfg7UrlCredentialsRejection:
         assert "credential" in result.lower()
 
     def test_rejects_password_only_url(self):
-        """A URL with password but no username is also rejected
-        (urlparse exposes this as .password only)."""
+        """A URL with password but no username is also rejected"""
         from voice_typer.server.config_validators import _make_url_validator
 
         v = _make_url_validator(allow_empty=False)
@@ -354,17 +293,14 @@ class TestCfg7UrlCredentialsRejection:
         assert v("https://api.groq.com/openai/v1/chat/completions") is None
 
     def test_accepts_loopback_http_without_credentials(self):
-        """Loopback HTTP (local dev server) is still accepted when no
-        credentials are present."""
+        """Loopback HTTP (local dev server) is still accepted when no"""
         from voice_typer.server.config_validators import _make_url_validator
 
         v = _make_url_validator(allow_empty=False)
         assert v("http://localhost:11434/v1/chat/completions") is None
 
     def test_rejects_credentials_on_loopback_too(self):
-        """applies even to loopback URLs, credentials are
-        rejected regardless of host.  (A local dev server shouldn't
-        need embedded credentials either; use a separate header.)"""
+        """applies even to loopback URLs, credentials are"""
         from voice_typer.server.config_validators import _make_url_validator
 
         v = _make_url_validator(allow_empty=False)
@@ -373,8 +309,7 @@ class TestCfg7UrlCredentialsRejection:
         assert "credential" in result.lower()
 
     def test_rejects_credentials_via_ipc_set_config(self):
-        """End-to-end: ``set_config`` with a credential-bearing
-        ``llm_api_url`` is rejected by ``validate_config_update``."""
+        """End-to-end: ``set_config`` with a credential-bearing"""
         from voice_typer.server.config import validate_config_update
 
         validated, errors = validate_config_update(
@@ -395,16 +330,7 @@ class TestCfg7UrlCredentialsRejection:
                 "cloud_api_url": "https://user:pass@attacker.example.net/audio",
             }
         )
-        # The URL is also HTTP non-loopback, so it might trip the
-        # HTTPS-required check first.  Either way, it's rejected.
         assert len(errors) >= 1
         assert "cloud_api_url" not in validated
         # If the credential check ran, the message mentions credentials.
-        # If the HTTPS check ran first, the message mentions HTTPS.
-        # Both are acceptable rejections, we just need the URL rejected.
         assert any("credential" in e.lower() or "HTTPS" in e or "loopback" in e.lower() for e in errors)
-
-
-# ──────────────────────────────────────────────────────────────────────────
-# deprecated fields removed from IPC_CONFIG_ALLOWLIST
-# ──────────────────────────────────────────────────────────────────────────

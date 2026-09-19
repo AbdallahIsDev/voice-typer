@@ -1,22 +1,4 @@
-"""Regression tests for XZ-PRIV-04: per-segment DEBUG log PII gating.
-
-``voice_typer/server/transcription.py::_transcribe_unlocked`` previously
-called ``log.debug("[TRANSCRIBE] Segment: [%.1fs - %.1fs] %s", start,
-end, seg.text.strip())`` *unconditionally*. The raw segment text —
-which is the user's dictated speech, landed in ``voice-typer.log``
-even when the user had NOT opted in via ``config.log_transcriptions``.
-
-The fix mirrors the contract already used by
-``hallucination.py::log_hallucination_rejection``:
-  (a) only emit the segment DEBUG log when the user has opted in via
-      ``config.log_transcriptions``;
-  (b) route the text through ``security.redact_pii`` so any structured
-      PII patterns (email/phone/IBAN/SSN/CC) are stripped before the
-      text reaches the rotating log file.
-
-These tests pin both behaviors so a future refactor cannot silently
-reintroduce the unconditional raw-text DEBUG log.
-"""
+"""Regression tests for XZ-PRIV-04: per-segment DEBUG log PII gating."""
 
 from __future__ import annotations
 
@@ -41,11 +23,7 @@ def mock_faster_whisper(monkeypatch):
 
 
 def _make_engine_with_model(config: object | None = None):
-    """Build a TranscriptionEngine with a mocked whisper model.
-
-    ``config`` is wired through to ``engine.config`` so tests can flip
-    the ``log_transcriptions`` flag.
-    """
+    """Build a TranscriptionEngine with a mocked whisper model."""
     from voice_typer.server.transcription import TranscriptionEngine
 
     engine = TranscriptionEngine(model_size="small.en", device="cuda", config=config)
@@ -72,8 +50,7 @@ class TestSegmentDebugLogPiiGating:
     """XZ-PRIV-04: segment DEBUG log must be gated + PII-redacted."""
 
     def test_segment_debug_log_not_emitted_when_log_transcriptions_false(self, caplog):
-        """When ``config.log_transcriptions`` is False (the default), the
-        raw segment text MUST NOT appear in the DEBUG log."""
+        """When ``config.log_transcriptions`` is False (the default), the"""
         engine, mock_model = _make_engine_with_model(config=_FakeConfig(log_transcriptions=False))
         mock_model.transcribe.return_value = (
             [MagicMock(text=PII_SAMPLE_TEXT, start=0.0, end=1.0)],
@@ -93,8 +70,7 @@ class TestSegmentDebugLogPiiGating:
         )
 
     def test_segment_debug_log_emitted_when_log_transcriptions_true(self, caplog):
-        """When the user opts in via ``log_transcriptions=True``, the
-        segment DEBUG log IS emitted, but with PII redacted."""
+        """When the user opts in via ``log_transcriptions=True``, the"""
         engine, mock_model = _make_engine_with_model(config=_FakeConfig(log_transcriptions=True))
         mock_model.transcribe.return_value = (
             [MagicMock(text=PII_SAMPLE_TEXT, start=0.0, end=1.0)],
@@ -120,8 +96,7 @@ class TestSegmentDebugLogPiiGating:
         assert "[PHONE]" in msg, f"Phone not redacted to [PHONE] token: {msg!r}"
 
     def test_segment_debug_log_skipped_when_config_is_none(self, caplog):
-        """When ``engine.config`` is None (e.g. benchmark path), the
-        segment DEBUG log MUST NOT emit, same as ``log_transcriptions=False``."""
+        """When ``engine.config`` is None (e.g. benchmark path), the"""
         engine, mock_model = _make_engine_with_model(config=None)
         mock_model.transcribe.return_value = (
             [MagicMock(text=PII_SAMPLE_TEXT, start=0.0, end=1.0)],
@@ -140,9 +115,7 @@ class TestSegmentDebugLogPiiGating:
         )
 
     def test_transcription_result_unchanged_by_gating(self):
-        """The gating fix must NOT alter the transcription result, only
-        the log output. The returned text must still contain the original
-        (un-redacted) PII so the user's dictated text is preserved."""
+        """The gating fix must NOT alter the transcription result, only"""
         engine, mock_model = _make_engine_with_model(config=_FakeConfig(log_transcriptions=False))
         mock_model.transcribe.return_value = (
             [MagicMock(text=PII_SAMPLE_TEXT, start=0.0, end=1.0)],
@@ -153,21 +126,11 @@ class TestSegmentDebugLogPiiGating:
         result = engine.transcribe_with_fallback(audio)
 
         # The returned text is the user's dictated speech, PII is
-        # preserved in the result, only the LOG is redacted.
         assert result == PII_SAMPLE_TEXT
 
 
 class TestResultModuleRedactionFailureFallback:
-    """HU-13 / AP-11 twin: ``transcription_result.transcribe_unlocked``
-    (the extracted module) previously fell back to ``_safe_seg_text =
-    _seg_text[:80]`` when ``redact_pii`` raised, leaking up to 80 chars
-    of raw dictated PII at the exact moment the redaction pipeline is
-    broken (defense-in-depth failure). The fix mirrors
-    ``transcription.py``: on redaction failure, emit a
-    ``<redaction-engine-failed>`` marker + segment boundaries and SKIP
-    the DEBUG segment log entirely. These tests unit-test the extracted
-    module directly (it is designed to be unit-tested in isolation).
-    """
+    """HU-13 / AP-11 twin: ``transcription_result.transcribe_unlocked``"""
 
     @staticmethod
     def _make_engine(config):
@@ -196,10 +159,7 @@ class TestResultModuleRedactionFailureFallback:
         return engine
 
     def test_redaction_failure_emits_marker_not_raw_text(self, caplog, monkeypatch):
-        """HU-13: when ``redact_pii`` raises (regex bug / security-module
-        import failure), the segment DEBUG log must be skipped and a
-        ``<redaction-engine-failed>`` marker logged instead, NEVER the
-        raw dictated text, even truncated to 80 chars."""
+        """HU-13: when ``redact_pii`` raises (regex bug / security-module"""
         import voice_typer.server.security as security_mod
         from voice_typer.server.transcription_result import transcribe_unlocked
 
@@ -238,8 +198,7 @@ class TestResultModuleRedactionFailureFallback:
         )
 
     def test_redaction_success_still_logs_redacted_segment(self, caplog):
-        """HU-13 guard against over-fixing: when ``redact_pii`` works,
-        the segment DEBUG log must still be emitted with redacted text."""
+        """HU-13 guard against over-fixing: when ``redact_pii`` works,"""
         from voice_typer.server.transcription_result import transcribe_unlocked
 
         engine = self._make_engine(config=_FakeConfig(log_transcriptions=True))
@@ -259,17 +218,13 @@ class TestResultModuleRedactionFailureFallback:
         assert "[EMAIL]" in msg, f"Email not redacted to [EMAIL] token: {msg!r}"
 
     def test_redaction_import_failure_skips_segment_log_entirely(self, caplog, monkeypatch):
-        """HU-13: when the redaction engine cannot even be IMPORTED
-          (``_redact_pii is None``), the whole segment-log block is skipped
-        , no raw text, no marker, no DEBUG record at all."""
+        """HU-13: when the redaction engine cannot even be IMPORTED"""
         import voice_typer.server.security as security_mod
         from voice_typer.server.transcription_result import transcribe_unlocked
 
         engine = self._make_engine(config=_FakeConfig(log_transcriptions=True))
 
         # Deleting the package attribute makes the hoisted
-        # ``from voice_typer.server.security import redact_pii`` raise
-        # ImportError, which the module converts to ``_redact_pii = None``.
         monkeypatch.delattr(security_mod, "redact_pii")
         monkeypatch.setattr(
             "voice_typer.server.transcription_result.should_reject_low_audio_hallucination",

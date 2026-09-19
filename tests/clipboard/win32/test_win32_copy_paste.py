@@ -1,29 +1,4 @@
-"""Win32 code-path coverage for ``voice_typer.server.clipboard``.
-
-These tests mock ``ctypes.windll`` (and friends) so the Windows-only
-branches of clipboard.py execute on Linux.  Brings clipboard.py from
-~40% to >=75% coverage.
-
-The strategy:
-
-1. Patch ``voice_typer.server.clipboard.is_windows`` to return ``True``
-   so the ``if not is_windows(): return ...`` early-exits are skipped.
-2. Patch ``ctypes.windll`` with a ``MagicMock`` exposing ``user32``,
-   ``kernel32``, and ``advapi32`` attributes.  Each Win32 API call
-   becomes a mock call whose return value we control.
-3. For functions that use ``ctypes.byref(dword)`` to receive an output
-   value (e.g. ``GetWindowThreadProcessId``), we install ``side_effect``
-   callbacks that mutate ``byref_obj._obj.value``, the underlying
-   ``c_ulong`` instance, to fake the kernel writing into the buffer.
-4. For ``_send_ctrl_v_win32``, we provide *real* ``ctypes.Structure``
-   subclasses (``INPUT``, ``KEYBDINPUT``, ``INPUT_union``) so the
-   ``(INPUT * 4)(...)`` array-construction syntax and
-   ``ctypes.sizeof(INPUT)`` work natively.  ``SendInput`` itself is a
-   ``MagicMock``.
-5. For ``_is_password_field`` and ``_is_content_editable``, we mock
-   ``comtypes`` / ``comtypes.client`` in ``sys.modules`` so the
-   ``import comtypes.client`` line resolves to our mock.
-"""
+"""Win32 code-path coverage for ``voice_typer.server.clipboard``."""
 
 from __future__ import annotations
 
@@ -33,12 +8,6 @@ from ctypes import wintypes
 from unittest.mock import MagicMock, patch
 
 import pytest
-
-# ---------------------------------------------------------------------------
-# pynput / pynput.keyboard / pyperclip are mocked at collection time by
-# tests/clipboard/conftest.py (single source of truth, dedup).
-# ---------------------------------------------------------------------------
-# UIA singleton moved to clipboard_target_safety; reset it there.
 from voice_typer.server import (
     clipboard as clip_mod,  # noqa: E402
 )
@@ -49,13 +18,6 @@ from voice_typer.server.clipboard import (  # noqa: E402
 from voice_typer.server.clipboard_snapshot import ClipboardSnapshot  # noqa: E402
 
 
-# ---------------------------------------------------------------------------
-# Real ctypes structures for _send_ctrl_v_win32 testing.
-#
-# pynput._util.win32 exposes INPUT / KEYBDINPUT / INPUT_union / SendInput.
-# We define minimal ctypes-compatible versions so the array-construction
-# and sizeof() calls in _send_ctrl_v_win32 work on Linux.
-# ---------------------------------------------------------------------------
 class _KEYBDINPUT(ctypes.Structure):
     _fields_ = (
         ("wVk", wintypes.WORD),
@@ -81,11 +43,7 @@ class _INPUT(ctypes.Structure):
 
 
 def _make_pynput_win32_module(sendinput_return: int = 4) -> types.ModuleType:
-    """Build a fake ``pynput._util.win32`` module with real ctypes types.
-
-    ``SendInput`` is a MagicMock so the test can configure the return
-    value (4 = success, 0 = total failure, 1..3 = partial success).
-    """
+    """Build a fake ``pynput._util.win32`` module with real ctypes types."""
     mod = types.ModuleType("pynput._util.win32")
     mod.INPUT = _INPUT
     mod.KEYBDINPUT = _KEYBDINPUT
@@ -94,18 +52,9 @@ def _make_pynput_win32_module(sendinput_return: int = 4) -> types.ModuleType:
     return mod
 
 
-# ---------------------------------------------------------------------------
-# Fixtures
-# ---------------------------------------------------------------------------
-
-
 @pytest.fixture
 def fake_win32():
-    """Mock ``ctypes.windll`` so Windows-only code runs on Linux.
-
-    Yields a dict with ``user32``, ``kernel32``, and ``advapi32`` mocks
-    that tests can configure per-case.
-    """
+    """Mock ``ctypes.windll`` so Windows-only code runs on Linux."""
     mock_user32 = MagicMock()
     mock_kernel32 = MagicMock()
     mock_advapi32 = MagicMock()
@@ -131,9 +80,6 @@ def fake_win32():
     with (
         patch.object(clip_mod, "is_windows", return_value=True),
         # Pin is_macos() False too: the dispatch in manager.py checks
-        # is_macos() BEFORE is_windows(), so on a macOS host the real
-        # darwin predicate would otherwise hijack these simulated-
-        # Windows tests into the Cmd+V branch.
         patch.object(clip_mod, "is_macos", return_value=False),
         patch("ctypes.windll", mock_windll, create=True),
         patch("ctypes.create_unicode_buffer") as mock_buf,
@@ -152,37 +98,19 @@ def fake_win32():
 
 
 def _set_byref_value(byref_obj, value):
-    """Helper: mutate the c_ulong instance wrapped by ``ctypes.byref``.
-
-    ``ctypes.byref(obj)`` returns a ``CArgObject`` whose ``_obj``
-    attribute is the underlying object.  We use this to fake the kernel
-    writing an output value into a ``wintypes.DWORD`` passed by-ref.
-    """
+    """Helper: mutate the c_ulong instance wrapped by ``ctypes.byref``."""
     byref_obj._obj.value = value
 
 
 class TestCopyWindowsBranches:
     def _make_cm(self):
-        """Build a ClipboardManager with mocked pynput controller.
-
-        ADR-0010 §5.6: ``_clear_thread`` / ``_saved_clipboard`` were
-        deleted from the class. ``_restore_delay_ms`` (new in §5.3) is
-        set by the factory so ``paste()``'s restore-delay lookup
-        doesn't blow up if a test triggers the restore path.
-        Delegates to the shared canonical factory (XS-42 helper dedup).
-        """
+        """Build a ClipboardManager with mocked pynput controller."""
         from tests.fixtures.clipboard_helpers import make_clipboard_manager
 
         return make_clipboard_manager()
 
     def test_copy_saves_clipboard_before_overwrite_on_windows(self, fake_win32):
-        """copy() captures a ClipboardSnapshot of the prior clipboard.
-
-        ADR-0010 §5.2: ``copy()`` now returns a ``ClipboardSnapshot``
-        (or ``None``) instead of ``bool``. The snapshot is captured via
-        ``ClipboardSnapshot.capture()`` and returned to the caller, it
-        is NOT stored on ``self``.
-        """
+        """copy() captures a ClipboardSnapshot of the prior clipboard."""
         cm = self._make_cm()
         sentinel_snapshot = ClipboardSnapshot(
             platform="windows",
@@ -205,13 +133,7 @@ class TestCopyWindowsBranches:
         mock_capture.assert_called_once()
 
     def test_copy_handles_pyperclip_paste_exception_during_save(self, fake_win32):
-        """If ClipboardSnapshot.capture() returns None, copy() still succeeds.
-
-        ADR-0010 §5.2: snapshot capture may return None (clipboard
-        locked or empty). copy() treats None as "no snapshot to
-        restore" (degraded but safe mode) and still returns None
-        (the snapshot value) while succeeding the actual text copy.
-        """
+        """If ClipboardSnapshot.capture() returns None, copy() still succeeds."""
         cm = self._make_cm()
         mock_pyper = MagicMock()
         mock_pyper.paste.return_value = "new text"
@@ -228,12 +150,7 @@ class TestCopyWindowsBranches:
         assert result is None  # capture failed → no snapshot returned
 
     def test_copy_skips_save_when_save_restore_disabled(self, fake_win32):
-        """When _clipboard_save_restore_enabled=False, no snapshot is captured.
-
-        ADR-0010 §5.2 / DP7: the config flag actually gates snapshot
-        capture. ``copy()`` returns ``None`` because no snapshot was
-        captured, the text copy itself still succeeds.
-        """
+        """When _clipboard_save_restore_enabled=False, no snapshot is captured."""
         cm = self._make_cm()
         cm._clipboard_save_restore_enabled = False
         mock_pyper = MagicMock()
@@ -251,22 +168,16 @@ class TestCopyWindowsBranches:
         assert result is None  # save_restore disabled → no snapshot
         # Snapshot capture must NOT be attempted when the flag is off.
         mock_capture.assert_not_called()
-        # paste() called only for verification, not for save
         assert mock_pyper.paste.call_count >= 1
 
     def test_copy_retries_on_access_denied(self, fake_win32):
-        """pyperclip.copy raising OSError(winerror=5) is retried 3 times.
-
-        ADR-0010 §5.2: after the third failure, copy() raises
-        ``ClipboardCopyError`` (instead of returning ``False``).
-        """
+        """pyperclip.copy raising OSError(winerror=5) is retried 3 times."""
         cm = self._make_cm()
         mock_pyper = MagicMock()
         # First two copy() calls raise ACCESS_DENIED, third succeeds.
         copy_err = OSError("denied")
         copy_err.winerror = 5
         mock_pyper.copy.side_effect = [copy_err, copy_err, None]
-        # paste() during verification returns the text → success.
         mock_pyper.paste.return_value = "hello"
         with (
             patch.object(clip_mod, "pyperclip", mock_pyper),
@@ -275,7 +186,6 @@ class TestCopyWindowsBranches:
             patch.object(ClipboardSnapshot, "capture", return_value=None),
         ):
             result = cm.copy("hello")
-        # copy() succeeded → returns the snapshot (None because capture was mocked None).
         assert result is None
         assert mock_pyper.copy.call_count == 3
 
@@ -367,16 +277,9 @@ class TestCopyWindowsBranches:
         assert result is sentinel
 
 
-# ===========================================================================
-# ClipboardManager.paste, Windows branches
-# ===========================================================================
-
-
 class TestPasteWindowsBranches:
     def _make_cm(self):
-        """Delegate to the shared canonical factory (XS-42 helper dedup),
-        keeping this suite's save-restore-disabled / "test" sentinel
-        arrangement."""
+        """Delegate to the shared canonical factory (XS-42 helper dedup),"""
         from tests.fixtures.clipboard_helpers import make_clipboard_manager
 
         return make_clipboard_manager(save_restore=False, last_copied_text="test")
@@ -516,8 +419,6 @@ class TestPasteWindowsBranches:
         """For terminal processes on macOS, Cmd+V is used (line 879)."""
         cm = self._make_cm()
         # ADR-0010 §5.3: production paste() now checks ``_Controller is None``
-        # (was ``_Key is None``). Patch both so the early-return guard
-        # doesn't fire on the macOS branch (which runs is_windows=False).
         with patch.object(clip_mod, "_Key") as mock_key, patch.object(clip_mod, "_Controller", MagicMock()):
             mock_key.cmd = "cmd_key"
             mock_key.shift = "shift_key"
@@ -525,9 +426,6 @@ class TestPasteWindowsBranches:
             with patch.object(clip_mod, "time") as mock_time:
                 mock_time.monotonic.return_value = 100.0
                 mock_time.sleep = MagicMock()
-                # Override the is_windows=True from fake_win32 with
-                # is_macos=True so the macOS branch is taken.  We keep
-                # is_windows=False to avoid the Windows seq-check path.
                 with (
                     patch.object(clip_mod, "is_windows", return_value=False),
                     patch.object(clip_mod, "is_macos", return_value=True),
@@ -577,14 +475,7 @@ class TestPasteWindowsBranches:
         cm._keyboard.press.assert_any_call("v")
 
     def test_paste_aborts_on_macos_toctou_pid_change(self, fake_win32):
-        """macOS paste aborts if frontmost app PID changes.
-
-        When the frontmost app PID captured right after the safety
-        check differs from the PID captured right before the Cmd+V
-        keystroke, paste() must return False and NOT send the
-        keystroke (TOCTOU defense: user Cmd-Tabbed to a credential
-        prompt in the ~5ms between the safety check and the send).
-        """
+        """macOS paste aborts if frontmost app PID changes."""
         cm = self._make_cm()
         with patch.object(clip_mod, "_Key") as mock_key, patch.object(clip_mod, "_Controller", MagicMock()):
             mock_key.cmd = "cmd_key"
@@ -646,17 +537,7 @@ class TestPasteWindowsBranches:
         cm._keyboard.press.assert_any_call("cmd_key")
 
     def test_paste_logs_rdp_session(self, fake_win32):
-        """When is_remote_session() returns True, paste_delay is increased.
-
-        ``_compute_paste_delay`` lazy-imports the probe from
-        ``voice_typer.server.server_platform.remote_session`` at call time,
-        so the patch target is THAT module attribute, faking only the
-        ``server_platform`` package in ``sys.modules`` never takes effect
-        (the real ``remote_session`` submodule is already imported, and
-        ``from X.Y import Z`` re-reads the attribute from it on every
-        call). Patching the canonical attribute is also the documented
-        test contract in ``server_platform/remote_session.py``.
-        """
+        """When is_remote_session() returns True, paste_delay is increased."""
         cm = self._make_cm()
         with patch.object(clip_mod, "time") as mock_time:
             mock_time.monotonic.return_value = 100.0
@@ -682,13 +563,7 @@ class TestPasteWindowsBranches:
         assert len(info_calls) >= 1
 
     def test_paste_logs_rdp_check_exception(self, fake_win32):
-        """If the is_remote_session probe raises, paste continues with the
-        default delay.
-
-        Same patch target as ``test_paste_logs_rdp_session``, the probe
-        is resolved from ``voice_typer.server.server_platform.remote_session``
-        at call time, so the side_effect must be planted there.
-        """
+        """default delay."""
         cm = self._make_cm()
         with patch.object(clip_mod, "time") as mock_time:
             mock_time.monotonic.return_value = 100.0
@@ -768,8 +643,3 @@ class TestPasteWindowsBranches:
             ):
                 result = cm.paste()
         assert result is False
-
-
-# ===========================================================================
-# ClipboardManager._send_ctrl_v_win32
-# ===========================================================================

@@ -1,12 +1,4 @@
-"""Segmented fast-lane routing: which files go where, and failover.
-
-The service routes big, pinned files to the segmented engine and
-everything else to the classic snapshot path. ANY segmented failure
-must degrade to the classic full download (today's behavior), never
-to a user-facing error for a download the classic path could complete.
-
-All network/HF collaborators are stubbed; no test touches the network.
-"""
+"""Segmented fast-lane routing: which files go where, and failover."""
 
 from unittest.mock import MagicMock
 
@@ -56,13 +48,9 @@ def _stub_common(monkeypatch, tmp_config_dir):
 class TestWhisperRouting:
     def _drive_branch(self, svc, monkeypatch, plan, snapshot_calls):
         # NOTE: no manual reset/clear of the gate events here, the branch
-        # arms its own lifecycle (guard → reset → … → clear). Pre-arming
-        # would trip the single-flight guard (that's what it's for).
 
         def fake_snapshot(**kwargs):
             snapshot_calls.append(kwargs)
-            # Cache probe must MISS (raise) to drive the branch into the
-            # download path; real transfers return a path.
             if kwargs.get("local_files_only"):
                 raise FileNotFoundError("not cached, drive into download branch")
             return "/cache/snap"
@@ -89,8 +77,7 @@ class TestWhisperRouting:
         return matches[0]
 
     def test_big_files_excluded_from_classic_snapshot(self, tmp_config_dir, monkeypatch):
-        """Phase A (classic snapshot) must ignore big files so both paths
-        never fetch the same bytes; the big file goes segmented."""
+        """Phase A (classic snapshot) must ignore big files so both paths"""
         _stub_common(monkeypatch, tmp_config_dir)
         snapshot_calls: list = []
         seg_calls: list = []
@@ -111,8 +98,7 @@ class TestWhisperRouting:
         assert seg_calls[0]["seg_plan"] == plan
 
     def test_no_big_files_means_pure_classic(self, tmp_config_dir, monkeypatch):
-        """Empty plan → byte-identical behavior to the pre-segmented
-        code path (no ignore list, no phase B)."""
+        """Empty plan → byte-identical behavior to the pre-segmented"""
         _stub_common(monkeypatch, tmp_config_dir)
         snapshot_calls: list = []
         seg_calls: list = []
@@ -126,8 +112,7 @@ class TestWhisperRouting:
         assert seg_calls == []
 
     def test_segmented_failure_falls_back_to_classic_full(self, tmp_config_dir, monkeypatch):
-        """A segmented failure must NOT fail the download: the classic
-        full-repo snapshot runs instead (today's behavior)."""
+        """A segmented failure must NOT fail the download: the classic"""
         _stub_common(monkeypatch, tmp_config_dir)
         snapshot_calls: list = []
 
@@ -146,8 +131,7 @@ class TestWhisperRouting:
         assert full_calls, "fallback must run the classic FULL snapshot"
 
     def test_abort_during_segmented_maps_to_cancelled(self, tmp_config_dir, monkeypatch):
-        """Cancel during phase B must resolve as a clean stop (NOT an
-        error, NOT a retry of the transfer)."""
+        """Cancel during phase B must resolve as a clean stop (NOT an"""
         import voice_typer.server.asr_setup as asr
 
         _stub_common(monkeypatch, tmp_config_dir)
@@ -168,8 +152,7 @@ class TestWhisperRouting:
 
 class TestParakeetRouting:
     def test_big_onnx_files_go_segmented(self, tmp_config_dir, monkeypatch):
-        """Parakeet: classic snapshot ignores the big ONNX files; the
-        segmented phase fetches them; integrity still gates success."""
+        """Parakeet: classic snapshot ignores the big ONNX files; the"""
 
         snapshot_calls: list = []
         phase_calls: list = []
@@ -189,9 +172,6 @@ class TestParakeetRouting:
         def fake_snapshot(**kwargs):
             snapshot_calls.append(kwargs)
             # First local_files_only call is the cache probe → MISS
-            # (raise) to drive the download path. The SECOND one is the
-            # post-segmented self-verify → HIT (the segmented files
-            # completed the snapshot).
             if kwargs.get("local_files_only"):
                 probe_hits.append(1)
                 if len(probe_hits) == 1:

@@ -1,49 +1,6 @@
-"""Repo-wide reverse-DNS product-namespace consistency guard.
-
-The canonical product root is ``com.voicetyper.*``:
-
-- ``src-tauri/tauri.conf.json`` ``identifier`` = ``com.voicetyper.desktop``
-- polkit action ``com.voicetyper.install-permissions`` (policy installed
-  to ``/usr/share/polkit-1/actions/com.voicetyper.policy``)
-- macOS LaunchAgents ``com.voicetyper.plist`` / ``com.voicetyper.prewarm.plist``
-- Nuitka sidecar / prewarm ``--macos-signed-app-name=com.voicetyper.*``
-
+"""
+Repo-wide reverse-DNS product-namespace consistency guard.
 Legacy / wrong roots that must NOT reappear:
-
-- ``org.voice-typer.*``, the pre-Tauri predecessor polkit namespace.
-  Review finding #54 renamed it to ``com.voicetyper.*``; the legacy
-  policy file is removed at install/upgrade time by
-  ``install_permissions.py::_install_polkit_policy`` AND at uninstall
-  (via ``LEGACY_POLKIT_POLICY_DEST``), so converged systems never
-  register the old action ID.
-- ``app.voicetyper``, the pre-migration OS keyring service name.
-  ``KEYRING_SERVICE_NAME`` in the ``credential_store`` package now
-  uses ``com.voicetyper.keyring``, and
-  ``_migrate_legacy_service_names_locked()`` copies legacy entries
-  forward at startup (gated on a per-hop config flag). The only
-  allowlisted tokens are the package submodules that define and
-  migrate that legacy tuple (see ``_LEGACY_TOKEN_ALLOWLIST``).
-- ``com.voice-typer`` / ``com.voice_typer`` / ``org.voicetyper`` /
-  ``org.voice_typer``, misspellings / alternative spellings of the
-  product root (a real ``com.voice-typer`` once shipped in
-  ``docs/permissions-per-os.md``).
-
-This test scans every tracked text file and fails on any reverse-DNS
-token in the ``voicetyper`` family whose root is not ``com.voicetyper``.
-The only legacy tokens allowed to remain are SCOPED TO SPECIFIC FILES
-(see ``_LEGACY_TOKEN_ALLOWLIST``, nothing is allowed globally):
-
-- the uninstaller/installer script (both copies), the explicit legacy
-  cleanup itself (``LEGACY_POLKIT_POLICY_DEST`` removal at
-  install/upgrade + uninstall);
-- the tests that pin that cleanup;
-- the polkit file headers, the rename history must spell the old name
-  to be meaningful;
-
-This test file itself is exempt from the scan: its docstring
-necessarily spells out the exact banned spellings (``org.voicetyper``,
-``com.voice-typer``, ...) so a human can see what is forbidden, those
-are definitions, not product-namespace usages.
 """
 
 from __future__ import annotations
@@ -54,61 +11,34 @@ from pathlib import Path
 
 import pytest
 
-# tests/test_product_namespace_consistency.py → repo root in 1 parent.
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 
 # The canonical root: every product namespace must start with this.
 CANONICAL_ROOT = "com.voicetyper"
 
-# Legacy tokens that legitimately remain, SCOPED to the files that
-# perform or document the explicit legacy cleanup (see module docstring).
-# Nothing is allowed globally, every other file must use the canonical
-# ``com.voicetyper.*`` root.
 _LEGACY_TOKEN_ALLOWLIST: dict[str, frozenset[str]] = {
     # Uninstaller/installer script (both copies), the explicit legacy
-    # cleanup itself: removal of the legacy policy at install/upgrade
-    # (``_install_polkit_policy``) and at uninstall (``uninstall()``).
     "scripts/linux/install_permissions.py": frozenset({"org.voice-typer.policy", "org.voice-typer.*"}),
     "src-tauri/resources/linux-scripts/install_permissions.py": frozenset(
         {"org.voice-typer.policy", "org.voice-typer.*"}
     ),
     # Tests pinning that cleanup.
     "tests/test_install_permissions_polkit_stable.py": frozenset({"org.voice-typer.policy"}),
-    # Polkit file headers, the rename history must spell the old name
     # to be meaningful.
     "scripts/linux/voice-typer.polkit": frozenset({"org.voice-typer.policy", "org.voice-typer.install-permissions"}),
     "src-tauri/resources/linux-scripts/voice-typer.polkit": frozenset(
         {"org.voice-typer.policy", "org.voice-typer.install-permissions"}
     ),
-    # The keyring half of the legacy namespace cleanup: the
-    # ``_LEGACY_KEYRING_SERVICE_NAMES`` tuple + migration docstrings
-    # must name the old service so ``_migrate_legacy_service_names_locked``
-    # can re-register entries under ``KEYRING_SERVICE_NAME``. The tuple
-    # lives in ``credential_store/_schema.py``; the migration prose that
-    # spells out the hop history lives in ``_migration.py``.
     "voice_typer/server/credential_store/_schema.py": frozenset({"app.voicetyper"}),
     "voice_typer/server/credential_store/_migration.py": frozenset({"app.voicetyper"}),
-    # The operator runbook documents the legacy-cutover: it must spell the
-    # old service name so an operator can recognize pre-migration keychain
-    # entries when verifying (same prose-history need as _migration.py).
     "docs/security/credential-store.md": frozenset({"app.voicetyper"}),
     # The drift-guard test module pins the credential_store legacy
-    # tuple STRING verbatim (``_LEGACY_KEYRING_SERVICE_NAMES: ... =
-    # ("app.voicetyper", ...)``) and its allowlist docstring names the
-    # token, definitions/pins, not usages.
     "tests/tauri/test_config_script_drift.py": frozenset({"app.voicetyper"}),
 }
 
 # This test module itself: its docstring defines the exact banned
-# spellings, so it is exempt from the scan (definitions, not usages).
 _SELF = Path("tests/test_product_namespace_consistency.py")
 
-# Session metadata files (agent worklogs / handoff summaries) are NOT
-# product code: they are live logs rewritten by every session, and the
-# prose occasionally quotes non-canonical namespaces while discussing
-# migration history. Exempting them keeps the guard effective for every
-# product/script/test file while stopping the churn of "fix the worklog
-# prose" commits (the session log is not a namespace source of truth).
 _SESSION_LOG_FILES = frozenset(
     {
         "worklog.md",
@@ -117,8 +47,6 @@ _SESSION_LOG_FILES = frozenset(
     }
 )
 
-# Reverse-DNS roots plausible for a product namespace, in the
-# ``voicetyper`` family (canonical + legacy spellings).
 _RDNN_RE = re.compile(
     r"(?<![A-Za-z0-9_.-])"  # token boundary (not mid-identifier / after a dot)
     r"((?:com|org|io|net|dev|app|me|co|uk|us|xyz|ai|tech|so|cc|tv)\."
@@ -146,8 +74,6 @@ def _tracked_text_files() -> list[Path]:
         except OSError:
             continue
         # NUL in the first 8 KiB ⇒ binary (PNG/ICO/exe/db...). Text
-        # files (including extension-less shell scripts like prerm)
-        # are scanned regardless of extension.
         if b"\x00" in data[:8192]:
             continue
         files.append(path)
@@ -158,8 +84,7 @@ class TestProductNamespaceConsistency:
     """No non-``com.voicetyper.*`` product namespace anywhere in the repo."""
 
     def test_no_legacy_or_wrong_product_namespaces(self):
-        """Every reverse-DNS token in the voicetyper family is canonical
-        (or scoped per-file in ``_LEGACY_TOKEN_ALLOWLIST``)."""
+        """Every reverse-DNS token in the voicetyper family is canonical"""
         violations: list[tuple[str, int, str]] = []
         for path in _tracked_text_files():
             rel = path.relative_to(_REPO_ROOT).as_posix()

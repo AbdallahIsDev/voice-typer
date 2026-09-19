@@ -1,13 +1,4 @@
-"""HistoryDB restore() tests split out of the former ``tests/test_history_and_models.py``.
-
-Domain: history database, soft-delete + restore() reinserts a
-record (with new id, preserving favorite flag and metadata).
-
-Class/method names + assertions are preserved verbatim from the
-original monolith, only file location has changed. The shared
-``history_db`` and ``templates_dir`` fixtures (temporary SQLite file
-+ tmp config dir) are provided by the top-level ``tests/conftest.py``.
-"""
+"""record (with new id, preserving favorite flag and metadata)."""
 
 from __future__ import annotations
 

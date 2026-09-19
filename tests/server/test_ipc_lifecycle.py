@@ -1,27 +1,4 @@
-"""Behavioral tests for ``voice_typer.server.ipc.lifecycle.LifecycleMixin``.
-
-These tests exercise the lifecycle mixin's runtime behavior (heartbeat
-watchdog, ``stop()`` idempotency, relaunch-ack coordination, tray-state
-hook, and the ``VOICE_TYPER_ALLOW_STDIN_IPC`` stdin-listener gate)
-without spinning up the real ``VoiceTyperApp``, every test uses a
-``MagicMock`` app + service so the heavy subsystems (logging config,
-single-instance mutex, PortAudio) are skipped.
-
-The mixin accesses instance state declared on :class:`IPCServer`
-(``_running``, ``_tcp_client``, ``_tcp_server_socket``,
-``_tcp_worker_pool``, ``_tcp_dispatch_pool``, ``_push_fn``,
-``_cached_shutting_down``, ``_heartbeat_stop_event``,
-``_heartbeat_thread``, ``_stdin_thread``, ``_relaunch_ack_event``,
-``_last_heartbeat_at``, ``_ready_emitted``, ``_shutdown_started``)
-which are all initialized by ``IPCServer.__init__``; the tests
-construct a real ``IPCServer`` through the canonical
-``make_ipc_server_with_fakes`` factory so every attribute is present
-without manual setup.
-
-Scope: lifecycle behavior only. TCP/WS transport, dispatcher, and
-stdin-runner behaviors are covered by their dedicated test files
-(``test_tcp_io``, ``test_run_loop``, ``test_ipc_stdin_runner``).
-"""
+"""Behavioral tests for ``voice_typer.server.ipc.lifecycle.LifecycleMixin``."""
 
 from __future__ import annotations
 
@@ -39,40 +16,18 @@ from tests.server.conftest import (  # noqa: F401  (fixture re-export)
     server,
 )
 
-# ── Helpers ────────────────────────────────────────────────────────────
-
 
 def _make_server() -> IPCServer:
-    """Build an IPCServer with the canonical fake app + service.
-
-    ``thread_registry=None`` skips the central thread-registry
-    registration path in ``start()``/``stop()`` (the lifecycle methods
-    tolerate its absence via ``getattr``). The canonical fake app sets
-    ``tray.set_state._vt_wrapped = False`` so the tray-state hook
-    actually wraps the original on first call, and ``_shutting_down``
-    as an explicit ``False`` bool so the dispatch gate sees a real
-    ``False``.
-    """
+    """Build an IPCServer with the canonical fake app + service."""
     server, _fake_app, _fake_service = make_ipc_server_with_fakes(thread_registry=None)
     return server
 
 
-# ── Heartbeat watchdog ────────────────────────────────────────────────
-
-
 class TestHeartbeatWatchdog:
-    """``_check_heartbeat_timeout`` drives the predecessor-alive watchdog.
-
-    The daemon thread started by ``start()`` calls this every
-    ``_HEARTBEAT_INTERVAL_SECONDS``; tests invoke it directly so they
-    don't have to wait for the real 45s timeout.
-    """
+    """``_check_heartbeat_timeout`` drives the predecessor-alive watchdog."""
 
     def test_no_trip_when_first_heartbeat_never_arrived(self) -> None:
-        """A ``None`` ``_last_heartbeat_at`` means predecessor has not yet
-        sent its first heartbeat. The watchdog must NOT fire, otherwise
-        a slow predecessor cold start (10+ s for the ORT/ctranslate2 cold start) would
-        cause a false-positive exit."""
+        """A ``None`` ``_last_heartbeat_at`` means predecessor has not yet"""
         server = _make_server()
         assert server._last_heartbeat_at is None
         result = server._check_heartbeat_timeout()
@@ -80,8 +35,7 @@ class TestHeartbeatWatchdog:
         server.app.quit.assert_not_called()
 
     def test_no_trip_when_heartbeat_is_fresh(self) -> None:
-        """A heartbeat timestamp within the timeout window is healthy —
-        the watchdog returns False without calling ``app.quit()``."""
+        """A heartbeat timestamp within the timeout window is healthy —"""
         server = _make_server()
         # Set the heartbeat to "just now", well within the 45s window.
         server._last_heartbeat_at = time.monotonic()
@@ -90,18 +44,8 @@ class TestHeartbeatWatchdog:
         server.app.quit.assert_not_called()
 
     def test_trip_after_timeout_calls_app_quit(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """When ``now - last > _HEARTBEAT_TIMEOUT_SECONDS`` the watchdog
-        fires: returns True and calls ``app.quit()`` so the process can
-        unwind through the shared ``_do_cleanup()`` path.
-
-        The force-exit fallback thread (which calls ``os._exit(1)`` after
-        ``_HEARTBEAT_FORCE_EXIT_GRACE_SECONDS``) is parked on a very
-        large grace period so it can't actually exit the test process —
-        ``app.quit()`` is mocked so the real ``_do_cleanup`` never runs,
-        but the daemon thread is still spawned by the watchdog body.
-        """
+        """When ``now - last > _HEARTBEAT_TIMEOUT_SECONDS`` the watchdog"""
         # Park the force-exit grace period at 10000s, the daemon thread
-        # will still be sleeping (harmlessly) when the test process exits.
         monkeypatch.setattr(
             lifecycle_mod,
             "_HEARTBEAT_FORCE_EXIT_GRACE_SECONDS",
@@ -115,23 +59,13 @@ class TestHeartbeatWatchdog:
         server.app.quit.assert_called_once()
 
 
-# ── stop() idempotency ────────────────────────────────────────────────
-
-
 class TestStopIdempotency:
-    """``stop()`` is the canonical shutdown transition. Calling it twice
-    must not raise and must not attempt to close already-None resources
-    (the second call is a no-op).
-    """
+    """``stop()`` is the canonical shutdown transition. Calling it twice"""
 
     def test_stop_called_twice_second_is_noop(self) -> None:
-        """The first ``stop()`` clears ``_tcp_client`` /
-        ``_tcp_server_socket`` and shuts down the worker pools; the
-        second call sees them all as ``None`` and skips every close
-        branch. No exception is raised."""
+        """The first ``stop()`` clears ``_tcp_client`` /"""
         server = _make_server()
         # Pretend a TCP client + listening socket are bound so the first
-        # stop() exercises the close paths.
         fake_client = MagicMock()
         fake_sock = MagicMock()
         server._tcp_client = fake_client
@@ -153,8 +87,7 @@ class TestStopIdempotency:
         assert server._running is False
 
     def test_stop_when_already_stopped_is_noop(self) -> None:
-        """A server that never started (or already stopped) can still be
-        ``stop()``-ed without raising, every resource is ``None``."""
+        """A server that never started (or already stopped) can still be"""
         server = _make_server()
         # Nothing was started, every transport field is None already.
         assert server._tcp_client is None
@@ -164,44 +97,24 @@ class TestStopIdempotency:
         assert server._cached_shutting_down is True
 
 
-# ── PERF-SHUTDOWN-001: dispatch-pool self-join ───────────────────────
-
-
 class TestStopDispatchPoolSelfJoin:
-    """PERF-SHUTDOWN-001: ``stop()`` called from INSIDE the TCP dispatch
-    pool must not self-join.
-
-    ``quit_app`` is dispatched onto ``_tcp_dispatch_pool`` (see
-    ``_tcp_dispatch_and_respond``), so the quit handler runs
-    ``app.quit()`` → ``_do_cleanup()`` → ``ipc_server.stop()`` on a
-    pool worker. Draining that pool from inside one of its own workers
-    is a self-join that can never complete: ``shutdown(wait=True)``
-    waits for every worker, including the caller blocked inside
-    ``stop()``, so the drain burned its full 5s timeout on every
-    quit (measured: shutdown took 8.6s, of which 5s was this
-    deadlock).
-    """
+    """PERF-SHUTDOWN-001: ``stop()`` called from INSIDE the TCP dispatch"""
 
     def test_stop_from_dispatch_worker_returns_fast(self) -> None:
-        """Submitting ``stop()`` to a real single-worker dispatch pool
-        must complete quickly, not burn the 5s drain timeout."""
+        """Submitting ``stop()`` to a real single-worker dispatch pool"""
         from concurrent.futures import ThreadPoolExecutor
 
         server = _make_server()
         # Nothing bound, mirror TestStopIdempotency's prep so stop()
-        # only exercises the pool drain paths.
         server._tcp_client = None
         server._tcp_server_socket = None
         server._tcp_worker_pool = None
         # A REAL single-worker executor stands in for the production
-        # ``_tcp_dispatch_pool``: the self-join only reproduces with a
-        # real pool whose ``_threads`` set contains the caller.
         pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="tcp-dispatch")
         server._tcp_dispatch_pool = pool
         start = time.monotonic()
         try:
             # If the self-join regresses, the task blocks in the 5s
-            # drain and this raises TimeoutError after 2s.
             pool.submit(server.stop).result(timeout=2.0)
             elapsed = time.monotonic() - start
         finally:
@@ -213,19 +126,7 @@ class TestStopDispatchPoolSelfJoin:
         assert server._cached_shutting_down is True
 
     def test_stop_skips_dispatch_drain_when_app_shutting_down(self) -> None:
-        """The drain-skip gate must also fire when ``stop()`` runs on a
-        NON-pool helper thread while the app is shutting down.
-
-        This is the production quit shape that the thread-membership
-        check alone cannot see: ``quit_app`` runs on a ``tcp-dispatch``
-        worker, which blocks inside ``_do_cleanup()`` waiting for a
-        ``_run_with_timeout("ipc_server.stop", ...)`` helper thread.
-        ``stop()`` therefore executes OUTSIDE the pool, and draining the
-        pool would wait on a worker that is transitively blocked on
-        this very call, burning the full 5s drain timeout on every
-        quit (measured: 8.8s end-to-end). ``app._shutting_down`` guards
-        that transitive self-join.
-        """
+        """NON-pool helper thread while the app is shutting down."""
         from concurrent.futures import ThreadPoolExecutor
 
         server = _make_server()
@@ -242,7 +143,6 @@ class TestStopDispatchPoolSelfJoin:
 
             def _quit_handler() -> None:
                 # Mirrors the dispatch worker executing quit_app → app.quit()
-                # → _do_cleanup(): it stays blocked until stop() returns.
                 worker_released.wait(timeout=5.0)
 
             pool.submit(_quit_handler)
@@ -267,9 +167,7 @@ class TestStopDispatchPoolSelfJoin:
             pool.shutdown(wait=False, cancel_futures=True)
 
     def test_in_pool_worker_detects_pool_thread(self) -> None:
-        """``_in_pool_worker`` must return ``True`` from a pool worker
-        and ``False`` from a non-worker thread, the exact predicate
-        that gates the self-join skip."""
+        """``_in_pool_worker`` must return ``True`` from a pool worker"""
         from concurrent.futures import ThreadPoolExecutor
 
         pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="tcp-dispatch")
@@ -277,10 +175,6 @@ class TestStopDispatchPoolSelfJoin:
 
         def _probe() -> None:
             observed["inside"] = lifecycle_mod._in_pool_worker(pool)
-            # CPython 3.12 ``_adjust_thread_count`` calls ``t.start()``
-            # BEFORE ``self._threads.add(t)``, so a live worker can run
-            # while ``_threads`` is momentarily EMPTY. Simulate that
-            # window and pin the prefix fallback.
             real_threads = pool._threads
             try:
                 pool._threads = set()  # type: ignore[attr-defined]
@@ -302,21 +196,11 @@ class TestStopDispatchPoolSelfJoin:
         )
 
 
-# ── relaunch-ack coordination ─────────────────────────────────────────
-
-
 class TestRelaunchAckCoordination:
-    """``_handle_relaunch_ack`` sets the per-instance ``_relaunch_ack_event``
-    so ``restart_app``'s bounded wait returns early instead of always
-    blocking the configured timeout. ``wait_for_relaunch_ack`` clears the
-    event before waiting so a stale ack from a prior restart cannot
-    satisfy a fresh one.
-    """
+    """``_handle_relaunch_ack`` sets the per-instance ``_relaunch_ack_event``"""
 
     def test_handle_relaunch_ack_sets_event(self) -> None:
-        """The handler sets ``_relaunch_ack_event`` and returns ``None``
-        (the ack is fire-and-forget, the response envelope is unused
-        because ``restart_app`` owns the socket teardown)."""
+        """The handler sets ``_relaunch_ack_event`` and returns ``None``"""
         server = _make_server()
         server._relaunch_ack_event.clear()
         assert not server._relaunch_ack_event.is_set()
@@ -327,20 +211,13 @@ class TestRelaunchAckCoordination:
     def test_wait_for_relaunch_ack_returns_true_when_acked_in_window(
         self,
     ) -> None:
-        """When the ack arrives BEFORE the wait deadline, the wait
-        returns True quickly, the tray thread is unblocked as soon as
-        predecessor acks instead of always blocking the configured timeout."""
+        """When the ack arrives BEFORE the wait deadline, the wait"""
         server = _make_server()
 
         def _ack_after_short_delay() -> None:
             time.sleep(0.05)
             server._handle_relaunch_ack(data=None, resp={"id": 1})
 
-        # capture the thread handle and join it after the wait
-        # returns so we don't leak a daemon Thread-without-join (the
-        # thread has already fired _handle_relaunch_ack by the time
-        # wait_for_relaunch_ack returns True, so the join is
-        # near-instant).
         ack_thread = threading.Thread(target=_ack_after_short_delay, daemon=True)
         ack_thread.start()
         start = time.monotonic()
@@ -350,28 +227,20 @@ class TestRelaunchAckCoordination:
         # Returned well before the 2s deadline (ack arrived at ~50ms).
         assert elapsed < 1.0, f"wait_for_relaunch_ack should return as soon as the ack arrives; waited {elapsed:.3f}s"
         # Best-effort join so the daemon thread doesn't linger past
-        # the test (it should have exited within ~50ms of start).
         ack_thread.join(timeout=1.0)
 
     def test_wait_for_relaunch_ack_returns_false_on_timeout(self) -> None:
-        """When no ack arrives within the timeout, the wait returns
-        False, the tray thread is unblocked by the timeout and proceeds
-        with cleanup."""
+        """When no ack arrives within the timeout, the wait returns"""
         server = _make_server()
         start = time.monotonic()
         acked = server.wait_for_relaunch_ack(timeout=0.1)
         elapsed = time.monotonic() - start
         assert acked is False
         # Tolerant lower bound: ``Event.wait`` may return a few ms early
-        # on Windows (timer granularity), so require at least half the
-        # timeout, enough to prove the wait did NOT short-circuit.
         assert elapsed >= 0.05, f"waited only {elapsed:.3f}s for the 0.1s timeout"
 
     def test_wait_for_relaunch_ack_clears_event_before_waiting(self) -> None:
-        """The wait clears the event before waiting so a stale ack from
-        a prior restart cycle cannot satisfy a fresh one. We pre-set the
-        event, then call wait, it must NOT return immediately from the
-        stale set state (it should wait for a fresh ack or time out)."""
+        """stale set state (it should wait for a fresh ack or time out)."""
         server = _make_server()
         server._relaunch_ack_event.set()  # stale ack from prior cycle
         start = time.monotonic()
@@ -380,23 +249,12 @@ class TestRelaunchAckCoordination:
         # The stale event was cleared; no fresh ack arrived → timeout.
         assert acked is False
         # Tolerant lower bound: ``Event.wait`` may return a few ms early
-        # on Windows (timer granularity), so require at least half the
-        # timeout, enough to prove the stale event was NOT served.
         assert elapsed >= 0.05, f"waited only {elapsed:.3f}s for the 0.1s timeout"
 
     def test_relaunch_ack_arrives_after_shutdown_started_is_safe(
         self,
     ) -> None:
-        """Even after ``_shutdown_started`` is set (e.g. the Tauri host
-        already sent a ``shutdown`` and the cleanup thread is running),
-        a late ``relaunch_ack`` must still set the event without raising.
-
-        The handler does NOT consult ``_shutdown_started``, the ack is
-        a one-shot signal that's harmless once shutdown is underway.
-        ``restart_app``'s wait either already timed out (the ack is
-        late) or hasn't been called yet; setting the event in either
-        case is a no-op-with-side-effect that doesn't corrupt state.
-        """
+        """Even after ``_shutdown_started`` is set (e.g. the Tauri host"""
         server = _make_server()
         server._shutdown_started.set()
         server._relaunch_ack_event.clear()
@@ -406,30 +264,11 @@ class TestRelaunchAckCoordination:
         assert server._relaunch_ack_event.is_set()
 
 
-# ── Tray state hook ────────────────────────────────────────────────────
-
-
 class TestTrayStateHook:
-    """``_hook_tray_set_state`` monkey-patches ``app.tray.set_state`` so
-    every state change emits a ``status_change`` push event back to the
-    frontend. The hook is idempotent so a start → stop → start cycle
-    doesn't stack wrappers.
-    """
+    """``_hook_tray_set_state`` monkey-patches ``app.tray.set_state`` so"""
 
     def test_hook_wraps_set_state_and_pushes_status_change(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """After the hook is installed, calling ``app.tray.set_state(state)``
-        invokes the original AND publishes a ``status_change`` event.
-
-        The hook replaces ``app.tray.set_state`` with a plain Python
-        closure (``wrapped``) that calls the captured ``original`` and
-        then ``event_bus.publish(...)``, publishing on the bus (not a
-        direct ``self.push``) so BOTH runtimes deliver it: TCP mode's
-        ``_push_fn`` subscriber bridges the bus to the TCP client;
-        WS mode's ``_push_to_ws`` subscriber delivers it over the
-        WebSocket (a direct push dead-ends in the TCP-only buffer in
-        ws-mode). We capture the original MagicMock BEFORE hooking so
-        we can assert it was called by the wrapper.
-        """
+        """After the hook is installed, calling ``app.tray.set_state(state)``"""
         from voice_typer.server import event_bus
 
         server = _make_server()
@@ -439,8 +278,6 @@ class TestTrayStateHook:
         server._hook_tray_set_state()
         # Trigger a state change.
         server.app.tray.set_state(AppState.RECORDING, message="recording")
-        # The original (captured in the closure) was invoked with the
-        # state + message args (passed positionally by the wrapper).
         original_set_state.assert_called_once_with(AppState.RECORDING, "recording")
         # The event was published with a status_change envelope.
         assert len(publish_calls) == 1
@@ -449,10 +286,7 @@ class TestTrayStateHook:
         assert publish_calls[0]["data"]["message"] == "recording"
 
     def test_hook_is_idempotent(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Calling ``_hook_tray_set_state`` twice must NOT double-wrap —
-        the second call sees ``_vt_wrapped=True`` and returns without
-        stacking another wrapper. Without this guard, N start cycles
-        would emit N events per state change."""
+        """Calling ``_hook_tray_set_state`` twice must NOT double-wrap —"""
         from voice_typer.server import event_bus
 
         server = _make_server()
@@ -465,18 +299,7 @@ class TestTrayStateHook:
         assert len(publish_calls) == 1
 
     def test_hook_fires_before_ready_emitted_pushes_anyway(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """The hook is installed by ``start()`` BEFORE the first WS
-        connection lands (``_ready_emitted`` is still False at that
-        point). The event is published unconditionally, the
-        ``_ready_emitted`` gate lives in ``sidecar_ws._handle_connection``
-        (not here), so the tray hook's publish reaches the event bus
-        regardless of WS state. Subscribers (the WS writer task, or the
-        TCP ``_push_fn`` bridge) decide whether the event reaches the
-        frontend.
-
-        This test pins the contract: a state change BEFORE
-        ``_ready_emitted=True`` still publishes on the bus.
-        """
+        """The hook is installed by ``start()`` BEFORE the first WS"""
         from voice_typer.server import event_bus
 
         server = _make_server()
@@ -490,30 +313,12 @@ class TestTrayStateHook:
         assert publish_calls[0]["data"]["status"] == "error"
 
 
-# ── stdin-IPC env-var gate ─────────────────────────────────────────────
-
-
 class TestStdinIpcEnvVarGate:
-    """``VOICE_TYPER_ALLOW_STDIN_IPC=1`` is the canonical gate for the
-    unauthenticated stdin/stdout IPC listener. When ``_tcp_mode`` is
-    False (the legacy stdin path) AND the env var is set, ``start()``
-    spawns the ``ipc-server`` stdin listener thread; when the env var is
-    unset (or ``=0``), ``start()`` refuses and leaves
-    ``_stdin_thread`` as ``None``.
-
-    Production callers (``main()``) always set ``_tcp_mode = True``
-    before ``start()``, so this gate never fires in production, it
-    exists to catch direct-API / test paths that would otherwise expose
-    an unauthenticated command channel on the user's terminal.
-    """
+    """unauthenticated stdin/stdout IPC listener. When ``_tcp_mode`` is"""
 
     def test_env_var_set_to_one_spawns_stdin_thread(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """When ``_tcp_mode=False`` AND ``VOICE_TYPER_ALLOW_STDIN_IPC=1``,
-        ``start()`` spawns the ``ipc-server`` stdin listener thread."""
+        """When ``_tcp_mode=False`` AND ``VOICE_TYPER_ALLOW_STDIN_IPC=1``,"""
         # Force-import the module so we can patch its ``threading``
-        # attribute (the production path does ``threading.Thread(...)``
-        # in ``lifecycle.py``, resolved through the ``threading`` name
-        # imported at the top of that module).
         import voice_typer.server.ipc_server as ipc_server_mod
         from voice_typer.server import event_bus
 
@@ -546,7 +351,6 @@ class TestStdinIpcEnvVarGate:
                 pass
 
         # Patch ``threading.Thread`` on the lifecycle module (where
-        # ``start()`` resolves the name from).
         monkeypatch.setattr(lifecycle_mod.threading, "Thread", _FakeThread)
         # Also patch on ipc_server (some MRO paths may resolve there).
         monkeypatch.setattr(ipc_server_mod.threading, "Thread", _FakeThread)
@@ -562,9 +366,7 @@ class TestStdinIpcEnvVarGate:
             server.stop()
 
     def test_env_var_unset_does_not_spawn_stdin_thread(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """When ``_tcp_mode=False`` AND the env var is unset (or ``=0``),
-        ``start()`` refuses to spawn the stdin listener. A WARNING is
-        logged and ``_stdin_thread`` is left as ``None``."""
+        """When ``_tcp_mode=False`` AND the env var is unset (or ``=0``),"""
         import voice_typer.server.ipc_server as ipc_server_mod
         from voice_typer.server import event_bus
 
@@ -609,10 +411,7 @@ class TestStdinIpcEnvVarGate:
             server.stop()
 
     def test_tcp_mode_skips_stdin_thread_regardless_of_env_var(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """When ``_tcp_mode=True``, the stdin listener is never spawned
-        regardless of the env var, TCP/WS is the authenticated path and
-        stdin is unused (inherited from predecessor, connected to
-        ``/dev/null`` or ``NUL``)."""
+        """When ``_tcp_mode=True``, the stdin listener is never spawned"""
         import voice_typer.server.ipc_server as ipc_server_mod
         from voice_typer.server import event_bus
 
@@ -653,23 +452,13 @@ class TestStdinIpcEnvVarGate:
             server.stop()
 
 
-# ── Background integrations wiring (construct-vs-start boundary) ──────
-
-
 class TestBackgroundIntegrationsWiring:
-    """``wire_background_integrations`` runs only from ``start()``.
-
-    Construction is side-effect-free (no threads). The mic-cache
-    invalidator is wired exactly once per server, at the end of
-    ``start()``, and a repeated ``start()`` is a no-op thanks to the
-    once-per-server gate.
-    """
+    """``wire_background_integrations`` runs only from ``start()``."""
 
     _WIRE_THREAD_NAME = "ipc-cache-invalidator-wiring"
 
     def test_construction_does_not_spawn_background_integrator_thread(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Constructing ``IPCServer`` must not spawn any thread, and
-        specifically not the mic-cache invalidator wiring thread."""
+        """Constructing ``IPCServer`` must not spawn any thread, and"""
         created_threads: list[str] = []
 
         class _CountingThread:
@@ -704,22 +493,15 @@ class TestBackgroundIntegrationsWiring:
         assert self._WIRE_THREAD_NAME not in created_threads
 
     def test_construction_without_start_leaves_integrations_unwired(self) -> None:
-        """A constructed-but-never-started server must leave the
-        once-per-server gate closed and must not register the
-        service-layer mic cache invalidator."""
+        """service-layer mic cache invalidator."""
         server, fake_app, _fake_service = make_ipc_server_with_fakes(thread_registry=None)
 
         assert server._background_integrations_wired is False
-        # The wiring thread (if it ever ran) would touch
-        # ``app.recorder._devices.set_service_cache_invalidator``.
         # Construction alone must not reach that attribute chain.
-        # ``fake_app.recorder`` is a plain MagicMock, so the child
-        # attribute would exist if accessed; assert the gate instead.
         assert server.wire_background_integrations.__self__ is server
 
     def test_start_calls_wire_background_integrations(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """``start()`` must run ``wire_background_integrations`` as its
-        post-start phase (spawning the invalidator wiring thread)."""
+        """``start()`` must run ``wire_background_integrations`` as its"""
         import voice_typer.server.ipc_server as ipc_server_mod
         from voice_typer.server import event_bus
 
@@ -763,8 +545,7 @@ class TestBackgroundIntegrationsWiring:
             server.stop()
 
     def test_double_start_wires_exactly_once(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """A second ``start()`` after ``stop()`` must not re-spawn the
-        invalidator wiring thread (once-per-server gate)."""
+        """A second ``start()`` after ``stop()`` must not re-spawn the"""
         import voice_typer.server.ipc_server as ipc_server_mod
         from voice_typer.server import event_bus
 

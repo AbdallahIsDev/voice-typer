@@ -1,35 +1,4 @@
-"""IPC coverage tests for ``hotkeys/native_adapter.py``.
-
-The ``_NativeBackendAdapter`` wraps a ``SubprocessHotkeyBackend`` (Linux /
-macOS / Windows) and provides the runtime fallback chain (native → legacy).
-These tests exercise the adapter's subprocess-plumbing surface with a
-monkeypatched ``subprocess.Popen`` so no real native binary is spawned.
-
-Coverage areas :
-
-1. **Successful spec handshake**, Popen returns stdout with a valid
-   ``READY`` line; the adapter parses the spec, registers the hotkey, and
-   enters the ``NATIVE`` state.
-2. **Malformed spec response**, Popen returns garbage on stdout; the
-   adapter escalates the error (native backend sets ``_failed`` and the
-   adapter swaps to the legacy backend).
-3. **Subprocess early exit triggers restart**, Popen's ``returncode``
-   is non-zero immediately; the reader thread detects the exit and the
-   restart logic fires (``_restart_attempts`` incremented).
-4. **Broken pipe on write handled**: ``Popen.stdin.write`` raises
-   ``BrokenPipeError``; the watchdog catches it without crashing.
-5. **Restart after crash recovers**, two consecutive Popen calls:
-   the first crashes, the second succeeds; the adapter recovers to
-   ``NATIVE``.
-6. **Teardown with live subprocess joins**, Popen process is still
-   running; ``adapter.stop()`` calls ``terminate`` + ``wait`` on the
-   process.
-
-Platform note: all tests run on Linux (the only platform where
-``LinuxEvdevHotkey`` validates successfully). macOS / Windows backends
-are structurally identical (same ``SubprocessHotkeyBackend`` base) so
-the coverage transfers.
-"""
+"""IPC coverage tests for ``hotkeys/native_adapter.py``."""
 
 from __future__ import annotations
 
@@ -42,10 +11,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-# ─── Platform setup ────────────────────────────────────────────────────
 # Patch the platform BEFORE importing the backend so ``_validate_platform``
-# succeeds. ``LinuxEvdevHotkey`` checks ``is_linux()`` which delegates to
-# the package-level binding.
 from voice_typer.server import native_hotkeys  # noqa: E402
 
 
@@ -72,26 +38,16 @@ def _fake_binary(tmp_path: Path) -> Path:
 
 
 def _patch_binary_paths(monkeypatch: pytest.MonkeyPatch, fake_bin: Path) -> None:
-    """Patch the ``binary_path`` module bindings.
-
-    ``_spawn_process`` imports ``get_native_binary_path`` at module load
-    (top of ``base.py``) and ``verify_native_binary_or_skip`` locally
-    inside ``_spawn_process``. Both resolve through the ``binary_path``
-    module, so patching that module's attributes is sufficient.
-    """
+    """Patch the ``binary_path`` module bindings."""
     monkeypatch.setattr(
         "voice_typer.server.native_hotkeys.binary_path.get_native_binary_path",
         lambda: fake_bin,
     )
     # The SHA-256 verifier is patched to always pass, the fake binary
-    # has no manifest entry and would fail closed without this patch.
     monkeypatch.setattr(
         "voice_typer.server.native_hotkeys.binary_path.verify_native_binary_or_skip",
         lambda _p: True,
     )
-
-
-# ─── FakePopen ─────────────────────────────────────────────────────────
 
 
 class _FakeStdin:
@@ -117,20 +73,7 @@ class _FakeStdin:
 
 
 class _FakePopen:
-    """Minimal ``subprocess.Popen`` mock using ``os.pipe`` for stdout.
-
-    The write end of the stdout pipe is kept OPEN until ``_close_stdout``
-    is called (via ``terminate`` / ``kill`` / ``send_signal``). This
-    mirrors a real process: ``readline`` blocks while the process is
-    alive and returns ``b""`` (EOF) only after the process exits / is
-    killed.
-
-    Attributes tracked for assertions:
-    - ``terminated``: ``terminate()`` was called.
-    - ``killed``: ``kill()`` was called.
-    - ``wait_calls``, list of ``timeout`` args passed to ``wait()``.
-    - ``signalled``: ``send_signal()`` was called.
-    """
+    """Minimal ``subprocess.Popen`` mock using ``os.pipe`` for stdout."""
 
     def __init__(
         self,
@@ -189,12 +132,8 @@ class _FakePopen:
             self.stdout.close()
 
 
-# ─── Patch helpers ─────────────────────────────────────────────────────
-
-
 def _make_popen_patch(fake_popens: list[_FakePopen]):
-    """Return a side_effect for ``subprocess.Popen`` that returns the next
-    ``_FakePopen`` from ``fake_popens`` (one per call)."""
+    """Return a side_effect for ``subprocess.Popen`` that returns the next"""
 
     call_count = [0]
 
@@ -220,15 +159,8 @@ def _patch_timing(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(_base, "_WATCHDOG_RESPAWN_SECONDS", 0.1)
 
 
-# ─── Imports (deferred until after platform patches in each test) ─────
-
-
 def _build_adapter(monkeypatch, tmp_path, *, popen_instances=None):
-    """Construct a ``_NativeBackendAdapter`` wrapping a ``LinuxEvdevHotkey``.
-
-    Returns ``(adapter, native_backend, popen_patch_ctx)``. The caller is
-    responsible for calling ``adapter.stop()`` and exiting the context.
-    """
+    """Construct a ``_NativeBackendAdapter`` wrapping a ``LinuxEvdevHotkey``."""
     _setup_linux(monkeypatch)
     fake_bin = _fake_binary(tmp_path)
     _patch_binary_paths(monkeypatch, fake_bin)
@@ -239,8 +171,6 @@ def _build_adapter(monkeypatch, tmp_path, *, popen_instances=None):
 
     native_backend = LinuxEvdevHotkey("<caps_lock>")
     # Stub the adapter's legacy-creation path so a failing native backend
-    # doesn't try to construct a real ``PynputHotkey`` (which depends on
-    # the mocked pynput and may behave unpredictably in headless CI).
     adapter = _NativeBackendAdapter(native_backend)
     adapter._create_legacy_backend = lambda: MagicMock(
         spec=["start", "stop", "is_alive", "set_on_release", "set_tray", "diagnose"],
@@ -256,12 +186,8 @@ def _build_adapter(monkeypatch, tmp_path, *, popen_instances=None):
     return adapter, native_backend, popen_patch
 
 
-# ─── Tests ────────────────────────────────────────────────────────────
-
-
 class TestSuccessfulSpecHandshake:
-    """#1: Popen returns stdout with a valid ``READY`` line, the
-    adapter parses the spec, registers the hotkey, and enters ``NATIVE``."""
+    """#1: Popen returns stdout with a valid ``READY`` line, the"""
 
     def test_successful_spec_handshake(self, monkeypatch, tmp_path):
         fake_popen = _FakePopen(cmd=[], stdout_data=b"READY\n")
@@ -288,14 +214,9 @@ class TestSuccessfulSpecHandshake:
 
 
 class TestMalformedSpecResponseRaises:
-    """#2: Popen returns garbage (no ``READY`` line), the adapter
-    escalates the error (native backend marks ``_failed`` and the adapter
-    swaps to the legacy backend)."""
+    """#2: Popen returns garbage (no ``READY`` line), the adapter"""
 
     def test_malformed_spec_response_escalates(self, monkeypatch, tmp_path):
-        # stdout has garbage, no READY line. The process stays "alive"
-        # (write end of the pipe is open) so the reader blocks after the
-        # garbage line. start() times out waiting for READY.
         fake_popen = _FakePopen(cmd=[], stdout_data=b"GARBAGE_LINE\n")
         adapter, native, popen_patch = _build_adapter(monkeypatch, tmp_path, popen_instances=[fake_popen])
         swap_called: list[bool] = []
@@ -303,7 +224,6 @@ class TestMalformedSpecResponseRaises:
         def tracking_swap():
             swap_called.append(True)
             # Call a stub instead of the real _swap_to_legacy to avoid
-            # constructing a real PynputHotkey.
             with adapter._swap_lock:
                 if adapter._state not in (
                     adapter._STATE_FALLBACK,
@@ -317,14 +237,11 @@ class TestMalformedSpecResponseRaises:
         with popen_patch:
             try:
                 adapter.start(lambda: None)
-                # The native backend should have timed out → _failed or
-                # _error_message set.
                 assert native._failed or native._error_message is not None, (
                     "native backend should escalate (set _failed or _error_message) "
                     "when READY is not received within the timeout"
                 )
                 # The adapter should have called _swap_to_legacy (error
-                # escalation).
                 assert swap_called, (
                     "adapter should call _swap_to_legacy when the native backend "
                     "fails to start (malformed spec / no READY)"
@@ -334,9 +251,7 @@ class TestMalformedSpecResponseRaises:
 
 
 class TestSubprocessEarlyExitTriggersRestart:
-    """#3: Popen ``returncode != 0`` immediately, the reader thread
-    detects the exit and the restart logic fires (``_restart_attempts``
-    incremented)."""
+    """#3: Popen ``returncode != 0`` immediately, the reader thread"""
 
     def test_early_exit_increments_restart_attempts(self, monkeypatch, tmp_path):
         # Process exits immediately with returncode 1, no stdout.
@@ -347,19 +262,13 @@ class TestSubprocessEarlyExitTriggersRestart:
         native._on_permanent_failure_callback = lambda: permanent_failure_called.append(True)
 
         with popen_patch:
-            # start() will raise RuntimeError because the process exits
-            # before READY. The adapter catches it and swaps to legacy.
             with contextlib.suppress(RuntimeError):
                 adapter.start(lambda: None)
-            # Give the reader thread a moment to detect the exit and
-            # attempt restarts.
             time.sleep(0.3)
             with contextlib.suppress(Exception):
                 adapter.stop()
 
         # The restart logic should have fired, _restart_attempts > 0.
-        # After MAX_RESTART_ATTEMPTS (patched to 2), the permanent-failure
-        # callback is invoked.
         assert native._restart_attempts > 0, (
             "reader thread should detect early exit and increment _restart_attempts; "
             f"got _restart_attempts={native._restart_attempts}"
@@ -367,8 +276,7 @@ class TestSubprocessEarlyExitTriggersRestart:
 
 
 class TestPipeBrokenPipeOnWriteHandled:
-    """#4: ``Popen.stdin.write`` raises ``BrokenPipeError``, the
-    watchdog catches it without crashing (error is logged at DEBUG)."""
+    """#4: ``Popen.stdin.write`` raises ``BrokenPipeError``, the"""
 
     def test_broken_pipe_on_write_does_not_crash(self, monkeypatch, tmp_path):
         # Process is alive (no exit_code), stdin.write raises BrokenPipeError.
@@ -385,18 +293,14 @@ class TestPipeBrokenPipeOnWriteHandled:
                 assert adapter._state == adapter._STATE_NATIVE
 
                 # Wait for the watchdog to attempt at least one PING write.
-                # _WATCHDOG_PING_INTERVAL_SECONDS is patched to 0.05s.
                 time.sleep(0.3)
 
                 # The watchdog should have attempted to write PING to stdin.
-                # The BrokenPipeError should have been caught, the adapter
-                # must still be alive (no crash propagated to the caller).
                 assert len(fake_popen.stdin.written) == 0, (
                     "stdin.write raised BrokenPipeError so no data should have been "
                     f"buffered; got {fake_popen.stdin.written}"
                 )
                 # The adapter must NOT have crashed, it's still in a valid
-                # state (NATIVE or STOPPED after we call stop() below).
                 assert adapter._state in (adapter._STATE_NATIVE, adapter._STATE_STOPPED), (
                     f"adapter should not crash on BrokenPipeError; state={adapter._state}"
                 )
@@ -405,13 +309,10 @@ class TestPipeBrokenPipeOnWriteHandled:
 
 
 class TestRestartAfterCrashRecovers:
-    """#5: two consecutive Popen calls, the first crashes (early
-    exit, no READY), the second succeeds (sends READY). The adapter
-    recovers to ``NATIVE`` after the restart."""
+    """#5: two consecutive Popen calls, the first crashes (early"""
 
     def test_restart_recovers_after_crash(self, monkeypatch, tmp_path, caplog):
         # First Popen: crashes immediately (exit_code=1, no stdout).
-        # Second Popen: succeeds (sends READY).
         first_popen = _FakePopen(cmd=[], stdout_data=b"", exit_code=1)
         second_popen = _FakePopen(cmd=[], stdout_data=b"READY\n")
         popen_instances = [first_popen, second_popen]
@@ -430,15 +331,9 @@ class TestRestartAfterCrashRecovers:
 
         with patch("subprocess.Popen", side_effect=_popen_side_effect):
             try:
-                # start() will likely raise RuntimeError (first process
-                # crashes before READY). The adapter catches it and
-                # swaps to legacy. But the reader thread of the first
-                # process will attempt a restart (spawn a second Popen).
                 with contextlib.suppress(RuntimeError):
                     adapter.start(lambda: None)
 
-                # Wait for the reader thread to detect the crash and
-                # respawn (RESTART_DELAY_BASE_SECONDS patched to 0.01s).
                 deadline = time.monotonic() + 2.0
                 while time.monotonic() < deadline:
                     if call_count[0] >= 2:
@@ -446,14 +341,11 @@ class TestRestartAfterCrashRecovers:
                     time.sleep(0.01)
 
                 # Popen must have been called at least twice, the restart
-                # logic spawned a second process after the first crashed.
                 assert call_count[0] >= 2, (
                     f"subprocess.Popen should be called at least twice after the "
                     f"first crash (restart logic); got {call_count[0]} calls"
                 )
 
-                # The restart log message must have been emitted (proves the
-                # reader thread's restart path executed).
                 restart_messages = [
                     r.getMessage()
                     for r in caplog.records
@@ -468,9 +360,7 @@ class TestRestartAfterCrashRecovers:
 
 
 class TestTeardownWithLiveSubprocessJoins:
-    """#6: Popen process is still running: ``adapter.stop()`` calls
-    ``terminate`` + ``wait`` on the process so the reader thread is joined
-    and no orphan process is left."""
+    """#6: Popen process is still running: ``adapter.stop()`` calls"""
 
     def test_teardown_terminates_and_waits(self, monkeypatch, tmp_path):
         fake_popen = _FakePopen(cmd=[], stdout_data=b"READY\n")
@@ -486,11 +376,9 @@ class TestTeardownWithLiveSubprocessJoins:
             adapter.stop()
 
         # After stop(): terminate (or send_signal on POSIX) must have been
-        # called on the live process.
         assert fake_popen.terminated or fake_popen.signalled, (
             "stop() must call terminate() or send_signal() on the live subprocess"
         )
-        # wait() must have been called (the process is joined).
         assert len(fake_popen.wait_calls) > 0, "stop() must call wait() on the subprocess to join it"
         # The adapter should be in STOPPED state.
         assert adapter._state == adapter._STATE_STOPPED

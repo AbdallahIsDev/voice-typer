@@ -1,12 +1,6 @@
-"""Phase 2d degradation matrix (§8.10): mic-test auto-transcription.
-
-``MicrophoneTestMixin.microphone_test_stop`` attempts a best-effort
-auto-transcription of the test recording so the UI can show
-"You said: ...". When no engine is loaded (offline pack missing → no
-offline engine; or engine still warming up), the transcription is
-silently skipped, the degradation matrix requires the server to say
+"""
+Phase 2d degradation matrix (§8.10): mic-test auto-transcription.
 WHY instead. These tests pin the ``transcription_unavailable`` +
-``transcription_reason`` markers.
 """
 
 from __future__ import annotations
@@ -21,8 +15,7 @@ from voice_typer.server.service.microphone_test import MicrophoneTestMixin
 
 
 def _tiny_wav_result(tmp_path, duration_s: float = 0.05, sample_rate: int = 16000) -> dict:
-    """Persist a tiny valid mono WAV under tmp_path and return a
-    file-reference stop result, mirrors the new disk transport contract."""
+    """Persist a tiny valid mono WAV under tmp_path and return a"""
     import os
 
     n = int(sample_rate * duration_s)

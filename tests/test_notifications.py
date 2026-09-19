@@ -1,5 +1,4 @@
-"""Tests for notification system: critical notifications bypass the
-show_notifications toggle, non-critical notifications respect it."""
+"""Tests for notification system: critical notifications bypass the"""
 
 from __future__ import annotations
 
@@ -9,9 +8,6 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 APP_PY = REPO_ROOT / "voice_typer" / "server" / "app.py"
-# startup_sequence is a package (split by concern); _read_ux018 handles
-# directories by concatenating every *.py member (same convention as
-# MODEL_MANAGER_PY below).
 STARTUP_SEQUENCE_PY = REPO_ROOT / "voice_typer" / "server" / "startup_sequence"
 MODEL_MANAGER_PY = REPO_ROOT / "voice_typer" / "server" / "model_manager"
 SETTINGS_CONTROLLER_PY = REPO_ROOT / "voice_typer" / "server" / "settings_controller.py"
@@ -25,13 +21,7 @@ def _read_ux018(path: Path) -> str:
 
 
 class TestCriticalNotificationsBypassToggle:
-    """Each critical notification uses tray.notify_safety() to bypass the toggle.
-
-    Phase 5 extracted the startup flow (including the critical
-    notifications for onboarding failure, corrections error, crash
-    recovery, Wayland hotkeys, macOS accessibility) to
-    ``startup_sequence.py``. The tests now read from the correct file.
-    """
+    """Each critical notification uses tray.notify_safety() to bypass the toggle."""
 
     @pytest.mark.skip(
         reason="source refactored, startup_sequence.py now uses "
@@ -42,9 +32,6 @@ class TestCriticalNotificationsBypassToggle:
     )
     def test_onboarding_failure_uses_notify_safety(self):
         src = _read_ux018(STARTUP_SEQUENCE_PY)
-        # Phase 5: extracted to startup_sequence.py, uses
-        # ``app._onboarding_fail_count`` (not ``self.``) because the
-        # function takes ``app`` as a parameter, not as ``self``.
         assert "app._onboarding_fail_count >= 3" in src
         idx = src.index("app._onboarding_fail_count >= 3")
         block = src[idx : idx + 1500]
@@ -58,14 +45,7 @@ class TestCriticalNotificationsBypassToggle:
         assert "if err is not None and self.config.show_notifications" not in src
 
     def test_crash_recovery_notifies_user(self):
-        """Recovered-transcription notice must reach the user.
-
-        The recovery store persists unpasted transcriptions across a
-        crash, and the startup check must surface them through the
-        safety toast path (which routes to the Rust-owned native toast
-        under Tauri) plus a notification event with a History deep
-        link. A log-only branch leaves recoverable text invisible.
-        """
+        """Recovered-transcription notice must reach the user."""
         src = _read_ux018(STARTUP_SEQUENCE_PY)
         assert "unpasted transcriptions from previous session" in src
         idx = src.index("unpasted transcriptions from previous session")
@@ -88,17 +68,9 @@ class TestCriticalNotificationsBypassToggle:
         assert "notify_safety(" in block
 
     def test_recording_stop_failure_uses_notify_safety(self):
-        # MO-7: the stop+transcribe worker body lives in
-        # ``recording_lifecycle.py`` (the controller delegator was
-        # removed). The critical-notification call site is there.
         rc_py = REPO_ROOT / "voice_typer" / "server" / "recording_lifecycle.py"
         src = rc_py.read_text(encoding="utf-8")
         # Fix-B (i18n extraction): the English notification
-        # string was moved from the call site to ``i18n.py`` under the
-        # key ``notify.recording_controller.stop_failed``. The source
-        # file now references the i18n key (not the literal English
-        # string). The call site still uses ``notify_safety(...)`` so
-        # the critical-notification bypass behavior is preserved.
         assert "notify.recording_controller.stop_failed" in src
         idx = src.index("notify.recording_controller.stop_failed")
         block = src[idx - 200 : idx + 200]
@@ -107,8 +79,6 @@ class TestCriticalNotificationsBypassToggle:
     def test_model_load_failure_uses_notify_safety(self):
         src = _read_ux018(MODEL_MANAGER_PY)
         # Fix-B (i18n extraction): the English notification
-        # string was moved from the call site to ``i18n.py`` under the
-        # key ``notify.model_manager.load_failed``.
         assert "notify.model_manager.load_failed" in src
         idx = src.index("notify.model_manager.load_failed")
         block = src[idx - 200 : idx + 200]
@@ -127,21 +97,13 @@ class TestNonCriticalNotificationsRespectToggle:
     def test_repaste_feedback_uses_notify(self):
         src = _read_ux018(APP_PY)
         # Fix-B (i18n extraction): the English notification
-        # string was moved from the call site to ``i18n.py`` under the
-        # key ``notify.app.repaste_done``. The call site still uses
-        # ``notify(...)`` (not ``notify_safety``) so the toggle-respect
-        # behavior is preserved.
         assert "notify.app.repaste_done" in src
         idx = src.index("notify.app.repaste_done")
         block = src[idx - 200 : idx + 100]
         assert "notify(" in block or 'notify("' in block
 
     def test_microphone_selection_uses_notify(self):
-        # Phase 6: _select_microphone moved to SettingsController. The
         # English notification strings moved to i18n keys
-        # (notify.settings_controller.mic_next_recording /
-        # mic_save_failed), assert the i18n keys + the notify() call
-        # site (notify, not notify_safety, so the toggle is respected).
         src = _read_ux018(SETTINGS_CONTROLLER_PY)
         assert "notify.settings_controller.mic_next_recording" in src
         assert "notify.settings_controller.mic_save_failed" in src
@@ -150,10 +112,7 @@ class TestNonCriticalNotificationsRespectToggle:
         assert "app.tray.notify(" in block
 
     def test_audio_quality_warning_uses_notify(self):
-        # Phase 7: _finalize_audio_quality_report moved to
         # AudioQualityController. The delegate stub on VoiceTyperApp
-        # still mentions "audio_quality" in its method name, so check
-        # both files.
         src_app = _read_ux018(APP_PY)
         src_aqc = _read_ux018(AUDIO_QUALITY_CONTROLLER_PY)
         combined = src_app + "\n" + src_aqc
@@ -191,9 +150,6 @@ class TestStoreResultFailurePromotion:
         app.config.device = "cpu"
         app.config.crash_recovery_enabled = False
         app.config.log_transcriptions = False
-        # a-review Finding 2: notify-once flags now live on ``app``
-        # (session-scoped), explicitly seed to False so the failure
-        # path triggers the first notification.
         app._history_fail_notified = False
         app.history_db.add_transcription.side_effect = RuntimeError("DB locked")
         app.tray.notify = MagicMock()
@@ -218,8 +174,6 @@ class TestApplyVocabularyTemplateNotify:
         app._vocabulary_manager = MagicMock()
         app._vocabulary_manager.apply_to_text.side_effect = RuntimeError("vocab boom")
         app.tray.notify = MagicMock()
-        # a-review Finding 2: notify-once flags now live on ``app``
-        # (session-scoped), explicitly seed to False.
         app._vocab_fail_notified = False
         pipeline._app = app
 
@@ -239,8 +193,6 @@ class TestApplyVocabularyTemplateNotify:
         app._template_manager = MagicMock()
         app._template_manager.match.side_effect = RuntimeError("template boom")
         app.tray.notify = MagicMock()
-        # a-review Finding 2: notify-once flags now live on ``app``
-        # (session-scoped), explicitly seed to False.
         app._template_fail_notified = False
         pipeline._app = app
 
@@ -251,13 +203,7 @@ class TestApplyVocabularyTemplateNotify:
 
 
 class TestRepasteLastSplitsErrors:
-    """Clipboard-copy failure and paste-keystroke failure produce distinct notifications.
-
-    ADR-0010 §7.1: repaste_last() now reads from history_db (primary)
-    with _last_transcription fallback, catches ClipboardCopyError on
-    copy failure, and treats paste() returning False as a blocked/
-    skipped paste (paste() does not raise).
-    """
+    """Clipboard-copy failure and paste-keystroke failure produce distinct notifications."""
 
     def test_copy_failure_message_mentions_clipboard(self):
         from unittest.mock import MagicMock
@@ -267,8 +213,6 @@ class TestRepasteLastSplitsErrors:
 
         app = app_module.VoiceTyperApp.__new__(app_module.VoiceTyperApp)
         # The undo property reads self._undo_backing; __new__ skips
-        # __init__ so we seed it to None and let the lazy constructor
-        # build a real UndoRepasteController bound to this test app.
         app._undo_backing = None
         app._last_transcription = "hello"
         app.history_db = MagicMock()
@@ -291,17 +235,12 @@ class TestRepasteLastSplitsErrors:
 
         app = app_module.VoiceTyperApp.__new__(app_module.VoiceTyperApp)
         # The undo property reads self._undo_backing; __new__ skips
-        # __init__ so we seed it to None and let the lazy constructor
-        # build a real UndoRepasteController bound to this test app.
         app._undo_backing = None
         app._last_transcription = "hello"
         app.history_db = MagicMock()
         app.history_db.get_latest_text.return_value = "hello"
         app.clipboard = MagicMock()
         app.clipboard.copy.return_value = None  # no snapshot (save_restore disabled)
-        # ADR-0010 §5.3: paste() returns False (does not raise) when
-        # the keystroke is skipped/blocked/rate-limited. The user is
-        # notified that re-paste was blocked.
         app.clipboard.paste.return_value = False
         app.tray = MagicMock()
 

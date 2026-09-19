@@ -1,22 +1,4 @@
-"""Unit tests for the at-rest-encryption crypto module.
-
-Covers the public surface of ``voice_typer/server/_text_crypto.py``:
-
-- round-trip (ASCII + Unicode + emoji + large payloads + empty string),
-- blob format ("enc:v1:" + base64(nonce(12) || ciphertext || tag(16))),
-- known-answer vector against a direct ``AESGCM`` reference computation,
-- tamper detection in every byte region (nonce / ciphertext / tag) and
-  structural corruption (bad base64, truncation, unknown version),
-- wrong-key → "<decryption failed>" placeholder (never raises),
-- ``is_encrypted`` prefix detection,
-- DEK cache policy: generate-once-when-clean, NEVER regenerate when
-  encrypted rows exist, store-failure → plaintext mode,
-- the key-unavailable rate-limited ERROR log helper.
-
-The keyring is faked (dict-backed) following the pattern in
-``tests/test_credential_store.py``, the sandbox has no usable backend
-(``keyring.backends.fail.Keyring``).
-"""
+"""Unit tests for the at-rest-encryption crypto module."""
 
 from __future__ import annotations
 
@@ -32,9 +14,6 @@ DEK = bytes(range(32))  # fixed, deterministic AES-256 key
 OTHER_DEK = bytes(range(32, 64))
 
 
-# ── Fixtures ─────────────────────────────────────────────────────────────
-
-
 @pytest.fixture(autouse=True)
 def _clean_caches():
     """Isolate the process-global DEK + keyring caches per test."""
@@ -47,11 +26,7 @@ def _clean_caches():
 
 @pytest.fixture
 def fake_keyring(monkeypatch):
-    """Dict-backed fake keyring marked AVAILABLE.
-
-    Returns the backing ``store`` dict (service, username) -> secret so
-    tests can inspect / mutate what was persisted.
-    """
+    """Dict-backed fake keyring marked AVAILABLE."""
     store: dict[tuple[str, str], str] = {}
 
     fake_keyring_module = MagicMock()
@@ -98,9 +73,6 @@ def fake_keyring_unavailable(monkeypatch):
     return fake_keyring_module
 
 
-# ── Round-trip ───────────────────────────────────────────────────────────
-
-
 class TestRoundTrip:
     @pytest.mark.parametrize(
         "plaintext",
@@ -125,9 +97,6 @@ class TestRoundTrip:
         assert _text_crypto.decrypt_text(blob_b, DEK) == "same text"
 
 
-# ── Blob format ──────────────────────────────────────────────────────────
-
-
 class TestBlobFormat:
     def test_prefix(self):
         blob = _text_crypto.encrypt_text("payload", DEK)
@@ -139,8 +108,6 @@ class TestBlobFormat:
         raw = base64.b64decode(blob[len("enc:v1:") :], validate=True)
         nonce = raw[:12]
         body = raw[12:]
-        # ciphertext is a stream cipher (same length as plaintext) + a
-        # 16-byte GCM tag.
         assert len(nonce) == 12
         assert len(body) == len(plaintext.encode("utf-8")) + 16
         # The plaintext must not appear anywhere in the blob.
@@ -153,17 +120,9 @@ class TestBlobFormat:
         assert _text_crypto.is_encrypted("enc:v2:different") is False
 
 
-# ── Known-answer vector ──────────────────────────────────────────────────
-
-
 class TestKnownAnswer:
     def test_known_answer_against_aesgcm_reference(self):
-        """A pinned nonce + key must reproduce the AESGCM reference bytes.
-
-        Cross-checks the module's blob layout against a direct
-        ``AESGCM`` computation, guards against layout regressions
-        (nonce/tag ordering, base64 transport, prefix).
-        """
+        """A pinned nonce + key must reproduce the AESGCM reference bytes."""
         from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
         nonce = bytes(range(12))
@@ -178,18 +137,11 @@ class TestKnownAnswer:
         """Hardcoded vector: stable across runs and library versions."""
         nonce = b"0123456789ab"
         blob = _text_crypto._encrypt_with_nonce("known", DEK, nonce)
-        # Computed with cryptography 50.0.0 (AES-256-GCM) for
-        # key=bytes(range(32)), nonce=b"0123456789ab", plaintext="known".
-        # Any change to this literal means the on-disk format changed and
-        # needs a version bump ("enc:v2:").
         assert blob == ("enc:v1:MDEyMzQ1Njc4OWFiXH89BDgmXMIBaAMDKoz9RMM/0teG")
 
     def test_encrypt_with_nonce_rejects_bad_nonce(self):
         with pytest.raises(ValueError):
             _text_crypto._encrypt_with_nonce("x", DEK, b"short")
-
-
-# ── Tamper / corruption ──────────────────────────────────────────────────
 
 
 class TestTamperDetection:
@@ -241,9 +193,6 @@ class TestTamperDetection:
             assert _text_crypto.decrypt_text(garbage, DEK) == self.PLACEHOLDER
 
 
-# ── DEK cache policy ─────────────────────────────────────────────────────
-
-
 class TestDekPolicy:
     def test_generate_and_store_on_first_use(self, fake_keyring):
         dek = _text_crypto.resolve_dek(encrypted_rows_exist=False)
@@ -286,10 +235,7 @@ class TestDekPolicy:
         assert _text_crypto.encryption_status(dek, False) == "disabled"
 
     def test_missing_cryptography_package_with_encrypted_rows_logs_cause(self, fake_keyring, monkeypatch, caplog):
-        """The 'cryptography' dependency missing from the runtime degrades
-        to key-unavailable mode, but the ERROR must name the ACTUAL cause
-        (missing package, NOT key loss): the DEK is still healthy in the
-        keyring and decryption resumes once the package is installed."""
+        """The 'cryptography' dependency missing from the runtime degrades"""
         dek = _text_crypto.resolve_dek(encrypted_rows_exist=False)
         assert dek is not None
         _text_crypto.reset_dek_cache()
@@ -327,9 +273,6 @@ class TestDekPolicy:
         assert _text_crypto.get_dek_cached() is None
         # After reset the SAME persisted key is loaded (not regenerated).
         assert _text_crypto.resolve_dek(encrypted_rows_exist=False) == first
-
-
-# ── DEK keyring transport (credential_store._dek) ────────────────────────
 
 
 class TestDekKeyringTransport:

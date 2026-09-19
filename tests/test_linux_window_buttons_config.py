@@ -1,8 +1,6 @@
-"""End-to-end IPC tests for the ``linux_window_buttons`` config field.
-
+"""
+End-to-end IPC tests for the ``linux_window_buttons`` config field.
 Pins the SEC-002 surface for the new key: it must be settable through
-``validate_config_update`` (Settings → Appearance → Window Buttons) with
-the full 5-key shape, and malformed shapes must be rejected.
 """
 
 from __future__ import annotations

@@ -1,20 +1,4 @@
-"""AB-10: ``change_model`` / ``set_active_backend`` non-blocking tests.
-
-Verifies that:
-- ``change_model`` returns immediately (< 100ms) instead of blocking for
-  the 5-30s model load.
-- ``set_active_backend`` returns immediately (< 100ms) too.
-- The model eventually loads and an ``asr_backend_ready`` event fires.
-- Concurrent ``change_model`` calls serialize via ``_model_change_lock``.
-- ``_change_model_blocking`` (the synchronous variant) still works for
-  callers that need to wait (e.g. ``apply_pending_model_change``).
-
-The fix moves the heavy ``_change_model_load_phase`` (which calls
-``load_active``, disk + torch import + weight load, 5-30s on cold boot)
-to a background daemon thread. The IPC worker returns immediately with
-a "loading" ack; the background thread publishes ``asr_backend_ready``
-on completion.
-"""
+"""AB-10: ``change_model`` / ``set_active_backend`` non-blocking tests."""
 
 from __future__ import annotations
 
@@ -32,11 +16,7 @@ def _make_mm_with_mock_backend(
     backend_name: str = "whisper",
     model_size: str = "tiny.en",
 ) -> tuple[ModelManager, MagicMock, MagicMock, MagicMock]:
-    """Construct a ModelManager backed by a mock registry + mock engine.
-
-    Mirrors ``tests/test_model_idle_unload._make_mm_with_mock_backend``
-    but simplified for AB-10 tests (no idle-unload timer config).
-    """
+    """Construct a ModelManager backed by a mock registry + mock engine."""
     app = MagicMock(name="app")
     app.config.asr_backend = backend_name
     app.config.model_size = model_size
@@ -51,12 +31,9 @@ def _make_mm_with_mock_backend(
     app._thread_registry = MagicMock()
     app._config_mutation_lock = threading.RLock()
     # Ensure change_model is NOT deferred: ``_change_model_setattr_phase``
-    # checks ``recorder.recording`` (must be False) and
-    # ``_busy_event.is_set()`` (must return True = not busy).
     app.recorder.recording = False
     app._busy_event = MagicMock()
     app._busy_event.is_set.return_value = True
-    # config.save() must return truthy.
     app.config.save.return_value = True
 
     mm = ModelManager(app)
@@ -78,9 +55,6 @@ def _make_mm_with_mock_backend(
     mm._evict_lru_model = MagicMock()
 
     return mm, app, engine, mock_registry
-
-
-# change_model returns immediately ──────────────────────────
 
 
 class TestChangeModelReturnsImmediately:
@@ -107,10 +81,6 @@ class TestChangeModelReturnsImmediately:
         # Release the background thread so it can complete.
         barrier.set()
         # Join the background ModelChange thread so its
-        # ``asr_backend_ready`` publish completes INSIDE this test, a
-        # late publish would land in a later test's event_bus
-        # subscription window and flake it (see
-        # ``test_model_manager_load_races.py::TestBackendLoadFailedEvent``).
         if mm._model_change_thread is not None:
             mm._model_change_thread.join(timeout=5.0)
         # Ack shape.
@@ -129,9 +99,6 @@ class TestChangeModelReturnsImmediately:
         assert ack["previous"]["model_size"] == "tiny.en"
         assert ack["pending"]["backend"] == "whisper"
         assert ack["pending"]["model_size"] == "medium.en"
-
-
-# set_active_backend returns immediately ────────────────────
 
 
 class TestSetActiveBackendReturnsImmediately:
@@ -155,8 +122,6 @@ class TestSetActiveBackendReturnsImmediately:
         assert elapsed < 0.1, f"set_active_backend should return immediately (<100ms); took {elapsed:.3f}s"
         barrier.set()
         # Join the background BackendChange thread so its
-        # ``asr_backend_ready`` publish completes inside this test (see
-        # the comment in ``test_change_model_returns_under_100ms``).
         if mm._backend_change_thread is not None:
             mm._backend_change_thread.join(timeout=5.0)
         assert isinstance(ack, dict)
@@ -168,7 +133,6 @@ class TestSetActiveBackendReturnsImmediately:
         mm, app, engine, _ = _make_mm_with_mock_backend(backend_name="whisper")
         ack = mm.set_active_backend("whisper")
         assert ack["status"] == "ready"
-        # load_active should NOT have been called (no background work).
         mm._registry.load_active.assert_not_called()
 
     def test_set_active_backend_rejects_unknown_synchronously(self):
@@ -178,9 +142,6 @@ class TestSetActiveBackendReturnsImmediately:
             mm.set_active_backend("nonexistent")
         # No background work should have started.
         mm._registry.load_active.assert_not_called()
-
-
-# asr_backend_ready event fires on completion ───────────────
 
 
 class TestBackendReadyEventFires:
@@ -233,15 +194,11 @@ class TestBackendReadyEventFires:
         assert evt["data"]["backend"] == "qwen"
 
 
-# concurrent calls serialize via _model_change_lock ─────────
-
-
 class TestConcurrentCallsSerialize:
     """AB-10: concurrent ``change_model`` calls serialize via ``_model_change_lock``."""
 
     def test_concurrent_change_model_calls_do_not_interleave(self):
-        """Two concurrent ``change_model`` calls must not both run the load phase
-        at the same time: ``_model_change_lock`` serializes them."""
+        """Two concurrent ``change_model`` calls must not both run the load phase"""
         mm, app, engine, _ = _make_mm_with_mock_backend(backend_name="whisper")
 
         # Track concurrent load_active calls.
@@ -271,10 +228,6 @@ class TestConcurrentCallsSerialize:
         for t in threads:
             t.join(timeout=5.0)
         # Join the background ModelChange threads too. The two change
-        # threads serialize on ``_model_change_lock``, so joining the
-        # most recently spawned one waits for BOTH to complete their
-        # ``asr_backend_ready`` publish before the test ends (a late
-        # publish would flake a later test's event_bus subscription).
         if mm._model_change_thread is not None:
             mm._model_change_thread.join(timeout=5.0)
 
@@ -285,8 +238,7 @@ class TestConcurrentCallsSerialize:
         )
 
     def test_concurrent_change_model_and_set_active_backend_serialize(self):
-        """A ``change_model`` and a ``set_active_backend`` running concurrently
-        must serialize via ``_model_change_lock``."""
+        """A ``change_model`` and a ``set_active_backend`` running concurrently"""
         mm, app, engine, _ = _make_mm_with_mock_backend(backend_name="whisper")
 
         active_loads = [0]
@@ -313,9 +265,6 @@ class TestConcurrentCallsSerialize:
         t1.join(timeout=5.0)
         t2.join(timeout=5.0)
         # Join the background ModelChange + BackendChange threads (they
-        # serialize on ``_model_change_lock``) so their publishes
-        # complete inside this test: see the comment in
-        # ``test_concurrent_change_model_calls_do_not_interleave``.
         if mm._model_change_thread is not None:
             mm._model_change_thread.join(timeout=5.0)
         if mm._backend_change_thread is not None:
@@ -327,15 +276,11 @@ class TestConcurrentCallsSerialize:
         )
 
 
-# blocking variant still works for sync callers ─────────────
-
-
 class TestBlockingVariantStillWorks:
     """AB-10: ``_change_model_blocking`` preserves the original sync behavior."""
 
     def test_change_model_blocking_loads_synchronously(self):
-        """``_change_model_blocking`` runs the full cycle synchronously and
-        publishes the ``asr_backend_ready`` event before returning."""
+        """``_change_model_blocking`` runs the full cycle synchronously and"""
         mm, app, engine, _ = _make_mm_with_mock_backend(backend_name="whisper")
         received: list[dict] = []
 
@@ -372,22 +317,15 @@ class TestBlockingVariantStillWorks:
         assert app.config.asr_backend == "qwen"
 
 
-# apply_pending_model_change uses blocking variant ──────────
-
-
 class TestApplyPendingModelChangeUsesBlocking:
-    """AB-10: ``apply_pending_model_change`` must use the blocking variant
-    so the model is fully loaded before the recorder starts."""
+    """AB-10: ``apply_pending_model_change`` must use the blocking variant"""
 
     def test_apply_pending_model_change_loads_synchronously(self):
-        """When a pending model change is applied, the load must complete
-        before ``apply_pending_model_change`` returns (the recording
-        controller depends on this)."""
+        """When a pending model change is applied, the load must complete"""
         mm, app, engine, _ = _make_mm_with_mock_backend(backend_name="whisper")
         # Set up a pending change.
         mm._pending_model_change = "parakeet"
         # Make sure the background path is NOT taken, verify the load
-        # completes before return by checking the event was published.
         received: list[dict] = []
 
         def _subscriber(event: dict) -> None:
@@ -401,7 +339,6 @@ class TestApplyPendingModelChangeUsesBlocking:
 
         assert result is True
         # The asr_backend_ready event must have been published
-        # synchronously (proving the blocking variant was used).
         ready_events = [e for e in received if e.get("type") == "asr_backend_ready"]
         assert len(ready_events) >= 1, (
             "apply_pending_model_change should use the blocking variant which publishes asr_backend_ready synchronously"

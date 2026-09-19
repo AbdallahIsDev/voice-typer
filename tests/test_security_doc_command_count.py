@@ -1,25 +1,4 @@
-"""SECURITY.md allowlist-count guard + Python↔Rust command parity.
-
-Finding 5 originally pinned the SECURITY.md "N commands" count against
-the predecessor TS ``ALLOWED_COMMANDS`` Set. predecessor main and the TCP
-transport are gone: the IPC surface is now **two** allowlists.
-
-- Python ``_COMMAND_REGISTRY`` (`voice_typer/server/ipc/registry.py`)
-  — full backend dispatch table.
-- Rust ``allowed_commands()``
-  (`src-tauri/src/commands/sidecar_cmds/allowlist.rs`)
-  — renderer-reachable subset (SEC-019 / CR-4 defense-in-depth).
-
-SECURITY.md must document the **Rust** count (the attack surface a
-compromised WebView can reach). The larger registry count is explained
-separately as the host-only / host-dispatched delta
-(``heartbeat`` / ``relaunch_ack`` / ``shutdown`` / ``tray_click``).
-
-The full entry-level contract lives in
-``tests/test_ipc_command_parity.py``. This file keeps the doc-count
-regression guard plus a lightweight subset check so SECURITY.md cannot
-silently drift when either allowlist changes.
-"""
+"""SECURITY.md allowlist-count guard + Python↔Rust command parity."""
 
 from __future__ import annotations
 
@@ -33,9 +12,6 @@ IPC_SERVER_PY = REPO_ROOT / "voice_typer" / "server" / "ipc_server.py"
 SIDECAR_CMDS_RS = REPO_ROOT / "src-tauri" / "src" / "commands" / "sidecar_cmds.rs"
 SIDECAR_CMDS_DIR = REPO_ROOT / "src-tauri" / "src" / "commands" / "sidecar_cmds"
 
-# Commands present in ``_COMMAND_REGISTRY`` but intentionally absent from
-# the Rust renderer allowlist. Keep in lockstep with
-# ``tests/test_ipc_command_parity.py::HOST_DISPATCHED_COMMANDS``.
 _HOST_ONLY_OR_HOST_DISPATCHED = frozenset(
     {
         "shutdown": ("Tauri cooperative-shutdown command. Host-supervised; the renderer never dispatches it."),
@@ -112,12 +88,7 @@ def _documented_count() -> int | None:
 
 
 def test_security_md_allowlist_count_matches_source() -> None:
-    """SECURITY.md's documented count must equal the Rust allowlist size.
-
-    The Rust set is the renderer attack surface. A mismatch means either
-    the allowlist changed without updating the doc, or the doc prose
-    drifted from the parseable phrasing.
-    """
+    """SECURITY.md's documented count must equal the Rust allowlist size."""
     actual = len(_allowed_commands_rust())
     documented = _documented_count()
     assert documented is not None, (

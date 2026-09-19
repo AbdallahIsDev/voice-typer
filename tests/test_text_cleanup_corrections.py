@@ -1,9 +1,4 @@
-"""Tests for ``CorrectionsLoadError`` raised on malformed corrections file.
-
-Split out of the former ``tests/test_history_and_models.py`` catch-all
-(Phase 4.5 / TC-15). Verbatim mechanical move, same test names +
-assertions, only the file location changed.
-"""
+"""Tests for ``CorrectionsLoadError`` raised on malformed corrections file."""
 
 from __future__ import annotations
 

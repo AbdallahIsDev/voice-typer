@@ -1,10 +1,4 @@
-"""Tests for ASR auto-setup utilities.
-
-GT-15 / GT-B2-4 (Session 8, Group 5): tests for the download-failure
-traceback capture (``sys.exc_info()`` into the return tuple, full
-traceback logged via ``exc_info=True``) and the
-``_verify_model_integrity -> (ok, details)`` tuple return.
-"""
+"""Tests for ASR auto-setup utilities."""
 
 import logging
 import sys
@@ -19,15 +13,7 @@ from voice_typer.server.asr_setup import (
 
 
 def _install_hf_stub():
-    """Install a package-shaped stub ``huggingface_hub`` so imports succeed.
-
-    The download-gate tqdm subclass imports
-    ``huggingface_hub.utils.tqdm`` lazily, so the stub must be a real
-    package in ``sys.modules`` (``huggingface_hub`` + ``.utils`` +
-    ``.utils.tqdm`` with a minimal ``tqdm`` class), a bare module
-    would make that import raise ``ModuleNotFoundError`` (``'huggingface_hub'
-    is not a package``) before the patched ``snapshot_download`` ever runs.
-    """
+    """Install a package-shaped stub ``huggingface_hub`` so imports succeed."""
     if "huggingface_hub" in sys.modules:
         return
 
@@ -45,9 +31,6 @@ def _install_hf_stub():
 
     hf_tqdm = types.ModuleType("huggingface_hub.utils.tqdm")
 
-    # Mirrors the real submodule's export name (lowercase `tqdm`), which
-    # the gate subclass imports by that exact name. The minimal stand-in
-    # only needs the constructor/protocol surface the gate touches.
     class _StubTqdm:
         def __init__(self, *args, **kwargs):
             self.total = kwargs.get("total")
@@ -97,8 +80,7 @@ class TestVerifyModelIntegrityReturnsDetails:
 
 
 class TestDownloadParakeetWeightsCapturesTraceback:
-    """GT-15: download-failure path captures ``sys.exc_info()`` and
-    logs the full traceback via ``exc_info=True``."""
+    """download-failure path captures ``sys.exc_info()`` and"""
 
     def test_return_shape_is_three_tuple(self, monkeypatch):
         _install_hf_stub()
@@ -161,8 +143,7 @@ class TestDownloadParakeetWeightsCapturesTraceback:
 
 
 class TestDownloadParakeetWeightsIntegrityCheckLogsDetails:
-    """GT-B2-4: integrity-check failure logs the diagnostic details at
-    ERROR before ``_cleanup_failed_cache`` removes the offending files."""
+    """GT-B2-4: integrity-check failure logs the diagnostic details at"""
 
     def test_integrity_check_failure_logs_failed_file(self, monkeypatch, caplog, tmp_path):
         _install_hf_stub()
@@ -209,8 +190,7 @@ class TestDownloadParakeetWeightsIntegrityCheckLogsDetails:
 
 
 class TestConsentGateReturnShape:
-    """GT-15: the consent-gate return path also returns a 3-tuple
-    (exc_info=None, no exception was raised)."""
+    """the consent-gate return path also returns a 3-tuple"""
 
     def test_consent_false_returns_three_tuple_with_none_exc_info(self):
         class _Config:
@@ -225,55 +205,29 @@ class TestConsentGateReturnShape:
         assert exc_info is None
 
 
-# consent gate safe default (config=None → consent not given) ──
-#
 # These tests pin the  safe-default behaviour: when ``config`` is
-# ``None`` the consent gate MUST treat consent as NOT given (GDPR Art.
-# 6/13), aligned with ``parakeet_engine.ParakeetEngine.load``'s safe
-# default.  Pre-fix, a ``None`` config silently bypassed the gate.
-#
 # NOTE: the return shape here follows the  3-tuple contract
-# ``(success, reason, exc_info)``: ``exc_info`` is ``None`` for the
-# consent-gate path because no exception was raised. If the production
 # ``download_parakeet_weights`` is reverted to the 2-tuple contract,
-# these assertions must be updated in lock-step.
 
 
 class TestConsentGateSafeDefault:
-    """DE-58: ``download_parakeet_weights`` must treat ``config=None``
-    as "consent NOT given" (safe default per GDPR Art. 6/13), aligned
-    with ``parakeet_engine.ParakeetEngine.load``'s safe default.
-
-    Pre-fix: when ``config`` was ``None`` the consent gate was silently
-    SKIPPED, the function proceeded straight to ``snapshot_download``,
-    leaking the user's IP to HuggingFace and pulling ~2.5 GB over the
-    network without explicit opt-in.  Any future refactor that invoked
-    ``download_parakeet_weights`` from a production path without
-    forwarding ``config`` silently disabled the consent gate.
-    """
+    """DE-58: ``download_parakeet_weights`` must treat ``config=None``"""
 
     def test_config_none_returns_consent_false(self):
-        """``download_parakeet_weights(config=None)`` MUST return
-        ``(False, "huggingface_consent_false", None)`` and MUST NOT touch the
-        network, even though no exception is raised.
-        """
+        """``download_parakeet_weights(config=None)`` MUST return"""
         with patch("huggingface_hub.snapshot_download") as mock_sd:
             result = download_parakeet_weights(config=None)
 
         assert result == (False, "huggingface_consent_false", None)
         # The HuggingFace network call must NOT fire when consent is
-        # implicitly not given.
         assert mock_sd.call_count == 0, (
             "DE-58: snapshot_download must not be invoked when config=None (safe default: consent not given)."
         )
 
     def test_no_args_returns_consent_false(self):
-        """Calling ``download_parakeet_weights()`` with no args (the
+        """
         legacy signature) MUST also default to consent not given.
-
         This pins the defense-in-depth guarantee: a future refactor that
-        drops the ``config`` argument from a call site cannot silently
-        bypass the gate.
         """
         with patch("huggingface_hub.snapshot_download") as mock_sd:
             result = download_parakeet_weights()
@@ -282,9 +236,7 @@ class TestConsentGateSafeDefault:
         assert mock_sd.call_count == 0
 
     def test_config_with_consent_false_returns_consent_false(self):
-        """When ``config.huggingface_consent`` is explicitly False, the
-        gate refuses and returns the consent-false reason code.
-        """
+        """gate refuses and returns the consent-false reason code."""
         config = MagicMock()
         config.huggingface_consent = False
 
@@ -295,13 +247,8 @@ class TestConsentGateSafeDefault:
         assert mock_sd.call_count == 0
 
     def test_force_true_bypasses_gate(self):
-        """``force=True`` is the explicit escape hatch for legacy / test
-        paths that have already verified consent upstream and cannot
-        forward a real Config object.  It must reach the snapshot_download
-        call (mocked here) instead of short-circuiting at the gate.
-        """
+        """``force=True`` is the explicit escape hatch for legacy / test"""
         # Make snapshot_download's cache probe succeed so the function
-        # returns (True, "", None) without actually downloading.
         with (
             patch(
                 "huggingface_hub.snapshot_download",
@@ -315,15 +262,10 @@ class TestConsentGateSafeDefault:
             result = download_parakeet_weights(force=True)
 
         assert result == (True, "", None)
-        # snapshot_download must have been invoked at least once
-        # (the cache probe is the first call).
         assert mock_sd.call_count >= 1, "DE-58: force=True must bypass the consent gate and reach snapshot_download."
 
     def test_force_true_does_not_require_config(self):
-        """``force=True`` works even when ``config`` is ``None`` (the
-        legacy bypass scenario), but the bypass is now EXPLICIT at the
-        call site, not implicit.
-        """
+        """call site, not implicit."""
         with (
             patch("huggingface_hub.snapshot_download", return_value="/fake/cache/path"),
             patch(
@@ -338,10 +280,7 @@ class TestConsentGateSafeDefault:
 
 
 class TestConsentGateProgressCallback:
-    """DE-58: when the consent gate refuses, the progress_callback (if
-    provided) MUST be invoked with a human-readable consent message so
-    the renderer / tray can surface the reason to the user.
-    """
+    """DE-58: when the consent gate refuses, the progress_callback (if"""
 
     def test_progress_callback_invoked_on_consent_false(self):
         progress_messages: list[str] = []

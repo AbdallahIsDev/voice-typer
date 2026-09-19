@@ -1,28 +1,4 @@
-"""regression test: pyrefly-baseline.json must not contain stale entries.
-
-A baseline entry is "stale" iff EITHER:
-  - its `path` field points to a file that no longer exists on disk
-    (e.g. log.py was refactored into the log/ package), OR
-  - its `line` field is past the EOF of the file it points to
-    (e.g. ipc_server.py:1103 but the file is 713 lines).
-
-Stale entries make the CI audit step in `.github/workflows/build.yml`
-unreliable: the audit compares the LIVE pyrefly output count against
-``len(baseline['errors'])``, so a stale entry inflates the floor and
-silently hides new regressions. This test fails on any stale entry so a
-future refactor that leaves dangling references in the baseline is
-caught before merge.
-
-AGENTS.md forbids artificially shrinking the baseline to hide real
-errors. This test does NOT validate that the baseline is "complete" -
-it only validates that every entry it DOES contain points at real,
-in-range code. Adding new entries for real errors is always allowed;
-leaving stale entries behind is not.
-
-The test runs on LINUX but the baseline is platform-agnostic (paths are
-relative to the repo root, line numbers are file-anchored). It does
-NOT invoke pyrefly (the CI step does that with pyrefly==1.11.1).
-"""
+"""regression test: pyrefly-baseline.json must not contain stale entries."""
 
 from __future__ import annotations
 
@@ -36,12 +12,7 @@ BASELINE_PATH = REPO_ROOT / "pyrefly-baseline.json"
 
 
 def _file_line_count(path: Path) -> int:
-    """Return the number of newline-terminated lines in ``path``.
-
-    Matches pyrefly's own line-counting convention (1-indexed; a file
-    with N newlines has N lines, and a final unterminated line still
-    counts as a line). Returns 0 if the file does not exist.
-    """
+    """Return the number of newline-terminated lines in ``path``."""
     if not path.exists():
         return 0
     with path.open(encoding="utf-8", errors="replace") as f:
@@ -49,7 +20,7 @@ def _file_line_count(path: Path) -> int:
 
 
 def _classify_entry(entry: dict, repo_root: Path) -> str:
-    """Return ``""`` if the entry is fresh, else a human-readable staleness reason."""
+    """Return ``\"\"`` if the entry is fresh, else a human-readable staleness reason."""
     raw_path = entry.get("path")
     line = entry.get("line")
     if not raw_path or not isinstance(raw_path, str):
@@ -71,12 +42,6 @@ def baseline() -> dict:
     assert BASELINE_PATH.exists(), f"pyrefly-baseline.json not found at {BASELINE_PATH}"
     with BASELINE_PATH.open(encoding="utf-8") as f:
         return json.load(f)
-
-
-# ---------------------------------------------------------------------
-# Stale-entry regression: every entry in errors[] and _triage[] must
-# point at a file that exists and a line within that file's range.
-# ---------------------------------------------------------------------
 
 
 def _collect_stale(entries: list[dict], repo_root: Path, array_name: str) -> list[tuple[int, str, dict]]:
@@ -105,12 +70,7 @@ def test_errors_array_has_no_stale_entries(baseline: dict) -> None:
 
 
 def test_triage_array_has_no_stale_entries(baseline: dict) -> None:
-    """Every entry in ``_triage`` must point at real, in-range code.
-
-    The ``_triage`` array is a filtered view of ``errors`` (non-platform-
-    specific subset) used for one-by-one bug assignment. Stale entries
-    here defeat the purpose of the triage.
-    """
+    """Every entry in ``_triage`` must point at real, in-range code."""
     triage = baseline.get("_triage", [])
     if not isinstance(triage, list):
         pytest.fail("baseline['_triage'] must be a list")
@@ -125,19 +85,8 @@ def test_triage_array_has_no_stale_entries(baseline: dict) -> None:
         )
 
 
-# ---------------------------------------------------------------------
-# Schema sanity: required fields are present on every entry.
-# ---------------------------------------------------------------------
-
-
 def test_errors_entries_have_required_fields(baseline: dict) -> None:
-    """Each error entry must have ``path`` and ``line`` fields.
-
-    These are the fields the staleness check depends on; a missing
-    field would silently pass the staleness check above (the check
-    treats missing-path as stale, but a malformed entry that the CI
-    audit step also can't interpret should fail loudly here).
-    """
+    """Each error entry must have ``path`` and ``line`` fields."""
     required = {"path", "line"}
     errors = baseline.get("errors", [])
     missing: list[tuple[int, set]] = []
@@ -155,30 +104,12 @@ def test_errors_entries_have_required_fields(baseline: dict) -> None:
         )
 
 
-# ---------------------------------------------------------------------
-# Metadata drift regression : the baseline must document its
-# current count. The CI audit step reads the live count from
-# pyrefly-current.json and compares it to len(errors). The _comment
-# string is human-readable documentation; we only assert that the
-# post-cleanup count is mentioned so future drift is caught.
-# ---------------------------------------------------------------------
-
-
 def test_comment_documents_current_errors_count(baseline: dict) -> None:
-    """The ``_comment`` field must mention the current ``errors`` count.
-
-    Catches metadata drift like  (where _comment said "266" but
-    the array actually held 264 entries). We look for the literal
-    decimal representation of ``len(errors)`` somewhere in ``_comment``
-    so a maintainer who shrinks the array is reminded to update the
-    narrative.
-    """
+    """The ``_comment`` field must mention the current ``errors`` count."""
     errors = baseline.get("errors", [])
     comment = baseline.get("_comment", "")
     assert isinstance(comment, str) and comment, "baseline['_comment'] must be a non-empty string"
     current_count = len(errors)
-    # The count must appear as a standalone decimal token (not as a
-    # substring of a larger number like "2160" matching "216").
     import re
 
     pattern = re.compile(rf"(?<!\d){current_count}(?!\d)")
@@ -191,8 +122,6 @@ def test_comment_documents_current_errors_count(baseline: dict) -> None:
 
 
 # The documented provenance keys every baseline regeneration must carry
-# forward verbatim (append-only audit trail; values are historical
-# narratives, never live data arrays).
 DOCUMENTED_METADATA_KEYS = [
     "_justification",
     "_schema_version",
@@ -212,14 +141,7 @@ DOCUMENTED_METADATA_KEYS = [
 
 @pytest.mark.parametrize("key", DOCUMENTED_METADATA_KEYS)
 def test_documented_metadata_keys_survive_regeneration(baseline: dict, key: str) -> None:
-    """The stale-entry cleanup paragraphs must be present.
-
-    Documents the cleanups so future maintainers can trace why entries
-    were dropped. Key names are intentionally timestamped
-    (``2026_08_05`` etc.) to match the ``_current_state_*`` convention.
-    A baseline regeneration that drops these keys destroys the audit
-    trail explaining the floor's history.
-    """
+    """The stale-entry cleanup paragraphs must be present."""
     assert key in baseline, (
         f"pyrefly-baseline.json: missing {key} metadata key. This key is "
         f"part of the documented provenance audit trail and must be carried "
@@ -232,24 +154,8 @@ def test_documented_metadata_keys_survive_regeneration(baseline: dict, key: str)
         )
 
 
-# ---------------------------------------------------------------------
-# Floor sanity: the errors array must be non-empty (the codebase has
-# known platform-specific type debt; an empty array would mean someone
-# wiped the baseline to bypass the audit).
-# ---------------------------------------------------------------------
-
-
 def test_errors_array_is_non_empty(baseline: dict) -> None:
-    """The baseline must not be silently emptied to bypass the CI audit.
-
-    Per AGENTS.md: "Never delete, regenerate, or modify baseline
-    files to artificially reduce error counts." An empty `errors`
-    array would make the CI audit step compare live_count > 0, which
-    would fail on the first real error - but it would also be a
-    strong signal that someone tried to bypass the ratchet. The
-    codebase has known platform-specific type debt (see _justification),
-    so the array should be substantively populated.
-    """
+    """The baseline must not be silently emptied to bypass the CI audit."""
     errors = baseline.get("errors", [])
     assert len(errors) >= 100, (
         f"pyrefly-baseline.json: errors array has only {len(errors)} "

@@ -1,11 +1,4 @@
-"""
-Runtime test runner: starts the real Voice Typer app, simulates F2
-keypresses, and captures the log to verify transcription-time fallback
-and stuck-state recovery.
-
-Usage:
-    python runtime_test_runner.py
-"""
+"""Runtime test runner: starts the real Voice Typer app, simulates F2"""
 
 import ctypes
 import ctypes.wintypes
@@ -16,15 +9,12 @@ import sys
 import time
 from pathlib import Path
 
-# ── Config ──────────────────────────────────────────────────────────────
 APPDATA = os.environ.get("APPDATA", Path.home() / "AppData" / "Roaming")
 LOG_DIR = Path(APPDATA) / "voice-typer"
 LOG_FILE = LOG_DIR / "voice-typer.log"
 
 # F2 virtual-key code
 VK_F2 = 0x71
-
-# ── Helpers ─────────────────────────────────────────────────────────────
 
 
 def simulate_f2():
@@ -102,9 +92,6 @@ def wait_for_log(log_file, pattern, timeout=90):
     return False
 
 
-# ── Main ────────────────────────────────────────────────────────────────
-
-
 def main():
     print("=" * 70)
     print("VOICE TYPER, RUNTIME CYCLE TEST")
@@ -177,14 +164,6 @@ def main():
 
     # Wait for the stop/transcription cycle
     print("\n[8] Waiting for transcription cycle to complete (up to 60s)...")
-    # previously this grepped for "_busy reset to False"
-    # which was a Flet-era marker that no longer exists in the
-    # refactored code.  The production code now logs
-    # "[TRANSCRIBE] Transcription complete" (dictation_pipeline.py:98)
-    # and "[DICTATION] Audio too short, skipping transcription" for
-    # short-audio cases.  We look for either as the "cycle finished"
-    # indicator.  When neither appears, we still check for FORCE
-    # RECOVER (which is still emitted by recording_controller.py:623).
     cycle_done = wait_for_log(LOG_FILE, "[TRANSCRIBE] Transcription complete", timeout=60) or wait_for_log(
         LOG_FILE, "Audio too short, skipping transcription", timeout=5
     )
@@ -232,11 +211,6 @@ def main():
     audio_too_short = any("too short" in line.lower() for line in lines)
 
     # Check: _busy recovered?
-    # the production code no longer logs "_busy reset to
-    # False".  Instead, the transcription-completion path logs
-    # "[TRANSCRIBE] Transcription complete" and the recovery path
-    # logs "FORCE RECOVER".  We treat either as the "busy recovered"
-    # signal.
     busy_set = any("_busy=True" in line or "busy=True" in line for line in lines)
     busy_reset = any(
         "[TRANSCRIBE] Transcription complete" in line or "Audio too short, skipping transcription" in line
@@ -320,8 +294,4 @@ if __name__ == "__main__":
     main()
 
 
-# expose a stable ``run()`` alias so ``tests/test_manual_slow.py``
-# can wrap this script as a ``@pytest.mark.slow`` test. Defined AFTER the
-# ``__main__`` block so running the script directly still uses the
-# zero-arg ``main()`` call above.
 run = main

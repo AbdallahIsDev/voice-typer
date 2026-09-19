@@ -1,19 +1,4 @@
-"""regression tests for shared cleanup between quit() and restart_app().
-
-These tests verify that ``restart_app()`` runs the SAME critical cleanup
-that ``quit()`` does, flushing ``history_db``, stopping the recorder /
-mic watcher, flushing crash recovery, clearing the backend PID file,
-etc.  Previously ``restart_app()`` did only a PARTIAL cleanup (cancel
-timers + stop hotkey backends + stop tray) and skipped the rest,
-silently losing pending DB writes and leaking PortAudio streams + the
-Win32 mutex on EVERY restart.
-
-The fix extracts the shared cleanup body into ``_do_cleanup()``
-so ``quit()``, ``restart_app()``, and ``_atexit_cleanup()`` all run the
-SAME audited shutdown path.  ``_do_cleanup()`` is idempotent (guarded
-by ``_cleanup_done``) so the atexit safety net can call it
-unconditionally without double-flushing.
-"""
+"""regression tests for shared cleanup between quit() and restart_app()."""
 
 import contextlib
 from unittest.mock import MagicMock
@@ -22,35 +7,10 @@ import pytest
 
 from tests.fixtures.history_test_helpers import history_plaintext_mode  # noqa: F401
 
-# ── Fixtures ────────────────────────────────────────────────────────────
-#
-# The autouse ``mock_heavy_imports`` fixture from tests/conftest.py
-# applies, mocking sounddevice / faster_whisper / pynput / pystray / PIL
-# / pyperclip so the tests run headless. ``tmp_config_dir`` is also
-# provided by tests/conftest.py, it patches both
-# ``config._config_dir`` and ``app._config_dir`` so PID file writes /
-# DuckCrashRecovery file writes land in ``tmp_path`` instead of the real
-# ``~/.local/share/voice-typer/`` directory.
-
 
 @pytest.fixture
 def app(tmp_config_dir, monkeypatch):
-    """Create a VoiceTyperApp with mocked dependencies for cleanup tests.
-
-    Minimal setup, we only need the app instance so we can mock its
-    cleanup collaborators (recorder, history_db, etc.) and call
-    ``restart_app()`` / ``quit()`` / ``_do_cleanup()`` on it.
-
-    Teardown: ``VoiceTyperApp.__init__`` constructs a real ``HistoryDB()``
-    (which spawns a writer thread) and a real ``CrashRecovery`` (which
-    spawns a save thread). Both are closed in teardown so the daemon
-    threads don't leak across tests. Both ``close()`` and ``shutdown()``
-    are idempotent. By teardown time ``monkeypatch`` has already undone
-    any per-test ``setattr`` overrides installed by
-    ``_stub_restart_environment`` (which swaps ``app.history_db`` /
-    ``app._crash_recovery`` for MagicMocks), so the attributes here are
-    the real instances constructed in ``__init__``.
-    """
+    """Create a VoiceTyperApp with mocked dependencies for cleanup tests."""
     monkeypatch.setattr("voice_typer.server.server_platform.autostart.is_autostart_enabled", lambda: False)
     monkeypatch.setattr("voice_typer.server.server_platform.autostart.enable_autostart", lambda: True)
     monkeypatch.setattr("voice_typer.server.server_platform.autostart.disable_autostart", lambda: True)
@@ -63,8 +23,6 @@ def app(tmp_config_dir, monkeypatch):
     instance.config.voice_biometric_consent = True
     yield instance
     # Close the real HistoryDB writer thread + CrashRecovery save thread.
-    # ``contextlib.suppress`` defends against double-close after a test
-    # already called ``_do_cleanup()`` (which itself flushes + closes).
     with contextlib.suppress(Exception):
         instance.history_db.close()
     with contextlib.suppress(Exception):
@@ -72,16 +30,7 @@ def app(tmp_config_dir, monkeypatch):
 
 
 def _stub_restart_environment(app, monkeypatch):
-    """Stub out the side-effects of restart_app() / quit() so they can
-    run in tests without spawning subprocesses, sleeping, or actually
-    exiting the pytest process.
-
-    Also installs MagicMock collaborators so the tests can assert that
-    cleanup methods (history_db.flush, recorder.stop, etc.) were called.
-    """
-    # Stub IPC push so restart_app / quit_app doesn't try to write to a
-    # real TCP socket.
-    # B-1: production code now calls event_bus.publish directly.
+    """Stub out the side-effects of restart_app() / quit() so they can"""
     monkeypatch.setattr(
         "voice_typer.server.event_bus.publish",
         lambda msg: None,
@@ -89,21 +38,16 @@ def _stub_restart_environment(app, monkeypatch):
     # Skip the 300ms pre-exit sleep in restart_app.
     monkeypatch.setattr("time.sleep", lambda s: None)
     # Mock sys.exit to raise SystemExit (which we catch in tests) rather
-    # than actually exiting the pytest process.
     monkeypatch.setattr(
         "sys.exit",
         lambda code=0: (_ for _ in ()).throw(SystemExit(code)),
     )
     # Belt-and-suspenders: don't let os._exit kill the pytest process
-    # if a future regression reintroduces it.
     monkeypatch.setattr("os._exit", lambda code: None)
 
     # Mock the cleanup collaborators so we can assert they were called.
-    # recorder.recording=True so _do_cleanup calls recorder.stop().
     app.recorder = MagicMock()
     app.recorder.recording = True
-    # RecordingController._transcription_thread defaults to None, but
-    # set it explicitly so the join branch is skipped deterministically.
     app.recording._transcription_thread = None
     app.hotkeys._hotkey_backend = MagicMock()
     app.hotkeys._esc_backend = MagicMock()
@@ -114,26 +58,11 @@ def _stub_restart_environment(app, monkeypatch):
     app._crash_recovery = MagicMock()
 
 
-# ── restart_app() must share cleanup with quit() ───────────────────────
-
-
 class TestRestartAppSharedCleanup:
-    """restart_app() must run the same critical cleanup as quit().
-
-    Each test asserts that a specific cleanup operation, previously
-    SKIPPED by restart_app(), is now invoked via the shared
-    _do_cleanup() body.
-    """
+    """restart_app() must run the same critical cleanup as quit()."""
 
     def test_restart_app_flushes_history_db(self, app, monkeypatch):
-        """history_db.flush() must be called on restart so pending
-        fire-and-forget INSERTs are not silently lost when the daemon
-        writer thread is killed by sys.exit.
-
-        Regression: restart_app() skipped this call,
-        losing any transcription history writes that hadn't been
-        drained from the writer-thread queue at exit time.
-        """
+        """history_db.flush() must be called on restart so pending"""
         _stub_restart_environment(app, monkeypatch)
 
         with contextlib.suppress(SystemExit):
@@ -142,42 +71,21 @@ class TestRestartAppSharedCleanup:
         app.history_db.flush.assert_called_once()
 
     def test_restart_app_stops_recorder(self, app, monkeypatch):
-        """recorder.stop() (or discard() as fallback) must be called on
-        restart so the PortAudio stream is closed before the new
-        instance tries to claim the microphone.
-
-        Regression: restart_app() left the PortAudio
-        stream open, and on Windows the next instance could fail to
-        open the mic because the OS still considered it in use.
-        """
+        """restart so the PortAudio stream is closed before the new"""
         _stub_restart_environment(app, monkeypatch)
 
         with contextlib.suppress(SystemExit):
             app.restart_app()
 
-        # _do_cleanup calls recorder.stop() when recorder.recording is
-        # truthy, falling back to recorder.discard() if stop() raises.
-        # Either path closes the PortAudio stream, assert at least one
-        # was invoked.
         assert app.recorder.stop.called or app.recorder.discard.called, (
             "restart_app must call recorder.stop() or recorder.discard() to close the PortAudio stream before exiting"
         )
 
     def test_restart_app_clears_backend_pid_file(self, app, monkeypatch):
-        """_clear_backend_pid_file() must be called on restart so the
-        PID file doesn't claim a stale PID when the new instance starts.
-
-        Regression: restart_app() skipped this call,
-        leaving a stale backend.pid pointing at the dying process. The
-        next launch's _ensure_single_instance check would then think
-        the old instance was still alive (race during the kill window)
-        and refuse to start, stranding the user with no backend.
-        """
+        """PID file doesn't claim a stale PID when the new instance starts."""
         _stub_restart_environment(app, monkeypatch)
         clear_calls = []
         # The pid-file teardown resolves through the owning
-        # backend_pid module at call time (the app module's re-export
-        # is no longer on the shutdown lookup path).
         monkeypatch.setattr(
             "voice_typer.server.backend_pid._clear_backend_pid_file",
             lambda: clear_calls.append(True),
@@ -192,16 +100,7 @@ class TestRestartAppSharedCleanup:
         )
 
     def test_restart_app_flushes_crash_recovery(self, app, monkeypatch):
-        """_crash_recovery.flush() + shutdown() must be called on
-        restart so the latest recovery state is persisted before the
-        process exits.
-
-        Regression: restart_app() skipped these calls,
-        losing the in-flight crash recovery snapshot. If the new
-        instance then crashed before writing its own snapshot, the
-        user could be presented with a stale "did you mean to paste
-        this?" recovery prompt on the next launch.
-        """
+        """process exits."""
         _stub_restart_environment(app, monkeypatch)
 
         with contextlib.suppress(SystemExit):
@@ -211,16 +110,7 @@ class TestRestartAppSharedCleanup:
         app._crash_recovery.shutdown.assert_called_once()
 
     def test_restart_app_shuts_down_mic_watcher(self, app, monkeypatch):
-        """recorder.shutdown_mic_watcher() must be called on restart
-        so the OS-event device watcher daemon thread exits cleanly
-        before the process tears down.
-
-        Regression: restart_app() skipped this call. The
-        watcher thread is a daemon and would die on process exit
-        anyway, but explicit stop() avoids a 2s join race during GC
-        that could log spurious "device changed" events as the
-        process was dying.
-        """
+        """recorder.shutdown_mic_watcher() must be called on restart"""
         _stub_restart_environment(app, monkeypatch)
 
         with contextlib.suppress(SystemExit):
@@ -229,14 +119,8 @@ class TestRestartAppSharedCleanup:
         app.recorder.shutdown_mic_watcher.assert_called_once()
 
     def test_restart_app_stops_all_three_hotkey_backends(self, app, monkeypatch):
-        """Sanity: restart_app must still stop _hotkey_backend,
-        _esc_backend, and _repaste_backend (RELIABILITY-003) after the
-        refactor extracts them into _do_cleanup()."""
+        """Sanity: restart_app must still stop _hotkey_backend,"""
         _stub_restart_environment(app, monkeypatch)
-        # _do_cleanup nulls the backend refs after stop() (so a second
-        # cleanup pass doesn't re-enter a torn-down backend), capture
-        # the mocks BEFORE the cleanup so we can assert stop() was
-        # called on them.
         hotkey_backend = app.hotkeys._hotkey_backend
         esc_backend = app.hotkeys._esc_backend
         repaste_backend = app.hotkeys._repaste_backend
@@ -249,9 +133,7 @@ class TestRestartAppSharedCleanup:
         repaste_backend.stop.assert_called_once()
 
     def test_restart_app_calls_tray_stop(self, app, monkeypatch):
-        """Sanity: restart_app must still call tray.stop() (to break
-        the pystray loop) after the refactor moves it into
-        _do_cleanup()."""
+        """Sanity: restart_app must still call tray.stop() (to break"""
         _stub_restart_environment(app, monkeypatch)
 
         with contextlib.suppress(SystemExit):
@@ -260,18 +142,10 @@ class TestRestartAppSharedCleanup:
         app.tray.stop.assert_called_once()
 
     def test_restart_app_sets_shutting_down_before_cleanup(self, app, monkeypatch):
-        """restart_app must set _shutting_down=True BEFORE calling
-        _do_cleanup(), so the atexit safety net's _shutting_down guard
-        short-circuits instead of double-cleaning up.
-
-        This invariant was already present;
-        the test guards against a future regression that reorders the
-        flag-set relative to the cleanup call.
-        """
+        """restart_app must set _shutting_down=True BEFORE calling"""
         _stub_restart_environment(app, monkeypatch)
 
         # Capture the value of _shutting_down at the moment _do_cleanup
-        # is entered, it must already be True.
         flag_values_at_cleanup_entry = []
         original_do_cleanup = app._do_cleanup
 
@@ -291,27 +165,12 @@ class TestRestartAppSharedCleanup:
         )
 
 
-# ── _do_cleanup() idempotency ──────────────────────────────────────────
-
-
 class TestDoCleanupIdempotency:
-    """_do_cleanup() must be safe to call multiple times.
-
-    The _cleanup_done flag is the hard guarantee, once True, every
-    subsequent call returns immediately without re-running any cleanup
-    operation. This lets _atexit_cleanup() call _do_cleanup()
-    unconditionally without double-flushing history_db / double-stopping
-    the recorder / double-closing the Win32 mutex handle.
-    """
+    """_do_cleanup() must be safe to call multiple times."""
 
     def test_do_cleanup_twice_does_not_crash(self, app, monkeypatch):
-        """Calling _do_cleanup() twice (e.g. once from quit() and once
-        from _atexit_cleanup) must not crash, and the second call must
-        be a true no-op, every cleanup collaborator is invoked
-        exactly ONCE, not twice."""
+        """Calling _do_cleanup() twice (e.g. once from quit() and once"""
         _stub_restart_environment(app, monkeypatch)
-        # _do_cleanup nulls the backend refs after stop(), capture the
-        # mock before the first call to assert stop() was called once.
         hotkey_backend = app.hotkeys._hotkey_backend
 
         # First call runs the full cleanup body.
@@ -320,7 +179,6 @@ class TestDoCleanupIdempotency:
         app._do_cleanup()
 
         # Each collaborator must have been called exactly once,
-        # proving the second _do_cleanup() call was a no-op.
         app.recorder.stop.assert_called_once()
         app.recorder.shutdown_mic_watcher.assert_called_once()
         app.history_db.flush.assert_called_once()
@@ -330,10 +188,7 @@ class TestDoCleanupIdempotency:
         app.tray.stop.assert_called_once()
 
     def test_do_cleanup_clears_session_marker(self, app, monkeypatch, tmp_config_dir):
-        """SESSION-STATE: the shared cleanup body removes the session-active
-        marker, so a quit / restart_app / atexit run makes the NEXT
-        launch treat the previous session as clean (no crash
-        notification), while a crash (no cleanup) leaves the marker."""
+        """SESSION-STATE: the shared cleanup body removes the session-active"""
         from voice_typer.server import session_state
 
         _stub_restart_environment(app, monkeypatch)
@@ -347,60 +202,28 @@ class TestDoCleanupIdempotency:
         )
 
     def test_do_cleanup_idempotent_when_recorder_stop_raises(self, app, monkeypatch):
-        """Idempotency must hold even when an inner operation raises.
-
-        If recorder.stop() raises on the first call, _do_cleanup
-        catches it and continues. The _cleanup_done flag is set at the
-        TOP of _do_cleanup (before any operation), so a second call
-        is still a no-op, we don't retry the failed operation, and
-        we don't double-call any operation that already succeeded.
-        """
+        """Idempotency must hold even when an inner operation raises."""
         _stub_restart_environment(app, monkeypatch)
         # Make recorder.stop() raise on every call.
         app.recorder.stop.side_effect = RuntimeError("PortAudio already closed")
 
-        # First call: recorder.stop() raises, discard() is called as
-        # fallback (also raises, both are caught by try-except).
         app.recorder.discard.side_effect = RuntimeError("already discarded")
         # Must not propagate.
         app._do_cleanup()
 
         # Second call must be a no-op, recorder.stop/discard are NOT
-        # retried (would be called twice if _cleanup_done wasn't set).
         app._do_cleanup()
 
         app.recorder.stop.assert_called_once()
         app.recorder.discard.assert_called_once()
-        # history_db.flush still ran exactly once on the first call,
-        # despite the recorder errors.
         app.history_db.flush.assert_called_once()
 
 
-# ── _atexit_cleanup() safety net ───────────────────────────────────────
-
-
 class TestAtexitCleanupSafetyNet:
-    """_atexit_cleanup() must delegate to _do_cleanup() so the
-    safety net runs the SAME audited path as quit()/restart_app().
-
-    The _shutting_down guard is preserved (early-return when
-    quit/restart already ran) to avoid spurious log noise on
-    intentional shutdowns. When the process is killed externally
-    (_shutting_down stays False), the safety net runs the FULL
-    _do_cleanup() body, flushing history_db, stopping the recorder,
-    clearing the PID file, etc.
-    """
+    """safety net runs the SAME audited path as quit()/restart_app()."""
 
     def test_atexit_cleanup_after_quit_is_noop(self, app, monkeypatch):
-        """_atexit_cleanup() must early-return when _shutting_down is
-        already True (set by quit() or restart_app()), so it doesn't
-        double-call _do_cleanup().
-
-        The _cleanup_done flag inside _do_cleanup() would make a
-        second call a no-op anyway, but the early-return avoids the
-        spurious "[ATEXIT] Running emergency cleanup" log line on
-        every intentional shutdown.
-        """
+        """_atexit_cleanup() must early-return when _shutting_down is"""
         _stub_restart_environment(app, monkeypatch)
 
         # Simulate quit() having run: set the flag, run cleanup once.
@@ -408,30 +231,14 @@ class TestAtexitCleanupSafetyNet:
         app._do_cleanup()
 
         # Now atexit fires, it should early-return without calling
-        # _do_cleanup() a second time.
         app._atexit_cleanup()
 
-        # recorder.stop() called exactly once (from the explicit
-        # _do_cleanup() call, NOT from _atexit_cleanup).
         app.recorder.stop.assert_called_once()
         app.history_db.flush.assert_called_once()
 
     def test_atexit_cleanup_runs_when_not_shutting_down(self, app, monkeypatch):
-        """_atexit_cleanup() must run _do_cleanup() when the process
-        is killed externally (_shutting_down stays False), so critical
-        cleanup (volume restore, hotkey release, DB flush, recorder
-        stop, PID file clear) happens even on a forced exit.
-
-        Regression: _atexit_cleanup() ran an ad-hoc
-        SUBSET of cleanup (volume restore + hotkey stop + crash
-        recovery flush) that diverged from quit(). It skipped
-        history_db.flush, recorder.stop, mic watcher shutdown, bubble
-        level worker stop, PID file clear, and mutex handle close —
-        leaking the same resources that the OLD restart_app() leaked.
-        """
+        """_atexit_cleanup() must run _do_cleanup() when the process"""
         _stub_restart_environment(app, monkeypatch)
-        # _do_cleanup nulls the backend refs after stop(), capture the
-        # mock before the call to assert stop() was called.
         hotkey_backend = app.hotkeys._hotkey_backend
 
         # _shutting_down stays False, process was killed externally.
@@ -449,10 +256,7 @@ class TestAtexitCleanupSafetyNet:
         app.tray.stop.assert_called_once()
 
     def test_atexit_cleanup_never_raises(self, app, monkeypatch):
-        """_atexit_cleanup() must NEVER raise, even if _do_cleanup()
-        raises an unhandled exception. A raise out of an atexit handler
-        would mask the original exit cause and produce confusing
-        tracebacks in the user's log."""
+        """_atexit_cleanup() must NEVER raise, even if _do_cleanup()"""
         _stub_restart_environment(app, monkeypatch)
         # Force _do_cleanup to raise.
         monkeypatch.setattr(app, "_do_cleanup", lambda: (_ for _ in ()).throw(RuntimeError("boom")))
@@ -461,19 +265,11 @@ class TestAtexitCleanupSafetyNet:
         app._atexit_cleanup()
 
 
-# ── quit() still works after the refactor ──────────────────────────────
-
-
 class TestQuitAppUsesSharedCleanup:
-    """quit() must use _do_cleanup() (the shared path) and still
-    exit via sys.exit(0). These are sanity tests guarding against a
-    future regression that removes the _do_cleanup() call from quit().
-    """
+    """quit() must use _do_cleanup() (the shared path) and still"""
 
     def test_quit_flushes_history_db(self, app, monkeypatch):
-        """Sanity: quit() (which already did this inline) must
-        still flush history_db after the refactor extracts cleanup
-        into _do_cleanup()."""
+        """Sanity: quit() (which already did this inline) must"""
         _stub_restart_environment(app, monkeypatch)
 
         with contextlib.suppress(SystemExit):
@@ -482,13 +278,10 @@ class TestQuitAppUsesSharedCleanup:
         app.history_db.flush.assert_called_once()
 
     def test_quit_clears_backend_pid_file(self, app, monkeypatch):
-        """Sanity: quit() must still clear the backend PID file after
-        the refactor."""
+        """Sanity: quit() must still clear the backend PID file after"""
         _stub_restart_environment(app, monkeypatch)
         clear_calls = []
         # The pid-file teardown resolves through the owning
-        # backend_pid module at call time (the app module's re-export
-        # is no longer on the shutdown lookup path).
         monkeypatch.setattr(
             "voice_typer.server.backend_pid._clear_backend_pid_file",
             lambda: clear_calls.append(True),
@@ -500,8 +293,7 @@ class TestQuitAppUsesSharedCleanup:
         assert clear_calls == [True]
 
     def test_quit_stops_recorder(self, app, monkeypatch):
-        """Sanity: quit() must still call recorder.stop() (or
-        discard()) after the refactor."""
+        """Sanity: quit() must still call recorder.stop() (or"""
         _stub_restart_environment(app, monkeypatch)
 
         with contextlib.suppress(SystemExit):
@@ -510,9 +302,7 @@ class TestQuitAppUsesSharedCleanup:
         assert app.recorder.stop.called or app.recorder.discard.called
 
     def test_quit_calls_do_cleanup(self, app, monkeypatch):
-        """Sanity: quit() must delegate to _do_cleanup() (rather than
-        inlining the cleanup body, which would re-introduce the
-        divergence bug that fixes)."""
+        """Sanity: quit() must delegate to _do_cleanup() (rather than"""
         _stub_restart_environment(app, monkeypatch)
         do_cleanup_calls = []
         original = app._do_cleanup
@@ -529,19 +319,11 @@ class TestQuitAppUsesSharedCleanup:
         assert do_cleanup_calls == [True], "quit() must call _do_cleanup() exactly once"
 
 
-# ── event-driven relaunch ack (no fixed 300ms tray block) ────
-
-
 class TestRelaunchAckEventDriven:
-    """restart_app must wait on the ``relaunch_ack`` event from
-    predecessor (bounded by a 2s timeout) instead of a fixed ``time.sleep(0.3)``
-    that always blocks the tray thread for 300ms.
-    """
+    """predecessor (bounded by a 2s timeout) instead of a fixed ``time.sleep(0.3)``"""
 
     def test_handle_relaunch_ack_sets_event(self):
-        """The ``relaunch_ack`` IPC handler must set the server's
-        ``_relaunch_ack_event`` so restart_app's wait returns early.
-        """
+        """The ``relaunch_ack`` IPC handler must set the server's"""
         from voice_typer.server.ipc_server import IPCServer
 
         # Minimal stand-in for the app attribute the handler doesn't use.
@@ -557,10 +339,7 @@ class TestRelaunchAckEventDriven:
         assert server._relaunch_ack_event.is_set(), "relaunch_ack handler must set the ack event"
 
     def test_restart_app_waits_on_ack_event_not_fixed_sleep(self, app, monkeypatch):
-        """When predecessor acks (event already set), restart_app must NOT call
-        the fixed 300ms sleep, it should return as soon as the event is
-        observed, unblocking the tray thread.
-        """
+        """When predecessor acks (event already set), restart_app must NOT call"""
         _stub_restart_environment(app, monkeypatch)
 
         # Attach a fake IPC server exposing a real ack event, already set.
@@ -584,12 +363,6 @@ class TestRelaunchAckEventDriven:
             app.restart_app()
 
         # PERF-005 scope: ``restart_app`` runs on the main thread, so
-        # only main-thread sleeps count. ``voice_typer.server.app.time``
-        # IS the global ``time`` module, so this recorder also captures
-        # stray daemon-thread sleeps from other tests in the same
-        # process (e.g. the shutdown watchdog's grace wait), those are
-        # process noise, not restart_app behavior, and made this test
-        # flaky under the full-suite sweep.
         main_sleeps = [s for s, _t in sleep_calls if _t == threading.main_thread().name]
         assert main_sleeps == [], (
             "restart_app must not call the fixed 300ms sleep when the relaunch_ack "
@@ -597,20 +370,9 @@ class TestRelaunchAckEventDriven:
         )
 
     def test_restart_app_falls_back_to_sleep_without_server(self, app, monkeypatch):
-        """TY-13: when there is no IPC server (event unavailable),
+        """
+        TY-13: when there is no IPC server (event unavailable),
         ``restart_app`` must NOT sleep at all, the previous 300ms
-        fallback was removed because no IPC server means no one is
-        listening for the relaunch event, so waiting accomplishes
-        nothing and blocks the tray callback thread for nothing.
-
-        Pre-TY-13 behaviour: ``time.sleep(0.3)`` fallback when no IPC
-        server was attached (PERF-005's belt-and-suspenders pause).
-        Post-TY-13 behaviour: skip the wait entirely (0ms). The
-        ``relaunch_app`` event is delivered via ``event_bus.publish``
-        BEFORE ``_wait_for_relaunch_ack`` is called, so even with no
-        IPC server the host's ``pythonProcess.on("exit")`` handler
-        still triggers the same relaunch as a fallback when the
-        process exits, the 300ms sleep contributed nothing.
         """
         _stub_restart_environment(app, monkeypatch)
         app._ipc_server = None
@@ -627,8 +389,6 @@ class TestRelaunchAckEventDriven:
             app.restart_app()
 
         # Same main-thread scoping as the PERF-005 test: only
-        # main-thread sleeps count (stray daemon-thread sleeps from
-        # other tests are process noise, not restart_app behavior).
         main_sleeps = [s for s, _t in sleep_calls if _t == threading.main_thread().name]
         assert main_sleeps == [], (
             f"TY-13: restart_app must NOT sleep when no IPC server is "
@@ -637,30 +397,11 @@ class TestRelaunchAckEventDriven:
         )
 
 
-# restart_app re-entry guard ──────────────────────────────────
-
-
 class TestRestartAppReentryGuard:
-    """APP-1: ``restart_app`` must short-circuit when
-    ``_shutting_down`` is already True. Without this guard, a second
-    restart_app call (e.g. user double-clicks the tray restart item,
-    or a tray restart races with a SIGTERM-triggered quit) would:
-
-    1. Re-push a duplicate ``the legacy relaunch event name`` event to predecessor.
-    2. Re-enter ``_do_cleanup()`` (mitigated by ``_cleanup_done`` but
-       still wasteful, and the second ``sys.exit(0)`` could fire
-       while the first call's finally blocks are still draining).
-    3. Re-acquire ``_config_mutation_lock`` (an RLock, so technically
-       re-entrant, but the toctou window re-opens).
-
-    The guard short-circuits BEFORE any side effect so a duplicate
-    call is a true no-op.
-    """
+    """APP-1: ``restart_app`` must short-circuit when"""
 
     def test_restart_app_no_op_when_already_shutting_down(self, app, monkeypatch):
-        """When _shutting_down is True, restart_app must return
-        immediately without pushing events, saving config, or calling
-        _do_cleanup()."""
+        """When _shutting_down is True, restart_app must return"""
         _stub_restart_environment(app, monkeypatch)
 
         publish_calls = []
@@ -679,10 +420,6 @@ class TestRestartAppReentryGuard:
 
         monkeypatch.setattr(app, "_do_cleanup", spy_do_cleanup)
 
-        # the re-entry guard in restart_app now checks
-        # ``_shutting_down_event.is_set()`` (threading.Event version)
-        # instead of the plain boolean.  Setting only the boolean no
-        # longer short-circuits the guard; the Event must be set too.
         app._shutting_down = True
         app._shutting_down_event.set()
 
@@ -699,8 +436,7 @@ class TestRestartAppReentryGuard:
         )
 
     def test_restart_app_runs_normally_when_not_shutting_down(self, app, monkeypatch):
-        """Sanity: when _shutting_down is False, restart_app must run
-        the full sequence (push event, set flag, _do_cleanup, sys.exit)."""
+        """Sanity: when _shutting_down is False, restart_app must run"""
         _stub_restart_environment(app, monkeypatch)
 
         publish_calls = []
@@ -723,10 +459,7 @@ class TestRestartAppReentryGuard:
         )
 
     def test_restart_app_guard_is_first_statement_in_method(self):
-        """Source-level invariant: the re-entry guard
-        (``if self._shutting_down_event.is_set():``) must be the FIRST
-        executable statement in restart_app (before the log.info call,
-        before the config.save(), before any push)."""
+        """Source-level invariant: the re-entry guard"""
         import inspect
 
         from voice_typer.server.app import VoiceTyperApp
@@ -741,10 +474,6 @@ class TestRestartAppReentryGuard:
             stripped = line.strip()
             if not stripped or stripped.startswith("#"):
                 continue
-            # the guard uses the threading.Event version
-            # (``_shutting_down_event.is_set()``) instead of the plain
-            # boolean: see the rationale in restart_app's inline
-            # comment.
             assert stripped.startswith("if self._shutting_down_event.is_set():"), (
                 "APP-1: the first executable statement in restart_app "
                 "must be 'if self._shutting_down_event.is_set():' "
@@ -764,24 +493,11 @@ class TestRestartAppReentryGuard:
             )
 
 
-# restart_app no longer calls _restore_volume(fade_ms=0) ─────
-
-
 class TestRestartAppRemovesRedundantRestoreVolume:
-    """APP-11: ``restart_app`` used to call ``_restore_volume(fade_ms=0)``
-    right after setting ``_shutting_down = True``. This was redundant —
-    ``_do_cleanup()`` (called later in restart_app via the shared
-    ShutdownController body) already invokes the volume-restore path.
-
-    The redundant call could also race with the in-flight cleanup if
-    the volume backend wasn't reentrant (some backends hold a
-    subprocess lock during fade). Removing it eliminates the
-    double-restore and the potential race.
-    """
+    """APP-11: ``restart_app`` used to call ``_restore_volume(fade_ms=0)``"""
 
     def test_restart_app_does_not_call_restore_volume_directly(self, app, monkeypatch):
-        """restart_app must NOT call ``_restore_volume`` directly —
-        the cleanup path inside _do_cleanup handles it."""
+        """restart_app must NOT call ``_restore_volume`` directly —"""
         _stub_restart_environment(app, monkeypatch)
 
         restore_calls = []
@@ -790,11 +506,6 @@ class TestRestartAppRemovesRedundantRestoreVolume:
         with contextlib.suppress(SystemExit):
             app.restart_app()
 
-        # _do_cleanup calls app._restore_volume(fade_ms=0) via the
-        # shutdown_controller (line ~412), so the spy will catch that
-        # legitimate call.  We allow exactly one call (from _do_cleanup);
-        # ≥2 would indicate an additional redundant direct call from
-        # restart_app itself.
         direct_calls = [c for c in restore_calls if c is not None]
         assert len(direct_calls) <= 1, (
             "APP-11: restart_app must NOT call _restore_volume(fade_ms=0) "
@@ -804,14 +515,12 @@ class TestRestartAppRemovesRedundantRestoreVolume:
         )
 
     def test_restart_app_source_has_no_direct_restore_volume_call(self):
-        """Source-level invariant: ``_restore_volume(fade_ms=0)`` must
-        not appear in restart_app's source as an executable call (it's
-        redundant, _do_cleanup handles the restore)."""
+        """Source-level invariant: ``_restore_volume(fade_ms=0)`` must"""
         import inspect
 
-        from voice_typer.server.app import VoiceTyperApp
+        from voice_typer.server.app_lifecycle import LifecycleController
 
-        src = inspect.getsource(VoiceTyperApp.restart_app)
+        src = inspect.getsource(LifecycleController.restart_app)
         direct_call_idx = src.find("self._restore_volume(fade_ms=0)")
         if direct_call_idx != -1:
             line_start = src.rfind("\n", 0, direct_call_idx) + 1
@@ -834,58 +543,31 @@ class TestRestartAppRemovesRedundantRestoreVolume:
 
 
 class TestUserDataPurgeHelpers:
-    """The canonical user-data purge inventory
-    (``voice_typer/server/_user_data_files.py::_USER_DATA_FILES``, consumed by
-    ``config.purge_user_data``) exposes the exhaustive list of files an
-    uninstaller should remove when purging user data.
-
-    These tests pin the contract so a future code change that adds a
-    new file inside the config dir (e.g. a new SQLite DB, a new
-    cache directory) is forced to update the purge list, otherwise
-    the uninstaller would silently leak the new file.
-    """
+    """The canonical user-data purge inventory"""
 
     @pytest.fixture(autouse=True)
     def _pin_paths_config_dir(self, tmp_path, monkeypatch):
-        """Pin ``_paths._config_dir`` (the imported reference inside
-        ``_paths``) to a tmp path so the helpers' delegation chain
-        resolves to a deterministic location.
-
-        Mirrors the fixture pattern in ``tests/test_paths.py``: we
-        patch ``_paths._config_dir`` (NOT ``config._config_dir``) so
-        the helpers' actual delegation chain is exercised, every
-        helper should call ``_config_dir()`` (the imported function)
-        at least once.
-        """
+        """Pin ``_paths._config_dir`` (the imported reference inside"""
         from voice_typer.server import _paths
 
         monkeypatch.setattr(_paths, "_config_dir", lambda: tmp_path)
         self._tmp = tmp_path
 
     def test_user_data_dir_equals_config_dir(self):
-        """``user_data_dir()`` returns the same path as ``config_dir()``.
-
-        They're semantically distinct (the former is the "root of user
-        data" the latter is "where the config dir is") but happen to be
-        the same path today. The alias exists so uninstallers / factory-
-        reset features can call ``user_data_dir()`` for self-documenting
-        code.
-        """
+        """``user_data_dir()`` returns the same path as ``config_dir()``."""
         from voice_typer.server import _paths
 
         assert _paths.user_data_dir() == _paths.config_dir()
         assert _paths.user_data_dir() == self._tmp
 
     def test_hf_cache_dir_under_user_data_dir(self):
-        """``hf_cache_dir()`` returns ``<user_data_dir>/huggingface`` —
-        the canonical HF model cache location (potentially GBs)."""
+        """``hf_cache_dir()`` returns ``<user_data_dir>/huggingface`` —"""
         from voice_typer.server import _paths
 
         assert _paths.hf_cache_dir() == _paths.user_data_dir() / "huggingface"
 
     def test_purge_inventory_has_no_duplicates(self):
-        """No duplicate filenames (a duplicate would be a no-op on
-        removal but signals a copy-paste error)."""
+        """No duplicate filenames (a duplicate would be a no-op on"""
         from voice_typer.server._user_data_files import _USER_DATA_FILES
 
         unique = set(_USER_DATA_FILES)
@@ -895,10 +577,7 @@ class TestUserDataPurgeHelpers:
         )
 
     def test_purge_inventory_uses_real_filenames(self):
-        """Every inventory entry is an actual on-disk filename, the
-        previously forked ``_paths.user_data_subpaths_for_purge()``
-        registry drifted to fictional names (``crash_recovery.json`` /
-        ``onboarding.marker``) that matched zero real files."""
+        """registry drifted to fictional names (``crash_recovery.json`` /"""
         from voice_typer.server._user_data_files import _USER_DATA_FILES
 
         fictional = {"crash_recovery.json", "onboarding.marker"}
@@ -909,69 +588,37 @@ class TestUserDataPurgeHelpers:
         )
 
     def test_purge_inventory_covers_recovery_and_onboarding(self):
-        """The recovery snapshot + onboarding state MUST be in the
-        purge list (privacy-relevant personal data)."""
+        """The recovery snapshot + onboarding state MUST be in the"""
         from voice_typer.server._user_data_files import _USER_DATA_FILES
 
         assert "recovery.json" in _USER_DATA_FILES
         assert ".onboarding_status.json" in _USER_DATA_FILES
 
 
-# real-collaborator integration tests ─────────────────────────
-#
-# The tests above use MagicMock collaborators (history_db, recorder,
-# crash_recovery). They verify CALL ROUTING only, they do NOT verify
-# that a real history_db.flush() actually drains pending SQLite writes,
-# or that recorder.stop() actually closes a real PortAudio stream. A
-# regression where flush() becomes fire-and-forget would still pass
-# those tests but silently lose data in production.
-#
-# These integration tests use a REAL HistoryDB (tmp_path SQLite file)
-# and a fake-but-real PortAudio stream stub to verify the side effects
-# of _do_cleanup() / restart_app() actually land.
-
-
 class TestRealHistoryDBFlushDrainsQueue:
-    """GT-38: _do_cleanup() must call a real history_db.flush() that
-    actually drains the writer-thread queue to the SQLite file on disk.
-
-    A regression where flush() is changed to a fire-and-forget
-    non-blocking call would still pass the MagicMock-based tests above
-    (they only assert ``flush.assert_called_once()``) but would silently
-    lose pending writes on restart. This test catches that regression
-    by inspecting the actual SQLite file on disk.
-    """
+    """actually drains the writer-thread queue to the SQLite file on disk."""
 
     def test_do_cleanup_drains_pending_writes_to_disk(self, app, tmp_config_dir, monkeypatch):
-        """A real HistoryDB with a populated writer queue, when passed
-        through _do_cleanup(), must end up with all rows persisted to
-        the SQLite file on disk, proving flush() is blocking, not
-        fire-and-forget."""
+        """A real HistoryDB with a populated writer queue, when passed"""
         from voice_typer.server.history_db import HistoryDB
 
         # Use a REAL HistoryDB pointed at the tmp_config_dir's history.db
         real_db = HistoryDB(db_path=tmp_config_dir / "history.db")
         try:
             # Enqueue 5 fire-and-forget writes. They sit in the writer
-            # thread's queue (or are being drained async), at this
-            # point we cannot guarantee they're on disk yet.
             texts = [f"pending write {i}" for i in range(5)]
             for text in texts:
                 row_id = real_db.add_transcription(text, duration=1.0)
                 assert row_id > 0, "add_transcription should return placeholder > 0"
 
             # Swap the app's mock history_db for the real one. Other
-            # collaborators stay mocked (recorder, hotkeys, tray) so we
-            # don't need real audio hardware.
             _stub_restart_environment(app, monkeypatch)
             app.history_db = real_db
 
             # Run the shared cleanup path. This MUST call real_db.flush()
-            # which blocks until the writer thread has drained the queue.
             app._do_cleanup()
 
             # Open a FRESH read connection (not the writer thread's
-            # connection) and verify all 5 rows landed on disk.
             import sqlite3
 
             with sqlite3.connect(str(tmp_config_dir / "history.db")) as conn:
@@ -986,19 +633,10 @@ class TestRealHistoryDBFlushDrainsQueue:
                 f"or partial."
             )
         finally:
-            # close() is idempotent; safe to call after _do_cleanup.
             real_db.close()
 
     def test_real_flush_blocks_until_queue_drained(self, tmp_config_dir, monkeypatch):
-        """GT-38: A direct call to HistoryDB.flush() must BLOCK until
-        all queued writes are durable on disk. This is the contract
-        _do_cleanup() relies on, if flush() becomes non-blocking, the
-        restart path silently loses data.
-
-        We verify this by enqueuing N writes, calling flush(), then
-        immediately reading from a fresh connection and asserting all
-        N rows are visible.
-        """
+        """A direct call to HistoryDB.flush() must BLOCK until"""
         from voice_typer.server.history_db import HistoryDB
 
         real_db = HistoryDB(db_path=tmp_config_dir / "history.db")
@@ -1007,7 +645,6 @@ class TestRealHistoryDBFlushDrainsQueue:
             for t in texts:
                 real_db.add_transcription(t)
 
-            # flush() must block until the writer drains the queue.
             real_db.flush()
 
             import sqlite3
@@ -1026,29 +663,14 @@ class TestRealHistoryDBFlushDrainsQueue:
 
 
 class TestRealRecorderStopClosesStream:
-    """GT-38: _do_cleanup() must call recorder.stop() which actually
-    closes the underlying PortAudio stream. The MagicMock-based tests
-    only verify ``recorder.stop.assert_called_once()``, they do NOT
-    verify that a real recorder.stop() actually invokes stream.stop()
-    + stream.close().
-
-    We use a fake stream object that records stop()/close() calls
-    (standing in for a real sd.InputStream) so we can verify the
-    teardown sequence is exercised end-to-end.
-    """
+    """_do_cleanup() must call recorder.stop() which actually"""
 
     def test_do_cleanup_closes_real_stream(self, app, tmp_config_dir, monkeypatch):
-        """When the app's recorder has a real (fake-but-not-MagicMock)
-        PortAudio stream, _do_cleanup() must drive stop() + close() on
-        it, leaving _stream = None."""
+        """When the app's recorder has a real (fake-but-not-MagicMock)"""
 
-        # Reuse the app's existing recorder instance (constructed in
-        # __init__ with mocked sounddevice via mock_heavy_imports).
         recorder = app.recorder
 
         # Install a fake-but-real stream object that records teardown
-        # calls. This is NOT a MagicMock, we want to verify the
-        # production stop()/close() sequence is actually invoked.
         class _FakeStream:
             def __init__(self):
                 self.stop_calls = 0
@@ -1063,19 +685,16 @@ class TestRealRecorderStopClosesStream:
         fake_stream = _FakeStream()
         recorder._stream_lifecycle._stream = fake_stream
         # Pretend we're recording so _do_cleanup takes the stop() path.
-        # ``recording`` is a read-only property backed by an Event.
         recorder._recording_event.set()
         # Mark not-in-callback so stop()'s poll loop exits immediately.
         recorder._is_in_audio_callback.clear()
 
         # Stub the rest of the cleanup collaborators (history_db etc.)
-        # so _do_cleanup only needs to succeed on the recorder path.
         _stub_restart_environment(app, monkeypatch)
         # Restore the real recorder (the stub overwrote it with a mock).
         app.recorder = recorder
 
         # Run cleanup. Must invoke recorder.stop() which drives
-        # stream.stop() + stream.close() + self._stream_lifecycle._stream = None.
         app._do_cleanup()
 
         assert fake_stream.stop_calls == 1, "GT-38: recorder.stop() must call stream.stop() exactly once"

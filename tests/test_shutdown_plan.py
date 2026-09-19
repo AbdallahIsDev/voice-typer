@@ -1,41 +1,4 @@
-"""declarative ``ShutdownPlan`` + ``_run_plan`` driver tests.
-
-These tests pin the refactor of
-``voice_typer/server/shutdown_controller.py``:
-
-* The ``ShutdownPlan`` / ``ShutdownStep`` dataclasses express the
-  teardown ordering contract declaratively (``name``, ``func``,
-  ``timeout``, ``depends_on``, ``skip_if_dep_timed_out``).
-* The ``_run_plan`` driver executes a plan (sequenced or parallel),
-  tracks timed-out step names, and applies the barrier
-  (skip downstream steps whose upstream dependency timed out when
-  ``skip_if_dep_timed_out=True``).
-* The ``_do_cleanup`` body builds a sequenced plan + a parallel plan
-  and hands them to ``_run_plan``. The parallel plan declares
-  ``teardown_sounddevice`` with ``depends_on="teardown_recorder"`` +
-  ``skip_if_dep_timed_out=True`` so the barrier fires when the
-  recorder's PortAudio stream failed to close in time.
-
-The tests construct a ``_FakeApp`` with spies on every teardown
-method (mirroring the pattern in ``test_shutdown_parallel.py``) and
-assert:
-
-1. The call order matches the declarative plan: sequenced phase
-   (timers_and_recording → recorder → history_db → crash_recovery)
-   runs BEFORE the parallel batch; ``tray.stop`` runs AFTER the
-   parallel batch.
-2. The barrier fires: when ``teardown_recorder`` is forced to
-   time out, ``teardown_sounddevice`` is NOT invoked (skipped by the
-   driver pre-flight check).
-3. The ``ShutdownPlan`` / ``ShutdownStep`` dataclasses are
-   importable + constructible with the documented field names.
-4. ``_run_plan`` returns the union of prior + new timed-out step
-   names so cross-plan barriers work.
-
-Run with::
-
-    python -m pytest tests/test_shutdown_plan.py -q --timeout=30 --no-cov
-"""
+"""declarative ``ShutdownPlan`` + ``_run_plan`` driver tests."""
 
 from __future__ import annotations
 
@@ -52,19 +15,11 @@ from voice_typer.server.shutdown_controller import (
     ShutdownStep,
 )
 
-# ── Override the autouse ``mock_heavy_imports`` conftest fixture ───────
-# Same rationale as ``test_shutdown_parallel.py``: avoids pulling in the
-# real ``voice_typer.server.app`` (which can be in a parallel agent's
-# WIP state) during the autouse fixture setup.
-
 
 @pytest.fixture(autouse=True)
 def mock_heavy_imports():
     """No-op override of the conftest autouse fixture."""
     yield
-
-
-# ── Fake app ───────────────────────────────────────────────────────────
 
 
 class _FakeApp:
@@ -107,8 +62,6 @@ def fake_app(monkeypatch):
     monkeypatch.setitem(sys.modules, "voice_typer.server.app", fake_app_module)
 
     # The PID-file teardown resolves ``_clear_backend_pid_file`` through
-    # the owning module at call time, stub it so no real PID file is
-    # touched and the (already-imported) real module is not required.
     fake_backend_pid = MagicMock()
     fake_backend_pid._clear_backend_pid_file = MagicMock()
     monkeypatch.setitem(sys.modules, "voice_typer.server.backend_pid", fake_backend_pid)
@@ -124,17 +77,10 @@ def fake_app(monkeypatch):
 
 @pytest.fixture
 def controller(fake_app):
-    """A ``ShutdownController`` wrapping ``fake_app`` with every
-    ``_teardown_*`` method spied. The spies record call order in the
-    shared ``call_order`` list so tests can assert sequencing.
-    """
+    """A ``ShutdownController`` wrapping ``fake_app`` with every"""
     ctrl = ShutdownController(fake_app)
     fake_app._do_cleanup = MagicMock(side_effect=ctrl._do_cleanup)
 
-    # Wrap every ``_teardown_*`` method in a spy that records the
-    # call order. The spy invokes the original (delegating) method
-    # so the real teardown body still runs (against the MagicMock
-    # collaborators on ``fake_app``).
     call_order: list[str] = []
     ctrl._call_order = call_order  # type: ignore[attr-defined]
 
@@ -179,12 +125,8 @@ def controller(fake_app):
     return ctrl
 
 
-# ── Dataclass contract tests ───────────────────────────────────────────
-
-
 class TestShutdownPlanDataclass:
-    """``ShutdownPlan`` + ``ShutdownStep`` are importable,
-    constructible with the documented field names, and frozen."""
+    """``ShutdownPlan`` + ``ShutdownStep`` are importable,"""
 
     def test_shutdown_step_default_fields(self) -> None:
         step = ShutdownStep(name="x", func=lambda: None, timeout=1.0)
@@ -221,12 +163,8 @@ class TestShutdownPlanDataclass:
         assert plan.steps[0].name == "x"
 
 
-# ── _run_plan driver tests ─────────────────────────────────────────────
-
-
 class TestRunPlanDriver:
-    """``_run_plan`` executes the plan, tracks timed-out steps,
-    and applies the barrier."""
+    """``_run_plan`` executes the plan, tracks timed-out steps,"""
 
     def test_run_plan_returns_empty_when_no_steps(self, controller) -> None:
         plan = ShutdownPlan(phase="sequenced", steps=())
@@ -234,8 +172,7 @@ class TestRunPlanDriver:
         assert result == frozenset()
 
     def test_run_plan_sequenced_records_timeout(self, controller, monkeypatch) -> None:
-        """A sequenced step that times out is recorded in the returned
-        ``frozenset`` so downstream barriers can fire."""
+        """A sequenced step that times out is recorded in the returned"""
         from voice_typer.server import shutdown_controller as _sc
 
         original = _sc._run_with_timeout
@@ -248,7 +185,6 @@ class TestRunPlanDriver:
             return original(description, func, timeout=timeout)
 
         # Replace _run_with_timeout in the shutdown_controller module
-        # (the teardown helpers look it up dynamically).
         monkeypatch.setattr(_sc, "_run_with_timeout", _fast_timeout)
 
         def _slow_func():
@@ -266,9 +202,7 @@ class TestRunPlanDriver:
         assert "fast_step" not in result
 
     def test_run_plan_gt70_barrier_skips_dependent_sequenced_step(self, controller, monkeypatch) -> None:
-        """barrier: a sequenced step with ``depends_on`` +
-        ``skip_if_dep_timed_out=True`` is SKIPPED when the dependency
-        timed out in ``prior_timed_out``."""
+        """barrier: a sequenced step with ``depends_on`` +"""
         skip_spy = MagicMock()
         plan = ShutdownPlan(
             phase="sequenced",
@@ -286,13 +220,11 @@ class TestRunPlanDriver:
         result = controller._run_plan(plan, frozenset({"upstream"}))
         skip_spy.assert_not_called()
         # The skipped step is NOT added to timed_out (it didn't time
-        # out; it was skipped). The prior timed_out set is preserved.
         assert "upstream" in result
         assert "downstream" not in result
 
     def test_run_plan_gt70_barrier_runs_step_when_dep_succeeded(self, controller) -> None:
-        """When the dependency did NOT time out, the barrier does NOT
-        fire and the step runs normally."""
+        """When the dependency did NOT time out, the barrier does NOT"""
         run_spy = MagicMock()
         plan = ShutdownPlan(
             phase="sequenced",
@@ -310,15 +242,8 @@ class TestRunPlanDriver:
         run_spy.assert_called_once()
 
 
-# ── End-to-end _do_cleanup ordering test ───────────────────────────────
-
-
 class TestDoCleanupCallOrder:
-    """``_do_cleanup`` invokes the sequenced teardowns BEFORE
-    the parallel batch, and ``tray.stop`` AFTER the parallel batch.
-    The spy on each ``_teardown_*`` method records the call order in
-    ``controller._call_order`` so we can assert sequencing.
-    """
+    """``_do_cleanup`` invokes the sequenced teardowns BEFORE"""
 
     def test_sequenced_phase_runs_before_parallel_batch(self, controller) -> None:
         controller._do_cleanup()
@@ -351,16 +276,13 @@ class TestDoCleanupCallOrder:
         for name in parallel_names:
             assert name in order, f"parallel step {name} must be called"
 
-        # tray.stop must be called LAST (after every teardown step).
         assert "tray.stop" in order
         tray_idx = order.index("tray.stop")
         for name in sequenced_names + parallel_names:
             assert order.index(name) < tray_idx, f"tray.stop must run AFTER {name}; got order: {order}"
 
     def test_sequenced_phase_runs_in_declaration_order(self, controller) -> None:
-        """The sequenced phase must run in the declaration order:
-        timers_and_recording → recorder → history_db → crash_recovery.
-        Reordering would race the transcription thread's DB write."""
+        """The sequenced phase must run in the declaration order:"""
         controller._do_cleanup()
         order = controller._call_order  # type: ignore[attr-defined]
 
@@ -383,46 +305,23 @@ class TestDoCleanupCallOrder:
         ], f"sequenced phase must run in declaration order; got: {seq_order}"
 
     def test_asr_models_is_first_parallel_step(self, controller) -> None:
-        """``_teardown_asr_models`` is declared FIRST in the parallel
-        plan so the (potentially slow) CUDA context teardown starts as
-        early as possible. The parallel batch runs concurrently, so we
-        can't assert strict ordering, but ``_teardown_asr_models``
-        must be in the FIRST batch of teardowns that run after the
-        sequenced phase completes."""
+        """``_teardown_asr_models`` is declared FIRST in the parallel"""
         controller._do_cleanup()
         order = controller._call_order  # type: ignore[attr-defined]
 
         crash_recovery_idx = order.index("_teardown_crash_recovery")
         asr_idx = order.index("_teardown_asr_models")
-        # asr_models must run AFTER crash_recovery (sequenced phase
-        # completes before parallel batch starts).
         assert asr_idx > crash_recovery_idx, (
             "_teardown_asr_models must run AFTER the sequenced phase; "
             f"got asr_idx={asr_idx}, crash_recovery_idx={crash_recovery_idx}"
         )
 
 
-# ── barrier end-to-end test ──────────────────────────────────────
-
-
 class TestBarrierEndToEnd:
-    """when ``_teardown_recorder`` times out, the barrier
-    skips ``_teardown_sounddevice`` (the downstream call that touches
-    the same PortAudio resource)."""
+    """when ``_teardown_recorder`` times out, the barrier"""
 
     def test_sounddevice_skipped_when_recorder_times_out(self, controller, fake_app, monkeypatch) -> None:
-        """Force ``_teardown_recorder`` to time out. The driver should
-        skip ``_teardown_sounddevice`` (it declares
-        ``depends_on="teardown_recorder"`` +
-        ``skip_if_dep_timed_out=True``).
-
-        Implementation note: the test patches
-        ``_run_with_timeout`` to return ``TIMEOUT`` for the
-        ``teardown_recorder`` description WITHOUT invoking the inner
-        function (the spy on ``_teardown_recorder`` therefore does NOT
-        fire, the barrier fires before the spy is reached). The test
-        asserts only that ``_teardown_sounddevice`` is NOT called
-        (which is the barrier contract)."""
+        """Force ``_teardown_recorder`` to time out. The driver should"""
         from voice_typer.server import shutdown_controller as _sc
 
         original = _sc._run_with_timeout
@@ -430,9 +329,6 @@ class TestBarrierEndToEnd:
         def _fast_timeout(description, func, timeout=5.0):
             if description == "teardown_recorder":
                 # Short-circuit: return TIMEOUT without invoking
-                # ``func``. The driver records "teardown_recorder" in
-                # its timed_out set and the barrier fires for
-                # the downstream ``teardown_sounddevice`` step.
                 return _sc.TIMEOUT
             return original(description, func, timeout=timeout)
 
@@ -445,9 +341,7 @@ class TestBarrierEndToEnd:
         controller._do_cleanup()
         order = controller._call_order  # type: ignore[attr-defined]
 
-        # _teardown_sounddevice was NOT called (barrier fired).
         # The driver short-circuited _teardown_recorder before its spy
-        # could fire, so we only assert on the downstream step here.
         assert "_teardown_sounddevice" not in order, (
             "barrier: _teardown_sounddevice must be SKIPPED when "
             "_teardown_recorder timed out (the leaked recorder worker "
@@ -456,10 +350,7 @@ class TestBarrierEndToEnd:
         sd_spy.assert_not_called()
 
     def test_sounddevice_runs_when_recorder_succeeds(self, controller, fake_app) -> None:
-        """Sanity: when ``_teardown_recorder`` succeeds, the barrier
-        does NOT fire and ``_teardown_sounddevice`` runs normally."""
-        # Default: recorder not recording → teardown_recorder is a
-        # fast no-op → does not time out → barrier does not fire.
+        """Sanity: when ``_teardown_recorder`` succeeds, the barrier"""
         controller._do_cleanup()
         order = controller._call_order  # type: ignore[attr-defined]
 

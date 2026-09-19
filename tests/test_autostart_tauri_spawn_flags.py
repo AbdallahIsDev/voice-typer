@@ -1,45 +1,4 @@
-"""Tests that the Tauri spawn paths apply ``_spawn_flags`` correctly.
-
-The Tauri spawn paths (``_spawn_tauri_host`` and the Tauri branch of
-``_focus_running_app``) previously called ``subprocess.Popen([binary],
-env=env)`` with NO platform-specific spawn flags.  Contrast with the
-legacy spawn paths (the retired built-host launcher and the legacy
-branch of ``_focus_running_app``) which both call
-``sk.update(_spawn_flags(hidden=hidden))`` and pass ``**sk`` to Popen.
-
-This left two gaps:
-
-* **Windows**: the Tauri binary could flash a console window during
-  autostart-at-login (the user is logging in, not clicking a shortcut,
-  so a flashing console is jarring).  The predecessor path prevents this
-  via ``CREATE_NO_WINDOW`` (``0x08000000``) when ``hidden=True``.
-* **POSIX**: the Tauri child was spawned in the launcher's session /
-  process group, so if the launcher was a session leader (typical under
-  systemd user units or cron-launched sessions), the child would receive
-  ``SIGHUP`` when the launcher exited, killing the Tauri app the
-  launcher just spawned.  The predecessor path avoids this via
-  ``start_new_session=True``.
-
-These tests pin the contract that both Tauri spawn paths now mirror the
-predecessor paths by calling ``_spawn_flags(hidden=...)`` and passing the
-result to :class:`subprocess.Popen`.
-
-They also pin the clean-log env contract: both spawn paths pass
-``_launcher_child_env()`` to Popen, which force-disables ANSI colour
-(``FORCE_COLOR=0`` / ``NO_COLOR=1`` / ``CLICOLOR=0``), suppresses npm
-banner notices (``npm_config_loglevel=silent``), and keeps
-``tauri-stderr.log`` free of the Rust host's rotating-file stream
-(``RUST_LOG_STDERR=0``) so the redirected ``tauri-*.log`` files stay
-as clean as ``voice-typer.log``.
-
-Platform note: ``_spawn_flags`` reads ``sys.platform`` via
-:func:`voice_typer.server.platform_utils.is_windows`.  These tests mock
-``sys.platform`` to ``"win32"`` / ``"linux"`` to exercise both branches
-without needing a real Windows or POSIX host.  The Windows branch is
-NOT runtime-tested here (LINUX sandbox), the ``creationflags`` value
-is asserted by mocking the platform, not by observing an actual
-``CreateProcess`` call.  VALIDATE ON WINDOWS HOST.
-"""
+"""Tests that the Tauri spawn paths apply ``_spawn_flags`` correctly."""
 
 import subprocess
 import sys
@@ -53,10 +12,6 @@ from voice_typer.server.autostart_launcher import (
 
 
 # These tests exercise spawn *mechanics* (``_spawn_flags`` passthrough)
-# with fake binary paths that cannot verify against the real
-# ``tauri-binaries.json``. The CR-002 integrity gate itself is tested
-# behaviorally in ``tests/test_tauri_binary_verify.py``, here we
-# bypass it so the flag assertions stay focused.
 @pytest.fixture(autouse=True)
 def _bypass_tauri_integrity_gate(monkeypatch):
     """Bypass ``verify_tauri_binary_or_skip`` for spawn-mechanic tests."""
@@ -67,10 +22,6 @@ def _bypass_tauri_integrity_gate(monkeypatch):
 
 
 # ``_tauri_log_files()`` opens real log files under the platform config
-# dir.  In tests we don't want that side effect (it would litter the
-# developer's real config dir), so we monkeypatch it to return DEVNULL
-# , the same fallback the real function uses on failure.  This lets the
-# spawn path run end-to-end while keeping the test hermetic.
 _TAURI_LOG_FILES_STUB = {
     "stdout": subprocess.DEVNULL,
     "stderr": subprocess.DEVNULL,
@@ -87,18 +38,11 @@ def _stub_tauri_log_files(monkeypatch):
     )
 
 
-# ---------------------------------------------------------------------------
-# _spawn_tauri_host(), spawn flags
-# ---------------------------------------------------------------------------
-
-
 class TestSpawnTauriHostSpawnFlags:
     """``_spawn_tauri_host`` passes ``_spawn_flags(hidden=...)`` to Popen."""
 
     def test_windows_hidden_passes_create_no_window(self, monkeypatch, _stub_tauri_log_files):
-        """On Windows with ``hidden=True``, the Tauri spawn must pass
-        ``creationflags=0x08000000`` (CREATE_NO_WINDOW) so the Tauri
-        binary does not flash a console during autostart-at-login."""
+        """On Windows with ``hidden=True``, the Tauri spawn must pass"""
         monkeypatch.setattr(sys, "platform", "win32")
         captured = {}
 
@@ -114,16 +58,11 @@ class TestSpawnTauriHostSpawnFlags:
         assert captured.get("creationflags") == 0x08000000
         # start_new_session is POSIX-only, must NOT be set on Windows.
         assert "start_new_session" not in captured
-        # stdout/stderr redirection is present (mirror of the legacy log-files helper).
         assert "stdout" in captured
         assert "stderr" in captured
 
     def test_windows_not_hidden_omits_creationflags(self, monkeypatch, _stub_tauri_log_files):
-        """On Windows with ``hidden=False`` (e.g. desktop shortcut),
-        no ``creationflags`` is set, the Tauri binary gets normal
-        process creation (matches the predecessor ``hidden=False`` path
-        which leaves creation flags unset so the child can create its
-        own console if needed)."""
+        """On Windows with ``hidden=False`` (e.g. desktop shortcut),"""
         monkeypatch.setattr(sys, "platform", "win32")
         captured = {}
 
@@ -140,11 +79,7 @@ class TestSpawnTauriHostSpawnFlags:
         assert "creationflags" not in captured
 
     def test_posix_passes_start_new_session(self, monkeypatch, _stub_tauri_log_files):
-        """On POSIX, the Tauri spawn must pass ``start_new_session=True``
-        so the Tauri child is detached into its own session, it
-        survives the launcher exiting and is NOT in the launcher's
-        process group (avoids SIGHUP if the launcher is a session
-        leader)."""
+        """On POSIX, the Tauri spawn must pass ``start_new_session=True``"""
         monkeypatch.setattr(sys, "platform", "linux")
         captured = {}
 
@@ -162,9 +97,7 @@ class TestSpawnTauriHostSpawnFlags:
         assert "creationflags" not in captured
 
     def test_posix_hidden_also_detaches(self, monkeypatch, _stub_tauri_log_files):
-        """On POSIX, ``hidden=True`` still sets ``start_new_session=True``
-        (the ``hidden`` flag only affects Windows ``creationflags``;
-        POSIX always detaches)."""
+        """On POSIX, ``hidden=True`` still sets ``start_new_session=True``"""
         monkeypatch.setattr(sys, "platform", "linux")
         captured = {}
 
@@ -181,12 +114,7 @@ class TestSpawnTauriHostSpawnFlags:
         assert "creationflags" not in captured
 
     def test_spawn_tauri_host_env_carries_clean_log_keys(self, monkeypatch, _stub_tauri_log_files):
-        """The Tauri child env must carry the clean-log keys so
-        ``tauri-stdout.log`` / ``tauri-stderr.log`` stay as clean as
-        ``voice-typer.log``: ANSI forced off (JS ``FORCE_COLOR`` + the
-        cross-ecosystem ``NO_COLOR`` / ``CLICOLOR`` contracts) and the
-        Rust host's stderr mirror of its rotating file stream disabled
-        (``RUST_LOG_STDERR=0``), plus npm banner notices suppressed."""
+        """The Tauri child env must carry the clean-log keys so"""
         monkeypatch.setattr(sys, "platform", "win32")
         captured_env = {}
 
@@ -204,14 +132,11 @@ class TestSpawnTauriHostSpawnFlags:
         assert captured_env.get("NO_COLOR") == "1"
         assert captured_env.get("CLICOLOR") == "0"
         # Rust host must NOT duplicate its rotating-file stream into
-        # tauri-stderr.log (the file is for crash/early diagnostics).
         assert captured_env.get("RUST_LOG_STDERR") == "0"
-        # npm banner notices suppressed (mirror of the predecessor env).
         assert captured_env.get("npm_config_loglevel") == "silent"
 
     def test_spawn_failure_returns_none_and_closes_logs(self, monkeypatch, _stub_tauri_log_files):
-        """A spawn failure is logged, log files are closed, and ``None``
-        is returned, mirrors the predecessor spawn-failure contract."""
+        """A spawn failure is logged, log files are closed, and ``None``"""
         monkeypatch.setattr(sys, "platform", "linux")
 
         def boom(cmd, env=None, **kwargs):
@@ -222,21 +147,11 @@ class TestSpawnTauriHostSpawnFlags:
         assert result is None
 
 
-# ---------------------------------------------------------------------------
-# _focus_running_app(), Tauri path spawn flags
-# ---------------------------------------------------------------------------
-
-
 class TestFocusRunningAppTauriSpawnFlags:
-    """The Tauri branch of ``_focus_running_app`` passes
-    ``_spawn_flags(hidden=False)`` to Popen (the focus probe is
-    intentionally foreground)."""
+    """The Tauri branch of ``_focus_running_app`` passes"""
 
     def test_windows_focus_probe_passes_no_creationflags(self, monkeypatch, _stub_tauri_log_files):
-        """On Windows, the Tauri focus probe runs with ``hidden=False``
-        (the user clicked a shortcut and expects to see the focused
-        window), so no ``creationflags`` is set, matches the predecessor
-        focus path."""
+        """On Windows, the Tauri focus probe runs with ``hidden=False``"""
         monkeypatch.setattr(sys, "platform", "win32")
         monkeypatch.setattr("voice_typer.server.autostart_launcher._is_tauri_mode", lambda: True)
         monkeypatch.setattr(
@@ -253,16 +168,11 @@ class TestFocusRunningAppTauriSpawnFlags:
 
         monkeypatch.setattr(subprocess, "Popen", fake_popen)
         assert _focus_running_app() is True
-        # hidden=False → no creationflags on Windows.
         assert "creationflags" not in captured
         assert "start_new_session" not in captured
 
     def test_posix_focus_probe_passes_start_new_session(self, monkeypatch, _stub_tauri_log_files):
-        """On POSIX, the Tauri focus probe must detach into its own
-        session (``start_new_session=True``), the probe is a
-        short-lived second instance that triggers the single-instance
-        plugin and exits; it must not receive SIGHUP from the launcher
-        before the plugin can do its focus dance."""
+        """On POSIX, the Tauri focus probe must detach into its own"""
         monkeypatch.setattr(sys, "platform", "linux")
         monkeypatch.setattr("voice_typer.server.autostart_launcher._is_tauri_mode", lambda: True)
         monkeypatch.setattr(
@@ -283,9 +193,7 @@ class TestFocusRunningAppTauriSpawnFlags:
         assert "creationflags" not in captured
 
     def test_posix_focus_probe_sets_focus_only_env(self, monkeypatch, _stub_tauri_log_files):
-        """The Tauri focus probe still sets ``VT_FOCUS_ONLY=1`` in the
-        child env (the marker the Tauri binary reads to skip heavy
-        init).  The spawn-flags change must not regress this."""
+        """child env (the marker the Tauri binary reads to skip heavy"""
         monkeypatch.setattr(sys, "platform", "linux")
         monkeypatch.setattr("voice_typer.server.autostart_launcher._is_tauri_mode", lambda: True)
         monkeypatch.setattr(
@@ -305,10 +213,7 @@ class TestFocusRunningAppTauriSpawnFlags:
         assert captured_env.get("VT_FOCUS_ONLY") == "1"
 
     def test_focus_probe_env_carries_clean_log_keys(self, monkeypatch, _stub_tauri_log_files):
-        """The Tauri focus probe (spawned by the launcher with its
-        output redirected to ``tauri-*.log``) must carry the same
-        clean-log env as the full spawn: ANSI disabled + Rust stderr
-        mirror off, on top of ``VT_FOCUS_ONLY=1``."""
+        """The Tauri focus probe (spawned by the launcher with its"""
         monkeypatch.setattr(sys, "platform", "linux")
         monkeypatch.setattr("voice_typer.server.autostart_launcher._is_tauri_mode", lambda: True)
         monkeypatch.setattr(
@@ -333,8 +238,7 @@ class TestFocusRunningAppTauriSpawnFlags:
         assert captured_env.get("npm_config_loglevel") == "silent"
 
     def test_focus_probe_spawn_failure_returns_false(self, monkeypatch, _stub_tauri_log_files):
-        """A Tauri focus-probe spawn failure returns False (no
-        exception propagation), mirrors the pre-fix contract."""
+        """A Tauri focus-probe spawn failure returns False (no"""
         monkeypatch.setattr(sys, "platform", "linux")
         monkeypatch.setattr("voice_typer.server.autostart_launcher._is_tauri_mode", lambda: True)
         monkeypatch.setattr(
@@ -349,29 +253,18 @@ class TestFocusRunningAppTauriSpawnFlags:
         assert _focus_running_app() is False
 
 
-# ---------------------------------------------------------------------------
-# _tauri_log_files(), log redirection
-# ---------------------------------------------------------------------------
-
-
 class TestTauriLogFilesHelper:
-    """``_tauri_log_files()`` returns a dict with stdout/stderr/stdin
-    keys suitable for unpacking into Popen, mirroring
-    the legacy log-files helper."""
+    """``_tauri_log_files()`` returns a dict with stdout/stderr/stdin"""
 
     def test_returns_devnull_on_failure(self, monkeypatch, tmp_path):
-        """When the config dir is unwritable, ``_tauri_log_files``
-        falls back to ``subprocess.DEVNULL`` for all three streams so
-        the spawn still succeeds."""
+        """When the config dir is unwritable, ``_tauri_log_files``"""
         # Force _config_dir to raise by making it return a path whose
-        # parent is a regular file (cannot mkdir under a file).
         from voice_typer.server import autostart_launcher as mod
 
         blocker = tmp_path / "blocker"
         blocker.write_text("not a dir")
 
         def fake_config_dir():
-            # logs/ under a file → mkdir raises NotADirectoryError
             return blocker
 
         monkeypatch.setattr(
@@ -385,9 +278,7 @@ class TestTauriLogFilesHelper:
         assert result["stdin"] is subprocess.DEVNULL
 
     def test_returns_devnull_on_success(self, monkeypatch, tmp_path):
-        """O4: ``_tauri_log_files`` returns DEVNULL for stdout/stderr —
-        the Tauri host + Python backend already write structured logs to
-        ``logs/``, so raw child pipe capture would only duplicate lines."""
+        """O4: ``_tauri_log_files`` returns DEVNULL for stdout/stderr —"""
         from voice_typer.server import autostart_launcher as mod
 
         monkeypatch.setattr(

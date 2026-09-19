@@ -1,17 +1,4 @@
-"""Tests for the backend reserved-hotkey mirror.
-
-HOTKEY-UNIFY-002: verifies that:
-  1. ``_RESERVED_HOTKEYS`` in ``config_validators.py`` matches the
-     frontend ``RESERVED_SHORTCUTS`` mirror in ``hotkey/hotkey-validation.ts``,
-     which since the 3c2b5d6 refactor re-exports the per-platform table
-     from ``data/hotkey_reserved.json`` (a byte-identical client-side copy
-     of the server canonical).
-  2. ``_validate_hotkey`` correctly identifies reserved shortcuts.
-  3. The ``_VALIDATOR_HOTKEY`` validator rejects reserved shortcuts
-     via ``validate_config_update``.
-  4. Cross-platform: a shortcut reserved on macOS (Cmd+Space) is NOT
-     rejected on Linux/Windows.
-"""
+"""Tests for the backend reserved-hotkey mirror."""
 
 from __future__ import annotations
 
@@ -27,26 +14,13 @@ from voice_typer.server.config_validators import (
     validate_config_update,
 )
 
-# ──────────────────────────────────────────────────────────────────────────
-# 1. Frontend ↔ backend sync
-# ──────────────────────────────────────────────────────────────────────────
-
 _HOTKEY_RESERVED_JSON_CLIENT = Path(__file__).resolve().parents[1] / (
     "voice_typer/client/src/renderer/src/data/hotkey_reserved.json"
 )
 
 
 def _parse_frontend_reserved_shortcuts() -> dict:
-    """Load the per-platform reserved-shortcut table from the client JSON.
-
-    Returns a dict matching the backend ``_RESERVED_HOTKEYS`` shape:
-    ``{"win32": [...], "darwin": [...], "linux": [...]}``.
-
-    The TS file (``hotkey/hotkey-validation.ts``) re-exports the JSON's
-    ``per_platform_reserved`` field as ``RESERVED_SHORTCUTS``, so reading
-    the JSON directly is equivalent to parsing the TS literal, and is
-    robust to future TS source formatting changes.
-    """
+    """Load the per-platform reserved-shortcut table from the client JSON."""
     if not _HOTKEY_RESERVED_JSON_CLIENT.exists():
         pytest.skip(f"hotkey_reserved.json not found at {_HOTKEY_RESERVED_JSON_CLIENT}")
     with _HOTKEY_RESERVED_JSON_CLIENT.open("r", encoding="utf-8") as f:
@@ -55,11 +29,7 @@ def _parse_frontend_reserved_shortcuts() -> dict:
 
 
 def test_reserved_hotkeys_match_frontend() -> None:
-    """The backend _RESERVED_HOTKEYS must match the frontend RESERVED_SHORTCUTS.
-
-    If you add a shortcut to one side, add it to the other. This test
-    catches drift at CI time.
-    """
+    """The backend _RESERVED_HOTKEYS must match the frontend RESERVED_SHORTCUTS."""
     frontend = _parse_frontend_reserved_shortcuts()
     backend = _RESERVED_HOTKEYS
 
@@ -73,11 +43,6 @@ def test_reserved_hotkeys_match_frontend() -> None:
             f"Update both _RESERVED_HOTKEYS in config_validators.py AND "
             f"RESERVED_SHORTCUTS in hotkey-validation.ts."
         )
-
-
-# ──────────────────────────────────────────────────────────────────────────
-# 2. _validate_hotkey
-# ──────────────────────────────────────────────────────────────────────────
 
 
 def test_is_reserved_hotkey_win32(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -105,11 +70,7 @@ def test_is_reserved_hotkey_linux(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_is_reserved_hotkey_cross_platform(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A shortcut reserved on one platform is NOT reserved on another.
-
-    <cmd>+<tab> is reserved on macOS (Spotlight) but not on Windows/Linux.
-    <win>+<e> is reserved on Windows (Explorer) but not on macOS.
-    """
+    """A shortcut reserved on one platform is NOT reserved on another."""
     monkeypatch.setattr(sys, "platform", "win32")
     assert _validate_hotkey("<cmd>+<tab>") is None
 
@@ -150,21 +111,9 @@ def test_is_reserved_hotkey_non_reserved(monkeypatch: pytest.MonkeyPatch) -> Non
     assert _validate_hotkey("<ctrl>+<alt>+v") is None
 
 
-# ──────────────────────────────────────────────────────────────────────────
-# 3. validate_config_update rejects reserved shortcuts
-# ──────────────────────────────────────────────────────────────────────────
-
-
 def test_validate_config_update_rejects_reserved_hotkey(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Setting a reserved hotkey via IPC is rejected.
-
-    A malicious IPC client that bypasses the frontend validation
-    (e.g. by writing directly to the TCP socket) should still be
-    rejected by the backend mirror.
-    """
+    """Setting a reserved hotkey via IPC is rejected."""
     # Use the darwin platform to test <cmd>+<space> rejection.
-    # We monkeypatch sys.platform to make this deterministic
-    # regardless of where the test runs.
     monkeypatch.setattr(sys, "platform", "darwin")
     validated, errors = validate_config_update({"hotkey": "<cmd>+<space>"})
     assert len(errors) == 1
@@ -185,11 +134,6 @@ def test_validate_config_update_rejects_reserved_repaste_hotkey(monkeypatch: pyt
     validated, errors = validate_config_update({"repaste_hotkey": "<win>+<l>"})
     assert len(errors) == 1
     assert "reserved" in errors[0].lower()
-
-
-# ──────────────────────────────────────────────────────────────────────────
-# 4. _platform_key
-# ──────────────────────────────────────────────────────────────────────────
 
 
 def test_platform_key_returns_valid_key() -> None:

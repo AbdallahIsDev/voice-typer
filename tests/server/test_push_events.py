@@ -1,14 +1,4 @@
-"""Push-event tests: registry, multi-instance fan-out, visibility, lifecycle.
-
-Classes:
-- TestPushEvents                   , basic push + tray set_state hook
-- TestPushEventNow                 , _push_event_now dispatch
-- TestPushEventRegistryMultiInstance, multi-server registry
-- TestConsoleModePushVisibility    , INFO-level visibility
-- TestGetInstancePushFnTracking    , per-instance push_fn
-
-Split out from the original monolithic tests/test_server.py (the fix, Phase 4.5).
-"""
+"""Push-event tests: registry, multi-instance fan-out, visibility, lifecycle."""
 
 import logging
 import threading
@@ -22,8 +12,6 @@ from tests.server.conftest import (  # noqa: F401
     server,
     server_with_mock_app_for_push_events,
 )
-
-# ── Push events ────────────────────────────────────────────────────────
 
 
 class TestPushEvents:
@@ -51,12 +39,6 @@ class TestPushEvents:
         assert len(mock_app.tray.set_state_calls) == 1
         assert mock_app.tray.set_state_calls[0][0] == AppState.RECORDING
 
-        # And a status_change event should have been published on the
-        # event bus (the transport both runtimes deliver through, the
-        # TCP ``_push_fn`` bridge forwards it to ``_send`` in TCP mode;
-        # the WS writer task delivers it in ws-mode). The ``message``
-        # argument is forwarded in the payload so the renderer can
-        # surface the same diagnostic the tray tooltip shows.
         assert len(published) == 1
         assert published[0] == {
             "type": "status_change",
@@ -64,10 +46,7 @@ class TestPushEvents:
         }
 
     def test_tray_set_state_forwards_empty_message(self, server, mock_app, monkeypatch):
-        """Regression: the default empty-string message must still
-        appear in the payload. The renderer can branch on
-        ``data.message`` without a separate presence check.
-        """
+        """Regression: the default empty-string message must still"""
         from voice_typer.server import event_bus as bus
         from voice_typer.server.tray import AppState
 
@@ -85,10 +64,7 @@ class TestPushEvents:
         }
 
     def test_tray_set_state_forwards_error_message(self, server, mock_app, monkeypatch):
-        """Regression: a multi-line error message set via ``set_state``
-        must reach the renderer verbatim so the host can surface the
-        underlying failure (Critical sub-item).
-        """
+        """Regression: a multi-line error message set via ``set_state``"""
         from voice_typer.server import event_bus as bus
         from voice_typer.server.tray import AppState
 
@@ -108,25 +84,14 @@ class TestPushEvents:
         }
 
 
-# ── _push_event_now ────────────────────────────────────────────────────
-
-
 class TestPushEventNow:
-    """_push_event_now sends events to the active IPC server instance.
-
-    the global ``_push_event`` was replaced by a registry
-    (``_push_event_registry`` + ``_push_event_registry_lock``).  Tests
-    that previously manipulated ``ipc_mod._push_event`` directly now
-    use the registry helpers (``_set_push_event`` / ``_clear_push_event``)
-    or clear the registry set directly.
-    """
+    """_push_event_now sends events to the active IPC server instance."""
 
     def test_returns_false_when_no_server(self, monkeypatch):
         """With no active push function, should return False."""
         import voice_typer.server.ipc_server as ipc_mod
 
         # Snapshot and clear the registry so the test sees an empty
-        # state; restore it on the way out so other tests aren't affected.
         with event_bus._lock:
             original = set(event_bus._subscribers)
             event_bus._subscribers.clear()
@@ -148,8 +113,7 @@ class TestPushEventNow:
         server.stop()
 
     def test_show_window_message_reaches_push(self, server, monkeypatch):
-        """The show_window message type used by tray.open_app_window
-        should be pushable through _push_event_now."""
+        """The show_window message type used by tray.open_app_window"""
         server._send = MagicMock()
         server.start()
         import voice_typer.server.ipc_server as ipc_mod
@@ -160,12 +124,7 @@ class TestPushEventNow:
         server.stop()
 
     def test_exception_in_push_returns_false(self, server, monkeypatch, clean_registry):
-        """If the push function raises, _push_event_now should return False.
-
-        a broken fn registered via _set_push_event is now
-        tried, but the exception is swallowed and the result is False
-        because no other registered fn delivered the event.
-        """
+        """If the push function raises, _push_event_now should return False."""
         import voice_typer.server.ipc_server as ipc_mod
 
         def broken_fn(msg):
@@ -223,11 +182,7 @@ class TestPushEventRegistryMultiInstance:
         assert calls_b == [{"type": "test"}]
 
     def test_stop_one_server_does_not_clear_other(self, clean_registry):
-        """Stopping server A must not affect server B's push registration.
-
-        This is the core regression: previously stop() set the global
-        to None, killing the other server's push channel.
-        """
+        """Stopping server A must not affect server B's push registration."""
         calls_a: list = []
         calls_b: list = []
         event_bus.subscribe(calls_a.append)
@@ -248,13 +203,7 @@ class TestPushEventRegistryMultiInstance:
         assert calls_b == [{"type": "after_a_stop"}]
 
     def test_set_push_event_with_none_is_noop(self, clean_registry):
-        """_set_push_event(None) must NOT clear the registry (it's a no-op).
-
-        Previously _set_push_event(None) was used as a 'clear all'
-        shorthand; with the new registry semantics, None is rejected
-        and the registry is untouched.  Use _clear_push_event(fn) to
-        unregister a specific callable.
-        """
+        """_set_push_event(None) must NOT clear the registry (it's a no-op)."""
         calls_a: list = []
         event_bus.subscribe(calls_a.append)
         assert len(event_bus._subscribers) == 1
@@ -275,8 +224,7 @@ class TestPushEventRegistryMultiInstance:
         assert len(event_bus._subscribers) == 0
 
     def test_push_event_now_thread_safe(self, clean_registry):
-        """Concurrent _push_event_now calls must all succeed without
-        raising or losing events."""
+        """Concurrent _push_event_now calls must all succeed without"""
         received: list = []
         lock = threading.Lock()
 
@@ -301,12 +249,10 @@ class TestPushEventRegistryMultiInstance:
 
 
 class TestConsoleModePushVisibility:
-    """push events must be visible at INFO level when no
-    client is connected (console mode)."""
+    """push events must be visible at INFO level when no"""
 
     def test_non_waveform_push_logged_at_info(self, server_with_mock_app_for_push_events, caplog):
-        """A status_change push event with no client must produce an
-        INFO-level log entry, not just DEBUG."""
+        """A status_change push event with no client must produce an"""
         srv = server_with_mock_app_for_push_events
         # No TCP client, no TCP mode → falls into the "no client" branch.
         srv._tcp_client = None
@@ -324,8 +270,7 @@ class TestConsoleModePushVisibility:
         )
 
     def test_waveform_push_kept_at_debug(self, server_with_mock_app_for_push_events, caplog):
-        """High-frequency waveform events must stay at DEBUG to avoid
-        log flooding."""
+        """High-frequency waveform events must stay at DEBUG to avoid"""
         srv = server_with_mock_app_for_push_events
         srv._tcp_client = None
         srv._tcp_mode = False
@@ -343,8 +288,7 @@ class TestConsoleModePushVisibility:
 
 
 class TestGetInstancePushFnTracking:
-    """each IPCServer tracks its own push callable so
-    stop() can unregister just that one without affecting others."""
+    """each IPCServer tracks its own push callable so"""
 
     def test_start_registers_instance_push_fn(self, server_with_mock_app_for_push_events):
         srv = server_with_mock_app_for_push_events

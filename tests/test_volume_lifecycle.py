@@ -1,27 +1,4 @@
-"""Integration tests for the auto-volume-duck feature.
-
-Exercises the full dictation lifecycle (start / stop / cancel / quit /
-restart / crash-recovery) and verifies that ``VoiceTyperApp`` drives
-the ``VolumeDucker`` correctly at each of the six wiring points
-described in ``docs/architecture/auto-volume-duck.md`` §7.
-
-These tests use a ``FakeBackend`` injected into the app's
-``_volume_ducker`` so they run on any platform, no real audio
-hardware or platform-specific library (pycaw / pyobjc / pactl) is
-required.  The recorder is mocked so we don't need a microphone.
-
-Regression coverage
--------------------
-- Start → duck (with the configured level + fade)
-- Stop → restore (after recorder.stop() returns)
-- Cancel (ESC) → restore
-- Quit while recording → restore with fade_ms=0 (instant)
-- Restart → restore BEFORE launching the new subprocess (no ping-pong)
-- Crash recovery: stale duck_crash_recovery.json → restored on init
-- Manual-volume-override detection during duck
-- Per-session duck only attempted when backend supports it
-- Disabled duck (config flag) → no duck/restore calls at all
-"""
+"""Integration tests for the auto-volume-duck feature."""
 
 from __future__ import annotations
 
@@ -33,9 +10,7 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 
-# ── Heavy mock imports (autouse) ────────────────────────────────────────
 # These must be in place before VoiceTyperApp is imported, so we apply
-# them at module-import time (matching tests/test_app.py's pattern).
 
 
 @pytest.fixture(autouse=True)
@@ -68,8 +43,6 @@ def mock_heavy_imports(monkeypatch):
     monkeypatch.setattr("atexit.register", lambda *a, **kw: None)
 
     # Force PynputHotkey backend so tests can mock pynput.keyboard.GlobalHotKeys.
-    # Patch the dispatcher's own binding, HotkeyDispatcher resolves the
-    # factory from its module namespace, not through the app module.
     from voice_typer.server.hotkeys import PynputHotkey
 
     monkeypatch.setattr(
@@ -78,17 +51,8 @@ def mock_heavy_imports(monkeypatch):
     )
 
 
-# ── Fake VolumeBackend (in-memory, no hardware) ─────────────────────────
-
-
 class FakeBackend:
-    """In-memory VolumeBackend, tracks every call for assertions.
-
-    Implements the same surface as
-    ``voice_typer.server.volume_backend.VolumeBackend`` but without
-    inheriting from the ABC (so we can spy on every call without the
-    ABC's abstract-method machinery getting in the way).
-    """
+    """In-memory VolumeBackend, tracks every call for assertions."""
 
     def __init__(
         self, current: float = 0.5, muted: bool = False, per_session_capable: bool = False, speaker_active: bool = True
@@ -145,15 +109,9 @@ class FakeBackend:
         return True
 
 
-# ── App fixture with injected FakeBackend ───────────────────────────────
-
-
 @pytest.fixture
 def app_with_fake_ducker(tmp_config_dir, monkeypatch):
-    """Create a VoiceTyperApp with a FakeBackend wired into _volume_ducker.
-
-    Returns (app, backend) so tests can assert on backend call lists.
-    """
+    """Create a VoiceTyperApp with a FakeBackend wired into _volume_ducker."""
     monkeypatch.setattr("voice_typer.server.server_platform.autostart.is_autostart_enabled", lambda: False)
     monkeypatch.setattr("voice_typer.server.server_platform.autostart.enable_autostart", lambda: True)
     monkeypatch.setattr("voice_typer.server.server_platform.autostart.disable_autostart", lambda: True)
@@ -163,25 +121,13 @@ def app_with_fake_ducker(tmp_config_dir, monkeypatch):
 
     instance = VoiceTyperApp()
     instance.config.esc_cancel_enabled = False
-    # Keep the real streaming pipeline out of these tests: with a
-    # production-faithful recorder mock (``recording=True`` after
-    # ``start()``) the DictationStart worker would otherwise start a real
-    # streaming session against the MagicMock recorder (the sibling
-    # ``test_recording_lifecycle_threaded.py`` helper sets the same
-    # flag for the same reason).
     instance.config.streaming_transcription = False
     # (revised): RecordingController.start() now enforces
-    # voice_biometric_consent before capturing audio. Tests that exercise
-    # the recording path must explicitly opt in (just like real users
-    # must enable the toggle in Settings → Privacy before recording).
     instance.config.voice_biometric_consent = True
     instance.models.transcriber = MagicMock()
     instance.models.transcriber.is_loaded = True
 
     # Replace the auto-detected backend with our FakeBackend.  We keep
-    # the real DuckCrashRecovery so crash-recovery tests can write a
-    # stale file.  The ducker is re-initialized so the FakeBackend's
-    # initialize() runs (which sets _ready=True).
     backend = FakeBackend(current=0.5, muted=False)
     from voice_typer.server.volume_ducker import VolumeDucker
 
@@ -200,9 +146,6 @@ def app_with_fake_ducker(tmp_config_dir, monkeypatch):
     return instance, backend
 
 
-# ── Helpers ─────────────────────────────────────────────────────────────
-
-
 def _wait_for_busy_clear(app, timeout=2.0):
     """Poll until app._busy_event is set (not busy)."""
     deadline = time.monotonic() + timeout
@@ -210,11 +153,6 @@ def _wait_for_busy_clear(app, timeout=2.0):
         time.sleep(0.05)
     if not app._busy_event.is_set():
         raise TimeoutError(f"_busy_event still not set after {timeout}s")
-
-
-# ═══════════════════════════════════════════════════════════════════════════
-# Lifecycle integration tests
-# ═══════════════════════════════════════════════════════════════════════════
 
 
 class TestStartDictationDucksVolume:
@@ -225,17 +163,11 @@ class TestStartDictationDucksVolume:
         app.config.volume_duck_enabled = True
         app.config.volume_duck_level = 0.25
         app.config.volume_duck_fade_ms = 200
-        # volume_duck_per_session was REMOVED from the Config dataclass.
         app.recorder.recording = False
         # Production-faithful mock: the real ``Recorder.start()`` flips
-        # ``recording`` to True synchronously (via ``_recording_event``) —
-        # the duck worker's recording guard depends on it.
         app.recorder.start = MagicMock(side_effect=lambda: setattr(app.recorder, "recording", True))
 
         app._start_dictation()
-        # Ducking runs on the DictationStart worker thread (off the
-        # hotkey thread), wait for the worker to complete before
-        # asserting on the backend calls.
         start_event = getattr(app.recording, "_start_complete_event", None)
         assert start_event is not None
         assert start_event.wait(timeout=5.0), "start worker must complete so the duck lands"
@@ -257,8 +189,7 @@ class TestStartDictationDucksVolume:
         assert not app._volume_ducker.is_ducked
 
     def test_start_ducks_after_recorder_start(self, app_with_fake_ducker):
-        """The architecture doc §7.2 says duck happens AFTER recorder.start()
-        so the first chunk of audio benefits from the ducked speakers."""
+        """The architecture doc §7.2 says duck happens AFTER recorder.start()"""
         app, backend = app_with_fake_ducker
         app.config.volume_duck_enabled = True
         app.config.volume_duck_level = 0.25
@@ -266,7 +197,6 @@ class TestStartDictationDucksVolume:
         call_order = []
         app.recorder.recording = False
         # Production-faithful: recorder.start() appends to the order log
-        # AND flips ``recording`` to True (the real Recorder does both).
         app.recorder.start = MagicMock(
             side_effect=lambda: (
                 call_order.append("recorder.start"),
@@ -283,8 +213,6 @@ class TestStartDictationDucksVolume:
         backend.fade_to = spy_fade
 
         app._start_dictation()
-        # Ducking runs on the DictationStart worker thread, wait for
-        # the worker before asserting the ordering.
         start_event = getattr(app.recording, "_start_complete_event", None)
         assert start_event is not None
         assert start_event.wait(timeout=5.0), "start worker must complete so the duck lands"
@@ -295,8 +223,7 @@ class TestStartDictationDucksVolume:
 
 
 class TestStopDictationRestoresVolume:
-    """§7.3: _stop_dictation() must restore volume AFTER recorder.stop(),
-    BEFORE the transcription thread starts."""
+    """§7.3: _stop_dictation() must restore volume AFTER recorder.stop(),"""
 
     def test_stop_restores_volume(self, app_with_fake_ducker):
         app, backend = app_with_fake_ducker
@@ -306,15 +233,6 @@ class TestStopDictationRestoresVolume:
         # Simulate an active, ducked recording
         app.recorder.recording = True
         app.recorder.stop = MagicMock(return_value=np.ones(16000, dtype=np.float32))
-        # Mock the ACTIVE transcriber (not the deprecated ``transcriber``
-        # attribute), the production dictation pipeline calls
-        # ``app.models.active_transcriber()`` which returns the
-        # registry's active backend. Without an explicit override the
-        # fixture's faster_whisper.WhisperModel is a MagicMock and its
-        # ``transcribe_with_fallback`` returns a MagicMock, which the
-        # downstream text_cleanup receives and crashes on. Pin a
-        # string-returning mock so the transcription cycle completes
-        # and the busy_event clears within the test timeout.
         mock_transcriber = MagicMock()
         mock_transcriber.transcribe_with_fallback = MagicMock(return_value="hello")
         mock_transcriber.device_info = "cpu"
@@ -374,8 +292,6 @@ class TestStopDictationRestoresVolume:
         app.recorder.recording = True
         app.recorder.stop = MagicMock(return_value=np.ones(16000, dtype=np.float32))
         # Mock the active transcriber (see test_stop_restores_volume
-        # for rationale) so the transcription cycle completes and
-        # the busy_event clears within the test timeout.
         mock_transcriber = MagicMock()
         mock_transcriber.transcribe_with_fallback = MagicMock(return_value="hello")
         mock_transcriber.device_info = "cpu"
@@ -389,8 +305,7 @@ class TestStopDictationRestoresVolume:
 
 
 class TestCancelDictationRestoresVolume:
-    """§7.4: _cancel_dictation() must restore volume (and must NOT throw
-    AttributeError on the removed _background_audio_monitor)."""
+    """§7.4: _cancel_dictation() must restore volume (and must NOT throw"""
 
     def test_cancel_restores_volume(self, app_with_fake_ducker):
         app, backend = app_with_fake_ducker
@@ -407,9 +322,7 @@ class TestCancelDictationRestoresVolume:
         assert not app._volume_ducker.is_ducked
 
     def test_cancel_does_not_raise_attribute_error_on_removed_monitor(self, app_with_fake_ducker):
-        """Regression for the bug fixed in architecture §7.4: the old code
-        called self._background_audio_monitor.stop() which threw AttributeError
-        because that attribute was never initialized."""
+        """called self._background_audio_monitor.stop() which threw AttributeError"""
         app, backend = app_with_fake_ducker
         app.config.volume_duck_enabled = False  # so we don't trigger duck/restore
         app.recorder.recording = True
@@ -418,13 +331,10 @@ class TestCancelDictationRestoresVolume:
         # Should not raise, _background_audio_monitor is gone
         app._cancel_dictation()
 
-        # discard should have been called (proves we got past the
-        # AttributeError that previously swallowed the rest of the method)
         app.recorder.discard.assert_called_once()
 
     def test_cancel_when_not_recording_still_restores_volume(self, app_with_fake_ducker):
-        """If ESC is pressed while ducked but not actively recording (edge case),
-        we still restore volume.  No-op if not ducked."""
+        """If ESC is pressed while ducked but not actively recording (edge case),"""
         app, backend = app_with_fake_ducker
         app.config.volume_duck_enabled = True
         app.recorder.recording = True
@@ -447,20 +357,13 @@ class TestQuitRestoresVolumeInstantly:
         app._volume_ducker.duck(0.25)
         backend.fade_calls.clear()
 
-        # Patch out the parts of quit() that would actually exit the
-        # process or block on hotkey backends.
         app._cancel_pending_timers = MagicMock()
-        # Phase 1: was ``app._get_streaming_session`` /
-        # ``app._set_streaming_session`` (test-seam delegates removed);
-        # patch the controller methods directly.
         app.recording.get_streaming_session = MagicMock(return_value=None)
         app.recording.set_streaming_session = MagicMock()
         app.hotkeys._hotkey_backend = MagicMock()
         app.hotkeys._esc_backend = MagicMock()
         app.hotkeys._repaste_backend = MagicMock()
         app._crash_recovery = MagicMock()
-        # write to RecordingController directly (was a
-        # @property delegate on VoiceTyperApp).
         app.recording._transcription_thread = None
         app.tray = MagicMock()
         # Stub sys.exit so quit() doesn't actually terminate the test runner.
@@ -472,14 +375,7 @@ class TestQuitRestoresVolumeInstantly:
 
 
 class TestRestartRestoresBeforeExiting:
-    """§7.6 + fix-restart-tcp: restart_app() must restore volume BEFORE
-    exiting so the user's audio isn't left ducked while predecessor spawns
-    the replacement Python process (which can take a few seconds for
-    the Python interpreter + torch import).  Previously this asserted
-    that restore happened before ``subprocess.Popen``, but
-    fix-restart-tcp removed the Popen call entirely (predecessor is now
-    the sole spawner), so the assertion now checks that restore
-    happens before ``sys.exit(0)``."""
+    """§7.6 + fix-restart-tcp: restart_app() must restore volume BEFORE"""
 
     def test_restart_restores_before_exit(self, app_with_fake_ducker):
         app, backend = app_with_fake_ducker
@@ -496,10 +392,6 @@ class TestRestartRestoresBeforeExiting:
 
         backend.fade_to = spy_fade
 
-        # fix-restart-tcp: restart_app() no longer calls subprocess.Popen.
-        # Stub event_bus.publish so the TCP push doesn't blow up in the
-        # test environment (no IPC server wired up).
-        # B-1: production code now calls event_bus.publish directly.
         import voice_typer.server.app as app_mod
 
         with patch("voice_typer.server.event_bus.publish"):
@@ -510,8 +402,6 @@ class TestRestartRestoresBeforeExiting:
             app.hotkeys._repaste_backend = MagicMock()
             app._crash_recovery = MagicMock()
             app.tray = MagicMock()
-            # write to RecordingController directly (was
-            # a @property delegate on VoiceTyperApp).
             app.recording._transcription_thread = None
 
             # Spy on sys.exit to record that exit happened AFTER restore.
@@ -531,21 +421,16 @@ class TestRestartRestoresBeforeExiting:
 
 
 class TestCrashRecoveryOnStartup:
-    """§7.7 + §9: if duck_crash_recovery.json exists at startup, the
-    VolumeDucker.initialize() must restore the saved volume and warn
-    the user via the on_crash_restore callback."""
+    """VolumeDucker.initialize() must restore the saved volume and warn"""
 
     def test_stale_crash_recovery_file_triggers_restore_on_init(self, tmp_config_dir, monkeypatch):
-        """Simulate a crash: write a stale duck_crash_recovery.json,
-        then construct a fresh VolumeDucker and verify initialize()
-        restores the saved volume."""
+        """Simulate a crash: write a stale duck_crash_recovery.json,"""
         from voice_typer.server.duck_crash_recovery import DuckCrashRecovery
         from voice_typer.server.volume_backend_base import VolumeState
         from voice_typer.server.volume_ducker import VolumeDucker
 
         crash_recovery = DuckCrashRecovery(config_dir=tmp_config_dir)
         # Simulate the previous session having crashed while ducked at 0.25,
-        # with the original volume being 0.7.
         crash_recovery.save(VolumeState(linear=0.7, muted=False))
         assert crash_recovery.load_stale() is not None
 
@@ -584,9 +469,7 @@ class TestCrashRecoveryOnStartup:
 
 
 class TestManualVolumeOverride:
-    """§4.2 + §8: if the user manually changes volume while ducked,
-    restore() must respect the manual change (restore to current,
-    not saved)."""
+    """§4.2 + §8: if the user manually changes volume while ducked,"""
 
     def test_manual_override_restores_to_current(self, app_with_fake_ducker):
         app, backend = app_with_fake_ducker
@@ -604,22 +487,17 @@ class TestManualVolumeOverride:
 
 
 class TestPerSessionDuckGatedOnSupport:
-    """§7.2: per-session duck should only be attempted when the backend
-    supports it (Windows only).  The config flag is opt-in."""
+    """§7.2: per-session duck should only be attempted when the backend"""
 
     def test_per_session_not_attempted_when_unsupported(self, app_with_fake_ducker):
         app, backend = app_with_fake_ducker
         # FakeBackend defaults to supports_per_session=False
         app.config.volume_duck_enabled = True
-        # volume_duck_per_session was REMOVED from the Config dataclass.
         app.recorder.recording = False
         # Production-faithful mock: the real ``Recorder.start()`` flips
-        # ``recording`` to True synchronously.
         app.recorder.start = MagicMock(side_effect=lambda: setattr(app.recorder, "recording", True))
 
         app._start_dictation()
-        # Ducking runs on the DictationStart worker thread, wait for
-        # the worker before asserting on the backend calls.
         start_event = getattr(app.recording, "_start_complete_event", None)
         assert start_event is not None
         assert start_event.wait(timeout=5.0), "start worker must complete so the duck lands"
@@ -629,10 +507,7 @@ class TestPerSessionDuckGatedOnSupport:
         assert backend.fade_calls  # fell back to master-volume fade
 
     def test_per_session_attempted_when_supported(self, monkeypatch, tmp_config_dir):
-        """UX-2: per-session ducking was REMOVED. Even when the backend
-        supports it AND the config says True, the app must NOT attempt
-        per-session ducking, it always uses master-volume ducking
-        cross-platform."""
+        """supports it AND the config says True, the app must NOT attempt"""
         from voice_typer.server.app import VoiceTyperApp
 
         monkeypatch.setattr("voice_typer.server.server_platform.autostart.is_autostart_enabled", lambda: False)
@@ -643,12 +518,8 @@ class TestPerSessionDuckGatedOnSupport:
         instance = VoiceTyperApp()
         instance.config.esc_cancel_enabled = False
         # Keep the real streaming pipeline out of this test (mock
-        # recorder, same convention as the app_with_fake_ducker
-        # fixture and test_recording_lifecycle_threaded.py).
         instance.config.streaming_transcription = False
         # (revised): RecordingController.start() enforces
-        # voice_biometric_consent, tests that exercise the recording
-        # path must explicitly opt in.
         instance.config.voice_biometric_consent = True
         instance.models.transcriber = MagicMock()
         instance.models.transcriber.is_loaded = True
@@ -664,28 +535,20 @@ class TestPerSessionDuckGatedOnSupport:
         instance.recorder = MagicMock()
         instance.recorder.recording = False
         # Production-faithful mock: the real ``Recorder.start()`` flips
-        # ``recording`` to True synchronously.
         instance.recorder.start = MagicMock(side_effect=lambda: setattr(instance.recorder, "recording", True))
         instance.config.volume_duck_enabled = True
-        # volume_duck_per_session was REMOVED from the Config
-        # dataclass. The app MUST always use master-volume ducking
-        # regardless of any legacy on-disk value ().
 
         instance._start_dictation()
-        # Ducking runs on the DictationStart worker thread, wait for
-        # the worker before asserting on the backend calls.
         start_event = getattr(instance.recording, "_start_complete_event", None)
         assert start_event is not None
         assert start_event.wait(timeout=5.0), "start worker must complete so the duck lands"
 
-        # per-session duck should NOT be attempted, master fade instead
         assert backend.duck_session_calls == [], "per-session ducking was removed (UX-2); master fade should be used"
         assert len(backend.fade_calls) > 0, "master fade_to should have been called"
 
 
 class TestDuckCrashRecoveryPersistsOnDuck:
-    """§9: duck() must persist the pre-duck state so a crash doesn't
-    leave the system stuck.  restore() must clear it."""
+    """§9: duck() must persist the pre-duck state so a crash doesn't"""
 
     def test_duck_writes_recovery_file(self, app_with_fake_ducker, tmp_config_dir):
         app, backend = app_with_fake_ducker

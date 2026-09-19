@@ -1,14 +1,4 @@
-"""DJ-46: stat-count regression test for ``cache_probe._iter_warmable_files``.
-
-The previous ``root.rglob('*')`` + ``path.is_file()`` pattern issued a
-fresh ``stat()`` syscall per file (~40 k stats for a large dependency tree alone) even
-though ``readdir`` already returned the d_type for each entry. DJ-46
-replaces this with ``os.scandir`` + ``DirEntry.is_file()`` which uses
-the cached d_type, no per-file ``stat()`` on filesystems that
-populate d_type (ext4/tmpfs on Linux, APFS on macOS, NTFS on Windows).
-
-These tests pin the fix so a future revert fails loudly.
-"""
+"""DJ-46: stat-count regression test for ``cache_probe._iter_warmable_files``."""
 
 from __future__ import annotations
 
@@ -22,15 +12,9 @@ from unittest.mock import patch
 import pytest
 from voice_typer.server.prewarm import cache_probe
 
-# ─── Test tree ────────────────────────────────────────────────────────────
-
 
 def _build_tree(root: Path, n_subdirs: int = 5, files_per_dir: int = 10) -> int:
-    """Build a tree with ``n_subdirs`` subdirectories, each containing
-    ``files_per_dir`` .pyc files (warmable) AND ``files_per_dir`` .py
-    files (non-warmable). Returns the total number of warmable files
-    created (i.e. the expected count from ``_iter_warmable_files``).
-    """
+    """Build a tree with ``n_subdirs`` subdirectories, each containing"""
     warmable = 0
     for i in range(n_subdirs):
         d = root / f"d{i}"
@@ -43,33 +27,15 @@ def _build_tree(root: Path, n_subdirs: int = 5, files_per_dir: int = 10) -> int:
     return warmable
 
 
-# ─── Tests ────────────────────────────────────────────────────────────────
-
-
 class TestCacheProbeStatCount:
     """DJ-46: walking a package tree must NOT issue a stat() per file."""
 
     def test_walk_does_not_stat_per_file(self, tmp_path):
-        """``_iter_warmable_files`` must NOT issue a ``stat()`` per file.
-
-        We build a tree with 5 subdirs × 10 .pyc files = 50 warmable
-        files, plus 50 non-warmable .py files (100 files total). We then
-        count ``os.stat`` calls during the walk.
-
-        Old code (``root.rglob('*')`` + ``path.is_file()``): one stat
-        per file = ~100 stats.
-
-        New code (``os.scandir`` + ``DirEntry.is_file()``): zero stats
-        on filesystems that populate d_type (ext4/tmpfs on Linux). We
-        allow up to 10 stats for filesystems with DT_UNKNOWN, which is
-        still 10x less than the old code's 100.
-        """
+        """``_iter_warmable_files`` must NOT issue a ``stat()`` per file."""
         warmable_count = _build_tree(tmp_path, n_subdirs=5, files_per_dir=10)
         assert warmable_count == 50
 
         # Count os.stat calls during the walk. We patch the GLOBAL os.stat
-        # (cache_probe imports os as a module, so cache_probe.os.stat IS
-        # os.stat, same module object).
         real_os_stat = os.stat
         stat_calls = {"n": 0}
 
@@ -78,8 +44,6 @@ class TestCacheProbeStatCount:
             return real_os_stat(*args, **kwargs)
 
         # Patch via the cache_probe module's os binding so the patch
-        # propagates to pathlib.Path.is_file() (which calls os.stat
-        # indirectly via the pathlib module's os binding, same object).
         with patch("voice_typer.server.prewarm.cache_probe.os.stat", counting_stat):
             files = list(cache_probe._iter_warmable_files(tmp_path))
 
@@ -90,11 +54,6 @@ class TestCacheProbeStatCount:
             f"pages unwarmed)."
         )
 
-        # stat calls should be bounded by the number of DIRECTORIES
-        # (not files). With 6 dirs (root + 5 subdirs) and 100 files total,
-        # the old code would issue ~100 stats; the new code should issue
-        # 0-10 (zero on filesystems that populate d_type, up to 10 for
-        # DT_UNKNOWN fallbacks).
         assert stat_calls["n"] <= 10, (
             f"DJ-46: _iter_warmable_files issued {stat_calls['n']} stat() "
             f"calls for 100 files in 6 dirs, expected <=10 (no per-file "
@@ -104,11 +63,7 @@ class TestCacheProbeStatCount:
         )
 
     def test_walk_filters_non_warmable_suffixes_without_stat(self, tmp_path):
-        """Files whose suffix is NOT in ``_WARM_PACKAGE_SUFFIXES`` must be
-        filtered out by a free string comparison BEFORE any ``is_file()``
-        call, so a non-warmable file never triggers a ``stat()`` even on
-        filesystems with DT_UNKNOWN.
-        """
+        """Files whose suffix is NOT in ``_WARM_PACKAGE_SUFFIXES`` must be"""
         # Build a tree with ONLY non-warmable files.
         d = tmp_path / "d"
         d.mkdir()
@@ -127,8 +82,6 @@ class TestCacheProbeStatCount:
 
         # No warmable files should be discovered.
         assert files == [], f"expected zero warmable files (only .py files in tree), got {len(files)}"
-        # the suffix filter should run BEFORE is_file(), so no
-        # stat() calls at all for non-warmable entries.
         assert stat_calls["n"] <= 1, (
             f"DJ-46: non-warmable files triggered {stat_calls['n']} stat() "
             f"calls, the suffix filter should run BEFORE is_file() so "
@@ -136,11 +89,7 @@ class TestCacheProbeStatCount:
         )
 
     def test_walk_handles_symlinks_without_infinite_loop(self, tmp_path):
-        """A symlink loop must NOT cause an infinite walk.
-
-        ``follow_symlinks=False`` on ``is_dir`` and ``is_file`` ensures
-        symlinked directories are not descended into, preventing loops.
-        """
+        """A symlink loop must NOT cause an infinite walk."""
         d = tmp_path / "d"
         d.mkdir()
         # Create a .pyc file.
@@ -170,9 +119,7 @@ class TestCacheProbeStatCount:
             )
 
     def test_walk_handles_nested_directories(self, tmp_path):
-        """The walk must descend into nested subdirectories (iterative
-        stack-based, not recursive, so deep trees don't hit the recursion
-        limit)."""
+        """The walk must descend into nested subdirectories (iterative"""
         # Build a 10-level deep tree.
         current = tmp_path
         for i in range(10):
@@ -188,59 +135,19 @@ class TestCacheProbeStatCount:
 
 
 # ─── C-LOG-2 regression ──────────────────────────────────────────────────
-#
 # Canonical C-LOG-2 grep anchor (AGENTS.md): every lifecycle-completion
-# log line ends with a space-separated `<duration>` suffix produced by
-# `voice_typer.server.duration.format_duration()`: ` 2.3s` for
-# sub-minute durations, ` 1m 2.3s` for anything longer (the return
-# value carries a single leading space, spliced via a bare ``%s``). The
-# two ``log.info`` calls in ``cache_probe`` that previously used ad-hoc
-# ``%.1fs`` / ``%.2fs`` formatting were rewritten to use
-# ``format_duration()`` so the perf marker is greppable project-wide.
-# These tests pin the canonical suffix shape so a future revert to
-# ad-hoc formatting fails loudly.
-#
-# We anchor the regex to END-of-message with ``$``, both lifecycle
-# lines (``[PREWARM] file-warmed ...`` and ``[PREWARM] worker
-# warm-imports complete ...``) place the ``%s`` duration argument as
-# the FINAL format arg, so ``format_duration(elapsed)`` always lands at
-# the very end of the rendered message. A revert to ``"... in %.1fs"``
-# would render as ``... in 0.0s``, no space separator before the
-# duration, and the canonical pattern no longer matches at line END.
 _CLOG2_DURATION_RE = re.compile(r" \d+(m \d+)?\.\ds$")
 
 
 class TestCacheProbeLogLinesUseFormatDuration:
-    """C-LOG-2 regression: lifecycle-completion ``log.info`` calls in
-    ``cache_probe`` MUST end with the canonical space-separated
-    ``<duration>`` suffix produced by ``format_duration()``, not an
-    ad-hoc ``%.1fs`` / ``%.2fs`` string. A revert to ad-hoc formatting
-    breaks the project-wide grep-summed perf-marker convention
-    (AGENTS.md C-LOG-2).
-    """
+    """``cache_probe`` MUST end with the canonical space-separated"""
 
     def test_warm_package_files_log_line_carries_duration_suffix(self, tmp_path, caplog, monkeypatch):
-        """``_warm_package_files`` emits ``[PREWARM] file-warmed <pkg>:
-        <MB> <duration>`` on completion. The space-separated
-        ``<duration>`` suffix MUST come from ``format_duration()`` —
-        greppable project-wide per C-LOG-2. If someone reverts to
-        ``%.1fs`` (e.g. ``"... in %.1fs"``), the rendered message
-        loses the space separator and the canonical pattern no longer
-        matches at line END.
-        """
-        # Build a fake package directory with one warmable file. The
-        # file is never actually read, cache_probe._warm_file is stubbed
-        # below, but it must exist on disk so the rglob walk in
-        # _warm_package_files yields it (the suffix filter + skip-dir
-        # filter must accept it).
+        """``_warm_package_files`` emits ``[PREWARM] file-warmed <pkg>:"""
         pkg_dir = tmp_path / "fakepkg"
         pkg_dir.mkdir()
         (pkg_dir / "module.pyc").write_bytes(b"\x00" * 1024)
 
-        # Fake the importlib.util.find_spec result so
-        # _warm_package_files treats our tmp_path as the package's
-        # install location. ModuleSpec(is_package=True) initialises
-        # submodule_search_locations to [] so we can override it.
         fake_spec = ModuleSpec(name="fakepkg", loader=None, is_package=True)
         fake_spec.submodule_search_locations = [str(pkg_dir)]
 
@@ -253,12 +160,6 @@ class TestCacheProbeLogLinesUseFormatDuration:
 
         monkeypatch.setattr(cache_probe.importlib.util, "find_spec", fake_find_spec)
 
-        # Stub _warm_file on the cache_probe submodule (where
-        # _warm_package_files looks it up) so the test doesn't actually
-        # page-cache bytes (keeps the test fast + platform-independent).
-        # Returns 1 MiB so the "%.0f MB" rendering is "1 MB", the
-        # assertion below pins the rendered shape so a future revert can't
-        # slip in a different unit (KiB, GiB) either.
         monkeypatch.setattr(cache_probe, "_warm_file", lambda path: 1024 * 1024)
 
         with caplog.at_level(logging.INFO, logger="voice_typer.server.prewarm"):
@@ -278,7 +179,6 @@ class TestCacheProbeLogLinesUseFormatDuration:
         )
         msg = matching[-1]
         # C-LOG-2: the log line MUST end with the canonical
-        # space-separated `<duration>` suffix from format_duration().
         assert _CLOG2_DURATION_RE.search(msg), (
             f"C-LOG-2 violation: {msg!r} does NOT end with the canonical "
             f"space-separated `<duration>` suffix (pattern "
@@ -288,23 +188,11 @@ class TestCacheProbeLogLinesUseFormatDuration:
         )
 
     def test_warm_imports_log_line_carries_duration_suffix(self, caplog, monkeypatch):
-        """``_warm_imports`` emits ``[PREWARM] worker warm-imports
-        complete: <N> packages (<list>) <duration>`` on completion.
-        Same C-LOG-2 contract as above, the space-separated
-        ``<duration>`` suffix MUST come from ``format_duration()``.
         """
-        # Patch _WORKER_WARM_PACKAGES to a single fake package so the
-        # loop runs exactly once + we don't depend on real packages
-        # being installed (onnxruntime / ctranslate2 etc. are NOT in
-        # the dev sandbox per FG-SESSION-START).
+        ``_warm_imports`` emits ``[PREWARM] worker warm-imports
+        Same C-LOG-2 contract as above, the space-separated
+        """
         monkeypatch.setattr(cache_probe, "_WORKER_WARM_PACKAGES", ("fakepkg",))
-        # Stub _warm_package_files to return >0 bytes so the package
-        # appears in the `warmed` list (otherwise the log line still
-        # fires, but with "0 packages (none)" which is a less
-        # interesting contract to pin, a revert that drops the
-        # duration suffix entirely would still fail this test, but
-        # pinning the populated-list shape makes the assertion message
-        # clearer).
         monkeypatch.setattr(cache_probe, "_warm_package_files", lambda pkg: 1024 * 1024)
 
         with caplog.at_level(logging.INFO, logger="voice_typer.server.prewarm"):
@@ -327,10 +215,7 @@ class TestCacheProbeLogLinesUseFormatDuration:
 
 
 class TestWarmModelWeights:
-    """Weight-file warming: the warm phase must cover the multi-GB model
-    payload (not only runtime-pack libraries) and SKIP files that the
-    latency probe already reports as hot (no byte-for-byte re-read).
-    """
+    """Weight-file warming: the warm phase must cover the multi-GB model"""
 
     def test_warm_model_weights_reads_cold_files(self, tmp_path, monkeypatch):
         cache_dir = tmp_path / "hub" / "models--test--model"
@@ -363,8 +248,7 @@ class TestWarmModelWeights:
         assert cache_probe._warm_model_weights([]) == 0
 
     def test_warm_imports_includes_model_weights(self, monkeypatch):
-        """_warm_imports must call the weight-warm pass (the warm list
-        alone covers only libraries)."""
+        """_warm_imports must call the weight-warm pass (the warm list"""
         calls: list[str] = []
         monkeypatch.setattr(cache_probe, "_WORKER_WARM_PACKAGES", ("fakepkg",))
         monkeypatch.setattr(cache_probe, "_warm_package_files", lambda pkg: 1024)

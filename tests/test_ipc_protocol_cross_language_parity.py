@@ -1,31 +1,4 @@
-"""Cross-language parity for the IPC protocol version.
-
-The IPC wire protocol version is a single integer that MUST be kept in
-lockstep across three language surfaces:
-
-  - Python (WS receiver): ``voice_typer/server/ipc/protocol_version.py``
-    defines ``PROTOCOL_VERSION = 1``; ``sidecar_ws.py`` imports it and
-    logs a WARNING on mismatch (advisory only, does not reject).
-  - Rust (host sender): ``src-tauri/src/sidecar/ws.rs`` defines
-    ``const EXPECTED_PROTOCOL_VERSION: u64 = 1`` and sends it in its
-    auth frame.
-  - TypeScript (renderer contract): ``voice_typer/client/src/renderer/
-    src/types/ipc/push_events.ts`` exports ``IPC_PROTOCOL_VERSION`` so
-    any future renderer-side auth-frame construction can reference the
-    same constant.
-
-A drift between any two of these would either:
-  - cause a stale client to be rejected with an opaque ``auth_failed``
-    (if the receiver is ahead of the sender), OR
-  - let an incompatible frame through to the dispatch layer where it
-    fails with a confusing ``unknown_command`` (if the sender is ahead
-    of the receiver).
-
-This file is the regression guard: if any of the constants drifts
-out of sync, this test fails before the change can be merged. Bumping
-the protocol version is a deliberate, multi-file change, never an
-accidental one.
-"""
+"""Cross-language parity for the IPC protocol version."""
 
 from __future__ import annotations
 
@@ -35,29 +8,16 @@ from pathlib import Path
 import pytest
 from voice_typer.server.ipc.protocol_version import PROTOCOL_VERSION as IPC_PROTOCOL_VERSION
 
-# ────────────────────────────────────────────────────────────────────────────
-# Paths
-# ────────────────────────────────────────────────────────────────────────────
-
 TESTS_DIR = Path(__file__).resolve().parent
 REPO_ROOT = TESTS_DIR.parent
 
 RUST_WS_PATH = REPO_ROOT / "src-tauri" / "src" / "sidecar" / "ws.rs"
 # After the consolidation, the Python WS receiver's ``PROTOCOL_VERSION``
-# is defined ONCE in ``voice_typer/server/ipc/protocol_version.py`` and
-# imported by both ``sidecar_ws.py`` and ``transport_tcp.py``. This test
-# scans the canonical module's source so a future bump that touches only
-# one transport's import line still fails this parity guard.
 PYTHON_WS_PATH = REPO_ROOT / "voice_typer" / "server" / "ipc" / "protocol_version.py"
 TS_PUSH_EVENTS_PATH = (
     REPO_ROOT / "voice_typer" / "client" / "src" / "renderer" / "src" / "types" / "ipc" / "push_events.ts"
 )
 
-
-# ────────────────────────────────────────────────────────────────────────────
-# Regexes (one per language surface, the constant is declared with
-# different syntax in each file)
-# ────────────────────────────────────────────────────────────────────────────
 
 # Python (transport_tcp.py): ``IPC_PROTOCOL_VERSION: int = 1``
 _PYTHON_TCP_RE = re.compile(
@@ -66,10 +26,6 @@ _PYTHON_TCP_RE = re.compile(
 )
 
 # Python (canonical source of truth: ``ipc/protocol_version.py``):
-# ``PROTOCOL_VERSION: int = 1``. Both ``sidecar_ws.py`` and
-# ``transport_tcp.py`` import this constant; the source-scan below
-# catches any future drift introduced by re-defining the literal in
-# either transport module.
 _PYTHON_WS_RE = re.compile(
     r"^PROTOCOL_VERSION\s*:\s*int\s*=\s*(\d+)\s*$",
     re.MULTILINE,
@@ -87,13 +43,7 @@ _TS_RE = re.compile(
 
 
 def _extract_int(pattern: re.Pattern[str], text: str, source_name: str) -> int:
-    """Find the first match of *pattern* in *text* and return its int capture.
-
-    Fails with a clear message if the pattern doesn't match, the
-    constant may have been renamed, moved, or had its declaration
-    syntax changed (e.g. ``const`` → ``let`` in Rust). The parity test
-    is only useful if it can actually find the constant in each file.
-    """
+    """Find the first match of *pattern* in *text* and return its int capture."""
     match = pattern.search(text)
     if match is None:
         pytest.fail(
@@ -105,28 +55,14 @@ def _extract_int(pattern: re.Pattern[str], text: str, source_name: str) -> int:
     return int(match.group(1))
 
 
-# ────────────────────────────────────────────────────────────────────────────
-# Tests
-# ────────────────────────────────────────────────────────────────────────────
-
-
 def test_python_tcp_protocol_version_constant_exists() -> None:
-    """Sanity: the Python TCP receiver's ``IPC_PROTOCOL_VERSION`` is a
-    positive int (imported at the top of this file). A future bump that
-    accidentally sets it to ``0`` or a non-int would silently accept all
-    auth frames (``0 == 0``) or raise a TypeError during the comparison.
-    """
+    """accidentally sets it to ``0`` or a non-int would silently accept all"""
     assert isinstance(IPC_PROTOCOL_VERSION, int)
     assert IPC_PROTOCOL_VERSION > 0
 
 
 def test_python_ws_protocol_version_matches_tcp() -> None:
-    """The canonical Python WS-receiver ``PROTOCOL_VERSION``
-    (``ipc/protocol_version.py``) MUST equal the TCP receiver's
-    ``IPC_PROTOCOL_VERSION`` (which imports it). Both surfaces implement
-    the same auth-frame contract, a drift would mean the same client
-    is accepted on one transport but rejected (or warned) on the other.
-    """
+    """The canonical Python WS-receiver ``PROTOCOL_VERSION``"""
     assert PYTHON_WS_PATH.is_file(), (
         f"protocol_version.py not found at {PYTHON_WS_PATH}, the file may have "
         "been renamed or moved; update the path in this test."
@@ -141,12 +77,7 @@ def test_python_ws_protocol_version_matches_tcp() -> None:
 
 
 def test_rust_host_protocol_version_matches_python() -> None:
-    """The Rust host's ``EXPECTED_PROTOCOL_VERSION`` (ws.rs) MUST equal
-    the Python TCP receiver's ``IPC_PROTOCOL_VERSION``. The Rust host
-    constructs the auth frame with this integer; the Python receiver
-    validates it. A drift would either reject a valid host (if Python
-    is ahead) or let an incompatible frame through (if Rust is ahead).
-    """
+    """The Rust host's ``EXPECTED_PROTOCOL_VERSION`` (ws.rs) MUST equal"""
     assert RUST_WS_PATH.is_file(), (
         f"ws.rs not found at {RUST_WS_PATH}, the file may have been renamed or moved; update the path in this test."
     )
@@ -161,13 +92,7 @@ def test_rust_host_protocol_version_matches_python() -> None:
 
 
 def test_ts_push_events_protocol_version_matches_python() -> None:
-    """The TS ``IPC_PROTOCOL_VERSION`` constant in push_events.ts MUST
-    equal the Python ``IPC_PROTOCOL_VERSION``. The TS constant is the
-    renderer's compile-time reference for the auth-frame contract; any
-    future predecessor-side auth-frame construction (e.g. the predecessor
-    fallback path) references this constant instead of bare-coding the
-    integer.
-    """
+    """The TS ``IPC_PROTOCOL_VERSION`` constant in push_events.ts MUST"""
     assert TS_PUSH_EVENTS_PATH.is_file(), (
         f"push_events.ts not found at {TS_PUSH_EVENTS_PATH}, the file "
         "may have been renamed or moved; update the path in this test."
@@ -183,19 +108,7 @@ def test_ts_push_events_protocol_version_matches_python() -> None:
 
 
 def test_all_four_constants_agree() -> None:
-    """Belt-and-suspenders: all four language surfaces agree on the
-    same integer. This is the core cross-language parity guard —
-    if any future bump touches only one file, this test fails before
-    the change can be merged.
-
-    Bumping the protocol version is a deliberate, multi-file change:
-      1. ``voice_typer/server/ipc/protocol_version.py:PROTOCOL_VERSION``
-         (canonical, imported by both ``sidecar_ws.py`` and
-         ``transport_tcp.py``)
-      2. ``src-tauri/src/sidecar/ws.rs:EXPECTED_PROTOCOL_VERSION``
-      3. ``voice_typer/client/src/renderer/src/types/ipc/push_events.ts:
-         IPC_PROTOCOL_VERSION``
-    """
+    """same integer. This is the core cross-language parity guard —"""
     python_tcp = IPC_PROTOCOL_VERSION
 
     ws_text = PYTHON_WS_PATH.read_text(encoding="utf-8")
@@ -223,12 +136,7 @@ def test_all_four_constants_agree() -> None:
 
 
 def test_auth_frame_interface_declares_optional_protocol_version() -> None:
-    """The TS ``AuthFrame`` interface in push_events.ts MUST declare
-    ``protocol_version?: number`` so renderer code that constructs or
-    parses auth frames has compile-time help. The field is OPTIONAL
-    (legacy senders may omit it; the receiver's validate-if-present
-    check skips to the token check).
-    """
+    """The TS ``AuthFrame`` interface in push_events.ts MUST declare"""
     text = TS_PUSH_EVENTS_PATH.read_text(encoding="utf-8")
     # Match `export interface AuthFrame { ... }` block.
     match = re.search(
@@ -251,13 +159,7 @@ def test_auth_frame_interface_declares_optional_protocol_version() -> None:
 
 
 def test_protocol_version_mismatch_registered_in_error_codes() -> None:
-    """The ``server.protocol_version_mismatch`` error code MUST
-    be registered in the central :class:`ErrorCodes` registry in
-    ``voice_typer/server/ipc/validation.py``. The transport_tcp.py
-    module references this via ``ErrorCodes.PROTOCOL_VERSION_MISMATCH``
-    (and keeps a ``PROTOCOL_VERSION_MISMATCH_CODE`` alias for
-    backward-compat with tests that import the constant directly).
-    """
+    """The ``server.protocol_version_mismatch`` error code MUST"""
     from voice_typer.server.ipc.validation import ERROR_CODES, ErrorCodes
 
     assert ErrorCodes.PROTOCOL_VERSION_MISMATCH == "server.protocol_version_mismatch"

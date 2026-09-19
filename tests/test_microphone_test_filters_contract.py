@@ -1,22 +1,4 @@
-"""Contract tests: ``microphone_test_start`` ``filters`` field is a DICT.
-
-Pins the ADR 0007 filter-config wire contract between the renderer and
-the IPC layer:
-
-- The renderer's ``buildTestFilters`` (``pages/microphone/lib/buildTestFilters.ts``)
-  sends ``filters`` as a DICT of ``noise_filter_*`` keys built from the
-  user's config, a full dict for any non-``"off"`` preset, and
-  ``{noise_filter_enabled: false}`` for the off-preset / no-config case.
-- ``_handle_microphone_test_start`` must accept that dict verbatim and
-  forward it unchanged to ``service.microphone_test_start``.
-- Downstream consumers all require a MAPPING
-  (``level_monitor/test_recording.py``: ``dict(filters)`` at start,
-  ``filters.get("noise_filter_enabled", ...)`` + ``.get()`` reads and
-  ``types.SimpleNamespace(**filters)`` at stop; ``update_test_filters``
-  merges via ``.update()``), so non-dict values are rejected at the
-  validation boundary with ``client.invalid_field`` instead of crashing
-  inside the recording pipeline at stop time.
-"""
+"""Contract tests: ``microphone_test_start`` ``filters`` field is a DICT."""
 
 from __future__ import annotations
 
@@ -28,9 +10,6 @@ import pytest
 
 from tests.fixtures.ipc_test_helpers import make_ipc_server_with_fakes
 
-# Realistic payload exactly as the renderer's ``buildTestFilters``
-# produces it for a non-"off" preset (subset of keys + the master flag;
-# shape, not completeness, is what this contract pins).
 FULL_FILTER_DICT: dict[str, object] = {
     "noise_filter_enabled": True,
     "noise_filter_highpass": True,
@@ -56,8 +35,7 @@ class TestMicrophoneTestStartFiltersContract:
     """``filters`` on ``microphone_test_start``, dict wire contract."""
 
     def test_full_dict_payload_forwarded_unchanged(self, ipc_server_and_fakes):
-        """(a) Full non-"off" dict → success envelope + dict reaches the
-        service fake UNCHANGED (same content, deep-equal)."""
+        """(a) Full non-\"off\" dict → success envelope + dict reaches the"""
         server, _, fake_service = ipc_server_and_fakes
         fake_service.microphone_test_start.return_value = {
             "success": True,
@@ -96,12 +74,7 @@ class TestMicrophoneTestStartFiltersContract:
         )
 
     def test_none_filters_forwarded_as_none(self, ipc_server_and_fakes):
-        """(c) Absent AND explicit-null ``filters`` → ``None`` reaches the
-        service (schema default; ``none_to_default`` treats null as absent).
-
-        Both mean "no filter overrides" downstream, the level monitor
-        seeds an empty dict and the stop path skips the post-hoc filter.
-        """
+        """service (schema default; ``none_to_default`` treats null as absent)."""
         server, _, fake_service = ipc_server_and_fakes
         fake_service.microphone_test_start.return_value = {"success": True}
 
@@ -115,16 +88,7 @@ class TestMicrophoneTestStartFiltersContract:
         assert fake_service.microphone_test_start.call_args.kwargs["filters"] is None
 
     def test_legacy_list_rejected_at_boundary(self, ipc_server_and_fakes):
-        """(d) Legacy list payloads are REJECTED, no list compat kept.
-
-        Decision: the renderer never sent lists (``buildTestFilters``
-        has always returned a dict), and every downstream consumer
-        requires a mapping, accepting a list would defer the failure
-        to ``stop_test_recording`` where ``filters.get(...)`` /
-        ``SimpleNamespace(**filters)`` crash mid-recording-cycle.
-        Rejecting at the validation boundary is strictly safer than a
-        shim that forwards a value the pipeline cannot consume.
-        """
+        """(d) Legacy list payloads are REJECTED, no list compat kept."""
         server, _, fake_service = ipc_server_and_fakes
         resp = server._handle_microphone_test_start(
             {"filters": ["noise_suppressor"]},
@@ -137,8 +101,7 @@ class TestMicrophoneTestStartFiltersContract:
 
     @pytest.mark.parametrize("garbage", [42, "not-a-dict", [1, 2], True])
     def test_garbage_filters_type_rejected(self, ipc_server_and_fakes, garbage):
-        """(e) Non-dict garbage → ``client.invalid_field`` envelope naming
-        ``filters`` + the expected ``dict|NoneType``, service untouched."""
+        """(e) Non-dict garbage → ``client.invalid_field`` envelope naming"""
         server, _, fake_service = ipc_server_and_fakes
         resp = server._handle_microphone_test_start({"filters": garbage}, {})
         assert resp["type"] == "error"
@@ -148,8 +111,7 @@ class TestMicrophoneTestStartFiltersContract:
         fake_service.microphone_test_start.assert_not_called()
 
     def test_dispatch_round_trip_full_dict(self, ipc_server_and_fakes):
-        """Full-dispatch wiring: ``{"type": "microphone_test_start"}``
-        routes through the registry to the handler with the dict intact."""
+        """Full-dispatch wiring: ``{\"type\": \"microphone_test_start\"}``"""
         server, _, fake_service = ipc_server_and_fakes
         fake_service.microphone_test_start.return_value = {"success": True}
         resp = server._dispatch(
@@ -170,16 +132,7 @@ class TestMicrophoneTestStartFiltersContract:
 
 
 class TestBuildTestFiltersKeyParity:
-    """Renderer ``buildTestFilters`` keys ↔ backend filter-chain fields.
-
-    A key rename on either side of the IPC boundary is a SILENT no-op:
-    the dict still validates (shape contract above), the service still
-    receives it, but ``build_chain`` reads its attributes off the
-    unpacked namespace and falls back to defaults, the user's filter
-    settings stop affecting the test recording with no error anywhere.
-    These tests pin both directions of the key mapping, mirroring the
-    cross-language parity-test pattern used for the command allowlists.
-    """
+    """Renderer ``buildTestFilters`` keys ↔ backend filter-chain fields."""
 
     @staticmethod
     def _renderer_emitted_keys() -> set[str]:
@@ -198,21 +151,7 @@ class TestBuildTestFiltersKeyParity:
         return set(re.findall(r"\b(noise_filter_[a-z0-9_]+|noise_suppression_[a-z0-9_]+)\b", source))
 
     def test_renderer_emits_every_field_the_filter_chain_reads(self):
-        """Every field ``build_chain`` reads via direct attribute access
-        must be emitted by ``buildTestFilters``, otherwise that filter's
-        user config silently stops applying to test recordings.
-
-        ``audio_preset`` is excluded (preset routing, not a chain input —
-        and it is deliberately NOT forwarded per-test). The master gate
-        ``noise_filter_enabled`` is required: it is read by
-        ``level_monitor.test_recording`` + ``monitoring`` to decide
-        whether the chain runs at all. ``noise_filter_gate_adaptive``
-        is exempt: ``build_chain`` reads it via ``getattr(..., False)``
-        (safe default) and the renderer's ``buildTestFilters`` does not
-        forward per-test overrides for it (the field IS settable via
-        the ``set_config`` allowlist, the exemption here covers only
-        the per-test filter-override dict).
-        """
+        """Every field ``build_chain`` reads via direct attribute access"""
         from voice_typer.server.audio_processor import _CONFIG_SIGNATURE_FIELDS
 
         chain_read = (
@@ -226,10 +165,7 @@ class TestBuildTestFiltersKeyParity:
         )
 
     def test_renderer_emits_no_unknown_backend_fields(self):
-        """Every emitted key must exist on the backend ``Config``, a
-        key the backend does not declare is dropped by every consumer
-        (or crashes ``SimpleNamespace``-based construction paths) while
-        looking like a valid setting."""
+        """key the backend does not declare is dropped by every consumer"""
         from voice_typer.server.config import Config
 
         backend_fields = {

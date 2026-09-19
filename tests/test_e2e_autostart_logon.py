@@ -1,26 +1,4 @@
-"""End-to-end logon simulation for packaged autostart (no real reboot).
-
-Drives the full login chain with fakes, mirroring the conventions of
-``tests/test_e2e_regression.py`` (patch the owning module, split
-Command/Arguments for the Task path) and
-``tests/test_autostart_launcher_tauri.py`` (fake ``Popen`` capture,
-``backend_pid`` owning-module patch, integrity-gate bypass):
-
-- stale previous-generation entry -> validators report disabled ->
-  ``sync_autostart`` re-registers, and the re-registered command
-  points at the desktop binary;
-- launcher ``main()`` in desktop-binary mode spawns hidden
-  (``VT_START_HIDDEN=1`` in the child env) and leaves a single
-  greppable ``[AUTOSTART] RESULT success`` outcome line with the
-  canonical duration suffix (C-LOG-2) on the dotted logger (C-CROSS-3);
-- the binary integrity gate fails closed on an empty manifest hash
-  and passes on a populated one;
-- backend already running -> focus path, no second spawn (idempotent
-  re-login).
-
-No real ``schtasks`` / ``launchctl`` / filesystem writes outside
-``tmp_path``; the heavy-import mocks in ``tests/conftest.py`` apply.
-"""
+"""End-to-end logon simulation for packaged autostart (no real reboot)."""
 
 from __future__ import annotations
 
@@ -83,14 +61,8 @@ def _no_backend_pid(monkeypatch):
     monkeypatch.setattr(backend_pid_mod, "_backend_pid_file", lambda: _Missing())
 
 
-# ---------------------------------------------------------------------------
-# (a) stale entry -> re-register -> entry points at the desktop binary
-# ---------------------------------------------------------------------------
-
-
 class TestStaleEntryMigratesOnLogon:
-    """A stale previous-generation entry reports disabled, so the startup
-    sync re-registers; the fresh command targets the desktop binary."""
+    """A stale previous-generation entry reports disabled, so the startup"""
 
     def test_stale_command_validates_disabled(self, monkeypatch):
         from voice_typer.server.server_platform.autostart_windows import (
@@ -115,7 +87,6 @@ class TestStaleEntryMigratesOnLogon:
         # The stale entry reads as disabled...
         monkeypatch.setattr(autostart_mod, "is_autostart_enabled", lambda: False)
         # ...so sync enables, and the "written entry" captures the real
-        # fallback command the registrar would persist.
         written = {}
 
         def _fake_enable():
@@ -133,14 +104,8 @@ class TestStaleEntryMigratesOnLogon:
         assert "\\\\" not in written["entry"]
 
 
-# ---------------------------------------------------------------------------
-# (b) launcher main(): hidden spawn + RESULT success line
-# ---------------------------------------------------------------------------
-
-
 class TestLauncherLogonHiddenSpawn:
-    """``main()`` with ``--hidden`` spawns the desktop binary hidden and
-    records the greppable outcome line (C-CROSS-5, C-LOG-2, C-CROSS-3)."""
+    """``main()`` with ``--hidden`` spawns the desktop binary hidden and"""
 
     def test_hidden_env_and_result_success_line(self, _launcher_noops, _no_backend_pid, monkeypatch, tmp_path, caplog):
         import voice_typer.server.autostart_launcher as launcher
@@ -194,14 +159,8 @@ class TestLauncherLogonHiddenSpawn:
         assert any("RESULT failure unhandled-exception" in m for m in messages)
 
 
-# ---------------------------------------------------------------------------
-# (c) manifest fail-closed vs populated hash
-# ---------------------------------------------------------------------------
-
-
 class TestManifestGateEndToEnd:
-    """The integrity gate refuses an empty per-arch hash and passes a
-    populated one (fail-closed contract survives the logon path)."""
+    """The integrity gate refuses an empty per-arch hash and passes a"""
 
     def _manifest(self, tmp_path, binary_name, sha):
         from voice_typer.server.autostart_launcher import _tauri_manifest_key
@@ -236,14 +195,8 @@ class TestManifestGateEndToEnd:
         assert verify_tauri_binary_or_skip(binary) is True
 
 
-# ---------------------------------------------------------------------------
-# (d) idempotency: backend running -> focus, no second spawn
-# ---------------------------------------------------------------------------
-
-
 class TestLogonIdempotentWhenBackendRunning:
-    """A second logon while the backend lives focuses it; nothing is
-    spawned twice."""
+    """A second logon while the backend lives focuses it; nothing is"""
 
     def test_focus_path_spawns_nothing(self, _launcher_noops, _no_backend_pid, monkeypatch):
         import voice_typer.server.autostart_launcher as launcher

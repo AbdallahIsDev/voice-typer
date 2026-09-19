@@ -1,22 +1,4 @@
-"""DJ-17: ``RecordingController._current_audio`` must be cleared on the
-normal-completion path (not only on the force-recover-from-stuck-
-transcription path).
-
-Pre-fix, the ONLY clear site was ``_force_recover_from_stuck_transcription``
-(recording_controller.py:1030). The normal ``stop()`` path set
-``self._current_audio = audio`` (line 622) and relied on the NEXT
-``stop()`` call to overwrite the reference, so for a tray app where
-the user dictates once and idles for hours, the previous dictation's
-raw voice bytes stayed in process memory the entire time. This is both
-a memory leak (1-15MB of float32 audio per dictation) and a privacy
-regression (the DE-13 goal of dropping the Python-side reference was
-only achieved on the rare force-recover path, not the normal path).
-
-The fix clears ``self._current_audio`` inside the transcription thread
-immediately after capturing it into a thread-local. These tests pin
-that contract: after ``stop()`` returns and the transcription thread
-has had a chance to start, ``recording._current_audio`` MUST be None.
-"""
+"""normal-completion path (not only on the force-recover-from-stuck-"""
 
 from __future__ import annotations
 
@@ -29,19 +11,10 @@ from voice_typer.server.recording_controller import RecordingController
 
 
 def _make_controller_for_stop() -> RecordingController:
-    """Build a RecordingController with just enough state for ``_stop_impl``.
-
-    ``_stop_impl`` reads ``app.recorder.recording``, calls
-    ``app.recorder.stop()`` (returns audio), consults
-    ``app.config.sample_rate``, and spawns a transcription thread that
-    imports ``DictationPipeline``. We mock the pipeline import so the
-    thread can run without real models.
-    """
+    """Build a RecordingController with just enough state for ``_stop_impl``."""
     ctrl = RecordingController.__new__(RecordingController)
     ctrl._app = MagicMock()
     # Init the locks and fields ``_stop_impl`` / the transcription
-    # thread touch. ``__new__`` skips ``__init__``, so we set them up
-    # explicitly (cheaper than constructing the full app).
     ctrl._toggle_lock = threading.RLock()
     ctrl._streaming_session = None
     ctrl._streaming_session_lock = threading.Lock()
@@ -59,13 +32,7 @@ def _make_controller_for_stop() -> RecordingController:
 
 
 def test_current_audio_cleared_after_stop_spawns_transcription_thread(monkeypatch):
-    """DJ-17: after ``stop()`` returns and the transcription thread has
-    started, ``_current_audio`` MUST be None.
-
-    The fix captures the audio into a thread-local and immediately
-    clears the shared slot. Pre-fix, the slot retained the audio until
-    the next ``stop()`` call.
-    """
+    """DJ-17: after ``stop()`` returns and the transcription thread has"""
     ctrl = _make_controller_for_stop()
     app = ctrl._app
 
@@ -79,8 +46,6 @@ def test_current_audio_cleared_after_stop_spawns_transcription_thread(monkeypatc
     app._cycle_id = "#1"
 
     # Block the transcription thread's pipeline.run() on an event so we
-    # can observe state mid-flight; release it at the end so the test
-    # doesn't hang on a non-daemon join.
     pipeline_started = threading.Event()
     release_pipeline = threading.Event()
 
@@ -90,16 +55,12 @@ def test_current_audio_cleared_after_stop_spawns_transcription_thread(monkeypatc
 
         def run(self, **kwargs):
             pipeline_started.set()
-            # assertion: by the time run() is called, the shared
-            # slot MUST already be None (the thread captured the audio
-            # into a local and cleared the slot before calling run).
             assert ctrl._current_audio is None, (
                 "DJ-17: _current_audio must be None by the time the "
                 "transcription thread calls pipeline.run(); pre-fix it "
                 "retained the raw audio bytes until the next stop()."
             )
             # Park the thread until the test releases it so we can
-            # observe the post-start pre-completion state.
             release_pipeline.wait(timeout=2.0)
 
     monkeypatch.setattr(
@@ -115,7 +76,6 @@ def test_current_audio_cleared_after_stop_spawns_transcription_thread(monkeypatc
     )
 
     # The shared slot must be None now (the thread cleared it after
-    # capturing the audio into a local).
     assert ctrl._current_audio is None, (
         "DJ-17: _current_audio must be None after the transcription "
         "thread has started; pre-fix it retained the raw audio bytes."
@@ -126,13 +86,7 @@ def test_current_audio_cleared_after_stop_spawns_transcription_thread(monkeypatc
 
 
 def test_current_audio_set_to_audio_during_stop_then_cleared_by_thread(monkeypatch):
-    """DJ-17 (supplemental): ``stop()`` sets ``_current_audio`` to the
-    captured audio, then the transcription thread clears it.
-
-    This pins the lifecycle: the slot is non-None ONLY between the
-    assignment in ``_stop_impl`` and the capture-and-clear in the
-    transcription thread.
-    """
+    """captured audio, then the transcription thread clears it."""
     ctrl = _make_controller_for_stop()
     app = ctrl._app
 
@@ -175,20 +129,17 @@ def test_current_audio_set_to_audio_during_stop_then_cleared_by_thread(monkeypat
 
 
 def test_force_recover_clear_still_works():
-    """DJ-17 regression guard: the existing force-recover clear path
-    (``_force_recover_from_stuck_transcription``) still sets
+    """
+    DJ-17 regression guard: the existing force-recover clear path
     ``_current_audio = None``. The DJ-17 fix must not regress this path.
     """
     ctrl = _make_controller_for_stop()
     ctrl._current_audio = np.ones(100, dtype=np.float32)
 
     # Force-recover short-circuits if ``_busy_event.is_set()`` (not busy).
-    # Make the app appear busy so the recovery logic runs.
     ctrl._app._busy_event.is_set.return_value = False
     ctrl._app._cycle_id = "#3"
     # The force-recover path also stops the watchdog thread, provide
-    # a current_thread-safe setup (None is fine, the  fix guards
-    # against None and self-join).
     ctrl._watchdog_thread = None
 
     ctrl._force_recover_from_stuck_transcription(force=True)

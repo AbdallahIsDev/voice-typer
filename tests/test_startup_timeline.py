@@ -1,19 +1,4 @@
-"""Tests for :mod:`voice_typer.server.startup_timeline`.
-
-The host process stamps ``VOICE_TYPER_BOOT_EPOCH_MS`` (predecessor at
-main-bundle eval; the Tauri host as the first statement of ``main``)
-and ``VOICE_TYPER_SPAWN_EPOCH_MS`` (right before spawning the Python
-backend) into the backend's environment.
-``log_launch_timeline`` merges them into ONE startup line attributing
-the spawn→first-log gap (host boot vs backend interpreter +
-imports). These tests pin:
-
-1. Both markers present → single INFO line with both segments.
-2. No markers (standalone / non-host launch) → nothing logged.
-3. Partial markers → only the present segment is logged.
-4. Garbage marker values are skipped without raising.
-5. Negative deltas (clock skew) clamp to `` 0.0s``.
-"""
+"""Tests for :mod:`voice_typer.server.startup_timeline`."""
 
 from __future__ import annotations
 

@@ -53,15 +53,9 @@ def test_safe_key_press_uses_finally(clipboard):
     with pytest.raises(Exception, match="test error"):
         clipboard._safe_key_press(MagicMock(), "v")
     # Modifier should still be released (finally block)
-    # The last release call should be for the modifier
 
 
-# ADR-0010 §5.6: ``schedule_clipboard_clear`` was DELETED. The
 # ``test_schedule_clipboard_clear_creates_thread`` test that previously
-# lived here exercised a method that no longer exists. The borrow /
-# restore lifecycle is now driven by ``ClipboardSnapshot.capture()`` in
-# ``copy()`` and ``_delayed_restore()`` in ``paste()``, covered by
-# tests/test_clipboard_borrow_restore.py.
 
 
 @pytest.mark.skipif(

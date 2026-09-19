@@ -1,25 +1,4 @@
-"""Trigram CJK index tests (schema V5).
-
-The unicode61 index cannot substring-match CJK scripts (a contiguous
-CJK run is ONE token), so every CJK query historically fell back to a
-full-table LIKE scan (the documented CJK history-search finding in
-``review.md``). Schema V5 adds a
-SECOND FTS5 index (``transcriptions_fts_cjk``, ``tokenize='trigram'``)
-consulted ONLY for queries containing CJK/fullwidth characters.
-
-Contracts pinned here:
-
-1. Queries with a CJK/fullwidth char, length >= 3, take the trigram
-   MATCH path (indexed, verified by monkeypatching the LIKE fallback
-   to raise and asserting search still works).
-2. 1-2 char CJK queries keep the LIKE path (the trigram tokenizer only
-   indexes 3-char substrings, so a shorter MATCH would SILENTLY match
-   nothing, verified against SQLite 3.50).
-3. Results are identical to the LIKE path (same rows, same order, same
-   pagination, same literal wildcard semantics).
-4. Both shadow indexes stay in lockstep at every GDPR rebuild/optimize
-   site (delete / clear_all / retention / startup rebuild).
-"""
+"""Trigram CJK index tests (schema V5)."""
 
 from __future__ import annotations
 
@@ -66,14 +45,12 @@ class TestSchemaV5Migration:
         assert _fts_cjk_table_exists(db), "schema V5 must create the transcriptions_fts_cjk trigram index"
 
     def test_migration_backfills_existing_rows(self, db):
-        """The V5 backfill ('rebuild') must index pre-existing rows, a
-        CJK query must find rows inserted before the migration conceptually ran."""
+        """The V5 backfill ('rebuild') must index pre-existing rows, a"""
         texts = [r["text"] for r in db.search("你好吗")]
         assert "今天你好吗" in texts
 
     def test_v4_db_migrates_to_v5_and_keeps_data(self, tmp_path):
-        """A V4 database (pre-trigram) migrates to V5 on open and its
-        rows become searchable via the new index."""
+        """A V4 database (pre-trigram) migrates to V5 on open and its"""
         import sqlite3
 
         from voice_typer.server.history_db import HistoryDB
@@ -132,8 +109,7 @@ class TestTrigramRouter:
         assert is_trigram_cjk_query("%") is False
 
     def test_long_cjk_query_does_not_touch_like_path(self, db, monkeypatch):
-        """The indexed-path proof: the LIKE fallback must never run for a
-        trigram-eligible query."""
+        """The indexed-path proof: the LIKE fallback must never run for a"""
         import voice_typer.server.history_db_internals.search as search_mod
 
         def _boom(query):
@@ -161,10 +137,7 @@ class TestTrigramResultsMatchLikeContract:
         assert db.search("你好%吗") == []
 
     def test_trigram_and_like_agree_on_results(self, db):
-        """For every trigram-path query, results must equal the true
-        substring semantic: every stored row containing the query as a
-        literal substring, newest first (the contract the LIKE path
-        delivered historically)."""
+        """For every trigram-path query, results must equal the true"""
         queries = ["你好吗", "タワー", "하세요 반갑습니다", "100%折扣", "with 你好 mixed"]
         all_rows = db.get_recent(limit=100)
         for q in queries:
@@ -197,10 +170,7 @@ class TestTrigramResultsMatchLikeContract:
 
 class TestEncryptionInterplay:
     def test_encrypted_rows_still_searchable_via_trigram(self, tmp_path, monkeypatch):
-        """ADR §6: FTS shadow tables stay plaintext-tokenized. A row
-        encrypted at rest must remain searchable on BOTH indexes (the
-        INSERT trigger indexes the plaintext before the flag flips, and
-        the flag-flip UPDATE is a no-op for FTS)."""
+        """ADR §6: FTS shadow tables stay plaintext-tokenized. A row"""
         from voice_typer.server import _text_crypto
 
         dek = _text_crypto._dek.generate_dek()
@@ -224,9 +194,7 @@ class TestEncryptionInterplay:
 
 class TestGdprLockstep:
     def test_delete_purges_both_shadow_indexes(self, db):
-        """After delete(id), the trigram index must no longer surface
-        the deleted row (the trigger hides it; the optimize purges the
-        segment data, this asserts the SEARCH contract)."""
+        """After delete(id), the trigram index must no longer surface"""
         rows = db.search("今天你好吗")
         target_id = rows[0]["id"]
         assert db.delete(target_id) is True
@@ -238,11 +206,7 @@ class TestGdprLockstep:
         assert db.search("quick") == []
 
     def test_retention_and_clear_paths_cover_trigram_table(self):
-        """The GDPR erasure sweep sites must issue their command to BOTH
-        shadow indexes (the dictated plaintext lives in both shadow
-        tables). Source-pinned: _rebuild_fts (retention), clear_all and
-        the per-row delete path (crud_writes), and the startup rebuild
-        sweep (writer) must all reference the trigram table."""
+        """The GDPR erasure sweep sites must issue their command to BOTH"""
         import inspect
 
         from voice_typer.server.history_db_internals import crud_writes, retention, writer

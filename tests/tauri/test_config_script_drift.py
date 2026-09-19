@@ -1,112 +1,4 @@
-"""Drift guards for the Tauri config ↔ build-script pairs.
-
-Mirrors the config↔git icon drift guard and the identifier↔appId parity
-tests: each pair has TWO sides that must stay in lockstep, and these
-tests fail when either side drifts, so a drift breaks CI instead of
-silently producing a broken or dead artifact.
-
-Pairs guarded here:
-
-1. ``tauri.conf.json`` ``bundle.resources`` + ``bundle.externalBin`` ↔
-   the stub generator's binary registry
-   (``scripts/gen_tauri_icons_stub.py::_all_stub_paths``). The
-   generator creates exactly the sidecar / native / prewarm binaries on
-   a clean checkout, and the config must declare exactly that set:
-   - config declares a binary the generator never creates → missing on
-     a clean CI checkout → ``cargo tauri build`` fails at the
-     resource-copy step;
-   - generator creates a binary the config never declares → dead file,
-     never bundled.
-
-2. ``tauri-binaries.json`` per-arch ``sha256`` keys ↔ the canonical
-   target-triple set (``SIDECAR_TRIPLES`` in the stub generator, the
-   repo's single source of truth for build triples). macOS collapses
-   both darwin triples into one ``macos`` key (universal binary).
-
-3. ``tauri-binaries.json`` binary names ↔ the Cargo package / bin name
-   (``src-tauri/Cargo.toml``). The autostart launcher discovers the
-   Tauri host binary by file name per-OS; renaming the Cargo binary
-   without updating the manifest silently orphans the integrity gate.
-
-4. Every Nuitka invocation that bundles ``voice_typer`` must also pass
-   ``--include-package-data=voice_typer.server``. The frozen sidecar
-   loads package data at import time via ``__file__``-relative paths
-   (``hotkey_reserved.json`` in ``config_validators/hotkey.py``, plus
-   ``corrections.json``, ``model_hashes.json``,
-   ``native/binaries.json``, ``silero_vad.jit``); without the flag the
-   onefile exe BUILDS fine but crashes on launch with FileNotFoundError
- , and the CI existence check cannot catch it.
-
-5. Nuitka builds are torch-free (Phase 1c retired the NU-106/C-CI-8
-   torch contract): the runtime is ONNX-only (``vad.py`` loads
-   ``silero_vad.onnx`` via ``onnxruntime.InferenceSession``, Parakeet
-   via onnx-asr, Qwen via onnxruntime), ``voice_typer/`` carries zero
-   ``import torch`` sites, so no build script may pass torch Nuitka
-   flags and the PyInstaller fallback spec must bundle
-   ``silero_vad.onnx``, never ``silero_vad.jit``. The ``check_bundle_torch_free.sh``
-   gate stays as the binary-level enforcement (read-only, not edited here).
-
-6. ``tauri.conf.json`` ``bundle.windows.nsis.installerHooks`` must point
-   at an NSIS script (``.nsh``). Tauri ``!include``s each hook into the
-   generated ``installer.nsi``; pointing it at a batch file aborts
-   makensis with ``Invalid command: "@echo"`` on EVERY ``cargo tauri
-   build`` once bundling runs.
-
-7. ``autostart_launcher._TAURI_LAUNCHER_INSTALL_PATHS`` ↔
-   ``tauri-binaries.json`` ``binaries.*._install_paths``. The manifest is
-   the single source of truth for BOTH the per-OS discovery path set AND
-   the discovery priority (order-sensitive comparison). A launcher path
-   change not mirrored in the manifest silently orphans the integrity
-   gate (the loader would hash something else than CI recorded), and a
-   manifest change the launcher doesn't follow makes the launcher
-   discover nothing.
-
-8. Every per-arch config override (``src-tauri/tauri.*.conf.json``) must
-   stay locked to the base ``tauri.conf.json`` ``bundle.resources`` /
-   ``bundle.externalBin``. Tauri REPLACES arrays in overrides (deep-merge
-   only applies to objects), so a per-arch ``resources`` list is the full
-   list that platform's installer is built from: it may only ever be a
-   subset of the base (a cross-platform superset), it must keep every
-   base resource relevant to its platform/triples, and it must never
-   drop or alter the sidecar ``externalBin``, otherwise a platform
-   ships missing key-listener / prewarm binaries while CI stays green.
-
-9. ``scripts/build/update_tauri_manifests.py::TRIPLE_TO_MANIFEST_KEY``
-   ↔ the canonical triple set (Pair 2). The updater is CI's only writer
-   of the per-arch sha256 fields; if its triple→key map drifts from the
-   canonical one, CI would hash a built binary into the WRONG key, and
-   the loader would fail-closed for that platform despite a built binary.
-
-10. The version string in ``pyproject.toml`` ↔ ``package.json`` ↔
-    ``src-tauri/tauri.conf.json`` ↔ ``src-tauri/Cargo.toml``. One
-    version across every layer, a bump that touches only one file
-    silently ships mismatched app/installer/update metadata; the same
-    lockstep also protects the Tauri workflows' "fail early" check
-    (``scripts/build/sync_versions.py --check`` in the pre-build gate).
-
-11. The release bump workflow (``RELEASING.md`` instructions ↔
-    ``scripts/build/sync_versions.py``). The documented release commit
-    must touch ``package.json`` AND ``src-tauri/tauri.conf.json`` (and
-    ``Cargo.toml``) together via the sync script, a version bump that
-    commits only one file breaks the Pair-10 lockstep mid-release.
-
-12. The update feed: NO auto-update is the pinned contract today
-    (ADR-0020 §15, the predecessor ``publish:`` block was removed and
-    ``tauri-plugin-updater`` is intentionally unconfigured). If a feed
-    config or ``latest.json`` ever appears (a Tauri ``plugins.updater``
-    block), its referenced version must equal
-    ``tauri.conf.json``'s, the guard below fails on any feed whose
-    version drifts, and fails on any unlicensed feed config appearing
-    without the parity wiring.
-
-13. Every OS-level identifier the app REGISTERS must live in the
-    canonical ``com.voicetyper.*`` reverse-DNS namespace (Windows Task
-    Scheduler task + HKCU Run-key value + Startup-folder .bat +
-    prewarm completion event, macOS LaunchAgent labels, keyring service
-    name, polkit action). Legacy ``VoiceTyper*`` forms are allowed ONLY
-    in the pinned legacy constants + cleanup sweeps (see
-    TestReverseDnsIdentifierNamespace's allowlist).
-"""
+"""Drift guards for the Tauri config ↔ build-script pairs."""
 
 from __future__ import annotations
 
@@ -120,11 +12,6 @@ from pathlib import Path
 import pytest
 
 # ``tomllib`` is stdlib only on Python >= 3.11; the 3.10 matrix legs
-# (requires-python = ">=3.10") fall back to the ``tomli`` backport when
-# present. ``tomli`` is NOT a declared dependency (not in
-# requirements-lock.txt), so on a 3.10 env without it we skip this file
-# gracefully instead of raising a collection error (which hard-fails the
-# whole 3.10 leg with exit code 2).
 if sys.version_info >= (3, 11):
     import tomllib  # type: ignore[import-not-found]
 else:  # pragma: no cover, Python 3.10 fallback
@@ -142,9 +29,6 @@ STUB_SCRIPT = PROJECT_ROOT / "scripts" / "gen_tauri_icons_stub.py"
 MANIFEST_PATH = PROJECT_ROOT / "tauri-binaries.json"
 UPDATE_SCRIPT = PROJECT_ROOT / "scripts" / "build" / "update_tauri_manifests.py"
 
-# triple → tauri-binaries.json per-arch key. macOS ships a universal
-# Mach-O binary, so both darwin triples collapse into the single
-# ``macos`` key (the manifest documents this collapse).
 TRIPLE_TO_MANIFEST_KEY: dict[str, str] = {
     "x86_64-pc-windows-msvc": "windows-x86_64",
     "aarch64-pc-windows-msvc": "windows-aarch64",
@@ -157,13 +41,7 @@ TRIPLE_TO_MANIFEST_KEY: dict[str, str] = {
 
 @functools.lru_cache(maxsize=1)
 def _stub_module():
-    """Load ``scripts/gen_tauri_icons_stub.py`` as a module (no side effects).
-
-    The script's module constants (``SIDECAR_TRIPLES``,
-    ``WINDOWS_TRIPLES``) and ``_all_stub_paths()`` are the canonical
-    script side of the drift pairs. Importing executes only the module
-    body: ``main()`` is guarded by ``__name__``.
-    """
+    """Load ``scripts/gen_tauri_icons_stub.py`` as a module (no side effects)."""
     spec = importlib.util.spec_from_file_location("_vt_gen_tauri_icons_stub_drift", STUB_SCRIPT)
     assert spec is not None and spec.loader is not None, f"cannot load {STUB_SCRIPT}"
     module = importlib.util.module_from_spec(spec)
@@ -185,13 +63,7 @@ def _manifest() -> dict:
 
 @functools.lru_cache(maxsize=1)
 def _updater_module():
-    """Load ``scripts/build/update_tauri_manifests.py`` as a module.
-
-    Its ``TRIPLE_TO_MANIFEST_KEY`` is CI's only writer path for the
-    per-arch sha256 fields, so the drift test pins it to the canonical
-    triple→key mapping (Pair 9). The module is stdlib-only (argparse,
-    hashlib, json), safe to import in the minimal-env CI gates.
-    """
+    """Load ``scripts/build/update_tauri_manifests.py`` as a module."""
     spec = importlib.util.spec_from_file_location("_vt_update_tauri_manifests_drift", UPDATE_SCRIPT)
     assert spec is not None and spec.loader is not None, f"cannot load {UPDATE_SCRIPT}"
     module = importlib.util.module_from_spec(spec)
@@ -199,38 +71,19 @@ def _updater_module():
     return module
 
 
-# ─── Pair 1: bundle.resources + externalBin ↔ stub generator registry ──────
-
-
 class TestBundleBinariesVsStubRegistry:
     """``tauri.conf.json`` binary declarations ↔ the stub generator's registry."""
 
     def test_config_declares_exactly_the_stub_generator_registry(self) -> None:
-        """The config's declared binaries must equal the generator's registry.
-
-        Both directions fail with actionable messages:
-        - ``declared - registry``: a binary the config references that the
-          stub step never creates is missing on a fresh CI checkout
-          (``cargo tauri build`` hard-fails at the resource-copy step).
-        - ``registry - declared``: a binary the generator creates that the
-          config never declares is dead weight (never bundled).
-        """
+        """The config's declared binaries must equal the generator's registry."""
         stub = _stub_module()
         registry = {p.relative_to(SRC_TAURI).as_posix() for p in stub._all_stub_paths()}
         bundle = _tauri_conf()["bundle"]
-        # externalBin is the base name; Tauri appends the target triple at
-        # build time (the same naming the stub generator's registry uses).
         sidecars = {
             f"{base}-{triple}{'.exe' if triple in stub.WINDOWS_TRIPLES else ''}"
             for base in bundle.get("externalBin", [])
             for triple in stub.SIDECAR_TRIPLES
         }
-        # bundle.resources binary entries: native hotkey only.
-        # (Prewarm resources were DELETED 2026-08-13, prewarm became a
-        # worker startup phase, Option P-1, plan-runtime-pack-split §6.2.
-        # The worker exe is now externalBin, NOT a bundle.resources entry.)
-        # The non-binary resources (linux-scripts, polkit, rules) are
-        # committed real files outside the stub registry.
         binaries = {r for r in bundle.get("resources", []) if r.startswith("resources/native/")}
         declared = sidecars | binaries
 
@@ -248,22 +101,11 @@ class TestBundleBinariesVsStubRegistry:
         )
 
 
-# ─── Pair 2: tauri-binaries.json per-arch keys ↔ canonical triples ─────────
-
-
 class TestTauriBinariesManifestCoverage:
     """``tauri-binaries.json`` sha256 keys ↔ the canonical triple set."""
 
     def test_manifest_covers_exactly_the_canonical_triples(self) -> None:
-        """The manifest's per-arch keys must equal the triples' derived keys.
-
-        ``SIDECAR_TRIPLES`` in the stub generator is the repo's single
-        source of truth for build triples. If a new triple is added to
-        the builds (e.g. riscv64), the manifest must grow a matching
-        per-arch key, a missing key means the autostart integrity gate
-        fail-closes for that platform, and an extra key means the
-        manifest documents a platform nothing builds.
-        """
+        """The manifest's per-arch keys must equal the triples' derived keys."""
         stub = _stub_module()
         expected = {TRIPLE_TO_MANIFEST_KEY[t] for t in stub.SIDECAR_TRIPLES}
         manifest = _manifest()
@@ -284,17 +126,7 @@ class TestTauriBinariesManifestCoverage:
         )
 
     def test_updater_triple_map_matches_canonical_triples(self) -> None:
-        """``update_tauri_manifests.py`` must hash into the SAME keys CI reads.
-
-        The updater is the ONLY writer of the per-arch sha256 fields. If
-        its triple→key map drifts from ``SIDECAR_TRIPLES`` (e.g. it maps
-        ``x86_64-unknown-linux-gnu`` to ``linux-aarch64``), CI would
-        record a built binary's hash under the wrong key and the loader
-        fail-closes for the platform that actually built it (or worse,
-        accepts the wrong binary). macOS is the intended collapse for all
-        darwin triples, so the updater is allowed extra darwin-key
-        entries (``universal-apple-darwin``), but never fewer.
-        """
+        """``update_tauri_manifests.py`` must hash into the SAME keys CI reads."""
         updater = _updater_module()
         stub = _stub_module()
         for triple in stub.SIDECAR_TRIPLES:
@@ -307,7 +139,6 @@ class TestTauriBinariesManifestCoverage:
                 "hashes under the wrong manifest key."
             )
         # Every key the manifest declares must be reachable by some triple
-        # the updater knows (extra darwin aliases are fine).
         manifest_keys = {k for entry in _manifest()["binaries"].values() for k in entry["sha256"]}
         reachable = set(updater.TRIPLE_TO_MANIFEST_KEY.values())
         unreachable = manifest_keys - reachable
@@ -319,21 +150,11 @@ class TestTauriBinariesManifestCoverage:
         )
 
 
-# ─── Pair 3: tauri-binaries.json binary names ↔ Cargo binary name ──────────
-
-
 class TestTauriBinariesManifestBinaryNames:
     """``tauri-binaries.json`` binary keys ↔ the Cargo package/bin name."""
 
     def test_manifest_binary_names_match_cargo_binary_name(self) -> None:
-        """Every manifest binary key's base must equal the Cargo binary name.
-
-        The autostart launcher discovers the Tauri host binary by file
-        name per-OS (``voice-typer-tauri`` on Linux, ``.exe`` on
-        Windows, ``.app`` on macOS). Renaming the Cargo binary without
-        updating the manifest silently orphans the integrity gate, the
-        loader would find no entry for the new name and fail closed.
-        """
+        """Every manifest binary key's base must equal the Cargo binary name."""
         cargo = tomllib.loads((SRC_TAURI / "Cargo.toml").read_text(encoding="utf-8"))
         cargo_name = cargo["package"]["name"]
         manifest = _manifest()
@@ -358,9 +179,6 @@ class TestTauriBinariesManifestBinaryNames:
             )
 
 
-# ─── Pair 4: Nuitka invocations ↔ voice_typer.server package data ──────────
-
-
 BUILD_SCRIPTS = [
     "scripts/build/build_sidecar_windows.sh",
     "scripts/build/build_sidecar_linux.sh",
@@ -372,10 +190,6 @@ BUILD_SCRIPTS = [
 WINDOWS_WORKFLOW = PROJECT_ROOT / ".github" / "workflows" / "tauri-windows-build.yml"
 
 # Package-data files the frozen server reads at import time / runtime via
-# ``__file__``-relative paths. All live under ``voice_typer/server``, so the
-# ``--include-package-data=voice_typer.server`` flag (scoped to the server
-# package, NOT the whole ``voice_typer`` tree, that would drag in the
-# client + node_modules) bundles all of them recursively.
 IMPORT_TIME_DATA_FILES = [
     "voice_typer/server/hotkey_reserved.json",
     "voice_typer/server/corrections.json",
@@ -386,16 +200,7 @@ IMPORT_TIME_DATA_FILES = [
 
 
 class TestNuitkaBuildsIncludeVoiceTyperPackageData:
-    """Every Nuitka invocation bundling ``voice_typer`` must also include
-    ``voice_typer.server`` package data.
-
-    IPD-1 regression guard: ``voice_typer/server/hotkey_reserved.json``
-    is loaded at module-import time (``config_validators/hotkey.py``),
-    so a sidecar built without ``--include-package-data`` crashes on
-    launch (``FileNotFoundError``) while still BUILDING successfully.
-    The workflow's post-build existence check can't catch it. This guard
-    pins the flag at every Nuitka call site that includes ``voice_typer``.
-    """
+    """Every Nuitka invocation bundling ``voice_typer`` must also include"""
 
     def test_import_time_data_files_exist_and_are_not_python(self) -> None:
         """The data files the flag must carry actually exist as data files."""
@@ -435,9 +240,6 @@ class TestNuitkaBuildsIncludeVoiceTyperPackageData:
         )
 
 
-# ─── Pair 5: Nuitka builds are torch-free (Phase 1c) ──────────
-
-
 SIDECAR_SCRIPTS = [
     "scripts/build/build_sidecar_windows.sh",
     "scripts/build/build_sidecar_linux.sh",
@@ -457,44 +259,21 @@ PREWARM_SCRIPTS = [
 ]
 
 # Every Nuitka build script that freezes ``voice_typer``. The torch-free
-# invariant applies to all three processes (sidecar, worker, prewarm):
-# none of them imports torch anymore, so none may carry torch flags.
 TORCH_FREE_SCRIPTS = SIDECAR_SCRIPTS + WORKER_SCRIPTS + PREWARM_SCRIPTS
 
 PYINSTALLER_SPEC = PROJECT_ROOT / "scripts" / "build" / "voice-typer.spec"
 
 
 class TestNuitkaSidecarBuildsDoNotExcludeTorchDistributed:
-    """Nuitka build scripts must stay torch-free (Phase 1c retirement of C-CI-8/NU-106).
-
+    """
+    Nuitka build scripts must stay torch-free (Phase 1c retirement of C-CI-8/NU-106).
     Sanctioned C-CI-8 retirement, why the old contract is gone: torch is
-    gone from the runtime (``vad.py`` uses ``onnxruntime.InferenceSession``
-    on ``silero_vad.onnx``, Parakeet via onnx-asr, Qwen via
-    onnxruntime; zero ``import torch`` sites under ``voice_typer/``), so
-    the old flags (``--module-parameter=torch-disable-jit=no`` plus every
-    ``--nofollow-import-to=torch*`` exclusion) are obsolete dead weight.
-    Keeping them would drag torch back into the bundle graph the
-    ``check_bundle_torch_free.sh`` gate exists to forbid. The old
-    presence-guards are therefore inverted here: instead of asserting
-    torch flags exist, these tests assert NONE exist, and the spec
-    bundles the ONNX model instead of the JIT one.
     """
 
     def test_no_sidecar_build_excludes_unconditionally_imported_torch_modules(
         self,
     ) -> None:
-        """No build script may carry any torch Nuitka flag.
-
-        Covers all nine sidecar/worker/prewarm scripts: neither
-        ``torch-disable-jit`` (the old ``--module-parameter`` keep-JIT
-        flag) nor any ``nofollow-import-to=torch`` exclusion (which as a
-        substring covers ``torch``, ``torch._dynamo``,
-        ``torch._inductor``, ``torch.export``, ``torch._functorch``,
-        ``torch.testing``, ``torch.package``, ``torch.onnx``, and
-        ``torch.utils.benchmark``) may appear. The runtime imports no
-        torch, so any such flag is a stale Phase-1b leftover that risks
-        re-pulling torch into the frozen bundle.
-        """
+        """No build script may carry any torch Nuitka flag."""
         forbidden = [
             "torch-disable-jit",
             "nofollow-import-to=torch",
@@ -511,13 +290,7 @@ class TestNuitkaSidecarBuildsDoNotExcludeTorchDistributed:
                 )
 
     def test_no_build_script_carries_torch_jit_flag(self) -> None:
-        """All nine builds must be free of the torch JIT module-parameter.
-
-        Replaces the retired keep-JIT-enabled guard: Nuitka's torch
-        plugin default no longer matters because nothing imports torch.
-        Any ``torch-disable-jit`` sighting in a sidecar, worker, or
-        prewarm script is a stale leftover, not a protection.
-        """
+        """All nine builds must be free of the torch JIT module-parameter."""
         required_absent = "torch-disable-jit"
         for rel in TORCH_FREE_SCRIPTS:
             text = (PROJECT_ROOT / rel).read_text(encoding="utf-8")
@@ -529,13 +302,7 @@ class TestNuitkaSidecarBuildsDoNotExcludeTorchDistributed:
             )
 
     def test_spec_bundles_onnx_not_jit(self) -> None:
-        """The PyInstaller fallback spec must bundle ``silero_vad.onnx``.
-
-        MEM-03 now points at the ONNX model loaded via ORT
-        ``InferenceSession``; any ``silero_vad.jit`` reference in the
-        spec would ship the legacy JIT model the torch-free gate
-        forbids.
-        """
+        """The PyInstaller fallback spec must bundle ``silero_vad.onnx``."""
         text = PYINSTALLER_SPEC.read_text(encoding="utf-8")
         assert "silero_vad.onnx" in text, (
             "scripts/build/voice-typer.spec must reference silero_vad.onnx (the ORT-loaded VAD model)."
@@ -547,21 +314,8 @@ class TestNuitkaSidecarBuildsDoNotExcludeTorchDistributed:
         )
 
 
-# ─── Pair 6: tauri.conf.json NSIS installerHooks ↔ NSIS script ─────────────
-
-
 class TestTauriNsisInstallerHooks:
-    """``bundle.windows.nsis.installerHooks`` must point at an NSIS script.
-
-      Tauri v2 ``!include``s each installerHooks entry into the generated
-      ``installer.nsi``, the file MUST be an NSIS script (``.nsh``).
-      Pointing it at a batch file (``uninstall.bat``) aborts makensis with
-      ``Invalid command: "@echo"`` on EVERY ``cargo tauri build`` once the
-      bundling stage runs (latent until the bundler is actually exercised
-    , the Windows workflow is dispatch-only). The correct target is the
-      repo's existing ``scripts/windows/uninstaller.nsh`` (defines the
-      ``customUnInstall`` macro).
-    """
+    """``bundle.windows.nsis.installerHooks`` must point at an NSIS script."""
 
     def test_installer_hooks_points_at_nsh_not_bat(self) -> None:
         """Every hook entry must be an ``.nsh`` file that exists on disk."""
@@ -581,30 +335,14 @@ class TestTauriNsisInstallerHooks:
             assert target.is_file(), f"nsis.installerHooks entry {hook!r} resolves to {target} which does not exist."
 
 
-# ─── Pair 7: launcher discovery paths ↔ manifest _install_paths ────────────
-
-
 def _path_components(template: str) -> tuple[str, ...]:
-    """Split a path template into components (both separators normalized).
-
-    Keeps env-var tokens (``%LOCALAPPDATA%``, ``%PROGRAMFILES%``) as
-    literal components so the comparison is environment-independent.
-    """
+    """Split a path template into components (both separators normalized)."""
     return tuple(template.replace("\\", "/").split("/"))
 
 
 def _launcher_path_templates() -> dict[str, tuple[tuple[str, ...], ...]]:
-    """Expand the launcher's install-path table to manifest-comparable form.
-
-    Launcher templates use ``{APP}`` and ``{HOME}`` tokens (branding —
-    the launcher must never hardcode the app name); the manifest
-    documents the same paths with the literal product name and ``~``.
-    APP_NAME is resolved at test time and substituted so both sides
-    compare component-for-component.
-    """
-    # Import inside the test: tests/conftest.py's autouse
+    """Expand the launcher's install-path table to manifest-comparable form."""
     # ``mock_heavy_imports`` fixture must be active so the launcher
-    # imports cleanly even in the workflow gate's minimal pytest env.
     import voice_typer.server.autostart_launcher as launcher
     from voice_typer.server.branding import APP_NAME
 
@@ -616,11 +354,7 @@ def _launcher_path_templates() -> dict[str, tuple[tuple[str, ...], ...]]:
 
 
 def _manifest_install_path_templates() -> dict[str, tuple[tuple[str, ...], ...]]:
-    """Group the manifest's ``_install_paths`` by OS platform key.
-
-    The manifest is keyed by binary name; the platform is derived from
-    the key suffix (``.exe`` → windows, ``.app`` → macos, else linux).
-    """
+    """Group the manifest's ``_install_paths`` by OS platform key."""
     out: dict[str, tuple[tuple[str, ...], ...]] = {}
     for key, entry in _manifest()["binaries"].items():
         if key.endswith(".exe"):
@@ -637,15 +371,7 @@ class TestLauncherInstallPathsMatchManifest:
     """``autostart_launcher`` discovery ↔ ``tauri-binaries.json`` ``_install_paths``."""
 
     def test_launcher_candidates_exactly_match_manifest_paths(self) -> None:
-        """The launcher's per-OS candidate lists must EQUAL the manifest's.
-
-        Order-sensitive: the launcher checks ``%LOCALAPPDATA%`` before
-        ``%PROGRAMFILES%`` on Windows (NSIS ``installMode=currentUser``
-        default), and the manifest's ``_install_paths`` document the same
-        priority. A drift in either direction means either the integrity
-        gate hashes something CI never recorded, or the launcher never
-        finds a legitimately installed binary.
-        """
+        """The launcher's per-OS candidate lists must EQUAL the manifest's."""
         launcher_side = _launcher_path_templates()
         manifest_side = _manifest_install_path_templates()
 
@@ -663,13 +389,7 @@ class TestLauncherInstallPathsMatchManifest:
             )
 
 
-# ─── Pair 8: per-arch config overrides ↔ base tauri.conf.json ─────────────
-
-
 # Per-arch config file → (platform, build triples it serves). The test
-# below asserts this set EXACTLY matches the per-arch config files on
-# disk, enabling a new arch (e.g. the commented windows-aarch64 leg,
-# TX-40) requires registering its config here.
 PER_ARCH_CONFIGS: dict[str, tuple[str, tuple[str, ...]]] = {
     "tauri.windows-x86_64.conf.json": ("windows", ("x86_64-pc-windows-msvc",)),
     "tauri.windows-aarch64.conf.json": ("windows", ("aarch64-pc-windows-msvc",)),
@@ -683,13 +403,7 @@ PER_ARCH_CONFIGS: dict[str, tuple[str, tuple[str, ...]]] = {
 
 
 def _resource_relevant(resource: str, platform: str, triples: set[str]) -> bool:
-    """True if ``resource`` (from the base config) matters to the platform.
-
-    The base ``bundle.resources`` is a documented CROSS-platform
-    superset; a per-arch override must keep every base entry that this
-    platform/arch actually ships (the override REPLACES the base array,
-    so dropping one silently unbundles it).
-    """
+    """True if ``resource`` (from the base config) matters to the platform."""
     name = resource.split("/")[-1]
     if resource == "icons/tray/":
         return True
@@ -709,9 +423,6 @@ def _resource_relevant(resource: str, platform: str, triples: set[str]) -> bool:
 
 def _per_arch_configs_on_disk() -> set[str]:
     # ``tauri.dev.conf.json`` is the dev-mode override (C-TDEV-1: blanks
-    # ``build.beforeDevCommand`` for the ``tauri dev`` CLI's CWD), it is
-    # NOT a per-arch build config (no platform/triple semantics, never
-    # merged by a CI ``--config`` build) and must stay out of this set.
     return {
         p.name for p in SRC_TAURI.glob("tauri.*.conf.json") if p.name not in ("tauri.conf.json", "tauri.dev.conf.json")
     }
@@ -721,12 +432,7 @@ class TestPerArchConfigsStayLockedToBase:
     """Per-arch ``--config`` overrides ↔ the base ``tauri.conf.json``."""
 
     def test_no_unregistered_per_arch_config_files(self) -> None:
-        """Every per-arch config on disk must be registered in this test.
-
-        A new override file (e.g. ``tauri.windows-aarch64.conf.json``
-        when the TX-40 leg is enabled) that nobody guards could silently
-        drop the sidecar or a native listener for that arch.
-        """
+        """Every per-arch config on disk must be registered in this test."""
         on_disk = _per_arch_configs_on_disk()
         registered = set(PER_ARCH_CONFIGS)
         assert on_disk == registered, (
@@ -750,13 +456,7 @@ class TestPerArchConfigsStayLockedToBase:
             )
 
     def test_per_arch_config_keeps_platform_relevant_base_resources(self) -> None:
-        """Every base resource relevant to the platform must be kept.
-
-        A per-arch override REPLACES the base ``resources`` array, so a
-        dropped key-listener / prewarm / tray entry would ship silently
-        without this guard (CI's source-inspection tests read the BASE
-        config and stay green).
-        """
+        """Every base resource relevant to the platform must be kept."""
         base_resources = _tauri_conf()["bundle"]["resources"]
         for rel, (platform, triples) in PER_ARCH_CONFIGS.items():
             cfg = json.loads((SRC_TAURI / rel).read_text(encoding="utf-8"))
@@ -786,18 +486,7 @@ class TestPerArchConfigsStayLockedToBase:
             )
 
     def test_per_arch_main_window_keeps_create_false(self) -> None:
-        """Overrides declaring ``app.windows`` must keep ``main`` manual.
-
-        The host builds the ``main`` window itself inside ``.setup``
-        (``window_bootstrap::bootstrap_main_window``) so the frame can
-        stay platform-conditional. The base ``tauri.conf.json`` declares
-        it with ``"create": false``; a per-arch ``--config`` override
-        REPLACES the ``windows`` array, so a ``main`` entry without
-        ``create: false`` is auto-created by the framework AND built
-        again in setup → ``WebviewLabelAlreadyExists("main")`` panic
-        (exit 101) on every launch of the shipped bundle (found via the
-        windows-11-arm emulation run: sidecar gate passed, host died).
-        """
+        """Overrides declaring ``app.windows`` must keep ``main`` manual."""
         base_windows = {w["label"]: w for w in _tauri_conf()["app"]["windows"]}
         assert base_windows["main"].get("create") is False
         for rel, (platform, _triples) in PER_ARCH_CONFIGS.items():
@@ -813,16 +502,8 @@ class TestPerArchConfigsStayLockedToBase:
             )
 
 
-# ─── Pair 9b: bubble window url must be bubble.html ───────────────────────
-
-
 def _configs_declaring_bubble() -> list[tuple[str, dict]]:
-    """Every Tauri config on disk that declares a ``bubble`` window.
-
-    Glob-discovered so a future arch config is covered automatically;
-    configs without a bubble entry (linux overrides, the dev override)
-    are skipped.
-    """
+    """Every Tauri config on disk that declares a ``bubble`` window."""
     found: list[tuple[str, dict]] = []
     for path in sorted(SRC_TAURI.glob("tauri*.conf.json")):
         cfg = json.loads(path.read_text(encoding="utf-8"))
@@ -833,14 +514,7 @@ def _configs_declaring_bubble() -> list[tuple[str, dict]]:
 
 
 class TestBubbleWindowLoadsBubbleHtml:
-    """The bubble window must load ``bubble.html``, not ``index.html``.
-
-    Tauri v2 resolves a window with no ``url`` to ``index.html``. The
-    bubble is a 240x80 transparent overlay (``bubble.html`` →
-    ``bubble-main.tsx``); the dashboard is ``index.html`` → ``main.tsx``.
-    Without an explicit ``url`` every config shipped the MAIN app inside
-    the bubble frame (titlebar, sidebar, "Retry Connection").
-    """
+    """The bubble window must load ``bubble.html``, not ``index.html``."""
 
     def test_base_config_bubble_url_is_bubble_html(self) -> None:
         windows = {w["label"]: w for w in _tauri_conf()["app"]["windows"]}
@@ -870,16 +544,7 @@ class TestBubbleWindowLoadsBubbleHtml:
         assert windows["main"].get("url") in (None, "index.html"), "main window must not point at bubble.html"
 
     def test_renderer_build_emits_bubble_html(self) -> None:
-        """``vite.tauri.config.ts`` must emit bubble.html as a page input.
-
-        The production frontend build (``npm run build:renderer``) is
-        the same script ``tauri.conf.json`` beforeDevCommand /
-        beforeBuildCommand runs; without a ``bubble`` rollup input the
-        config's ``"url": "bubble.html"`` 404s in the packaged app.
-        Post-predecessor cutover the renderer build is Vite via
-        ``vite.tauri.config.ts`` (the predecessor vite renderer config is
-        gone).
-        """
+        """``vite.tauri.config.ts`` must emit bubble.html as a page input."""
         src = (PROJECT_ROOT / "voice_typer" / "client" / "vite.tauri.config.ts").read_text(encoding="utf-8")
         assert "bubble.html" in src, (
             "vite.tauri.config.ts must list bubble.html as a rollup "
@@ -889,16 +554,7 @@ class TestBubbleWindowLoadsBubbleHtml:
 
 
 class TestBubbleWindowHasNoShadow:
-    """The bubble window must ship with ``shadow: false``.
-
-    Tauri v2 ``WindowConfig.shadow`` defaults to ``true``. On an
-    UNDECORATED window on Windows, a enabled shadow renders a 1px white
-    border (rounded-corner variant on Windows 11) — exactly the light
-    outer frame the user sees around the pill. the predecessor's bubble sets
-    ``hasShadow: false`` (``client/src/main/windows/bubble/lifecycle.ts``).
-    The pill's own ``border-border/5`` (Bubble.tsx) is the shared
-    unified-border design system and is NOT the cause — do not restyle it.
-    """
+    """The bubble window must ship with ``shadow: false``."""
 
     def test_base_config_bubble_shadow_is_false(self) -> None:
         windows = {w["label"]: w for w in _tauri_conf()["app"]["windows"]}
@@ -927,16 +583,7 @@ class TestBubbleWindowHasNoShadow:
         assert windows["main"].get("shadow") is not False, "main window is decorated; do not disable its shadow"
 
     def test_show_bubble_window_does_not_call_set_focus(self) -> None:
-        """Focus-steal audit (secondary): the show path must not grab focus.
-
-        the predecessor's bubble is ``focusable: false``. Tauri's
-        ``WindowConfig.focusable`` defaults to ``true``. The show path
-        (``show_bubble_window``) only calls ``window.show()`` and
-        ``set_position`` — it never calls ``set_focus``. Whether
-        ``show()`` alone activates a focusable window on this host is a
-        VALIDATE-ON-HOST question; until a live focus-steal is observed
-        we do NOT add ``"focusable": false`` (no hunch changes).
-        """
+        """Focus-steal audit (secondary): the show path must not grab focus."""
         src = (SRC_TAURI / "src" / "commands" / "bubble" / "window.rs").read_text(encoding="utf-8")
         # Isolate the show function body.
         start = src.find("pub(crate) fn show_bubble_window")
@@ -949,13 +596,7 @@ class TestBubbleWindowHasNoShadow:
         )
 
 
-# ─── Pair 10: version lockstep across every layer ──────────────────────────
-
-
 # The files that MUST carry the identical version string, with a reader
-# for each. ``pyproject.toml`` is the single source of truth (the release
-# tooling bumps it first and sync_versions.py propagates: see Pair 11);
-# the runtime/installer layers must never drift from it.
 VERSIONED_FILES: dict[str, Path] = {
     "pyproject.toml": PROJECT_ROOT / "pyproject.toml",
     "voice_typer/client/package.json": PROJECT_ROOT / "voice_typer" / "client" / "package.json",
@@ -974,8 +615,7 @@ def _read_pyproject_version(path: Path) -> str:
 
 
 def _is_git_tracked(path: Path) -> bool:
-    """True if ``path`` is committed (feed artifacts must be pinned in git,
-    not floating in an ignored dist/ dir)."""
+    """True if ``path`` is committed (feed artifacts must be pinned in git,"""
     result = __import__("subprocess").run(
         ["git", "ls-files", "--error-unmatch", path.relative_to(PROJECT_ROOT).as_posix()],
         capture_output=True,
@@ -990,15 +630,7 @@ def _read_cargo_version(path: Path) -> str:
 
 
 class TestVersionLockstep:
-    """One version across pyproject / package.json / Tauri host / installer.
-
-    The release tooling (Pair 11) edits ``pyproject.toml`` and runs
-    ``sync_versions.py --apply``; a version bump that touches only ONE
-    file (hand-edited package.json, or a direct tauri.conf.json edit
-    that bypasses the sync script) breaks the lockstep HERE, every CI
-    surface (Tauri workflows' fail-fast gates, CI pytest) fails
-    instead of shipping mismatched app/installer metadata.
-    """
+    """One version across pyproject / package.json / Tauri host / installer."""
 
     def test_all_versioned_files_agree(self) -> None:
         """Every versioned file must carry the pyproject.toml version."""
@@ -1019,14 +651,10 @@ class TestVersionLockstep:
             )
 
 
-# ─── Pair 11: release bump workflow touches all versioned files ────────────
-
-
 RELEASING_MD = PROJECT_ROOT / "RELEASING.md"
 SYNC_VERSIONS_SCRIPT = PROJECT_ROOT / "scripts" / "build" / "sync_versions.py"
 
 # The files a release bump MUST land in the SAME commit (the different
-# layers' metadata would otherwise display three versions).
 BUMP_COMMIT_FILES = (
     "voice_typer/client/package.json",
     "src-tauri/Cargo.toml",
@@ -1035,13 +663,7 @@ BUMP_COMMIT_FILES = (
 
 
 class TestReleaseBumpWorkflow:
-    """The documented bump flow must touch every versioned file at once.
-
-    ``RELEASING.md`` is the runbook a human follows on release day; if a
-    doc review edits the bump instructions to commit only package.json
-    (or the sync script drops a layer), the Pair-10 lockstep silently
-    dies mid-release. This pins the WORKFLOW contract itself.
-    """
+    """The documented bump flow must touch every versioned file at once."""
 
     def test_releasing_md_bump_commit_adds_all_versioned_files(self) -> None:
         """The release-bump ``git add`` must cover every versioned file."""
@@ -1070,7 +692,6 @@ class TestReleaseBumpWorkflow:
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
         # The script's module constants are Paths; assert each release-bump
-        # target is the exact path this test's VERSIONED_FILES expects.
         expected_targets = {
             "PACKAGE_JSON": VERSIONED_FILES["voice_typer/client/package.json"],
             "TAURI_CONF_JSON": VERSIONED_FILES["src-tauri/tauri.conf.json"],
@@ -1083,8 +704,6 @@ class TestReleaseBumpWorkflow:
                 "(release-bump drift, a bump that runs --apply would NOT "
                 "touch the expected file)."
             )
-        # collect_versions() must actually feed the pyproject version into
-        # every one of those files (read-side coverage of the lockstep).
         versions = module.collect_versions()
         for rel in ("voice_typer/client/package.json", "src-tauri/tauri.conf.json", "src-tauri/Cargo.toml"):
             assert versions.get(rel) == versions["pyproject.toml"], (
@@ -1093,31 +712,13 @@ class TestReleaseBumpWorkflow:
             )
 
 
-# ─── Pair 12: update feed version ↔ tauri.conf.json ────────────────────────
-
-
 class TestUpdateFeedParity:
-    """Any committed update feed must carry tauri.conf.json's version.
-
-    ADR-0020 §15 pins NO auto-update wiring: the predecessor ``publish:``
-    block was removed and no Tauri ``plugins.updater`` configuration
-    exists, so no feed manifest is committed today. The contract pinned
-    here is the FORWARD GUARD: the moment any ``latest.json`` /
-    ``latest.yml`` feed record IS committed (a Tauri static updater
-    feed), its ``version`` MUST equal ``src-tauri/tauri.conf.json``'s, the updater
-    must never reference a release version that drifts from the app's
-    own version, or clients would be rolled to a mismatched binary.
-    """
+    """Any committed update feed must carry tauri.conf.json's version."""
 
     FEED_PATTERNS = ("**/latest.json", "**/latest.yml")
 
     def test_committed_feed_manifests_match_tauri_conf_version(self) -> None:
-        """Every git-tracked feed manifest's version == tauri.conf.json's.
-
-        Vacuously passes while no feed is committed (ADR-0020 §15 no
-        auto-update); fails the moment a feed artifact is committed with
-        a drifted version.
-        """
+        """Every git-tracked feed manifest's version == tauri.conf.json's."""
         expected = _read_json_version(VERSIONED_FILES["src-tauri/tauri.conf.json"])
         feeds = [path for pattern in self.FEED_PATTERNS for path in PROJECT_ROOT.glob(pattern) if _is_git_tracked(path)]
         for feed in feeds:
@@ -1152,52 +753,10 @@ class TestUpdateFeedParity:
             )
 
 
-# ─── Pair 13: reverse-DNS identifier namespace guard ────────────────────
-
-
 class TestReverseDnsIdentifierNamespace:
-    """Every OS-level identifier the app REGISTERS must live in the
+    """
     canonical ``com.voicetyper.*`` reverse-DNS namespace.
-
-    The Windows autostart/prewarm identifiers were RENAMED from the bare
-    ``VoiceTyper*`` forms (Run key ``VoiceTyper_<hash>``, Task Scheduler
-    tasks ``VoiceTyperAutostart<hash>`` / ``VoiceTyperPrewarm``,
-    Startup-folder ``VoiceTyper*.bat``, completion event
-    ``Local\\VoiceTyperPrewarmCompletion_<pid>``) to the canonical
-    namespace. These source pins flag a drift BACK to a bare name (or to
-    any NON ``com.voicetyper.*`` name) at the source level, the same
-    failure mode the uninstall-script sweeps and the
-    ``platform_win32_test`` hash-suffix tests miss (those only verify
-    the entries are swept/registered, not what they're NAMED).
-
-    (Wave 3, 2026-08-14): the ``task_scheduler.py`` pin block
-    (``TASK_NAME = "com.voicetyper.prewarm"`` +
-    ``_LEGACY_TASK_NAME = "VoiceTyperPrewarm"``) was REMOVED —
-    prewarm became a worker startup phase (master plan §6.2 P-1),
-    so ``task_scheduler.py`` no longer carries any prewarm-related
-    constants (the file was reduced from 977 → 285 LOC, keeping only
-    the ``_schtasks`` / ``_schtasks_elevated`` / ``is_supported``
-    autostart helpers + ``_APP_AUTOSTART_DELAY_SECONDS``). The
-    ``server_platform/__init__.py`` + ``autostart_windows.py`` pins
-    below remain in force (they pin the app autostart identifiers,
-    which still exist).
-
-    Explicit allowlist, bare ``VoiceTyper*`` forms that are
     INTENTIONAL and must NOT be renamed (do not extend without
-    reviewing the item):
-
-    - ``_LEGACY_KEYRING_SERVICE_NAMES = ("app.voicetyper", "voice-typer")``
-      (credential_store/_schema.py), keyring migration sources
-      (migrated once, then deleted).
-    - ``Local\\VoiceTyperSingleInstance`` mutex (single_instance.py) —
-      internal OS/API identifier; AGENTS.md explicitly permits
-      internal identifiers to keep their names. Same for the
-      ``VoiceTyper.exe`` installer binary name.
-    - Sweep/cleanup strings that MUST match both forms: the
-      ``("VoiceTyper", "com.voicetyper")`` prefix tuples,
-      ``'VoiceTyper*','com.voicetyper*'`` PowerShell union, and the
-      ``autostart-sweep-v2-<hash>.done`` marker (which must stay
-      version-scoped so pre-rename installs re-sweep once).
     """
 
     def test_windows_autostart_and_prewarm_identifiers_are_reverse_dns(self) -> None:
@@ -1210,38 +769,16 @@ class TestReverseDnsIdentifierNamespace:
                 'return f"com.voicetyper.autostart_{_autostart_mod._install_hash()}"',
                 'return f"com.voicetyper.autostart{_autostart_mod._install_hash_suffix()}.bat"',
             ],
-            # The runkey mechanism (register-time stale-cleanup matching
-            # BOTH schemes, legacy entries from pre-rename installs)
-            # moved into its submodule; the pin follows the moved
-            # literal.
             "voice_typer/server/server_platform/_autostart_windows_runkey.py": [
                 'name.startswith(("VoiceTyper", "com.voicetyper"))',
             ],
-            # The autostart_windows facade was split into mechanism
-            # submodules; the uninstall sweep + legacy-sweep markers
-            # moved into theirs, the pins follow the moved literals.
             "voice_typer/server/server_platform/_autostart_windows_uninstall.py": [
-                # Uninstaller sweeps must match BOTH schemes: the
-                # PowerShell wildcard union for Task Scheduler entries
-                # and the name-prefix tuple for HKCU Run keys.
                 "\"Get-ScheduledTask -TaskName 'VoiceTyper*','com.voicetyper*' \"",
                 'name.startswith(("VoiceTyper", "com.voicetyper"))',
             ],
             "voice_typer/server/server_platform/_autostart_windows_sweep.py": [
                 'f"autostart-sweep-v2-{_autostart_mod._install_hash()}.done"',
             ],
-            # NOTE: voice_typer/server/prewarm/completion_events.py was DELETED
-            # 2026-08-13, prewarm became a worker startup phase (Option P-1,
-            # plan-runtime-pack-split §6.2). The prewarm_completion event
-            # namespace is no longer used.
-            #
-            # NOTE: voice_typer/server/task_scheduler.py no longer carries
-            # ``TASK_NAME`` / ``_LEGACY_TASK_NAME`` constants (Wave 3,
-            # 2026-08-14), prewarm became a worker startup phase, so
-            # task_scheduler.py was reduced to the autostart-only helpers
-            # (_schtasks / _schtasks_elevated / is_supported /
-            # _APP_AUTOSTART_DELAY_SECONDS). The reverse-DNS pin for the
-            # Windows autostart identifiers above remains in force.
         }
         for rel, expected in pins.items():
             text = (PROJECT_ROOT / rel).read_text(encoding="utf-8")
@@ -1256,13 +793,7 @@ class TestReverseDnsIdentifierNamespace:
                 )
 
     def test_posix_labels_and_keyring_service_name_are_reverse_dns(self) -> None:
-        """macOS LaunchAgent labels + keyring service name stay reverse-DNS.
-
-        NOTE: voice_typer/server/prewarm_scheduler_posix.py was DELETED
-        2026-08-13, prewarm became a worker startup phase (Option P-1,
-        plan-runtime-pack-split §6.2). The macOS LaunchAgent for prewarm
-        is gone; the autostart_macos + keyring pins below remain in force.
-        """
+        """macOS LaunchAgent labels + keyring service name stay reverse-DNS."""
         pins = {
             "voice_typer/server/server_platform/autostart_macos.py": "<string>com.voicetyper</string>",
             "voice_typer/server/credential_store/_schema.py": 'KEYRING_SERVICE_NAME = "com.voicetyper.keyring"',
@@ -1273,9 +804,7 @@ class TestReverseDnsIdentifierNamespace:
             )
 
     def test_polkit_action_stays_reverse_dns(self) -> None:
-        """The install-permissions polkit action is com.voicetyper.* (both
-        the source that surfaces it and the installer scripts that deploy
-        the policy file must agree on the name)."""
+        """The install-permissions polkit action is com.voicetyper.* (both"""
         for rel in (
             "voice_typer/server/handlers/system_handlers.py",
             "scripts/linux/install_permissions.py",
@@ -1289,9 +818,7 @@ class TestReverseDnsIdentifierNamespace:
             )
 
     def test_legacy_keyring_names_pinned(self) -> None:
-        """Migration sources are allowlisted AS-IS, a rename breaks the
-        one-time keyring migration (credentials would be re-migrated or
-        orphaned)."""
+        """orphaned)."""
         text = (PROJECT_ROOT / "voice_typer/server/credential_store/_schema.py").read_text(encoding="utf-8")
         assert '_LEGACY_KEYRING_SERVICE_NAMES: tuple[str, ...] = ("app.voicetyper", "voice-typer")' in text, (
             "credential_store/_schema.py legacy keyring service names drifted, they "
@@ -1299,9 +826,7 @@ class TestReverseDnsIdentifierNamespace:
         )
 
     def test_single_instance_mutex_keeps_its_bare_name(self) -> None:
-        """AGENTS.md boundary: the mutex is an internal OS/API
-        identifier, explicitly permitted to keep the bare name, flagging
-        a rename in EITHER direction (to or from bare) is intentional."""
+        """AGENTS.md boundary: the mutex is an internal OS/API"""
         text = (PROJECT_ROOT / "voice_typer/server/single_instance.py").read_text(encoding="utf-8")
         assert "VoiceTyperSingleInstance" in text, (
             "single_instance.py must keep the 'VoiceTyperSingleInstance' "
@@ -1314,11 +839,7 @@ class TestReverseDnsIdentifierNamespace:
         )
 
     def test_sweep_marker_stays_version_scoped(self) -> None:
-        """The once-per-install legacy-sweep marker must be version-scoped
-        (``-v2-``) so installs that already ran the pre-rename sweep
-        re-sweep exactly once after the namespace rename. The marker
-        path helper lives in the ``_autostart_windows_sweep`` mechanism
-        submodule (split out of the ``autostart_windows`` facade)."""
+        """The once-per-install legacy-sweep marker must be version-scoped"""
         text = (PROJECT_ROOT / "voice_typer/server/server_platform/_autostart_windows_sweep.py").read_text(
             encoding="utf-8"
         )
@@ -1331,14 +852,7 @@ class TestReverseDnsIdentifierNamespace:
 
 
 def test_persisted_position_bound_matches_server_allowlist():
-    """The Rust durable-bubble-position fallback range must mirror the
-    server's ``bubble_x``/``bubble_y`` allowlist bounds.
-
-    ``persisted_position.rs::position_on_any_monitor`` falls back to a
-    sanity range when monitor enumeration fails; that range is a
-    hand-mirrored copy of the server-side allowlist bound. This pin
-    keeps the two in lockstep, widen one, widen both.
-    """
+    """server's ``bubble_x``/``bubble_y`` allowlist bounds."""
     allowlist = (PROJECT_ROOT / "voice_typer/server/config_validators/allowlist.py").read_text(encoding="utf-8")
     bounds = re.findall(
         r'"bubble_[xy]": \(\(int, type\(None\)\), '

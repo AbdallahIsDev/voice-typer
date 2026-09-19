@@ -1,26 +1,4 @@
-"""RW-9 regression tests for the ``SettingsController`` extraction.
-
-The four settings-side-effect methods (``_toggle_autostart``,
-``_set_autostart``, ``_set_notifications``, ``_select_microphone``)
-were extracted from ``VoiceTyperApp`` to
-``voice_typer/server/settings_controller.py``. ``VoiceTyperApp`` keeps
-thin delegate methods so tray menu callbacks (and tests calling
-``app._select_microphone`` directly) keep working unchanged.
-
-These tests pin the contract of the extraction:
-
-1. ``SettingsController`` is wired into ``VoiceTyperApp.__init__`` as
-   ``self.settings``.
-2. Each delegate method on ``VoiceTyperApp`` calls the corresponding
-   ``SettingsController`` method.
-3. ``SettingsController.set_autostart`` reads
-   ``enable_autostart`` / ``disable_autostart`` dynamically from
-   ``voice_typer.server.app`` (so the existing monkeypatch pattern in
-   ``tests/test_app.py:app`` fixture keeps working).
-4. ``SettingsController.select_microphone`` recreates ``app.recorder``
-   when no recording is in progress, but defers when recording is
-   active (preserves pre-extraction behaviour).
-"""
+"""RW-9 regression tests for the ``SettingsController`` extraction."""
 
 from __future__ import annotations
 
@@ -31,11 +9,7 @@ import pytest
 
 @pytest.fixture
 def app_for_settings(tmp_config_dir, monkeypatch):
-    """Create a VoiceTyperApp with mocked dependencies for settings tests.
-
-    Mirrors the ``app`` fixture in ``tests/test_app.py`` but kept local
-    so this file is self-contained.
-    """
+    """Create a VoiceTyperApp with mocked dependencies for settings tests."""
     monkeypatch.setattr("voice_typer.server.server_platform.autostart.is_autostart_enabled", lambda: False)
     monkeypatch.setattr("voice_typer.server.server_platform.autostart.enable_autostart", lambda: True)
     monkeypatch.setattr("voice_typer.server.server_platform.autostart.disable_autostart", lambda: True)
@@ -66,12 +40,9 @@ class TestSettingsControllerWiring:
         )
 
     def test_settings_controller_back_references_app(self, app_for_settings):
-        """SettingsController must hold a back-reference to the app.
-
-          RW-9 Phase 6 contract: the controller reads/writes app state via
-          ``self._app.config`` / ``self._app.tray`` / ``self._app.recorder``
-        , same attribute surface the original ``VoiceTyperApp`` methods
-          used via ``self``.
+        """
+        SettingsController must hold a back-reference to the app.
+        RW-9 Phase 6 contract: the controller reads/writes app state via
         """
         assert app_for_settings.settings._app is app_for_settings, (
             "SettingsController._app must be the VoiceTyperApp instance that "
@@ -80,8 +51,7 @@ class TestSettingsControllerWiring:
 
 
 class TestSettingsControllerDelegates:
-    """Each VoiceTyperApp delegate method must call the corresponding
-    SettingsController method, no inline logic should remain on the app."""
+    """Each VoiceTyperApp delegate method must call the corresponding"""
 
     def test_toggle_autostart_delegates(self, app_for_settings, monkeypatch):
         called = []
@@ -124,17 +94,13 @@ class TestSettingsControllerDelegates:
 
 
 class TestSettingsControllerSetAutostart:
-    """``SettingsController.set_autostart`` must read platform helpers
-    dynamically from ``voice_typer.server.app`` so the existing
-    monkeypatch pattern in tests/test_app.py:app fixture keeps working."""
+    """``SettingsController.set_autostart`` must read platform helpers"""
 
     def test_set_autostart_true_enables_and_saves(self, app_for_settings, monkeypatch):
         enable_called = []
         disable_called = []
 
         # Re-monkeypatch the platform helpers (the app fixture already
-        # patches them; here we use recorders to verify the controller
-        # actually calls them).
         monkeypatch.setattr(
             "voice_typer.server.server_platform.autostart.enable_autostart",
             lambda: enable_called.append(True),
@@ -175,8 +141,7 @@ class TestSettingsControllerSetAutostart:
         app_for_settings.tray.set_autostart_enabled.assert_called_once_with(False)
 
     def test_set_autostart_handles_exception_via_tray_notify(self, app_for_settings, monkeypatch):
-        """If enable_autostart raises, set_autostart must NOT re-raise —
-        it must log + notify the user via the tray."""
+        """If enable_autostart raises, set_autostart must NOT re-raise —"""
 
         def _boom():
             raise RuntimeError("permission denied")
@@ -217,13 +182,9 @@ class TestSettingsControllerSetNotifications:
 
 
 class TestSettingsControllerSelectMicrophone:
-    """``SettingsController.select_microphone`` updates config + recorder.
-
-    Behaviour:
-      - If a recording is in progress: do NOT recreate the recorder
-        (would truncate the in-flight audio). Notify the user the
-        change applies on the next recording.
-      - If no recording: recreate the Recorder with the new mic config.
+    """
+    ``SettingsController.select_microphone`` updates config + recorder.
+    - If a recording is in progress: do NOT recreate the recorder
     """
 
     def test_select_microphone_updates_config(self, app_for_settings):
@@ -249,7 +210,6 @@ class TestSettingsControllerSelectMicrophone:
         old_recorder = app_for_settings.recorder
 
         # Stub Recorder so we can capture the constructor call without
-        # actually constructing a real one (which needs sounddevice).
         captured_kwargs = []
 
         from voice_typer.server import settings_controller as sc_mod
@@ -304,9 +264,7 @@ class TestSettingsControllerSelectMicrophone:
 
 
 class TestSettingsControllerToggleAutostart:
-    """``SettingsController.toggle_autostart`` reads
-    ``is_autostart_enabled()`` dynamically from ``voice_typer.server.app``
-    and delegates to ``set_autostart``."""
+    """``SettingsController.toggle_autostart`` reads"""
 
     def test_toggle_when_disabled_enables(self, app_for_settings, monkeypatch):
         monkeypatch.setattr("voice_typer.server.server_platform.autostart.is_autostart_enabled", lambda: False)

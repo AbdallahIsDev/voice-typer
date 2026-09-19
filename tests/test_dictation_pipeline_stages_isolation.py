@@ -1,12 +1,4 @@
-"""Stage-list isolation between dictation pipelines.
-
-``dictation_stages.build_default_stages`` promises "a fresh list so
-callers can mutate (insert/remove stages) without affecting other
-pipelines". The orchestrator builds the 11-stage template once and
-every ``DictationPipeline`` instance must receive its OWN list copy —
-a shared mutable list would let one pipeline's (or test's)
-insert/remove corrupt every other pipeline's run loop.
-"""
+"""Stage-list isolation between dictation pipelines."""
 
 from __future__ import annotations
 

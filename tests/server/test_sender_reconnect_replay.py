@@ -1,27 +1,4 @@
-"""``ipc/sender.py`` reconnect + replay coverage tests.
-
-The ``OutputMixin._send`` method (in ``voice_typer/server/ipc/sender.py``)
-manages a pending-event buffer (``_pending_tcp``) that accumulates push
-events while the TCP client is disconnected. On reconnect, the buffer is
-drained (replayed) to the new client in a batched ``sendall``.
-
-Coverage areas:
-
-1. **Queue accumulation during disconnect**, push events while no client
-   is connected are buffered in ``_pending_tcp``.
-2. **Batched replay on reconnect**, when a client connects, the queued
-   messages are drained in a single batch (FIFO order).
-3. **Max replay count cap**, at most ``_TCP_PENDING_DRAIN_CAP`` (100)
-   entries are drained per ``_send`` call; older entries are re-merged.
-4. **Drop oldest on overflow**: ``_pending_tcp`` is capped at
-   ``_TCP_PENDING_BUFFER_CAP`` (1000); the oldest entries are dropped
-   when the cap is exceeded.
-5. **Write buffer reset on socket replacement**, when a drain fails
-   mid-way, ``_reset_write_buffer`` is called so partially-buffered
-   entries don't leak into the next ``_send`` call.
-
-Platform: runs on Linux. The send path is platform-agnostic.
-"""
+"""``ipc/sender.py`` reconnect + replay coverage tests."""
 
 from __future__ import annotations
 
@@ -42,30 +19,17 @@ from tests.fixtures.ipc_test_helpers import (  # noqa: E402
     make_buffered_mock_tcp_client,
 )
 
-# ─── Helpers ───────────────────────────────────────────────────────────
-
 
 def _make_server() -> IPCServer:
-    """Canonical bare send-path IPCServer fixture for ``_send`` tests.
-
-    ``send_path=True`` initializes exactly the instance state
-    ``_send`` touches (locks, ``_PendingBuffer`` pending queue with the
-    production 1000-entry cap, TCP mode flags) without running
-    ``__init__`` (no threads / sockets).
-    """
+    """Canonical bare send-path IPCServer fixture for ``_send`` tests."""
     return make_bare_ipc_server(send_path=True)
 
 
-# ─── 1. queue accumulation during disconnect ─────────────────────────
-
-
 class TestQueueAccumulationDuringDisconnect:
-    """#1: when no TCP client is connected, push events accumulate
-    in ``_pending_tcp`` (bounded FIFO)."""
+    """#1: when no TCP client is connected, push events accumulate"""
 
     def test_push_events_queue_up_while_disconnected(self):
-        """While ``_tcp_client is None``, every ``push()`` / ``_send()``
-        call must append the serialized line to ``_pending_tcp``."""
+        """While ``_tcp_client is None``, every ``push()`` / ``_send()``"""
         server = _make_server()
         server._tcp_client = None
         server._pending_tcp.clear()
@@ -83,35 +47,20 @@ class TestQueueAccumulationDuringDisconnect:
         assert last["data"]["i"] == 4, f"FIFO: last queued event should be i=4; got {last}"
 
     def test_no_sendall_while_disconnected(self):
-        """While disconnected, ``_send`` must NOT attempt any socket
-        writes, the event is purely buffered."""
+        """While disconnected, ``_send`` must NOT attempt any socket"""
         server = _make_server()
         server._tcp_client = None
         server._pending_tcp.clear()
 
-        # We can't easily assert "no sendall" without a mock client (which
-        # would imply a connected client). Instead, assert the buffer grew
-        # and no exception was raised.
         server.push({"type": "test"})
         assert len(server._pending_tcp) == 1
 
 
-# ─── 2. batched replay on reconnect ──────────────────────────────────
-
-
 class TestBatchedReplayOnReconnect:
-    """#2: when a client reconnects, the queued messages are drained
-    in a single batched ``sendall`` (not one per entry)."""
+    """#2: when a client reconnects, the queued messages are drained"""
 
     def test_queued_messages_drained_on_reconnect(self):
-        """When a client connects (``_tcp_client`` is set) and there are
-        pending entries in ``_pending_tcp``, the next ``_send`` call must:
-
-        1. Drain ALL pending entries (in FIFO order) + the new message.
-        2. Issue a single batched ``sendall`` for the drain (not one per
-           entry).
-        3. Clear ``_pending_tcp`` after the drain.
-        """
+        """When a client connects (``_tcp_client`` is set) and there are"""
         server = _make_server()
         server._pending_tcp.clear()
 
@@ -137,9 +86,6 @@ class TestBatchedReplayOnReconnect:
 
         sent_types = [json.loads(line)["type"] for line in sent_lines]
         # The new message is written FIRST (via ``tcp_client.write(line_bytes)``
-        # + ``flush()``), then the pending entries are drained. This is the
-        # documented behavior: the current push event is delivered
-        # immediately, and the backlog follows it.
         assert sent_types == ["new_event", "queued", "queued", "queued"], (
             f"expected new_event first, then 3 queued (backlog drain); got {sent_types}"
         )
@@ -150,8 +96,7 @@ class TestBatchedReplayOnReconnect:
         )
 
     def test_replay_uses_single_sendall_for_batch(self):
-        """The drain must issue a SINGLE ``sendall`` for the whole batch
-        (not one per entry). This is the AB-37 batching optimization."""
+        """The drain must issue a SINGLE ``sendall`` for the whole batch"""
         server = _make_server()
         server._pending_tcp.clear()
 
@@ -165,24 +110,16 @@ class TestBatchedReplayOnReconnect:
         server.push({"type": "new"})
 
         # The drain must issue exactly 2 sendall calls: 1 for the new
-        # message (written + flushed first) + 1 for the whole 50-entry
-        # drain batch.
         assert tcp_client.conn.sendall.call_count == 2, (
             f"expected 2 sendall calls (1 new + 1 batched drain); got {tcp_client.conn.sendall.call_count}"
         )
 
 
-# ─── 3. max replay count cap ─────────────────────────────────────────
-
-
 class TestMaxReplayCountCap:
-    """#3: at most ``_TCP_PENDING_DRAIN_CAP`` (100) entries are
-    drained per ``_send`` call. Entries exceeding the cap are re-merged
-    into ``_pending_tcp`` for the next drain."""
+    """#3: at most ``_TCP_PENDING_DRAIN_CAP`` (100) entries are"""
 
     def test_only_last_100_entries_drained(self):
-        """When ``_pending_tcp`` has > 100 entries, only the last 100 are
-        drained; the older entries are re-merged."""
+        """When ``_pending_tcp`` has > 100 entries, only the last 100 are"""
         server = _make_server()
         server._pending_tcp.clear()
 
@@ -212,23 +149,15 @@ class TestMaxReplayCountCap:
         assert len(sent_lines) == 101, f"expected 101 sent lines (100 recent + 1 new); got {len(sent_lines)}"
 
     def test_drain_cap_constant(self):
-        """Sanity: ``_TCP_PENDING_DRAIN_CAP`` must be 100 (the documented
-        cap for batched drain per ``_send`` call)."""
+        """Sanity: ``_TCP_PENDING_DRAIN_CAP`` must be 100 (the documented"""
         assert _TCP_PENDING_DRAIN_CAP == 100, f"_TCP_PENDING_DRAIN_CAP must be 100; got {_TCP_PENDING_DRAIN_CAP}"
 
 
-# ─── 4. drop oldest on overflow ──────────────────────────────────────
-
-
 class TestDropOldestOnOverflow:
-    """#4: ``_pending_tcp`` is capped at ``_TCP_PENDING_BUFFER_CAP``
-    (1000). When the cap is exceeded, the OLDEST entries are dropped
-    (they are stale waveform-bubble events; transcription-final events
-    are in history_db)."""
+    """#4: ``_pending_tcp`` is capped at ``_TCP_PENDING_BUFFER_CAP``"""
 
     def test_oldest_dropped_when_buffer_cap_exceeded(self):
-        """When ``_pending_tcp`` exceeds 1000 entries, the oldest entries
-        are dropped so the buffer stays bounded."""
+        """When ``_pending_tcp`` exceeds 1000 entries, the oldest entries"""
         server = _make_server()
         server._tcp_client = None
         server._pending_tcp.clear()
@@ -246,7 +175,6 @@ class TestDropOldestOnOverflow:
         )
 
         # The oldest 50 entries (i=0..49) must have been dropped.
-        # The buffer should now contain i=50..1049 (the most recent 1000).
         first = json.loads(server._pending_tcp[0])
         last = json.loads(server._pending_tcp[-1])
         assert first["data"]["i"] == 50, (
@@ -259,27 +187,11 @@ class TestDropOldestOnOverflow:
         assert _TCP_PENDING_BUFFER_CAP == 1000, f"_TCP_PENDING_BUFFER_CAP must be 1000; got {_TCP_PENDING_BUFFER_CAP}"
 
 
-# ─── 5. write buffer reset on socket replacement ─────────────────────
-
-
 class TestWriteBufferResetOnSocketReplacement:
-    """#5: when a drain fails mid-way (e.g. broken pipe during the
-    batched ``sendall``), ``_reset_write_buffer`` must be called on the
-    tcp_client so partially-buffered entries don't leak into the next
-    ``_send`` call.
-
-    The drain-failure path:
-
-    1. The new message's ``write`` + ``flush`` succeeds (buffer cleared).
-    2. The drain loop buffers ``recent`` entries without flushing.
-    3. The batched ``flush()`` raises ``OSError`` (simulated broken pipe).
-    4. ``_reset_write_buffer`` is called to discard the buffered entries.
-    5. The undrained entries are re-merged into ``_pending_tcp``.
-    """
+    """tcp_client so partially-buffered entries don't leak into the next"""
 
     def test_reset_write_buffer_called_on_drain_failure(self):
-        """When the batched drain ``flush()`` raises ``OSError``,
-        ``_reset_write_buffer`` must be called on the tcp_client."""
+        """When the batched drain ``flush()`` raises ``OSError``,"""
         server = _make_server()
         server._pending_tcp.clear()
 
@@ -317,8 +229,6 @@ class TestWriteBufferResetOnSocketReplacement:
 
         server._send({"type": "test_event", "id": 7})
 
-        # _reset_write_buffer must have been called (the drain failed and
-        # the partially-buffered entries must be discarded).
         (
             tcp_client._reset_write_buffer.assert_called(),
             (
@@ -336,14 +246,11 @@ class TestWriteBufferResetOnSocketReplacement:
         )
 
     def test_write_buffer_cleared_on_successful_reconnect(self):
-        """When a new client connects (replacing an old one), the new
-        client's write buffer must start empty (no stale data from the
-        old client's buffer leaks through)."""
+        """When a new client connects (replacing an old one), the new"""
         server = _make_server()
         server._pending_tcp.clear()
 
         # First client: write some data, then disconnect (simulated by
-        # setting _tcp_client = None).
         first_client = make_buffered_mock_tcp_client()
         server._tcp_client = first_client
         server.push({"type": "first"})
@@ -360,15 +267,12 @@ class TestWriteBufferResetOnSocketReplacement:
         second_client = make_buffered_mock_tcp_client()
         server._tcp_client = second_client
 
-        # The new client's write buffer must start empty, no data from
-        # the first client should leak through.
         assert second_client.write.called is False, (
             "the new (replacement) client must start with an empty write "
             "buffer, no data from the old client should leak through"
         )
 
         # Send a new event, the queued entries + new event should be
-        # drained to the new client.
         server.push({"type": "new"})
 
         # The new client must have received the queued + new events.

@@ -1,39 +1,4 @@
-"""lock-order contract regression tests.
-
-This file enforces the contract documented in
-``docs/architecture/lock-order-contract.md``:
-
-1. **Static-analysis layer**, parses ``voice_typer/server/app.py``,
-   ``voice_typer/server/service.py``, and
-   ``voice_typer/server/dictation_pipeline.py`` for ``with self._lock:``,
-   ``with self._config_mutation_lock:``, and
-   ``with self._pending_timers_lock:`` blocks and asserts that NONE of
-   them nest another of the three app-level locks. Catches accidental
-   lock-nesting regressions introduced by future edits.
-
-2. **Lock-graph layer**, builds the directed ``lock A → lock B`` graph
-   (A held while B acquired) from the source and asserts no cycle
-   exists. Today the graph has zero edges (no nesting), so this is a
-   trivially-acyclic check that pins the invariant.
-
-3. **Concurrency stress layer**, constructs a minimal ``VoiceTyperApp``
-   shell via ``__new__`` (skipping the recorder / hotkey / tray setup
-   that needs hardware) and runs N threads through the production
-   lock-using paths (``_schedule_timer``, ``_cancel_pending_timers``,
-   ``_config_mutation_lock`` holder, ``_lock`` holder). Asserts no
-   thread hangs within 2 s (no deadlock).
-
-4. **Reverse-order sanity layer**, acquires the locks in the documented
-   order from one thread and in the REVERSE order from another, to
-   prove the locks are independent (no nesting rule ⇒ no possible
-   cycle ⇒ reverse-order acquisition must not deadlock). If a future
-   regression introduces nesting in the "forward" direction, this test
-   would deadlock and time out.
-
-The d-review verdict for NEW-CONC-002 is LOW (architecture nit): no
-actual deadlock has been observed. These tests guard the no-nesting
-invariant so it stays that way.
-"""
+"""lock-order contract regression tests."""
 
 from __future__ import annotations
 
@@ -45,64 +10,30 @@ from pathlib import Path
 
 import pytest
 
-# test-infrastructure shim: ``voice_typer.server.crash_handler``
-# decorates its VEH callback with ``@ctypes.WINFUNCTYPE(...)`` at
-# module-load time. ``WINFUNCTYPE`` only exists on Windows, on
-# Linux/macOS the attribute is missing, so importing ``crash_handler``
-# (transitively imported by ``voice_typer.server.app``) raises
-# ``AttributeError``. Alias it to ``CFUNCTYPE`` so we can import
-# ``app`` for the concurrency tests below. Mirrors the shim in
-# ``tests/conftest.py``.
 if not hasattr(ctypes, "WINFUNCTYPE"):
     ctypes.WINFUNCTYPE = ctypes.CFUNCTYPE  # type: ignore[attr-defined]
 
 
 SERVER_DIR = Path(__file__).resolve().parent.parent / "voice_typer" / "server"
 APP_PY = SERVER_DIR / "app.py"
-# ``service.py`` was refactored into a ``service/`` package (). The
-# app-level locks now live in ``service/_base.py`` (the App class) and may
-# be acquired from any of the service submodules. Collect all of them.
 SERVICE_DIR = SERVER_DIR / "service"
 SERVICE_PY_FILES = sorted(SERVICE_DIR.glob("*.py")) if SERVICE_DIR.is_dir() else [SERVER_DIR / "service.py"]
 # For backwards-compat with tests that import SERVICE_PY as a single path,
-# point at the App-class host (the primary lock holder).
 SERVICE_PY = SERVICE_DIR / "_base.py"
 DICTATION_PIPELINE_PY = SERVER_DIR / "dictation_stages.py"
 # ``_pending_timers_lock`` was migrated to ``TimerCoordinator`` (
-# Phase 7). The real ``threading.Lock()`` construction lives here —
-# ``app.py`` only keeps a shadow assignment
-# (``self._pending_timers_lock = self.timers._pending_timers_lock``) that
-# points at the coordinator's lock. The inventory test must therefore read
-# ``timer_coordinator.py`` for this lock, not ``app.py``.
 TIMER_COORDINATOR_PY = SERVER_DIR / "timer_coordinator.py"
 # ``_lock`` / ``_busy_event`` construction migrated to ``BusynessCoordinator``
-# alongside the config/credential_store package split. Production
-# ``VoiceTyperApp`` no longer declares them directly: it constructs
-# ``self._busyness = BusynessCoordinator()`` and serves ``_lock`` /
-# ``_busy_event`` through property shims that delegate to the coordinator
-# (mirroring the Phase 7 shadow-attribute arrangement above). The real
-# ``threading.Lock()`` / ``threading.Event()`` constructions live here —
-# the inventory tests must read this file for them, not ``app.py``.
 BUSYNESS_PY = SERVER_DIR / "_busyness.py"
 
-# The three app-level locks enumerated in the contract. ``_lock`` is the
-# bare name; ``_config_mutation_lock`` and ``_pending_timers_lock`` are
-# uniquely named.
 APP_LOCK_NAMES = ("_lock", "_config_mutation_lock", "_pending_timers_lock")
 
-# Regex matching ``with self._lock:`` / ``with self._config_mutation_lock:``
-# / ``with self._pending_timers_lock:`` (and the ``with app._lock:`` /
-# ``with self._app._lock:`` variants used in service.py and
-# dictation_pipeline.py). We intentionally do NOT match ``with
-# self._lock_something_else:``, the trailing ``:`` ensures we only match
-# the exact lock name.
 _WITH_LOCK_RE = re.compile(
     r"with\s+(?:self\.|self\._app\.|app\.)"
     r"(_config_mutation_lock|_pending_timers_lock|_lock)\s*:"
 )
 
 # Regex matching ``threading.Lock()`` / ``threading.RLock()`` declarations
-# bound to one of the three lock names.
 _LOCK_DECL_RE = re.compile(
     r"self\.(_config_mutation_lock|_pending_timers_lock|_lock)\s*=\s*"
     r"threading\.(Lock|RLock)\(\)"
@@ -122,33 +53,8 @@ def _read_source(path: Path) -> str:
 
 
 def _strip_comments_and_docstrings(source: str) -> str:
-    """Strip ``#`` comments and triple-quoted strings before regex matching.
-
-    the previous ``_LOCK_DECL_RE`` matched a COMMENT in
-    ``app.py:465`` (``# pins app.py source for `` ``self._pending_timers_lock
-    = threading.Lock()`` ``)``) rather than the real declaration. The real
-    ``threading.Lock()`` construction for ``_pending_timers_lock`` lives in
-    ``timer_coordinator.py``; ``app.py:469`` is only a
-    shadow assignment (``self._pending_timers_lock =
-    self.timers._pending_timers_lock``). Without comment stripping the test
-    passed on a comment, a false green that gave no real coverage.
-
-    This helper removes:
-
-    1. Triple-quoted strings (``\"\"\"...\"\"\"`` / ``'''...'''``), covers
-       module/function docstrings that quote lock declarations as code
-       examples (e.g. ``timer_coordinator.py`` module docstring lists
-       ``self._pending_timers_lock = threading.Lock()`` as a migrated
-       attribute).
-    2. ``#`` comments per line (``line.split('#', 1)[0]``), covers inline
-       comments like the false-green in ``app.py:465``.
-
-    Line numbers are preserved (each stripped region is replaced with an
-    empty triple-quoted string or the comment's leading code), so regex
-    match offsets still map back to the original source for diagnostics.
-    """
+    """Strip ``#`` comments and triple-quoted strings before regex matching."""
     # Remove triple-quoted strings (docstrings + multi-line strings).
-    # Replace with an empty triple-quoted pair to preserve line count.
     source = re.sub(r'"""[\s\S]*?"""', '""""""', source)
     source = re.sub(r"'''[\s\S]*?'''", "''''''", source)
     # Remove ``#`` comments per line (keep code before the ``#``).
@@ -157,12 +63,7 @@ def _strip_comments_and_docstrings(source: str) -> str:
 
 
 def _find_with_blocks(source: str) -> list[tuple[int, str, int, int]]:
-    """Return list of (with_line, lock_name, body_start, body_end).
-
-    ``body_start`` is the line of the first line inside the block (1-based).
-    ``body_end`` is the line of the last line in the block (1-based, the
-    last line before dedent). For single-line bodies they are equal.
-    """
+    """Return list of (with_line, lock_name, body_start, body_end)."""
     lines = source.splitlines(keepends=True)
     matches: list[tuple[int, str, int, int]] = []
     for i, line in enumerate(lines, start=1):
@@ -170,7 +71,6 @@ def _find_with_blocks(source: str) -> list[tuple[int, str, int, int]]:
         if not stripped.startswith("with "):
             continue
         # Join up to 3 lines starting at the ``with`` to handle multi-line
-        # ``with`` headers (rare but possible).
         candidate = "".join(lines[i - 1 : i + 2])
         m = _WITH_LOCK_RE.search(candidate)
         if m is None:
@@ -194,40 +94,16 @@ def _find_with_blocks(source: str) -> list[tuple[int, str, int, int]]:
                 if body_start is not None:
                     break
         if body_start is None:
-            # Empty body (e.g. ``with self._lock: pass``). Treat as
-            # zero-length.
             body_start = i + 1
             body_end = i + 1
         matches.append((i, lock_name, body_start, body_end))
     return matches
 
 
-# ─── Static-analysis tests ───────────────────────────────────────────────
-
-
 class TestLockInventory:
-    """Verify the three app-level locks + three events are declared at the
-    expected locations. Pins the inventory so a rename is caught."""
+    """Verify the three app-level locks + three events are declared at the"""
 
     def test_app_locks_declared(self):
-        # previously this test read ``APP_PY`` for ALL three locks and
-        # used a raw ``_LOCK_DECL_RE.finditer(source)`` over the unstripped
-        # text. That matched a COMMENT at ``app.py:465`` (``# pins app.py
-        # source for \`self._pending_timers_lock = threading.Lock()\`)``)
-        # instead of a real declaration, the actual line at ``app.py:469``
-        # is a SHADOW assignment (``self._pending_timers_lock =
-        # self.timers._pending_timers_lock``), not a ``threading.Lock()``
-        # construction. The test gave false confidence: removing the
-        # comment would have made it fail even though the architecture is
-        # correct.
-        #
-        # Fix: (a) strip ``#`` comments AND triple-quoted docstrings before
-        # matching so code-in-comments / docstring examples cannot satisfy
-        # the regex; (b) read ``timer_coordinator.py`` for
-        # ``_pending_timers_lock`` because that is where the real
-        # ``threading.Lock()`` construction lives ( Phase 7 migrated
-        # the timer state into ``TimerCoordinator``; ``app.py`` only keeps
-        # a shadow attribute pointing at the coordinator's lock).
         app_source = _strip_comments_and_docstrings(_read_source(APP_PY))
         app_declarations: dict[str, str] = {}
         for m in _LOCK_DECL_RE.finditer(app_source):
@@ -240,12 +116,6 @@ class TestLockInventory:
             "app._config_mutation_lock must be threading.RLock (defensive reentrancy: see contract §3 rationale)"
         )
 
-        # ``_lock`` is owned by ``BusynessCoordinator`` (the app keeps a
-        # delegating property shim, mirroring the Phase 7 shadow-attribute
-        # arrangement for the timer lock). Read its real source file. The
-        # property shims in app.py (``_lock`` getter/setter) do NOT match
-        # ``_LOCK_DECL_RE``, which is correct, the lock is constructed in
-        # the coordinator, not the app.
         bc_source = _strip_comments_and_docstrings(_read_source(BUSYNESS_PY))
         bc_declarations: dict[str, str] = {}
         for m in _LOCK_DECL_RE.finditer(bc_source):
@@ -259,11 +129,6 @@ class TestLockInventory:
         assert bc_declarations["_lock"] == "Lock", f"app._lock must be threading.Lock (got {bc_declarations['_lock']})"
 
         # ``_pending_timers_lock`` is owned by ``TimerCoordinator`` (
-        # Phase 7). Read its real source file. The shadow assignment in
-        # ``app.py:469`` (``self._pending_timers_lock =
-        # self.timers._pending_timers_lock``) does NOT match
-        # ``_LOCK_DECL_RE`` (the RHS is not ``threading.Lock()``), which is
-        # correct, the lock is constructed in the coordinator, not the app.
         tc_source = _strip_comments_and_docstrings(_read_source(TIMER_COORDINATOR_PY))
         tc_declarations: dict[str, str] = {}
         for m in _LOCK_DECL_RE.finditer(tc_source):
@@ -285,14 +150,9 @@ class TestLockInventory:
         for m in _EVENT_DECL_RE.finditer(source):
             declared_events.add(m.group(1))
         # ``_bubble_level_worker_stop`` is created conditionally (under
-        # ``if not hasattr(...)``), the regex above still matches the
-        # ``self._bubble_level_worker_stop = threading.Event()`` line
-        # inside the ``if``.
         assert "_shutting_down_event" in declared_events, "app._shutting_down_event must be declared: see contract §1"
 
         # ``_busy_event`` construction lives in ``BusynessCoordinator``
-        # (app.py serves it via a delegating property shim: see the
-        # lock-inventory note above).
         bc_source = _strip_comments_and_docstrings(_read_source(BUSYNESS_PY))
         bc_declared_events: set[str] = set()
         for m in _EVENT_DECL_RE.finditer(bc_source):
@@ -305,8 +165,7 @@ class TestLockInventory:
 
 
 class TestNoLockNesting:
-    """primary invariant: the three app-level locks must
-    NEVER be acquired nested within one another. See contract §2 Rule 1."""
+    """primary invariant: the three app-level locks must"""
 
     @pytest.mark.parametrize(
         "filepath",
@@ -318,14 +177,12 @@ class TestNoLockNesting:
         with_blocks = _find_with_blocks(source)
         lines = source.splitlines()
         # For each ``with <lock>:`` block, scan its body lines for any
-        # other app-lock acquisition.
         for with_line, lock_name, body_start, body_end in with_blocks:
             body_text = "\n".join(lines[body_start - 1 : body_end])
             for other in APP_LOCK_NAMES:
                 if other == lock_name:
                     continue
                 # Match ``with self.<other>:`` / ``with self._app.<other>:``
-                # / ``with app.<other>:`` inside the body.
                 pattern = re.compile(rf"with\s+(?:self\.|self\._app\.|app\.){re.escape(other)}\s*:")
                 assert not pattern.search(body_text), (
                     f"{filepath.name}:{with_line}: ``with self.{lock_name}:`` "
@@ -337,12 +194,7 @@ class TestNoLockNesting:
 
 
 class TestLockOrderGraphIsAcyclic:
-    """Build the directed ``lock A → lock B`` graph (A held while B
-    acquired) from the source and assert it contains no cycles. With the
-    no-nesting rule above, the graph is empty (zero edges), so this is a
-    trivially-acyclic check today. It exists to catch future regressions
-    if someone intentionally introduces nesting (in which case the test
-    must be updated to verify the new ordering is still acyclic)."""
+    """Build the directed ``lock A → lock B`` graph (A held while B"""
 
     def test_app_lock_graph_has_no_cycles(self):
         edges: set[tuple[str, str]] = set()
@@ -388,8 +240,6 @@ class TestLockOrderGraphIsAcyclic:
             f"docs/architecture/lock-order-contract.md §2 Rule 1."
         )
 
-        # Document the (currently empty) edge set so a future change that
-        # adds nesting shows up clearly in the test output.
         assert edges == set(), (
             f"Lock-order graph is non-empty (edges={edges}). As of "
             f"NEW-CONC-002, the three app-level locks must be independent. "
@@ -400,47 +250,19 @@ class TestLockOrderGraphIsAcyclic:
         )
 
 
-# ─── Concurrency stress tests ───────────────────────────────────────────
-
-
 @pytest.fixture
 def app_shell():
-    """Construct a minimal VoiceTyperApp shell via ``__new__``.
-
-      We skip ``VoiceTyperApp.__init__`` because it eagerly constructs a
-      ``Recorder`` (PortAudio), ``TrayIcon`` (pystray), and ``HotkeyDispatcher``
-    , all of which require hardware not available in this headless
-      container. The lock-using methods under test (``_schedule_timer`` /
-      ``_cancel_pending_timers``) only touch ``self.timers._pending_timers_lock``,
-      ``self.timers._pending_timers``, and ``self.timers._timer_generation``
-      (Phase 7: TimerCoordinator owns the state; VoiceTyperApp keeps
-      thin shadow attributes that point at the coordinator's state, mirroring
-      production), so we initialise just those attributes plus the three
-      contract locks.
-
-      The lock objects are REAL ``threading.Lock`` / ``threading.RLock``
-      instances, same types as production (the coordinator constructs
-      ``_lock``; ``app.py`` constructs ``_config_mutation_lock``).
-    """
+    """Construct a minimal VoiceTyperApp shell via ``__new__``."""
     from voice_typer.server._busyness import BusynessCoordinator
     from voice_typer.server.app import VoiceTyperApp
     from voice_typer.server.timer_coordinator import TimerCoordinator
 
     shell = VoiceTyperApp.__new__(VoiceTyperApp)
     # Match the production declarations exactly: ``VoiceTyperApp.__init__``
-    # constructs ``self._busyness = BusynessCoordinator()`` (app.py:810)
-    # and serves ``_lock`` / ``_busy_event`` through delegating property
-    # shims, so install a real coordinator rather than raw lock/event
-    # attributes (assigning ``shell._lock`` directly would route through
-    # the property setter into a missing coordinator).
     shell._busyness = BusynessCoordinator()
     shell._config_mutation_lock = threading.RLock()  # app.py:336
-    # Phase 7: install a real TimerCoordinator so the delegate
-    # methods (_schedule_timer / _cancel_pending_timers) reach real code.
     shell.timers = TimerCoordinator(shell)
     # Shadow declarations (mirror production __init__): point the shell's
-    # state attributes at the coordinator's state so tests that read
-    # app_shell._pending_timers_lock directly keep working.
     shell._pending_timers_lock = shell.timers._pending_timers_lock
     shell._pending_timers = shell.timers._pending_timers
     shell._timer_generation = shell.timers._timer_generation
@@ -448,22 +270,16 @@ def app_shell():
 
 
 class TestConcurrentLockUseNoDeadlock:
-    """spawn N threads through the production lock-using
-    paths and assert no thread hangs within 2 s."""
+    """spawn N threads through the production lock-using"""
 
     def test_concurrent_schedule_and_cancel_timers_no_deadlock(self, app_shell):
-        """``_schedule_timer`` and ``_cancel_pending_timers`` both acquire
-        ``_pending_timers_lock``. Stress them concurrently from 4 threads."""
+        """``_schedule_timer`` and ``_cancel_pending_timers`` both acquire"""
         errors: list[Exception] = []
         stop = threading.Event()
 
         def producer():
             try:
                 while not stop.is_set():
-                    # _schedule_timer acquires _pending_timers_lock briefly
-                    # to append to the list, then starts the Timer (which
-                    # fires after `delay`). Use a tiny delay so the timers
-                    # actually fire and self-remove from the daemon thread.
                     app_shell._schedule_timer(0.001, lambda: None)
                     time.sleep(0.0005)  # intentional fixed delay (stress-test pacing)
             except Exception as e:  # noqa: BLE001
@@ -472,9 +288,6 @@ class TestConcurrentLockUseNoDeadlock:
         def consumer():
             try:
                 while not stop.is_set():
-                    # _cancel_pending_timers acquires _pending_timers_lock
-                    # to snapshot+clear, then cancels each timer OUTSIDE
-                    # the lock.
                     app_shell._cancel_pending_timers()
                     time.sleep(0.0005)  # intentional fixed delay (stress-test pacing)
             except Exception as e:  # noqa: BLE001
@@ -488,8 +301,6 @@ class TestConcurrentLockUseNoDeadlock:
         ]
         for t in threads:
             t.start()
-        # Let them run for 1s; if any thread is stuck in a deadlock the
-        # join(timeout=2) below will fail.
         time.sleep(1.0)  # intentional fixed delay (stress-test duration)
         stop.set()
         for t in threads:
@@ -502,10 +313,7 @@ class TestConcurrentLockUseNoDeadlock:
         app_shell._cancel_pending_timers()
 
     def test_concurrent_config_mutation_lock_no_deadlock(self, app_shell):
-        """Multiple IPC server threads acquiring ``_config_mutation_lock``
-        (the RLock) concurrently must not deadlock. Mirrors the production
-        ``service.apply_config`` / ``service.onboarding_apply_settings``
-        paths which both hold this lock briefly."""
+        """Multiple IPC server threads acquiring ``_config_mutation_lock``"""
         errors: list[Exception] = []
         iterations = 200
         barrier = threading.Barrier(8)
@@ -514,11 +322,6 @@ class TestConcurrentLockUseNoDeadlock:
             try:
                 barrier.wait(timeout=10.0)
                 for _ in range(iterations):
-                    # Production code does setattr + save + side-effects
-                    # inside this lock; we just exercise the lock itself.
-                    # Simulate a brief critical section. The RLock
-                    # allows the SAME thread to re-acquire, exercise
-                    # that too (defensive reentrancy per contract §3).
                     with app_shell._config_mutation_lock, app_shell._config_mutation_lock:
                         pass
             except Exception as e:  # noqa: BLE001
@@ -533,9 +336,7 @@ class TestConcurrentLockUseNoDeadlock:
         assert not errors, f"concurrent config-mutation raised: {errors}"
 
     def test_concurrent_app_lock_no_deadlock(self, app_shell):
-        """``app._lock`` is acquired in ``dictation_pipeline.py:282`` to
-        clear ``recording._transcription_thread``. Multiple transcription
-        threads finishing concurrently must not deadlock."""
+        """clear ``recording._transcription_thread``. Multiple transcription"""
         errors: list[Exception] = []
         iterations = 200
         barrier = threading.Barrier(8)
@@ -545,11 +346,8 @@ class TestConcurrentLockUseNoDeadlock:
                 barrier.wait(timeout=10.0)
                 for _ in range(iterations):
                     # Mirror dictation_pipeline.py:282, acquire app._lock
-                    # briefly to clear a shared attribute.
                     with app_shell._lock:
                         # Single attribute write (the production code
-                        # writes ``recording._transcription_thread =
-                        # None``).
                         pass
             except Exception as e:  # noqa: BLE001
                 errors.append(e)
@@ -563,9 +361,7 @@ class TestConcurrentLockUseNoDeadlock:
         assert not errors, f"concurrent app._lock raised: {errors}"
 
     def test_mixed_locks_concurrent_no_deadlock(self, app_shell):
-        """Stress all three app-level locks concurrently from independent
-        thread pools. Because the contract requires no nesting, the three
-        pools must make progress independently."""
+        """Stress all three app-level locks concurrently from independent"""
         errors: list[Exception] = []
         stop = threading.Event()
 
@@ -610,25 +406,10 @@ class TestConcurrentLockUseNoDeadlock:
 
 
 class TestReverseOrderAcquisitionNoDeadlock:
-    """sanity: prove the three app locks are *independent*
-    (i.e., acquiring them in any order from any thread does not deadlock).
-
-    The contract requires NO nesting, so reverse-order acquisition is a
-    no-op (no edge in the lock-order graph). This test exists to catch a
-    future regression where someone introduces nesting in the "forward"
-    direction (e.g. ``_config_mutation_lock`` held while
-    ``_pending_timers_lock`` is acquired): in that case, a thread doing
-    the reverse would deadlock, and this test would fail with a 2s
-    timeout.
-    """
+    """sanity: prove the three app locks are *independent*"""
 
     def test_reverse_order_does_not_deadlock(self, app_shell):
-        """Thread A acquires locks in the documented "forward" order
-        (config → timers → app); thread B acquires them in reverse
-        (app → timers → config). Each thread acquires only ONE lock at a
-        time (no nesting), so neither thread blocks the other. If the
-        production code ever starts nesting these locks, this test will
-        deadlock and time out."""
+        """Thread A acquires locks in the documented \"forward\" order"""
         errors: list[Exception] = []
         iterations = 100
         barrier = threading.Barrier(2)
@@ -648,13 +429,6 @@ class TestReverseOrderAcquisitionNoDeadlock:
             try:
                 barrier.wait(timeout=10.0)
                 for _ in range(iterations):
-                    # Acquire each lock INDIVIDUALLY (not nested) in the
-                    # given order. If a future regression introduces
-                    # nesting, the production code would have edges in
-                    # one direction; this test acquires them in BOTH
-                    # directions concurrently, if any nesting exists,
-                    # one of the two threads will block waiting for a
-                    # lock the other holds, and the join will time out.
                     for lock in order:
                         with lock:
                             time.sleep(0.0001)  # intentional fixed delay (brief lock hold for race window)
@@ -678,8 +452,3 @@ class TestReverseOrderAcquisitionNoDeadlock:
             "(see docs/architecture/lock-order-contract.md §2 Rule 1)."
         )
         assert not errors, f"reverse-order test raised: {errors}"
-
-
-# Ensure no stale ``sys.modules`` entries leak between test modules when
-# this file is collected alongside others that mock ``ctypes`` differently.
-# (No-op here, just a marker that we considered cleanup.)

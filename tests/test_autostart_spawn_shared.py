@@ -1,10 +1,4 @@
-"""Shared login-child spawn recipe + backend PID port record.
-
-The five autostart spawn sites route ``Popen`` through
-``autostart._spawn._spawn_login_child`` (unified try/except/finally
-cleanup); the backend PID file carries a ``port=`` line once the IPC
-server has bound (writer half of the MED-Y contract).
-"""
+"""Shared login-child spawn recipe + backend PID port record."""
 
 from __future__ import annotations
 

@@ -9,10 +9,6 @@ import pytest
 from voice_typer.server.config import _CURRENT_SCHEMA_VERSION, Config, _default_hotkey_for_platform
 from voice_typer.server.model_registry import DEFAULT_MODEL_SIZE
 
-# the default hotkey is now platform-aware
-# (Fn on macOS, Caps Lock on Windows/Linux, F2 on unknown platforms).
-# Tests that assert the default hotkey use this helper instead of
-# hard-coding "<f2>".
 EXPECTED_DEFAULT_HOTKEY = _default_hotkey_for_platform()
 
 
@@ -85,8 +81,7 @@ class TestConfigLoadSave:
         assert c.show_notifications is False
 
     def test_load_preserves_user_device_and_paste_settings(self, tmp_path, tmp_config_dir):
-        """fix: User's device, paste_on_stop, and streaming_transcription
-        values in config.json must survive load() without being overridden."""
+        """fix: User's device, paste_on_stop, and streaming_transcription"""
         config_file = tmp_path / "config.json"
         config_file.write_text(
             json.dumps(
@@ -125,9 +120,7 @@ class TestConfigLoadSave:
         ["large-v4", "mega.en", "nonexistent-model", "small.en", "base.en", "medium.en", "turbo", "distil-large-v3"],
     )
     def test_load_normalizes_legacy_or_unsupported_model_to_default(self, tmp_path, tmp_config_dir, unsupported_model):
-        """Models not in the (pruned) allowlist, stale legacy entries
-        AND the variants removed by the 2026-08-15 catalog prune, are
-        reset to the canonical ``DEFAULT_MODEL_SIZE``."""
+        """Models not in the (pruned) allowlist, stale legacy entries"""
         config_file = tmp_path / "config.json"
         config_file.write_text(json.dumps({"model_size": unsupported_model}))
 
@@ -136,8 +129,7 @@ class TestConfigLoadSave:
 
     @pytest.mark.parametrize("valid_model", ["tiny", "large-v3-turbo"])
     def test_load_keeps_supported_models_unchanged(self, tmp_path, tmp_config_dir, valid_model):
-        """Models in MODEL_REGISTRY must round-trip unchanged instead of
-        being normalized to the default."""
+        """Models in MODEL_REGISTRY must round-trip unchanged instead of"""
         config_file = tmp_path / "config.json"
         config_file.write_text(json.dumps({"model_size": valid_model}))
 
@@ -174,13 +166,7 @@ class TestConfigLoadSave:
         assert c.hotkey == EXPECTED_DEFAULT_HOTKEY  # defaults
 
     def test_load_logs_error_on_corrupt_file(self, tmp_path, tmp_config_dir, caplog):
-        """fix: Config.load() must log instead of silently swallowing failures.
-
-        the level was lowered from ERROR to WARNING (recovery to
-        defaults is a recoverable event, not a fatal error) and the
-        message now includes the exception class name and file path so
-        the user can see *why* their settings were reset.
-        """
+        """fix: Config.load() must log instead of silently swallowing failures."""
         import logging
 
         config_file = tmp_path / "config.json"
@@ -189,7 +175,6 @@ class TestConfigLoadSave:
         with caplog.at_level(logging.WARNING, logger="voice_typer.server.config"):
             Config.load()
 
-        # warning must include the failure-mode name and file path.
         assert any("JSONDecodeError" in r.message for r in caplog.records)
         assert any(str(config_file) in r.message for r in caplog.records)
 
@@ -375,9 +360,6 @@ class TestAtomicConfigSave:
         original_data = config_file.read_text()
 
         c2 = Config(hotkey="<f9>")
-        # save() now delegates to _secure_atomic_write.
-        # Mock it to raise OSError so the test verifies the existing
-        # config is preserved when the write fails.
         with (
             patch(
                 "voice_typer.server.config._secure_atomic_write",
@@ -406,9 +388,6 @@ class TestSaveErrorHandling:
 
         c = Config()
 
-        # save() now uses json.dumps (string) not json.dump (file).
-        # Mock json.dumps to raise OSError so the test verifies save()
-        # returns False on error.
         def failing_dumps(*args, **kwargs):
             raise OSError("disk full")
 
@@ -424,15 +403,8 @@ class TestSaveErrorHandling:
         assert result is True
 
 
-# ── config file permissions ─────────────────────────────────────
-
-
 class TestConfigSaveEnforcesPosixFilePermissions:
-    """on POSIX, the config file must be 0o600 and the
-    config directory 0o700 so API keys and other settings are not
-    world-readable.  On Windows these checks are skipped (NTFS ACLs
-    are the relevant control, and the config dir is already under
-    %APPDATA% which is per-user)."""
+    """config directory 0o700 so API keys and other settings are not"""
 
     @pytest.mark.skipif(sys.platform == "win32", reason="POSIX-only")
     def test_save_creates_config_file_with_0600_permissions(self, tmp_path, tmp_config_dir):
@@ -467,8 +439,7 @@ class TestConfigSaveEnforcesPosixFilePermissions:
 
     @pytest.mark.skipif(sys.platform == "win32", reason="POSIX-only")
     def test_save_preserves_0600_on_existing_file(self, tmp_path, tmp_config_dir):
-        """A second save() must keep the 0o600 permissions, not drift
-        back to default umask."""
+        """A second save() must keep the 0o600 permissions, not drift"""
         import os
         import stat
 
@@ -579,20 +550,8 @@ class TestConfigParametrized:
         assert c.sample_rate == 16000
 
 
-# ──────────────────────────────────────────────────────────────────────────
-# validate_config_update accumulates ALL errors (was: break on first)
-# ──────────────────────────────────────────────────────────────────────────
-
-
 class TestDeprecatedFieldsScrubbedOnLoad:
-    """existing ``config.json`` files written by older app versions
-    that still carry the 7 now-removed deprecated fields MUST load without
-    raising. The unknown-key filter in ``Config.load()`` (``data = {k: v
-    for k, v in parsed.items() if k in cls.__dataclass_fields__}``) silently
-    drops them before ``cls(**data)`` constructs the Config instance, and
-    the v3 schema migration (``_migrate_to_v3``) scrubs them as a
-    defense-in-depth backstop for any code path that bypasses the filter.
-    """
+    """existing ``config.json`` files written by older app versions"""
 
     REMOVED_FIELDS = [
         "silence_rms_threshold",
@@ -605,9 +564,7 @@ class TestDeprecatedFieldsScrubbedOnLoad:
     ]
 
     def test_config_with_deprecated_fields_loads_without_error(self, tmp_path, tmp_config_dir):
-        """A ``config.json`` carrying all 7 removed deprecated fields loads
-        without raising ``TypeError`` and the resulting Config instance
-        does NOT expose the removed fields as attributes."""
+        """A ``config.json`` carrying all 7 removed deprecated fields loads"""
         config_file = tmp_path / "config.json"
         stale_config = {"schema_version": 2, "hotkey": "<f9>"}
         for field in self.REMOVED_FIELDS:
@@ -625,11 +582,7 @@ class TestDeprecatedFieldsScrubbedOnLoad:
             assert not hasattr(c, field), f"Removed field {field!r} should NOT be on the Config instance"
 
     def test_config_with_deprecated_fields_at_schema_v3_loads(self, tmp_path, tmp_config_dir):
-        """A ``config.json`` at schema_version=3 with the deprecated fields
-        still present (e.g. written by a buggy migrator that didn't pop
-        them) is handled gracefully by the unknown-key filter, the keys
-        are silently dropped (with a WARNING log) and the remaining
-        fields load normally. No fallback to defaults occurs."""
+        """A ``config.json`` at schema_version=3 with the deprecated fields"""
         config_file = tmp_path / "config.json"
         stale_config = {"schema_version": 3, "hotkey": "<f9>", "silence_rms_threshold": 0.5}
         config_file.write_text(json.dumps(stale_config))
@@ -639,8 +592,3 @@ class TestDeprecatedFieldsScrubbedOnLoad:
         assert c.hotkey == "<f9>"
         # The deprecated field is NOT on the instance.
         assert not hasattr(c, "silence_rms_threshold")
-
-
-# ──────────────────────────────────────────────────────────────────────────
-# validator and migration function return types
-# ──────────────────────────────────────────────────────────────────────────

@@ -1,22 +1,4 @@
-"""Interruptible retry-wait tests for the cloud engine's retry skeleton.
-
-``CloudEngine._transcribe_with_retry`` sleeps between retries in two
-places: the 429 ``Retry-After`` branch (capped at 60s by
-``_parse_retry_after``) and the ``URLError`` exponential-backoff branch.
-Both waits use ``self._abort_event.wait(timeout=...)`` instead of a
-plain ``time.sleep`` so the user's ESC-abort (``request_abort()``) takes
-effect the moment the event is set, not at the top of the NEXT attempt
-(which, with a hostile ``Retry-After: 60``, could lag up to 60 seconds).
-
-These tests pin:
-  1. an abort raised during a 60s ``Retry-After`` wait breaks out of the
-     wait immediately (wall-clock bound proves no full sleep happened);
-  2. an abort raised during the ``URLError`` backoff wait does the same;
-  3. the raised error is the engine's existing abort error —
-     ``CloudEngineError`` with the ``transcription aborted by user``
-     message (the same type/wording as the top-of-attempt abort check);
-  4. only ONE HTTP attempt is issued in both cases.
-"""
+"""Interruptible retry-wait tests for the cloud engine's retry skeleton."""
 
 from __future__ import annotations
 
@@ -53,8 +35,6 @@ class TestRetryAfterWaitIsInterruptible:
 
         def rate_limited_open(*args, **kwargs):
             attempt_count["n"] += 1
-            # Simulate the user hitting ESC while the engine is about to
-            # honor a hostile 60-second Retry-After.
             if attempt_count["n"] == 1:
                 engine.request_abort()
             hdrs = Message()
@@ -79,10 +59,8 @@ class TestRetryAfterWaitIsInterruptible:
         elapsed = time.perf_counter() - t0
 
         # The abort error must be the engine's canonical abort error
-        # (same class + message pattern as the top-of-attempt check).
         assert _ABORT_MESSAGE in str(exc_info.value), f"expected the abort error message, got {exc_info.value!r}"
         # A plain time.sleep(60) would take 60s; the interruptible wait
-        # returns the moment the event is set.
         assert elapsed < 5.0, f"abort during Retry-After wait must return immediately; took {elapsed:.2f}s"
         # Only one HTTP attempt was issued before the abort.
         assert attempt_count["n"] == 1
@@ -114,8 +92,7 @@ class TestBackoffWaitIsInterruptible:
         assert attempt_count["n"] == 1
 
     def test_abort_during_backoff_wait_deepgram_path(self) -> None:
-        """Same contract on the Deepgram leg (both provider paths share
-        ``_transcribe_with_retry``, the wait lives there)."""
+        """Same contract on the Deepgram leg (both provider paths share"""
         engine = CloudEngine(
             provider="deepgram",
             api_key="valid-key",
@@ -145,13 +122,9 @@ class TestBackoffWaitIsInterruptible:
 
 class TestNoAbortStillWaitsFullBudget:
     def test_unset_abort_does_not_raise_from_wait(self) -> None:
-        """Sanity: an unset abort event must let the wait run its course
-        (returning False) and NOT raise, the retry loop keeps its
-        normal backoff semantics when the user does not cancel."""
+        """Sanity: an unset abort event must let the wait run its course"""
         engine = _make_engine()
         # A zero-second Retry-After means the wait completes instantly
-        # but must still return False (no abort) → the engine proceeds
-        # to attempt 2, which fails non-retryably (429 already retried).
         hdrs = Message()
         hdrs["Retry-After"] = "0"
         http_err = HTTPError(
@@ -168,7 +141,6 @@ class TestNoAbortStillWaitsFullBudget:
                 lambda *a, **k: (_ for _ in ()).throw(http_err),
             )
             # Second 429 is NOT retried (retry budget spent) → the typed
-            # rate-limit error, not an abort error.
             from voice_typer.server.asr_errors import CloudRateLimitError
 
             with pytest.raises(CloudRateLimitError):

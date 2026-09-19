@@ -1,33 +1,4 @@
-"""Tests for the level_monitor worker / monitoring fixes.
-
-Covers three behaviour changes in ``voice_typer/server/level_monitor``:
-
-1. **Scaled blocksize**: ``start_monitoring`` now derives the PortAudio
-   block size from the device native sample rate via
-   ``max(512, int(native_rate * 0.032))`` so a chunk always represents
-   ~32 ms of audio regardless of whether the device runs at 16 / 44.1 /
-   48 kHz. Previously a fixed ``blocksize=512`` produced ~10.7 ms chunks
-   (≈94 Hz callback rate) on a 48 kHz device, which flooded the 64-entry
-   ring buffer with only ~0.68 s of audio.
-
-2. **Locked update_level_processor**: ``update_level_processor`` now
-   acquires ``_monitor_lock`` for both the snapshot read of
-   ``_monitor_sample_rate`` and the assignment of ``_level_processor``,
-   so the level worker thread sees a consistent pair (processor built
-   against the rate of the stream that will feed it). The
-   ``AudioProcessor`` construction itself runs OUTSIDE the lock so a
-   slow ``__init__`` (RNNoise model load) doesn't block ``get_level()``.
-
-3. **Stuck-worker slot preservation**: ``_stop_level_worker`` no longer
-   clears ``_level_worker_thread`` when the worker fails to exit within
-   the 1-second join timeout. Leaving the slot occupied prevents
-   ``_ensure_level_worker_running`` from spawning a duplicate worker
-   that would race the stuck thread for the SPSC ring buffer and
-   double-publish ``mic_level`` events.
-
-All ``sounddevice`` calls are mocked so the tests run on any platform
-(no real audio hardware required).
-"""
+"""Tests for the level_monitor worker / monitoring fixes."""
 
 from __future__ import annotations
 
@@ -36,10 +7,6 @@ import time
 from unittest.mock import MagicMock
 
 import pytest
-
-# ═══════════════════════════════════════════════════════════════════════════
-# Test fixtures
-# ═══════════════════════════════════════════════════════════════════════════
 
 
 def _reset_level_monitor_state():
@@ -85,11 +52,7 @@ def _reset_level_monitor():
 
 
 def _wire_stream_with_kwargs_capture(monkeypatch):
-    """Wire a mock ``sd.InputStream`` that captures EVERY constructor kwarg.
-
-    Returns a holder dict with ``callback``, ``finished_callback``,
-    ``blocksize``, and ``samplerate`` keys the test can read directly.
-    """
+    """Wire a mock ``sd.InputStream`` that captures EVERY constructor kwarg."""
     import sounddevice as sd
 
     holder = {
@@ -136,20 +99,8 @@ def _set_native_rate(monkeypatch, native_rate: int, max_input_channels: int = 1)
     }
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# Scaled blocksize: max(512, int(native_rate * 0.032))
-# ═══════════════════════════════════════════════════════════════════════════
-
-
 class TestScaledBlocksize:
-    """``start_monitoring`` scales the PortAudio blocksize with the
-    device native sample rate so every chunk represents ~32 ms of audio.
-
-    Pre-fix: ``blocksize=512`` was hardcoded, producing ~94 Hz callback
-    rate on a 48 kHz device (only ~0.68 s of audio in the 64-entry ring
-    buffer). Post-fix: ``blocksize = max(512, int(native_rate * 0.032))``
-    yields ~31 Hz chunk rate on every device.
-    """
+    """device native sample rate so every chunk represents ~32 ms of audio."""
 
     def test_blocksize_at_16khz_is_512(self, monkeypatch):
         """At 16 kHz the scaled blocksize is exactly 512 (the floor)."""
@@ -160,7 +111,6 @@ class TestScaledBlocksize:
 
         result = lm.start_monitoring(mic_id=None)
         assert result["success"] is True
-        # int(16000 * 0.032) = int(512.0) = 512; max(512, 512) = 512.
         assert holder["blocksize"] == 512, (
             "At 16 kHz the scaled blocksize should be 512 (matches the "
             "previous hardcoded value so existing 16 kHz behaviour is "
@@ -177,8 +127,6 @@ class TestScaledBlocksize:
 
         result = lm.start_monitoring(mic_id=None)
         assert result["success"] is True
-        # int(48000 * 0.032) = int(1536.0) = 1536; max(512, 1536) = 1536.
-        # Pre-fix this was 512 → ~10.7 ms chunks (≈94 Hz callback rate).
         assert holder["blocksize"] == 1536, (
             "At 48 kHz the scaled blocksize should be 1536 (32 ms blocks); "
             "the pre-fix hardcoded 512 produced ~10.7 ms chunks (≈94 Hz "
@@ -197,20 +145,13 @@ class TestScaledBlocksize:
 
         result = lm.start_monitoring(mic_id=None)
         assert result["success"] is True
-        # int(44100 * 0.032) = int(1411.2) = 1411; max(512, 1411) = 1411.
         assert holder["blocksize"] == 1411, (
             f"At 44.1 kHz the scaled blocksize should be 1411 (~32 ms blocks); got {holder['blocksize']!r}"
         )
         lm.stop_monitoring()
 
     def test_blocksize_floor_512_on_low_rate_device(self, monkeypatch):
-        """On a low-rate device (e.g. 8 kHz) the floor keeps blocksize >= 512.
-
-        Without the ``max(512, ...)`` floor, an 8 kHz device would get
-        ``int(8000 * 0.032) = 256``, a pathologically small block that
-        PortAudio may reject or that would drive an excessive callback
-        rate. The floor preserves sane block sizes on low-rate devices.
-        """
+        """On a low-rate device (e.g. 8 kHz) the floor keeps blocksize >= 512."""
         import voice_typer.server.level_monitor as lm
 
         _set_native_rate(monkeypatch, 8000)
@@ -218,7 +159,6 @@ class TestScaledBlocksize:
 
         result = lm.start_monitoring(mic_id=None)
         assert result["success"] is True
-        # int(8000 * 0.032) = 256; max(512, 256) = 512.
         assert holder["blocksize"] == 512, (
             "On an 8 kHz device the floor should clamp blocksize to 512 "
             f"(avoids pathologically small blocks); got {holder['blocksize']!r}"
@@ -226,12 +166,7 @@ class TestScaledBlocksize:
         lm.stop_monitoring()
 
     def test_chunk_rate_approx_31hz_at_48khz(self, monkeypatch):
-        """At 48 kHz the chunk rate is ~31 Hz (48000 / 1536 ≈ 31.25 Hz).
-
-        Pre-fix the rate was ~94 Hz (48000 / 512). This is the core
-        user-visible benefit: a 64-entry ring buffer now holds ~2 s of
-        audio instead of ~0.68 s.
-        """
+        """At 48 kHz the chunk rate is ~31 Hz (48000 / 1536 ≈ 31.25 Hz)."""
         import voice_typer.server.level_monitor as lm
 
         _set_native_rate(monkeypatch, 48000)
@@ -242,8 +177,6 @@ class TestScaledBlocksize:
         blocksize = holder["blocksize"]
         samplerate = holder["samplerate"]
         chunk_rate = samplerate / blocksize
-        # 48000 / 1536 = 31.25 Hz. Allow a small tolerance for the
-        # int() truncation in the blocksize formula.
         assert 28.0 <= chunk_rate <= 33.0, (
             "Chunk rate at 48 kHz should be ~31 Hz (32 ms blocks); "
             f"got {chunk_rate:.1f} Hz (blocksize={blocksize}, sr={samplerate})"
@@ -251,32 +184,11 @@ class TestScaledBlocksize:
         lm.stop_monitoring()
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# Locked update_level_processor: snapshot + assign under _monitor_lock
-# ═══════════════════════════════════════════════════════════════════════════
-
-
 class TestUpdateLevelProcessorLocking:
-    """``update_level_processor`` must acquire ``_monitor_lock`` for both
-    the snapshot read of ``_monitor_sample_rate`` and the assignment of
-    ``_level_processor``.
-
-    Pre-fix: the function read ``_monitor_sample_rate`` bare and assigned
-    ``_level_processor`` bare, racing a concurrent ``start_monitoring``
-    that could swap the sample rate mid-call and yield a processor tuned
-    to the wrong rate.
-    """
+    """``update_level_processor`` must acquire ``_monitor_lock`` for both"""
 
     def test_disabled_branch_clears_processor_under_lock(self, monkeypatch):
-        """The ``noise_filter_enabled=False`` branch must clear
-        ``_level_processor`` to None while holding ``_monitor_lock``.
-
-        Strategy: hold ``_monitor_lock`` from another thread; the
-        ``update_level_processor`` call must BLOCK on the lock before
-        the assignment completes. If the lock is missing, the
-        assignment races and the test observes the cleared value before
-        the worker thread releases the lock.
-        """
+        """The ``noise_filter_enabled=False`` branch must clear"""
         import voice_typer.server.level_monitor as lm
 
         # Install a non-None processor so the clear branch has work to do.
@@ -327,30 +239,16 @@ class TestUpdateLevelProcessorLocking:
         update_thread.join(timeout=2.0)
 
     def test_enabled_branch_snapshots_sample_rate_under_lock(self, monkeypatch):
-        """The enabled branch must snapshot ``_monitor_sample_rate`` under
-        ``_monitor_lock``.
-
-        Strategy: wrap ``_monitor_lock`` with a counting proxy that
-        records each ``__enter__`` call. Then call
-        ``update_level_processor`` and assert the lock was acquired at
-        least once BEFORE the ``AudioProcessor`` constructor ran (so
-        the sample_rate snapshot is lock-protected).
-        """
+        """The enabled branch must snapshot ``_monitor_sample_rate`` under"""
         import voice_typer.server.level_monitor as lm
 
         # Stub ``AudioProcessor`` so we can capture the sample_rate it's
-        # constructed with and synchronise with the lock-entry events.
         captured_sr: list[int] = []
         constructor_entry_count: list[int] = []
 
         class _FakeAudioProcessor:
             def __init__(self, config, sample_rate, **kwargs):
                 # Record how many times the lock has been entered by
-                # the time the constructor runs. The snapshot read in
-                # update_level_processor acquires the lock once, and
-                # the assignment acquires it again, so by the time
-                # the constructor runs (between those two acquisitions),
-                # the count must be >= 1.
                 constructor_entry_count.append(len(enter_calls))
                 captured_sr.append(sample_rate)
 
@@ -366,9 +264,6 @@ class TestUpdateLevelProcessorLocking:
         sys.modules["voice_typer.server.audio_processor"] = fake_module
 
         # Wrap _monitor_lock with a counting proxy. The proxy delegates
-        # to the real lock so behaviour is unchanged, but it records
-        # every __enter__ call so we can assert the lock was acquired
-        # before the AudioProcessor constructor ran.
         enter_calls: list[float] = []
         real_lock = lm._monitor_lock
 
@@ -383,9 +278,6 @@ class TestUpdateLevelProcessorLocking:
         counting_lock = _CountingLock()
         monkeypatch.setattr(lm, "_monitor_lock", counting_lock)
         # Also patch the worker submodule's view of the lock, since
-        # ``_state._monitor_lock`` is the singleton reference and the
-        # ``_LevelMonitorModule`` routing means writes via ``lm._monitor_lock``
-        # propagate to ``_state._monitor_lock`` automatically.
         from voice_typer.server.level_monitor._state import _state as _state_singleton
 
         original_state_lock = _state_singleton._monitor_lock
@@ -407,8 +299,6 @@ class TestUpdateLevelProcessorLocking:
                 f"AudioProcessor should be constructed exactly once; got {len(captured_sr)} constructions"
             )
 
-            # The snapshot read must reflect the value at the time of
-            # the locked read.
             assert captured_sr[0] == 48000, (
                 "update_level_processor must read _monitor_sample_rate "
                 "under _monitor_lock so the AudioProcessor is built "
@@ -416,9 +306,6 @@ class TestUpdateLevelProcessorLocking:
                 f"expected 48000, got {captured_sr[0]}"
             )
 
-            # The lock must have been entered at least once BEFORE the
-            # AudioProcessor constructor ran (proving the snapshot read
-            # happened under the lock).
             assert len(constructor_entry_count) == 1
             assert constructor_entry_count[0] >= 1, (
                 "The AudioProcessor constructor ran before any lock "
@@ -427,7 +314,6 @@ class TestUpdateLevelProcessorLocking:
             )
 
             # The lock must have been entered at least TWICE total: once
-            # for the snapshot read, once for the final assignment.
             assert len(enter_calls) >= 2, (
                 "update_level_processor must acquire _monitor_lock twice: "
                 "once for the sample_rate snapshot, once for the "
@@ -442,14 +328,7 @@ class TestUpdateLevelProcessorLocking:
                 sys.modules.pop("voice_typer.server.audio_processor", None)
 
     def test_assignment_under_lock(self, monkeypatch):
-        """The ``_level_processor = new_processor`` assignment happens
-        under ``_monitor_lock``.
-
-        Strategy: hold the lock from another thread; the
-        ``update_level_processor`` call must BLOCK on the lock before
-        the assignment completes (the construction may run outside the
-        lock, but the final assignment must be locked).
-        """
+        """The ``_level_processor = new_processor`` assignment happens"""
         import sys
 
         import voice_typer.server.level_monitor as lm
@@ -489,7 +368,6 @@ class TestUpdateLevelProcessorLocking:
             update_thread.start()
 
             # The update should be blocked on the lock (the final
-            # assignment acquires the lock).
             time.sleep(0.2)
             assert not update_done.is_set(), (
                 "update_level_processor returned while _monitor_lock was "
@@ -512,26 +390,11 @@ class TestUpdateLevelProcessorLocking:
                 sys.modules.pop("voice_typer.server.audio_processor", None)
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# Stuck-worker slot preservation: don't clear _level_worker_thread on timeout
-# ═══════════════════════════════════════════════════════════════════════════
-
-
 class TestStopLevelWorkerStuckSlot:
-    """``_stop_level_worker`` must NOT clear ``_level_worker_thread`` when
-    the worker fails to exit within the 1-second join timeout.
-
-    Pre-fix: the slot was unconditionally cleared, so the next
-    ``_ensure_level_worker_running`` call spawned a DUPLICATE worker
-    that raced the stuck thread for ``_level_ring_buffer`` pops (SPSC
-    contract violation) and double-published ``mic_level`` events.
-    Post-fix: the slot is left occupied; ``_ensure_level_worker_running``
-    reuses the (still-alive) stuck thread instead of spawning a new one.
-    """
+    """``_stop_level_worker`` must NOT clear ``_level_worker_thread`` when"""
 
     def test_slot_cleared_when_worker_exits_cleanly(self, monkeypatch):
-        """Sanity: when the worker exits within the join timeout, the
-        slot IS cleared (the happy path is unchanged)."""
+        """Sanity: when the worker exits within the join timeout, the"""
         import voice_typer.server.level_monitor as lm
 
         # Start a real worker (no chunks to process, it will idle).
@@ -556,14 +419,7 @@ class TestStopLevelWorkerStuckSlot:
         )
 
     def test_slot_preserved_when_worker_does_not_exit(self, monkeypatch, caplog):
-        """When the worker fails to exit within the 1s join timeout, the
-        slot is LEFT OCCUPIED (the stuck worker thread reference is
-        retained) and an ERROR is logged.
-
-        Strategy: replace ``threading.Thread.join`` with a no-op so the
-        join "times out" instantly (the thread is still alive). Then
-        verify the slot is preserved and an ERROR was logged.
-        """
+        """slot is LEFT OCCUPIED (the stuck worker thread reference is"""
         import logging
 
         import voice_typer.server.level_monitor as lm
@@ -576,11 +432,6 @@ class TestStopLevelWorkerStuckSlot:
         thread = lm._level_worker_thread
         assert thread is not None and thread.is_alive()
 
-        # Patch the SPECIFIC thread instance's ``join`` method to be a
-        # no-op (simulates the worker not exiting within the timeout
-        # without actually waiting 1s). The thread will still be
-        # ``is_alive()`` after our no-op join, which is what the
-        # stuck-slot branch checks.
         original_join = thread.join
         thread.join = lambda timeout=None: None  # type: ignore[method-assign]
 
@@ -589,8 +440,6 @@ class TestStopLevelWorkerStuckSlot:
                 lm._stop_level_worker()
 
             # The slot must NOT have been cleared, the stuck worker
-            # is still alive and the slot is preserved to prevent a
-            # duplicate-worker spawn.
             assert lm._level_worker_thread is thread, (
                 "Stuck-worker slot preservation: _level_worker_thread "
                 "should still reference the (alive) stuck thread after "
@@ -599,14 +448,12 @@ class TestStopLevelWorkerStuckSlot:
             )
 
             # The stop event + ring buffer must NOT have been cleared
-            # either (those operations are skipped on the stuck path).
             assert lm._level_worker_stop_event.is_set(), (
                 "The stop event should remain set on the stuck path so the "
                 "worker still sees the stop signal if it eventually unblocks"
             )
 
             # An ERROR log must have been emitted so operators can see
-            # the stuck worker.
             stuck_errors = [r for r in caplog.records if r.levelno >= logging.ERROR and "did not exit" in r.message]
             assert len(stuck_errors) >= 1, (
                 "Stuck-worker path must log an ERROR so the stuck thread "
@@ -614,8 +461,6 @@ class TestStopLevelWorkerStuckSlot:
                 f"{[(r.levelname, r.message) for r in caplog.records]}"
             )
         finally:
-            # Restore the real join and actually stop the worker so the
-            # test fixture's reset doesn't hang.
             thread.join = original_join  # type: ignore[method-assign]
             lm._level_worker_stop_event.set()
             lm._level_worker_wake_event.set()
@@ -625,14 +470,7 @@ class TestStopLevelWorkerStuckSlot:
             lm._level_worker_stop_event.clear()
 
     def test_ensure_level_worker_running_reuses_stuck_slot(self, monkeypatch):
-        """``_ensure_level_worker_running`` reuses the (still-alive)
-        stuck worker instead of spawning a duplicate when the slot is
-        preserved by the stuck-path branch of ``_stop_level_worker``.
-
-        Strategy: simulate the stuck-path outcome (slot occupied by an
-        alive thread) and verify ``_ensure_level_worker_running`` does
-        NOT spawn a new thread.
-        """
+        """``_ensure_level_worker_running`` reuses the (still-alive)"""
         import voice_typer.server.level_monitor as lm
         from voice_typer.server.level_monitor import worker
 
@@ -642,7 +480,6 @@ class TestStopLevelWorkerStuckSlot:
         lm._level_worker_thread = stub_thread
 
         # ``_ensure_level_worker_running`` should detect the alive
-        # thread and return early (no new thread spawned).
         before = lm._level_worker_thread
         worker._ensure_level_worker_running()
         after = lm._level_worker_thread
@@ -655,20 +492,11 @@ class TestStopLevelWorkerStuckSlot:
         assert after is stub_thread, "The slot should still reference the original stuck thread"
 
         # Clean up the stub so the fixture's _stop_level_worker doesn't
-        # try to join a MagicMock (which has no real join semantics).
         lm._level_worker_thread = None
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# Shared clipping threshold (worker live counter == quality analyzer)
-# ═══════════════════════════════════════════════════════════════════════════
-
-
 class TestSharedClippingThreshold:
-    """The mic-test live clip counter and the dictation quality analyzer
-    share ONE peak threshold (``AUDIO_CLIPPING_THRESHOLD``) so the
-    user-facing "clipping detected" verdict means the same peak level
-    on every audio path."""
+    """The mic-test live clip counter and the dictation quality analyzer"""
 
     def test_analyzer_threshold_is_the_shared_constant(self):
         from voice_typer.server._audio_constants import AUDIO_CLIPPING_THRESHOLD

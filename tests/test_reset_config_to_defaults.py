@@ -1,32 +1,4 @@
-"""G4-L-25 regression guard: ``VoiceTyperService.reset_config_to_defaults``.
-
-Finding G4-L-25 (Low): there's no IPC command to factory-reset the
-config to defaults.  Users who want a clean slate have to manually
-delete ``config.json`` and restart the app, which is error-prone (they
-may forget to back it up, or may also delete ``vocabulary.json`` /
-``templates.json`` / ``history.db`` along with it).
-
-G4-L-25 fix adds ``VoiceTyperService.reset_config_to_defaults()`` which:
-
-  1. Acquires ``app._config_mutation_lock`` (concurrent ``set_config``
-     can't interleave).
-  2. Snapshots the current ``config.json`` to ``config.json.bak`` so
-     the user can recover if they clicked "Reset" by mistake.
-  3. Constructs a fresh ``Config()`` (all defaults).
-  4. Preserves the 5 API-key fields (``openai_api_key`` /
-     ``groq_api_key`` / ``deepgram_api_key`` / ``cloud_api_key`` /
-     ``llm_api_key``) from the pre-reset config so the user doesn't
-     have to re-enter their keys after a reset.  Pass
-     ``preserve_api_keys=False`` to also wipe API keys.
-  5. Calls ``Config.save_strict()`` so a disk failure surfaces as a
-     ``RuntimeError`` rather than a silent success.
-  6. Does NOT touch ``history.db`` / vocabulary / templates / logs /
-     keychain entries, only the in-memory + on-disk config is reset.
-
-Agent 2-j wires the IPC handler that calls this method.
-
-This test file coordinates with the service.py change (Fix 2-c).
-"""
+"""G4-L-25 regression guard: ``VoiceTyperService.reset_config_to_defaults``."""
 
 from __future__ import annotations
 
@@ -45,12 +17,9 @@ def _build_service(tmp_path: Path):
     from voice_typer.server.service import VoiceTyperService
 
     app = MagicMock()
-    # Real Config dataclass so setattr actually persists values (a
-    # MagicMock would silently accept any setattr, hiding regressions).
     cfg = Config()
     app.config = cfg
     # Real lock, MagicMock would silently accept the `with` statement
-    # but not actually serialize, hiding concurrency bugs.
     app._config_mutation_lock = threading.Lock()
     app.tray.notify = MagicMock()
     svc = VoiceTyperService(app)
@@ -72,8 +41,7 @@ def test_reset_config_to_defaults_method_exists() -> None:
 
 
 def test_reset_config_to_defaults_creates_backup(tmp_path) -> None:
-    """G4-L-25: the current config.json must be backed up to
-    config.json.bak before the reset so the user can recover."""
+    """G4-L-25: the current config.json must be backed up to"""
     svc, mp, _ = _build_service(tmp_path)
     try:
         if not hasattr(svc, "reset_config_to_defaults"):
@@ -104,8 +72,7 @@ def test_reset_config_to_defaults_creates_backup(tmp_path) -> None:
 
 
 def test_reset_config_to_defaults_writes_defaults_to_disk(tmp_path) -> None:
-    """G4-L-25: after reset, config.json must contain the default values
-    (not the user's pre-reset values)."""
+    """G4-L-25: after reset, config.json must contain the default values"""
     svc, mp, _ = _build_service(tmp_path)
     try:
         if not hasattr(svc, "reset_config_to_defaults"):
@@ -117,7 +84,6 @@ def test_reset_config_to_defaults_writes_defaults_to_disk(tmp_path) -> None:
         result = svc.reset_config_to_defaults()
         assert result["success"] is True
 
-        # config.json now has defaults.
         data = json.loads((tmp_path / "config.json").read_text())
         from voice_typer.server.config import Config
 
@@ -130,20 +96,16 @@ def test_reset_config_to_defaults_writes_defaults_to_disk(tmp_path) -> None:
 
 
 def test_reset_config_to_defaults_preserves_api_keys_by_default(tmp_path) -> None:
-    """G4-L-25: by default (``preserve_api_keys=True``), the 5 API-key
-    fields are preserved from the pre-reset config so the user doesn't
-    have to re-enter their keys."""
+    """G4-L-25: by default (``preserve_api_keys=True``), the 5 API-key"""
     svc, mp, cfg = _build_service(tmp_path)
     try:
         if not hasattr(svc, "reset_config_to_defaults"):
             pytest.skip("G4-L-25 not yet landed")
         # Seed in-memory Config with API keys (these are the REAL
-        # values, not keyring:// reference tokens: see Config.load).
         cfg.openai_api_key = "sk-preserve-me"
         cfg.groq_api_key = "gsk-preserve-me"
         cfg.llm_api_key = "llm-preserve-me"
         # And seed config.json with a non-default setting that should
-        # be reset.
         (tmp_path / "config.json").write_text(json.dumps({"hotkey": "<f5>", "openai_api_key": "sk-preserve-me"}))
 
         result = svc.reset_config_to_defaults()
@@ -164,9 +126,7 @@ def test_reset_config_to_defaults_preserves_api_keys_by_default(tmp_path) -> Non
 
 
 def test_reset_config_to_defaults_wipes_api_keys_whenAsked(tmp_path) -> None:  # noqa: N802
-    """G4-L-25: ``preserve_api_keys=False`` also wipes the API key
-    fields (rare; the GDPR delete path is the right tool for that —
-    it also clears the keychain)."""
+    """G4-L-25: ``preserve_api_keys=False`` also wipes the API key"""
     svc, mp, cfg = _build_service(tmp_path)
     try:
         if not hasattr(svc, "reset_config_to_defaults"):
@@ -188,8 +148,7 @@ def test_reset_config_to_defaults_wipes_api_keys_whenAsked(tmp_path) -> None:  #
 
 
 def test_reset_config_to_defaults_does_not_touch_history_db(tmp_path) -> None:
-    """G4-L-25: reset must NOT touch history.db (transcription history
-    is preserved. GDPR Art. 17 delete is a separate, intentional action)."""
+    """G4-L-25: reset must NOT touch history.db (transcription history"""
     svc, mp, _ = _build_service(tmp_path)
     try:
         if not hasattr(svc, "reset_config_to_defaults"):
@@ -204,7 +163,6 @@ def test_reset_config_to_defaults_does_not_touch_history_db(tmp_path) -> None:
 
         svc.reset_config_to_defaults()
 
-        # history.db still exists and has the row.
         hdb2 = HistoryDB(db_path=tmp_path / "history.db")
         rows = hdb2.get_recent(limit=10)
         hdb2.close()
@@ -217,8 +175,7 @@ def test_reset_config_to_defaults_does_not_touch_history_db(tmp_path) -> None:
 
 
 def test_reset_config_to_defaults_does_not_touch_vocabulary_or_templates(tmp_path) -> None:
-    """G4-L-25: reset must NOT touch vocabulary.json / templates.json /
-    corrections.json (user customizations are preserved)."""
+    """G4-L-25: reset must NOT touch vocabulary.json / templates.json /"""
     svc, mp, _ = _build_service(tmp_path)
     try:
         if not hasattr(svc, "reset_config_to_defaults"):
@@ -239,9 +196,7 @@ def test_reset_config_to_defaults_does_not_touch_vocabulary_or_templates(tmp_pat
 
 
 def test_reset_config_to_defaults_invalidates_cached_llm_polisher(tmp_path) -> None:
-    """G4-L-25: the cached LLMPolisher must be invalidated so the next
-    polish request rebuilds with the reset config (not the stale
-    pre-reset credentials/settings)."""
+    """G4-L-25: the cached LLMPolisher must be invalidated so the next"""
     svc, mp, _ = _build_service(tmp_path)
     try:
         if not hasattr(svc, "reset_config_to_defaults"):
@@ -257,8 +212,7 @@ def test_reset_config_to_defaults_invalidates_cached_llm_polisher(tmp_path) -> N
 
 
 def test_reset_config_to_defaults_succeeds_when_no_config_exists(tmp_path) -> None:
-    """G4-L-25: if config.json doesn't exist (fresh install), the reset
-    must still succeed (no backup, just write defaults)."""
+    """G4-L-25: if config.json doesn't exist (fresh install), the reset"""
     svc, mp, _ = _build_service(tmp_path)
     try:
         if not hasattr(svc, "reset_config_to_defaults"):
@@ -267,7 +221,6 @@ def test_reset_config_to_defaults_succeeds_when_no_config_exists(tmp_path) -> No
 
         result = svc.reset_config_to_defaults()
         assert result["success"] is True
-        # config.json now exists with defaults.
         assert (tmp_path / "config.json").exists()
         # No backup was created (nothing to back up).
         assert result["backup_path"] == ""
@@ -276,9 +229,7 @@ def test_reset_config_to_defaults_succeeds_when_no_config_exists(tmp_path) -> No
 
 
 def test_reset_config_to_defaults_acquires_config_mutation_lock(tmp_path) -> None:
-    """G4-L-25: the reset must hold ``app._config_mutation_lock`` for
-    the entire backup + reset + save sequence so a concurrent
-    ``set_config`` IPC call can't interleave."""
+    """the entire backup + reset + save sequence so a concurrent"""
     svc, mp, _ = _build_service(tmp_path)
     try:
         if not hasattr(svc, "reset_config_to_defaults"):
@@ -310,10 +261,7 @@ def test_reset_config_to_defaults_acquires_config_mutation_lock(tmp_path) -> Non
 
 
 def test_reset_config_to_defaults_restores_config_on_save_failure(tmp_path, monkeypatch) -> None:
-    """HU-22: if ``save_strict()`` raises (disk full / permissions), the
-    in-memory ``app.config`` must be restored to the pre-swap object so
-    the running engine never diverges from what's on disk (a stale API
-    key would otherwise stay active while the renderer showed defaults)."""
+    """in-memory ``app.config`` must be restored to the pre-swap object so"""
     svc, mp, cfg = _build_service(tmp_path)
     try:
         if not hasattr(svc, "reset_config_to_defaults"):
@@ -333,9 +281,6 @@ def test_reset_config_to_defaults_restores_config_on_save_failure(tmp_path, monk
 
         assert result["success"] is False
         # The pre-swap Config object must be restored (identity), and its
-        # values must be intact, the old API key stays active until the
-        # user retries; it is never silently reset in-memory while disk
-        # keeps the old values.
         assert svc._app.config is cfg, "HU-22: save failure must restore app.config to the pre-swap object"
         assert cfg.hotkey == "<f5>"
         assert cfg.openai_api_key == "sk-still-active"

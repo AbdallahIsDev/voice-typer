@@ -1,34 +1,6 @@
-"""Unit tests for ``voice_typer.server.platform_launch``.
-
+"""
+Unit tests for ``voice_typer.server.platform_launch``.
 The module under test (REF-3 / XPLAT-01 / SEC-audit-011) contains
-Windows-only editor-launch helpers extracted from
-``voice_typer/server/app.py``. Every Win32 call is wrapped in a broad
-``try: ... except Exception:`` block so the functions fail-soft
-(return ``None`` or ``pass``) on non-Windows platforms, which lets us
-unit-test them on Linux by mocking ``ctypes.windll``.
-
-Tests pin:
-
-* ``_systemroot_notepad_path``, SYSTEMROOT-validated Notepad
-  resolution (priority order, fallback to ``C:\\Windows``, OSError
-  tolerance, env-var handling, return type).
-* ``_windows_open_with_default_app``: ``ShellExecuteExW`` dispatch,
-  SHELLEXECUTEINFO field wiring (``SEE_MASK_NOCLOSEPROCESS``,
-  ``SW_SHOWNORMAL``, ``lpVerb='open'``, ``lpFile=path``), handle
-  return semantics (``None`` on failure or null ``hProcess``), and
-  argtypes/restype ABI assignment.
-* ``_windows_wait_for_process_exit``: ``WaitForSingleObject(handle,
-  finite-timeout)`` dispatch (30-minute bounded timeout, NOT ``INFINITE``,
-  so a hung editor doesn't wedge the IPC thread forever).
-* ``_windows_close_process_handle``: ``CloseHandle(handle)`` dispatch.
-* The full ``open → wait → close`` lifecycle used by
-  ``VoiceTyperApp._open_config_file``.
-
-The contract that callers (``app.py``) rely on:
-``_windows_open_with_default_app`` returns a truthy process handle on
-success and ``None`` on any failure (so the caller can branch to a
-Notepad fallback); ``_windows_wait_for_process_exit`` and
-``_windows_close_process_handle`` never raise.
 """
 
 from __future__ import annotations
@@ -45,102 +17,44 @@ from voice_typer.server.platform_launch import (
     _windows_wait_for_process_exit,
 )
 
-# Win32 magic constants (mirrored from the source under test so the
-# tests stay valid even if the literals in platform_launch.py are
-# refactored into named constants).
 _SEE_MASK_NOCLOSEPROCESS = 0x40
 _SW_SHOWNORMAL = 1
 _INFINITE = 0xFFFFFFFF
 
 # DE-68: the production code uses a FINITE 30-minute timeout (NOT
-# ``INFINITE``) for ``WaitForSingleObject`` so a hung editor doesn't
-# wedge the IPC thread forever. Mirrors ``_WAIT_FOR_PROCESS_EXIT_TIMEOUT_MS``
-# in ``platform_launch.py``.
 _WAIT_TIMEOUT_MS = 30 * 60 * 1000  # 30 minutes
 
 
-# ---------------------------------------------------------------------------
-# Helpers / fixtures
-# ---------------------------------------------------------------------------
-
-
 def _install_fake_windll(monkeypatch, shell32=None, kernel32=None):
-    """Install a fake ``ctypes.windll`` exposing ``.shell32`` / ``.kernel32``.
-
-    On Linux ``ctypes`` has no ``windll`` attribute, so we install a
-    ``MagicMock`` with ``raising=False``. Each library is itself a
-    ``MagicMock`` so individual tests can configure return values or
-    side effects. Returns the mock windll for direct assertions.
-    """
+    """Install a fake ``ctypes.windll`` exposing ``.shell32`` / ``.kernel32``."""
     mock_windll = MagicMock()
     if shell32 is not None:
         mock_windll.shell32 = shell32
     if kernel32 is not None:
         mock_windll.kernel32 = kernel32
-    # raising=False: ctypes.windll doesn't exist on Linux by default.
     monkeypatch.setattr(ctypes, "windll", mock_windll, raising=False)
     return mock_windll
 
 
 def _strip_windll(monkeypatch):
-    """Ensure ``ctypes.windll`` is absent (mimics Linux runtime).
-
-    On Linux this is a no-op. On Windows (where these tests would also
-    run in a hypothetical cross-platform CI) it removes the real
-    ``windll`` so the ``except Exception`` failure path is exercised.
-    """
+    """Ensure ``ctypes.windll`` is absent (mimics Linux runtime)."""
     if hasattr(ctypes, "windll"):
         monkeypatch.delattr(ctypes, "windll")
 
 
-# ---------------------------------------------------------------------------
-# _systemroot_notepad_path
-# ---------------------------------------------------------------------------
-
-
 class TestSystemRootNotepadPath:
-    """Pin SYSTEMROOT-validated Notepad resolution (SEC-audit-011).
-
-    The function must:
-      * Prefer the hardcoded ``C:\\Windows\\System32\\notepad.exe`` (XZ-R6-AS-07).
-      * Fall back to ``%SYSTEMROOT%\\System32\\notepad.exe`` when the
-        hardcoded path is missing (e.g. non-standard Windows install
-        with system root on a different drive).
-      * Return ``None`` only if neither exists.
-      * Tolerate ``OSError`` during ``Path.exists()``.
-      * Default to ``C:\\Windows`` when ``SYSTEMROOT`` is unset.
-      * Never resolve a bare PATH-resolved ``notepad`` (SEC-audit-011).
-
-    XZ-R6-AS-07: the candidate order was REVERSED from the historical
-    ``%SYSTEMROOT%``-first order. The hardcoded ``C:\\Windows`` path
-    is now checked FIRST so an attacker setting
-    ``SYSTEMROOT=C:\\Users\\attacker`` cannot trick the helper into
-    returning an attacker-controlled binary.
+    """
+    Pin SYSTEMROOT-validated Notepad resolution (SEC-audit-011).
+    * Never resolve a bare PATH-resolved ``notepad`` (SEC-audit-011).
     """
 
     def test_prefers_hardcoded_default_when_both_exist(self, monkeypatch):
-        """XZ-R6-AS-07: when BOTH the hardcoded ``C:\\Windows`` path AND
-        the SYSTEMROOT-derived path exist, the HARDCODED path wins.
-
-        Pre-XZ-R6-AS-07 the SYSTEMROOT-derived path was preferred,
-        which let an attacker (or a misconfigured parent process)
-        setting ``SYSTEMROOT=C:\\Users\\attacker`` trick the helper
-        into returning an attacker-controlled binary. The hardcoded
-        path is the OS-installed Notepad (shipped with every Windows
-        install since Windows NT), preferring it closes the trust
-        gap. The SYSTEMROOT candidate remains as a fallback for
-        non-standard Windows installs (system root on a different
-        drive).
-        """
-        # Use a SYSTEMROOT that resolves to a different path than the
-        # default, so the two candidates are distinguishable.
+        """the SYSTEMROOT-derived path exist, the HARDCODED path wins."""
         custom_root = r"D:\Attacker"
         monkeypatch.setenv("SYSTEMROOT", custom_root)
         default_path = Path(r"C:\Windows") / "System32" / "notepad.exe"
         attacker_path = Path(custom_root) / "System32" / "notepad.exe"
 
-        # Both candidates "exist", the helper must return the
-        # hardcoded default, NOT the attacker-controlled SYSTEMROOT path.
         monkeypatch.setattr(Path, "exists", lambda self: True)
 
         result = _systemroot_notepad_path()
@@ -153,22 +67,14 @@ class TestSystemRootNotepadPath:
         )
 
     def test_returns_systemroot_path_when_it_exists(self, monkeypatch):
-        """When ONLY the SYSTEMROOT-derived path exists (hardcoded
-        default is missing, e.g. non-standard Windows install), it's
-        returned as the fallback. XZ-R6-AS-07: this is now the
-        FALLBACK path, not the preferred path."""
+        """When ONLY the SYSTEMROOT-derived path exists (hardcoded"""
         custom_root = r"D:\CustomWin"
         # Build the expected path with the same construction the code
-        # under test uses (Path / operator) so the comparison is
-        # cross-platform-correct (on Linux the literal r"C:\Windows\\..."
-        # would NOT match ``str(Path(r'C:\Windows') / ...)`` which uses
-        # forward slashes for the / joins).
         expected = Path(custom_root) / "System32" / "notepad.exe"
         monkeypatch.setenv("SYSTEMROOT", custom_root)
 
         def fake_exists(self):
             # ONLY the SYSTEMROOT-derived path exists; the hardcoded
-            # default does NOT (simulating a non-standard install).
             return self == expected
 
         monkeypatch.setattr(Path, "exists", fake_exists)
@@ -198,8 +104,7 @@ class TestSystemRootNotepadPath:
         assert _systemroot_notepad_path() is None
 
     def test_defaults_to_c_windows_when_systemroot_unset(self, monkeypatch):
-        """When SYSTEMROOT env var is unset, the first candidate uses
-        ``C:\\Windows`` (not an empty / relative path)."""
+        """When SYSTEMROOT env var is unset, the first candidate uses"""
         monkeypatch.delenv("SYSTEMROOT", raising=False)
         first_candidate = []
         default_path = Path(r"C:\Windows") / "System32" / "notepad.exe"
@@ -214,34 +119,12 @@ class TestSystemRootNotepadPath:
         assert result is not None
         assert result == default_path
         # The very first candidate checked must NOT be a relative path
-        # (i.e. not "System32\\notepad.exe", which would happen if an
-        # empty SYSTEMROOT were passed through to Path()). An empty
-        # SYSTEMROOT would make ``os.environ.get('SYSTEMROOT', ...)``
-        # return ``''``, and ``Path('') / 'System32'`` collapses to a
-        # relative ``PosixPath('System32')``.
         first = first_candidate[0]
         # Path is absolute if it has a drive (Windows) or starts with /
-        # (POSIX). The constructed ``Path(r'C:\Windows')`` is absolute
-        # on Windows; on Linux it's treated as a relative PosixPath
-        # (just characters), but at minimum it must contain the
-        # "Windows" literal, never a bare "System32\\notepad.exe".
         assert "Windows" in str(first), f"Empty/missing SYSTEMROOT must not produce a relative path; got {first!r}"
 
     def test_continues_on_oserror_during_exists(self, monkeypatch):
-        """If the first candidate raises ``OSError`` (e.g. permission
-        denied), the function must continue to the next candidate
-        instead of propagating the exception.
-
-        XZ-R6-AS-07: candidate order was reversed, the hardcoded
-        ``C:\\Windows\\System32\\notepad.exe`` is now checked FIRST
-        (closing the SYSTEMROOT env-var trust gap), with the
-        SYSTEMROOT-derived path as the fallback. This test was
-        updated to reflect the new order: the OSError is raised on
-        the FIRST candidate (default_path), and the SYSTEMROOT
-        candidate is the one returned.
-        """
-        # Use a SYSTEMROOT that resolves to a different path than the
-        # default, so the two candidates are distinguishable.
+        """If the first candidate raises ``OSError`` (e.g. permission"""
         custom_root = r"D:\CustomWin"
         monkeypatch.setenv("SYSTEMROOT", custom_root)
         Path(r"C:\Windows") / "System32" / "notepad.exe"
@@ -252,7 +135,6 @@ class TestSystemRootNotepadPath:
             call_count["n"] += 1
             if call_count["n"] == 1:
                 # First candidate (default_path per  order)
-                # raises OSError, function must continue to the next.
                 raise OSError("permission denied")
             return self == systemroot_path
 
@@ -270,17 +152,10 @@ class TestSystemRootNotepadPath:
         assert isinstance(result, Path)
 
 
-# ---------------------------------------------------------------------------
-# _windows_open_with_default_app
-# ---------------------------------------------------------------------------
-
-
 class TestWindowsOpenWithDefaultApp:
-    """Pin ``ShellExecuteEx``-based default-app launch.
-
+    """
+    Pin ``ShellExecuteEx``-based default-app launch.
     Contract: returns a truthy process handle on success and ``None``
-    on any failure (so the caller can fall back to the validated
-    Notepad path).
     """
 
     def test_returns_none_on_non_windows(self, monkeypatch):
@@ -289,14 +164,11 @@ class TestWindowsOpenWithDefaultApp:
         assert _windows_open_with_default_app("foo.json") is None
 
     def test_returns_handle_when_shellexecute_succeeds(self, monkeypatch):
-        """When ``ShellExecuteExW`` succeeds and writes a non-zero
-        ``hProcess``, that handle is returned to the caller."""
+        """When ``ShellExecuteExW`` succeeds and writes a non-zero"""
         mock_shell32 = MagicMock()
         _install_fake_windll(monkeypatch, shell32=mock_shell32)
 
         def _side_effect(byref_obj):
-            # Mimic the kernel writing a process handle into the
-            # SHELLEXECUTEINFO struct passed by reference.
             byref_obj._obj.hProcess = 0xDEADBEEF
             return 1  # BOOL TRUE
 
@@ -307,8 +179,7 @@ class TestWindowsOpenWithDefaultApp:
         mock_shell32.ShellExecuteExW.assert_called_once()
 
     def test_returns_none_when_shellexecute_fails(self, monkeypatch):
-        """When ``ShellExecuteExW`` returns 0 (failure), function
-        returns ``None`` (no association / error)."""
+        """When ``ShellExecuteExW`` returns 0 (failure), function"""
         mock_shell32 = MagicMock()
         mock_shell32.ShellExecuteExW.return_value = 0  # BOOL FALSE
         _install_fake_windll(monkeypatch, shell32=mock_shell32)
@@ -316,45 +187,28 @@ class TestWindowsOpenWithDefaultApp:
         assert _windows_open_with_default_app("foo.json") is None
 
     def test_returns_none_when_hprocess_is_null(self, monkeypatch):
-        """Even when ``ShellExecuteExW`` reports success, a null
-        ``hProcess`` (no associated handler with a process handle)
-        must collapse to ``None`` via the ``or None`` clause."""
+        """Even when ``ShellExecuteExW`` reports success, a null"""
         mock_shell32 = MagicMock()
         mock_shell32.ShellExecuteExW.return_value = 1  # success
-        # hProcess is left at its c_void_p default of None.
         _install_fake_windll(monkeypatch, shell32=mock_shell32)
 
         assert _windows_open_with_default_app("foo.json") is None
 
     def test_sets_argtypes_and_restype_on_shellexecute(self, monkeypatch):
-        """``argtypes``/``restype`` must be explicitly assigned on
-        ``ShellExecuteExW`` before the call (Win32 ABI safety: without
-        them, ctypes defaults to ``c_int`` return which truncates
-        64-bit pointers on 64-bit Windows)."""
+        """``ShellExecuteExW`` before the call (Win32 ABI safety: without"""
         mock_shell32 = MagicMock()
         mock_shell32.ShellExecuteExW.return_value = 0
         _install_fake_windll(monkeypatch, shell32=mock_shell32)
 
         _windows_open_with_default_app("foo.json")
         # MagicMock records attribute assignments; if the function
-        # never assigned them, attribute access would return a fresh
-        # child mock (also truthy). Distinguish by checking that the
-        # stored value is exactly what we'd expect (a list for
-        # argtypes, a type for restype). We assert non-default via
-        # explicit assignment tracking.
         shell_ex = mock_shell32.ShellExecuteExW
         # The function assigns these explicitly, so they must be set
-        # (not auto-children). We verify by checking the mock's
-        # ``_mock_children`` does not own a freshly-created default —
-        # i.e. the assigned value is preserved.
         assert shell_ex.argtypes is not None
         assert shell_ex.restype is not None
 
     def test_invokes_shellexecute_with_path_in_sei(self, monkeypatch):
-        """The path argument must be plumbed into the
-        SHELLEXECUTEINFO struct's ``lpFile`` field, with the correct
-        ``lpVerb`` ('open'), ``fMask`` (SEE_MASK_NOCLOSEPROCESS) and
-        ``nShow`` (SW_SHOWNORMAL)."""
+        """SHELLEXECUTEINFO struct's ``lpFile`` field, with the correct"""
         mock_shell32 = MagicMock()
         captured = {}
 
@@ -375,27 +229,14 @@ class TestWindowsOpenWithDefaultApp:
         assert captured["lpVerb"] == "open"
         assert captured["fMask"] == _SEE_MASK_NOCLOSEPROCESS
         assert captured["nShow"] == _SW_SHOWNORMAL
-        # cbSize must be initialized to sizeof(SHELLEXECUTEINFO) —
-        # ShellExecuteEx refuses to call with cbSize=0.
         assert captured["cbSize"] > 0
 
 
-# ---------------------------------------------------------------------------
-# _windows_wait_for_process_exit
-# ---------------------------------------------------------------------------
-
-
 class TestWindowsWaitForProcessExit:
-    """Pin ``WaitForSingleObject(handle, finite-timeout)`` dispatch.
-
-    Contract: never raises (failures are silently swallowed so the
-    editor flow doesn't crash on edge cases).
-    """
+    """Pin ``WaitForSingleObject(handle, finite-timeout)`` dispatch."""
 
     def test_calls_wait_for_single_object_with_infinite(self, monkeypatch):
-        """``WaitForSingleObject`` must be called with the handle and a
-        finite 30-minute timeout (NOT ``INFINITE``, a hung editor must
-        not wedge the IPC thread forever; see DE-68 in platform_launch.py)."""
+        """finite 30-minute timeout (NOT ``INFINITE``, a hung editor must"""
         mock_kernel32 = MagicMock()
         mock_kernel32.WaitForSingleObject.return_value = 0  # WAIT_OBJECT_0
         _install_fake_windll(monkeypatch, kernel32=mock_kernel32)
@@ -404,8 +245,7 @@ class TestWindowsWaitForProcessExit:
         mock_kernel32.WaitForSingleObject.assert_called_once_with(0x1234, _WAIT_TIMEOUT_MS)
 
     def test_assigns_argtypes_and_restype(self, monkeypatch):
-        """``argtypes``/``restype`` must be set on
-        ``WaitForSingleObject`` (Win32 ABI safety)."""
+        """``argtypes``/``restype`` must be set on"""
         mock_kernel32 = MagicMock()
         mock_kernel32.WaitForSingleObject.return_value = 0
         _install_fake_windll(monkeypatch, kernel32=mock_kernel32)
@@ -415,14 +255,12 @@ class TestWindowsWaitForProcessExit:
         assert mock_kernel32.WaitForSingleObject.restype is not None
 
     def test_swallows_exception_on_non_windows(self, monkeypatch):
-        """On Linux (no ``ctypes.windll``), function returns ``None``
-        silently instead of raising."""
+        """On Linux (no ``ctypes.windll``), function returns ``None``"""
         _strip_windll(monkeypatch)
         assert _windows_wait_for_process_exit(0x1234) is None
 
     def test_swallows_kernel32_runtime_error(self, monkeypatch):
-        """If ``WaitForSingleObject`` raises at runtime, the function
-        must swallow the exception (returns ``None``)."""
+        """If ``WaitForSingleObject`` raises at runtime, the function"""
         mock_kernel32 = MagicMock()
         mock_kernel32.WaitForSingleObject.side_effect = OSError("boom")
         _install_fake_windll(monkeypatch, kernel32=mock_kernel32)
@@ -431,17 +269,8 @@ class TestWindowsWaitForProcessExit:
         assert _windows_wait_for_process_exit(0x1234) is None
 
 
-# ---------------------------------------------------------------------------
-# _windows_close_process_handle
-# ---------------------------------------------------------------------------
-
-
 class TestWindowsCloseProcessHandle:
-    """Pin ``CloseHandle`` dispatch.
-
-    Contract: never raises (so the ``finally`` clause in
-    ``_open_config_file`` doesn't crash on cleanup).
-    """
+    """Pin ``CloseHandle`` dispatch."""
 
     def test_calls_close_handle_with_handle(self, monkeypatch):
         """``CloseHandle`` must be invoked with the handle argument."""
@@ -463,14 +292,12 @@ class TestWindowsCloseProcessHandle:
         assert mock_kernel32.CloseHandle.restype is not None
 
     def test_swallows_exception_on_non_windows(self, monkeypatch):
-        """On Linux (no ``ctypes.windll``), function returns ``None``
-        silently."""
+        """On Linux (no ``ctypes.windll``), function returns ``None``"""
         _strip_windll(monkeypatch)
         assert _windows_close_process_handle(0x1234) is None
 
     def test_swallows_closehandle_runtime_error(self, monkeypatch):
-        """If ``CloseHandle`` raises at runtime, the function must
-        swallow the exception (returns ``None``)."""
+        """If ``CloseHandle`` raises at runtime, the function must"""
         mock_kernel32 = MagicMock()
         mock_kernel32.CloseHandle.side_effect = OSError("boom")
         _install_fake_windll(monkeypatch, kernel32=mock_kernel32)
@@ -478,29 +305,11 @@ class TestWindowsCloseProcessHandle:
         assert _windows_close_process_handle(0x1234) is None
 
 
-# ---------------------------------------------------------------------------
-# Integration: open → wait → close lifecycle
-# ---------------------------------------------------------------------------
-
-
 class TestOpenWaitCloseLifecycle:
-    """Pin the end-to-end lifecycle used by
-    ``VoiceTyperApp._open_config_file``::
-
-        handle = _windows_open_with_default_app(str(config_file))
-        if handle is not None:
-            try:
-                _windows_wait_for_process_exit(handle)
-            finally:
-                _windows_close_process_handle(handle)
-        else:
-            notepad = _systemroot_notepad_path()  # fallback
-    """
+    """``VoiceTyperApp._open_config_file``::"""
 
     def test_full_lifecycle_dispatches_all_three_win32_calls(self, monkeypatch):
-        """open() → wait() → close() calls ShellExecuteExW,
-        WaitForSingleObject, and CloseHandle in order with the same
-        handle flowing through all three."""
+        """open() → wait() → close() calls ShellExecuteExW,"""
         mock_shell32 = MagicMock()
         mock_kernel32 = MagicMock()
         mock_kernel32.WaitForSingleObject.return_value = 0
@@ -526,11 +335,7 @@ class TestOpenWaitCloseLifecycle:
         mock_kernel32.CloseHandle.assert_called_once_with(0xCAFE)
 
     def test_null_handle_skips_wait_and_close_per_contract(self, monkeypatch):
-        """When ``open()`` returns ``None`` (no .json association),
-        the caller's contract is to skip wait/close and fall back to
-        the Notepad path. This test pins that contract: with no
-        ShellExecuteExW side_effect (default return = 0 → None), the
-        mock kernel32 functions must NOT have been invoked."""
+        """When ``open()`` returns ``None`` (no .json association),"""
         mock_shell32 = MagicMock()
         mock_shell32.ShellExecuteExW.return_value = 0  # failure
         mock_kernel32 = MagicMock()
@@ -543,14 +348,9 @@ class TestOpenWaitCloseLifecycle:
         mock_kernel32.CloseHandle.assert_not_called()
 
     def test_close_is_called_even_if_wait_raises(self, monkeypatch):
-        """If ``WaitForSingleObject`` raises, ``CloseHandle`` must
-        still be called (the ``try/finally`` in app.py guarantees
-        this; ``_windows_wait_for_process_exit`` swallows the exception
-        so the finally runs normally, but this test pins the
-        contract independently)."""
+        """If ``WaitForSingleObject`` raises, ``CloseHandle`` must"""
         mock_shell32 = MagicMock()
         mock_kernel32 = MagicMock()
-        # wait() will swallow this and return None. CloseHandle still called.
         mock_kernel32.WaitForSingleObject.side_effect = OSError("wait failed")
         mock_kernel32.CloseHandle.return_value = 1
         _install_fake_windll(monkeypatch, shell32=mock_shell32, kernel32=mock_kernel32)

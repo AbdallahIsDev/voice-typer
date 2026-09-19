@@ -1,47 +1,4 @@
-"""AB-38 regression tests: the WS sidecar outbound send path must apply
-the size-cap on the ENCODED byte payload, encoding the frame exactly
-ONCE.
-
-The bug (AB-38, original)
--------------------------
-``sidecar_ws``'s outbound path previously did, for every frame:
-
-    raw = json.dumps(event, ensure_ascii=False)  # str
-    if len(raw.encode("utf-8")) > _MAX_FRAME_BYTES:  # encodes str→bytes (O(n))
-        ...
-    await websocket.send(raw)  # websockets lib encodes str→bytes AGAIN
-
-The ``raw.encode("utf-8")`` call produced a temporary ``bytes`` object
-just to compute its length, then discarded it; ``websocket.send(raw)``
-then re-encoded the str to bytes internally for the WS TEXT frame. So
-every outbound frame was UTF-8 encoded TWICE, 1-5 MiB/sec of garbage
-allocation on the asyncio loop thread for near-cap frames.
-
-The current design (supersedes the char-count heuristic)
---------------------------------------------------------
-``_safe_send`` (shared by the dispatch-response path and the writer
-task) now:
-
-    raw_bytes = await loop.run_in_executor(_get_ws_encode_pool(), _encode_ws_frame, event)
-    if len(raw_bytes) > _MAX_FRAME_BYTES:   # EXACT byte count
-        ... drop with ERROR log ...
-    await websocket.send(raw_bytes.decode("utf-8"))  # TEXT frame, same single encode
-
-- The frame is encoded exactly ONCE (``_encode_ws_frame`` runs
-  ``json.dumps`` + ``.encode`` together, off the event loop).
-- The size check measures the exact UTF-8 byte count, this catches
-  multi-byte-heavy frames (CJK / emoji dictation) that a char-count
-  check missed (the char-count heuristic was a safe *lower bound*, but
-  the byte count is the authoritative limit the Rust host's tungstenite
-  ``max_size`` enforces on receive).
-- The once-encoded buffer is reused for ``send``, no double encode.
-  Per AGENTS.md constraint C-WS-2 the payload is decoded back to
-  ``str`` right before ``send`` so the websockets library emits a WS
-  **TEXT** frame (the Rust host's reader parses ``Message::Text``
-  only; raw bytes would leave as BINARY and be silently dropped).
-
-These tests verify the source contract and the size-check semantics.
-"""
+"""AB-38 regression tests: the WS sidecar outbound send path must apply"""
 
 from __future__ import annotations
 
@@ -56,13 +13,10 @@ from voice_typer.server.sidecar_ws import (
 
 
 class TestWSFrameSizeCheckSource:
-    """AB-38: source-level verification that the size check measures the
-    exact byte count of a single-encoded frame."""
+    """AB-38: source-level verification that the size check measures the"""
 
     def test_size_check_uses_encoded_byte_count(self):
-        """The size check must compare ``len(raw_bytes)`` (the exact
-        UTF-8 byte count of the encoded frame) against
-        ``_MAX_FRAME_BYTES``."""
+        """The size check must compare ``len(raw_bytes)`` (the exact"""
         src = inspect.getsource(_safe_send)
         assert "if len(raw_bytes) > _MAX_FRAME_BYTES:" in src, (
             "AB-38: _safe_send size check must use `len(raw_bytes)` "
@@ -70,7 +24,6 @@ class TestWSFrameSizeCheckSource:
             "char count."
         )
         # The old double-encode pattern must NOT be present as a
-        # statement (strip comments, which may quote the old pattern).
         code_lines = [line for line in src.splitlines() if line.strip() and not line.strip().startswith("#")]
         code_only = "\n".join(code_lines)
         assert "raw.encode(" not in code_only, (
@@ -80,9 +33,7 @@ class TestWSFrameSizeCheckSource:
         )
 
     def test_single_encode_via_run_in_executor(self):
-        """The frame must be encoded exactly once, off the event loop
-        (``run_in_executor`` + ``_encode_ws_frame``), and the same bytes
-        handed to ``websocket.send``."""
+        """The frame must be encoded exactly once, off the event loop"""
         src = inspect.getsource(_safe_send)
         assert "run_in_executor" in src, (
             "AB-38: the encode must be off-loaded via run_in_executor so "
@@ -98,9 +49,7 @@ class TestWSFrameSizeCheckSource:
         )
 
     def test_safety_comment_present(self):
-        """The size-check code must include a comment explaining why the
-        byte count is authoritative (the Rust host's tungstenite reader
-        enforces its own ``max_size`` on receive)."""
+        """byte count is authoritative (the Rust host's tungstenite reader"""
         src = inspect.getsource(_safe_send)
         assert "tungstenite" in src.lower(), (
             "AB-38: the size-check fix must reference the Rust host's "
@@ -113,14 +62,10 @@ class TestWSFrameSizeCheckSource:
 
 
 class TestWSFrameSizeCheckSemantics:
-    """AB-38: behavioral verification that the exact byte count is the
-    authoritative size measure (a char-count check would miss
-    multi-byte-heavy frames)."""
+    """authoritative size measure (a char-count check would miss"""
 
     def test_multibyte_frame_exceeds_byte_cap_but_not_char_cap(self):
-        """A frame with 4-byte emoji chars can exceed ``_MAX_FRAME_BYTES``
-        in bytes while its char count stays under, the exact byte-count
-        check must drop it."""
+        """A frame with 4-byte emoji chars can exceed ``_MAX_FRAME_BYTES``"""
         n_chars = _MAX_FRAME_BYTES // 3  # byte count = 4N > cap, char count = N < cap
         event = {"type": "test_multibyte", "data": "😀" * n_chars}
         raw_bytes = _encode_ws_frame(event)
@@ -145,13 +90,10 @@ class TestWSFrameSizeCheckSemantics:
 
 
 class TestWSFrameSizeCheckBehavioral:
-    """AB-38: behavioral verification that ``_safe_send`` drops frames
-    whose encoded byte count exceeds the cap, without ever encoding
-    twice."""
+    """AB-38: behavioral verification that ``_safe_send`` drops frames"""
 
     async def _run_safe_send(self, event):
-        """Call ``_safe_send`` against a fake websocket that records the
-        payload handed to ``send``."""
+        """Call ``_safe_send`` against a fake websocket that records the"""
         sent = []
 
         class _FakeWS:
@@ -170,8 +112,7 @@ class TestWSFrameSizeCheckBehavioral:
 
     @pytest.mark.asyncio
     async def test_oversized_ascii_frame_is_dropped(self):
-        """An ASCII frame whose encoded byte count exceeds the cap is
-        dropped (never reaches ``send``)."""
+        """An ASCII frame whose encoded byte count exceeds the cap is"""
         event = {"type": "test_oversized", "data": "x" * (_MAX_FRAME_BYTES + 100)}
         assert len(_encode_ws_frame(event)) > _MAX_FRAME_BYTES
         status, ws, sent = await self._run_safe_send(event)
@@ -180,8 +121,7 @@ class TestWSFrameSizeCheckBehavioral:
 
     @pytest.mark.asyncio
     async def test_multibyte_frame_over_byte_cap_is_dropped(self):
-        """A multi-byte frame whose encoded byte count exceeds the cap
-        (even though its char count is under) is dropped."""
+        """A multi-byte frame whose encoded byte count exceeds the cap"""
         n_chars = _MAX_FRAME_BYTES // 3
         event = {"type": "test_oversized_emoji", "data": "😀" * n_chars}
         assert len(_encode_ws_frame(event)) > _MAX_FRAME_BYTES
@@ -191,11 +131,7 @@ class TestWSFrameSizeCheckBehavioral:
 
     @pytest.mark.asyncio
     async def test_normal_frame_is_sent_as_text_str(self):
-        """A small frame is sent, and the payload handed to
-        ``websocket.send`` must be the once-encoded frame decoded back
-        to ``str`` (a WS TEXT frame per the C-WS-2 wire contract: the
-        Rust host parses ``Message::Text`` only, so raw bytes would be
-        silently dropped)."""
+        """``websocket.send`` must be the once-encoded frame decoded back"""
         event = {"type": "bubble_level", "level": 0.42}
         raw_bytes = _encode_ws_frame(event)
         assert len(raw_bytes) <= _MAX_FRAME_BYTES

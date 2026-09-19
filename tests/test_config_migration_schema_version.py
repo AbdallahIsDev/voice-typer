@@ -1,47 +1,6 @@
-"""migration runner must NOT bump ``schema_version`` on failure.
-
-The pre-fix behaviour (the bug): when a migrator raised an exception,
-``Config.load()`` caught it, logged an ERROR, KEPT the partially-
-migrated data, CONTINUED to the next migrator, and finally bumped
-``schema_version`` to ``_CURRENT_SCHEMA_VERSION``.  That lied to the
-next launch: the on-disk version said "fully migrated" but some fields
-were never actually migrated, so the next launch SKIPPED the failed
-migrator permanently and the user was stuck with a half-migrated
-config.
-
-The fix:
-  * On migrator exception, BREAK the loop -- later migrators expect
-    the prior version's data shape and would compound the corruption.
-  * Do NOT bump ``schema_version`` to ``_CURRENT_SCHEMA_VERSION`` --
-    leave it at ``last_successful_version`` (the highest version whose
-    migrator completed without raising, or ``loaded_version`` if no
-    migrator has succeeded yet) so the failed migration re-runs on
-    the next launch.
-  * Log an ERROR clearly identifying which migration failed and what
-    exception was raised (the existing DE-3 tests pin the message
-    format ``"migrator v<N> raised <ExcType>"``).
-  * Save a timestamped ``.bak`` file whose name embeds the failed
-    target version so multiple failures across launches don't clobber
-    each other and the user can identify which migration produced
-    which backup.  Pattern:
-    ``config.json.bak.failed-migration-YYYYMMDD-HHMMSS-to-v<N>``
-
-Design note on exception propagation: the finding's
-suggested fix mentions re-raising the exception so the caller knows
-the migration failed.  We deliberately do NOT re-raise, because the
-existing ``TestMigratorFailureDoesNotBumpSchemaVersion`` tests
-(pinned by a prior session) expect ``Config.load()`` to RETURN a
-``Config`` object on migrator failure (not raise).  The "loud report"
-requirement is satisfied by the ERROR log + the ``_load_warnings``
-entry + the on-disk ``.bak`` file + leaving ``schema_version`` at the
-pre-failure version -- the user is informed and the next launch
-retries.  Re-raising would crash the app on every launch until the
-underlying migrator bug is fixed, which is a worse UX for a config
-migration than loading with the pre-migration data.
-
-These tests are the contract; the DE-3 tests in
-``tests/test_config_group_fixes.py`` pin the same behaviour from a
-prior session and should also pass after the fix.
+"""
+migration runner must NOT bump ``schema_version`` on failure.
+* Do NOT bump ``schema_version`` to ``_CURRENT_SCHEMA_VERSION`` --
 """
 
 from __future__ import annotations
@@ -63,10 +22,7 @@ def _isolated_config_dir(tmp_config_dir):
 
 @pytest.fixture
 def _restore_migrations():
-    """Snapshot _MIGRATIONS so a test can monkey-patch it and we restore
-    the originals afterwards (defensive -- monkeypatch.setitem already
-    undoes itself, but the DE-3 tests use a manual clear/update pattern
-    and we mirror that here for parity)."""
+    """Snapshot _MIGRATIONS so a test can monkey-patch it and we restore"""
     original = dict(config_mod._MIGRATIONS)
     try:
         yield
@@ -79,13 +35,10 @@ def _restore_migrations():
 
 
 class TestMigratorFailureDoesNotBumpSchemaVersion:
-    """the headline behaviour -- on migrator exception the
-    on-disk ``schema_version`` MUST stay at the pre-failure version so
-    the failed migration re-runs on the next launch."""
+    """on-disk ``schema_version`` MUST stay at the pre-failure version so"""
 
     def test_failure_at_v2_leaves_schema_version_at_loaded_version(self, tmp_path, monkeypatch):
-        """A v2 migrator that raises must leave schema_version at the
-        loaded version (0), NOT bump it to _CURRENT_SCHEMA_VERSION (3)."""
+        """A v2 migrator that raises must leave schema_version at the"""
         config_file = tmp_path / "config.json"
         config_file.write_text(json.dumps({"schema_version": 0, "hotkey": "<f5>"}))
 
@@ -105,16 +58,13 @@ class TestMigratorFailureDoesNotBumpSchemaVersion:
         )
 
     def test_failure_at_v3_after_v2_succeeds_leaves_schema_version_at_v2(self, tmp_path, monkeypatch):
-        """If v2 succeeds but v3 raises, schema_version must be left at
-        2 (the last successful version), NOT 3 -- so only v3 re-runs on
-        the next launch (v2 won't needlessly re-run)."""
+        """If v2 succeeds but v3 raises, schema_version must be left at"""
         config_file = tmp_path / "config.json"
         config_file.write_text(json.dumps({"schema_version": 0, "hotkey": "<f5>"}))
 
         def _failing_v3(data):
             raise RuntimeError("v3 failure after v2 success")
 
-        # v2 stays as the real migrator; only v3 is patched to fail.
         monkeypatch.setitem(config_mod._MIGRATIONS, 3, _failing_v3)
 
         loaded = Config.load()
@@ -128,9 +78,7 @@ class TestMigratorFailureDoesNotBumpSchemaVersion:
         )
 
     def test_happy_path_still_bumps_to_current(self, tmp_path, monkeypatch):
-        """Sanity: when no migrator raises, schema_version IS bumped to
-        _CURRENT_SCHEMA_VERSION.  Guards against an over-correction that
-        would never bump the version."""
+        """would never bump the version."""
         config_file = tmp_path / "config.json"
         config_file.write_text(json.dumps({"schema_version": 0, "hotkey": "<f5>"}))
 
@@ -147,9 +95,7 @@ class TestMigratorFailureDoesNotBumpSchemaVersion:
 
 
 class TestFailureBreaksMigrationLoop:
-    """a failed migrator must BREAK the loop -- later
-    migrators expect the prior version's data shape and would compound
-    the corruption if run against partially-migrated data."""
+    """a failed migrator must BREAK the loop -- later"""
 
     def test_v3_does_not_run_after_v2_raises(self, tmp_path, monkeypatch):
         config_file = tmp_path / "config.json"
@@ -177,23 +123,11 @@ class TestFailureBreaksMigrationLoop:
         )
 
 
-# timestamped .bak file with failed-version in filename ────────
-
-
 class TestFailedMigrationBackup:
-    """on migrator failure a ``.bak`` file must be saved with
-    a forensic-unique identifier (Unix timestamp seconds + PID +
-    nanosecond fraction) and the failed target version in the filename,
-    so multiple failures across launches don't clobber each other and
-    the user can identify which migration produced which backup."""
+    """a forensic-unique identifier (Unix timestamp seconds + PID +"""
 
     _BAK_RE = re.compile(
         # Format is ``config.json.bak.failed-migration-{ts_sec}-{pid}-{ts_ns}-to-v<N>``
-        # where ``ts_sec`` is a Unix timestamp (seconds), ``pid`` is the
-        # process id, and ``ts_ns`` is the nanosecond fraction of the
-        # timestamp. This gives forensic uniqueness: same-second failures
-        # from different processes are disambiguated by PID, and
-        # same-process same-second failures by the nanosecond fraction.
         r"^config\.json\.bak\.failed-migration-\d+-\d+-\d+-to-v\d+$"
     )
 
@@ -218,12 +152,7 @@ class TestFailedMigrationBackup:
         )
 
     def test_bak_filename_has_timestamp_and_failed_version(self, tmp_path, monkeypatch):
-        """The .bak filename must match the pattern
-        ``config.json.bak.failed-migration-{ts_sec}-{pid}-{ts_ns}-to-v<N>``
-        where ``<N>`` is the failed target version and the three numeric
-        segments provide forensic uniqueness across same-second failures
-        (PID disambiguates processes; nanosecond fraction disambiguates
-        same-process, same-second failures)."""
+        """The .bak filename must match the pattern"""
         config_file = tmp_path / "config.json"
         config_file.write_text(json.dumps({"schema_version": 0}))
 
@@ -243,22 +172,18 @@ class TestFailedMigrationBackup:
             f"'config.json.bak.failed-migration-<ts_sec>-<pid>-<ts_ns>-to-v<N>'."
         )
         # Specifically: the failed-version suffix must be '-to-v3' because
-        # v3 is the migrator that raised.
         assert name.endswith("-to-v3"), (
             f".bak filename {name!r} should end with '-to-v3' (the failed target version), not something else."
         )
 
     def test_bak_contains_pre_migration_on_disk_content(self, tmp_path, monkeypatch):
-        """The .bak must be a copy of the on-disk config.json BEFORE the
-        failed migration ran -- this is the user's recovery point."""
+        """The .bak must be a copy of the on-disk config.json BEFORE the"""
         config_file = tmp_path / "config.json"
         original = {"schema_version": 0, "hotkey": "<f9>", "model_size": "tiny.en"}
         config_file.write_text(json.dumps(original))
 
         def _failing_v2(data):
             # Mutate `data` to simulate a partial migration -- this must
-            # NOT end up in the .bak (the .bak is from config_file, the
-            # pre-migration on-disk state).
             data["partial_migration_marker"] = "should_not_be_in_bak"
             raise RuntimeError("partial then fail")
 
@@ -277,10 +202,7 @@ class TestFailedMigrationBackup:
         )
 
     def test_repeated_failures_do_not_clobber_each_other(self, tmp_path, monkeypatch):
-        """Two failures in quick succession must produce TWO .bak files
-        (the timestamp makes them unique).  Without the timestamp the
-        second failure would silently overwrite the first .bak and the
-        user would lose the first recovery point."""
+        """Two failures in quick succession must produce TWO .bak files"""
         config_file = tmp_path / "config.json"
         config_file.write_text(json.dumps({"schema_version": 0}))
 
@@ -291,7 +213,6 @@ class TestFailedMigrationBackup:
 
         Config.load()
         # Force a second load -- the timestamp granularity is 1 second,
-        # so sleep just over 1s to guarantee a different filename.
         import time
 
         time.sleep(1.1)
@@ -309,13 +230,8 @@ class TestFailedMigrationBackup:
         assert bak_files[0].name != bak_files[1].name
 
 
-# failure must be loudly reported in logs ──────────────────────
-
-
 class TestFailureIsLoggedAtError:
-    """the failure must be loudly reported -- an ERROR log
-    identifying which migration failed and what exception was raised.
-    The previous "silent swallow + bump" behaviour was the bug."""
+    """the failure must be loudly reported -- an ERROR log"""
 
     def test_error_log_names_failed_version_and_exception_type(self, tmp_path, monkeypatch, caplog):
         config_file = tmp_path / "config.json"
@@ -329,8 +245,6 @@ class TestFailureIsLoggedAtError:
         with caplog.at_level(logging.WARNING, logger="voice_typer.server.config"):
             Config.load()
 
-        # The ERROR record must mention which version failed and what
-        # exception type was raised.  The  tests pin the substring
         # "migrator v<N> raised <ExcType>"; we assert the same contract.
         error_records = [
             r
@@ -342,19 +256,7 @@ class TestFailureIsLoggedAtError:
         )
 
     def test_load_does_not_raise_on_migrator_failure(self, tmp_path, monkeypatch):
-        """design decision: ``Config.load()`` does NOT re-raise
-        the migrator's exception.  Re-raising would crash the app on
-        every launch until the underlying migrator bug is fixed -- a
-        worse UX for a config migration than loading with the
-        pre-migration data + a loud ERROR log + a ``.bak`` + leaving
-        ``schema_version`` at the pre-failure version so the migration
-        re-runs on next launch.
-
-        This test pins that decision so a future change that adds a
-        ``raise`` is caught.  The pre-existing ``TestDE3MigratorFailure``
-        tests in ``tests/test_config_group_fixes.py`` rely on this
-        contract (they call ``loaded = Config.load()`` without
-        ``pytest.raises``)."""
+        """design decision: ``Config.load()`` does NOT re-raise"""
         config_file = tmp_path / "config.json"
         config_file.write_text(json.dumps({"schema_version": 0}))
 
@@ -364,9 +266,6 @@ class TestFailureIsLoggedAtError:
         monkeypatch.setitem(config_mod._MIGRATIONS, 2, _failing_v2)
 
         # Must not raise -- the failure is reported via the ERROR log,
-        # the _load_warnings list, the .bak file, and the
-        # schema_version NOT being bumped (all verified by other tests
-        # in this module).
         loaded = Config.load()
         assert loaded is not None
         assert loaded.schema_version == 0

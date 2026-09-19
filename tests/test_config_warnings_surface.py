@@ -1,36 +1,4 @@
-"""Regression tests for config-load-warning surfacing.
-
-These tests pin three coupled fixes:
-
-1. ``sanitize_config_for_ipc`` must surface
-   ``Config.last_load_warnings`` to the renderer. Pre-fix the
-   attribute was a plain instance attribute (NOT a dataclass field),
-   so ``dataclasses.asdict`` excluded it and the renderer never
-   learned that the just-loaded config had invalid values.
-
-2. ``Config.load()`` must RESET invalid ``Literal[...]`` enum fields
-   to their defaults (not just warn about them). Pre-fix
-   ``validate_config(instance)`` flagged the bad value and appended a
-   warning to ``last_load_warnings``, but the field itself survived
-   verbatim, propagating to runtime code where it either crashed a
-   dispatch dict (``KeyError``) or silently took the wrong branch.
-
-3. ``ConfigEditorLauncher.launch`` must call ``tray.notify`` after
-   reload when ``last_load_warnings`` is non-empty. Pre-fix the user
-   editing ``config.json`` by hand got no toast, no IPC error, and no
-   UI banner, the editor exited and the app silently ran with the
-   (possibly-corrected) config.
-
-The three fixes close the loop:
-   - ``Config.load()`` produces warnings + resets invalid enums
-     (test 2).
-   - ``sanitize_config_for_ipc`` ships those warnings to the renderer
-     via the ``get_config`` IPC response (test 1).
-   - ``ConfigEditorLauncher.launch`` gives the user immediate
-     feedback via a tray notification the moment the editor exits,
-     closing the gap before the renderer's next ``get_config`` poll
-     arrives (test 3).
-"""
+"""Regression tests for config-load-warning surfacing."""
 
 from __future__ import annotations
 
@@ -42,36 +10,19 @@ import pytest
 from voice_typer.server.config import Config
 from voice_typer.server.config_sanitizer import sanitize_config_for_ipc
 
-# ──────────────────────────────────────────────────────────────────────────
-# Test fixtures
-# ──────────────────────────────────────────────────────────────────────────
-
 
 @pytest.fixture
 def isolated_config_dir(tmp_config_dir: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """Point ``_config_dir()`` at an empty tmp_path for the duration
-    of the test so ``Config.load()`` reads/writes only our isolated
-    config.json.
-    """
+    """Point ``_config_dir()`` at an empty tmp_path for the duration"""
     monkeypatch.delenv("VOICE_TYPER_CONFIG_DIR", raising=False)
     return tmp_config_dir
 
 
-# ──────────────────────────────────────────────────────────────────────────
-# sanitize_config_for_ipc surfaces last_load_warnings
-# ──────────────────────────────────────────────────────────────────────────
-
-
 class TestSanitizeSurfacesLastLoadWarnings:
-    """``sanitize_config_for_ipc`` must include ``last_load_warnings``
-    in its output dict so the renderer can surface a "Config loaded
-    with N warnings" toast.
-    """
+    """``sanitize_config_for_ipc`` must include ``last_load_warnings``"""
 
     def test_warnings_present_in_sanitized_output(self) -> None:
-        """A Config with ``last_load_warnings`` set must surface those
-        warnings verbatim in the sanitized dict.
-        """
+        """A Config with ``last_load_warnings`` set must surface those"""
         cfg = Config()
         cfg.last_load_warnings = ["validate_config: asr_backend: invalid value 'invalid_backend'"]
 
@@ -87,10 +38,7 @@ class TestSanitizeSurfacesLastLoadWarnings:
         )
 
     def test_warnings_default_to_empty_list_when_unset(self) -> None:
-        """A Config without ``last_load_warnings`` set (e.g. a fresh
-        ``Config()`` whose ``__post_init__`` set it to ``None``) must
-        surface an empty list, not ``None`` or a missing key.
-        """
+        """A Config without ``last_load_warnings`` set (e.g. a fresh"""
         cfg = Config()
         # ``__post_init__`` sets last_load_warnings = None.
         assert cfg.last_load_warnings is None
@@ -104,21 +52,9 @@ class TestSanitizeSurfacesLastLoadWarnings:
         )
 
     def test_warnings_truncated_to_200_chars(self) -> None:
-        """Each warning is truncated to 200 chars (plus an ellipsis)
-        so a pathologically long warning (e.g. a stringified
-        ``custom_theme`` dict) doesn't inflate the IPC payload.
-
-        Note: ``redact_pii`` runs AFTER truncation and may further
-        shrink the output (e.g. redacting a long bare token to
-        ``***``). To verify the truncation in isolation, the warning
-        text here is a sentence with spaces: ``redact_secret``'s
-        20+ char bare-token pattern only matches contiguous
-        alphanumeric runs, so a space-separated sentence survives
-        redaction verbatim.
-        """
+        """Each warning is truncated to 200 chars (plus an ellipsis)"""
         cfg = Config()
         # Use a long sentence (with spaces) so ``redact_secret``'s
-        # 20+ char alphanumeric bare-token pattern doesn't fire.
         long_warning = "this is a long load warning " * 20  # ~520 chars
         cfg.last_load_warnings = [long_warning]
 
@@ -133,13 +69,8 @@ class TestSanitizeSurfacesLastLoadWarnings:
         assert truncated.endswith("…")
 
     def test_warnings_redact_api_keys(self) -> None:
-        """Warnings may embed field values (e.g. a malformed API key
-        echoed back in an error message). API keys must be redacted
-        via ``redact_pii`` before transmission.
-        """
+        """Warnings may embed field values (e.g. a malformed API key"""
         cfg = Config()
-        # A realistic-looking API key (sk- prefix + 32 chars) that
-        # ``redact_secret`` should catch.
         secret = "sk-abcd1234efgh5678ijkl9012mnop3456"
         cfg.last_load_warnings = [f"validate_config: llm_api_key: invalid value {secret!r}"]
 
@@ -164,12 +95,7 @@ class TestSanitizeSurfacesLastLoadWarnings:
         )
 
     def test_warnings_returned_as_new_list_instance(self) -> None:
-        """The returned list must be a NEW list, not the same object
-        as ``cfg.last_load_warnings``. Mutating the sanitized dict
-        must NOT mutate the Config's internal state (defense-in-depth
-        against the renderer accidentally tampering with the
-        Config's warning list).
-        """
+        """The returned list must be a NEW list, not the same object"""
         cfg = Config()
         original = ["warning one"]
         cfg.last_load_warnings = list(original)
@@ -185,22 +111,11 @@ class TestSanitizeSurfacesLastLoadWarnings:
         assert cfg.last_load_warnings == original
 
 
-# ──────────────────────────────────────────────────────────────────────────
-# Config.load() resets invalid Literal enum fields to defaults
-# ──────────────────────────────────────────────────────────────────────────
-
-
 class TestLoadResetsInvalidEnumFields:
-    """``Config.load()`` must reset invalid ``Literal[...]`` enum
-    fields to their dataclass defaults AND append a warning to
-    ``last_load_warnings`` (so the user knows the field was
-    corrected).
-    """
+    """``Config.load()`` must reset invalid ``Literal[...]`` enum"""
 
     def test_invalid_asr_backend_reset_to_default(self, isolated_config_dir: Path) -> None:
-        """A hand-edited ``asr_backend="invalid_backend"`` must be
-        reset to the default ``"whisper"`` on load.
-        """
+        """A hand-edited ``asr_backend=\"invalid_backend\"`` must be"""
         config_file = isolated_config_dir / "config.json"
         config_file.write_text(
             json.dumps({"schema_version": 3, "asr_backend": "invalid_backend"}),
@@ -213,7 +128,6 @@ class TestLoadResetsInvalidEnumFields:
             f"AP-22: invalid asr_backend should be reset to the default 'whisper'. Got: {cfg.asr_backend!r}"
         )
         # A warning must be appended to last_load_warnings mentioning
-        # the field was reset.
         reset_warnings = [w for w in (cfg.last_load_warnings or []) if "asr_backend" in w and "reset" in w]
         assert reset_warnings, (
             "AP-22: a reset warning for asr_backend must be appended to "
@@ -221,9 +135,7 @@ class TestLoadResetsInvalidEnumFields:
         )
 
     def test_invalid_theme_mode_reset_to_default(self, isolated_config_dir: Path) -> None:
-        """A hand-edited ``theme_mode="mauve"`` must be reset to the
-        default ``"system"`` on load.
-        """
+        """default ``\"system\"`` on load."""
         config_file = isolated_config_dir / "config.json"
         config_file.write_text(
             json.dumps({"schema_version": 3, "theme_mode": "mauve"}),
@@ -240,10 +152,7 @@ class TestLoadResetsInvalidEnumFields:
         )
 
     def test_invalid_recording_mode_reset_to_default(self, isolated_config_dir: Path) -> None:
-        """A hand-edited ``recording_mode="continuous"`` (not in the
-        Literal ``["toggle", "push_to_talk"]``) must be reset to the
-        default ``"toggle"`` on load.
-        """
+        """default ``\"toggle\"`` on load."""
         config_file = isolated_config_dir / "config.json"
         config_file.write_text(
             json.dumps({"schema_version": 3, "recording_mode": "continuous"}),
@@ -260,10 +169,7 @@ class TestLoadResetsInvalidEnumFields:
         )
 
     def test_invalid_bubble_position_reset_to_default(self, isolated_config_dir: Path) -> None:
-        """A hand-edited ``bubble_position="middle"`` (not in the
-        Literal ``["top", "bottom"]``) must be reset to the default
-        ``"bottom"`` on load.
-        """
+        """Literal ``[\"top\", \"bottom\"]``) must be reset to the default"""
         config_file = isolated_config_dir / "config.json"
         config_file.write_text(
             json.dumps({"schema_version": 3, "bubble_position": "middle"}),
@@ -280,10 +186,7 @@ class TestLoadResetsInvalidEnumFields:
         )
 
     def test_invalid_tray_left_click_action_reset_to_default(self, isolated_config_dir: Path) -> None:
-        """A hand-edited ``tray_left_click_action="open_menu"`` (not
-        in the Literal ``["open_app", "toggle_dictation"]``) must be
-        reset to the default ``"open_app"`` on load.
-        """
+        """A hand-edited ``tray_left_click_action=\"open_menu\"`` (not"""
         config_file = isolated_config_dir / "config.json"
         config_file.write_text(
             json.dumps(
@@ -305,10 +208,7 @@ class TestLoadResetsInvalidEnumFields:
         )
 
     def test_invalid_theme_preset_reset_to_default(self, isolated_config_dir: Path) -> None:
-        """A hand-edited ``theme_preset="hot_pink"`` (not in the
-        Literal preset allowlist) must be reset to the default
-        ``"default"`` on load.
-        """
+        """Literal preset allowlist) must be reset to the default"""
         config_file = isolated_config_dir / "config.json"
         config_file.write_text(
             json.dumps({"schema_version": 3, "theme_preset": "hot_pink"}),
@@ -325,10 +225,7 @@ class TestLoadResetsInvalidEnumFields:
         )
 
     def test_invalid_bubble_behavior_reset_to_default(self, isolated_config_dir: Path) -> None:
-        """A hand-edited ``bubble_behavior="hover_only"`` (not in the
-        Literal ``["show_on_record", "always_visible"]``) must be
-        reset to the default ``"show_on_record"`` on load.
-        """
+        """Literal ``[\"show_on_record\", \"always_visible\"]``) must be"""
         config_file = isolated_config_dir / "config.json"
         config_file.write_text(
             json.dumps({"schema_version": 3, "bubble_behavior": "hover_only"}),
@@ -345,10 +242,7 @@ class TestLoadResetsInvalidEnumFields:
         )
 
     def test_valid_enum_values_are_not_reset(self, isolated_config_dir: Path) -> None:
-        """A valid enum value must NOT be reset and must NOT produce
-        a reset warning. (Idempotency check, the reset helper must
-        not spuriously fire on valid values.)
-        """
+        """A valid enum value must NOT be reset and must NOT produce"""
         config_file = isolated_config_dir / "config.json"
         config_file.write_text(
             json.dumps(
@@ -399,9 +293,7 @@ class TestLoadResetsInvalidEnumFields:
         )
 
     def test_reset_works_for_multiple_invalid_fields(self, isolated_config_dir: Path) -> None:
-        """When MULTIPLE enum fields are invalid, each must be reset
-        independently and each must produce its own warning.
-        """
+        """When MULTIPLE enum fields are invalid, each must be reset"""
         config_file = isolated_config_dir / "config.json"
         config_file.write_text(
             json.dumps(
@@ -428,23 +320,11 @@ class TestLoadResetsInvalidEnumFields:
             assert field_reset_warnings, f"AP-22: expected a reset warning for {field}. Got warnings: {warnings!r}"
 
 
-# ──────────────────────────────────────────────────────────────────────────
-# integration: warnings + reset surface together
-# ──────────────────────────────────────────────────────────────────────────
-
-
 class TestWarningsSurfaceThroughSanitizer:
-    """End-to-end: a ``Config.load()`` that produces reset warnings
-    must surface those warnings via ``sanitize_config_for_ipc`` so
-    the renderer's ``get_config`` IPC handler can ship them to the
-    UI.
-    """
+    """End-to-end: a ``Config.load()`` that produces reset warnings"""
 
     def test_load_then_sanitize_surfaces_reset_warning(self, isolated_config_dir: Path) -> None:
-        """A hand-edited ``asr_backend="invalid"`` loaded via
-        ``Config.load()`` must (a) reset the field to the default and
-        (b) surface the reset warning in the sanitized dict.
-        """
+        """A hand-edited ``asr_backend=\"invalid\"`` loaded via"""
         config_file = isolated_config_dir / "config.json"
         config_file.write_text(
             json.dumps({"schema_version": 3, "asr_backend": "invalid_backend"}),
@@ -466,32 +346,8 @@ class TestWarningsSurfaceThroughSanitizer:
         )
 
 
-# ──────────────────────────────────────────────────────────────────────────
-# ConfigEditorLauncher.launch surfaces warnings via tray.notify
-# ──────────────────────────────────────────────────────────────────────────
-
-
 def _set_valid_optional_numeric_fields(cfg: Config) -> Config:
-    """Set the four ``Optional[int]`` / ``Optional[float]`` Config fields
-    that default to ``None`` to valid non-None values.
-
-    The config sanitization layer (``voice_typer/server/config/sanitization.py``)
-    runs per-field type validation on every ``Config.load()`` call. The
-    validator unwraps ``int | None`` / ``float | None`` annotations to
-    ``int`` / ``float`` BEFORE checking, so a default-constructed
-    ``Config()`` (where ``bubble_x=None`` etc.) produces four spurious
-    "had non-int value None, resetting to default None" warnings on every
-    reload. Those warnings pollute ``last_load_warnings`` and (via the
-    ``ConfigEditorLauncher`` reload-feedback path) fire a tray
-    notification even when the user-facing config is otherwise clean.
-
-    The three ``TestEditorReloadFeedback`` tests below need to control
-    exactly which warnings fire on reload so they can assert on the
-    notification's content. Setting these four fields to valid non-None
-    values before ``save()`` silences the spurious None-coercion
-    warnings, leaving only the warnings the test intentionally
-    introduces (e.g. an invalid ``asr_backend`` Literal value).
-    """
+    """Set the four ``Optional[int]`` / ``Optional[float]`` Config fields"""
     cfg.bubble_x = 0
     cfg.bubble_y = 0
     cfg.bubble_scale = 1.0
@@ -500,10 +356,7 @@ def _set_valid_optional_numeric_fields(cfg: Config) -> Config:
 
 
 class _FakeTray:
-    """Minimal tray double that records ``notify`` calls for
-    assertion. Mirrors the ``TrayIcon.notify(title, message)``
-    signature from ``voice_typer/server/tray.py``.
-    """
+    """assertion. Mirrors the ``TrayIcon.notify(title, message)``"""
 
     def __init__(self) -> None:
         self.calls: list[tuple[str, str]] = []
@@ -513,31 +366,22 @@ class _FakeTray:
 
 
 class _FakeApp:
-    """Minimal app double exposing the three attributes
-    ``ConfigEditorLauncher.launch`` touches:
-    ``_config_mutation_lock``, ``config``, and ``tray``.
-    """
+    """Minimal app double exposing the three attributes"""
 
     def __init__(self, config: Config, tray: _FakeTray) -> None:
         self.config = config
         self.tray = tray
         # Use a real RLock so the ``with`` context works. The launcher
-        # only acquires/releases it; it doesn't care about the type.
         import threading
 
         self._config_mutation_lock = threading.RLock()
 
 
 class TestEditorReloadFeedback:
-    """``ConfigEditorLauncher.launch`` must call ``tray.notify`` after
-    reload when ``last_load_warnings`` is non-empty, so the user
-    editing ``config.json`` by hand gets immediate feedback.
-    """
+    """``ConfigEditorLauncher.launch`` must call ``tray.notify`` after"""
 
     def test_no_notification_when_no_warnings(self, isolated_config_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        """A clean reload (no warnings) must NOT trigger a tray
-        notification (avoid noisy toasts for normal usage).
-        """
+        """A clean reload (no warnings) must NOT trigger a tray"""
         # Write a valid config so load() produces no warnings.
         config_file = isolated_config_dir / "config.json"
         config_file.write_text(
@@ -545,8 +389,6 @@ class TestEditorReloadFeedback:
             encoding="utf-8",
         )
 
-        # Stub the platform launcher so we don't actually open an
-        # editor, the test only cares about the reload + notify path.
         from voice_typer.server import config_editor
 
         def _noop_launcher(_path: Any) -> None:
@@ -556,12 +398,8 @@ class TestEditorReloadFeedback:
         monkeypatch.setattr(config_editor, "_current_platform", lambda: "linux")
 
         # Save a valid config first so the launcher's ``config.save()``
-        # call has something to write.
         cfg = Config()
         # Set the four Optional[int]/Optional[float] fields (bubble_x,
-        # bubble_y, bubble_scale, test_duration_seconds) to valid
-        # non-None values so the reload doesn't produce spurious
-        # None-coercion warnings: see ``_set_valid_optional_numeric_fields``.
         _set_valid_optional_numeric_fields(cfg)
         cfg.save()
         tray = _FakeTray()
@@ -577,17 +415,7 @@ class TestEditorReloadFeedback:
     def test_notification_fires_when_warnings_present(
         self, isolated_config_dir: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """A reload that produces warnings must trigger a tray
-        notification mentioning the warning count + the first warning.
-
-        The launcher calls ``self.app.config.save()`` BEFORE opening
-        the editor (so the user's in-memory edits are persisted first).
-        To exercise the warning-surfacing path, the in-memory Config
-        must hold an invalid enum value at launch time, that value
-        gets saved to disk, the (stubbed) editor exits, the launcher
-        reloads from disk, ``validate_config`` + ``_reset_invalid_enum_fields``
-        fire, and ``last_load_warnings`` becomes non-empty.
-        """
+        """A reload that produces warnings must trigger a tray"""
         from voice_typer.server import config_editor
 
         def _noop_launcher(_path: Any) -> None:
@@ -597,15 +425,8 @@ class TestEditorReloadFeedback:
         monkeypatch.setattr(config_editor, "_current_platform", lambda: "linux")
 
         # Construct an in-memory Config with an INVALID asr_backend.
-        # The launcher's ``save()`` call writes this bad value to
-        # disk; the subsequent ``load()`` call flags + resets it.
         cfg = Config(asr_backend="invalid_backend")
         # Set the four Optional[int]/Optional[float] fields to valid
-        # non-None values so the only reload warnings are the
-        # asr_backend validate_config + reset warnings (otherwise the
-        # None-coercion warnings for bubble_x/y/scale and
-        # test_duration_seconds would fire FIRST and the notification
-        # would mention 'bubble_x', not 'asr_backend').
         _set_valid_optional_numeric_fields(cfg)
         tray = _FakeTray()
         app = _FakeApp(cfg, tray)
@@ -613,8 +434,6 @@ class TestEditorReloadFeedback:
         launcher = config_editor.ConfigEditorLauncher(app)
         launcher.launch(isolated_config_dir / "config.json")
 
-        # The reload should have reset asr_backend to "whisper" and
-        # produced at least one warning.
         assert app.config.asr_backend == "whisper"
         warnings = getattr(app.config, "last_load_warnings", []) or []
         assert warnings, (
@@ -635,20 +454,8 @@ class TestEditorReloadFeedback:
     def test_notification_truncates_long_first_warning(
         self, isolated_config_dir: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """When the first warning is longer than 160 chars, the tray
-        notification must truncate it so the toast stays readable on
-        a single line.
-
-        The launcher saves the in-memory Config to disk before opening
-        the editor (see ``test_notification_fires_when_warnings_present``
-        for the rationale). To exercise the truncation path, the
-        in-memory Config must hold an invalid enum value whose
-        ``validate_config`` warning (which embeds the value verbatim)
-        exceeds 160 chars.
-        """
+        """When the first warning is longer than 160 chars, the tray"""
         # A long invalid asr_backend value produces a long
-        # ``validate_config`` warning (the warning format is
-        # ``"asr_backend: must be one of [...], got '<value>'"``).
         long_invalid_value = "x" * 300
         from voice_typer.server import config_editor
 
@@ -660,13 +467,6 @@ class TestEditorReloadFeedback:
 
         cfg = Config(asr_backend=long_invalid_value)
         # Set the four Optional[int]/Optional[float] fields to valid
-        # non-None values so the first reload warning is the long
-        # asr_backend validate_config warning (which embeds the
-        # 300-char value), this lets the test actually exercise the
-        # >160-char truncation path. Without this fix the first
-        # warning would be the short bubble_x None-coercion warning
-        # and the assertion below would pass without ever exercising
-        # truncation.
         _set_valid_optional_numeric_fields(cfg)
         tray = _FakeTray()
         app = _FakeApp(cfg, tray)
@@ -676,46 +476,17 @@ class TestEditorReloadFeedback:
 
         assert len(tray.calls) >= 1
         _, message = tray.calls[0]
-        # The first warning is the validate_config warning (which
-        # embeds the long invalid value). After truncation it should
-        # be at most ~250 chars (the prefix "Config loaded with N
-        # warning(s): " + 160 chars of warning + ellipsis).
         assert len(message) < 250, (
             "AP-25: the tray notification must truncate the first warning "
             f"to keep the message readable. Got len={len(message)}: {message!r}"
         )
 
 
-# -------------------------------------------------------------------------
-# optional numeric fields (int|None / float|None) must NOT produce
-# spurious "resetting to default None" warnings
-# -------------------------------------------------------------------------
-
-
 class TestOptionalNumericFieldsNoSpuriousWarnings:
-    """``bubble_x`` / ``bubble_y`` / ``bubble_scale`` /
-    ``test_duration_seconds`` are declared ``int | None`` /
-    ``float | None`` with default ``None`` - ``None`` is the
-    legitimate "unset" sentinel, NOT a corruption.
-
-    Pre-fix, ``_validate_non_numeric_fields`` unwrapped
-    ``Optional[int]`` / ``Optional[float]`` to ``int`` / ``float``
-    before checking, so the default-constructed ``None`` values
-    (and ``null`` on disk) hit the int/float coercion branches and
-    emitted ``had non-int value None, resetting to default None``
-    warnings on EVERY ``Config.load()`` - polluting
-    ``last_load_warnings`` and firing a spurious tray notification
-    via the ``ConfigEditorLauncher`` reload-feedback path (see
-    ``_set_valid_optional_numeric_fields`` above, which existed
-    purely as a workaround for this noise). Observed live in the
-    ``voice-typer`` terminal run (VT-1).
-    """
+    """``bubble_x`` / ``bubble_y`` / ``bubble_scale`` /"""
 
     def test_default_config_produces_no_none_warnings(self, isolated_config_dir) -> None:
-        """A default-constructed Config saved + reloaded (with all
-        four optional numeric fields at their ``None`` defaults) must
-        produce ZERO "resetting to default None" warnings.
-        """
+        """A default-constructed Config saved + reloaded (with all"""
         cfg = Config()
         # Sanity: the four fields really default to None.
         assert cfg.bubble_x is None
@@ -739,10 +510,7 @@ class TestOptionalNumericFieldsNoSpuriousWarnings:
         assert reloaded.test_duration_seconds is None
 
     def test_null_on_disk_is_accepted(self, isolated_config_dir) -> None:
-        """A hand-edited ``config.json`` with explicit ``null`` for the
-        four optional numeric fields must load without warnings and
-        keep ``None``.
-        """
+        """keep ``None``."""
         config_file = isolated_config_dir / "config.json"
         config_file.write_text(
             json.dumps(
@@ -771,11 +539,7 @@ class TestOptionalNumericFieldsNoSpuriousWarnings:
         assert cfg.test_duration_seconds is None
 
     def test_invalid_numeric_value_still_warns(self, isolated_config_dir) -> None:
-        """The None-skip must NOT suppress warnings for genuinely
-        invalid values - a non-null garbage value for an optional
-        numeric field still resets + warns (the migration layer keeps
-        working for real corruption).
-        """
+        """The None-skip must NOT suppress warnings for genuinely"""
         config_file = isolated_config_dir / "config.json"
         config_file.write_text(
             json.dumps(

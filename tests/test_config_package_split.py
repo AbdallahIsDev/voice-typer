@@ -1,26 +1,4 @@
-"""Verify the config package split preserves structure + public API.
-
-The ``voice_typer/server/config/`` package was carved out of a single
-monolithic ``__init__.py`` (2,600+ lines) into focused sibling modules:
-
-- ``_defaults.py``  , default-value constants + platform hotkey.
-- ``_accessors.py`` , purge_user_data / purge_all_user_data etc.
-- ``_migration.py`` , versioned downgrade-backup impl.
-- ``_systemroot.py``, systemroot validation re-export shim.
-- ``_schema.py``    : ``_ConfigSchema`` dataclass base (ALL field
-  declarations) + enum-reset / secret-field impls.
-- ``_saving.py``    , save-path bodies (atomic write, ACL, warmup).
-- ``_lifecycle.py`` : ``_ConfigLifecycleMixin`` delegator methods.
-- ``coercion.py`` / ``loader.py`` / ``sanitization.py``, load-time
-  helpers (pre-existing).
-
-The final ``Config`` combines schema + lifecycle via multiple
-inheritance. These tests pin (a) the file/module layout, (b) every
-symbol the package re-exports for backward compat, (c) the
-monkeypatch-propagation contracts (impls resolve patched names via the
-``config`` module namespace at call time), and (d) an end-to-end
-construct → save → reload round-trip through the inherited API.
-"""
+"""Verify the config package split preserves structure + public API."""
 
 from __future__ import annotations
 
@@ -40,13 +18,10 @@ from voice_typer.server.config import (
     _schema as config_schema,
 )
 
-# ── Package layout ───────────────────────────────────────────────────────
-
 
 class TestPackageLayout:
     def test_init_py_under_400_lines(self):
-        """The split's headline goal: ``config/__init__.py`` stays a thin
-        entry point under 400 lines."""
+        """The split's headline goal: ``config/__init__.py`` stays a thin"""
         init_py = Path(config_mod.__file__)
         assert init_py.name == "__init__.py"
         line_count = len(init_py.read_text(encoding="utf-8").splitlines())
@@ -77,13 +52,9 @@ class TestPackageLayout:
         assert mod is not None
 
 
-# ── Schema base class ────────────────────────────────────────────────────
-
-
 class TestConfigSchemaBaseClassExtracted:
     def test_config_schema_base_class_extracted(self):
-        """``_ConfigSchema`` is a dataclass in ``_schema`` and ``Config``
-        inherits from it."""
+        """``_ConfigSchema`` is a dataclass in ``_schema`` and ``Config``"""
         assert hasattr(config_schema, "_ConfigSchema")
         schema_cls = config_schema._ConfigSchema
         assert dataclasses.is_dataclass(schema_cls)
@@ -93,8 +64,7 @@ class TestConfigSchemaBaseClassExtracted:
         assert not Config.__annotations__
 
     def test_config_inherits_field_default(self):
-        """Field defaults declared on the schema base are visible on
-        ``Config``, both at class level and on constructed instances."""
+        """Field defaults declared on the schema base are visible on"""
         from voice_typer.server.config._defaults import DEFAULT_HOTKEY
         from voice_typer.server.model_registry import DEFAULT_MODEL_SIZE
 
@@ -107,9 +77,7 @@ class TestConfigSchemaBaseClassExtracted:
         assert isinstance(cfg, config_schema._ConfigSchema)
 
     def test_schema_classvars_exposed_at_both_levels(self):
-        """The two schema constants exist as module-level names in
-        ``_schema`` (re-exported by the package) AND as ClassVars on the
-        base class, and are excluded from ``asdict()`` output."""
+        """base class, and are excluded from ``asdict()`` output."""
         expected_enum = {
             "asr_backend",
             "noise_suppression_method",
@@ -135,8 +103,7 @@ class TestConfigSchemaBaseClassExtracted:
             assert name not in data
 
     def test_reset_invalid_enum_fields_impl_restores_default(self):
-        """The module-level impl resets an invalid Literal value on the
-        instance and appends a warning (the load-time self-heal path)."""
+        """The module-level impl resets an invalid Literal value on the"""
         cfg = Config()
         object.__setattr__(cfg, "asr_backend", "not-a-real-backend")
         config_schema._reset_invalid_enum_fields_impl(Config, cfg)
@@ -145,15 +112,11 @@ class TestConfigSchemaBaseClassExtracted:
         assert any("asr_backend" in w for w in warnings)
 
     def test_secret_field_names_impl_fail_closed_source(self):
-        """The impl sources the secret-field set from credential_store
-        (fail-closed), matching PROVIDER_TO_CONFIG_FIELD values."""
+        """The impl sources the secret-field set from credential_store"""
         from voice_typer.server import credential_store
 
         names = config_schema._secret_field_names_impl()
         assert names == frozenset(credential_store.PROVIDER_TO_CONFIG_FIELD.values())
-
-
-# ── Saving module ────────────────────────────────────────────────────────
 
 
 class TestSavingModuleImpls:
@@ -173,9 +136,6 @@ class TestSavingModuleImpls:
         assert callable(fn)
         # Re-exported through the package namespace for callers/tests.
         assert getattr(config_mod, name) is fn
-
-
-# ── Lifecycle mixin ──────────────────────────────────────────────────────
 
 
 class TestLifecycleMixinExtracted:
@@ -221,8 +181,7 @@ class TestLifecycleMixinExtracted:
         assert issubclass(Config, config_lifecycle._ConfigLifecycleMixin)
 
     def test_save_locked_alias_still_resolves(self):
-        """The pre-refactor ``_save_locked`` name remains a live alias of
-        ``_save_unlocked`` (same underlying function)."""
+        """The pre-refactor ``_save_locked`` name remains a live alias of"""
         assert Config._save_locked is Config._save_unlocked
 
     def test_post_init_transient_attrs(self):
@@ -257,14 +216,9 @@ class TestLifecycleMixinExtracted:
         assert isinstance(cfg.config_dir, Path)
 
 
-# ── Delegation / monkeypatch-propagation contracts ───────────────────────
-
-
 class TestDelegationContracts:
     def test_backup_before_migration_delegation_via_config_mod(self, tmp_path, monkeypatch):
-        """``Config._backup_before_migration`` delegates to the extracted
-        impl, which resolves the secure-io helpers via the ``config``
-        module namespace, patches on ``config_mod`` must take effect."""
+        """``Config._backup_before_migration`` delegates to the extracted"""
         calls: list[str] = []
 
         real_read = config_mod._secure_read_text
@@ -297,10 +251,7 @@ class TestDelegationContracts:
         assert backups, "a pre-migration backup must have been written"
 
     def test_backup_before_downgrade_argument_order(self, tmp_path, monkeypatch):
-        """The public classmethod keeps the legacy argument order
-        ``(config_file, loaded_version, data)`` while the extracted impl
-        takes ``(cls, data, loaded_version, config_file)``, the
-        delegator must forward positionally-corrected arguments."""
+        """The public classmethod keeps the legacy argument order"""
         captured: dict = {}
 
         def fake_impl(cls, data, loaded_version, config_file):
@@ -327,23 +278,10 @@ class TestDelegationContracts:
         assert params == ["cls", "data", "loaded_version", "config_file"]
 
     def test_save_path_resolves_acl_helper_via_config_namespace(self, monkeypatch, tmp_config_dir):
-        """``save``/``_save_unlocked`` call ``_enforce_windows_owner_only_acl``
-        through the config module globals, patching ``config_mod.<name>``
-        replaces what the save path invokes (Windows branch simulated)."""
+        """``save``/``_save_unlocked`` call ``_enforce_windows_owner_only_acl``"""
         acl_calls: list[str] = []
         monkeypatch.setattr(config_mod, "is_windows", lambda: True)
 
-        # The ``is_windows`` patch propagates BY DESIGN into
-        # ``config_internals.paths._acquire_config_lock_cross_process``
-        # (that helper resolves ``is_windows`` through the config module
-        # namespace), so ``save()`` takes the Windows lock branch and
-        # executes ``import msvcrt``, a Windows-only stdlib module that
-        # does not exist on Linux. Stub it so the simulated-Windows save
-        # path completes end-to-end (same fake-module pattern as
-        # tests/test_credential_store_migration_lock.py). Only the lock
-        # attributes paths.py touches are needed; the locking primitive
-        # itself is a no-op success because this test pins the ACL-helper
-        # delegation, not the cross-process lock contract.
         fake_msvcrt = types.ModuleType("msvcrt")
         fake_msvcrt.locking = lambda fd, mode, nbytes: None  # type: ignore[attr-defined]
         fake_msvcrt.LK_LOCK = 0  # type: ignore[attr-defined]
@@ -360,17 +298,12 @@ class TestDelegationContracts:
         cfg = Config()
         assert cfg.save() is True
         # The dir-tightening step in save() fires before the file writes;
-        # either way the helper must be reached through the patched binding.
         assert acl_calls, "save() must invoke the ACL helper via config_mod"
-
-
-# ── End-to-end round trip ────────────────────────────────────────────────
 
 
 class TestEndToEnd:
     def test_construct_save_reload_roundtrip(self, tmp_config_dir):
-        """Construct a Config in an isolated dir, mutate a persisted
-        field, save, reload from disk, the full inherited API path."""
+        """Construct a Config in an isolated dir, mutate a persisted"""
         cfg = Config()
         cfg.hotkey = "<f9>"
         cfg.text_size = 21

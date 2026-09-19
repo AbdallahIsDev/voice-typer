@@ -1,20 +1,4 @@
-"""Tests for SI-3: ``_transcribe_words_unlocked`` abort check.
-
-Finding SI-3 (High): ``_transcribe_words_unlocked`` iterated
-``for seg in segments: for word in ...`` with NO abort check between
-segment iterations. Compared with ``_transcribe_unlocked`` (line ~971)
-which DOES check, ESC during streaming dictation did not release GPU
-compute until the full audio finished decoding.
-
-The fix mirrors the existing abort pattern from ``_transcribe_unlocked``:
-at the top of the outer ``for seg in segments:`` loop, check
-``self._abort_event.is_set()`` and ``break`` early if so. This bounds
-the cancel latency to one segment (0.5-3s typically) instead of the
-full audio length, freeing compute for the next dictation cycle.
-
-Tests use mocked faster_whisper / ctranslate2 (no GPU, no model files)
-so they run on any platform in <1s each.
-"""
+"""Tests for SI-3: ``_transcribe_words_unlocked`` abort check."""
 
 from __future__ import annotations
 
@@ -38,11 +22,7 @@ def mock_faster_whisper(monkeypatch):
 
 
 def _make_segment(words_list, seg_index=0):
-    """Build a mock segment with ``.words`` (list of word-like objects).
-
-    ``seg_index`` is just for the segment's start/end timestamps so
-    multiple segments don't collide.
-    """
+    """Build a mock segment with ``.words`` (list of word-like objects)."""
     seg = MagicMock()
     seg.start = float(seg_index)
     seg.end = float(seg_index + 1)
@@ -62,9 +42,7 @@ class TestTranscribeWordsAbort:
     """SI-3: ``_transcribe_words_unlocked`` honors ``_abort_event``."""
 
     def test_abort_set_before_loop_breaks_immediately(self):
-        """When ``_abort_event`` is already set when the loop starts,
-        no words are produced (the check at the top of the first
-        iteration fires before any segment is consumed)."""
+        """When ``_abort_event`` is already set when the loop starts,"""
         from voice_typer.server.transcription import TranscriptionEngine
 
         engine = TranscriptionEngine(model_size="small.en", device="cpu")
@@ -84,11 +62,7 @@ class TestTranscribeWordsAbort:
         assert words == [], f"abort pre-set should have produced zero words, got {words!r}"
 
     def test_abort_set_mid_loop_breaks_early(self):
-        """When ``_abort_event`` is set between segment iterations, the
-        loop breaks early: only the words from segments consumed BEFORE
-        the abort fired are returned; remaining segments are NOT
-        processed. This is the core SI-3 fix: bounded cancel latency
-        instead of waiting for the full audio to decode."""
+        """loop breaks early: only the words from segments consumed BEFORE"""
         from voice_typer.server.transcription import TranscriptionEngine
 
         engine = TranscriptionEngine(model_size="small.en", device="cpu")
@@ -99,10 +73,6 @@ class TestTranscribeWordsAbort:
 
         def fake_transcribe(*args, **kwargs):
             # Generator that sets the abort event immediately before
-            # yielding the 3rd segment (index 2). The consumer's
-            # next top-of-loop check (before processing segment 2)
-            # then sees the abort and breaks, so word0 + word1 are
-            # collected, word2/3/4 are NOT.
             def gen():
                 for i, seg in enumerate(segments):
                     if i == 2:
@@ -127,10 +97,7 @@ class TestTranscribeWordsAbort:
         assert len(words) == 2, f"expected exactly 2 words before abort fired, got {len(words)}: {word_texts!r}"
 
     def test_abort_not_set_processes_all_segments(self):
-        """Happy path: when ``_abort_event`` is never set, all segments
-        are processed and all words are returned. This guards against a
-        regression where the new abort check would accidentally skip
-        segments even without an abort signal."""
+        """Happy path: when ``_abort_event`` is never set, all segments"""
         from voice_typer.server.streaming import WordTiming
         from voice_typer.server.transcription import TranscriptionEngine
 
@@ -160,20 +127,14 @@ class TestTranscribeWordsAbort:
         ]
 
     def test_abort_event_is_threading_event_instance(self):
-        """Guard against accidental refactors that change the abort
-        token type, the check in ``_transcribe_words_unlocked`` calls
-        ``.is_set()``, which only exists on ``threading.Event``."""
+        """Guard against accidental refactors that change the abort"""
         from voice_typer.server.transcription import TranscriptionEngine
 
         engine = TranscriptionEngine()
         assert isinstance(engine._abort_event, threading.Event)
 
     def test_abort_set_via_request_abort_method(self):
-        """End-to-end: ``request_abort()`` (called by the dictation
-        pipeline's ESC / watchdog cancel path) sets the same event that
-        ``_transcribe_words_unlocked`` checks, so the word loop breaks
-        early. This verifies the wiring from the cancel API to the
-        loop body, not just a direct ``_abort_event.set()`` call."""
+        """End-to-end: ``request_abort()`` (called by the dictation"""
         from voice_typer.server.transcription import TranscriptionEngine
 
         engine = TranscriptionEngine(model_size="small.en", device="cpu")
@@ -185,8 +146,6 @@ class TestTranscribeWordsAbort:
                 for i, seg in enumerate(segments):
                     if i == 2:
                         # Simulate the watchdog firing request_abort()
-                        # from another thread mid-decode, immediately
-                        # before the 3rd segment is yielded.
                         engine.request_abort()
                     yield seg
 
@@ -197,9 +156,6 @@ class TestTranscribeWordsAbort:
 
         words = engine.transcribe_words(np.zeros(16000, dtype=np.float32))
         word_texts = [w.word for w in words]
-        # request_abort() was called before segment 2 was yielded; the
-        # consumer's next top-of-loop check should fire before segment 2
-        # is processed, so w0 + w1 are collected and w2/w3 are NOT.
         assert "w0" in word_texts
         assert "w1" in word_texts
         assert "w2" not in word_texts, (

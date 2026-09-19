@@ -1,9 +1,4 @@
-"""Tests for ``OnboardingController`` callback removal and service change-model routing.
-
-Split out of the former ``tests/test_history_and_models.py`` catch-all.
-Verbatim mechanical move, same test names +
-assertions, only the file location changed.
-"""
+"""Tests for ``OnboardingController`` callback removal and service change-model routing."""
 
 from __future__ import annotations
 
@@ -30,14 +25,10 @@ class TestOnboardingControllerRemovesStepCallbacks:
 
 
 class TestOnboardingUsesServiceChangeModel:
-    """SVC-10: ``onboarding_apply`` routes the model switch through
-    ``self.change_model`` (the ADR-0008-§3.1 service-layer wrapper)
-    instead of reaching into ``app.models.change_model`` directly."""
+    """SVC-10: ``onboarding_apply`` routes the model switch through"""
 
     def test_calls_self_change_model_not_app_models_directly(self, tmp_config_dir, monkeypatch):
-        """When the user picks a non-default model in onboarding,
-        ``onboarding_apply`` invokes ``self.change_model`` (which goes
-        through ``app.change_model`` -> ``app.models.change_model``)."""
+        """When the user picks a non-default model in onboarding,"""
         import contextlib
 
         import voice_typer.server.event_bus as event_bus_mod

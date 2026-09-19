@@ -1,18 +1,4 @@
-"""True pause/abort for model downloads (transfer-gate contract).
-
-Pre-fix, ``pause_model_download`` only froze the progress REPORTER: the
-daemon HuggingFace transfer thread kept downloading to completion while
-the UI showed "paused" (the user saw a green bar that kept progressing).
-The fix intercepts the transfer at every ~10 MB chunk boundary via a
-tqdm subclass installed through ``snapshot_download(tqdm_class=...)``:
-
-- pause  → the gate BLOCKS the transfer thread (bytes stop),
-- cancel → the gate raises :class:`ModelDownloadAborted`, which
-  unwinds the transfer instead of finishing in the background.
-
-These tests pin the gate semantics, the abort lifecycle, the retry
-wrapper's no-retry-on-abort behavior, and the HTTP-path forcing.
-"""
+"""True pause/abort for model downloads (transfer-gate contract)."""
 
 import threading
 
@@ -60,8 +46,7 @@ class TestAbortLifecycle:
 
 
 class TestGateBlocking:
-    """The gate must BLOCK while paused, this is what stops the actual
-    transfer bytes (the pre-fix bug: only the reporting froze)."""
+    """The gate must BLOCK while paused, this is what stops the actual"""
 
     def test_gate_check_blocks_while_paused_then_returns_on_resume(self, gate):
         entered = threading.Event()
@@ -92,24 +77,20 @@ class TestGateBlocking:
             gate._gate_check()
 
     def test_gate_check_raises_abort_while_paused(self, gate):
-        """Cancel during a pause must wake the blocked transfer and
-        unwind it, a paused-then-cancelled download must not linger."""
+        """Cancel during a pause must wake the blocked transfer and"""
         set_download_paused(True)
         request_download_abort()
         with pytest.raises(ModelDownloadAborted):
             gate._gate_check()
 
     def test_update_passes_through_when_active(self, gate):
-        """No pause + no abort → update() reaches the real tqdm (disabled)
-        without raising, i.e. a healthy download is untouched."""
+        """No pause + no abort → update() reaches the real tqdm (disabled)"""
         gate.update(10)  # must not raise
 
 
 class TestRetryWrapperDoesNotRetryAbort:
     def test_download_with_retry_propagates_abort_without_retry(self):
-        """ModelDownloadAborted is a BaseException precisely so the
-        retry wrapper's ``except Exception`` cannot swallow it, a
-        cancelled download must never resume downloading via retry."""
+        """cancelled download must never resume downloading via retry."""
         from voice_typer.server.asr_utils import _download_with_retry
 
         attempts: list = []
@@ -138,10 +119,7 @@ class TestRetryWrapperDoesNotRetryAbort:
 
 class TestForcedHttpPath:
     def test_force_http_download_path_disables_xet(self):
-        """The pause/abort gate lives in the HTTP chunk loop's progress
-        callbacks; the xet path reports from native threads where a
-        callback cannot stop the transfer. The download path must run
-        with xet disabled regardless of import order."""
+        """The pause/abort gate lives in the HTTP chunk loop's progress"""
         import os
 
         import huggingface_hub.constants as hf_constants
@@ -164,8 +142,7 @@ class TestForcedHttpPath:
 
 class TestPauseFlagSemanticsUnchanged:
     def test_pause_flag_contract(self):
-        """The polling loop's pause event contract is untouched: the gate
-        ADDS transfer-thread blocking on top of it."""
+        """The polling loop's pause event contract is untouched: the gate"""
         assert is_download_paused() is False
         assert set_download_paused(True) is True
         assert is_download_paused() is True
@@ -179,9 +156,7 @@ class TestPauseFlagSemanticsUnchanged:
 
 
 class TestGateWiredIntoDownloadPaths:
-    """Source-level pins: both HuggingFace download paths must install
-    the gate (a future refactor dropping ``tqdm_class=`` would silently
-    resurrect the pause-only-freezes-reporting bug)."""
+    """Source-level pins: both HuggingFace download paths must install"""
 
     def test_whisper_branch_passes_gate(self):
         import inspect
@@ -225,12 +200,7 @@ def _make_service(tmp_config_dir):
 
 
 class TestSingleFlightGuard:
-    """A second download_model IPC while one is active (possibly paused)
-    must NOT start a second transfer, the shared pause/abort events
-    are module-level, and recycling them under a live download would
-    wake the parked gate and run two concurrent transfers. The second
-    request is QUEUED (serialized, not refused), the single-flight
-    serialization is unchanged."""
+    """A second download_model IPC while one is active (possibly paused)"""
 
     def test_whisper_branch_queues_second_download(self, tmp_config_dir, monkeypatch):
         from unittest.mock import MagicMock
@@ -279,9 +249,7 @@ class TestSingleFlightGuard:
             asr.clear_download_pause_state()
 
     def test_retry_allowed_after_download_ends(self, tmp_config_dir, monkeypatch):
-        """Once the active download exits (events cleared), a new download
-        must be accepted, the guard is a single-flight latch, not a
-        permanent lock."""
+        """Once the active download exits (events cleared), a new download"""
 
         import voice_typer.server.asr_setup as asr
 
@@ -298,10 +266,7 @@ class TestSingleFlightGuard:
 
 
 class TestParakeetGateLifecycle:
-    """The Parakeet path must ARM the gate's pause/abort events for the
-    duration of its download (the whisper branch does its own reset) —
-    with the events unset the gate treats ``None`` as "no active
-    download" and aborts at the first chunk boundary."""
+    """duration of its download (the whisper branch does its own reset) —"""
 
     def test_events_active_during_and_cleared_after(self, tmp_config_dir, monkeypatch):
         import voice_typer.server.asr_setup as asr
@@ -336,9 +301,6 @@ class TestParakeetGateLifecycle:
         svc = _make_service(tmp_config_dir)
         monkeypatch.setattr(svc, "_require_huggingface_consent", lambda name: None)
 
-        # The ModelDownloadAborted → cancelled mapping lives in the
-        # download_model dispatcher (the branch method lets the abort
-        # unwind through its finally), so drive the dispatcher.
         outcome = svc.download_model("parakeet")
         assert outcome["cancelled"] is True
         assert outcome["success"] is False
@@ -348,9 +310,7 @@ class TestParakeetGateLifecycle:
 
 class TestCancelAbortsGateWithoutRegistryEvent:
     def test_cancel_during_pause_aborts_transfer(self, tmp_config_dir):
-        """Cancel must work from a PAUSED state even when no per-download
-        cancel Event is registered (the Parakeet path), the parked gate
-        wakes and unwinds."""
+        """Cancel must work from a PAUSED state even when no per-download"""
         import pytest as _pytest
         import voice_typer.server.asr_setup as asr
 
@@ -366,11 +326,7 @@ class TestCancelAbortsGateWithoutRegistryEvent:
 
 
 class TestSnapshotCompletenessProbe:
-    """``is_model_snapshot_complete``, the honest 'downloaded' answer.
-
-    The old checks treated a bare ``models--<repo>`` directory (created
-    at download START) as downloaded, so a paused / killed download
-    showed a usable model in the UI."""
+    """``is_model_snapshot_complete``, the honest 'downloaded' answer."""
 
     def test_missing_repo_dir_is_false_without_hf_call(self, tmp_config_dir, monkeypatch):
         import voice_typer.server.transcription_download as td
@@ -386,7 +342,6 @@ class TestSnapshotCompletenessProbe:
         from voice_typer.server.config import _config_dir
 
         # The probe short-circuits when the repo dir is absent, create
-        # the on-disk marker a real download START would leave behind.
         repo_dir = _config_dir() / "huggingface" / "hub" / "models--Systran--faster-whisper-tiny"
         repo_dir.mkdir(parents=True)
 
@@ -402,8 +357,7 @@ class TestSnapshotCompletenessProbe:
         assert calls[0]["repo_id"] == "Systran/faster-whisper-tiny"
 
     def test_partial_snapshot_false(self, tmp_config_dir, monkeypatch):
-        """An incomplete snapshot raises inside the local-only probe —
-        that exception MUST map to False (not crash the status poll)."""
+        """An incomplete snapshot raises inside the local-only probe —"""
         import voice_typer.server.transcription_download as td
 
         def fake_snapshot(**kwargs):

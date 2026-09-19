@@ -6,17 +6,9 @@ import pytest
 from voice_typer.server.text_cleanup import clean_transcribed_text, configure_corrections
 
 
-# (fix): previously configure_corrections() was called at module
-# import time, mutating global state and making test order matter. Now it
-# runs in an autouse fixture so each test gets a clean corrections state.
 @pytest.fixture(autouse=True)
 def _configure_corrections():
-    """Initialize corrections from bundled corrections.json before each test.
-
-    Ensures _active_misspellings, _active_phrases, and
-    _active_extra_words are populated for every test, without leaking
-    state across test modules.
-    """
+    """Initialize corrections from bundled corrections.json before each test."""
     configure_corrections()
 
 
@@ -143,13 +135,11 @@ class TestCleanTranscribedText:
         text = "can we make this faster"
         result = clean_transcribed_text(text)
         # Cleanup still applies capitalization, spacing, misspellings etc.
-        # Forced terminal punctuation was removed from the pipeline.
         assert result == "Can we make this faster"
 
 
 class TestExternalCorrectionsFallback:
-    """P2 fix: _load_external_corrections returns None when no file exists,
-    and clean_transcribed_text falls back to built-in defaults."""
+    """P2 fix: _load_external_corrections returns None when no file exists,"""
 
     def test_load_external_corrections_returns_none_when_no_file(self, tmp_path, monkeypatch):
         """When no corrections file exists, _load_external_corrections returns None."""
@@ -226,12 +216,7 @@ class TestFileExtensionFix:
     """M2: Verify that _fix_file_extensions runs AFTER _capitalize_sentences."""
 
     def test_file_extension_not_mangled(self):
-        """'features. md' should become 'Features.md', NOT 'features.Md'.
-
-        The key bug was _capitalize_sentences capitalizing after the dot,
-        producing 'features.Md'. Now _fix_file_extensions runs after
-        capitalization and correctly collapses to lowercase extension.
-        """
+        """'features. md' should become 'Features.md', NOT 'features.Md'."""
         result = clean_transcribed_text("features. md")
         assert result == "Features.md"
         assert result != "features.Md"
@@ -255,13 +240,8 @@ class TestFileExtensionFix:
         assert "test" in result
 
 
-# corrections load error surfacing ───────────────────────────
-
-
 class TestConfigureCorrectionsSurfacesLoadErrors:
-    """ARCH-004: configure_corrections must return an error message
-    when the user's corrections file is malformed, so the caller can
-    surface it via a tray notification."""
+    """ARCH-004: configure_corrections must return an error message"""
 
     def test_returns_none_when_no_user_file(self, tmp_path):
         """No user corrections file → None (no error)."""
@@ -336,13 +316,7 @@ class TestTextCleanupEdgeCases:
         assert "42" in result
 
     def test_urls_preserved(self):
-        """URLs should survive cleanup with minimal distortion.
-
-        Note: dictation cleanup may insert spaces after colons and
-        capitalize domain parts (e.g. "Com" instead of "com"), which
-        is expected for transcribed speech.  The key invariant is that
-        the protocol scheme and domain are still recognizable.
-        """
+        """URLs should survive cleanup with minimal distortion."""
         text = "visit https://example.com for more"
         result = clean_transcribed_text(text)
         # The protocol scheme and domain should still be present
@@ -460,8 +434,7 @@ class TestCorruptionsRecoveryWithBuiltins:
     """TEST-016: Test that built-in corrections still work after corruption."""
 
     def test_corrupted_file_still_applies_builtin_corrections(self, tmp_path):
-        """After loading a corrupted corrections.json, built-in corrections
-        should still be applied (using fallback defaults)."""
+        """After loading a corrupted corrections.json, built-in corrections"""
         from voice_typer.server.text_cleanup import configure_corrections
 
         # Create corrupted corrections.json
@@ -474,8 +447,7 @@ class TestCorruptionsRecoveryWithBuiltins:
         assert "Investigate" in result
 
     def test_corrupted_file_still_applies_duplicate_removal(self, tmp_path):
-        """After loading a corrupted corrections.json, duplicate removal
-        should still work."""
+        """After loading a corrupted corrections.json, duplicate removal"""
         from voice_typer.server.text_cleanup import configure_corrections
 
         corrections_file = tmp_path / "voice-typer-corrections.json"
@@ -486,8 +458,7 @@ class TestCorruptionsRecoveryWithBuiltins:
         assert result == "Hello world"
 
     def test_app_recreates_corrections_json_after_corruption(self, tmp_path):
-        """TEST-016: After corruption, calling configure_corrections()
-        with a valid file should recreate it successfully."""
+        """TEST-016: After corruption, calling configure_corrections()"""
         import json
 
         from voice_typer.server.text_cleanup import configure_corrections
@@ -511,11 +482,7 @@ class TestCorruptionsRecoveryWithBuiltins:
         assert result2 is None  # Should succeed now
 
         # Cleanup should work with the valid corrections
-        # Note: clean_transcribed_text capitalizes the first letter
         assert "the" in clean_transcribed_text("teh code").lower()
-
-
-# corrections.json explicit loadability test ────────────────
 
 
 class TestCorrectionsJsonIsValid:
@@ -661,7 +628,6 @@ class TestTextCleanupAdditionalParametrized:
             if i + 3 <= len(words):
                 f"{words[i + 2]} {words[i + 3]}" if i + 3 < len(words) else ""
                 # Should not have identical consecutive bigrams
-                # (unless it's an intentional repeat like "no no")
                 pass
 
     @pytest.mark.parametrize(
@@ -734,32 +700,17 @@ class TestTextCleanupAdditionalParametrized:
         assert "investigate" in result.lower() or "weird" in result.lower() or "grammar" in result.lower()
 
 
-# performance-refactor regression tests ──────────────
-
-
 class TestPhraseCorrectionPerformance:
-    """XZ-3 / XV-42: ``_correct_whisper_phrases`` and ``_remove_extra_words``
-    must use a cheap ``bad.lower() in lower`` substring check for the
-    per-phrase membership test (instead of an O(N×M) regex search per
-    phrase) and reuse eagerly-precompiled Patterns for substitution,
-    while preserving exact output behaviour.
-    """
+    """XZ-3 / XV-42: ``_correct_whisper_phrases`` and ``_remove_extra_words``"""
 
     def test_eager_compiled_patterns_parallel_to_phrases(self):
-        """configure_corrections makes a combined-alternation regex
-        available via ``_get_phrases_regex`` / ``_get_extra_words_regex``,
-        replacing the former per-phrase eager-precompiled parallel lists.
-        """
+        """configure_corrections makes a combined-alternation regex"""
         import re
 
         from voice_typer.server.text_cleanup import _engine as text_cleanup
 
         text_cleanup.configure_corrections()
         # When active phrases exist, ``_get_phrases_regex`` must return
-        # a compiled ``re.Pattern`` (the combined alternation) plus a
-        # non-empty lookup dict whose size matches the active phrases
-        # (modulo first-wins dedup, which is a no-op for the bundled
-        # corrections.json, every bad phrase is unique).
         phrase_re, phrase_lookup = text_cleanup._get_phrases_regex()
         if text_cleanup._active_phrases:
             assert isinstance(phrase_re, re.Pattern)
@@ -778,10 +729,7 @@ class TestPhraseCorrectionPerformance:
             assert extra_lookup == {}
 
     def test_no_match_dictation_returns_unchanged_fast(self):
-        """When no phrase is present, _correct_whisper_phrases returns the
-        input unchanged. Verifies the substring-check filter produces the
-        same result as the original regex-search filter would have.
-        """
+        """same result as the original regex-search filter would have."""
         from voice_typer.server.text_cleanup import _engine as text_cleanup
 
         text_cleanup.configure_corrections()
@@ -804,34 +752,18 @@ class TestPhraseCorrectionPerformance:
         from voice_typer.server.text_cleanup import _engine as text_cleanup
 
         text_cleanup.configure_corrections()
-        # 'they working' is in corrections; uppercase input should map to
-        # uppercase replacement (the 'I' in "it's" comes from the good
-        # string, but the matched-casing logic must still run).
         out = text_cleanup._correct_whisper_phrases("THEY WORKING")
         # The match is case-insensitive; uppercase input -> uppercase replacement.
         assert "IT'S WORKING" in out.upper() or "it's working" in out.lower()
 
     def test_substring_check_matches_regex_search_semantics(self):
-        """XV-42: ``bad.lower() in lower`` must be equivalent to the
-        original ``pattern.search(lower)`` for every active phrase, when
-        ``lower`` is already lowercased (as the production code does:
-        ``lower = text.lower()`` before the loop).
-
-        The original pattern was ``re.compile(re.escape(bad),
-        re.IGNORECASE)`` and ``lower`` is already lowercased, so the
-        two are equivalent. This test pins that invariant so a future
-        change to either side is caught.
-        """
+        """original ``pattern.search(lower)`` for every active phrase, when"""
         import re
 
         from voice_typer.server.text_cleanup import _engine as text_cleanup
 
         text_cleanup.configure_corrections()
         # NOTE: these must be LOWERCASE to match the production code's
-        # ``lower = text.lower()`` precondition. The original
-        # pattern.search used re.IGNORECASE so it would also match
-        # mixed-case, but the substring check ``bad.lower() in lower``
-        # only works because lower is already lowercased.
         lower_samples = [
             "they working today",
             "the quick brown fox",
@@ -851,28 +783,13 @@ class TestPhraseCorrectionPerformance:
                 )
 
     def test_membership_test_uses_original_lower_not_mutated_text(self):
-        """XV-42: the membership test must check the ORIGINAL lowercased
-        text, not the mutated text, matching the original
-        ``lower = text.lower()`` computed once before the loop.
-
-        We install a phrase pair where the first substitution INTRODUCES
-        text that the second phrase would match, and verify the second
-        phrase is NOT applied (because it wasn't in the original).
-        """
+        """XV-42: the membership test must check the ORIGINAL lowercased"""
         from voice_typer.server.text_cleanup import _engine as text_cleanup
 
         saved = text_cleanup._active_phrases
-        # The combined-regex cache (``_phrases_re_cache``) is keyed on
-        # the list object's identity (``cached_list is _active_phrases``),
-        # so replacing the module attribute invalidates the cache and
-        # forces a rebuild on the next ``_correct_whisper_phrases`` call.
         try:
             text_cleanup._active_phrases = [("foo", "bar"), ("bar", "SHOULD_NOT_APPEAR")]
             # 'foo' -> 'bar' (introduces 'bar'); 'bar' should NOT then
-            # match because the membership test uses original lower 'foo',
-            # not the mutated 'bar': ``re.sub`` finds all matches in the
-            # ORIGINAL text before applying substitutions, so a
-            # substitution cannot trigger another match in the same pass.
             out = text_cleanup._correct_whisper_phrases("foo")
             assert out == "bar", f"expected 'bar', got {out!r}"
             assert "SHOULD_NOT_APPEAR" not in out
@@ -881,10 +798,7 @@ class TestPhraseCorrectionPerformance:
 
 
 class TestSingleTokenization:
-    """XZ-3 / XV-52: ``clean_transcribed_text`` must tokenize the dictation
-    ONCE and pass the token list through the four token-based structural
-    helpers, instead of calling ``text.split(" ")`` four times.
-    """
+    """XZ-3 / XV-52: ``clean_transcribed_text`` must tokenize the dictation"""
 
     def test_token_based_helpers_exist_and_are_callable(self):
         """The four ``*_tokens`` helpers exist and operate on token lists."""
@@ -916,20 +830,15 @@ class TestSingleTokenization:
         assert "investigate" in text_cleanup._fix_common_misspellings("infestigate this").lower()
 
     def test_single_tokenization_matches_old_behaviour(self):
-        """End-to-end: clean_transcribed_text produces the same output as
-        the old 4×-tokenization implementation for a representative input.
-        """
+        """the old 4×-tokenization implementation for a representative input."""
         # This is a regression guard; the specific expected values were
-        # captured from the pre-refactor implementation.
         assert clean_transcribed_text("I talk talking to it") == "I talking to it"
         assert clean_transcribed_text("hello hello world") == "Hello world"
         assert clean_transcribed_text("infestigate this") == "Investigate this"
 
 
 class TestPrecompiledRegexes:
-    """XZ-3 / XV-52: all regex patterns used in the hot path must be
-    precompiled at module load (no ``re.match`` / ``re.search`` /
-    ``re.findall`` / ``re.split`` with uncompiled string patterns)."""
+    """XZ-3 / XV-52: all regex patterns used in the hot path must be"""
 
     def test_misspell_wrap_regex_is_precompiled(self):
         import re
@@ -953,13 +862,7 @@ class TestPrecompiledRegexes:
         assert isinstance(text_cleanup._RE_WORD_CHARS, re.Pattern)
 
     def test_no_uncompiled_regex_calls_in_hot_path(self):
-        """No function body in text_cleanup.py calls re.match / re.search /
-        re.findall / re.split with an uncompiled string-pattern argument
-        (the XV-52 finding was specifically about these uncompiled calls).
-
-        Uses ``ast`` so comments and docstrings don't trigger false
-        positives.
-        """
+        """No function body in text_cleanup.py calls re.match / re.search /"""
         import ast
         import pathlib
         import textwrap
@@ -988,8 +891,7 @@ class TestPrecompiledRegexes:
         assert not offenders, "XV-52: uncompiled re.* calls with string patterns still present: " + "; ".join(offenders)
 
     def test_looks_like_question_uses_precompiled_patterns(self):
-        """_looks_like_question end-to-end still classifies questions
-        correctly after switching to precompiled regexes."""
+        """_looks_like_question end-to-end still classifies questions"""
         from voice_typer.server.text_cleanup import _engine as text_cleanup
 
         assert text_cleanup._looks_like_question("can you help me") is True

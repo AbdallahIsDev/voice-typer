@@ -1,26 +1,4 @@
-"""Regression tests for ``Recorder.discard()`` callback drain: Task 17-H-FIX-2.
-
-Background
-----------
-Task 17-H (reliability review) found that ``Recorder.discard()`` in
-``voice_typer/server/recording.py`` closed the PortAudio stream WITHOUT
-the 300ms ``_is_in_audio_callback`` poll that ``stop()`` performs. This
-risks use-after-free or deadlock when ESC-cancel lands during a busy
-audio callback (which fires ~16×/s). ``discard()`` is called from
-``RecordingController.cancel()`` every time the user presses ESC.
-
-17-H-FIX-2 extracts the "drain callback + stop + close" sequence into
-``Recorder._teardown_stream()`` and updates both ``stop()`` and
-``discard()`` to use it. These tests verify:
-
-  1. ``discard()`` waits for the in-flight callback to complete (the
-     previous implementation called ``stream.close()`` immediately, even
-     with the callback flag set).
-  2. ``discard()`` is idempotent, calling it twice (which can happen if
-     the user mashes ESC) doesn't crash.
-  3. ``discard()`` increments ``_stop_generation`` for symmetry with
-     ``stop()``.
-"""
+"""Regression tests for ``Recorder.discard()`` callback drain: Task 17-H-FIX-2."""
 
 import sys
 import time
@@ -32,10 +10,6 @@ import pytest
 
 def _make_recorder():
     """Build a Recorder with a MagicMock stream (no real audio hardware)."""
-    # conftest's autouse mock_heavy_imports fixture has already installed
-    # a MagicMock for sounddevice in sys.modules, so the Recorder can be
-    # imported and constructed headless. Construction is delegated to the
-    # shared canonical factory (helper dedup).
     from tests.fixtures.ipc_test_helpers import make_fake_recorder
 
     r = make_fake_recorder()
@@ -50,21 +24,10 @@ def _make_recorder():
 
 
 class TestDiscardWaitsForCallback:
-    """17-H-FIX-2: ``discard()`` must drain the in-flight audio callback
-    before closing the stream, matching ``stop()``'s AUDIO-009/AUDIO-015
-    contract (previously it skipped the poll entirely).
-
-    Round 0 forward-port: the manual ``_is_in_audio_callback`` poll loop
-    was removed because PortAudio's ``stream.stop()`` already blocks until
-    the in-flight callback returns.  These tests were updated to verify
-    ``discard()`` delegates to ``stream.stop()`` (which drains the
-    callback) rather than polling ``_is_in_audio_callback`` manually."""
+    """17-H-FIX-2: ``discard()`` must drain the in-flight audio callback"""
 
     def test_discard_calls_stream_stop_when_callback_in_flight(self, monkeypatch):
-        """When ``_is_in_audio_callback`` is set (callback running),
-        ``discard()`` must call ``stream.stop()`` (which blocks until the
-        callback returns) before calling ``stream.close()``.  No manual
-        poll loop, PortAudio handles the drain."""
+        """When ``_is_in_audio_callback`` is set (callback running),"""
         r = _make_recorder()
         r._is_in_audio_callback.set()
 
@@ -86,16 +49,13 @@ class TestDiscardWaitsForCallback:
 
         r.discard()
 
-        # stream.stop() must have been called BEFORE stream.close().
         assert "stop" in call_order, "discard() did not call stream.stop(), needed to drain the callback"
         assert "close" in call_order, "discard() did not call stream.close()"
         assert call_order.index("stop") < call_order.index("close"), f"discard() called close before stop: {call_order}"
         assert r._stream_lifecycle._stream is None
 
     def test_discard_zero_ms_when_flag_already_clear(self, monkeypatch):
-        """Symmetric with ``stop()``: when ``_is_in_audio_callback`` is NOT
-        set, ``discard()`` still calls ``stream.stop()`` (idempotent when
-        no callback is in flight) and then ``stream.close()``."""
+        """Symmetric with ``stop()``: when ``_is_in_audio_callback`` is NOT"""
         r = _make_recorder()
         # Flag is already clear (default state)
 
@@ -110,16 +70,11 @@ class TestDiscardWaitsForCallback:
 
         r.discard()
 
-        # stream.stop() is still called (it's a no-op when no callback
-        # is in flight, but it's part of the teardown contract).
         assert stop_called["n"] >= 1, f"Expected stream.stop() called, got {stop_called['n']}"
         assert r._stream_lifecycle._stream is None
 
     def test_discard_delegates_to_stream_stop_for_callback(self, monkeypatch):
-        """Simulates a callback that's 'in flight': ``discard()`` must
-        call ``stream.stop()`` (which blocks until the callback returns)
-        rather than closing immediately.  No manual poll, PortAudio
-        handles the drain inside ``stream.stop()``."""
+        """Simulates a callback that's 'in flight': ``discard()`` must"""
         import voice_typer.server.recording as rec_mod
 
         r = _make_recorder()
@@ -129,14 +84,6 @@ class TestDiscardWaitsForCallback:
         sleep_calls = []
         monkeypatch.setattr(rec_mod.time, "sleep", lambda s: sleep_calls.append(s))
 
-        # Track that stream.stop() is called. Model the REAL PortAudio
-        # contract: stream.stop() blocks until the in-flight audio
-        # callback returns, which clears _is_in_audio_callback on exit.
-        # Without this, the mock stop() returns immediately while the flag
-        # stays set, so _teardown_stream()'s 300ms safety poll spins (busy
-        # loop calling time.sleep millions of times) until the deadline —
-        # which is what produced the 1849135 "sleep calls" in the failure.
-        # Clearing the flag here represents the drain that stream.stop()
         # performs in reality, so discard() must NOT need to poll.
         stop_called = {"n": 0}
         original_stop = r._stream_lifecycle._stream.stop
@@ -152,7 +99,6 @@ class TestDiscardWaitsForCallback:
         r.discard()
         elapsed = time.perf_counter() - start
 
-        # stream.stop() must have been called.
         assert stop_called["n"] >= 1, "discard() did not call stream.stop(), needed to drain callback"
         # No manual poll, stream.stop() (MagicMock) returns immediately.
         assert len(sleep_calls) == 0, f"Expected 0 sleep calls (no manual poll), got {len(sleep_calls)}"
@@ -165,9 +111,7 @@ class TestDiscardWaitsForCallback:
 
 
 class TestDiscardIdempotent:
-    """17-H-FIX-2: ``_teardown_stream()`` must be idempotent —
-    ``discard()`` can be called twice (user mashing ESC) without crashing
-    on the already-None stream."""
+    """17-H-FIX-2: ``_teardown_stream()`` must be idempotent —"""
 
     def test_discard_twice_does_not_crash(self, monkeypatch):
         r = _make_recorder()
@@ -185,8 +129,7 @@ class TestDiscardIdempotent:
         assert r._stream_lifecycle._stream is None
 
     def test_discard_after_stop_does_not_crash(self, monkeypatch):
-        """If ``stop()`` runs first and then ``discard()`` is called,
-        the discard path must not crash on the already-None stream."""
+        """If ``stop()`` runs first and then ``discard()`` is called,"""
         r = _make_recorder()
         monkeypatch.setattr(
             "voice_typer.server.recording.time.sleep",
@@ -209,8 +152,7 @@ class TestDiscardIdempotent:
         assert r._stream_lifecycle._stream is None
 
     def test_teardown_stream_idempotent_with_real_stream(self):
-        """Verify that calling _teardown_stream() twice (with a real
-        stream the first time) doesn't crash on the second call."""
+        """Verify that calling _teardown_stream() twice (with a real"""
         r = _make_recorder()
         # First call: stream is a MagicMock, stop()/close() are no-ops
         r._teardown_stream()
@@ -224,9 +166,7 @@ class TestDiscardIdempotent:
 
 
 class TestDiscardStopGeneration:
-    """17-H-FIX-2: ``discard()`` must increment ``_stop_generation`` for
-    symmetry with ``stop()``, so any stale disconnect handler launched
-    from the audio callback bails out instead of racing with teardown."""
+    """symmetry with ``stop()``, so any stale disconnect handler launched"""
 
     def test_discard_increments_stop_generation(self, monkeypatch):
         r = _make_recorder()
@@ -238,10 +178,10 @@ class TestDiscardStopGeneration:
         )
 
     def test_discard_sets_user_stop_pending_before_stream_stop(self, monkeypatch):
-        """STREAM-FIX (Task 6) + 17-H-FIX-2: ``discard()`` must set
+        """
+        STREAM-FIX (Task 6) + 17-H-FIX-2: ``discard()`` must set
         ``_user_stop_pending`` BEFORE ``stream.stop()``, same contract
-        as ``stop()``, so the audio callback's early-return guard
-        suppresses the false 'Stream finished unexpectedly' warning."""
+        """
         r = _make_recorder()
         monkeypatch.setattr("voice_typer.server.recording.time.sleep", lambda s: None)
 
@@ -262,8 +202,7 @@ class TestDiscardStopGeneration:
         )
 
     def test_discard_closes_stream_and_clears_buffer(self, monkeypatch):
-        """End-to-end: discard() must close the stream, set _stream=None,
-        and zero+clear the audio buffer (SEC-audit-008)."""
+        """End-to-end: discard() must close the stream, set _stream=None,"""
         r = _make_recorder()
         monkeypatch.setattr("voice_typer.server.recording.time.sleep", lambda s: None)
 

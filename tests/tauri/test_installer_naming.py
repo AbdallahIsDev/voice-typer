@@ -1,50 +1,6 @@
-"""Installer-config tests for the slim-core / runtime-pack split.
-
-Owns the installer-side contract for plan-runtime-pack-split.md §4 / §5 / §11
-(sl installer + full-offline installer + new artifact names). Pairs:
-
-A. ``scripts/windows/installer-hooks.nsh`` ↔ ``src-tauri/tauri.conf.json``
-   ``bundle.windows.nsis.installerHooks``. The .nsh must:
-   - define a Components-page Section ``"Include offline engine pack"``
-     (Tauri v2 ``bundle.windows.nsis`` has NO checkbox option, verified
-     against https://schema.tauri.app/config/2; a custom NSIS Section is
-     the only way to surface a per-feature checkbox);
-   - make the section OPTIONAL (no ``SectionIn RO``) so the Components
-     page renders a checkbox the user can untick;
-   - default to SELECTED (plan §4.8: auto-download is the default; the
-     user opts OUT, not IN);
-   - write ``%LOCALAPPDATA%\\voice-typer\\installer-state.json`` in a
-     ``customInstall`` macro so the slim-core app can read the consent
-     value at first launch.
-
-B. ``scripts/build/artifact_names.py`` ↔ plan §11.9 naming contract.
-   The module exposes the canonical filenames for the four new artifacts:
-     - voice-typer-slim-core-<version>-<triple>.exe
-     - voice-typer-runtime-pack-<pack-version>-<triple>.zip
-     - pack-manifest.json
-     - voice-typer-full-offline-<version>-<triple>.exe (addendum)
-   C-CI-13 forbids RENAMING the existing artifacts; these are NEW names
-   added ALONGSIDE. The guard below asserts no new name collides with
-   the C-CI-13-protected names (collision would be a rename in disguise).
-
-C. ``scripts/windows/full-offline-installer.nsi`` + the build script
-   ``scripts/build/build_full_offline_installer_windows.sh`` ↔ the
-   full-offline installer artifact. The .nsi template must require the
-   build-time !defines (``SLIM_CORE_EXE``, ``PACK_ZIP``, ``PACK_VERSION``,
-   ``APP_VERSION``, ``PRODUCT_TRIPLE``) and produce the canonical
-   ``voice-typer-full-offline-<app-version>-<triple>.exe`` filename.
-
-D. ``scripts/build/artifact_names.py::SUPPORTED_TRIPLES`` ↔
-   ``scripts/gen_tauri_icons_stub.py::SIDECAR_TRIPLES``. The triple set
-   is the repo's single source of truth for build triples; a new triple
-   added in one place without the other silently produces an un-named
-   artifact.
-
-E. ``scripts/windows/uninstaller.nsh`` keeps its ``customUnInstall``
-   macro, sanity check that adding ``installer-hooks.nsh`` to the
-   ``installerHooks`` list did NOT remove the existing uninstall cleanup.
-
-Run: ``pytest tests/tauri/test_installer_naming.py -x``.
+"""
+Installer-config tests for the slim-core / runtime-pack split.
+C-CI-13 forbids RENAMING the existing artifacts; these are NEW names
 """
 
 from __future__ import annotations
@@ -69,19 +25,13 @@ ARTIFACT_NAMES_PY = PROJECT_ROOT / "scripts" / "build" / "artifact_names.py"
 STUB_SCRIPT = PROJECT_ROOT / "scripts" / "gen_tauri_icons_stub.py"
 
 
-# ─── Helpers ─────────────────────────────────────────────────────────────────
-
-
 def _strip_nsis_comments(text: str) -> str:
-    """Strip ``;``-comments from NSIS source so directive checks don't
-    false-positive on prose mentions (e.g. the comment "we do NOT call
+    """
+    Strip ``;``-comments from NSIS source so directive checks don't
     SectionIn RO" must NOT trigger the SectionIn RO directive check).
     """
     out_lines: list[str] = []
     for line in text.splitlines():
-        # NSIS comments start with ``;``. Strings can contain ``;`` but
-        # for the directive-level checks below we don't have any string
-        # literals that matter, strip everything from the first ``;``.
         idx = line.find(";")
         if idx >= 0:
             line = line[:idx]
@@ -103,10 +53,6 @@ def _installer_hooks_list() -> list[str]:
 
 
 # File-existence gates, these scripts are owned by a separate workstream
-# (plan-runtime-pack-split.md §11.9, installer/build-script authoring). They
-# may not exist yet in a given WIP checkout. The tests below auto-skip when
-# the dependency is absent so the rest of the suite stays green; they
-# auto-enable the moment the file lands.
 _MISSING_ARTIFACT_NAMES_RSN = (
     f"scripts/build/artifact_names.py not present at {ARTIFACT_NAMES_PY}, "
     "this file is the §11.9 naming-contract source of truth and is owned by "
@@ -121,12 +67,7 @@ _MISSING_FULL_OFFLINE_BUILD_SH_RSN = (
 
 
 def _skip_if_missing(path: Path, reason: str) -> None:
-    """Skip the calling test when ``path`` does not exist.
-
-    The installer-naming suite is the spec for files that are created in a
-    parallel workstream; until those files land, the spec tests skip
-    gracefully rather than false-failing on ``FileNotFoundError``.
-    """
+    """Skip the calling test when ``path`` does not exist."""
     if not path.is_file():
         pytest.skip(reason)
 
@@ -137,9 +78,6 @@ def _load_artifact_names_module():
     assert spec is not None and spec.loader is not None, f"cannot load {ARTIFACT_NAMES_PY}"
     module = importlib.util.module_from_spec(spec)
     # Register in sys.modules BEFORE exec so ``@dataclass`` can resolve
-    # the module by name (dataclasses._is_type looks up cls.__module__ in
-    # sys.modules, without this, frozen dataclasses raise AttributeError
-    # during class creation).
     sys.modules["_vt_artifact_names_test"] = module
     try:
         spec.loader.exec_module(module)
@@ -148,23 +86,8 @@ def _load_artifact_names_module():
     return module
 
 
-# ─── Pair A: installer-hooks.nsh ↔ tauri.conf.json installerHooks ────────────
-
-
 class TestInstallerHooksNshRegistered:
-    """``installer-hooks.nsh`` must be reachable via ``installerHooks``.
-
-    Tauri v2 ``!include``s the ``bundle.windows.nsis.installerHooks``
-    path into the generated ``installer.nsi``. tauri-utils 2.9.3
-    deserializes ``installerHooks`` as ``Option<PathBuf>``, a SINGLE
-    string, NOT a list (a list fails config parse with "invalid type:
-    sequence"). The config points at the ``tauri-installer-hooks.nsh``
-    wrapper, which ``!include``s both ``uninstaller.nsh`` (defining
-    ``customUnInstall`` for CR-69/CR-70 cleanup) and
-    ``installer-hooks.nsh`` (the install-time consent section), so
-    adding the new install-time hooks file must not silently drop the
-    uninstall-time hooks (CR-69 + CR-70 cleanup would be lost).
-    """
+    """``installer-hooks.nsh`` must be reachable via ``installerHooks``."""
 
     def test_installer_hooks_is_a_single_registered_nsh(self) -> None:
         nsis = _tauri_conf()["bundle"]["windows"]["nsis"]
@@ -180,20 +103,11 @@ class TestInstallerHooksNshRegistered:
             "makensis."
         )
         # The path in tauri.conf.json is relative to src-tauri/ (Tauri's
-        # CWD when it runs the bundler). Resolve from SRC_TAURI.
         target = (SRC_TAURI / hooks).resolve()
         assert target.is_file(), f"installerHooks entry {hooks!r} does not exist at {target}."
 
     def test_wrapper_includes_both_install_and_uninstall_hooks(self) -> None:
-        """The registered wrapper must compose BOTH hook files.
-
-        ``installer-hooks.nsh`` (install-time: "Include offline engine
-        pack" Section + customInstall consent macro) AND
-        ``uninstaller.nsh`` (uninstall-time: customUnInstall CR-69/CR-70
-        cleanup of autostart Run keys, Task Scheduler tasks, and the
-        %APPDATA%\\voice-typer data dir) must both be active under the
-        one-path schema.
-        """
+        """The registered wrapper must compose BOTH hook files."""
         nsis = _tauri_conf()["bundle"]["windows"]["nsis"]
         hooks = nsis.get("installerHooks")
         assert isinstance(hooks, str) and hooks, "installerHooks must be set."
@@ -222,25 +136,16 @@ class TestInstallerHooksNshRegistered:
                 "makensis."
             )
             # The path in tauri.conf.json is relative to src-tauri/ (Tauri's
-            # CWD when it runs the bundler). Resolve from SRC_TAURI.
             target = (SRC_TAURI / hook).resolve()
             assert target.is_file(), f"installerHooks entry {hook!r} does not exist at {target}."
 
 
 class TestInstallerHooksNshSection:
-    """The .nsh must define the "Include offline engine pack" Section.
-
-    A NSIS ``Section`` without ``SectionIn RO`` is OPTIONAL, the
-    Components page renders it as a checkbox the user can untick. The
-    section must default to SELECTED (plan §4.8: auto-download default —
-    the user opts OUT, not IN). NSIS sections are selected by default
-    unless explicitly marked read-only or deselected via SectionSetFlags.
-    """
+    """The .nsh must define the \"Include offline engine pack\" Section."""
 
     def test_section_definition_present(self) -> None:
         text = INSTALLER_HOOKS_NSH.read_text(encoding="utf-8")
         # The Section line uses the canonical name + section index var.
-        # Match the literal Section declaration so a rename fails this test.
         assert 'Section "Include offline engine pack" SecIncludePack' in text, (
             'installer-hooks.nsh must define `Section "Include offline engine pack" '
             "SecIncludePack`, Tauri v2's bundle.windows.nsis has NO checkbox option, "
@@ -249,16 +154,9 @@ class TestInstallerHooksNshSection:
         )
 
     def test_section_is_optional_not_read_only(self) -> None:
-        """The Section must NOT be marked ``SectionIn RO`` (read-only).
-
-        ``SectionIn RO`` makes a section mandatory, it appears WITHOUT a
-        checkbox on the Components page. The whole point of the section is
-        to give the user a checkbox; RO would defeat it.
-        """
+        """The Section must NOT be marked ``SectionIn RO`` (read-only)."""
         text = _strip_nsis_comments(INSTALLER_HOOKS_NSH.read_text(encoding="utf-8"))
         # Extract the Section ... SectionEnd block for SecIncludePack so we
-        # don't false-positive on a SectionIn RO elsewhere (there isn't one
-        # today, but defensive).
         match = re.search(
             r'Section\s+"Include offline engine pack"\s+SecIncludePack\b.*?SectionEnd',
             text,
@@ -273,12 +171,7 @@ class TestInstallerHooksNshSection:
         )
 
     def test_section_does_not_deselect_itself_by_default(self) -> None:
-        """The section must default to SELECTED.
-
-        NSIS sections are selected by default unless the body explicitly
-        calls ``SectionSetFlags ${SecIncludePack} 0`` (or similar). The
-        plan §4.8 default is auto-download, the user opts OUT, not IN.
-        """
+        """The section must default to SELECTED."""
         text = _strip_nsis_comments(INSTALLER_HOOKS_NSH.read_text(encoding="utf-8"))
         match = re.search(
             r'Section\s+"Include offline engine pack"\s+SecIncludePack\b.*?SectionEnd',
@@ -287,8 +180,6 @@ class TestInstallerHooksNshSection:
         )
         assert match is not None
         section_body = match.group(0)
-        # Any SectionSetFlags call inside the section body that clears the
-        # SF_SELECTED bit (value 0) would default-deselect the section.
         bad = re.search(r"SectionSetFlags\s+\$\{SecIncludePack\}\s+[0-9]+", section_body)
         assert bad is None, (
             "SecIncludePack body must NOT call SectionSetFlags, that would "
@@ -307,15 +198,7 @@ class TestInstallerHooksNshSection:
 
 
 class TestInstallerHooksCustomInstallMacro:
-    """The ``customInstall`` macro writes installer-state.json.
-
-    Tauri v2 invokes ``customInstall`` in the ``-post`` Section of the
-    generated installer.nsi (after main files are written, before the
-    installer exits). The macro must persist the user's checkbox choice
-    to ``%LOCALAPPDATA%\\voice-typer\\installer-state.json`` so the
-    slim-core Python backend can read it at first launch (plan §4.8
-    consent gate).
-    """
+    """The ``customInstall`` macro writes installer-state.json."""
 
     def test_custom_install_macro_defined(self) -> None:
         text = INSTALLER_HOOKS_NSH.read_text(encoding="utf-8")
@@ -328,7 +211,6 @@ class TestInstallerHooksCustomInstallMacro:
         """The macro must write to the canonical installer-state.json path."""
         text = INSTALLER_HOOKS_NSH.read_text(encoding="utf-8")
         # The path is $LOCALAPPDATA\voice-typer\installer-state.json —
-        # NSIS literal. Match the FileOpen line so a path rename fails.
         assert r"$LOCALAPPDATA\voice-typer\installer-state.json" in text, (
             "installer-hooks.nsh must write installer-state.json to "
             "%LOCALAPPDATA%\\voice-typer\\, the SAME per-user data root the "
@@ -337,17 +219,9 @@ class TestInstallerHooksCustomInstallMacro:
         )
 
     def test_installer_state_json_schema_pinned(self) -> None:
-        """The JSON shape written by the macro is pinned here.
-
-        The slim-core Python backend's installer_state.py reader (Sub-agent 3)
-        does a strict schema check, NOT a tolerant parse. Field names are
-        part of the contract; renaming one silently breaks first-launch
-        consent. Pinning here catches a .nsh drift before CI runs the
-        Python-side test.
-        """
+        """The JSON shape written by the macro is pinned here."""
         text = INSTALLER_HOOKS_NSH.read_text(encoding="utf-8")
         # Both branches (true / false) must carry the same field set.
-        # The required fields are: include_offline_engine_pack, installer_version, pack_bundled.
         for required_field in (
             "include_offline_engine_pack",
             "installer_version",
@@ -360,14 +234,7 @@ class TestInstallerHooksCustomInstallMacro:
             )
 
     def test_custom_install_reads_section_selection(self) -> None:
-        """The macro must consult the Section's selected state, not hardcode.
-
-        A macro that always writes ``true`` regardless of the checkbox
-        state would defeat the consent gate (the user could untick the
-        checkbox and the app would still auto-download). The macro must
-        read ``SectionGetFlags ${SecIncludePack}`` and AND with
-        ``${SF_SELECTED}``.
-        """
+        """The macro must consult the Section's selected state, not hardcode."""
         text = INSTALLER_HOOKS_NSH.read_text(encoding="utf-8")
         assert "SectionGetFlags ${SecIncludePack}" in text, (
             "customInstall must call `SectionGetFlags ${SecIncludePack}` to read "
@@ -377,9 +244,6 @@ class TestInstallerHooksCustomInstallMacro:
             "customInstall must AND the section flags with ${SF_SELECTED} to "
             "isolate the selection bit (NSIS section flags are a bitmask)."
         )
-
-
-# ─── Pair B: artifact_names.py ↔ §11.9 naming contract ─────────────────────
 
 
 class TestArtifactNames:
@@ -450,12 +314,9 @@ class TestArtifactNames:
 
 
 class TestNoRenameOfExistingArtifacts:
-    """C-CI-13: never rename EXISTING artifacts.
-
-    The new names introduced by §11.9 must NOT collide with the
+    """
+    C-CI-13: never rename EXISTING artifacts.
     C-CI-13-protected existing names (a collision would be a silent
-    rename, the existing artifact would be overwritten by the new one
-    in the release asset list). The guard asserts the sets are DISJOINT.
     """
 
     def test_new_names_do_not_collide_with_protected(self) -> None:
@@ -478,12 +339,9 @@ class TestNoRenameOfExistingArtifacts:
         )
 
     def test_existing_protected_names_listed(self) -> None:
-        """The protected names list must enumerate every C-CI-13 entry.
-
+        """
+        The protected names list must enumerate every C-CI-13 entry.
         C-CI-13 enumerates: ``tauri-windows-installer``, ``VoiceTyper-Tauri-MSI``,
-        ``VoiceTyper-Tauri-Sidecar-Binaries``, ``VoiceTyper-Tauri-SHA256SUMS``,
-        ``tauri-binaries-manifest-windows``. If any is missing from the
-        module constant, the disjoint-guard above silently loses coverage.
         """
         mod = _load_artifact_names_module()
         expected = {
@@ -499,17 +357,8 @@ class TestNoRenameOfExistingArtifacts:
         )
 
 
-# ─── Pair C: full-offline-installer.nsi + build script ──────────────────────
-
-
 class TestFullOfflineInstallerTemplate:
-    """The full-offline installer .nsi template must require its !defines.
-
-    The build script (``build_full_offline_installer_windows.sh``) invokes
-    ``makensis -DSLIM_CORE_EXE=... -DPACK_ZIP=... -DPACK_VERSION=... `` etc.
-    If a !define is missing from the template's guard block, makensis
-    silently produces a broken installer (e.g. with an empty pack path).
-    """
+    """The full-offline installer .nsi template must require its !defines."""
 
     def test_template_exists(self) -> None:
         assert FULL_OFFLINE_NSI.is_file(), (
@@ -525,8 +374,6 @@ class TestFullOfflineInstallerTemplate:
     def test_template_requires_each_define(self, define: str) -> None:
         text = FULL_OFFLINE_NSI.read_text(encoding="utf-8")
         # Each !define must be guarded by an !ifndef block that !errors
-        # when missing, a missing !define would silently produce a
-        # broken installer with empty paths.
         pattern = rf"!ifndef\s+{define}\b"
         assert re.search(pattern, text), (
             f"full-offline-installer.nsi must guard {define} with `!ifndef {define}` "
@@ -538,7 +385,6 @@ class TestFullOfflineInstallerTemplate:
         """The OutFile directive must produce the §11.9 name."""
         text = FULL_OFFLINE_NSI.read_text(encoding="utf-8")
         # The OutFile uses ${APP_VERSION} and ${PRODUCT_TRIPLE} !defines
-        # so the filename is built from the build-time args.
         assert "voice-typer-full-offline-${APP_VERSION}-${PRODUCT_TRIPLE}.exe" in text, (
             "full-offline-installer.nsi OutFile must be "
             "`voice-typer-full-offline-${APP_VERSION}-${PRODUCT_TRIPLE}.exe`, "
@@ -547,13 +393,7 @@ class TestFullOfflineInstallerTemplate:
         )
 
     def test_template_extracts_pack_to_runtime_pack_dir(self) -> None:
-        """The pack zip must be extracted to the per-user runtime-pack dir.
-
-        The slim-core app's runtime-pack resolver scans
-        ``%LOCALAPPDATA%\\voice-typer\\runtime-pack\\<version>\\`` for installed
-        packs (plan §4.7). If the .nsi extracts elsewhere, the slim-core
-        app silently doesn't find the bundled pack and starts a download.
-        """
+        """The pack zip must be extracted to the per-user runtime-pack dir."""
         text = FULL_OFFLINE_NSI.read_text(encoding="utf-8")
         assert r"$LOCALAPPDATA\voice-typer\runtime-pack\${PACK_VERSION}" in text, (
             "full-offline-installer.nsi must extract the pack to "
@@ -562,14 +402,7 @@ class TestFullOfflineInstallerTemplate:
         )
 
     def test_template_writes_installer_state_with_pack_bundled_true(self) -> None:
-        """The wrapper writes installer-state.json with pack_bundled=true.
-
-        The slim-core app reads installer-state.json at first launch: if
-        pack_bundled=true, it SKIPS the silent background download (the
-        pack is already on disk). Without this flag, the slim-core app
-        would download the pack even though it was bundled, wasting
-        ~180 MB of bandwidth.
-        """
+        """The wrapper writes installer-state.json with pack_bundled=true."""
         text = FULL_OFFLINE_NSI.read_text(encoding="utf-8")
         assert '"pack_bundled": true' in text, (
             "full-offline-installer.nsi must write `pack_bundled: true` to "
@@ -581,8 +414,6 @@ class TestFullOfflineInstallerTemplate:
     def test_template_runs_slim_core_installer(self) -> None:
         """The wrapper invokes the bundled slim-core installer."""
         text = FULL_OFFLINE_NSI.read_text(encoding="utf-8")
-        # The wrapper extracts the slim-core installer to $PLUGINSDIR and
-        # ExecWaits it so the slim-core Components page still appears.
         assert "ExecWait" in text, (
             "full-offline-installer.nsi must ExecWait the bundled slim-core "
             "installer, without it, the slim-core app is never installed."
@@ -609,9 +440,6 @@ class TestFullOfflineBuildScript:
             f"build_full_offline_installer_windows.sh must exist at {FULL_OFFLINE_BUILD_SH}."
         )
         # On Windows CI the script runs under Git Bash, the executable
-        # bit is set on POSIX checkouts via `chmod +x`. On a Windows-only
-        # checkout the bit is moot (Git Bash honors it from the index).
-        # Skip the bit check on Windows hosts.
         if os.name == "posix":
             mode = FULL_OFFLINE_BUILD_SH.stat().st_mode
             assert mode & stat.S_IXUSR, (
@@ -656,18 +484,8 @@ class TestFullOfflineBuildScript:
             )
 
 
-# ─── Pair D: SUPPORTED_TRIPLES ↔ SIDECAR_TRIPLES drift guard ────────────────
-
-
 class TestSupportedTriplesMatchesStubGenerator:
-    """artifact_names.py::SUPPORTED_TRIPLES ↔ gen_tauri_icons_stub.py::SIDECAR_TRIPLES.
-
-    The triple set is the repo's single source of truth for build triples.
-    A new triple added in one place without the other silently produces
-    an un-named artifact (the slim-core / runtime-pack name would be
-    rejected with a ValueError, but the full-offline installer would
-    silently build with an un-canonical name).
-    """
+    """artifact_names.py::SUPPORTED_TRIPLES ↔ gen_tauri_icons_stub.py::SIDECAR_TRIPLES."""
 
     def test_supported_triples_equals_stub_generator_sidecar_triples(self) -> None:
         mod = _load_artifact_names_module()
@@ -685,19 +503,8 @@ class TestSupportedTriplesMatchesStubGenerator:
         )
 
 
-# ─── Pair E: uninstaller.nsh unchanged (customUnInstall still defined) ──────
-
-
 class TestUninstallerNshNotRegressed:
-    """Adding installer-hooks.nsh must NOT break the existing uninstaller.
-
-    The existing ``uninstaller.nsh`` defines ``customUnInstall`` for
-    CR-69 (HKCU Run key cleanup, Task Scheduler task cleanup) and CR-70
-    (%APPDATA%\\voice-typer data dir removal). Adding a new entry to
-    ``installerHooks`` must not silently drop the existing one, the
-    TestInstallerHooksNshRegistered test above covers the
-    tauri.conf.json side; this test covers the .nsh content side.
-    """
+    """Adding installer-hooks.nsh must NOT break the existing uninstaller."""
 
     def test_uninstaller_nsh_still_defines_custom_uninstall(self) -> None:
         text = UNINSTALLER_NSH.read_text(encoding="utf-8")

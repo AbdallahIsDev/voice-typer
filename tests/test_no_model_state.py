@@ -1,20 +1,4 @@
-"""Tests for the genuine "no model selected" state.
-
-``model_size == \"\"`` (the ``NO_MODEL_SIZE`` sentinel in
-``model_registry.py``) means the user has NO active model, the config
-can hold this value end-to-end (load, IPC, tray, Models page) instead
-of being reset to the default, and the app must not pretend a phantom
-model is selected.
-
-Covered here:
-
-- ``Config.load()`` preserves ``model_size=\"\"`` (no reset, no warning).
-- The IPC ``set_config`` validator accepts ``model_size=\"\"``.
-- The tray models submenu marks NOTHING active when ``model_size=\"\"``.
-- ``is_active_model_downloaded`` returns False for the no-model state.
-- The load path refuses with a "No model selected" message instead of
-  attempting to load the empty size.
-"""
+"""Tests for the genuine \"no model selected\" state."""
 
 from __future__ import annotations
 
@@ -25,8 +9,7 @@ from voice_typer.server.model_registry import NO_MODEL_SIZE
 
 class TestConfigLoadPreservesNoModelState:
     def test_empty_model_size_is_preserved(self, tmp_config_dir):
-        """model_size=\"\" loads as-is, no reset to DEFAULT_MODEL_SIZE,
-        no \"config corrected\" warning (it's a real state, not garbage)."""
+        """model_size=\"\" loads as-is, no reset to DEFAULT_MODEL_SIZE,"""
         from voice_typer.server.config import Config
 
         (tmp_config_dir / "config.json").write_text(json.dumps({"model_size": NO_MODEL_SIZE}))
@@ -40,8 +23,7 @@ class TestConfigLoadPreservesNoModelState:
         )
 
     def test_invalid_model_size_still_resets_to_default(self, tmp_config_dir):
-        """Sanity check: only the real sentinel is preserved, garbage
-        values are still corrected to DEFAULT_MODEL_SIZE."""
+        """Sanity check: only the real sentinel is preserved, garbage"""
         from voice_typer.server.config import Config
         from voice_typer.server.model_registry import DEFAULT_MODEL_SIZE
 
@@ -70,8 +52,7 @@ class TestIpcValidatorAcceptsNoModelState:
 
 class TestTrayNoModelState:
     def test_tray_submenu_marks_nothing_active_when_no_model(self, tmp_path):
-        """With model_size=\"\", no tray submenu row (whisper, parakeet, or
-        qwen) may render as active, even backend-keyed rows."""
+        """With model_size=\"\", no tray submenu row (whisper, parakeet, or"""
         from unittest.mock import MagicMock, patch
 
         from voice_typer.server import tray_models
@@ -93,8 +74,7 @@ class TestTrayNoModelState:
             assert not is_active, f"'{name}' must not be marked active when model_size == \"\" (no model selected)"
 
     def test_is_active_model_downloaded_false_when_no_model(self):
-        """The active-model probe returns False for the no-model state so
-        the load path refuses instead of loading the empty size."""
+        """The active-model probe returns False for the no-model state so"""
         from voice_typer.server.config import Config
         from voice_typer.server.tray_models import is_active_model_downloaded
 
@@ -109,9 +89,7 @@ class TestTrayNoModelState:
 
 class TestModelManagerNoModelRefusal:
     def test_load_refusal_message_for_no_model(self):
-        """When the config holds the no-model sentinel, the load path
-        refuses with a \"No model selected\" message, not a claim that a
-        named model \"is not downloaded\"."""
+        """When the config holds the no-model sentinel, the load path"""
         from voice_typer.server.asr_errors import ModelNotDownloadedError
         from voice_typer.server.config import Config
         from voice_typer.server.model_manager import ModelManager
@@ -128,8 +106,6 @@ class TestModelManagerNoModelRefusal:
 
         class _Recorder(ModelManager):
             def __init__(self, app):
-                # Skip the real init (registry construction etc.), the
-                # refusal path only needs the app + pending-dictation flag.
                 self._app = app
                 self._pending_dictation = False
 
@@ -138,7 +114,6 @@ class TestModelManagerNoModelRefusal:
 
             def _notify_model_load_refused(self, error, *, backend):
                 # ``ModelNotDownloadedError`` is a ``RuntimeError``, its
-                # message lives in ``args[0]`` (no ``.message`` attr).
                 captured.append(str(error))
                 assert isinstance(error, ModelNotDownloadedError)
 
@@ -149,14 +124,7 @@ class TestModelManagerNoModelRefusal:
 
 
 class TestNoModelTrayTerminalState:
-    """The refusal must land on the VISIBLE tooltip, not just the log.
-
-    Regression: with no model selected the tray froze at boot
-    LOADING/"Starting..." forever, even though the refusal ran. The
-    chain below (real notify + real tray + real tooltip formatter +
-    a live icon stand-in exercising the real icon-render path) proves
-    the error reaches the visible title.
-    """
+    """The refusal must land on the VISIBLE tooltip, not just the log."""
 
     def _booted_tray(self, monkeypatch):
         """Real TrayIcon left in the post-``app.start()`` state."""
@@ -207,9 +175,7 @@ class TestNoModelTrayTerminalState:
         assert "No model selected" in tray._message, f"tray message must carry the refusal, got: {tray._message!r}"
 
     def test_refusal_reaches_visible_tooltip_with_live_icon(self, monkeypatch):
-        """Same chain with a LIVE icon: the real icon-render path
-        (``_apply_state`` + ``_make_icon(ERROR)``) must deliver the
-        error to the visible title, not just the internal state."""
+        """Same chain with a LIVE icon: the real icon-render path"""
         from voice_typer.server.model_manager import ModelManager
         from voice_typer.server.tray_publish import compute_tooltip
         from voice_typer.server.tray_types import AppState
@@ -232,9 +198,6 @@ class TestNoModelTrayTerminalState:
 
         tray._icon = _LiveIcon()
         # Apply the queued boot state the way run()'s drain does
-        # (``_apply_state`` directly, bypassing ``set_state`` dedup),
-        # so the icon shows "Starting..." exactly like production at
-        # refusal time.
         tray._apply_state(AppState.LOADING, "Starting...")
         assert tray._icon.titles, "LOADING apply must write the icon title"
         assert tray._icon.titles[-1] == "Voice Typer | Starting... (F9)"
@@ -263,9 +226,7 @@ class TestNoModelTrayTerminalState:
         assert compute_tooltip(tray, tray._state, tray._message) == tray._icon.titles[-1]
 
     def test_refusal_tray_failure_is_warning_not_silent(self, monkeypatch, caplog):
-        """If the tray update inside the refusal raises, it must WARN
-        (diagnosable at INFO level), the previous DEBUG-only line left
-        stuck tooltips invisible in production logs."""
+        """If the tray update inside the refusal raises, it must WARN"""
         from unittest.mock import MagicMock
 
         from voice_typer.server.config import Config

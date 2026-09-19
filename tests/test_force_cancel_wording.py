@@ -1,27 +1,4 @@
-"""NH-17 regression: canonical force-cancel-transcription wording.
-
-The tray menu and the renderer's Home button must use the same
-canonical wording for the "force cancel transcription" recovery action.
-Before NH-17, three different wordings existed:
-
-  1. ``tray_i18n.py`` ``force_cancel_transcription`` → "Force cancel transcription"
-  2. ``tray_i18n.py`` ``force_cancel_stuck_transcription`` → "Force Cancel Stuck
-     Transcription" (DEAD KEY: ``tray.py`` never read it).
-  3. renderer ``home.forceCancelHint`` → "Taking too long? Force cancel transcription"
-
-NH-17 deleted the dead ``force_cancel_stuck_transcription`` key from all 8
-locale dicts in ``tray_i18n.py``. The canonical label "Force cancel
-transcription" (lowercase 'c') is now used by both the tray menu and the
-renderer's ``home.forceCancelHint`` (which prefixes it with the
-"Taking too long?" context cue).
-
-This test pins the contract:
-  * No locale dict in ``tray_i18n.py`` defines the dead key.
-  * The English dict defines the canonical key with the canonical wording.
-  * The renderer's ``home.forceCancelHint`` English string contains the
-    canonical wording (so the visible Home button text matches the tray
-    menu item).
-"""
+"""NH-17 regression: canonical force-cancel-transcription wording."""
 
 from __future__ import annotations
 
@@ -44,8 +21,7 @@ _RENDERER_TRANSLATIONS = (
 
 
 def test_force_cancel_stuck_transcription_key_is_gone_from_all_locales() -> None:
-    """The dead ``force_cancel_stuck_transcription`` key was removed from
-    every locale dict in ``tray_i18n.py`` (NH-17)."""
+    """The dead ``force_cancel_stuck_transcription`` key was removed from"""
     for locale, labels in tray_i18n._TRAY_LABELS_LOCALES.items():
         assert "force_cancel_stuck_transcription" not in labels, (
             f"locale {locale!r} still defines the dead "
@@ -55,8 +31,7 @@ def test_force_cancel_stuck_transcription_key_is_gone_from_all_locales() -> None
 
 
 def test_force_cancel_transcription_canonical_label_is_present_in_all_locales() -> None:
-    """Every locale dict defines the canonical
-    ``force_cancel_transcription`` key (used by ``tray.py``)."""
+    """Every locale dict defines the canonical"""
     for locale, labels in tray_i18n._TRAY_LABELS_LOCALES.items():
         assert "force_cancel_transcription" in labels, (
             f"locale {locale!r} missing the canonical force_cancel_transcription key"
@@ -67,15 +42,12 @@ def test_force_cancel_transcription_canonical_label_is_present_in_all_locales() 
 
 
 def test_canonical_english_label_uses_lowercase_cancel() -> None:
-    """The canonical English label is ``"Force cancel transcription"`` —
-    lowercase 'c' in 'cancel' (NH-17 wording, distinct from the legacy
-    'Force Cancel Stuck Transcription' capital-C wording)."""
+    """The canonical English label is ``\"Force cancel transcription\"`` —"""
     assert tray_i18n._TRAY_LABELS_EN["force_cancel_transcription"] == "Force cancel transcription"
 
 
 def test_renderer_force_cancel_hint_uses_canonical_wording() -> None:
-    """The renderer's ``home.forceCancelHint`` English string contains
-    the canonical 'Force cancel transcription' phrase (NH-17)."""
+    """The renderer's ``home.forceCancelHint`` English string contains"""
     en = json.loads(_RENDERER_TRANSLATIONS.read_text(encoding="utf-8"))
     home = en.get("home", {})
     hint = home.get("forceCancelHint", "")

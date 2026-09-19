@@ -1,31 +1,4 @@
-"""Focused tests for the ``start()`` hotkey critical-path warm-up policy.
-
-``start_recording`` (the body of ``Recorder.start``) used to call
-``recorder.warm_up_resampler()`` synchronously whenever the device's
-effective sample rate differs from the target rate and scipy's
-``resample_poly`` was not loaded yet, a 1-2s block on the first
-hotkey press after app launch.
-
-The scipy preloader daemon spawned by ``Recorder.__init__``
-(``RecorderInitMixin._register_scipy_preloader``) already loads the
-resampler in the background, so blocking the hotkey thread for the
-same import is wasted latency. The policy now is:
-
-- while the recorder's own preloader thread is alive → SKIP the
-  synchronous warm-up (the background thread owns the import; the
-  resample helpers load scipy on demand under a lock if a resample
-  lands first, so output bytes are identical, only the latency moves
-  off the hotkey path);
-- otherwise (no preloader, or it already exited without loading
-  scipy) → warm up synchronously exactly as before, so the failure is
-  logged once at start time.
-
-These tests build a lightweight ``MagicMock`` recorder shaped for
-``start_recording`` (a DIFFERENT shape from the secure-clear factory in
-``tests/fixtures/recorder_test_helpers.py``, which builds a real
-``Recorder``: see that module's docstring for why per-contract
-builders are intentional here), plus one real-Recorder wiring test.
-"""
+"""Focused tests for the ``start()`` hotkey critical-path warm-up policy."""
 
 from __future__ import annotations
 
@@ -42,8 +15,7 @@ def _build_start_mock_recorder(
     sample_rate: int = 16000,
     effective_sr: int = 48000,
 ) -> MagicMock:
-    """Minimal ``MagicMock`` recorder that lets ``start_recording`` run
-    end-to-end without PortAudio, permissions, or real worker threads."""
+    """Minimal ``MagicMock`` recorder that lets ``start_recording`` run"""
     recorder = MagicMock(name="recorder")
     recorder.config = MagicMock(name="config")
     recorder.config.sample_rate = sample_rate
@@ -62,8 +34,6 @@ def _build_start_mock_recorder(
     recorder._preroll_buffer = deque(maxlen=0)
     recorder._devices._mic_watcher = None
     # Real scalar sample rates: ``refresh_vad_caches`` (invoked directly
-    # as a module function now) compares these against int constants —
-    # MagicMock sentinels would raise TypeError on the ``> 0`` check.
     recorder._audio_pipeline._buffer_sr = None
     recorder._effective_sr = sample_rate
     recorder.warm_up_resampler = MagicMock(name="warm_up_resampler")
@@ -79,8 +49,7 @@ def _patch_resampler_unloaded(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 class _AliveThreadHandle:
-    """A real daemon thread held alive until released, to stand in for
-    the ``Recorder.__init__`` scipy preloader mid-import."""
+    """A real daemon thread held alive until released, to stand in for"""
 
     def __init__(self) -> None:
         self._release = threading.Event()
@@ -97,14 +66,10 @@ class _AliveThreadHandle:
 
 
 class TestStartWarmUpCriticalPathPolicy:
-    """The synchronous resampler warm-up runs only when no background
-    preloader is in flight."""
+    """The synchronous resampler warm-up runs only when no background"""
 
     def test_sync_warm_up_called_without_in_flight_preloader(self, monkeypatch):
-        """A recorder with no live preloader thread (the attribute is a
-        plain object / absent) still warms up synchronously, the
-        historical contract for recorders constructed before the
-        preloader existed and for test doubles."""
+        """preloader existed and for test doubles."""
         _patch_resampler_unloaded(monkeypatch)
         recorder = _build_start_mock_recorder()
         recorder._scipy_preloader_thread = object()  # not a Thread
@@ -114,9 +79,7 @@ class TestStartWarmUpCriticalPathPolicy:
         recorder.warm_up_resampler.assert_called_once()
 
     def test_sync_warm_up_called_when_preloader_thread_dead(self, monkeypatch):
-        """A preloader thread that already exited without loading scipy
-        (``_resample_poly`` still ``None``) falls back to the synchronous
-        warm-up so the failure is surfaced at start time."""
+        """A preloader thread that already exited without loading scipy"""
         _patch_resampler_unloaded(monkeypatch)
         recorder = _build_start_mock_recorder()
         finished = threading.Thread(target=lambda: None, name="dead-preloader", daemon=True)
@@ -130,9 +93,7 @@ class TestStartWarmUpCriticalPathPolicy:
         recorder.warm_up_resampler.assert_called_once()
 
     def test_sync_warm_up_skipped_while_preloader_in_flight(self, monkeypatch):
-        """While ``Recorder.__init__``'s scipy preloader thread is still
-          loading scipy, the hotkey path must NOT block on the same import
-        , the warm-up is left to the background thread."""
+        """While ``Recorder.__init__``'s scipy preloader thread is still"""
         _patch_resampler_unloaded(monkeypatch)
         recorder = _build_start_mock_recorder()
         preloader = _AliveThreadHandle()
@@ -144,10 +105,7 @@ class TestStartWarmUpCriticalPathPolicy:
             preloader.stop()
 
     def test_start_completes_atomically_when_warm_up_skipped(self, monkeypatch):
-        """Skipping the warm-up must not skip any other start step: the
-        stream opens, the recording event is set, and both workers plus
-        the device-health checker are started, recording still starts
-        correctly and atomically."""
+        """stream opens, the recording event is set, and both workers plus"""
         _patch_resampler_unloaded(monkeypatch)
         recorder = _build_start_mock_recorder()
         preloader = _AliveThreadHandle()
@@ -165,8 +123,7 @@ class TestStartWarmUpCriticalPathPolicy:
             preloader.stop()
 
     def test_warm_up_branch_not_entered_when_poly_loaded(self, monkeypatch):
-        """When scipy is already loaded, the warm-up branch is skipped
-        entirely regardless of preloader state (existing contract)."""
+        """When scipy is already loaded, the warm-up branch is skipped"""
         from voice_typer.server.recording import resampling as rec_resampling
 
         monkeypatch.setattr(rec_resampling, "_resample_poly", object(), raising=False)
@@ -179,8 +136,7 @@ class TestStartWarmUpCriticalPathPolicy:
 
 
 class TestScipyPreloaderThreadWiring:
-    """A real ``Recorder`` records which preloader thread it spawned so
-    the start path can check its liveness."""
+    """A real ``Recorder`` records which preloader thread it spawned so"""
 
     def test_real_recorder_records_preloader_thread_ref(self):
         from tests.fixtures.recorder_test_helpers import make_recorder

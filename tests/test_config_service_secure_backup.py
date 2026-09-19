@@ -1,25 +1,4 @@
-"""Regression test: ``ConfigMutationMixin.reset_config_to_defaults`` must
-NOT use ``shutil.copy2`` to back up the current config.
-
-The previous implementation called ``shutil.copy2(config_file, backup_path)``
-which is:
-
-  * non-atomic (file-by-file copy, an interrupted copy leaves a partial
-    ``config.json.bak`` that gives a false sense of recovery),
-  * symlink-following on BOTH source and destination (a local attacker
-    who replaces ``config.json`` with a symlink to ``~/.bashrc`` between
-    the user's "Reset to defaults" click and the ``copy2`` call gets
-    ``~/.bashrc`` content copied into the .bak, info disclosure via
-    the .bak file), and
-  * has no ``fsync`` (the .bak may not be durable across power loss).
-
-This is the same vulnerability class as the one already fixed in
-``config.py:_backup_before_migration`` (which now uses
-``_secure_read_text`` + ``_secure_atomic_write``).  This test pins the
-fix: ``shutil.copy2`` must NOT be called by ``reset_config_to_defaults``,
-the backup file must still be created, and its bytes must match the
-original config.json byte-for-byte.
-"""
+"""Regression test: ``ConfigMutationMixin.reset_config_to_defaults`` must"""
 
 from __future__ import annotations
 
@@ -38,12 +17,9 @@ def _build_service(tmp_path: Path):
     from voice_typer.server.service import VoiceTyperService
 
     app = MagicMock()
-    # Real Config dataclass so setattr actually persists values (a
-    # MagicMock would silently accept any setattr, hiding regressions).
     cfg = Config()
     app.config = cfg
     # Real lock, MagicMock would silently accept the `with` statement
-    # but not actually serialize, hiding concurrency bugs.
     app._config_mutation_lock = threading.Lock()
     app.tray.notify = MagicMock()
     svc = VoiceTyperService(app)
@@ -54,13 +30,7 @@ def _build_service(tmp_path: Path):
 
 
 def test_reset_config_to_defaults_does_not_use_shutil_copy2(tmp_path: Path) -> None:
-    """``reset_config_to_defaults`` must NOT call ``shutil.copy2``.
-
-    Spies on ``shutil.copy2`` (replaces it with a wrapper that records
-    the call but still calls the real function so the backup still
-    succeeds if the implementation regresses).  Asserts the spy was
-    never invoked.
-    """
+    """``reset_config_to_defaults`` must NOT call ``shutil.copy2``."""
     svc, mp, _ = _build_service(tmp_path)
     try:
         # Seed a real config.json with user settings.
@@ -72,8 +42,6 @@ def test_reset_config_to_defaults_does_not_use_shutil_copy2(tmp_path: Path) -> N
         }
         (tmp_path / "config.json").write_text(json.dumps(original_config))
 
-        # Spy on shutil.copy2, record calls but still call through so
-        # a regressing implementation doesn't fail for the wrong reason.
         import shutil
 
         copy2_calls: list[tuple] = []
@@ -99,14 +67,7 @@ def test_reset_config_to_defaults_does_not_use_shutil_copy2(tmp_path: Path) -> N
 
 
 def test_reset_config_to_defaults_backup_matches_original_bytes(tmp_path: Path) -> None:
-    """The backup file must contain the exact bytes of the original config.
-
-    ``_secure_read_text`` + ``_secure_atomic_write`` round-trips the
-    file content as a UTF-8 string.  This test pins that the backup
-    file's bytes match the original config.json bytes byte-for-byte
-    (so a forensic recovery via ``cp config.json.bak config.json``
-    restores the exact pre-reset state).
-    """
+    """The backup file must contain the exact bytes of the original config."""
     svc, mp, _ = _build_service(tmp_path)
     try:
         original_config = {
@@ -117,7 +78,6 @@ def test_reset_config_to_defaults_backup_matches_original_bytes(tmp_path: Path) 
             "openai_api_key": "sk-test-123",
         }
         # Use ensure_ascii=False + indent=2 so non-ASCII round-trips
-        # through _secure_read_text + _secure_atomic_write cleanly.
         original_bytes = json.dumps(original_config, indent=2, ensure_ascii=False).encode("utf-8")
         (tmp_path / "config.json").write_bytes(original_bytes)
 
@@ -144,15 +104,7 @@ def test_reset_config_to_defaults_backup_matches_original_bytes(tmp_path: Path) 
 
 
 def test_reset_config_to_defaults_uses_secure_helpers(tmp_path: Path) -> None:
-    """The backup path must route through the shared secure helpers.
-
-    Asserts that ``_secure_read_text`` and ``_secure_atomic_write``
-    (from ``voice_typer.server.secure_file_io``) are both invoked at
-    least once during ``reset_config_to_defaults``.  This pins the
-    architectural choice, future refactors that swap in a different
-    helper will trip this guard and force the author to re-evaluate
-    the security properties.
-    """
+    """The backup path must route through the shared secure helpers."""
     svc, mp, _ = _build_service(tmp_path)
     try:
         (tmp_path / "config.json").write_text(json.dumps({"hotkey": "<f5>", "language": "fr"}))
@@ -198,19 +150,7 @@ def test_reset_config_to_defaults_uses_secure_helpers(tmp_path: Path) -> None:
 
 
 def test_reset_config_to_defaults_backup_survives_symlink_config(tmp_path: Path) -> None:
-    """Defense-in-depth: if config.json is a symlink, the secure read
-    must NOT follow it (POSIX ``O_NOFOLLOW``).
-
-    On POSIX, ``_secure_read_text`` raises ``OSError`` (``ELOOP``)
-    when the path is a symlink.  The reset must surface this as a
-    backup failure (returning ``{"success": False, ...}``) rather than
-    silently following the symlink into an arbitrary file.  On Windows
-    the behavior is similar (reparse-point check).
-
-    This test creates a config.json that is a symlink to a sibling
-    file containing sensitive content, then verifies the reset does
-    NOT copy that sensitive content into the .bak.
-    """
+    """Defense-in-depth: if config.json is a symlink, the secure read"""
     import os
 
     if os.name == "nt":
@@ -231,11 +171,8 @@ def test_reset_config_to_defaults_backup_survives_symlink_config(tmp_path: Path)
         result = svc.reset_config_to_defaults()
 
         # The backup must NOT contain the secret content.  Either the
-        # backup failed (returned success=False, no .bak created) OR
-        # the .bak was created but does NOT contain the secret string.
         if result["success"]:
             # If somehow a backup was created, it must not contain
-            # the secret file's content.
             backup_path = Path(result.get("backup_path", ""))
             if backup_path.exists():
                 backup_text = backup_path.read_text()
@@ -246,8 +183,6 @@ def test_reset_config_to_defaults_backup_survives_symlink_config(tmp_path: Path)
                 )
         else:
             # This is the expected path on POSIX: _secure_read_text
-            # raises OSError(ELOOP), the except clause returns
-            # success=False.
             assert "back up" in result.get("message", "").lower() or "backup" in result.get("message", "").lower(), (
                 "Backup failure message should mention the backup operation."
             )

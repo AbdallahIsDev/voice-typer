@@ -1,19 +1,4 @@
-"""Tests for the REMOVED automatic model-cache eviction.
-
-The app NEVER deletes models automatically, deleting a model is an
-explicit user action (the Models page Delete button). The old
-``prune_model_cache`` auto-eviction helper (HF cache size-based
-eviction that deleted the oldest cached repos on every load) has been
-removed. These tests guard the new behavior:
-
-1. ``asr_utils`` no longer exports ``prune_model_cache`` or its private
-   helpers / size-cap constant.
-2. ``cleanup_hf_cache_dir`` still exists (the explicit user-initiated
-   download path uses it to clear a tampered cache DURING a download),
-   but no engine ``load()`` path calls it.
-3. No production module may still reference the removed auto-eviction
-   entry points.
-"""
+"""Tests for the REMOVED automatic model-cache eviction."""
 
 from __future__ import annotations
 
@@ -66,10 +51,7 @@ class TestPruneModelCacheRemoved:
 
 
 class TestCleanupHelperStillAvailableForExplicitDownloads:
-    """``cleanup_hf_cache_dir`` survives, but ONLY for the explicit
-    user-initiated download path (clearing a tampered cache during a
-    download the user started), never for automatic load-time deletion.
-    """
+    """``cleanup_hf_cache_dir`` survives, but ONLY for the explicit"""
 
     def test_cleanup_hf_cache_dir_still_exists(self):
         from voice_typer.server.asr_utils import cleanup_hf_cache_dir
@@ -77,9 +59,7 @@ class TestCleanupHelperStillAvailableForExplicitDownloads:
         assert callable(cleanup_hf_cache_dir)
 
     def test_whisper_load_path_never_deletes(self):
-        """transcription.py must not call ``cleanup_hf_cache_dir`` on the
-        load path, a tampered cache raises ``ModelIntegrityError`` and
-        is left in place for the user to delete explicitly."""
+        """is left in place for the user to delete explicitly."""
         src = _read("voice_typer/server/transcription.py")
         # The import re-export and docstring comments are fine; a CALL is not.
         call_sites = [
@@ -98,9 +78,7 @@ class TestCleanupHelperStillAvailableForExplicitDownloads:
         )
 
     def test_cleanup_only_reachable_from_explicit_download(self):
-        """The only production callers of ``cleanup_hf_cache_dir`` must be
-        the user-initiated download path (service/asr_setup) plus the
-        definition/delegation modules, never a load path."""
+        """The only production callers of ``cleanup_hf_cache_dir`` must be"""
         import voice_typer.server as server_pkg
 
         hits: list[str] = []
@@ -116,7 +94,6 @@ class TestCleanupHelperStillAvailableForExplicitDownloads:
             if call_lines:
                 hits.append(str(py))
         # Allowed: asr_utils (definition),
-        # service/* + asr_setup.py (explicit user-initiated download path).
         allowed_markers = ("asr_utils", "service", "asr_setup")
         forbidden = [h for h in hits if not any(m in h for m in allowed_markers)]
         assert not forbidden, (
@@ -126,8 +103,7 @@ class TestCleanupHelperStillAvailableForExplicitDownloads:
 
 
 class TestUncachedModelsRefuseToLoad:
-    """Engines refuse to load an uncached model instead of downloading it —
-    the load path never triggers a network transfer or a cache delete."""
+    """Engines refuse to load an uncached model instead of downloading it —"""
 
     def test_whisper_load_requires_cached_model(self):
         from voice_typer.server.asr_errors import ModelNotDownloadedError

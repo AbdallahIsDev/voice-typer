@@ -1,21 +1,4 @@
-"""Tests for ``voice_typer.server.crash_handler`` (CR-78).
-
-The crash_handler module installs a Windows Vectored Exception Handler
-(VEH) to capture silent process crashes (heap corruption, access
-violation, stack overrun). On POSIX it's a no-op: ``install_crash_handler``
-returns False and ``_vectored_handler`` is None.
-
-These tests cover the Linux-runnable surface:
-  - ``set_crash_handler_config_dir`` builds the crash file path
-  - ``report_pending_crash`` scans for leftover diagnostics files
-  - ``install_crash_handler`` is a no-op on POSIX
-  - ``install_python_excepthook`` swaps ``sys.excepthook``
-
-The Windows-only paths (VEH registration, ``MiniDumpWriteDump``-style
-diagnostic writes, the kernel32 WriteFile callback) are guarded by
-``sys.platform == "win32"`` and are validated separately on a Windows
-host: see the VALIDATE-ON-WINDOWS section at the bottom of this file.
-"""
+"""Tests for ``voice_typer.server.crash_handler`` (CR-78)."""
 
 from __future__ import annotations
 
@@ -28,27 +11,10 @@ from pathlib import Path
 import pytest
 from voice_typer.server import crash_handler
 
-# ─── Fixtures ───────────────────────────────────────────────────────────
-
 
 @pytest.fixture(autouse=True)
 def _reset_crash_handler_module_state():
-    """Reset module-level globals between tests.
-
-    ``crash_handler`` caches the config-dir, the resolved crash-file
-    path, the kernel32 function pointers, and the VEH handle on module
-    globals. Without resetting them, a test that calls
-    ``set_crash_handler_config_dir`` leaks the cached path into the next
-    test, which may assert a different path.
-
-    G4-L-13: the production source no longer carries the dead
-    ``_CONFIG_DIR_BYTES`` / ``_config_dir_bytes`` dual binding, both
-    were removed when ``set_crash_handler_config_dir`` was simplified.
-    G4-L-14: ``_crash_written`` is reset so the VEH rate-limit flag
-    doesn't leak between tests.
-    G4-M-34: ``_python_crash_dir`` is reset so the excepthook marker
-    path doesn't leak between tests.
-    """
+    """Reset module-level globals between tests."""
     keys = (
         "_crash_file_path",
         "_PID",
@@ -77,42 +43,15 @@ def _reset_crash_handler_module_state():
 
 
 # Sentinel used by the autouse fixture to distinguish "attribute was
-# absent before the test" from "attribute was set to None".
 _UNSET = object()
 
 
 @pytest.fixture
 def restore_excepthook():
-    """Snapshot ``sys.excepthook`` so a test can restore it.
-
-    ``install_python_excepthook`` swaps the global ``sys.excepthook``;
-    without restoring it, the mock hook leaks into subsequent tests in
-    the same process.
-
-    Test-isolation hardening: the fixture ALSO resets ``sys.excepthook``
-    and ``crash_handler._original_excepthook`` to a clean state BEFORE
-    each test (and restores the prior state at teardown). Without the
-    setup-time reset, a prior test in another module that constructs
-    ``VoiceTyperApp()`` (which calls ``install_python_excepthook`` as
-    part of init) leaves ``sys.excepthook = _crash_excepthook`` and
-    ``_original_excepthook = <prior hook>``, the next test's
-    ``original = sys.excepthook`` then captures the crash hook itself,
-    and ``install_python_excepthook`` short-circuits via its
-    ``if sys.excepthook is _crash_excepthook: return`` idempotency
-    guard, breaking the ``assert sys.excepthook is not original``
-    contract that ``test_install_sets_custom_excepthook`` (and the
-    remove / roundtrip variants) rely on. Resetting at setup ensures
-    each test starts from a known clean state regardless of what
-    earlier tests left behind.
-    """
+    """Snapshot ``sys.excepthook`` so a test can restore it."""
     saved = sys.excepthook
     saved_orig_attr = crash_handler._original_excepthook
     # Setup: reset to a clean state so install_python_excepthook has
-    # work to do (the tests assert that install actually swaps the
-    # hook). ``sys.__excepthook__`` is Python's documented bootstrap
-    # default; using it (rather than the ddtrace telemetry hook or
-    # whatever the prior test left) gives a deterministic starting
-    # point that is provably distinct from ``_crash_excepthook``.
     sys.excepthook = sys.__excepthook__
     crash_handler._original_excepthook = None
     yield
@@ -120,36 +59,25 @@ def restore_excepthook():
     crash_handler._original_excepthook = saved_orig_attr
 
 
-# ─── set_crash_handler_config_dir ───────────────────────────────────────
-
-
 class TestCrashHandlerConfigDir:
     """``set_crash_handler_config_dir`` caches the config-dir path."""
 
     def test_set_config_dir_stores_path(self, tmp_path):
-        """After ``set_crash_handler_config_dir``, the cached crash-file
-        path points at ``<config_dir>/crash_diagnostics.<PID>.txt``.
-        """
+        """After ``set_crash_handler_config_dir``, the cached crash-file"""
         crash_handler.set_crash_handler_config_dir(tmp_path)
         # The cached path is a Python str ending with a NUL terminator
-        # (for CreateFileW on Windows). On POSIX we still set it.
         assert crash_handler._crash_file_path
         assert "crash_diagnostics" in crash_handler._crash_file_path
         assert str(os.getpid()) in crash_handler._crash_file_path
         assert os.getpid() == crash_handler._PID
 
     def test_set_config_dir_path_uses_os_path_join(self, tmp_path):
-        """G4-L-12: the cached crash-file path uses ``os.path.join`` so
-        the path is correct on both Windows and POSIX.  The previous
-        implementation hardcoded a ``\\`` backslash, which produced an
-        invalid path on POSIX (where the VEH callback is never invoked
-        but tests still inspect the cached path)."""
+        """G4-L-12: the cached crash-file path uses ``os.path.join`` so"""
         import os.path as _osp
 
         crash_handler.set_crash_handler_config_dir(tmp_path)
         expected_dir = str(tmp_path.resolve())
         # The cached path is ``<config_dir>/crash_diagnostics.<PID>.txt\0``
-        # , assert it starts with the config dir + the platform separator.
         assert crash_handler._crash_file_path.startswith(expected_dir + _osp.sep), (
             f"G4-L-12: cached path should start with config_dir + os.sep, got: {crash_handler._crash_file_path!r}"
         )
@@ -157,17 +85,13 @@ class TestCrashHandlerConfigDir:
         assert crash_handler._crash_file_path.endswith("\0")
 
     def test_set_config_dir_caches_python_crash_dir(self, tmp_path):
-        """G4-M-34: ``set_crash_handler_config_dir`` also caches the
-        config dir as ``_python_crash_dir`` so the Python excepthook
-        can write a ``python_crash.<PID>.txt`` marker."""
+        """config dir as ``_python_crash_dir`` so the Python excepthook"""
         crash_handler.set_crash_handler_config_dir(tmp_path)
         assert crash_handler._python_crash_dir is not None
         assert crash_handler._python_crash_dir == tmp_path.resolve()
 
     def test_set_config_dir_resets_crash_written_flag(self, tmp_path):
-        """G4-L-14: ``set_crash_handler_config_dir`` resets the VEH
-        rate-limit flag so a fresh process (or a re-init in tests) can
-        write a new crash record."""
+        """G4-L-14: ``set_crash_handler_config_dir`` resets the VEH"""
         crash_handler._crash_written = True
         crash_handler.set_crash_handler_config_dir(tmp_path)
         assert crash_handler._crash_written is False
@@ -193,12 +117,7 @@ class TestCrashHandlerConfigDir:
         assert crash_handler._crash_file_path == ""
 
     def test_yj47_crash_file_path_in_archive_subdir(self, tmp_path):
-        """YJ-47: the VEH crash file path is INSIDE
-        ``<config_dir>/crash_diagnostics/`` (no longer in the
-        config_dir root). Pre-fix, the file sat in the root between the
-        crash (T0) and the next startup (T1), exposing the 500-module
-        fingerprint at the same path the user opens for ``config.toml``.
-        """
+        """YJ-47: the VEH crash file path is INSIDE"""
         crash_handler.set_crash_handler_config_dir(tmp_path)
         path = crash_handler._crash_file_path
         assert path, "YJ-47: _crash_file_path must be non-empty after set_crash_handler_config_dir"
@@ -208,32 +127,17 @@ class TestCrashHandlerConfigDir:
             f"YJ-47: VEH crash file path must be inside crash_diagnostics/ (was: {path_no_nul!r})"
         )
         # The archive subdir must have been pre-created so the VEH
-        # callback (which can't safely mkdir during heap corruption)
-        # can write directly to its target.
         archive_dir = tmp_path / "crash_diagnostics"
         assert archive_dir.is_dir(), "YJ-47: set_crash_handler_config_dir must pre-create the archive dir"
 
     def test_yj47_header_max_modules_is_100(self):
-        """YJ-47: ``_HEADER_MAX_MODULES`` is capped at 100 (was 500).
-
-        Pre-fix, the crash_diagnostics header dumped up to 500
-        top-level ``sys.modules`` package names, an install-fingerprint
-        exposure in the config_dir root. Capping at 100 bounds the
-        fingerprint while still capturing the long-tail C extensions
-        (whisper, torch, numpy, etc.) that appear in the first 50
-        sorted top-level names.
-        """
+        """YJ-47: ``_HEADER_MAX_MODULES`` is capped at 100 (was 500)."""
         assert crash_handler._HEADER_MAX_MODULES == 100, (
             f"YJ-47: _HEADER_MAX_MODULES must be 100 (was 500); got {crash_handler._HEADER_MAX_MODULES}"
         )
 
     def test_yj47_report_pending_crash_surfaces_archive_subdir_file(self, tmp_path):
-        """YJ-47: ``report_pending_crash`` scans the archive subdir and
-        surfaces a VEH-written crash file (no longer in the root).
-        Pre-fix, scanning only the root would have missed VEH files
-        written directly to the archive, users would never see the
-        "previous session crashed" notification.
-        """
+        """surfaces a VEH-written crash file (no longer in the root)."""
         archive_dir = tmp_path / "crash_diagnostics"
         archive_dir.mkdir(parents=True)
         crash_file = archive_dir / "crash_diagnostics.1234.txt"
@@ -249,16 +153,11 @@ class TestCrashHandlerConfigDir:
         # The crash file must still be in the archive (NOT moved out).
         assert crash_file.exists(), "YJ-47: archive-subdir crash file must remain in place after surfacing"
         # A sidecar ``.reported`` marker must be created so the next
-        # startup scan skips this file (no re-notification).
         sidecar = archive_dir / "crash_diagnostics.1234.txt.reported"
         assert sidecar.exists(), "YJ-47: report_pending_crash must create a .reported sidecar marker"
 
     def test_yj47_report_pending_crash_skips_files_with_sidecar(self, tmp_path):
-        """YJ-47: ``report_pending_crash`` does NOT re-surface crash
-        files that already have a ``.reported`` sidecar marker. Without
-        this skip, every startup would re-surface the same crash record
-        forever (since VEH-written files stay in the archive).
-        """
+        """YJ-47: ``report_pending_crash`` does NOT re-surface crash"""
         archive_dir = tmp_path / "crash_diagnostics"
         archive_dir.mkdir(parents=True)
         crash_file = archive_dir / "crash_diagnostics.1234.txt"
@@ -272,9 +171,6 @@ class TestCrashHandlerConfigDir:
 
         result = crash_handler.report_pending_crash(tmp_path)
         assert result is None, "YJ-47: report_pending_crash must NOT re-surface files with a .reported sidecar marker"
-
-
-# ─── report_pending_crash ───────────────────────────────────────────────
 
 
 class TestCrashHandlerReportPending:
@@ -341,9 +237,7 @@ class TestCrashHandlerReportPending:
         assert "Fatal exit" in result
 
     def test_yj42_reads_file_with_illegal_instruction(self, tmp_path):
-        """YJ-42: ``report_pending_crash`` recognises STATUS_ILLEGAL_INSTRUCTION
-        and produces a specific summary (not the generic fallback).
-        """
+        """YJ-42: ``report_pending_crash`` recognises STATUS_ILLEGAL_INSTRUCTION"""
         crash_file = tmp_path / "crash_diagnostics.1234.txt"
         crash_file.write_text(
             "STATUS_ILLEGAL_INSTRUCTION: the CPU tried to execute an invalid opcode.\r\n",
@@ -387,9 +281,6 @@ class TestCrashHandlerReportPending:
         )
         result = crash_handler.report_pending_crash(tmp_path)
         assert result is not None
-        # The fallback summary either extracts the code line OR uses the
-        # generic message. Both are acceptable; just verify we got a
-        # non-None summary that mentions the crash.
         assert "crash" in result.lower() or "0x" in result.lower()
 
     def test_empty_crash_file_skipped(self, tmp_path):
@@ -403,15 +294,7 @@ class TestCrashHandlerReportPending:
         assert not crash_file.exists()
 
     def test_deletes_crash_file_after_reading(self, tmp_path):
-        """Once a crash file is processed, it must be moved out of the
-        config_dir root (no duplicates on next scan).
-
-        G4-M-33: the file is now *archived* (moved to
-        ``crash_diagnostics/``) rather than unlinked, but the
-        observable behaviour from the caller's perspective is the same:
-        the file is no longer at its original location, so a second
-        ``report_pending_crash`` call returns None.
-        """
+        """config_dir root (no duplicates on next scan)."""
         crash_file = tmp_path / "crash_diagnostics.1234.txt"
         crash_file.write_text(
             "STATUS_ACCESS_VIOLATION: the process tried to access invalid memory.\r\n",
@@ -421,20 +304,10 @@ class TestCrashHandlerReportPending:
         crash_handler.report_pending_crash(tmp_path)
         assert not crash_file.exists(), "crash file must be moved out of config_dir root after reporting"
 
-        # Second call must return None, no leftover crash file at the
-        # original location.  (Archived files are not re-scanned.)
         assert crash_handler.report_pending_crash(tmp_path) is None
 
     def test_crash_diagnosticsd_not_deleted(self, tmp_path):
-        """G4-M-33: a processed crash_diagnostics file is moved to the
-        ``crash_diagnostics/`` subdirectory rather than unlinked,
-        so the diagnostic bundle can include it later for bug reports.
-
-        Regression guard: pre-fix, ``report_pending_crash`` called
-        ``crash_file.unlink()`` in the finally block, destroying the
-        only copy of the crash record.  Post-fix, the file is moved
-        (atomically via ``rename``) into the archive directory.
-        """
+        """``crash_diagnostics/`` subdirectory rather than unlinked,"""
         crash_file = tmp_path / "crash_diagnostics.1234.txt"
         crash_file.write_text(
             "STATUS_ACCESS_VIOLATION: the process tried to access invalid memory.\r\n",
@@ -462,18 +335,7 @@ class TestCrashHandlerReportPending:
         )
 
     def test_python_crash_marker_archived_and_surfaced(self, tmp_path):
-        """G4-M-34: a ``python_crash.<PID>.txt`` marker file written by
-        the Python excepthook is surfaced in the startup notification
-        summary and archived alongside VEH crash diagnostics.
-
-        XE-7-2: the user-facing summary now carries ONLY ``exc_type``,
-        ``thread``, ``timestamp``, and the "Likely cause" hint, the
-        (redacted) ``exc_value`` is dropped from the summary entirely
-        and remains only in the on-disk marker file. Asserting
-        ``"test python crash" in result`` would now fail by design;
-        we assert the marker's archived content still carries the
-        full value (so support engineers with disk access retain it).
-        """
+        """the Python excepthook is surfaced in the startup notification"""
         marker = tmp_path / "python_crash.4321.txt"
         marker.write_text(
             "exc_type=ValueError\nexc_value=test python crash\nthread=MainThread\ntimestamp=2026-07-22T12:34:56.789\n",
@@ -485,7 +347,6 @@ class TestCrashHandlerReportPending:
         assert "Python crash" in result
         assert "ValueError" in result
         # ``exc_value`` is dropped from the user-facing summary
-        # (the redacted value remains in the on-disk marker file only).
         assert "test python crash" not in result, (
             "XE-7-2: exc_value must NOT be surfaced in the user-facing "
             "crash summary (the value can embed dictated speech / PII). "
@@ -498,9 +359,6 @@ class TestCrashHandlerReportPending:
         archive_dir = tmp_path / "crash_diagnostics"
         archived = list(archive_dir.glob("python_crash.*.txt"))
         assert len(archived) == 1
-        # the on-disk marker file RETAINS the full (redacted)
-        # exc_value so support engineers with disk access can still
-        # diagnose the crash.
         archived_content = archived[0].read_text(encoding="utf-8")
         assert "ValueError" in archived_content
         assert "test python crash" in archived_content, (
@@ -509,8 +367,7 @@ class TestCrashHandlerReportPending:
         )
 
     def test_archive_retention_keeps_last_five(self, tmp_path):
-        """G4-M-33: the archive enforces a keep-last-5 retention policy
-        so it doesn't grow unbounded across many crashes."""
+        """G4-M-33: the archive enforces a keep-last-5 retention policy"""
         archive_dir = tmp_path / "crash_diagnostics"
         archive_dir.mkdir(parents=True)
         # Pre-populate the archive with 8 files (all older than "now").
@@ -524,7 +381,6 @@ class TestCrashHandlerReportPending:
             os.utime(f, (ts, ts))
 
         # Now process one more crash file, should trigger retention,
-        # leaving at most 5 files in the archive.
         new_crash = tmp_path / "crash_diagnostics.9999.txt"
         new_crash.write_text("STATUS_ACCESS_VIOLATION: fresh crash\r\n", encoding="utf-8")
         crash_handler.report_pending_crash(tmp_path)
@@ -536,8 +392,7 @@ class TestCrashHandlerReportPending:
         assert "crash_diagnostics.9999.txt" in names
 
     def test_sweep_deletes_old_diagnostics_files(self, tmp_path):
-        """G4-M-32: crash_diagnostics files older than 30 days are
-        swept from the config_dir root as a safety net."""
+        """G4-M-32: crash_diagnostics files older than 30 days are"""
         import time as _time
 
         # Create an old file (40 days ago).
@@ -549,7 +404,6 @@ class TestCrashHandlerReportPending:
         # The sweep helper directly deletes files older than 30 days.
         crash_handler._sweep_stale_diagnostics(tmp_path)
 
-        # The old file is gone (swept).
         assert not old_file.exists()
 
     def test_multiple_crash_files_all_reported(self, tmp_path):
@@ -597,29 +451,16 @@ class TestCrashHandlerReportPending:
             mp.setattr(Path, "read_text", boom)
             # Must not raise.
             result = crash_handler.report_pending_crash(tmp_path)
-        # Either None (read failed before any summary was added) or a
-        # partial summary, both are acceptable. The important thing is
-        # no exception propagated.
         assert result is None or isinstance(result, str)
         # File must still be deleted (cleanup runs in finally).
         assert not crash_file.exists()
 
 
-# report_pending_crash summary "Next steps" hint ──────────
-
-
 class TestReportPendingCrashNextStepsHint:
-    """``report_pending_crash`` appends a ``Next steps: run
-    ``python scripts/diagnostics.py export``` hint to the returned
-    summary so the tray notification (which embeds the summary verbatim
-    via ``app.tray.notify_safety(title, f"...{crash_summary}...")`` in
-    ``startup_sequence.py``) tells the user how to capture a full
-    diagnostic bundle for a bug report.
-    """
+    """``report_pending_crash`` appends a ``Next steps: run"""
 
     def test_summary_includes_next_steps_hint(self, tmp_path):
-        """The returned summary contains the ``Next steps:`` line
-        pointing at the diagnostics-export CLI."""
+        """The returned summary contains the ``Next steps:`` line"""
         crash_file = tmp_path / "crash_diagnostics.1234.txt"
         crash_file.write_text(
             "STATUS_ACCESS_VIOLATION: the process tried to access invalid memory.\r\n",
@@ -633,12 +474,7 @@ class TestReportPendingCrashNextStepsHint:
         )
 
     def test_summary_next_steps_appears_exactly_once_for_single_crash(self, tmp_path):
-        """The ``Next steps`` hint appears EXACTLY ONCE in the summary,
-        even when only one crash file is processed.  Guards against
-        accidental double-append (e.g. if a future change adds the hint
-        to the per-file ``summary_parts`` list rather than the final
-        joined ``summary``).
-        """
+        """The ``Next steps`` hint appears EXACTLY ONCE in the summary,"""
         crash_file = tmp_path / "crash_diagnostics.1234.txt"
         crash_file.write_text(
             "STATUS_ACCESS_VIOLATION: the process tried to access invalid memory.\r\n",
@@ -650,10 +486,7 @@ class TestReportPendingCrashNextStepsHint:
         assert occurrences == 1, f"'Next steps:' must appear exactly once in the summary; got {occurrences}:\n{result}"
 
     def test_summary_next_steps_appears_exactly_once_for_multiple_crashes(self, tmp_path):
-        """When multiple crash files are surfaced in the same scan, the
-        ``Next steps`` hint still appears EXACTLY ONCE (it's appended to
-        the final joined ``summary``, NOT per-file in ``summary_parts``).
-        """
+        """the final joined ``summary``, NOT per-file in ``summary_parts``)."""
         (tmp_path / "crash_diagnostics.1111.txt").write_text(
             "STATUS_ACCESS_VIOLATION: the process tried to access invalid memory.\r\n",
             encoding="utf-8",
@@ -674,11 +507,7 @@ class TestReportPendingCrashNextStepsHint:
         )
 
     def test_summary_next_steps_hint_includes_python_command(self, tmp_path):
-        """The hint specifically references the ``python`` interpreter
-        invocation (NOT just ``diagnostics.py export``) so the user can
-        copy-paste the command verbatim.  Regression guard against
-        accidental command-name drift.
-        """
+        """The hint specifically references the ``python`` interpreter"""
         crash_file = tmp_path / "crash_diagnostics.1234.txt"
         crash_file.write_text(
             "STATUS_HEAP_CORRUPTION: the process heap has been corrupted.\r\n",
@@ -691,21 +520,12 @@ class TestReportPendingCrashNextStepsHint:
         )
 
     def test_summary_returns_none_still_omits_hint(self, tmp_path):
-        """When no crash files exist, ``report_pending_crash`` returns
-        ``None`` (the ``Next steps`` hint is NOT appended to a None
-        return, it's only appended when ``summary_parts`` is non-empty).
-        Guards against a regression where the hint is unconditionally
-        appended even when there's no crash to report.
-        """
+        """When no crash files exist, ``report_pending_crash`` returns"""
         result = crash_handler.report_pending_crash(tmp_path)
         assert result is None, f"report_pending_crash must return None when no crash files exist; got: {result!r}"
 
     def test_summary_next_steps_hint_for_python_crash_marker(self, tmp_path):
-        """the ``Next steps`` hint is appended for
-        ``python_crash.<PID>.txt`` marker files too (not just VEH
-        ``crash_diagnostics`` files), so the user is told how to
-        capture a bundle regardless of which crash path fired.
-        """
+        """``python_crash.<PID>.txt`` marker files too (not just VEH"""
         marker = tmp_path / "python_crash.4321.txt"
         marker.write_text(
             "exc_type=ValueError\nexc_value=test python crash\nthread=MainThread\ntimestamp=2026-07-22T12:34:56.789\n",
@@ -716,9 +536,6 @@ class TestReportPendingCrashNextStepsHint:
         assert "Python crash" in result
         assert "Next steps:" in result
         assert "python scripts/diagnostics.py export" in result
-
-
-# ─── install_crash_handler (POSIX no-op) ────────────────────────────────
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX-only test")
@@ -738,8 +555,7 @@ class TestCrashHandlerPosix:
         assert crash_handler.install_crash_handler() is False
 
     def test_remove_crash_handler_is_noop_on_posix(self):
-        """``remove_crash_handler`` must not raise on POSIX (even when nothing
-        was installed)."""
+        """``remove_crash_handler`` must not raise on POSIX (even when nothing"""
         # Should not raise.
         crash_handler.remove_crash_handler()
         assert crash_handler._handler_handle is None
@@ -751,16 +567,8 @@ class TestCrashHandlerPosix:
         assert crash_handler._handler_handle is None
 
 
-# ─── Constants ──────────────────────────────────────────────────────────
-
-
 class TestCrashHandlerConstants:
-    """Verify the Windows exception code constants are stable.
-
-    These constants are part of the crash-file format, third-party log
-    readers (and the ``report_pending_crash`` parser itself) depend on
-    the numeric values NEVER changing.
-    """
+    """Verify the Windows exception code constants are stable."""
 
     def test_status_heap_corruption_value(self):
         assert crash_handler.STATUS_HEAP_CORRUPTION == 0xC0000374
@@ -775,13 +583,7 @@ class TestCrashHandlerConstants:
         assert crash_handler.STATUS_FATAL_APP_EXIT == 0x40000015
 
     def test_crash_codes_set_contains_all_four(self):
-        """The original four fatal SEH codes are present in ``_CRASH_CODES``.
-
-        YJ-42 extended ``_CRASH_CODES`` from 4 codes to 13 codes (added
-        ``STATUS_ILLEGAL_INSTRUCTION`` + 8 other fatal exception codes).
-        This test asserts the original 4 are still present (superset check)
-        rather than equality, so the addition doesn't break the regression.
-        """
+        """The original four fatal SEH codes are present in ``_CRASH_CODES``."""
         original_four = frozenset(
             {
                 crash_handler.STATUS_HEAP_CORRUPTION,
@@ -795,17 +597,7 @@ class TestCrashHandlerConstants:
         )
 
     def test_crash_codes_set_contains_extended_codes(self):
-        """YJ-42: ``_CRASH_CODES`` covers 8 additional fatal Windows
-        exception codes that were silently bypassed by the VEH handler
-        pre-fix. STATUS_BREAKPOINT and STATUS_SINGLE_STEP are deliberately
-        omitted so an attached debugger doesn't trigger crash records.
-
-        FR-13: STATUS_GUARD_PAGE_VIOLATION (0x80000001) was REMOVED from
-        ``_CRASH_CODES`` because it is a warning-level code (stack growth /
-        probe), not a fatal crash. Including it caused the VEH rate-limit
-        flag to permanently silence the VEH after a single non-fatal event.
-        The 8 codes below remain in ``_CRASH_CODES``.
-        """
+        """YJ-42: ``_CRASH_CODES`` covers 8 additional fatal Windows"""
         extended_codes = frozenset(
             {
                 crash_handler.STATUS_ILLEGAL_INSTRUCTION,
@@ -823,55 +615,24 @@ class TestCrashHandlerConstants:
         )
 
     def test_fr13_guard_page_violation_excluded_from_crash_codes(self):
-        """FR-13: STATUS_GUARD_PAGE_VIOLATION (0x80000001) is deliberately
-        excluded from ``_CRASH_CODES``. It is a warning-level code (high
-        bit set in the NTSTATUS layout = severity=warning) used by the OS
-        for stack-growth probe pages and C-extension guard-page probes —
-        it does NOT terminate the process. Pre-FR-13, the VEH callback
-        treated it as a crash, set ``_crash_written = True`` (which is
-        never reset within the process lifetime), and permanently
-        silenced the VEH for the rest of the session, real crashes
-        during the same session left no diagnostic record.
-        """
+        """FR-13: STATUS_GUARD_PAGE_VIOLATION (0x80000001) is deliberately"""
         assert crash_handler.STATUS_GUARD_PAGE_VIOLATION not in crash_handler._CRASH_CODES, (
             "FR-13: STATUS_GUARD_PAGE_VIOLATION must NOT be in _CRASH_CODES, "
             "it is a warning-level code, not a fatal crash."
         )
 
     def test_crash_codes_excludes_breakpoint_and_single_step(self):
-        """YJ-42: STATUS_BREAKPOINT (0x80000003) and STATUS_SINGLE_STEP
-        (0x80000004) are deliberately excluded from ``_CRASH_CODES`` so
-        an attached debugger doesn't trigger a crash record on every
-        breakpoint / single-step trap.
-        """
+        """YJ-42: STATUS_BREAKPOINT (0x80000003) and STATUS_SINGLE_STEP"""
         assert 0x80000003 not in crash_handler._CRASH_CODES
         assert 0x80000004 not in crash_handler._CRASH_CODES
 
     def test_exception_continue_search_is_zero(self):
-        """VEH callbacks return ``EXCEPTION_CONTINUE_SEARCH`` (=0) to let
-        the OS proceed with normal termination. This is a Windows ABI
-        constant, it must never change.
-        """
+        """VEH callbacks return ``EXCEPTION_CONTINUE_SEARCH`` (=0) to let"""
         assert crash_handler.EXCEPTION_CONTINUE_SEARCH == 0x0
 
     def test_yj42_extended_codes_have_friendly_names(self):
-        """YJ-42: every extended STATUS_* code in ``_CRASH_CODES`` has a
-        corresponding pre-encoded ``_NAME_*`` byte string for the VEH
-        callback's friendly-name slot. The mapping is consulted in
-        ``_vectored_handler_impl``, a missing ``_NAME_*`` constant
-        would cause the callback to fall through to ``_NAME_UNKNOWN``,
-        defeating the purpose of extending the code set.
-
-        FR-13: STATUS_GUARD_PAGE_VIOLATION is no longer in
-        ``_CRASH_CODES`` so it is omitted from this mapping (the
-        ``_NAME_GUARD_PAGE`` constant is retained for back-compat so
-        the VEH callback's elif branch remains a defensive no-op).
-        """
+        """corresponding pre-encoded ``_NAME_*`` byte string for the VEH"""
         # Map each extended STATUS_* code to its expected _NAME_* bytes.
-        # The original 4 codes (HEAP / ACCESS / STACK / FATAL) are
-        # already covered by existing tests, so we focus on the 8
-        # new codes added by  that remain in ``_CRASH_CODES``
-        # ( removed STATUS_GUARD_PAGE_VIOLATION from the set).
         yj42_mapping = {
             crash_handler.STATUS_ILLEGAL_INSTRUCTION: crash_handler._NAME_ILLEGAL_INSTRUCTION,
             crash_handler.STATUS_INT_DIVIDE_BY_ZERO: crash_handler._NAME_INT_DIVIDE_BY_ZERO,
@@ -888,15 +649,10 @@ class TestCrashHandlerConstants:
                 f"(VEH callback cannot allocate during heap corruption)"
             )
             assert code in crash_handler._CRASH_CODES, f"YJ-42: STATUS_* code {code:#x} must be in _CRASH_CODES"
-            # Each name MUST be ≤ 80 bytes, the ``name`` slot in
-            # ``_CRASH_MSG_LAYOUT`` is 80 bytes wide.
             assert len(name) <= 80, (
                 f"YJ-42: _NAME_* for code {code:#x} is {len(name)} bytes "
                 f"(exceeds 80-byte name slot in _CRASH_MSG_LAYOUT)"
             )
-
-
-# ─── Hex encoding helpers ───────────────────────────────────────────────
 
 
 class TestHexEncoders:
@@ -943,9 +699,6 @@ class TestHexEncoders:
         assert bytes(buf[4:12]) == b"ABCD1234"
 
 
-# ─── Python excepthook ──────────────────────────────────────────────────
-
-
 class TestPythonExcepthook:
     """``install_python_excepthook`` swaps ``sys.excepthook``."""
 
@@ -957,8 +710,7 @@ class TestPythonExcepthook:
         assert sys.excepthook is not original
 
     def test_install_is_idempotent(self, restore_excepthook):
-        """Calling install twice does NOT re-save the original (the second
-        call would otherwise save the crash hook as the "original")."""
+        """Calling install twice does NOT re-save the original (the second"""
         crash_handler.install_python_excepthook()
         saved_once = crash_handler._original_excepthook
         crash_handler.install_python_excepthook()
@@ -972,10 +724,6 @@ class TestPythonExcepthook:
         def fake_original(*args, **kwargs):
             original_called.append(True)
 
-        # install_python_excepthook saves the CURRENT sys.excepthook as
-        # ``_original_excepthook`` and then swaps in the crash hook. So
-        # we set our fake as ``sys.excepthook`` BEFORE install, that
-        # way the crash hook will chain to it.
         sys.excepthook = fake_original  # type: ignore[assignment]
         crash_handler.install_python_excepthook()
         # Sanity: the crash hook was installed.
@@ -999,8 +747,6 @@ class TestPythonExcepthook:
             raise RuntimeError("original hook broken")
 
         # See test_crash_excepthook_logs_and_chains: we must set
-        # ``sys.excepthook = boom`` BEFORE install so install saves boom
-        # as the original.
         sys.excepthook = boom  # type: ignore[assignment]
         crash_handler.install_python_excepthook()
 
@@ -1011,14 +757,7 @@ class TestPythonExcepthook:
             sys.excepthook(type(exc), exc, exc.__traceback__)
 
     def test_remove_restores_original(self, restore_excepthook):
-        """``remove_python_excepthook`` restores ``sys.excepthook``
-        to the value it had before ``install_python_excepthook`` ran.
-
-        Symmetric with ``install``, the remove counterpart closes the
-        install/remove pair (the previous one-way ratchet left the
-        hook installed for the lifetime of the process, which made
-        test cleanup impossible).
-        """
+        """``remove_python_excepthook`` restores ``sys.excepthook``"""
         original = sys.excepthook
         crash_handler.install_python_excepthook()
         assert sys.excepthook is crash_handler._crash_excepthook
@@ -1026,32 +765,15 @@ class TestPythonExcepthook:
         assert sys.excepthook is original
 
     def test_remove_is_idempotent(self, restore_excepthook):
-        """calling ``remove`` without a prior ``install`` is a
-        no-op (falls through to ``sys.__excepthook__`` if the
-        ``_original_excepthook`` slot was never set).
-
-        This is the test contract that proves the new function does
-        not crash on a fresh interpreter that never called install.
         """
-        # No prior install. sys.excepthook is whatever the
-        # ``restore_excepthook`` fixture left it as.
+        ``_original_excepthook`` slot was never set).
+        This is the test contract that proves the new function does
+        """
         crash_handler.remove_python_excepthook()
-        # If we never installed, restore falls through to
-        # ``sys.__excepthook__`` (Python's documented bootstrap
-        # default). If a prior test in the same session installed,
-        # the install already saved the original, so restore returns
-        # us to that original. Either way: no exception raised.
         assert sys.excepthook is not None
 
     def test_remove_then_reinstall_roundtrip(self, restore_excepthook):
-        """the full install→remove→install roundtrip works.
-
-        This catches the failure mode where ``_original_excepthook``
-        is cleared on remove and a second install incorrectly
-        snapshots the crash hook as the new "original" (the same
-        idempotency bug that ``test_install_is_idempotent``
-        guards against).
-        """
+        """the full install→remove→install roundtrip works."""
         original = sys.excepthook
         crash_handler.install_python_excepthook()
         crash_handler.remove_python_excepthook()
@@ -1059,12 +781,7 @@ class TestPythonExcepthook:
         crash_handler.install_python_excepthook()
         assert sys.excepthook is crash_handler._crash_excepthook
         # The second install must NOT save the crash hook as the
-        # original, it should still be the same ``original`` from
-        # the first install.
         assert crash_handler._original_excepthook is original
-
-
-# ─── _vectored_handler_impl (no-op on POSIX) ────────────────────────────
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX-only, handler is None")
@@ -1072,71 +789,21 @@ class TestVectoredHandlerPosix:
     """On POSIX the VEH callback wrapper is None (no SEH exceptions)."""
 
     def test_vectored_handler_is_none_on_posix(self):
-        """``_vectored_handler`` is None on POSIX: see WP-1 comment in
-        crash_handler.py:435-447."""
+        """``_vectored_handler`` is None on POSIX: see WP-1 comment in"""
         assert crash_handler._vectored_handler is None
 
     def test_vectored_handler_impl_continues_search_on_posix(self):
-        """Calling the impl directly returns EXCEPTION_CONTINUE_SEARCH.
-
-        On POSIX the impl is never wired to a real VEH (it's just a
-        function), but we can still call it with a mock pointer to
-        verify the "exception code not in _CRASH_CODES" early return.
-        """
+        """Calling the impl directly returns EXCEPTION_CONTINUE_SEARCH."""
         # Build a fake EXCEPTION_POINTERS that yields a benign code.
-        # On POSIX, ctypes has no real EXCEPTION_RECORD but the impl
-        # catches all exceptions and returns CONTINUE_SEARCH.
         result = crash_handler._vectored_handler_impl(None)
         assert result == crash_handler.EXCEPTION_CONTINUE_SEARCH
 
 
-# ============================================================================
-# VALIDATE ON WINDOWS HOST
-# ============================================================================
-# The following paths are NOT exercisable on the Linux sandbox because they
-# require real Windows kernel32 entry points. Run these on a Windows host:
-#
-# 1. **VEH registration**: mock ``ctypes.windll.kernel32`` so
-#    ``AddVectoredExceptionHandler`` returns a non-NULL handle. Call
-#    ``install_crash_handler()`` and assert ``_handler_handle`` is set,
-#    return value is True, and a second call is idempotent.
-#
-# 2. **VEH callback writes diagnostic file**: build a fake
-#    ``EXCEPTION_POINTERS`` ctypes structure with ``ExceptionCode =
-#    STATUS_ACCESS_VIOLATION``. Patch ``_crash_file_path`` to a tmp_path
-#    file. Invoke ``_vectored_handler_impl`` directly. Assert the file is
-#    created with the expected CRASH line + friendly name.
-#
-# 3. **MiniDumpWriteDump / kernel32 WriteFile path**: patch
-#    ``_func_create_file_w`` + ``_func_write_file`` to record calls.
-#    Invoke ``_write_to_file`` with sample data and assert both kernel32
-#    functions were invoked with the expected arguments (LPCWSTR path,
-#    GENERIC_WRITE, etc.).
-#
-# 4. **remove_crash_handler on Windows**: after registering the VEH,
-#    call ``remove_crash_handler()`` and assert
-#    ``RemoveVectoredExceptionHandler`` was called with the saved handle.
-#
-# 5. **Heap-corruption-safe buffer write**: under simulated heap
-#    corruption (patch ``_func_create_file_w`` to return -1),
-#    ``_write_to_file`` must NOT raise and the empty file must be
-#    deleted via ``_func_delete_file_w``.
-
-
-# ============================================================================
-# Python crash marker carries a redacted traceback + static triage ctx
-# ============================================================================
-
-
 class TestPythonCrashMarkerTraceback:
-    """GT-4: ``_crash_excepthook`` writes a redacted traceback and static
-    triage context (app/python/OS version + active ASR backend) to the
-    ``python_crash.<PID>.txt`` marker unconditionally.
-    """
+    """``_crash_excepthook`` writes a redacted traceback and static"""
 
     def test_marker_contains_traceback_line(self, restore_excepthook, tmp_path):
-        """The marker file contains a line starting with
-        ``Traceback (most recent call last)``."""
+        """The marker file contains a line starting with"""
         crash_handler.set_crash_handler_config_dir(tmp_path)
         try:
             raise ValueError("boom")
@@ -1150,7 +817,7 @@ class TestPythonCrashMarkerTraceback:
         )
 
     def test_marker_traceback_uses_basename_only(self, restore_excepthook, tmp_path):
-        """GT-4: traceback frames use only the file basename."""
+        """traceback frames use only the file basename."""
         crash_handler.set_crash_handler_config_dir(tmp_path)
         try:
             raise ValueError("boom")
@@ -1173,8 +840,7 @@ class TestPythonCrashMarkerTraceback:
             )
 
     def test_marker_includes_app_python_os_version_and_asr_backend(self, restore_excepthook, tmp_path):
-        """GT-4: the marker carries app_version, python_version,
-        os_version, and asr_backend as key=value lines."""
+        """the marker carries app_version, python_version,"""
         crash_handler.set_crash_handler_config_dir(tmp_path)
         try:
             raise ValueError("boom")
@@ -1189,7 +855,7 @@ class TestPythonCrashMarkerTraceback:
         )
 
     def test_marker_traceback_excludes_source_line(self, restore_excepthook, tmp_path):
-        """GT-4: traceback frames must NOT include the source code line."""
+        """traceback frames must NOT include the source code line."""
         crash_handler.set_crash_handler_config_dir(tmp_path)
         try:
             x = "secret-user-data"  # noqa: F841
@@ -1198,25 +864,18 @@ class TestPythonCrashMarkerTraceback:
             crash_handler._crash_excepthook(type(exc), exc, exc.__traceback__)
         marker = tmp_path / f"python_crash.{os.getpid()}.txt"
         content = marker.read_text(encoding="utf-8")
-        # The literal source-line text (the assignment statement)
         # must NOT appear in the marker.  `x = "secret-user-data"`
-        # would be included by the default traceback formatter as
-        # the source line; the redacted version must omit it.  The
-        # bare value ``secret-user-data`` may legitimately appear in
-        # ``exc_value=`` (it is not PII-shaped so redaction leaves
-        # it alone) - that is fine; we are only asserting the source
-        # LINE is absent.
         assert 'x = "secret-user-data"' not in content, (
             "GT-4: traceback must NOT include the source line (which "
             "carries argument values / user data); got:\n" + content
         )
 
     def test_format_redacted_traceback_returns_empty_for_none(self):
-        """GT-4: ``_format_redacted_traceback(None)`` returns ``""``."""
+        """``_format_redacted_traceback(None)`` returns ``\"\"``."""
         assert crash_handler._format_redacted_traceback(None) == ""
 
     def test_format_redacted_traceback_includes_frame_func(self):
-        """GT-4: a real traceback yields at least one frame line with the function name."""
+        """a real traceback yields at least one frame line with the function name."""
 
         def _outer_frame():
             raise RuntimeError("test")
@@ -1229,15 +888,8 @@ class TestPythonCrashMarkerTraceback:
         assert "_outer_frame" in tb_text
 
 
-# ============================================================================
-# crash_diagnostics file includes app/python/OS version header
-# ============================================================================
-
-
 class TestCrashDiagnosticsHeader:
-    """GT-7: at ``set_crash_handler_config_dir()`` time, a static header
-    block is pre-computed and cached in ``_crash_header_bytes``.
-    """
+    """at ``set_crash_handler_config_dir()`` time, a static header"""
 
     def test_set_config_dir_precomputes_header(self, tmp_path):
         crash_handler.set_crash_handler_config_dir(tmp_path)
@@ -1282,17 +934,8 @@ class TestCrashDiagnosticsHeader:
         assert isinstance(header, bytes), f"GT-7: _compute_crash_header must return bytes; got {type(header).__name__}"
         assert header.decode("utf-8", errors="replace")
 
-    # reproduction hint + Windows version ───────────────
-
     def test_header_includes_reproduction_hint(self, tmp_path):
-        """the static crash-diagnostics header includes a
-        ``Reproduction hint`` line telling the user / support engineer
-        to run ``python scripts/diagnostics.py export`` to capture a
-        full diagnostic bundle for a bug report.  The hint is inline
-        in the header (rather than appended at crash-summary time) so
-        it's present even when an operator reads the file directly off
-        disk without going through ``report_pending_crash``.
-        """
+        """``Reproduction hint`` line telling the user / support engineer"""
         crash_handler.set_crash_handler_config_dir(tmp_path)
         header = crash_handler._crash_header_bytes.decode("utf-8", errors="replace")
         assert "Reproduction hint:" in header, f"header must include a 'Reproduction hint:' line; got:\n{header}"
@@ -1301,11 +944,7 @@ class TestCrashDiagnosticsHeader:
         )
 
     def test_header_reproduction_hint_appears_before_end_marker(self, tmp_path):
-        """the reproduction hint line appears BEFORE the
-        ``=== END HEADER ===`` marker so a reader that scans until the
-        end marker doesn't miss it.  Layout regression guard against
-        accidental reordering.
-        """
+        """end marker doesn't miss it.  Layout regression guard against"""
         crash_handler.set_crash_handler_config_dir(tmp_path)
         header = crash_handler._crash_header_bytes.decode("utf-8", errors="replace")
         hint_idx = header.find("Reproduction hint:")
@@ -1318,17 +957,8 @@ class TestCrashDiagnosticsHeader:
         )
 
     def test_header_includes_windows_version_on_windows(self, monkeypatch, tmp_path):
-        """on Windows, the header includes a ``Windows version:``
-        line sourced from ``sys.getwindowsversion()``.  On POSIX the line
-        is omitted (the API does not exist).  This test simulates the
-        Windows code path by injecting a fake ``sys.getwindowsversion``
-        so the assertion runs on Linux too (host-validation note: the
-        real ``sys.getwindowsversion()`` call is only exercised on a
-        Windows host).
-        """
+        """on Windows, the header includes a ``Windows version:``"""
         # Simulate the Windows-only ``sys.getwindowsversion`` attribute.
-        # The header builder uses ``getattr(sys, "getwindowsversion", None)``
-        # so monkey-patching the attribute is sufficient.
         fake_ver = (10, 0, 22621, 2, "SP0", 0, 0, 256, 1)
 
         def _fake_getwindowsversion():
@@ -1341,26 +971,17 @@ class TestCrashDiagnosticsHeader:
             assert "Windows version:" in header, (
                 f"header must include 'Windows version:' line when sys.getwindowsversion is available; got:\n{header}"
             )
-            # The fake version tuple's build number (22621) must appear in
-            # the formatted line.
             assert "22621" in header, (
                 f"'Windows version:' line must include the build number from sys.getwindowsversion(); got:\n{header}"
             )
         finally:
             # ``monkeypatch`` restores ``sys.getwindowsversion`` automatically
-            # only if the attribute existed before; on Linux it never did,
-            # so manually delete the injected attribute to avoid leaking
-            # it into subsequent tests in the same process.
             if hasattr(sys, "getwindowsversion") and not callable(getattr(sys, "getwindowsversion", None)):
                 # Defensive, should never trigger; left as a safety net.
                 delattr(sys, "getwindowsversion")
 
     def test_header_omits_windows_version_on_posix(self, tmp_path):
-        """on POSIX (where ``sys.getwindowsversion`` does not
-        exist), the header must NOT include a ``Windows version:`` line.
-        The Windows-specific capture is gated on the API's availability
-        so the header stays platform-honest.
-        """
+        """on POSIX (where ``sys.getwindowsversion`` does not"""
         if hasattr(sys, "getwindowsversion"):
             pytest.skip("Windows host, sys.getwindowsversion exists; this test is POSIX-only")
         crash_handler.set_crash_handler_config_dir(tmp_path)
@@ -1370,15 +991,8 @@ class TestCrashDiagnosticsHeader:
         )
 
 
-# ============================================================================
-# VEH buffer layout is data-driven + auto-computed size
-# ============================================================================
-
-
 class TestCrashBufferLayout:
-    """GT-B2-14: the VEH buffer layout is described as a list of
-    ``(label, width)`` tuples and ``_CRASH_MSG_BUF_SIZE`` is auto-computed.
-    """
+    """``(label, width)`` tuples and ``_CRASH_MSG_BUF_SIZE`` is auto-computed."""
 
     def test_layout_is_list_of_label_width_tuples(self):
         layout = crash_handler._CRASH_MSG_LAYOUT
@@ -1410,25 +1024,11 @@ class TestCrashBufferLayout:
 
 
 class TestCrashBufferUsesSecureRotatingFileHandler:
-    """The crash-buffer target ``RotatingFileHandler`` MUST be the
-    secure variant from ``voice_typer.server.log``, never a stock
-    ``logging.handlers.RotatingFileHandler``.
-
-    A stock ``RotatingFileHandler`` lacks the post-rotation ``0o600``
-    ``chmod`` and the inter-process rotation lock, so the crash-buffer
-    file (which contains the same PII-redacted log records as
-    ``voice-typer.log``) would become world-readable after rotation
-    (re-opened with the process umask, typically ``0o022``). The
-    insecure fallback was removed from ``install_memory_buffer``;
-    these tests guard against its reintroduction.
-    """
+    """secure variant from ``voice_typer.server.log``, never a stock"""
 
     @pytest.fixture(autouse=True)
     def _reset_memory_buffer(self):
-        """Remove any MemoryHandler installed by a previous test so
-        each test starts from a clean state (the module-level
-        ``_reset_crash_handler_module_state`` fixture does NOT touch
-        ``_memory_handler`` / ``_crash_buffer_handler``)."""
+        """Remove any MemoryHandler installed by a previous test so"""
         from voice_typer.server.crash_handler._memory_buffer import (
             uninstall_memory_buffer,
         )
@@ -1438,10 +1038,7 @@ class TestCrashBufferUsesSecureRotatingFileHandler:
         uninstall_memory_buffer()
 
     def test_target_handler_is_secure_rotating_file_handler(self, tmp_path: Path):
-        """When the ``log`` package is importable (the normal case),
-        ``install_memory_buffer`` must use
-        ``_SecureTruncatingFileHandler`` as the crash-buffer target, NOT
-        a stock ``RotatingFileHandler``."""
+        """When the ``log`` package is importable (the normal case),"""
         from voice_typer.server.crash_handler._memory_buffer import (
             install_memory_buffer,
         )
@@ -1457,12 +1054,7 @@ class TestCrashBufferUsesSecureRotatingFileHandler:
         )
 
     def test_target_handler_is_not_stock_rotating_file_handler(self, tmp_path: Path):
-        """Defense-in-depth: even though ``_SecureTruncatingFileHandler``
-        subclasses ``RotatingFileHandler``, the installed target's
-        concrete type must NOT be the stock base class. This catches a
-        regression where the fallback is reintroduced (the stock
-        handler is an instance of ``RotatingFileHandler`` but not of
-        ``_SecureTruncatingFileHandler``)."""
+        """Defense-in-depth: even though ``_SecureTruncatingFileHandler``"""
         from voice_typer.server.crash_handler._memory_buffer import (
             install_memory_buffer,
         )
@@ -1472,7 +1064,6 @@ class TestCrashBufferUsesSecureRotatingFileHandler:
 
         assert crash_handler._crash_buffer_handler is not None
         # The concrete type must be the secure subclass (or a subclass
-        # thereof), NOT the stock base class.
         assert type(crash_handler._crash_buffer_handler) is not logging.handlers.RotatingFileHandler, (
             "crash-buffer target must not be a stock RotatingFileHandler; "
             "it must be _SecureTruncatingFileHandler (or a subclass)"
@@ -1480,27 +1071,13 @@ class TestCrashBufferUsesSecureRotatingFileHandler:
         assert isinstance(crash_handler._crash_buffer_handler, _SecureTruncatingFileHandler)
 
     def test_no_insecure_fallback_when_secure_handler_unavailable(self, tmp_path: Path, monkeypatch):
-        """If the secure handler import fails, ``install_memory_buffer``
-        must propagate the ``ImportError``, it must NOT silently fall
-        back to a stock ``RotatingFileHandler`` (which lacks ``0o600``
-        perms and the inter-process rotation lock).
-
-        The secure handler import is hoisted out of the FS-ops
-        ``try``/``except`` so the ``ImportError`` propagates to the
-        caller (``set_crash_handler_config_dir`` suppresses it via
-        ``contextlib.suppress(Exception)``). The crash buffer is left
-        uninstalled rather than silently writing to a world-readable
-        file.
-        """
+        """If the secure handler import fails, ``install_memory_buffer``"""
         import voice_typer.server.log as _log_pkg
         from voice_typer.server.crash_handler._memory_buffer import (
             install_memory_buffer,
         )
 
         # Hide the secure handler from the package so the hoisted
-        # ``from voice_typer.server.log import _SecureTruncatingFileHandler``
-        # inside ``install_memory_buffer`` raises ``ImportError``.
-        # ``monkeypatch.delattr`` restores the attribute at teardown.
         monkeypatch.delattr(_log_pkg, "_SecureTruncatingFileHandler", raising=False)
 
         with pytest.raises(ImportError):

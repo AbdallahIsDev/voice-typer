@@ -1,5 +1,4 @@
-"""Tests for UI/UX components: About page, Settings, Navigation, Accessibility,
-ErrorBoundary, bubble, loading screen, vocabulary/templates dialogs."""
+"""Tests for UI/UX components: About page, Settings, Navigation, Accessibility,"""
 
 from __future__ import annotations
 
@@ -23,19 +22,9 @@ def _read(rel: str) -> str:
 
 
 class TestBubbleSupportsKeyboardArrowMove:
-    """Bubble supports keyboard-based repositioning via arrow keys.
-
-    Post-predecessor cutover: the main/preload channel pins were deleted
-    with the TS shell. The Tauri host owns ``bubble_move_by``
-    (``src-tauri/src/commands/bubble/commands.rs``); this class pins
-    the renderer type contract that still exists.
-    """
+    """Bubble supports keyboard-based repositioning via arrow keys."""
 
     def test_window_bubble_type_has_move_by(self):
-        # the former monolithic ipc types file was
-        # split into a ``types/ipc/`` directory. The bubble-window
-        # ``moveBy`` mutator now lives in ``types/ipc/bubble_bridge.ts``
-        # (BubbleWindowExtras).
         bubble_bridge_ts = _read("types/ipc/bubble_bridge.ts")
         assert "moveBy" in bubble_bridge_ts
 
@@ -44,17 +33,12 @@ class TestGetStatusExposesLoadedVia:
     """get_status IPC returns loaded_via for the active model."""
 
     def test_service_get_status_returns_loaded_via(self):
-        # service.py split into a service/ package, get_status moved to
-        # service/status.py.
         status_py = (REPO_ROOT / "voice_typer" / "server" / "service" / "status.py").read_text(encoding="utf-8")
         assert "loaded_via" in status_py
 
 
 class TestAboutDiagnosticsPageExists:
-    """About (product identity + diagnostics) page exists and is routed.
-
-    About was merged into the combined About & Privacy page.
-    """
+    """About (product identity + diagnostics) page exists and is routed."""
 
     def test_about_page_exists(self):
         assert (RENDERER_SRC / "pages" / "AboutAndPrivacy.tsx").exists()
@@ -76,7 +60,6 @@ class TestDeleteModelRouteRemovesFiles:
 
     def test_rust_allowlist_has_delete_model(self):
         # Post-predecessor: the renderer-callable gate is the Rust
-        # allowed_commands() set (the TS ALLOWED_COMMANDS file is gone).
         from tests.test_security_doc_command_count import _allowed_commands_rust
 
         assert "delete_model" in _allowed_commands_rust()
@@ -121,40 +104,28 @@ class TestModelDownloadSupportsCancel:
     """Backend supports canceling an in-progress model download."""
 
     def test_service_has_cancel_model_download_method(self):
-        # service.py split into a service/ package, cancel_model_download
-        # lives in service/model.py.
         model_py = _service_model_pkg_src()
         assert "def cancel_model_download" in model_py
 
     def test_service_has_download_cancel_events(self):
-        """service/model.py declares the per-download cancel Event dict.
-
-        the legacy single-instance
-        ``_download_cancel_event`` attribute has been REMOVED; the
-        per-download dict (``_download_cancel_events``) plus the
-        ``_register_download`` helper are the production API.
-        """
+        """service/model.py declares the per-download cancel Event dict."""
         model_py = _service_model_pkg_src()
         assert "_download_cancel_events" in model_py
         assert "_register_download" in model_py
         assert '"cancelled": True' in model_py
 
     def test_ipc_server_has_cancel_model_download_handler(self):
-        # ipc_server.py registry moved to ipc/registry.py.
         registry_py = (REPO_ROOT / "voice_typer" / "server" / "ipc" / "registry.py").read_text(encoding="utf-8")
         assert '"cancel_model_download": "_handle_cancel_model_download"' in registry_py
 
     def test_rust_allowlist_includes_cancel_model_download(self):
         # Post-predecessor: the renderer-callable gate is the Rust
-        # allowed_commands() set.
         from tests.test_security_doc_command_count import _allowed_commands_rust
 
         assert "cancel_model_download" in _allowed_commands_rust()
 
     def test_models_page_has_cancel_button(self):
         # Models.tsx is now a thin composition root; the Cancel control
-        # lives in components/models/DownloadProgressBar.tsx and the
-        # cancel action in hooks/models/useModelDownload.ts.
         progress_bar = (
             CLIENT_SRC / "renderer" / "src" / "components" / "models" / "DownloadProgressBar.tsx"
         ).read_text(encoding="utf-8")

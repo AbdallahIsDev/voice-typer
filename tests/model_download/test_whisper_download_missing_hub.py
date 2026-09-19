@@ -1,19 +1,4 @@
-"""Regression test: a missing/broken ``huggingface_hub`` must NOT make the
-whisper-family download path report SUCCESS.
-
-The ``from huggingface_hub import snapshot_download`` import inside
-``VoiceTyperService._download_whisper_family`` is wrapped in a ``try`` whose
-``except ImportError`` arm previously only logged a debug line (claiming a
-fallback to ``engine.load()`` that had been deleted) and then FELL THROUGH to
-the success report: a 100% progress push, a "downloaded successfully" tray
-toast, and ``{"success": True}``. In an environment where huggingface_hub is
-missing (stripped venv, broken install), the user saw a green toast and no
-model files were ever fetched, the first dictation then failed with an
-unrelated engine-load error.
-
-These tests pin the structured-failure contract (mirrors the Parakeet path's
-reason-table unpack) and the single-flight-gate cleanup.
-"""
+"""whisper-family download path report SUCCESS."""
 
 from __future__ import annotations
 
@@ -45,9 +30,7 @@ def whisper_service(tmp_config_dir):
 
 @pytest.fixture()
 def progress_spy(monkeypatch):
-    """Replace ``push_progress`` / ``notify`` in ``_download_helpers`` with
-    recorders so tests can assert on the exact progress/notification stream
-    without touching the real event bus or tray."""
+    """recorders so tests can assert on the exact progress/notification stream"""
     import voice_typer.server.service._download_helpers as helpers
 
     progress: list[tuple[int, str]] = []
@@ -67,17 +50,13 @@ def progress_spy(monkeypatch):
 
 class TestWhisperDownloadMissingHuggingfaceHub:
     def test_missing_hub_returns_structured_failure(self, whisper_service, progress_spy, monkeypatch):
-        """With ``huggingface_hub`` unimportable, ``_download_whisper_family``
-        must return ``success: False`` with the reason code, never fall
-        through to the success report."""
+        """With ``huggingface_hub`` unimportable, ``_download_whisper_family``"""
         from voice_typer.server.model_registry import get_model_metadata
 
         meta = get_model_metadata("tiny")
         assert meta is not None, "tiny.en must be in MODEL_REGISTRY for this test"
 
         # ``None`` in sys.modules makes ``from huggingface_hub import ...``
-        # raise ImportError, simulating a stripped/broken install without
-        # uninstalling anything.
         monkeypatch.setitem(sys.modules, "huggingface_hub", None)
 
         result = whisper_service._download_whisper_family("tiny", meta)
@@ -88,9 +67,7 @@ class TestWhisperDownloadMissingHuggingfaceHub:
         assert result["model"] == "tiny"
 
     def test_missing_hub_never_pushes_100_percent_nor_success_toast(self, whisper_service, progress_spy, monkeypatch):
-        """The failure path must push a 0% (reset) progress event with the
-        failure message and a FAILURE toast, no 100% push, no "downloaded
-        successfully" notification."""
+        """failure message and a FAILURE toast, no 100% push, no \"downloaded"""
         from voice_typer.server.model_registry import get_model_metadata
 
         meta = get_model_metadata("tiny")
@@ -111,9 +88,7 @@ class TestWhisperDownloadMissingHuggingfaceHub:
         assert any("Failed to download" in body for body in toasts), f"expected a failure toast, got: {toasts}"
 
     def test_missing_hub_releases_single_flight_gate(self, whisper_service, progress_spy, monkeypatch):
-        """The ImportError arm must clear the download pause/abort state —
-        otherwise ``is_download_active()`` stays True and every later
-        download is refused as "already active"."""
+        """The ImportError arm must clear the download pause/abort state —"""
         from voice_typer.server.asr_setup import (
             clear_download_pause_state,
             is_download_active,
@@ -137,23 +112,17 @@ class TestWhisperDownloadMissingHuggingfaceHub:
             clear_download_pause_state()
 
     def test_missing_hub_via_download_model_dispatcher(self, whisper_service, progress_spy, monkeypatch):
-        """End-to-end through the ``download_model`` dispatcher: the outer
-        generic ``except Exception`` handler must NOT be the one reporting
-        this failure (the branch's structured failure must win), and the
-        dispatcher must propagate ``success: False``."""
+        """End-to-end through the ``download_model`` dispatcher: the outer"""
         monkeypatch.setitem(sys.modules, "huggingface_hub", None)
 
         result = whisper_service.download_model("tiny")
 
         assert result["success"] is False
         assert result.get("reason") == "huggingface_hub_missing"
-        # The outer handler's shape has "error" + "model" only, the
-        # structured branch shape carries "reason" too.
         assert "reason" in result
 
     def test_failure_toast_body_reuses_shared_reason_message(self, whisper_service, progress_spy, monkeypatch):
-        """The failure message must come from the shared reason table (E7 —
-        no duplicated inline copy of the huggingface_hub_missing text)."""
+        """The failure message must come from the shared reason table (E7 —"""
         from voice_typer.server.model_registry import get_model_metadata
         from voice_typer.server.service.model._constants import _PARAKEET_REASON_MESSAGES
 
@@ -171,27 +140,11 @@ class TestWhisperDownloadMissingHuggingfaceHub:
 
 
 class TestWhisperDownloadCacheHitSingleTerminalPush:
-    """Cache hits must emit exactly ONE terminal 100% progress event.
-
-    The cache-hit branch (the ``local_files_only`` snapshot probe
-    succeeding) reports "already cached", as a status-only event at a
-    NON-terminal percent. The shared success tail's 100% "Download of
-    ... complete" push is the only terminal event a download call may
-    emit, cache hit or fresh download alike: a second 100% push made
-    every cache-hit download drive the progress bar to completion twice
-    with two different status messages.
-    """
+    """Cache hits must emit exactly ONE terminal 100% progress event."""
 
     @pytest.fixture()
     def fake_cached_hub(self, monkeypatch):
-        """A ``huggingface_hub`` whose ``snapshot_download`` succeeds for
-        the local-only probe, i.e. the model is already fully cached.
-
-        Injected via ``sys.modules`` (same technique the missing-hub
-        tests use with ``None``) so no real network or on-disk HF cache
-        is touched: the cache-hit branch is entered without a real
-        huggingface_hub round-trip.
-        """
+        """the local-only probe, i.e. the model is already fully cached."""
         import types
 
         calls: list[dict] = []
@@ -221,9 +174,6 @@ class TestWhisperDownloadCacheHitSingleTerminalPush:
             f"got {len(terminal)}: {terminal} (full stream: {progress})"
         )
         assert terminal[0][1] == "Download of tiny complete"
-        # The distinct "already cached" status message is preserved, as
-        # a status event at a non-terminal percent, never a second
-        # completion event.
         cached_events = [(pct, msg) for pct, msg in progress if "already cached" in msg]
         assert cached_events, f"the 'already cached' status message must be preserved on a cache hit; got: {progress}"
         assert all(pct < 100 for pct, _ in cached_events), (
@@ -231,9 +181,7 @@ class TestWhisperDownloadCacheHitSingleTerminalPush:
         )
 
     def test_cache_hit_skips_the_transfer_machinery(self, whisper_service, progress_spy, fake_cached_hub):
-        """A successful local-only probe must go straight to the success
-        tail: no transfer started, no per-chunk download progress, no
-        per-download cancel Event registered."""
+        """A successful local-only probe must go straight to the success"""
         from voice_typer.server.model_registry import get_model_metadata
 
         meta = get_model_metadata("tiny")

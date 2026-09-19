@@ -1,33 +1,4 @@
-"""Tests for the resolver-snapshot optimization in ``event_bus.publish``.
-
-The snapshot is a tuple of zero-argument "resolvers"
-(``weakref.WeakMethod`` / ``_StrongResolver`` / ``_CWeakResolver``)
-maintained atomically by ``_SubscriberSet._rebuild_snapshot()`` on
-every subscribe / unsubscribe / clear / update under ``_lock``.
-``publish()`` reads the tuple WITHOUT acquiring the lock (tuple read
-is GIL-atomic) and iterates it directly, eliminating the per-publish
-lock acquisition AND the per-publish ``list(_subscribers)``
-allocation on the 60Hz ``bubble_level`` hot path.
-
-The snapshot holds NO strong references to bound-method subscribers
-(only to plain functions, which are module-level and never GC'd).
-This preserves the PVT-031 weak-ref leak-prevention semantics: a
-bound-method subscriber whose owner is GC'd is auto-evicted from
-``_weak_py`` / ``_weak_c`` via the WeakMethod / weakref callback, and
-its resolver returns ``None`` on the next ``publish()`` iteration
-(silently skipped).
-
-These tests pin:
-  1. The snapshot is a ``tuple`` (immutable, GIL-atomic read).
-  2. The snapshot is rebuilt on every subscribe / unsubscribe / clear.
-  3. ``publish()`` reads the snapshot WITHOUT acquiring ``_lock``
-     (verified by monkey-patching ``_lock`` to raise on acquire and
-     confirming ``publish()`` still succeeds).
-  4. Dead weak-ref subscribers (GC'd between snapshot and delivery)
-     are silently skipped, no ``ReferenceError``, no log spam.
-  5. The snapshot holds no strong references to a bound-method
-     subscriber's ``__self__`` (PVT-031 leak-prevention preserved).
-"""
+"""Tests for the resolver-snapshot optimization in ``event_bus.publish``."""
 
 from __future__ import annotations
 
@@ -41,12 +12,7 @@ from voice_typer.server import event_bus, log_rate_limit
 
 @pytest.fixture(autouse=True)
 def _clean_subscribers():
-    """Snapshot + clear the event_bus subscriber set for each test.
-
-    Mirrors the fixture in ``tests/test_event_bus.py`` so the
-    process-global ``_subscribers`` singleton doesn't leak state
-    across tests.
-    """
+    """Snapshot + clear the event_bus subscriber set for each test."""
     with event_bus._lock:
         original = set(event_bus._subscribers)
         event_bus._subscribers.clear()
@@ -57,17 +23,9 @@ def _clean_subscribers():
         event_bus._subscribers.update(original)
 
 
-# ── Snapshot type + initial state ──────────────────────────────────────
-
-
 class TestSnapshotType:
     def test_snapshot_is_a_tuple(self):
-        """The snapshot MUST be a tuple (immutable, GIL-atomic read).
-
-        A list would not be safe to read without the lock, a
-        concurrent subscribe could mutate it mid-iteration. A tuple is
-        immutable; replacing the module-level reference is GIL-atomic.
-        """
+        """The snapshot MUST be a tuple (immutable, GIL-atomic read)."""
         assert isinstance(event_bus._subscribers._snapshot, tuple)
 
     def test_snapshot_is_empty_when_no_subscribers(self):
@@ -75,18 +33,13 @@ class TestSnapshotType:
         assert event_bus._subscribers._snapshot == ()
 
     def test_snapshot_is_not_a_list(self):
-        """Guard against a future refactor accidentally switching to a
-        list (which would break the lock-free read invariant)."""
+        """Guard against a future refactor accidentally switching to a"""
         assert not isinstance(event_bus._subscribers._snapshot, list)
-
-
-# ── Snapshot rebuild on mutation ───────────────────────────────────────
 
 
 class TestSnapshotRebuild:
     def test_subscribe_rebuilds_snapshot(self):
-        """subscribe() must rebuild the snapshot so publish() sees the
-        new subscriber without acquiring the lock."""
+        """subscribe() must rebuild the snapshot so publish() sees the"""
         received: list[dict] = []
         event_bus.subscribe(received.append)
         snapshot = event_bus._subscribers._snapshot
@@ -99,8 +52,7 @@ class TestSnapshotRebuild:
         assert received == [{"type": "test"}]
 
     def test_unsubscribe_rebuilds_snapshot(self):
-        """unsubscribe() must rebuild the snapshot so publish() no
-        longer delivers to the removed callback."""
+        """unsubscribe() must rebuild the snapshot so publish() no"""
         received: list[dict] = []
         event_bus.subscribe(received.append)
         assert len(event_bus._subscribers._snapshot) == 1
@@ -110,9 +62,7 @@ class TestSnapshotRebuild:
         assert received == []
 
     def test_clear_resets_snapshot_to_empty_tuple(self):
-        """clear() must set the snapshot to () directly (not just
-        rebuild, the buckets are empty so rebuild would also produce
-        (), but setting () explicitly is faster and clearer)."""
+        """clear() must set the snapshot to () directly (not just"""
         received: list[dict] = []
         event_bus.subscribe(received.append)
         assert len(event_bus._subscribers._snapshot) == 1
@@ -120,27 +70,16 @@ class TestSnapshotRebuild:
         assert event_bus._subscribers._snapshot == ()
 
     def test_duplicate_subscribe_does_not_grow_snapshot(self):
-        """Subscribing the same callable twice should still produce a
-        snapshot of length 1 (set semantics, dedup)."""
+        """Subscribing the same callable twice should still produce a"""
         received: list[dict] = []
         event_bus.subscribe(received.append)
         event_bus.subscribe(received.append)
         assert len(event_bus._subscribers._snapshot) == 1
 
 
-# ── Lock-free publish ──────────────────────────────────────────────────
-
-
 class TestLockFreePublish:
     def test_publish_does_not_acquire_the_subscriber_lock(self):
-        """publish() must read the snapshot WITHOUT acquiring ``_lock``.
-
-        This is the core optimization: the 60Hz ``bubble_level`` hot
-        path no longer contends on ``_lock`` with subscribe /
-        unsubscribe. Verified by replacing ``_lock.acquire`` with a
-        function that raises, if publish() acquires the lock, the
-        test fails.
-        """
+        """publish() must read the snapshot WITHOUT acquiring ``_lock``."""
         received: list[dict] = []
         event_bus.subscribe(received.append)
 
@@ -148,9 +87,7 @@ class TestLockFreePublish:
         sentinel = RuntimeError("publish() must not acquire _lock")
 
         class _LockThatRaises:
-            """A fake lock whose acquire() raises. release() is a
-            no-op so the `with` block doesn't blow up on exit if
-            some code path does acquire (it won't get past acquire)."""
+            """no-op so the `with` block doesn't blow up on exit if"""
 
             def acquire(self, *args, **kwargs):
                 raise sentinel
@@ -168,7 +105,6 @@ class TestLockFreePublish:
         event_bus._lock = _LockThatRaises()
         try:
             # publish() must NOT acquire _lock. If it does, the
-            # _LockThatRaises.acquire() raises RuntimeError.
             result = event_bus.publish({"type": "test"})
             assert result is True
             assert received == [{"type": "test"}]
@@ -176,9 +112,7 @@ class TestLockFreePublish:
             event_bus._lock = original_lock
 
     def test_publish_with_no_subscribers_does_not_acquire_lock(self):
-        """The empty-snapshot early return must also not acquire the
-        lock (the `if not snapshot: return False` check happens before
-        any would-be lock acquisition)."""
+        """lock (the `if not snapshot: return False` check happens before"""
         original_lock = event_bus._lock
         sentinel = RuntimeError("publish() must not acquire _lock")
 
@@ -204,15 +138,8 @@ class TestLockFreePublish:
             event_bus._lock = original_lock
 
 
-# ── Weak-ref subscriber GC handling ────────────────────────────────────
-
-
 class _Subscriber:
-    """A simple subscriber object with a bound-method callback.
-
-    Used to verify the snapshot holds NO strong ref to ``__self__``
-    (the PVT-031 leak-prevention invariant).
-    """
+    """A simple subscriber object with a bound-method callback."""
 
     def __init__(self) -> None:
         self.calls: list[dict] = []
@@ -223,14 +150,7 @@ class _Subscriber:
 
 class TestWeakRefSnapshot:
     def test_snapshot_holds_no_strong_ref_to_bound_method_owner(self):
-        """The snapshot must NOT hold a strong reference to a bound-
-        method subscriber's ``__self__``. If it did, the owner would
-        never be GC'd (the PVT-031 leak that the WeakMethod storage
-        was designed to prevent).
-
-        Verified by subscribing a bound method, dropping the caller's
-        strong ref, forcing GC, and checking the owner is collected.
-        """
+        """The snapshot must NOT hold a strong reference to a bound-"""
         sub = _Subscriber()
         weak_owner = weakref.ref(sub)
         event_bus.subscribe(sub.on_event)
@@ -240,52 +160,35 @@ class TestWeakRefSnapshot:
         del sub
         gc.collect()
 
-        # The owner MUST be collected, the snapshot holds only a
-        # WeakMethod (weak ref), not a strong ref to the bound method.
         assert weak_owner() is None, (
             "snapshot must not hold a strong ref to the bound-method owner (PVT-031 leak-prevention invariant)"
         )
 
     def test_dead_resolver_is_silently_skipped(self):
-        """If a subscriber is GC'd between snapshot creation and
-        publish() delivery, the dead resolver returns None and is
-        silently skipped, no ReferenceError, no log spam."""
+        """publish() delivery, the dead resolver returns None and is"""
         sub = _Subscriber()
         event_bus.subscribe(sub.on_event)
         assert len(event_bus._subscribers._snapshot) == 1
 
         # Drop the caller's strong ref and force GC. The WeakMethod
-        # in the snapshot is now dead (returns None).
         del sub
         gc.collect()
 
-        # publish() must not raise. The dead resolver is skipped.
-        # The _weak_py dict may or may not have been pruned yet
-        # (depends on whether the WeakMethod callback fired during
-        # gc.collect()), but either way publish() must succeed.
         result = event_bus.publish({"type": "test"})
         # No live subscribers → False (the dead one doesn't count).
         assert result is False
 
     def test_live_bound_method_still_receives_events(self):
-        """A held bound-method subscriber still receives events via
-        the resolver snapshot (the WeakMethod resolves to the live
-        method)."""
+        """A held bound-method subscriber still receives events via"""
         sub = _Subscriber()
         event_bus.subscribe(sub.on_event)
         event_bus.publish({"type": "test"})
         assert sub.calls == [{"type": "test"}]
 
 
-# ── Snapshot + deferred delivery ──────────────────────────────────────
-
-
 class TestSnapshotDeferred:
     def test_async_dispatch_uses_snapshot(self):
-        """``publish(async_dispatch=True)`` must pass the snapshot
-        (tuple of resolvers) to the deferred executor, not a fresh
-        list. Verified by checking the subscriber is still delivered
-        the event asynchronously."""
+        """``publish(async_dispatch=True)`` must pass the snapshot"""
         import time
 
         received: list[dict] = []

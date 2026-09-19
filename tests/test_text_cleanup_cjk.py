@@ -1,8 +1,4 @@
-"""Tests for CJK/RTL/emoji edge cases.
-
-TEST-021: Test corrections with CJK characters, RTL text, emoji in patterns.
-Test transcription output with these characters.
-"""
+"""Tests for CJK/RTL/emoji edge cases."""
 
 from __future__ import annotations
 

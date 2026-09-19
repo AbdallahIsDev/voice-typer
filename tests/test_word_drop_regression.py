@@ -1,14 +1,4 @@
-"""Regression tests: transcription word-drop bug for long recordings.
-
-Root causes fixed:
-1. parakeet_engine._transcribe_segment had max_new_tokens=256 which silently
-   truncated dense 25s chunks (Parakeet TDT emits ~5-12 tokens/sec including
-   duration tokens; 25s of dense speech can need 250-300+ tokens).
-2. parakeet_engine._compute_overlap_skip returned 1 even with no overlap,
-   silently dropping one legitimate word per chunk boundary.
-3. qwen_engine.transcribe had no chunking, passed entire multi-minute audio
-   in one call, risking OOM or silent truncation.
-"""
+"""Regression tests: transcription word-drop bug for long recordings."""
 
 import inspect
 import threading
@@ -23,24 +13,7 @@ class TestParakeetNoMaxNewTokensCap:
     """RC-1: max_new_tokens=256 silently truncated dense chunks."""
 
     def test_transcribe_segment_has_no_max_new_tokens_256(self):
-        """The ``_transcribe_segment`` method must NOT pass
-        ``max_new_tokens=256`` to the model. 256 is too small for 25s
-        of dense English speech (Parakeet TDT emits ~5-12 tokens/sec
-        including duration tokens). Either remove the cap entirely (let
-        the model use generation_config.max_length) or set it to a
-        value >= 1024.
-
-        Post-ONNX: ``_transcribe_segment`` calls the onnx-asr adapter's
-        ``recognize(audio, sample_rate=...)``, there is
-        no ``model.generate()`` call, so there is no ``max_new_tokens``
-        kwarg at all. This test pins that invariant: a revert to the
-        torch/transformers ``model.generate(max_new_tokens=256)`` path
-        would re-introduce the silent-truncation bug and fail this
-        test. The same method is used by both the GPU path and the
-        GPU→CPU fallback path (PLAN_ONNX_INTEGRATION.md §3.4, the
-        fallback recreates the ORT session and calls
-        ``_transcribe_segment`` again), so this assertion covers both.
-        """
+        """The ``_transcribe_segment`` method must NOT pass"""
         src = inspect.getsource(ParakeetEngine._transcribe_segment)
         assert "max_new_tokens=256" not in src, (
             "_transcribe_segment must not use max_new_tokens=256, it silently "
@@ -48,23 +21,7 @@ class TestParakeetNoMaxNewTokensCap:
         )
 
     def test_no_separate_unlocked_segment_method(self):
-        """Post-ONNX: there is no separate ``_transcribe_segment_unlocked``
-        method. The pre-ONNX engine had a torch/transformers
-        ``_transcribe_segment`` (GPU path) and a separate
-        ``_transcribe_segment_unlocked`` (CPU fallback path that
-        released the model lock during generation). Each had its own
-        ``max_new_tokens`` cap, so the original RC-1 regression test
-        had to verify both.
-
-        The ONNX-rewritten engine has a single ``_transcribe_segment``
-        method used by both the GPU path and the GPU→CPU fallback path
-        (PLAN_ONNX_INTEGRATION.md §3.4, the fallback recreates the
-        ORT session, then calls the same ``_transcribe_segment``). This
-        test pins the single-method invariant so a revert that
-        re-introduces a separate ``_transcribe_segment_unlocked`` would
-        fail it (and the new method would need its own cap-removal
-        test).
-        """
+        """Post-ONNX: there is no separate ``_transcribe_segment_unlocked``"""
         assert not hasattr(ParakeetEngine, "_transcribe_segment_unlocked"), (
             "ParakeetEngine must NOT define a separate _transcribe_segment_unlocked "
             "method, the ONNX backend has a single _transcribe_segment method "
@@ -78,12 +35,7 @@ class TestParakeetNoAllowanceSkip:
     """RC-3: _compute_overlap_skip returned 1 with no overlap, dropping legitimate words."""
 
     def test_no_overlap_returns_zero(self):
-        """When there is no true overlap, skip MUST be 0, not 1.
-
-        The old 'allowance' of 1 word per boundary silently dropped up to 14
-        words per 5-minute recording. Boundary hallucinations are filtered
-        upstream by should_reject_low_audio_hallucination.
-        """
+        """When there is no true overlap, skip MUST be 0, not 1."""
         skip = ParakeetEngine._compute_overlap_skip(
             ["alpha", "bravo"],
             ["charlie", "delta"],  # no shared words
@@ -96,17 +48,12 @@ class TestParakeetNoAllowanceSkip:
         assert skip == 2  # "bravo charlie" matches the tail of prev
 
     def test_merge_chunks_preserves_word_count_across_many_boundaries(self):
-        """Merging 15 chunks of distinct text must preserve ~100% of words.
-
-        Regression for the compound effect of RC-1 + RC-3: previously, each
-        boundary lost 1 word to the 'allowance', so 15 chunks lost ~14 words.
-        """
+        """Merging 15 chunks of distinct text must preserve ~100% of words."""
         chunks = [f"chunk {i} has unique words alpha beta gamma" for i in range(15)]
         engine = ParakeetEngine.__new__(ParakeetEngine)
         result = engine._merge_chunks(chunks)
         result_words = result.split()
         # Each chunk has 7 words; 15 chunks = 105 words. Allow small tolerance
-        # for any legitimate dedup, but expect >= 100 (no allowance drops).
         assert len(result_words) >= 100, (
             f"Lost {105 - len(result_words)} words across 15 boundaries, "
             f"expected >=100, got {len(result_words)}. Result: {result!r}"
@@ -125,8 +72,6 @@ class TestQwenChunking:
         engine._inference_cond = threading.Condition(engine._lock)
         engine._active_inference = 0
         engine._INFERENCE_BATCH_SIZE = 1
-        # __init__ normally sets this; __new__ skips __init__ (avoids model
-        # loading), so set it manually, the chunk loops check it.
         engine._abort_event = threading.Event()
         engine.language = "en"
         engine.device = "cpu"
@@ -153,8 +98,6 @@ class TestQwenChunking:
         engine._inference_cond = threading.Condition(engine._lock)
         engine._active_inference = 0
         engine._INFERENCE_BATCH_SIZE = 1
-        # __init__ normally sets this; __new__ skips __init__ (avoids model
-        # loading), so set it manually, the chunk loops check it.
         engine._abort_event = threading.Event()
         engine.language = "en"
         engine.device = "cpu"
@@ -177,10 +120,8 @@ class TestQwenChunking:
         chunks = QwenEngine._split_audio(audio, 30, 3)
 
         # All chunks concatenated (with overlap removal) must reconstruct the audio
-        # At minimum, the last chunk must end at the end of the audio
         assert len(chunks[-1]) > 0
         # The last chunk's last sample should be the audio's last sample
-        # (chunks[-1] is audio[start:end] where end == len(audio))
         assert chunks[-1][-1] == audio[-1], (
             "Last chunk must include the tail of the audio, otherwise words at "
             "the end of long recordings are silently dropped."

@@ -1,11 +1,4 @@
-"""Rate-limiter and flood-resistance tests.
-
-Classes:
-- TestRateLimiter      , RELIABILITY-006 sliding-window _RateLimiter
-- TestServerFloodResistance, TEST-001 IPC DoS/flood resilience
-
-Split out from the original monolithic tests/test_server.py (DT-37, Phase 4.5).
-"""
+"""Rate-limiter and flood-resistance tests."""
 
 import threading
 from unittest.mock import MagicMock
@@ -15,21 +8,9 @@ from tests.server.conftest import (  # noqa: F401
     server,
 )
 
-# ── RELIABILITY-006: per-IPCServer shared rate limiter ───────────────────
-
 
 class TestRateLimiter:
-    """RELIABILITY-006: ``_RateLimiter`` is a sliding-window limiter that
-    protects the IPC dispatcher from flood attacks.
-
-    One limiter is shared across all connections to a given ``IPCServer``
-    instance, looked up via ``_get_rate_limiter(server)``; its budget
-    persists across reconnects within the same process.  The limiter allows
-    a burst of ``burst`` messages and a sustained rate of
-    ``sustained_per_sec`` within a sliding 1-second window.  Messages
-    over the budget are rejected (caller returns an error response
-    rather than dispatching).
-    """
+    """protects the IPC dispatcher from flood attacks."""
 
     def test_allows_messages_under_burst_limit(self):
         from voice_typer.server.ipc_server import _RateLimiter
@@ -61,8 +42,7 @@ class TestRateLimiter:
         assert rl.allow(now=1.1) is True
 
     def test_sustained_rate_caps_burst(self):
-        """Even if the burst limit is high, the sustained rate caps
-        the per-second throughput."""
+        """Even if the burst limit is high, the sustained rate caps"""
         from voice_typer.server.ipc_server import _RateLimiter
 
         rl = _RateLimiter(burst=200, sustained_per_sec=5, window=1.0)
@@ -73,13 +53,7 @@ class TestRateLimiter:
         assert rl.allow(now=0.0) is False
 
     def test_allow_increments_rejected_count_atomically(self):
-        """SEC-6 / YJ-61: ``allow()`` atomically increments
-        ``rejected_count`` when it returns ``False``. The separate
-        ``reject()`` no-op was deleted (it was kept only for backward
-        compatibility with callers that no longer exist). This test
-        confirms the counter is incremented as a side-effect of the
-        5 rejected ``allow()`` calls, not by any external bookkeeping.
-        """
+        """SEC-6 / YJ-61: ``allow()`` atomically increments"""
         from voice_typer.server.ipc_server import _RateLimiter
 
         rl = _RateLimiter(burst=2, sustained_per_sec=2, window=1.0)
@@ -87,15 +61,12 @@ class TestRateLimiter:
         for _ in range(2):
             rl.allow(now=0.0)
         # Next 5 calls exceed the budget and must be rejected. SEC-6:
-        # each rejected ``allow()`` increments ``_rejected`` atomically
-        # inside the same lock acquisition as the deque check.
         for _ in range(5):
             assert rl.allow(now=0.0) is False
         assert rl.rejected_count == 5
 
     def test_thread_safe(self):
-        """Multiple threads calling allow() concurrently should not
-        corrupt the limiter state."""
+        """Multiple threads calling allow() concurrently should not"""
         from voice_typer.server.ipc_server import _RateLimiter
 
         rl = _RateLimiter(burst=1000, sustained_per_sec=1000, window=1.0)
@@ -128,14 +99,10 @@ class TestRateLimiter:
 
 
 class TestServerFloodResistance:
-    """TEST-001: verify the IPC server can handle a flood of messages
-    without crashing or exhausting resources.  The rate limiter
-    (RELIABILITY-006) should kick in and reject over-budget messages."""
+    """TEST-001: verify the IPC server can handle a flood of messages"""
 
     def test_flood_of_get_status_does_not_crash(self, server, mock_app):
-        """Sending 1000 get_status messages in rapid succession should
-        not crash the server.  The rate limiter will reject most of
-        them, but the server must stay alive and responsive."""
+        """Sending 1000 get_status messages in rapid succession should"""
         rejected = 0
         accepted = 0
         for i in range(1000):
@@ -147,7 +114,6 @@ class TestServerFloodResistance:
         # The server should still be alive
         assert accepted + rejected == 1000
         # At least some should have been accepted (the first few before
-        # the rate limit kicks in)
         assert accepted > 0
 
     def test_flood_of_malformed_json_does_not_crash(self, server):
@@ -182,7 +148,6 @@ class TestServerFloodResistance:
         )
         # Should succeed (clamped to 500), not crash
         assert result["type"] == "history"
-        # get_recent must be called with 500, not 10^9
         mock_app.history_db.get_recent.assert_called_once_with(
             500, 0, raise_on_error=True, before_timestamp=None, before_id=None
         )
@@ -192,32 +157,10 @@ class TestServerFloodResistance:
 
 
 class TestRateLimiterCommandCosts:
-    """Coverage for the per-command cost map (``COMMAND_COSTS``).
-
-    The cost map assigns each known IPC command a "weight" against the
-    shared burst/sustained budgets. Pre-this-coverage, the dict had ZERO
-    direct tests, a regression that flipped ``download_model`` from 50
-    to 1 (silently letting a buggy client fire 200 model downloads per
-    second instead of 4) would have passed CI. These tests pin the
-    configured cost of representative commands from each cost tier
-    (cheap / mid / expensive) so future renames or value drift surface
-    as test failures.
-    """
+    """Coverage for the per-command cost map (``COMMAND_COSTS``)."""
 
     def test_heartbeat_costs_one(self):
-        """``heartbeat`` is explicitly listed at cost 1 so future
-        changes to ``DEFAULT_COST`` don't silently change the
-        heartbeat's rate-limit characteristics (heartbeats fire every
-        5 s / 15 s and must NEVER trip the burst cap).
-
-        Note: ``_RateLimiter.allow`` short-circuits to ``True`` for
-        ``command == "heartbeat"`` (the limiter bypass: see
-        ``rate_limiter.py``), so the call does NOT actually consume a
-        unit; this test pins the *configured* cost (``COMMAND_COSTS``
-        entry) rather than the runtime cost. The configured cost is
-        the contract a future refactor that removes the bypass would
-        inherit, so it must stay 1.
-        """
+        """``heartbeat`` is explicitly listed at cost 1 so future"""
         from voice_typer.server.ipc.rate_limiter import COMMAND_COSTS
         from voice_typer.server.ipc_server import _RateLimiter
 
@@ -229,14 +172,10 @@ class TestRateLimiterCommandCosts:
         rl = _RateLimiter(burst=10, sustained_per_sec=10, window=1.0)
         # Heartbeat bypasses the limiter, returns True without recording.
         assert rl.allow(command="heartbeat", now=0.0) is True
-        # The bypass means no burst budget is consumed; the configured
-        # cost stays pinned at 1 (above) regardless of the bypass.
         assert rl._burst_total == 0
 
     def test_download_model_costs_50(self):
-        """``download_model`` consumes 50 of the 200-unit burst budget,
-        so a client can fire at most 4 ``download_model`` requests in
-        any 1 s window before the 5th is rejected."""
+        """``download_model`` consumes 50 of the 200-unit burst budget,"""
         from voice_typer.server.ipc.rate_limiter import COMMAND_COSTS
         from voice_typer.server.ipc_server import _RateLimiter
 
@@ -256,18 +195,13 @@ class TestRateLimiterCommandCosts:
             "5th download_model in the same 1s window must be rejected (cumulative cost 250 > burst=200)."
         )
         # Verify the cost was actually consumed (running total matches
-        # 4 accepted calls × 50 units each).
         assert rl._burst_total == 200, (
             "download_model's per-call cost (50) must be reflected in "
             "the limiter's running burst total after 4 accepted calls."
         )
 
     def test_unknown_command_uses_default_cost(self):
-        """Unknown commands (not in ``COMMAND_COSTS``) default to
-        ``DEFAULT_COST`` (1). Preserves backward compatibility with
-        the count-based limiter: a caller that doesn't pass ``command``
-        (or passes an unrecognized name) is treated as cost 1, identical
-        to the pre-cost-map behavior."""
+        """the count-based limiter: a caller that doesn't pass ``command``"""
         from voice_typer.server.ipc.rate_limiter import (
             COMMAND_COSTS,
             DEFAULT_COST,
@@ -291,39 +225,15 @@ class TestRateLimiterCommandCosts:
 
 
 class TestRateLimiterIntegrationWithTransports:
-    """Integration: the per-process ``_RateLimiter`` is enforced at the
-    three transport chokepoints (TCP read loop, WS dispatch closure,
-    stdin runner) BEFORE ``_dispatch`` is called, NOT inside
-    ``_dispatch`` itself. Enforcing it inside ``_dispatch`` as well
-    would charge every accepted command's cost against the
-    burst/sustained budget TWICE (once at the transport gate, once in
-    ``_dispatch``), halving the effective burst budget. The
-    single-call-per-transport contract is pinned by
-    ``tests/server/test_ipc_rate_limiter_chokepoints.py``.
-
-    This class floods the STDIN chokepoint (the in-process transport —
-    no sockets needed) with expensive commands and verifies only the
-    expected few are accepted; the rest are rejected with the
-    ``client.rate_limited`` envelope.
-    """
+    """three transport chokepoints (TCP read loop, WS dispatch closure,"""
 
     def test_flood_of_download_model_rejected_by_rate_limit(self, server):
-        """Flood 200 ``download_model`` commands through the stdin
-        transport chokepoint (``server._run``). Each consumes 50 burst
-        units (burst=200), so exactly 4 are accepted; the remaining
-        196 are rejected with the ``client.rate_limited`` envelope (the
-        same envelope shape the TCP read loop emits at
-        ``transport_tcp.py:689-694``).
-        """
+        """Flood 200 ``download_model`` commands through the stdin"""
         import io
         import json
         from unittest.mock import MagicMock
 
         # Mock _handle_download_model so the test doesn't actually try
-        # to download a model, we're testing the rate-limit chokepoint,
-        # not the handler body. The mock returns a success envelope so
-        # the accepted/rejected count cleanly reflects the limiter's
-        # decision.
         server._handle_download_model = MagicMock(return_value={"type": "result", "data": {"ok": True}})
 
         stdin = io.StringIO()
@@ -345,9 +255,6 @@ class TestRateLimiterIntegrationWithTransports:
             else:
                 accepted += 1
 
-        # download_model costs 50; burst=200 → exactly 4 accepted (4*50=200),
-        # 196 rejected. The sustained cap (600 over 10s) doesn't trip first
-        # because 4*50=200 < 600.
         assert accepted == 4, (
             "Expected exactly 4 download_model commands accepted "
             "(burst=200 / cost=50 = 4); got "

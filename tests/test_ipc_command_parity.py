@@ -1,36 +1,4 @@
-"""Two-way IPC command parity: Python registry ↔ Rust allowlist + SECURITY.md.
-
-Post-predecessor / post-TCP the IPC surface collapses to TWO allowlists:
-
-1. **Python** ``_COMMAND_REGISTRY`` (`voice_typer/server/ipc/registry.py`)
-   — the backend dispatch table. Every inbound command the sidecar can
-   route must be registered here.
-2. **Rust** ``allowed_commands()`` (`src-tauri/src/commands/sidecar_cmds/allowlist.rs`)
-   — the renderer-reachable subset. A compromised WebView can only
-   ``invoke('dispatch', ...)`` for names in this set (defense-in-depth
-   backstop, CR-4 / SEC-019).
-
-There is no TypeScript ``ALLOWED_COMMANDS`` anymore (predecessor main is
-gone). Host-only / host-dispatched commands stay in the Python registry
-but intentionally OUT of the Rust allowlist:
-
-- ``shutdown`` / ``tray_click``: host-internal (tray / cooperative shutdown).
-- ``heartbeat`` / ``relaunch_ack``: host-dispatched via ``dispatch_inner``,
-  never through the renderer gate (a spoofable heartbeat would mask a
-  hung backend; a spoofable relaunch_ack would race the restart).
-
-Invariant::
-
-    set(_COMMAND_REGISTRY) - set(rust_allowed) == HOST_DISPATCHED_COMMANDS
-    set(rust_allowed) ⊆ set(_COMMAND_REGISTRY)
-
-SECURITY.md must document the **Rust** count (the attack surface a
-compromised renderer can reach), not the larger registry count.
-
-This file replaces the former three-way tests that sliced
-``ALLOWED_COMMANDS = new Set([`` out of
-``voice_typer/client/src/main/allowed-commands.ts``.
-"""
+"""Two-way IPC command parity: Python registry ↔ Rust allowlist + SECURITY.md."""
 
 from __future__ import annotations
 
@@ -45,10 +13,6 @@ SIDECAR_CMDS_RS = REPO_ROOT / "src-tauri" / "src" / "commands" / "sidecar_cmds.r
 SIDECAR_CMDS_DIR = REPO_ROOT / "src-tauri" / "src" / "commands" / "sidecar_cmds"
 ALLOWLIST_RS = SIDECAR_CMDS_DIR / "allowlist.rs"
 
-# Commands in the Python registry that are intentionally ABSENT from the
-# Rust renderer allowlist. Keep this set in lockstep with
-# ``registry._PYTHON_ONLY_COMMANDS`` plus the host-dispatched pair
-# documented in allowlist.rs.
 HOST_DISPATCHED_COMMANDS = frozenset(
     {
         "heartbeat": (
@@ -118,12 +82,7 @@ def _rust_allowed_commands() -> set[str]:
 
 
 def _documented_rust_count() -> int | None:
-    """Extract the documented renderer-allowlist count from SECURITY.md.
-
-    Accepts either ``allowed_commands()`` (current) or the historical
-    ``ALLOWED_COMMANDS`` phrasing so a mid-migration doc still parses
-    until SECURITY.md is updated in lockstep.
-    """
+    """Extract the documented renderer-allowlist count from SECURITY.md."""
     text = SECURITY_MD.read_text(encoding="utf-8")
     text = text.replace("**", "")
     m = re.search(

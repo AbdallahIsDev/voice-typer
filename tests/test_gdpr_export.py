@@ -1,29 +1,4 @@
-"""CR-88 regression guard: verify GDPR right-to-export.
-
-Finding CR-88 (High): GDPR Art. 20 (right to data portability) is
-not implemented at all. The existing
-``service.export_diagnostics()`` produces a *redacted* diagnostic
-bundle (for support tickets), it is NOT a GDPR Art. 20 export
-because it strips transcript text and excludes
-``voice-typer-corrections.json``, ``templates.json``, and mic-test
-recordings.
-
-Fix-D adds a new ``service.export_gdpr_bundle()`` method that:
-1. Produces a single timestamped ``.zip`` at
-   ``<config_dir>/gdpr-export-YYYYMMDD-HHMMSS.zip``.
-2. Includes every personal-data artifact (history.db,
-   recovery.json, config.json, corrections.json,
-   vocabulary.json, templates.json, mic-test-*.wav,
-   voice-typer.log + rotated backups (PI-4),
-   crash_diagnostics.<PID>.txt + python_crash.<PID>.txt (PI-5)).
-3. Includes the raw (un-redacted) transcript text from history.db.
-4. Returns ``{"success": bool, "path": str}`` (mirrors
-   ``export_diagnostics``).
-5. Does NOT include model weights (not personal data per spec).
-
-This is a Fix-T test (coordinates with Fix-D). It is expected to
-FAIL until Fix-D lands the new method.
-"""
+"""regression guard: verify GDPR right-to-export."""
 
 from __future__ import annotations
 
@@ -77,14 +52,8 @@ def _seed_personal_data(tmp_path: Path) -> None:
     (tmp_path / "templates.json").write_text(json.dumps({"greeting": "Hi <name>"}))
     (tmp_path / "mic-test-20240101-120000.wav").write_bytes(b"RIFF\x00\x00\x00\x00WAVEfmt ")
     (tmp_path / "voice-typer.log").write_text("2024-01-01 12:00:00 INFO [SERVICE] transcript='secret text'\n")
-    # rotated log backups produced by RotatingFileHandler(backupCount=5)
-    # in voice_typer/server/log.py:911-915.  Per  /  these
-    # may contain user-spoken text, so they MUST be included in the export.
     (tmp_path / "voice-typer.log.1").write_text("2024-01-01 11:00:00 DEBUG transcript='rotated secret 1'\n")
     (tmp_path / "voice-typer.log.2").write_text("2024-01-01 10:00:00 DEBUG transcript='rotated secret 2'\n")
-    # real crash files (not the fictional ``crash-*.dmp``).
-    #   * ``crash_diagnostics.<PID>.txt``, Windows VEH handler (crash_handler.py:722)
-    #   * ``python_crash.<PID>.txt``   , Python excepthook marker (crash_handler.py:1190)
     _pid = os.getpid()
     (tmp_path / f"crash_diagnostics.{_pid}.txt").write_text(
         f"VEH crash dump for PID {_pid}\nstack trace with secret='pii'\n"
@@ -114,7 +83,7 @@ def test_export_gdpr_bundle_method_exists() -> None:
 
 
 def test_export_gdpr_bundle_returns_success_and_path(tmp_path) -> None:
-    """Return value must be ``{"success": True, "path": str}``."""
+    """Return value must be ``{\"success\": True, \"path\": str}``."""
     svc, mp = _build_service(tmp_path)
     try:
         if not hasattr(svc, "export_gdpr_bundle"):
@@ -132,8 +101,7 @@ def test_export_gdpr_bundle_returns_success_and_path(tmp_path) -> None:
 
 
 def test_export_gdpr_bundle_creates_timestamped_zip(tmp_path) -> None:
-    """The output filename should be timestamped
-    (``gdpr-export-YYYYMMDD-HHMMSS.zip``)."""
+    """The output filename should be timestamped"""
     import re
 
     svc, mp = _build_service(tmp_path)
@@ -170,8 +138,7 @@ def test_export_gdpr_bundle_includes_history_db(tmp_path) -> None:
 
 
 def test_export_gdpr_bundle_includes_config_json(tmp_path) -> None:
-    """The zip must contain config.json (with secrets, this is GDPR
-    export, not redacted diagnostics)."""
+    """The zip must contain config.json (with secrets, this is GDPR"""
     svc, mp = _build_service(tmp_path)
     try:
         if not hasattr(svc, "export_gdpr_bundle"):
@@ -262,8 +229,7 @@ def test_export_gdpr_bundle_includes_templates(tmp_path) -> None:
 
 
 def test_export_gdpr_bundle_includes_mic_test_recordings(tmp_path) -> None:
-    """The zip must include any mic-test-*.wav files (voice biometric
-    data, explicitly personal)."""
+    """The zip must include any mic-test-*.wav files (voice biometric"""
     svc, mp = _build_service(tmp_path)
     try:
         if not hasattr(svc, "export_gdpr_bundle"):
@@ -297,14 +263,7 @@ def test_export_gdpr_bundle_includes_log(tmp_path) -> None:
 
 
 def test_export_gdpr_bundle_includes_rotated_log_backups(tmp_path) -> None:
-    """PI-4: the zip must contain voice-typer.log.{1,2} rotated backups.
-
-    ``RotatingFileHandler(backupCount=5)`` in ``voice_typer/server/log.py``
-    produces ``voice-typer.log.1`` .. ``voice-typer.log.5``.  Per
-    XZ-PII-01 / XZ-PRIV-04 these backups may contain user-spoken text
-    via ``_crash_excepthook``'s CRITICAL log + per-segment DEBUG logs,
-    so the GDPR Art. 20 export must include them.
-    """
+    """PI-4: the zip must contain voice-typer.log.{1,2} rotated backups."""
     svc, mp = _build_service(tmp_path)
     try:
         if not hasattr(svc, "export_gdpr_bundle"):
@@ -320,10 +279,7 @@ def test_export_gdpr_bundle_includes_rotated_log_backups(tmp_path) -> None:
 
 
 def test_export_gdpr_bundle_includes_crash_files(tmp_path) -> None:
-    """PI-5: the zip must contain crash_diagnostics.<PID>.txt and
-    python_crash.<PID>.txt (the REAL crash file names written by
-    production code), not the fictional ``crash-*.dmp``.
-    """
+    """production code), not the fictional ``crash-*.dmp``."""
     svc, mp = _build_service(tmp_path)
     try:
         if not hasattr(svc, "export_gdpr_bundle"):
@@ -343,10 +299,7 @@ def test_export_gdpr_bundle_includes_crash_files(tmp_path) -> None:
 
 
 def test_export_gdpr_bundle_is_atomic_no_partial_tmp(tmp_path) -> None:
-    """PI-14: on success, no ``.zip.tmp`` partial artifact should
-    remain in the config dir (the temp file is renamed into place
-    via ``os.replace``).
-    """
+    """PI-14: on success, no ``.zip.tmp`` partial artifact should"""
     svc, mp = _build_service(tmp_path)
     try:
         if not hasattr(svc, "export_gdpr_bundle"):
@@ -389,8 +342,7 @@ def test_export_gdpr_bundle_excludes_model_artifacts(tmp_path) -> None:
 
 
 def test_export_gdpr_bundle_succeeds_when_config_dir_empty(tmp_path) -> None:
-    """A fresh-install config dir (no artifacts) should still produce
-    a (mostly empty) zip, not raise."""
+    """A fresh-install config dir (no artifacts) should still produce"""
     svc, mp = _build_service(tmp_path)
     try:
         if not hasattr(svc, "export_gdpr_bundle"):
@@ -403,17 +355,7 @@ def test_export_gdpr_bundle_succeeds_when_config_dir_empty(tmp_path) -> None:
 
 
 def test_export_gdpr_bundle_includes_rust_logs_subdir(tmp_path) -> None:
-    """The zip must include the Rust host's ``logs/`` subdirectory.
-
-    The Rust host (``src-tauri/src/platform/logging.rs:30-34``) writes
-    ``<config_dir>/logs/voice-typer.log`` plus rotated backups
-    ``.log.1``..``.log.4``.  The Rust logger has no PII redaction, so
-    dictated-text fragments may be present.  The GDPR delete path
-    rmtree's this directory (see
-    ``PrivacyMixin._gdpr_rmtree_rust_logs``), so the export path must
-    walk the same directory recursively so the Art. 20 portability
-    copy matches the Art. 17 erasure set.
-    """
+    """The zip must include the Rust host's ``logs/`` subdirectory."""
     svc, mp = _build_service(tmp_path)
     try:
         if not hasattr(svc, "export_gdpr_bundle"):
@@ -434,16 +376,7 @@ def test_export_gdpr_bundle_includes_rust_logs_subdir(tmp_path) -> None:
 
 
 def test_export_gdpr_bundle_includes_crash_archive_subdir(tmp_path) -> None:
-    """The zip must include the ``crash_diagnostics/`` subdir.
-
-    The crash handler moves processed crash dumps into
-    ``<config_dir>/crash_diagnostics/`` for retention (see
-    ``voice_typer/server/crash_handler/_diagnostics_archive.py``).
-    The GDPR delete path rmtree's this directory (see
-    ``PrivacyMixin._gdpr_rmtree_crash_archive``), so the export path
-    must walk the same directory recursively so the Art. 20
-    portability copy matches the Art. 17 erasure set.
-    """
+    """The zip must include the ``crash_diagnostics/`` subdir."""
     svc, mp = _build_service(tmp_path)
     try:
         if not hasattr(svc, "export_gdpr_bundle"):
@@ -474,13 +407,7 @@ def test_export_gdpr_bundle_includes_crash_archive_subdir(tmp_path) -> None:
 
 
 def test_export_gdpr_bundle_includes_subdir_nested_files(tmp_path) -> None:
-    """The recursive subdir walk must descend into nested subdirectories
-    and preserve the relative path as the zip arcname.
-
-    A nested file at ``<config_dir>/logs/sub/deep.log`` must appear in
-    the zip as ``logs/sub/deep.log``, the on-disk structure is
-    preserved inside the zip so the user can navigate the export.
-    """
+    """The recursive subdir walk must descend into nested subdirectories"""
     svc, mp = _build_service(tmp_path)
     try:
         if not hasattr(svc, "export_gdpr_bundle"):
@@ -499,9 +426,7 @@ def test_export_gdpr_bundle_includes_subdir_nested_files(tmp_path) -> None:
 
 
 def test_export_gdpr_bundle_no_partial_subdir_walk_when_missing(tmp_path) -> None:
-    """A fresh-install config dir (no ``logs/`` / ``crash_diagnostics/``
-    subdirs) must not raise, the recursive subdir walk is a silent no-op
-    for missing subdirs."""
+    """A fresh-install config dir (no ``logs/`` / ``crash_diagnostics/``"""
     svc, mp = _build_service(tmp_path)
     try:
         if not hasattr(svc, "export_gdpr_bundle"):
@@ -513,7 +438,6 @@ def test_export_gdpr_bundle_no_partial_subdir_walk_when_missing(tmp_path) -> Non
         with zipfile.ZipFile(result["path"]) as zf:
             names = zf.namelist()
             # No subdir-prefixed entries should exist when the subdirs
-            # are absent, the walk is a no-op.
             assert not any(n.startswith("logs/") for n in names), (
                 f"logs/ entries leaked into export with no logs/ dir on disk: {names}"
             )

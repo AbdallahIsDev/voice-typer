@@ -1,33 +1,4 @@
-"""Documentation regression test for the WS auth scheme docstring.
-
-Background
-----------
-review.md entry XZ-R4-001 flagged that ``voice_typer/server/sidecar_ws.py``
-described its handshake as "HMAC" in module + function docstrings, but
-the actual implementation is a one-shot **bearer-token** check using
-``hmac.compare_digest`` purely as a constant-time *comparison* helper
-(no key derivation, no signing, no per-message MAC, no nonce).
-
-ADR-0020 §3 was reconciled under ZR-56 (the section is now titled
-"Bearer token lifecycle (cross-platform)" with an explicit reconciliation
-note). The misleading "HMAC" wording in ``sidecar_ws.py`` was a residual
-of the same historical naming drift.
-
-These tests lock in the corrected docstring wording so a future
-refactor does not silently revert the docstring to claim an HMAC
-scheme that the implementation does not provide. A docstring claiming
-HMAC would mislead reviewers into believing per-message MAC / nonce /
-replay protection exists when it does not, a security-relevant
-documentation drift.
-
-Scope
------
-This is a documentation-only regression test. It does NOT re-assert
-the runtime auth behaviour (that is covered by
-``tests/test_sidecar_ws_auth_failed.py``). It only verifies the
-docstrings + module-level comments describe the actual bearer-token
-model.
-"""
+"""Documentation regression test for the WS auth scheme docstring."""
 
 from __future__ import annotations
 
@@ -35,40 +6,16 @@ import inspect
 
 from voice_typer.server import sidecar_ws  # noqa: E402
 
-# ── Helpers ────────────────────────────────────────────────────────────
-
 
 def _strip_code_refs(text: str) -> str:
-    """Remove accurate code references to the ``hmac.compare_digest`` helper.
-
-    ``hmac.compare_digest`` IS used at runtime for constant-time
-    comparison; references to the function name are accurate and must
-    NOT be flagged. Only standalone "HMAC scheme" / "HMAC token" /
-    "HMAC auth frame" claims are misleading.
-    """
+    """Remove accurate code references to the ``hmac.compare_digest`` helper."""
     cleaned = text.replace("hmac.compare_digest", "")
     cleaned = cleaned.replace(":func:`hmac.compare_digest`", "")
     return cleaned
 
 
-# ── Tests ─────────────────────────────────────────────────────────────
-
-
 def test_module_docstring_describes_bearer_token_not_hmac_scheme() -> None:
-    """The module docstring must describe the bearer-token auth model.
-
-    The module-level docstring's architecture block previously said
-    "sends the HMAC auth frame", misleading because the
-    implementation is a one-shot bearer-token comparison. After the
-    XZ-R4-001 fix, the docstring must:
-
-      1. Mention "bearer-token" (the actual model).
-      2. Document the compensating controls (loopback-only bind,
-         ephemeral port, per-respawn token rotation), these are the
-         threat-model note ADR-0020 §3 requires.
-      3. NOT claim an HMAC scheme (the implementation does not derive
-         a key, sign, or verify a MAC).
-    """
+    """The module docstring must describe the bearer-token auth model."""
     module_doc = inspect.getdoc(sidecar_ws) or ""
     assert module_doc, "sidecar_ws module must have a docstring"
 
@@ -100,17 +47,7 @@ def test_module_docstring_describes_bearer_token_not_hmac_scheme() -> None:
 
 
 def test_authenticate_docstring_describes_bearer_token_not_hmac_scheme() -> None:
-    """The ``_authenticate`` docstring must describe the bearer-token model.
-
-    Previously the docstring opened with "Read the first WS frame and
-    validate the HMAC token", misleading for the same reason as the
-    module docstring. After XZ-R4-001 the docstring must:
-
-      1. Open with "bearer token" (not "HMAC token").
-      2. Explicitly state the implementation is NOT an HMAC scheme.
-      3. Cross-reference the compensating controls documented at the
-         module level.
-    """
+    """The ``_authenticate`` docstring must describe the bearer-token model."""
     auth_doc = inspect.getdoc(sidecar_ws._authenticate) or ""
     assert auth_doc, "sidecar_ws._authenticate must have a docstring"
 
@@ -143,20 +80,12 @@ def test_authenticate_docstring_describes_bearer_token_not_hmac_scheme() -> None
 
 
 def test_authenticate_uses_hmac_compare_digest_at_runtime() -> None:
-    """The runtime path must still use ``hmac.compare_digest`` for comparison.
-
-    A regression that swapped ``hmac.compare_digest`` for a plain ``==``
-    would reintroduce a timing side-channel on the auth comparison.
-    This test locks in the constant-time comparison contract, the
+    """
+    The runtime path must still use ``hmac.compare_digest`` for comparison.
     XZ-R4-001 fix is docstring-only and must NOT change the runtime
-    behaviour.
     """
     source = inspect.getsource(sidecar_ws._authenticate)
-    # VP-8: the constant-time comparison moved to the shared helper
-    # ``voice_typer.server.ipc.auth.tokens_equal`` (which wraps
     # ``hmac.compare_digest``). Accept either form, the contract is
-    # "constant-time comparison via hmac", and a regression to a plain
-    # ``==`` fails BOTH anchors.
     assert "hmac.compare_digest" in source or "tokens_equal" in source, (
         "_authenticate must use hmac.compare_digest (directly or via the "
         "shared ipc.auth.tokens_equal helper) for constant-time token "

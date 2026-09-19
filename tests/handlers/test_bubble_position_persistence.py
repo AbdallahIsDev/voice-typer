@@ -1,22 +1,4 @@
-"""Bubble drag-position persistence: server-side contract tests.
-
-Covers the three Python-side pieces of the durable bubble-position
-feature:
-
-1. **Allowlist bounds**: ``bubble_x`` / ``bubble_y`` must accept the
-   negative coordinates produced by multi-monitor layouts (displays left
-   of / above the primary have negative origins) while still rejecting
-   absurd values.
-2. **``bubble_config`` transport**: ``_push_bubble_config`` must forward
-   the persisted pair VERBATIM to hosts. A coordinate of ``0`` is valid,
-   so the truthiness fallback used for the enum/bool keys would be a
-   silent-corruption bug here; these tests pin the plain-``getattr``
-   semantics.
-3. **Edge-toggle reset**: ``set_config({bubble_position: ...})`` clears
-   the durable pair (both coordinates back to ``None``) and triggers the
-   ``bubble_config`` repush so BOTH runtimes drop their cached position
-   in-session. An explicit pair in the SAME payload wins.
-"""
+"""Bubble drag-position persistence: server-side contract tests."""
 
 from __future__ import annotations
 
@@ -25,8 +7,6 @@ from unittest.mock import MagicMock
 
 import pytest
 from voice_typer.server.config_validators import validate_config_update
-
-# ── 1. Allowlist bounds ────────────────────────────────────────────────
 
 
 class TestBubbleCoordinateBounds:
@@ -56,16 +36,12 @@ class TestBubbleCoordinateBounds:
         assert validated == {"bubble_x": None, "bubble_y": None}
 
 
-# ── 2. bubble_config transport ────────────────────────────────────────
-
-
 class TestPushBubbleConfigCarriesPosition:
     """``_push_bubble_config`` forwards the persisted pair verbatim."""
 
     @pytest.fixture
     def wiring(self):
         # Reuse the existing capture harness (P2, import the source,
-        # don't copy it).
         from tests.test_tray import _CapturingWiring
 
         w = _CapturingWiring()
@@ -123,9 +99,6 @@ class TestPushBubbleConfigCarriesPosition:
         assert event["data"]["bubble_y"] is None
 
 
-# ── 3. Edge-toggle reset ───────────────────────────────────────────────
-
-
 class TestEdgeToggleClearsDurablePosition:
     """``set_config({bubble_position})`` resets the persisted pair."""
 
@@ -138,7 +111,6 @@ class TestEdgeToggleClearsDurablePosition:
         assert applied["bubble_x"] is None
         assert applied["bubble_y"] is None
         # The repush must fire so both runtimes drop their cached pair
-        # in-session (not just after a restart).
         fake_app.push_bubble_config.assert_called_once()
 
     def test_explicit_pair_in_same_payload_wins_over_reset(self, ipc_server: Any, fake_service: MagicMock):

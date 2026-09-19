@@ -1,17 +1,4 @@
-"""``audio_stats`` plumbing across the ASR backends.
-
-Split from the former catch-all module
-``tests/test_dictation_pipeline_review_fixes.py``. Covers a-review
-Finding 8:
-``_transcribe`` had a broad ``try/except TypeError`` to handle
-backends that lacked the ``audio_stats`` kwarg. The catch was too
-broad: a TypeError inside the function body (``None.lower()``, bad
-indexing) was also caught, masking real bugs. The fix adds
-``audio_stats=None`` to ``CloudEngine.transcribe_with_fallback``
-(the only backend that lacked it) and removes the broad catch.
-These tests verify all four backends accept ``audio_stats`` and
-that a real TypeError from the engine body propagates.
-"""
+"""``audio_stats`` plumbing across the ASR backends."""
 
 from __future__ import annotations
 
@@ -21,21 +8,11 @@ import numpy as np
 import pytest
 
 # Shared non-magic app + per-cycle pipeline factories (single
-# canonical definition in tests/fixtures/).
 from tests.fixtures.dictation_pipeline_helpers import make_test_app as _make_app, new_pipeline as _new_pipeline
 
 
 class TestAllBackendsAcceptAudioStatsKwarg:
-    """a-review Finding 8: all four ASR backends must accept the
-    ``audio_stats`` keyword argument on ``transcribe_with_fallback``.
-
-    Pre-fix, only the three local engines (Whisper/Parakeet/Qwen)
-    accepted it; ``CloudEngine.transcribe_with_fallback`` did not,
-    which forced ``DictationPipeline._transcribe`` to wrap the call
-    in a broad ``try/except TypeError`` fallback. The fix adds the
-    parameter to CloudEngine (default None, ignored) so the broad
-    catch can be removed.
-    """
+    """``audio_stats`` keyword argument on ``transcribe_with_fallback``."""
 
     def test_cloud_engine_transcribe_with_fallback_accepts_audio_stats(self):
         import inspect
@@ -76,46 +53,11 @@ class TestAllBackendsAcceptAudioStatsKwarg:
 
 
 class TestTranscribeNoBroadTypeErrorCatch:
-    """a-review Finding 8: ``DictationPipeline._transcribe`` must NOT
-    wrap the ``transcribe_with_fallback`` call in a broad
-    ``try/except TypeError``. A TypeError raised inside the engine
-    body (e.g. ``None.lower()``, bad indexing) must propagate so the
-    real bug surfaces in the log/traceback instead of being masked
-    by a retry that fails the same way.
-
-    The original source-text scan
-    (``"except TypeError:" not in inspect.getsource(...)``) was
-    brittle, a cosmetic refactor (e.g. catching ``TypeError`` as
-    ``Exception`` subclass, or extracting the call into a helper)
-    would break the test on false positives while functional
-    regressions via different patterns (e.g. ``except Exception:``
-    that still catches TypeError) would slip through. Removed in
-    favor of the two behavioral tests below
-    (``test_real_typeerror_propagates_from_engine`` and
-    ``test_audio_stats_passed_through_to_engine``) which directly
-    verify the runtime invariant: TypeError propagates and
-    audio_stats is forwarded.
-    """
+    """a-review Finding 8: ``DictationPipeline._transcribe`` must NOT"""
 
     def test_real_typeerror_propagates_from_engine(self):
-        """A TypeError raised inside the engine body must propagate
-        out of ``_transcribe`` (not be swallowed by a broad catch).
-
-        We mock the active transcriber so its
-        ``transcribe_with_fallback`` raises TypeError, simulating
-        a real bug like ``None.lower()`` inside the engine. The
-        pre-fix broad catch would have retried and re-raised the
-        same TypeError, producing a confusing trace. Post-fix, the
-        original TypeError propagates directly.
-
-        ``_transcribe`` now pops the streaming
-        session via ``pop_streaming_session()`` (atomic) instead of
-        the racy get+set pair, so we mock the pop (not the get)
-        to force the batch path.
-        """
+        """A TypeError raised inside the engine body must propagate"""
         app = _make_app()
-        # No streaming session, forces the ``else`` branch which
-        # calls active.transcribe_with_fallback.
         app.recording.pop_streaming_session.return_value = None
 
         active = MagicMock()
@@ -139,14 +81,7 @@ class TestTranscribeNoBroadTypeErrorCatch:
         assert "audio_stats" in kwargs
 
     def test_audio_stats_passed_through_to_engine(self):
-        """The audio_stats tuple captured from the recorder must be
-        forwarded to the engine's transcribe_with_fallback.
-
-        ``_transcribe`` now pops the streaming
-        session via ``pop_streaming_session()`` (atomic) instead of
-        the racy get+set pair, so we mock the pop (not the get)
-        to force the batch path.
-        """
+        """The audio_stats tuple captured from the recorder must be"""
         app = _make_app()
         app.recording.pop_streaming_session.return_value = None
 
@@ -167,11 +102,7 @@ class TestTranscribeNoBroadTypeErrorCatch:
 
 
 class TestCloudEngineIgnoresAudioStats:
-    """a-review Finding 8: when audio_stats is passed to
-    ``CloudEngine.transcribe_with_fallback``, the value is ignored
-    on the cloud path (cloud APIs don't use RMS/peak/silence) but
-    forwarded to the local_engine fallback if one is provided.
-    """
+    """``CloudEngine.transcribe_with_fallback``, the value is ignored"""
 
     def test_cloud_path_ignores_audio_stats(self):
         from unittest.mock import patch
@@ -185,10 +116,7 @@ class TestCloudEngineIgnoresAudioStats:
         assert result == "cloud text"
 
     def test_local_fallback_forwards_audio_stats(self):
-        """When the cloud fails and a local_engine is provided,
-        ``audio_stats`` must be forwarded to the local engine's
-        ``transcribe`` call.
-        """
+        """When the cloud fails and a local_engine is provided,"""
         from unittest.mock import patch
 
         from voice_typer.server.cloud_engines import CloudEngine
@@ -210,9 +138,7 @@ class TestCloudEngineIgnoresAudioStats:
         local_engine.transcribe.assert_called_once_with(audio, audio_stats=(0.7, 0.9, 10.0))
 
     def test_no_local_engine_still_works_without_audio_stats(self):
-        """Backwards compat: calling without audio_stats must still
-        work (existing callers like test_cloud_engines.py depend on it).
-        """
+        """Backwards compat: calling without audio_stats must still"""
         from unittest.mock import patch
 
         from voice_typer.server.cloud_engines import CloudEngine

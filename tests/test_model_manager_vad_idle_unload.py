@@ -1,37 +1,4 @@
-"""SU-13: VAD model + torch never idle-unloaded (~150-300MB pinned).
-
-Pre-fix bug: the TY-11 idle-unload path in
-:py:meth:`voice_typer.server.model_manager.ModelManager._do_idle_unload`
-released the active ASR backend + called ``release_gpu_memory()`` to
-return ~2.4GB of VRAM to the OS, but it did NOT call
-:py:func:`voice_typer.server.vad.unload`. The Silero VAD model (~2MB)
-plus the transitive ``torch`` module reference (~150-300MB of native
-memory + CUDA caching allocator blocks) stayed pinned for the
-lifetime of the process, defeating the point of the idle-unload.
-
-Fix: extend ``_do_idle_unload`` to also call ``vad.unload()`` after
-the ``release_gpu_memory()`` block. The existing lazy-load fallback
-in :py:func:`voice_typer.server.vad.compute_vad_prob` (which calls
-``_load_model`` on every chunk) handles re-loading on the next
-dictation, no new config field needed (reuses
-``model_idle_unload_minutes``).
-
-These tests mock the heavy torch / silero dependencies (mirroring
-``tests/test_model_idle_unload.py``) so they run headless on the
-Linux sandbox. The actual native-memory release can ONLY be verified
-on a real host with ``torch`` + the Silero model loaded: see
-VALIDATE ON HOST in the fix report.
-
-Required test coverage (per the SU-FIX-7 task description):
-
-  1. ``_do_idle_unload`` calls ``vad.unload()`` after
-     ``release_gpu_memory()``.
-  2. ``vad.unload()`` is called when ``_do_idle_unload`` fires.
-  3. ``vad.unload()`` failure (mock raises) does NOT crash
-     ``_do_idle_unload`` (non-fatal, logged at DEBUG).
-  4. ``vad.preload()`` is called again on the next ``toggle_dictation``
-     (lazy re-load via the first-chunk VAD path).
-"""
+"""SU-13: VAD model + torch never idle-unloaded (~150-300MB pinned)."""
 
 from __future__ import annotations
 
@@ -48,13 +15,7 @@ def _make_mm_with_mock_backend(
     is_loaded: bool = True,
     backend_name: str = "parakeet",
 ) -> tuple[ModelManager, MagicMock, MagicMock, MagicMock]:
-    """Construct a ModelManager backed by a mock registry + mock engine.
-
-    Mirrors the helper in ``tests/test_model_idle_unload.py`` so these
-    tests run headless on the Linux sandbox (no real torch / parakeet /
-    CUDA). Returns ``(mm, app, engine, mock_registry)`` so tests can
-    assert on registry-level calls.
-    """
+    """Construct a ModelManager backed by a mock registry + mock engine."""
     app = MagicMock(name="app")
     app.config.asr_backend = backend_name
     app.config.model_size = "small.en"
@@ -90,25 +51,11 @@ def _make_mm_with_mock_backend(
     return mm, app, engine, mock_registry
 
 
-# ─── Constraint #1 + #2: _do_idle_unload calls vad.unload() after release_gpu_memory ──
-
-
 class TestIdleUnloadReleasesVad:
-    """SU-13: when ``_do_idle_unload`` fires, it MUST call
-    ``vad.unload()`` after ``release_gpu_memory()`` so the Silero VAD
-    model + transitive torch reference are released alongside the ASR
-    backend."""
+    """SU-13: when ``_do_idle_unload`` fires, it MUST call"""
 
     def test_vad_unload_called_after_release_gpu_memory(self):
-        """``_do_idle_unload`` must call ``vad.unload()`` AND it must
-        be called AFTER ``release_gpu_memory()`` (the order matters:
-        ``release_gpu_memory`` first returns the CUDA caching
-        allocator blocks held by the ASR backend, then ``vad.unload``
-        drops the Silero model + its torch reference).
-
-        We assert the order by recording call timestamps via a side
-        effect that appends to a shared list, the resulting list
-        preserves the call order."""
+        """``_do_idle_unload`` must call ``vad.unload()`` AND it must"""
         mm, app, engine, _ = _make_mm_with_mock_backend()
 
         call_order: list[str] = []
@@ -140,10 +87,7 @@ class TestIdleUnloadReleasesVad:
             )
 
     def test_vad_unload_called_when_idle_unload_fires(self):
-        """Plain assertion that ``vad.unload()`` is called when
-        ``_do_idle_unload`` fires (regression guard against the SU-13
-        bug being reintroduced by removing the ``vad.unload()`` call).
-        """
+        """Plain assertion that ``vad.unload()`` is called when"""
         mm, app, engine, _ = _make_mm_with_mock_backend()
         with patch("voice_typer.server.vad.unload") as mock_vad_unload:
             mm._do_idle_unload()
@@ -157,10 +101,7 @@ class TestIdleUnloadReleasesVad:
             )
 
     def test_vad_unload_skipped_when_shutting_down(self):
-        """If ``app._shutting_down`` is True when the timer fires, the
-        unload must be skipped entirely (including ``vad.unload()``) —
-        avoids racing with the shutdown teardown path that already
-        unloads everything."""
+        """unload must be skipped entirely (including ``vad.unload()``) —"""
         mm, app, engine, _ = _make_mm_with_mock_backend()
         app._shutting_down = True
         with patch("voice_typer.server.vad.unload") as mock_vad_unload:
@@ -175,9 +116,7 @@ class TestIdleUnloadReleasesVad:
             )
 
     def test_vad_unload_skipped_when_engine_already_unloaded(self):
-        """If ``is_loaded`` is already False when the timer fires, the
-        unload must be skipped entirely (no double-unload), including
-        ``vad.unload()``."""
+        """unload must be skipped entirely (no double-unload), including"""
         mm, app, engine, _ = _make_mm_with_mock_backend(is_loaded=False)
         with patch("voice_typer.server.vad.unload") as mock_vad_unload:
             mm._do_idle_unload()
@@ -191,19 +130,11 @@ class TestIdleUnloadReleasesVad:
             )
 
 
-# ─── Constraint #3: vad.unload() failure is non-fatal ───────────────────
-
-
 class TestVadUnloadFailureNonFatal:
-    """SU-13: if ``vad.unload()`` raises, ``_do_idle_unload`` must NOT
-    crash. The failure is logged at DEBUG and the subsequent tray
-    state transition (AppState.IDLE "Idle, model unloaded") must
-    still run."""
+    """SU-13: if ``vad.unload()`` raises, ``_do_idle_unload`` must NOT"""
 
     def test_vad_unload_raising_does_not_crash_idle_unload(self):
-        """If ``vad.unload()`` raises, ``_do_idle_unload`` must catch
-        the exception, log it at DEBUG, and continue to the tray
-        state transition (no exception propagates to the caller)."""
+        """If ``vad.unload()`` raises, ``_do_idle_unload`` must catch"""
         mm, app, engine, _ = _make_mm_with_mock_backend()
         with (
             patch("voice_typer.server.asr_utils.release_gpu_memory"),
@@ -216,7 +147,6 @@ class TestVadUnloadFailureNonFatal:
             mm._do_idle_unload()
 
         # The tray state transition must still have run, proving
-        # _do_idle_unload didn't crash before reaching it.
         from voice_typer.server.tray_types import AppState
 
         states_called = [c.args[0] if c.args else c.kwargs.get("state") for c in app.tray.set_state.call_args_list]
@@ -227,9 +157,7 @@ class TestVadUnloadFailureNonFatal:
         )
 
     def test_vad_unload_raising_still_logs_at_debug(self, caplog):
-        """If ``vad.unload()`` raises, the failure must be logged at
-        DEBUG level (not WARNING/ERROR, VAD unload is best-effort
-        cleanup, not a user-facing issue)."""
+        """If ``vad.unload()`` raises, the failure must be logged at"""
         import logging as _logging
 
         mm, app, engine, _ = _make_mm_with_mock_backend()
@@ -251,9 +179,7 @@ class TestVadUnloadFailureNonFatal:
         )
 
     def test_vad_unload_raising_does_not_skip_tray_transition(self):
-        """Even if ``vad.unload()`` raises, the tray state message
-        must include the 'Idle, model unloaded' text (the user sees
-        the transition regardless of VAD unload outcome)."""
+        """Even if ``vad.unload()`` raises, the tray state message"""
         mm, app, engine, _ = _make_mm_with_mock_backend()
         with (
             patch("voice_typer.server.asr_utils.release_gpu_memory"),
@@ -274,30 +200,11 @@ class TestVadUnloadFailureNonFatal:
         )
 
 
-# ─── Constraint #4: vad.preload() called on next toggle_dictation (lazy re-load) ──
-
-
 class TestVadPreloadOnNextDictation:
-    """SU-13: after the idle-unload fires (``vad.unload()`` was
-    called), the next ``toggle_dictation`` must re-load the VAD model
-    so speech detection works on the next dictation.
-
-    In production, the re-load is triggered by the first audio chunk
-    reaching :py:func:`voice_typer.server.vad.compute_vad_prob`,
-    which calls :py:func:`voice_typer.server.vad._load_model` on
-    every call. The explicit :py:func:`voice_typer.server.vad.preload`
-    API is the eager-load equivalent, these tests use ``preload`` as
-    the observable entry point so the assertion is independent of the
-    recorder's audio-thread internals (which would require a full
-    audio-capture fixture to exercise)."""
+    """SU-13: after the idle-unload fires (``vad.unload()`` was"""
 
     def test_vad_preload_called_after_idle_unload(self):
-        """After ``_do_idle_unload`` fires, the next dictation cycle
-        must re-load the VAD model. We simulate the next dictation by
-        calling ``vad.preload()`` (the eager-load API that
-        ``app.py:814`` calls at startup and that the first-chunk VAD
-        path's lazy-load is equivalent to). The mock records the
-        call, proving the unload/reload cycle is symmetric."""
+        """After ``_do_idle_unload`` fires, the next dictation cycle"""
         mm, app, engine, _ = _make_mm_with_mock_backend()
 
         with (
@@ -312,14 +219,6 @@ class TestVadPreloadOnNextDictation:
             mock_vad_preload.assert_not_called()
 
             # Next toggle_dictation: the user presses the hotkey →
-            # ``ModelManager.ensure_active_engine_loaded`` reloads the
-            # ASR backend, and the recorder's first-chunk VAD path
-            # (via ``compute_vad_prob → _load_model``) re-loads VAD.
-            # ``vad.preload`` is the eager equivalent of that lazy
-            # load, calling it here simulates the next-dictation
-            # re-load. (In production, ``app.py:814`` calls this in a
-            # background thread at startup; the lazy-load fallback in
-            # ``compute_vad_prob`` is the per-chunk equivalent.)
             from voice_typer.server import vad
 
             vad.preload()
@@ -333,9 +232,7 @@ class TestVadPreloadOnNextDictation:
             )
 
     def test_vad_unload_then_preload_cycle_is_symmetric(self):
-        """The unload→preload cycle must be repeatable: VAD can be
-        unloaded and re-loaded multiple times across multiple
-        idle/dictation cycles without leaks or stuck states."""
+        """The unload→preload cycle must be repeatable: VAD can be"""
         mm, app, engine, _ = _make_mm_with_mock_backend()
 
         with (
@@ -366,11 +263,7 @@ class TestVadPreloadOnNextDictation:
             )
 
     def test_idle_unload_does_not_call_vad_preload(self):
-        """``_do_idle_unload`` must ONLY call ``vad.unload()``, it
-        must NOT eagerly call ``vad.preload()`` (that would defeat
-        the point of the idle-unload: the model would be unloaded
-        and immediately re-loaded). The preload is deferred to the
-        next dictation."""
+        """``_do_idle_unload`` must ONLY call ``vad.unload()``, it"""
         mm, app, engine, _ = _make_mm_with_mock_backend()
         with (
             patch("voice_typer.server.asr_utils.release_gpu_memory"),
@@ -388,15 +281,9 @@ class TestVadPreloadOnNextDictation:
             )
 
     def test_ensure_active_engine_loaded_after_idle_unload_does_not_crash(self):
-        """After ``_do_idle_unload`` has run (VAD is unloaded), the
-        ``toggle_dictation`` path (``ensure_active_engine_loaded``)
-        must still succeed, it reloads the ASR backend, and the
-        recorder's first-chunk VAD path re-loads VAD lazily. This
-        test guards against the idle-unload leaving the ModelManager
-        in a state where the next toggle_dictation crashes."""
+        """``toggle_dictation`` path (``ensure_active_engine_loaded``)"""
         mm, app, engine, _ = _make_mm_with_mock_backend()
         # Simulate the idle-unload having fired: engine.is_loaded=False
-        # (the registry's unload() sets this).
         engine.is_loaded = False
 
         with (
@@ -413,20 +300,11 @@ class TestVadPreloadOnNextDictation:
         mm._registry.load_active.assert_called_once()
 
 
-# ─── Source-level guard: the vad.unload() call exists in _do_idle_unload ──
-
-
 class TestSourceGuardVadUnloadInDoIdleUnload:
-    """SU-13 source guard: the ``_do_idle_unload`` method body MUST
-    contain a ``vad.unload()`` call. This catches regressions where a
-    future refactor accidentally removes the call (e.g. by extracting
-    the unload logic into a helper and forgetting to include the VAD
-    unload in the new helper)."""
+    """SU-13 source guard: the ``_do_idle_unload`` method body MUST"""
 
     def test_source_contains_vad_unload_call(self):
-        """The source of ``_do_idle_unload`` must contain
-        ``vad.unload()`` (the actual call, not just a comment
-        mentioning it)."""
+        """The source of ``_do_idle_unload`` must contain"""
         import inspect
 
         src = inspect.getsource(ModelManager._do_idle_unload)
@@ -435,10 +313,7 @@ class TestSourceGuardVadUnloadInDoIdleUnload:
         )
 
     def test_source_contains_vad_import(self):
-        """The source of ``_do_idle_unload`` must contain the
-        ``from voice_typer.server import vad`` import (lazy import
-        inside the method, mirroring the ``release_gpu_memory``
-        pattern)."""
+        """``from voice_typer.server import vad`` import (lazy import"""
         import inspect
 
         src = inspect.getsource(ModelManager._do_idle_unload)
@@ -447,10 +322,7 @@ class TestSourceGuardVadUnloadInDoIdleUnload:
         )
 
     def test_vad_unload_call_appears_after_release_gpu_memory(self):
-        """The ``vad.unload()`` call must appear AFTER the
-        ``release_gpu_memory()`` call in the source (order matters —
-        release_gpu_memory returns the CUDA caching allocator blocks
-        first, then vad.unload drops the Silero model + torch ref)."""
+        """``release_gpu_memory()`` call in the source (order matters —"""
         import inspect
 
         src = inspect.getsource(ModelManager._do_idle_unload)

@@ -1,9 +1,4 @@
-"""Tests for the centralized KeyboardOwnership singleton.
-
-ARCH-ESC-001: verifies the ownership model that prevents the ESC
-cancel hotkey from firing while the frontend is in hotkey capture
-mode, and ensures ownership transitions are thread-safe.
-"""
+"""Tests for the centralized KeyboardOwnership singleton."""
 
 from __future__ import annotations
 
@@ -15,23 +10,13 @@ from voice_typer.server.keyboard_ownership import (
     keyboard_ownership,
 )
 
-# Hint for xdist schedulers that respect ``xdist_group`` (loadgroup /
-# loadscope): pin every test in this module, and its sibling
-# ``test_keyboard_ownership_watchdog.py``, onto a single worker. Both
-# modules reset the ``KeyboardOwnership`` class-attribute singleton via
-# autouse fixtures, and the singleton is process-wide state, so letting
-# the two modules run on different workers of the same process pool
-# (or interleaving them with other modules that touch the singleton)
-# is exactly what the resets exist to defend against; the marker is
-# defense-in-depth for same-worker grouping. xdist's default ``load``
-# scheduler does NOT strictly honor this marker, it is a hint, not a
 # correctness guarantee. No-op when xdist isn't active. (C-TEST-5.)
 pytestmark = pytest.mark.xdist_group("keyboard_ownership")
 
 
 @pytest.fixture(autouse=True)
 def _reset_ownership():
-    """Reset the singleton to "normal" between tests."""
+    """Reset the singleton to \"normal\" between tests."""
     keyboard_ownership().reset()
     yield
     keyboard_ownership().reset()
@@ -46,7 +31,7 @@ def test_singleton_returns_same_instance() -> None:
 
 
 def test_default_owner_is_normal() -> None:
-    """Freshly reset singleton has owner="normal"."""
+    """Freshly reset singleton has owner=\"normal\"."""
     assert keyboard_ownership().current_owner() == "normal"
 
 
@@ -90,12 +75,7 @@ def test_reset_clears_ownership() -> None:
 
 
 def test_thread_safety_concurrent_set_owner() -> None:
-    """Concurrent set_owner calls from multiple threads don't corrupt state.
-
-    The singleton uses a threading.Lock, this test runs 100 threads
-    each setting ownership 100 times and verifies the final state is
-    one of the valid owners (not corrupted).
-    """
+    """Concurrent set_owner calls from multiple threads don't corrupt state."""
     kb = keyboard_ownership()
     barrier = threading.Barrier(100)
 
@@ -118,13 +98,7 @@ def test_thread_safety_concurrent_set_owner() -> None:
 
 
 def test_ownership_priority_capture_over_recording() -> None:
-    """If hotkey_capture is active, is_hotkey_capture_active returns True
-    even if a recording was previously active.
-
-    This encodes the priority: hotkey_capture > recording > normal.
-    The frontend's capture mode takes precedence over the recording
-    subsystem's ESC cancel.
-    """
+    """If hotkey_capture is active, is_hotkey_capture_active returns True"""
     kb = keyboard_ownership()
     kb.set_owner("recording")
     assert kb.is_recording_active() is True

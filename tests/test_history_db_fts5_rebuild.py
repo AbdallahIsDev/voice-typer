@@ -1,21 +1,4 @@
-"""FR-27: regression tests for the FTS5 'rebuild' command after
-``clear_all`` and ``apply_retention`` bulk deletes.
-
-The previous implementation's DELETE fired the FTS5 trigger
-``transcriptions_ad_fts`` which marks the rowid as deleted in the
-``transcriptions_fts_idx`` delete-bitmap but does NOT zero the segment
-data in ``transcriptions_fts_data``. ``VACUUM`` rebuilds the main DB
-file but does NOT rebuild FTS5 shadow tables. After ``clear_all`` (or
-after a large ``apply_retention`` sweep), dictated text remained
-recoverable from ``transcriptions_fts_data`` via sqlite3 CLI or
-forensic tools, defeating G4-M-05 / GDPR Art. 17 right-to-erasure.
-
-The fix issues
-``INSERT INTO transcriptions_fts(transcriptions_fts) VALUES('rebuild')``
-inside the writer thread after the bulk DELETE + VACUUM. This rebuilds
-the FTS5 segments from the (now-empty or reduced) content table,
-dropping all shadow-table segment data.
-"""
+"""FR-27: regression tests for the FTS5 'rebuild' command after"""
 
 from __future__ import annotations
 
@@ -36,13 +19,7 @@ def db(tmp_path):
 
 
 def _fts5_data_size(db) -> int:
-    """Return the total bytes in the FTS5 shadow-table segment data.
-
-    ``transcriptions_fts_data`` holds the raw segment blobs. After a
-    'rebuild' on an empty content table, this table is empty (or near-
-    empty). After a clear_all WITHOUT a rebuild, this table retains
-    the pre-clear segment data.
-    """
+    """Return the total bytes in the FTS5 shadow-table segment data."""
     conn = db._get_read_conn()
     try:
         cur = conn.execute("SELECT COALESCE(SUM(length(block)), 0) FROM transcriptions_fts_data")
@@ -53,8 +30,7 @@ def _fts5_data_size(db) -> int:
 
 
 def _fts5_row_count(db) -> int:
-    """Return the number of FTS5-indexed rows (should match the content
-    table's row count after a successful rebuild)."""
+    """Return the number of FTS5-indexed rows (should match the content"""
     conn = db._get_read_conn()
     try:
         cur = conn.execute("SELECT count(*) FROM transcriptions_fts")
@@ -64,8 +40,7 @@ def _fts5_row_count(db) -> int:
 
 
 class TestClearAllFtsRebuild:
-    """FR-27: ``clear_all`` rebuilds FTS5 segments from the (now-empty)
-    content table, dropping all shadow-table segment data."""
+    """FR-27: ``clear_all`` rebuilds FTS5 segments from the (now-empty)"""
 
     def test_clear_all_empties_fts5_shadow_data(self, db):
         # Insert rows so FTS5 has segment data to retain.
@@ -81,7 +56,6 @@ class TestClearAllFtsRebuild:
         assert db.clear_all() is True
 
         # Force a checkpoint so the WAL is flushed (helps the size
-        # assertion be deterministic).
         db.checkpoint(truncate=True)
 
         # Assert: FTS5 shadow-table data must be (near-)empty.
@@ -101,10 +75,7 @@ class TestClearAllFtsRebuild:
         real_submit = db._submit_write
 
         class _SpyConn:
-            """Wraps a real sqlite3.Connection so we can record every
-            SQL statement. ``sqlite3.Connection`` does not allow
-            setting ``execute`` / ``cursor`` as attributes (they're
-            read-only slot wrappers), so we proxy via ``__getattr__``."""
+            """Wraps a real sqlite3.Connection so we can record every"""
 
             def __init__(self, real):
                 self._real = real
@@ -164,9 +135,7 @@ class TestClearAllFtsRebuild:
         )
 
     def test_clear_all_tolerates_missing_fts_table(self, tmp_path):
-        """If the FTS5 table doesn't exist (pre-V3 schema), the rebuild
-        command fails with sqlite3.Error and is logged at WARNING —
-        clear_all still succeeds (returns True)."""
+        """If the FTS5 table doesn't exist (pre-V3 schema), the rebuild"""
         from voice_typer.server.history_db import HistoryDB
 
         db = HistoryDB(db_path=tmp_path / "nofrs.db")
@@ -192,9 +161,7 @@ class TestClearAllFtsRebuild:
 
 
 class TestApplyRetentionFtsRebuild:
-    """FR-27: ``apply_retention`` rebuilds FTS5 segments after a bulk
-    delete so deleted dictated text is not recoverable from the FTS5
-    shadow tables."""
+    """FR-27: ``apply_retention`` rebuilds FTS5 segments after a bulk"""
 
     def test_apply_retention_rebuilds_fts5_after_bulk_delete(self, db):
         # Insert 20 rows with old timestamps so retention will delete them.
@@ -231,7 +198,6 @@ class TestApplyRetentionFtsRebuild:
         assert _fts5_row_count(db) == 5
 
         # Assert: FTS5 shadow-table data must have shrunk (the deleted
-        # rows' segment data was rebuilt away).
         post_size = _fts5_data_size(db)
         assert post_size < pre_size, (
             f"FR-27 violation: FTS5 segment data did not shrink after "
@@ -240,8 +206,7 @@ class TestApplyRetentionFtsRebuild:
         )
 
     def test_apply_retention_no_rebuild_when_nothing_deleted(self, db, monkeypatch):
-        """When apply_retention deletes nothing, the rebuild command
-        is skipped (a no-op retention sweep has nothing to rebuild)."""
+        """When apply_retention deletes nothing, the rebuild command"""
         executed_sql: list[str] = []
         real_submit = db._submit_write
 

@@ -1,12 +1,4 @@
-"""Per-domain regression tests for AudioWindow __eq__ layered comparison (PERF-EQ).
-
-Split out of the former catch-all ``tests/test_perf_review_fixes.py`` per
-EC-25 test-organization work.
-
-Findings covered
-----------------
-- PERF-EQ    AudioWindow.__eq__ layered comparison (scalar → identity → shape → array_equal)
-"""
+"""Per-domain regression tests for AudioWindow __eq__ layered comparison (PERF-EQ)."""
 
 from __future__ import annotations
 
@@ -14,19 +6,7 @@ import numpy as np
 
 
 class TestAudioWindowEqualityUsesLayeredFastPaths:
-    """PERF-EQ (PARTIALLY FIXED, intentional).
-
-    The finding claims the custom ``__eq__`` uses ``np.array_equal``
-    which is O(n) in the audio length.  The actual implementation
-    already has 3 cheap fast-paths (scalar, identity, shape) before
-    falling through to ``np.array_equal`` as the final content
-    comparison.  The ``np.array_equal`` fallback is intentionally
-    kept because ~30 streaming tests rely on it for assertions.
-
-    These tests pin the layered structure so a future "let's remove
-    the np.array_equal fallback to make __eq__ O(1)" change is
-    caught (it would break tests/test_streaming.py).
-    """
+    """PERF-EQ (PARTIALLY FIXED, intentional)."""
 
     def _make_window(self, audio=None, start=0.0, end=1.0):
         from voice_typer.server.streaming import AudioWindow
@@ -36,9 +16,7 @@ class TestAudioWindowEqualityUsesLayeredFastPaths:
         return AudioWindow(audio=audio, start_seconds=start, end_seconds=end)
 
     def test_eq_false_disables_dataclass_auto_eq(self):
-        """The dataclass must be declared with ``eq=False`` so the
-        custom ``__eq__`` below is the only equality path.
-        """
+        """custom ``__eq__`` below is the only equality path."""
 
         from voice_typer.server.streaming import AudioWindow
 
@@ -49,11 +27,7 @@ class TestAudioWindowEqualityUsesLayeredFastPaths:
         )
 
     def test_layer_1_scalar_mismatch_short_circuits(self):
-        """Different ``start_seconds`` or ``end_seconds`` ⇒ not equal,
-        without ever touching the audio arrays.  Verified by giving
-        both windows the SAME audio buffer (so identity check would
-        pass) but different scalars.
-        """
+        """Different ``start_seconds`` or ``end_seconds`` ⇒ not equal,"""
         from voice_typer.server.streaming import AudioWindow
 
         shared_audio = np.full(16000, 0.1, dtype=np.float32)
@@ -66,9 +40,7 @@ class TestAudioWindowEqualityUsesLayeredFastPaths:
         assert b != c
 
     def test_layer_2_identity_short_circuits(self):
-        """Same underlying buffer + same scalars ⇒ equal by reference,
-        without calling ``np.array_equal``.
-        """
+        """Same underlying buffer + same scalars ⇒ equal by reference,"""
         from voice_typer.server.streaming import AudioWindow
 
         shared_audio = np.full(16000, 0.1, dtype=np.float32)
@@ -80,10 +52,7 @@ class TestAudioWindowEqualityUsesLayeredFastPaths:
         assert a == b
 
     def test_layer_3_shape_mismatch_short_circuits(self):
-        """Same scalars, different array shapes ⇒ not equal, without
-        calling ``np.array_equal`` (which would still return False but
-        only after a comparison).
-        """
+        """Same scalars, different array shapes ⇒ not equal, without"""
         from voice_typer.server.streaming import AudioWindow
 
         a = AudioWindow(
@@ -99,10 +68,7 @@ class TestAudioWindowEqualityUsesLayeredFastPaths:
         assert a != b
 
     def test_layer_4_array_equal_fallback_for_equal_content(self):
-        """Same scalars, different buffers, identical content ⇒ equal
-        via the ``np.array_equal`` fallback.  This is the path that
-        ~30 streaming tests rely on for ``assert window == AudioWindow(...)``.
-        """
+        """Same scalars, different buffers, identical content ⇒ equal"""
         from voice_typer.server.streaming import AudioWindow
 
         a = AudioWindow(
@@ -120,9 +86,7 @@ class TestAudioWindowEqualityUsesLayeredFastPaths:
         assert a == b
 
     def test_layer_4_array_equal_fallback_detects_content_mismatch(self):
-        """Same scalars, same shape, different content ⇒ not equal
-        via the ``np.array_equal`` fallback returning False.
-        """
+        """Same scalars, same shape, different content ⇒ not equal"""
         from voice_typer.server.streaming import AudioWindow
 
         a = AudioWindow(
@@ -138,10 +102,7 @@ class TestAudioWindowEqualityUsesLayeredFastPaths:
         assert a != b
 
     def test_eq_returns_notimplemented_for_non_audio_window(self):
-        """``__eq__`` must return ``NotImplemented`` (which Python
-        interprets as "I can't compare these types") for non-AudioWindow
-        operands, so the other operand's ``__eq__`` gets a chance to run.
-        """
+        """``__eq__`` must return ``NotImplemented`` (which Python"""
 
         a = self._make_window()
         # Compare to an unrelated type, Python falls back to identity.
@@ -152,11 +113,7 @@ class TestAudioWindowEqualityUsesLayeredFastPaths:
         assert (a == None) is False  # noqa: E711
 
     def test_hash_is_on_scalar_fields_only(self):
-        """``__hash__`` must be computed from scalar fields only —
-        the audio array is unhashable and must not be part of the hash.
-        Verified by hashing two windows with the same scalars but
-        different audio buffers, they must produce the same hash.
-        """
+        """``__hash__`` must be computed from scalar fields only —"""
         from voice_typer.server.streaming import AudioWindow
 
         a = AudioWindow(
@@ -172,11 +129,7 @@ class TestAudioWindowEqualityUsesLayeredFastPaths:
         assert hash(a) == hash(b), "AudioWindow.__hash__ must depend only on scalar fields, not audio"
 
     def test_docstring_documents_layered_comparison(self):
-        """The docstring must mention the layered comparison and
-        explain why ``np.array_equal`` is kept (test reliance).
-        This protects against a future maintainer removing the
-        fallback "for performance" and breaking 30+ tests.
-        """
+        """explain why ``np.array_equal`` is kept (test reliance)."""
         from voice_typer.server.streaming import AudioWindow
 
         doc = AudioWindow.__doc__ or ""

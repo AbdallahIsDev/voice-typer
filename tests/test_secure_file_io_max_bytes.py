@@ -1,53 +1,4 @@
-"""FR-53: regression tests for the ``max_bytes`` parameter on
-``_secure_read_text``.
-
-Pre-fix, ``_secure_read_text`` called ``f.read()`` with no size
-argument, reading the ENTIRE file into memory.  A maliciously planted
-multi-GB file at the config / vocabulary / templates / credential-store
-/ crash-recovery path would exhaust RAM before the JSON parser saw a
-single byte, a DoS vector (XZ-R10-12 confirmation).
-
-The fix adds a ``max_bytes`` keyword parameter (default 16 MiB, well
-above any legitimate config-file size) and routes the read through
-``_read_with_byte_limit``, which reads in 64 KiB chunks and raises
-``ValueError`` immediately if the running byte total exceeds the cap.
-
-Test approach:
-
-1. **Default cap rejects oversized files**, write a 32 MiB file and
-   verify ``_secure_read_text`` raises ``ValueError`` (default cap is
-   16 MiB).
-
-2. **Explicit ``max_bytes`` rejects oversized files**, write a 1 KiB
-   file and call with ``max_bytes=512``; verify ``ValueError``.
-
-3. **Explicit ``max_bytes`` accepts files at the boundary**, write a
-   1 KiB file and call with ``max_bytes=1024``; verify success (the
-   cap is exclusive of the limit, i.e. exactly ``max_bytes`` bytes is
-   allowed).
-
-4. **``max_bytes=None`` is unbounded**, write a 32 MiB file and call
-   with ``max_bytes=None``; verify the read succeeds (legacy
-   unbounded behaviour for tests / large fixtures).
-
-5. **Non-ASCII byte counting**, write a file with multi-byte UTF-8
-   characters (e.g. CJK = 3 bytes per char) and verify the byte cap
-   is enforced by BYTE count, not character count (a 4-char CJK
-   string is 12 bytes, not 4).
-
-6. **Chunked abort does not read the whole file**, write a 100 MiB
-   file and call with ``max_bytes=1MiB``; verify the read aborts
-   quickly (does NOT read all 100 MiB before raising).  We verify
-   this by spying on the file object's ``read`` method and asserting
-   it was called only a few times (not 100 MiB / 64 KiB = 1600
-   times).
-
-7. **PersistedJSON.load respects the cap**, write a >16 MiB JSON
-   file at the ``PersistedJSON`` path and verify ``load()`` returns
-   the default (the ``ValueError`` from the cap is caught by the
-   ``except (JSONDecodeError, OSError, ValueError)`` handler and the
-   corrupt file is quarantined).
-"""
+"""``_secure_read_text``."""
 
 from __future__ import annotations
 
@@ -59,17 +10,11 @@ import pytest
 _DEFAULT_MAX_READ_BYTES = 16 * 1024 * 1024  # mirrors secure_file_io._DEFAULT_MAX_READ_BYTES
 
 
-# ---------------------------------------------------------------------------
-# default cap rejects oversized files
-# ---------------------------------------------------------------------------
-
-
 class TestSecureReadTextMaxBytesDefault:
     """FR-53: ``_secure_read_text`` defaults to a 16 MiB cap."""
 
     def test_default_cap_rejects_oversized_file(self, tmp_path):
-        """A file larger than the default 16 MiB cap must raise
-        ``ValueError``."""
+        """A file larger than the default 16 MiB cap must raise"""
         from voice_typer.server.secure_file_io import _secure_read_text
 
         big_file = tmp_path / "big.txt"
@@ -84,8 +29,7 @@ class TestSecureReadTextMaxBytesDefault:
             _secure_read_text(big_file)
 
     def test_default_cap_accepts_normal_file(self, tmp_path):
-        """A normal-sized file (< 16 MiB) must read successfully
-        under the default cap."""
+        """A normal-sized file (< 16 MiB) must read successfully"""
         from voice_typer.server.secure_file_io import _secure_read_text
 
         normal_file = tmp_path / "normal.txt"
@@ -93,14 +37,8 @@ class TestSecureReadTextMaxBytesDefault:
         assert _secure_read_text(normal_file) == "hello world"
 
 
-# ---------------------------------------------------------------------------
-# explicit max_bytes
-# ---------------------------------------------------------------------------
-
-
 class TestSecureReadTextExplicitMaxBytes:
-    """FR-53: callers can pass an explicit ``max_bytes`` to override
-    the default 16 MiB cap."""
+    """FR-53: callers can pass an explicit ``max_bytes`` to override"""
 
     def test_explicit_cap_rejects_oversized_file(self, tmp_path):
         """A 1 KiB file with ``max_bytes=512`` must raise."""
@@ -112,9 +50,7 @@ class TestSecureReadTextExplicitMaxBytes:
             _secure_read_text(f, max_bytes=512)
 
     def test_explicit_cap_accepts_at_boundary(self, tmp_path):
-        """A 1 KiB file with ``max_bytes=1024`` must succeed (the cap
-        is exclusive: exactly ``max_bytes`` bytes is allowed, only
-        ``> max_bytes`` raises)."""
+        """A 1 KiB file with ``max_bytes=1024`` must succeed (the cap"""
         from voice_typer.server.secure_file_io import _secure_read_text
 
         f = tmp_path / "f.txt"
@@ -123,8 +59,7 @@ class TestSecureReadTextExplicitMaxBytes:
         assert _secure_read_text(f, max_bytes=1024) == "x" * 1024
 
     def test_explicit_cap_just_above_boundary_rejects(self, tmp_path):
-        """A 1025-byte file with ``max_bytes=1024`` must raise (the
-        cap is exclusive: ``total > max_bytes`` raises)."""
+        """A 1025-byte file with ``max_bytes=1024`` must raise (the"""
         from voice_typer.server.secure_file_io import _secure_read_text
 
         f = tmp_path / "f.txt"
@@ -133,12 +68,9 @@ class TestSecureReadTextExplicitMaxBytes:
             _secure_read_text(f, max_bytes=1024)
 
     def test_max_bytes_none_is_unbounded(self, tmp_path):
-        """``max_bytes=None`` disables the cap entirely (legacy
-        unbounded behaviour for tests / large fixtures)."""
+        """``max_bytes=None`` disables the cap entirely (legacy"""
         from voice_typer.server.secure_file_io import _secure_read_text
 
-        # Write 20 MiB, exceeds the default 16 MiB cap, so the
-        # default would reject.  With max_bytes=None it must succeed.
         big_file = tmp_path / "big.txt"
         chunk = "a" * (1024 * 1024)
         with open(big_file, "w", encoding="utf-8") as f:
@@ -150,27 +82,11 @@ class TestSecureReadTextExplicitMaxBytes:
         assert len(content) == 20 * 1024 * 1024
 
 
-# ---------------------------------------------------------------------------
-# byte counting (not character counting) for non-ASCII content
-# ---------------------------------------------------------------------------
-
-
 class TestSecureReadTextByteCounting:
-    """FR-53: the cap is on BYTES, not CHARACTERS.  For non-ASCII
-    content (CJK, emoji) a single character can be 2-4 bytes, so
-    counting characters would under-report the memory footprint by
-    up to 4x.
-    """
+    """FR-53: the cap is on BYTES, not CHARACTERS.  For non-ASCII"""
 
     def test_cjk_content_counted_by_bytes(self, tmp_path):
-        """A file of CJK characters (3 bytes per char in UTF-8) must
-        be counted by BYTES, not characters.
-
-        100 CJK chars = 300 bytes.  With ``max_bytes=200``, the read
-        must raise (300 > 200).  If the implementation mistakenly
-        counted characters (100 < 200), the read would incorrectly
-        succeed.
-        """
+        """A file of CJK characters (3 bytes per char in UTF-8) must"""
         from voice_typer.server.secure_file_io import _secure_read_text
 
         # U+4E2D (中) is 3 bytes in UTF-8.
@@ -184,8 +100,7 @@ class TestSecureReadTextByteCounting:
             _secure_read_text(f, max_bytes=200)
 
     def test_cjk_content_under_cap_succeeds(self, tmp_path):
-        """100 CJK chars (300 bytes) with ``max_bytes=400`` must
-        succeed (300 < 400)."""
+        """100 CJK chars (300 bytes) with ``max_bytes=400`` must"""
         from voice_typer.server.secure_file_io import _secure_read_text
 
         cjk_char = "\u4e2d"
@@ -195,8 +110,7 @@ class TestSecureReadTextByteCounting:
         assert _secure_read_text(f, max_bytes=400) == content
 
     def test_emoji_content_counted_by_bytes(self, tmp_path):
-        """Emoji (U+1F600 😀) is 4 bytes in UTF-8.  100 emoji = 400
-        bytes.  With ``max_bytes=256``, the read must raise."""
+        """Emoji (U+1F600 😀) is 4 bytes in UTF-8.  100 emoji = 400"""
         from voice_typer.server.secure_file_io import _secure_read_text
 
         emoji = "\U0001f600"
@@ -209,25 +123,11 @@ class TestSecureReadTextByteCounting:
             _secure_read_text(f, max_bytes=256)
 
 
-# ---------------------------------------------------------------------------
-# chunked abort does not read the whole file
-# ---------------------------------------------------------------------------
-
-
 class TestSecureReadTextChunkedAbort:
-    """FR-53: when the cap is exceeded, the read must abort IMMEDIATELY
-    (after the next 64 KiB chunk), NOT continue reading the whole
-    file.  This is the whole point of the chunked-read approach vs.
-    a single ``f.read()``.
-    """
+    """FR-53: when the cap is exceeded, the read must abort IMMEDIATELY"""
 
     def test_abort_does_not_read_whole_file(self, tmp_path, monkeypatch):
-        """Write a 10 MiB file, set ``max_bytes=1 MiB``, and verify
-        the file object's ``read`` method is called only a FEW times
-        (not 10 MiB / 64 KiB = 160 times).  The exact count depends on
-        implementation (1 MiB / 64 KiB = 16 chunks to exceed the cap),
-        but it must be MUCH less than 160.
-        """
+        """Write a 10 MiB file, set ``max_bytes=1 MiB``, and verify"""
         from voice_typer.server import secure_file_io
 
         big_file = tmp_path / "big.txt"
@@ -237,8 +137,6 @@ class TestSecureReadTextChunkedAbort:
                 f.write(chunk)
         assert big_file.stat().st_size == 10 * 1024 * 1024
 
-        # Spy on the file read method.  We patch the builtin open so
-        # the file object returned has a counting read wrapper.
         read_calls: list[int] = []
 
         class CountingFileWrapper:
@@ -261,20 +159,12 @@ class TestSecureReadTextChunkedAbort:
                 return self._real.close()
 
             # The Windows branch of _secure_read_text reads via
-            # ``with open(p, encoding=...) as f:``, the wrapper must
-            # support the context-manager protocol (dunder methods are
-            # looked up on the type, not via __getattr__).
             def __enter__(self):
                 return self
 
             def __exit__(self, *exc_info):
                 return self._real.__exit__(*exc_info)
 
-        # The POSIX branch of _secure_read_text uses os.fdopen; the
-        # Windows branch uses the high-level builtin open(). Patch BOTH
-        # so the read-count spy fires on whichever platform the test
-        # runs on (a plain os.fdopen patch silently misses the Windows
-        # branch, leaving read_calls empty).
         import builtins
 
         real_fdopen = os.fdopen
@@ -295,12 +185,6 @@ class TestSecureReadTextChunkedAbort:
             secure_file_io._secure_read_text(big_file, max_bytes=1024 * 1024)
 
         # The read must abort after at most ~17 chunks (1 MiB / 64 KiB
-        # = 16 chunks to exceed the cap; +1 for the empty final chunk
-        # that signals EOF, which the helper doesn't reach because it
-        # raises on the 17th chunk).  The whole-file read would be
-        # 10 MiB / 64 KiB = 160 chunks.  So we assert the count is
-        # well under 100 (a generous upper bound that still proves
-        # the chunked abort fired).
         assert len(read_calls) < 100, (
             f"FR-53 regression: read() was called {len(read_calls)} "
             f"times for a 10 MiB file with max_bytes=1 MiB. The "
@@ -311,12 +195,6 @@ class TestSecureReadTextChunkedAbort:
             f"check could fire."
         )
         # The lower bound depends on the platform branch:
-        #  - POSIX: the chunked read aborts after ~17 chunks (1 MiB /
-        #    64 KiB = 16 chunks before the 17th triggers the abort).
-        #  - Windows: the size pre-check (``st_size > max_bytes``)
-        #    rejects the oversized file BEFORE any ``read()`` call, so
-        #    zero reads occur, the cap is enforced without touching
-        #    the file data at all (even better than chunked abort).
         if os.name == "nt":
             assert len(read_calls) == 0, (
                 "FR-53: the Windows size pre-check must reject the "
@@ -332,23 +210,11 @@ class TestSecureReadTextChunkedAbort:
             )
 
 
-# ---------------------------------------------------------------------------
-# PersistedJSON.load respects the cap (corrupt quarantine path)
-# ---------------------------------------------------------------------------
-
-
 class TestPersistedJSONLoadRespectsMaxBytes:
-    """FR-53: ``PersistedJSON.load`` calls ``_secure_read_text`` which
-    enforces the 16 MiB cap.  A >16 MiB file at the path triggers
-    ``ValueError``, which is caught by the
-    ``except (JSONDecodeError, OSError, ValueError)`` handler, the
-    file is quarantined and the default is returned.
-    """
+    """enforces the 16 MiB cap.  A >16 MiB file at the path triggers"""
 
     def test_oversized_file_quarantined_and_default_returned(self, tmp_path):
-        """A >16 MiB file at the PersistedJSON path must be
-        quarantined (renamed to .corrupt-<ts>) and the default
-        returned."""
+        """A >16 MiB file at the PersistedJSON path must be"""
         from voice_typer.server.secure_file_io import PersistedJSON
 
         path = tmp_path / "state.json"
@@ -364,12 +230,8 @@ class TestPersistedJSONLoadRespectsMaxBytes:
         result = pj.load()
 
         # The default must be returned (ValueError from the cap is
-        # caught by the except (JSONDecodeError, OSError, ValueError)
-        # handler).
         assert result == sentinel
 
-        # The oversized file must be quarantined (renamed to
-        # .corrupt-<ts>).
         assert not path.exists(), (
             "FR-53 regression: the oversized file was NOT quarantined "
             "— it should have been renamed to .corrupt-<ts> by the "
@@ -382,8 +244,7 @@ class TestPersistedJSONLoadRespectsMaxBytes:
         )
 
     def test_normal_file_loads_correctly(self, tmp_path):
-        """A normal-sized JSON file must load correctly under the
-        default 16 MiB cap."""
+        """A normal-sized JSON file must load correctly under the"""
         from voice_typer.server.secure_file_io import PersistedJSON
 
         path = tmp_path / "state.json"

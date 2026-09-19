@@ -1,16 +1,4 @@
-"""regression tests: ``AsrBackendRegistry.load_active`` exception
-path mirrors :meth:`load_with_fallback` (circuit breaker + unload-on-failure).
-
-Pre-fix: ``load_active``'s ``except Exception`` branch caught the
-exception, logged it, and returned None. It did NOT call
-``self._record_failure(self.active_name)`` (circuit breaker) NOR
-``backend.unload()`` (resource cleanup). A user repeatedly retrying
-a failed ``change_model`` (e.g. F2 hotkey on a broken Parakeet
-install) called ``load_active`` each time, failure counter never
-incremented (backend never auto-disabled) and partially-allocated
-ORT / CUDA contexts from each failed session creation
-were never released (GPU memory accumulation across retries).
-"""
+"""regression tests: ``AsrBackendRegistry.load_active`` exception"""
 
 from __future__ import annotations
 
@@ -40,14 +28,10 @@ def _make_registry_with_failing_backend(*, backend_name: str = "parakeet") -> tu
 
 
 class TestLoadActiveCircuitBreaker:
-    """``load_active`` exception path must increment the failure
-    counter (circuit breaker), mirroring ``load_with_fallback``."""
+    """``load_active`` exception path must increment the failure"""
 
     def test_load_active_increments_failure_counter_on_exception(self):
-        """When ``backend.load`` raises, ``load_active`` must call
-        ``_record_failure(active_name)`` so the failure counter
-        increments (mirrors ``load_with_fallback``'s primary-backend
-        failure path)."""
+        """When ``backend.load`` raises, ``load_active`` must call"""
         registry, _ = _make_registry_with_failing_backend()
 
         assert registry.failure_count("parakeet") == 0
@@ -60,9 +44,7 @@ class TestLoadActiveCircuitBreaker:
         )
 
     def test_load_active_disables_backend_after_max_failures(self):
-        """After ``_MAX_CONSECUTIVE_FAILURES`` load_active failures,
-        the backend must be added to ``_disabled_backends`` (circuit
-        breaker tripped). Pre-fix, this never happened for load_active."""
+        """After ``_MAX_CONSECUTIVE_FAILURES`` load_active failures,"""
         registry, _ = _make_registry_with_failing_backend()
         assert not registry._is_disabled("parakeet")
 
@@ -77,8 +59,7 @@ class TestLoadActiveCircuitBreaker:
         )
 
     def test_load_active_resets_failure_counter_on_success(self):
-        """A successful ``load_active`` call must reset the failure
-        counter to 0 (mirrors ``load_with_fallback``'s success path)."""
+        """A successful ``load_active`` call must reset the failure"""
         # First call fails, second succeeds.
         call_count = {"n": 0}
         engine = MagicMock()
@@ -115,14 +96,10 @@ class TestLoadActiveCircuitBreaker:
 
 
 class TestLoadActiveUnloadOnFailure:
-    """``load_active`` exception path must call
-    ``backend.unload()`` (resource cleanup), mirroring
-    ``load_with_fallback``."""
+    """``load_active`` exception path must call"""
 
     def test_load_active_calls_unload_on_failure(self):
-        """When ``backend.load`` raises, ``load_active`` must call
-        ``backend.unload()`` to release partially-allocated resources
-        (ORT sessions, CUDA contexts, model weights)."""
+        """When ``backend.load`` raises, ``load_active`` must call"""
         registry, engine = _make_registry_with_failing_backend()
 
         registry.load_active(progress_callback=lambda msg: None)
@@ -139,9 +116,7 @@ class TestLoadActiveUnloadOnFailure:
         )
 
     def test_load_active_swallows_unload_failure(self):
-        """If ``backend.unload()`` itself raises, ``load_active`` must
-        swallow the unload exception (log a warning) and still return
-        None, NOT propagate the unload exception to the caller."""
+        """If ``backend.unload()`` itself raises, ``load_active`` must"""
         registry, engine = _make_registry_with_failing_backend()
         # Make unload also fail.
         engine.unload.side_effect = RuntimeError("unload failed")
@@ -153,7 +128,6 @@ class TestLoadActiveUnloadOnFailure:
             "load() and unload() fail. The unload failure must be logged "
             "but not propagated."
         )
-        # unload was called even though it raised.
         engine.unload.assert_called_once()
 
     def test_load_active_returns_none_on_failure(self):

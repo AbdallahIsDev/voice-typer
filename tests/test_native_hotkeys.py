@@ -1,13 +1,4 @@
-"""Tests for voice_typer.server.native_hotkeys module.
-
-Covers:
-- Hotkey spec parsing (parse_hotkey_spec)
-- Key name normalization (_normalize_key_name)
-- Modifier canonicalization (_canonical_modifier)
-- Backend factory (create_native_backend) and platform validation
-- Wire-protocol line handling (_handle_line) and hotkey matching
-- NativeHotkeyRecorder (capture mode)
-"""
+"""Tests for voice_typer.server.native_hotkeys module."""
 
 from __future__ import annotations
 
@@ -16,8 +7,6 @@ import sys
 from pathlib import Path
 
 import pytest
-
-# ─── parse_hotkey_spec ─────────────────────────────────────────────────────
 
 
 class TestParseHotkeySpec:
@@ -80,7 +69,6 @@ class TestParseHotkeySpec:
     def test_modifier_aliases(self):
         from voice_typer.server.native_hotkeys import parse_hotkey_spec
 
-        # win, super, cmd all map to "cmd"
         for token in ["<win>", "<super>", "<cmd>"]:
             p = parse_hotkey_spec(token)
             assert p is not None
@@ -135,9 +123,6 @@ class TestParseHotkeySpec:
             assert p["modifiers"] == {"altgr"}, f"{token} should map to altgr"
 
 
-# ─── Key name normalization ────────────────────────────────────────────────
-
-
 class TestNormalizeKeyName:
     """Verify _normalize_key_name converts spec tokens to wire-protocol names."""
 
@@ -178,9 +163,6 @@ class TestNormalizeKeyName:
         assert _normalize_key_name("right") == "Right"
 
 
-# ─── Modifier canonicalization ─────────────────────────────────────────────
-
-
 class TestCanonicalModifier:
     """Verify _canonical_modifier converts wire-protocol names to lowercase canonical form."""
 
@@ -208,9 +190,6 @@ class TestCanonicalModifier:
 
         assert _canonical_modifier("Foo") is None
         assert _canonical_modifier("") is None
-
-
-# ─── Platform backend factory & validation ─────────────────────────────────
 
 
 class TestPlatformBackends:
@@ -281,9 +260,6 @@ class TestPlatformBackends:
         err = b._validate_platform()
         assert err is not None
         assert "macos" in err.lower()
-
-
-# ─── Wire-protocol line handling ───────────────────────────────────────────
 
 
 class TestLineHandling:
@@ -384,11 +360,6 @@ class TestLineHandling:
         b._handle_line("KEY_DOWN:V")
         assert fired == []
 
-        # release V before pressing it again so the next KEY_DOWN
-        # is a fresh press (not an OS auto-repeat). The auto-repeat filter
-        # in _on_key_event suppresses duplicate KEY_DOWN events while the
-        # key is held; without this KEY_UP the second KEY_DOWN:V below
-        # would be treated as auto-repeat and the callback would not fire.
         b._handle_line("KEY_UP:V")
 
         # Hold Ctrl+Alt, then press V, should fire
@@ -503,9 +474,6 @@ class TestLineHandling:
         b._handle_line("")
 
 
-# ─── Binary discovery ──────────────────────────────────────────────────────
-
-
 class TestBinaryDiscovery:
     """Verify get_native_binary_path finds the binary in various locations."""
 
@@ -530,24 +498,13 @@ class TestBinaryDiscovery:
 
         monkeypatch.setattr(sys, "platform", "linux")
         # The actual binary may or may not exist in the test env, just
-        # verify the lookup logic doesn't crash.
         path = native_hotkeys.get_native_binary_path()
         # Could be None or a Path, either is OK
         assert path is None or isinstance(path, Path)
 
 
-# ─── Config defaults ───────────────────────────────────────────────────────
-
-
 class TestConfigDefaults:
-    """Verify platform-aware default hotkey.
-
-    FIX-HOTKEY-ARCHITECTURE: the default is now ``<caps_lock>`` on ALL
-    platforms (including macOS). Previously macOS defaulted to ``<fn>``
-    and unknown platforms to ``<f2>``; both are no longer used as
-    defaults because Caps Lock is universally present and the Fn key
-    is firmware-only on Windows/Linux laptops.
-    """
+    """Verify platform-aware default hotkey."""
 
     def test_default_is_caps_lock_on_macos(self, monkeypatch):
         monkeypatch.setattr(sys, "platform", "darwin")
@@ -595,9 +552,7 @@ class TestConfigDefaults:
 
 
 class TestLivenessWatchdog:
-    """G4-H-31: the native hotkey backend has a liveness watchdog that
-    tracks event timestamps and respawns the binary if it stops
-    responding."""
+    """tracks event timestamps and respawns the binary if it stops"""
 
     def test_watchdog_state_initialized(self, monkeypatch):
         """``__init__`` initializes the watchdog state variables."""
@@ -705,8 +660,7 @@ class TestLivenessWatchdog:
         assert base._WATCHDOG_RESPAWN_SECONDS == 60.0
 
     def test_spawn_process_uses_stdin_pipe(self, monkeypatch, tmp_path):
-        """G4-H-31: ``_spawn_process`` opens stdin as PIPE (was DEVNULL)
-        so the watchdog can write PING to it."""
+        """G4-H-31: ``_spawn_process`` opens stdin as PIPE (was DEVNULL)"""
         import subprocess
         from unittest.mock import patch
 
@@ -726,15 +680,7 @@ class TestLivenessWatchdog:
             "voice_typer.server.native_hotkeys.binary_path.get_native_binary_path",
             lambda: fake_bin,
         )
-        # ``_spawn_process`` now re-verifies the binary's
-        # SHA-256 against the manifest on every spawn (including the
-        # watchdog respawn path). The fake binary in this test has no
-        # manifest entry, so the verifier would FAIL CLOSED and skip
-        # the spawn, breaking this test's stdin-PIPE assertion. Patch
-        # the verifier to return True so the spawn proceeds to the
         # Popen call (the TOCTOU re-verification itself is pinned by
-        # the dedicated tests in
-        # ``test_native_hotkeys_base_toctou_verification.py``).
         monkeypatch.setattr(
             "voice_typer.server.native_hotkeys.binary_path.verify_native_binary_or_skip",
             lambda _path: True,
@@ -764,20 +710,8 @@ class TestLivenessWatchdog:
         )
 
 
-# watchdog respawn race / shutdown latch ────────────────────────
-
-
 class TestWatchdogRespawnRace:
-    """FR-21 (High): the watchdog's respawn path (``stop()`` + ``start(cb)``)
-    races a concurrent main-thread ``stop()``.  Pre-fix, the main-thread
-    ``stop()`` was a no-op (idempotency guard) and the watchdog's
-    ``start(cb)`` resurrected an orphaned native binary that held the
-    keyboard hook (Windows) or evdev FDs (Linux) after app shutdown.
-
-    Post-fix: ``stop(shutdown=True)`` (the default) latches
-    ``_shutdown_requested=True`` BEFORE the idempotency guard, and
-    ``_watchdog_loop`` checks the latch before calling ``start(cb)``.
-    """
+    """FR-21 (High): the watchdog's respawn path (``stop()`` + ``start(cb)``)"""
 
     def test_shutdown_requested_initialized_false(self, monkeypatch):
         """``__init__`` initializes ``_shutdown_requested`` to False."""
@@ -796,8 +730,7 @@ class TestWatchdogRespawnRace:
         assert b._shutdown_requested is False, "FR-21: _shutdown_requested must initialize to False"
 
     def test_stop_default_latches_shutdown_requested(self, monkeypatch):
-        """``stop()`` (default ``shutdown=True``) latches
-        ``_shutdown_requested=True`` so the watchdog cannot respawn."""
+        """``stop()`` (default ``shutdown=True``) latches"""
         from voice_typer.server import native_hotkeys
 
         monkeypatch.setattr(native_hotkeys, "is_linux", lambda: True)
@@ -815,14 +748,7 @@ class TestWatchdogRespawnRace:
         assert b._stop_event.is_set()
 
     def test_stop_latches_shutdown_before_idempotency_guard(self, monkeypatch):
-        """FR-21 regression: the main-thread ``stop()`` must latch
-        ``_shutdown_requested=True`` BEFORE the idempotency guard returns.
-
-        Simulates the race: the watchdog's cleanup ``stop(shutdown=False)``
-        has already set ``_stop_event``, so the main-thread ``stop()``
-        would be a no-op pre-fix.  Post-fix, the latch is set BEFORE the
-        guard, so the main-thread ``stop()`` still records the shutdown.
-        """
+        """FR-21 regression: the main-thread ``stop()`` must latch"""
         from voice_typer.server import native_hotkeys
 
         monkeypatch.setattr(native_hotkeys, "is_linux", lambda: True)
@@ -835,16 +761,11 @@ class TestWatchdogRespawnRace:
         assert b._shutdown_requested is False
 
         # Simulate the watchdog's cleanup stop() having already set
-        # _stop_event (so the main-thread stop() hits the idempotency
-        # guard and would be a no-op pre-fix).
         b._stop_event.set()
 
         # Main thread calls stop() (default shutdown=True).
         b.stop()
 
-        # _shutdown_requested MUST be latched even though stop()
-        # was a no-op for everything else (the idempotency guard
-        # returned early).
         assert b._shutdown_requested is True, (
             "FR-21: stop() must set _shutdown_requested=True BEFORE the "
             "idempotency guard returns, so a concurrent main-thread stop() "
@@ -852,11 +773,7 @@ class TestWatchdogRespawnRace:
         )
 
     def test_watchdog_cleanup_stop_does_not_latch_shutdown(self, monkeypatch):
-        """FR-21: ``stop(shutdown=False)`` (used by the watchdog's own
-        respawn cleanup and by ``start()``'s error-recovery paths) must
-        NOT latch ``_shutdown_requested``, otherwise the watchdog could
-        never respawn (its own cleanup would disable it) and a failed
-        ``start()`` would permanently disable the watchdog."""
+        """FR-21: ``stop(shutdown=False)`` (used by the watchdog's own"""
         from voice_typer.server import native_hotkeys
 
         monkeypatch.setattr(native_hotkeys, "is_linux", lambda: True)
@@ -883,21 +800,7 @@ class TestWatchdogRespawnRace:
         )
 
     def test_watchdog_does_not_respawn_after_shutdown_requested(self, monkeypatch):
-        """FR-21 end-to-end regression: if ``_shutdown_requested`` is True
-        (main thread called ``stop()``) when the watchdog reaches its
-        respawn path, the watchdog must NOT call ``start(cb)``.
-
-        Reproduces the race:
-          1. watchdog detects hung binary (stale event/PONG timestamps)
-          2. watchdog calls ``stop(shutdown=False)`` for cleanup
-          3. main thread calls ``stop()`` concurrently (default
-             ``shutdown=True``), latches ``_shutdown_requested=True``
-          4. watchdog reaches the respawn check; post-fix it sees the
-             latch and returns WITHOUT calling ``start(cb)``.
-
-        Pre-fix: step 4 would call ``start(cb)`` and resurrect an
-        orphaned native binary.
-        """
+        """FR-21 end-to-end regression: if ``_shutdown_requested`` is True"""
         from unittest.mock import MagicMock
 
         from voice_typer.server import native_hotkeys
@@ -912,72 +815,48 @@ class TestWatchdogRespawnRace:
         b = LinuxEvdevHotkey("<caps_lock>")
         b._callback = lambda: None  # stashed callback for respawn
 
-        # Simulate a hung binary: stale timestamps + PONG supported so
-        # the respawn condition (event_stale AND pong_stale) is True.
         b._last_event_received_at = 0.0
         b._last_pong_received_at = 0.0
         b._pong_supported = True
 
         # Make the watchdog's PING/PONG waits return fast (otherwise
-        # the loop blocks for 30s+5s on every iteration).
         monkeypatch.setattr(base, "_WATCHDOG_PING_INTERVAL_SECONDS", 0.01)
         monkeypatch.setattr(base, "_WATCHDOG_PONG_TIMEOUT_SECONDS", 0.01)
 
         # Fake alive process so the PING write proceeds (the loop
-        # skips the PING write if ``_process`` is None or has exited).
         fake_proc = MagicMock()
         fake_proc.poll.return_value = None  # alive
         fake_proc.stdin = MagicMock()
         b._process = fake_proc
 
-        # Track stop() and start() calls.  We mock stop() to avoid the
-        # real teardown side-effects (joining threads, killing the fake
-        # process) that would interfere with the test.
         start_calls: list = []
         stop_shutdown_flags: list = []
 
         def tracking_stop(*, shutdown: bool = True) -> None:
             stop_shutdown_flags.append(shutdown)
             # Simulate the side-effect of stop() that the watchdog
-            # relies on: set _stop_event so the next loop iteration's
-            # ``if self._stop_event.is_set(): return`` would short-circuit
-            # (though we expect the shutdown-latch check to fire first).
             b._stop_event.set()
-            # Also set _watchdog_stop_event as the real stop() does, so
-            # the watchdog's ``_watchdog_stop_event.clear()`` after
-            # stop() has something to clear.
             b._watchdog_stop_event.set()
 
         b.stop = tracking_stop
         b.start = lambda cb: start_calls.append(cb)
 
         # Race simulation: the main thread called stop() (shutdown=True)
-        # between the watchdog's cleanup stop() and start().  We latch
-        # the flag directly to simulate the post-fix behavior of
-        # stop(shutdown=True).
         b._shutdown_requested = True
 
         # Run the watchdog loop inline (deterministic, no real thread).
-        # It should reach the respawn path, call stop(shutdown=False)
-        # for cleanup, then check _shutdown_requested and return
-        # WITHOUT calling start().
         b._watchdog_loop()
 
         assert start_calls == [], (
             f"FR-21: watchdog must NOT call start() when _shutdown_requested is True; got start_calls={start_calls}"
         )
         # The watchdog's cleanup stop must use shutdown=False (otherwise
-        # it would itself latch _shutdown_requested, breaking respawn).
         assert stop_shutdown_flags == [False], (
             f"FR-21: watchdog cleanup must call stop(shutdown=False); got stop_shutdown_flags={stop_shutdown_flags}"
         )
 
     def test_watchdog_respawns_when_shutdown_not_requested(self, monkeypatch):
-        """FR-21 negative control: when ``_shutdown_requested`` is False
-        (no concurrent main-thread shutdown), the watchdog's respawn
-        path MUST still call ``start(cb)``, the fix must not break the
-        legitimate respawn functionality.
-        """
+        """FR-21 negative control: when ``_shutdown_requested`` is False"""
         from unittest.mock import MagicMock
 
         from voice_typer.server import native_hotkeys
@@ -1026,23 +905,14 @@ class TestWatchdogRespawnRace:
         )
 
 
-# ─── Multi-spec pooling ──────────────────────────────────────────────────
-
-
 class TestMultiSpecPooling:
-    """Verify the multi-spec matcher API on ``SubprocessHotkeyBackend``.
-
+    """
+    Verify the multi-spec matcher API on ``SubprocessHotkeyBackend``.
     These tests pin the contract that one backend instance can match
-    multiple hotkey specs against a single event stream (the primary
-    spec passed to ``__init__`` plus any number of extra matchers
-    registered via :meth:`add_extra_matcher`). This is the building
-    block ``HotkeyDispatcher`` uses to pool the dictation / ESC /
-    repaste backends into ONE subprocess.
     """
 
     def test_add_extra_matcher_parses_spec(self, monkeypatch):
-        """``add_extra_matcher`` parses the spec and stores it. The
-        primary spec (``__init__`` arg) is unaffected."""
+        """``add_extra_matcher`` parses the spec and stores it. The"""
         from voice_typer.server import native_hotkeys
 
         monkeypatch.setattr(native_hotkeys, "is_linux", lambda: True)
@@ -1064,11 +934,7 @@ class TestMultiSpecPooling:
         assert b._parsed["main_key"] == "F2"
 
     def test_add_extra_matcher_idempotent_on_role(self, monkeypatch):
-        """Calling ``add_extra_matcher`` twice with the same role
-        replaces the parsed spec (callbacks preserved). This lets
-        ``HotkeyDispatcher._repool_aux_into_shared`` re-register an
-        existing role against a fresh shared backend without
-        duplicating matchers."""
+        """Calling ``add_extra_matcher`` twice with the same role"""
         from voice_typer.server import native_hotkeys
 
         monkeypatch.setattr(native_hotkeys, "is_linux", lambda: True)
@@ -1081,7 +947,6 @@ class TestMultiSpecPooling:
         b.add_extra_matcher("esc", "<esc>")
         b.set_role_callback("esc", lambda: None)
         # Re-register with a different spec (shouldn't normally happen
-        # for ESC, but the API must handle it).
         b.add_extra_matcher("esc", "<f4>")
         assert len(b._extra_matchers) == 1, (
             f"add_extra_matcher must not duplicate entries for the same role; got {b._extra_matchers}"
@@ -1091,8 +956,7 @@ class TestMultiSpecPooling:
         assert b._extra_matchers[0]["parsed"]["main_key"] == "F4"
 
     def test_add_extra_matcher_rejects_unparseable_spec(self, monkeypatch):
-        """An unparseable spec raises ``ValueError`` so the caller
-        sees the error at registration time, not at match time."""
+        """An unparseable spec raises ``ValueError`` so the caller"""
         from voice_typer.server import native_hotkeys
 
         monkeypatch.setattr(native_hotkeys, "is_linux", lambda: True)
@@ -1106,9 +970,7 @@ class TestMultiSpecPooling:
             b.add_extra_matcher("esc", "")
 
     def test_set_role_callback_routes_to_extra_matcher(self, monkeypatch):
-        """``set_role_callback`` for a non-dictation role sets the
-        callback on the matching extra matcher, NOT on the primary
-        ``self._callback`` slot."""
+        """callback on the matching extra matcher, NOT on the primary"""
         from voice_typer.server import native_hotkeys
 
         monkeypatch.setattr(native_hotkeys, "is_linux", lambda: True)
@@ -1126,8 +988,7 @@ class TestMultiSpecPooling:
         assert getattr(b, "_callback", None) is not esc_cb
 
     def test_set_role_callback_dictation_sets_primary(self, monkeypatch):
-        """``set_role_callback("dictation", cb)`` sets the primary
-        ``self._callback`` (same as the legacy path via ``start()``)."""
+        """``set_role_callback(\"dictation\", cb)`` sets the primary"""
         from voice_typer.server import native_hotkeys
 
         monkeypatch.setattr(native_hotkeys, "is_linux", lambda: True)
@@ -1142,9 +1003,7 @@ class TestMultiSpecPooling:
         assert b._callback is cb
 
     def test_set_role_callback_unknown_role_raises(self, monkeypatch):
-        """``set_role_callback`` for a role that wasn't registered via
-        ``add_extra_matcher`` raises ``KeyError`` so callers see the
-        bug immediately rather than silently dropping the callback."""
+        """``set_role_callback`` for a role that wasn't registered via"""
         from voice_typer.server import native_hotkeys
 
         monkeypatch.setattr(native_hotkeys, "is_linux", lambda: True)
@@ -1158,8 +1017,7 @@ class TestMultiSpecPooling:
             b.set_role_callback("esc", lambda: None)
 
     def test_remove_extra_matcher(self, monkeypatch):
-        """``remove_extra_matcher`` drops the matcher for the given
-        role (no-op if the role isn't registered)."""
+        """``remove_extra_matcher`` drops the matcher for the given"""
         from voice_typer.server import native_hotkeys
 
         monkeypatch.setattr(native_hotkeys, "is_linux", lambda: True)
@@ -1180,9 +1038,7 @@ class TestMultiSpecPooling:
         assert len(b._extra_matchers) == 1
 
     def test_extra_matcher_add_remove_readd_no_leak(self, monkeypatch):
-        """Role teardown + re-register cycle must not leak matcher
-        objects: add → remove → re-add leaves exactly one entry for
-        the role, and the removed matcher's callback is gone with it."""
+        """Role teardown + re-register cycle must not leak matcher"""
         from voice_typer.server import native_hotkeys
 
         monkeypatch.setattr(native_hotkeys, "is_linux", lambda: True)
@@ -1220,9 +1076,7 @@ class TestMultiSpecPooling:
         assert b._extra_matchers == []
 
     def test_extra_matcher_fires_on_matching_event(self, monkeypatch):
-        """When the event stream matches an extra matcher's spec, the
-        extra matcher's callback fires, independently of the primary
-        spec's callback."""
+        """extra matcher's callback fires, independently of the primary"""
         from voice_typer.server import native_hotkeys
 
         monkeypatch.setattr(native_hotkeys, "is_linux", lambda: True)
@@ -1244,8 +1098,7 @@ class TestMultiSpecPooling:
         assert dictation_fired == [], "Primary matcher must NOT fire for ESC"
 
     def test_primary_matcher_fires_for_primary_spec(self, monkeypatch):
-        """When the event stream matches the primary spec, the
-        primary callback fires, extra matchers do not interfere."""
+        """When the event stream matches the primary spec, the"""
         from voice_typer.server import native_hotkeys
 
         monkeypatch.setattr(native_hotkeys, "is_linux", lambda: True)
@@ -1267,8 +1120,7 @@ class TestMultiSpecPooling:
         assert esc_fired == [], "ESC extra matcher must NOT fire for F2"
 
     def test_no_double_fire_when_both_specs_could_match(self, monkeypatch):
-        """At most ONE matcher fires per event. If the primary spec
-        matches, extra matchers are not tried (short-circuit)."""
+        """At most ONE matcher fires per event. If the primary spec"""
         from voice_typer.server import native_hotkeys
 
         monkeypatch.setattr(native_hotkeys, "is_linux", lambda: True)
@@ -1287,15 +1139,11 @@ class TestMultiSpecPooling:
 
         b._handle_line("KEY_DOWN:F2")
         # Primary fires first (it's tried first in _try_match), extra
-        # is short-circuited.
         assert primary_fired == ["press"]
         assert extra_fired == [], "Extra matcher must NOT fire when primary already matched (short-circuit)"
 
     def test_delegated_start_skips_spawn(self, monkeypatch):
-        """A delegated backend's ``start()`` records the callback and
-        marks itself ready, but does NOT spawn a subprocess. This is
-        the mechanism ``HotkeyDispatcher`` uses to suppress the
-        per-role subprocess when pooling is active."""
+        """marks itself ready, but does NOT spawn a subprocess. This is"""
         from voice_typer.server import native_hotkeys
 
         monkeypatch.setattr(native_hotkeys, "is_linux", lambda: True)
@@ -1313,13 +1161,10 @@ class TestMultiSpecPooling:
         assert b._ready_event.is_set()
         assert b._process is None
         assert b._reader_thread is None
-        # is_alive reports True (ready + not stopped).
         assert b.is_alive() is True
 
     def test_delegated_stop_is_noop_for_subprocess(self, monkeypatch):
-        """A delegated backend's ``stop()`` sets ``_stop_event`` but
-        does not attempt to kill a subprocess (there is none) or join
-        a reader thread (there is none)."""
+        """A delegated backend's ``stop()`` sets ``_stop_event`` but"""
         from voice_typer.server import native_hotkeys
 
         monkeypatch.setattr(native_hotkeys, "is_linux", lambda: True)
@@ -1331,20 +1176,12 @@ class TestMultiSpecPooling:
         b = LinuxEvdevHotkey("<esc>")
         b._delegated = True
         b.start(lambda: None)
-        # stop() must not raise even though no subprocess exists.
         b.stop()
         assert b._stop_event.is_set()
         assert b.is_alive() is False
 
     def test_delegated_stop_does_not_log_stopping_line(self, monkeypatch, caplog):
-        """A delegated backend's ``stop()`` must NOT emit the
-        ``[NATIVE-HOTKEY] Stopping <platform> backend`` INFO line.
-
-        With ESC + repaste pooled onto the shared dictation backend,
-        shutdown calls ``stop()`` on THREE backend objects that all
-        resolve to ONE native subprocess, three identical INFO lines
-        for a single teardown. Only the real (non-delegated) backend's
-        stop() logs the line."""
+        """``[NATIVE-HOTKEY] Stopping <platform> backend`` INFO line."""
         import logging as _logging
 
         from voice_typer.server import native_hotkeys
@@ -1367,19 +1204,7 @@ class TestMultiSpecPooling:
         assert b.is_alive() is False
 
     def test_delegated_backend_callback_never_invoked(self, monkeypatch):
-        """Even if a delegated backend's ``_handle_line`` is called
-        directly (e.g. by a stray reader thread), the callback must
-        not fire, the shared backend's extra matcher handles dispatch.
-        This is a defense-in-depth: the delegated backend's reader
-        thread doesn't exist in normal operation, but if it did
-        (e.g. a race during start/stop), the callback would fire
-        TWICE (once from the shared backend, once from the delegated
-        backend). Suppressing the delegated backend's callback
-        prevents that."""
-        # Actually, the delegated backend has no reader thread, so
-        # _handle_line is never called. This test documents that
-        # invariant: the callback slot is set (for is_alive) but
-        # is unreachable via the normal wire-protocol path.
+        """Even if a delegated backend's ``_handle_line`` is called"""
         from voice_typer.server import native_hotkeys
 
         monkeypatch.setattr(native_hotkeys, "is_linux", lambda: True)
@@ -1395,20 +1220,14 @@ class TestMultiSpecPooling:
         # No reader thread exists to call _handle_line.
         assert b._reader_thread is None
         # The callback IS set (is_alive relies on _ready_event, not
-        # the callback, but the callback slot is populated so a
-        # hypothetical direct _try_match call would find it).
         assert b._callback is not None
 
 
 class TestHotkeyDispatcherPooling:
-    """Verify ``HotkeyDispatcher`` pools ESC + repaste into the shared
-    (dictation) backend's extra matchers, reducing the subprocess
-    count from 3 to 1 on platforms that select the native
-    ``SubprocessHotkeyBackend``."""
+    """Verify ``HotkeyDispatcher`` pools ESC + repaste into the shared"""
 
     def test_shared_backend_set_after_register(self, monkeypatch):
-        """After ``register()`` succeeds, ``_shared_backend`` is the
-        dictation backend (same object as ``_hotkey_backend``)."""
+        """After ``register()`` succeeds, ``_shared_backend`` is the"""
         from types import SimpleNamespace
         from unittest.mock import MagicMock
 
@@ -1441,8 +1260,7 @@ class TestHotkeyDispatcherPooling:
         assert dispatcher._hotkey_backend is new_backend
 
     def test_shared_backend_cleared_on_stop_all(self):
-        """``stop_all`` clears ``_shared_backend`` so a post-shutdown
-        ``register()`` starts from a clean slate."""
+        """``stop_all`` clears ``_shared_backend`` so a post-shutdown"""
         from types import SimpleNamespace
         from unittest.mock import MagicMock
 
@@ -1464,9 +1282,7 @@ class TestHotkeyDispatcherPooling:
         assert dispatcher._shared_backend is None
 
     def test_native_of_returns_native_for_adapter(self, monkeypatch):
-        """``_native_of`` returns the wrapped ``SubprocessHotkeyBackend``
-        when the backend is a ``_NativeBackendAdapter`` with a native
-        that supports ``add_extra_matcher``."""
+        """``_native_of`` returns the wrapped ``SubprocessHotkeyBackend``"""
         from types import SimpleNamespace
         from unittest.mock import MagicMock
 
@@ -1488,7 +1304,6 @@ class TestHotkeyDispatcherPooling:
         assert dispatcher._native_of(None) is None
 
         # An adapter wrapping a native with add_extra_matcher returns
-        # the native.
         native = MagicMock()
         adapter = MagicMock()
         adapter._native = native
@@ -1496,10 +1311,7 @@ class TestHotkeyDispatcherPooling:
         assert dispatcher._native_of(adapter) is native
 
     def test_pool_aux_into_shared_returns_false_when_no_shared(self):
-        """When no shared backend is set (or the shared backend is a
-        legacy backend without ``add_extra_matcher``),
-        ``_pool_aux_into_shared`` returns False so the caller falls
-        back to the per-role subprocess model."""
+        """legacy backend without ``add_extra_matcher``),"""
         from types import SimpleNamespace
         from unittest.mock import MagicMock
 

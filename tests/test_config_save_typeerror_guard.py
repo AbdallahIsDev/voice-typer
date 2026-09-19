@@ -1,34 +1,4 @@
-"""``Config.save()`` must catch ``TypeError`` / ``ValueError``
-from ``json.dumps`` and return ``False`` (not propagate).
-
-The pre-fix ``save()`` had this exception tuple::
-
-    except (TimeoutError, OSError, PermissionError) as e:
-        log.error("[CONFIG] Failed to save config: %s", e)
-        return False
-
-``json.dumps`` (called inside ``_save_unlocked`` via ``asdict(self)``)
-can raise:
-
-* ``TypeError`` when a field holds a non-JSON-serializable value (e.g.
-  a ``set`` / ``datetime`` / custom object smuggled in via
-  ``setattr`` or a botched migration).
-* ``ValueError`` for circular references (rare but possible if a
-  custom ``__repr__`` / ``__str__`` triggers it during dumps).
-
-The pre-fix tuple did NOT include these, the exception propagated to
-the caller, violating the ``save()`` docstring's "never raises"
-contract (which the IPC ``set_config`` path relies on: a ``TypeError``
-would crash the IPC handler thread instead of returning a ``False``
-ack the renderer can surface as a save-failed toast).
-
-The fix widens the tuple to ``(TimeoutError, OSError, PermissionError,
-TypeError, ValueError)`` and logs at ERROR so the operator can
-diagnose which field is non-serializable.
-
-Platform note: validated ON LINUX (sandbox). The serialization
-behavior is platform-agnostic (pure-Python ``json.dumps``).
-"""
+"""``Config.save()`` must catch ``TypeError`` / ``ValueError``"""
 
 from __future__ import annotations
 
@@ -54,34 +24,17 @@ class TestSaveCatchesJsonDumpsTypeError:
         _isolated_config_dir: Path,
         caplog: pytest.LogCaptureFixture,
     ) -> None:
-        """A non-JSON-serializable value in a Config field (e.g. a
-        ``set`` smuggled in via ``setattr``) must cause ``save()`` to
-        return ``False``. NOT raise ``TypeError``. The error must be
-        logged at ERROR so the operator can diagnose the bad field.
-        """
+        """return ``False``. NOT raise ``TypeError``. The error must be"""
         # Write an initial config so the backup branch has something
-        # to read (the failure happens AFTER the backup block, inside
-        # ``json.dumps(asdict(self))``).
         config_file = _isolated_config_dir / "config.json"
         config_file.write_text(json.dumps({"hotkey": "<caps_lock>"}))
 
         cfg = Config.load()
 
         # Inject a non-serializable value via setattr. ``asdict(self)``
-        # picks this up because the field IS in the dataclass
-        # ``__dict__`` (even though it's not a declared dataclass
-        # field: ``asdict`` returns the declared fields only; we need
-        # to override a declared field's value with a non-serializable
-        # one).
-        #
-        # ``disabled_backends: list[str]`` is a declared field. Replace
-        # its value with a ``set`` (non-JSON-serializable —
-        # ``json.dumps`` raises ``TypeError: Object of type set is not
-        # JSON serializable``).
         cfg.disabled_backends = {"whisper", "qwen"}  # type: ignore[assignment]  # noqa: E501, intentional bad type for the test
 
         # The save must NOT raise, widens save()'s except
-        # tuple to catch TypeError.
         with caplog.at_level(logging.ERROR, logger="voice_typer.server.config"):
             result = cfg.save()
 
@@ -108,27 +61,19 @@ class TestSaveCatchesJsonDumpsTypeError:
         self,
         _isolated_config_dir: Path,
     ) -> None:
-        """contract: ``save()`` must NEVER raise ``TypeError``
-        to the caller, it must catch it and return ``False``. The
-        IPC ``set_config`` path relies on this "never raises"
-        contract: a propagated ``TypeError`` would crash the IPC
-        handler thread instead of returning a ``False`` ack the
-        renderer can surface as a save-failed toast.
-        """
+        """contract: ``save()`` must NEVER raise ``TypeError``"""
         config_file = _isolated_config_dir / "config.json"
         config_file.write_text(json.dumps({"hotkey": "<caps_lock>"}))
 
         cfg = Config.load()
 
         # Smuggle in a non-serializable value (a custom object with no
-        # JSON representation).
         class _NotJsonSerializable:
             pass
 
         cfg.disabled_backends = [_NotJsonSerializable()]  # type: ignore[list-item]
 
         # Must not raise, TypeError is caught by save()'s widened
-        # except tuple.
         try:
             result = cfg.save()
         except TypeError as exc:
@@ -143,37 +88,11 @@ class TestSaveCatchesJsonDumpsTypeError:
         self,
         _isolated_config_dir: Path,
     ) -> None:
-        """``json.dumps`` can also raise ``ValueError`` for
-        circular references (when a deeply-nested structure repeats
-        itself). ``save()`` must catch ``ValueError`` too and return
-        ``False``.
-
-        We simulate this by making ``disabled_backends`` a list whose
-        ``__repr__`` is fine but whose contents cause ``json.dumps``
-        to raise. The simplest repro is a custom class whose
-        ``__iter__`` yields itself (infinite loop caught by
-        ``json.dumps`` as ``ValueError``). We use a simpler approach:
-        patch ``json.dumps`` directly to raise ``ValueError`` so we
-        deterministically exercise the ValueError branch.
-
-        Note : ``Config._save_unlocked`` short-circuits at the
-        top when ``_dirty is False`` AND ``_last_saved_bytes`` is
-        populated (skipping ``asdict`` + ``json.dumps`` entirely). The
-        post-migration save inside ``Config.load()`` populates both, so
-        a bare ``cfg = Config.load(); cfg.save()`` would short-circuit
-        and never reach ``json.dumps``. Mutating a field (``cfg.hotkey =
-        "<f5>"``) sets ``_dirty = True`` via the ``__setattr__``
-        override, ensuring ``json.dumps`` is reached so the patch takes
-        effect. This mirrors the pattern in
-        ``test_save_happy_path_still_returns_true`` below.
-        """
+        """circular references (when a deeply-nested structure repeats"""
         config_file = _isolated_config_dir / "config.json"
         config_file.write_text(json.dumps({"hotkey": "<caps_lock>"}))
 
         cfg = Config.load()
-        # mutate a field so _dirty=True and the dirty-flag
-        # short-circuit at the top of _save_unlocked does NOT skip
-        # the json.dumps call (which is patched below).
         cfg.hotkey = "<f5>"
 
         # Patch json.dumps in the config module to raise ValueError.
@@ -198,9 +117,7 @@ class TestSaveCatchesJsonDumpsTypeError:
         self,
         _isolated_config_dir: Path,
     ) -> None:
-        """Sanity: a normal save with all-serializable fields must
-        still return True. Guards against an over-correction that
-        always returns False."""
+        """Sanity: a normal save with all-serializable fields must"""
         config_file = _isolated_config_dir / "config.json"
         config_file.write_text(json.dumps({"hotkey": "<caps_lock>"}))
 

@@ -1,38 +1,4 @@
-"""Sentinel + TTL regression tests for the lazy ``@property`` accessors
-on ``VoiceTyperApp`` that wrap controller construction in
-``try/except Exception``.
-
-Five properties (``undo``, ``audio_quality``, ``_duck_crash_recovery``,
-``_volume_ducker``, ``history_db``) cache a ``_LAZY_FAILED`` sentinel
-in the backing on construction failure, plus a monotonic timestamp
-(``_<prop>_failed_at``). Subsequent accesses within
-``RETRY_TTL_SECONDS`` (30s) return ``None`` silently (no log, no
-construction re-attempt), the critical fix for the 94 Hz log spam
-when ``audio_quality`` construction fails mid-recording (the per-chunk
-audio callback calls the property ~94 times/sec at 48 kHz/512).
-After the TTL elapses the sentinel is cleared and construction is
-retried (transient failures can recover).
-
-These tests pin:
-
-  (a) On construction failure, the property returns ``None`` (matches
-      the existing ``tests/test_app_none_guard.py`` contract, the
-      sentinel is invisible to callers, who still see ``None``).
-  (b) Within TTL, repeated access does NOT re-attempt construction
-      (verified with a constructor-call counter).
-  (c) After TTL expires, construction is retried exactly once per
-      fresh access (counter increments again).
-  (d) On construction success, the sentinel + timestamp are cleared
-      (subsequent accesses return the cached real instance, no
-      re-construction).
-  (e) The ``WARNING`` log fires exactly once per fresh failure
-      (per TTL window), not on every access, the audit's "94 logs/sec"
-      spam is eliminated.
-
-The tests run on the Linux sandbox. ``scipy`` and other heavy deps are
-mocked by the autouse ``mock_heavy_imports`` fixture in
-``tests/conftest.py``.
-"""
+"""Sentinel + TTL regression tests for the lazy ``@property`` accessors"""
 
 from __future__ import annotations
 
@@ -41,13 +7,6 @@ import time
 from unittest.mock import MagicMock
 
 import pytest
-
-# ── Fixtures ────────────────────────────────────────────────────────────
-#
-# Mirror the fixture style in tests/test_app_none_guard.py so this file
-# can run independently. The autouse ``mock_heavy_imports`` fixture
-# from tests/conftest.py applies, mocking sounddevice / faster_whisper /
-# pynput / pystray / PIL / pyperclip so the tests run headless.
 
 
 @pytest.fixture
@@ -66,16 +25,8 @@ def app(tmp_config_dir, monkeypatch):
     return instance
 
 
-# ── Helpers ─────────────────────────────────────────────────────────────
-
-
 def _make_failing_constructor(module_path: str, class_name: str, monkeypatch):
-    """Patch ``<module_path>.<class_name>.__init__`` to raise, with a
-    call counter exposed on the patched function (``fn.call_count``).
-
-    Returns the patched function so the test can assert how many times
-    construction was attempted.
-    """
+    """call counter exposed on the patched function (``fn.call_count``)."""
 
     def _boom(self_inner, *args, **kwargs):
         _boom.call_count += 1
@@ -87,10 +38,7 @@ def _make_failing_constructor(module_path: str, class_name: str, monkeypatch):
 
 
 def _make_succeed_then_fail_constructor(module_path: str, class_name: str, monkeypatch):
-    """Patch the constructor so the FIRST call succeeds (returns a mock
-    instance) and subsequent calls raise. Used to test the
-    success-after-retry recovery path.
-    """
+    """Patch the constructor so the FIRST call succeeds (returns a mock"""
 
     fake_instance = MagicMock(name=f"fake_{class_name}")
 
@@ -107,21 +55,11 @@ def _make_succeed_then_fail_constructor(module_path: str, class_name: str, monke
     return _maybe
 
 
-# ── Sentinel + TTL tests for ``audio_quality`` (the hot-path property) ──
-
-
 class TestAudioQualitySentinelTtl:
-    """``audio_quality`` is the hot-path property (~94 Hz per-chunk audio
-    callback). The sentinel + TTL is the critical fix for the 94 Hz log
-    spam, these tests pin the contract that the WARNING fires once per
-    fresh failure and construction is NOT re-attempted within the TTL.
-    """
+    """``audio_quality`` is the hot-path property (~94 Hz per-chunk audio"""
 
     def test_returns_none_on_construction_failure(self, app, monkeypatch):
-        """(a): On construction failure, the property returns ``None``
-        (matches the existing None-guard contract, the sentinel is
-        invisible to callers).
-        """
+        """(a): On construction failure, the property returns ``None``"""
         _make_failing_constructor(
             "voice_typer.server.audio_quality_controller",
             "AudioQualityController",
@@ -136,16 +74,7 @@ class TestAudioQualitySentinelTtl:
         assert app._audio_quality_failed_at is not None
 
     def test_no_construction_reattempt_within_ttl(self, app, monkeypatch):
-        """(b): Within the TTL, repeated access does NOT re-attempt
-        construction. The constructor is called exactly ONCE (the
-        initial failed attempt); every subsequent access returns
-        ``None`` from the cached sentinel without re-entering the
-        ``try`` block.
-
-        This is the critical regression test for the 94 Hz log spam —
-        without the sentinel, the constructor would be called ~94
-        times/sec for the entire recording session.
-        """
+        """(b): Within the TTL, repeated access does NOT re-attempt"""
         boom = _make_failing_constructor(
             "voice_typer.server.audio_quality_controller",
             "AudioQualityController",
@@ -161,8 +90,6 @@ class TestAudioQualitySentinelTtl:
             assert app.audio_quality is None
 
         # Construction MUST NOT have been re-attempted, call_count is
-        # still 1 (only the original failed attempt). Without the
-        # sentinel, call_count would be 101 here.
         assert boom.call_count == 1, (
             f"Construction was re-attempted {boom.call_count - 1} times "
             f"within the TTL, the sentinel must suppress re-attempts to "
@@ -170,11 +97,7 @@ class TestAudioQualitySentinelTtl:
         )
 
     def test_warning_fires_once_per_fresh_failure(self, app, monkeypatch, caplog):
-        """(e): The WARNING log fires EXACTLY ONCE per fresh failure
-        (per TTL window), not on every access. Without the sentinel the
-        WARNING would fire ~94 times/sec; the sentinel reduces this to
-        ~1 per ``RETRY_TTL_SECONDS`` (30s), a ~2820x reduction.
-        """
+        """(e): The WARNING log fires EXACTLY ONCE per fresh failure"""
         _make_failing_constructor(
             "voice_typer.server.audio_quality_controller",
             "AudioQualityController",
@@ -199,10 +122,7 @@ class TestAudioQualitySentinelTtl:
         )
 
     def test_construction_retried_after_ttl_expires(self, app, monkeypatch):
-        """(c): After ``RETRY_TTL_SECONDS`` elapses, the sentinel is
-        cleared and construction is retried (transient failures may
-        recover on retry).
-        """
+        """(c): After ``RETRY_TTL_SECONDS`` elapses, the sentinel is"""
         boom = _make_failing_constructor(
             "voice_typer.server.audio_quality_controller",
             "AudioQualityController",
@@ -214,19 +134,15 @@ class TestAudioQualitySentinelTtl:
         assert boom.call_count == 1
 
         # Move the failed-at timestamp into the distant past, simulate
-        # TTL expiry without sleeping for 30s (keeps the test fast).
         app._audio_quality_failed_at = time.monotonic() - 31.0  # 31s ago > RETRY_TTL_SECONDS (30s)
 
         # Second access, sentinel TTL expired, construction retried.
-        # The patched constructor still raises, so this re-caches the
-        # sentinel with a fresh timestamp.
         assert app.audio_quality is None
         assert boom.call_count == 2, (
             "Construction must be re-attempted after the TTL expires, "
             "transient failures should get a chance to recover."
         )
 
-        # The sentinel was re-cached with a FRESH timestamp (not the old
         # one), the next access within TTL must NOT re-attempt.
         fresh_failed_at = app._audio_quality_failed_at
         assert fresh_failed_at is not None
@@ -239,10 +155,7 @@ class TestAudioQualitySentinelTtl:
         )
 
     def test_sentinel_cleared_on_construction_success(self, app, monkeypatch):
-        """(d): When construction succeeds on a retry (after a prior
-        failure), the sentinel and timestamp are cleared. Subsequent
-        accesses return the cached real instance, no re-construction.
-        """
+        """(d): When construction succeeds on a retry (after a prior"""
         # First, simulate a failure to cache the sentinel.
         boom = _make_failing_constructor(
             "voice_typer.server.audio_quality_controller",
@@ -258,10 +171,6 @@ class TestAudioQualitySentinelTtl:
 
         def _ok(self_inner, *args, **kwargs):
             _ok.call_count += 1
-            # Mutate the half-constructed instance into our mock, the
-            # real AudioQualityController.__init__ would set attributes
-            # on ``self``; here we just stash a marker so we can verify
-            # the SAME instance is returned on subsequent accesses.
             object.__setattr__(self_inner, "_test_marker", real_instance)
 
         _ok.call_count = 0
@@ -292,11 +201,7 @@ class TestAudioQualitySentinelTtl:
         assert _ok.call_count == 1, "Successful construction must be cached, no re-construction."
 
     def test_setter_bypasses_sentinel(self, app, monkeypatch):
-        """Sanity: the setter bypasses the sentinel entirely (mirrors
-        the existing ``test_history_db_setter_bypasses_construction``
-        contract, tests that inject mocks via ``app.<attr> = ...``
-        must not trip the sentinel logic).
-        """
+        """Sanity: the setter bypasses the sentinel entirely (mirrors"""
         # Pre-load the sentinel.
         _make_failing_constructor(
             "voice_typer.server.audio_quality_controller",
@@ -315,24 +220,14 @@ class TestAudioQualitySentinelTtl:
         # Getter must return the mock, NOT trigger construction retry.
         assert app.audio_quality is fake
         # The sentinel + timestamp are no longer in effect (the setter
-        # overwrote the backing).
         assert app._audio_quality_backing is fake
 
 
-# ── Sentinel coverage for the other 4 lazy properties ──────────────────
-#
 # The sentinel pattern is identical across all 5 properties, these
-# tests verify the pattern is wired into each one. They use the
-# ``_make_failing_constructor`` helper to patch the relevant class.
 
 
 class TestSentinelWiredAcrossAllLazyProperties:
-    """The ``_LAZY_FAILED`` sentinel + TTL pattern must be wired into
-    every lazy property that wraps construction in ``try/except``.
-    This is a regression guard against a future refactor that drops
-    the sentinel on one of the 5 properties (the 94 Hz hot-path bug
-    would silently re-emerge for that property).
-    """
+    """The ``_LAZY_FAILED`` sentinel + TTL pattern must be wired into"""
 
     @pytest.mark.parametrize(
         "prop_name, backing_attr, failed_at_attr, module_path, class_name",
@@ -384,12 +279,7 @@ class TestSentinelWiredAcrossAllLazyProperties:
         module_path,
         class_name,
     ):
-        """For each of the 5 lazy properties: on construction failure,
-        the backing is set to ``_LAZY_FAILED`` (NOT ``None``) and the
-        ``_<prop>_failed_at`` timestamp is recorded. Subsequent accesses
-        within TTL return ``None`` silently without re-attempting
-        construction.
-        """
+        """For each of the 5 lazy properties: on construction failure,"""
         boom = _make_failing_constructor(module_path, class_name, monkeypatch)
 
         # First access, fails, caches sentinel.
@@ -417,11 +307,7 @@ class TestSentinelWiredAcrossAllLazyProperties:
         assert boom.call_count == 1, f"{prop_name}: construction must NOT be re-attempted within the TTL."
 
     def test_history_db_sentinel_respects_shutdown_guard(self, app, monkeypatch):
-        """Edge case for ``history_db``: when ``_shutting_down_event`` is
-        set AND the backing is the sentinel, the getter must return
-        ``None`` WITHOUT re-attempting construction (mirrors the
-        ``None``-backing shutdown guard).
-        """
+        """Edge case for ``history_db``: when ``_shutting_down_event`` is"""
         boom = _make_failing_constructor(
             "voice_typer.server.history_db",
             "HistoryDB",
@@ -445,22 +331,11 @@ class TestSentinelWiredAcrossAllLazyProperties:
         )
 
 
-# ── Module-level constants ──────────────────────────────────────────────
-
-
 class TestModuleLevelConstants:
-    """The ``_LAZY_FAILED`` sentinel and ``RETRY_TTL_SECONDS`` TTL are
-    module-level constants on ``voice_typer.server.app``, exported so
-    tests / introspection can verify the contract.
-    """
+    """The ``_LAZY_FAILED`` sentinel and ``RETRY_TTL_SECONDS`` TTL are"""
 
     def test_lazy_failed_is_object_singleton(self):
-        """``_LAZY_FAILED`` is a module-level ``object()`` singleton —
-        identity comparison (``is``) is the only check that should
-        match. This is the E8 exception clause: ``None`` is itself a
-        meaningful value (the initial "not yet attempted" state), so
-        a distinct sentinel represents the failure state.
-        """
+        """``_LAZY_FAILED`` is a module-level ``object()`` singleton —"""
         from voice_typer.server import app as _app_mod
 
         assert _app_mod._LAZY_FAILED is _app_mod._LAZY_FAILED, (
@@ -471,21 +346,14 @@ class TestModuleLevelConstants:
         )
 
     def test_retry_ttl_seconds_is_30(self):
-        """``RETRY_TTL_SECONDS`` is 30.0, a bounded TTL that balances
-        log-spam suppression (long enough that a single failure doesn't
-        spam every few seconds) with recovery latency (short enough
-        that a transient failure clears within a reasonable window).
-        """
+        """``RETRY_TTL_SECONDS`` is 30.0, a bounded TTL that balances"""
         from voice_typer.server import app as _app_mod
 
         assert _app_mod.RETRY_TTL_SECONDS == 30.0
         assert isinstance(_app_mod.RETRY_TTL_SECONDS, float)
 
     def test_lazy_failed_distinct_from_recorder_missing(self):
-        """``_LAZY_FAILED`` and ``_RECORDER_MISSING`` are distinct
-        sentinels, they represent different states (construction
-        failure vs. not-yet-built) and must not collide.
-        """
+        """``_LAZY_FAILED`` and ``_RECORDER_MISSING`` are distinct"""
         from voice_typer.server import app as _app_mod
 
         assert _app_mod._LAZY_FAILED is not _app_mod._RECORDER_MISSING, (

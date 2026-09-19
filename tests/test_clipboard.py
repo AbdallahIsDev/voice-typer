@@ -8,9 +8,6 @@ import sys
 from unittest.mock import MagicMock, patch
 
 import pytest
-
-# pynput / pynput.keyboard / pyperclip are mocked at collection time
-# by tests/clipboard/conftest.py (single source of truth, dedup).
 from voice_typer.server import (  # noqa: E402
     clipboard as clip_mod,
     clipboard_snapshot as snap_mod,
@@ -26,14 +23,11 @@ class TestCopy:
 
         mod.pyperclip = MagicMock()
         # PLAT-PASTEVR: copy() verifies clipboard content via pyperclip.paste().
-        # Make paste() return the same text so verification passes on first try.
         mod.pyperclip.paste.return_value = "hello world"
 
         cm = ClipboardManager(paste_enabled=False)
         result = cm.copy("hello world")
 
-        # copy() returns a ClipboardSnapshot (or None if snapshot capture
-        # was skipped/empty) on success, never the boolean True/False.
         assert result is None or isinstance(result, mod.ClipboardSnapshot)
         mod.pyperclip.copy.assert_called_with("hello world")
         # PLAT-PASTEVR: with working verification, copy is called exactly once
@@ -51,8 +45,6 @@ class TestCopy:
         mod.pyperclip.copy.side_effect = Exception("clipboard locked")
 
         cm = ClipboardManager(paste_enabled=False)
-        # copy() does NOT return False on failure, it raises
-        # ClipboardCopyError so the caller can write crash recovery.
         with pytest.raises(mod.ClipboardCopyError):
             cm.copy("test")
 
@@ -68,21 +60,9 @@ class TestPaste:
     def test_paste_sends_keystroke(self, monkeypatch):
         import voice_typer.server.clipboard as mod
 
-        # Use monkeypatch (NOT a bare ``mod.time = MagicMock()``
-        # assignment): ``clipboard.time`` is the GLOBAL ``time`` module
-        # (clipboard/__init__.py does ``import time``), so a bare
-        # assignment/mutation leaks a MagicMock (or a frozen
-        # ``time.monotonic``) into the shared module for the whole xdist
-        # worker, later teardown drains that read
-        # ``time.monotonic()`` for their deadline then never see the
-        # clock advance and spin forever (the silent ``[gwN] node down``
-        # worker-death signature). monkeypatch auto-restores after the
-        # test.
         monkeypatch.setattr(mod, "time", MagicMock())
         mod.time.monotonic.return_value = 100.0
         # Platform is now centralized in platform_utils; clipboard.py uses
-        # is_windows()/is_macos() imported into its namespace. Force the
-        # non-Windows, non-macOS keystroke path (Ctrl+V via pynput).
         monkeypatch.setattr("voice_typer.server.clipboard.is_windows", lambda: False)
         monkeypatch.setattr("voice_typer.server.clipboard.is_macos", lambda: False)
 
@@ -107,12 +87,6 @@ class TestPaste:
 
         import voice_typer.server.clipboard as mod
 
-        # monkeypatch (NOT ``mod.time.monotonic = ...``): ``mod.time``
-        # is the GLOBAL ``time`` module, so a bare assignment would
-        # permanently freeze ``time.monotonic()`` at 100.3 for the
-        # whole xdist worker and break every time-budgeted teardown
-        # drain afterwards. monkeypatch restores the real attribute
-        # after this test.
         monkeypatch.setattr(mod.time, "monotonic", MagicMock(return_value=100.3))
 
         result = cm.paste()
@@ -123,13 +97,8 @@ class TestPaste:
     def test_paste_returns_false_on_keyboard_error(self, monkeypatch):
         import voice_typer.server.clipboard as mod
 
-        # monkeypatch (NOT a bare ``mod.time = MagicMock()``): see
-        # ``test_paste_sends_keystroke``, bare assignment leaks a mock
-        # into the shared module for the whole xdist worker.
         monkeypatch.setattr(mod, "time", MagicMock())
         mod.time.monotonic.return_value = 100.0
-        # Platform is now centralized in platform_utils; force the
-        # non-Windows, non-macOS keystroke path (Ctrl+V via pynput).
         monkeypatch.setattr("voice_typer.server.clipboard.is_windows", lambda: False)
         monkeypatch.setattr("voice_typer.server.clipboard.is_macos", lambda: False)
 
@@ -149,16 +118,8 @@ class TestPaste:
         assert ClipboardManager._is_terminal_process("") is False
 
 
-# ─── ADR-0020 §6.6: Wayland wl-copy / wl-paste fallback ────────────────
-
-
 class TestWaylandFallback:
-    """Tests for the Wayland clipboard fallback (ADR-0020 §6.6).
-
-    These tests verify the platform dispatcher routes to `wl-copy` /
-    `wl-paste` when on Linux Wayland + wl-clipboard installed, and falls
-    back to pyperclip otherwise.
-    """
+    """Tests for the Wayland clipboard fallback (ADR-0020 §6.6)."""
 
     def test_is_wayland_session_false_without_env(self, monkeypatch):
         """No WAYLAND_DISPLAY → not a Wayland session."""
@@ -203,7 +164,6 @@ class TestWaylandFallback:
             return FakeProc()
 
         monkeypatch.setattr(mod.subprocess, "run", fake_run)
-        # pyperclip should NOT be called when wl-copy succeeds.
         pyperclip_mock = MagicMock()
         monkeypatch.setattr(mod, "pyperclip", pyperclip_mock)
 
@@ -212,9 +172,6 @@ class TestWaylandFallback:
         assert len(captured) == 1
         cmd, kw = captured[0]
         assert cmd[0] == "wl-copy"
-        # (security): text is piped via stdin (NOT passed as
-        # a positional CLI argument) so it isn't visible in
-        # /proc/<pid>/cmdline to other local users.
         assert "hello wayland" in kw.get("input", b"").decode("utf-8"), (
             "text must be piped via stdin=input=... (not as CLI arg)"
         )
@@ -303,55 +260,6 @@ class TestWaylandFallback:
         pyperclip_mock.copy.assert_called_once_with("b")
 
 
-# ==============================================================================
-# Merged from tests/test_clipboard_restore_fixes.py —
-#   clipboard restore/paste hardening regression pins (_last_copied_text PII retention, seq-mismatch re-copy race,
-#   Linux/Windows/macOS false-success restore returns, atexit vs daemon restore race)
-# ==============================================================================
-# Tests for DE-59 / DE-60 / DE-61 / DE-62 / DE-63 (session-DE, Group 4).
-#
-# Covers the five clipboard-package findings from the Group 4
-# (Security & Data) review:
-#
-# * **DE-59**: ``ClipboardManager._last_copied_text`` PII retention.
-# The instance attribute caches dictated text (which can be PII:
-# passwords, messages, financial data). The pre-fix code set it
-# unconditionally in ``copy()`` and cleared it ONLY in
-# ``_delayed_restore``'s ``finally`` block, leaving three paths that
-# retained the PII for the process lifetime: ``restore_now()``,
-# ``paste_on_stop=False`` + ``clipboard_save_restore=False``, and
-# ``paste(snapshot=None)``. Fix: clear in ``restore_now()`` and only
-# set in ``copy()`` when ``snapshot is not None``.
-#
-# * **DE-60**. Race on ``_last_copied_text`` in seq-mismatch re-copy.
-# The pre-fix seq-mismatch re-copy path read the shared mutable
-# instance attribute, which a concurrent ``copy(text_B)`` could
-# overwrite between this cycle's ``copy(text_A)`` and ``paste()``.
-# Fix: thread the request-scoped ``pasted_text`` parameter through
-# the re-copy path (and the Wayland paste call sites).
-#
-# * **DE-61**, Linux restore returned ``True`` on xclip/wl-copy
-# non-zero exit. The pre-fix code called ``subprocess.run(...)``
-# WITHOUT ``check=True`` so non-zero exits did NOT raise, silent
-# data loss with false-success signal. Fix: pass ``check=True``,
-# catch ``CalledProcessError``, return ``False`` + WARNING log.
-#
-# * **DE-62**, Windows ``_restore_windows`` returned ``True`` even if
-# all ``SetClipboardData`` calls failed. After ``EmptyClipboard()``
-# ran, the user's prior content was gone, but the caller logged
-# "Restored snapshot". Fix: track a success count, return ``False``
-# if zero items set.
-#
-# * **DE-63**, atexit/signal handler raced the daemon restore. The
-# pre-fix code removed the ``pending_entry`` from
-# ``_pending_restores`` in the ``finally`` block AFTER
-# ``snapshot.restore()`` ran. If atexit fired in that window, two
-# threads were inside ``snapshot.restore()`` concurrently. Fix: claim
-# the entry under the lock BEFORE calling ``snapshot.restore()``;
-# short-circuit if already claimed by atexit.
-#
-
-
 @pytest.fixture(autouse=True)
 def _mock_display_env(monkeypatch):
     """Ensure DISPLAY is set and WAYLAND_DISPLAY is unset for clipboard tests."""
@@ -370,22 +278,13 @@ def _isolate_pending_restores():
         clip_mod._pending_restores.clear()
 
 
-# ---------------------------------------------------------------------------
-# Helpers (mirrors _make_cm / _make_snapshot in test_clipboard_paste_restore.py)
-# ---------------------------------------------------------------------------
-
-
 def _make_cm(
     *,
     paste_enabled: bool = True,
     save_restore: bool = True,
     restore_delay_ms: int = 150,
 ) -> ClipboardManager:
-    """Build a ClipboardManager with mocked keyboard and cached flags set.
-
-    Delegates to the shared canonical factory (helper dedup) —
-    see ``tests/fixtures/clipboard_helpers.make_clipboard_manager``.
-    """
+    """Build a ClipboardManager with mocked keyboard and cached flags set."""
     from tests.fixtures.clipboard_helpers import make_clipboard_manager
 
     return make_clipboard_manager(
@@ -396,12 +295,7 @@ def _make_cm(
 
 
 def _make_snapshot(platform: str = "linux-x11") -> ClipboardSnapshot:
-    """Build a fake ClipboardSnapshot for tests that need a non-None value.
-
-    Delegates to the shared canonical factory (helper dedup),
-    keeping this suite's historical ``text/plain;charset=utf-8``
-    content type.
-    """
+    """Build a fake ClipboardSnapshot for tests that need a non-None value."""
     from tests.fixtures.clipboard_helpers import make_clipboard_snapshot
 
     return make_clipboard_snapshot(
@@ -410,26 +304,11 @@ def _make_snapshot(platform: str = "linux-x11") -> ClipboardSnapshot:
     )
 
 
-# ===========================================================================
-# _last_copied_text PII retention
-# ===========================================================================
-
-
 class TestLastCopiedTextRetention:
-    """DE-59: ``_last_copied_text`` is cleared on every code path.
-
-    Three leak paths existed pre-fix:
-      1. ``restore_now()``, restores snapshot but never clears.
-      2. ``copy()`` with ``snapshot is None`` (no save_restore), sets
-         ``_last_copied_text``, no daemon thread will clear it.
-      3. ``paste(snapshot=None)``, copy() set the attribute, paste()
-         skips the daemon scheduling, no clear.
-    """
+    """DE-59: ``_last_copied_text`` is cleared on every code path."""
 
     def test_copy_does_not_cache_text_when_snapshot_is_none(self):
-        """DE-59 path 2/3: when save_restore is disabled, ``copy()``
-        must NOT cache the dictated text, no daemon thread will run
-        to clear it later."""
+        """DE-59 path 2/3: when save_restore is disabled, ``copy()``"""
         cm = _make_cm(save_restore=False)
         mock_pyper = MagicMock()
         mock_pyper.paste.return_value = "super-secret-password"  # verify match
@@ -447,10 +326,7 @@ class TestLastCopiedTextRetention:
         )
 
     def test_copy_does_cache_text_when_snapshot_captured(self):
-        """DE-59 sanity: when save_restore IS enabled, ``copy()`` still
-        caches the text, the daemon thread's ``finally`` block will
-        clear it after the restore-delay window. This is the intended
-        bounded-retention behavior."""
+        """DE-59 sanity: when save_restore IS enabled, ``copy()`` still"""
         cm = _make_cm(save_restore=True)
         mock_pyper = MagicMock()
         mock_pyper.paste.return_value = "the dictation"
@@ -466,10 +342,7 @@ class TestLastCopiedTextRetention:
         assert cm._last_copied_text == "the dictation"
 
     def test_restore_now_clears_last_copied_text(self):
-        """DE-59 path 1: ``restore_now()`` must clear
-        ``_last_copied_text`` in its ``finally`` block. This is the
-        path used when ``paste_on_stop=False``, no daemon thread
-        will run to clear it."""
+        """DE-59 path 1: ``restore_now()`` must clear"""
         cm = _make_cm()
         cm._last_copied_text = "dictated-secret"
         snap = _make_snapshot()
@@ -485,8 +358,7 @@ class TestLastCopiedTextRetention:
         )
 
     def test_restore_now_clears_last_copied_text_even_if_restore_raises(self):
-        """DE-59 path 1 (exception): the clear must run even if
-        ``snapshot.restore()`` raises."""
+        """DE-59 path 1 (exception): the clear must run even if"""
         cm = _make_cm()
         cm._last_copied_text = "dictated-secret"
         snap = _make_snapshot()
@@ -496,52 +368,27 @@ class TestLastCopiedTextRetention:
         ):
             # Must not raise, restore_now() catches + logs.
             cm.restore_now(snap)
-        # clear ran in finally block despite the exception.
         assert cm._last_copied_text == ""
 
     def test_restore_now_with_none_snapshot_is_noop_for_clear(self):
-        """DE-59 sanity: ``restore_now(None)`` does not raise and does
-        not need to clear anything (no snapshot → no copy path entered)."""
+        """DE-59 sanity: ``restore_now(None)`` does not raise and does"""
         cm = _make_cm()
         cm._last_copied_text = "pre-existing-value"
         with patch.object(clip_mod, "log"):
             cm.restore_now(None)
-        # No restore was scheduled, so the pre-existing value is
-        # untouched (this is correct, we did NOT borrow the clipboard).
         # The important contract is that restore_now(None) doesn't raise.
         assert cm._last_copied_text == "pre-existing-value"
 
 
-# ===========================================================================
-# seq-mismatch re-copy race on _last_copied_text
-# ===========================================================================
-
-
 class TestSeqMismatchRecopyUsesPastedText:
-    """DE-60: the seq-mismatch re-copy path threads ``pasted_text``.
-
-    The pre-fix code read ``self._last_copied_text`` directly, which
-    could be overwritten by a concurrent ``copy(text_B)`` between this
-    cycle's ``copy(text_A)`` and ``paste()``. The re-copy would then
-    write ``text_B`` to the clipboard while the daemon's
-    ``expected=text_A`` no longer matches, wrong text pasted +
-    spurious restore.
-
-    Fix: read ``pasted_text`` (request-scoped parameter) first, fall
-    back to the instance attribute only when ``pasted_text is None``.
-    """
+    """DE-60: the seq-mismatch re-copy path threads ``pasted_text``."""
 
     def test_seq_mismatch_recopy_uses_pasted_text_not_instance_attr(self):
-        """When the seq mismatches, the re-copy uses ``pasted_text``,
-        NOT ``self._last_copied_text`` (which may have been overwritten
-        by a concurrent cycle)."""
+        """When the seq mismatches, the re-copy uses ``pasted_text``,"""
         cm = _make_cm(save_restore=False)
-        # Simulate the race: a concurrent copy() has overwritten the
-        # instance attribute with text_B.
         cm._last_copied_text = "TEXT_B_FROM_CONCURRENT_COPY"
         cm._clipboard_seq = 100  # what copy() recorded for THIS cycle
         # ``pasted_text`` is what THIS cycle copied (text_A). The fix
-        # must use this value, NOT the stale instance attribute.
         pasted_text_for_this_cycle = "TEXT_A_FROM_THIS_CYCLE"
 
         captured_inputs: list[str] = []
@@ -550,8 +397,6 @@ class TestSeqMismatchRecopyUsesPastedText:
             captured_inputs.append(text)
 
         # We need is_windows() to return True so the seq-mismatch path
-        # runs (the path is Windows-only). Patch _get_clipboard_sequence_number
-        # to return a DIFFERENT seq than expected → triggers the re-copy.
         with (
             patch.object(clip_mod, "is_windows", return_value=True),
             patch.object(clip_mod, "is_macos", return_value=False),
@@ -583,9 +428,6 @@ class TestSeqMismatchRecopyUsesPastedText:
                 ClipboardManager,
                 "_get_clipboard_sequence_number",
                 # First call (during paste's seq check) returns 999 (mismatch
-                # with expected_seq=100), triggering the re-copy path. Second
-                # call (after re-copy, to update self._clipboard_seq) can be
-                # anything.
                 side_effect=[999, 1000],
             ),
             patch.object(clip_mod, "log"),
@@ -598,18 +440,13 @@ class TestSeqMismatchRecopyUsesPastedText:
                 pasted_seq=100,
             )
         assert result is True
-        # the re-copy must use pasted_text (TEXT_A), NOT the
-        # stale instance attribute (TEXT_B).
         assert captured_inputs == [pasted_text_for_this_cycle], (
             f"seq-mismatch re-copy should use pasted_text={pasted_text_for_this_cycle!r}; "
             f"got _copy_to_clipboard called with {captured_inputs!r}"
         )
 
     def test_seq_mismatch_recopy_falls_back_to_instance_attr_when_pasted_text_none(self):
-        """DE-60: backward-compat, when ``pasted_text is None`` (legacy
-        callers that don't thread it), the re-copy falls back to the
-        instance attribute. This preserves the pre-fix behavior for
-        callers that haven't been updated."""
+        """DE-60: backward-compat, when ``pasted_text is None`` (legacy"""
         cm = _make_cm(save_restore=False)
         cm._last_copied_text = "FALLBACK_TEXT"
         cm._clipboard_seq = 100
@@ -655,26 +492,13 @@ class TestSeqMismatchRecopyUsesPastedText:
         ):
             mock_time.monotonic.return_value = 100.0
             mock_time.sleep = MagicMock()
-            # pasted_text=None → fallback to instance attribute.
             cm.paste(snapshot=None, pasted_text=None, pasted_seq=100)
         # Fallback used the instance attribute.
         assert captured_inputs == ["FALLBACK_TEXT"]
 
 
-# ===========================================================================
-# Linux restore returns False on xclip/wl-copy non-zero exit
-# ===========================================================================
-
-
 class TestLinuxRestoreReturnsFalseOnNonZeroExit:
-    """DE-61: ``_restore_x11`` / ``_restore_wayland`` return False when
-    xclip/wl-copy exits non-zero (no DISPLAY, compositor error, etc.).
-
-    Pre-fix: ``subprocess.run`` was called WITHOUT ``check=True``, so
-    non-zero exits did NOT raise. The function returned True
-    unconditionally, the caller logged "Restored snapshot" while the
-    clipboard still contained the dictated text.
-    """
+    """DE-61: ``_restore_x11`` / ``_restore_wayland`` return False when"""
 
     def test_restore_x11_returns_false_on_xclip_nonzero_exit(self):
         """xclip exits non-zero (e.g. no DISPLAY) → restore returns False."""
@@ -686,11 +510,6 @@ class TestLinuxRestoreReturnsFalseOnNonZeroExit:
 
         def _fake_run(*args, **kwargs):
             # With check=True ( fix), subprocess.run raises
-            # CalledProcessError when the process exits non-zero. The
-            # pre-fix code did NOT pass check=True, so non-zero exits
-            # did NOT raise and the function returned True, silent
-            # data loss. We simulate the post-fix behavior by raising
-            # CalledProcessError directly.
             raise subprocess.CalledProcessError(returncode=1, cmd=args[0])
 
         with (
@@ -702,7 +521,6 @@ class TestLinuxRestoreReturnsFalseOnNonZeroExit:
             "DE-61: xclip non-zero exit must return False, not True (silent data loss with false-success signal)"
         )
         mock_run.assert_called_once()
-        # failure must be logged at WARNING (not DEBUG).
         mock_log.warning.assert_called_once()
         # The warning must mention  for traceability.
         warning_args = mock_log.warning.call_args
@@ -727,8 +545,7 @@ class TestLinuxRestoreReturnsFalseOnNonZeroExit:
         assert result is True
 
     def test_restore_x11_still_returns_false_on_timeout(self):
-        """DE-61 regression: TimeoutExpired is still caught (was caught
-        pre-fix too, we must not regress)."""
+        """DE-61 regression: TimeoutExpired is still caught (was caught"""
         snap = ClipboardSnapshot(
             platform="linux-x11",
             items=[("text/plain;charset=utf-8", b"prior")],
@@ -746,8 +563,7 @@ class TestLinuxRestoreReturnsFalseOnNonZeroExit:
         assert result is False
 
     def test_restore_x11_still_returns_false_on_missing_binary(self):
-        """DE-61 regression: FileNotFoundError (xclip not installed) is
-        still caught (was caught pre-fix too)."""
+        """DE-61 regression: FileNotFoundError (xclip not installed) is"""
         snap = ClipboardSnapshot(
             platform="linux-x11",
             items=[("text/plain;charset=utf-8", b"prior")],
@@ -774,7 +590,6 @@ class TestLinuxRestoreReturnsFalseOnNonZeroExit:
 
         def _fake_run(*args, **kwargs):
             # With check=True ( fix), subprocess.run raises
-            # CalledProcessError when the process exits non-zero.
             raise subprocess.CalledProcessError(returncode=1, cmd=args[0])
 
         with (
@@ -806,10 +621,7 @@ class TestLinuxRestoreReturnsFalseOnNonZeroExit:
         assert result is True
 
     def test_restore_x11_passes_check_true_to_subprocess_run(self):
-        """DE-63 source-string pin: the production code MUST pass
-        ``check=True`` to ``subprocess.run`` so non-zero exits raise
-        ``CalledProcessError``. This test catches a regression that
-        reverts ``check=True``."""
+        """DE-63 source-string pin: the production code MUST pass"""
         snap = ClipboardSnapshot(
             platform="linux-x11",
             items=[("text/plain;charset=utf-8", b"prior")],
@@ -850,27 +662,14 @@ class TestLinuxRestoreReturnsFalseOnNonZeroExit:
             snap._restore_wayland()
 
 
-# ===========================================================================
-# Windows _restore_windows returns False if all SetClipboardData fail
-# ===========================================================================
-
-
 def _install_fake_windll_for_restore(*, set_clipboard_data_returns: int = 0):
-    """Install a fake ``ctypes.windll`` for the Windows restore path.
-
-    ``set_clipboard_data_returns`` controls the return value of
-    ``SetClipboardData`` (0 = failure, non-zero = success, the
-    function returns a HANDLE).
-    """
+    """Install a fake ``ctypes.windll`` for the Windows restore path."""
     user32 = MagicMock()
     user32.OpenClipboard.return_value = 1  # opened
     user32.EmptyClipboard.return_value = 1
     user32.SetClipboardData.return_value = set_clipboard_data_returns
     user32.CloseClipboard.return_value = 1
     # RegisterClipboardFormatW returns a non-zero format ID on success.
-    # For builtins (CF_UNICODETEXT etc.) this is a no-op but we return
-    # a non-zero value so the production code's `if registered:` check
-    # passes and the item is NOT skipped.
     user32.RegisterClipboardFormatW.return_value = 1
 
     kernel32 = MagicMock()
@@ -886,15 +685,7 @@ def _install_fake_windll_for_restore(*, set_clipboard_data_returns: int = 0):
 
 
 class TestWindowsRestoreReturnsFalseOnAllFailures:
-    """DE-62: ``_restore_windows`` returns ``False`` when zero items are
-    successfully set.
-
-    Pre-fix: ``EmptyClipboard()`` ran first (clearing the clipboard),
-    then per-item ``SetClipboardData`` failures were logged at DEBUG
-    and skipped, and the function returned ``True`` unconditionally —
-    the clipboard was left EMPTY while the caller logged "Restored
-    snapshot".
-    """
+    """DE-62: ``_restore_windows`` returns ``False`` when zero items are"""
 
     def test_restore_windows_returns_false_when_all_setclipboarddata_fail(self):
         """DE-62: all SetClipboardData calls fail → return False."""
@@ -917,12 +708,9 @@ class TestWindowsRestoreReturnsFalseOnAllFailures:
             "DE-62: when all SetClipboardData calls fail, _restore_windows "
             "must return False (not True, false success with empty clipboard)"
         )
-        # must log at WARNING (not DEBUG) for zero-items-set case.
         mock_log.warning.assert_called_once()
         warning_args = mock_log.warning.call_args
         assert "DE-62" in str(warning_args), f"DE-62 warning must reference the finding ID; got {warning_args!r}"
-        # EmptyClipboard DID run (clipboard is now empty), but
-        # SetClipboardData failed for every item.
         user32.EmptyClipboard.assert_called_once()
         user32.SetClipboardData.assert_called()
 
@@ -950,8 +738,7 @@ class TestWindowsRestoreReturnsFalseOnAllFailures:
         user32.SetClipboardData.assert_called()
 
     def test_restore_windows_returns_false_when_openclipboard_fails(self):
-        """DE-62 regression: OpenClipboard failure still returns False
-        (pre-fix behavior preserved)."""
+        """DE-62 regression: OpenClipboard failure still returns False"""
         snap = ClipboardSnapshot(
             platform="windows",
             items=[(13, "CF_UNICODETEXT", b"hello\0")],
@@ -972,9 +759,7 @@ class TestWindowsRestoreReturnsFalseOnAllFailures:
         assert result is False
 
     def test_restore_windows_empty_items_does_not_call_emptyclipboard(self):
-        """DE-62 sanity: a snapshot with zero items shouldn't reach the
-        success-count check (OpenClipboard + EmptyClipboard still run,
-        but the loop body is empty). success_count == 0 → return False."""
+        """success-count check (OpenClipboard + EmptyClipboard still run,"""
         snap = ClipboardSnapshot(
             platform="windows",
             items=[],  # empty
@@ -987,15 +772,9 @@ class TestWindowsRestoreReturnsFalseOnAllFailures:
             patch.object(snap_mod, "log") as mock_log,
         ):
             result = snap._restore_windows()
-        # zero items → success_count == 0 → return False.
         assert result is False
         # The warning was logged.
         mock_log.warning.assert_called_once()
-
-
-# ===========================================================================
-# macOS _restore_macos returns False on per-item / writeObjects_ failure
-# ===========================================================================
 
 
 def _install_fake_appkit_for_restore(
@@ -1003,27 +782,7 @@ def _install_fake_appkit_for_restore(
     set_data_returns: bool = True,
     write_objects_returns: bool = True,
 ):
-    """Install fake ``AppKit`` and ``Foundation`` modules into ``sys.modules``
-    for the macOS restore path.
-
-    ``set_data_returns`` controls the BOOL return value of
-    ``NSPasteboardItem.setData_forType_`` (True = item accepted the type,
-    False = item rejected, e.g. unsupported type-name or a payload that
-    violates the type's contract).
-
-    ``write_objects_returns`` controls the BOOL return value of
-    ``NSPasteboard.writeObjects_`` (True = at least one NSPasteboardItem
-    was accepted by the pasteboard, False = no items accepted → the
-    clipboard is still empty after ``clearContents``).
-
-    Returns ``(appkit, foundation, pb, item_mock)`` so tests can assert
-    on call patterns. The ``item_mock`` is the single
-    NSPasteboardItem instance returned by ``alloc().init()``, when the
-    snapshot has multiple pasteboard-item indices, every alloc().init()
-    call returns the SAME mock (sufficient for the boolean-returns tests
-    below; the multi-item structural test inspects ``writeObjects_``'s
-    call_args instead).
-    """
+    """Install fake ``AppKit`` and ``Foundation`` modules into ``sys.modules``"""
     item_mock = MagicMock(name="ns_pasteboard_item")
     item_mock.setData_forType_.return_value = set_data_returns
 
@@ -1045,10 +804,6 @@ def _install_fake_appkit_for_restore(
     appkit.NSPasteboardItem = pasteboard_item_cls
 
     foundation = MagicMock(name="Foundation")
-    # NSData.dataWithBytes_length_ and NSData.data() return opaque NSData
-    # placeholders, the production code only passes them through to
-    # setData_forType_; their internal structure is irrelevant to the
-    # restore contract under test.
     foundation.NSData.dataWithBytes_length_.return_value = MagicMock(name="nsdata_bytes")
     foundation.NSData.data.return_value = MagicMock(name="nsdata_empty")
 
@@ -1056,22 +811,10 @@ def _install_fake_appkit_for_restore(
 
 
 class TestMacosRestoreReturnsFalseOnAllFailures:
-    """macOS ``_restore_macos`` returns ``False`` when zero items are
-    successfully set OR ``writeObjects_`` rejects the items.
-
-    Pre-fix: ``clearContents()`` ran first (clearing the pasteboard),
-    then per-item ``setData_forType_`` failures were silently swallowed
-    (the return value was ignored) and ``writeObjects_``'s BOOL return
-    was also ignored, the function returned ``True`` unconditionally
-    and the caller logged "Restored snapshot" while the clipboard was
-    left EMPTY. This mirrors the Windows ``_restore_windows`` pattern
-    (DE-62): track ``success_count``, inspect ``writeObjects_``, and
-    return ``False`` with a WARNING log on failure.
-    """
+    """macOS ``_restore_macos`` returns ``False`` when zero items are"""
 
     def test_restore_macos_returns_false_when_all_setdata_fail(self):
-        """All ``setData_forType_`` calls fail → ``success_count == 0``
-        → return False (not True, false success with empty pasteboard)."""
+        """All ``setData_forType_`` calls fail → ``success_count == 0``"""
         snap = ClipboardSnapshot(
             platform="macos",
             items=[(0, "public.utf8-plain-text", b"hello")],
@@ -1101,18 +844,14 @@ class TestMacosRestoreReturnsFalseOnAllFailures:
         assert "items set" in fmt_str and "writeObjects_" in fmt_str, (
             f"WARNING format string must report items-set count and writeObjects_; got {fmt_str!r}"
         )
-        # success_count=0, total items=1, writeObjects_ returned True.
         assert warning_args.args[1:] == (0, 1, True), (
             f"WARNING args must be (success_count, total, write_ok); got {warning_args.args[1:]!r}"
         )
-        # clearContents DID run (pasteboard is now empty).
         pb.clearContents.assert_called_once()
-        # setData_forType_ was called but returned False.
         item_mock.setData_forType_.assert_called()
 
     def test_restore_macos_returns_true_when_at_least_one_item_set(self):
-        """At least one ``setData_forType_`` succeeds AND
-        ``writeObjects_`` returns True → return True (sanity check)."""
+        """At least one ``setData_forType_`` succeeds AND"""
         snap = ClipboardSnapshot(
             platform="macos",
             items=[
@@ -1133,21 +872,12 @@ class TestMacosRestoreReturnsFalseOnAllFailures:
             result = snap._restore_macos()
 
         assert result is True
-        # writeObjects_ was called with a non-empty list.
         pb.writeObjects_.assert_called_once()
         ns_items_arg = pb.writeObjects_.call_args.args[0]
         assert isinstance(ns_items_arg, list) and len(ns_items_arg) >= 1
 
     def test_restore_macos_returns_false_when_writeobjects_returns_false(self):
-        """``setData_forType_`` succeeds (so ``success_count > 0``) but
-        ``writeObjects_`` returns False (pasteboard rejected every item)
-        → return False.
-
-        This is the failure mode unique to the macOS path: per-item
-        ``setData_forType_`` calls succeed (the NSPasteboardItem accepts
-        the data) but the pasteboard itself rejects the items at
-        ``writeObjects_`` time. Pre-fix, this returned True, silent
-        data loss with false-success signal."""
+        """``setData_forType_`` succeeds (so ``success_count > 0``) but"""
         snap = ClipboardSnapshot(
             platform="macos",
             items=[(0, "public.utf8-plain-text", b"hello")],
@@ -1177,20 +907,14 @@ class TestMacosRestoreReturnsFalseOnAllFailures:
         assert "items set" in fmt_str and "writeObjects_" in fmt_str, (
             f"WARNING format string must report items-set count and writeObjects_; got {fmt_str!r}"
         )
-        # success_count=1, total items=1, writeObjects_ returned False.
         assert warning_args.args[1:] == (1, 1, False), (
             f"WARNING args must be (success_count, total, write_ok) with write_ok=False; got {warning_args.args[1:]!r}"
         )
-        # setData_forType_ DID succeed (success_count was > 0), but
-        # writeObjects_ rejected the items, the failure is on the
-        # pasteboard side, not the item side.
         item_mock.setData_forType_.assert_called()
         pb.writeObjects_.assert_called_once()
 
     def test_restore_macos_returns_false_when_no_items(self):
-        """A snapshot with zero items must NOT call ``writeObjects_``
-        (nothing to write), but ``success_count == 0`` → return False
-        (mirrors the Windows empty-items path)."""
+        """A snapshot with zero items must NOT call ``writeObjects_``"""
         snap = ClipboardSnapshot(
             platform="macos",
             items=[],  # empty
@@ -1204,26 +928,14 @@ class TestMacosRestoreReturnsFalseOnAllFailures:
         ):
             result = snap._restore_macos()
 
-        # zero items → success_count == 0 → return False.
         assert result is False
         # writeObjects_ must NOT be called when ns_items is empty
-        # (the `if ns_items else True` guard short-circuits to True,
-        # but success_count == 0 still triggers the False return).
         pb.writeObjects_.assert_not_called()
         # WARNING was logged for the 0/0 items-set case.
         mock_log.warning.assert_called_once()
 
     def test_restore_macos_multi_item_mixed_success_returns_true(self):
-        """Multi-item / multi-type pasteboard where one ``setData_forType_``
-        call fails but another succeeds: ``success_count > 0`` and
-        ``writeObjects_`` returns True → return True.
-
-        This pins the best-effort semantics: per-item failures are
-        logged at DEBUG and skipped, but as long as AT LEAST ONE type
-        was set AND ``writeObjects_`` accepted the items, the restore
-        is considered successful (mirror of the Windows path's
-        per-item-continue + at-least-one-succeeded contract).
-        """
+        """Multi-item / multi-type pasteboard where one ``setData_forType_``"""
         # Two pasteboard items (idx=0 and idx=1), each with one type.
         snap = ClipboardSnapshot(
             platform="macos",
@@ -1238,7 +950,6 @@ class TestMacosRestoreReturnsFalseOnAllFailures:
             write_objects_returns=True,
         )
         # Make the FIRST setData_forType_ call fail and the SECOND
-        # succeed, proves best-effort continues past a per-item failure.
         item_mock.setData_forType_.side_effect = [False, True]
 
         with (
@@ -1247,7 +958,6 @@ class TestMacosRestoreReturnsFalseOnAllFailures:
         ):
             result = snap._restore_macos()
 
-        # success_count == 1 (the second call), writeObjects_ == True → True.
         assert result is True
         # No WARNING was logged, the per-item failure was DEBUG-only.
         mock_log.warning.assert_not_called()
@@ -1256,8 +966,6 @@ class TestMacosRestoreReturnsFalseOnAllFailures:
         assert any("setData_forType_ failed" in c for c in debug_calls), (
             f"Per-item setData_forType_ failure must be logged at DEBUG; got debug calls: {debug_calls!r}"
         )
-        # writeObjects_ was called with both NSPasteboardItem instances
-        # (the per-item failure did NOT abort the loop, best-effort).
         pb.writeObjects_.assert_called_once()
         ns_items_arg = pb.writeObjects_.call_args.args[0]
         assert len(ns_items_arg) == 2, (
@@ -1265,23 +973,11 @@ class TestMacosRestoreReturnsFalseOnAllFailures:
         )
 
 
-# ===========================================================================
-# atexit/signal handler races daemon restore
-# ===========================================================================
-
-
 class TestAtexitDoesNotRaceDaemonRestore:
-    """DE-63: the daemon's ``_pending_restores.remove(pending_entry)``
-    runs BEFORE ``snapshot.restore()``, under the lock. If atexit
-    has already claimed the entry (cleared the list), the daemon
-    short-circuits, preventing two threads inside
-    ``snapshot.restore()`` concurrently.
-    """
+    """DE-63: the daemon's ``_pending_restores.remove(pending_entry)``"""
 
     def test_daemon_claims_entry_before_restore(self):
-        """The daemon removes its entry from ``_pending_restores`` BEFORE
-        calling ``snapshot.restore()``. We verify by patching
-        ``snapshot.restore`` to inspect the list during the call."""
+        """The daemon removes its entry from ``_pending_restores`` BEFORE"""
         cm = _make_cm()
         snap = _make_snapshot()
         snap_restore_call_count = {"count": 0}
@@ -1292,7 +988,6 @@ class TestAtexitDoesNotRaceDaemonRestore:
         def _spy_restore(*args, **kwargs):
             snap_restore_call_count["count"] += 1
             # At the time snapshot.restore() is called, the entry must
-            # already be removed from _pending_restores .
             with clip_mod._pending_restores_lock:
                 assert entry not in clip_mod._pending_restores, (
                     "DE-63: daemon must claim (remove) the pending_entry "
@@ -1312,14 +1007,11 @@ class TestAtexitDoesNotRaceDaemonRestore:
         assert snap_restore_call_count["count"] == 1
 
     def test_daemon_short_circuits_when_atexit_already_claimed(self):
-        """If atexit has already cleared ``_pending_restores`` (claimed
-        the entry), the daemon must NOT call ``snapshot.restore()`` —
-        atexit will restore synchronously."""
+        """If atexit has already cleared ``_pending_restores`` (claimed"""
         cm = _make_cm()
         snap = _make_snapshot()
         entry = (cm, snap, "pasted", 0.0)
         # Do NOT register the entry, simulate atexit having already
-        # taken it (cleared the list).
         with clip_mod._pending_restores_lock:
             assert entry not in clip_mod._pending_restores
 
@@ -1335,12 +1027,10 @@ class TestAtexitDoesNotRaceDaemonRestore:
         mock_restore.assert_not_called()
 
     def test_daemon_short_circuit_logs_at_debug(self):
-        """The atexit-claimed short-circuit path logs at DEBUG (not
-        WARNING, this is an expected race-resolution, not an error)."""
+        """The atexit-claimed short-circuit path logs at DEBUG (not"""
         cm = _make_cm()
         snap = _make_snapshot()
         entry = (cm, snap, "pasted", 0.0)
-        # entry NOT in _pending_restores (simulating atexit claimed it)
         with (
             patch.object(clip_mod, "time") as mock_time,
             patch.object(clip_mod, "_paste_from_clipboard", return_value="pasted"),
@@ -1358,12 +1048,7 @@ class TestAtexitDoesNotRaceDaemonRestore:
         )
 
     def test_atexit_handler_skips_entries_claimed_by_daemon(self):
-        """DE-63: the atexit handler copies ``_pending_restores`` and
-        clears it. If the daemon has already claimed (removed) its
-        entry, the atexit handler will not see it, no double-restore.
-
-        This test simulates the race where the daemon claims first,
-        then atexit fires."""
+        """clears it. If the daemon has already claimed (removed) its"""
         cm = _make_cm()
         snap = _make_snapshot()
         entry = (cm, snap, "pasted", 0.0)
@@ -1371,25 +1056,20 @@ class TestAtexitDoesNotRaceDaemonRestore:
             clip_mod._pending_restores.append(entry)
 
         # Daemon claims the entry (removes it under the lock), this
-        # is what _delayed_restore does BEFORE calling snapshot.restore().
         with clip_mod._pending_restores_lock, contextlib.suppress(ValueError):
             clip_mod._pending_restores.remove(entry)
 
         # Now atexit fires. It should see an EMPTY list (daemon already
-        # claimed its entry) and NOT call snapshot.restore().
         with (
             patch.object(clip_mod, "_paste_from_clipboard", return_value="pasted"),
             patch.object(snap, "restore") as mock_restore,
             patch.object(clip_mod, "log"),
         ):
             clip_mod._force_restore_pending_at_exit()
-        # atexit saw an empty list, so it did not call restore.
         mock_restore.assert_not_called()
 
     def test_atexit_still_restores_entries_daemon_has_not_claimed(self):
-        """DE-63 regression: atexit still restores entries the daemon
-        hasn't claimed yet (the common case, app exits during the
-        restore-delay window before the daemon thread fires)."""
+        """DE-63 regression: atexit still restores entries the daemon"""
         cm = _make_cm()
         snap = _make_snapshot()
         entry = (cm, snap, "pasted", 0.0)
@@ -1403,22 +1083,17 @@ class TestAtexitDoesNotRaceDaemonRestore:
             patch.object(clip_mod, "log"),
         ):
             clip_mod._force_restore_pending_at_exit()
-        # atexit saw the entry and restored it.
         mock_restore.assert_called_once()
         # The list was cleared.
         with clip_mod._pending_restores_lock:
             assert clip_mod._pending_restores == []
 
     def test_daemon_clears_last_copied_text_even_on_short_circuit(self):
-        """DE-63 + DE-59 interaction: the ``finally`` block (which
-        clears ``_last_copied_text``) must still run on the
-        short-circuit path. Otherwise the PII would leak through the
-        short-circuit path."""
+        """short-circuit path."""
         cm = _make_cm()
         cm._last_copied_text = "secret-pii"
         snap = _make_snapshot()
         entry = (cm, snap, "pasted", 0.0)
-        # entry NOT in _pending_restores → short-circuit.
 
         with (
             patch.object(clip_mod, "time") as mock_time,
@@ -1428,7 +1103,6 @@ class TestAtexitDoesNotRaceDaemonRestore:
         ):
             mock_time.sleep = MagicMock()
             cm._delayed_restore(snap, "pasted", 0.0, entry)
-        # clear ran in finally block despite the short-circuit.
         assert cm._last_copied_text == "", (
             f"_last_copied_text should be cleared by _delayed_restore's "
             f"finally block even on the short-circuit path; got "
@@ -1436,14 +1110,7 @@ class TestAtexitDoesNotRaceDaemonRestore:
         )
 
     def test_no_concurrent_restore_when_atexit_fires_during_daemon_restore(self):
-        """DE-63 end-to-end: simulate atexit firing WHILE the daemon is
-        inside ``snapshot.restore()``. Verify snapshot.restore() is
-        called exactly ONCE (not twice).
-
-        Pre-fix: atexit could fire during the daemon's restore window
-        (between snapshot.restore() and the finally block's remove()),
-        leading to two concurrent restore calls.
-        """
+        """DE-63 end-to-end: simulate atexit firing WHILE the daemon is"""
         cm = _make_cm()
         snap = _make_snapshot()
         entry = (cm, snap, "pasted", 0.0)
@@ -1456,9 +1123,6 @@ class TestAtexitDoesNotRaceDaemonRestore:
         def _spy_restore(*args, **kwargs):
             restore_call_count["count"] += 1
             # Simulate atexit firing DURING snapshot.restore(). At this
-            # point, the daemon has already claimed (removed) the entry
-            # ( fix), so atexit will see an empty list and NOT
-            # call restore.
             with (
                 patch.object(clip_mod, "_paste_from_clipboard", return_value="pasted"),
                 patch.object(clip_mod, "log"),
@@ -1481,39 +1145,20 @@ class TestAtexitDoesNotRaceDaemonRestore:
         # Atexit fired during the daemon's restore call.
         assert atexit_call_count["count"] == 1
         # No second restore call from atexit (it saw an empty list).
-        # If we got here without a concurrent-restore assertion error,
-        # the race is fixed.
-
-
-# ===========================================================================
-# Source-string pin:  threading through seq-mismatch path
-# ===========================================================================
 
 
 class TestSourceStringPin:
-    """Source-string pin: the seq-mismatch re-copy path in
-    ``paste()`` must reference ``pasted_text`` (the threaded
-    parameter), NOT ``self._last_copied_text`` directly. This catches
-    a regression that reverts the DE-60 fix.
-    """
+    """``paste()`` must reference ``pasted_text`` (the threaded"""
 
     def test_seq_mismatch_recopy_reads_pasted_text_not_instance_attr(self):
-        """The seq-mismatch re-copy block must compute ``recopy_text``
-        from ``pasted_text`` (with fallback to ``self._last_copied_text``)."""
+        """The seq-mismatch re-copy block must compute ``recopy_text``"""
         import inspect
         import re
 
-        # After the manager package split, paste() and its helpers live
-        # on PasteMixin (manager/_paste.py), scan the composed class
-        # plus its mixins so the pin survives the class assembly.
         from voice_typer.server.clipboard.manager import PasteMixin
 
         manager_src = "\n".join(inspect.getsource(c) for c in (ClipboardManager, PasteMixin))
         # The source MUST contain a ``recopy_text`` local that prefers
-        # ``pasted_text`` over ``self._last_copied_text``.
-        # We look for the pattern in the re-copy block.
-        # Note: pattern does NOT require parentheses around the ternary —
-        # the production code uses bare ``a if cond else b`` form.
         m = re.search(
             r"recopy_text\s*=\s*pasted_text\s+if\s+pasted_text\s+is\s+not\s+None\s+else\s+self\._last_copied_text",
             manager_src,
@@ -1526,15 +1171,10 @@ class TestSourceStringPin:
         )
 
     def test_wayland_paste_call_sites_use_wtype_text(self):
-        """DE-60: the Wayland paste call sites (both terminal and
-        non-terminal branches) pass ``wtype_text`` (computed from
-        ``pasted_text``), NOT ``self._last_copied_text`` directly."""
+        """``pasted_text``), NOT ``self._last_copied_text`` directly."""
         import inspect
         import re
 
-        # After the manager package split, paste() and its helpers live
-        # on PasteMixin (manager/_paste.py), scan the composed class
-        # plus its mixins so the pin survives the class assembly.
         from voice_typer.server.clipboard.manager import PasteMixin
 
         manager_src = "\n".join(inspect.getsource(c) for c in (ClipboardManager, PasteMixin))
@@ -1548,7 +1188,6 @@ class TestSourceStringPin:
             "pasted_text (with fallback to self._last_copied_text)."
         )
         # The two call sites must use wtype_text, not self._last_copied_text.
-        # Verify NO direct _linux_paste_via_wtype(self._last_copied_text) calls remain.
         bad_pattern = r"_linux_paste_via_wtype\(\s*self\._last_copied_text\s*\)"
         bad_matches = re.findall(bad_pattern, manager_src)
         assert not bad_matches, (

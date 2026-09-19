@@ -1,18 +1,4 @@
-"""Tests for the per-chunk pre-allocation optimization of the audio filters.
-
-Verifies that the pre-allocated working buffers (gain, output, level-estimator,
-band-sum, RNNoise result) produce byte-identical output to a fresh-allocation
-reference implementation. The reference functions replicate the pre-optimization
-algorithm exactly (``np.power``, ``np.where``, ``np.concatenate``, fresh
-``.astype`` copies) so any drift introduced by the in-place ``np.copyto`` /
-``out=`` pattern is caught as a byte mismatch.
-
-Also verifies the structural contract:
-  * buffers are lazy-allocated on the first ``process()`` call (start as None)
-  * buffers are reused across same-size calls (identity stable)
-  * buffers grow to accommodate a larger chunk
-  * ``reset()`` zeros every pre-allocated working buffer (privacy pattern)
-"""
+"""Tests for the per-chunk pre-allocation optimization of the audio filters."""
 
 from __future__ import annotations
 
@@ -37,18 +23,8 @@ def _sine_chunk(n: int, freq: float = 440.0, amp: float = 0.5) -> np.ndarray:
     return (amp * np.sin(2.0 * np.pi * freq * t)).astype(np.float32)
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# Compressor: byte-identical to fresh-allocation reference
-# ═══════════════════════════════════════════════════════════════════════════
-
-
 def _compressor_reference_process(comp: Compressor, audio: np.ndarray, sample_rate: int) -> np.ndarray:
-    """Fresh-allocation reference (mirrors the pre-optimization gain stage).
-
-    Uses ``np.power(10.0, gain_db / 20.0) * output_gain`` (3 fresh arrays),
-    ``np.where(above_floor, gain, output_gain)`` (1 fresh array), and
-    ``(samples.astype(float64) * gain).astype(float32)`` (3 fresh arrays).
-    """
+    """Fresh-allocation reference (mirrors the pre-optimization gain stage)."""
     samples = np.ravel(audio).astype(np.float32, copy=False)
     n = len(samples)
     if n == 0:
@@ -157,11 +133,6 @@ class TestCompressorByteIdentical:
             c_ref._envelope = c_opt._envelope
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# Limiter: byte-identical to fresh-allocation reference
-# ═══════════════════════════════════════════════════════════════════════════
-
-
 def _limiter_reference_process(lim: Limiter, audio: np.ndarray, sample_rate: int) -> np.ndarray:
     """Fresh-allocation reference (mirrors the pre-optimization gain stage)."""
     samples = np.ravel(audio).astype(np.float32, copy=False)
@@ -252,11 +223,6 @@ class TestLimiterByteIdentical:
         np.testing.assert_array_equal(out_opt, out_ref)
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# Structural: buffers are lazy-allocated, reused, grown, zeroed on reset
-# ═══════════════════════════════════════════════════════════════════════════
-
-
 class TestCompressorBufferLifecycle:
     def test_buffers_start_none(self) -> None:
         c = Compressor(sample_rate=_SR)
@@ -338,7 +304,6 @@ class TestEqualizerBufferLifecycle:
     def test_zi_buffers_eagerly_allocated(self) -> None:
         eq = Equalizer(sample_rate=_SR)
         # 1-element zi buffers are eagerly allocated in __init__
-        # (mirror compressor._zi_buf at line 76).
         assert eq._low_zi_buf is not None
         assert eq._high_zi_buf is not None
         assert eq._low_zi_buf.shape == (1,)
@@ -444,20 +409,8 @@ class TestNoiseGateBufferLifecycle:
         assert g._abs_buf is None
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# NoiseSuppressor: byte-identical to fresh-allocation reference (stub backend)
-# ═══════════════════════════════════════════════════════════════════════════
-
-
 def _make_stub_ns(sample_rate: int = RNNOISE_SAMPLE_RATE):
-    """Build a NoiseSuppressor with a stub RNNoise backend.
-
-    The stub returns the input int16 frame unchanged so we can verify the
-    output-conversion path (int16 -> float64 -> /32767 -> resample) is
-    byte-identical between the optimized in-place path and a fresh-allocation
-    reference. Uses the native RNNoise rate (48kHz) so no resampling is
-    involved, the test isolates the ``_process_rnnoise`` frame loop.
-    """
+    """Build a NoiseSuppressor with a stub RNNoise backend."""
     ns = NoiseSuppressor(method="none", sample_rate=sample_rate)
 
     class _StubBackend:
@@ -473,12 +426,7 @@ def _make_stub_ns(sample_rate: int = RNNOISE_SAMPLE_RATE):
 
 
 def _ns_reference_process_rnnoise(ns: NoiseSuppressor, samples: np.ndarray, sample_rate: int) -> np.ndarray | None:
-    """Fresh-allocation reference for ``_process_rnnoise`` (pre-optimization).
-
-    Uses ``output_frames.append(cleaned_i16[0].astype(np.float32) /
-    _FLOAT_TO_INT16_MAX)`` (2 fresh arrays per frame) and
-    ``np.concatenate(output_frames)`` (1 fresh array per call).
-    """
+    """Fresh-allocation reference for ``_process_rnnoise`` (pre-optimization)."""
     ns._ensure_resamplers(sample_rate)
     up = ns._upsampler.process(samples) if ns._upsampler is not None else samples
     combined = np.concatenate([ns._carry, up])
@@ -605,11 +553,6 @@ class TestNoiseSuppressorBufferLifecycle:
             assert np.all(ns._padded_buf == 0)
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# Cross-filter: chunk-size variation doesn't break byte-identical output
-# ═══════════════════════════════════════════════════════════════════════════
-
-
 class TestCrossFilterChunkSizeVariation:
     """A larger chunk after a smaller one must reallocate and stay correct."""
 
@@ -635,8 +578,6 @@ class TestCrossFilterChunkSizeVariation:
             audio = (rng.standard_normal(cs) * 0.4).astype(np.float32)
             out_opt = g_opt.process(audio, sr)
             # Build reference using the same algorithm but fresh allocations.
-            # Reuse the gate's internal state by running a parallel instance
-            # and syncing state after each call.
             from tests.test_audio_filters_lazy_imports import _noise_gate_reference_process
 
             out_ref = _noise_gate_reference_process(g_ref, audio, sr)

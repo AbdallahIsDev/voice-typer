@@ -1,27 +1,4 @@
-"""Tests for G4-H-05: macOS / Linux password-field detection.
-
-The pre-fix code unconditionally returned ``True`` from
-``ClipboardManager._is_safe_paste_target`` on non-Windows, which allowed
-dictated text to be pasted into password fields, SSH passphrase prompts,
-credit-card forms, etc.
-
-These tests exercise the platform-native password-field detection
-helpers added in ``clipboard_target_safety.py``:
-
-* ``_is_password_field_macos``, uses pyobjc (AppKit + ApplicationServices)
-  to query the focused UI element's ``AXRole`` / ``AXIsSecure``.
-* ``_is_password_field_linux``, uses pyatspi to walk the AT-SPI tree
-  and check the focused accessible's role for ``ATSPI_ROLE_PASSWORD_TEXT``.
-
-Since pyobjc / pyatspi are not installed in the test environment (and
-would require a desktop session to actually query a UI), the helpers are
-exercised via ``sys.modules`` mocks that inject fake modules with the
-expected API surface.
-
-The tests also pin the fallback behavior, when the platform library is
-unavailable, the helper logs a WARNING (once) and returns ``False``
-(allowing the caller to fall back to the legacy "paste allowed" path).
-"""
+"""Tests for G4-H-05: macOS / Linux password-field detection."""
 
 from __future__ import annotations
 
@@ -31,26 +8,11 @@ import types
 from unittest.mock import MagicMock, patch
 
 import pytest
-
-# pynput / pynput.keyboard / pyperclip are mocked at collection time by
-# tests/clipboard/conftest.py (single source of truth, dedup).
 from voice_typer.server import (
     clipboard as clip_mod,  # noqa: E402
     clipboard_target_safety as safety_mod,  # noqa: E402
 )
 from voice_typer.server.clipboard import ClipboardManager  # noqa: E402
-
-# ---------------------------------------------------------------------------
-# Display-env isolation
-# ---------------------------------------------------------------------------
-# Previously this module mutated the process environment at import time
-# (setting DISPLAY=":99" and removing WAYLAND_DISPLAY) to keep clipboard
-# code happy on a headless Linux box. Those mutations leaked into the
-# entire test session. The autouse fixture below uses ``monkeypatch`` so
-# the mutations are auto-restored after each test (no cross-test leak).
-# could consolidate this into ``tests/conftest.py`` as a
-# session-scoped fixture; for now it is duplicated per-file because
-# conftest.py is owned by another sub-agent.
 
 
 @pytest.fixture(autouse=True)
@@ -63,37 +25,16 @@ def _mock_display_env(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def _reset_unavailable_warnings():
-    """Reset the once-only warning guards before each test.
-
-    The guards are intentionally sticky in production so a noisy startup
-    doesn't flood the log. Tests want to assert the WARNING is emitted
-    on the first call after the guard is reset, so we reset between
-    cases. We also clear the cached ``_PYATSPI_STATE_FOCUSED`` so a
-    stale value from a previous test's fake pyatspi module doesn't
-    leak into the next test's call.
-    """
+    """Reset the once-only warning guards before each test."""
     safety_mod.reset_platform_unavailable_warnings()
-    # Clear the cached STATE_FOCUSED so each test re-resolves it from
-    # its own fake pyatspi module.
     safety_mod._PYATSPI_STATE_FOCUSED = None
     yield
     safety_mod.reset_platform_unavailable_warnings()
     safety_mod._PYATSPI_STATE_FOCUSED = None
 
 
-# ===========================================================================
-# Linux / AT-SPI2 password-field detection
-# ===========================================================================
-
-
 def _make_fake_pyatspi(*, focused_role: int) -> types.ModuleType:
-    """Build a fake ``pyatspi`` module with a focused accessible.
-
-    The fake desktop has one app, which has one focused window, which
-    has one focused child whose role is ``focused_role``. The helper
-    walks down through children with ``STATE_FOCUSED`` set, so this
-    exercises the descent logic.
-    """
+    """Build a fake ``pyatspi`` module with a focused accessible."""
     mod = types.ModuleType("pyatspi")
 
     # Constants exposed by the real pyatspi.
@@ -129,10 +70,7 @@ def _make_fake_pyatspi(*, focused_role: int) -> types.ModuleType:
         def getRole(self):  # noqa: N802
             return self._role
 
-    # Build the tree: desktop → app → window → focused leaf.
-    # The FOCUSED state is set on the focused element itself (per
     # AT-SPI spec): the leaf has FOCUSED=True, its ancestors do NOT
-    # (they may have ACTIVE / SHOWING but not FOCUSED).
     focused_leaf = _Accessible(role=focused_role, focused=True)
     window = _Accessible(role=mod.ROLE_TEXT, focused=False, children=[focused_leaf])
     app = _Accessible(role=mod.ROLE_TEXT, focused=False, children=[window])
@@ -170,9 +108,6 @@ class TestIsPasswordFieldLinux:
     def test_returns_false_and_warns_when_pyatspi_missing(self):
         """When pyatspi is not installed, log a warning (once) + return False."""
         # Simulate "pyatspi not installed" by ensuring sys.modules has no
-        # real pyatspi AND the lazy import raises ImportError. The
-        # clipboard_target_safety module uses ``import pyatspi``; we patch
-        # builtins.__import__ to raise ImportError for that exact module.
         real_import = __builtins__.__import__ if hasattr(__builtins__, "__import__") else __import__
 
         def _block_pyatspi(name, *args, **kwargs):
@@ -202,13 +137,7 @@ class TestIsPasswordFieldLinux:
         assert len(debug_calls) >= 1
 
     def test_returns_true_when_pyatspi_raises_on_get_desktop(self):
-        """If pyatspi.Registry.getDesktop raises, fail closed (return True).
-
-        EC-15: when the AT-SPI2 desktop bus is unavailable, we cannot
-        traverse the accessibility tree to verify the focused element
-        is not a password field. Failing closed (blocking paste) is
-        safer than allowing paste into a potentially-sensitive field.
-        """
+        """If pyatspi.Registry.getDesktop raises, fail closed (return True)."""
         fake = _make_fake_pyatspi(focused_role=1 << 11)
 
         # Override getDesktop to raise.
@@ -221,29 +150,8 @@ class TestIsPasswordFieldLinux:
         assert result is True
 
 
-# ===========================================================================
-# macOS / Accessibility API password-field detection
-# ===========================================================================
-
-
 def _make_fake_pyobjc(*, role: str = "AXTextField", is_secure: bool = False) -> dict:
-    """Build fake ``AppKit`` and ``ApplicationServices`` modules.
-
-    The fake emulates the pyobjc API surface used by
-    ``_is_password_field_macos``: ``NSWorkspace.sharedWorkspace()``
-    → ``frontmostApplication()`` → ``processIdentifier()``, and
-    ``AXUIElementCreateApplication(pid)`` → AXUIElement.
-
-    ``AXUIElementCopyAttributeValue`` returns ``(status, value)``
-    tuples; status 0 = success.
-
-    Parameters
-    ----------
-    role : str
-        The role string returned for the focused element's ``AXRole``.
-    is_secure : bool
-        The value returned for the focused element's ``AXIsSecure``.
-    """
+    """Build fake ``AppKit`` and ``ApplicationServices`` modules."""
     appkit = types.ModuleType("AppKit")
 
     class _NSRunningApp:
@@ -289,7 +197,7 @@ class TestIsPasswordFieldMacOS:
     """``_is_password_field_macos`` detects AXSecureTextField password fields."""
 
     def test_returns_true_when_role_is_ax_secure_textfield(self):
-        """AXRole == "AXSecureTextField" → True (paste blocked)."""
+        """AXRole == \"AXSecureTextField\" → True (paste blocked)."""
         fakes = _make_fake_pyobjc(role="AXSecureTextField", is_secure=False)
         with (
             patch.dict(sys.modules, {"AppKit": fakes["AppKit"], "ApplicationServices": fakes["ApplicationServices"]}),
@@ -314,7 +222,7 @@ class TestIsPasswordFieldMacOS:
         assert len(warning_calls) == 1
 
     def test_returns_false_when_role_is_plain_textfield(self):
-        """AXRole == "AXTextField" + AXIsSecure=False → False (paste allowed)."""
+        """AXRole == \"AXTextField\" + AXIsSecure=False → False (paste allowed)."""
         fakes = _make_fake_pyobjc(role="AXTextField", is_secure=False)
         with (
             patch.dict(sys.modules, {"AppKit": fakes["AppKit"], "ApplicationServices": fakes["ApplicationServices"]}),
@@ -324,8 +232,7 @@ class TestIsPasswordFieldMacOS:
         assert result is False
 
     def test_returns_false_and_warns_when_pyobjc_missing(self):
-        """When pyobjc (AppKit/ApplicationServices) is not installed,
-        log a warning (once) + return False."""
+        """When pyobjc (AppKit/ApplicationServices) is not installed,"""
         real_import = __builtins__.__import__ if hasattr(__builtins__, "__import__") else __import__
 
         blocked = {"AppKit", "ApplicationServices"}
@@ -371,14 +278,7 @@ class TestIsPasswordFieldMacOS:
         assert result is False
 
     def test_returns_true_when_ax_call_raises(self):
-        """If AXUIElementCopyAttributeValue raises, fail closed (return True).
-
-        EC-15: when the AX API call itself raises (e.g. broken
-        accessibility permission), we cannot verify the focused
-        element is not a password field. Failing closed (blocking
-        paste) is safer than allowing paste into a potentially-
-        sensitive field.
-        """
+        """If AXUIElementCopyAttributeValue raises, fail closed (return True)."""
         fakes = _make_fake_pyobjc(role="AXSecureTextField")
 
         def _raise(*args, **kwargs):
@@ -391,11 +291,6 @@ class TestIsPasswordFieldMacOS:
         ):
             result = safety_mod._is_password_field_macos()
         assert result is True
-
-
-# ===========================================================================
-# _is_safe_paste_target dispatcher (non-Windows)
-# ===========================================================================
 
 
 class TestIsSafePasteTargetDispatch:
@@ -476,27 +371,17 @@ class TestIsSafePasteTargetDispatch:
         mock_linux.assert_not_called()
 
 
-# ===========================================================================
-# Signal handler registration (POSIX)
-# ===========================================================================
-
-
 class TestSignalHandlerRegistration:
     """POSIX signal handler for SIGTERM/SIGHUP restores pending snapshots."""
 
     def test_signal_restore_handler_calls_force_restore(self):
         """The signal handler invokes _force_restore_pending_at_exit()."""
-        # The handler will re-raise the signal via os.kill, which
-        # we must prevent from actually killing the test process.
-        # Patch os.kill + signal.signal to no-ops.
         with (
             patch.object(clip_mod, "_force_restore_pending_at_exit") as mock_force,
             patch.object(clip_mod.os, "kill") as mock_kill,
             patch.object(clip_mod, "_signal_restore_handler", wraps=clip_mod._signal_restore_handler),
         ):
             # Re-import the inner logic by calling the handler directly.
-            # We need to suppress the re-raise: patch the signal
-            # module so SIG_DFL is a sentinel and signal() is a noop.
             import signal as signal_mod
 
             sentinel = object()
@@ -506,10 +391,8 @@ class TestSignalHandlerRegistration:
                 contextlib.suppress(SystemExit),
             ):
                 # The handler should run _force_restore_pending_at_exit
-                # then call os.kill (patched to noop). Should not raise.
                 clip_mod._signal_restore_handler(signal_mod.SIGTERM, None)
         mock_force.assert_called_once()
-        # os.kill was called with our PID and the signum.
         if mock_kill.called:
             args, _ = mock_kill.call_args
             assert args[0] == clip_mod.os.getpid()
@@ -518,15 +401,10 @@ class TestSignalHandlerRegistration:
     def test_signal_handler_registered_on_posix(self):
         """On POSIX, the module-level registration block ran successfully."""
         # The registration is module-level and runs at import. We just
-        # assert the flag was set (which only happens when the signal
-        # module exposes SIGHUP, i.e. POSIX).
         import signal as signal_mod
 
         if hasattr(signal_mod, "SIGHUP"):
             # The module-level registration flag should be True on POSIX.
-            # (If the test runner is in a non-main thread, the
-            # registration is skipped; pytest's main thread is the
-            # default, so this should hold.)
             assert clip_mod._SIGNAL_HANDLERS_REGISTERED is True, (
                 "POSIX signal handlers should have been registered at clipboard.py module import time"
             )

@@ -1,20 +1,4 @@
-"""FR-28: regression tests for the ``history_enabled`` config gate in
-``dictation_pipeline._store_result``.
-
-When ``self._app.config.history_enabled`` is ``False``, the
-``add_transcription`` call must be skipped entirely (incognito mode).
-The clipboard paste still happens, only persistence is disabled.
-``history_enabled`` defaults to ``True`` (preserving the pre-FR-28
-behavior); ``getattr(..., True)`` is used so dictation still works on
-an older Config instance that hasn't yet picked up the new field
-(added by P4-A2).
-
-``_store_result`` must NEVER call ``history_db.flush()``, the
-blocking flush was removed from the pre-paste path (a paste must not
-stall on DB durability). The ADR-0010 §6.2 read-after-write guarantee
-now lives at the repaste boundary (``app_undo.repaste_last`` flushes
-before its read); see ``test_repaste_flush_boundary.py``.
-"""
+"""``dictation_pipeline._store_result``."""
 
 from __future__ import annotations
 
@@ -22,12 +6,7 @@ from unittest.mock import MagicMock
 
 
 def _make_pipeline(history_enabled=True, add_returns=1):
-    """Build a minimal DictationPipeline for testing ``_store_result``.
-
-    Mirrors the pattern in ``test_dictation_pipeline_lock_fixes.py``:
-    a MagicMock-backed app with explicit ``history_enabled`` (which may
-    be missing on older Config instances).
-    """
+    """Build a minimal DictationPipeline for testing ``_store_result``."""
     from voice_typer.server.dictation_pipeline import DictationPipeline
 
     pipeline = DictationPipeline.__new__(DictationPipeline)
@@ -51,8 +30,7 @@ def _make_pipeline(history_enabled=True, add_returns=1):
 
 
 class TestHistoryEnabledGate:
-    """FR-28: ``_store_result`` gates the ``add_transcription`` call on
-    ``config.history_enabled``."""
+    """FR-28: ``_store_result`` gates the ``add_transcription`` call on"""
 
     def test_calls_add_transcription_when_enabled(self):
         pipeline, app = _make_pipeline(history_enabled=True)
@@ -64,7 +42,6 @@ class TestHistoryEnabledGate:
             device="cpu",
         )
         # The row is enqueued fire-and-forget, NO blocking
-        # flush on the paste path (the guarantee lives at repaste).
         app.history_db.flush.assert_not_called()
 
     def test_skips_add_transcription_when_disabled(self):
@@ -78,9 +55,7 @@ class TestHistoryEnabledGate:
         assert app._history_fail_notified is False
 
     def test_defaults_to_enabled_when_field_missing(self):
-        """When the Config instance doesn't have ``history_enabled``
-        (older Config pre-P4-A2), ``getattr(..., True)`` falls back to
-        ``True``, dictation is persisted as before."""
+        """When the Config instance doesn't have ``history_enabled``"""
         pipeline, app = _make_pipeline(history_enabled=None)
         pipeline._store_result("legacy config")
         app.history_db.add_transcription.assert_called_once()
@@ -88,8 +63,7 @@ class TestHistoryEnabledGate:
         app.history_db.flush.assert_not_called()
 
     def test_toggling_disabled_to_enabled_re_enables_persistence(self):
-        """Toggling history_enabled from False to True at runtime must
-        re-enable persistence on the next dictation."""
+        """Toggling history_enabled from False to True at runtime must"""
         pipeline, app = _make_pipeline(history_enabled=False)
         pipeline._store_result("first")
         assert app.history_db.add_transcription.call_count == 0
@@ -102,8 +76,7 @@ class TestHistoryEnabledGate:
         app.history_db.flush.assert_not_called()
 
     def test_toggling_enabled_to_disabled_stops_persistence(self):
-        """Toggling history_enabled from True to False at runtime must
-        stop persistence on the next dictation."""
+        """Toggling history_enabled from True to False at runtime must"""
         pipeline, app = _make_pipeline(history_enabled=True)
         pipeline._store_result("first")
         assert app.history_db.add_transcription.call_count == 1
@@ -117,9 +90,7 @@ class TestHistoryEnabledGate:
 
 
 class TestHistoryEnabledGateWithCrashRecovery:
-    """FR-28: disabling history does NOT disable crash recovery
-    (crash_recovery_enabled is a separate flag). When both are enabled
-    + history_enabled is False, crash recovery still fires."""
+    """FR-28: disabling history does NOT disable crash recovery"""
 
     def test_crash_recovery_fires_when_history_disabled(self):
         from voice_typer.server.dictation_pipeline import DictationPipeline
@@ -139,7 +110,6 @@ class TestHistoryEnabledGateWithCrashRecovery:
         app._crash_recovery.flush = MagicMock()
         pipeline._app = app
         # The real orchestrator sets this in __init__ (orchestrator.py);
-        # __new__ bypasses it, so the fake must bind it explicitly.
         pipeline._cycle_id = ""
         pipeline._duration = 1.0
 
@@ -150,20 +120,11 @@ class TestHistoryEnabledGateWithCrashRecovery:
         # Crash recovery IS called (entry correlated with the cycle).
         app._crash_recovery.add.assert_called_once_with("incognito + crash recovery", pasted=False, cycle_id="")
         # The bounded crash-recovery flush (0.5s) stays on the pre-paste
-        # path (crash-safety); only the unbounded history flush moved
-        # to the repaste boundary.
         app._crash_recovery.flush.assert_called_once()
 
 
 class TestNoBlockingFlushOnPastePath:
-    """``_store_result`` never calls ``history_db.flush()``.
-
-    The blocking flush was removed from the pre-paste path, a paste
-    must not stall on DB durability (the multi-hundred-ms / worst-case
-    seconds stall). The ADR-0010 §6.2 read-after-write guarantee moved
-    to the repaste boundary (``app_undo.repaste_last`` flushes before
-    its read). This pins the latency contract across every state.
-    """
+    """``_store_result`` never calls ``history_db.flush()``."""
 
     def test_flush_never_invoked_in_any_state(self):
         for history_enabled in (True, False, None):

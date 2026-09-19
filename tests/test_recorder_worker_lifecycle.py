@@ -1,39 +1,4 @@
-"""GT-23 / GT-24 regression tests for the recorder worker & stream lifecycle.
-
-GT-23: Recorder worker thread lifecycle race
---------------------------------------------
-``_start_audio_worker`` / ``_stop_audio_worker`` (and the event-worker
-pair) previously performed read-modify-write on ``self._worker_thread``
-/ ``self._event_worker_thread`` with no synchronization.
-``Recorder.start()`` / ``stop()`` / ``discard()`` are reachable from
-multiple threads (toggle thread, auto-stop Timer thread, ESC-cancel
-thread, device-disconnect handler thread). Concurrent start+stop could
-have both readers see ``self._worker_thread is None``, the starter
-create+assign+start a fresh worker, and the stopper return early
-leaving that fresh worker untracked (a leak).
-
-Fix: a new ``self._worker_lifecycle_lock`` serializes the entire
-read-check-create-start (in ``_start_*``) and
-read-check-clear-join-unregister (in ``_stop_*``) sequences.
-``self._lock`` is intentionally NOT held across ``thread.join()`` —
-the worker thread acquires ``self._lock`` inside
-``_process_audio_chunk`` for the buffer append, so holding it across
-``join()`` would deadlock.
-
-GT-24: Stream-finished callback passes ``_captured_generation=0``
------------------------------------------------------------------
-``_stream_finished_callback`` (PortAudio thread) previously started
-the disconnect handler with NO ``_captured_generation`` kwarg, it
-defaulted to 0. Before any stop had occurred ``_stop_generation`` is
-also 0, so the bouncer ``_captured_generation != self._stop_generation``
-was ``0 != 0 == False`` and never bailed out. The fix captures
-``gen = self._stop_generation`` at scheduling time and passes it via
-``kwargs={'_captured_generation': gen}`` (mirroring the
-``_process_audio_chunk`` spawn site). A new
-``self._stream_lifecycle_lock`` serializes ``_teardown_stream`` against
-the stream-restart block of ``_handle_device_disconnect`` so a
-concurrent ``stop()`` cannot mutate ``self._stream_lifecycle._stream`` mid-restart.
-"""
+"""/ GT-24 regression tests for the recorder worker & stream lifecycle."""
 
 from __future__ import annotations
 
@@ -55,9 +20,6 @@ from tests.fixtures.recorder_test_helpers import (
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
-# ── Test helpers ───────────────────────────────────────────────────
-
-
 class _OkStream:
     """No-op InputStream mock for tests that don't touch real audio."""
 
@@ -75,11 +37,7 @@ class _OkStream:
 
 
 def _patch_ok_stream(monkeypatch, recording_mod):
-    """Patch sounddevice with a no-op InputStream + permissive device query.
-
-    Mirrors the helper in ``tests/test_audio_callback.py`` so the
-    recorder can be ``start()``-ed headless without real audio hardware.
-    """
+    """Patch sounddevice with a no-op InputStream + permissive device query."""
     monkeypatch.setattr(recording_mod.sd, "InputStream", _OkStream)
 
     def _query_devices(*args, **kwargs):
@@ -98,13 +56,8 @@ def _patch_ok_stream(monkeypatch, recording_mod):
     monkeypatch.setattr(recording_mod.sd, "query_hostapis", lambda idx=None: {"name": "MME"})
 
 
-# worker lifecycle lock, static & structural checks ──────
-
-
 class TestWorkerLifecycleLock:
-    """GT-23: ``_worker_lifecycle_lock`` serializes the read-modify-write
-    sequences in ``_start_audio_worker`` / ``_stop_audio_worker`` /
-    ``_start_event_worker`` / ``_stop_event_worker``."""
+    """``_worker_lifecycle_lock`` serializes the read-modify-write"""
 
     def test_lock_attribute_exists(self):
         from voice_typer.server.recording import Recorder
@@ -116,12 +69,7 @@ class TestWorkerLifecycleLock:
         )
 
     def test_start_audio_worker_holds_lock(self, monkeypatch):
-        """Behavioral: ``_start_audio_worker`` must acquire
-        ``_worker_lifecycle_lock`` across the read-check-create-start
-        sequence. Verified by holding the lock from the test thread and
-        confirming ``_start_audio_worker`` blocks until the lock is
-        released, if it didn't acquire the lock, it would complete
-        immediately."""
+        """Behavioral: ``_start_audio_worker`` must acquire"""
         import voice_typer.server.recording as recording_mod
         from voice_typer.server.recording import Recorder
 
@@ -162,9 +110,7 @@ class TestWorkerLifecycleLock:
                 r._stop_audio_worker(timeout=0.5, drain=False)
 
     def test_stop_audio_worker_holds_lock(self, monkeypatch):
-        """Behavioral: ``_stop_audio_worker`` must acquire
-        ``_worker_lifecycle_lock`` across the
-        read-check-clear-join-unregister sequence."""
+        """Behavioral: ``_stop_audio_worker`` must acquire"""
         import voice_typer.server.recording as recording_mod
         from voice_typer.server.recording import Recorder
 
@@ -204,11 +150,7 @@ class TestWorkerLifecycleLock:
                 r._stop_audio_worker(timeout=0.5, drain=False)
 
     def test_stop_audio_worker_does_not_hold_self_lock_across_join(self, monkeypatch):
-        """Behavioral: ``_stop_audio_worker`` must NOT acquire
-        ``self._lock``, holding it across ``thread.join()`` would
-        deadlock with the worker's buffer-append critical section.
-        Verified by replacing ``self._lock`` with a guarded wrapper
-        that raises if the main thread acquires it."""
+        """Behavioral: ``_stop_audio_worker`` must NOT acquire"""
         import voice_typer.server.recording as recording_mod
         from voice_typer.server.recording import Recorder
 
@@ -262,12 +204,7 @@ class TestWorkerLifecycleLock:
                 r._worker_thread.join(timeout=1.0)
 
     def test_start_event_worker_lock_is_acquired_at_call_site(self):
-        """Collaborator-source: the event-worker start sequence must be
-        wrapped in ``recorder._worker_lifecycle_lock`` at the
-        ``_recorder_split.start_recording`` call site (the historical
-        ``Recorder._start_event_worker`` wrapper was removed; the
-        collaborator body must NOT acquire the lock itself, pinned
-        by ``tests/test_capture_worker_lifecycle.py``)."""
+        """Collaborator-source: the event-worker start sequence must be"""
         import inspect
 
         from voice_typer.server.recording._recorder_split import start_recording
@@ -284,11 +221,7 @@ class TestWorkerLifecycleLock:
         )
 
     def test_stop_event_worker_lock_is_acquired_at_call_sites(self):
-        """Collaborator-source: the event-worker stop sequence must be
-        wrapped in ``recorder._worker_lifecycle_lock`` at the
-        ``_recorder_split.stop_recording`` AND ``discard_recording``
-        call sites (the historical ``Recorder._stop_event_worker``
-        wrapper was removed)."""
+        """Collaborator-source: the event-worker stop sequence must be"""
         import inspect
 
         from voice_typer.server.recording._recorder_split import discard_recording, stop_recording
@@ -307,8 +240,7 @@ class TestWorkerLifecycleLock:
             )
 
     def test_stop_event_worker_body_does_not_hold_self_lock_across_join(self, monkeypatch):
-        """Behavioral: the event-worker stop body must NOT acquire
-        ``self._lock``, same contract as ``_stop_audio_worker``."""
+        """Behavioral: the event-worker stop body must NOT acquire"""
         import voice_typer.server.recording as recording_mod
         from voice_typer.server.recording import Recorder
 
@@ -362,23 +294,8 @@ class TestWorkerLifecycleLock:
                 r._event_worker_thread.join(timeout=1.0)
 
 
-# concurrent start+stop doesn't leak worker threads ───────
-
-
 class TestConcurrentStartStopNoLeak:
-    """GT-23: hammer ``start()`` and ``stop()`` from two threads; verify
-    no worker thread is left running (leaked) after both threads finish.
-
-    Pre-fix, the read-check-create-start sequence in
-    ``_start_audio_worker`` / ``_start_event_worker`` was unsynchronized,
-    so a concurrent ``_stop_audio_worker`` could read
-    ``self._worker_thread is None`` between the starter's check and
-    assignment, return early, and leave the freshly-started worker
-    untracked (the worker would run until process exit as a daemon).
-    Post-fix, ``_worker_lifecycle_lock`` serializes the sequences so
-    either the starter sees the worker already alive (and returns) or
-    the stopper sees the new worker (and joins it).
-    """
+    """hammer ``start()`` and ``stop()`` from two threads; verify"""
 
     def test_concurrent_start_stop_no_leak(self, monkeypatch):
         import voice_typer.server.recording as recording_mod
@@ -387,9 +304,6 @@ class TestConcurrentStartStopNoLeak:
         _patch_ok_stream(monkeypatch, recording_mod)
 
         # S5 thread-ownership: snapshot BEFORE the hammer spawns any
-        # worker so the final wait only requires THIS test's delta to
-        # drain (leaked threads from earlier xdist files no longer
-        # block it; this test's own leaks still fail the assert below).
         baseline = snapshot_worker_threads()
 
         config = MagicMock(sample_rate=16000, microphone=None)
@@ -419,8 +333,6 @@ class TestConcurrentStartStopNoLeak:
         t1.start()
         t2.start()
         # Hammer for 500ms, long enough to expose the race pre-fix.
-        # (Event.wait doubles as the fixed-duration window: nothing else
-        # sets the flag, so this is a paced wait without a bare sleep.)
         stop_flag.wait(0.5)
         stop_flag.set()
         t1.join(timeout=5.0)
@@ -430,16 +342,6 @@ class TestConcurrentStartStopNoLeak:
 
         # Final cleanup: ensure no worker thread is left running.
         r.stop()
-        # GT-23 load-flake guard: under a loaded runner (full-suite
-        # serial run), a worker started by the last in-flight start()
-        # can still be mid-teardown right after stop() returns, and a
-        # superseded zombie worker (the stale-alive branch in
-        # ``_start_audio_worker`` replaced its stop/wake events and
-        # discarded its ref) may not have reached its next loop
-        # iteration yet. The shared guard polls (bounded) until BOTH
-        # the tracked refs are None AND no worker-named thread is
-        # alive, stop() is idempotent, and a REAL leak keeps the
-        # threads alive past the deadline, so this assert still fires.
         assert wait_for_workers_stopped(r, stop=r.stop, baseline=baseline), (
             f"GT-23 regression: worker threads still alive after "
             f"concurrent start()/stop(): "
@@ -448,9 +350,7 @@ class TestConcurrentStartStopNoLeak:
         )
 
     def test_concurrent_start_discard_no_leak(self, monkeypatch):
-        """Same as above but with ``discard()`` instead of ``stop()`` —
-        ``discard()`` is reachable from the ESC-cancel thread and races
-        with ``start()`` from the toggle thread."""
+        """Same as above but with ``discard()`` instead of ``stop()`` —"""
         import voice_typer.server.recording as recording_mod
         from voice_typer.server.recording import Recorder
 
@@ -494,7 +394,6 @@ class TestConcurrentStartStopNoLeak:
         assert not errors, f"GT-23: concurrent start()/discard() raised: {errors}"
 
         r.stop()
-        # GT-23 load-flake guard: see test_concurrent_start_stop_no_leak.
         assert wait_for_workers_stopped(r, stop=r.stop, baseline=baseline), (
             f"GT-23 regression: worker threads still alive after "
             f"concurrent start()/discard(): "
@@ -503,46 +402,28 @@ class TestConcurrentStartStopNoLeak:
         )
 
 
-# orphaned-worker cleanup when idle ───────
-
-
 class TestIdleStopStopsOrphanedWorkers:
-    """GT-23R: a start()/discard() race can leave ``_recording_event``
-      cleared but a live worker thread (a start() spawned it after a
-      concurrent discard already cleared the event). ``stop()`` must still
-      stop that worker instead of fast-pathing on the cleared event alone
-    , otherwise the daemon leaks until process exit (surfaced by the
-      recorder worker-lifecycle guard as a timeout under parallel load).
-    """
+    """GT-23R: a start()/discard() race can leave ``_recording_event``"""
 
     def test_stop_stops_live_event_worker_when_event_cleared(self, monkeypatch):
-        """A live ``event-worker`` with ``_recording_event`` cleared must
-        be stopped by ``stop()`` (the start/discard race end-state)."""
+        """A live ``event-worker`` with ``_recording_event`` cleared must"""
         import voice_typer.server.recording as recording_mod
         from voice_typer.server.recording import Recorder
 
         _patch_ok_stream(monkeypatch, recording_mod)
 
         # S5 thread-ownership: snapshot BEFORE the test spawns any
-        # worker so the wait only requires THIS test's delta to drain
-        # (worker threads leaked by earlier test files in the same xdist
-        # worker no longer block the wait; this test's own leaks still
-        # fail the assert below).
         baseline = snapshot_worker_threads()
 
         config = MagicMock(sample_rate=16000, microphone=None)
         r = Recorder(config)
 
-        # Reproduce the race end-state: recording_event cleared (a
-        # discard ran) but the event worker spawned by a concurrent
-        # start() is still alive.
         assert not r._recording_event.is_set()
         with r._worker_lifecycle_lock:
             r._capture.start_event_worker_body(r)
         assert r._event_worker_thread is not None
         assert r._event_worker_thread.is_alive()
 
-        # stop() must stop it despite the cleared event.
         r.stop()
 
         assert wait_for_workers_stopped(r, stop=r.stop, baseline=baseline), (
@@ -552,18 +433,13 @@ class TestIdleStopStopsOrphanedWorkers:
         )
 
     def test_stop_stops_live_audio_worker_when_event_cleared(self, monkeypatch):
-        """Same contract for the ``audio-worker``: a live worker with
-        ``_recording_event`` cleared must be stopped by ``stop()``."""
+        """Same contract for the ``audio-worker``: a live worker with"""
         import voice_typer.server.recording as recording_mod
         from voice_typer.server.recording import Recorder
 
         _patch_ok_stream(monkeypatch, recording_mod)
 
         # S5 thread-ownership: snapshot BEFORE the test spawns any
-        # worker so the wait only requires THIS test's delta to drain
-        # (worker threads leaked by earlier test files in the same xdist
-        # worker no longer block the wait; this test's own leaks still
-        # fail the assert below).
         baseline = snapshot_worker_threads()
 
         config = MagicMock(sample_rate=16000, microphone=None)
@@ -585,20 +461,13 @@ class TestIdleStopStopsOrphanedWorkers:
         )
 
     def test_discard_stops_live_worker_when_event_cleared(self, monkeypatch):
-        """Same contract for ``discard()`` (the production ESC-cancel
-        path): a live worker with ``_recording_event`` cleared must be
-        stopped by ``discard()``, its idle fast-path must not skip the
-        worker shutdown either."""
+        """Same contract for ``discard()`` (the production ESC-cancel"""
         import voice_typer.server.recording as recording_mod
         from voice_typer.server.recording import Recorder
 
         _patch_ok_stream(monkeypatch, recording_mod)
 
         # S5 thread-ownership: snapshot BEFORE the test spawns any
-        # worker so the wait only requires THIS test's delta to drain
-        # (worker threads leaked by earlier test files in the same xdist
-        # worker no longer block the wait; this test's own leaks still
-        # fail the assert below).
         baseline = snapshot_worker_threads()
 
         config = MagicMock(sample_rate=16000, microphone=None)
@@ -620,28 +489,11 @@ class TestIdleStopStopsOrphanedWorkers:
         )
 
 
-# stream-finished callback captures _captured_generation ──
-
-
 class TestStreamFinishedCallbackGeneration:
-    """GT-24: ``_stream_finished_callback`` must capture
-    ``self._stop_generation`` at scheduling time and pass it via
-    ``kwargs={'_captured_generation': gen}`` so the spawned
-    ``_handle_device_disconnect`` can bail out if a deliberate
-    stop/start cycle happened between scheduling and execution.
-
-    Pre-fix, the handler was scheduled with the default
-    ``_captured_generation=0``, which matched the initial
-    ``_stop_generation=0`` on the first session, defeating the
-    bouncer for any stop() that landed between scheduling and execution.
-    """
+    """``_stream_finished_callback`` must capture"""
 
     def test_stream_finished_callback_passes_captured_generation(self, monkeypatch):
-        """Behavioral: ``_stream_finished_callback`` must capture the
-        current ``_stop_generation`` at scheduling time and pass it via
-        the ``_captured_generation`` kwarg to the spawned disconnect
-        handler. Verified by intercepting ``_spawn_device_thread`` and
-        inspecting the kwargs."""
+        """current ``_stop_generation`` at scheduling time and pass it via"""
         import voice_typer.server.recording as recording_mod
         from voice_typer.server.recording import Recorder
 
@@ -684,16 +536,7 @@ class TestStreamFinishedCallbackGeneration:
         "at runtime by intercepting _spawn_device_thread."
     )
     def test_stream_finished_callback_does_not_use_default_zero(self):
-        """Source inspection: the spawn site must NOT omit the
-        ``_captured_generation`` kwarg (which would default to 0 and
-        defeat the bouncer on the first session).
-
-        STATE-OWNERSHIP: the scheduling body lives on
-        ``DisconnectHandler.stream_finished_callback_body`` (and the
-        thread construction on ``DisconnectHandler.spawn_device_thread``);
-        ``Recorder._stream_finished_callback`` is a documented 1-line
-        delegator. The pins read the OWNING collaborator's source.
-        """
+        """defeat the bouncer on the first session)."""
         from voice_typer.server.recording.disconnect_handler import DisconnectHandler
 
         spawn_src = inspect.getsource(DisconnectHandler.spawn_device_thread)
@@ -708,10 +551,7 @@ class TestStreamFinishedCallbackGeneration:
         )
 
     def test_handle_device_disconnect_bouncer_intact(self, monkeypatch):
-        """Behavioral: ``_handle_device_disconnect`` must bail out
-        immediately when ``_captured_generation != self._stop_generation``.
-        Verified by confirming the handler does NOT increment
-        ``_device_disconnect_retries`` when the generations mismatch."""
+        """Behavioral: ``_handle_device_disconnect`` must bail out"""
         import voice_typer.server.recording as recording_mod
         from voice_typer.server.recording import Recorder
 
@@ -735,14 +575,7 @@ class TestStreamFinishedCallbackGeneration:
         )
 
     def test_first_session_handler_bails_when_stop_runs_after_schedule(self, monkeypatch):
-        """Behavioral: on the first session (``_stop_generation=0``),
-        if stop() increments ``_stop_generation`` AFTER the
-        ``_stream_finished_callback`` captures the generation, the
-        spawned handler MUST bail out. Pre-fix, the captured generation
-        was always 0 (the default), and the bouncer
-        ``0 != 0 == False`` did NOT bail, so the handler proceeded to
-        teardown/restart on top of a stop() that was already in flight.
-        """
+        """Behavioral: on the first session (``_stop_generation=0``),"""
         import voice_typer.server.recording as recording_mod
         from voice_typer.server.recording import Recorder
 
@@ -755,18 +588,12 @@ class TestStreamFinishedCallbackGeneration:
             assert r._stop_generation == 0, "first session must start with _stop_generation=0"
 
             # Simulate the callback capturing gen=0, then stop() running
-            # and bumping _stop_generation to 1, then the handler running.
             captured_gen = r._stop_generation  # this is what
             # _stream_finished_callback captures at scheduling time.
 
-            # stop() increments _stop_generation. We don't call r.stop()
-            # directly because that would tear down the stream and stop
-            # the workers, instead we just bump the counter (mirroring
-            # the race window where stop() has run partway).
             r._stop_generation += 1
 
             # The bouncer should bail out, the handler was scheduled
-            # with gen=0 but _stop_generation is now 1.
             restarted_flag = {"called": False}
             original_resolve = r._devices._resolve_effective_sample_rate
 
@@ -786,8 +613,6 @@ class TestStreamFinishedCallbackGeneration:
                 "scheduling and execution."
             )
         finally:
-            # Restore stop_generation to 0 so r.stop() doesn't see a
-            # stale counter (defensive, stop() doesn't read the value).
             r._stop_generation = max(r._stop_generation - 1, 0)
             r.stop()
 
@@ -796,10 +621,7 @@ class TestStreamFinishedCallbackGeneration:
 
 
 class TestStreamLifecycleLock:
-    """GT-24: ``_stream_lifecycle_lock`` serializes stream teardown
-    (``_teardown_stream``) against the stream-restart block of
-    ``_handle_device_disconnect`` so a concurrent ``stop()`` /
-    ``discard()`` cannot mutate ``self._stream_lifecycle._stream`` mid-flight."""
+    """``_stream_lifecycle_lock`` serializes stream teardown"""
 
     def test_lock_attribute_exists(self):
         from voice_typer.server.recording import Recorder
@@ -811,10 +633,7 @@ class TestStreamLifecycleLock:
         )
 
     def test_teardown_stream_uses_lock(self):
-        """Behavioral: ``_teardown_stream`` must acquire
-        ``_stream_lifecycle_lock``. Verified by wrapping the lock with
-        a counting wrapper and asserting ``_teardown_stream`` acquires
-        it (when uncontended)."""
+        """Behavioral: ``_teardown_stream`` must acquire"""
         from voice_typer.server.recording import Recorder
 
         config = MagicMock(sample_rate=16000, microphone=None)
@@ -853,11 +672,7 @@ class TestStreamLifecycleLock:
         assert r._stream_lifecycle._stream is None, "GT-24: _teardown_stream did not tear down the stream."
 
     def test_handle_device_disconnect_restart_uses_lock(self, monkeypatch):
-        """Behavioral: the restart block of ``_handle_device_disconnect``
-        must acquire ``_stream_lifecycle_lock`` (BLOCKING) so a concurrent
-        ``stop()`` cannot mutate ``self._stream_lifecycle._stream`` mid-restart. Verified
-        by holding the lock and confirming the handler blocks at the
-        restart block."""
+        """Behavioral: the restart block of ``_handle_device_disconnect``"""
         import voice_typer.server.recording as recording_mod
         from voice_typer.server.recording import Recorder
 
@@ -901,14 +716,7 @@ class TestStreamLifecycleLock:
         assert completed, "GT-24: _handle_device_disconnect did not complete after the lock was released."
 
     def test_handle_device_disconnect_rechecks_bouncer_under_lock(self, monkeypatch):
-        """Behavioral: the restart block must re-check
-        ``_captured_generation != self._stop_generation`` AFTER
-        acquiring ``_stream_lifecycle_lock``, a concurrent ``stop()``
-        may have run between ``_teardown_stream()`` and the re-acquire.
-
-        Verified by holding the lock, bumping ``_stop_generation`` while
-        the handler is blocked, then releasing, the handler must bail
-        at the re-check and NOT call ``restart_stream``."""
+        """Behavioral: the restart block must re-check"""
         import voice_typer.server.recording as recording_mod
         from voice_typer.server.recording import Recorder
 
@@ -943,9 +751,6 @@ class TestStreamLifecycleLock:
 
         try:
             # Fixed grace, intentionally kept: the handler must be parked
-            # on the held _stream_lifecycle_lock BEFORE the generation bump,
-            # and its progress past the bouncer has no observable predicate
-            # to poll (the lock acquisition is internal to the handler).
             time.sleep(0.3)
             r._stop_generation = 1
         finally:
@@ -965,11 +770,7 @@ class TestStreamLifecycleLock:
         )
 
     def test_teardown_stream_returns_without_blocking_when_lock_held(self):
-        """GT-24: ``_teardown_stream`` must use non-blocking acquire so
-        ``__del__`` (best-effort cleanup) can't block on a long-running
-        ``stop()`` / ``discard()`` / disconnect handler holding the lock.
-        If another thread holds the lock, ``_teardown_stream`` returns
-        immediately (the holder will finish the teardown)."""
+        """``_teardown_stream`` must use non-blocking acquire so"""
         from voice_typer.server.recording import Recorder
 
         config = MagicMock(sample_rate=16000, microphone=None)
@@ -987,7 +788,6 @@ class TestStreamLifecycleLock:
             t = threading.Thread(target=call_teardown, name="gt24-teardown")
             t.start()
             # If _teardown_stream blocks (regression), this assertion
-            # fails after 2s.
             acquired = done_flag.wait(timeout=2.0)
             assert acquired, (
                 "GT-24 regression: _teardown_stream blocked for >2s "
@@ -1000,9 +800,7 @@ class TestStreamLifecycleLock:
             t.join(timeout=1.0)
 
     def test_teardown_stream_idempotent_when_uncontended(self, monkeypatch):
-        """GT-24: when the lock is uncontended, ``_teardown_stream``
-        must still tear down the stream and remain idempotent (matches
-        the pre-fix 17-H-FIX-2 contract)."""
+        """when the lock is uncontended, ``_teardown_stream``"""
         from voice_typer.server.recording import Recorder
 
         config = MagicMock(sample_rate=16000, microphone=None)
@@ -1016,31 +814,11 @@ class TestStreamLifecycleLock:
         assert r._stream_lifecycle._stream is None
 
 
-# stream-finished callback doesn't fire on first session ──
-
-
 class TestStreamFinishedCallbackFirstSession:
-    """GT-24: on the first session (before any ``stop()``), the
-    ``_stream_finished_callback`` must NOT spawn a disconnect handler
-    that proceeds to teardown/restart the active recording.
-
-    The existing ``_user_stop_pending`` / ``_recording_event.is_set()``
-    guards at the top of ``_stream_finished_callback`` already suppress
-    the spawn when recording is active. The GT-24 fix adds
-    defense-in-depth: even if a handler IS spawned (e.g., a PortAudio
-    glitch cleared ``_recording_event`` between the callback firing and
-    the check), it carries the captured ``_stop_generation`` and will
-    bail out if a deliberate stop/start cycle landed between scheduling
-    and execution.
-    """
+    """``_stream_finished_callback`` must NOT spawn a disconnect handler"""
 
     def test_callback_does_not_spawn_handler_when_recording_active(self, monkeypatch):
-        """When recording is active (``_recording_event.is_set()``) and
-        no stop has been requested (``_user_stop_pending=False``), the
-        callback must NOT spawn a disconnect handler, there's nothing
-        to recover from. This is the first-session invariant: the
-        callback only fires the handler when recording was unexpectedly
-        cleared."""
+        """callback must NOT spawn a disconnect handler, there's nothing"""
         import voice_typer.server.recording as recording_mod
         from voice_typer.server.recording import Recorder
 
@@ -1059,7 +837,6 @@ class TestStreamFinishedCallbackFirstSession:
         def counting_start(self):
             if self.name == "stream-finished-handler":
                 # Suppress the real handler, we only want to count
-                # spawns, not actually run the disconnect recovery.
                 return
             real_thread_start(self)
 
@@ -1078,7 +855,6 @@ class TestStreamFinishedCallbackFirstSession:
             assert r._user_stop_pending is False
 
             # Fire the callback, it must NOT spawn a handler because
-            # recording is still active.
             r._stream_finished_callback()
 
             assert spawn_count["n"] == 0, (
@@ -1089,19 +865,12 @@ class TestStreamFinishedCallbackFirstSession:
                 "stopped (not while it's still active)."
             )
         finally:
-            # Restore Thread.__init__/start before r.stop() so the
-            # recorder's worker threads can actually start (they were
-            # never suppressed by counting_start, only
-            # stream-finished-handler was, but stop() needs to be able
-            # to spawn its own bookkeeping if any).
             monkeypatch.setattr(threading.Thread, "__init__", real_thread_init)
             monkeypatch.setattr(threading.Thread, "start", real_thread_start)
             r.stop()
 
     def test_callback_does_not_spawn_handler_when_user_stop_pending(self, monkeypatch):
-        """When ``_user_stop_pending=True`` (stop() is in flight), the
-        callback must NOT spawn a handler, the stream finished because
-        the user pressed stop, not because of a disconnect."""
+        """callback must NOT spawn a handler, the stream finished because"""
         import voice_typer.server.recording as recording_mod
         from voice_typer.server.recording import Recorder
 
@@ -1129,10 +898,6 @@ class TestStreamFinishedCallbackFirstSession:
         r.start()
         try:
             # Simulate stop() having set _user_stop_pending but not yet
-            # torn down the stream (the race window where
-            # _stream_finished_callback fires from PortAudio's thread
-            # between stop() setting the flag and _teardown_stream
-            # completing).
             r._user_stop_pending = True
 
             r._stream_finished_callback()
@@ -1150,13 +915,7 @@ class TestStreamFinishedCallbackFirstSession:
             r.stop()
 
     def test_callback_spawns_handler_with_captured_generation_when_recording_cleared(self, monkeypatch):
-        """When recording was unexpectedly cleared (``_recording_event``
-        not set) and no stop is pending, the callback MUST spawn a
-        handler, AND that handler must carry the captured
-        ``_stop_generation`` (not the default 0). This is the GT-24
-        fix: the handler is now scheduled with the captured generation
-        so it can bail out if a stop/start cycle landed between
-        scheduling and execution."""
+        """When recording was unexpectedly cleared (``_recording_event``"""
         import voice_typer.server.recording as recording_mod
         from voice_typer.server.recording import Recorder
 
@@ -1170,8 +929,6 @@ class TestStreamFinishedCallbackFirstSession:
             real_thread_init(self, *args, **kwargs)
             if self.name == "stream-finished-handler":
                 # Capture the kwargs passed to the handler target.
-                # threading.Thread stores target/args/kwargs as
-                # _target, _args, _kwargs after __init__.
                 captured_kwargs["kwargs"] = dict(getattr(self, "_kwargs", {}) or {})
 
         def suppressing_start(self):
@@ -1187,11 +944,9 @@ class TestStreamFinishedCallbackFirstSession:
         r.start()
         try:
             # Bump _stop_generation to a non-zero value so we can verify
-            # the callback captures the CURRENT value (not the default 0).
             r._stop_generation = 7
 
             # Simulate the unexpected-disconnect path: _recording_event
-            # is cleared, _user_stop_pending is False, _stream is set.
             r._recording_event.clear()
             r._user_stop_pending = False
             assert r._stream_lifecycle._stream is not None

@@ -1,12 +1,4 @@
-"""Quiet offline probe misses: no traceback for expected cache misses.
-
-A fresh install has no (or only partial) HuggingFace snapshots, so the
-local-only probes (``local_files_only=True``) routinely raise
-``IncompleteSnapshotError`` / ``LocalEntryNotFoundError`` /
-``CacheNotFound``. That is the expected state, not a fault: exactly one
-concise DEBUG line, no traceback. Truly unexpected errors keep
-``exc_info`` so they stay diagnosable.
-"""
+"""Quiet offline probe misses: no traceback for expected cache misses."""
 
 from __future__ import annotations
 

@@ -1,18 +1,4 @@
-"""Focused tests for the device-list TTL policy and the shared PortAudio walk.
-
-Covers:
-
-- Watcher-absent fast TTL: when ``DeviceManager._mic_watcher is None``,
-  the recorder device-list cache stays at the 5 s fast TTL for the WHOLE
-  session (not just a 60 s window), matching the canonical UI list cadence.
-- Disconnect-recovery cache-first lookups: ``DisconnectHandler.restart_stream``
-  routes the original-index name match, per-alternate name match, and
-  max-input-channels probe through ``DeviceManager._cached_device_info``
-  instead of issuing one live ``sd.query_devices`` RPC per candidate.
-- Shared PortAudio walk: ``microphone_list.iter_filtered_input_devices``
-  is the single walk + filter used by both the canonical UI list and the
-  recorder candidate cache; each adapter keeps its own public shape.
-"""
+"""Focused tests for the device-list TTL policy and the shared PortAudio walk."""
 
 from __future__ import annotations
 
@@ -41,16 +27,11 @@ def _make_device_manager(recorder=None):
     return DeviceManager(recorder)
 
 
-# ─── Watcher-absent fast TTL (whole session) ───────────────────────────
-
-
 class TestWatcherAbsentFastTtl:
-    """``_refresh_device_list`` uses the 5 s TTL for the whole session
-    when the OS watcher is absent, not just a 60 s window."""
+    """``_refresh_device_list`` uses the 5 s TTL for the whole session"""
 
     def test_watcher_none_uses_fast_ttl_beyond_old_window(self, monkeypatch):
-        """A watcher-less DeviceManager must refresh at the 5 s cadence
-        even long after init (the old 60 s window is gone)."""
+        """A watcher-less DeviceManager must refresh at the 5 s cadence"""
         dm = _make_device_manager()
         dm._mic_watcher = None
 
@@ -78,9 +59,6 @@ class TestWatcherAbsentFastTtl:
         assert len(result1) == 1
         calls_after_first = calls["n"]
 
-        # Age the cache to 6 s (past the 5 s fast TTL, well inside a
-        # 30 s default) — must re-query. This is the post-60 s-window
-        # scenario the old code got wrong.
         dm._device_list_cache_time = time.monotonic() - 6.0
         dm._refresh_device_list()
         assert calls["n"] > calls_after_first, (
@@ -88,7 +66,6 @@ class TestWatcherAbsentFastTtl:
         )
 
         # Age the cache to 20 s — still past the fast TTL, still inside
-        # a 30 s default. Must re-query again.
         calls_before = calls["n"]
         dm._device_list_cache_time = time.monotonic() - 20.0
         dm._refresh_device_list()
@@ -115,29 +92,22 @@ class TestWatcherAbsentFastTtl:
         calls_after_first = calls["n"]
 
         # Age the cache to 10 s: inside the 30 s default TTL → no re-query
-        # (a watcher-absent manager WOULD re-query at this age).
         dm._device_list_cache_time = time.monotonic() - 10.0
         dm._refresh_device_list()
         assert calls["n"] == calls_after_first, "watcher-present cache must stay warm inside the 30 s default TTL"
 
 
-# ─── Disconnect-recovery cache-first lookups ───────────────────────────
-
-
 class TestRestartStreamCacheFirst:
-    """``restart_stream`` reads name / channel info from the device-list
-    cache instead of one live PortAudio RPC per candidate."""
+    """``restart_stream`` reads name / channel info from the device-list"""
 
     def test_original_index_name_match_uses_cache_not_live_query(self, monkeypatch):
-        """When the cache already holds the original device, the name-match
-        path must not issue a per-index ``sd.query_devices(index)`` RPC."""
+        """When the cache already holds the original device, the name-match"""
         import voice_typer.server.recording.disconnect_handler as dh_mod
         from voice_typer.server.recording.recorder import Recorder
 
         from tests.fixtures.ipc_test_helpers import make_fake_recorder
 
         # Disable the construction-time prewarm daemon so it cannot
-        # race our seeded device-list cache.
         monkeypatch.setattr(Recorder, "_prewarm_device_cache", lambda self: None)
 
         devices = [
@@ -161,8 +131,6 @@ class TestRestartStreamCacheFirst:
         monkeypatch.setattr(dh_mod, "refresh_vad_caches", lambda rec: None)
 
         # Pre-populate the device-list cache (the recovery path's
-        # `_same_physical_microphone_candidates` would have warmed it;
-        # seed it directly so we observe the lookup, not the refresh).
         r._devices._device_list_cache = [
             {
                 "index": 0,
@@ -201,8 +169,7 @@ class TestRestartStreamCacheFirst:
         assert r._stream_lifecycle._stream is fake_stream
 
     def test_alternate_candidate_name_match_uses_cache(self, monkeypatch):
-        """When the original index is gone, the alternate-candidate loop
-        must also read names from the cache."""
+        """When the original index is gone, the alternate-candidate loop"""
         import voice_typer.server.recording.disconnect_handler as dh_mod
         from voice_typer.server.recording.recorder import Recorder
 
@@ -252,18 +219,13 @@ class TestRestartStreamCacheFirst:
         DisconnectHandler(r).restart_stream(_captured_generation=0)
 
         # No per-index live queries: index 0 miss and index 1 hit both
-        # resolve through the cache (0 is absent from the cache →
-        # `_cached_device_info` live-fallback raises → returns None;
-        # that ONE fallback live call is the documented cache-miss path).
-        # Index 1 must be served from cache with zero live calls.
         index_1_live = [c for c in live_calls if c[0] == 1 and c[1] is None]
         assert index_1_live == [], "alternate candidate at a cached index must not live-query"
         assert r._stream_lifecycle._stream is fake_stream
         assert r._actual_channels == 1
 
     def test_live_fallback_on_cache_miss_still_works(self, monkeypatch):
-        """A cache miss must still fall back to a live query (never
-        a hard failure just because the cache is cold)."""
+        """A cache miss must still fall back to a live query (never"""
         import voice_typer.server.recording.disconnect_handler as dh_mod
         from voice_typer.server.recording.recorder import Recorder
 
@@ -294,17 +256,12 @@ class TestRestartStreamCacheFirst:
         DisconnectHandler(r).restart_stream(_captured_generation=0)
 
         # System-default path: live kind="input" query is the documented
-        # fallback; stereo clamp must still apply (2 channels).
         assert r._actual_channels == 2
         assert r._stream_lifecycle._stream is fake_stream
 
 
-# ─── Shared PortAudio walk + both adapters ─────────────────────────────
-
-
 class TestSharedPortAudioWalk:
-    """``iter_filtered_input_devices`` is the single walk + filter used
-    by both enumeration surfaces; public shapes stay unchanged."""
+    """``iter_filtered_input_devices`` is the single walk + filter used"""
 
     def _devices(self):
         return [
@@ -370,8 +327,7 @@ class TestSharedPortAudioWalk:
         assert result == []
 
     def test_canonical_list_shape_unchanged(self, monkeypatch):
-        """``list_microphones`` still emits id / index / name / host_api /
-        channels / default / is_bluetooth (C-MIC-7/8/9/10)."""
+        """``list_microphones`` still emits id / index / name / host_api /"""
         from voice_typer.server.server_platform import microphone_list as _ml
 
         _ml.invalidate_microphone_list_cache()
@@ -406,8 +362,7 @@ class TestSharedPortAudioWalk:
         _ml.invalidate_microphone_list_cache()
 
     def test_recorder_list_shape_unchanged(self, monkeypatch):
-        """``DeviceManager._refresh_device_list`` still emits index / name /
-        max_input_channels / default_samplerate / hostapi."""
+        """``DeviceManager._refresh_device_list`` still emits index / name /"""
         import voice_typer.server.recording.device_manager as dm_mod
 
         dm = _make_device_manager()
@@ -449,8 +404,7 @@ class TestSharedPortAudioWalk:
         assert entry["hostapi"] == 0
 
     def test_both_adapters_agree_on_which_devices_survive(self, monkeypatch):
-        """The shared walk must produce the same survivor set for both
-        adapters (filter-drift regression guard)."""
+        """The shared walk must produce the same survivor set for both"""
         from voice_typer.server.server_platform import microphone_list as _ml
 
         devices = [

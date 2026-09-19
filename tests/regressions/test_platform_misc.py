@@ -1,14 +1,4 @@
-"""Regression tests split out of the former ``tests/test_bugfix_regressions.py``.
-
-This module is part of the ``tests/regressions/`` package.
-The class/method names, assertion logic, and imports below are
-preserved verbatim from the original 4446-line monolith, only file
-location has changed.
-
-Common preamble (imports + Linux test-env shim) is identical to the
-original file so that every test in this module sees the same global
-state the monolith provided.
-"""
+"""The class/method names, assertion logic, and imports below are"""
 
 from __future__ import annotations
 
@@ -20,17 +10,8 @@ from unittest.mock import patch
 import pytest
 
 
-# the previous Linux test-env shim that aliased
-# ``ctypes.WINFUNCTYPE = ctypes.CFUNCTYPE`` and inserted a ``MagicMock``
-# for ``voice_typer.server.crash_handler`` into ``sys.modules`` has been
-# removed. ``crash_handler.py`` now gates the ``@ctypes.WINFUNCTYPE(...)``
-# decorator behind ``sys.platform == "win32"``, so the module imports
-# cleanly on Linux/macOS without any test-infrastructure shim.
 class TestPlatformUtilsDeadCodeRemoved:
-    """The finding: ``validate_env_vars`` in platform_utils.py was dead
-    code (never called from production). Fix: deleted the dead
-    function, ``_init_env_var_schema``, and ``_ENV_VAR_SCHEMA``.
-    """
+    """The finding: ``validate_env_vars`` in platform_utils.py was dead"""
 
     def test_validate_env_vars_removed_from_platform_utils(self):
         from voice_typer.server import platform_utils
@@ -45,8 +26,6 @@ class TestPlatformUtilsDeadCodeRemoved:
     def test_validate_env_vars_canonical_in_env_validation(self):
         from voice_typer.server import app, env_validation
 
-        # The canonical implementation lives in env_validation (the
-        # ``app`` re-export was removed with its last test importer).
         assert hasattr(env_validation, "_validate_env_vars"), (
             "env_validation must be the single source of truth for env-var validation."
         )
@@ -73,12 +52,7 @@ class TestPlatformUtilsDeadCodeRemoved:
 
 
 class TestDuplicateDiskSpaceCheckRemoved:
-    """The finding: two disk-space check implementations coexisted with
-    different APIs and size tables. Fix: deleted the local
-    ``_check_disk_space`` and ``_ESTIMATED_MODEL_SIZES`` from
-    asr_setup.py; the canonical ``_check_disk_space_for_download`` in
-    transcription.py is the single source of truth.
-    """
+    """different APIs and size tables. Fix: deleted the local"""
 
     def test_local_check_disk_space_removed(self):
         from voice_typer.server import asr_setup
@@ -97,39 +71,10 @@ class TestDuplicateDiskSpaceCheckRemoved:
         assert callable(_check_disk_space_for_download)
 
     def test_asr_setup_delegates_to_canonical(self):
-        """``asr_setup.download_parakeet_weights`` must delegate
-        disk-space checking to the canonical
-        ``_check_disk_space_for_download`` from ``transcription.py``
-        (rather than a local duplicate that previously diverged in size
-        tables and return semantics).
-
-        ported from a source-string meta-test (which inspected
-        ``download_parakeet_weights`` source for the substring
-        ``_check_disk_space_for_download``) to a behavioral test that
-        mocks the canonical function and verifies it is invoked. The
-        behavioral test is robust to refactors, if the call is moved
-        into a helper or renamed, the test still catches the regression
-        as long as disk-space checking is bypassed.
-        """
+        """``asr_setup.download_parakeet_weights`` must delegate"""
 
         from voice_typer.server import asr_setup
 
-        # Mock ``snapshot_download`` to raise (cache miss) so the
-        # function proceeds past the cache-check block to the
-        # disk-space check. Mock ``_check_disk_space_for_download`` to
-        # raise ``RuntimeError`` so the function short-circuits after
-        # the check (no actual download attempt).
-        #
-        # ``download_parakeet_weights`` now enforces a
-        # defense-in-depth HuggingFace consent gate. ``config=None``
-        # (the default) is treated as "consent NOT given" (GDPR Art.
-        # 6/13 safe default), so a bare ``download_parakeet_weights()``
-        # call returns ``(False, "huggingface_consent_false", None)``
-        # before reaching the disk-space check. We pass ``force=True``
-        # to bypass the consent gate, this test isn't exercising
-        # consent, it's exercising the disk-space delegation path.
-        # ``force=True`` is the documented escape hatch for legacy /
-        # test paths that have verified consent upstream.
         with (
             patch(
                 "huggingface_hub.snapshot_download",
@@ -142,10 +87,6 @@ class TestDuplicateDiskSpaceCheckRemoved:
         ):
             result = asr_setup.download_parakeet_weights(force=True)
 
-        # the function returns a 3-tuple
-        # ``(success, reason, exc_info)``. On insufficient space,
-        # ``success`` is False and ``reason`` is
-        # ``"disk_space_insufficient"``.
         assert isinstance(result, tuple) and len(result) == 3, (
             "download_parakeet_weights must return a 3-tuple (success, reason, exc_info)."
         )
@@ -166,63 +107,45 @@ class TestDuplicateDiskSpaceCheckRemoved:
 
 
 class TestDaemonThreadRationaleDocumented:
-    """The finding: 9+ manual Thread(daemon=True) sites without rationale
-    comments. Fix: added ``# RACE-008`` rationale comments to each
-    undocumented site explaining why daemon=True is acceptable.
-    """
+    """The finding: 9+ manual Thread(daemon=True) sites without rationale"""
 
     def test_hotkeys_win32_thread_has_rationale(self):
         # KEEP, pins RACE-008 rationale comment on the daemon
-        # thread. The comment is documentation, not behavior; a
-        # behavioral test can't verify rationale presence. Source-string
-        # check is the only way to catch removal.
         from voice_typer.server.hotkeys import WindowsNativeHotkey
 
         src = inspect.getsource(WindowsNativeHotkey.start)
-        # Assert the rationale PHRASE (not the ticket token): the token
         # is stripped by C-STYLE-1 cleanup, but the rationale comment
-        # must never be removed from the daemon-thread spawn site.
         assert "daemon=True is acceptable" in src, (
             "WindowsNativeHotkey.start must keep a daemon=True rationale comment on the daemon thread."
         )
 
     def test_hotkeys_ipc_thread_has_rationale(self):
         # KEEP, pins RACE-008 rationale comment on the WaylandHotkey
-        # socket-accept daemon thread. Same rationale as the win32 variant.
         from voice_typer.server.hotkeys import WaylandHotkey
 
         inspect.getsource(WaylandHotkey.start)
         # The rationale comment is in _start_socket_server which is
-        # called from start(). Check the whole class source.
         class_src = inspect.getsource(WaylandHotkey)
         # Assert the rationale PHRASE, the RACE-008 ticket token is
         # stripped by C-STYLE-1 cleanup, but the daemon=True rationale
-        # comment on the socket-accept thread must never be removed.
         assert "daemon=True is acceptable" in class_src, (
             "WaylandHotkey must keep a daemon=True rationale comment on the socket-accept daemon thread."
         )
 
     def test_tray_bg_thread_has_rationale(self):
         # KEEP, pins RACE-008 rationale comment on the tray
-        # background-thread daemon. Same rationale as the win32 variant.
         from voice_typer.server.tray import TrayIcon
 
         # The background daemon thread is spawned in the shared
-        # `_launch_bg_work` helper (start() delegates to it from 4
-        # call sites). Inspect THAT method, it owns the spawn site.
         src = inspect.getsource(TrayIcon._launch_bg_work)
         # Assert the rationale PHRASE, the RACE-008 ticket token is
         # stripped by C-STYLE-1 cleanup, but the daemon=True rationale
-        # comment must never be removed from the background-thread site.
         assert "daemon=True is acceptable" in src, (
             "TrayIcon._launch_bg_work must keep a daemon=True rationale comment on the daemon thread spawn site."
         )
 
     def test_service_download_thread_has_rationale(self):
         # KEEP, pins RACE-008 rationale comment on the service.py
-        # model-download daemon thread. Same rationale as the win32 variant.
-        # The model-download daemon thread lives in the split service/model
-        # package (composed from domain mixin modules), search every leaf.
         from pathlib import Path
 
         import voice_typer.server.service.model as service_model_pkg
@@ -231,7 +154,6 @@ class TestDaemonThreadRationaleDocumented:
         src = "".join(p.read_text(encoding="utf-8") for p in sorted(pkg_dir.glob("*.py")))
         # Assert the rationale PHRASE, the RACE-008 ticket token is
         # stripped by C-STYLE-1 cleanup, but the daemon=True rationale
-        # comment on the download thread must never be removed.
         assert "daemon=True is acceptable" in src, (
             "service/model package must keep a daemon=True rationale comment on the download daemon thread."
         )
@@ -268,15 +190,11 @@ class TestContainerEnvironmentDetection:
         from voice_typer.server.container_detect import get_container_type
 
         # On CI (not in container), should return None
-        # On a container, should return a string
         result = get_container_type()
         assert result is None or isinstance(result, str)
 
     def test_container_detect_called_in_startup(self):
         # KEEP, pins  (app.py calls warn_if_in_container
-        # at startup). A behavioral test would need to capture log output
-        # from app startup, which is heavy; the source-string check
-        # catches removal of the call directly.
         from voice_typer.server import app
 
         src = inspect.getsource(app)
@@ -305,32 +223,14 @@ class TestPlatMacBlocked:
     """macOS code exists but requires macOS CI runner."""
 
     def test_macos_code_exists(self):
-        """macOS-specific code must exist in the codebase.
-
-        KEEP - pins PLAT-MAC (platform_utils contains darwin/is_macos
-        references; the historical pin on app.py moved here when the
-        app-module platform-flag re-export seam was removed). A
-        behavioral test would need to run on macOS and observe the
-        macOS code path, which is heavy (platform-specific); the
-        source-string check catches removal of the macOS platform-flag
-        surface.
-        """
+        """macOS-specific code must exist in the codebase."""
         from voice_typer.server import platform_utils
 
         src = inspect.getsource(platform_utils)
         assert "darwin" in src or "is_macos" in src
 
     def test_macos_ci_runner_exists(self):
-        """A macOS CI runner IS configured in build.yml.
-        This test pins that state, if the runner is removed, this
-        test will fail and alert maintainers that macOS code is
-        no longer being tested in CI.
-
-        KEEP, pins (macOS CI runner in build.yml).
-        # A behavioral test would need to run the workflow and verify the
-        # runner executes, which is heavy (CI-only); the file-content
-        # check catches removal of the macOS runner directly.
-        """
+        """A macOS CI runner IS configured in build.yml."""
         build_yml = Path(__file__).resolve().parent.parent.parent / ".github" / "workflows" / "build.yml"
         if build_yml.exists():
             src = build_yml.read_text(encoding="utf-8")

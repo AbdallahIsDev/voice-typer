@@ -1,17 +1,5 @@
 #!/usr/bin/env python
-"""Runtime verification script for transcription-time fallback and stuck-state recovery.
-
-Exercises the ACTUAL code paths used by VoiceTyperApp when the user presses
-F2 to start, F2 to stop, then transcription runs.  Uses synthetic audio
-(2s of white noise at 16 kHz) so no microphone is needed.
-
-Reports:
-1. Fresh runtime log lines from the current build
-2. Whether transcribe_with_fallback() was exercised
-3. Whether _busy recovered to False
-4. Whether the tray recovered to a non-stuck state
-5. Whether a second "F2 press" (toggle_dictation) works after the first cycle
-"""
+"""Runtime verification script for transcription-time fallback and stuck-state recovery."""
 
 import io
 import logging
@@ -22,7 +10,6 @@ import traceback
 
 import numpy as np
 
-# ─── Capture ALL logs into a buffer for later reporting ────────────────────
 log_capture = io.StringIO()
 _capture_handler = logging.StreamHandler(log_capture)
 _capture_handler.setLevel(logging.DEBUG)
@@ -42,7 +29,6 @@ def make_synthetic_audio(duration_s: float = 2.0, sample_rate: int = 16000) -> n
     """Generate synthetic audio: low-level noise that mimics quiet speech input."""
     n_samples = int(duration_s * sample_rate)
     # Generate noise at a level that's above the "near-silence" threshold (0.001 RMS)
-    # but below actual speech levels, this is enough to exercise the code paths
     rng = np.random.default_rng(42)
     noise = rng.normal(0, 0.01, n_samples).astype(np.float32)
     return noise
@@ -58,8 +44,6 @@ class MockTrayIcon:
         self._current_message = ""
 
     def set_state(self, state, message=""):
-        # AppState moved from voice_typer.tray to
-        # voice_typer.server.tray_types.
         from voice_typer.server.tray_types import AppState
 
         state_name = state.value if isinstance(state, AppState) else str(state)
@@ -89,11 +73,6 @@ class MockTrayIcon:
 
 def run_runtime_proof():
     """Run the actual runtime verification cycle."""
-    # fixed the module paths.  The script previously
-    # imported from ``voice_typer.config``, ``voice_typer.transcription``,
-    # and ``voice_typer.tray``, all of which were moved to
-    # ``voice_typer.server.*`` during the package reorganization.
-    # The script would crash on import; now it actually runs.
     from voice_typer.server.config import Config
     from voice_typer.server.transcription import TranscriptionEngine
     from voice_typer.server.tray_types import AppState
@@ -102,7 +81,6 @@ def run_runtime_proof():
     log.info("RUNTIME PROOF TEST STARTING")
     log.info("=" * 70)
 
-    # ─── Step 1: Load config and model (same as VoiceTyperApp.__init__) ──
     log.info("[STEP 1] Loading config and transcription engine...")
     config = Config.load()
     log.info(
@@ -119,7 +97,6 @@ def run_runtime_proof():
         language=config.language,
     )
 
-    # ─── Step 2: Load model (same fallback chain as _try_load_model) ─────
     log.info("[STEP 2] Loading model (with full fallback chain)...")
     try:
         transcriber.load()
@@ -133,11 +110,9 @@ def run_runtime_proof():
         log.exception("[STEP 2] Cannot continue - transcription requires a loaded model")
         return False
 
-    # ─── Step 3: Simulate the F2 cycle using app.py's actual logic ───────
     mock_tray = MockTrayIcon()
     busy = False  # mirrors VoiceTyperApp._busy
 
-    # --- Simulate: F2 pressed → _start_dictation ---
     log.info("[STEP 3] Simulating F2 press -> _start_dictation")
     mock_tray.set_state(AppState.RECORDING, "Recording...")
 
@@ -152,7 +127,6 @@ def run_runtime_proof():
         rms,
     )
 
-    # --- Simulate: F2 pressed again → _stop_dictation ---
     log.info("[STEP 3] Simulating F2 press -> _stop_dictation")
     mock_tray.set_state(AppState.TRANSCRIBING, "Transcribing...")
     busy = True
@@ -245,7 +219,6 @@ def run_runtime_proof():
         log.warning("[STEP 3] Watchdog had to force-recover!")
         results["busy_recovered"] = True  # recovered via watchdog
 
-    # ─── Step 4: Verify _busy and tray state ─────────────────────────────
     log.info("[STEP 4] Verifying post-transcription state...")
     log.info("[STEP 4] _busy = %s", busy)
     log.info("[STEP 4] Tray state = %s (%s)", mock_tray.current_state, mock_tray.current_message)
@@ -263,7 +236,6 @@ def run_runtime_proof():
     else:
         log.error("[STEP 4] FAIL: Tray is stuck on 'Transcribing...'!")
 
-    # ─── Step 5: Simulate second F2 press (toggle_dictation) ─────────────
     log.info("[STEP 5] Simulating second F2 press (toggle_dictation)...")
     # This is what toggle_dictation does:
     if busy:
@@ -273,7 +245,6 @@ def run_runtime_proof():
         log.info("[STEP 5] F2 NOT blocked - _busy is False, toggle would proceed")
         results["second_f2_works"] = True
 
-    # ─── Step 6: Determine outcome ───────────────────────────────────────
     log.info("=" * 70)
     log.info("RUNTIME PROOF RESULTS")
     log.info("=" * 70)
@@ -299,7 +270,6 @@ def run_runtime_proof():
     log.info("  second F2 press works: %s", results["second_f2_works"])
     log.info("  final outcome: %s", outcome)
 
-    # ─── Print all tray state transitions ─────────────────────────────────
     log.info("")
     log.info("TRAY STATE TRANSITIONS:")
     for state_name, message, _ in mock_tray.states:
@@ -310,7 +280,6 @@ def run_runtime_proof():
     for title, message, _ in mock_tray.notifications:
         log.info("  -> %s: %r", title, message)
 
-    # ─── Print captured log lines ─────────────────────────────────────────
     log.info("")
     log.info("=" * 70)
     log.info("FULL CAPTURED LOG OUTPUT (from this run):")
@@ -331,10 +300,4 @@ if __name__ == "__main__":
         sys.exit(2)
 
 
-# expose a stable ``run()`` alias so ``tests/test_manual_slow.py``
-# can wrap this script as a ``@pytest.mark.slow`` test without coupling to
-# the historical ``run_runtime_proof`` name. The alias is defined AFTER the
-# ``__main__`` block so running the script directly still uses the
-# try/except wrapper above (which converts success → exit 0, failure → 1,
-# crash → 2).
 run = run_runtime_proof

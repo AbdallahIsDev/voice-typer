@@ -1,33 +1,4 @@
-"""Regression tests for the keyring-call orphan/wedge/cooldown tracking.
-
-Covers the orphan/wedge/cooldown behavior of ``_run_keyring_call`` in
-``voice_typer/server/credential_store/_backend.py``::
-
-    def _run_keyring_call(func, *args, **kwargs): ...
-
-Pre-fix, every keyring I/O call spawned a fresh daemon worker thread and
-raised ``TimeoutError`` on timeout with NO state carried between calls.
-A permanently-stuck backend (D-Bus daemon hung, Keychain waiting on an
-unlock prompt the user walked away from) would leak one orphan thread
-per call and waste the caller's 5s timeout budget on every invocation
-— ``Config.load()`` at startup makes 5 such calls (one per provider),
-so a wedged backend stalled startup for 25s+.
-
-Post-fix, ``_run_keyring_call`` tracks:
-
-- ``_orphaned_thread_count``: incremented on timeout, decremented when
-  the orphan eventually finishes (the orphan's ``finally`` checks the
-  per-call ``orphaned`` flag under the state lock).
-- ``_consecutive_timeouts``: incremented on timeout, reset to 0 on any
-  non-timeout completion (success or backend exception).
-- ``_wedged_until``: set to ``now + _KEYRING_WEDGE_COOLDOWN_S`` (60s)
-  on the 2nd consecutive timeout. While active, every call short-circuits
-  with a ``TimeoutError`` without spawning another worker thread.
-
-A WARNING is logged when the orphan count exceeds
-``_KEYRING_ORPHAN_WARN_THRESHOLD`` (20) so operators can diagnose a
-permanently-stuck backend.
-"""
+"""Regression tests for the keyring-call orphan/wedge/cooldown tracking."""
 
 from __future__ import annotations
 
@@ -38,25 +9,10 @@ import time
 import pytest
 from voice_typer.server import credential_store
 
-# ── Helpers ────────────────────────────────────────────────────────────
-
 
 @pytest.fixture(autouse=True)
 def _reset_keyring_state():
-    """Reset the module-level orphan/wedge counters between tests.
-
-    Without this, a test that triggers a wedge would leave
-    ``_wedged_until`` set and cause subsequent tests to short-circuit.
-
-    The counters are re-bound module globals OWNED by
-    ``credential_store._backend``, production code mutates them via
-    bare-name global lookup inside that submodule. Writing them through
-    the package module would only create a ``__dict__`` shadow that the
-    production code never sees (and that would poison later reads via
-    the PEP 562 delegation), so every reset below targets the owning
-    submodule. The lock itself has stable identity and stays reachable
-    via the package's static import.
-    """
+    """Reset the module-level orphan/wedge counters between tests."""
     with credential_store._keyring_state_lock:
         credential_store._backend._orphaned_thread_count = 0
         credential_store._backend._consecutive_timeouts = 0
@@ -77,9 +33,6 @@ def _fast_timeout(monkeypatch, seconds: float = 0.05) -> None:
 def _fast_cooldown(monkeypatch, seconds: float = 0.1) -> None:
     """Shrink the wedge cooldown so we can test expiry quickly."""
     monkeypatch.setattr(credential_store, "_KEYRING_WEDGE_COOLDOWN_S", seconds)
-
-
-# ── Tests: orphan tracking ─────────────────────────────────────────────
 
 
 class TestOrphanTracking:
@@ -111,7 +64,6 @@ class TestOrphanTracking:
             # Let the orphan finish so it decrements the counter.
             done.set()
             # Wait for the orphan to decrement (poll, since we don't
-            # have a handle to join).
             deadline = time.monotonic() + 2.0
             while credential_store._backend._orphaned_thread_count > 0 and time.monotonic() < deadline:
                 time.sleep(0.01)
@@ -133,7 +85,6 @@ class TestOrphanTracking:
             assert credential_store._backend._consecutive_timeouts == 1
 
             # Second call: raises ValueError immediately, should reset
-            # the consecutive counter to 0 (not increment it).
             with pytest.raises(ValueError):
                 credential_store._run_keyring_call(_raise_value_error)
             assert credential_store._backend._consecutive_timeouts == 0
@@ -143,9 +94,6 @@ class TestOrphanTracking:
 
 def _raise_value_error() -> None:
     raise ValueError("backend blew up")
-
-
-# ── Tests: wedge / cooldown ────────────────────────────────────────────
 
 
 class TestWedgeCooldown:
@@ -267,23 +215,14 @@ class TestWedgeCooldown:
             done2.set()
 
 
-# ── Tests: orphan threshold warning ────────────────────────────────────
-
-
 class TestOrphanThresholdWarning:
     """A WARNING is logged when the orphan count exceeds the threshold."""
 
     def test_threshold_warning_fires(self, monkeypatch, caplog):
         _fast_timeout(monkeypatch)
         # Lower the threshold so we don't need to spawn 20 orphans.
-        # Threshold=1 means the warning fires as soon as the orphan
-        # count exceeds 1 (i.e. on the 2nd orphan).
         monkeypatch.setattr(credential_store, "_KEYRING_ORPHAN_WARN_THRESHOLD", 1)
         # Long cooldown so the wedge (which fires on the 2nd consecutive
-        # timeout) does short-circuit subsequent calls, but the
-        # threshold-warning fires on the SAME timeout that engages the
-        # wedge (both check the incremented orphan_count in the same
-        # critical section), so we still see the threshold log.
         monkeypatch.setattr(credential_store, "_KEYRING_WEDGE_COOLDOWN_S", 60.0)
 
         done = threading.Event()
@@ -294,19 +233,12 @@ class TestOrphanThresholdWarning:
         try:
             with caplog.at_level(logging.WARNING, logger="voice_typer.server.credential_store"):
                 # Spawn 2 orphans, 1st: orphan_count=1, no threshold log
-                # (1 > 1 is False). 2nd: orphan_count=2, threshold log
-                # fires (2 > 1 is True). Wedge also engages on the 2nd.
                 for _ in range(2):
                     with pytest.raises(TimeoutError):
                         credential_store._run_keyring_call(slow_call)
             threshold_logs = [r for r in caplog.records if "orphaned keyring-io threads" in r.getMessage()]
             if not threshold_logs:
                 # Bounded condition-wait, not a flaky single check: under
-                # full-suite xdist CPU contention the watchdog/timeout
-                # bookkeeping can lag the return of the second
-                # ``TimeoutError`` by a scheduler quantum, so the
-                # threshold WARNING may land milliseconds after this
-                # point. Poll for it (2s ceiling) before failing.
                 import time as _time
 
                 _deadline = _time.monotonic() + 2.0

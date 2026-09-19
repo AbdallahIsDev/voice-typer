@@ -1,10 +1,4 @@
-"""History init stays single-call and silent on re-entry.
-
-Covers the duplicate startup lines (schema INFO + repeat, FTS5 skip twice,
-encryption active + repeat): the retention worker and the main thread raced
-the lazy construction, and every re-entry logged. The startup phase now
-pre-resolves once, and re-entry logs nothing.
-"""
+"""History init stays single-call and silent on re-entry."""
 
 from __future__ import annotations
 
@@ -41,8 +35,6 @@ def test_schema_second_init_is_silent(caplog, tmp_path, _clean_history_guards):
     def _make_db():
         from voice_typer.server.history_db import HistoryDB
 
-        # Use a real instance shape without starting threads: only the
-        # attributes init_schema touches.
         db = HistoryDB.__new__(HistoryDB)
         db.db_path = db_path
         db._init_error = None

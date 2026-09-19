@@ -1,21 +1,4 @@
-"""Focused tests for the contiguous growable recording buffer.
-
-The recording storage was redesigned from ``deque(maxlen=N)`` of chunks +
-rebuild-on-demand snapshot caches into ONE pre-allocated growable float32
-ndarray (:class:`~voice_typer.server.recording._recorder_split.GrowableRecordingBuffer`)
-with geometric capacity doubling. These tests pin the five core contracts
-of that design:
-
-1. growth across doubling boundaries preserves exact sample continuity;
-2. snapshots are views over live storage with stable provenance identity
-   (``view().base is storage``) while the data is physically linear;
-3. the resample-path cache is invalidated when (dtype, src_sr, dst_sr)
-   changes;
-4. ``stop()`` returns audio bit-equal to the historical concatenation of
-   the appended chunks (golden sine comparison);
-5. ``stop()`` / ``discard()`` zero the old storage in the background
-   after the handoff (SEC-audit-008 ordering preserved).
-"""
+"""Focused tests for the contiguous growable recording buffer."""
 
 from __future__ import annotations
 
@@ -34,16 +17,10 @@ from voice_typer.server.recording._recorder_split import (
 
 @pytest.fixture(autouse=True)
 def _identity_prepare_audio(monkeypatch):
-    """Patch the module-level ``prepare_audio`` binding that
-    ``stop_recording`` invokes (the historical
-    ``Recorder._prepare_audio`` delegator was removed) with an identity
-    pass-through so the stop-path tests exercise the buffer mechanics."""
+    """``stop_recording`` invokes (the historical"""
     import voice_typer.server.recording._recorder_split as split_mod
 
     monkeypatch.setattr(split_mod, "prepare_audio", lambda rec, audio, effective_sr_in, **kw: audio)
-
-
-# ── helpers ──────────────────────────────────────────────────────────────
 
 
 def _sine(freq: float, n_samples: int, sr: int = 16000, amp: float = 0.5) -> np.ndarray:
@@ -61,14 +38,9 @@ class _RecorderSpy:
         self.evicted.append(int(samples))
 
 
-# ── 1. growth across doubling boundaries ─────────────────────────────────
-
-
 class TestGrowthAcrossDoublingBoundaries:
     def test_sample_continuity_across_many_reallocations(self):
-        """Appends crossing several geometric-doubling reallocations must
-        preserve exact sample order and values, no loss, duplication, or
-        reordering at any boundary."""
+        """Appends crossing several geometric-doubling reallocations must"""
         buf = GrowableRecordingBuffer(
             maxlen=None,
             nominal_sample_rate=16000,
@@ -86,13 +58,10 @@ class TestGrowthAcrossDoublingBoundaries:
         got = buf.view()
         assert got.size == want.size
         np.testing.assert_array_equal(got, want)
-        # Doubling actually happened: capacity must have grown past the
-        # initial allocation.
         assert buf.storage.shape[0] >= want.size
 
     def test_capacity_doubles_geometrically(self):
-        """Capacity must follow the documented doubling policy (clamped to
-        the hard cap), not grow by small increments."""
+        """Capacity must follow the documented doubling policy (clamped to"""
         buf = GrowableRecordingBuffer(
             maxlen=None,
             nominal_sample_rate=1,
@@ -108,15 +77,12 @@ class TestGrowthAcrossDoublingBoundaries:
             buf.append(np.array([float(i)], dtype=np.float32))
             if cap() != observed[-1]:
                 observed.append(cap())
-        # Every reallocation at least doubles (geometric growth), and the
-        # final allocation is within one doubling of the data size.
         for prev, cur in zip(observed, observed[1:], strict=False):
             assert cur >= 2 * prev, f"capacity jump {prev} -> {cur} is not geometric"
         assert cap() < 4 * 64
 
     def test_hard_cap_freezes_storage_and_evicts_from_front(self):
-        """At the hard cap the storage stops growing and behaves as a
-        ring: oldest samples are evicted, newest kept, total bounded."""
+        """At the hard cap the storage stops growing and behaves as a"""
         buf = GrowableRecordingBuffer(
             maxlen=None,
             nominal_sample_rate=8,
@@ -134,9 +100,7 @@ class TestGrowthAcrossDoublingBoundaries:
         assert buf.appended_samples_total == 500
 
     def test_chunk_count_maxlen_mirrors_deque_eviction(self):
-        """maxlen eviction must drop exactly one oldest CHUNK per append
-        once full (deque parity, the pipeline's counter compensation
-        depends on this)."""
+        """maxlen eviction must drop exactly one oldest CHUNK per append"""
         spy = _RecorderSpy()
         buf = GrowableRecordingBuffer(maxlen=4, on_extra_eviction=spy)
         lens = [3, 5, 2, 9, 4, 6]
@@ -156,9 +120,6 @@ class TestGrowthAcrossDoublingBoundaries:
         np.testing.assert_array_equal(joined[2:11], chunks[3])
         np.testing.assert_array_equal(joined[11:15], chunks[4])
         np.testing.assert_array_equal(joined[15:], chunks[5])
-
-
-# ── 2. view identity & immutability expectations ─────────────────────────
 
 
 class TestSnapshotViewIdentity:
@@ -204,8 +165,7 @@ class TestSnapshotViewIdentity:
         np.testing.assert_array_equal(v, np.arange(12, 20, dtype=np.float32))
 
     def test_chunks_are_copied_in_callers_do_not_alias_storage(self):
-        """Appending must COPY: mutating the caller's array afterwards
-        must not corrupt the stored recording (and vice versa)."""
+        """Appending must COPY: mutating the caller's array afterwards"""
         buf = GrowableRecordingBuffer(maxlen=None, nominal_sample_rate=16000)
         chunk = np.ones(8, dtype=np.float32)
         buf.append(chunk)
@@ -216,19 +176,11 @@ class TestSnapshotViewIdentity:
         assert np.all(buf.view() == 7.0)
 
 
-# ── 3. invalidation on sample-rate change ────────────────────────────────
-
-
 class _FakeRecorderForSnapshot:
     """Minimal recorder double exposing what take_snapshot reads."""
 
     def __init__(self, *, effective_sr: int, target_sr: int = 16000) -> None:
         # STATE-OWNERSHIP: the buffer / lock / buffer-side sample
-        # rate live on the owning ``AudioPipeline`` (production reads
-        # them via ``recorder._audio_pipeline.<attr>``). This fake plays
-        # both roles, so self-delegate the pipeline attribute, the
-        # ``take_snapshot`` friend-access path resolves back to the
-        # attributes below.
         self._audio_pipeline = self
         self.config = MagicMock(sample_rate=target_sr)
         self._buffer_sr = effective_sr
@@ -258,9 +210,7 @@ class _FakeRecorderForSnapshot:
 class TestResampleCacheInvalidationOnRateChange:
     @pytest.fixture(autouse=True)
     def _route_resample_through_fake(self, monkeypatch):
-        """Route the module-level ``resample_chunk`` binding (the
-        historical ``Recorder._resample_chunk`` delegator was removed)
-        through the fake recorder's recording stub."""
+        """through the fake recorder's recording stub."""
 
         def _route(recorder, audio, effective_sr, target_sr):
             return recorder._resample_chunk(audio, effective_sr, target_sr)
@@ -275,14 +225,11 @@ class TestResampleCacheInvalidationOnRateChange:
         calls_after_first = len(rec.resample_calls)
 
         # Same rate → incremental: appending new samples resamples ONLY
-        # the new tail.
         rec._audio_pipeline._buffer.append(np.full((6, 1), 2.0, dtype=np.float32))
         second = take_snapshot(rec)
         assert second.size == 4
         assert len(rec.resample_calls) == calls_after_first + 1
 
-        # Rate CHANGE mid-session: the cache must be discarded and the
-        # whole window re-resampled under the new key.
         rec._audio_pipeline._buffer_sr = 8000
         third = take_snapshot(rec)
         assert rec._cached_resample_key == ("float32", 8000, 16000)
@@ -302,13 +249,9 @@ class TestResampleCacheInvalidationOnRateChange:
         rec._audio_pipeline._buffer_sr = 44100  # force key change
         take_snapshot(rec)
         # The superseded cache memory must be zeroed (SEC-audit-008) —
-        # check the OLD backing array object, not the freshly rebuilt one.
         assert np.all(old_capacity_array[:old_len] == 0), (
             "cache invalidation must zero the superseded resampled cache in-place before it is replaced."
         )
-
-
-# ── 4. stop contiguity equals historical concatenation ───────────────────
 
 
 def _make_mock_recorder_for_stop(chunks: list[np.ndarray], *, buffer_sr: int = 16000):
@@ -334,9 +277,7 @@ def _make_mock_recorder_for_stop(chunks: list[np.ndarray], *, buffer_sr: int = 1
 
 class TestStopContiguityGoldenSine:
     def test_stop_returns_bit_exact_concatenation_equivalent(self):
-        """Golden comparison: the audio returned by ``stop_recording``
-        must be bit-equal to the historical
-        ``np.concatenate(list(deque)).reshape(-1)`` semantics."""
+        """Golden comparison: the audio returned by ``stop_recording``"""
         chunks = [
             _sine(440.0, 512),
             _sine(880.0, 387),  # odd size on purpose
@@ -354,8 +295,7 @@ class TestStopContiguityGoldenSine:
         np.testing.assert_array_equal(audio, golden)
 
     def test_stop_across_doubling_boundary_is_continuous(self):
-        """A session long enough to cross several growth reallocs must
-        still produce one gap-free recording."""
+        """A session long enough to cross several growth reallocs must"""
         chunks = [_sine(440.0 + i * 10, 400) for i in range(12)]
         golden = np.concatenate(chunks)
         rec = _make_mock_recorder_for_stop(chunks)
@@ -367,9 +307,7 @@ class TestStopContiguityGoldenSine:
         np.testing.assert_array_equal(audio, golden)
 
     def test_stop_returns_audio_independent_of_background_zeroing(self):
-        """The returned audio must be an owning copy: enqueueing the old
-        storage for background zeroing AFTER the export must never touch
-        it (stop()-race SEC fix preserved)."""
+        """The returned audio must be an owning copy: enqueueing the old"""
         golden = _sine(440.0, 64)
         rec = _make_mock_recorder_for_stop([golden.copy()])
         audio = stop_recording(rec)
@@ -379,9 +317,6 @@ class TestStopContiguityGoldenSine:
         _stop_buffer_clear_worker(timeout=2.0)
         assert audio.flags.owndata
         np.testing.assert_array_equal(audio, golden)
-
-
-# ── 5. discard / stop zeroing ────────────────────────────────────────────
 
 
 class TestDiscardAndStopZeroing:
@@ -422,7 +357,6 @@ class TestDiscardAndStopZeroing:
         assert rec._audio_pipeline._buffer.maxlen == 30000
         assert rec._audio_pipeline._total_buffered_samples == 0
 
-        # Background worker must zero the OLD storage in-place.
         from voice_typer.server.recording.buffer import _stop_buffer_clear_worker
 
         _stop_buffer_clear_worker(timeout=2.0)
@@ -431,8 +365,7 @@ class TestDiscardAndStopZeroing:
         )
 
     def test_legacy_container_normalized_on_first_use(self):
-        """A plain deque (hot-swap swap-in) must be transparently replaced
-        by a growable buffer carrying over its content."""
+        """A plain deque (hot-swap swap-in) must be transparently replaced"""
         import collections
 
         rec = _FakeRecorderForSnapshot(effective_sr=16000)

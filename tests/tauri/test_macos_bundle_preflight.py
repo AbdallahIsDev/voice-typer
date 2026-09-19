@@ -1,25 +1,4 @@
-"""Headless macOS bundle preflight contract (host-validation automation).
-
-Validates everything the ``macos-host-validation`` job in
-``.github/workflows/host-validation.yml`` proves without a macOS host,
-using only the standard library so the same assertions run on Linux CI
-and on the macOS runner:
-
-* the partial ``Info.plist`` merged by Tauri carries the microphone,
-  notification, automation usage strings plus the OS minimum;
-* the hardened-runtime ``entitlements.plist`` carries the five required
-  keys and no notification entitlement;
-* ``tauri.conf.json`` macOS block points at both plist files and its
-  minimum matches the plist;
-* the per-arch ``tauri.macos.conf.json`` still ships the native
-  listener resource;
-* the native manifest keeps the macOS entry with version metadata
-  (empty sha is the fail-closed pending-signed-build state);
-* the Swift source keeps the wire-protocol contract the workflow greps
-  for (event tap, readiness, version, headless bypass, liveness);
-* the workflow itself contains the compile, lint, parity, and
-  toolchain steps (pins the automation against silent rot).
-"""
+"""Headless macOS bundle preflight contract (host-validation automation)."""
 
 from __future__ import annotations
 

@@ -1,46 +1,4 @@
-"""cross-parser parity tests for the unified hotkey parser.
-
-The backend previously had four independent hotkey parsers that
-diverged on modifier-alias handling, key-name normalisation, and
-multi-key handling. (Hotkey parser unification) introduced
-``voice_typer/server/hotkey_spec.py`` as the SINGLE CANONICAL parser
-and updated the four legacy parsers to delegate to it:
-
-1. ``_parse_hotkey_parts`` in ``config_validators.py``, returns
-   ``list[str]`` of canonical tokens.
-2. ``_parse_hotkey_to_pynput`` in ``hotkeys.py``, returns pynput
-   ``Key`` / ``KeyCode`` objects (or a ``(modifiers, target)`` tuple).
-3. ``parse_hotkey_to_win32`` in ``hotkeys.py``, returns
-   ``(vk, modifiers)`` for Win32 ``RegisterHotKey``.
-4. ``parse_hotkey_spec`` in ``native_hotkeys.py``, returns a dict
-   with ``modifiers``, ``main_key``, ``is_modifier_only``, etc.
-
-These tests run all four parsers over a corpus of hotkey strings and
-verify that, after applying each adapter's documented
-platform-specific collapses, they agree on:
-
-- whether the spec is empty / unparseable,
-- the set of canonical modifier names,
-- the main non-modifier key (normalised to the wire-protocol name).
-
-Documented platform-specific collapses (these are NOT parser bugs —
-they reflect real platform limitations):
-
-- ``win`` / ``super`` / ``cmd`` collapse to ``"cmd"`` in the pynput
-  adapter (pynput has only ``Key.cmd``) and the native_hotkeys
-  adapter (the wire protocol emits ``Cmd`` / ``Win`` / ``Super``
-  interchangeably per platform, so they must compare equal for
-  cross-platform matching).
-- ``win`` / ``super`` / ``cmd`` collapse to ``_MOD_WIN`` (a single
-  bit) in the Win32 adapter (``RegisterHotKey`` does not distinguish).
-- ``alt_gr`` collapses to ``"altgr"`` (no underscore) in the
-  native_hotkeys adapter, and to ``_MOD_ALTGR`` in the Win32 adapter.
-
-The canonical parser itself PRESERVES the distinction (``win``,
-``super``, ``cmd``, ``alt_gr`` are four different canonical names).
-The parity test normalises all adapter outputs to the SAME collapsed
-form before comparing.
-"""
+"""cross-parser parity tests for the unified hotkey parser."""
 
 from __future__ import annotations
 
@@ -51,23 +9,9 @@ from voice_typer.server.hotkey_spec import (
     parse_hotkey,
 )
 
-# ─── Common collapsed form ───────────────────────────────────────────────
-
 
 def _collapse_modifier(name: str) -> str:
-    """Normalise a canonical modifier name to the COMMON COLLAPSED FORM.
-
-    The canonical parser preserves ``win`` / ``super`` / ``cmd`` as
-    three distinct names, but every adapter that talks to a real
-    platform API collapses them. To compare adapter outputs against
-    the canonical parser, we collapse the canonical form the same way.
-
-    The collapsed form is:
-
-    - ``win`` / ``super`` → ``"cmd"`` (matches pynput + native_hotkeys)
-    - ``alt_gr`` → ``"altgr"`` (matches native_hotkeys wire name)
-    - everything else: unchanged
-    """
+    """Normalise a canonical modifier name to the COMMON COLLAPSED FORM."""
     if name in ("win", "super"):
         return "cmd"
     if name == "alt_gr":
@@ -80,17 +24,8 @@ def _collapse_modifiers(modifiers: frozenset[str] | set[str] | tuple[str, ...]) 
     return frozenset(_collapse_modifier(m) for m in modifiers)
 
 
-# ─── Wire-protocol key normalisation ─────────────────────────────────────
-
-
 def _to_wire_name(canonical_key: str) -> str | None:
-    """Convert a canonical (lowercase) key name to the wire-protocol name.
-
-    Delegates to ``native_hotkeys._normalize_key_name`` so the parity
-    test uses the SAME mapping the native_hotkeys adapter uses. This
-    makes the comparison meaningful: every adapter's main-key output
-    is normalised to the wire-protocol name.
-    """
+    """Convert a canonical (lowercase) key name to the wire-protocol name."""
     from voice_typer.server.native_hotkeys import _normalize_key_name
 
     if not canonical_key:
@@ -98,20 +33,11 @@ def _to_wire_name(canonical_key: str) -> str | None:
     return _normalize_key_name(canonical_key)
 
 
-# ─── Per-adapter canonicalisers ──────────────────────────────────────────
-#
 # Each canonicaliser takes an adapter's raw output (or None) and returns
-# a tuple ``(modifiers_set, main_key_wire)`` in the COMMON COLLAPSED FORM,
-# or ``None`` if the adapter considered the spec empty / unparseable.
 
 
 def canonicalise_config_validators(parts: list[str]) -> tuple[frozenset[str], str | None] | None:
-    """Canonicalise the output of ``_parse_hotkey_parts``.
-
-    ``_parse_hotkey_parts`` returns a flat list of canonical tokens
-    (modifiers sorted, then keys in original order). We split it back
-    into modifiers and keys using :data:`MODIFIER_ALIASES`.
-    """
+    """Canonicalise the output of ``_parse_hotkey_parts``."""
     if not parts:
         return None
     modifiers: set[str] = set()
@@ -131,17 +57,11 @@ def canonicalise_config_validators(parts: list[str]) -> tuple[frozenset[str], st
 
 
 def canonicalise_pynput(result, key) -> tuple[frozenset[str], str | None] | None:
-    """Canonicalise the output of ``_parse_hotkey_to_pynput``.
-
-    Returns ``None`` if the adapter returned ``None`` (unparseable on
-    the current platform, e.g. ``<fn>`` on Linux where pynput has no
-    ``Key.fn``).
-    """
+    """Canonicalise the output of ``_parse_hotkey_to_pynput``."""
     if result is None:
         return None
 
     # Reverse mapping: pynput Key attribute name → canonical modifier name.
-    # pynput collapses win/super/cmd → Key.cmd; we map back to "cmd".
     _pynput_to_canonical_mod = {
         "ctrl": "ctrl",
         "shift": "shift",
@@ -156,9 +76,6 @@ def canonicalise_pynput(result, key) -> tuple[frozenset[str], str | None] | None
     }
 
     def _key_to_name(k) -> str | None:
-        # Pynput Key enum members expose their name via .name (enum) or
-        # via dir() inspection. We use a simpler heuristic: scan the
-        # known attribute set.
         for attr in (
             "ctrl",
             "ctrl_l",
@@ -239,11 +156,7 @@ def canonicalise_pynput(result, key) -> tuple[frozenset[str], str | None] | None
 def canonicalise_win32(
     parsed: tuple[int | None, int] | None,
 ) -> tuple[frozenset[str], str | None] | None:
-    """Canonicalise the output of ``parse_hotkey_to_win32``.
-
-    Returns ``None`` if the adapter returned ``None`` (unparseable —
-    e.g. ``<fn>`` has no Win32 equivalent, ``<globe>`` likewise).
-    """
+    """Canonicalise the output of ``parse_hotkey_to_win32``."""
     from voice_typer.server.hotkeys import (
         _MOD_ALT,
         _MOD_ALTGR,
@@ -267,7 +180,6 @@ def canonicalise_win32(
         modifiers.add("alt")
     if modbits & _MOD_WIN:
         # Win32 collapses win/super/cmd → _MOD_WIN; map back to "cmd"
-        # to match the common collapsed form.
         modifiers.add("cmd")
     if modbits & _MOD_ALTGR:
         modifiers.add("altgr")
@@ -292,12 +204,7 @@ def canonicalise_win32(
 def canonicalise_native(
     d: dict | None,
 ) -> tuple[frozenset[str], str | None] | None:
-    """Canonicalise the output of ``parse_hotkey_spec`` (native_hotkeys).
-
-    The dict's ``modifiers`` set is already in the common collapsed
-    form (``win`` / ``super`` / ``cmd`` → ``"cmd"``, ``alt_gr`` →
-    ``"altgr"``). The ``main_key`` is already a wire-protocol name.
-    """
+    """Canonicalise the output of ``parse_hotkey_spec`` (native_hotkeys)."""
     if d is None:
         return None
     modifiers = frozenset(d["modifiers"])
@@ -320,14 +227,9 @@ def canonicalise_canonical(
     return (modifiers, main_key)
 
 
-# ─── Test corpus ─────────────────────────────────────────────────────────
-#
 # ~50 hotkey strings covering simple keys, combos, modifier-only specs,
-# and edge cases (empty, whitespace, mixed case, no angle brackets,
-# duplicate keys, multi-key combos, alias variants).
 
 CORPUS: list[str] = [
-    # ── Simple keys (no modifiers) ──────────────────────────────────
     "<f2>",
     "<f12>",
     "<f24>",
@@ -352,20 +254,17 @@ CORPUS: list[str] = [
     "<down>",
     "<left>",
     "<right>",
-    # ── Single-modifier + key combos ────────────────────────────────
     "<ctrl>+<v>",
     "<alt>+<q>",
     "<shift>+<f5>",
     "<ctrl>+<f2>",
     "<alt>+<space>",
     "<shift>+<tab>",
-    # ── Multi-modifier + key combos ─────────────────────────────────
     "<ctrl>+<alt>+<v>",
     "<ctrl>+<alt>+<u>",
     "<ctrl>+<shift>+<f1>",
     "<ctrl>+<alt>+<shift>+<f2>",
     "<fn>+<space>",
-    # ── Modifier-only ───────────────────────────────────────────────
     "<alt>",
     "<ctrl>",
     "<shift>",
@@ -375,21 +274,17 @@ CORPUS: list[str] = [
     "<cmd>",
     "<win>",
     "<super>",
-    # ── AltGr variants ──────────────────────────────────────────────
     "<altgr>",
     "<right_alt>",
     "<ralt>",
-    # ── Alias variants ──────────────────────────────────────────────
     "<control>+<v>",  # 'control' → 'ctrl'
     "<alt_l>",  # → 'alt'
     "<alt_r>",  # → 'alt'
     "<cmd_l>",  # → 'cmd'
     "<super_l>",  # → 'super'
     "<win_r>",  # → 'win'
-    # ── Multi-key combos (extras ignored) ───────────────────────────
     "<a>+<b>",
     "<f2>+<ctrl>+<v>",  # ctrl is modifier; f2 first key; v ignored
-    # ── Edge cases ──────────────────────────────────────────────────
     "",
     "   ",
     "<>+<>",
@@ -404,18 +299,6 @@ CORPUS: list[str] = [
 
 
 # Inputs that some adapters legitimately cannot parse on every platform.
-# For these, we skip the adapters that return None and only compare the
-# adapters that DO produce a result.
-#
-# ``<fn>`` and ``<globe>``: pynput lacks ``Key.fn`` on Linux/Windows
-# (macOS only); Win32 ``RegisterHotKey`` has no Fn / Globe equivalent.
-# Both adapters return ``None``, so we skip them.
-#
-# Any spec containing ``fn`` as a modifier (e.g. ``<fn>+<space>``):
-# the pynput adapter silently drops ``fn`` (it can't be expressed as a
-# pynput modifier on Linux/Windows), and the Win32 adapter also drops
-# it (no ``_MOD_FN`` bit exists). Skipping these adapters for
-# fn-containing specs avoids false-positive parity failures.
 SKIP_PYNPUT: frozenset[str] = frozenset(
     {
         "<fn>",
@@ -432,16 +315,9 @@ SKIP_WIN32: frozenset[str] = frozenset(
 
 
 def _spec_contains_fn(hotkey: str) -> bool:
-    """True if the hotkey spec includes the Fn modifier.
-
-    Used to skip the pynput and win32 adapters for fn-containing specs
-    (both adapters silently drop fn, a documented platform limitation).
-    """
+    """True if the hotkey spec includes the Fn modifier."""
     spec = parse_hotkey(hotkey)
     return "fn" in spec.modifiers
-
-
-# ─── Tests ───────────────────────────────────────────────────────────────
 
 
 class TestParityCorpus:
@@ -524,7 +400,6 @@ class TestCanonicalParser:
         assert parse_hotkey("<win>").modifiers == ("win",)
         assert parse_hotkey("<super>").modifiers == ("super",)
         assert parse_hotkey("<cmd>").modifiers == ("cmd",)
-        # alt and alt_gr are distinct
         assert parse_hotkey("<alt>").modifiers == ("alt",)
         assert parse_hotkey("<alt_gr>").modifiers == ("alt_gr",)
 
@@ -547,26 +422,12 @@ class TestCanonicalParser:
 
 
 class TestAdapterParity:
-    """Verify all four adapters produce identical canonical forms.
-
-    For each input in :data:`CORPUS`, we run all four parsers and
-    canonicalise their outputs to a common collapsed form. We then
-    assert that every adapter that produced a non-None result agrees
-    with the canonical parser.
-    """
+    """Verify all four adapters produce identical canonical forms."""
 
     @pytest.fixture(scope="class")
     @classmethod
     def fake_pynput(cls):
-        """A fake pynput Key/KeyCode for testing without a display.
-
-        ``_parse_hotkey_to_pynput`` takes ``Key`` and ``KeyCode`` as
-        parameters (so the module doesn't import pynput at module
-        load time). We pass mocks that emulate the parts of the pynput
-        API the function uses: ``hasattr(Key, name)``,
-        ``getattr(Key, name)``, ``KeyCode.from_char(c)``, and
-        ``KeyCode.from_vk(vk)``.
-        """
+        """A fake pynput Key/KeyCode for testing without a display."""
 
         class _FakeKey:
             def __init__(self, name: str):
@@ -678,9 +539,6 @@ class TestAdapterParity:
         native_canon = canonicalise_native(native_dict)
 
         # The config_validators adapter never returns None for non-empty
-        # inputs (it returns [] for empty, which canonicalises to None).
-        # The pynput and win32 adapters can return None for inputs they
-        # can't handle (e.g. <fn> on Linux). For those, skip the adapter.
         skip_pynput = hotkey in SKIP_PYNPUT or _spec_contains_fn(hotkey)
         skip_win32 = hotkey in SKIP_WIN32 or _spec_contains_fn(hotkey)
         results: list[tuple[str, tuple[frozenset[str], str | None] | None]] = [
@@ -712,7 +570,6 @@ class TestAdapterParity:
             )
 
         # And the agreed result must match the canonical parser's output
-        # (if the canonical parser produced a non-None result).
         if expected is not None:
             assert first == expected, (
                 f"For {hotkey!r}: adapters agreed on {first!r} but canonical parser produced {expected!r}"
@@ -765,11 +622,9 @@ class TestEdgeCaseParity:
         assert spec.is_modifier_only is True
         assert spec.main_key is None
 
-        # config_validators adapter
         parts = _parse_hotkey_parts("<alt>")
         assert parts == ["alt"]
 
-        # native_hotkeys adapter
         d = parse_hotkey_spec("<alt>")
         assert d is not None
         assert d["is_modifier_only"] is True
@@ -789,37 +644,7 @@ class TestEdgeCaseParity:
         assert d["main_key"] == "A"  # wire-protocol name
 
     def test_no_other_module_has_its_own_alias_table(self) -> None:
-        """constraint: MODIFIER_ALIASES in hotkey_spec.py is the
-        single source of truth for SPEC-PARSING alias resolution. No
-        other server module should duplicate the alias-resolution dict
-        (i.e. a dict whose keys are alias names like ``"control"``,
-        ``"altgr"``, ``"right_alt"``, etc. and whose values are the
-        canonical names they resolve to).
-
-        This does NOT prohibit:
-
-        - Display maps (e.g. ``tray_hotkey._DISPLAY_MAP``) that map
-          canonical names to user-facing display strings, those are
-          a separate concern (display, not parsing).
-        - Wire-canonical maps (e.g.
-          ``native_hotkeys._canonical_modifier_name_for_token``) that
-          map spec-side canonical names to wire-side canonical names
-          for cross-platform modifier matching, those are a separate
-          concern (wire matching, not parsing).
-        - Platform-specific collapse tables (e.g. the
-          ``_CANONICAL_TO_MODBIT`` dict inside
-          ``parse_hotkey_to_win32``) that map canonical names to
-          platform-specific bit flags, those are a separate concern
-          (platform adaptation, not parsing).
-
-        To distinguish a true spec-parsing alias table from these
-        related-but-different dicts, we require the dict to have at
-        least 8 of the alias-signature keys (``control``, ``altgr``,
-        ``right_alt``, ``ralt``, ``super_l``, ``super_r``, ``win_l``,
-        ``win_r``, ``cmd_l``, ``cmd_r``, ``globe``). A display map
-        has at most 3 of these; a wire-canonical map has at most 1;
-        the canonical ``MODIFIER_ALIASES`` has all 11.
-        """
+        """single source of truth for SPEC-PARSING alias resolution. No"""
         import ast
         from pathlib import Path
 
@@ -854,9 +679,6 @@ class TestEdgeCaseParity:
                             keys.append(k.value)
                     overlap = alias_signatures & set(keys)
                     # Require at least 8 alias-signature keys to flag —
-                    # this excludes display maps (≤3 overlap) and
-                    # wire-canonical maps (≤1 overlap) while still
-                    # catching a true duplicate alias table (≥8 overlap).
                     if len(overlap) >= 8:
                         offenders.append(f"{py.name}: dict with {len(overlap)} alias-like keys ({sorted(overlap)})")
 

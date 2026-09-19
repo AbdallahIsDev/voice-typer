@@ -1,20 +1,4 @@
-"""Unit tests for ``make_segmented_progress_tracker``.
-
-The Phase-B (segmented fast lane) engine runs after
-``poll_download_progress`` has exited, so its progress callback is the
-single source of truth for the bar — and the only thing that can keep
-the renderer's ``isPaused`` honest mid-phase.  These tests pin:
-
-* regular pushes: 10–95 scale, byte counters, live speed/ETA, ~4 Hz
-  throttle with a guaranteed final push;
-* pause/resume transitions push ``paused: True`` / ``resumed: True``
-  (the same contract the Phase-A poll loop owns), and while paused
-  no regular pushes go out;
-* no spurious transition push when the phase starts already-paused
-  (the poll loop already announced it);
-* the post-resume speed baseline resets so the first push after a
-  long pause does not report a spike measured across the pause.
-"""
+"""Unit tests for ``make_segmented_progress_tracker``."""
 
 import time
 from pathlib import Path
@@ -29,17 +13,7 @@ _DOWNLOADS_SRC = (
 
 
 class TestPauseEventsSurvivePhaseAHandoff:
-    """The shared pause/abort events must stay alive across the Phase-A
-    (poll loop) → Phase-B (segmented lane) handoff.
-
-    Regression: the Phase-A ``finally`` used to call
-    ``clear_download_pause_state()``, so Phase B ran with dead events —
-    its gate no-oped, pause/cancel during Phase B returned
-    ``{paused: False}`` / ``{cancelled: False}``, and its pushes (no
-    ``paused`` field) kept the bar moving under a stuck "Paused"
-    label.  True-end cleanup (early returns + success path + outer
-    except) still clears exactly once per exit.
-    """
+    """(poll loop) → Phase-B (segmented lane) handoff."""
 
     def test_phase_a_finally_unregisters_but_does_not_clear_pause(self):
         region = _DOWNLOADS_SRC.split("poll_outcome, last_total_bytes_seen = poll_download_progress(")[1].split(
@@ -149,8 +123,6 @@ class TestPauseResumeTransitions:
         datas = bus.datas()
         assert datas[-1]["resumed"] is True
         # The first post-resume regular push must not report a spike
-        # measured across the pause: same-byte push after the resume
-        # transition reports ~zero speed, never bytes/seconds huge.
         time.sleep(0.3)
         cb(11 * 1024 * 1024, 0)
         regular = bus.datas()[-1]
@@ -162,7 +134,6 @@ class TestPauseResumeTransitions:
         paused = [True]
         cb = _make_tracker(bus, paused)
         # Phase A already announced the pause; a duplicate
-        # ``paused: True`` here would be noise.
         cb(5 * 1024 * 1024, 0)
         assert bus.published == []
         paused[0] = False

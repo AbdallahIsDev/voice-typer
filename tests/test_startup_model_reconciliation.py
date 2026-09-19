@@ -1,21 +1,4 @@
-"""Startup reconciliation of the configured ASR model selection.
-
-Pins the root-cause contract: ``config.model_size`` (the canonical
-``config.json`` value) is validated against the installed-model state
-during startup, BEFORE any consumer (tray tooltip, analytics model
-card, device card, Settings Diagnostics, load precheck) reads it:
-
-- configured model NOT on disk → clear to ``NO_MODEL_SIZE`` (""),
-  persist, log one INFO line;
-- configured model on disk    → left untouched;
-- ``""`` (already no model)   → no write;
-- cloud backend (no local model to install) → left untouched.
-
-The point of the reconciliation is that the CONFIG itself reflects
-reality, so every downstream consumer reports "no model selected"
-from one source of truth instead of each surface patching the same
-stale model name.
-"""
+"""Startup reconciliation of the configured ASR model selection."""
 
 from __future__ import annotations
 
@@ -73,7 +56,7 @@ def test_noop_when_model_is_installed() -> None:
 
 
 def test_noop_when_already_no_model_selected() -> None:
-    """``model_size == ""`` (NO_MODEL_SIZE) → no write even if nothing installed."""
+    """``model_size == \"\"`` (NO_MODEL_SIZE) → no write even if nothing installed."""
     app, saves = make_app("")
     with patch(
         "voice_typer.server.tray_models.is_active_model_downloaded",

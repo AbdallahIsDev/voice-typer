@@ -1,21 +1,4 @@
-"""Tests for the tray, template, and secret-validation performance fixes.
-
-Covers:
-- ER-54 (tray): tooltip elapsed-recording time uses ``time.monotonic()``
-  (not ``time.time()``), so wall-clock jumps (NTP skew, DST transitions)
-  cannot corrupt the displayed ``mm:ss``.
-- ER-55 (templates):
-  * ``substitute_variables`` is lazy, it does NOT call
-    ``_get_clipboard_text()`` (which can block on the X11/clipboard
-    selection) when the template output has no ``{clipboard}``
-    placeholder.
-  * ``_WHITESPACE_RE`` is compiled exactly once at import time, not
-    re-compiled per template per ``match()`` call.
-- ER-64 (_secrets):
-  * ``_LOOPBACK_HOSTS`` is a module-level frozenset, its ``id()`` is
-    stable across multiple ``assert_url_allowed`` calls (the previous
-    per-call literal rebuilt the set every time).
-"""
+"""Tests for the tray, template, and secret-validation performance fixes."""
 
 import re
 import sys
@@ -23,8 +6,6 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
-
-# tray tooltip uses time.monotonic() ────────────────────────────
 
 
 @pytest.fixture
@@ -48,14 +29,12 @@ def tray_module(monkeypatch):
 
 
 class TestTrayMonotonicElapsed:
-    """ER-54: tray elapsed-recording time uses ``time.monotonic()`` so
-    wall-clock jumps don't corrupt the displayed ``mm:ss``."""
+    """ER-54: tray elapsed-recording time uses ``time.monotonic()`` so"""
 
     def test_elapsed_uses_monotonic_not_wall_clock(self, tray_module, monkeypatch):
-        """``_compute_tooltip`` reads ``time.monotonic()``, NOT
-        ``time.time()``. A wall-clock jump (mocked by setting
+        """
+        ``_compute_tooltip`` reads ``time.monotonic()``, NOT
         ``time.time`` to a huge value) must not affect the elapsed
-        suffix, only ``time.monotonic`` drives the computation.
         """
         from voice_typer.server.tray import AppState, TrayIcon
 
@@ -74,36 +53,24 @@ class TestTrayMonotonicElapsed:
         )
 
         # Disable the elapsed-recording Timer thread so it can't fire
-        # mid-test and exhaust the monotonic-value iterator. We're only
-        # testing the value of _recording_started_at and the tooltip
-        # computation, not the timer machinery.
         monkeypatch.setattr(tray, "_start_elapsed_timer", lambda: None)
         monkeypatch.setattr(tray, "_cancel_elapsed_timer", lambda: None)
 
-        # Monotonic returns 1000.0 first (set_state stores it as
-        # _recording_started_at), then 1065.0 forever after (so the
-        # tooltip computation sees a 65s delta → "01:05").
         monotonic_seq = [1000.0, 1065.0]
 
         def _fake_monotonic():
             return monotonic_seq[0] if len(monotonic_seq) == 1 else monotonic_seq.pop(0)
 
         monkeypatch.setattr(tray_module.time, "monotonic", _fake_monotonic)
-        # Sabotage ``time.time`` so any code path that falls back to the
-        # wall clock would produce a wildly wrong elapsed (1970 + 1e9 sec).
         monkeypatch.setattr(tray_module.time, "time", lambda: 1_000_000_000.0)
 
         tray.set_state(AppState.RECORDING, "recording")
         # ``_recording_started_at`` should be 1000.0 (the first monotonic
-        # value), NOT the wall-clock value.
         assert tray._recording_started_at == 1000.0, (
             f"set_state should store time.monotonic() (1000.0), got {tray._recording_started_at!r}"
         )
 
         # Now compute tooltip, it should call ``time.monotonic()`` again
-        # (1065.0), yielding elapsed = 65s -> "01:05". If it had used
-        # ``time.time()``, elapsed would be ~1e9 and the format would
-        # blow up or display nonsense.
         tooltip = tray._compute_tooltip(AppState.RECORDING, "recording")
         assert "01:05" in tooltip, f"Tooltip should show mm:ss=01:05 (monotonic delta=65s), got {tooltip!r}"
 
@@ -111,11 +78,7 @@ class TestTrayMonotonicElapsed:
         tray.set_state(AppState.IDLE)
 
     def test_elapsed_survives_wall_clock_jump(self, tray_module, monkeypatch):
-        """Scenario: recording starts at monotonic=100. Mid-recording,
-        the wall clock jumps forward by 1e6 seconds (NTP slew). The
-        displayed elapsed must still be the monotonic delta, NOT the
-        wall-clock delta.
-        """
+        """Scenario: recording starts at monotonic=100. Mid-recording,"""
         from voice_typer.server.tray import AppState, TrayIcon
 
         controller = MagicMock()
@@ -136,8 +99,6 @@ class TestTrayMonotonicElapsed:
         monkeypatch.setattr(tray, "_start_elapsed_timer", lambda: None)
         monkeypatch.setattr(tray, "_cancel_elapsed_timer", lambda: None)
 
-        # Monotonic: first call returns 100.0 (stored in
-        # _recording_started_at); subsequent calls return 145.0.
         monotonic_seq = [100.0, 145.0]
 
         def _fake_monotonic():
@@ -155,8 +116,6 @@ class TestTrayMonotonicElapsed:
         tray.set_state(AppState.RECORDING, "recording")
         tooltip = tray._compute_tooltip(AppState.RECORDING, "recording")
         # Monotonic delta = 45s -> "00:45". Wall-clock delta would have
-        # been 1000s -> "16:40". Asserting the monotonic value proves
-        # the wall-clock jump did NOT leak into the elapsed computation.
         assert "00:45" in tooltip, (
             f"Elapsed should be monotonic delta (45s -> '00:45'), not "
             f"wall-clock delta (1000s -> '16:40'). Tooltip: {tooltip!r}"
@@ -165,18 +124,12 @@ class TestTrayMonotonicElapsed:
         tray.set_state(AppState.IDLE)
 
 
-# templates lazy variable resolution + hoisted regex ────────────
-
-
 class TestTemplatesLazyClipboard:
-    """ER-55: ``substitute_variables`` must NOT touch the clipboard when
-    the template output has no ``{clipboard}`` placeholder."""
+    """ER-55: ``substitute_variables`` must NOT touch the clipboard when"""
 
     def test_no_clipboard_call_without_placeholder(self, monkeypatch):
         from voice_typer.server import templates as tmpl_mod
 
-        # Spy on _get_clipboard_text: it should NOT be called when the
-        # template output doesn't contain {clipboard}.
         call_count = {"n": 0}
 
         def _spy():
@@ -196,8 +149,7 @@ class TestTemplatesLazyClipboard:
         )
 
     def test_clipboard_called_only_when_placeholder_present(self, monkeypatch):
-        """Symmetric positive test: when {clipboard} IS in the output,
-        the lazy resolver DOES call _get_clipboard_text exactly once."""
+        """Symmetric positive test: when {clipboard} IS in the output,"""
         from voice_typer.server import templates as tmpl_mod
 
         call_count = {"n": 0}
@@ -212,8 +164,7 @@ class TestTemplatesLazyClipboard:
         assert call_count["n"] == 1
 
     def test_no_datetime_call_without_placeholder(self, monkeypatch):
-        """Bonus: ``datetime.now()`` is also lazy. Verify by spying on
-        ``datetime`` in the templates module."""
+        """Bonus: ``datetime.now()`` is also lazy. Verify by spying on"""
         from datetime import datetime as real_dt
 
         from voice_typer.server import templates as tmpl_mod
@@ -229,12 +180,9 @@ class TestTemplatesLazyClipboard:
             def strftime(self, fmt):
                 return real_dt.strftime(self, fmt)
 
-        # templates.substitute_variables references the ``datetime`` name
-        # imported at module scope.
         monkeypatch.setattr(tmpl_mod, "datetime", _SpyDateTime)
 
         # No {today} / {now} placeholders → datetime.now() should NOT be
-        # called at all.
         out = tmpl_mod.substitute_variables("plain text with {username} only")
         assert "{username}" not in out
         assert call_count["n"] == 0, (
@@ -243,21 +191,17 @@ class TestTemplatesLazyClipboard:
         )
 
     def test_no_placeholder_fast_path_returns_unchanged(self, monkeypatch):
-        """When the text has no ``{`` at all, ``substitute_variables``
-        short-circuits and returns the string unchanged without invoking
-        the regex."""
+        """When the text has no ``{`` at all, ``substitute_variables``"""
         from voice_typer.server import templates as tmpl_mod
 
         # Sabotage _get_clipboard_text and datetime so any accidental
-        # invocation would surface as a clearly wrong value.
         monkeypatch.setattr(tmpl_mod, "_get_clipboard_text", lambda: "LEAK")
         out = tmpl_mod.substitute_variables("no placeholders here at all")
         assert out == "no placeholders here at all"
 
 
 class TestTemplatesWhitespaceRegexCompiledOnce:
-    """ER-55: ``_WHITESPACE_RE`` is compiled ONCE at import time, not
-    per-template-per-match."""
+    """ER-55: ``_WHITESPACE_RE`` is compiled ONCE at import time, not"""
 
     def test_whitespace_re_is_module_level_pattern(self):
         from voice_typer.server import templates as tmpl_mod
@@ -268,16 +212,11 @@ class TestTemplatesWhitespaceRegexCompiledOnce:
         )
 
     def test_match_does_not_recompile_regex(self, monkeypatch, tmp_config_dir):
-        """Wrapping ``re.compile`` to count invocations, ``match()``
-        must NOT trigger any additional ``re.compile`` calls, the
-        module-level ``_WHITESPACE_RE`` is reused on every iteration.
-        """
+        """Wrapping ``re.compile`` to count invocations, ``match()``"""
         from voice_typer.server import templates as tmpl_mod
         from voice_typer.server.templates import TemplateManager
 
         # Reload templates so the module-level _WHITESPACE_RE is built
-        # using our spied re.compile (the wrapper delegates to the real
-        # compile so behavior is unchanged).
         original_compile = re.compile
         compile_calls = {"n": 0}
 
@@ -293,8 +232,6 @@ class TestTemplatesWhitespaceRegexCompiledOnce:
         tm.add("retro", "Retro items.", match_mode="contains")
 
         baseline = compile_calls["n"]
-        # Run match() many times across multiple templates, none of
-        # these calls should invoke re.compile again.
         for _ in range(50):
             tm.match("code review")
             tm.match("standup")
@@ -308,8 +245,7 @@ class TestTemplatesWhitespaceRegexCompiledOnce:
         )
 
     def test_whitespace_re_is_stable_object(self):
-        """``_WHITESPACE_RE`` is the same object across module
-        accesses (proves it isn't rebuilt per call)."""
+        """``_WHITESPACE_RE`` is the same object across module"""
         from voice_typer.server import templates as tmpl_mod
 
         obj1 = tmpl_mod._WHITESPACE_RE
@@ -322,8 +258,7 @@ class TestTemplatesWhitespaceRegexCompiledOnce:
 
 
 class TestLoopbackHostsModuleLevel:
-    """ER-64: ``_LOOPBACK_HOSTS`` is a module-level frozenset, its
-    ``id()`` is stable across multiple ``assert_url_allowed`` calls."""
+    """ER-64: ``_LOOPBACK_HOSTS`` is a module-level frozenset, its"""
 
     def test_loopback_hosts_is_module_level(self):
         from voice_typer.server import _secrets
@@ -337,16 +272,12 @@ class TestLoopbackHostsModuleLevel:
         assert "::1" in _secrets._LOOPBACK_HOSTS
 
     def test_loopback_hosts_id_stable_across_calls(self):
-        """``id(_LOOPBACK_HOSTS)`` must NOT change between calls —
-        the pre-fix per-call literal would have produced a new
-        frozenset (and thus a new id) on every invocation."""
+        """``id(_LOOPBACK_HOSTS)`` must NOT change between calls —"""
         from voice_typer.server import _secrets
 
         ids = set()
         for _ in range(20):
             # ``assert_url_allowed`` exercises the loopback lookup path.
-            # Use ``allow_loopback_http=True`` so the call succeeds for
-            # the http + loopback combination.
             _secrets.assert_url_allowed(
                 "http://localhost:11434",
                 allow_loopback_http=True,
@@ -360,14 +291,11 @@ class TestLoopbackHostsModuleLevel:
         )
 
     def test_loopback_hosts_id_stable_across_loopback_variants(self):
-        """All three loopback hosts exercise the same module-level
-        object, confirms the host lookup uses _LOOPBACK_HOSTS (not a
-        locally-built set)."""
+        """All three loopback hosts exercise the same module-level"""
         from voice_typer.server import _secrets
 
         first_id = id(_secrets._LOOPBACK_HOSTS)
         # IPv6 loopback (``::1``) requires bracketed URL form per RFC 3986;
-        # use the bracketed syntax so ``urlparse`` returns a hostname.
         for url in (
             "http://localhost:11434",
             "http://127.0.0.1:11434",
@@ -381,10 +309,7 @@ class TestLoopbackHostsModuleLevel:
 
 
 class TestRedactApiKeysSubHoisted:
-    """ER-64: ``_sub`` is hoisted out of the ``for pat in _KEY_PATTERNS``
-    loop in ``redact_api_keys``. This is a behavior-preserving refactor;
-    we verify the redaction still works correctly (sanity check that
-    the hoist didn't break capture semantics)."""
+    """ER-64: ``_sub`` is hoisted out of the ``for pat in _KEY_PATTERNS``"""
 
     def test_bearer_prefix_preserved_after_hoist(self):
         from voice_typer.server._secrets import redact_api_keys
@@ -394,8 +319,7 @@ class TestRedactApiKeysSubHoisted:
         assert "sk-abcdef" not in out
 
     def test_replacement_marker_configurable(self):
-        """The hoisted ``_sub`` must still capture ``replacement`` via
-        the default-argument closure (not a stale value)."""
+        """The hoisted ``_sub`` must still capture ``replacement`` via"""
         from voice_typer.server._secrets import redact_api_keys
 
         out_default = redact_api_keys("sk-abcdefghijklmnopqrstuvwxyz1234567890ABCDEF")

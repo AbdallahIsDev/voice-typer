@@ -1,28 +1,4 @@
-"""Regression test for AudioProcessor active must NOT cause double-resampling in stop()/snapshot().
-
-Pre-fix bug (verified by code-flow in review.md):
-  1. ``AudioProcessor.process_chunk`` resamples each chunk from the device's
-     native rate (e.g. 48 kHz) to the filter chain's construction rate
-     (typically 16 kHz) BEFORE appending to the buffer.
-  2. ``Recorder.stop()`` / ``snapshot()`` then concatenated the buffer and
-     called ``_prepare_audio`` / ``_resample_chunk`` with
-     ``effective_sr=self._effective_sr`` (the device's 48 kHz native rate).
-  3. The resampler saw 16 kHz audio mislabeled as 48 kHz and produced a
-     3×-too-short garbage array, every dictation on non-16 kHz mics was
-     unusable.
-
-Post-fix:
-  - ``Recorder`` tracks ``self._buffer_sr``: the actual sample rate of the
-    audio currently in ``_buffer`` (16 kHz when a processor is attached,
-    native rate otherwise).
-  - ``stop()`` and ``snapshot()`` use ``self._buffer_sr or self._effective_sr``
-    instead of ``self._effective_sr``, so when the processor already
-    resampled to 16 kHz, no second resample happens.
-
-These tests construct a ``Recorder`` with mocked deps, drive the audio
-callback path (or directly set state for the call-site tests), and assert
-the resample call sites receive the correct rate.
-"""
+"""Regression test for AudioProcessor active must NOT cause double-resampling in stop()/snapshot()."""
 
 from __future__ import annotations
 
@@ -36,27 +12,14 @@ import pytest
 
 @pytest.fixture(autouse=True)
 def mock_heavy_imports(monkeypatch):
-    """Mock sounddevice so the test doesn't need a real audio device.
-
-    Overrides the project-wide ``mock_heavy_imports`` fixture in
-    ``tests/conftest.py`` so we can stub ``query_devices`` per-test to
-    simulate a 48 kHz native-rate microphone (the CR-5 failure scenario).
-    """
+    """Mock sounddevice so the test doesn't need a real audio device."""
     mock_sd = MagicMock()
     mock_sd.query_devices.return_value = []
     monkeypatch.setitem(sys.modules, "sounddevice", mock_sd)
 
 
-# ─── Helpers shared with tests/test_recording_audio_processor.py ─────────
-
-
 class FakeInputStream:
-    """Fake sounddevice.InputStream that captures the callback for direct
-    invocation from the test.
-
-    Mimics the real InputStream's start()/stop()/close() surface so
-    Recorder.start() and stop() work unmodified.
-    """
+    """Fake sounddevice.InputStream that captures the callback for direct"""
 
     def __init__(self, samplerate, channels, dtype, device=None, callback=None, **kwargs):
         self.samplerate = samplerate
@@ -83,14 +46,7 @@ class FakeInputStream:
 
 
 def _capture_stream(streams):
-    """Return the real capture InputStream.
-
-    ``Recorder.__init__`` opens a prewarm stream with ``callback=None``
-    (``_prewarm_input_stream``) and the Windows mic-permission probe
-    opens one without a callback, so ``captured_streams`` may contain
-    extra no-callback streams. The actual capture stream is the one
-    opened by ``start()`` with a real callback.
-    """
+    """Return the real capture InputStream."""
     for s in streams:
         if s.callback is not None:
             return s
@@ -98,19 +54,7 @@ def _capture_stream(streams):
 
 
 def _drain_ring_buffer(rec, timeout_s: float = 2.0) -> None:
-    """Wait until the audio worker has fully processed queued chunks.
-
-    RT-SAFE-001: the PortAudio callback pushes chunks to a ring buffer and
-    returns immediately; a daemon worker thread processes them
-    asynchronously.
-
-    An empty ring is NOT sufficient: the worker pops the chunk first, then
-    runs process/append and writes ``_buffer_sr``. Returning as soon as
-    the ring is empty lets a test assert while that critical section is
-    still in flight (``_buffer_sr is None`` under CPU load). After the
-    ring drains, settle briefly until the buffer grew or ``_buffer_sr``
-    was written.
-    """
+    """Wait until the audio worker has fully processed queued chunks."""
     deadline = time.perf_counter() + timeout_s
     while time.perf_counter() < deadline:
         if len(rec._ring_buffer) == 0:
@@ -118,7 +62,6 @@ def _drain_ring_buffer(rec, timeout_s: float = 2.0) -> None:
         time.sleep(0.005)
     else:
         # Timed out with chunks still queued; caller assertions will fail
-        # with a clearer buffer-length message.
         return
 
     pipeline = rec._audio_pipeline
@@ -136,8 +79,7 @@ def _make_sine(freq: float, duration_s: float, sr: int = 16000, amp: float = 0.5
 
 
 class _FilterConfig:
-    """Minimal config stub for ``AudioProcessor`` (matches the pattern in
-    tests/test_recording_audio_processor.py)."""
+    """Minimal config stub for ``AudioProcessor`` (matches the pattern in"""
 
     def __init__(
         self,
@@ -162,12 +104,7 @@ class _FilterConfig:
 
 
 def _make_recorder_with_processor(monkeypatch, *, device_native_sr: int, chain_sr: int = 16000):
-    """Construct a Recorder attached to a real ``AudioProcessor`` and
-    simulated ``device_native_sr`` microphone.
-
-    Returns ``(recorder, captured_streams)`` so the test can drive the
-    callback via ``_capture_stream(captured_streams).push_chunk(...)``.
-    """
+    """simulated ``device_native_sr`` microphone."""
     from voice_typer.server import recording as rec_mod
     from voice_typer.server.audio_processor import AudioProcessor
     from voice_typer.server.recording import Recorder
@@ -181,23 +118,11 @@ def _make_recorder_with_processor(monkeypatch, *, device_native_sr: int, chain_s
 
     monkeypatch.setattr(rec_mod.sd, "InputStream", fake_input_stream)
 
-    # CR-5 contract: this test drives the per-chunk-resample path of
-    # ``AudioProcessor.process_chunk`` (48 kHz → chain rate) and asserts
-    # ``_buffer_sr`` tracks the chain's construction rate. The retune
-    # added on ``start()`` (``retune_audio_processor``) rebuilds the
-    # chain AT the device native rate, which would make ``_buffer_sr``
-    # equal the device rate instead, a different (also correct)
-    # architecture pinned by ``test_recorder_split_start.py``. Disable
-    # the retune here so the per-chunk-resample fallback path (the
-    # production fallback when ``set_sample_rate`` fails) is exercised
-    # deterministically.
     monkeypatch.setattr(
         "voice_typer.server.recording.disconnect_handler.retune_audio_processor",
         lambda *a, **kw: None,
     )
 
-    # Simulate a device whose native rate is ``device_native_sr``, the
-    # failure scenario is a non-16 kHz mic (e.g. 48000).
     def fake_query_devices(device=None, kind=None):
         return {
             "name": "fake-mic",
@@ -231,45 +156,27 @@ def _make_recorder_with_processor(monkeypatch, *, device_native_sr: int, chain_s
     return r, captured_streams
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-
-
 class TestNoDoubleResample:
-    """When AudioProcessor is active, buffer_sr must equal 16000, not the
-    device's native rate."""
+    """When AudioProcessor is active, buffer_sr must equal 16000, not the"""
 
     def test_buffer_sr_tracks_processor_rate_when_active(self, monkeypatch):
-        """_buffer_sr must be 16000 when AudioProcessor is active, even if
-        the device's native rate is 48000.
-
-        Regression for CR-5 step 2: the callback path must set
-        ``self._buffer_sr = self._audio_processor._sample_rate`` after
-        ``process_chunk`` resamples to the chain's rate.
-        """
+        """_buffer_sr must be 16000 when AudioProcessor is active, even if"""
         r, captured_streams = _make_recorder_with_processor(
             monkeypatch,
             device_native_sr=48000,
             chain_sr=16000,
         )
         r.start()
-        # the capture stream is the one with a real callback (prewarm
-        # streams open with callback=None).
         stream = _capture_stream(captured_streams)
 
         # The device native rate (48 kHz) should now be the effective rate.
         assert r._effective_sr == 48000, f"Expected _effective_sr=48000 (device native), got {r._effective_sr}"
 
         # Push one chunk of 1024 samples at 48 kHz. The processor will
-        # resample to 16 kHz before appending to the buffer (when scipy
-        # is available) or fall back to passthrough (when scipy is
-        # unavailable: see audio_processor.py:148+). Either way, the
-        # ``_buffer_sr`` tracker must reflect the chain's construction
-        # rate (16000), NOT the device's native rate (48000).
         chunk_48k = _make_sine(freq=440, duration_s=1024 / 48000, sr=48000, amp=0.3)
         stream.push_chunk(chunk_48k)
         _drain_ring_buffer(r)
 
-        # _buffer_sr must reflect the chain's construction rate
         # (16000), NOT the device's native rate (48000).
         assert r._audio_pipeline._buffer_sr == 16000, (
             f"Expected _buffer_sr=16000 (chain rate after process_chunk), "
@@ -283,11 +190,7 @@ class TestNoDoubleResample:
         r.stop()
 
     def test_buffer_sr_tracks_device_rate_when_no_processor(self, monkeypatch):
-        """_buffer_sr must equal _effective_sr when AudioProcessor is None.
-
-        CR-5 step 2 (else branch): when no filter chain is active, the
-        buffer stores audio at the device's native rate.
-        """
+        """_buffer_sr must equal _effective_sr when AudioProcessor is None."""
         from voice_typer.server import recording as rec_mod
         from voice_typer.server.recording import Recorder
 
@@ -336,13 +239,11 @@ class TestNoDoubleResample:
         stream.push_chunk(chunk_48k)
         _drain_ring_buffer(r)
 
-        # else-branch: no processor → buffer stores native-rate audio.
         assert r._audio_pipeline._buffer_sr == 48000, (
             f"Expected _buffer_sr=48000 (device native rate when no processor), got {r._audio_pipeline._buffer_sr}"
         )
 
         # Sanity check: the buffered chunk should be at 48 kHz (no
-        # resampling happened).
         assert len(r._audio_pipeline._buffer) == 1
         buffered = r._audio_pipeline._buffer[0]
         assert buffered.size == 1024, f"Expected 1024 samples (48 kHz, no resampling), got {buffered.size}"
@@ -350,16 +251,7 @@ class TestNoDoubleResample:
         r.stop()
 
     def test_stop_uses_buffer_sr_not_effective_sr(self, monkeypatch):
-        """stop() must pass _buffer_sr to _prepare_audio, not _effective_sr.
-
-        Regression for CR-5 step 3: the call site
-        ``effective_sr = self._buffer_sr or self._effective_sr`` must
-        prefer the buffer's actual rate.
-
-        Setup: simulate a session where the buffer holds 16 kHz audio
-        (post-process_chunk) but the device native rate was 48 kHz.
-        ``stop()`` should pass 16000 to ``_prepare_audio``, NOT 48000.
-        """
+        """stop() must pass _buffer_sr to _prepare_audio, not _effective_sr."""
         from voice_typer.server.recording import Recorder
 
         config = MagicMock(
@@ -375,7 +267,6 @@ class TestNoDoubleResample:
         r = Recorder(config, audio_processor=None)
 
         # Simulate the post-process_chunk state: buffer holds 16 kHz audio
-        # even though the device native rate (_effective_sr) is 48 kHz.
         r._effective_sr = 48000
         r._audio_pipeline._buffer_sr = 16000
         # Pretend recording is active so stop() doesn't early-return.
@@ -384,16 +275,11 @@ class TestNoDoubleResample:
         r._audio_pipeline._buffer.append(np.zeros(1024, dtype=np.float32))
 
         # Mock the teardown helpers so stop() doesn't try to stop real
-        # threads (we never started them).
         r._teardown_stream = MagicMock()
         r._stop_audio_worker = MagicMock()
         r._capture.stop_event_worker_body = MagicMock()
         r._stop_device_health_checker = MagicMock()
 
-        # Capture the effective_sr argument to ``prepare_audio`` (the
-        # free function ``stop_recording`` invokes via the
-        # ``_recorder_split`` module binding, the historical
-        # ``Recorder._prepare_audio`` delegator was removed).
         captured_sr: list[int] = []
         import voice_typer.server.recording._recorder_split as split_mod
         from voice_typer.server.recording.format import prepare_audio as real_prepare
@@ -415,22 +301,7 @@ class TestNoDoubleResample:
         )
 
     def test_snapshot_uses_buffer_sr_not_effective_sr(self, monkeypatch):
-        """snapshot() must use _buffer_sr, not _effective_sr, when
-        deciding whether to resample.
-
-        Regression for CR-5 step 4: when ``_buffer_sr == target_sr``
-        (i.e. the processor already resampled to 16 kHz), snapshot()
-        must take the no-resample branch and return audio at the
-        buffer's actual length, NOT call ``_resample_chunk`` to shrink
-        the audio by a 3× factor.
-
-        Setup: buffer holds 1024 samples of 16 kHz audio, but
-        ``_effective_sr`` is 48000 (the pre-CR-5 broken state).
-        Pre-fix, snapshot() would see effective_sr=48000 != target_sr=16000
-        and resample 1024 samples → ~341 samples (3× shrinkage = garbage).
-        Post-fix, snapshot() sees _buffer_sr=16000 == target_sr=16000 and
-        returns the 1024 samples unchanged.
-        """
+        """snapshot() must use _buffer_sr, not _effective_sr, when"""
         from voice_typer.server.recording import Recorder
 
         config = MagicMock(
@@ -446,16 +317,12 @@ class TestNoDoubleResample:
         r = Recorder(config, audio_processor=None)
 
         # Simulate the post-process_chunk state: buffer holds 16 kHz audio
-        # (1024 samples) even though the device native rate is 48 kHz.
         r._effective_sr = 48000
         r._audio_pipeline._buffer_sr = 16000
         # Put a chunk in the buffer (1024 samples of 16 kHz audio).
         r._audio_pipeline._buffer.append(np.zeros(1024, dtype=np.float32))
 
-        # Spy on the module-level ``resample_chunk`` binding (the
-        # historical ``Recorder._resample_chunk`` delegator was
         # removed), it must NOT be called when
-        # _buffer_sr == target_sr.
         resample_calls: list[tuple[int, int]] = []
         import voice_typer.server.recording._recorder_split as split_mod
         from voice_typer.server.recording.format import resample_chunk as real_resample
@@ -468,7 +335,6 @@ class TestNoDoubleResample:
 
         audio = r.snapshot()
 
-        # no resampling should have happened.
         assert resample_calls == [], (
             f"Expected _resample_chunk NOT to be called (buffer_sr=16000 "
             f"== target_sr=16000), but it was called with: "
@@ -477,7 +343,6 @@ class TestNoDoubleResample:
         )
 
         # And the returned audio must be the full 1024 samples, not
-        # shrunk to ~341 by a phantom 48k→16k resample.
         assert audio.size == 1024, (
             f"Expected 1024 samples (no resampling), got {audio.size}. "
             "CR-5 regression: snapshot() shrank the audio by resampling "
@@ -485,12 +350,7 @@ class TestNoDoubleResample:
         )
 
     def test_buffer_sr_resets_on_stop_and_discard(self, monkeypatch):
-        """stop() and discard() must reset _buffer_sr to None so a
-        subsequent start() cycle doesn't reuse the stale rate.
-
-        CR-5 step 7: when stop() or discard() clears the buffer, also
-        reset ``self._buffer_sr = None``.
-        """
+        """subsequent start() cycle doesn't reuse the stale rate."""
         from voice_typer.server.recording import Recorder
 
         config = MagicMock(
@@ -517,13 +377,11 @@ class TestNoDoubleResample:
         r._capture.stop_event_worker_body = MagicMock()
         r._stop_device_health_checker = MagicMock()
 
-        # stop() must reset _buffer_sr to None.
         r.stop()
         assert r._audio_pipeline._buffer_sr is None, (
             f"Expected _buffer_sr=None after stop(), got {r._audio_pipeline._buffer_sr}"
         )
 
-        # discard() must also reset _buffer_sr to None.
         r._audio_pipeline._buffer_sr = 16000  # simulate a subsequent session
         r._recording_event.set()
         r.discard()

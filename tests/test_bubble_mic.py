@@ -1,16 +1,4 @@
-"""UX-10: always-visible bubble mic button: backend config + push tests.
-
-Focused, dependency-light tests for the Python side of UX-10:
-  - the two new config fields (``bubble_click_to_toggle``,
-    ``bubble_mic_button``) validate via ``validate_config_update`` and
-    are present in ``IPC_CONFIG_ALLOWLIST``;
-  - the waveform bubble wiring emits a ``bubble_config`` event carrying
-    exactly the bubble-relevant subset when its ``on_config`` listener
-    fires.
-
-These intentionally avoid the broader (pre-existing-failing) config
-suite so they run green in isolation.
-"""
+"""UX-10: always-visible bubble mic button: backend config + push tests."""
 
 import importlib
 
@@ -39,8 +27,7 @@ def test_new_bubble_fields_in_allowlist():
 
 
 def test_bubble_config_event_carries_relevant_subset():
-    """WaveformBubble.on_config (wired to _push_bubble_config) emits a
-    bubble_config event with exactly the three bubble-relevant keys."""
+    """WaveformBubble.on_config (wired to _push_bubble_config) emits a"""
 
     # Reset the event bus so we only observe this test's events.
     importlib.reload(event_bus)

@@ -1,28 +1,4 @@
-"""Focused config-validation tests for the WAVE3-A03 hook-architecture fix.
-
-Covers three review.md entries:
-
-* **XS-34**, Pre-commit + husky conflict: both ``pre-commit install`` and
-  ``npm install`` (via the ``prepare`` script) previously wrote
-  ``.git/hooks/pre-commit`` and whichever ran LAST won. The fix: husky is
-  the SOLE installer of git hooks (``core.hooksPath = .husky/_/``);
-  ``pre-commit install`` writes to ``.git/hooks/`` which git ignores, and
-  the pre-commit framework is invoked via ``pre-commit run`` from inside
-  husky's ``.husky/pre-commit`` wrapper.
-
-* **XS-35**. Husky pre-push too slow + mypy installs torch (~2GB). The
-  remaining fix: convert mypy from a ``mirrors-mypy`` repo entry with
-  ``additional_dependencies: [numpy, torch, ...]`` to a LOCAL hook with
-  ``language: system`` / ``entry: python -m mypy`` so it reuses the
-  project venv and never reinstalls torch.
-
-* **XS-68**: ``typecheck:root`` was a silent no-op (``tsc --noEmit``
-  against the solution-style ``tsconfig.json`` doesn't type-check the
-  referenced projects). Already fixed: ``typecheck:root`` is now
-  ``tsc -b --noEmit`` (build mode, type-checks refs without emitting),
-  and ``typecheck`` no longer starts with the no-op ``tsc --noEmit``.
-  This test verifies the fix is still in place.
-"""
+"""Focused config-validation tests for the WAVE3-A03 hook-architecture fix."""
 
 from __future__ import annotations
 
@@ -44,13 +20,8 @@ PACKAGE_JSON = PROJECT_ROOT / "voice_typer" / "client" / "package.json"
 TSCONFIG_ROOT = PROJECT_ROOT / "voice_typer" / "client" / "tsconfig.json"
 
 
-# ── XS-34: husky is the sole installer of git hooks ──────────────────────
-
-
 def test_pre_commit_config_has_no_mirrors_mypy_repo() -> None:
-    """``mirrors-mypy`` repo was removed because it created an isolated
-    venv and reinstalled torch on every ``pre-commit run mypy``. The mypy
-    hook is now a ``local`` hook with ``language: system`` (see XS-35)."""
+    """venv and reinstalled torch on every ``pre-commit run mypy``. The mypy"""
     cfg = yaml.safe_load(PRE_COMMIT_CONFIG.read_text())
     repos = [r["repo"] for r in cfg["repos"]]
     assert "https://github.com/pre-commit/mirrors-mypy" not in repos, (
@@ -60,8 +31,7 @@ def test_pre_commit_config_has_no_mirrors_mypy_repo() -> None:
 
 
 def test_pre_commit_config_header_documents_husky_sole_installer() -> None:
-    """The header comment must explain that husky is the SOLE installer
-    of git hooks and that ``pre-commit install`` is NOT used (XS-34)."""
+    """The header comment must explain that husky is the SOLE installer"""
     text = PRE_COMMIT_CONFIG.read_text()
     # Pull just the header comment block (everything before ``repos:``).
     header = text.split("repos:", 1)[0]
@@ -72,10 +42,7 @@ def test_pre_commit_config_header_documents_husky_sole_installer() -> None:
 
 
 def test_husky_pre_commit_invokes_pre_commit_run() -> None:
-    """Husky's ``.husky/pre-commit`` must invoke ``pre-commit run`` so
-    that the pre-commit framework's hooks (ruff, biome-check, etc.) run
-    without needing ``pre-commit install`` to write its own git hook
-    (XS-34)."""
+    """Husky's ``.husky/pre-commit`` must invoke ``pre-commit run`` so"""
     text = HUSKY_PRE_COMMIT.read_text()
     assert "pre-commit run" in text, (
         ".husky/pre-commit must invoke `pre-commit run` to delegate to "
@@ -89,8 +56,7 @@ def test_husky_pre_commit_invokes_pre_commit_run() -> None:
 
 
 def test_husky_pre_commit_documents_sole_installer() -> None:
-    """The ``.husky/pre-commit`` header must reference the XS-34 fix and
-    explain that husky is the sole installer of git hooks."""
+    """The ``.husky/pre-commit`` header must reference the XS-34 fix and"""
     text = HUSKY_PRE_COMMIT.read_text()
     # Header is the top comment block.
     header = text.split("echo", 1)[0] if "echo" in text else text[:2000]
@@ -101,17 +67,10 @@ def test_husky_pre_commit_documents_sole_installer() -> None:
 
 
 def test_contributing_tldr_does_not_recommend_pre_commit_install() -> None:
-    """The TL;DR must NOT tell contributors to run ``pre-commit install``
-    as a primary install step (XS-34). ``npm install`` auto-installs
-    husky hooks via the ``prepare`` script; ``pre-commit install`` is a
-    misleading no-op (its output is ignored because
-    ``core.hooksPath = .husky/_/``)."""
+    """The TL;DR must NOT tell contributors to run ``pre-commit install``"""
     # CONTRIBUTING.md is UTF-8; the default locale encoding on Windows
-    # (cp1252) would raise UnicodeDecodeError on non-ASCII chars.
     text = CONTRIBUTING.read_text(encoding="utf-8")
     # The TL;DR is the first blockquote. Use MULTILINE so ^ matches at
-    # the start of each line, and DOTALL so . matches newlines inside
-    # the blockquote.
     tldr_match = re.search(
         r"^>\s\*\*TL;DR\*\*.*?(?=\n\n)",
         text,
@@ -120,10 +79,6 @@ def test_contributing_tldr_does_not_recommend_pre_commit_install() -> None:
     assert tldr_match, "TL;DR blockquote not found in CONTRIBUTING.md"
     tldr = tldr_match.group(0)
     # The TL;DR may mention `pre-commit install` only in a "Do NOT run"
-    # warning, not as a recommended install step. The pre-fix TL;DR had
-    # the pattern `` `pre-commit install`, then `` (a bare recommendation
-    # as part of the install chain). The post-fix TL;DR either omits
-    # ``pre-commit install`` entirely or includes it only inside a
     # parenthetical "Do NOT run" warning.
     bare_recommendation = re.search(r"`pre-commit install`,\s*then", tldr)
     assert bare_recommendation is None, (
@@ -133,11 +88,8 @@ def test_contributing_tldr_does_not_recommend_pre_commit_install() -> None:
 
 
 def test_contribing_warns_against_pre_commit_install() -> None:
-    """CONTRIBUTING.md must contain an explicit "Do NOT run
-    ``pre-commit install``" warning so contributors understand the
-    single-installer architecture (XS-34)."""
+    """CONTRIBUTING.md must contain an explicit \"Do NOT run"""
     # CONTRIBUTING.md is UTF-8; the default locale encoding on Windows
-    # (cp1252) would raise UnicodeDecodeError on non-ASCII chars.
     text = CONTRIBUTING.read_text(encoding="utf-8")
     assert "Do NOT run `pre-commit install`" in text or ("Do NOT run\n`pre-commit install`" in text), (
         "CONTRIBUTING.md must contain an explicit 'Do NOT run `pre-commit install`' warning (XS-34)."
@@ -145,19 +97,13 @@ def test_contribing_warns_against_pre_commit_install() -> None:
 
 
 def test_contributing_documents_mypy_local_hook() -> None:
-    """CONTRIBUTING.md must document that mypy is now a LOCAL hook with
-    ``language: system`` so contributors know to activate the project
-    venv before running ``pre-commit run mypy`` (XS-35)."""
+    """``language: system`` so contributors know to activate the project"""
     # CONTRIBUTING.md is UTF-8; the default locale encoding on Windows
-    # (cp1252) would raise UnicodeDecodeError on non-ASCII chars.
     text = CONTRIBUTING.read_text(encoding="utf-8")
     assert "language: system" in text, (
         "CONTRIBUTING.md should mention that mypy uses `language: system` to reuse the project venv (XS-35)."
     )
     assert "ML dep set" in text, "CONTRIBUTING.md should document the XS-35 rationale (no ML-dep reinstall)."
-
-
-# ── XS-35: mypy local hook + pre-push scope ──────────────────────────────
 
 
 def _find_hook(cfg: dict, hook_id: str) -> dict:
@@ -169,9 +115,7 @@ def _find_hook(cfg: dict, hook_id: str) -> dict:
 
 
 def test_mypy_hook_is_local_with_language_system() -> None:
-    """The mypy hook must be a ``local`` hook with ``language: system``
-    so it reuses the project venv instead of creating an isolated venv
-    and reinstalling the ML dep set (XS-35)."""
+    """The mypy hook must be a ``local`` hook with ``language: system``"""
     cfg = yaml.safe_load(PRE_COMMIT_CONFIG.read_text())
     mypy_hook = _find_hook(cfg, "mypy")
     assert mypy_hook["language"] == "system", (
@@ -185,13 +129,7 @@ def test_mypy_hook_is_local_with_language_system() -> None:
 
 
 def test_mypy_hook_entry_uses_python_ratchet_script() -> None:
-    """The mypy entry must be ``python scripts/mypy_ratchet_check.py``
-    (not bare ``mypy``) so it works on Windows where
-    ``.venv/Scripts/mypy.exe`` may not be on PATH but
-    ``.venv/Scripts/python.exe`` is (XS-35). The ratchet script runs
-    mypy on the whole server scope and compares the error counts
-    against ``mypy-baseline.json``, so pre-push blocks only NEW errors
-    instead of failing on the ~700 baselined typing-debt items."""
+    """The mypy entry must be ``python scripts/mypy_ratchet_check.py``"""
     cfg = yaml.safe_load(PRE_COMMIT_CONFIG.read_text())
     mypy_hook = _find_hook(cfg, "mypy")
     assert mypy_hook["entry"] == "python scripts/mypy_ratchet_check.py", (
@@ -202,8 +140,7 @@ def test_mypy_hook_entry_uses_python_ratchet_script() -> None:
 
 
 def test_mypy_hook_is_at_pre_push_stage() -> None:
-    """mypy must stay at ``stages: [pre-push]`` so it does NOT run on
-    every commit (XS-35)."""
+    """mypy must stay at ``stages: [pre-push]`` so it does NOT run on"""
     cfg = yaml.safe_load(PRE_COMMIT_CONFIG.read_text())
     mypy_hook = _find_hook(cfg, "mypy")
     assert mypy_hook.get("stages") == ["pre-push"], "mypy hook must be at `stages: [pre-push]` (XS-35). Found: " + repr(
@@ -212,8 +149,7 @@ def test_mypy_hook_is_at_pre_push_stage() -> None:
 
 
 def test_mypy_hook_files_scoped_to_server() -> None:
-    """mypy must scope ``files: ^voice_typer/server/`` so it doesn't
-    type-check the client (which has its own tsc-based typecheck)."""
+    """mypy must scope ``files: ^voice_typer/server/`` so it doesn't"""
     cfg = yaml.safe_load(PRE_COMMIT_CONFIG.read_text())
     mypy_hook = _find_hook(cfg, "mypy")
     assert mypy_hook.get("files") == "^voice_typer/server/", (
@@ -222,19 +158,8 @@ def test_mypy_hook_files_scoped_to_server() -> None:
 
 
 def test_husky_pre_push_uses_cached_typecheck() -> None:
-    """``.husky/pre-push`` must use ``npm run typecheck`` (cached,
-    ~5s incremental) and NOT ``npm run typecheck:ci``
-    (``tsc -b --force``, cache-busting, 30s-2min), XS-35.
-
-    The historical ``typecheck:ci`` reference is allowed inside
-    backtick-quoted comments (it's part of the rationale); only the
-    actual shell invocation matters.
-    """
+    """``.husky/pre-push`` must use ``npm run typecheck`` (cached,"""
     text = HUSKY_PRE_PUSH.read_text()
-    # Strip comment lines (lines starting with `#` or after a `#` in a
-    # shell line, but the pre-push file's comments are all on their own
-    # `#`-prefixed lines, so we just drop those). This isolates the
-    # actual shell commands from the rationale comments.
     code_lines = [line for line in text.splitlines() if not line.lstrip().startswith("#")]
     code_only = "\n".join(code_lines)
     assert "npm run typecheck" in code_only, (
@@ -242,7 +167,6 @@ def test_husky_pre_push_uses_cached_typecheck() -> None:
         "command (XS-35). Code-only content:\n" + textwrap.indent(code_only, "    ")
     )
     # `typecheck:ci` must NOT appear as the actual invocation. Use a
-    # word-boundary match so `npm run typecheck` (without `:ci`) is OK.
     ci_invocation = re.search(r"npm run typecheck:ci\b", code_only)
     assert ci_invocation is None, (
         ".husky/pre-push must NOT invoke `npm run typecheck:ci` as the "
@@ -252,17 +176,7 @@ def test_husky_pre_push_uses_cached_typecheck() -> None:
 
 
 def test_husky_pre_push_drops_pytest_keeps_fast_gates() -> None:
-    """``.husky/pre-push`` must be LEAN: no pytest invocation at all, only
-    the seconds-cost gates, cached client typecheck + the mypy ratchet at
-    the pre-push stage.
-
-    The pytest block (even the XS-35 fast subset, ~2-3 min) was removed:
-    the working convention (AGENTS.md) is that the full suite is run and
-    greened at the end of every task, making a push-time pytest re-run a
-    redundant re-check of an already-verified test state. The historical
-    pytest flags (``--timeout=30`` / ``-k "not slow"`` / ``-m "not slow"``
-    / ``--ignore=``) belong to the rationale comment only.
-    """
+    """``.husky/pre-push`` must be LEAN: no pytest invocation at all, only"""
     text = HUSKY_PRE_PUSH.read_text()
     # Strip comment lines to isolate actual shell commands.
     code_lines = [line for line in text.splitlines() if not line.lstrip().startswith("#")]
@@ -285,22 +199,12 @@ def test_husky_pre_push_drops_pytest_keeps_fast_gates() -> None:
     )
 
 
-# ── XS-68: typecheck:root is not a no-op ─────────────────────────────────
-
-
 def _load_package_json() -> dict:
     return json.loads(PACKAGE_JSON.read_text())
 
 
 def test_typecheck_root_uses_build_mode() -> None:
-    """``typecheck:root`` must use ``tsc -b --noEmit`` (build mode,
-    type-checks referenced projects without emitting), NOT the silent
-    no-op ``tsc --noEmit`` (XS-68).
-
-    ``tsconfig.json`` is a solution-style config (``files: []`` +
-    only ``references``). Running ``tsc --noEmit`` against it does NOT
-    type-check the referenced projects; only ``tsc -b`` does.
-    """
+    """``typecheck:root`` must use ``tsc -b --noEmit`` (build mode,"""
     pkg = _load_package_json()
     typecheck_root = pkg["scripts"]["typecheck:root"]
     assert typecheck_root.startswith("tsc -b"), (
@@ -314,11 +218,7 @@ def test_typecheck_root_uses_build_mode() -> None:
 
 
 def test_typecheck_does_not_start_with_no_op_tsc() -> None:
-    """The ``typecheck`` script must NOT start with a bare ``tsc
-    --noEmit`` (which is a no-op against the solution-style
-    ``tsconfig.json``). The real checks happen in the subsequent
-    ``tsc -p tsconfig.web.json`` and ``tsc -p tsconfig.node.json``
-    calls (XS-68)."""
+    """The ``typecheck`` script must NOT start with a bare ``tsc"""
     pkg = _load_package_json()
     typecheck = pkg["scripts"]["typecheck"]
     # The bare `tsc --noEmit` no-op is what we're guarding against.
@@ -334,11 +234,7 @@ def test_typecheck_does_not_start_with_no_op_tsc() -> None:
 
 
 def test_tsconfig_root_is_solution_style() -> None:
-    """Guard that ``tsconfig.json`` is still a solution-style config
-    (``files: []`` + only ``references``). If this ever changes, the
-    XS-68 fix's premise (that ``tsc --noEmit`` is a no-op against it)
-    no longer holds, and the ``typecheck:root`` / ``typecheck`` scripts
-    should be re-evaluated."""
+    """Guard that ``tsconfig.json`` is still a solution-style config"""
     cfg = json.loads(TSCONFIG_ROOT.read_text())
     assert cfg.get("files") == [], (
         "tsconfig.json must be solution-style (files: []) for the "

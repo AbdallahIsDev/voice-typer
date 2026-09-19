@@ -1,21 +1,4 @@
-"""§8.6: Corporate networks / proxies + SSRF protection.
-
-Spec (§8.6):
-
-  The pack downloader inherits ``assert_url_allowed()`` from
-  ``tests/test_http_safety_ssrf.py`` (SSRF protection) and respects
-  system proxy env vars (``HTTP_PROXY``, ``HTTPS_PROXY``).
-
-Tested behaviors:
-
-  1. ``proxy_env()`` reads ``HTTP_PROXY`` / ``HTTPS_PROXY`` env vars.
-  2. ``proxy_env()`` reads lowercase variants too.
-  3. ``proxy_env()`` returns an empty dict when no proxy env vars set.
-  4. ``assert_pack_url_allowed`` accepts HTTPS GitHub URLs.
-  5. ``assert_pack_url_allowed`` rejects HTTP (cleartext) non-loopback URLs.
-  6. ``assert_pack_url_allowed`` rejects private-IP literals (SSRF).
-  7. ``assert_pack_url_allowed`` rejects URLs not in the allowlist.
-"""
+"""§8.6: Corporate networks / proxies + SSRF protection."""
 
 from __future__ import annotations
 
@@ -82,12 +65,7 @@ class TestAssertPackUrlAllowed:
             )
 
     def test_private_ip_literal_rejected(self, monkeypatch):
-        """Even if a private IP is added to the allowlist, the SSRF
-        IP-literal blocklist rejects it (defense-in-depth)."""
-        # ``10.0.0.5`` is not in the allowlist by default; the
-        # hostname check rejects it first. But to test the IP-literal
-        # path explicitly, we'd need to add it. The function would
-        # still reject via ``_is_private_ip``.
+        """Even if a private IP is added to the allowlist, the SSRF"""
         with pytest.raises(ValueError):
             offline_pack.assert_offline_pack_url_allowed("https://10.0.0.5/offline_pack.zip")
 

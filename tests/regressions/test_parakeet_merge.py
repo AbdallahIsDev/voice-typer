@@ -1,32 +1,4 @@
-"""split from tests/test_feature_hardening_regressions.py (L445-650).
-
-Source marker: ``tests/test_new_cq030_parakeet_merge.py``.
-
-Regression tests for NEW-CQ-030 / parakeet_engine._merge_chunks.
-
-Old behaviour skipped ``int(len(words) * 0.12)`` words at every chunk
-boundary, silently dropping up to 3 legitimate words per 25-word chunk
-even when the boundary contained no overlap duplicates.
-
-New behaviour:
-- Skips at most ``_MAX_BOUNDARY_SKIP_WORDS`` (2) words at a boundary.
-- Only skips a multi-word run when those words actually appear at the
-  tail of the previous chunk (true overlap duplicate).
-- When no overlap duplicate is detected, skip is 0, no words
-  from the new chunk's head are dropped.  Boundary hallucinations are
-  filtered upstream by ``should_reject_low_audio_hallucination``.
-- Never scales skip with chunk length.
-
-Class/method names, assertion logic, and imports below are preserved
-verbatim from the original monolith, only file location has changed.
-
-NOTE: ``TestSourceCheck`` (which statically inspects the owning module
-:mod:`voice_typer.server.recording.audio_pipeline` for the
-NEW-CONC-004 RMS suppression logic) is included here per the split
-plan, it was originally placed between
-``TestRmsCallbackErrorSuppression`` and ``TestMergeChunksRegression``
-in the monolith, and the split assigns it to this file.
-"""
+"""Source marker: ``tests/test_new_cq030_parakeet_merge.py``."""
 
 # === Source: tests/test_new_cq030_parakeet_merge.py ===
 
@@ -42,12 +14,7 @@ from voice_typer.server.parakeet_engine import (
 
 @pytest.fixture
 def engine_no_model() -> ParakeetEngine:
-    """Construct a ParakeetEngine without loading the model.
-
-    ``_merge_chunks`` and ``_compute_overlap_skip`` are pure string
-    operations and do not touch the model, so a model-less instance is
-    safe for these tests.
-    """
+    """Construct a ParakeetEngine without loading the model."""
     # Bypass __init__ which would try to load ONNX weights.
     eng = ParakeetEngine.__new__(ParakeetEngine)
     return eng
@@ -65,17 +32,7 @@ def engine_no_global_chunks_safe_2(eng, a, b):
 
 
 class TestSourceCheck:
-    """Static check: the owning module (recording/audio_pipeline.py)
-    must implement the NEW-CONC-004 RMS-callback error-suppression
-    logic.
-
-    Re-pointed at the OWNING submodule: ``inspect.getsource(recording)``
-    reads only the package ``__init__.py``'s source, which merely
-    ECHOED these code patterns (the echo-substrate
-    anti-pattern). The live suppression logic, the counter, the
-    every-100th re-log, and the "traceback suppressed" branch, is
-    implemented in ``AudioPipeline.process_audio_chunk``.
-    """
+    """Static check: the owning module (recording/audio_pipeline.py)"""
 
     def test_source_has_suppression_logic(self):
         import inspect
@@ -104,25 +61,16 @@ class TestMergeChunksRegression:
         assert engine_no_model._merge_chunks([]) == ""
 
     def test_no_overlap_no_large_skip(self, engine_no_model):
-        """Two chunks with no shared boundary words must NOT lose words
-        via the old 12% ratio.  Previously this dropped 3 words from a
-        25-word second chunk.
-
-        with the allowance removed, NO words from chunk_b's head
-        may be dropped.
-        """
+        """Two chunks with no shared boundary words must NOT lose words"""
         chunk_a = "the quick brown fox jumps over the lazy dog"
         chunk_b = "and now for something completely different here we go now"
         result = engine_no_model._merge_chunks([chunk_a, chunk_b])
         # All of chunk_a must appear.
         assert chunk_a in result
-        # no words from chunk_b's head may be dropped.
         b_words = chunk_b.split()
         # Find where chunk_b content starts in result.
         result_words = result.split()
         # Last len(chunk_a) words should be the start of chunk_b (no
-        # allowance skip with the  fix).
-        # Easier: ensure every word of chunk_b is present in order.
         b_idx = 0
         b_to_find = b_words
         result_idx = 0
@@ -135,19 +83,13 @@ class TestMergeChunksRegression:
         )
 
     def test_explicit_overlap_dedup(self, engine_no_model):
-        """When the model literally re-transcribes the tail of chunk_a
-        as the head of chunk_b, the duplicate words must be removed.
-        """
+        """When the model literally re-transcribes the tail of chunk_a"""
         chunk_a = "the quick brown fox jumps over"
         chunk_b = "fox jumps over the lazy dog"
-        # "fox jumps over" is the overlap run (3 words but only 2 fit in
-        # _MAX_BOUNDARY_SKIP_WORDS, so 2 are skipped).
         result = engine_no_model._merge_chunks([chunk_a, chunk_b])
         # The result should contain "the quick brown fox jumps over the lazy dog"
-        # OR drop "fox jumps" and keep "over the lazy dog", at most 2 skipped.
         result_words = result.split()
         # Verify no word is duplicated beyond what existed in inputs.
-        # Specifically, "fox" and "jumps" should not appear twice.
         assert result_words.count("fox") <= 1, f"fox duplicated: {result!r}"
         assert result_words.count("jumps") <= 1, f"jumps duplicated: {result!r}"
         # The non-overlap tail "the lazy dog" must survive.
@@ -155,16 +97,12 @@ class TestMergeChunksRegression:
             assert word in result_words, f"{word!r} lost: {result!r}"
 
     def test_skip_never_exceeds_cap(self, engine_no_model):
-        """Even with a 50-word chunk (which under the old ratio would
-        skip 6 words), skip must stay at the cap.
-        """
+        """skip 6 words), skip must stay at the cap."""
         chunk_a = "alpha bravo charlie delta echo"
         # 50 words, none overlapping chunk_a
         chunk_b = " ".join(f"w{i}" for i in range(50))
         result = engine_no_model._merge_chunks([chunk_a, chunk_b])
         result_words = result.split()
-        # chunk_a contributes 5 words; chunk_b contributes 50 words
-        # (: no allowance skip when no overlap is detected).
         assert len(result_words) >= 5 + 50, (
             f"Too many words lost: result has {len(result_words)} words, expected at least 55. Result: {result!r}"
         )
@@ -205,18 +143,10 @@ class TestMergeChunksRegression:
 
 
 class TestComputeOverlapSkip:
-    """Direct unit tests for the helper that decides how many leading
-    words of a new chunk to skip."""
+    """Direct unit tests for the helper that decides how many leading"""
 
     def test_no_overlap_returns_zero_skip(self, engine_no_model):
-        """When no overlap is detected, skip MUST be 0, do not drop legitimate words.
-
-        Regression for the previous 'allowance' of 1 word per
-        boundary silently dropped up to 14 words per 5-minute recording
-        (one per chunk boundary) even when the model did not re-transcribe
-        any overlap text.  Boundary hallucinations are filtered upstream
-        by should_reject_low_audio_hallucination.
-        """
+        """When no overlap is detected, skip MUST be 0, do not drop legitimate words."""
         # Two completely different word sets, new chunk has >1 word.
         skip = engine_no_model._compute_overlap_skip(["alpha", "bravo"], ["charlie", "delta"])
         assert skip == 0  # no allowance, do not drop legitimate words

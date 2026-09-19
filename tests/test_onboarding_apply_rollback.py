@@ -1,18 +1,4 @@
-"""HU-23 regression: ``OnboardingMixin.onboarding_apply`` rollback.
-
-Finding HU-23 (review.md): ``onboarding_apply`` called
-``ctrl.apply_settings(app.config)`` which mutates the in-memory
-Config dataclass in place (sets hotkey / model_size / microphone /
-onboarding_completed). If ``apply_config_side_effects`` (e.g. hotkey
-backend re-registration) or ``config.save()`` raised, the exception
-propagated and the in-memory config kept the new values while the
-on-disk config kept the pre-onboarding values, the user's choices
-appeared applied but vanished on restart.
-
-The fix snapshots the four mutated fields before the apply and
-restores them in the except handler (write-then-swap semantics: a
-failed apply must leave in-memory state identical to on-disk state).
-"""
+"""HU-23 regression: ``OnboardingMixin.onboarding_apply`` rollback."""
 
 from __future__ import annotations
 
@@ -21,13 +7,7 @@ from unittest.mock import MagicMock
 
 
 def _build_onboarding_service():
-    """Build a minimal VoiceTyperService (via ``__new__``, no heavy
-    init) wired to a real Config + real mutation lock.
-
-    Mirrors the pattern in ``tests/test_onboarding_permissions.py``:
-    the service mixin only needs ``_app`` (with ``config`` and
-    ``_config_mutation_lock``) and the ``_onboarding`` controller.
-    """
+    """Build a minimal VoiceTyperService (via ``__new__``, no heavy"""
     from voice_typer.server.config import Config
     from voice_typer.server.service import VoiceTyperService
 
@@ -44,9 +24,7 @@ def _build_onboarding_service():
 
 
 class _WizardCtrl:
-    """Minimal stand-in for OnboardingController: holds the selected_*
-    set and mutates the config in place in ``apply_settings`` (mirroring
-    the real controller)."""
+    """Minimal stand-in for OnboardingController: holds the selected_*"""
 
     def __init__(self, hotkey: str, model: str, mic: str):
         self.selected_hotkey = hotkey
@@ -67,9 +45,7 @@ def _assert_rolled_back(cfg, pre: dict) -> None:
 
 
 def test_onboarding_apply_rolls_back_config_on_side_effect_failure(monkeypatch) -> None:
-    """HU-23: when ``apply_config_side_effects`` raises (e.g. hotkey
-    backend re-registration fails), the four mutated config fields must
-    be restored to their pre-apply values."""
+    """HU-23: when ``apply_config_side_effects`` raises (e.g. hotkey"""
     from voice_typer.server import event_bus
 
     service, cfg = _build_onboarding_service()
@@ -99,9 +75,7 @@ def test_onboarding_apply_rolls_back_config_on_side_effect_failure(monkeypatch) 
 
 
 def test_onboarding_apply_rolls_back_config_on_save_failure(monkeypatch) -> None:
-    """HU-23: when ``config.save()`` raises (disk full / permissions),
-    the mutated fields must be restored too, the except handler is
-    shared with the side-effect failure path."""
+    """HU-23: when ``config.save()`` raises (disk full / permissions),"""
     from voice_typer.server import event_bus
 
     service, cfg = _build_onboarding_service()
@@ -136,8 +110,7 @@ def test_onboarding_apply_rolls_back_config_on_save_failure(monkeypatch) -> None
 
 
 def test_onboarding_apply_success_persists_choices(monkeypatch) -> None:
-    """Sanity: on success the config keeps the wizard's choices (the
-    rollback must NOT fire)."""
+    """Sanity: on success the config keeps the wizard's choices (the"""
     from voice_typer.server import event_bus
 
     service, cfg = _build_onboarding_service()

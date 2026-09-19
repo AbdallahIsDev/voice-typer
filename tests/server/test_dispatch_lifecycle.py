@@ -1,15 +1,4 @@
-"""IPC dispatch tests for lifecycle / control commands.
-
-Classes:
-- TestDispatchToggleDictation     , toggle_dictation dispatcher
-- TestDispatchRestartApp          , restart_app dispatcher
-- TestDispatchQuitApp             , quit_app dispatcher
-- TestDispatchUnknownCommand      , unknown command handling
-- TestDispatchNoId                , commands without an id field
-- TestDispatchNonDictDataRobustness, TEST-039 non-dict data handling
-
-Split out from the original monolithic tests/test_server.py (DT-37, Phase 4.5).
-"""
+"""IPC dispatch tests for lifecycle / control commands."""
 
 from unittest.mock import MagicMock
 
@@ -22,10 +11,6 @@ from tests.server.conftest import (  # noqa: F401
 class TestDispatchToggleDictation:
     def test_calls_toggle_and_returns_ack(self, server, mock_app):
         result = server._dispatch({"id": 1, "type": "toggle_dictation"})
-        # ack responses now always include ``data: {}`` for
-        # shape consistency.  Previously this returned just
-        # ``{"id": 1, "type": "ack"}`` with no data, forcing the renderer
-        # to defensively guard against ``undefined``.
         assert result == {"id": 1, "type": "ack", "data": {}}
         assert mock_app.toggle_called is True
 
@@ -40,8 +25,6 @@ class TestDispatchToggleDictation:
         assert result["type"] == "error"
         assert result["id"] == 1
         # (): handler now uses _respond_with_error which emits
-        # a generic envelope (code=internal_error, message=internal error) to
-        # avoid leaking str(e) to the renderer.
         assert result["data"]["code"] == "server.internal_error"
         assert result["data"]["message"] == "internal error"
 
@@ -52,7 +35,6 @@ class TestDispatchRestartApp:
         result = server._dispatch({"id": 1, "type": "restart_app"})
         # Returns None because ack was already sent
         assert result is None
-        # ack now includes explicit ``data: {}``.
         server._send.assert_called_once_with({"id": 1, "type": "ack", "data": {}})
         assert mock_app.restart_called is True
 
@@ -89,12 +71,7 @@ class TestDispatchNoId:
 
 
 class TestDispatchNonDictDataRobustness:
-    """TEST-039: _dispatch must handle non-dict `data` gracefully for
-    every command, not just set_config. Previously the audit noted that
-    ``data = msg.get("data")`` could be a list, string, or None, and
-    only set_config had an isinstance guard. We now test multiple
-    commands with non-dict data to verify they don't raise.
-    """
+    """only set_config had an isinstance guard. We now test multiple"""
 
     def test_get_history_with_list_data_does_not_crash(self, server, mock_app):
         """get_history with data=[1,2,3] should fall back to defaults."""
@@ -111,7 +88,7 @@ class TestDispatchNonDictDataRobustness:
         mock_app.history_db.get_recent.assert_called_once()
 
     def test_get_history_with_string_data_does_not_crash(self, server, mock_app):
-        """get_history with data="bad" should fall back to defaults."""
+        """get_history with data=\"bad\" should fall back to defaults."""
         mock_app.history_db.get_recent = MagicMock(return_value=[])
         result = server._dispatch(
             {
@@ -145,14 +122,10 @@ class TestDispatchNonDictDataRobustness:
         )
         assert result["type"] == "error"
         # ADR-0008 refactor: _validate_dict_payload now returns a structural
-        # "data must be an object" message for non-dict input (previously it
-        # returned "Missing 'id'" because the old validator only checked for
-        # the 'id' key after assuming dict-ness). Both messages are valid
-        # error responses; the new one is more precise about the root cause.
         assert "data must be an object" in result["data"]["message"]
 
     def test_toggle_favorite_with_string_data_returns_error(self, server, mock_app):
-        """toggle_favorite with data="bad" should return an error."""
+        """toggle_favorite with data=\"bad\" should return an error."""
         result = server._dispatch(
             {
                 "id": 1,

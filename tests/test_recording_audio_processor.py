@@ -1,38 +1,4 @@
-"""Regression tests for the Recorder audio callback path with an
-AudioProcessor attached.
-
-Background
-----------
-A previous version of ``recording.py`` had the audio-callback structure:
-
-    with self._lock:
-        self._buffer.append(filtered.copy())   # ← uses `filtered`
-        ...
-    # ... `filtered` was assigned HERE, AFTER the lock block ...
-
-This raised ``NameError: name 'filtered' is not defined`` on every
-audio chunk.  PortAudio swallows callback exceptions silently, so the
-recording captured nothing, no audio, no buffer growth, no RMS
-updates.  This went undetected because no test exercised the
-callback with an AudioProcessor attached (without a processor,
-``filtered = indata`` was a separate code path that worked).
-
-These tests construct a ``Recorder`` with a real ``AudioProcessor``,
-drive the callback via a fake ``InputStream`` that invokes the
-callback directly, and assert that:
-
-1. The callback does not raise.
-2. The buffer grows by the expected number of chunks.
-3. The stored audio is the FILTERED audio (high-pass filter actually
-   applied, low-frequency content attenuated).
-4. The RMS callback fires with values derived from the filtered audio.
-5. The quality callback (wired via ``set_quality_callback``) receives
-   (rms, peak) per chunk.
-6. Post-capture processing in ``stop()`` is invoked.
-
-This is a true end-to-end test of the audio path with noise filtering
-enabled, using no real audio hardware.
-"""
+"""AudioProcessor attached."""
 
 from __future__ import annotations
 
@@ -52,12 +18,7 @@ def mock_heavy_imports(monkeypatch):
 
 
 class FakeInputStream:
-    """Fake sounddevice.InputStream that captures the callback for
-    direct invocation from the test.
-
-    Mimics the real InputStream's start()/stop()/close() surface so
-    Recorder.start() and stop() work unmodified.
-    """
+    """direct invocation from the test."""
 
     def __init__(self, samplerate, channels, dtype, device=None, callback=None, **kwargs):
         self.samplerate = samplerate
@@ -81,20 +42,12 @@ class FakeInputStream:
     def push_chunk(self, samples: np.ndarray) -> None:
         """Simulate PortAudio delivering one audio chunk to the callback."""
         # The callback signature is (indata, frames, time_info, status).
-        # indata is shape (frames, channels).
         frames = samples.shape[0]
         self.callback(samples, frames, None, 0)
 
 
 def _capture_stream(streams):
-    """Return the real capture InputStream.
-
-    ``Recorder.__init__`` opens a prewarm stream with ``callback=None``
-    (``_prewarm_input_stream``) and the Windows mic-permission probe
-    opens one without a callback, so ``captured_streams`` may contain
-    extra no-callback streams. The actual capture stream is the one
-    opened by ``start()`` with a real callback.
-    """
+    """Return the real capture InputStream."""
     for s in streams:
         if s.callback is not None:
             return s
@@ -102,27 +55,7 @@ def _capture_stream(streams):
 
 
 def _drain_ring_buffer(rec, timeout_s: float = 2.0) -> None:
-    """Wait for the audio worker thread to drain the SPSC ring buffer
-    AND finish processing the last popped chunk.
-
-    RT-SAFE-001: the PortAudio callback now pushes chunks to a ring
-    buffer and returns immediately; a daemon worker thread processes
-    them asynchronously. Tests that push chunks via ``FakeInputStream``
-    must call this helper before asserting on ``rec._audio_pipeline._buffer`` —
-    otherwise the worker may not have processed the chunks yet.
-
-    Completion requires BOTH the ring to be empty AND the pipeline
-    buffer length to be STABLE across consecutive polls: the worker
-    pops a chunk BEFORE appending it to ``_buffer`` (the filter chain +
-    VAD bookkeeping run in between), so a single ring-empty observation
-    can land in the pop→append window, the pre-fix "return on first
-    ring-empty" raced the final append and under-counted the buffer on
-    loaded CI machines (observed: ``Expected 5 buffered chunks, got 4``).
-    Requiring quiescence (ring empty + unchanged buffer length for
-    several spaced polls) closes that window; the bounded timeout
-    preserves the fail-with-clear-message contract when the worker is
-    genuinely stuck.
-    """
+    """Wait for the audio worker thread to drain the SPSC ring buffer"""
     import time
 
     deadline = time.perf_counter() + timeout_s
@@ -139,8 +72,6 @@ def _drain_ring_buffer(rec, timeout_s: float = 2.0) -> None:
             last_len = buf_len
         time.sleep(0.012)
     # If we get here, the worker didn't reach quiescence in time, let
-    # the caller's assertion fail with a clear message rather than
-    # timing out here.
 
 
 def _make_sine(freq: float, duration_s: float, sr: int = 16000, amp: float = 0.5) -> np.ndarray:
@@ -150,13 +81,7 @@ def _make_sine(freq: float, duration_s: float, sr: int = 16000, amp: float = 0.5
 
 
 class _FilterConfig:
-    """Minimal config stub for ``AudioProcessor`` (ADR-0007).
-
-    ADR-0007 removed the old ``AudioProcessorConfig`` dataclass and
-    replaced it with the regular ``Config`` object's ``noise_filter_*``
-    fields. Tests build a tiny namespace here with the same attributes
-    that ``audio_chain_builder.build_chain`` reads via ``getattr``.
-    """
+    """Minimal config stub for ``AudioProcessor`` (ADR-0007)."""
 
     def __init__(
         self,
@@ -180,18 +105,11 @@ class _FilterConfig:
         self.noise_filter_notch = notch
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-
-
 class TestRecorderCallbackWithAudioProcessor:
-    """Drive the real Recorder callback with a real AudioProcessor and
-    assert that filtering works and no NameError escapes."""
+    """Drive the real Recorder callback with a real AudioProcessor and"""
 
     def test_callback_does_not_raise_with_processor(self, monkeypatch):
-        """The bug: callback referenced `filtered` before assignment.
-        With an AudioProcessor attached, every chunk would raise
-        NameError, silently swallowed by PortAudio.  This test makes
-        sure the buffer actually grows."""
+        """The bug: callback referenced `filtered` before assignment."""
         from voice_typer.server import recording as rec_mod
         from voice_typer.server.audio_processor import AudioProcessor
         from voice_typer.server.recording import Recorder
@@ -210,14 +128,12 @@ class TestRecorderCallbackWithAudioProcessor:
             microphone=None,
             silence_warning_seconds=20.0,
             stop_on_silence_seconds=120.0,
-            # SIMPLIFY-001: single explicit field replaces the old 3-field split
             max_recording_time_seconds=900,
             device="cpu",
             use_silero_vad=False,
             vad_speech_threshold=0.5,
         )
         # ADR-0007: AudioProcessorConfig removed; build_chain reads
-        # noise_filter_* attributes from the config via getattr.
         proc = AudioProcessor(
             _FilterConfig(
                 highpass=True,
@@ -232,14 +148,10 @@ class TestRecorderCallbackWithAudioProcessor:
         stream = _capture_stream(captured_streams)
 
         # Push 5 chunks of 1024 samples each, this would have raised
-        # NameError on the FIRST chunk in the buggy version.
         for _ in range(5):
             chunk = _make_sine(freq=440, duration_s=1024 / 16000, amp=0.3)
             stream.push_chunk(chunk)
 
-        # the callback pushes to the ring buffer and returns
-        # immediately; the worker thread processes asynchronously. Wait
-        # for the worker to drain before asserting on _buffer.
         _drain_ring_buffer(r)
 
         # If the callback had raised, the buffer would be empty.
@@ -250,9 +162,7 @@ class TestRecorderCallbackWithAudioProcessor:
         r.stop()
 
     def test_buffer_contains_filtered_audio(self, monkeypatch):
-        """The stored audio should reflect the high-pass filter —
-        low-frequency content (30 Hz) should be attenuated relative to
-        the raw input."""
+        """The stored audio should reflect the high-pass filter —"""
         from voice_typer.server import recording as rec_mod
         from voice_typer.server.audio_processor import AudioProcessor
         from voice_typer.server.recording import Recorder
@@ -271,7 +181,6 @@ class TestRecorderCallbackWithAudioProcessor:
             microphone=None,
             silence_warning_seconds=20.0,
             stop_on_silence_seconds=120.0,
-            # SIMPLIFY-001: single explicit field replaces the old 3-field split
             max_recording_time_seconds=900,
             device="cpu",
             use_silero_vad=False,
@@ -305,8 +214,7 @@ class TestRecorderCallbackWithAudioProcessor:
         )
 
     def test_rms_callback_receives_filtered_values(self, monkeypatch):
-        """The on_rms_level callback should fire with values derived
-        from the FILTERED audio, not raw mic input."""
+        """The on_rms_level callback should fire with values derived"""
         from voice_typer.server import recording as rec_mod
         from voice_typer.server.audio_processor import AudioProcessor
         from voice_typer.server.recording import Recorder
@@ -323,7 +231,6 @@ class TestRecorderCallbackWithAudioProcessor:
             microphone=None,
             silence_warning_seconds=20.0,
             stop_on_silence_seconds=120.0,
-            # SIMPLIFY-001: single explicit field replaces the old 3-field split
             max_recording_time_seconds=900,
             device="cpu",
             use_silero_vad=False,
@@ -342,7 +249,6 @@ class TestRecorderCallbackWithAudioProcessor:
 
         rms_calls = []
         # T021: callback signature now includes audio_chunk (3rd arg).
-        # Use *args to accept any number of positional args for compat.
         r.on_rms_level = lambda rms, peak, *args: rms_calls.append((rms, peak))
 
         r.start()
@@ -356,9 +262,7 @@ class TestRecorderCallbackWithAudioProcessor:
         assert 0.0 < peak <= 1.0
 
     def test_quality_callback_fires_per_chunk(self, monkeypatch):
-        """The AudioProcessor's quality callback should fire once per
-        chunk, this is what wires AudioQualityAnalyzer back into the
-        pipeline."""
+        """The AudioProcessor's quality callback should fire once per"""
         from voice_typer.server import recording as rec_mod
         from voice_typer.server.audio_processor import AudioProcessor
         from voice_typer.server.recording import Recorder
@@ -375,7 +279,6 @@ class TestRecorderCallbackWithAudioProcessor:
             microphone=None,
             silence_warning_seconds=20.0,
             stop_on_silence_seconds=120.0,
-            # SIMPLIFY-001: single explicit field replaces the old 3-field split
             max_recording_time_seconds=900,
             device="cpu",
             use_silero_vad=False,
@@ -404,17 +307,8 @@ class TestRecorderCallbackWithAudioProcessor:
             f"Quality callback should fire once per chunk; got {len(quality_calls)} calls for 3 chunks"
         )
 
-    # ADR-0007 §3.8: post-capture noisereduce (process_full_audio) was
-    # removed. The real-time NoiseSuppressor filter in the chain now
-    # handles denoising for both the streaming and stop() paths. The
-    # test ``test_post_capture_runs_in_stop`` was deleted because the
-    # feature it pinned no longer exists. See recording.py:1840-1845
-    # for the rationale comment.
-
     def test_callback_without_processor_still_works(self, monkeypatch):
-        """Sanity check: the callback path must still work when
-        audio_processor is None (feature disabled).  This is the
-        graceful-degradation path."""
+        """Sanity check: the callback path must still work when"""
         from voice_typer.server import recording as rec_mod
         from voice_typer.server.recording import Recorder
 
@@ -430,7 +324,6 @@ class TestRecorderCallbackWithAudioProcessor:
             microphone=None,
             silence_warning_seconds=20.0,
             stop_on_silence_seconds=120.0,
-            # SIMPLIFY-001: single explicit field replaces the old 3-field split
             max_recording_time_seconds=900,
             device="cpu",
             use_silero_vad=False,
@@ -443,15 +336,13 @@ class TestRecorderCallbackWithAudioProcessor:
         for _ in range(3):
             stream.push_chunk(_make_sine(freq=440, duration_s=0.05, amp=0.3))
 
-        # wait for the worker to drain the ring buffer.
         _drain_ring_buffer(r)
 
         assert len(r._audio_pipeline._buffer) == 3
         r.stop()
 
     def test_xrun_status_does_not_break_callback(self, monkeypatch):
-        """When PortAudio reports an xrun (status flag non-zero), the
-        callback should still process the chunk and not raise."""
+        """When PortAudio reports an xrun (status flag non-zero), the"""
         from voice_typer.server import recording as rec_mod
         from voice_typer.server.audio_processor import AudioProcessor
         from voice_typer.server.recording import Recorder
@@ -468,7 +359,6 @@ class TestRecorderCallbackWithAudioProcessor:
             microphone=None,
             silence_warning_seconds=20.0,
             stop_on_silence_seconds=120.0,
-            # SIMPLIFY-001: single explicit field replaces the old 3-field split
             max_recording_time_seconds=900,
             device="cpu",
             use_silero_vad=False,
@@ -489,11 +379,8 @@ class TestRecorderCallbackWithAudioProcessor:
         # Push a chunk WITH a non-zero status flag (simulating xrun).
         chunk = _make_sine(freq=440, duration_s=0.05, amp=0.3)
         # Manually invoke the callback with status=sd.InputStream.flags  # noqa: E501
-        # We use the string "input overflow" which is what sounddevice
-        # actually passes, but any truthy value exercises the path.
         stream.callback(chunk, chunk.shape[0], None, "input overflow")
 
-        # wait for the worker to drain the ring buffer.
         _drain_ring_buffer(r)
 
         # Buffer should still have grown.

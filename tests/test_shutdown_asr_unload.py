@@ -1,46 +1,10 @@
-"""ASR model unload + CUDA cache clear is wired into the
-``_do_cleanup`` parallel batch.
-
-These tests pin the contract that ``_teardown_asr_models`` exists on
-``ShutdownController``, runs FIRST in the parallel batch, calls
-``registry.unload()`` (via ``app.models.registry`` after the
-ModelManager refactor, the briefing's ``app._asr_registry`` was
-folded into ``ModelManager.registry``), and defensively guards the
-``torch.cuda.empty_cache()`` / ``synchronize()`` calls with
-``hasattr(torch, 'cuda')`` + ``torch.cuda.is_available()``.
-
-Source-inspection based (mirrors the contract tests in
-``shutdown-hooks.test.ts``), importing ``shutdown_controller`` triggers
-the full ``VoiceTyperApp`` dependency chain, which is heavy and not
-needed for these static-contract assertions. The one dynamic test
-(``test_teardown_asr_models_calls_unload``) constructs a minimal
-``ShutdownController`` look-alike via the existing
-``test_shutdown_parallel`` fake-app fixture.
-
-The ``_teardown_asr_models`` body was extracted to
-``voice_typer/server/shutdown/teardowns/asr_models.py`` (Phase 4.5
-god-module decomposition). The source-inspection tests below read the
-body from the extracted module; the dynamic test still drives the
-delegate on ``ShutdownController`` (which forwards to the extracted
-function).
-"""
+"""``_do_cleanup`` parallel batch."""
 
 from __future__ import annotations
 
 import os
 from unittest.mock import MagicMock
 
-# Source-inspection: read the module source so we can assert on the
-# structure WITHOUT importing it (which would pull in VoiceTyperApp +
-# the entire server stack). Same pattern as the  / R6-F7 tests.
-#
-# The pre-split ``shutdown_controller.py`` module is now a package. The
-# pinned regions have moved with their bodies: the ``_teardown_*``
-# delegates live in ``shutdown_controller/_teardowns.py``, and the
-# parallel-batch ``parallel_items`` list now lives in the extracted plan
-# builders in ``shutdown/plan.py`` (``build_parallel_plan``, moved out
-# of ``shutdown_controller/_plans.py`` during the shutdown-module
-# split; the mixin methods there are thin delegates).
 _CONTROLLER_TEARDOWNS_PATH = os.path.join(
     os.path.dirname(__file__),
     "..",
@@ -95,18 +59,11 @@ def _teardown_asr_models_body() -> str:
     return src[idx:next_def]
 
 
-# ── Static (source-inspection) contract tests ───────────────────────
-
-
 class TestTeardownAsrModelsContract:
-    """``_teardown_asr_models`` is wired into the parallel batch
-    as the FIRST item, calls ``registry.unload()``, and guards
-    the CUDA cache clear."""
+    """``_teardown_asr_models`` is wired into the parallel batch"""
 
     def test_teardown_asr_models_method_exists(self) -> None:
-        """The helper must be defined as a method on
-        ``ShutdownController`` (the delegate) AND as a standalone
-        function in the extracted teardowns module (the body)."""
+        """``ShutdownController`` (the delegate) AND as a standalone"""
         s = _controller_teardowns_src()
         # Method definition with the exact name + ``self`` first arg.
         assert "def _teardown_asr_models(self" in s, "_teardown_asr_models(self) method must be defined"
@@ -115,19 +72,9 @@ class TestTeardownAsrModelsContract:
         assert "def teardown_asr_models(controller)" in body
 
     def test_teardown_asr_models_is_first_in_parallel_batch(self) -> None:
-        """The helper must be the FIRST entry in the parallel batch
-        (not in critical-only mode, the parallel batch is the normal-
-        mode tier). The sequenced phase (timers_and_recording,
-        recorder, history_db, crash_recovery) runs BEFORE the parallel
-        batch; ``_teardown_asr_models`` is the first PARALLEL item so
-        the (potentially slow) CUDA context teardown starts as early
-        as possible."""
+        """The helper must be the FIRST entry in the parallel batch"""
         s = _controller_plans_src()
         # Find the ``parallel_items`` block in ``build_parallel_plan``
-        # (``shutdown/plan.py``). The block opens with
-        # ``all_parallel_items: list[tuple[...]] = [`` (the
-        # type-annotated form) and closes with the matching ``]``.
-        # The first tuple inside MUST be ``("teardown_asr_models", ...)``.
         parallel_open_idx = s.find("parallel_items")
         assert parallel_open_idx > -1, "build_parallel_plan must define a parallel_items list for the parallel batch"
         # Find the opening ``[`` after ``parallel_items``.
@@ -145,10 +92,7 @@ class TestTeardownAsrModelsContract:
         )
 
     def test_teardown_asr_models_calls_asr_registry_unload(self) -> None:
-        """The helper must call ``registry.unload()`` (no-arg form —
-        unloads the active backend). Post ModelManager refactor, the
-        registry lives at ``app.models.registry``; the contract is the
-        no-arg ``unload()`` call on a registry handle."""
+        """The helper must call ``registry.unload()`` (no-arg form —"""
         body = _teardown_asr_models_body()
         assert "registry.unload()" in body or "asr_registry.unload()" in body, (
             "_teardown_asr_models must call registry.unload() (no-arg form, unloads the active backend)"
@@ -157,23 +101,9 @@ class TestTeardownAsrModelsContract:
     def test_teardown_asr_models_guards_torch_cuda_with_hasattr_and_is_available(
         self,
     ) -> None:
-        """The helper must guard ``torch.cuda.empty_cache()`` with BOTH
-        ``hasattr(torch, 'cuda')`` AND ``torch.cuda.is_available()``.
-        Either guard alone is insufficient:
-          - ``hasattr`` only: still raises on CPU-only torch builds
-            where ``torch.cuda`` is a stub module.
-          - ``is_available()`` only: raises ``AttributeError`` on
-            torch builds without ``cuda`` at all.
-
-        Post extraction, the CUDA guards live in
-        ``asr_utils.release_gpu_memory`` (called from
-        ``teardown_asr_models``). Accept either inline guards in the
-        helper body OR a call to ``release_gpu_memory`` (which
-        encapsulates the guards).
-        """
+        """The helper must guard ``torch.cuda.empty_cache()`` with BOTH"""
         body = _teardown_asr_models_body()
         # Accept either inline guards OR a call to release_gpu_memory
-        # (which encapsulates the guards: see asr_utils.py).
         if "release_gpu_memory" in body:
             return
         assert 'hasattr(torch, "cuda")' in body or "hasattr(torch, 'cuda')" in body, (
@@ -182,11 +112,7 @@ class TestTeardownAsrModelsContract:
         )
 
     def test_teardown_asr_models_calls_empty_cache_and_synchronize(self) -> None:
-        """The helper must trigger BOTH ``torch.cuda.empty_cache()`` AND
-        ``torch.cuda.synchronize()`` (synchronize is needed so the
-        cache clear is observable before any other subsystem reads GPU
-        state). Accept either inline calls or a call to
-        ``release_gpu_memory`` (which encapsulates both)."""
+        """cache clear is observable before any other subsystem reads GPU"""
         body = _teardown_asr_models_body()
         if "release_gpu_memory" in body:
             return
@@ -201,14 +127,8 @@ class TestTeardownAsrModelsContract:
         )
 
     def test_teardown_asr_models_torch_import_is_inside_try(self) -> None:
-        """The ``import torch`` (or the call to ``release_gpu_memory``,
-        which internally imports torch) must be inside a ``try``/
-        ``except`` so the helper doesn't crash on CPU-only build
-        paths / test envs without torch installed."""
+        """The ``import torch`` (or the call to ``release_gpu_memory``,"""
         body = _teardown_asr_models_body()
-        # Accept either an inline ``import torch`` inside try OR a
-        # call to ``release_gpu_memory`` wrapped in try/except (the
-        # latter imports torch internally).
         if "release_gpu_memory" in body:
             assert "except" in body, (
                 "the release_gpu_memory() call must be inside a try/except "
@@ -221,9 +141,6 @@ class TestTeardownAsrModelsContract:
         )
 
 
-# ── Dynamic test: actually invoke the helper ────────────────────────
-
-
 class _FakeModels:
     """Minimal ``ModelManager`` look-alike exposing ``registry``."""
 
@@ -232,42 +149,29 @@ class _FakeModels:
 
 
 class _FakeApp:
-    """Minimal ``VoiceTyperApp`` look-alike for ``_teardown_asr_models``.
-
-    Post ModelManager refactor, the ASR registry lives at
-    ``app.models.registry`` (NOT ``app._asr_registry``, that attribute
-    was removed when the registry ownership moved into ModelManager).
-    """
+    """Minimal ``VoiceTyperApp`` look-alike for ``_teardown_asr_models``."""
 
     def __init__(self) -> None:
         self.models = _FakeModels()
 
 
 class TestTeardownAsrModelsDynamic:
-    """Dynamic test: actually invoke ``_teardown_asr_models`` and verify
-    the unload() call fires."""
+    """Dynamic test: actually invoke ``_teardown_asr_models`` and verify"""
 
     def test_teardown_asr_models_calls_unload(self) -> None:
-        """Construct a minimal ``ShutdownController`` and verify
-        ``_teardown_asr_models`` calls ``registry.unload()`` (via
-        ``app.models.registry``)."""
+        """Construct a minimal ``ShutdownController`` and verify"""
         from voice_typer.server.shutdown_controller import ShutdownController
 
         fake_app = _FakeApp()
         # ``ShutdownController.__init__`` reads attributes off ``app``
-        # (e.g. ``app._host_pid_lock``), use ``__new__`` to bypass
-        # ``__init__`` and set just the attributes the helper needs.
         ctrl = ShutdownController.__new__(ShutdownController)
         ctrl._app = fake_app
         # Invoke the helper. ``import torch`` will ImportError (test
-        # env) → caught → CUDA cache clear skipped → helper returns
-        # cleanly.
         ctrl._teardown_asr_models()
         fake_app.models.registry.unload.assert_called_once_with()
 
     def test_teardown_asr_models_noop_when_no_registry(self) -> None:
-        """When ``app.models.registry`` is None (sidecar crashed during
-        model init), the helper must be a no-op (not raise)."""
+        """When ``app.models.registry`` is None (sidecar crashed during"""
         from voice_typer.server.shutdown_controller import ShutdownController
 
         fake_app = _FakeApp()

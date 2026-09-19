@@ -1,22 +1,4 @@
-"""Tests for the central ThreadRegistry (Task 10).
-
-These tests verify the ThreadRegistry class itself in isolation, they
-do NOT depend on VoiceTyperApp or any of the spawn sites. The registry
-is a pure coordination layer; the integration with each spawn site is
-covered by the existing per-module tests (test_app.py, test_recording.py,
-test_streaming.py, test_crash_recovery.py).
-
-Test coverage:
-- Registration / unregistration (basic CRUD)
-- list_active() / list_all() snapshot semantics
-- shutdown_all() joins all registered threads
-- Per-thread join_timeout is respected
-- A thread that doesn't exit within timeout is logged but doesn't block
-- Idempotency: shutdown_all() can be called multiple times safely
-- Defensive registration: re-registering an existing name logs + updates
-- Threads with stop_event=None are joined but not signaled
-- Cross-thread safety: concurrent register/unregister/shutdown_all
-"""
+"""Tests for the central ThreadRegistry (Task 10)."""
 
 from __future__ import annotations
 
@@ -33,18 +15,6 @@ from voice_typer.server.thread_registry import (
 
 from tests.fixtures.wait_helpers import wait_for_event, wait_until
 
-# ─── Helpers ─────────────────────────────────────────────────────────────
-
-
-# Module-level kill-switch for worker threads created by
-# ``_make_worker``. Under xdist a worker process lives for the WHOLE
-# suite, so a "never-exit" test worker would otherwise spin
-# ``time.sleep(0.01)`` forever, accumulating thread bloat that
-# contributed to rare native heap corruption (``0xc0000374``) when real
-# torch ran concurrently in the same worker. The autouse conftest drain
-# (``_drain_test_thread_registry_workers``) sets this event between
-# tests; the per-test assertions that a stuck worker is STILL ALIVE all
-# run BEFORE teardown, so they are unaffected.
 _KILL_ALL_TEST_WORKERS = threading.Event()
 
 
@@ -55,28 +25,7 @@ def _make_worker(
     sleep_before_exit: float = 0.0,
     never_exit: bool = False,
 ) -> threading.Thread:
-    """Create and start a worker thread for tests.
-
-    Parameters
-    ----------
-    stop_event : threading.Event | None
-        If not None, the worker checks ``stop_event.is_set()`` each
-        iteration and exits when set. If None, the worker loops forever
-        (unless ``never_exit=False`` and ``sleep_before_exit`` is set).
-    on_exit : threading.Event | None
-        If provided, set when the worker exits. Used by tests to verify
-        the worker actually exited (vs. the join timing out).
-    sleep_before_exit : float
-        Seconds to sleep after stop_event is set before exiting. Used to
-        test the join timeout behavior.
-    never_exit : bool
-        If True, the worker never exits even when stop_event is set.
-        Used to test the "thread didn't exit within timeout" path.
-
-    Every worker also honours the module-level ``_KILL_ALL_TEST_WORKERS``
-    kill-switch (checked FIRST, before ``never_exit``) so the conftest
-    drain can terminate deliberately-stuck workers between tests.
-    """
+    """Create and start a worker thread for tests."""
 
     def _run() -> None:
         try:
@@ -99,26 +48,15 @@ def _make_worker(
 
 
 # Module-level registry of live test workers so the conftest drain can
-# join them after arming the kill-switch. A WeakSet drops entries
-# automatically once the thread finishes (or is GC'd).
 _LIVE_TEST_WORKERS: weakref.WeakSet = weakref.WeakSet()
 
 
 def _drain_test_workers() -> None:
-    """Stop and join every live ``_make_worker`` thread.
-
-    Called by the conftest autouse drain between tests. Sets the
-    module-level kill-switch (checked before ``never_exit``) and joins
-    each registered thread with a bounded timeout. Idempotent, safe to
-    call even when no workers are live.
-    """
+    """Stop and join every live ``_make_worker`` thread."""
     _KILL_ALL_TEST_WORKERS.set()
     for t in list(_LIVE_TEST_WORKERS):
         t.join(timeout=0.5)
     _KILL_ALL_TEST_WORKERS.clear()
-
-
-# ─── Registration / unregistration ───────────────────────────────────────
 
 
 class TestRegistration:
@@ -136,8 +74,7 @@ class TestRegistration:
             t.join(timeout=2.0)
 
     def test_register_same_name_same_thread_is_silent(self, caplog):
-        """Re-registering the same name with the same thread object is
-        silent (used to update stop_event / join_timeout)."""
+        """Re-registering the same name with the same thread object is"""
         reg = ThreadRegistry()
         stop = threading.Event()
         t = _make_worker(stop)
@@ -153,9 +90,7 @@ class TestRegistration:
             t.join(timeout=2.0)
 
     def test_register_same_name_different_thread_logs_warning(self, caplog):
-        """Re-registering an existing name with a DIFFERENT thread
-        object logs a warning (defensive, caller should have stopped
-        the old thread)."""
+        """Re-registering an existing name with a DIFFERENT thread"""
         reg = ThreadRegistry()
         stop1 = threading.Event()
         stop2 = threading.Event()
@@ -212,9 +147,6 @@ class TestRegistration:
                 t.join(timeout=2.0)
 
 
-# ─── list_active / list_all ──────────────────────────────────────────────
-
-
 class TestListActive:
     def test_list_active_excludes_dead_threads(self):
         """list_active() returns only names whose threads are still alive."""
@@ -228,13 +160,11 @@ class TestListActive:
             stop.set()
         t.join(timeout=2.0)
         # After the thread exits, list_active() should be empty even
-        # though the entry is still in the registry.
         assert reg.list_active() == []
         assert reg.list_all() == ["alive-worker"]
 
     def test_list_active_is_snapshot(self):
-        """list_active() returns a snapshot, mutations after the call
-        don't affect the returned list."""
+        """list_active() returns a snapshot, mutations after the call"""
         reg = ThreadRegistry()
         stop = threading.Event()
         t = _make_worker(stop)
@@ -242,7 +172,6 @@ class TestListActive:
             reg.register("worker-1", t, stop, join_timeout=1.0)
             snapshot = reg.list_active()
             reg.register("worker-2", t, stop, join_timeout=1.0)
-            # The snapshot should still be the old list.
             assert snapshot == ["worker-1"]
         finally:
             stop.set()
@@ -253,9 +182,6 @@ class TestListActive:
         reg = ThreadRegistry()
         assert reg.list_all() == []
         assert reg.list_active() == []
-
-
-# ─── shutdown_all ─────────────────────────────────────────────────────────
 
 
 class TestShutdownAll:
@@ -288,7 +214,6 @@ class TestShutdownAll:
         assert not t.is_alive()
 
         # Second call is a no-op (thread is already dead; join returns
-        # immediately).
         reg.shutdown_all()
         reg.shutdown_all()  # Third call also safe.
         assert not t.is_alive()
@@ -299,13 +224,10 @@ class TestShutdownAll:
         reg.shutdown_all()  # Should not raise.
 
     def test_shutdown_all_respects_per_thread_timeout(self):
-        """A thread that sleeps past its join_timeout is logged but
-        doesn't block shutdown."""
+        """A thread that sleeps past its join_timeout is logged but"""
         reg = ThreadRegistry()
         stop = threading.Event()
         exit_event = threading.Event()
-        # Worker sleeps 0.5s after stop is set before exiting. The
-        # join_timeout is 0.1s, so the join will time out.
         t = _make_worker(stop, on_exit=exit_event, sleep_before_exit=0.5)
         reg.register("slow-worker", t, stop, join_timeout=0.1)
 
@@ -313,25 +235,16 @@ class TestShutdownAll:
         reg.shutdown_all()
         elapsed = time.monotonic() - start
 
-        # shutdown_all should have returned in ~0.1s (the join timeout),
-        # NOT 0.5s (the worker's sleep). Allow generous scheduling slack:
-        # CI runners (GitHub Actions ubuntu-latest) exhibit significant
-        # CPU jitter under concurrent load, a 0.4s wall-clock threshold
-        # flaked ~1% of runs. Bumped to 1.5s (15x the join timeout) which
-        # still catches the regression (a true hang would be >30s).
         assert elapsed < 1.5, f"shutdown_all took {elapsed:.2f}s, expected ~0.1s (the join timeout)"
         # The thread is still alive (it's sleeping). It will exit after
-        # 0.5s. Wait for it so we don't leak a thread.
         t.join(timeout=2.0)
         assert exit_event.is_set()
 
     def test_shutdown_all_logs_warning_for_unresponsive_thread(self, caplog):
-        """A thread with a stop_event that doesn't exit within timeout
-        is logged at WARNING level (potential deadlock / stuck I/O)."""
+        """A thread with a stop_event that doesn't exit within timeout"""
         reg = ThreadRegistry()
         stop = threading.Event()
         exit_event = threading.Event()
-        # never_exit=True: worker ignores the stop event.
         t = _make_worker(stop, on_exit=exit_event, never_exit=True)
         reg.register("stuck-worker", t, stop, join_timeout=0.1)
 
@@ -346,20 +259,10 @@ class TestShutdownAll:
         assert len(warnings) == 1, (
             f"Expected 1 warning for stuck-worker, got {len(warnings)}: {[r.message for r in caplog.records]}"
         )
-        # The thread is still alive (never_exit=True). It's a daemon, so
-        # it won't block process exit, but we need to clean it up for the
-        # test. Patch never_exit by setting a flag the worker doesn't
-        # check, the only way to stop it is to set stop_event AND wait
-        # for the worker's time.sleep(0.01) loop. Since never_exit=True
-        # makes the worker ignore stop_event, we just let it die as a
-        # daemon when the test process exits. (Joining would hang.)
-        # Verify it's still alive (confirms the warning is genuine).
         assert t.is_alive(), "stuck-worker should still be alive (never_exit=True)"
 
     def test_shutdown_all_logs_debug_for_no_stop_event_thread(self, caplog):
-        """A thread with stop_event=None that doesn't exit within
-        timeout is logged at DEBUG level (no signal was sent, so the
-        timeout is expected, the existing per-site cleanup handles it)."""
+        """A thread with stop_event=None that doesn't exit within"""
         reg = ThreadRegistry()
         exit_event = threading.Event()
         # Worker with no stop_event, it loops forever.
@@ -382,19 +285,12 @@ class TestShutdownAll:
             f"Expected 1 debug message for no-stop-event-worker, got: "
             f"{[r.message for r in caplog.records if r.levelno == logging.DEBUG]}"
         )
-        # Clean up: the worker is still alive (no stop_event). It's a
-        # daemon, so it won't block process exit. We can't join it.
-        # Verify it's still alive (confirms the debug message is genuine).
         assert t.is_alive(), "no-stop-event-worker should still be alive"
 
     def test_shutdown_all_skips_join_for_dead_threads(self, caplog):
-        """shutdown_all() doesn't block on already-dead threads.
-
+        """
+        shutdown_all() doesn't block on already-dead threads.
         PERF-23: the new bounded-join loop checks ``is_alive()`` before
-        each slice join, so a dead thread is never joined. The log
-        message is "exited cleanly after join" (the new common path
-        for both already-dead and successfully-joined threads) instead
-        of the old "already exited (no join needed)".
         """
         reg = ThreadRegistry()
         stop = threading.Event()
@@ -407,7 +303,6 @@ class TestShutdownAll:
         t.join(timeout=2.0)
         assert not t.is_alive()
 
-        # shutdown_all() should return immediately (no 5s join wait).
         start = time.monotonic()
         with caplog.at_level(logging.DEBUG, logger="voice_typer.server.thread_registry"):
             reg.shutdown_all()
@@ -415,7 +310,6 @@ class TestShutdownAll:
 
         assert elapsed < 0.5, f"shutdown_all took {elapsed:.2f}s on a dead thread, expected ~0s"
         # Should log that the thread exited cleanly (the new common
-        # path covers both already-dead and successfully-joined).
         debugs = [
             r
             for r in caplog.records
@@ -426,8 +320,7 @@ class TestShutdownAll:
         )
 
     def test_shutdown_all_continues_after_one_thread_times_out(self):
-        """If thread A times out, shutdown_all() still signals and
-        joins thread B (shutdown is never blocked by a single stuck thread)."""
+        """If thread A times out, shutdown_all() still signals and"""
         reg = ThreadRegistry()
         stop_a = threading.Event()
         stop_b = threading.Event()
@@ -445,8 +338,6 @@ class TestShutdownAll:
         reg.shutdown_all()
         elapsed = time.monotonic() - start
 
-        # shutdown_all should have returned in ~0.1s (A's timeout) + ~0s
-        # (B exits immediately). Allow some scheduling slack.
         assert elapsed < 1.0, f"shutdown_all took {elapsed:.2f}s, expected ~0.1s"
         # B should have exited; A should still be alive.
         assert not t_b.is_alive(), "responsive worker should have exited"
@@ -454,18 +345,9 @@ class TestShutdownAll:
         assert t_a.is_alive(), "stuck worker should still be alive"
 
 
-# ─── Thread safety ───────────────────────────────────────────────────────
-
-
 class TestThreadSafety:
     def test_concurrent_register_and_shutdown(self):
-        """Concurrent register() and shutdown_all() calls don't corrupt
-        the registry's internal state.
-
-        This is a smoke test, threading bugs often manifest as flaky
-        failures under load, so we run the concurrent ops a few times
-        to increase the chance of catching a regression.
-        """
+        """Concurrent register() and shutdown_all() calls don't corrupt"""
         for _ in range(5):
             reg = ThreadRegistry()
             errors: list[Exception] = []
@@ -476,12 +358,7 @@ class TestThreadSafety:
 
     @staticmethod
     def _run_concurrent_ops(reg: ThreadRegistry, errors: list[Exception]) -> None:
-        """Run concurrent register/unregister/shutdown ops on ``reg``.
-
-        Split out from ``test_concurrent_register_and_shutdown`` so the
-        closure functions bind ``reg`` and ``errors`` as parameters
-        (avoids ruff B023 false-positive about loop-variable binding).
-        """
+        """Run concurrent register/unregister/shutdown ops on ``reg``."""
 
         def register_loop(r: ThreadRegistry, errs: list[Exception]) -> None:
             try:
@@ -490,7 +367,6 @@ class TestThreadSafety:
                     t = _make_worker(stop)
                     r.register(f"worker-{i}", t, stop, join_timeout=0.05)
                     # Immediately unregister some so the registry
-                    # churns.
                     if i % 2 == 0:
                         r.unregister(f"worker-{i}")
                         stop.set()
@@ -516,14 +392,9 @@ class TestThreadSafety:
             t.join(timeout=10.0)
 
 
-# ─── ThreadRegistryEntry dataclass ───────────────────────────────────────
-
-
 class TestThreadRegistryEntry:
     def test_entry_is_frozen_like(self):
-        """ThreadRegistryEntry is a regular dataclass, fields are
-        accessible by name. We don't freeze it because shutdown_all()
-        doesn't mutate entries, but tests can construct one directly."""
+        """ThreadRegistryEntry is a regular dataclass, fields are"""
         stop = threading.Event()
         t = threading.Thread(target=lambda: None, daemon=True)
         entry = ThreadRegistryEntry(
@@ -538,8 +409,7 @@ class TestThreadRegistryEntry:
         assert entry.join_timeout == 1.5
 
     def test_entry_accepts_none_stop_event(self):
-        """ThreadRegistryEntry accepts stop_event=None for threads that
-        don't support graceful shutdown (e.g. one-shot preloaders)."""
+        """ThreadRegistryEntry accepts stop_event=None for threads that"""
         t = threading.Thread(target=lambda: None, daemon=True)
         entry = ThreadRegistryEntry(
             name="preloader",
@@ -550,12 +420,8 @@ class TestThreadRegistryEntry:
         assert entry.stop_event is None
 
 
-# register() auto-prune ────────────────────────────────────
-
-
 class TestRegisterAutoPrune:
-    """UE-11-F3: ``register()`` auto-prunes dead entries at the start
-    of every call."""
+    """UE-11-F3: ``register()`` auto-prunes dead entries at the start"""
 
     def test_register_prunes_dead_entries(self):
         """A dead entry is removed when the next ``register()`` is called."""
@@ -568,7 +434,6 @@ class TestRegisterAutoPrune:
             stop1.set()
             t1.join(timeout=2.0)
             assert not t1.is_alive()
-            # list_all still shows "old" (no register call yet).
             assert reg.list_all() == ["old"]
             # Now register a new thread, auto-prune should remove "old".
             stop2 = threading.Event()
@@ -659,16 +524,11 @@ class TestRegisterAutoPrune:
                 t.join(timeout=2.0)
 
 
-# shutdown_all() auto-prune ────────────────────────────────
-
-
 class TestShutdownAllAutoPrune:
-    """UE-11-F3: ``shutdown_all()`` prunes dead entries at the end of
-    the call (after Phase 3 logging)."""
+    """UE-11-F3: ``shutdown_all()`` prunes dead entries at the end of"""
 
     def test_shutdown_all_prunes_dead_entries_at_end(self):
-        """After ``shutdown_all()``, dead entries are removed from
-        ``self._entries``."""
+        """After ``shutdown_all()``, dead entries are removed from"""
         reg = ThreadRegistry()
         stop = threading.Event()
         t = _make_worker(stop)
@@ -683,8 +543,7 @@ class TestShutdownAllAutoPrune:
             t.join(timeout=2.0)
 
     def test_shutdown_all_keeps_alive_entries(self):
-        """Alive entries (stuck threads) stay in the registry after
-        ``shutdown_all()``."""
+        """Alive entries (stuck threads) stay in the registry after"""
         reg = ThreadRegistry()
         stop = threading.Event()
         t = _make_worker(stop, never_exit=True)
@@ -697,8 +556,7 @@ class TestShutdownAllAutoPrune:
             pass  # never_exit worker, let it die as daemon
 
     def test_shutdown_all_phase3_still_logs_exited_cleanly(self, caplog):
-        """Phase 3 logging uses the original snapshot, so a dead entry
-        still gets the 'exited cleanly' debug log."""
+        """Phase 3 logging uses the original snapshot, so a dead entry"""
         reg = ThreadRegistry()
         stop = threading.Event()
         t = _make_worker(stop)
@@ -719,8 +577,7 @@ class TestShutdownAllAutoPrune:
         )
 
     def test_shutdown_all_prunes_dead_entries_each_slice(self):
-        """UE-11-F3 sub-item 5: the join loop prunes dead entries at
-        the start of each slice so we don't keep re-walking them."""
+        """UE-11-F3 sub-item 5: the join loop prunes dead entries at"""
         reg = ThreadRegistry()
         for i in range(10):
             dead_t = threading.Thread(target=lambda: None, daemon=True)
@@ -743,8 +600,7 @@ class TestShutdownAllAutoPrune:
             alive_t.join(timeout=2.0)
 
     def test_shutdown_all_idempotent_after_prune(self):
-        """After the first ``shutdown_all()`` prunes dead entries, the
-        second call sees an empty registry and returns immediately."""
+        """After the first ``shutdown_all()`` prunes dead entries, the"""
         reg = ThreadRegistry()
         stop = threading.Event()
         t = _make_worker(stop)
@@ -756,12 +612,6 @@ class TestShutdownAllAutoPrune:
             start = time.monotonic()
             reg.shutdown_all()
             elapsed = time.monotonic() - start
-            # Idempotent shutdown on an empty registry should return in
-            # microseconds. Allow generous headroom: CI runners (GitHub
-            # Actions ubuntu-latest) exhibit CPU jitter under -n auto load
-            # , a 0.1s wall-clock threshold flaked occasionally. Bumped
-            # to 0.5s (5x) which still catches the regression (a real
-            # re-scan would take seconds, not sub-100ms).
             assert elapsed < 0.5, f"second shutdown_all on empty registry took {elapsed:.2f}s; expected <0.1s"
         finally:
             stop.set()
@@ -771,27 +621,9 @@ class TestShutdownAllAutoPrune:
 # Frozen-clock drain regression ────────────────────────
 
 
-# WR-10: these drain-budget proofs wait out the ~5s internal drain
-# budget twice (frozen-clock scenarios cannot be shortened without
-# weakening what they verify), mark slow, run via ``pytest --slow``.
 @pytest.mark.slow
 class TestFrozenClockDrain:
-    """The test-suite drain must stay bounded even if a leaked test patch
-    freezes the global ``time.monotonic`` clock.
-
-    ``tests/test_clipboard.py`` used to do a bare
-    ``mod.time.monotonic = MagicMock(return_value=100.3)``, since
-    ``clipboard.time`` is the GLOBAL ``time`` module, that permanently
-    froze ``time.monotonic()`` at a constant for the whole xdist worker.
-    Every later teardown drain computed its deadline with the frozen
-    clock, ``now >= deadline`` never became true, and ``shutdown_all``
-    spun in the join loop until pytest-timeout killed the worker
-    (``[gwN] node down: Not properly terminated``).
-
-    The drain now uses ``time.perf_counter()`` for the deadline AND caps
-    the join loop by iteration count, so a frozen/mocked clock can no
-    longer hang it. These tests pin that behaviour.
-    """
+    """The test-suite drain must stay bounded even if a leaked test patch"""
 
     def test_drain_bounded_with_frozen_monotonic(self):
         """A stuck thread + frozen ``time.monotonic`` must not hang the drain."""
@@ -815,9 +647,6 @@ class TestFrozenClockDrain:
             start = real_perf_counter()
             tr_module._drain_live_thread_registries()
             elapsed = real_perf_counter() - start
-            # Budget is 5s; allow generous headroom but far below the
-            # old infinite-spin behaviour (which ran until the per-test
-            # timeout killed the worker).
             assert elapsed < 30, (
                 f"drain with frozen time.monotonic took {elapsed:.1f}s; expected bounded by the drain budget"
             )
@@ -855,16 +684,11 @@ class TestFrozenClockDrain:
             time.perf_counter = real_perf_counter
 
 
-# register(join_previous_timeout=...) ─────────────────────
-
-
 class TestJoinPreviousTimeout:
-    """UE-11-F3: ``register()`` optionally signals + joins the previous
-    thread before overwriting."""
+    """UE-11-F3: ``register()`` optionally signals + joins the previous"""
 
     def test_join_previous_timeout_signals_and_joins_old(self):
-        """``join_previous_timeout=1.0`` sets the old thread's
-        stop_event and joins it before overwriting."""
+        """``join_previous_timeout=1.0`` sets the old thread's"""
         reg = ThreadRegistry()
         stop1 = threading.Event()
         t1 = _make_worker(stop1)
@@ -893,8 +717,7 @@ class TestJoinPreviousTimeout:
             t1.join(timeout=2.0)
 
     def test_join_previous_timeout_zero_preserves_old_behavior(self):
-        """``join_previous_timeout=0.0`` (default) does NOT join the
-        old thread, preserves the prior behavior."""
+        """``join_previous_timeout=0.0`` (default) does NOT join the"""
         reg = ThreadRegistry()
         stop1 = threading.Event()
         t1 = _make_worker(stop1)
@@ -917,14 +740,9 @@ class TestJoinPreviousTimeout:
             t1.join(timeout=2.0)
 
     def test_join_previous_timeout_no_stop_event_joins_without_signal(self):
-        """When the old entry has ``stop_event=None``, join_previous
-        joins without signaling."""
+        """When the old entry has ``stop_event=None``, join_previous"""
         reg = ThreadRegistry()
 
-        # The old thread's exit is gated by an event the test controls,
-        # so the "still alive" assertion below is deterministic (no race
-        # against a fixed-lifetime sleep). With ``stop_event=None`` the
-        # registry never signals it, it must die on its own.
         t1_exit = threading.Event()
 
         def _quick():
@@ -936,8 +754,6 @@ class TestJoinPreviousTimeout:
             reg.register("w", t1, stop_event=None, join_timeout=1.0)
             assert t1.is_alive()
 
-            # Let the old thread finish on its own (no signal), confirm
-            # its death, then hand the name over via join_previous.
             t1_exit.set()
             assert wait_until(lambda: not t1.is_alive()), "old thread did not exit after its gate was released"
 
@@ -960,9 +776,7 @@ class TestJoinPreviousTimeout:
             t1.join(timeout=2.0)
 
     def test_join_previous_timeout_overwrites_on_timeout(self, caplog):
-        """If the old thread doesn't exit within join_previous_timeout,
-        the entry is overwritten anyway (best-effort) and a warning is
-        logged."""
+        """the entry is overwritten anyway (best-effort) and a warning is"""
         reg = ThreadRegistry()
         stop1 = threading.Event()
         t1 = _make_worker(stop1, never_exit=True)
@@ -998,8 +812,7 @@ class TestJoinPreviousTimeout:
             stop1.set()
 
     def test_join_previous_timeout_same_thread_is_noop(self):
-        """``join_previous_timeout`` doesn't fire when re-registering
-        the SAME thread object."""
+        """``join_previous_timeout`` doesn't fire when re-registering"""
         reg = ThreadRegistry()
         stop = threading.Event()
         t = _make_worker(stop)
@@ -1019,12 +832,8 @@ class TestJoinPreviousTimeout:
             t.join(timeout=2.0)
 
 
-# spawn_and_register ──────────────────────────────────────
-
-
 class TestSpawnAndRegister:
-    """UE-11-F3: ``spawn_and_register`` creates, starts, and registers
-    a worker thread in one call."""
+    """UE-11-F3: ``spawn_and_register`` creates, starts, and registers"""
 
     def test_creates_starts_and_registers(self):
         """``spawn_and_register`` returns a started, registered thread."""
@@ -1049,8 +858,7 @@ class TestSpawnAndRegister:
             reg.shutdown_all()
 
     def test_returns_the_registered_thread(self):
-        """The returned thread is the same object as the one in the
-        registry."""
+        """The returned thread is the same object as the one in the"""
         reg = ThreadRegistry()
         stop = threading.Event()
         try:
@@ -1125,7 +933,6 @@ class TestSpawnAndRegister:
                 join_timeout=2.0,
             )
             # Wait until the spawned worker has actually run and recorded
-            # its forwarded args/kwargs.
             assert wait_until(lambda: bool(received)), f"worker never ran; received={received}"
             assert received.get("kwargs") == {"label": "test"}, f"kwargs not forwarded; got {received}"
             assert received.get("args") == (stop,), f"args not forwarded; got {received}"
@@ -1134,8 +941,7 @@ class TestSpawnAndRegister:
             reg.shutdown_all()
 
     def test_shutdown_all_joins_spawned_worker(self):
-        """A worker spawned via ``spawn_and_register`` is joined by
-        ``shutdown_all()``."""
+        """A worker spawned via ``spawn_and_register`` is joined by"""
         reg = ThreadRegistry()
         stop = threading.Event()
         t = reg.spawn_and_register(
@@ -1149,8 +955,7 @@ class TestSpawnAndRegister:
         assert not t.is_alive(), "shutdown_all should have joined the spawned worker"
 
     def test_spawn_and_register_join_previous(self):
-        """``spawn_and_register`` forwards ``join_previous_timeout`` to
-        ``register()``."""
+        """``spawn_and_register`` forwards ``join_previous_timeout`` to"""
         reg = ThreadRegistry()
         stop1 = threading.Event()
         t1 = reg.spawn_and_register(
@@ -1183,15 +988,11 @@ class TestSpawnAndRegister:
             t1.join(timeout=2.0)
 
     def test_spawn_and_register_no_stop_event(self):
-        """``spawn_and_register`` accepts ``stop_event=None`` for
-        fire-and-forget workers."""
+        """``spawn_and_register`` accepts ``stop_event=None`` for"""
         reg = ThreadRegistry()
         done = threading.Event()
 
         def _quick():
-            # Fire-and-forget worker: signals completion immediately (the
-            # ``done`` Event below provides all synchronization, no
-            # simulated-work sleep needed).
             done.set()
 
         try:
@@ -1207,9 +1008,6 @@ class TestSpawnAndRegister:
             reg.shutdown_all()
         finally:
             pass
-
-
-# ─── Helpers for the new test classes ───────────────────────────────────
 
 
 def _worker_target(stop_event: threading.Event) -> None:

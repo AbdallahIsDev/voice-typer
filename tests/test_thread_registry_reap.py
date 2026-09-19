@@ -1,22 +1,4 @@
-"""AB-45 regression: ``ThreadRegistry`` reaps dead entries on every
-``register()`` call (and exposes a public ``reap_dead()`` method).
-
-Pre-AB-45, ``ThreadRegistry._entries`` held strong references to dead
-``Thread`` objects indefinitely.  A dead ``Thread`` holds strong refs
-to its target callable + args + kwargs (the closure), which can
-transitively keep large objects alive (audio buffers, model state, IPC
-sockets).  Under repeated start/stop of threads that don't explicitly
-call ``unregister()``, entries accumulated.
-
-Post-AB-45:
-- ``reap_dead()`` iterates ``_entries`` and removes entries whose
-  ``entry.thread.is_alive()`` is ``False``.
-- ``register()`` calls ``reap_dead()`` at the start (cheap O(n) over
-  the small dict).
-- Re-registering a name whose existing entry has a dead thread is
-  SILENT (no warning), the dead entry was reaped, so the
-  existing-entry check doesn't fire.
-"""
+"""AB-45 regression: ``ThreadRegistry`` reaps dead entries on every"""
 
 from __future__ import annotations
 
@@ -31,9 +13,7 @@ from voice_typer.server.thread_registry import (
 
 
 def _make_short_lived_thread(exit_gate: threading.Event) -> threading.Thread:
-    """Return a started daemon thread that stays alive until ``exit_gate``
-    is set (bounded by a 2s cap), so tests control the exact moment of
-    thread death instead of racing a fixed-lifetime sleep."""
+    """Return a started daemon thread that stays alive until ``exit_gate``"""
 
     def _run() -> None:
         exit_gate.wait(timeout=2.0)
@@ -47,9 +27,6 @@ def _wait_for_exit(t: threading.Thread, timeout: float = 2.0) -> None:
     """Wait for thread ``t`` to exit (no signaling, just join)."""
     t.join(timeout=timeout)
     assert not t.is_alive(), f"thread {t.name!r} did not exit within {timeout}s"
-
-
-# ─── reap_dead ─────────────────────────────────────────────────────────
 
 
 class TestReapDead:
@@ -73,12 +50,10 @@ class TestReapDead:
             reg.register("short-lived", live_t, stop_event=None, join_timeout=1.0)
             reg.register("alive", alive_t, stop_event=None, join_timeout=1.0)
             # Both entries are present while both threads are alive
-            # (reap_dead hasn't been called).
             assert set(reg.list_all()) == {"short-lived", "alive"}
             # Now let the short-lived thread exit and confirm its death.
             live_gate.set()
             _wait_for_exit(live_t)
-            # list_active excludes the dead thread.
             assert reg.list_active() == ["alive"]
 
             removed = reg.reap_dead()
@@ -129,24 +104,17 @@ class TestReapDead:
         assert reg.list_all() == []
 
 
-# ─── register() calls reap_dead() ─────────────────────────────────────
-
-
 class TestRegisterCallsReapDead:
-    """``register()`` calls ``reap_dead()`` at the start so dead entries
-    don't accumulate under repeated start/stop."""
+    """``register()`` calls ``reap_dead()`` at the start so dead entries"""
 
     def test_register_reaps_dead_entries(self):
-        """A subsequent ``register()`` call reaps dead entries from
-        prior registrations."""
+        """A subsequent ``register()`` call reaps dead entries from"""
         reg = ThreadRegistry()
         t1_gate = threading.Event()
         t1 = _make_short_lived_thread(t1_gate)
         reg.register("worker", t1, stop_event=None, join_timeout=1.0)
         # The entry is present while its thread is alive.
         assert reg.list_all() == ["worker"]
-        # Let the thread exit and confirm the dead entry is still in the
-        # registry (reap only happens on the next register).
         t1_gate.set()
         _wait_for_exit(t1)
         assert reg.list_active() == []
@@ -168,9 +136,7 @@ class TestRegisterCallsReapDead:
             t2.join(timeout=2.0)
 
     def test_register_same_name_dead_thread_silent(self, caplog):
-        """Re-registering a name whose existing thread is dead is SILENT
-        (no warning), the dead entry was reaped, so the
-        existing-entry check doesn't fire."""
+        """Re-registering a name whose existing thread is dead is SILENT"""
         reg = ThreadRegistry()
         t1_gate = threading.Event()
         t1 = _make_short_lived_thread(t1_gate)
@@ -180,10 +146,6 @@ class TestRegisterCallsReapDead:
         _wait_for_exit(t1)
         assert not t1.is_alive()
 
-        # Re-register "worker" with a NEW thread.  The old thread is
-        # dead, so the reap at the start of register() removes the
-        # dead entry; the existing-entry check should NOT fire a
-        # warning.
         stop = threading.Event()
 
         def _run():
@@ -204,9 +166,7 @@ class TestRegisterCallsReapDead:
             t2.join(timeout=2.0)
 
     def test_register_same_name_live_thread_warns(self, caplog):
-        """Re-registering a name whose existing thread is STILL ALIVE
-          with a different thread object logs a warning (potential leak
-        , caller should have stopped the old thread)."""
+        """Re-registering a name whose existing thread is STILL ALIVE"""
         reg = ThreadRegistry()
         stop1 = threading.Event()
         stop2 = threading.Event()
@@ -234,15 +194,11 @@ class TestRegisterCallsReapDead:
             t2.join(timeout=2.0)
 
 
-# ─── thread safety ────────────────────────────────────────────────────
-
-
 class TestReapDeadThreadSafety:
     """``reap_dead()`` is safe to call concurrently with ``register()``."""
 
     def test_concurrent_reap_and_register(self):
-        """Concurrent ``reap_dead()`` and ``register()`` don't corrupt
-        the registry's internal state."""
+        """Concurrent ``reap_dead()`` and ``register()`` don't corrupt"""
         reg = ThreadRegistry()
         errors: list[Exception] = []
 
@@ -254,8 +210,6 @@ class TestReapDeadThreadSafety:
                     t = _make_short_lived_thread(exit_gate)
                     reg.register(f"worker-{i}", t, stop_event=stop, join_timeout=0.05)
                     # Release the gate so the thread dies on its own
-                    # (the registry never stops it), reap_dead() then
-                    # has dead entries to reap concurrently.
                     exit_gate.set()
             except Exception as e:
                 errors.append(e)

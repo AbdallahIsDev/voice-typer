@@ -1,24 +1,4 @@
-"""CR-069: split from tests/test_feature_hardening_regressions.py (L1222-1375).
-
-Source marker: ``tests/test_new_ux_029_offline_mode.py``.
-
-NEW-UX-029: Offline-mode tests.
-
-The finding: the app is "offline-first by design" but no test verifies
-the offline contract: when the network is down, local ASR + cached
-models must still function, and cloud/LLM features must fail gracefully
-with user-visible messages (not crashes).
-
-This module simulates total network outage by monkeypatching
-``urllib.request.urlopen`` to raise ``ConnectionError`` and verifies:
-1. Cloud engines fail gracefully with a clear error message.
-2. LLM polish fails gracefully.
-3. Local ASR (mocked) still works, the app doesn't crash.
-4. The ``_read_capped`` function handles network errors without OOM.
-
-Class/method names, assertion logic, and imports below are preserved
-verbatim from the original monolith, only file location has changed.
-"""
+"""Source marker: ``tests/test_new_ux_029_offline_mode.py``."""
 
 # === Source: tests/test_new_ux_029_offline_mode.py ===
 
@@ -34,9 +14,7 @@ class TestCloudEngineFailsGracefullyOnNetworkError:
     """NEW-UX-029: Verify graceful degradation when the network is down."""
 
     def test_cloud_engine_transcribe_fails_gracefully_on_network_error(self):
-        """When ``urlopen`` raises ConnectionError, cloud transcription
-        must raise a user-friendly error, not crash with a stack trace.
-        """
+        """When ``urlopen`` raises ConnectionError, cloud transcription"""
         from urllib.error import URLError
 
         from voice_typer.server.cloud_engines import CloudEngine
@@ -60,9 +38,7 @@ class TestCloudEngineFailsGracefullyOnNetworkError:
         assert exc_info.value is not None
 
     def test_llm_polish_fails_gracefully_on_network_error(self):
-        """When ``urlopen`` raises ConnectionError, LLM polish must
-        return the original text unchanged (not crash).
-        """
+        """When ``urlopen`` raises ConnectionError, LLM polish must"""
         from urllib.error import URLError
 
         from voice_typer.server.llm_polish import LLMPolisher
@@ -87,9 +63,7 @@ class TestCloudEngineFailsGracefullyOnNetworkError:
         )
 
     def test_read_capped_handles_network_error_without_oom(self):
-        """SEC-030: ``_read_capped`` must handle a network error mid-stream
-        without OOM, the error should propagate, not hang or accumulate.
-        """
+        """SEC-030: ``_read_capped`` must handle a network error mid-stream"""
         from urllib.error import URLError
 
         from voice_typer.server.cloud_engines import _read_capped
@@ -102,10 +76,7 @@ class TestCloudEngineFailsGracefullyOnNetworkError:
             _read_capped(FakeResp(), max_bytes=1024)
 
     def test_offline_mode_local_asr_still_works(self):
-        """When the network is down, local ASR (mocked) must still work —
-        the app must not crash or hang. This verifies the offline-first
-        contract: local models don't depend on network access.
-        """
+        """When the network is down, local ASR (mocked) must still work —"""
         import numpy as np
         from voice_typer.server.transcription import TranscriptionEngine
 
@@ -122,16 +93,9 @@ class TestCloudEngineFailsGracefullyOnNetworkError:
         eng.language = "en"
         eng._device = "cpu"
         eng._compute_type = "int8"
-        # ``_transcribe_unlocked`` reads the ``log_transcriptions`` flag
-        # off ``self.config`` (hoisted out of the segment loop); the
-        # offline-mode contract is that a local engine works with no
-        # network, so give it a config that keeps logging off.
         eng.config = MagicMock()
         eng.config.log_transcriptions = False
         # ``_transcribe_unlocked`` also touches the abort + inference
-        # bookkeeping attrs (abort check per segment; active-inference
-        # counter is managed by the lock wrapper, but the unlocked body
-        # reads ``_abort_event`` directly).
         eng._abort_event = threading.Event()
         eng._active_inference = 0
         eng._inference_cond = threading.Condition()
@@ -148,9 +112,7 @@ class TestCloudEngineFailsGracefullyOnNetworkError:
             assert "hello from local engine" in result, "NEW-UX-029: local ASR must work when the network is down"
 
     def test_offline_mode_cloud_engine_error_message_is_user_friendly(self):
-        """The error message from a cloud engine on network failure must
-        be user-friendly (not a raw socket/SSL stack trace).
-        """
+        """The error message from a cloud engine on network failure must"""
         from urllib.error import URLError
 
         import numpy as np
@@ -171,7 +133,6 @@ class TestCloudEngineFailsGracefullyOnNetworkError:
             except Exception as e:
                 msg = str(e).lower()
                 # The error message should mention "network" or "connection"
-                # or "url", not be a raw SSL/socket error with hex addresses
                 assert any(word in msg for word in ("network", "connection", "url", "reach", "timeout", "error")), (
                     f"NEW-UX-029: cloud engine error message is not user-friendly: {e!r}"
                 )

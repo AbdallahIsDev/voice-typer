@@ -1,52 +1,4 @@
-"""Tests for the UE-10 / UE-47 / UE-10-F4 / UE-10-F6 fixes in
-``dictation_pipeline.py`` and ``dictation_stages.py``.
-
-Covers:
-
-* **UE-10 / UE-9-F2 (High, FT-5 family)**, the pipeline ``run()``
-  finally block and ``_transcribe`` used the racy
-  ``get_streaming_session()`` + ``set_streaming_session(None)`` pair
-  (the exact TOCTOU that ``pop_streaming_session()`` was introduced to
-  eliminate). Between the get and the set, a concurrent
-  ``_start_streaming_session_if_enabled`` could install a NEW session
-  that the subsequent ``set_streaming_session(None)`` would clobber —
-  silently killing an active streaming worker thread. After rapid
-  stop→start (user double-tap hotkey, or auto-stop Timer immediately
-  followed by hotkey), the new recording's streaming session was
-  killed silently and streaming transcriptions stopped appearing until
-  the next restart. Both call sites now use ``pop_streaming_session()``
-  (atomic own-and-clear under a single lock acquisition).
-
-* **UE-10-F6 (Medium)**: ``_transcribe`` made two
-  ``active_transcriber()`` calls (one before the transcribe, one after
-  to refresh ``device_info``). The second call was both redundant (the
-  backend rarely changes mid-cycle) and racy (a concurrent
-  ``set_active_backend`` could swap the backend between the two calls,
-  so ``device_info`` reported the wrong device for the result just
-  produced). The fix captures ``active`` ONCE at the top and reuses
-  the local for both the transcribe call and ``device_info``.
-
-* **UE-47 (Medium, observability)**, empty ASR output treated as
-  "no speech" masks misconfiguration / unloaded-backend. The fix
-  captures ``active.is_loaded`` BEFORE the transcribe call; if the
-  engine returns empty AND ``is_loaded`` is False, raises a distinct
-  ``BackendNotLoadedError`` (subclass of ``RuntimeError``) so the
-  run()'s generic ``except Exception`` block surfaces a friendly
-  "model not loaded" message instead of falling through to
-  ``_handle_empty_transcription`` (which would show the ambiguous
-  "No speech detected" toast).
-
-* **UE-10-F4 (Medium, observability)** —
-  ``_handle_empty_transcription`` silently suppressed ALL user
-  feedback for short (<15s) near-silent recordings. The fix publishes
-  a ``dictation_suppressed`` event with ``{duration, recorded_rms,
-  reason: "short_silence"}`` via ``event_bus.publish`` so the renderer
-  can show a subtle inline bubble. The suppression threshold is NOT
-  lowered (that's a separate UX decision).
-
-See ``review.md`` entries UE-10, UE-47, UE-10-F4, UE-10-F6 for the
-full root-cause / user-impact analysis.
-"""
+"""``dictation_pipeline.py`` and ``dictation_stages.py``."""
 
 from __future__ import annotations
 
@@ -64,25 +16,14 @@ from voice_typer.server.dictation_pipeline import (
 )
 from voice_typer.server.tray_types import AppState
 
-# ─── Test helpers ───────────────────────────────────────────────────────
-
 
 class _TestApp:
-    """Minimal non-magic test app for DictationPipeline tests.
-
-    Mirrors the pattern in ``tests/app/test_notify_once_flags.py``
-    and ``test_dictation_pipeline_lock_fixes.py``: a custom
-    class (instead of ``MagicMock``) so the four notify-once flag
-    attributes correctly default to ``False`` via
-    ``getattr(..., False)``, MagicMock would auto-create truthy
-    children for any attribute access.
-    """
+    """Minimal non-magic test app for DictationPipeline tests."""
 
     def __init__(self) -> None:
         self.tray = MagicMock()
         self.tray.notify = MagicMock()
         self.config = MagicMock()
-        # bubble_behavior is read in _handle_empty_transcription
         self.config.bubble_behavior = "show_on_record"
         self.config.crash_recovery_enabled = False
         self.config.templates_enabled = True
@@ -104,8 +45,6 @@ class _TestApp:
         self.models = MagicMock()
         self.recording = MagicMock()
         # ``recorder`` is read by the finally block in run(), make
-        # it a MagicMock with ``recording = False`` so the session
-        # cleanup branch is exercised by default.
         self.recorder = MagicMock()
         self.recorder.recording = False
         self._busy_event = MagicMock()
@@ -116,8 +55,6 @@ class _TestApp:
         self._lock.__exit__ = MagicMock(return_value=False)
 
     # Auto-mock unknown attributes (like MagicMock) but DO NOT
-    # auto-create the notify-once flag names, they must default to
-    # False via getattr-with-default.
     def __getattr__(self, name: str) -> MagicMock:
         if name in {
             "_vocab_fail_notified",
@@ -134,13 +71,7 @@ class _TestApp:
 
 
 def _new_pipeline(app: _TestApp) -> DictationPipeline:
-    """Build a fresh DictationPipeline tied to ``app``.
-
-    Mirrors how ``RecordingController._stop_impl`` constructs a new
-    pipeline per transcription cycle. Uses ``__new__`` to bypass
-    ``__init__`` (which expects a real VoiceTyperApp) and manually
-    sets the attributes the pipeline methods read.
-    """
+    """Build a fresh DictationPipeline tied to ``app``."""
     pipeline = DictationPipeline.__new__(DictationPipeline)
     pipeline._app = app
     pipeline._duration = 1.0
@@ -150,43 +81,20 @@ def _new_pipeline(app: _TestApp) -> DictationPipeline:
     pipeline._recorded_rms = 0.0
     pipeline._device_info = ""
     # ``_check_resources_throttled`` reads these, they're normally
-    # set by ``__init__``. Initialize them so ``run()`` doesn't crash
-    # on the resource-check fast-path.
     pipeline._last_resources_check_ts = 0.0
     pipeline._resources_check_interval = 60.0
     pipeline._templates_applied = False
     return pipeline
 
 
-# atomic pop_streaming_session in run() finally ─────
-
-
 class TestFinallyBlockUsesAtomicPop:
-    """UE-10: ``DictationPipeline.run``'s finally block must call
-    ``pop_streaming_session()`` (atomic get-and-clear) instead of the
-    racy ``get_streaming_session()`` + ``set_streaming_session(None)``
-    pair.
-
-    Pre-fix, between the get (lock #1) and the set (lock #2), a
-    concurrent ``_start_streaming_session_if_enabled`` could install a
-    NEW session that the subsequent ``set_streaming_session(None)``
-    would clobber, silently killing an active streaming worker thread
-    (FT-5 family race: finish dictation → nothing transcribed on the
-    next cycle).
-    """
+    """UE-10: ``DictationPipeline.run``'s finally block must call"""
 
     def test_finally_calls_pop_streaming_session_not_get_plus_set(self):
-        """The finally block must call ``pop_streaming_session()`` and
-        must NOT call ``get_streaming_session()`` or
-        ``set_streaming_session(None)``.
-        """
+        """``set_streaming_session(None)``."""
         app = _TestApp()
-        # Pre-populate so the pop returns a real session object (so
-        # we exercise the cancel path too).
         fake_session = MagicMock()
         app.recording.pop_streaming_session.return_value = fake_session
-        # ``recorder.recording`` is False by default in _TestApp, so
-        # the cancel branch fires.
         pipeline = _new_pipeline(app)
         app.recording._cancelled_cycle_ids = set()
         app.recording._cancelled_cycle_ids_lock = threading.Lock()
@@ -195,8 +103,6 @@ class TestFinallyBlockUsesAtomicPop:
         app.recording._watchdog_lock = threading.Lock()
         app.recording._transcription_thread = MagicMock(name="old-thread")
 
-        # Force the pipeline body to fail early so we land in the
-        # finally block quickly.
         app.models.active_transcriber.side_effect = RuntimeError("boom")
         with contextlib.suppress(Exception):
             pipeline.run(
@@ -206,15 +112,10 @@ class TestFinallyBlockUsesAtomicPop:
                 cycle_id="test-cycle",
             )
 
-        # pop_streaming_session must be called from the finally
-        # block (atomic own-and-clear).
         assert app.recording.pop_streaming_session.called, (
             "UE-10: run() finally block must call pop_streaming_session() "
             "(atomic) to own-and-clear the streaming session slot."
         )
-        # get_streaming_session and set_streaming_session must
-        # NOT be called, they form the racy get+set pair that the
-        # pop replaces.
         assert not app.recording.get_streaming_session.called, (
             "UE-10: run() finally block must NOT call get_streaming_session() "
             "(replaced by atomic pop_streaming_session)."
@@ -226,15 +127,10 @@ class TestFinallyBlockUsesAtomicPop:
         )
 
     def test_finally_cancels_popped_session_when_not_recording(self):
-        """When ``pop_streaming_session()`` returns a non-None session
-        AND the recorder is NOT recording, the finally block must call
-        ``session.cancel()`` so the background streaming worker thread
-        exits cleanly instead of leaking.
-        """
+        """When ``pop_streaming_session()`` returns a non-None session"""
         app = _TestApp()
         fake_session = MagicMock()
         app.recording.pop_streaming_session.return_value = fake_session
-        # recorder.recording is False by default in _TestApp.
         pipeline = _new_pipeline(app)
         app.recording._cancelled_cycle_ids = set()
         app.recording._cancelled_cycle_ids_lock = threading.Lock()
@@ -262,18 +158,11 @@ class TestFinallyBlockUsesAtomicPop:
         )
 
     def test_finally_does_not_cancel_when_recorder_is_recording(self):
-        """When the recorder IS recording (a new dictation has started
-        concurrently), the popped session's worker thread will exit on
-        its own when it sees no more audio chunks. The finally block
-        must NOT call ``session.cancel()``, the new recording owns
-        the streaming flow.
-        """
+        """When the recorder IS recording (a new dictation has started"""
         app = _TestApp()
         fake_session = MagicMock()
         app.recording.pop_streaming_session.return_value = fake_session
         # A new recording is in progress, the popped session belongs
-        # to the cycle that just ended, but cancelling it would
-        # interfere with the new recording's streaming.
         app.recorder.recording = True
         pipeline = _new_pipeline(app)
         app.recording._cancelled_cycle_ids = set()
@@ -302,17 +191,10 @@ class TestFinallyBlockUsesAtomicPop:
         )
 
     def test_finally_pop_is_atomic_single_lock_acquisition(self):
-        """UE-10 / ARCH-018: ``pop_streaming_session`` must acquire
-        the streaming-session lock exactly ONCE (atomic get-and-clear).
-        This is a source-text guard against regressing back to the
-        get+set pair (which acquires the lock twice and has a TOCTOU
-        window between them).
-        """
+        """UE-10 / ARCH-018: ``pop_streaming_session`` must acquire"""
         from voice_typer.server.recording_controller import RecordingController
 
         src = inspect.getsource(RecordingController.pop_streaming_session)
-        # The atomic pop must acquire the lock exactly once, the
-        # get+set pair acquires it twice (once for get, once for set).
         assert src.count("with self._streaming_session_lock") == 1, (
             "ARCH-018 / UE-10: pop_streaming_session must acquire the "
             "streaming-session lock exactly once (atomic get-and-clear). "
@@ -321,12 +203,7 @@ class TestFinallyBlockUsesAtomicPop:
         )
 
     def test_finally_does_not_write_back_to_slot(self):
-        """UE-10: the finally block must never call
-        ``set_streaming_session``, the popped session is owned by us,
-        and writing back to the slot would clobber a NEW session
-        installed concurrently by
-        ``_start_streaming_session_if_enabled``.
-        """
+        """UE-10: the finally block must never call"""
         app = _TestApp()
         app.recording.pop_streaming_session.return_value = MagicMock()
         pipeline = _new_pipeline(app)
@@ -353,23 +230,11 @@ class TestFinallyBlockUsesAtomicPop:
         )
 
 
-# sibling: atomic pop in _transcribe before finalize ───────────
-
-
 class TestTranscribeUsesAtomicPopBeforeFinalize:
-    """UE-10 sibling: ``_transcribe`` must pop the streaming session
-    BEFORE calling ``session.finalize()``, not after. Pre-fix, the
-    ``set_streaming_session(None)`` ran AFTER finalize, an exception
-    in finalize() leaked the stale session reference into the next
-    dictation cycle's _transcribe, which would re-call finalize() on
-    the already-torn-down session and crash.
-    """
+    """UE-10 sibling: ``_transcribe`` must pop the streaming session"""
 
     def test_transcribe_pops_session_before_finalize(self):
-        """``pop_streaming_session()`` must be called BEFORE
-        ``session.finalize()``, so the slot is cleared even if
-        finalize raises.
-        """
+        """``pop_streaming_session()`` must be called BEFORE"""
         app = _TestApp()
         fake_session = MagicMock()
         fake_session.finalize.return_value = "hello"
@@ -381,7 +246,6 @@ class TestTranscribeUsesAtomicPopBeforeFinalize:
         pipeline = _new_pipeline(app)
         pipeline._transcribe()
 
-        # pop_streaming_session must be called ( sibling).
         app.recording.pop_streaming_session.assert_called_once_with()
         # And the slot is NEVER written back (no set_streaming_session).
         assert not app.recording.set_streaming_session.called, (
@@ -392,12 +256,7 @@ class TestTranscribeUsesAtomicPopBeforeFinalize:
         )
 
     def test_transcribe_pop_clears_slot_even_if_finalize_raises(self):
-        """If ``session.finalize()`` raises, the slot must already be
-        clear (the pop ran before finalize). Pre-fix, the
-        ``set_streaming_session(None)`` ran AFTER finalize, an
-        exception in finalize() leaked the stale session reference
-        into the next dictation cycle.
-        """
+        """If ``session.finalize()`` raises, the slot must already be"""
         app = _TestApp()
         fake_session = MagicMock()
         fake_session.finalize.side_effect = RuntimeError("finalize boom")
@@ -412,10 +271,8 @@ class TestTranscribeUsesAtomicPopBeforeFinalize:
             pipeline._transcribe()
 
         # The pop must have been called (clearing the slot) BEFORE
-        # finalize raised.
         app.recording.pop_streaming_session.assert_called_once_with()
         # And the slot was NEVER written back to None, the pop is
-        # the single source of truth for clearing.
         assert not app.recording.set_streaming_session.called, (
             "UE-10 sibling: _transcribe must clear the streaming-session "
             "slot via pop_streaming_session BEFORE finalize. If finalize "
@@ -423,10 +280,7 @@ class TestTranscribeUsesAtomicPopBeforeFinalize:
         )
 
     def test_transcribe_does_not_call_get_streaming_session(self):
-        """UE-10 sibling: ``_transcribe`` must NOT call
-        ``get_streaming_session()``, replaced by atomic
-        ``pop_streaming_session()``.
-        """
+        """UE-10 sibling: ``_transcribe`` must NOT call"""
         app = _TestApp()
         app.recording.pop_streaming_session.return_value = None
         active = MagicMock()
@@ -443,24 +297,11 @@ class TestTranscribeUsesAtomicPopBeforeFinalize:
         )
 
 
-# capture active_transcriber once, reuse for device_info ───
-
-
 class TestCaptureActiveOnce:
-    """UE-10-F6: ``_transcribe`` must capture ``active`` ONCE at the
-    top and reuse the local for both the transcribe call and
-    ``device_info``. Pre-fix, a second ``active_transcriber()`` call
-    after the transcribe was both redundant (the backend rarely
-    changes mid-cycle) and racy (a concurrent ``set_active_backend``
-    could swap the backend between the two calls, so ``device_info``
-    reported the wrong device for the result just produced).
-    """
+    """``device_info``. Pre-fix, a second ``active_transcriber()`` call"""
 
     def test_active_transcriber_called_exactly_once(self):
-        """``active_transcriber()`` must be called exactly ONCE —
-        pre-fix, two calls were made (one before transcribe, one
-        after for device_info).
-        """
+        """``active_transcriber()`` must be called exactly ONCE —"""
         app = _TestApp()
         app.recording.pop_streaming_session.return_value = None
         active = MagicMock()
@@ -479,10 +320,7 @@ class TestCaptureActiveOnce:
         )
 
     def test_device_info_uses_captured_active(self):
-        """``device_info`` must come from the SAME ``active`` local
-        that was used for the transcribe call, not a fresh
-        ``active_transcriber()`` call after the transcribe.
-        """
+        """``device_info`` must come from the SAME ``active`` local"""
         app = _TestApp()
         app.recording.pop_streaming_session.return_value = None
         active = MagicMock()
@@ -500,27 +338,12 @@ class TestCaptureActiveOnce:
         )
 
     def test_device_info_falls_back_to_parakeet_when_active_is_none(self):
-        """When ``active_transcriber()`` returns None (backend was
-        unloaded mid-cycle by a concurrent ``set_active_backend`` /
-        ``change_model``), ``device_info`` must fall back to the
-        literal ``"Parakeet ASR"`` string, matching the pre-fix
-        behavior for the ``active is None`` edge case.
-        """
+        """When ``active_transcriber()`` returns None (backend was"""
         app = _TestApp()
         app.recording.pop_streaming_session.return_value = None
-        # active_transcriber returns None, backend was unloaded.
         app.models.active_transcriber.return_value = None
 
         pipeline = _new_pipeline(app)
-        # active is None, the batch path can't call
-        # active.transcribe_with_fallback (NoneType has no such method).
-        # The pipeline must surface this as an AttributeError that
-        # propagates to run()'s except Exception block. We only care
-        # that device_info was set to the fallback BEFORE the
-        # AttributeError fires... actually no, the AttributeError
-        # fires inside the batch path BEFORE device_info is set.
-        # So we need to test the fallback via the streaming path:
-        # session is non-None, finalize returns text, active is None.
         fake_session = MagicMock()
         fake_session.finalize.return_value = "hello"
         app.recording.pop_streaming_session.return_value = fake_session
@@ -532,14 +355,9 @@ class TestCaptureActiveOnce:
         )
 
     def test_device_info_falls_back_when_active_lacks_device_info_attr(self):
-        """When ``active`` is non-None but lacks the ``device_info``
-          attribute, ``_device_info`` must fall back to ``"Parakeet ASR"``
-        , matching the pre-fix behavior.
-        """
+        """When ``active`` is non-None but lacks the ``device_info``"""
         app = _TestApp()
         app.recording.pop_streaming_session.return_value = None
-        # Use a bare object (no device_info attr) wrapped in a
-        # MagicMock that explicitly removes the attribute.
         active = MagicMock()
         active.transcribe_with_fallback.return_value = "hello"
         del active.device_info
@@ -557,11 +375,7 @@ class TestCaptureActiveOnce:
 
 
 class TestBackendNotLoadedErrorHierarchy:
-    """UE-47: ``BackendNotLoadedError`` must be a subclass of
-    ``RuntimeError`` so existing ``except RuntimeError`` /
-    ``except Exception`` clauses still catch it (mirrors the
-    ``ConsentRequiredError`` pattern in ``asr_errors.py``).
-    """
+    """``RuntimeError`` so existing ``except RuntimeError`` /"""
 
     def test_is_subclass_of_runtime_error(self):
         assert issubclass(BackendNotLoadedError, RuntimeError), (
@@ -574,10 +388,7 @@ class TestBackendNotLoadedErrorHierarchy:
         assert issubclass(BackendNotLoadedError, Exception)
 
     def test_engine_name_kwarg_captured(self):
-        """The optional ``engine_name`` kwarg captures the backend
-        type for telemetry / IPC isinstance narrowing, mirrors the
-        pattern used by ``ConsentRequiredError``.
-        """
+        """The optional ``engine_name`` kwarg captures the backend"""
         exc = BackendNotLoadedError("msg", engine_name="ParakeetEngine")
         assert exc.engine_name == "ParakeetEngine"
         assert str(exc) == "msg"
@@ -588,15 +399,7 @@ class TestBackendNotLoadedErrorHierarchy:
 
 
 class TestTranscribeRaisesWhenBackendNotLoaded:
-    """UE-47: when the active ASR backend is not loaded AND the engine
-    returns empty output, ``_transcribe`` must raise
-    ``BackendNotLoadedError`` instead of returning the empty string.
-    The raise bypasses ``EmptyCheckStage`` (the exception propagates
-    out of ``TranscribeStage``) so the run()'s generic ``except
-    Exception`` block surfaces a friendly "model not loaded" message
-    instead of falling through to ``_handle_empty_transcription``
-    (which would show the ambiguous "No speech detected" toast).
-    """
+    """UE-47: when the active ASR backend is not loaded AND the engine"""
 
     def test_raises_when_is_loaded_false_and_text_empty(self):
         app = _TestApp()
@@ -611,19 +414,13 @@ class TestTranscribeRaisesWhenBackendNotLoaded:
         with pytest.raises(BackendNotLoadedError) as exc_info:
             pipeline._transcribe()
 
-        # engine_name kwarg captures the backend type.
         assert exc_info.value.engine_name == type(active).__name__, (
             "UE-47: BackendNotLoadedError.engine_name must capture the "
             "backend type (type(active).__name__) for telemetry."
         )
 
     def test_does_not_raise_when_is_loaded_true_and_text_empty(self):
-        """When the backend IS loaded but the engine still returns
-        empty (genuine silence or a cloud 200-with-empty-body), the
-        empty string must propagate unchanged so ``EmptyCheckStage``
-        can run ``_handle_empty_transcription`` (the "No speech
-        detected" toast, the correct UX for this case).
-        """
+        """When the backend IS loaded but the engine still returns"""
         app = _TestApp()
         app.recording.pop_streaming_session.return_value = None
         active = MagicMock()
@@ -633,8 +430,6 @@ class TestTranscribeRaisesWhenBackendNotLoaded:
         app.models.active_transcriber.return_value = active
 
         pipeline = _new_pipeline(app)
-        # Must NOT raise, the empty string propagates so
-        # EmptyCheckStage can run _handle_empty_transcription.
         result = pipeline._transcribe()
         assert result == "", (
             "UE-47: when backend IS loaded and engine returns empty, the "
@@ -644,9 +439,7 @@ class TestTranscribeRaisesWhenBackendNotLoaded:
         )
 
     def test_does_not_raise_when_text_nonempty(self):
-        """When the engine returns non-empty text, no
-        ``BackendNotLoadedError`` fires (regardless of is_loaded).
-        """
+        """When the engine returns non-empty text, no"""
         app = _TestApp()
         app.recording.pop_streaming_session.return_value = None
         active = MagicMock()
@@ -664,19 +457,11 @@ class TestTranscribeRaisesWhenBackendNotLoaded:
         )
 
     def test_is_loaded_captured_before_transcribe_call(self):
-        """UE-47: ``is_loaded`` must be captured BEFORE the transcribe
-        call (not after), a concurrent ``set_active_backend`` could
-        load the backend between the transcribe and the is_loaded
-        read, making the empty result look like "loaded backend
-        returned empty" when it was actually "unloaded backend
-        returned empty". This is a source-text guard against
-        regressing back to the post-transcribe is_loaded read.
-        """
+        """UE-47: ``is_loaded`` must be captured BEFORE the transcribe"""
         from voice_typer.server import dictation_pipeline
 
         src = inspect.getsource(dictation_pipeline.DictationPipeline._transcribe)
         # The is_loaded capture (backend_was_loaded) must appear
-        # BEFORE the transcribe_with_fallback call in the source.
         is_loaded_idx = src.find("backend_was_loaded = bool")
         transcribe_idx = src.find("active.transcribe_with_fallback")
         assert is_loaded_idx != -1, (
@@ -693,12 +478,7 @@ class TestTranscribeRaisesWhenBackendNotLoaded:
 
 
 class TestEmptyWarningIncludesBackendIsLoaded:
-    """UE-47: the empty-result warning log must include the
-    ``backend_is_loaded`` field so operators can distinguish the three
-    failure modes that all collapse to empty output:
-    (1) genuine silence, (2) unloaded backend returned "",
-    (3) cloud provider returned 200 with empty body.
-    """
+    """``backend_is_loaded`` field so operators can distinguish the three"""
 
     def test_warning_includes_backend_is_loaded_field(self, caplog):
         app = _TestApp()
@@ -733,12 +513,7 @@ class TestEmptyWarningIncludesBackendIsLoaded:
 
 
 class TestFriendlyErrorForBackendNotLoaded:
-    """UE-47: ``_friendly_transcription_error`` must return a friendly
-    "model not loaded" message for ``BackendNotLoadedError``, distinct
-    from the generic "model could not be loaded" message (which is
-    about download/load-time failures, not an unloaded backend at
-    transcribe time).
-    """
+    """UE-47: ``_friendly_transcription_error`` must return a friendly"""
 
     def test_friendly_message_for_backend_not_loaded_error(self):
         exc = BackendNotLoadedError("active ASR backend is not loaded")
@@ -747,8 +522,6 @@ class TestFriendlyErrorForBackendNotLoaded:
             "UE-47: _friendly_transcription_error must return a friendly "
             "'model not loaded' message for BackendNotLoadedError. Got: " + msg
         )
-        # Must NOT be the generic "could not be loaded" message (which
-        # is about download/load-time failures, different recovery hint).
         assert "internet connection" not in msg.lower(), (
             "UE-47: BackendNotLoadedError message must NOT be the generic "
             "'check your internet connection' message, the recovery hint "
@@ -757,8 +530,8 @@ class TestFriendlyErrorForBackendNotLoaded:
         )
 
     def test_friendly_message_for_generic_runtime_error_unchanged(self):
-        """Regression guard: the generic RuntimeError path must still
-        return its pre-fix message, the isinstance branch for
+        """
+        Regression guard: the generic RuntimeError path must still
         BackendNotLoadedError must NOT short-circuit generic exceptions.
         """
         exc = RuntimeError("some other runtime error")
@@ -771,29 +544,14 @@ class TestFriendlyErrorForBackendNotLoaded:
         )
 
 
-# run() generic except catches BackendNotLoadedError ──────────
-
-
 class TestRunCatchesBackendNotLoadedError:
-    """UE-47: when ``_transcribe`` raises ``BackendNotLoadedError``,
-    ``run()``'s generic ``except Exception`` block must catch it and
-    surface a friendly tray notification (via
-    ``_friendly_transcription_error``) instead of crashing the
-    transcription thread.
-    """
+    """UE-47: when ``_transcribe`` raises ``BackendNotLoadedError``,"""
 
     def test_run_catches_backend_not_loaded_error_and_notifies(self):
         app = _TestApp()
         app.recording.pop_streaming_session.return_value = None
-        # ``run()`` overwrites ``pipeline._audio_stats`` with
-        # ``app.recorder._last_audio_stats``, set it to None so the
-        # empty-result warning's ``stats_repr`` falls back to
-        # ``"<unavailable>"`` instead of trying to format a MagicMock
-        # (which raises IndexError when unpacked).
         app.recorder._last_audio_stats = None
         # Configure _transcribe to raise BackendNotLoadedError by
-        # making active_transcriber return an unloaded backend that
-        # produces empty output.
         active = MagicMock()
         active.is_loaded = False
         active.transcribe_with_fallback.return_value = ""
@@ -809,7 +567,6 @@ class TestRunCatchesBackendNotLoadedError:
         app.recording._transcription_thread = MagicMock(name="old-thread")
 
         # Run the pipeline, the BackendNotLoadedError from _transcribe
-        # must be caught by run()'s generic except Exception block.
         pipeline.run(
             audio=None,
             duration=0.0,
@@ -818,7 +575,6 @@ class TestRunCatchesBackendNotLoadedError:
         )
 
         # The tray must have been notified with the friendly "model
-        # not loaded" message.
         notify_calls = app.tray.notify.call_args_list
         assert any("model was not loaded" in str(c.args).lower() for c in notify_calls), (
             "UE-47: when _transcribe raises BackendNotLoadedError, run()'s "
@@ -829,10 +585,6 @@ class TestRunCatchesBackendNotLoadedError:
         # Tray must have been set to ERROR state.
         set_state_calls = [c.args for c in app.tray.set_state.call_args_list]
         # AppState.ERROR is the first arg of the failure-path call.
-        # The tooltip must carry the mapped friendly reason (the same
-        # text the notification shows) instead of a bare
-        # "Transcription failed" label, so check the "model was not
-        # loaded" hint appears in the ERROR-state message.
         assert any(args[0] == AppState.ERROR and "model was not loaded" in str(args[1]) for args in set_state_calls), (
             "UE-47: run()'s except Exception block must set tray to ERROR "
             "state with the friendly 'model was not loaded' reason. Got "
@@ -840,16 +592,10 @@ class TestRunCatchesBackendNotLoadedError:
         )
 
     def test_run_does_not_call_handle_empty_transcription_when_backend_unloaded(self):
-        """UE-47: when ``_transcribe`` raises
-        ``BackendNotLoadedError``, ``_handle_empty_transcription``
-        must NOT be called (the exception bypasses EmptyCheckStage
-        entirely). The user sees the friendly "model not loaded"
-        message, NOT the ambiguous "No speech detected" toast.
-        """
+        """UE-47: when ``_transcribe`` raises"""
         app = _TestApp()
         app.recording.pop_streaming_session.return_value = None
         # See note in test_run_catches_backend_not_loaded_error_and_notifies
-        # , run() overwrites _audio_stats from app.recorder.
         app.recorder._last_audio_stats = None
         active = MagicMock()
         active.is_loaded = False
@@ -858,8 +604,6 @@ class TestRunCatchesBackendNotLoadedError:
         app.models.active_transcriber.return_value = active
 
         pipeline = _new_pipeline(app)
-        # Spy on _handle_empty_transcription, if it's called, the
-        # BackendNotLoadedError did NOT bypass EmptyCheckStage.
         called_empty_handler = []
         original = pipeline._handle_empty_transcription
 
@@ -892,27 +636,11 @@ class TestRunCatchesBackendNotLoadedError:
         )
 
 
-# dictation_suppressed event for short silence ─────────────
-
-
 class TestDictationSuppressedEvent:
-    """UE-10-F4 (observability): ``_handle_empty_transcription`` must
-    publish a ``dictation_suppressed`` event when it suppresses user
-    feedback for short (<15s) near-silent recordings. Pre-fix, this
-    branch silently swallowed ALL user feedback, the user saw
-    nothing and had no way to tell their tap registered.
-
-    The event payload is ``{duration, recorded_rms, reason:
-    "short_silence"}`` so the renderer can show a subtle inline
-    bubble. The suppression threshold is NOT lowered (separate UX
-    decision); we only add an observability/UX channel.
-    """
+    """UE-10-F4 (observability): ``_handle_empty_transcription`` must"""
 
     def test_publishes_dictation_suppressed_for_short_silence(self):
-        """Short recording (<15s) AND near-silence (rms<0.005) must
-        publish a ``dictation_suppressed`` event with
-        ``reason="short_silence"``.
-        """
+        """Short recording (<15s) AND near-silence (rms<0.005) must"""
         app = _TestApp()
         pipeline = _new_pipeline(app)
         pipeline._duration = 2.0  # < 15s grace
@@ -957,13 +685,7 @@ class TestDictationSuppressedEvent:
         )
 
     def test_does_not_publish_for_short_recording_with_real_audio(self):
-        """Short recording (<15s) BUT real audio (rms>=0.005) must
-        NOT publish a ``dictation_suppressed`` event, this is the
-        silent-empty-transcription failure mode (engine returned
-        empty despite picking up signal), which surfaces a distinct
-        tray status ("Transcription returned empty") and a WARNING
-        log. Only the short+near-silence branch publishes the event.
-        """
+        """Short recording (<15s) BUT real audio (rms>=0.005) must"""
         app = _TestApp()
         pipeline = _new_pipeline(app)
         pipeline._duration = 5.0  # < 15s grace
@@ -993,11 +715,7 @@ class TestDictationSuppressedEvent:
         )
 
     def test_does_not_publish_for_long_recording(self):
-        """Long recording (>=15s) must NOT publish a
-        ``dictation_suppressed`` event, the long-recording branches
-        surface a popup notification (microphone check or "no
-        transcription produced"), not a subtle suppression bubble.
-        """
+        """``dictation_suppressed`` event, the long-recording branches"""
         app = _TestApp()
         pipeline = _new_pipeline(app)
         pipeline._duration = 20.0  # >= 15s grace
@@ -1026,12 +744,7 @@ class TestDictationSuppressedEvent:
         )
 
     def test_publish_does_not_raise_when_event_bus_broken(self):
-        """If ``event_bus.publish`` raises (e.g. broken event bus, or
-        unregistered event type under ``VOICE_TYPER_DEBUG_EVENTS=1``),
-        the suppression path must NOT abort, the tray state set
-        earlier is the source of truth; this event is purely
-        additive UX feedback.
-        """
+        """unregistered event type under ``VOICE_TYPER_DEBUG_EVENTS=1``),"""
         app = _TestApp()
         pipeline = _new_pipeline(app)
         pipeline._duration = 2.0  # short
@@ -1046,14 +759,11 @@ class TestDictationSuppressedEvent:
 
         event_bus_module.publish = _exploding_publish
         try:
-            # Must NOT raise, the suppression path is wrapped in
-            # contextlib.suppress(Exception).
             pipeline._handle_empty_transcription()
         finally:
             event_bus_module.publish = original_publish
 
         # Tray state must still be set to IDLE with "No speech detected"
-        # (the source-of-truth UX signal, the event is purely additive).
         statuses = [c.args[1] for c in app.tray.set_state.call_args_list]
         assert "No speech detected" in statuses, (
             "UE-10-F4: even when event_bus.publish raises, the suppression "
@@ -1066,21 +776,12 @@ class TestDictationSuppressedEvent:
 
 
 class TestCheckResourcesDeferredExtractionComment:
-    """UE-10-F9 (Low, spaghetti): ``_check_resources`` (185 lines) is
-    a self-contained resource probe inlined in the pipeline. The full
-    extraction to a ``resource_probe.py`` module is DEFERRED to the
-    monolith-split phase, for now, a code comment marks it for
-    extraction so the next maintainer doesn't waste time wondering
-    why a 185-line system probe is living inside the dictation
-    pipeline class.
-    """
+    """UE-10-F9 (Low, spaghetti): ``_check_resources`` (185 lines) is"""
 
     def test_check_resources_docstring_mentions_deferred_extraction(self):
         from voice_typer.server import dictation_pipeline
 
         src = inspect.getsource(dictation_pipeline.DictationPipeline._check_resources)
-        # The docstring must mention the deferred extraction to
-        # resource_probe.py.
         assert "resource_probe" in src, (
             "UE-10-F9: _check_resources docstring must mention the "
             "target module name (resource_probe.py) for the deferred "
@@ -1094,22 +795,13 @@ class TestCheckResourcesDeferredExtractionComment:
         )
 
 
-# dictation_stages: EmptyCheckStage bypass note ──────────────
-
-
 class TestEmptyCheckStageBypassNote:
-    """UE-47: ``EmptyCheckStage`` must document that it only fires
-    when the backend WAS loaded, when the backend was NOT loaded,
-    ``_transcribe`` raises ``BackendNotLoadedError`` BEFORE returning
-    text, so this stage never runs in the unloaded-backend case.
-    """
+    """UE-47: ``EmptyCheckStage`` must document that it only fires"""
 
     def test_empty_check_stage_docstring_documents_bypass(self):
         from voice_typer.server import dictation_stages
 
         src = inspect.getsource(dictation_stages.EmptyCheckStage)
-        # The docstring must mention BackendNotLoadedError and the
-        # bypass behavior.
         assert "BackendNotLoadedError" in src, (
             "UE-47: EmptyCheckStage docstring must mention "
             "BackendNotLoadedError so maintainers understand why this "

@@ -1,47 +1,4 @@
-"""Regression tests for through fixes in the dictation pipeline.
-
-Covers:
-
-* (High)**: ``orchestrator.run`` held the full audio buffer
-  through all 11 stages even though only ``TranscribeStage`` (stage 1)
-  reads ``ctx.audio`` / ``self._audio``. The fix zeros and releases
-  both references immediately after ``TranscribeStage`` returns (the
-  finally-block zero-and-clear is kept as defense-in-depth, it
-  becomes a no-op on the normal path). For a 30-min @ 16 kHz mono
-  float32 recording (~115 MB), this frees the audio ~5-10 s earlier
-  (before LLM polish, storage, and paste).
-
-* (High)**: ``_apply_llm_polish`` sent the entire transcript
-  to the LLM in one un-chunked call with a fixed 4 s timeout. For
-  long transcripts (1000+ words), the round-trip typically exceeds 4
-  s, so polish silently degraded to a no-op AND leaked a daemon
-  thread. The fix skips polish entirely when the transcript exceeds
-  ``_LLM_POLISH_WORD_LIMIT`` (1500 words by default), preserving the
-  4 s budget for short utterances where polish is most valuable.
-
-* (Medium)**: ``_call_polish_with_timeout`` allocated a fresh
-  ``ThreadPoolExecutor(max_workers=1)`` per cycle and called
-  ``executor.shutdown(wait=False)`` on the timeout path. On a stalled
-  endpoint, rapid start/stop cycles accumulated up to 10 stalled
-  daemon threads + orphaned sockets in 40 s. The fix uses a
-  module-level singleton executor (``_get_shared_polish_executor``)
-  with ``max_workers=1``, concurrent polish calls queue, bounding
-  the stalled-thread count to 1 regardless of cycle frequency. The
-  executor is NEVER shut down per cycle.
-
-* (Medium)**: ``_analyze_vocabulary`` re-serialized and
-  re-published ALL pending suggestions (up to MAX_PENDING=200, ~50 KB
-  per event) on EVERY cycle where the list was non-empty, even when
-  the list was unchanged. The fix tracks a ``(count, sha256)`` signature
-  on ``self._app._last_vocab_sig`` (via ``getattr``/``setattr`` so
-  ``app.py`` is untouched) and only publishes when the list changed.
-
-* (Low)**: ``DictationPipeline.__init__`` allocated 11 new
-  stage objects per cycle (11k allocations for 1000 cycles). The fix
-  caches the stage list as a class attribute (``_SHARED_STAGES``),
-  lazy-init on first ``__init__``. Stage objects are stateless (each
-  ``run`` reads from ``ctx``, not ``self``), so sharing is safe.
-"""
+"""Regression tests for through fixes in the dictation pipeline."""
 
 from __future__ import annotations
 
@@ -58,16 +15,9 @@ from voice_typer.server.dictation_pipeline.enhancement_steps import (
 )
 from voice_typer.server.dictation_pipeline.orchestrator import _OrchestratorMixin
 
-# ─── Shared test helpers (mirrors test_dictation_pipeline_transcribe_fixes) ──
-
 
 class _TestApp:
-    """Minimal non-magic test app for DictationPipeline tests.
-
-    Mirrors the pattern in ``test_dictation_pipeline_transcribe_fixes.py``:
-    a custom class (instead of ``MagicMock``) so the notify-once flag
-    attributes correctly default to ``False`` via ``getattr(..., False)``.
-    """
+    """Minimal non-magic test app for DictationPipeline tests."""
 
     def __init__(self) -> None:
         self.tray = MagicMock()
@@ -104,9 +54,6 @@ class _TestApp:
 
     def __getattr__(self, name: str) -> MagicMock:
         # Auto-mock unknown attributes (like MagicMock) but DO NOT
-        # auto-create the notify-once flag names OR the
-        # vocab signature, they must default to None / False via
-        # getattr-with-default.
         if name in {
             "_vocab_fail_notified",
             "_template_fail_notified",
@@ -123,13 +70,7 @@ class _TestApp:
 
 
 def _new_pipeline(app: _TestApp) -> DictationPipeline:
-    """Build a fresh DictationPipeline tied to ``app`` via ``__new__``.
-
-    Mirrors how ``RecordingController._stop_impl`` constructs a new
-    pipeline per transcription cycle. Bypasses ``__init__`` (which
-    expects a real VoiceTyperApp) and manually sets the attributes
-    ``run()`` reads.
-    """
+    """Build a fresh DictationPipeline tied to ``app`` via ``__new__``."""
     pipeline = DictationPipeline.__new__(DictationPipeline)
     pipeline._app = app
     pipeline._duration = 1.0
@@ -163,21 +104,11 @@ def _reset_shared_polish_executor_fixture():
     _reset_shared_polish_executor()
 
 
-# ─── : audio release after TranscribeStage ───────────────────────────
-
-
 class TestAudioReleaseAfterTranscribe:
-    """: zero and release both audio references after TranscribeStage.
-
-    No stage after TranscribeStage (stages 3-11) reads ``ctx.audio`` or
-    ``self._audio``, they operate on ``text`` only. Holding the audio
-    through LLM polish / storage / paste pinned a 30-min @ 16 kHz mono
-    float32 buffer (~115 MB) for ~5-10 s longer than necessary.
-    """
+    """: zero and release both audio references after TranscribeStage."""
 
     def test_audio_released_after_transcribe_stage(self):
-        """After TranscribeStage returns, ``self._audio`` and ``ctx.audio``
-        must both be ``None`` so subsequent stages don't pin the buffer."""
+        """After TranscribeStage returns, ``self._audio`` and ``ctx.audio``"""
         app = _TestApp()
         app.recorder._last_audio_stats = None
         app.recording.pop_streaming_session.return_value = None
@@ -190,9 +121,6 @@ class TestAudioReleaseAfterTranscribe:
 
         pipeline = _new_pipeline(app)
 
-        # Build a custom stage list: transcribe + a spy stage that
-        # captures the state of ctx.audio and pipeline._audio when it
-        # runs (immediately after TranscribeStage).
         from voice_typer.server.dictation_stages import build_default_stages
 
         original_stages = build_default_stages()
@@ -206,7 +134,6 @@ class TestAudioReleaseAfterTranscribe:
                 spy_state["ctx_audio"] = ctx.audio
                 spy_state["pipeline_audio"] = ctx.pipeline._audio
                 # Abort the pipeline, we only care about the post-
-                # transcribe state.
                 from voice_typer.server.dictation_stages import _PipelineAbortEmpty
 
                 raise _PipelineAbortEmpty()
@@ -215,7 +142,6 @@ class TestAudioReleaseAfterTranscribe:
         pipeline._stages = spy_stages
 
         # Allocate a real numpy audio buffer so we can verify it's
-        # zeroed + released.
         audio = np.ones(1024, dtype=np.float32)
         pipeline.run(
             audio=audio,
@@ -225,7 +151,6 @@ class TestAudioReleaseAfterTranscribe:
         )
 
         # The spy stage ran AFTER TranscribeStage. At that point,
-        # both audio references must already be None.
         assert spy_state["ctx_audio"] is None, (
             ": ctx.audio must be None after TranscribeStage returns, "
             "stages 3-11 don't need it and holding it pins the audio buffer "
@@ -239,9 +164,7 @@ class TestAudioReleaseAfterTranscribe:
         )
 
     def test_audio_zeroed_in_place_before_release(self):
-        """The audio buffer must be zeroed (SEC-audit-008) BEFORE the
-        reference is dropped, so forensic recovery from process memory
-        can't recover voice data after the release."""
+        """reference is dropped, so forensic recovery from process memory"""
         app = _TestApp()
         app.recorder._last_audio_stats = None
         app.recording.pop_streaming_session.return_value = None
@@ -264,10 +187,6 @@ class TestAudioReleaseAfterTranscribe:
             timed = False
 
             def run(self, text, ctx):
-                # The audio buffer was zeroed (in-place) and the
-                # reference was dropped. We can't observe the buffer
-                # contents here (the reference is gone), but we CAN
-                # verify the reference is None.
                 audio_after_transcribe.append(ctx.pipeline._audio)
                 from voice_typer.server.dictation_stages import _PipelineAbortEmpty
 
@@ -288,8 +207,6 @@ class TestAudioReleaseAfterTranscribe:
         assert audio_after_transcribe == [None], (
             f": pipeline._audio must be None immediately after TranscribeStage. Got: {audio_after_transcribe}"
         )
-        # The ORIGINAL buffer (still referenced by the test) must have
-        # been zeroed in-place, proving SEC-audit-008's zeroing ran.
         assert not audio.any(), (
             ": the audio buffer must be zeroed in-place (SEC-audit-008) "
             "BEFORE the reference is dropped, so forensic recovery can't "
@@ -297,10 +214,10 @@ class TestAudioReleaseAfterTranscribe:
         )
 
     def test_finally_block_zero_is_noop_on_normal_path(self):
-        """On the normal path (TranscribeStage succeeded), the finally
-        block's audio-zero step is a no-op: ``self._audio`` is already
-        None. This test ensures the finally block doesn't raise when
-        ``self._audio`` is None (defense-in-depth contract)."""
+        """
+        On the normal path (TranscribeStage succeeded), the finally
+        ``self._audio`` is None (defense-in-depth contract).
+        """
         app = _TestApp()
         app.recorder._last_audio_stats = None
         app.recording.pop_streaming_session.return_value = None
@@ -314,8 +231,6 @@ class TestAudioReleaseAfterTranscribe:
         pipeline = _new_pipeline(app)
 
         # Normal path: audio is provided, transcribed, then released
-        # by the fix. The finally block's audio-zero step finds
-        # ``self._audio is None`` and is a no-op.
         pipeline.run(
             audio=np.ones(256, dtype=np.float32),
             duration=1.0,
@@ -324,7 +239,6 @@ class TestAudioReleaseAfterTranscribe:
         )
 
         # After run() returns, self._audio must be None (released by
-        # , then the finally block is a no-op).
         assert pipeline._audio is None, (
             ": pipeline._audio must be None after run returns on the "
             "normal path (released by after TranscribeStage; finally "
@@ -333,17 +247,8 @@ class TestAudioReleaseAfterTranscribe:
         )
 
 
-# ─── : skip LLM polish for long transcripts ──────────────────────────
-
-
 class TestLLMPolishSkipForLongTranscripts:
-    """: skip polish for transcripts above ``_LLM_POLISH_WORD_LIMIT``.
-
-    Long transcripts (1500+ words) typically exceed the 4 s pipeline
-    timeout, polish silently degrades to a no-op AND leaks a daemon
-    thread. Skipping polish preserves the 4 s budget for short
-    utterances where polish is most valuable.
-    """
+    """: skip polish for transcripts above ``_LLM_POLISH_WORD_LIMIT``."""
 
     def _make_app_with_polish(self) -> _TestApp:
         app = _TestApp()
@@ -369,9 +274,7 @@ class TestLLMPolishSkipForLongTranscripts:
         app._llm_polisher.polish.assert_called_once_with("hello world")
 
     def test_long_transcript_skips_polish(self, caplog):
-        """A transcript above ``_LLM_POLISH_WORD_LIMIT`` must skip polish
-        and return the original text, preserving the 4 s budget for
-        short utterances and avoiding the leaked-thread overhead."""
+        """A transcript above ``_LLM_POLISH_WORD_LIMIT`` must skip polish"""
         app = self._make_app_with_polish()
         pipeline = _new_pipeline(app)
         pipeline._templates_applied = False
@@ -397,10 +300,7 @@ class TestLLMPolishSkipForLongTranscripts:
         )
 
     def test_word_limit_constant_exists_and_is_reasonable(self):
-        """``_LLM_POLISH_WORD_LIMIT`` must exist and be in a reasonable
-        range (1000-5000 words, low enough to actually skip long
-        dictations, high enough to not skip normal multi-sentence
-        utterances)."""
+        """``_LLM_POLISH_WORD_LIMIT`` must exist and be in a reasonable"""
         assert hasattr(DictationPipeline, "_LLM_POLISH_WORD_LIMIT"), (
             ": DictationPipeline must define ``_LLM_POLISH_WORD_LIMIT`` as a class attribute."
         )
@@ -412,20 +312,11 @@ class TestLLMPolishSkipForLongTranscripts:
         )
 
 
-# ─── : shared ThreadPoolExecutor re-use ──────────────────────────────
-
-
 class TestSharedPolishExecutor:
-    """: a single shared ``ThreadPoolExecutor`` is reused across
-    cycles. Pre-, each ``_call_polish_with_timeout`` allocated a
-       fresh executor and called ``shutdown(wait=False)`` on timeout —
-       leaking up to 10 stalled threads + sockets in 40 s on a stalled
-       endpoint.
-    """
+    """: a single shared ``ThreadPoolExecutor`` is reused across"""
 
     def test_executor_is_singleton(self):
-        """Two calls to ``_get_shared_polish_executor`` must return the
-        SAME executor instance (singleton)."""
+        """Two calls to ``_get_shared_polish_executor`` must return the"""
         # Reset to ensure a clean state.
         _reset_shared_polish_executor()
         executor1 = _get_shared_polish_executor()
@@ -437,8 +328,7 @@ class TestSharedPolishExecutor:
         )
 
     def test_executor_reused_across_polish_calls(self):
-        """Two consecutive ``_call_polish_with_timeout`` calls must
-        reuse the same executor (verified by intercepting submit)."""
+        """Two consecutive ``_call_polish_with_timeout`` calls must"""
         app = _TestApp()
         app.config.llm_polish = True
         app.config.llm_api_key = "sk-test-key-1234567890abcdef"
@@ -480,12 +370,10 @@ class TestSharedPolishExecutor:
         )
 
     def test_executor_has_max_workers_one(self):
-        """The shared executor must have ``max_workers=1`` so concurrent
-        polish calls queue (bounding the stalled-thread count to 1)."""
+        """The shared executor must have ``max_workers=1`` so concurrent"""
         _reset_shared_polish_executor()
         executor = _get_shared_polish_executor()
         # ThreadPoolExecutor exposes ``_max_workers`` (CPython
-        # implementation detail). Verify it's 1.
         max_workers = getattr(executor, "_max_workers", None)
         assert max_workers == 1, (
             ": the shared executor must have max_workers=1 so concurrent "
@@ -495,10 +383,7 @@ class TestSharedPolishExecutor:
         )
 
     def test_no_shutdown_per_cycle(self):
-        """``_call_polish_with_timeout`` must NOT call
-        ``executor.shutdown()``, the executor is shared across cycles
-        and must live for the process lifetime. Verified by checking
-        the executor is still alive after a polish call."""
+        """``_call_polish_with_timeout`` must NOT call"""
         _reset_shared_polish_executor()
         app = _TestApp()
         app.config.llm_polish = True
@@ -514,7 +399,6 @@ class TestSharedPolishExecutor:
 
         executor = _get_shared_polish_executor()
         # The executor must NOT have been shut down, it's still
-        # usable for the next cycle.
         assert not executor._shutdown, (
             ": the shared executor must NOT be shut down per cycle, "
             "it's shared across cycles and must live for the process lifetime. "
@@ -522,15 +406,8 @@ class TestSharedPolishExecutor:
         )
 
 
-# ─── : vocab suggestion delta-publish ────────────────────────────────
-
-
 class TestVocabSuggestionDeltaPublish:
-    """: only re-publish the vocabulary_suggestion event when the
-    pending list actually changed. Pre-, every cycle with a non-
-       empty pending list re-published ALL 200 suggestions (~50 KB per
-       event).
-    """
+    """pending list actually changed. Pre-, every cycle with a non-"""
 
     def _make_suggestion(self, original: str, corrected: str, confidence: float = 0.9):
         from voice_typer.server.vocabulary_automation import CorrectionSuggestion
@@ -547,16 +424,13 @@ class TestVocabSuggestionDeltaPublish:
         """Build a mock VocabularyAutomation with a fixed pending list."""
         automation = MagicMock()
         # ``analyze_transcription`` returns the suggestions that were
-        # "found" this cycle, the publish path doesn't care about
-        # these, only about ``get_pending_suggestions``.
         automation.analyze_transcription.return_value = pending
         automation.get_pending_suggestions.return_value = list(pending)
         automation.auto_apply_high_confidence_suggestions.return_value = 0
         return automation
 
     def test_first_publish_always_fires(self):
-        """The first time a non-empty pending list is seen, the event
-        must be published (no prior signature to compare against)."""
+        """The first time a non-empty pending list is seen, the event"""
         app = _TestApp()
         app.config.vocabulary_automation_enabled = True
         automation = self._make_automation([self._make_suggestion("foo", "bar")])
@@ -586,8 +460,7 @@ class TestVocabSuggestionDeltaPublish:
         )
 
     def test_unchanged_pending_skips_redundant_publish(self):
-        """When the pending list is unchanged since the last publish,
-        the event must NOT be re-published (delta-publish)."""
+        """When the pending list is unchanged since the last publish,"""
         app = _TestApp()
         app.config.vocabulary_automation_enabled = True
         suggestions = [self._make_suggestion("foo", "bar")]
@@ -624,8 +497,7 @@ class TestVocabSuggestionDeltaPublish:
         )
 
     def test_changed_pending_re_publishes(self):
-        """When the pending list changes (count or contents), the event
-        must be re-published."""
+        """When the pending list changes (count or contents), the event"""
         app = _TestApp()
         app.config.vocabulary_automation_enabled = True
         automation = self._make_automation([self._make_suggestion("foo", "bar")])
@@ -663,9 +535,7 @@ class TestVocabSuggestionDeltaPublish:
         )
 
     def test_signature_lives_on_app_not_pipeline(self):
-        """The ``_last_vocab_sig`` attribute must live on ``self._app``
-        (session-scoped), NOT on the pipeline (cycle-scoped). A fresh
-        pipeline per cycle must see the prior signature from the app."""
+        """The ``_last_vocab_sig`` attribute must live on ``self._app``"""
         app = _TestApp()
         app.config.vocabulary_automation_enabled = True
         automation = self._make_automation([self._make_suggestion("foo", "bar")])
@@ -680,9 +550,6 @@ class TestVocabSuggestionDeltaPublish:
             "so a fresh pipeline per cycle can read the prior signature."
         )
 
-        # Cycle 2: a FRESH pipeline (mirrors per-cycle construction in
-        # recording_controller) must see the prior signature from the
-        # app, and NOT re-publish (delta-publish).
         pipeline2 = _new_pipeline(app)
         published: list = []
         import voice_typer.server.event_bus as event_bus
@@ -708,29 +575,17 @@ class TestVocabSuggestionDeltaPublish:
         )
 
 
-# ─── : shared stage list cache ───────────────────────────────────────
-
-
 class TestSharedStageList:
-    """: the 11-stage template is cached as a class attribute
-    (``_SHARED_STAGES``), but every pipeline instance receives its
-    OWN list copy - a shared mutable list would let one pipeline's
-    insert/remove corrupt every other pipeline (the factory
-    promises a fresh mutable list).
-    """
+    """: the 11-stage template is cached as a class attribute"""
 
     def test_shared_stages_class_attribute_exists(self):
-        """``_OrchestratorMixin`` must define ``_SHARED_STAGES`` as a
-        class attribute (initially ``None``, lazy-init on first
-        ``__init__``)."""
+        """class attribute (initially ``None``, lazy-init on first"""
         assert hasattr(_OrchestratorMixin, "_SHARED_STAGES"), (
             ": _OrchestratorMixin must define ``_SHARED_STAGES`` as a class attribute."
         )
 
     def test_init_populates_shared_stages(self):
-        """The first ``__init__`` call must populate ``_SHARED_STAGES``
-        (lazy-init), but each instance must receive its OWN list copy —
-        never a reference to the shared template."""
+        """The first ``__init__`` call must populate ``_SHARED_STAGES``"""
         # Reset to ensure a clean state (other tests may have populated it).
         original_shared = _OrchestratorMixin._SHARED_STAGES
         try:
@@ -752,7 +607,6 @@ class TestSharedStageList:
             )
 
             # Second __init__ must reuse the SAME template (no rebuild)
-            # while still handing out a fresh list.
             shared_after_first = _OrchestratorMixin._SHARED_STAGES
             pipeline2 = DictationPipeline(app)
             assert pipeline2._stages is not shared_after_first, (
@@ -766,8 +620,7 @@ class TestSharedStageList:
             _OrchestratorMixin._SHARED_STAGES = original_shared
 
     def test_shared_stages_have_correct_count(self):
-        """The shared stage list must contain exactly 11 stages (the
-        standard dictation pipeline)."""
+        """The shared stage list must contain exactly 11 stages (the"""
         original_shared = _OrchestratorMixin._SHARED_STAGES
         try:
             _OrchestratorMixin._SHARED_STAGES = None
@@ -782,11 +635,7 @@ class TestSharedStageList:
             _OrchestratorMixin._SHARED_STAGES = original_shared
 
     def test_stages_are_stateless(self):
-        """Each stage's ``run`` must read from ``ctx``, not ``self`` -
-        this is the invariant that makes sharing the stage OBJECTS
-        across instances safe (each instance still gets its own list).
-        Verified by inspecting the stage classes' ``run`` method
-        source (no ``self._`` attribute writes)."""
+        """Each stage's ``run`` must read from ``ctx``, not ``self`` -"""
         import inspect
 
         from voice_typer.server import dictation_stages
@@ -807,7 +656,6 @@ class TestSharedStageList:
         ]:
             src = inspect.getsource(stage_cls.run)
             # Look for ``self._<attr> =`` (attribute writes), these
-            # would mean the stage carries per-cycle state.
             import re
 
             writes = re.findall(r"self\._\w+\s*=", src)

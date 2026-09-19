@@ -1,16 +1,4 @@
-"""Tests for the segmented (multi-connection) download engine.
-
-The engine (``voice_typer/server/segmented_download.py``) downloads a
-single large file as N concurrent HTTP Range segments, the classic
-aria2/ADM approach on the standard HTTP path (NOT xet), so the
-pause/cancel transfer gate keeps working and no native code is
-involved.
-
-All network I/O goes through an injectable opener seam (``FakeOpener``):
-no test touches the real network. Pause/abort use the REAL
-``asr_setup`` pause/abort events (reset per test) so the gate semantics
-under test are the production ones.
-"""
+"""Tests for the segmented (multi-connection) download engine."""
 
 import errno
 import hashlib
@@ -32,11 +20,7 @@ def _fresh_gate_state():
     asr_setup.clear_download_pause_state()
 
 
-# ── Fake HTTP transport ───────────────────────────────────────────────
-#
 # Duck-typed stand-ins for urllib's Request/opener/response surface used
-# by the engine: ``opener.open(request, timeout=...)`` where request has
-# ``full_url`` + ``headers``. Only what the engine touches is modeled.
 
 
 class FakeResponse:
@@ -78,19 +62,7 @@ class FakeRequest:
 
 
 class FakeOpener:
-    """Serves byte ranges of an in-memory body, with programmable faults.
-
-    ``faults`` maps a hook name to behavior:
-      - "ignore_range_once"/"ignore_range_always": answer 200 full body
-        instead of 206 (server ignores Range).
-      - "no_length": omit Content-Length on HEAD/probe.
-      - "rate_limit_once": first GET answers 429 (+Retry-After), then 206.
-      - "drop_after": close the stream after N body bytes (once), then
-        behave normally on retry (drives resume-from-part-size).
-      - "chunk_delay": sleep N seconds per 64 KiB wire chunk (makes
-        in-flight pause/cancel tests deterministic).
-    Records every request (method, url, headers) in ``requests``.
-    """
+    """Serves byte ranges of an in-memory body, with programmable faults."""
 
     def __init__(self, body: bytes, faults=None):
         self.body = body
@@ -99,7 +71,6 @@ class FakeOpener:
         self._dropped_once = False
         self._limited_once = False
 
-    # -- request plumbing ------------------------------------------------
     def open(self, request, timeout=None):
         method = request.get_method()
         headers = dict(request.header_items())
@@ -167,7 +138,6 @@ class FakeOpener:
 
     def _chunk_iter(self, data: bytes):
         # 64 KiB wire chunks; chunk_delay slows delivery so in-flight
-        # pause/cancel tests can park workers deterministically.
         delay = self.faults.get("chunk_delay", 0)
         step = 64 * 1024
         for i in range(0, len(data), step):
@@ -175,7 +145,6 @@ class FakeOpener:
                 time.sleep(delay)
             yield data[i : i + step]
 
-    # -- assertions -------------------------------------------------------
     def range_requests(self):
         return [h for _, _, h in self.requests if "Range" in h or "range" in h]
 
@@ -205,9 +174,6 @@ def _engine_kwargs(opener, scratch: Path, body: bytes = BODY_3MB, **over):
     )
     kw.update(over)
     return seg, kw
-
-
-# ── Planning ───────────────────────────────────────────────────────────
 
 
 class TestPlanSegments:
@@ -300,9 +266,6 @@ class TestPlanSegmentedFiles:
         assert self._plan(list_files=boom) is None
 
 
-# ── Happy path ─────────────────────────────────────────────────────────
-
-
 class TestHappyPath:
     def test_downloads_segments_concurrently_and_assembles(self, tmp_path):
         opener = FakeOpener(BODY_3MB)
@@ -319,7 +282,6 @@ class TestHappyPath:
         done = [p[0] for p in progress]
         assert done == sorted(done), "progress must be monotonic"
         # State + parts cleaned up on success (only the verified file
-        # may remain).
         leftovers = [p for p in tmp_path.iterdir() if p != out]
         assert not leftovers, f"success must clean parts/state, left: {leftovers}"
 
@@ -330,9 +292,6 @@ class TestHappyPath:
         assert out.read_bytes() == BODY_3MB
 
 
-# ── Server quirks ──────────────────────────────────────────────────────
-
-
 class TestServerQuirks:
     def test_200_on_range_raises_for_classic_fallback(self, tmp_path):
         from voice_typer.server import segmented_download as seg
@@ -340,9 +299,6 @@ class TestServerQuirks:
         opener = FakeOpener(BODY_3MB, faults={"ignore_range_always": True})
         _, kw = _engine_kwargs(opener, tmp_path, num_segments=3)
         # A server that ignores Range cannot be segmented: the engine
-        # must fail over (SegmentedDownloadError) so the caller runs the
-        # classic single-stream path, which handles Range-less servers
-        # natively.
         with pytest.raises(seg.SegmentedDownloadError):
             seg.download_file_segmented(**kw)
 
@@ -365,13 +321,8 @@ class TestServerQuirks:
         assert any(not r.startswith("bytes=0-") for r in ranges[1:]), f"expected a resumed Range request, got: {ranges}"
 
 
-# ── Pause / cancel ─────────────────────────────────────────────────────
-
-
 class TestGateIntegration:
     def test_pause_blocks_then_resumes_without_byte_loss(self, tmp_path):
-        # chunk_delay stretches the 3 MB download to ~2.4 s so the pause
-        # reliably lands mid-flight (no timing race with fast fakes).
         opener = FakeOpener(BODY_3MB, faults={"chunk_delay": 0.05})
         seg, kw = _engine_kwargs(opener, tmp_path, num_segments=2)
         done: dict = {}
@@ -422,9 +373,6 @@ class TestGateIntegration:
         )
 
 
-# ── Resume across restarts ─────────────────────────────────────────────
-
-
 class TestResume:
     def test_completed_segments_are_not_refetched(self, tmp_path):
         from voice_typer.server import segmented_download as seg
@@ -432,7 +380,6 @@ class TestResume:
         opener = FakeOpener(BODY_3MB)
         _, kw = _engine_kwargs(opener, tmp_path, num_segments=3)
         # Simulate a previous run that finished segment 0 (part file +
-        # state on disk) then died.
         plan = seg.plan_segments(len(BODY_3MB), segment_target=1024 * 1024, max_segments=3)
         first = plan[0]
         part0 = tmp_path / "model.bin.part0"
@@ -474,9 +421,6 @@ class TestResume:
         assert out.read_bytes() == BODY_3MB
 
 
-# ── Integrity ──────────────────────────────────────────────────────────
-
-
 class TestIntegrity:
     def test_sha_mismatch_discards_parts_and_raises(self, tmp_path):
         from voice_typer.server import segmented_download as seg
@@ -495,9 +439,6 @@ class TestIntegrity:
         _, kw = _engine_kwargs(opener, tmp_path, expected_sha256=None)
         with pytest.raises((seg.SegmentedDownloadError, TypeError, ValueError)):
             seg.download_file_segmented(**kw)
-
-
-# ── Cache layout ───────────────────────────────────────────────────────
 
 
 class TestCacheLayout:
@@ -528,9 +469,6 @@ class TestCacheLayout:
         snap_file = seg.install_blob_into_hf_cache(**kw)
         assert snap_file.read_bytes() == BODY_3MB
         assert not snap_file.is_symlink()
-
-
-# ── Disk-full ──────────────────────────────────────────────────────────
 
 
 class TestDiskFull:

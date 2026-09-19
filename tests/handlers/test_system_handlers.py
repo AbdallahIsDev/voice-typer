@@ -1,33 +1,4 @@
-"""Unit tests for ``SystemHandlersMixin`` (CR-12).
-
-Covers the 6 system-level IPC handlers defined in
-``voice_typer/server/handlers/system_handlers.py``:
-
-- ``_handle_restart_app``, sends ack, then calls ``service.restart()``.
-- ``_handle_quit_app``, sends ack, then calls ``service.quit()``.
-- ``_handle_check_accessibility``, returns ``accessibility_status``
-  with ``granted`` (True on non-macOS) and ``platform`` fields.
-- ``_handle_set_tray_locale``, validates a ``locale`` field, returns
-  ack echoing the locale.
-- ``_handle_set_esc_cancel_paused``, sets the keyboard ownership
-  state, returns ack with ``paused`` flag.
-- ``_handle_show_notification``, validates ``title``,
-  ``message``, ``duration_ms``, ``critical`` fields and publishes an
-  ``the legacy notification event name`` event.
-
-Each test calls the handler directly with a fresh ``resp={}`` dict
-and asserts on the returned dict (or, for handlers that return
-``None`` because they call ``self._send(resp)`` internally, asserts
-on the call arguments captured by the mocked ``_send``).
-
-UE-15 (2026-07-30): ``_handle_export_diagnostics`` was deleted, the
-Tauri host now handles it via a dedicated Rust command. The
-corresponding ``TestExportDiagnostics`` class was removed in
-lockstep; the catch-all envelope-shape regression it covered is
-still exercised by ``TestHandlerCatchAllEnvelopeShape`` in
-``tests/handlers/test_error_envelope_code_field.py`` via
-``_handle_cancel_model_download``.
-"""
+"""Unit tests for ``SystemHandlersMixin`` (CR-12)."""
 
 from __future__ import annotations
 
@@ -36,12 +7,7 @@ class TestRestartApp:
     """``_handle_restart_app``, sends ack then calls ``service.restart()``."""
 
     def test_happy_path_sends_ack_and_calls_service_restart(self, ipc_server, fake_service):
-        """Valid input → ack is sent and ``service.restart()`` is invoked.
-
-        ``_handle_restart_app`` returns ``None`` (it sends the ack via
-        ``self._send`` and then restarts the process).  We assert on
-        the captured ``_send`` payload rather than the return value.
-        """
+        """Valid input → ack is sent and ``service.restart()`` is invoked."""
         captured: list[dict] = []
         ipc_server._send = lambda msg: captured.append(msg)
 
@@ -54,13 +20,7 @@ class TestRestartApp:
         fake_service.restart.assert_called_once_with()
 
     def test_service_restart_failure_does_not_raise(self, ipc_server, fake_service):
-        """If ``service.restart()`` raises, the handler logs and returns None.
-
-        The ack has already been sent before ``service.restart()`` is
-        called, so a restart failure can't be reported back to the
-        client, but the handler must not propagate the exception
-        (which would crash the IPC dispatch thread).
-        """
+        """If ``service.restart()`` raises, the handler logs and returns None."""
         fake_service.restart.side_effect = RuntimeError("restart exploded")
         ipc_server._send = lambda msg: None  # swallow the ack send
 
@@ -69,14 +29,7 @@ class TestRestartApp:
         assert result is None
 
     def test_service_restart_failure_pushes_error_event(self, ipc_server, fake_service):
-        """If ``service.restart()`` raises, a follow-up ``error`` event is pushed.
-
-        The ack has already been sent, so the failure can't be reported
-        via the response envelope. Instead, the handler publishes an
-        ``error`` event with ``kind="restart_failed"`` so the renderer
-        can surface a toast. Without this push, the client would assume
-        the restart succeeded.
-        """
+        """If ``service.restart()`` raises, a follow-up ``error`` event is pushed."""
         fake_service.restart.side_effect = RuntimeError("restart exploded")
         ipc_server._send = lambda msg: None
         captured: list[dict] = []
@@ -95,10 +48,9 @@ class TestRestartApp:
         assert "restart exploded" in evt["data"]["message"]
 
     def test_service_restart_failure_publish_exception_is_swallowed(self, ipc_server, fake_service, monkeypatch):
-        """If ``event_bus.publish`` itself raises, the handler must not crash.
-
+        """
+        If ``event_bus.publish`` itself raises, the handler must not crash.
         A broken event-bus subscriber must not take down the IPC dispatch
-        thread. The handler logs the publish failure at debug and returns.
         """
         fake_service.restart.side_effect = RuntimeError("restart exploded")
         ipc_server._send = lambda msg: None
@@ -133,12 +85,7 @@ class TestQuitApp:
         assert result is None
 
     def test_service_quit_failure_pushes_error_event(self, ipc_server, fake_service):
-        """If ``service.quit()`` raises, a follow-up ``error`` event is pushed.
-
-        Mirrors :meth:`TestRestartApp.test_service_restart_failure_pushes_error_event`:
-        the ack is already sent, so the failure is surfaced via a push
-        event with ``kind="quit_failed"`` instead of the response envelope.
-        """
+        """If ``service.quit()`` raises, a follow-up ``error`` event is pushed."""
         fake_service.quit.side_effect = RuntimeError("quit failed")
         ipc_server._send = lambda msg: None
         captured: list[dict] = []
@@ -161,19 +108,10 @@ class TestCheckAccessibility:
     """``_handle_check_accessibility``, returns ``accessibility_status``."""
 
     def test_happy_path_non_macos_returns_granted_true(self, ipc_server, monkeypatch):
-        """On non-macOS (the Linux test env), ``granted`` must be True.
-
-        The handler short-circuits the macOS-only AXIsProcessTrusted()
-        path on other platforms, so we don't need to mock any system
-        libraries, the result is deterministic.
-        """
+        """On non-macOS (the Linux test env), ``granted`` must be True."""
         import sys as _sys
 
         # Force the non-macOS path so the test is deterministic on every
-        # host. On the macOS CI leg, ``is_macos()`` is True and the handler
-        # takes the macOS branch, returning ``platform="macos"`` (the
-        # canonical string) instead of ``_sys.platform`` (``"darwin"``) —
-        # which would make the platform assertion below fail spuriously.
         monkeypatch.setattr(
             "voice_typer.server.handlers.system_handlers.is_macos",
             lambda: False,
@@ -197,10 +135,7 @@ class TestCheckAccessibility:
         assert resp["data"]["code"] == "client.invalid_payload"
 
     def test_macos_stale_grant_suggests_reset_with_runtime_command(self, ipc_server, monkeypatch):
-        """Finding #919 part b: a CONFIRMED stale grant (AXIsProcessTrusted
-        ran and returned False) must extend the response with
-        ``suggest_reset: True`` + the runtime ``tccutil`` reset command
-        built from the resolved host bundle ID."""
+        """Finding #919 part b: a CONFIRMED stale grant (AXIsProcessTrusted"""
         monkeypatch.setattr(
             "voice_typer.server.handlers.system_handlers.is_macos",
             lambda: True,
@@ -233,10 +168,7 @@ class TestCheckAccessibility:
         assert resp["data"]["reset_command"] == "tccutil reset Accessibility com.voicetyper.desktop"
 
     def test_macos_stale_grant_unresolved_bundle_omits_command(self, ipc_server, monkeypatch):
-        """Finding #919 part b: when the host bundle ID cannot be
-        resolved, ``suggest_reset`` is False and NO ``reset_command`` key
-        is attached (a wrong bundle ID in a tccutil command is worse than
-        no command, mirrors the reset handler's convention)."""
+        """Finding #919 part b: when the host bundle ID cannot be"""
         monkeypatch.setattr(
             "voice_typer.server.handlers.system_handlers.is_macos",
             lambda: True,
@@ -269,8 +201,7 @@ class TestCheckAccessibility:
         assert "reset_command" not in resp["data"]
 
     def test_macos_granted_keeps_original_shape(self, ipc_server, monkeypatch):
-        """Finding #919 part b: a granted response must keep the original
-        two-field shape. NO ``suggest_reset`` / ``reset_command`` keys."""
+        """Finding #919 part b: a granted response must keep the original"""
         monkeypatch.setattr(
             "voice_typer.server.handlers.system_handlers.is_macos",
             lambda: True,
@@ -299,9 +230,7 @@ class TestCheckAccessibility:
         assert "reset_command" not in resp["data"]
 
     def test_macos_check_failed_keeps_original_shape(self, ipc_server, monkeypatch):
-        """Finding #919 part b: the ``check_failed`` fallback (ctypes load
-        errored) must NOT suggest a reset, an un-runnable probe cannot
-        substantiate a stale grant."""
+        """Finding #919 part b: the ``check_failed`` fallback (ctypes load"""
         monkeypatch.setattr(
             "voice_typer.server.handlers.system_handlers.is_macos",
             lambda: True,
@@ -330,12 +259,7 @@ class TestCheckAccessibility:
 
 
 class TestResetMacosAccessibility:
-    """``_handle_reset_macos_accessibility`` (finding #127 part b).
-
-    Runs ``tccutil reset Accessibility <bundle-id>`` (bundle ID resolved
-    at runtime) and re-opens System Settings. Returns an ``ack`` with
-    ``{ok, command, error}``.
-    """
+    """``_handle_reset_macos_accessibility`` (finding #127 part b)."""
 
     def test_non_macos_returns_unsupported_platform(self, ipc_server, monkeypatch):
         """On non-macOS hosts the command is a no-op (no subprocess)."""
@@ -360,8 +284,7 @@ class TestResetMacosAccessibility:
         assert calls == [], "must NOT spawn tccutil on non-macOS"
 
     def test_macos_runs_tccutil_with_resolved_bundle_id_and_reopens_settings(self, ipc_server, monkeypatch):
-        """macOS + resolved bundle ID → tccutil runs with the RUNTIME
-        bundle ID and System Settings is re-opened."""
+        """macOS + resolved bundle ID → tccutil runs with the RUNTIME"""
         monkeypatch.setattr(
             "voice_typer.server.handlers.system_handlers.is_macos",
             lambda: True,
@@ -400,9 +323,7 @@ class TestResetMacosAccessibility:
         assert opened == [True], "System Settings must be re-opened after the reset"
 
     def test_macos_embeds_any_runtime_bundle_id(self, ipc_server, monkeypatch):
-        """The command must follow the resolved value, not a fixed one —
-        the whole point of runtime resolution (e.g. a future Tauri
-        build with a different identifier)."""
+        """The command must follow the resolved value, not a fixed one —"""
         monkeypatch.setattr(
             "voice_typer.server.handlers.system_handlers.is_macos",
             lambda: True,
@@ -433,8 +354,7 @@ class TestResetMacosAccessibility:
         assert run_calls == [["tccutil", "reset", "Accessibility", "com.voicetyper.some-other-build"]]
 
     def test_macos_unresolved_bundle_id_returns_no_command(self, ipc_server, monkeypatch):
-        """Unresolvable bundle ID → ok=False with no command (a wrong
-        bundle ID in a tccutil command is worse than no command)."""
+        """Unresolvable bundle ID → ok=False with no command (a wrong"""
         monkeypatch.setattr(
             "voice_typer.server.handlers.system_handlers.is_macos",
             lambda: True,
@@ -463,8 +383,7 @@ class TestResetMacosAccessibility:
         assert run_calls == [], "must NOT spawn tccutil without a bundle ID"
 
     def test_macos_tccutil_failure_reports_error_but_still_reopens_settings(self, ipc_server, monkeypatch):
-        """tccutil failure → ok=False with the stderr; System Settings is
-        still re-opened so the user can re-grant manually."""
+        """tccutil failure → ok=False with the stderr; System Settings is"""
         monkeypatch.setattr(
             "voice_typer.server.handlers.system_handlers.is_macos",
             lambda: True,
@@ -496,22 +415,14 @@ class TestResetMacosAccessibility:
         assert opened == [True]
 
     def test_non_dict_payload_returns_invalid_payload_error(self, ipc_server):
-        """Non-dict ``data`` → ``code: client.invalid_payload`` (consistent
-        with sibling handlers)."""
+        """Non-dict ``data`` → ``code: client.invalid_payload`` (consistent"""
         resp = ipc_server._handle_reset_macos_accessibility("not-a-dict", {})
         assert resp["type"] == "error"
         assert resp["data"]["code"] == "client.invalid_payload"
 
 
 class TestResetLinuxPermissions:
-    """``_handle_reset_linux_permissions`` (finding #127 part b, Linux
-    sibling of the macOS TCC reset).
-
-    Clears a stale polkit authorization by restarting the polkit daemon
-    via pkexec (``pkaction`` enumerates the Voice Typer actions,
-    ``pkcheck`` verifies the post-reset state). Returns an ``ack`` with
-    ``{ok, command, error, actions, checks}``.
-    """
+    """``_handle_reset_linux_permissions`` (finding #127 part b, Linux"""
 
     def test_non_linux_returns_unsupported_platform(self, ipc_server, monkeypatch):
         """On non-Linux hosts the command is a no-op (no subprocess)."""
@@ -538,13 +449,7 @@ class TestResetLinuxPermissions:
         assert calls == [], "must NOT spawn pkexec/pkaction on non-Linux"
 
     def test_linux_happy_path_restarts_polkit_and_reports_post_reset_state(self, ipc_server, monkeypatch):
-        """Linux → polkit daemon restarted via pkexec; the canonical
-        ``com.voicetyper.install-permissions`` action registration is
-        surfaced and pkcheck'd to ``not_authorized`` (the cleared state).
-
-        The legacy (pre-Tauri predecessor) action is NOT enumerated: the
-        legacy policy file is removed at install/upgrade time (see
-        install_permissions.py), so no current install registers it."""
+        """Linux → polkit daemon restarted via pkexec; the canonical"""
         monkeypatch.setattr(
             "voice_typer.server.handlers.system_handlers.is_linux",
             lambda: True,
@@ -574,8 +479,7 @@ class TestResetLinuxPermissions:
         }
 
     def test_linux_reset_failure_reports_error_and_skips_checks(self, ipc_server, monkeypatch):
-        """pkexec failure (e.g. the user dismisses the polkit dialog →
-        exit 126) → ok=False with the error; pkcheck must NOT run."""
+        """pkexec failure (e.g. the user dismisses the polkit dialog →"""
         monkeypatch.setattr(
             "voice_typer.server.handlers.system_handlers.is_linux",
             lambda: True,
@@ -604,22 +508,17 @@ class TestResetLinuxPermissions:
         assert checked == []
 
     def test_non_dict_payload_returns_invalid_payload_error(self, ipc_server):
-        """Non-dict ``data`` → ``code: client.invalid_payload`` (consistent
-        with sibling handlers)."""
+        """Non-dict ``data`` → ``code: client.invalid_payload`` (consistent"""
         resp = ipc_server._handle_reset_linux_permissions("not-a-dict", {})
         assert resp["type"] == "error"
         assert resp["data"]["code"] == "client.invalid_payload"
 
 
 class TestPolkitResetHelpers:
-    """Module-level ``_enumerate_polkit_actions`` / ``_polkit_check_authorization``
-    / ``_reset_polkit_authorization``, the subprocess glue behind
-    ``reset_linux_permissions``."""
+    """Module-level ``_enumerate_polkit_actions`` / ``_polkit_check_authorization``"""
 
     def test_enumerate_filters_voicetyper_actions_and_dedupes(self, monkeypatch):
-        """Only action IDs mentioning ``voicetyper`` are surfaced (the
-        canonical namespace); unrelated polkit actions are dropped;
-        duplicates collapse."""
+        """canonical namespace); unrelated polkit actions are dropped;"""
         import voice_typer.server.handlers.system_handlers as sh
 
         class _FakeCompleted:
@@ -660,8 +559,7 @@ class TestPolkitResetHelpers:
         assert sh._enumerate_polkit_actions() == []
 
     def test_check_authorization_maps_pkcheck_exit_codes(self, monkeypatch):
-        """pkcheck exit 0 → authorized, 1 → not_authorized, anything
-        else → check_error."""
+        """pkcheck exit 0 → authorized, 1 → not_authorized, anything"""
         import voice_typer.server.handlers.system_handlers as sh
 
         class _FakeCompleted:
@@ -694,8 +592,7 @@ class TestPolkitResetHelpers:
         assert sh._polkit_check_authorization("com.voicetyper.install-permissions") == "check_error"
 
     def test_reset_tries_candidates_until_one_succeeds(self, monkeypatch):
-        """First candidate (polkit) failing → the polkitd fallback wins;
-        the successful command is reported verbatim."""
+        """First candidate (polkit) failing → the polkitd fallback wins;"""
         import voice_typer.server.handlers.system_handlers as sh
 
         class _FakeCompleted:
@@ -723,8 +620,7 @@ class TestPolkitResetHelpers:
         ]
 
     def test_reset_all_candidates_fail_reports_pkexec_dismissal(self, monkeypatch):
-        """pkexec exit 126 = the user dismissed the polkit dialog →
-        reported as such (not a raw exit code)."""
+        """pkexec exit 126 = the user dismissed the polkit dialog →"""
         import voice_typer.server.handlers.system_handlers as sh
 
         class _FakeCompleted:
@@ -758,8 +654,7 @@ class TestPolkitResetHelpers:
         assert error == "polkit.service not found"
 
     def test_reset_tolerates_missing_pkexec(self, monkeypatch):
-        """No ``pkexec`` binary → ok=False with an actionable error
-        (never raises)."""
+        """No ``pkexec`` binary → ok=False with an actionable error"""
         import voice_typer.server.handlers.system_handlers as sh
 
         def _boom(*a, **k):
@@ -778,7 +673,7 @@ class TestSetTrayLocale:
     """``_handle_set_tray_locale``, validates ``locale`` and returns ack."""
 
     def test_happy_path_with_explicit_locale(self, ipc_server, monkeypatch):
-        """Valid ``{"locale": "ar"}`` → ack echoing the locale."""
+        """Valid ``{\"locale\": \"ar\"}`` → ack echoing the locale."""
         # Patch the tray-locale helpers so we don't touch global state.
         monkeypatch.setattr("voice_typer.server.tray.set_tray_locale", lambda loc: None)
         monkeypatch.setattr("voice_typer.server.tray.get_tray_locale", lambda: "ar")
@@ -788,12 +683,7 @@ class TestSetTrayLocale:
         assert resp["data"] == {"locale": "ar"}
 
     def test_non_dict_payload_returns_invalid_payload_error(self, ipc_server):
-        """Non-dict ``data`` → ``code: invalid_payload`` error.
-
-        The shared ``_validate_dict_payload`` helper rejects
-        non-dict payloads with this structured code so the client
-        can distinguish a missing-data bug from a bad-field bug.
-        """
+        """Non-dict ``data`` → ``code: invalid_payload`` error."""
         resp = ipc_server._handle_set_tray_locale("not-a-dict", {})
         assert resp["type"] == "error"
         assert resp["data"]["code"] == "client.invalid_payload"
@@ -806,7 +696,7 @@ class TestSetTrayLocale:
         assert resp["data"]["field"] == "locale"
 
     def test_missing_locale_uses_default(self, ipc_server, monkeypatch):
-        """Empty dict → default locale "en" is used (required=False)."""
+        """Empty dict → default locale \"en\" is used (required=False)."""
         captured: list[str] = []
         monkeypatch.setattr("voice_typer.server.tray.set_tray_locale", lambda loc: captured.append(loc))
         monkeypatch.setattr("voice_typer.server.tray.get_tray_locale", lambda: "en")
@@ -839,12 +729,7 @@ class TestSetTrayLocale:
         assert registered == []
 
     def test_happy_path_switches_server_global_locale_and_merges_labels(self, ipc_server, monkeypatch):
-        """HU-17: ``set_tray_locale`` must also switch the server-GLOBAL
-        ``i18n`` locale and merge the pushed notification labels so tray
-        notifications (``error.config_load_failed.*`` /
-        ``state.app.starting``) follow the renderer's language instead of
-        staying pinned to English (``i18n.set_locale`` was never called
-        before this fix)."""
+        """HU-17: ``set_tray_locale`` must also switch the server-GLOBAL"""
         from voice_typer.server import i18n as server_i18n
 
         monkeypatch.setattr("voice_typer.server.tray.set_tray_locale", lambda loc: None)
@@ -855,7 +740,6 @@ class TestSetTrayLocale:
         )
 
         # Snapshot the module state directly (the locale accessor was
-        # removed with the dead-API batch, tests observe the binding).
         saved_locale = server_i18n._CURRENT_LOCALE
         saved_fr = dict(server_i18n._REGISTRY.get("fr", {}))
         try:
@@ -878,11 +762,6 @@ class TestSetTrayLocale:
             )
             assert server_i18n.t("state.app.starting") == "Démarrage..."
             # The English fallbacks must be preserved (merge, not
-            # replace). The ``state.app.starting`` fallback is
-            # registered at APP-INIT time (``app_construction``), which
-            # this fixture's fake app never runs, so seed it first
-            # (mirroring what a real app instance guarantees) and assert
-            # the handler's merge preserved it.
             saved_en_starting = server_i18n._REGISTRY["en"].get("state.app.starting")
             server_i18n._REGISTRY["en"].setdefault("state.app.starting", "Starting...")
             try:
@@ -917,8 +796,6 @@ class TestSetTrayLocale:
         monkeypatch.setattr("voice_typer.server.tray.set_tray_locale", lambda loc: None)
         monkeypatch.setattr("voice_typer.server.tray.get_tray_locale", lambda: "en")
         monkeypatch.setattr("voice_typer.server.tray.register_tray_labels", lambda loc, labels: None)
-        # Each label value is ≤1024 chars (passes per-field cap) but
-        # the total payload exceeds 64 KiB.
         big_labels = {f"key_{i:03d}": "v" * 1000 for i in range(70)}
         resp = ipc_server._handle_set_tray_locale({"locale": "en", "labels": big_labels}, {})
         assert resp["type"] == "error"
@@ -943,7 +820,7 @@ class TestSetEscCancelPaused:
     """``_handle_set_esc_cancel_paused``, toggles keyboard ownership."""
 
     def test_happy_path_paused_true(self, ipc_server, fake_app, monkeypatch):
-        """``{"paused": true}`` → ack with ``paused: True`` and app flag set."""
+        """``{\"paused\": true}`` → ack with ``paused: True`` and app flag set."""
         from voice_typer.server.keyboard_ownership import keyboard_ownership
 
         # Reset the singleton to a known state before the test.
@@ -956,11 +833,10 @@ class TestSetEscCancelPaused:
         # Backward-compat alias: the app attribute is updated too.
         assert fake_app._esc_cancel_paused is True
         # Canonical state: the keyboard ownership singleton flipped
-        # to "hotkey_capture".
         assert ko.is_hotkey_capture_active() is True
 
     def test_happy_path_paused_false(self, ipc_server, fake_app):
-        """``{"paused": false}`` → ack with ``paused: False``."""
+        """``{\"paused\": false}`` → ack with ``paused: False``."""
         from voice_typer.server.keyboard_ownership import keyboard_ownership
 
         ko = keyboard_ownership()
@@ -980,8 +856,7 @@ class TestSetEscCancelPaused:
         assert fake_app._esc_cancel_paused is False
 
     def test_unexpected_exception_returns_generic_internal_error(self, ipc_server, monkeypatch):
-        """The wrap catch-all must emit the generic WS-path envelope
-        when the keyboard-ownership update raises."""
+        """The wrap catch-all must emit the generic WS-path envelope"""
         monkeypatch.setattr(
             "voice_typer.server.handlers.system_handlers._validate_dict_payload",
             lambda *_a, **_k: (_ for _ in ()).throw(RuntimeError("ownership exploded")),
@@ -1000,9 +875,6 @@ class TestShowNotificationHandler:
         """Valid 4-field payload → event published + ``{type: ack}`` returned."""
         captured: list[dict] = []
 
-        # Subscribe to the event bus.  event_bus.publish is a
-        # synchronous broadcast, so the subscriber sees the event
-        # before _handle_show_notification returns.
         from voice_typer.server import event_bus
 
         def _subscriber(evt):
@@ -1025,9 +897,6 @@ class TestShowNotificationHandler:
         assert resp["type"] == "ack"
         assert len(captured) == 1
         evt = captured[0]
-        # the event type was renamed from "the legacy notification event name"
-        # to the platform-agnostic "notification" so the Tauri Rust host
-        # doesn't need to rename it on the way through.
         assert evt["type"] == "notification"
         assert evt["data"] == {
             "title": "Hello",
@@ -1037,12 +906,7 @@ class TestShowNotificationHandler:
         }
 
     def test_non_dict_data_returns_invalid_payload_error(self, ipc_server):
-        """Non-dict ``data`` → ``code: client.invalid_payload`` error.
-
-        The shared ``_validate_dict_payload`` helper rejects non-dict
-        payloads with the namespaced ``client.invalid_payload`` code
-        (DE-36) and a ``"data must be an object"`` message.
-        """
+        """Non-dict ``data`` → ``code: client.invalid_payload`` error."""
         resp = ipc_server._handle_show_notification("not-a-dict", {})
         assert resp["type"] == "error"
         assert resp["data"]["code"] == "client.invalid_payload"
@@ -1055,12 +919,9 @@ class TestShowNotificationHandler:
         assert resp["data"]["field"] == "title"
 
     def test_invalid_critical_type_rejects_truthy_string(self, ipc_server):
-        """``critical: "false"`` must be rejected (not coerced to True).
-
+        """
+        ``critical: "false"`` must be rejected (not coerced to True).
         SEC-VALIDATE-001: the old handler used ``bool("false")`` which
-        is ``True`` (any non-empty string is truthy), silently
-        escalating a misbehaving caller's notification to critical.
-        The current handler rejects non-bool values explicitly.
         """
         resp = ipc_server._handle_show_notification({"critical": "false"}, {})
         assert resp["type"] == "error"
@@ -1068,11 +929,9 @@ class TestShowNotificationHandler:
         assert resp["data"]["field"] == "critical"
 
     def test_invalid_duration_ms_rejects_bool(self, ipc_server):
-        """``duration_ms: True`` must be rejected (bool is subclass of int).
-
+        """
+        ``duration_ms: True`` must be rejected (bool is subclass of int).
         SEC-VALIDATE-001: without the explicit ``isinstance(x, bool)``
-        exclusion, ``True`` would sneak through as ``duration_ms: 1``
-        if a caller swapped the ``critical`` and ``duration_ms`` fields.
         """
         resp = ipc_server._handle_show_notification({"duration_ms": True}, {})
         assert resp["type"] == "error"
@@ -1080,12 +939,7 @@ class TestShowNotificationHandler:
         assert resp["data"]["field"] == "duration_ms"
 
     def test_duration_ms_clamped_to_24h_cap(self, ipc_server, monkeypatch):
-        """``duration_ms`` > 24h is clamped to 24h (not rejected).
-
-        Prevents a caller from scheduling a ``setTimeout`` that
-        effectively never fires, which would leave a "persistent"
-        notification that the user can't dismiss via auto-close.
-        """
+        """``duration_ms`` > 24h is clamped to 24h (not rejected)."""
         captured: list[dict] = []
         from voice_typer.server import event_bus
 
@@ -1101,10 +955,7 @@ class TestShowNotificationHandler:
         assert captured[0]["data"]["duration_ms"] == 24 * 60 * 60 * 1000
 
     def test_publish_failure_returns_generic_internal_error(self, ipc_server, monkeypatch):
-        """An unexpected exception inside the wrap body (e.g. a broken
-        event-bus subscriber on the happy path) must become the generic
-        ``server.internal_error`` envelope, not a leaky ``str(exc)``
-        message."""
+        """An unexpected exception inside the wrap body (e.g. a broken"""
         monkeypatch.setattr(
             "voice_typer.server.handlers.system_handlers.event_bus.publish",
             lambda *_a, **_k: (_ for _ in ()).throw(RuntimeError("subscriber boom")),

@@ -1,22 +1,4 @@
-"""§8.2: Pack arrives corrupted: recovery via discard + re-download.
-
-Spec (§8.2):
-
-  ``verify_pack_or_skip()`` (modeled on ``verify_tauri_binary_or_skip``
-  from ``autostart_launcher.py``). Mismatch → the partial is discarded
-  and ``offline_pack_corrupt`` is published; the next trigger/launch
-  retries the download.
-
-Tested behaviors:
-
-  1. A tampered pack file (one byte flipped) fails SHA-256 verification
-     → ``verify_pack_or_skip`` returns False.
-  2. A missing manifest → fail-closed (returns False).
-  3. A manifest with a missing declared file → fail-closed.
-  4. A manifest with a structurally-invalid schema → fail-closed
-     (returns None from ``load_pack_manifest``).
-  5. A manifest entry above the per-file size cap → fail-closed.
-"""
+"""§8.2: Pack arrives corrupted: recovery via discard + re-download."""
 
 from __future__ import annotations
 
@@ -109,8 +91,7 @@ class TestVerifyPackOrSkip:
         assert offline_pack.verify_offline_pack_or_skip("v1", root=tmp_path) is False
 
     def test_manifest_with_oversized_entry_fails_closed(self, tmp_path: Path):
-        """A manifest entry above the per-file cap is rejected at load
-        time, the install stage re-checks the cap at extraction."""
+        """A manifest entry above the per-file cap is rejected at load"""
         root = tmp_path / "v1"
         root.mkdir()
         (root / "huge.bin").write_bytes(b"x")

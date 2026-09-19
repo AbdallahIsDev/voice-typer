@@ -1,24 +1,4 @@
-"""AP-18: regression tests for atomic writes in autostart / prewarm /
-sentinel / onboarding-counter / prewarm-log file registration.
-
-Six call sites previously used ``Path.write_text`` (truncate-then-write,
-follows symlinks) for OS-level autostart files and crash-recovery
-sentinels. They now route through ``_secure_atomic_write`` (temp +
-``os.replace``) with ``durability=False`` so a crash mid-write cannot
-leave a half-truncated file that the OS / crash-recovery / circuit
-breaker mis-parses on next boot.
-
-Each test spies on ``_secure_atomic_write`` (via ``wraps=`` so the real
-function still runs and downstream ``chmod`` / file-existence probes
-keep working) AND on ``Path.write_text`` (to assert the legacy
-non-atomic call was NOT used).
-
-The spy patches the canonical definition in
-``voice_typer.server.secure_file_io``, every call site imports the
-helper lazily via ``from voice_typer.server.secure_file_io import
-_secure_atomic_write`` so the patched attribute is what the call site
-sees at runtime.
-"""
+"""AP-18: regression tests for atomic writes in autostart / prewarm /"""
 
 from __future__ import annotations
 
@@ -35,15 +15,9 @@ from voice_typer.server.server_platform import (
     platform_flags as flags_mod,
 )
 
-# ──────────────────────────────────────────────────────────────────
-# 1. macOS autostart plist, _enable_autostart_macos
-# ──────────────────────────────────────────────────────────────────
-
 
 class TestAutostartMacOsAtomicWrite:
-    """``_enable_autostart_macos`` must use ``_secure_atomic_write`` for
-    the plist (not ``Path.write_text``) and keep the defense-in-depth
-    ``chmod(0o600)`` AFTER the atomic write."""
+    """the plist (not ``Path.write_text``) and keep the defense-in-depth"""
 
     def test_uses_secure_atomic_write_with_durability_false(self, monkeypatch, tmp_path):
         monkeypatch.setattr(flags_mod, "SYSTEM", "darwin")
@@ -51,7 +25,6 @@ class TestAutostartMacOsAtomicWrite:
         monkeypatch.setattr(macos_mod, "_os_uid", lambda: 501)
 
         # Fake launchctl load (returncode=0, no stderr) so the function
-        # returns True without actually invoking launchd.
         def _fake_run(args, **kw):
             r = MagicMock()
             r.returncode = 0
@@ -85,10 +58,7 @@ class TestAutostartMacOsAtomicWrite:
                 pytest.fail("Path.write_text must NOT be used for the plist; use _secure_atomic_write instead")
 
     def test_chmod_0o600_preserved_after_atomic_write(self, monkeypatch, tmp_path):
-        """The defense-in-depth ``plist_path.chmod(0o600)`` must still
-        run AFTER the atomic write so the file's final perms are 0o600
-        (the atomic write itself creates the temp file with default
-        umask, so chmod is needed to tighten)."""
+        """The defense-in-depth ``plist_path.chmod(0o600)`` must still"""
         monkeypatch.setattr(flags_mod, "SYSTEM", "darwin")
         monkeypatch.setattr(autostart_mod, "get_autostart_dir", lambda: tmp_path)
         monkeypatch.setattr(macos_mod, "_os_uid", lambda: 501)
@@ -115,21 +85,13 @@ class TestAutostartMacOsAtomicWrite:
 
         plist_path = tmp_path / "com.voicetyper.plist"
         assert (plist_path).exists(), "plist must be written by _secure_atomic_write"
-        # chmod(0o600) must have been called on the plist path.
         assert any(p == plist_path and m == 0o600 for p, m in chmod_calls), (
             f"expected chmod(0o600) on plist; got: {chmod_calls}"
         )
 
 
-# ──────────────────────────────────────────────────────────────────
-# 2. Linux .desktop entry, _enable_autostart_linux
-# ──────────────────────────────────────────────────────────────────
-
-
 class TestAutostartLinuxAtomicWrite:
-    """``_enable_autostart_linux`` must use ``_secure_atomic_write`` for
-    the ``.desktop`` file and NOT apply ``chmod(0o600)`` (DEs must be
-    able to read the file)."""
+    """the ``.desktop`` file and NOT apply ``chmod(0o600)`` (DEs must be"""
 
     def test_uses_secure_atomic_write_with_durability_false(self, monkeypatch, tmp_path):
         monkeypatch.setattr(flags_mod, "SYSTEM", "linux")
@@ -158,8 +120,7 @@ class TestAutostartLinuxAtomicWrite:
                 pytest.fail("Path.write_text must NOT be used for the .desktop file; use _secure_atomic_write instead")
 
     def test_no_chmod_0o600_applied(self, monkeypatch, tmp_path):
-        """``chmod(0o600)`` must NOT be called on the .desktop file —
-        desktop environments must be able to read it."""
+        """``chmod(0o600)`` must NOT be called on the .desktop file —"""
         monkeypatch.setattr(flags_mod, "SYSTEM", "linux")
         monkeypatch.setattr(autostart_mod, "get_autostart_dir", lambda: tmp_path)
         monkeypatch.setattr(
@@ -185,32 +146,8 @@ class TestAutostartLinuxAtomicWrite:
         )
 
 
-# ──────────────────────────────────────────────────────────────────
-# 3. systemd user unit, register_linux_app_service
-# ──────────────────────────────────────────────────────────────────
-#
-# (Wave 3, 2026-08-14): ``TestPrewarmLinuxAppServiceAtomicWrite`` was
-# DELETED, the entire ``prewarm_scheduler_posix`` module (which
-# defined ``register_linux_app_service`` + ``_linux_app_service_path``)
-# was removed (prewarm became a worker startup phase, master plan
-# §6.2 P-1). The systemd user-unit management for the main app lived
-# in that module; it was the ONLY caller of ``_secure_atomic_write``
-# for a ``voice-typer.service`` systemd unit. The new architecture
-# has no equivalent behavior to re-pin: the autostart code paths on
-# POSIX (``server_platform/autostart_macos.py`` / ``autostart_linux.py``)
-# use LaunchAgent / .desktop files directly (no systemd user unit),
-# and prewarm is now a worker startup phase (no OS-level scheduling).
-
-
-# ──────────────────────────────────────────────────────────────────
-# 4. dictation-in-flight sentinel, DictationPipeline.run
-# ──────────────────────────────────────────────────────────────────
-
-
 class TestDictationPipelineSentinelAtomicWrite:
-    """The ``.dictation-in-flight`` sentinel (consumed by
-    ``crash_recovery``) must be written atomically so a crash mid-write
-    cannot leave a truncated cycle id that crash_recovery misparses."""
+    """``crash_recovery``) must be written atomically so a crash mid-write"""
 
     def test_uses_secure_atomic_write_with_durability_false(self, monkeypatch, tmp_path):
         from voice_typer.server import _paths as paths_mod, dictation_pipeline as dp, log as log_mod
@@ -218,11 +155,6 @@ class TestDictationPipelineSentinelAtomicWrite:
         # Force the config dir to tmp_path so the sentinel lands there.
         monkeypatch.setattr(paths_mod, "config_dir", lambda: tmp_path)
 
-        # The .run() method is heavy, short-circuit right after the
-        # sentinel write by making set_correlation_id raise. The
-        # sentinel write itself is wrapped in contextlib.suppress so
-        # the spy returns None (no exception) and execution proceeds
-        # to set_correlation_id, which then raises.
         def _boom(cid):
             raise RuntimeError("test-short-circuit")
 
@@ -250,15 +182,8 @@ class TestDictationPipelineSentinelAtomicWrite:
                 pytest.fail("Path.write_text must NOT be used for the sentinel; use _secure_atomic_write instead")
 
 
-# ──────────────────────────────────────────────────────────────────
-# 5. onboarding fail counter, _write_onboarding_fail_count
-# ──────────────────────────────────────────────────────────────────
-
-
 class TestOnboardingFailCountAtomicWrite:
-    """``_write_onboarding_fail_count`` must use ``_secure_atomic_write``
-    so a truncated file does not reset the circuit-breaker counter to 0
-    on the next startup."""
+    """``_write_onboarding_fail_count`` must use ``_secure_atomic_write``"""
 
     def test_uses_secure_atomic_write_with_durability_false(self, monkeypatch, tmp_path):
         from voice_typer.server.startup_sequence import _phases_early as ss
@@ -277,7 +202,6 @@ class TestOnboardingFailCountAtomicWrite:
         assert spy_atomic.call_args.kwargs.get("durability") is False
         called_path, called_content = spy_atomic.call_args.args[:2]
         assert Path(called_path) == status_path
-        # payload is JSON; verify the counter fields round-trip.
         import json
 
         payload = json.loads(called_content)
@@ -291,8 +215,7 @@ class TestOnboardingFailCountAtomicWrite:
                 )
 
     def test_persistence_round_trips(self, monkeypatch, tmp_path):
-        """Sanity: after the atomic write, ``_read_onboarding_fail_count``
-        reads back the same values (no data loss)."""
+        """Sanity: after the atomic write, ``_read_onboarding_fail_count``"""
         from voice_typer.server.startup_sequence import _phases_early as ss
 
         monkeypatch.setattr(ss, "_config_dir", lambda: tmp_path)
@@ -302,28 +225,3 @@ class TestOnboardingFailCountAtomicWrite:
         count, last_fail_ts = ss._read_onboarding_fail_count()
         assert count == 2
         assert last_fail_ts == 1700000000.0
-
-
-# ──────────────────────────────────────────────────────────────────
-# 6. prewarm.log placeholder, _handle_open_prewarm_log
-# ──────────────────────────────────────────────────────────────────
-#
-# (Wave 3, 2026-08-14): ``TestPrewarmLogPlaceholderAtomicWrite`` was
-# DELETED: ``_handle_open_prewarm_log`` was removed from
-# ``StatusHandlersMixin`` (and the matching ``_COMMAND_REGISTRY`` /
-# TS allowlist / Rust allowlist entries) because prewarm became a
-# worker startup phase (master plan §6.2 P-1). The slim core no
-# longer opens a dedicated prewarm log; the renderer's About-page
-# "Open prewarm log" button was removed in lockstep. There is no
-# equivalent behavior to re-pin: the worker writes its own log
-# (``voice-typer.log`` or a worker-specific log file), and the
-# placeholder-write contract for a non-existent prewarm.log no
-# longer applies.
-#
-# (2026-08-14, later the same day): ``_handle_open_prewarm_log`` was
-# RESTORED verbatim from 5a319872 (plan §6.3 addendum, Cache Status
-# card). It no longer writes a ``prewarm.log`` placeholder, it opens
-# the worker log (``<config_dir>/worker.log``) and its behavior is
-# pinned by ``tests/handlers/test_status_handlers.py``
-# (``TestOpenPrewarmLog``). The placeholder-atomic-write contract
-# still does not apply (no file is written).

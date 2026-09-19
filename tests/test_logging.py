@@ -1,26 +1,4 @@
-"""Regression tests for centralized logging infrastructure.
-
-Covers three findings from a-review:
-
-* Finding 5 (C2), clean log-line rendering.
-  The text formatters (``_FileFormatter`` for the file, ``_ColorFormatter``
-  for the terminal) render a CLEAN line: timestamp + level + message.
-  The per-line ``[session_id]`` bracket, ``[threadName]``, and
-  ``[component]`` labels were removed, they added noise to every line
-  without helping the user read the log.  Correlation metadata stays
-  available in JSON mode (``VOICE_TYPER_LOG_JSON=1``).  These tests pin
-  the clean format so the clutter is not reintroduced.
-
-* Finding 6 (C3): ``get_logger`` is dead code.
-  The factory was documented as the canonical logger entry point but
-  zero call-sites used it (every module did
-  ``logging.getLogger(__name__)`` directly).  These tests pin the
-  removal so the dead factory is not reintroduced.
-
-These tests intentionally exercise both the end-to-end pipeline
-(``setup_logging`` → file on disk) and the formatters in isolation
-so a regression in either layer is caught.
-"""
+"""Regression tests for centralized logging infrastructure."""
 
 from __future__ import annotations
 
@@ -38,17 +16,9 @@ from voice_typer.server.log import (
     setup_logging,
 )
 
-# ─── C2: clean line format (no session/thread/component clutter) ───────
-
 
 def test_file_log_line_is_clean_end_to_end(tmp_path: Path) -> None:
-    """End-to-end: ``setup_logging`` → log line → file on disk.
-
-    The rendered line must be CLEAN: timestamp + level + message.  The
-    8-char session ID, thread name, and module path must NOT appear on
-    the line, they added noise to every line without helping the user
-    read the log.
-    """
+    """End-to-end: ``setup_logging`` → log line → file on disk."""
     reset()
     config_dir = tmp_path / "cfg"
     config_dir.mkdir()
@@ -82,9 +52,7 @@ def test_file_log_line_is_clean_end_to_end(tmp_path: Path) -> None:
 
 
 def test_file_formatter_omits_session_thread_component() -> None:
-    """``_FileFormatter.format`` must NOT render the session_id bracket,
-    thread name, or component label, the line is timestamp + level +
-    message only."""
+    """``_FileFormatter.format`` must NOT render the session_id bracket,"""
     record = logging.LogRecord(
         name="voice_typer",
         level=logging.INFO,
@@ -99,14 +67,12 @@ def test_file_formatter_omits_session_thread_component() -> None:
     assert "[a3f1b2c4]" not in line
     assert "MainThread" not in line
     # The module-path component label is gone (message only carries its
-    # own [TOPIC] prefix).
     assert "[voice_typer.server.log]" not in line
     assert "\033[" not in line  # file output is plain text, no ANSI
     # Timestamp + level label + message all still present.
     assert "INFO" in line
     assert "[HOTKEY] RegisterHotKey succeeded" in line
     # Clean timestamp: `YYYY-MM-DD  HH:MM:SS` (two spaces, no millis,
-    # no T separator, no tz).
     parts = line.split()
     assert len(parts) >= 3
     assert "-" in parts[0] and ":" in parts[1], f"clean ts expected, got: {line!r}"
@@ -114,19 +80,6 @@ def test_file_formatter_omits_session_thread_component() -> None:
     assert "+0300" not in line and "+0200" not in line  # tz offset gone
 
 
-# Exact line shape: `<ts>  <LEVEL>  <msg>`, a full-line anchored match,
-# stronger than the substring checks above.  A session id, thread name,
-# or module path inserted ANYWHERE (before the ts, between fields, or
-# appended at the end) breaks the match.
-#
-# Timestamp is `YYYY-MM-DD  HH:MM:SS`, TWO spaces between the date
-# and the time (so the time column aligns in the file), seconds-only
-# precision (no millisecond fraction).  Level label is the short form
-# (`WARN`, not `WARNING`), left-padded to a fixed 5-char column so the
-# message column aligns: 4-char labels (`INFO`/`WARN`) are followed by
-# TWO spaces, 5-char labels (`DEBUG`/`ERROR`/`CRITICAL`) by ONE space.
-# The ` {1,2}` separator accepts both (the per-level exact spacing is
-# pinned by `test_file_formatter_level_column_alignment`).
 _EXACT_FILE_LINE_RE = re.compile(
     r"\d{4}-\d{2}-\d{2}  \d{2}:\d{2}:\d{2}  "  # clean ts + 2 spaces
     r"(?:DEBUG|INFO|WARN|ERROR|CRITICAL) {1,2}"  # level label + aligned spacing
@@ -135,13 +88,7 @@ _EXACT_FILE_LINE_RE = re.compile(
 
 
 def test_file_formatter_exact_line_shape_is_timestamp_level_message() -> None:
-    """Pin the EXACT file line shape to ``<ts>  <LEVEL>  <msg>``.
-
-    The record carries every field the old format printed on every line
-    (session id, component / module path, thread name, function name) so
-    a reintroduction anywhere in the rendering pipeline is caught, not
-    just the specific bracket styles the substring tests guard against.
-    """
+    """Pin the EXACT file line shape to ``<ts>  <LEVEL>  <msg>``."""
     record = logging.LogRecord(
         name="voice_typer.server.app",
         level=logging.INFO,
@@ -151,7 +98,6 @@ def test_file_formatter_exact_line_shape_is_timestamp_level_message() -> None:
         args=(),
         exc_info=None,
     )
-    # Full clutter: everything the old format rendered on every line.
     record.session_id = "2ae8edcc"
     record.component = "voice_typer.server.app"
     record.threadName = "MainThread"
@@ -176,9 +122,7 @@ def test_file_formatter_exact_line_shape_is_timestamp_level_message() -> None:
 
 
 def test_file_formatter_level_column_alignment() -> None:
-    """4-char level labels (``INFO``/``WARN``) get TWO spaces after,
-    5-char labels (``DEBUG``/``ERROR``/``CRITICAL``) get ONE space after,
-    so the message column aligns at a fixed 6-char level+sep width."""
+    """4-char level labels (``INFO``/``WARN``) get TWO spaces after,"""
     for level, label, expected_sep in [
         (logging.INFO, "INFO", "  "),
         (logging.WARNING, "WARN", "  "),
@@ -197,7 +141,6 @@ def test_file_formatter_level_column_alignment() -> None:
         )
         line = _FileFormatter().format(record)
         # Extract the label + its trailing separator from the exact
-        # file shape `<ts>  <LEVEL><sep><msg>`.
         m = re.match(
             r"\d{4}-\d{2}-\d{2}  \d{2}:\d{2}:\d{2}  ([A-Z]+)( +)",
             line,
@@ -208,8 +151,7 @@ def test_file_formatter_level_column_alignment() -> None:
 
 
 def test_color_formatter_warning_level_column_alignment() -> None:
-    """Terminal WARN/ERROR/CRITICAL lines also align the level column:
-    4-char labels get 2 spaces, 5-char labels get 1 space."""
+    """Terminal WARN/ERROR/CRITICAL lines also align the level column:"""
     for level, sym, expected_sep in [
         (logging.WARNING, "WARN", "  "),
         (logging.ERROR, "ERROR", " "),
@@ -228,7 +170,6 @@ def test_color_formatter_warning_level_column_alignment() -> None:
         # Strip ANSI escapes before checking spacing.
         plain = re.sub(r"\033\[[0-9;]*m", "", line)
         # Extract the sym + its trailing separator from the terminal
-        # shape `<ts>  <SYM><sep>msg`.
         m = re.match(r"\d{2}:\d{2}:\d{2}  ([A-Z]+)( +)", plain)
         assert m is not None, f"line shape unexpected: {plain!r}"
         assert m.group(1) == sym, f"expected sym {sym!r}, got {m.group(1)!r}"
@@ -236,8 +177,7 @@ def test_color_formatter_warning_level_column_alignment() -> None:
 
 
 def test_color_formatter_omits_session_id_bracket() -> None:
-    """``_ColorFormatter.format`` must NOT render the session_id bracket
-    on the terminal."""
+    """``_ColorFormatter.format`` must NOT render the session_id bracket"""
     record = logging.LogRecord(
         name="voice_typer",
         level=logging.INFO,
@@ -257,8 +197,7 @@ def test_color_formatter_omits_session_id_bracket() -> None:
 
 
 def test_color_formatter_warning_lines_omit_session_id() -> None:
-    """WARN/ERR/FATAL lines (full-line coloured) must also omit the
-    session_id bracket."""
+    """WARN/ERR/FATAL lines (full-line coloured) must also omit the"""
     record = logging.LogRecord(
         name="voice_typer",
         level=logging.WARNING,
@@ -278,13 +217,7 @@ def test_color_formatter_warning_lines_omit_session_id() -> None:
 
 
 def test_formatters_do_not_require_session_attribute() -> None:
-    """Records constructed without going through ``_SessionFilter``
-    (e.g. third-party library logs, or unit-test records built by hand)
-    must not raise ``AttributeError``.
-
-    Also covers the early-startup case where ``setup_logging`` has not
-    yet been called (``_session_id`` is the empty string ``""``).
-    """
+    """Records constructed without going through ``_SessionFilter``"""
     record = logging.LogRecord(
         name="transformers",
         level=logging.INFO,
@@ -295,7 +228,6 @@ def test_formatters_do_not_require_session_attribute() -> None:
         exc_info=None,
     )
     # Deliberately do NOT set record.session_id, simulates a record
-    # that bypassed the _SessionFilter (no attribute on the LogRecord).
     assert not hasattr(record, "session_id")
 
     file_line = _FileFormatter().format(record)
@@ -308,10 +240,7 @@ def test_formatters_do_not_require_session_attribute() -> None:
 
 
 def test_formatter_empty_session_id_renders_no_bracket() -> None:
-    """When ``_SessionFilter`` runs before ``setup_logging`` has assigned
-    a session_id, it sets ``record.session_id = ""`` (the module-level
-    default).  The formatters must render no bracket at all (no
-    ``[]``, no ``[--------]``)."""
+    """When ``_SessionFilter`` runs before ``setup_logging`` has assigned"""
     record = logging.LogRecord(
         name="voice_typer",
         level=logging.INFO,
@@ -327,14 +256,8 @@ def test_formatter_empty_session_id_renders_no_bracket() -> None:
     assert "early startup line" in file_line
 
 
-# ─── C3: get_logger removal (regression guard) ─────────────────────────
-
-
 def test_get_logger_is_not_exported() -> None:
-    """a-review Finding 6: ``get_logger`` was dead code, documented as
-    the canonical logger factory but used by zero call-sites (every
-    module does ``logging.getLogger(__name__)`` directly).  This test
-    pins the removal so the dead factory is not reintroduced."""
+    """the canonical logger factory but used by zero call-sites (every"""
     assert not hasattr(log_module, "get_logger"), (
         "voice_typer.server.log.get_logger was removed as dead code "
         "(a-review Finding 6).  Do not re-add it, modules should use "
@@ -343,40 +266,12 @@ def test_get_logger_is_not_exported() -> None:
 
 
 def test_module_docstring_does_not_advertise_get_logger() -> None:
-    """The module docstring must not advertise ``get_logger`` as the
-    canonical entry point, that would mislead readers into using a
-    function that doesn't exist."""
+    """function that doesn't exist."""
     assert "get_logger" not in (log_module.__doc__ or "")
 
 
-# ─── Worker log rotation race (Wave 3 Sub-agent 7) ───────────────────────
-#
-# The runtime-pack WebSocket worker (``voice_typer/worker/__main__.py``)
-# runs as a SEPARATE process alongside the slim-core sidecar.  Both used
-# to write to ``voice-typer.log``, a multi-process race on the
-# ``_SecureTruncatingFileHandler``'s in-place truncation rotation
-# (maxBytes=5 MiB, backupCount=0) that could lose data when both
-# processes rotated at once.  The fix routes the worker to its own
-# ``worker.log`` via ``process_name="worker"`` (mirroring the prewarm
-# case → ``prewarm.log``).  These tests pin the routing so a revert
-# re-introduces the race.
-
-
 def test_worker_log_file_is_separate_from_sidecar(tmp_path: Path) -> None:
-    """``process_name="worker"`` routes to ``worker.log``, NOT the
-    shared ``voice-typer.log``.
-
-    This is the core race-elimination invariant, if the worker and
-    the slim-core sidecar share ``voice-typer.log``, the
-    ``_SecureTruncatingFileHandler``'s in-place truncation rotation
-    can race (both processes stat >5 MiB, both truncate, data is
-    lost).  Routing the worker to its own file eliminates the race
-    because the two processes never share a file descriptor.
-
-    Reverting the ``"worker"`` case in :func:`get_log_file_path` makes
-    this test FAIL, the worker path would equal the sidecar path
-    (``voice-typer.log``) instead of ``worker.log``.
-    """
+    """shared ``voice-typer.log``."""
     config_dir = tmp_path / "cfg"
     config_dir.mkdir()
 
@@ -389,9 +284,6 @@ def test_worker_log_file_is_separate_from_sidecar(tmp_path: Path) -> None:
     assert worker_path == config_dir / "logs" / "worker.log", (
         f"regression: process_name='worker' must route to worker.log, got {worker_path}"
     )
-    # 2) The sidecar (explicit "voice-typer" or default "main") still
-    #    routes to voice-typer.log, the routing fix must not break the
-    #    existing sidecar path.
     assert sidecar_path == config_dir / "logs" / "voice-typer.log", (
         f"regression: process_name='voice-typer' must route to voice-typer.log, got {sidecar_path}"
     )
@@ -406,17 +298,7 @@ def test_worker_log_file_is_separate_from_sidecar(tmp_path: Path) -> None:
 
 
 def test_worker_setup_logging_writes_to_worker_log_file(tmp_path: Path) -> None:
-    """End-to-end: ``setup_logging(config_dir, process_name="worker")``
-    actually writes log records to ``worker.log`` on disk, and does
-    NOT touch the shared ``voice-typer.log``.
-
-    Pins the full pipeline (``setup_logging`` → ``get_log_file_path``
-    → ``_SecureTruncatingFileHandler`` → file on disk) so a revert
-    that breaks the routing at any layer is caught.  A revert that
-    removes the ``"worker"`` case from ``get_log_file_path`` would
-    cause this test to FAIL: the worker's log line would land in
-    ``voice-typer.log`` instead of ``worker.log``.
-    """
+    """End-to-end: ``setup_logging(config_dir, process_name=\"worker\")``"""
     reset()
     config_dir = tmp_path / "cfg"
     config_dir.mkdir()

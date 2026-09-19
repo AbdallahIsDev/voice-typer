@@ -1,13 +1,4 @@
-"""IPC run-loop tests (stdin/stdout) and TCP accept-loop / end-to-end coverage.
-
-Classes:
-- TestRunLoop              , basic stdin/stdout dispatch loop
-- TestRunLoopRestartQuit   , restart/quit ack ordering inside the loop
-- TestStopUnblocksAcceptLoop, NEW-IPC-001 stop() must unblock accept()
-- TestEndToEndHappyPath    , TEST-002 multi-command roundtrip
-
-Split out from the original monolithic tests/test_server.py (DT-37, Phase 4.5).
-"""
+"""IPC run-loop tests (stdin/stdout) and TCP accept-loop / end-to-end coverage."""
 
 import io
 import json
@@ -32,7 +23,6 @@ class TestRunLoop:
         lines = output.strip().split("\n")
         assert len(lines) == 1
         msg = json.loads(lines[0])
-        # get_status now returns a dict with xruns_since_start.
         assert msg["id"] == 1
         assert msg["type"] == "status"
         assert msg["data"]["status"] == "idle"
@@ -49,12 +39,10 @@ class TestRunLoop:
         lines = stdout.getvalue().strip().split("\n")
         assert len(lines) == 3
         msg1 = json.loads(lines[0])
-        # get_status now returns a dict with xruns_since_start.
         assert msg1["id"] == 1
         assert msg1["type"] == "status"
         assert msg1["data"]["status"] == "idle"
         msg2 = json.loads(lines[1])
-        # ack responses now include ``data: {}``.
         assert msg2 == {"id": 2, "type": "ack", "data": {}}
         msg3 = json.loads(lines[2])
         assert msg3["id"] == 3
@@ -98,7 +86,6 @@ class TestRunLoopRestartQuit:
         result = server._dispatch({"id": 1, "type": "restart_app"})
 
         assert result is None
-        # ack now includes explicit ``data: {}``.
         server._send.assert_called_once_with({"id": 1, "type": "ack", "data": {}})
         assert mock_app.restart_called is True
 
@@ -109,7 +96,6 @@ class TestRunLoopRestartQuit:
         result = server._dispatch({"id": 1, "type": "quit_app"})
 
         assert result is None
-        # ack now includes explicit ``data: {}``.
         server._send.assert_called_once_with({"id": 1, "type": "ack", "data": {}})
         assert mock_app.quit_called is True
 

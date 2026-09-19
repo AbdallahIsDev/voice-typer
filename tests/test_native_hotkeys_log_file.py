@@ -1,26 +1,4 @@
-"""Tests for the ``--log-file`` wiring in the native hotkey spawn command.
-
-All three native key-listener binaries (linux / windows / macos) parse a
-``--log-file <path>`` flag and append timestamped diagnostic lines (init
-steps, permission checks, device opens, hook installation) to that file.
-``_SpawnMixin._spawn_process`` resolves the stable per-backend log path
-via ``_compute_native_log_path`` (memoised, ``<config_dir>/logs/
-native-<backend>.log``, no PID) and appends ``["--log-file", path]`` to
-the spawn command. The wiring is error-tolerant: when the path cannot be
-resolved (no home, read-only home) (or its computation raises) the
-binary is spawned WITHOUT the flag rather than failing the spawn.
-Legacy per-PID files (``native-<backend>-<pid>.log``, one per launch
-under the old naming) are swept best-effort on first resolve.
-
-These tests pin:
-  1. the spawn command includes ``--log-file <resolved path>`` after the
-     hotkey spec;
-  2. the flag is omitted when the log path is unresolvable;
-  3. an unexpected exception in the path computation does NOT break the
-     spawn (spawn proceeds without the flag);
-  4. the memoised path is reused across respawns (same flag value);
-  5. the stable name carries no PID and legacy per-PID orphans are swept.
-"""
+"""Tests for the ``--log-file`` wiring in the native hotkey spawn command."""
 
 from __future__ import annotations
 
@@ -48,9 +26,7 @@ def _fake_binary(tmp_path: Path) -> Path:
 
 
 def _patch_binary_path(monkeypatch: pytest.MonkeyPatch, fake_bin: Path | None) -> None:
-    """Patch both the binary_path module AND the base module's
-    ``get_native_binary_path`` binding (the base module imports it via
-    ``from .binary_path import get_native_binary_path``)."""
+    """Patch both the binary_path module AND the base module's"""
     monkeypatch.setattr(
         "voice_typer.server.native_hotkeys.binary_path.get_native_binary_path",
         lambda: fake_bin,
@@ -62,9 +38,7 @@ def _patch_binary_path(monkeypatch: pytest.MonkeyPatch, fake_bin: Path | None) -
 
 
 def _patch_verify_ok(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Make the SHA-256 gate pass. ``_spawn_process`` imports the
-    verifier LOCALLY from ``binary_path``, so the module attribute (not
-    the package attribute) is the binding that must be patched."""
+    """verifier LOCALLY from ``binary_path``, so the module attribute (not"""
     monkeypatch.setattr(
         "voice_typer.server.native_hotkeys.binary_path.verify_native_binary_or_skip",
         lambda _p: True,
@@ -112,8 +86,6 @@ class TestSpawnCommandIncludesLogFile:
         assert cmd[2:] == ["--log-file", str(expected_log)], (
             f"spawn command must append --log-file with the resolved path; got {cmd!r}"
         )
-        # The log directory is created eagerly so the binary can open the
-        # file with fopen("a") on startup.
         assert expected_log.parent.is_dir()
         assert b._native_log_path == expected_log
 
@@ -143,9 +115,7 @@ class TestSpawnCommandIncludesLogFile:
     def test_path_computation_failure_does_not_break_spawn(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
-        """Diagnostics must never block the hotkey: an unexpected
-        exception from the path computation is logged at debug level and
-        the spawn proceeds WITHOUT the flag."""
+        """Diagnostics must never block the hotkey: an unexpected"""
         _setup_linux(monkeypatch)
         fake_bin = _fake_binary(tmp_path)
         _patch_binary_path(monkeypatch, fake_bin)
@@ -169,9 +139,7 @@ class TestSpawnCommandIncludesLogFile:
     def test_memoised_path_reused_across_respawns(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, request
     ) -> None:
-        """The watchdog respawns via ``stop()`` + ``start()`` →
-        ``_spawn_process()``; the memoised path keeps every respawn of
-        one backend appending to the same log file."""
+        """The watchdog respawns via ``stop()`` + ``start()`` →"""
         _setup_linux(monkeypatch)
         fake_bin = _fake_binary(tmp_path)
         _patch_binary_path(monkeypatch, fake_bin)
@@ -207,8 +175,7 @@ class TestSpawnCommandIncludesLogFile:
 
 class TestStableNameAndLegacySweep:
     def test_stable_name_has_no_pid(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, request) -> None:
-        """The stable name is ``native-<backend>.log`` with no PID suffix,
-        so restarts reuse one file instead of accumulating one per launch."""
+        """The stable name is ``native-<backend>.log`` with no PID suffix,"""
         _setup_linux(monkeypatch)
         from voice_typer.server.config_internals import paths as _paths_mod
         from voice_typer.server.native_hotkeys import _spawn as _spawn_mod
@@ -228,8 +195,7 @@ class TestStableNameAndLegacySweep:
         assert path.name == "native-linux.log"
 
     def test_legacy_per_pid_orphans_swept(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, request) -> None:
-        """Legacy ``native-<backend>-<pid>.log`` files in the canonical
-        logs dir are deleted on first resolve; the stable file survives."""
+        """Legacy ``native-<backend>-<pid>.log`` files in the canonical"""
         _setup_linux(monkeypatch)
         from voice_typer.server.config_internals import paths as _paths_mod
         from voice_typer.server.native_hotkeys import _spawn as _spawn_mod

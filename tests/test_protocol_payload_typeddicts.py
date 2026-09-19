@@ -1,14 +1,4 @@
-"""Payload-shape contracts for the typed service-surface annotations.
-
-These tests pin the TypedDict contracts introduced to replace the bare
-``dict`` / ``list`` annotations on the config side-effect surface
-(``config_applier.py``) and the list-returning service methods
-(``providers.py`` :class:`ServiceProtocol`). Each test drives the REAL
-producer (or its projection seam) and asserts the runtime payload keys
-match the TypedDict field names, so a producer-side shape change fails
-here and forces the contract type to be updated in lockstep, instead of
-silently drifting away from the annotation.
-"""
+"""Payload-shape contracts for the typed service-surface annotations."""
 
 from __future__ import annotations
 
@@ -34,12 +24,7 @@ from voice_typer.server.providers import (
 
 @pytest.fixture
 def fake_app() -> MagicMock:
-    """Minimal VoiceTyperApp double for the config side-effect dispatch.
-
-    Everything is auto-mocked; the sync handlers are additionally
-    monkeypatched per-test (the ``startup_tasks`` module does real
-    platform calls in production: see the handler docstrings).
-    """
+    """Minimal VoiceTyperApp double for the config side-effect dispatch."""
     app = MagicMock()
     app.config.autostart = False
     app.config.hotkey = "<f2>"
@@ -48,13 +33,9 @@ def fake_app() -> MagicMock:
     return app
 
 
-# ── SideEffectStatus (config_applier) ────────────────────────────────
-
-
 class TestSideEffectStatus:
     def test_dispatch_result_keys_match_typeddict(self, fake_app: MagicMock, monkeypatch: pytest.MonkeyPatch) -> None:
-        """``ConfigApplier.apply_config_side_effects`` accumulates a dict
-        whose keys are exactly the ``SideEffectStatus`` fields."""
+        """``ConfigApplier.apply_config_side_effects`` accumulates a dict"""
         from voice_typer.server import startup_tasks
 
         monkeypatch.setattr(
@@ -76,9 +57,7 @@ class TestSideEffectStatus:
         assert result["prewarm_status"] == {"registered": False, "error": "stub"}
 
     def test_sync_failure_fallback_keeps_shape(self, fake_app: MagicMock, monkeypatch: pytest.MonkeyPatch) -> None:
-        """When a sync raises, the handler's failure fallback still
-        populates the SAME key set with a ``registered``/``error`` dict —
-        the status shape never widens on the error path."""
+        """When a sync raises, the handler's failure fallback still"""
 
         def _boom(app: Any) -> dict:
             raise RuntimeError("sync exploded")
@@ -98,9 +77,7 @@ class TestSideEffectStatus:
     def test_apply_config_propagates_side_effect_status(
         self, fake_app: MagicMock, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """``ConfigApplier.apply_config`` returns the status dict captured
-        from ``apply_config_side_effects`` verbatim (early-raise safety:
-        the all-None initializer keeps the return shape stable)."""
+        """``ConfigApplier.apply_config`` returns the status dict captured"""
         sentinel: SideEffectStatus = {
             "autostart_status": {"registered": True, "error": None},
             "prewarm_status": None,
@@ -113,13 +90,6 @@ class TestSideEffectStatus:
         assert set(result) == set(SideEffectStatus.__annotations__)
 
 
-# ── HistoryEntry (providers) ─────────────────────────────────────────
-
-# The column list mirrors the SELECT statements in
-# ``history_db_internals/search.py`` (get_recent / search / get_favorites
-# share it). ``project_text_row`` is the projection seam every one of the
-# three list methods runs each row through, pinning its output keys pins
-# the dict the service layer hands to the IPC layer.
 _HISTORY_SELECT_COLUMNS = [
     "id",
     "text",
@@ -154,9 +124,7 @@ class TestHistoryEntry:
         assert "text_is_encrypted" not in projected
 
     def test_service_protocol_annotations_are_typed(self) -> None:
-        """The protocol methods now declare element-typed lists instead of
-        bare ``list`` (annotations are strings under
-        ``from __future__ import annotations``)."""
+        """bare ``list`` (annotations are strings under"""
         for method in ("get_history", "search_history", "get_favorites"):
             ann = getattr(ServiceProtocol, method).__annotations__["return"]
             assert ann == "list[HistoryEntry]", (
@@ -164,13 +132,9 @@ class TestHistoryEntry:
             )
 
 
-# ── MicrophoneEntry (providers) ──────────────────────────────────────
-
-
 class TestMicrophoneEntry:
     def test_enumerated_device_keys_match_typeddict(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Drive the real PortAudio enumeration with a fake sounddevice
-        module and pin the device-dict keys to ``MicrophoneEntry``."""
+        """Drive the real PortAudio enumeration with a fake sounddevice"""
         from voice_typer.server.server_platform import microphone_list
 
         def query_devices(kind: str | None = None) -> Any:
@@ -189,15 +153,11 @@ class TestMicrophoneEntry:
         def query_hostapis() -> list[dict]:
             return [{"name": "ALSA", "default_input_device": 5}]
 
-        # MagicMock (not types.ModuleType + attribute assignment, which
-        # pyrefly 1.1.1 flags), same pattern as the ws mic-population
-        # tests' fake sounddevice.
         fake_sd = MagicMock()
         fake_sd.query_devices = query_devices
         fake_sd.query_hostapis = query_hostapis
         monkeypatch.setitem(sys.modules, "sounddevice", fake_sd)
         # Module-identity check in the TTL cache treats the swapped
-        # module as stale, plus an explicit invalidation for determinism.
         monkeypatch.setattr(microphone_list, "_LIST_MICS_CACHE", None)
         mics = microphone_list.list_microphones()
         assert mics, "fake sounddevice should yield one input device"
@@ -216,13 +176,9 @@ class TestMicrophoneEntry:
             )
 
 
-# ── TemplateEntry (providers) ────────────────────────────────────────
-
-
 class TestTemplateEntry:
     def test_service_projection_keys_match_typeddict(self) -> None:
-        """``TemplateMixin.get_templates`` strips internal fields and
-        returns exactly the three TemplateEntry keys."""
+        """``TemplateMixin.get_templates`` strips internal fields and"""
         from voice_typer.server.service.template import TemplateMixin
 
         app = MagicMock()
@@ -238,7 +194,6 @@ class TestTemplateEntry:
         )
         mixin = TemplateMixin.__new__(TemplateMixin)
         # ``_app`` is provided by ``ServiceMixinBase`` in production;
-        # injected directly on the bare instance for this test.
         mixin._app = app
         entries = mixin.get_templates()
         assert entries, "one template in -> one entry out"

@@ -1,28 +1,10 @@
-"""Regression tests for ADR-0010 §10.3.
-
-These tests pin behavior that previously regressed (or could regress)
-across the ADR-0010 migration:
-
-* ``copy()`` still writes the text to the clipboard (the new return
-  type is ``ClipboardSnapshot | None``, but the side effect of putting
-  the text on the clipboard is unchanged).
-* ``paste()`` still sends a paste keystroke when not rate-limited or
-  gated.
-* Config validation: ``clipboard_save_restore`` and
-  ``clipboard_restore_delay_ms`` are accepted by
-  ``validate_config_update`` (ADR-0010 §2.11).
-* ``HistoryDB.get_latest_text()`` orders by ``id DESC`` and returns
-  ``""`` for an empty DB or on read failure.
-"""
+"""Regression tests for ADR-0010 §10.3."""
 
 from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
 import pytest
-
-# pynput / pynput.keyboard / pyperclip are mocked at collection time by
-# tests/clipboard/conftest.py (single source of truth, dedup).
 from voice_typer.server import clipboard as clip_mod  # noqa: E402
 from voice_typer.server.clipboard import ClipboardManager  # noqa: E402
 from voice_typer.server.clipboard_snapshot import ClipboardSnapshot  # noqa: E402
@@ -31,18 +13,6 @@ from voice_typer.server.config_validators import (  # noqa: E402
     validate_config_update,
 )
 from voice_typer.server.history_db import HistoryDB  # noqa: E402
-
-# ---------------------------------------------------------------------------
-# Display-env isolation
-# ---------------------------------------------------------------------------
-# Previously this module mutated the process environment at import time
-# (setting DISPLAY=":99" and removing WAYLAND_DISPLAY) to keep clipboard
-# code happy on a headless Linux box. Those mutations leaked into the
-# entire test session. The autouse fixture below uses ``monkeypatch`` so
-# the mutations are auto-restored after each test (no cross-test leak).
-# could consolidate this into ``tests/conftest.py`` as a
-# session-scoped fixture; for now it is duplicated per-file because
-# conftest.py is owned by another sub-agent.
 
 
 @pytest.fixture(autouse=True)
@@ -53,19 +23,8 @@ def _mock_display_env(monkeypatch):
     yield
 
 
-# ---------------------------------------------------------------------------
-# ClipboardManager.copy, regression: still writes text to clipboard
-# ---------------------------------------------------------------------------
-
-
 class TestCopyWritesText:
-    """``copy()`` still writes the text to the clipboard.
-
-    ADR-0010 §5.2 changed the return type to ``ClipboardSnapshot | None``
-    but the *side effect* (text on the clipboard) is unchanged. This
-    guards against a future refactor that drops the pyperclip.copy()
-    call entirely.
-    """
+    """``copy()`` still writes the text to the clipboard."""
 
     def test_copy_still_writes_text_to_clipboard(self):
         cm = ClipboardManager.__new__(ClipboardManager)
@@ -84,13 +43,7 @@ class TestCopyWritesText:
             patch.object(ClipboardSnapshot, "capture", return_value=None),
         ):
             cm.copy("hello world")
-        # pyperclip.copy MUST have been called with the text.
         mock_pyper.copy.assert_any_call("hello world")
-
-
-# ---------------------------------------------------------------------------
-# ClipboardManager.paste, regression: still sends a paste keystroke
-# ---------------------------------------------------------------------------
 
 
 class TestPasteSendsKeystroke:
@@ -107,8 +60,6 @@ class TestPasteSendsKeystroke:
         cm._restore_delay_ms = 150
 
         # On Linux (is_windows=False) with a mocked _Controller, paste()
-        # routes through _safe_key_press(_Key.ctrl, "v"). Patch _Key and
-        # _Controller so the early-return guard doesn't fire.
         with (
             patch.object(clip_mod, "is_windows", return_value=False),
             patch.object(clip_mod, "is_macos", return_value=False),
@@ -136,20 +87,10 @@ class TestPasteSendsKeystroke:
         cm._keyboard.press.assert_any_call("v")
 
 
-# ---------------------------------------------------------------------------
-# Config validation, ADR-0010 §2.11 (IPC_CONFIG_ALLOWLIST additions)
-# ---------------------------------------------------------------------------
-
-
 class TestClipboardConfigValidation:
-    """Config validation accepts the new clipboard keys.
-
-    ADR-0010 §2.11: ``clipboard_save_restore`` and
-    ``clipboard_restore_delay_ms`` MUST be in ``IPC_CONFIG_ALLOWLIST``
-    so the renderer can toggle them via IPC. These tests are marked
+    """
+    Config validation accepts the new clipboard keys.
     ``xfail`` until the primary agent adds the entries, the tests
-    document the expected behavior and will start passing once the
-    production allowlist is updated.
     """
 
     @pytest.mark.xfail(
@@ -187,8 +128,6 @@ class TestClipboardConfigValidation:
     def test_clipboard_restore_delay_ms_rejects_out_of_range(self):
         """An out-of-range restore delay is rejected by the validator."""
         # The validator should reject 999999 (well above the documented
-        # upper bound). Once the primary agent adds the entry with a
-        # bounded int validator, this test will pass.
         validated, errors = validate_config_update(
             {
                 "clipboard_restore_delay_ms": 999999,
@@ -198,22 +137,8 @@ class TestClipboardConfigValidation:
         assert "clipboard_restore_delay_ms" not in validated
 
 
-# ---------------------------------------------------------------------------
-# HistoryDB.get_latest_text, ADR-0010 §8.1 / DP6
-# ---------------------------------------------------------------------------
-
-
 class TestGetLatestText:
-    """``HistoryDB.get_latest_text`` returns the most-recent transcription.
-
-    ADR-0010 §8.1: ``repaste_last()`` now reads from
-    ``history_db.get_latest_text()`` (primary) with an in-memory
-    fallback. This pins the contract:
-      * orders by ``id DESC`` (the autoincrement PK), not ``timestamp``
-        (which can tie within the same second).
-      * returns ``""`` for an empty DB.
-      * returns ``""`` on read failure (best-effort, never raises).
-    """
+    """``HistoryDB.get_latest_text`` returns the most-recent transcription."""
 
     def test_get_latest_text_orders_by_id(self, tmp_path):
         db = HistoryDB(db_path=tmp_path / "history.db")
@@ -234,11 +159,7 @@ class TestGetLatestText:
             db.close()
 
     def test_get_latest_text_fallback_on_exception(self, tmp_path):
-        """If _get_read_conn raises, get_latest_text returns "".
-
-          ADR-0010 §8.1: the method is best-effort and must NEVER raise
-        , a read failure degrades gracefully to "".
-        """
+        """If _get_read_conn raises, get_latest_text returns \"\"."""
         db = HistoryDB(db_path=tmp_path / "history.db")
         try:
             db.add_transcription("first")

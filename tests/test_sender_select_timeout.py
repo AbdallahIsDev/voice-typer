@@ -1,24 +1,4 @@
-"""Tests for the select-based write-timeout in ``sender._send``.
-
-Replaces the previous per-write ``gettimeout`` / ``settimeout`` / restore
-dance (4-5 socket syscalls per push) with a single ``select.select`` call
-before each ``sendall``. These tests verify:
-
-1. ``_send`` calls ``select.select([], [conn], [], _TCP_WRITE_TIMEOUT_SECONDS)``
-   BEFORE ``sendall``.
-2. ``_send`` does NOT call ``gettimeout`` / ``settimeout`` (the old dance).
-3. ``_await_socket_writable`` raises ``socket.timeout`` when ``select``
-   returns empty (write would block).
-4. ``_send`` handles the timeout (client marked dead, ``sendall`` not
-   called, pending re-merged) when ``select`` returns empty.
-5. ``_send`` calls ``sendall`` when ``select`` returns the socket as ready.
-
-NOTE: ``_await_socket_writable`` cross-checks with ``select.poll`` when
-``select.select`` returns empty (some sandboxed Linux environments have a
-broken ``select`` syscall for writable fds). Tests that simulate the
-"not writable" case must mock BOTH ``select.select`` (returns empty) and
-``select.poll`` (returns empty) so the cross-check also reports not-writable.
-"""
+"""Tests for the select-based write-timeout in ``sender._send``."""
 
 from __future__ import annotations
 
@@ -34,21 +14,12 @@ from tests.fixtures.ipc_test_helpers import make_bare_ipc_server, make_buffered_
 
 
 def _make_server() -> IPCServer:
-    """Canonical bare send-path IPCServer fixture for ``_send`` tests.
-
-    ``send_path=True`` initializes exactly the instance state
-    ``_send`` touches (locks, ``_PendingBuffer`` pending queue, TCP
-    mode flags) without running ``__init__`` (no threads / sockets).
-    """
+    """Canonical bare send-path IPCServer fixture for ``_send`` tests."""
     return make_bare_ipc_server(send_path=True)
 
 
 def _patch_select_not_writable() -> tuple[patch, MagicMock]:
-    """Patch ``sender.select`` so BOTH ``select.select`` and
-    ``select.poll`` report the socket as NOT writable (timeout path).
-
-    Returns ``(patch_obj, mock_module)`` so the test can inspect calls.
-    """
+    """``select.poll`` report the socket as NOT writable (timeout path)."""
     mock_mod = MagicMock()
     mock_mod.select.return_value = ([], [], [])
     # Configure the poll cross-check to also return empty (not writable).
@@ -59,14 +30,8 @@ def _patch_select_not_writable() -> tuple[patch, MagicMock]:
     return patch.object(sender_module, "select", mock_mod), mock_mod
 
 
-# ── 1. _send calls select.select BEFORE sendall ───────────────────────
-
-
 def test_send_calls_select_before_sendall() -> None:
-    """``_send`` must call ``select.select([], [conn], [], timeout)``
-    BEFORE ``sendall``, the select establishes write-readiness so the
-    subsequent ``sendall`` won't block indefinitely on a stalled
-    renderer (NEW-CONC-003)."""
+    """``_send`` must call ``select.select([], [conn], [], timeout)``"""
     server = _make_server()
     tcp_client = make_buffered_mock_tcp_client()
     server._tcp_client = tcp_client
@@ -92,7 +57,6 @@ def test_send_calls_select_before_sendall() -> None:
     with patch.object(sender_module, "select", mock_mod):
         server._send({"type": "test_event", "id": 1})
 
-    # select.select was called with the expected args.
     assert len(select_calls) >= 1, "select.select must be called at least once before sendall"
     rlist, wlist, xlist, timeout = select_calls[0]
     assert rlist == [], "select.select readable list must be empty"
@@ -102,7 +66,6 @@ def test_send_calls_select_before_sendall() -> None:
         f"select.select timeout must be _TCP_WRITE_TIMEOUT_SECONDS ({_TCP_WRITE_TIMEOUT_SECONDS}), got {timeout}"
     )
 
-    # select must be called BEFORE sendall.
     assert "select" in call_order, "select.select was not called"
     assert "sendall" in call_order, "sendall was not called"
     sel_idx = call_order.index("select")
@@ -110,13 +73,8 @@ def test_send_calls_select_before_sendall() -> None:
     assert sel_idx < send_idx, f"select.select must be called BEFORE sendall; got order {call_order}"
 
 
-# ── 2. _send does NOT call gettimeout / settimeout ────────────────────
-
-
 def test_send_does_not_call_gettimeout_or_settimeout() -> None:
-    """``_send`` must NOT call ``gettimeout`` or ``settimeout`` on the
-    socket, the select-based approach never mutates the socket's timeout
-    attribute, eliminating the 4-5 syscall per-write dance."""
+    """socket, the select-based approach never mutates the socket's timeout"""
     server = _make_server()
     tcp_client = make_buffered_mock_tcp_client()
     server._tcp_client = tcp_client
@@ -136,13 +94,7 @@ def test_send_does_not_call_gettimeout_or_settimeout() -> None:
 
 
 def test_await_socket_writable_raises_timeout_when_select_empty() -> None:
-    """When ``select.select`` returns an empty writable list (the socket
-    is not writable within the timeout), ``_await_socket_writable`` must
-    raise ``socket.timeout`` (NEW-CONC-003: stalled renderer can't block
-    the worker indefinitely).
-
-    Both ``select.select`` and the ``select.poll`` cross-check must
-    return empty for the timeout to fire."""
+    """When ``select.select`` returns an empty writable list (the socket"""
     fake_conn = MagicMock()
 
     patch_obj, mock_mod = _patch_select_not_writable()
@@ -153,15 +105,11 @@ def test_await_socket_writable_raises_timeout_when_select_empty() -> None:
     mock_mod.select.assert_called_once_with([], [fake_conn], [], _TCP_WRITE_TIMEOUT_SECONDS)
 
 
-# ── 4. _send handles timeout when select returns empty ───────────────
-
-
 def test_send_handles_timeout_when_select_returns_empty() -> None:
-    """When ``select.select`` returns empty (socket not writable),
+    """
+    When ``select.select`` returns empty (socket not writable),
     ``_send`` must NOT call ``sendall`` and must mark the client dead
-    (the ``socket.timeout`` raised by ``_await_socket_writable`` is
-    caught by the ``except (TimeoutError, OSError)`` block → dead-client
-    path). Pending entries must be re-merged (CR-79 contract)."""
+    """
     server = _make_server()
     tcp_client = make_buffered_mock_tcp_client()
     server._tcp_client = tcp_client
@@ -170,16 +118,12 @@ def test_send_handles_timeout_when_select_returns_empty() -> None:
 
     patch_obj, _mock_mod = _patch_select_not_writable()
     with patch_obj:
-        # _send catches the socket.timeout internally and marks the client
-        # dead, it does NOT re-raise to the caller.
         server._send({"type": "test_event", "id": 1})
 
     # sendall must NOT have been called, select said not writable, so
-    # the write path was never reached.
     tcp_client.conn.sendall.assert_not_called()
 
     # Client must be marked dead (the timeout was caught and the dead-
-    # client path ran).
     assert server._tcp_client is None, (
         "_send must mark the client dead when select returns empty (socket.timeout caught → dead-client path)"
     )
@@ -190,13 +134,8 @@ def test_send_handles_timeout_when_select_returns_empty() -> None:
     )
 
 
-# ── 5. _send calls sendall when select returns ready ─────────────────
-
-
 def test_send_calls_sendall_when_select_returns_ready() -> None:
-    """When ``select.select`` returns the socket as writable, ``_send``
-    must proceed to call ``sendall`` (via ``tcp_client.flush``). The
-    client must stay alive (no error)."""
+    """When ``select.select`` returns the socket as writable, ``_send``"""
     server = _make_server()
     tcp_client = make_buffered_mock_tcp_client()
     server._tcp_client = tcp_client

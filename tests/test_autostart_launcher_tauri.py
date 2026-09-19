@@ -1,19 +1,4 @@
-"""Tests for the Tauri-aware autostart launcher.
-
-These tests pin the contract that ``autostart_launcher.py`` spawns the
-Tauri binary (``voice-typer-tauri``) instead of the legacy host launch
-command when a
-Tauri install is detected, without breaking the legacy predecessor path
-used by dev checkouts and pre-cutover installs.
-
-The Tauri cutover removed the predecessor ``node_modules/`` tree from
-production installs, so the legacy host-launch / ``npm run dev``
-paths silently fail in production. The launcher now detects the
-Tauri binary at well-known install paths (or via the
-``VT_TAURI_BINARY`` env override) and spawns it directly; Tauri's
-``tauri-plugin-single-instance`` plugin handles focus / fresh-start
-deduplication.
-"""
+"""Tests for the Tauri-aware autostart launcher."""
 
 import os
 import subprocess
@@ -33,10 +18,6 @@ from voice_typer.server.autostart_launcher import (
 
 
 # These tests exercise spawn *mechanics* (env, flags, fallback order)
-# with fake binary paths that cannot verify against the real
-# ``tauri-binaries.json``. The CR-002 integrity gate itself is tested
-# behaviorally in ``tests/test_tauri_binary_verify.py``, here we
-# bypass it so the spawn-mechanic assertions stay focused.
 @pytest.fixture(autouse=True)
 def _bypass_tauri_integrity_gate(monkeypatch):
     """Bypass ``verify_tauri_binary_or_skip`` for spawn-mechanic tests."""
@@ -46,22 +27,14 @@ def _bypass_tauri_integrity_gate(monkeypatch):
     )
 
 
-# ---------------------------------------------------------------------------
-# _tauri_binary()
-# ---------------------------------------------------------------------------
-
-
 class TestTauriBinaryLookup:
     """``_tauri_binary()`` locates the Tauri binary at known install paths."""
 
     def test_returns_none_when_no_env_and_no_install_paths(self, monkeypatch, tmp_path):
-        """With no env override and no binary at any standard install path,
-        ``_tauri_binary()`` must return ``None`` (the dev/CI case)."""
+        """With no env override and no binary at any standard install path,"""
         # Strip the env override.
         monkeypatch.delenv("VT_TAURI_BINARY", raising=False)
         # Redirect $HOME to a tmp dir so the user-local candidates
-        # (~/.local/bin/voice-typer-tauri, ~/Applications/...) don't
-        # accidentally match an existing file on the test box.
         monkeypatch.setenv("HOME", str(tmp_path))
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
         assert _tauri_binary() is None
@@ -78,8 +51,7 @@ class TestTauriBinaryLookup:
         assert _tauri_binary() == str(fake_bin)
 
     def test_returns_none_when_env_path_does_not_exist(self, monkeypatch, tmp_path):
-        """A non-existent env path is ignored, fall through to install-path
-        scan (which also finds nothing in the test env)."""
+        """A non-existent env path is ignored, fall through to install-path"""
         monkeypatch.setenv("VT_TAURI_BINARY", str(tmp_path / "nonexistent"))
         monkeypatch.setenv("HOME", str(tmp_path))
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
@@ -90,16 +62,12 @@ class TestTauriBinaryLookup:
         reason="Linux-only: verifies the /usr/bin/voice-typer-tauri install-path scan (POSIX-specific)",
     )
     def test_returns_path_from_install_paths_linux(self, monkeypatch, tmp_path):
-        """On Linux, the binary at ``/usr/bin/voice-typer-tauri`` is found
-        when the env override is unset."""
+        """On Linux, the binary at ``/usr/bin/voice-typer-tauri`` is found"""
         monkeypatch.delenv("VT_TAURI_BINARY", raising=False)
         monkeypatch.setenv("HOME", str(tmp_path))
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
 
         # Patch Path.is_file and os.access so we don't need to create
-        # an actual file at /usr/bin/voice-typer-tauri (which would
-        # require root). We patch the specific path string instead of
-        # the global Path.is_file to keep the test focused.
         real_is_file = Path.is_file
 
         def patched_is_file(self):
@@ -118,16 +86,13 @@ class TestTauriBinaryLookup:
         reason="POSIX-only: Windows has no executable bit, the os.access(X_OK) check has no equivalent on Win32",
     )
     def test_skips_non_executable_posix_candidate(self, monkeypatch, tmp_path):
-        """On POSIX, a non-executable file at an install path is skipped
-        , a stale non-executable artifact shouldn't fool the launcher."""
+        """On POSIX, a non-executable file at an install path is skipped"""
         stale = tmp_path / "stale-voice-typer-tauri"
         stale.write_text("not executable")
         stale.chmod(0o644)  # no execute bit
         monkeypatch.delenv("VT_TAURI_BINARY", raising=False)
         monkeypatch.setenv("VT_TAURI_BINARY", str(stale))
         # The env-override path uses Path.is_file (True) but not
-        # os.access, the env override is trusted. So this test
-        # instead patches the install-path scan path:
         monkeypatch.delenv("VT_TAURI_BINARY", raising=False)
         monkeypatch.setenv("HOME", str(tmp_path))
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
@@ -146,30 +111,18 @@ class TestTauriBinaryLookup:
         assert _tauri_binary() is None
 
 
-# ---------------------------------------------------------------------------
-# _is_tauri_mode()
-# ---------------------------------------------------------------------------
-
-
 class TestIsTauriMode:
-    """``_is_tauri_mode()`` decides whether to take the Tauri path.
-
-    predecessor is removed: Tauri mode is ON whenever the env opt-in is
-    set, the current executable is the Tauri host, or a Tauri binary
-    is found at a known install path.
-    """
+    """``_is_tauri_mode()`` decides whether to take the Tauri path."""
 
     def test_env_opt_in_forces_tauri_mode(self, monkeypatch):
-        """``VT_TAURI_AUTOSTART=1`` forces Tauri mode regardless of the
-        local Tauri binary state."""
+        """``VT_TAURI_AUTOSTART=1`` forces Tauri mode regardless of the"""
         monkeypatch.setenv("VT_TAURI_AUTOSTART", "1")
         # Even if no Tauri binary is resolvable, the env opt-in wins.
         monkeypatch.setattr("voice_typer.server.autostart_launcher._tauri_binary", lambda: None)
         assert _is_tauri_mode() is True
 
     def test_no_tauri_binary_returns_false(self, monkeypatch):
-        """Without a Tauri binary on disk (and no env/executable signal),
-        Tauri mode is OFF in the dev/CI case."""
+        """Without a Tauri binary on disk (and no env/executable signal),"""
         monkeypatch.delenv("VT_TAURI_AUTOSTART", raising=False)
         monkeypatch.delenv("VOICE_TYPER_TAURI", raising=False)
         monkeypatch.setattr("voice_typer.server.autostart_launcher._tauri_binary", lambda: None)
@@ -178,8 +131,7 @@ class TestIsTauriMode:
         assert _is_tauri_mode() is False
 
     def test_tauri_binary_returns_true(self, monkeypatch):
-        """A Tauri binary found at an install path is sufficient (no
-        predecessor-node_modules suppression remains)."""
+        """A Tauri binary found at an install path is sufficient (no"""
         monkeypatch.delenv("VT_TAURI_AUTOSTART", raising=False)
         monkeypatch.delenv("VOICE_TYPER_TAURI", raising=False)
         monkeypatch.setattr(sys, "executable", "C:/Python/python.exe")
@@ -198,17 +150,11 @@ class TestIsTauriMode:
         assert _is_tauri_mode() is True
 
 
-# ---------------------------------------------------------------------------
-# _launch_tauri_app()
-# ---------------------------------------------------------------------------
-
-
 class TestLaunchTauriApp:
     """``_launch_tauri_app()`` spawns the Tauri binary with the right env."""
 
     def test_spawns_tauri_binary_with_hidden_env(self, monkeypatch):
-        """When ``hidden=True``, ``VT_START_HIDDEN=1`` must be set in the
-        child env (matches the predecessor path's contract)."""
+        """When ``hidden=True``, ``VT_START_HIDDEN=1`` must be set in the"""
         captured = {}
 
         def fake_popen(cmd, env=None, **kwargs):
@@ -241,8 +187,7 @@ class TestLaunchTauriApp:
         assert captured["env"].get("VT_START_HIDDEN") is None
 
     def test_returns_none_on_spawn_failure(self, monkeypatch):
-        """A spawn failure (FileNotFoundError, OSError, etc.) is logged
-        and ``None`` is returned so the caller can fall back."""
+        """A spawn failure (FileNotFoundError, OSError, etc.) is logged"""
 
         def boom(cmd, env=None, **kwargs):
             raise FileNotFoundError("binary not found")
@@ -252,19 +197,11 @@ class TestLaunchTauriApp:
         assert result is None
 
 
-# ---------------------------------------------------------------------------
-# _focus_running_app(), Tauri path
-# ---------------------------------------------------------------------------
-
-
 class TestFocusRunningAppTauriPath:
-    """``_focus_running_app()`` spawns the Tauri binary with
-    ``VT_FOCUS_ONLY=1`` when in Tauri mode (Tauri's single-instance
-    plugin handles the focus + second-instance-quit dance)."""
+    """``VT_FOCUS_ONLY=1`` when in Tauri mode (Tauri's single-instance"""
 
     def test_uses_tauri_path_when_in_tauri_mode(self, monkeypatch):
-        """When ``_is_tauri_mode()`` is True, the Tauri binary is spawned
-        with ``VT_FOCUS_ONLY=1`` in the env (NOT the predecessor lean spawn)."""
+        """When ``_is_tauri_mode()`` is True, the Tauri binary is spawned"""
         monkeypatch.setattr("voice_typer.server.autostart_launcher._is_tauri_mode", lambda: True)
         monkeypatch.setattr(
             "voice_typer.server.autostart_launcher._tauri_binary",
@@ -285,16 +222,13 @@ class TestFocusRunningAppTauriPath:
         assert captured["env"].get("VT_FOCUS_ONLY") == "1"
 
     def test_returns_false_when_tauri_mode_but_no_binary(self, monkeypatch):
-        """If ``_is_tauri_mode()`` is True but ``_tauri_binary()`` returns
-        None (race: binary was removed between detection and spawn),
-        return False so the caller can decide what to do."""
+        """If ``_is_tauri_mode()`` is True but ``_tauri_binary()`` returns"""
         monkeypatch.setattr("voice_typer.server.autostart_launcher._is_tauri_mode", lambda: True)
         monkeypatch.setattr("voice_typer.server.autostart_launcher._tauri_binary", lambda: None)
         assert _focus_running_app() is False
 
     def test_returns_false_on_tauri_spawn_failure(self, monkeypatch):
-        """If the Tauri focus spawn raises, return False (no exception
-        propagation, the caller's launch flow continues)."""
+        """If the Tauri focus spawn raises, return False (no exception"""
         monkeypatch.setattr("voice_typer.server.autostart_launcher._is_tauri_mode", lambda: True)
         monkeypatch.setattr(
             "voice_typer.server.autostart_launcher._tauri_binary",
@@ -308,19 +242,11 @@ class TestFocusRunningAppTauriPath:
         assert _focus_running_app() is False
 
 
-# ---------------------------------------------------------------------------
-# launch(), Tauri fresh-start path
-# ---------------------------------------------------------------------------
-
-
 class TestLaunchTauriFreshStart:
-    """``launch()`` spawns the Tauri binary on a fresh start when in
-    Tauri mode, instead of falling through to the legacy host launch /
-    ``npm run dev``."""
+    """Tauri mode, instead of falling through to the legacy host launch /"""
 
     def test_tauri_mode_spawns_tauri_binary_with_hidden(self, monkeypatch):
-        """Fresh start in Tauri mode: spawn the Tauri binary with
-        ``VT_START_HIDDEN=1`` when ``--hidden`` is in argv."""
+        """Fresh start in Tauri mode: spawn the Tauri binary with"""
         # Bypass the "already running" check.
         monkeypatch.setattr(
             "voice_typer.server.autostart_launcher._is_port_open",
@@ -336,10 +262,6 @@ class TestLaunchTauriFreshStart:
         monkeypatch.setattr("voice_typer.server.autostart_launcher._write_pid_file", lambda lp, cp: None)
         monkeypatch.setattr(time, "sleep", lambda s: None)
 
-        # Bypass the backend-pid-file probe, the test box may have a
-        # stale PID file from a previous test.
-        # Patch the OWNING module (the runtime-neutral PID-file leaf)
-        # , the launcher resolves the helper through it at call time.
         from voice_typer.server import backend_pid as _backend_pid_mod
 
         class _FakePidFile:
@@ -366,8 +288,7 @@ class TestLaunchTauriFreshStart:
         assert captured["env"].get("VT_START_HIDDEN") == "1"
 
     def test_tauri_mode_exits_one_when_spawn_fails(self, monkeypatch):
-        """If the Tauri spawn fails, the launcher exits 1. There is no
-        predecessor fallback (predecessor launch path removed)."""
+        """If the Tauri spawn fails, the launcher exits 1. There is no"""
         monkeypatch.setattr(
             "voice_typer.server.autostart_launcher._is_port_open",
             lambda h, p: False,
@@ -382,7 +303,6 @@ class TestLaunchTauriFreshStart:
         monkeypatch.setattr(time, "sleep", lambda s: None)
 
         # Patch the OWNING module (the runtime-neutral PID-file leaf)
-        # — the launcher resolves the helper through it at call time.
         from voice_typer.server import backend_pid as _backend_pid_mod
 
         class _FakePidFile:
@@ -402,14 +322,8 @@ class TestLaunchTauriFreshStart:
         assert ret == 1
 
 
-# ---------------------------------------------------------------------------
-# launch(), exits 1 when not in Tauri mode
-# ---------------------------------------------------------------------------
-
-
 class TestLaunchWithoutTauriModeExitsOne:
-    """When ``_is_tauri_mode()`` is False and no Tauri binary is
-    resolvable, the launcher exits 1 (predecessor path removed)."""
+    """When ``_is_tauri_mode()`` is False and no Tauri binary is"""
 
     def test_no_tauri_mode_exits_one(self, monkeypatch):
         monkeypatch.setattr(
@@ -434,21 +348,8 @@ class TestLaunchWithoutTauriModeExitsOne:
         assert ret == 1
 
 
-# ---------------------------------------------------------------------------
-# launch(), already-running focus path (no fixed pre-exit sleep)
-# ---------------------------------------------------------------------------
-
-
 class TestLaunchAlreadyRunningFocus:
-    """When the backend is already running, ``launch()`` focuses the
-    existing instance and returns WITHOUT a fixed pre-exit sleep.
-
-    The 0.5s ``time.sleep(0.5)`` previously ran on every autostart login
-    with a prewarmed backend, the OS waits for the launcher to exit
-    before considering login complete, so the sleep delayed every login
-    for no functional reason (the focus child is spawned detached and
-    never waited on).
-    """
+    """existing instance and returns WITHOUT a fixed pre-exit sleep."""
 
     def test_focus_path_returns_without_sleep(self, monkeypatch):
         pid_file = (

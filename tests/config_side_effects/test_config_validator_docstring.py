@@ -1,9 +1,4 @@
-"""Tests for ``Config._validate_non_numeric_fields`` clarifying docstring.
-
-Split out of the former ``tests/test_history_and_models.py`` catch-all.
-Verbatim mechanical move, same test names +
-assertions, only the file location changed.
-"""
+"""Tests for ``Config._validate_non_numeric_fields`` clarifying docstring."""
 
 from __future__ import annotations
 

@@ -1,21 +1,4 @@
-"""TY-20: tests for ``HistoryDB.get_history_count`` + cache invalidation.
-
-Verifies that:
-- ``get_history_count()`` returns the correct total row count.
-- The 60s TTL cache returns the same value within the cache window
-  without re-running ``SELECT COUNT(*)``.
-- The cache is invalidated immediately on ``delete`` / ``clear_all``
-  / ``restore`` / ``apply_retention``, explicit user actions that
-  change the row count by more than 1.
-- ``add_transcription`` does NOT invalidate the cache (fire-and-forget
-  writes; a 60s-stale-by-N count is fine for a "Total Dictations"
-  stat card).
-
-The Dashboard previously used ``get_history({limit: 200})`` for the
-"Total Dictations" stat, once the user had > 200 dictations, the
-stat capped at 200 forever. The new ``get_history_count`` IPC runs
-``SELECT COUNT(*) FROM transcriptions`` (cached for 60s).
-"""
+"""TY-20: tests for ``HistoryDB.get_history_count`` + cache invalidation."""
 
 from __future__ import annotations
 
@@ -84,7 +67,6 @@ class TestGetHistoryCount:
         for i in range(10):
             db.add_transcription(f"dictation {i}")
         db.flush()
-        # max_entries=5 → 5 rows deleted by retention.
         deleted = db.apply_retention(max_entries=5)
         assert deleted == 5
         assert db.get_history_count() == 5
@@ -94,14 +76,11 @@ class TestHistoryCountCache:
     """The 60s TTL cache avoids repeated COUNT(*) scans."""
 
     def test_cache_returns_same_value_within_ttl(self, db):
-        """TY-20: two consecutive calls within the TTL window return
-        the same value. The second call MUST NOT re-run COUNT(*) —
-        it serves from the cache."""
+        """TY-20: two consecutive calls within the TTL window return"""
         db.add_transcription("one")
         db.flush()
         first = db.get_history_count()
         # Patch the read-conn getter so a second COUNT(*) would raise.
-        # If the cache serves the value, the patch is never hit.
         original_get_read_conn = db._get_read_conn
 
         def _explode(*args, **kwargs):
@@ -114,8 +93,7 @@ class TestHistoryCountCache:
         db._get_read_conn = original_get_read_conn
 
     def test_cache_invalidated_on_delete(self, db):
-        """TY-20: ``delete`` invalidates the cache so the next call
-        recomputes (rather than serving the stale pre-delete count)."""
+        """TY-20: ``delete`` invalidates the cache so the next call"""
         for i in range(3):
             db.add_transcription(f"dictation {i}")
         db.flush()
@@ -149,14 +127,7 @@ class TestHistoryCountCache:
         assert db.get_history_count() == 5
 
     def test_add_transcription_does_not_invalidate_cache(self, db):
-        """TY-20: fire-and-forget ``add_transcription`` does NOT
-        invalidate the cache. The 60s TTL window tolerates a
-        stale-by-N count for the "Total Dictations" stat card —
-        invalidating on every dictation would defeat the cache.
-
-        This test verifies the cache is still warm (would raise on a
-        cache miss) after an ``add_transcription`` call.
-        """
+        """TY-20: fire-and-forget ``add_transcription`` does NOT"""
         db.add_transcription("first")
         db.flush()
         # Prime the cache.
@@ -167,16 +138,11 @@ class TestHistoryCountCache:
         def _explode(*args, **kwargs):
             raise RuntimeError("cache miss after add_transcription")
 
-        # add_transcription is fire-and-forget; flush drains the queue.
         db.add_transcription("second")
         db.flush()
 
         with patch.object(db, "_get_read_conn", _explode):
             # The cache is still warm, add_transcription didn't invalidate.
-            # The cached value is 1 (stale by 1), that's the documented
-            # behavior. Within the 60s TTL window, the count may lag the
-            # true row count by the number of dictations since the last
-            # cache fill.
             cached = db.get_history_count()
         assert cached == 1, (
             "add_transcription should NOT invalidate the cache; the "

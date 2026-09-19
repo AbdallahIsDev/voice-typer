@@ -1,23 +1,4 @@
-"""Startup reconciliation of the persisted microphone selection.
-
-Pins the contract that ``app.config.microphone`` (the canonical
-``config.json`` value) is validated against the live device list during
-startup, BEFORE any consumer (tray, recorder, renderer) reads it:
-
-- stale/unavailable id  → silently fall back to System Default,
-  persist ``null``, emit one WARNING diagnostic line;
-- valid stable id       → left untouched, healthy INFO line;
-- legacy id shape that still resolves → migrated in-place to the
-  canonical stable id;
-- ``None``              → already System Default, no write;
-- empty enumeration     → never used as evidence for a fallback.
-
-The user-facing recovery must be SILENT (no tray notify): only the
-diagnostic log line describes what was recovered. The renderer learns
-about the correction via the same ``config_changed`` push event the IPC
-``set_config`` path uses, so it never needs the Microphone page to
-discover a stale config.
-"""
+"""Startup reconciliation of the persisted microphone selection."""
 
 from __future__ import annotations
 
@@ -35,7 +16,6 @@ STALE_ID = "mic-42"
 
 def make_app(microphone: object, *, with_lock: bool = False) -> Any:
     # ``Any``: the double intentionally satisfies only the narrow surface
-    # reconciliation touches; AppProtocol's full shape isn't needed here.
     """Minimal app double exposing just what reconciliation touches."""
     saves: list[bool] = []
 
@@ -154,7 +134,6 @@ class TestReconcileConfiguredMicrophone:
             startup_tasks._reconcile_configured_microphone(app, [])
 
         # A failed/empty PortAudio query is NOT evidence the device is
-        # gone, the stale id must survive until a real enumeration.
         assert app.config.microphone == STALE_ID
         assert saves == []
         assert mock_publish.call_count == 0
@@ -200,7 +179,6 @@ class TestReconcileConfiguredMicrophone:
             patch("voice_typer.server.event_bus.publish"),
         ):
             # Enumeration succeeded but resolution crashed, recovery
-            # still applies (fail-safe toward System Default).
             startup_tasks._reconcile_configured_microphone(app, [{"id": STABLE_ID}])
 
         assert app.config.microphone is None
@@ -209,9 +187,7 @@ class TestReconcileConfiguredMicrophone:
 
 class TestLoadMicrophonesIntegration:
     def test_reconciliation_runs_inside_load_microphones(self, resolver) -> None:
-        """The public startup task must reconcile BEFORE publishing
-        microphones_changed / updating the tray, so no consumer ever
-        sees the stale persisted value."""
+        """The public startup task must reconcile BEFORE publishing"""
         resolver.result = None
         app, saves = make_app(STALE_ID)
 

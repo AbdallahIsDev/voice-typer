@@ -99,10 +99,6 @@ class TestHandlerFilesUseHelper:
     HANDLERS_DIR = Path("voice_typer/server/handlers")
     NON_HANDLER_FILES = {"__init__.py", "_base.py", "_log.py"}
     # (2026-07-30): these handlers were reduced to empty stubs
-    # (the IPC dispatch routes were deleted; the Tauri host invokes
-    # the service layer directly via dedicated Rust commands). They
-    # have no catch-all to wrap, so the helper-coverage test must
-    # skip them.
     STUB_HANDLER_FILES = {"privacy_handlers.py", "vocabulary_automation_handlers.py"}
 
     @pytest.fixture(autouse=True)
@@ -140,14 +136,6 @@ class TestHandlerFilesUseHelper:
             if "except Exception as e:" not in src and "except Exception as exc:" not in src:
                 continue
             # ``_wrap`` routes unexpected exceptions through
-            # ``_respond_with_error``; the method form of
-            # ``_error_response`` (``self._error_response``) is the
-            # per-command validation path. Both are the sanctioned
-            # catch-all helpers. Files whose remaining ``except
-            # Exception`` blocks are the intentional ack-then-push
-            # pattern (restart_app / quit_app) still carry ``_wrap``
-            # or ``self._error_response`` on sibling handlers, so the
-            # file-level check continues to hold.
             has_helper = "_respond_with_error" in src or "_error_response" in src or "self._wrap(" in src
             if not has_helper:
                 no_helper_use.append(fpath.name)
@@ -170,12 +158,7 @@ class TestHandlerCatchAllEnvelopeShape:
         assert resp["data"]["message"] == "internal error"
 
     def test_export_diagnostics_catch_all_has_code_field(self, ipc_server, fake_service):
-        """``_handle_export_diagnostics`` was deleted
-        from ``SystemHandlersMixin`` (the Tauri host handles the
-        diagnostics export via a dedicated Rust command). The
-        catch-all envelope-shape regression it covered is now exercised
-        via ``_handle_cancel_model_download`` (a sibling handler with
-        the same catch-all path)."""
+        """catch-all envelope-shape regression it covered is now exercised"""
         fake_service.cancel_model_download.side_effect = RuntimeError("disk full")
         resp = ipc_server._handle_cancel_model_download({}, {})
         assert resp["type"] == "error"
@@ -212,9 +195,6 @@ class TestHandlerCatchAllLogging:
         assert any(r.exc_info is not None for r in error_records)
 
     def test_catch_all_does_not_leak_traceback_to_client(self, ipc_server, fake_service):
-        # was ``_handle_export_diagnostics``, switched to
-        # ``_handle_cancel_model_download`` (same catch-all path) after
-        # the export_diagnostics handler was deleted.
         fake_service.cancel_model_download.side_effect = ValueError("malformed input\n  detail line 1\n  detail line 2")
         resp = ipc_server._handle_cancel_model_download({}, {})
         msg = resp["data"]["message"]
@@ -225,17 +205,7 @@ class TestHandlerCatchAllLogging:
 
 
 class TestHandlerBaseErrorResponseExtraKwargs:
-    """: ``HandlerBase._error_response`` accepts ``**extra`` kwargs
-       that merge into ``resp["data"]`` alongside the standard ``code`` +
-    ``message`` pair. Pre- the only ``_error_response`` was the
-       standalone function in ``validation.py``, which does NOT accept
-       extra fields, so per-command validation errors that needed to
-       carry field-level context (e.g. ``field="provider"``) had to be
-       constructed inline as ``resp["data"] = {"message": "..."}`` with
-       NO ``code`` field at all. The method form on ``HandlerBase``
-    closes that gap so the 7 inline envelopes identified in can
-       route through it and stamp a structured ``code`` + ``field``.
-    """
+    """: ``HandlerBase._error_response`` accepts ``**extra`` kwargs"""
 
     def test_merges_extra_kwargs_into_data(self):
         from voice_typer.server.handlers._base import HandlerBase
@@ -274,54 +244,24 @@ class TestHandlerBaseErrorResponseExtraKwargs:
         resp = {}
         helper._error_response(resp, "msg", code="client.not_found")
         # When no extra kwargs are passed, ``data`` contains ONLY
-        # ``code`` + ``message`` (no stray keys).
         assert set(resp["data"].keys()) == {"code", "message"}
 
     def test_extra_kwargs_cannot_clobber_code_or_message(self):
-        """The ``code`` parameter is positional-or-keyword on the
-        method signature, so a caller passing ``code=...`` in
-        ``**extra`` would raise ``TypeError`` (Python's "multiple
-        values for keyword argument" error), preventing accidental
-        shadowing of the standard pair. ``message`` is a positional
-        parameter so the same protection applies."""
+        """``**extra`` would raise ``TypeError`` (Python's \"multiple"""
         from voice_typer.server.handlers._base import HandlerBase
 
         helper = HandlerBase()
         resp = {}
         # ``code`` in **extra would collide with the explicit
-        # ``code`` parameter, Python rejects this at call time.
         with pytest.raises(TypeError):
             helper._error_response(resp, "msg", code="client.not_found", **{"code": "x"})
 
 
 class TestInlineValidationEnvelopesHaveCodeField:
-    """regression: every inline ``type="error"`` envelope in
-       ``cloud_test_handlers.py`` and ``model_handlers.py`` MUST stamp a
-       structured ``code`` field (and, where applicable, a ``field``
-       field) so the renderer can programmatically distinguish error
-       types instead of pattern-matching the message text.
-
-    Pre- each of the 7 sites below built its envelope ad-hoc as
-       ``resp["data"] = {"message": "..."}`` with NO ``code`` field.
-       Clients branching on ``code`` (the renderer's toast dispatch)
-       silently fell through to a generic "unknown error" path for these
-       per-command validation rejections.
-
-    The 7 sites covered (line numbers refer to source)
-       * ``cloud_test_handlers.py:154-158``, missing ``provider``
-       * ``cloud_test_handlers.py:160-168``, unknown ``provider`` (endpoint lookup)
-       * ``cloud_test_handlers.py:174-179``, unknown ``provider`` (defensive config_field lookup)
-       * ``model_handlers.py:69-72``     , missing ``model`` (download_model)
-       * ``model_handlers.py:207-211``   , missing ``dir_path`` (import_model)
-       * ``model_handlers.py:240-243``   , directory not found (import_model)
-       * ``model_handlers.py:277-280``   , missing ``model`` (delete_model)
-    """
-
-    # ── cloud_test_handlers.py ───────────────────────────────────
+    """structured ``code`` field (and, where applicable, a ``field``"""
 
     def test_cloud_test_missing_provider_envelope_has_code_field(self, ipc_server):
-        """Empty/missing ``provider`` → ``client.missing_field`` with
-        ``field="provider"`` (was: bare ``{"message": "..."}``)."""
+        """Empty/missing ``provider`` → ``client.missing_field`` with"""
         resp = ipc_server._handle_test_cloud_connection({}, {})
         assert resp["type"] == "error"
         assert resp["data"]["code"] == "client.missing_field"
@@ -329,10 +269,7 @@ class TestInlineValidationEnvelopesHaveCodeField:
         assert resp["data"]["message"] == "Missing 'provider' parameter"
 
     def test_cloud_test_unknown_provider_envelope_has_code_field(self, ipc_server):
-        """Unknown ``provider`` value → ``client.invalid_field`` with
-        ``field="provider"`` (was: bare ``{"message": "..."}``).
-        The handler rejects the value BEFORE any network call, so no
-        ``_opener`` mock is needed."""
+        """``field=\"provider\"`` (was: bare ``{\"message\": \"...\"}``)."""
         resp = ipc_server._handle_test_cloud_connection({"provider": "nonexistent"}, {})
         assert resp["type"] == "error"
         assert resp["data"]["code"] == "client.invalid_field"
@@ -340,14 +277,7 @@ class TestInlineValidationEnvelopesHaveCodeField:
         assert "nonexistent" in resp["data"]["message"]
 
     def test_cloud_test_unknown_provider_defensive_envelope_has_code_field(self, ipc_server, monkeypatch):
-        """Defensive branch: the canonical provider-map lookup
-        returns ``None`` for a provider that DID resolve via
-        ``_PROVIDER_TEST_ENDPOINTS``. In production this is
-        unreachable (every endpoint key is covered by the canonical
-        ``credential_store.PROVIDER_TO_CONFIG_FIELD``), so we
-        monkeypatch the handler module's map binding to an empty dict
-        to force the defensive branch. The envelope MUST still be
-        ``client.invalid_field`` with ``field="provider"``."""
+        """Defensive branch: the canonical provider-map lookup"""
         monkeypatch.setattr(
             "voice_typer.server.handlers.cloud_test_handlers.PROVIDER_TO_CONFIG_FIELD",
             {},
@@ -358,12 +288,8 @@ class TestInlineValidationEnvelopesHaveCodeField:
         assert resp["data"]["field"] == "provider"
         assert "openai" in resp["data"]["message"]
 
-    # ── model_handlers.py ────────────────────────────────────────
-
     def test_download_model_missing_model_envelope_has_code_field(self, ipc_server, fake_service):
-        """``download_model`` with empty/missing ``model`` →
-        ``client.missing_field`` with ``field="model"`` (was: bare
-        ``{"message": "..."}``)."""
+        """``download_model`` with empty/missing ``model`` →"""
         resp = ipc_server._handle_download_model({}, {})
         assert resp["type"] == "error"
         assert resp["data"]["code"] == "client.missing_field"
@@ -372,9 +298,7 @@ class TestInlineValidationEnvelopesHaveCodeField:
         fake_service.download_model.assert_not_called()
 
     def test_import_model_missing_dir_path_envelope_has_code_field(self, ipc_server, fake_service):
-        """``import_model`` with empty/missing ``dir_path`` →
-        ``client.missing_field`` with ``field="dir_path"`` (was: bare
-        ``{"message": "..."}``)."""
+        """``import_model`` with empty/missing ``dir_path`` →"""
         resp = ipc_server._handle_import_model({}, {})
         assert resp["type"] == "error"
         assert resp["data"]["code"] == "client.missing_field"
@@ -385,12 +309,7 @@ class TestInlineValidationEnvelopesHaveCodeField:
     def test_import_model_directory_not_found_envelope_has_code_field(
         self, ipc_server, fake_service, monkeypatch, tmp_path
     ):
-        """``import_model`` with a validated path that doesn't exist
-        on disk → ``client.not_found`` with ``field="dir_path"`` (was:
-        bare ``{"message": "..."}``). We monkeypatch
-        ``_validate_import_path`` to pass-through so the path
-        validator doesn't reject the nonexistent path before the
-        ``os.path.isdir`` check runs."""
+        """``import_model`` with a validated path that doesn't exist"""
         monkeypatch.setattr("voice_typer.server.config._validate_import_path", lambda p: p)
         nonexistent = str(tmp_path / "does_not_exist")
         resp = ipc_server._handle_import_model({"dir_path": nonexistent}, {})
@@ -402,9 +321,7 @@ class TestInlineValidationEnvelopesHaveCodeField:
         fake_service.import_model.assert_not_called()
 
     def test_delete_model_missing_model_envelope_has_code_field(self, ipc_server, fake_service):
-        """``delete_model`` with empty/missing ``model`` →
-        ``client.missing_field`` with ``field="model"`` (was: bare
-        ``{"message": "..."}``)."""
+        """``delete_model`` with empty/missing ``model`` →"""
         resp = ipc_server._handle_delete_model({}, {})
         assert resp["type"] == "error"
         assert resp["data"]["code"] == "client.missing_field"
@@ -414,20 +331,7 @@ class TestInlineValidationEnvelopesHaveCodeField:
 
 
 class TestNoInlineMessageOnlyEnvelopesRemain:
-    """structural test: the two handler files patched in this
-    finding MUST NOT contain any inline ``resp["data"] = {"message":
-    "..."}`` envelope. Every per-command validation error must route
-    through ``self._error_response(...)`` so the envelope always
-    carries a structured ``code`` field.
-
-    A source-level scan (not a behavioural test) is the right tool
-    here: it catches a future contributor who re-introduces the
-    inline pattern even on a code path the behavioural tests don't
-    cover. The pattern is matched literally (not via regex) so a
-    substring match in a docstring / comment would NOT trigger a
-    false positive, only the actual assignment-statement form
-    matches.
-    """
+    """structural test: the two handler files patched in this"""
 
     def test_cloud_test_handlers_has_no_inline_message_only_envelope(self):
         from pathlib import Path
@@ -435,8 +339,6 @@ class TestNoInlineMessageOnlyEnvelopesRemain:
         repo_root = Path(__file__).resolve().parents[2]
         src = (repo_root / "voice_typer/server/handlers/cloud_test_handlers.py").read_text()
         # The literal assignment ``resp["data"] = {"message": "..."}``
-        # (single-OR-double quoted) is the inline-envelope smell. Post-fix every
-        # such site routes through ``self._error_response(...)``.
         assert 'resp["data"] = {"message":' not in src, (
             "cloud_test_handlers.py still contains an inline "
             '``resp["data"] = {"message": ...}`` envelope, every '

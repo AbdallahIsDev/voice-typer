@@ -1,13 +1,4 @@
-"""Canonical default-device resolution for the recorder.
-
-The recorder used to resolve System Default through the raw PortAudio
-global default (an MME record on Windows) while the UI listed the
-canonical WASAPI view. The sample-rate probe then logged an MME device
-while the canonical enumeration reported kept/dropped WASAPI records,
-and the prewarm stream validated the wrong host API. This suite pins
-that the default-device path resolves through the canonical
-host-API view and never guesses across ambiguous same-name devices.
-"""
+"""Canonical default-device resolution for the recorder."""
 
 from __future__ import annotations
 

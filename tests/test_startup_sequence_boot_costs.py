@@ -1,35 +1,4 @@
-"""Startup-sequence per-boot cost reductions: behavioral contracts.
-
-Three contracts pinned here (all hermetic: heavy imports mocked by the
-autouse ``mock_heavy_imports`` fixture, no real audio/model/network):
-
-1. ONE Silero VAD preload spawn per boot. The eager preload runs from
-   ``StartupSequence`` phase 1 only; the recorder-init construction
-   path no longer arms a second duplicate worker. Both spawn sites
-   firing per boot was verified from code (the then-live app.py
-   construction → ``_init_recording`` → ``_preload_vad_model`` site,
-   since removed; phase 1 → ``_vad_preload_worker``) and from
-   tests/conftest.py's ``_drain_thread_registries`` docstring, which
-   documents both thread names.
-
-2. Stale backup/``.tmp`` maintenance sweeps run AFTER ready. Phase 2
-   (crash diagnostics) must NOT sweep synchronously; the sweep is
-   dispatched on a fire-and-forget daemon thread after the
-   ``Startup complete`` (ready) line emitted by phase 8. The sweep
-   worker is spawned via the app's thread registry when reachable
-   (``spawn_and_register``, mirroring the phase-1 vad-preload worker)
-   so shutdown gets a clean bounded join, never an untracked thread;
-   the fallback without a registry stays a bare daemon thread. The
-   sweep bodies themselves are unchanged (see test_startup_sweep.py /
-   test_startup_sweep_tmp_files.py for those).
-
-3. The dictation hotkey registers BEFORE the mic-enumeration task.
-   The mic task runs under a 5 s timeout budget; a hung audio stack
-   must not keep the dictation hotkey dead for that window. Late mic
-   results already arrive via ``microphones_changed`` +
-   ``app.tray.set_microphones`` (startup_tasks.load_microphones), so
-   nothing requires mics to finish first.
-"""
+"""Startup-sequence per-boot cost reductions: behavioral contracts."""
 
 from __future__ import annotations
 
@@ -45,8 +14,7 @@ _MIC_LIST = "voice_typer.server.server_platform.microphone_list"
 
 @pytest.fixture
 def app_for_boot_costs(tmp_config_dir, monkeypatch):
-    """A real VoiceTyperApp with hardware/GUI deps mocked (mirrors the
-    ``app_for_phases`` fixture pattern in test_startup_sequence_phases.py)."""
+    """A real VoiceTyperApp with hardware/GUI deps mocked (mirrors the"""
     monkeypatch.setattr(f"{_AUTOSTART}.is_autostart_enabled", lambda: False, raising=False)
     monkeypatch.setattr(f"{_AUTOSTART}.enable_autostart", lambda: True, raising=False)
     monkeypatch.setattr(f"{_AUTOSTART}.disable_autostart", lambda: True, raising=False)
@@ -65,9 +33,7 @@ def app_for_boot_costs(tmp_config_dir, monkeypatch):
 
 
 def _stub_startup_io(app, monkeypatch):
-    """Stub the heavy IO ``startup_tasks`` surface so a full ``run()``
-    completes without real disk/audio work (mirrors the
-    ``_stub_non_phase_startup`` helper in test_startup_sequence_phases.py)."""
+    """Stub the heavy IO ``startup_tasks`` surface so a full ``run()``"""
     from voice_typer.server import startup_tasks
 
     monkeypatch.setattr(startup_tasks, "sync_autostart", lambda app: None)
@@ -85,13 +51,8 @@ def _stub_startup_io(app, monkeypatch):
     monkeypatch.delenv("VOICE_TYPER_RESTART", raising=False)
 
 
-# ── (1) single VAD preload spawn per boot ──────────────────────────────
-
-
 def _stub_platform_helpers(monkeypatch):
-    """Stub the platform autostart/microphone helpers so a bare
-    ``VoiceTyperApp()`` construction is hermetic (same targets as the
-    ``app_for_boot_costs`` fixture, applied BEFORE construction)."""
+    """Stub the platform autostart/microphone helpers so a bare"""
     monkeypatch.setattr(f"{_AUTOSTART}.is_autostart_enabled", lambda: False, raising=False)
     monkeypatch.setattr(f"{_AUTOSTART}.enable_autostart", lambda: True, raising=False)
     monkeypatch.setattr(f"{_AUTOSTART}.disable_autostart", lambda: True, raising=False)
@@ -99,22 +60,10 @@ def _stub_platform_helpers(monkeypatch):
 
 
 class TestSingleVadPreloadSpawn:
-    """``vad.preload()`` runs exactly once per boot, armed ONLY by
-    StartupSequence phase 1 (``vad-preload-startup``). The former
-    construction-time ``vad-preload`` worker in the recorder-init path
-    was a duplicate of the same best-effort preload."""
+    """StartupSequence phase 1 (``vad-preload-startup``). The former"""
 
     def test_vad_preload_spawns_exactly_one_worker_per_boot(self, tmp_config_dir, monkeypatch):
-        """Construct a fresh app AND run the full startup sequence with
-        ``vad.preload`` replaced by a counting stub: exactly ONE worker
-        thread must invoke it per boot.
-
-        Before the fix the count was 2 (one worker armed by the app
-        construction path, one by phase 1), reproduced by this test
-        failing with ``count=2``; this assertion pins the fixed
-        contract. The stub is armed BEFORE the app is constructed so
-        both spawn sites are counted deterministically.
-        """
+        """``vad.preload`` replaced by a counting stub: exactly ONE worker"""
         from voice_typer.server import vad
 
         calls: list[str] = []
@@ -140,8 +89,6 @@ class TestSingleVadPreloadSpawn:
         StartupSequence(app).run()
 
         # Join every vad-preload worker spawned since the stub was armed
-        # so the call count is final before asserting (the workers are
-        # daemon threads; a direct join avoids timing flakiness).
         preload_threads = [t for t in threading.enumerate() if t not in threads_before and "vad-preload" in t.name]
         for t in preload_threads:
             t.join(timeout=5.0)
@@ -155,10 +102,7 @@ class TestSingleVadPreloadSpawn:
         )
 
     def test_app_construction_alone_does_not_spawn_vad_preload(self, tmp_config_dir, monkeypatch):
-        """A bare ``VoiceTyperApp()`` construction (startup sequence not
-        run) must NOT arm any vad-preload worker, the preload belongs
-        to the startup sequence, and construction-only consumers (tests,
-        tooling) must not pay for it."""
+        """A bare ``VoiceTyperApp()`` construction (startup sequence not"""
         from voice_typer.server import vad
         from voice_typer.server.app import VoiceTyperApp
 
@@ -181,19 +125,11 @@ class TestSingleVadPreloadSpawn:
         )
 
 
-# ── (2) maintenance sweeps run after ready ─────────────────────────────
-
-
 class TestPostReadyMaintenanceSweeps:
-    """The stale backup/``.tmp`` sweeps must not sit on the pre-ready
-    critical path: phase 2 returns without sweeping, and the sweep is
-    dispatched on a fire-and-forget daemon thread after the
-    ``Startup complete`` (ready) line."""
+    """The stale backup/``.tmp`` sweeps must not sit on the pre-ready"""
 
     def test_phase_2_does_not_sweep_synchronously(self, app_for_boot_costs, monkeypatch):
-        """``_phase_2_crash_diagnostics`` must NOT call
-        ``_sweep_stale_backup_files``, the sweep moved off the
-        pre-ready critical path."""
+        """``_phase_2_crash_diagnostics`` must NOT call"""
         from voice_typer.server.startup_sequence import _maintenance
 
         sweep_calls: list[object] = []
@@ -212,9 +148,7 @@ class TestPostReadyMaintenanceSweeps:
         )
 
     def test_sweep_dispatched_after_ready_line_on_daemon_thread(self, app_for_boot_costs, monkeypatch, caplog):
-        """A full ``run()`` must dispatch the sweep exactly once, on a
-        background (non-main) thread, AFTER the ``Startup complete``
-        ready line has been emitted."""
+        """background (non-main) thread, AFTER the ``Startup complete``"""
         from voice_typer.server.startup_sequence import _maintenance
 
         sweep_events: list[dict] = []
@@ -252,10 +186,7 @@ class TestPostReadyMaintenanceSweeps:
         )
 
     def test_sweep_thread_is_daemon(self, tmp_path, monkeypatch):
-        """Without a thread registry (the fallback path, helper called
-        with no registry), the post-ready sweep spawns a bare DAEMON
-        thread (never blocks process exit) with a stable, greppable
-        name."""
+        """Without a thread registry (the fallback path, helper called"""
         from voice_typer.server.startup_sequence import _maintenance
 
         started = threading.Event()
@@ -267,8 +198,6 @@ class TestPostReadyMaintenanceSweeps:
             started.set()
 
         # Reuse the helper's thread mechanics by patching the sweep body
-        # it runs, the helper must call _sweep_stale_backup_files on the
-        # spawned worker.
         monkeypatch.setattr(_maintenance, "_sweep_stale_backup_files", _worker)
         _maintenance._sweep_stale_files_after_ready(tmp_path)
         assert started.wait(timeout=5.0), "sweep worker never started"
@@ -280,16 +209,10 @@ class TestPostReadyMaintenanceSweeps:
 
 
 class TestPostReadySweepThreadRegistry:
-    """When the app's thread registry is reachable, the post-ready sweep
-    worker is spawned via ``spawn_and_register`` (the phase-1
-    vad-preload worker's pattern) so ``shutdown_all()`` joins it with a
-    short bounded timeout, shutdown gets clean join semantics without
-    the sweep ever gaining the power to block or break it."""
+    """When the app's thread registry is reachable, the post-ready sweep"""
 
     def test_sweep_worker_registered_when_registry_passed(self, tmp_path, monkeypatch):
-        """A registry passed to the dispatch is used: the worker runs
-        under the canonical name, is a daemon, is tracked by the
-        registry, and ``shutdown_all()`` joins it cleanly."""
+        """A registry passed to the dispatch is used: the worker runs"""
         from voice_typer.server.startup_sequence import _maintenance
         from voice_typer.server.thread_registry import ThreadRegistry
 
@@ -301,8 +224,6 @@ class TestPostReadySweepThreadRegistry:
             release.wait(timeout=5.0)
 
         # Hold the worker mid-run so its thread attributes are
-        # deterministically observable (a fast worker could exit before
-        # the assertions below run).
         monkeypatch.setattr(_maintenance, "_sweep_stale_backup_files", _hold_worker)
 
         registry = ThreadRegistry()
@@ -336,10 +257,7 @@ class TestPostReadySweepThreadRegistry:
         )
 
     def test_full_run_registers_sweep_on_app_thread_registry(self, app_for_boot_costs, monkeypatch):
-        """A full ``run()`` dispatches the sweep through the app's real
-        thread registry: phase 8 passes it in, so the worker is
-        registered on ``app._thread_registry`` alongside the phase-1
-        vad-preload worker."""
+        """A full ``run()`` dispatches the sweep through the app's real"""
         from voice_typer.server.startup_sequence import _maintenance
 
         invoked = threading.Event()
@@ -359,18 +277,11 @@ class TestPostReadySweepThreadRegistry:
         )
 
 
-# ── (3) hotkey registration before the mic task ────────────────────────
-
-
 class TestHotkeyRegistersBeforeMicTask:
-    """The dictation hotkey must be live BEFORE the 5 s-budget
-    mic-enumeration task can delay it; late mics already arrive via the
-    ``microphones_changed`` push + tray rebuild inside
-    ``startup_tasks.load_microphones``."""
+    """The dictation hotkey must be live BEFORE the 5 s-budget"""
 
     def test_phase_6_registers_hotkey_before_mic_task(self, app_for_boot_costs, monkeypatch):
-        """In phase 6, ``app.hotkeys.register()`` must be called before
-        the mic task is submitted to the bounded pool."""
+        """In phase 6, ``app.hotkeys.register()`` must be called before"""
         from voice_typer.server import startup_tasks
 
         order: list[str] = []
@@ -397,9 +308,7 @@ class TestHotkeyRegistersBeforeMicTask:
         app_for_boot_costs.hotkeys.register.assert_called_once()
 
     def test_shutdown_during_hotkey_registration_skips_mic_task(self, app_for_boot_costs, monkeypatch):
-        """RACE-020 invariant moved with the hotkey: when
-        ``app._shutting_down`` is set during ``hotkeys.register``, phase 6
-        aborts (``success=False``) and the mic task must NOT run."""
+        """RACE-020 invariant moved with the hotkey: when"""
         from voice_typer.server import startup_tasks
 
         mic_calls: list[int] = []

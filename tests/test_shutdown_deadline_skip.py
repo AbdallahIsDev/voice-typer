@@ -1,21 +1,4 @@
-"""Regression tests for the inter-step deadline check in ``run_plan``.
-
-These tests pin the fix: when the 20s shutdown deadline is nearly
-exhausted (< 5s remaining) at the top of a sequenced-step iteration,
-NON-CRITICAL steps are SKIPPED (logged at WARNING + appended to
-``controller._shutdown_skipped``) so the remaining budget goes to the
-flush-bearing critical steps.
-
-Critical steps (``teardown_recorder`` / ``teardown_history_db`` /
-``teardown_crash_recovery``) are NEVER skipped by the inter-step check
-— they contain data-loss-critical flushes that must run regardless of
-deadline pressure.
-
-The tests construct a ``_FakeApp`` and a ``ShutdownController`` with
-``_shutdown_deadline`` set to a near-expired timestamp, then call
-``run_plan`` directly with a mix of critical + non-critical steps and
-assert which were called vs skipped.
-"""
+"""Regression tests for the inter-step deadline check in ``run_plan``."""
 
 from __future__ import annotations
 
@@ -32,16 +15,11 @@ from voice_typer.server.shutdown_controller import (
     ShutdownStep,
 )
 
-# ── Override the autouse ``mock_heavy_imports`` conftest fixture ───────
-
 
 @pytest.fixture(autouse=True)
 def mock_heavy_imports():
     """No-op override of the conftest autouse fixture."""
     yield
-
-
-# ── Fake app ───────────────────────────────────────────────────────────
 
 
 class _FakeApp:
@@ -81,8 +59,6 @@ def fake_app(monkeypatch):
     monkeypatch.setitem(sys.modules, "voice_typer.server.app", fake_app_module)
 
     # The PID-file teardown resolves ``_clear_backend_pid_file`` through
-    # the owning module at call time, stub it so no real PID file is
-    # touched and the (already-imported) real module is not required.
     fake_backend_pid = MagicMock()
     fake_backend_pid._clear_backend_pid_file = MagicMock()
     monkeypatch.setitem(sys.modules, "voice_typer.server.backend_pid", fake_backend_pid)
@@ -98,22 +74,15 @@ def controller(fake_app):
     return ShutdownController(fake_app)
 
 
-# ── Tests ──────────────────────────────────────────────────────────────
-
-
 class TestInterStepDeadlineSkip:
-    """``run_plan`` skips non-critical sequenced steps when the deadline
-    is near, but ALWAYS runs critical flush-bearing steps."""
+    """``run_plan`` skips non-critical sequenced steps when the deadline"""
 
     def test_critical_steps_set_is_correct(self) -> None:
-        """The ``CRITICAL_STEPS`` frozenset must contain exactly the
-        three flush-bearing sequenced teardowns."""
+        """The ``CRITICAL_STEPS`` frozenset must contain exactly the"""
         assert frozenset({"teardown_recorder", "teardown_history_db", "teardown_crash_recovery"}) == CRITICAL_STEPS
 
     def test_non_critical_step_skipped_when_deadline_near(self, controller) -> None:
-        """A non-critical sequenced step is SKIPPED when
-        ``controller._shutdown_deadline`` is set and the remaining
-        budget is < 5s."""
+        """A non-critical sequenced step is SKIPPED when"""
         # Set a deadline that's already expired (0s remaining).
         controller._shutdown_deadline = time.monotonic() - 1.0
         controller._shutdown_skipped = []
@@ -142,13 +111,10 @@ class TestInterStepDeadlineSkip:
             f"skipped step must be appended to _shutdown_skipped. Got: {controller._shutdown_skipped}"
         )
         # The step is NOT in the returned timed_out set (it was skipped,
-        # not timed out).
         assert "non_critical_step" not in result
 
     def test_critical_step_runs_even_when_deadline_near(self, controller) -> None:
-        """A critical sequenced step (``teardown_recorder`` etc.) RUNS
-        even when the deadline is near, it contains a data-loss-
-        critical flush."""
+        """A critical sequenced step (``teardown_recorder`` etc.) RUNS"""
         controller._shutdown_deadline = time.monotonic() - 1.0
         controller._shutdown_skipped = []
 
@@ -174,9 +140,7 @@ class TestInterStepDeadlineSkip:
         assert "teardown_recorder" not in controller._shutdown_skipped
 
     def test_mixed_plan_skips_non_critical_keeps_critical(self, controller) -> None:
-        """A sequenced plan with both critical and non-critical steps:
-        when the deadline is near, non-critical steps are skipped and
-        critical steps run."""
+        """A sequenced plan with both critical and non-critical steps:"""
         controller._shutdown_deadline = time.monotonic() - 0.5
         controller._shutdown_skipped = []
 
@@ -227,10 +191,7 @@ class TestInterStepDeadlineSkip:
         assert "teardown_timers_and_recording" in controller._shutdown_skipped
 
     def test_no_skip_when_deadline_not_set(self, controller) -> None:
-        """When ``controller._shutdown_deadline`` is None (direct
-        ``run_plan`` invocation from tests, before ``_do_cleanup``
-        publishes it), the inter-step check is skipped, all steps
-        run regardless of their critical/non-critical status."""
+        """When ``controller._shutdown_deadline`` is None (direct"""
         controller._shutdown_deadline = None
         controller._shutdown_skipped = None
 
@@ -264,8 +225,7 @@ class TestInterStepDeadlineSkip:
         assert "teardown_recorder" in called
 
     def test_no_skip_when_deadline_far(self, controller) -> None:
-        """When the deadline is far away (>= 5s remaining), non-critical
-        steps run normally, no skip."""
+        """When the deadline is far away (>= 5s remaining), non-critical"""
         controller._shutdown_deadline = time.monotonic() + 20.0
         controller._shutdown_skipped = []
 
@@ -290,8 +250,7 @@ class TestInterStepDeadlineSkip:
         assert controller._shutdown_skipped == []
 
     def test_skip_logged_at_warning(self, controller, caplog) -> None:
-        """The skip is logged at WARNING so operators can see the
-        degraded-shutdown event."""
+        """The skip is logged at WARNING so operators can see the"""
         controller._shutdown_deadline = time.monotonic() - 1.0
         controller._shutdown_skipped = []
 
@@ -315,10 +274,7 @@ class TestInterStepDeadlineSkip:
         )
 
     def test_all_three_critical_steps_exempt(self, controller) -> None:
-        """All three critical steps (``teardown_recorder``,
-        ``teardown_history_db``, ``teardown_crash_recovery``) are exempt
-        from the inter-step deadline skip, they all run even when the
-        deadline is expired."""
+        """All three critical steps (``teardown_recorder``,"""
         controller._shutdown_deadline = time.monotonic() - 2.0
         controller._shutdown_skipped = []
 

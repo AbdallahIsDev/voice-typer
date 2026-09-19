@@ -1,12 +1,4 @@
-"""UX-005: E2E test for model download progress reporting.
-
-Verifies that:
-- service.download_model() pushes `download_progress` events via the
-  IPC server's _push_event_now() helper.
-- Each event has the correct {type, data: {model, progress, status}} shape.
-- Tray notifications fire on completion and on failure.
-- The progress value is clamped to [0, 100].
-"""
+"""UX-005: E2E test for model download progress reporting."""
 
 import os
 from unittest.mock import MagicMock
@@ -143,13 +135,6 @@ class TestWhisperDownloadWithProgressEvents:
         monkeypatch.setattr("huggingface_hub.snapshot_download", fake_snapshot)
 
         # The production ``_download_with_retry`` (in asr_utils.py) retries
-        # failed downloads with exponential backoff (5s, 15s, 45s) before
-        # giving up, that's ~20s of real ``time.sleep`` calls, which would
-        # exceed the 15s pytest-timeout. Patch ``time.sleep`` to a no-op so
-        # the retry loop still runs (verifying the failure is propagated
-        # through ``download_err`` and the outer except handler) without
-        # actually waiting. This isolates the failure-handling logic from
-        # the timing of the backoff.
         monkeypatch.setattr("time.sleep", lambda *a, **kw: None)
 
         result = service.download_model("tiny")

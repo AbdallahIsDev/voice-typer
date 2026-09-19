@@ -1,9 +1,4 @@
-"""Tests for symlink attack prevention on config and corrections files.
-
-TEST-022: Test that creating a symlink at a config file path is handled
-safely, symlinks should not be followed to overwrite files outside
-the config directory. Only on POSIX (skip on Windows).
-"""
+"""Tests for symlink attack prevention on config and corrections files."""
 
 from __future__ import annotations
 
@@ -41,11 +36,8 @@ class TestSymlinkConfigAttack:
         # Load and save config, the symlink target should NOT be overwritten
         c = Config.load()
 
-        # The sensitive file content should either be preserved or the
-        # symlink should be replaced with a regular file
         c.save()
         # Verify the original sensitive file was not overwritten
-        # (either symlink was replaced or content is preserved)
         if link.is_symlink():
             # If still a symlink, target should not have Voice Typer config
             target_content = sensitive.read_text(encoding="utf-8")

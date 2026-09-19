@@ -1,32 +1,4 @@
-"""Tests for the cloud transport/retry/provider package split.
-
-``voice_typer/server/cloud_engines.py`` keeps the ``CloudEngine``
-orchestration (engine class, shared retry loop, connection probe) and
-re-exports the stateless plumbing that now lives in
-``voice_typer/server/cloud/``:
-
-- ``_transport``, pooled opener, response-body cap, WAV encoding,
-  streaming multipart body.
-- ``_retry``    , Retry-After parsing, HTTP-status → typed-error
-  mapping.
-- ``_defaults`` , per-provider endpoint/model defaults.
-- ``_providers.openai`` . OpenAI-compatible multipart shaping.
-- ``_providers.deepgram``, listen-URL building + token validation.
-
-These tests pin BOTH sides of the split:
-
-1. the leaf modules behave correctly in isolation (pure functions, no
-   network), and
-2. the facade contract still holds, every legacy name resolves from
-   ``voice_typer.server.cloud_engines``, the facade's ``_opener``
-   attribute is the SAME object the transport owns (so instance-level
-   ``patch("...cloud_engines._opener.open")`` keeps working), and
-   REBINDING facade attributes (``_opener``, ``assert_url_allowed``)
-   still steers the engine, the resolution path the abort/allowlist
-   regression suites rely on.
-
-All network I/O is mocked; no test here contacts a provider.
-"""
+"""Tests for the cloud transport/retry/provider package split."""
 
 from __future__ import annotations
 
@@ -38,8 +10,6 @@ import numpy as np
 import pytest
 from voice_typer.server.cloud import _defaults, _retry, _transport
 from voice_typer.server.cloud._providers import deepgram as deepgram_provider, openai as openai_provider
-
-# ── _transport: response-body cap ──────────────────────────────────
 
 
 class TestReadCappedLeaf:
@@ -55,9 +25,6 @@ class TestReadCappedLeaf:
             _transport._read_capped(resp, max_bytes=100_000)
 
 
-# ── _transport: WAV encoding ───────────────────────────────────────
-
-
 class TestAudioToWavBytesLeaf:
     def test_empty_input_is_44_byte_header(self):
         wav = _transport._audio_to_wav_bytes(np.zeros(0, dtype=np.float32))
@@ -67,9 +34,6 @@ class TestAudioToWavBytesLeaf:
         wav = _transport._audio_to_wav_bytes(np.zeros(0, dtype=np.float32), sample_rate=16000)
         with wave.open(io.BytesIO(wav), "rb") as wf:
             assert (wf.getnchannels(), wf.getsampwidth(), wf.getnframes()) == (1, 2, 0)
-
-
-# ── _transport: streaming multipart body ───────────────────────────
 
 
 class TestStreamingMultipartBodyLeaf:
@@ -98,9 +62,6 @@ class TestStreamingMultipartBodyLeaf:
         assert fresh.read() == b"AAABBBBBCC"
 
 
-# ── _retry: policy primitives ──────────────────────────────────────
-
-
 class TestRetryPolicyLeaf:
     @pytest.mark.parametrize(
         ("code", "expected"),
@@ -123,18 +84,12 @@ class TestRetryPolicyLeaf:
         assert _retry._parse_retry_after("7") == 7.0
 
 
-# ── _defaults ──────────────────────────────────────────────────────
-
-
 class TestProviderDefaultsLeaf:
     @pytest.mark.parametrize("provider", ["openai", "groq", "deepgram"])
     def test_known_providers_have_https_defaults(self, provider):
         entry = _defaults._PROVIDER_DEFAULTS[provider]
         assert entry["url"].startswith("https://")
         assert entry["model"]
-
-
-# ── _providers.openai: multipart shaping ───────────────────────────
 
 
 class TestOpenAIProviderShaping:
@@ -154,9 +109,6 @@ class TestOpenAIProviderShaping:
         assert body.read() == b"".join(openai_provider.build_multipart_parts(b"WAVDATA", "audio.wav", "BND", "m", "en"))
 
 
-# ── _providers.deepgram: listen-URL building ───────────────────────
-
-
 class TestDeepgramProviderShaping:
     def test_url_encodes_query_parameters(self):
         url = deepgram_provider.build_listen_url("https://api.deepgram.com/v1/listen", "nova-2", "en-US")
@@ -169,9 +121,6 @@ class TestDeepgramProviderShaping:
             deepgram_provider.build_listen_url("https://api.deepgram.com/v1/listen", "no&va=punctuate=false", "en")
         with pytest.raises(RuntimeError, match="Deepgram language 'e n' contains invalid characters"):
             deepgram_provider.build_listen_url("https://api.deepgram.com/v1/listen", "nova-2", "e n")
-
-
-# ── facade contract ────────────────────────────────────────────────
 
 
 class TestFacadeReExports:
@@ -210,7 +159,6 @@ class TestFacadeReExports:
         import voice_typer.server.cloud_engines as facade
 
         # Same OBJECT (not a copy): patching ``facade._opener.open``
-        # mutates the opener the retry loop uses.
         assert facade._opener is _transport._opener
         assert facade._read_capped is _transport._read_capped
         assert facade._parse_retry_after is _retry._parse_retry_after
@@ -222,8 +170,6 @@ class TestFacadeReExports:
 
         assert _engine.CloudEngine.__module__ == "voice_typer.server.cloud._engine"
         # The facade re-export must be the SAME object, legacy
-        # ``from voice_typer.server.cloud_engines import CloudEngine``
-        # keeps resolving to the owner class.
         assert facade.CloudEngine is _engine.CloudEngine
 
 
@@ -247,8 +193,7 @@ def _fake_response(body: bytes) -> MagicMock:
 
 
 class TestFacadeNamespaceStillSteersEngine:
-    """Rebinding facade attributes must reach the engine, the contract
-    the abort / allowlist / asr-setup regression suites depend on."""
+    """Rebinding facade attributes must reach the engine, the contract"""
 
     def test_facade_opener_rebinding_drives_transcribe(self, monkeypatch):
         import voice_typer.server.cloud_engines as facade
@@ -287,8 +232,7 @@ class TestFacadeNamespaceStillSteersEngine:
         assert mock_allow.called, "allowlist check must resolve via the facade namespace"
 
     def test_opener_object_patch_via_facade_is_seen_by_transport_opener(self):
-        """``patch('...cloud_engines._opener.open')`` mutates the SHARED
-        opener object, so the transport-owned opener sees it too."""
+        """``patch('...cloud_engines._opener.open')`` mutates the SHARED"""
         import voice_typer.server.cloud_engines as facade
 
         engine = facade.CloudEngine(
@@ -351,8 +295,6 @@ class TestEngineDelegatesToProviderModules:
         with (
             patch("voice_typer.server.cloud_engines._opener.open", side_effect=AssertionError("no network expected")),
             # Token validation fires in the send path BEFORE the retry
-            # loop, so the raw RuntimeError propagates (unchanged from
-            # the pre-split behavior).
             pytest.raises(RuntimeError, match="invalid characters"),
         ):
             engine.transcribe(np.zeros(1600, dtype=np.float32))

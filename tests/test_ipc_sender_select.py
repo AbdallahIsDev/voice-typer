@@ -1,23 +1,4 @@
-"""Tests for the select-based write gate in ``sender._send``.
-
-Verifies the three core contracts of the ``_await_socket_writable`` refactor
-(which replaced the per-write ``gettimeout`` / ``settimeout`` / restore
-dance with a single ``select.select`` call):
-
-(a) ``select.select`` is called BEFORE ``sendall``, the write-readiness
-    gate runs first so a stalled renderer can't block the worker thread.
-(b) When ``select.select`` returns an empty writable list (timeout), the
-    error is logged and the frame is dropped (client marked dead, pending
-    entries re-merged, not silently lost).
-(c) When ``select.select`` returns the socket as writable, ``sendall`` is
-    called with the correct encoded JSON line.
-
-These tests are complementary to ``tests/test_sender_select_timeout.py``
-(which tests ``_await_socket_writable`` in isolation and the call-order
-contract). This file focuses on the end-to-end ``_send`` behavior: the
-exact data passed to ``sendall`` and the log/re-merge side effects on
-timeout.
-"""
+"""Tests for the select-based write gate in ``sender._send``."""
 
 from __future__ import annotations
 
@@ -34,21 +15,12 @@ from tests.fixtures.ipc_test_helpers import make_bare_ipc_server, make_buffered_
 
 
 def _make_server() -> IPCServer:
-    """Canonical bare send-path IPCServer fixture for ``_send`` tests.
-
-    ``send_path=True`` initializes exactly the instance state
-    ``_send`` touches (locks, ``_PendingBuffer`` pending queue, TCP
-    mode flags) without running ``__init__`` (no threads / sockets).
-    Tests that exercise pending-entry re-merge assign their own
-    ``_pending_tcp`` entries after construction.
-    """
+    """Canonical bare send-path IPCServer fixture for ``_send`` tests."""
     return make_bare_ipc_server(send_path=True)
 
 
 def _patch_select_writable(conn: object) -> patch:
-    """Patch ``sender.select`` so ``select.select`` reports *conn* as
-    writable (the happy path). ``select.poll`` is configured similarly
-    but is not reached when ``select.select`` returns writable."""
+    """writable (the happy path). ``select.poll`` is configured similarly"""
     mock_mod = MagicMock()
     mock_mod.POLLOUT = 4
     mock_mod.select.return_value = ([conn], [], [])
@@ -56,8 +28,7 @@ def _patch_select_writable(conn: object) -> patch:
 
 
 def _patch_select_not_writable() -> tuple[patch, MagicMock]:
-    """Patch ``sender.select`` so BOTH ``select.select`` and
-    ``select.poll`` report the socket as NOT writable (timeout path)."""
+    """Patch ``sender.select`` so BOTH ``select.select`` and"""
     mock_mod = MagicMock()
     mock_mod.POLLOUT = 4
     mock_mod.select.return_value = ([], [], [])
@@ -67,14 +38,8 @@ def _patch_select_not_writable() -> tuple[patch, MagicMock]:
     return patch.object(sender_module, "select", mock_mod), mock_mod
 
 
-# ── (a) select.select is called BEFORE sendall ────────────────────────
-
-
 def test_select_called_before_sendall() -> None:
-    """``_send`` must call ``select.select([], [conn], [], timeout)``
-    BEFORE ``sendall``. The select establishes write-readiness so the
-    subsequent ``sendall`` won't block indefinitely on a stalled
-    renderer."""
+    """``_send`` must call ``select.select([], [conn], [], timeout)``"""
     server = _make_server()
     tcp_client = make_buffered_mock_tcp_client()
     server._tcp_client = tcp_client
@@ -100,7 +65,6 @@ def test_select_called_before_sendall() -> None:
     with patch.object(sender_module, "select", mock_mod):
         server._send({"type": "test_event", "id": 1})
 
-    # select.select was called with the expected args.
     assert len(select_calls) >= 1, "select.select must be called before sendall"
     rlist, wlist, xlist, timeout = select_calls[0]
     assert rlist == [], "select.select readable list must be empty"
@@ -110,7 +74,6 @@ def test_select_called_before_sendall() -> None:
         f"select.select timeout must be _TCP_WRITE_TIMEOUT_SECONDS ({_TCP_WRITE_TIMEOUT_SECONDS}), got {timeout}"
     )
 
-    # select must be called BEFORE sendall.
     assert "select" in call_order, "select.select was not called"
     assert "sendall" in call_order, "sendall was not called"
     assert call_order.index("select") < call_order.index("sendall"), (
@@ -118,24 +81,10 @@ def test_select_called_before_sendall() -> None:
     )
 
 
-# ── (b) select returns empty → error logged + frame dropped ───────────
-
-
 def test_select_timeout_logs_error_and_drops_frame(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """When ``select.select`` returns an empty writable list (the socket
-    is not writable within the timeout), ``_send`` must:
-
-    1. Log the write failure at DEBUG level (the existing convention for
-       client-write failures, keeps the log clean under sustained
-       disconnects).
-    2. Drop the current frame (``sendall`` is NOT called).
-    3. Mark the client as dead (``_tcp_client = None``) so the accept
-       loop picks up the next reconnect.
-    4. Re-merge any snapshotted pending entries into ``_pending_tcp`` so
-       they survive for the next reconnect's drain (not silently lost).
-    """
+    """When ``select.select`` returns an empty writable list (the socket"""
     server = _make_server()
     tcp_client = make_buffered_mock_tcp_client()
     server._tcp_client = tcp_client
@@ -168,13 +117,8 @@ def test_select_timeout_logs_error_and_drops_frame(
     )
 
 
-# ── (c) select returns writable → sendall called with correct data ────
-
-
 def test_select_writable_sendall_called_with_correct_data() -> None:
-    """When ``select.select`` returns the socket as writable, ``_send``
-    must call ``sendall`` with the correctly encoded JSON line (the
-    message serialized via ``json.dumps`` + a trailing newline)."""
+    """When ``select.select`` returns the socket as writable, ``_send``"""
     server = _make_server()
     tcp_client = make_buffered_mock_tcp_client()
     server._tcp_client = tcp_client
@@ -188,13 +132,11 @@ def test_select_writable_sendall_called_with_correct_data() -> None:
 
     msg = {"type": "test_event", "id": 42, "text": "hello"}
     # Production now uses compact JSON (no whitespace, ensure_ascii=False)
-    # per XV-83: see ``tests/test_ipc_server.py::TestCompactJsonSerialization``.
     expected_line = json.dumps(msg, ensure_ascii=False, separators=(",", ":")) + "\n"
 
     with _patch_select_writable(tcp_client.conn):
         server._send(msg)
 
-    # sendall must have been called exactly once (no pending, no drain).
     assert len(sent_data) == 1, (
         f"Expected exactly 1 sendall call (just the current line); got {len(sent_data)} calls with data {sent_data}"
     )
@@ -212,10 +154,7 @@ def test_select_writable_sendall_called_with_correct_data() -> None:
 
 
 def test_select_writable_sendall_called_with_correct_data_and_drain() -> None:
-    """When ``select.select`` returns writable AND there are pending
-    entries, ``_send`` must call ``sendall`` TWICE: once for the current
-    line and once for the batched drain. The drain flush must also be
-    preceded by a select call."""
+    """When ``select.select`` returns writable AND there are pending"""
     server = _make_server()
     tcp_client = make_buffered_mock_tcp_client()
     server._tcp_client = tcp_client
@@ -241,11 +180,6 @@ def test_select_writable_sendall_called_with_correct_data_and_drain() -> None:
     msg = {"type": "test_event", "id": 99}
     expected_current = (json.dumps(msg, ensure_ascii=False, separators=(",", ":")) + "\n").encode("utf-8")
     # The drain preserves the pending strings as-is (they were
-    # serialized at enqueue time, before the compact-JSON refactor
-    # in the current-message path). The test pre-populates with
-    # the legacy format (with default ``", "`` / ``": "``
-    # whitespace) to match the production behavior: pending
-    # entries are written verbatim, no re-encoding.
     expected_drain = b'{"pending": 1}\n{"pending": 2}\n'
 
     with patch.object(sender_module, "select", mock_mod):

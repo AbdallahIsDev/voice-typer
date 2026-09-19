@@ -1,22 +1,4 @@
-"""Tests for the data-store save and write performance fixes.
-
-Covers four findings from review.md:
-
-* **ER-36**: ``history_db.apply_retention`` only ran at startup.
-  ``schedule_periodic_retention`` now exposes a daemon-thread API that
-  the startup sequence wires into.
-
-* **ER-53**: ``config._save_locked`` did a redundant backup read+write
-  on every save, even when the to-be-written content was byte-identical
-  to the previous save. Now skipped via ``_last_saved_bytes`` tracking.
-
-* **ER-78**: ``history_db.add_transcription`` did one INSERT + one
-  COMMIT per queued row. Now batches 3+ pending inserts into a single
-  multi-row INSERT inside one transaction.
-
-* **ER-80**: ``secure_file_io._secure_atomic_write`` did 2 fsyncs
-  unconditionally. New ``durability=False`` keyword skips both.
-"""
+"""Tests for the data-store save and write performance fixes."""
 
 from __future__ import annotations
 
@@ -28,23 +10,12 @@ from pathlib import Path
 
 import pytest
 
-# ----------------------------------------------------------------------
-# schedule_periodic_retention
-# ----------------------------------------------------------------------
-
 
 class TestSchedulePeriodicRetention:
     """ER-36: ``HistoryDB.schedule_periodic_retention`` API contract."""
 
     def test_spawns_daemon_thread_that_calls_apply_retention(self, tmp_path, monkeypatch):
-        """``schedule_periodic_retention`` spawns a daemon thread that
-        periodically calls ``apply_retention``.
-
-        We patch ``apply_retention`` to set a threading.Event the first
-        time it's called, then wait for that event with a generous
-        timeout. The interval is set to a tiny value (50ms) so the test
-        doesn't have to wait the production default of 600s.
-        """
+        """periodically calls ``apply_retention``."""
         from voice_typer.server.history_db import HistoryDB
 
         db = HistoryDB(db_path=tmp_path / "sched.db")
@@ -56,7 +27,6 @@ class TestSchedulePeriodicRetention:
                 call_count["n"] += 1
                 called_event.set()
                 # Don't actually run the retention sweep, we just want
-                # to verify the scheduler called us.
                 return 0
 
             monkeypatch.setattr(db, "apply_retention", _spy_apply_retention)
@@ -107,14 +77,7 @@ class TestSchedulePeriodicRetention:
         )
 
     def test_reentrancy_guard_skips_concurrent_retention(self, tmp_path, monkeypatch):
-        """ER-36: if a previous retention is still running when the next
-        tick fires, the new tick is skipped (not queued).
-
-        We make ``apply_retention`` block on an event for 1s so it
-        overlaps with the next 50ms tick. The re-entrancy guard should
-        skip the overlapping tick instead of queueing a second
-        ``apply_retention`` call.
-        """
+        """ER-36: if a previous retention is still running when the next"""
         from voice_typer.server.history_db import HistoryDB
 
         db = HistoryDB(db_path=tmp_path / "sched_reent.db")
@@ -139,11 +102,8 @@ class TestSchedulePeriodicRetention:
             # Wait for the first retention to start.
             assert in_retention.wait(timeout=5.0)
             # Let several tick intervals pass while the first retention
-            # is still blocking, the re-entrancy guard should skip them.
             time.sleep(0.3)
             # DURING the blocking period, only ONE call should have
-            # happened (the first one). All subsequent ticks should have
-            # been skipped by the re-entrancy guard.
             with call_lock:
                 n_during_blocking = call_count["n"]
             assert n_during_blocking == 1, (
@@ -162,8 +122,7 @@ class TestSchedulePeriodicRetention:
             db.close()
 
     def test_registers_with_thread_registry_when_app_provides_one(self, tmp_path, monkeypatch):
-        """When ``app._thread_registry`` is present, the periodic
-        retention thread is registered with it for coordinated shutdown."""
+        """When ``app._thread_registry`` is present, the periodic"""
         from voice_typer.server.history_db import HistoryDB
         from voice_typer.server.thread_registry import ThreadRegistry
 
@@ -185,42 +144,22 @@ class TestSchedulePeriodicRetention:
             db.close()
 
 
-# ----------------------------------------------------------------------
-# Config backup skipped when content matches _last_saved_bytes
-# ----------------------------------------------------------------------
-
-
 class TestConfigSaveBackupSkip:
-    """ER-53: ``_save_locked`` skips the backup read+write when the
-    to-be-written content is byte-identical to the last save."""
+    """ER-53: ``_save_locked`` skips the backup read+write when the"""
 
     @pytest.fixture(autouse=True)
     def _isolated_config_dir(self, tmp_config_dir, monkeypatch):
-        """Point ``_config_dir`` at a tmp_path so each test gets a clean slate.
-
-        The canonical ``tmp_config_dir`` fixture handles the base
-        ``config._config_dir`` / ``app._config_dir`` / ``_paths``
-        bindings; this fixture additionally patches the
-        ``config_internals.paths`` binding and resets the ``lru_cache``
-        memoization. A prior test that resolved the REAL dir first (e.g.
-        via ``_acquire_config_lock`` / ``_get_config_dir``) leaves the
-        cache holding the real path; without the reset, path lookups
-        that route through ``config_internals.paths`` would keep
-        resolving the real config dir.
-        """
+        """Point ``_config_dir`` at a tmp_path so each test gets a clean slate."""
         from voice_typer.server.config import _reset_config_dir_cache
         from voice_typer.server.config_internals import paths as _paths_mod
 
         # Reset the lru_cache BEFORE replacing the binding, the reset
-        # helper calls ``_config_dir.cache_clear()`` on the REAL function.
         _reset_config_dir_cache()
         monkeypatch.setattr(_paths_mod, "_config_dir", lambda: tmp_config_dir)
         yield
 
     def test_backup_read_skipped_on_identical_resave(self, tmp_path, monkeypatch):
-        """The second of two identical saves must NOT read ``config.json``
-        for the backup check: ``_last_saved_bytes`` short-circuits the
-        entire backup block."""
+        """The second of two identical saves must NOT read ``config.json``"""
         from voice_typer.server.config import Config
 
         cfg = Config(hotkey="<f3>")
@@ -229,8 +168,6 @@ class TestConfigSaveBackupSkip:
         assert config_file.exists()
 
         # Spy on Path.read_bytes to count how many times config.json is
-        # read after the first save. The  optimization should make
-        # the second identical save skip the backup read entirely.
         original_read_bytes = Path.read_bytes
         read_count = {"n": 0}
 
@@ -252,16 +189,12 @@ class TestConfigSaveBackupSkip:
             "backup block."
         )
 
-        # _last_saved_bytes must be updated to the persisted content
         # (a bytes object, non-None). We don't compare the exact bytes
-        # because the asdict() serialization is the source of truth —
-        # we just verify the attribute was set.
         assert cfg._last_saved_bytes is not None
         assert isinstance(cfg._last_saved_bytes, bytes)
 
     def test_backup_runs_when_content_changes(self, tmp_path, monkeypatch):
-        """When content changes between saves, the backup block runs and
-        ``config.json.bak`` is written with the previous content."""
+        """When content changes between saves, the backup block runs and"""
         from voice_typer.server.config import Config
 
         cfg = Config(hotkey="<f3>")
@@ -272,7 +205,6 @@ class TestConfigSaveBackupSkip:
         assert not bak_file.exists()
 
         # Change a field and save, _last_saved_bytes != new content →
-        # backup block runs → .bak written with the previous content.
         cfg.hotkey = "<f4>"
         assert cfg.save() is True
 
@@ -287,8 +219,7 @@ class TestConfigSaveBackupSkip:
         assert new_data["hotkey"] == "<f4>"
 
     def test_first_save_does_not_backup(self, tmp_path):
-        """The very first save (no prior config.json) never writes a
-        backup, there's nothing to back up."""
+        """The very first save (no prior config.json) never writes a"""
         from voice_typer.server.config import Config
 
         cfg = Config(hotkey="<f3>")
@@ -296,18 +227,11 @@ class TestConfigSaveBackupSkip:
         assert not (tmp_path / "config.json.bak").exists()
 
 
-# ----------------------------------------------------------------------
-# multi-row INSERT batches 3+ pending rows
-# ----------------------------------------------------------------------
-
-
 class TestHistoryDBMultiRowInsertBatching:
-    """ER-78: 3+ pending ``add_transcription`` calls are batched into a
-    single multi-row INSERT inside one transaction."""
+    """ER-78: 3+ pending ``add_transcription`` calls are batched into a"""
 
     def _make_execute_counting_db(self, tmp_path, monkeypatch):
-        """Build a HistoryDB whose writer connection counts INSERT
-        execute() calls and records the SQL of each."""
+        """Build a HistoryDB whose writer connection counts INSERT"""
         from voice_typer.server.history_db import HistoryDB
 
         insert_calls: list[str] = []
@@ -320,16 +244,6 @@ class TestHistoryDBMultiRowInsertBatching:
             def execute(self, sql, parameters=()):
                 sql_str = str(sql).strip()
                 # Normalize whitespace so the multi-row INSERT (one
-                # statement) and the single-row INSERT (one statement)
-                # are both detectable. Compare uppercased SQL against
-                # an uppercase marker so mixed-case SQL is caught.
-                #
-                # The marker requires the space + paren after
-                # ``TRANSCRIPTIONS`` so the schema-init FTS-rebuild
-                # statement (``INSERT INTO transcriptions_fts(
-                # transcriptions_fts) VALUES('rebuild')``) is NOT
-                # counted, it targets the FTS shadow table, not the
-                # transcriptions rows.
                 if "INSERT INTO TRANSCRIPTIONS (" in sql_str.upper():
                     insert_calls.append(sql_str)
                 return self._real.execute(sql, parameters)
@@ -365,7 +279,6 @@ class TestHistoryDBMultiRowInsertBatching:
             def execute(self, sql, parameters=()):
                 sql_str = str(sql).strip()
                 # See ExecuteCountingProxy.execute, the space+paren
-                # marker excludes the FTS-rebuild shadow-table insert.
                 if "INSERT INTO TRANSCRIPTIONS (" in sql_str.upper():
                     self._insert_calls.append(sql_str)
                 return self._real.execute(sql, parameters)
@@ -398,23 +311,16 @@ class TestHistoryDBMultiRowInsertBatching:
         return db, insert_calls
 
     def test_three_pending_inserts_are_batched_into_one_multi_row_insert(self, tmp_path, monkeypatch):
-        """Submit 3 add_transcription calls in rapid succession (without
-        flushing between them), the writer should drain them into ONE
-        multi-row INSERT (one execute call with 3 value-tuples), not 3
-        separate INSERTs."""
+        """Submit 3 add_transcription calls in rapid succession (without"""
         db, insert_calls = self._make_execute_counting_db(tmp_path, monkeypatch)
         try:
             # Submit 3 inserts in rapid succession. The writer thread
-            # will pull the first one, peek the queue, find 2 more
-            # pending, and batch all 3 into one multi-row INSERT.
             db.add_transcription("first", duration=1.0, model="m1")
             db.add_transcription("second", duration=2.0, model="m2")
             db.add_transcription("third", duration=3.0, model="m3")
             db.flush()
 
             # At least one batch should have been executed and all 3 rows must be persisted.
-            # Under high contention the writer may drain in 2 batches (2+1) instead of 1 batch of 3;
-            # allow either 1 or 2 INSERTs as long as total tuples == 3 and at least one batch is multi-row.
             assert len(insert_calls) in (1, 2), (
                 f"ER-78: expected 1-2 batched INSERTs for 3 pending rows, "
                 f"got {len(insert_calls)} INSERT calls. SQL: {insert_calls}"
@@ -438,8 +344,7 @@ class TestHistoryDBMultiRowInsertBatching:
             db.close()
 
     def test_single_insert_below_threshold_is_not_batched(self, tmp_path, monkeypatch):
-        """A single add_transcription (no other pending inserts) should
-        produce exactly one INSERT statement (the single-row form)."""
+        """A single add_transcription (no other pending inserts) should"""
         db, insert_calls = self._make_execute_counting_db(tmp_path, monkeypatch)
         try:
             db.add_transcription("only one", duration=1.0, model="m1")
@@ -455,8 +360,7 @@ class TestHistoryDBMultiRowInsertBatching:
             db.close()
 
     def test_batched_inserts_preserve_all_row_data(self, tmp_path, monkeypatch):
-        """The multi-row INSERT must persist each row's text, duration,
-        model, device, word_count, char_count, language correctly."""
+        """The multi-row INSERT must persist each row's text, duration,"""
         db, _ = self._make_execute_counting_db(tmp_path, monkeypatch)
         try:
             db.add_transcription(
@@ -483,8 +387,6 @@ class TestHistoryDBMultiRowInsertBatching:
             db.flush()
 
             recent = db.get_recent(limit=10)
-            # Order is DESC by timestamp; for our test we just need to
-            # find each row.
             by_text = {row["text"]: row for row in recent}
             assert by_text["hello world"]["duration"] == 1.5
             assert by_text["hello world"]["model"] == "small.en"
@@ -505,26 +407,17 @@ class TestHistoryDBMultiRowInsertBatching:
             db.close()
 
 
-# ----------------------------------------------------------------------
-# _secure_atomic_write(durability=False) skips fsyncs
-# ----------------------------------------------------------------------
-
-
 class TestSecureAtomicWriteDurability:
     """ER-80: ``durability=False`` skips both fsyncs (file + parent dir)."""
 
     def test_durability_false_skips_fsync(self, tmp_path, monkeypatch):
-        """With ``durability=False``, neither the file-data fsync nor
-        the parent-directory fsync should run."""
+        """With ``durability=False``, neither the file-data fsync nor"""
         from voice_typer.server import secure_file_io
 
         fsync_count = {"n": 0}
 
         def _counting_fsync(fd):
             fsync_count["n"] += 1
-            # Don't actually call real fsync, we only care about the
-            # call count, and the test file is in tmp_path which is
-            # already durable enough for test purposes.
 
         monkeypatch.setattr(os, "fsync", _counting_fsync)
 
@@ -534,15 +427,11 @@ class TestSecureAtomicWriteDurability:
         assert fsync_count["n"] == 0, (
             f"ER-80: durability=False should skip BOTH fsyncs, but os.fsync was called {fsync_count['n']} times."
         )
-        # The file should still exist with the right content (the
-        # os.replace rename still happens).
         assert target.exists()
         assert json.loads(target.read_text()) == {"hello": "world"}
 
     def test_durability_true_calls_fsync(self, tmp_path, monkeypatch):
-        """With the default ``durability=True``, fsync is called at
-        least once (for the file data; the parent-dir fsync is
-        POSIX-only and best-effort)."""
+        """With the default ``durability=True``, fsync is called at"""
         from voice_typer.server import secure_file_io
 
         fsync_count = {"n": 0}
@@ -560,9 +449,7 @@ class TestSecureAtomicWriteDurability:
         )
 
     def test_durability_default_is_true(self, tmp_path, monkeypatch):
-        """The default value of ``durability`` must be ``True`` so the
-        existing call sites (which don't pass the kwarg) preserve their
-        POSIX-durability behavior."""
+        """existing call sites (which don't pass the kwarg) preserve their"""
         import inspect
 
         from voice_typer.server import secure_file_io
@@ -576,14 +463,7 @@ class TestSecureAtomicWriteDurability:
         )
 
     def test_durability_false_still_atomic(self, tmp_path, monkeypatch):
-        """``durability=False`` must still be atomic, os.replace is
-        independent of fsync, so the target file is either the old
-        content or the new content, never a partial write.
-
-        We verify this by running many writes from multiple threads
-        with ``durability=False`` and asserting the final content is
-        valid JSON (one of the writes, never a torn write).
-        """
+        """``durability=False`` must still be atomic, os.replace is"""
         from voice_typer.server import secure_file_io
 
         target = tmp_path / "concurrent.json"

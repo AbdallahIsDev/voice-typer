@@ -1,30 +1,4 @@
-"""TY-21: tests for the composite index ``idx_favorite_timestamp``.
-
-Verifies that:
-- The composite index ``idx_favorite_timestamp`` on
-  ``transcriptions(favorite, timestamp ASC)`` exists.
-- The retention DELETE subquery at ``apply_retention`` uses the index
-  (verified via ``EXPLAIN QUERY PLAN``, the plan should reference
-  ``idx_favorite_timestamp`` as a covering index for the
-  ``WHERE favorite = 0 ORDER BY timestamp ASC LIMIT ?`` subquery).
-- The index is created on BOTH new databases (fresh ``HistoryDB``)
-  AND existing databases (re-opening an existing DB file runs
-  ``_init_db_schema`` again, which is idempotent via
-  ``CREATE INDEX IF NOT EXISTS``).
-
-Without the composite index, the retention DELETE subquery
-(``SELECT id FROM transcriptions WHERE favorite = 0 ORDER BY
-timestamp ASC LIMIT ?``) had to:
-  1. full-scan the favorite=0 subset via ``idx_favorite``,
-  2. fetch the timestamp for each row from the base table,
-  3. sort the subset by timestamp ASC,
-  4. take the first ``_RETENTION_BATCH`` (100) ids.
-That's O(K log K) per batch where K = count of favorite=0 rows.
-For a power-user DB with 100k rows and max_entries=1000, the
-retention sweep ran ~990 batches × O(90k log 90k) ≈ 1.3 billion
-comparisons total, ~10-30s stall. The composite index turns the
-subquery into an index range walk: O(log K + 100) per batch.
-"""
+"""TY-21: tests for the composite index ``idx_favorite_timestamp``."""
 
 from __future__ import annotations
 
@@ -55,22 +29,9 @@ def _list_indexes(conn: sqlite3.Connection, table: str = "transcriptions") -> se
 
 
 def _index_columns(conn: sqlite3.Connection, index_name: str) -> list[tuple[str, int, bool]]:
-    """Return ``[(column_name, collation_seq, is_desc), ...]`` for an index.
-
-    Mirrors the ``PRAGMA index_info`` + ``PRAGMA index_xinfo`` shape —
-    we use ``index_xinfo`` because it includes the sort order (the
-    ``desc`` field), which is what we need to verify the composite
-    index has ``timestamp ASC`` (desc=0) not DESC (desc=1).
-    """
+    """Return ``[(column_name, collation_seq, is_desc), ...]`` for an index."""
     cursor = conn.cursor()
     cursor.execute(f"PRAGMA index_xinfo({index_name})")
-    # index_xinfo rows: (colno, cid, name, desc, coll, key)
-    #   colno, position in the index (or -1 for the rowid)
-    #   cid , column id in the base table (or -1 for rowid)
-    #   name, column name (or NULL for rowid)
-    #   desc, 1 if descending, 0 if ascending
-    #   coll, collation sequence name
-    #   key , 1 if the column is part of the index key, 0 if auxiliary
     return [
         (row[2], row[3], bool(row[3]))
         for row in cursor.fetchall()
@@ -88,11 +49,7 @@ class TestCompositeIndex:
         assert "idx_favorite_timestamp" in indexes, f"expected idx_favorite_timestamp in {sorted(indexes)}"
 
     def test_index_exists_on_existing_db_reopen(self, tmp_path):
-        """TY-21: re-opening an existing DB file re-runs
-        ``_init_db_schema``, which is idempotent (``CREATE INDEX IF NOT
-        EXISTS``). The composite index must be present on the second
-        open even though it didn't exist when the first HistoryDB was
-        created (this simulates an upgrade from a pre-TY-21 DB)."""
+        """TY-21: re-opening an existing DB file re-runs"""
         from voice_typer.server.history_db import HistoryDB
 
         db_path = tmp_path / "test_retention_reopen.db"
@@ -109,13 +66,7 @@ class TestCompositeIndex:
             db2.close()
 
     def test_index_has_correct_columns_and_sort_order(self, db):
-        """TY-21: the composite index is on
-        ``(favorite, timestamp ASC)``, favorite first, timestamp
-        ascending (NOT descending like ``idx_timestamp``).
-        The sort order matters: the retention DELETE subquery uses
-        ``ORDER BY timestamp ASC``, so a DESC index wouldn't be usable
-        as a covering index (SQLite would have to walk it backwards).
-        """
+        """``(favorite, timestamp ASC)``, favorite first, timestamp"""
         conn = db._get_read_conn()
         cols = _index_columns(conn, "idx_favorite_timestamp")
         # Expect two key columns: favorite (ASC) and timestamp (ASC).
@@ -132,16 +83,7 @@ class TestRetentionUsesIndex:
     """The retention DELETE subquery uses the composite index."""
 
     def test_retention_subquery_uses_composite_index(self, db):
-        """TY-21: ``EXPLAIN QUERY PLAN`` for the retention DELETE
-        subquery (``SELECT id FROM transcriptions WHERE favorite = 0
-        ORDER BY timestamp ASC LIMIT ?``) should reference
-        ``idx_favorite_timestamp`` as a covering index.
-
-        Before TY-21, the plan used ``idx_favorite`` (favorite-only)
-        plus a temporary b-tree for the ORDER BY, O(K log K) per
-        batch. With the composite index, the plan is a single
-        index range walk with no temp b-tree.
-        """
+        """TY-21: ``EXPLAIN QUERY PLAN`` for the retention DELETE"""
         # Insert some rows so the query planner has stats to work with.
         for i in range(20):
             db.add_transcription(f"dictation {i}")
@@ -164,26 +106,16 @@ class TestRetentionUsesIndex:
         # EXPLAIN QUERY PLAN returns rows of (id, parent, notused, detail).
         plan_text = " ".join(str(row[3]) for row in plan_rows).upper()
 
-        # The composite index should be referenced (either by name or
-        # as a covering index). Some SQLite versions phrase it as
-        # "COVERING INDEX idx_favorite_timestamp" or just
-        # "SEARCH transcriptions USING INDEX idx_favorite_timestamp".
         assert "IDX_FAVORITE_TIMESTAMP" in plan_text, (
             f"expected retention subquery to use idx_favorite_timestamp, got plan: {plan_text!r}"
         )
         # A covering index walk eliminates the temp b-tree for ORDER BY.
-        # Before  the plan included "USE TEMP B-TREE FOR ORDER BY".
         assert "USE TEMP B-TREE FOR ORDER BY" not in plan_text, (
             "retention subquery should NOT need a temp b-tree for ORDER BY, the composite index provides the sort order"
         )
 
     def test_retention_by_age_subquery_also_covered(self, db):
-        """TY-21 (bonus): the retention-by-AGE subquery
-          (``WHERE timestamp < ? AND favorite = 0 LIMIT ?``) should also
-          benefit from the composite index. This subquery doesn't have
-          an explicit ``ORDER BY`` but still filters on ``favorite = 0``
-        , the composite index serves the filter without a full scan.
-        """
+        """TY-21 (bonus): the retention-by-AGE subquery"""
         for i in range(20):
             db.add_transcription(f"dictation {i}")
         db.flush()
@@ -202,8 +134,6 @@ class TestRetentionUsesIndex:
         plan_rows = cursor.fetchall()
         plan_text = " ".join(str(row[3]) for row in plan_rows).upper()
         # Either composite index or idx_favorite should be used —
-        # NOT a full table scan. The composite is preferred because
-        # it covers both predicates.
         assert "IDX_FAVORITE_TIMESTAMP" in plan_text or "IDX_FAVORITE" in plan_text, (
             f"expected retention-by-age subquery to use an index on 'favorite', got plan: {plan_text!r}"
         )
@@ -216,15 +146,7 @@ class TestRetentionFunctional:
     """End-to-end: ``apply_retention`` deletes the expected rows."""
 
     def test_retention_deletes_oldest_non_favorites(self, db):
-        """TY-21: functional regression: ``apply_retention(max_entries=N)``
-        deletes the oldest non-favorite rows to bring the total down
-        to N. Favorites are preserved.
-
-        Setup: 10 rows total, 2 marked favorite → 8 non-fav + 2 fav.
-        With max_entries=5, retention deletes (10-5)=5 oldest non-fav
-        rows. 5 rows remain: 3 non-fav + 2 fav. Favorites are
-        preserved because the DELETE subquery filters ``favorite = 0``.
-        """
+        """TY-21: functional regression: ``apply_retention(max_entries=N)``"""
         # Insert 10 rows (all non-favorite initially).
         for i in range(10):
             db.add_transcription(f"dictation {i}")
@@ -234,7 +156,6 @@ class TestRetentionFunctional:
         for r in rows[:2]:
             assert db.toggle_favorite(r["id"]) is True
 
-        # total=10, effective_max=5 → excess=5 deleted (oldest non-fav).
         deleted = db.apply_retention(max_entries=5)
         assert deleted == 5
         # 5 rows remain: 3 non-fav + 2 fav.
@@ -246,23 +167,7 @@ class TestRetentionFunctional:
 
 
 class TestRetentionTimezone:
-    """XE-9-B regression: ``apply_retention`` cutoff must be UTC and
-    formatted as ``'%Y-%m-%d %H:%M:%S'`` (matching SQLite's
-    ``CURRENT_TIMESTAMP``), not naive local time + ISO 8601 (which
-    appends a TZ offset and skews the comparison by the local TZ
-    offset hours).
-
-    The ``transcriptions.timestamp`` column is populated by SQLite's
-    ``CURRENT_TIMESTAMP`` (UTC, ``'%Y-%m-%d %H:%M:%S'`` format). The
-    previous ``apply_retention`` computed the cutoff as
-    ``datetime.now().isoformat()``, local time with a ``+HH:MM``
-    suffix. Lexicographic comparison of an offset-suffixed string
-    against a bare UTC string gives wrong results on any machine
-    whose local TZ is not UTC.
-
-    The fix: ``datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')``
-    (UTC, bare format, no TZ suffix).
-    """
+    """formatted as ``'%Y-%m-%d %H:%M:%S'`` (matching SQLite's"""
 
     def _insert_rows_at_utc(self, db, timestamps_utc: list[str]) -> None:
         """Insert rows with the given UTC timestamp strings."""
@@ -279,13 +184,9 @@ class TestRetentionTimezone:
         db._submit_write(_do_insert, wait=True)
 
     def test_retention_cutoff_is_utc_not_local(self, db):
-        """XE-9-B: with ``retention_days=7``, a row whose UTC timestamp
-        is exactly 8 days old MUST be deleted, and a row whose UTC
-        timestamp is exactly 6 days old MUST be kept.
-
+        """
+        XE-9-B: with ``retention_days=7``, a row whose UTC timestamp
         We pin the "now" by patching ``datetime`` inside the retention
-        module so the cutoff is computed relative to a fixed UTC instant
-        regardless of the test machine's local TZ.
         """
         from voice_typer.server.history_db_internals import retention as retention_mod
 
@@ -326,10 +227,7 @@ class TestRetentionTimezone:
         assert remaining[0]["text"] == f"row@{recent_6d}"
 
     def test_retention_cutoff_format_matches_current_timestamp(self, db):
-        """XE-9-B: the cutoff string format must be ``'%Y-%m-%d %H:%M:%S'``
-        (no TZ suffix) so the lexicographic ``timestamp < ?`` comparison
-        against ``CURRENT_TIMESTAMP``-formatted values is apples-to-apples.
-        """
+        """XE-9-B: the cutoff string format must be ``'%Y-%m-%d %H:%M:%S'``"""
         captured_cutoffs: list[str] = []
         original_submit = db._submit_write
 
@@ -404,21 +302,10 @@ class TestRetentionTimezone:
 
 
 class TestRetentionFts5RebuildFailure:
-    """XE-9-E regression: when the FTS5 ``'rebuild'`` command fails
-    after a retention sweep, the failure is no longer silent. The
-    returned :class:`RetentionResult` carries ``fts5_rebuild_ok=False``,
-    the per-instance ``db._fts5_rebuild_failures`` counter is
-    incremented, an ``event_bus`` event
-    ``{"type": "history_fts5_rebuild_failed"}`` is published, and the
-    log is escalated from WARNING to ERROR (the privacy guarantee is
-    broken, not merely suboptimal).
-    """
+    """XE-9-E regression: when the FTS5 ``'rebuild'`` command fails"""
 
     def test_apply_retention_returns_retention_result_with_fts5_rebuild_ok(self, db):
-        """XE-9-E: ``apply_retention`` returns a :class:`RetentionResult`
-        (an ``int`` subclass) that supports both int comparison
-        (``deleted == N``) AND dict-style access
-        (``result["fts5_rebuild_ok"]``)."""
+        """XE-9-E: ``apply_retention`` returns a :class:`RetentionResult`"""
         from voice_typer.server.history_db_internals.retention import RetentionResult
 
         old_ts = (datetime.now(timezone.utc) - timedelta(days=30)).strftime("%Y-%m-%d %H:%M:%S")
@@ -443,11 +330,7 @@ class TestRetentionFts5RebuildFailure:
         assert isinstance(result, RetentionResult)
 
     def test_apply_retention_fts5_rebuild_failure_sets_flag_and_increments_counter(self, db, monkeypatch):
-        """XE-9-E: when the FTS5 ``'rebuild'`` command raises
-        ``sqlite3.Error`` inside the retention sweep, the returned
-        ``RetentionResult`` carries ``fts5_rebuild_ok=False`` AND
-        ``db._fts5_rebuild_failures`` is incremented.
-        """
+        """XE-9-E: when the FTS5 ``'rebuild'`` command raises"""
         old_ts = (datetime.now(timezone.utc) - timedelta(days=30)).strftime("%Y-%m-%d %H:%M:%S")
 
         def _do_insert(conn):
@@ -527,10 +410,7 @@ class TestRetentionFts5RebuildFailure:
         assert db._fts5_rebuild_failures >= 1, "XE-9-E: _fts5_rebuild_failures should be incremented on rebuild failure"
 
     def test_apply_retention_fts5_rebuild_failure_publishes_event_bus_event(self, db, monkeypatch):
-        """XE-9-E: when the FTS5 ``'rebuild'`` command fails, an
-        ``event_bus.publish`` call is made with
-        ``{"type": "history_fts5_rebuild_failed"}`` so the renderer
-        can show a toast."""
+        """``{\"type\": \"history_fts5_rebuild_failed\"}`` so the renderer"""
         old_ts = (datetime.now(timezone.utc) - timedelta(days=30)).strftime("%Y-%m-%d %H:%M:%S")
 
         def _do_insert(conn):
@@ -621,9 +501,7 @@ class TestRetentionFts5RebuildFailure:
         assert "error" in event["data"]
 
     def test_apply_retention_no_rebuild_attempted_when_nothing_deleted(self, db):
-        """XE-9-E: when ``apply_retention`` deletes nothing (no-op sweep),
-        the FTS5 rebuild step is skipped and ``fts5_rebuild_ok`` stays
-        ``True`` (default, no privacy failure to report)."""
+        """XE-9-E: when ``apply_retention`` deletes nothing (no-op sweep),"""
         result = db.apply_retention(retention_days=999, max_entries=0)
         assert int(result) == 0
         assert result["fts5_rebuild_ok"] is True, "XE-9-E: fts5_rebuild_ok should be True when no rebuild was attempted"

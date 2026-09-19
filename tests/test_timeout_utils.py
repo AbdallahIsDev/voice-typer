@@ -1,30 +1,4 @@
-"""UE-21 / UE-11-F7 / UE-11-F8 / UE-11-F9: tests for ``_timeout_utils``.
-
-These tests pin the GROUP-5 fixes applied to
-``voice_typer/server/_timeout_utils.py``:
-
-* **UE-21 / UE-11-F7 (Medium)**: ``_run_with_timeout`` returns
-  ``TIMEOUT`` and leaks the worker thread if it doesn't finish in
-  *timeout*. The fix tracks leaked workers in a module-level
-  ``_LEAKED_WORKERS`` registry (guarded by ``_LEAKED_WORKERS_LOCK``)
-  and exposes ``join_leaked_workers(timeout)`` for the shutdown
-  watchdog to drain before ``os._exit(0)``. Workers are added on
-  TIMEOUT; removed (best-effort) once they eventually finish.
-
-* **UE-11-F8 (Medium)**: ``_run_parallel_with_timeout`` re-orders
-  results by ``desc`` via ``by_desc = {desc: value}``, duplicate
-  ``desc`` silently overwrites. The fix raises ``ValueError`` at
-  entry if any two items share a description.
-
-* **UE-11-F9 (Low)**: ``__all__`` had ``TIMEOUT`` + ``_TIMEOUT``
-  (alias), and ``SHUTDOWN_WATCHDOG_TIMEOUT_S`` +
-  ``_DE11_GRACE_PERIOD_SECONDS`` (alias). The fix removes the
-  aliases from ``__all__`` (kept as module-level names for
-  back-compat with tests that import them directly).
-
-The tests run headless on Linux, they only touch the pure-Python
-``_timeout_utils`` module (no PortAudio, no filesystem, no Win32).
-"""
+"""UE-21 / UE-11-F7 / UE-11-F8 / UE-11-F9: tests for ``_timeout_utils``."""
 
 from __future__ import annotations
 
@@ -44,25 +18,15 @@ from voice_typer.server._timeout_utils import (
     join_leaked_workers,
 )
 
-# ─── Fixtures ───────────────────────────────────────────────────────────
-
 
 @pytest.fixture(autouse=True)
 def _reset_leaked_workers():
-    """Clear ``_LEAKED_WORKERS`` before and after each test.
-
-    The leaked-worker registry is module-level state, without this
-    fixture, a test that leaks a worker would pollute the registry
-    for every subsequent test in the process. We snapshot+restore so
-    tests are hermetic.
-    """
+    """Clear ``_LEAKED_WORKERS`` before and after each test."""
     with _tu._LEAKED_WORKERS_LOCK:
         snapshot = list(_tu._LEAKED_WORKERS)
         _tu._LEAKED_WORKERS.clear()
     yield
     with _tu._LEAKED_WORKERS_LOCK:
-        # Drain anything the test added (best-effort join first so
-        # we don't leak daemon threads across the test suite).
         leftover = list(_tu._LEAKED_WORKERS)
         _tu._LEAKED_WORKERS.clear()
         _tu._LEAKED_WORKERS.extend(snapshot)
@@ -73,15 +37,11 @@ def _reset_leaked_workers():
                 t.join(timeout=0.5)
 
 
-# leaked worker registry ──────────────────────────
-
-
 class TestLeakedWorkerRegistry:
     """UE-21 / UE-11-F7: ``_run_with_timeout`` tracks leaked workers."""
 
     def test_run_with_timeout_adds_leaked_worker_on_timeout(self):
-        """When the worker doesn't finish in *timeout*, it's appended
-        to ``_LEAKED_WORKERS`` so the watchdog can drain it later."""
+        """When the worker doesn't finish in *timeout*, it's appended"""
         blocker = threading.Event()
 
         def _blocking():
@@ -106,8 +66,7 @@ class TestLeakedWorkerRegistry:
             assert _tu._LEAKED_WORKERS == [], "successful worker must not be added to _LEAKED_WORKERS"
 
     def test_run_with_timeout_does_not_add_worker_on_exception(self):
-        """A worker that raises is NOT added to the registry (the
-        worker thread is dead by the time we re-raise)."""
+        """A worker that raises is NOT added to the registry (the"""
 
         def _raising():
             raise RuntimeError("boom")
@@ -118,8 +77,7 @@ class TestLeakedWorkerRegistry:
             assert _tu._LEAKED_WORKERS == [], "worker that raised must not be added to _LEAKED_WORKERS"
 
     def test_run_with_timeout_returns_none_when_func_returns_none(self):
-        """A worker that returns ``None`` is NOT a timeout, the
-        sentinel is distinct from ``None`` (DE-54 contract)."""
+        """A worker that returns ``None`` is NOT a timeout, the"""
         result = _run_with_timeout("test-none", lambda: None, timeout=1.0)
         assert result is None
         with _tu._LEAKED_WORKERS_LOCK:
@@ -149,8 +107,7 @@ class TestJoinLeakedWorkers:
             assert _tu._LEAKED_WORKERS == [], "dead worker must be removed"
 
     def test_join_leaked_workers_joins_alive_workers(self):
-        """A leaked worker that's still alive gets joined (within the
-        per-worker timeout) and then pruned."""
+        """A leaked worker that's still alive gets joined (within the"""
         blocker = threading.Event()
 
         def _blocking():
@@ -166,11 +123,6 @@ class TestJoinLeakedWorkers:
             time.sleep(0.1)
             blocker.set()
 
-        # capture the thread handle and join it after the
-        # leaked-worker drain returns so we don't leak a daemon
-        # Thread-without-join (the unblock thread has already set
-        # ``blocker`` by the time join_leaked_workers returns, so the
-        # join is near-instant).
         unblock_thread = threading.Thread(target=_unblock, daemon=True)
         unblock_thread.start()
 
@@ -182,9 +134,7 @@ class TestJoinLeakedWorkers:
         unblock_thread.join(timeout=1.0)
 
     def test_join_leaked_workers_returns_count_of_still_alive(self):
-        """A worker that doesn't exit within the timeout stays in the
-        registry; the return value is the count of remaining alive
-        workers (for diagnostics)."""
+        """registry; the return value is the count of remaining alive"""
         blocker = threading.Event()
 
         def _blocking():
@@ -231,8 +181,7 @@ class TestJoinLeakedWorkers:
             assert _tu._LEAKED_WORKERS == []
 
     def test_leaked_worker_removed_after_it_eventually_finishes(self):
-        """A leaked worker that eventually finishes (between two
-        ``join_leaked_workers`` calls) is removed by the second call."""
+        """A leaked worker that eventually finishes (between two"""
         blocker = threading.Event()
 
         def _blocking():
@@ -261,8 +210,7 @@ class TestLeakedWorkerRegistryThreadSafety:
     """UE-21 / UE-11-F7: the registry is guarded by a lock."""
 
     def test_concurrent_timeouts_all_register(self):
-        """Multiple concurrent ``_run_with_timeout`` calls that time out
-        all append to ``_LEAKED_WORKERS`` without losing any entry."""
+        """Multiple concurrent ``_run_with_timeout`` calls that time out"""
         blocker = threading.Event()
         n = 8
 
@@ -288,8 +236,7 @@ class TestLeakedWorkerRegistryThreadSafety:
             join_leaked_workers(timeout=2.0)
 
     def test_concurrent_append_and_join_no_race(self):
-        """Concurrent ``_run_with_timeout`` (appending) +
-        ``join_leaked_workers`` (draining) don't race / corrupt the list."""
+        """Concurrent ``_run_with_timeout`` (appending) +"""
         blocker = threading.Event()
         errors: list[Exception] = []
 
@@ -327,15 +274,11 @@ class TestLeakedWorkerRegistryThreadSafety:
             join_leaked_workers(timeout=2.0)
 
 
-# duplicate desc guard ─────────────────────────────────────
-
-
 class TestRunParallelWithTimeoutDuplicateDesc:
     """UE-11-F8: ``_run_parallel_with_timeout`` rejects duplicate descs."""
 
     def test_duplicate_desc_raises_value_error(self):
-        """Two items with the same ``desc`` raise ``ValueError`` (not
-        silently drop one via the dict reorder)."""
+        """Two items with the same ``desc`` raise ``ValueError`` (not"""
         items = [
             ("dup", lambda: 1, 1.0),
             ("dup", lambda: 2, 1.0),
@@ -344,8 +287,7 @@ class TestRunParallelWithTimeoutDuplicateDesc:
             _run_parallel_with_timeout(items)
 
     def test_unique_descs_succeed(self):
-        """Unique descs work normally (regression: the guard shouldn't
-        reject valid input)."""
+        """Unique descs work normally (regression: the guard shouldn't"""
         items = [
             ("a", lambda: 1, 1.0),
             ("b", lambda: 2, 1.0),
@@ -357,8 +299,7 @@ class TestRunParallelWithTimeoutDuplicateDesc:
         assert [value for (_desc, value) in results] == [1, 2, 3]
 
     def test_error_message_lists_the_duplicate(self):
-        """The error message names the duplicate desc so the caller
-        can find it quickly."""
+        """The error message names the duplicate desc so the caller"""
         items = [
             ("alpha", lambda: 1, 1.0),
             ("beta", lambda: 2, 1.0),
@@ -389,8 +330,7 @@ class TestRunParallelWithTimeoutDuplicateDesc:
         assert results == [("only", 42)]
 
     def test_duplicate_desc_does_not_run_any_func(self):
-        """The uniqueness check fires BEFORE any func is submitted to
-        the pool, so a duplicate-desc call doesn't have side effects."""
+        """The uniqueness check fires BEFORE any func is submitted to"""
         call_count = 0
         lock = threading.Lock()
 
@@ -410,8 +350,7 @@ class TestRunParallelWithTimeoutDuplicateDesc:
         assert call_count == 0, f"uniqueness check should fire before any func runs; call_count={call_count}"
 
     def test_timeout_sentinel_propagates_in_parallel(self):
-        """A func that times out returns ``TIMEOUT`` in its result tuple
-        (regression: the guard shouldn't break the per-call timeout)."""
+        """A func that times out returns ``TIMEOUT`` in its result tuple"""
         blocker = threading.Event()
 
         def _blocking():
@@ -461,28 +400,19 @@ class TestAllCleanup:
         assert "join_leaked_workers" in _tu.__all__
 
     def test_timeout_alias_still_module_level(self):
-        """``_TIMEOUT`` is still accessible as a module attribute
-        (back-compat for tests that import it directly)."""
+        """``_TIMEOUT`` is still accessible as a module attribute"""
         assert _tu._TIMEOUT is TIMEOUT, "_TIMEOUT must remain a module-level alias for TIMEOUT"
         assert _TIMEOUT is _tu.TIMEOUT
 
     def test_de11_grace_period_alias_still_module_level(self):
-        """``_DE11_GRACE_PERIOD_SECONDS`` is still accessible as a
-        module attribute (back-compat)."""
+        """``_DE11_GRACE_PERIOD_SECONDS`` is still accessible as a"""
         assert _tu._DE11_GRACE_PERIOD_SECONDS == 1.0
         # And it must equal the canonical constant.
         assert _DE11_GRACE_PERIOD_SECONDS == SHUTDOWN_WATCHDOG_TIMEOUT_S
 
     def test_star_import_does_not_pull_timeout_alias(self):
-        """``from _timeout_utils import *`` does NOT bind ``_TIMEOUT``
-        in the caller's namespace (because it's not in ``__all__``).
-
-        We simulate the star-import by filtering ``dir()`` against
-        ``__all__``, the actual ``import *`` would pollute this test
-        module's globals, so we check the contract directly.
-        """
+        """``from _timeout_utils import *`` does NOT bind ``_TIMEOUT``"""
         # The contract: every name in __all__ is exported; names NOT
-        # in __all__ are not exported via ``import *``.
         for name in _tu.__all__:
             assert hasattr(_tu, name), f"__all__ entry {name!r} missing from module"
         # The aliases are accessible via getattr but NOT in __all__.
@@ -491,27 +421,10 @@ class TestAllCleanup:
 
 
 class TestRunParallelSubmitShutdownRace:
-    """VT-1: ``_run_parallel_with_timeout`` must survive a
-    ``RuntimeError('cannot schedule new futures after interpreter
-    shutdown')`` from ``pool.submit``.
-
-    Observed in the ``voice-typer`` terminal run: when the tray
-    crashed at runtime, the main thread began interpreter teardown
-    while the background startup thread was still inside
-    ``_run_parallel_with_timeout`` -> ``pool.submit`` raised and
-    killed the startup thread with an unhandled exception. The same
-    race was already guarded in ``ipc/transport_tcp.py``; this pins
-    the equivalent guard here: a rejected submit is recorded as the
-    item's result tuple (``(desc, RuntimeError)``) instead of
-    propagating.
-    """
+    """``RuntimeError('cannot schedule new futures after interpreter"""
 
     def test_submit_runtime_error_recorded_as_item_failure(self, monkeypatch):
-        """When ``pool.submit`` raises ``RuntimeError`` (interpreter
-        shutdown), the item's result must be the exception instance
-        (matching the "captured per-call failures" contract) and the
-        call must NOT raise.
-        """
+        """When ``pool.submit`` raises ``RuntimeError`` (interpreter"""
         import concurrent.futures
 
         real_submit = concurrent.futures.ThreadPoolExecutor.submit
@@ -520,9 +433,6 @@ class TestRunParallelSubmitShutdownRace:
             raise RuntimeError("cannot schedule new futures after interpreter shutdown")
 
         # Patch the class method directly: ``_run_parallel_with_timeout``
-        # does ``import concurrent.futures`` inside the function body,
-        # so it resolves to the same module object as the top-level
-        # import below.
         monkeypatch.setattr(concurrent.futures.ThreadPoolExecutor, "submit", _rejecting_submit)
         try:
             items = [
@@ -538,9 +448,7 @@ class TestRunParallelSubmitShutdownRace:
         assert "interpreter shutdown" in str(by_desc["a"])
 
     def test_partial_submit_failure_records_only_failed_items(self, monkeypatch):
-        """If only SOME submits are rejected (mixed race), the
-        successful items run normally while rejected ones carry the
-        exception - order is preserved."""
+        """exception - order is preserved."""
         import concurrent.futures
 
         real_submit = concurrent.futures.ThreadPoolExecutor.submit
@@ -566,22 +474,8 @@ class TestRunParallelSubmitShutdownRace:
         assert isinstance(by_desc["rejected"], RuntimeError)
 
 
-# leaked-worker registry cap ──────────────────────
-
-
 class TestLeakedWorkerRegistryCap:
-    """The ``_LEAKED_WORKERS`` registry is bounded.
-
-    In a long-lived process that times out many ``_run_with_timeout``
-    calls without ever running the shutdown watchdog, the registry used
-    to grow without bound (each entry pins its worker closure + captured
-    locals). The registry now (a) opportunistically prunes
-    already-exited workers on the append path and (b) hard-caps at
-    ``_MAX_LEAKED_WORKERS`` entries, evicting the OLDEST entry (with a
-    warning log) when still full. Daemon threads are reaped by process
-    exit either way, so eviction only trades stale diagnostic entries
-    for bounded memory.
-    """
+    """The ``_LEAKED_WORKERS`` registry is bounded."""
 
     def test_registry_evicts_oldest_at_cap(self, monkeypatch):
         """A full registry evicts its oldest entry to stay bounded."""
@@ -613,8 +507,7 @@ class TestLeakedWorkerRegistryCap:
                 t.join(timeout=1.0)
 
     def test_registry_prunes_dead_workers_on_append(self, monkeypatch):
-        """Appending to a full registry of EXITED workers prunes them
-        instead of evicting live entries."""
+        """Appending to a full registry of EXITED workers prunes them"""
         monkeypatch.setattr(_tu, "_MAX_LEAKED_WORKERS", 3)
 
         def _quick() -> None:
@@ -640,8 +533,7 @@ class TestLeakedWorkerRegistryCap:
             release.set()
 
     def test_registry_grows_normally_under_cap(self):
-        """Below the cap nothing is evicted, the single-leak contract
-        of the existing tests still holds."""
+        """Below the cap nothing is evicted, the single-leak contract"""
         release = threading.Event()
         try:
             result = _run_with_timeout("under-cap-blocked", lambda: release.wait(timeout=5.0), timeout=0.05)

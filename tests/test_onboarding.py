@@ -28,13 +28,7 @@ class TestOnboardingFirstRun:
         assert ctrl.is_first_run() is True
 
     def test_not_first_run_with_config(self, onboarding_dir):
-        """#8: A config.json with onboarding_completed=True is NOT first run.
-
-        Previously this test used an empty ``{}`` config which would have
-        onboarding_completed=False (default), so is_first_run() now returns
-        True. The wizard should appear whenever onboarding_completed is
-        False, regardless of whether config.json exists.
-        """
+        """#8: A config.json with onboarding_completed=True is NOT first run."""
         (onboarding_dir / "config.json").write_text(json.dumps({"onboarding_completed": True}), encoding="utf-8")
         from voice_typer.server.onboarding import OnboardingController
 
@@ -42,12 +36,7 @@ class TestOnboardingFirstRun:
         assert ctrl.is_first_run() is False
 
     def test_first_run_when_config_has_onboarding_false(self, onboarding_dir):
-        """#8: config.json exists but onboarding_completed=False → first run.
-
-        This is the case after app.py saves defaults on the very first
-        launch. The wizard should still appear so the user can pick
-        their microphone, hotkey, and model.
-        """
+        """#8: config.json exists but onboarding_completed=False → first run."""
         (onboarding_dir / "config.json").write_text(json.dumps({"onboarding_completed": False}), encoding="utf-8")
         from voice_typer.server.onboarding import OnboardingController
 
@@ -62,7 +51,6 @@ class TestOnboardingFirstRun:
 class TestOnboardingSteps:
     def test_initial_step(self, ctrl):
         # 4-step essentials flow (2026-09-14): Welcome → Consent →
-        # Model → Hotkey (Microphone / Permissions / Done removed).
         assert ctrl.current_step == 0
         assert ctrl.total_steps == 4
 
@@ -100,15 +88,7 @@ class TestOnboardingSteps:
         assert ctrl._current_step == 1
 
     def test_next_step_does_not_mark_complete(self, ctrl):
-        """reaching the last step via next_step() must NOT mark
-        onboarding complete. Completion is now triggered only by
-        apply_settings() (after config.save() succeeds) or skip().
-
-        Previously next_step() called mark_complete() when it reached
-        the final step, which meant a user who walked through the
-        wizard and reached the last step but never clicked Apply would
-        be treated as onboarded, losing their selections on next launch.
-        """
+        """reaching the last step via next_step() must NOT mark"""
         ctrl._current_step = 2  # second-to-last step (Model)
         ctrl.next_step()  # advances to step 3 (Hotkey, final)
         assert ctrl.current_step == 3
@@ -118,8 +98,7 @@ class TestOnboardingSteps:
 
 class TestOnboardingSkip:
     def test_skip_marks_complete(self, ctrl):
-        """callbacks were removed; verify skip still
-        marks the onboarding as complete."""
+        """callbacks were removed; verify skip still"""
         ctrl.skip()
         assert ctrl.is_first_run() is False
 
@@ -147,8 +126,6 @@ class TestOnboardingSelections:
 
     def test_model_options(self, ctrl):
         # Catalog pruned 2026-08-15 to the kept Whisper variants
-        # (tiny default, large-v3, large-v3-turbo) plus Parakeet
-        # (large-v3 restored at the user's request the same day).
         assert len(ctrl.MODEL_OPTIONS) == 4
 
 
@@ -192,14 +169,7 @@ class TestOnboardingApplySettings:
 
 
 class TestOnboardingWizard:
-    """#8: End-to-end test of the wizard flow through the service layer.
-
-    Verifies that:
-    - is_first_run() returns True when onboarding_completed is False
-    - The wizard can set microphone, hotkey, and model selections
-    - apply_settings persists the choices and marks onboarding complete
-    - After apply, is_first_run() returns False (wizard won't reappear)
-    """
+    """#8: End-to-end test of the wizard flow through the service layer."""
 
     def test_full_wizard_flow(self, onboarding_dir):
         """Simulate the React wizard's IPC call sequence."""
@@ -210,14 +180,11 @@ class TestOnboardingWizard:
         assert ctrl.is_first_run() is True, "Wizard should appear when onboarding_completed is False"
 
         # 2) Wizard starts (4-step essentials flow: Welcome → Consent
-        #    → Model → Hotkey; Microphone / Permissions / Done removed
-        #    2026-09-14).
         ctrl = OnboardingController(config_dir=onboarding_dir)
         assert ctrl.current_step == 0
         assert ctrl.total_steps == 4
 
         # 3) Step 2: grant consents (persisted by the renderer via
-        #    set_config; no backend-side collection).
         ctrl.next_step()  # advance to step 1 (Consent)
         assert ctrl.step_name == "Consent"
 
@@ -232,8 +199,6 @@ class TestOnboardingWizard:
         assert ctrl.selected_hotkey == "<f4>"
 
         # 6) Apply settings to a mock config (mirrors service.onboarding_apply).
-        # apply_settings() calls mark_complete() internally
-        #    after config.save() succeeds.
         from voice_typer.server.config import Config
 
         cfg = Config()
@@ -250,8 +215,6 @@ class TestOnboardingWizard:
         assert ctrl2.is_first_run() is False, "Wizard should NOT reappear after apply_settings + mark_complete"
 
         # 9) Verify the user's choices were persisted. The Microphone
-        # step was removed (2026-09-14): ``config.microphone`` stays at
-        # the System Default (None), set later in Settings → Microphone.
         cfg2 = Config.load()
         assert cfg2.microphone is None
         assert cfg2.hotkey == "<f4>"
@@ -276,15 +239,10 @@ class TestOnboardingWizard:
 
         # Config retains defaults (wizard was skipped before any set_* call)
         cfg = Config.load()
-        # default hotkey is platform-aware
         from voice_typer.server.config import _default_hotkey_for_platform
 
         assert cfg.hotkey == _default_hotkey_for_platform()
         # Since the 2026-08-28 no-default-model change there is NO
-        # concrete default model: a skipped wizard leaves ``model_size``
-        # at the canonical ``DEFAULT_MODEL_SIZE`` sentinel ("") until
-        # the user explicitly picks one. The old "tiny" pin expected a
-        # preselected model that was never chosen nor installed.
         assert cfg.model_size == DEFAULT_MODEL_SIZE  # default
 
 
@@ -293,15 +251,8 @@ class TestOnboardingWizard:
 
 @pytest.fixture
 def app_with_service(tmp_config_dir, monkeypatch):
-    """Build a real VoiceTyperApp + VoiceTyperService with mocked deps.
-
-    Mirrors the ``app`` fixture in tests/test_app.py: heavy imports
-    are mocked, pynput is forced as the hotkey backend, and autostart
-    helpers are stubbed so __init__ doesn't touch the OS.
-    """
+    """Build a real VoiceTyperApp + VoiceTyperService with mocked deps."""
     # Mock heavy hardware/GUI deps (in addition to conftest's autouse
-    # mock_heavy_imports, which doesn't run for this module-scope
-    # override, be defensive and set them up explicitly here).
     mock_sd = MagicMock()
     mock_sd.query_devices.return_value = []
     monkeypatch.setitem(sys.modules, "sounddevice", mock_sd)
@@ -325,9 +276,6 @@ def app_with_service(tmp_config_dir, monkeypatch):
     monkeypatch.setattr("voice_typer.server.server_platform.microphone_list.list_microphones", lambda: [])
 
     # Force PynputHotkey backend so tests can assert hotkey_str
-    # without depending on native binaries. Patch BOTH app and
-    # hotkey_dispatcher namespaces (see  / fix in
-    # tests/test_app.py for why both are required).
     from voice_typer.server.hotkeys import PynputHotkey
 
     def _force_pynput(hotkey_str, **kwargs):
@@ -364,18 +312,10 @@ def captured_events(monkeypatch):
 
 
 class TestOnboardingApplySideEffects:
-    """17-H-onboarding_apply must re-register the hotkey and
-    push a config_changed event so the user's wizard choices take
-    effect immediately (without app restart).
-
-    Previously onboarding_apply only called config.save(), so the
-    hotkey/model/mic chosen in the first-run wizard were ignored
-    until the next app launch.
-    """
+    """push a config_changed event so the user's wizard choices take"""
 
     def test_hotkey_re_registered_without_restart(self, app_with_service, captured_events):
-        """The dictation hotkey backend reflects the wizard's choice
-        immediately after onboarding_apply, no restart needed."""
+        """The dictation hotkey backend reflects the wizard's choice"""
         app, service = app_with_service
 
         # Wizard flow: start, pick a non-default hotkey, apply.
@@ -386,9 +326,6 @@ class TestOnboardingApplySideEffects:
         assert result == {"ok": True}, f"onboarding_apply failed: {result}"
 
         # The hotkey dispatcher should have a live backend whose
-        # hotkey_str matches the user's selection. Before 17-H-,
-        # apply_config_side_effects was never called so the backend
-        # would still be None (or hold the default hotkey).
         backend = app.hotkeys._hotkey_backend
         assert backend is not None, (
             "Hotkey backend was not registered by onboarding_apply, apply_config_side_effects was not invoked"
@@ -398,9 +335,7 @@ class TestOnboardingApplySideEffects:
         )
 
     def test_config_changed_event_pushed(self, app_with_service, captured_events):
-        """onboarding_apply pushes a config_changed event so the
-        renderer can refresh UI-local state without a bespoke
-        get_config round-trip (parity with set_config)."""
+        """renderer can refresh UI-local state without a bespoke"""
         app, service = app_with_service
 
         service.onboarding_start()
@@ -409,15 +344,12 @@ class TestOnboardingApplySideEffects:
 
         config_events = [e for e in captured_events if e.get("type") == "config_changed"]
         assert len(config_events) >= 1, f"Expected at least one config_changed event, got: {captured_events}"
-        # The event data must carry the wizard's hotkey choice so the
-        # renderer can update its hotkey label without re-fetching.
         data = config_events[-1].get("data", {})
         assert data.get("hotkey") == "<f6>", f"config_changed event data should include hotkey='<f6>', got: {data}"
         assert "model_size" in data, "config_changed event data should include model_size"
 
     def test_onboarding_completed_persisted(self, app_with_service, captured_events):
-        """The existing onboarding_completed=True + config.save()
-        behavior must be preserved by the refactor."""
+        """The existing onboarding_completed=True + config.save()"""
         app, service = app_with_service
 
         service.onboarding_start()
@@ -428,14 +360,10 @@ class TestOnboardingApplySideEffects:
         assert app.config.hotkey == "<f6>"
 
     def test_model_change_invoked_when_model_differs(self, app_with_service, captured_events, monkeypatch):
-        """When the user picks a non-default model, onboarding_apply
-        must invoke ModelManager.change_model so the new model loads
-        immediately (or queues via _pending_model_change if the
-        background loader hasn't finished)."""
+        """When the user picks a non-default model, onboarding_apply"""
         app, service = app_with_service
 
         # Spy on change_model, don't actually run the unload/load
-        # cycle (which would try to load a real model in the test env).
         change_model_calls: list[str] = []
         monkeypatch.setattr(
             app.models,
@@ -453,9 +381,7 @@ class TestOnboardingApplySideEffects:
         )
 
     def test_model_change_skipped_when_model_unchanged(self, app_with_service, captured_events, monkeypatch):
-        """When the user keeps the default model, onboarding_apply
-        must NOT invoke change_model (avoids an expensive no-op
-        unload/load cycle)."""
+        """When the user keeps the default model, onboarding_apply"""
         app, service = app_with_service
 
         change_model_calls: list[str] = []
@@ -468,8 +394,6 @@ class TestOnboardingApplySideEffects:
         service.onboarding_start()
         service.onboarding_set_hotkey("<f6>")
         # Don't call onboarding_set_model, OnboardingController's
-        # default (``DEFAULT_MODEL_SIZE``) matches Config's default, so
-        # apply sees no model change and skips change_model.
         service.onboarding_apply()
 
         assert change_model_calls == [], (
@@ -477,21 +401,8 @@ class TestOnboardingApplySideEffects:
         )
 
 
-# onboarding bug regressions ( /  /  /    ──
-# )                                                    ──
-
-
 class TestApplySettingsMarksComplete:
-    """onboarding must NOT mark itself complete until the user's
-    selections are actually persisted via ``apply_settings`` (or
-    explicitly discarded via ``skip``).
-
-    The previous implementation called ``mark_complete()`` from
-    ``next_step()`` as soon as the user reached the final "Done"
-    step: meaning a user who walked through the wizard but never
-    clicked Apply (or whose ``config.save()`` later failed) would
-    be treated as onboarded, losing their selections on next launch.
-    """
+    """onboarding must NOT mark itself complete until the user's"""
 
     def test_apply_settings_marks_complete_after_save(self, ctrl, onboarding_dir):
         """``apply_settings`` writes the marker after ``config.save()``."""
@@ -515,9 +426,7 @@ class TestApplySettingsMarksComplete:
         assert ctrl.is_first_run() is False
 
     def test_apply_settings_does_not_mark_complete_on_save_failure(self, ctrl, onboarding_dir):
-        """If ``config.save()`` raises, the marker must NOT be written
-        so the wizard reappears on next launch and the user gets
-        another chance to complete setup."""
+        """If ``config.save()`` raises, the marker must NOT be written"""
         ctrl.set_microphone("mic-1")
         ctrl.set_hotkey("<f4>")
         ctrl.set_model("tiny")
@@ -530,15 +439,13 @@ class TestApplySettingsMarksComplete:
             def save(self):
                 raise OSError("disk full")
 
-        # save() raises → mark_complete() is never reached.
         with pytest.raises(OSError):
             ctrl.apply_settings(FlakyConfig())
         assert read_status(onboarding_dir).get("completed") is not True
         assert ctrl.is_first_run() is True
 
     def test_next_step_does_not_call_mark_complete(self, ctrl, monkeypatch):
-        """Regression: ``next_step`` must not invoke ``mark_complete``
-        even when it reaches the last step."""
+        """Regression: ``next_step`` must not invoke ``mark_complete``"""
         called = []
         monkeypatch.setattr(ctrl, "mark_complete", lambda: called.append(True))
         # Walk all the way to the last step.
@@ -555,30 +462,10 @@ class TestApplySettingsMarksComplete:
 
 
 class TestMarkCompleteFailurePropagation:
-    """if the onboarding marker write fails (disk full, read-only
-    ``config_dir``, permission revoked), the wizard must surface the
-    error rather than silently swallowing it.
-
-    Root cause: ``mark_complete`` caught all exceptions via
-    ``except Exception: log.exception(...)`` without re-raising, AND
-    ``apply_settings`` never set ``config.onboarding_completed = True``
-    before ``config.save()``. Result: settings were saved to
-    ``config.json`` but the marker was missing and
-    ``onboarding_completed`` stayed ``False``, so ``is_first_run()``
-    returned ``True`` on every launch, trapping the user in an infinite
-    wizard-reappear loop.
-
-    Fix (two halves):
-    1. ``apply_settings`` sets ``config.onboarding_completed = True``
-       BEFORE ``config.save()``, the config flag becomes the source of
-       truth; the marker file becomes a fast-path cache.
-    2. ``mark_complete`` re-raises on failure so the IPC layer can
-       surface the disk error to the user.
-    """
+    """if the onboarding marker write fails (disk full, read-only"""
 
     def test_mark_complete_raises_on_marker_write_failure(self, ctrl, onboarding_dir, monkeypatch):
-        """``mark_complete`` re-raises ``OSError`` from
-        ``_secure_atomic_write`` instead of swallowing it."""
+        """``mark_complete`` re-raises ``OSError`` from"""
         import voice_typer.server.secure_file_io as sio
 
         def _boom(path, content, **kwargs):
@@ -591,9 +478,7 @@ class TestMarkCompleteFailurePropagation:
         assert read_status(onboarding_dir).get("completed") is not True
 
     def test_apply_settings_sets_onboarding_completed_before_save(self, ctrl, onboarding_dir):
-        """``apply_settings`` sets ``config.onboarding_completed = True``
-        BEFORE calling ``config.save()`` so the config flag is persisted
-        even if the marker write later fails."""
+        """``apply_settings`` sets ``config.onboarding_completed = True``"""
         ctrl.set_microphone("mic-1")
         ctrl.set_hotkey("<f4>")
         ctrl.set_model("tiny")
@@ -622,12 +507,7 @@ class TestMarkCompleteFailurePropagation:
         assert config.onboarding_completed is True
 
     def test_apply_settings_surfaces_marker_write_failure(self, ctrl, onboarding_dir, monkeypatch):
-        """if ``mark_complete`` fails (marker write error),
-        ``apply_settings`` propagates the exception so the IPC layer
-        can surface the error to the user. ``config.onboarding_completed``
-        was set to ``True`` and persisted via ``config.save()`` BEFORE
-        the marker write, so the wizard will NOT reappear on the next
-        launch even though the marker file is missing."""
+        """if ``mark_complete`` fails (marker write error),"""
         import voice_typer.server.secure_file_io as sio
 
         def _boom(path, content, **kwargs):
@@ -647,19 +527,13 @@ class TestMarkCompleteFailurePropagation:
 
             def save(self):
                 # Real Config.save() would persist onboarding_completed=True
-                # to disk here. The mock returns True (success); the test
-                # asserts below that the flag was flipped before save.
                 return True
 
         config = MockConfig()
-        # apply_settings propagates the OSError from mark_complete (:
-        # no longer swallowed).
         with pytest.raises(OSError, match="read-only filesystem"):
             ctrl.apply_settings(config)
 
         # Config flag was set to True BEFORE save() was called, so even
-        # though the marker write failed, the persisted config flag breaks
-        # the infinite wizard-reappear loop on next launch.
         assert config.onboarding_completed is True, (
             "config.onboarding_completed must be set to True BEFORE config.save() "
             "so the wizard doesn't reappear when the marker write fails"
@@ -668,20 +542,13 @@ class TestMarkCompleteFailurePropagation:
         assert read_status(onboarding_dir).get("completed") is not True
 
     def test_apply_settings_marker_failure_does_not_reappear(self, ctrl, onboarding_dir, monkeypatch):
-        """end-to-end: when the marker write fails but the config
-        flag was persisted, ``is_first_run()`` returns ``False`` on the
-        next launch (simulated by writing the persisted config to disk
-        and constructing a fresh controller). This is the core
-        acceptance criterion, the infinite wizard-reappear loop is
-        broken."""
+        """end-to-end: when the marker write fails but the config"""
         import json as _json
         from pathlib import Path
 
         import voice_typer.server.secure_file_io as sio
         from voice_typer.server.config import Config
 
-        # Capture the real _secure_atomic_write BEFORE patching so the
-        # patched version can delegate non-marker writes to it.
         real_write = sio._secure_atomic_write
 
         def _boom_on_marker(path, content, **kwargs):
@@ -701,13 +568,9 @@ class TestMarkCompleteFailurePropagation:
         cfg.model_size = "tiny"
         cfg.onboarding_completed = False
 
-        # apply_settings sets cfg.onboarding_completed=True, saves (real
-        # write to config.json succeeds), then mark_complete raises
-        # OSError for the marker path.
         with pytest.raises(OSError, match="read-only filesystem"):
             ctrl.apply_settings(cfg)
 
-        # config.json was persisted with onboarding_completed=True...
         assert (onboarding_dir / "config.json").exists()
         persisted = _json.loads((onboarding_dir / "config.json").read_text(encoding="utf-8"))
         assert persisted.get("onboarding_completed") is True
@@ -724,9 +587,7 @@ class TestMarkCompleteFailurePropagation:
         )
 
     def test_skip_propagates_marker_write_failure(self, ctrl, onboarding_dir, monkeypatch):
-        """``skip`` propagates marker write failures so the IPC
-        layer can surface the error to the user (instead of silently
-        swallowing it and leaving the wizard in an inconsistent state)."""
+        """``skip`` propagates marker write failures so the IPC"""
         import voice_typer.server.secure_file_io as sio
 
         def _boom(path, content, **kwargs):
@@ -739,25 +600,16 @@ class TestMarkCompleteFailurePropagation:
 
 
 class TestModelOptionsIncludeMultilingualAndParakeet:
-    """the wizard's curated ``MODEL_OPTIONS`` list previously
-    excluded multilingual Whisper variants (tiny/small/medium without
-    ``.en``) and the NVIDIA Parakeet model, so non-English users had
-    no in-wizard path to pick a multilingual model."""
+    """the wizard's curated ``MODEL_OPTIONS`` list previously"""
 
     def test_english_only_variants_removed(self, ctrl):
-        """The English-only Whisper variants (tiny.en / small.en /
-        medium.en) were removed by the 2026-08-15 catalog prune, they
-        must NOT appear in the wizard picker."""
+        """The English-only Whisper variants (tiny.en / small.en /"""
         names = {opt["name"] for opt in ctrl.MODEL_OPTIONS}
         for removed in ("tiny.en", "small.en", "medium.en"):
             assert removed not in names, f"{removed} was removed from the catalog but is still in MODEL_OPTIONS"
 
     def test_includes_kept_multilingual_whisper_variants(self, ctrl):
-        """``tiny``, ``large-v3``, and ``large-v3-turbo``
-        must be present so users can pick a multilingual Whisper model
-        from the wizard (the catalog lists concrete models only, since
-        the 2026-08-28 no-default-model change none of them is a
-        default)."""
+        """``tiny``, ``large-v3``, and ``large-v3-turbo``"""
         names = {opt["name"] for opt in ctrl.MODEL_OPTIONS}
         assert "tiny" in names
         assert "large-v3" in names
@@ -769,9 +621,7 @@ class TestModelOptionsIncludeMultilingualAndParakeet:
         assert "parakeet" in names
 
     def test_get_model_catalog_delegates_to_registry(self):
-        """``get_model_catalog()`` returns the full registry
-        catalog (rich metadata: VRAM, languages, speed/accuracy,
-        repo_id, backend, is_distilled), superset of MODEL_OPTIONS."""
+        """``get_model_catalog()`` returns the full registry"""
         from voice_typer.server.model_registry import MODEL_REGISTRY
         from voice_typer.server.onboarding import OnboardingController
 
@@ -785,11 +635,7 @@ class TestModelOptionsIncludeMultilingualAndParakeet:
             assert name in catalog_names, f"registry model {name!r} missing from get_model_catalog()"
 
     def test_get_model_catalog_entries_have_rich_metadata(self):
-        """catalog entries must carry the rich metadata
-        fields (download_size_mb, required_vram_mb, backend,
-        multilingual, supported_languages, repo_id, speed_rating,
-        accuracy_rating) so the renderer can render VRAM / language /
-        speed / accuracy badges."""
+        """catalog entries must carry the rich metadata"""
         from voice_typer.server.onboarding import OnboardingController
 
         catalog = OnboardingController.get_model_catalog()
@@ -810,22 +656,10 @@ class TestModelOptionsIncludeMultilingualAndParakeet:
             assert not missing, f"catalog entry {entry.get('name')!r} missing fields: {missing}"
 
     def test_get_model_catalog_returns_empty_on_import_failure(self, monkeypatch):
-        """Defensive: if ``model_registry`` can't be imported, the
-        class method returns an empty list instead of raising."""
+        """Defensive: if ``model_registry`` can't be imported, the"""
         # Force the lazy import inside get_model_catalog to fail.
         import sys
 
-        # Ensure the module is PRESENT in sys.modules before the
-        # setitem, so monkeypatch records its real value and restores
-        # it at teardown. The old pattern popped the key first and
-        # then ``monkeypatch.setitem(sys.modules, key, None)`` —
-        # monkeypatch recorded the key as ABSENT, so its teardown
-        # DELETED the entry (overriding the finally-restore),
-        # permanently evicting model_registry from sys.modules. Any
-        # later ``from voice_typer.server.model_registry import X``
-        # then re-imported a FRESH module object, silently breaking
-        # every string-target ``monkeypatch.setattr`` on that module
-        # (e.g. the XV-2 download poll test in test_service_fixes.py).
         import voice_typer.server.model_registry  # noqa: F401 -- register in sys.modules
         from voice_typer.server.onboarding import OnboardingController
 
@@ -834,15 +668,7 @@ class TestModelOptionsIncludeMultilingualAndParakeet:
 
 
 class TestModelOptionsVramAndLanguages:
-    """each ``MODEL_OPTIONS`` entry must carry ``vram_gb`` and
-    ``languages`` fields so the renderer can render VRAM / language
-    badges on each model card.
-
-    ``languages`` semantics:
-    - ``["en"]`` → English-only (renderer renders an "EN" badge).
-    - ``None``   → multilingual (renderer renders a "Multilingual" badge).
-    - list of strings → supported language codes.
-    """
+    """``languages`` fields so the renderer can render VRAM / language"""
 
     def test_all_entries_have_vram_gb(self, ctrl):
         for opt in ctrl.MODEL_OPTIONS:
@@ -867,9 +693,7 @@ class TestModelOptionsVramAndLanguages:
                 )
 
     def test_multilingual_variants_have_none_languages(self, ctrl):
-        """the multilingual variants (tiny/small/medium without
-        ``.en``) and Parakeet must have ``languages=None`` so the
-        renderer renders a 'Multilingual' badge."""
+        """the multilingual variants (tiny/small/medium without"""
         multilingual_names = {"tiny", "small", "medium", "parakeet"}
         for opt in ctrl.MODEL_OPTIONS:
             if opt["name"] in multilingual_names:
@@ -879,13 +703,7 @@ class TestModelOptionsVramAndLanguages:
 
 
 class TestStepLayout:
-    """4-step essentials layout (2026-09-14).
-
-    The Microphone step (System Default until changed in Settings →
-    Microphone), the OS-permissions step (keyboard monitoring is
-    standard behavior, not a consent gate) and the Done summary step
-    were removed; the final Hotkey step's Continue applies.
-    """
+    """4-step essentials layout (2026-09-14)."""
 
     def test_step_order_welcome_consent_model_hotkey(self, ctrl):
         """Step order: Welcome(0), Consent(1), Model(2), Hotkey(3)."""
@@ -902,8 +720,7 @@ class TestStepLayout:
         assert ctrl.total_steps == 4
 
     def test_check_permissions_returns_dict_shape(self, ctrl):
-        """``check_permissions`` returns a renderer-friendly dict with
-        ``platform``, ``state``, ``needed``, ``instructions`` keys."""
+        """``check_permissions`` returns a renderer-friendly dict with"""
         result = ctrl.check_permissions()
         assert set(result.keys()) == {"platform", "state", "needed", "instructions"}
         assert result["platform"] in {"windows", "macos", "linux", "unknown"}
@@ -911,8 +728,7 @@ class TestStepLayout:
         assert isinstance(result["needed"], bool)
 
     def test_check_permissions_windows_no_instructions(self, ctrl, monkeypatch):
-        """on Windows, no permission is needed → ``needed=False``,
-        ``instructions=None``."""
+        """on Windows, no permission is needed → ``needed=False``,"""
         from voice_typer.server import permissions as perm_mod
         from voice_typer.server.permissions import PermissionState
 
@@ -932,8 +748,7 @@ class TestStepLayout:
         assert result["instructions"] is None
 
     def test_check_permissions_macos_denied_returns_instructions(self, ctrl, monkeypatch):
-        """on macOS with Accessibility denied, return the
-        System Settings → Accessibility walkthrough."""
+        """on macOS with Accessibility denied, return the"""
         from voice_typer.server import permissions as perm_mod
         from voice_typer.server.permissions import PermissionState
 
@@ -953,30 +768,18 @@ class TestStepLayout:
         instructions = result["instructions"]
         assert instructions is not None
         # (session NH): server returns i18n keys (title_key / steps_keys)
-        # so the renderer can localize the title + step text. The literal
-        # `title` / `steps` fields remain available as a legacy fallback for
-        # older backends. Assert on the i18n-key fields first, then fall
-        # back to literals if absent.
         assert "title_key" in instructions or "title" in instructions
         assert "steps_keys" in instructions or "steps" in instructions
         steps = instructions["steps_keys"] if "steps_keys" in instructions else instructions["steps"]
         assert isinstance(steps, list)
         assert len(steps) >= 1
-        # Resolve the i18n keys to their English values via en.json.
-        # The macOS walkthrough steps are DORMANT since the 2026-09-14
-        # Permissions-step removal: the payload's ``title_key`` /
         # ``steps_keys`` shape is still the documented IPC contract
-        # (types/ipc/permissions.ts) but no consumer renders the keys
-        # today (KeyboardPermissionBanner reads only state/needed), so
-        # the en.json entries were pruned. The test pins the payload
-        # SHAPE (dotted i18n keys, 3 steps), not the English wording.
         for k in steps:
             assert isinstance(k, str) and k.startswith("onboarding."), f"expected a dotted i18n key, got {k!r}"
         assert len(steps) == 3
 
     def test_check_permissions_macos_granted_no_instructions(self, ctrl, monkeypatch):
-        """on macOS with Accessibility already granted, no
-        instructions needed (``needed=False``)."""
+        """on macOS with Accessibility already granted, no"""
         from voice_typer.server import permissions as perm_mod
         from voice_typer.server.permissions import PermissionState
 
@@ -996,9 +799,7 @@ class TestStepLayout:
         assert result["instructions"] is None
 
     def test_check_permissions_linux_denied_returns_input_group_instructions(self, ctrl, monkeypatch):
-        """on Linux without input-group access, return the
-        ``sudo usermod -aG input $USER`` command and the udev rule
-        snippet so the user can grant access manually."""
+        """``sudo usermod -aG input $USER`` command and the udev rule"""
         from voice_typer.server import permissions as perm_mod
         from voice_typer.server.permissions import PermissionState
 
@@ -1021,19 +822,16 @@ class TestStepLayout:
         assert "title_key" in instructions or "title" in instructions
         assert "steps_keys" in instructions or "steps" in instructions
         assert "commands" in instructions
-        # must include the usermod command for the input group.
         commands = instructions["commands"] or []
         joined_cmds = " ".join(commands)
         assert "usermod" in joined_cmds
         assert "input" in joined_cmds
-        # must include the udev rule snippet.
         assert "KERNEL" in joined_cmds or "udev" in joined_cmds.lower(), (
             f"Linux instructions should include the udev rule snippet, got commands: {commands}"
         )
 
     def test_check_permissions_linux_granted_no_instructions(self, ctrl, monkeypatch):
-        """on Linux with input-group access already granted,
-        no instructions needed (``needed=False``)."""
+        """on Linux with input-group access already granted,"""
         from voice_typer.server import permissions as perm_mod
         from voice_typer.server.permissions import PermissionState
 

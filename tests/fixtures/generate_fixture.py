@@ -1,11 +1,4 @@
-"""Generate a 1-second 440Hz sine wave WAV file for testing.
-
-Usage:
-    python generate_fixture.py
-
-Produces: tests/fixtures/test_440hz_1s_16k.wav
-Format: 16-bit PCM, mono, 16000 Hz sample rate, 1 second duration.
-"""
+"""Generate a 1-second 440Hz sine wave WAV file for testing."""
 
 import math
 import struct
@@ -29,12 +22,6 @@ def generate():
         pcm = max(-32768, min(32767, pcm))
         samples.append(pcm)
 
-    # resolve the output path relative to THIS file so the script
-    # works regardless of the caller's CWD. The previous relative path
-    # (`"tests/fixtures/test_440hz_1s_16k.wav"`) only worked when invoked
-    # from the repo root; running `cd tests/fixtures && python
-    # generate_fixture.py` would write to a nested non-existent path
-    # (FileNotFoundError) or to the wrong location.
     output_path = Path(__file__).parent / "test_440hz_1s_16k.wav"
     with wave.open(str(output_path), "w") as wf:
         wf.setnchannels(1)

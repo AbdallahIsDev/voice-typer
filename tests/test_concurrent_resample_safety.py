@@ -1,17 +1,4 @@
-"""H15/M8: Concurrent-load test for the resample prefix cache.
-
-The finding: the cached resampled prefix (``_cached_resampled``,
-``_cached_resample_key``, ``_cached_native_chunk_count``) is tested for
-correctness and invalidation in unit tests, but NEVER under concurrent
-load. The streaming thread polls ``snapshot()`` at ~4 Hz while the audio
-callback appends chunks under ``self._lock``, no test verifies that
-N threads calling ``snapshot()`` simultaneously don't corrupt the cache
-or produce torn reads.
-
-This module adds a ThreadPoolExecutor stress test that calls
-``Recorder.snapshot()`` from N threads while a producer appends chunks,
-and asserts no exceptions, no torn reads, and bounded cache size.
-"""
+"""H15/M8: Concurrent-load test for the resample prefix cache."""
 
 from __future__ import annotations
 
@@ -26,11 +13,7 @@ from voice_typer.server.recording import Recorder
 
 
 def _make_recorder() -> Recorder:
-    """Create a Recorder with minimal setup for snapshot testing.
-
-    Recorder construction is delegated to the shared canonical factory
-    (XS-42 helper dedup) with a real ``Config`` injected.
-    """
+    """Create a Recorder with minimal setup for snapshot testing."""
     from tests.fixtures.recorder_test_helpers import make_recorder
 
     cfg = Config()
@@ -45,9 +28,7 @@ class TestResampleCacheConcurrentLoadSafety:
     """H15/M8: Verify the resample prefix cache is safe under concurrent access."""
 
     def test_concurrent_snapshot_no_corruption(self):
-        """N threads calling snapshot() concurrently while a producer
-        appends chunks must not raise exceptions or corrupt the cache.
-        """
+        """N threads calling snapshot() concurrently while a producer"""
         rec = _make_recorder()
         rec._recording_event.set()
         rec._recording_start_time = time.perf_counter()
@@ -111,10 +92,7 @@ class TestResampleCacheConcurrentLoadSafety:
             assert arr.dtype == np.float32, f"H15/M8: snapshot() must return float32, got {arr.dtype}"
 
     def test_concurrent_snapshot_cache_stays_bounded(self):
-        """The cached resampled prefix must not grow unboundedly under
-        concurrent access, it should always be the same length as the
-        current buffer (or empty).
-        """
+        """The cached resampled prefix must not grow unboundedly under"""
         rec = _make_recorder()
         rec._recording_event.set()
         rec._recording_start_time = time.perf_counter()
@@ -157,11 +135,9 @@ class TestResampleCacheConcurrentLoadSafety:
         assert not errors, f"Concurrent access raised: {errors}"
 
         # After all threads complete, the cache should be consistent:
-        # either empty or matching the current buffer length.
         with rec._audio_pipeline._lock:
             if rec._cached_resampled is not None and rec._cached_resampled.size > 0:
                 # The cached prefix is based on _cached_native_chunk_count
-                # which must be <= current _chunk_count
                 assert rec._cached_native_chunk_count <= rec._audio_pipeline._chunk_count, (
                     f"H15/M8: cached native chunk count "
                     f"({rec._cached_native_chunk_count}) > current chunk count "
@@ -169,10 +145,7 @@ class TestResampleCacheConcurrentLoadSafety:
                 )
 
     def test_concurrent_snapshot_no_torn_reads(self):
-        """Verify no torn reads: snapshot() must return a consistent array
-        even when the buffer is being modified concurrently. A torn read
-        would manifest as an array with unexpected length or shape.
-        """
+        """Verify no torn reads: snapshot() must return a consistent array"""
         rec = _make_recorder()
         rec._recording_event.set()
         rec._recording_start_time = time.perf_counter()

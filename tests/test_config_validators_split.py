@@ -1,35 +1,4 @@
-"""W1-SA6: regression tests for the ``config_validators`` package split.
-
-This file pins the config_validators split contract so a future refactor cannot
-silently regress it:
-
-1. **Allowlist snapshot**, :data:`IPC_CONFIG_ALLOWLIST` must contain
-   the same 127 keys with the same per-field validators. The key set
-   is a frozen snapshot embedded in this test; the validators are
-   checked by identity against the imported ``_VALIDATOR_*``
-   instances (so a future change that swaps a validator for a fresh
-   instance of the same factory call is still detected, the
-   ``_VALIDATOR_*`` constants are the canonical references).
-   (Snapshot count updated 124→125 when ``sound_volume`` was added
-   deliberately for the Settings sound-feedback volume slider;
-   125→126 when ``vad_filter_enabled`` was added deliberately for
-   the duration-aware VAD filter policy, commit ee181780;
-   126→127 when ``noise_filter_gate_adaptive`` was added deliberately
-   to make the adaptive noise-gate calibration knob settable from
-   the UI, the schema field existed but was unreachable via IPC.)
-2. **Re-export shim**, every public name in ``__all__`` must resolve
-   on the package namespace and point at the same object that the
-   new submodules expose (so old import paths keep working).
-3. **Public API identity**: ``validate_config`` and
-   ``validate_config_update`` must be the SAME function objects the
-   new ``entry_points`` submodule defines (no shadow copies).
-4. **Monkeypatch surface**, the test patches
-   ``voice_typer.server.config_validators._check_cross_field_hotkey_conflicts``
-   and expects :func:`validate_config` / :func:`validate_config_update`
-   to see the patched binding at call time. This pins the
-   package-namespace lookup pattern that the entry-point functions
-   use to reference the cross-field helpers.
-"""
+"""W1-SA6: regression tests for the ``config_validators`` package split."""
 
 from __future__ import annotations
 
@@ -46,10 +15,6 @@ from voice_typer.server.config_validators import (
     validate_config_update,
 )
 
-# Frozen snapshot of the pre-split IPC_CONFIG_ALLOWLIST key set.
-# Captured from voice_typer/server/config_validators/__init__.py (862 LOC)
-# immediately before the config_validators split.
-# Adding or removing a key here is a SECURITY-SENSITIVE change —
 # see AGENTS.md §6.3 / CONTRIBUTING.md §6.3 (SEC-002).
 _PRE_SPLIT_ALLOWLIST_KEYS: frozenset[str] = frozenset(
     {
@@ -196,10 +161,7 @@ class TestAllowlistSnapshot:
         )
 
     def test_allowlist_keys_match_frozen_snapshot(self) -> None:
-        """The allowlist key set must be byte-identical to the
-        pre-split snapshot. Any addition/removal is a SECURITY
-        regression per SEC-002 and must be a deliberate, reviewed
-        change (not a side-effect of the file split)."""
+        """pre-split snapshot. Any addition/removal is a SECURITY"""
         actual = frozenset(IPC_CONFIG_ALLOWLIST.keys())
         missing = _PRE_SPLIT_ALLOWLIST_KEYS - actual
         extra = actual - _PRE_SPLIT_ALLOWLIST_KEYS
@@ -213,9 +175,7 @@ class TestAllowlistSnapshot:
         )
 
     def test_allowlist_is_same_object_as_submodule(self) -> None:
-        """The package-level ``IPC_CONFIG_ALLOWLIST`` must be the SAME
-        dict object the new ``allowlist`` submodule defines, the
-        package shim re-exports it, never copies it."""
+        """The package-level ``IPC_CONFIG_ALLOWLIST`` must be the SAME"""
         assert cv.IPC_CONFIG_ALLOWLIST is _al.IPC_CONFIG_ALLOWLIST, (
             "cv.IPC_CONFIG_ALLOWLIST must be the same object as "
             "config_validators.allowlist.IPC_CONFIG_ALLOWLIST, the "
@@ -223,9 +183,7 @@ class TestAllowlistSnapshot:
         )
 
     def test_validators_are_same_object_as_submodule(self) -> None:
-        """Each pre-built ``_VALIDATOR_*`` instance referenced in the
-        allowlist must be the SAME object the new ``allowlist``
-        submodule exposes."""
+        """allowlist must be the SAME object the new ``allowlist``"""
         for cv_name in (
             "_VALIDATOR_HOTKEY",
             "_VALIDATOR_LANGUAGE",
@@ -245,9 +203,7 @@ class TestAllowlistSnapshot:
             )
 
     def test_constants_are_same_object_as_submodule(self) -> None:
-        """Every supporting constant re-exported through the package
-        must be the SAME object the new ``allowlist`` submodule
-        defines."""
+        """Every supporting constant re-exported through the package"""
         for cv_name in (
             "ALLOWED_USER_MODELS",
             "NOISE_SUPPRESSION_METHODS",
@@ -264,16 +220,10 @@ class TestAllowlistSnapshot:
 
 
 class TestReExportShim:
-    """``__init__.py`` is now a re-export shim, every name in
-    ``__all__`` must resolve on the package namespace."""
+    """``__init__.py`` is now a re-export shim, every name in"""
 
     def test_all_symbols_resolve(self) -> None:
-        """Every name listed in ``cv.__all__`` must be an attribute on
-        the package namespace. The pre-split monolith defined these
-        directly; the post-split shim re-exports them from the focused
-        submodules. A missing re-export would break existing imports
-        like ``from voice_typer.server.config_validators import
-        _validate_hotkey``."""
+        """the package namespace. The pre-split monolith defined these"""
         missing = [name for name in cv.__all__ if not hasattr(cv, name)]
         assert not missing, (
             f"cv.__all__ lists symbols that are NOT re-exported by the shim: {missing}. "
@@ -281,10 +231,7 @@ class TestReExportShim:
         )
 
     def test_sys_alias_preserved(self) -> None:
-        """``cv._sys`` must still be the ``sys`` module. Tests in
-        ``tests/test_hotkey_validation.py`` mutate
-        ``cv._sys.platform`` to fake the OS for the reserved-hotkey
-        denylist. Removing this attribute breaks those tests."""
+        """``tests/test_hotkey_validation.py`` mutate"""
         import sys
 
         assert cv._sys is sys, (
@@ -294,11 +241,7 @@ class TestReExportShim:
         )
 
     def test_log_attribute_present(self) -> None:
-        """The package-level ``log`` attribute (the
-        ``logging.getLogger("voice_typer.server.config_validators")``
-        instance) must still be present on the package namespace,
-        re-exported from ``entry_points``. ``validate_config_update``
-        uses it for the unknown-key warning."""
+        """``logging.getLogger(\"voice_typer.server.config_validators\")``"""
         import logging
 
         assert isinstance(cv.log, logging.Logger), "cv.log must be a logging.Logger (re-exported from entry_points)."
@@ -308,11 +251,7 @@ class TestReExportShim:
 
 
 class TestEntryPointIdentity:
-    """``validate_config`` and ``validate_config_update`` must be the
-    SAME function objects the new ``entry_points`` submodule defines.
-    This catches a class of bug where the shim accidentally wraps or
-    re-defines the entry points (which would break the test-patch
-    surface for ``monkeypatch.setattr(cv, 'validate_config', ...)``)."""
+    """SAME function objects the new ``entry_points`` submodule defines."""
 
     def test_validate_config_is_entry_points_function(self) -> None:
         assert cv.validate_config is _ep.validate_config
@@ -328,23 +267,10 @@ class TestEntryPointIdentity:
 
 
 class TestMonkeyPatchSurface:
-    """The entry-point functions must look up the cross-field helpers
-    via the PACKAGE namespace at call time (lazy import inside the
-    function body). This pattern lets tests patch
-    ``voice_typer.server.config_validators._check_cross_field_hotkey_conflicts``
-    and have the patched binding take effect, the regression test
-    suite in ``tests/test_config_validators_hotkey_nonstring.py``
-    relies on it."""
+    """The entry-point functions must look up the cross-field helpers"""
 
     def test_validate_config_sees_patched_cross_field_helper(self) -> None:
-        """A patch on the package-level
-        ``_check_cross_field_hotkey_conflicts`` must be visible inside
-        ``validate_config``. This pins the lazy-import pattern used in
-        ``entry_points.validate_config`` (a direct ``from .cross_field
-        import _check_cross_field_hotkey_conflicts`` at module top
-        would bind a private local that the package-namespace patch
-        wouldn't touch, and the regression test would silently
-        regress)."""
+        """A patch on the package-level"""
         cfg = SimpleNamespace(
             hotkey="<caps_lock>",
             repaste_hotkey="<f6>",
@@ -398,8 +324,7 @@ class TestMonkeyPatchSurface:
         )
 
     def test_validate_config_sees_patched_cloud_helper(self) -> None:
-        """The cloud/LLM consistency check helper must also be patched
-        via the package namespace, same lazy-import pattern."""
+        """The cloud/LLM consistency check helper must also be patched"""
         captured: dict = {}
 
         def _capture(cloud_values):
@@ -420,17 +345,10 @@ class TestMonkeyPatchSurface:
 
 
 class TestSplitCompleteness:
-    """The split must be COMPLETE (E15, debt removal). No body of
-    ``IPC_CONFIG_ALLOWLIST``, the ``_VALIDATOR_*`` instances, or the
-    two entry-point functions may remain in ``__init__.py``.
-    """
+    """two entry-point functions may remain in ``__init__.py``."""
 
     def test_init_py_is_shim_only(self) -> None:
-        """``__init__.py`` must NOT contain the ``IPC_CONFIG_ALLOWLIST``
-        dict literal, that body has been moved to ``allowlist.py``.
-        Reading the source file and checking for the literal is a
-        proxy for "the body has been moved, not copied" (E15, debt
-        removal)."""
+        """``__init__.py`` must NOT contain the ``IPC_CONFIG_ALLOWLIST``"""
         from pathlib import Path
 
         init_path = Path(cv.__file__) if hasattr(cv, "__file__") and cv.__file__ else None
@@ -439,9 +357,6 @@ class TestSplitCompleteness:
         )
         source = init_path.read_text(encoding="utf-8")
         # The allowlist body is the long dict literal whose first entry
-        # is the ``"hotkey": (str, _VALIDATOR_HOTKEY)`` line. After the
-        # split, the shim only re-imports the name; the body lives in
-        # allowlist.py. So the literal should NOT appear in __init__.py.
         assert '"hotkey": (str, _VALIDATOR_HOTKEY)' not in source, (
             "IPC_CONFIG_ALLOWLIST dict body still present in __init__.py, "
             "the split is incomplete (E15 debt removal). Move the body to "
@@ -449,7 +364,6 @@ class TestSplitCompleteness:
             "with a re-export."
         )
         # Likewise the ``def validate_config_update`` body must NOT
-        # remain in __init__.py, it now lives in entry_points.py.
         assert "def validate_config_update(" not in source, (
             "validate_config_update function body still present in __init__.py, "
             "the split is incomplete (E15 debt removal). Move the body to "
@@ -464,35 +378,15 @@ class TestSplitCompleteness:
         )
 
     def test_no_circular_import(self) -> None:
-        """Importing the package must succeed without raising
-        ``ImportError`` (circular-import regression check). The
-        submodules ``allowlist`` and ``entry_points`` must not import
-        each other transitively in a way that breaks the package
-        load.
-
-        We deliberately avoid ``importlib.reload`` here: reloading a
-        submodule re-runs its body and rebinds its module-level names
-        to fresh objects, which would break the
-        ``cv.IPC_CONFIG_ALLOWLIST is _al.IPC_CONFIG_ALLOWLIST``
-        identity guarantee (the package shim still references the
-        pre-reload object). The identity guarantee is already pinned
-        in ``TestAllowlistSnapshot``; this test only needs to confirm
-        that the package + both new submodules import cleanly.
-        """
-        # Re-importing the package must be a no-op (already in
-        # sys.modules), if the split had introduced a circular import,
-        # the original ``import voice_typer.server.config_validators``
-        # at the top of this module would already have raised.
+        """Importing the package must succeed without raising"""
         import importlib
 
         # Both new submodules must be importable on their own (no
-        # ordering dependency on the package being partially loaded).
         al_fresh = importlib.import_module("voice_typer.server.config_validators.allowlist")
         ep_fresh = importlib.import_module("voice_typer.server.config_validators.entry_points")
         assert al_fresh is _al
         assert ep_fresh is _ep
         # And the package-level re-exports still point at the same
-        # objects the submodules expose.
         assert cv.IPC_CONFIG_ALLOWLIST is _al.IPC_CONFIG_ALLOWLIST
         assert cv.validate_config is _ep.validate_config
         assert cv.validate_config_update is _ep.validate_config_update
@@ -502,9 +396,7 @@ class TestSplitCompleteness:
         ["allowlist", "entry_points"],
     )
     def test_submodule_importable_directly(self, submodule: str) -> None:
-        """Callers can import the new submodules directly:
-        ``from voice_typer.server.config_validators.allowlist import
-        IPC_CONFIG_ALLOWLIST`` must work."""
+        """Callers can import the new submodules directly:"""
         import importlib
 
         mod = importlib.import_module(f"voice_typer.server.config_validators.{submodule}")

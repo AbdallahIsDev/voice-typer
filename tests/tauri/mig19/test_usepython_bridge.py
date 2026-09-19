@@ -1,17 +1,4 @@
-r"""MIG-1.9 Phase 3: ``usePython`` bridge validation (Tauri-only).
-
-The React bridge behind ``usePython`` routes through the Tauri host:
-
-  Tauri path: window.python.call → tauri.core.invoke('dispatch', {cmd, data})
-              └→ Rust dispatch() → WS frame → Python sidecar
-              ←← WS response → Rust → unwrap `response.data` on success
-                  OR reject with `server error [<code>]: <msg>` on
-                  `type:"error"` envelopes.
-
-These tests pin the Tauri bridge source contract only.
-
-It does NOT spawn a real Tauri runtime (that is the host-validation step).
-"""
+"""``usePython`` bridge validation (Tauri-only)."""
 
 from __future__ import annotations
 
@@ -55,8 +42,7 @@ def rust_src() -> str:
 
 
 class TestTauriBridgeRoutesThroughDispatch:
-    """The Tauri bridge installs ``window.python`` and routes ``call``
-    through Tauri's ``invoke('dispatch', …)``."""
+    """The Tauri bridge installs ``window.python`` and routes ``call``"""
 
     def test_bridge_installs_python_namespace(self, tauri_bridge_src: str):
         assert "window.python" in tauri_bridge_src or "globalThis.python" in tauri_bridge_src
@@ -86,8 +72,7 @@ class TestUsePythonHookContract:
 
 
 class TestRustDispatchUnwrapsData:
-    """The Rust dispatch command unwraps ``response.data`` on success
-    and rejects on ``type:"error"`` envelopes."""
+    """The Rust dispatch command unwraps ``response.data`` on success"""
 
     def test_rust_dispatch_references_error_envelope(self, rust_src: str):
         assert "error" in rust_src.lower()

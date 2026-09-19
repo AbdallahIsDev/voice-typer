@@ -1,8 +1,4 @@
-"""Tests for TranscriptionEngine fallback chain.
-
-All faster_whisper imports are mocked so these tests run on any platform
-without GPU or model downloads.
-"""
+"""Tests for TranscriptionEngine fallback chain."""
 
 import contextlib
 import os
@@ -27,14 +23,6 @@ def mock_faster_whisper(monkeypatch):
     monkeypatch.setitem(sys.modules, "ctranslate2", mock_ct2)
 
     # Bypass the load-path cache gate so tests can exercise the fallback
-    # chain without a real model on disk. The app NEVER downloads models
-    # automatically: ``_require_model_downloaded`` refuses to load an
-    # uncached model with ``ModelNotDownloadedError`` (the GDPR-safe
-    # default). In unit tests the model loading is fully mocked via
-    # ``faster_whisper``, so the cache gate is irrelevant here. Without
-    # this patch, ``engine.load()`` raises ``ModelNotDownloadedError``
-    # before ever calling ``WhisperModel``, and every fallback-chain
-    # assertion fails with ``IndexError`` on ``call_args_list[0]``.
     monkeypatch.setattr(
         "voice_typer.server.transcription._require_huggingface_consent",
         lambda *args, **kwargs: None,
@@ -54,16 +42,7 @@ class TestFallbackChain:
 
     @pytest.fixture(autouse=True)
     def _force_cuda_available(self, monkeypatch):
-        """Force the CUDA-DLL gate open for chain-logic tests.
-
-        ``_cuda_runtime_available`` (the Windows fast-path gate added
-        for startup speed) returns False on hosts that have a CUDA
-        driver but missing cuBLAS/cuLt DLLs (e.g. CPU-only torch
-        installs), causing ``_resolve_device`` to skip CUDA and the
-        chain to start on CPU. These tests exercise the CHAIN
-        construction itself, so the gate is pinned open to make them
-        deterministic regardless of the host's CUDA state.
-        """
+        """Force the CUDA-DLL gate open for chain-logic tests."""
         monkeypatch.setattr(
             "voice_typer.server.transcription._cuda_runtime_available",
             lambda: True,
@@ -76,14 +55,12 @@ class TestFallbackChain:
         engine = TranscriptionEngine(model_size="large-v3-turbo", device="auto")
         # Force all WhisperModel calls to fail
         mod_obj = sys.modules.get("faster_whisper")
-        # pyrefly: ignore [missing-attribute]
         mod_obj.WhisperModel.side_effect = RuntimeError("mkl_malloc: failed to allocate memory")
 
         with pytest.raises(RuntimeError, match="Failed to load Whisper model"):
             engine.load()
 
         # Verify the last call was with float32
-        # pyrefly: ignore [missing-attribute]
         calls = mod_obj.WhisperModel.call_args_list
         assert len(calls) >= 1
         last_call = calls[-1]
@@ -98,13 +75,11 @@ class TestFallbackChain:
 
         engine = TranscriptionEngine(model_size="large-v3-turbo", device="cuda")
         mod_obj = sys.modules.get("faster_whisper")
-        # pyrefly: ignore [missing-attribute]
         mod_obj.WhisperModel.side_effect = RuntimeError("fail")
 
         with pytest.raises(RuntimeError):
             engine.load()
 
-        # pyrefly: ignore [missing-attribute]
         first_call = mod_obj.WhisperModel.call_args_list[0]
         _args, kwargs = first_call[0], first_call[1] if len(first_call) > 1 else {}
         assert kwargs["device"] == "cuda"
@@ -116,13 +91,11 @@ class TestFallbackChain:
 
         engine = TranscriptionEngine(model_size="large-v3-turbo", device="cuda")
         mod_obj = sys.modules.get("faster_whisper")
-        # pyrefly: ignore [missing-attribute]
         mod_obj.WhisperModel.side_effect = RuntimeError("fail")
 
         with pytest.raises(RuntimeError):
             engine.load()
 
-        # pyrefly: ignore [missing-attribute]
         calls = mod_obj.WhisperModel.call_args_list
         # Second call should be CPU/int8/large-v3-turbo
         second = calls[1]
@@ -137,16 +110,13 @@ class TestFallbackChain:
 
         engine = TranscriptionEngine(model_size="large-v3-turbo", device="cuda")
         mod_obj = sys.modules.get("faster_whisper")
-        # pyrefly: ignore [missing-attribute]
         mod_obj.WhisperModel.side_effect = RuntimeError("fail")
 
         with pytest.raises(RuntimeError):
             engine.load()
 
-        # pyrefly: ignore [missing-attribute]
         calls = mod_obj.WhisperModel.call_args_list
         # Should have 4 calls: cuda/float16/large-v3-turbo,
-        # cpu/int8/large-v3-turbo, cpu/int8/tiny, cpu/float32/tiny
         assert len(calls) == 4
         third = calls[2]
         args, kwargs = third[0], third[1] if len(third) > 1 else {}
@@ -163,7 +133,6 @@ class TestFallbackChain:
         mod_obj = sys.modules.get("faster_whisper")
 
         # First call (CUDA) fails, second call (CPU/int8) succeeds
-        # pyrefly: ignore [missing-attribute]
         mod_obj.WhisperModel.side_effect = [
             RuntimeError("CUDA OOM"),
             mock_model,
@@ -185,7 +154,6 @@ class TestFallbackChain:
         mod_obj = sys.modules.get("faster_whisper")
 
         # All fail except the last (float32/tiny)
-        # pyrefly: ignore [missing-attribute]
         mod_obj.WhisperModel.side_effect = [
             RuntimeError("CUDA fail"),
             RuntimeError("int8 fail"),
@@ -216,7 +184,6 @@ class TestFallbackChain:
         engine._requested_device = None  # prevent _resolve_device_once() from re-detecting CUDA
 
         # First try (cpu/int8/large-v3-turbo) succeeds
-        # pyrefly: ignore [missing-attribute]
         mod_obj.WhisperModel.return_value = mock_model
 
         engine.load()
@@ -242,18 +209,12 @@ class TestNvidiaDllPaths:
         added = []
         monkeypatch.setattr(sys, "platform", "win32")
         # ``site`` / ``sys`` / ``os`` are stdlib singletons, patch them
-        # directly (not via ``mod.site`` etc.) because ``transcription.py``
-        # delegates DLL discovery to ``nvidia_dll_paths.py`` which imports
-        # them in its own namespace.
         monkeypatch.setattr(site, "getsitepackages", lambda: [str(tmp_path)])
         monkeypatch.setattr(site, "getusersitepackages", lambda: str(tmp_path / "user"))
         # Override sys.prefix so the _configure_nvidia_dll_paths()
-        # sys.prefix fallback doesn't pick up the real venv's NVIDIA dirs.
         monkeypatch.setattr(sys, "prefix", str(tmp_path / "prefix"))
         # Override expanduser so the app_venv fallback doesn't pick up
-        # the real ~/.voice-typer/venv/ nvidia packages.
         monkeypatch.setattr(os.path, "expanduser", lambda _: str(tmp_path / "home"))
-        # os.add_dll_directory is Windows-only; add a mock attribute for testing
         monkeypatch.setattr(os, "add_dll_directory", lambda path: added.append(path), raising=False)
         monkeypatch.setenv("PATH", "C:\\Windows")
         mod._nvidia_dll_path_handles.clear()
@@ -276,15 +237,12 @@ class TestLoadIdempotent:
         engine = TranscriptionEngine(model_size="small.en", device="cpu")
         mock_model = MagicMock()
         mod_obj = sys.modules.get("faster_whisper")
-        # pyrefly: ignore [missing-attribute]
         mod_obj.WhisperModel.return_value = mock_model
 
         engine.load()
-        # pyrefly: ignore [missing-attribute]
         first_call_count = mod_obj.WhisperModel.call_count
 
         engine.load()
-        # pyrefly: ignore [missing-attribute]
         assert mod_obj.WhisperModel.call_count == first_call_count
 
 
@@ -315,22 +273,13 @@ class TestTranscribeWithFallback:
         _, kwargs = mock_model.transcribe.call_args
         assert kwargs["beam_size"] == 1
         # ``best_of`` must NOT be forwarded: faster-whisper only honors it
-        # when sampling with non-zero temperature, so under the pinned
-        # ``temperature=0.0`` it was a silent no-op and the knob was removed
-        # from every decode call site.
         assert "best_of" not in kwargs
         assert kwargs["temperature"] == 0.0
         assert kwargs["condition_on_previous_text"] is False
         assert kwargs["without_timestamps"] is True
 
     def test_custom_decode_settings_are_passed_to_model(self):
-        """Configurable decode settings should reach faster-whisper.
-
-        ``best_of`` is the documented exception: it is stored on the engine
-        but must NOT reach ``model.transcribe``, faster-whisper only honors
-        it when sampling with non-zero temperature, and the pinned
-        ``temperature=0.0`` made the forwarded value a silent no-op.
-        """
+        """Configurable decode settings should reach faster-whisper."""
         import numpy as np
         from voice_typer.server.transcription import TranscriptionEngine
 
@@ -368,7 +317,6 @@ class TestTranscribeWithFallback:
         # After fallback, load() creates a new CPU model
         cpu_model = MagicMock()
         cpu_model.transcribe.return_value = ([MagicMock(text="fallback text")], MagicMock())
-        # pyrefly: ignore [missing-attribute]
         mod_obj.WhisperModel.return_value = cpu_model
 
         result = engine.transcribe_with_fallback(np.zeros(16000, dtype=np.float32))
@@ -390,7 +338,6 @@ class TestTranscribeWithFallback:
         segment = MagicMock()
         segment.words = [MagicMock(word=" fixed", start=0.1, end=0.4)]
         cpu_model.transcribe.return_value = ([segment], MagicMock())
-        # pyrefly: ignore [missing-attribute]
         mod_obj.WhisperModel.return_value = cpu_model
 
         result = engine.transcribe_words(np.zeros(16000, dtype=np.float32))
@@ -523,7 +470,6 @@ class TestTranscribeWords:
         assert kwargs["word_timestamps"] is True
         assert kwargs["without_timestamps"] is False
         # ``best_of`` must NOT be forwarded (no-op under temperature=0.0 —
-        # same contract as the batch path).
         assert "best_of" not in kwargs
 
     def test_transcribe_words_empty_audio_returns_empty_without_calling_model(self):
@@ -542,12 +488,7 @@ class TestTranscribeWords:
         from voice_typer.server.transcription import TranscriptionEngine
 
         class TrackingLock:
-            """A lock that tracks depth + entry count.
-
-            Implements ``acquire`` / ``release`` / ``_is_owned`` so it
-            can be wrapped by ``threading.Condition`` (the counter
-            pattern's ``_inference_cond`` wraps ``_lock``).
-            """
+            """A lock that tracks depth + entry count."""
 
             def __init__(self):
                 self.depth = 0
@@ -581,11 +522,7 @@ class TestTranscribeWords:
 
         engine = TranscriptionEngine(model_size="small.en", device="cpu")
         lock = TrackingLock()
-        # pyrefly: ignore [bad-assignment]
         engine._lock = lock
-        # ``_inference_cond`` wraps ``_lock``; rebuild it so the
-        # TrackingLock is actually used by ``Condition.wait()`` /
-        # ``notify_all()``.
         import threading as _threading
 
         engine._inference_cond = _threading.Condition(lock)
@@ -594,10 +531,6 @@ class TestTranscribeWords:
         mock_model = MagicMock()
 
         def transcribe(*args, **kwargs):
-            # Counter pattern: the lock is RELEASED during the
-            # multi-second GPU inference so ``is_loaded`` / ``unload``
-            # aren't blocked; ``_active_inference`` is incremented
-            # before release and decremented in the ``finally`` block.
             assert lock.depth == 0, (
                 "transcribe_with_fallback must release _lock during "
                 f"model.transcribe() (counter pattern). Got lock.depth={lock.depth}."
@@ -647,7 +580,6 @@ class TestGpuMemoryFree:
             result = engine.transcribe_with_fallback(np.zeros(16000, dtype=np.float32))
 
         assert result == "fallback text"
-        # gc.collect should have been called
         mock_gc.assert_called()
 
     def test_transcribe_words_with_fallback_frees_gpu_memory(self):
@@ -715,14 +647,8 @@ class TestGpuRuntimeErrorTypeCheck:
 
 
 # TestCudaDll001TorchLib removed 2026-08-15: the ``("torch", "lib")``
-# DLL-scan entry was removed together with the torch dependency
-# (PLAN_ONNX_INTEGRATION.md §4.3 C-2), there is no torch/lib to
-# discover anymore.
 
 
-# =============================================================================
-# === Merged from test_new_perf_consolidated.py (: audio stats) ===
-# =============================================================================
 """Regression tests for NEW-PERF-010: avoid duplicate RMS/peak/silence_pct
 computation between Recorder.stop() and the transcription engine.
 
@@ -747,11 +673,7 @@ from voice_typer.server.transcription import TranscriptionEngine  # noqa: E402
 
 
 def _make_recorder() -> Recorder:
-    """Create a Recorder with minimal setup for audio-stats tests.
-
-    Recorder construction is delegated to the shared canonical factory
-    (helper dedup) with a real ``Config`` injected.
-    """
+    """Create a Recorder with minimal setup for audio-stats tests."""
     from tests.fixtures.recorder_test_helpers import make_recorder
 
     cfg = Config()
@@ -770,9 +692,7 @@ class TestRecorderStoresAudioStats:
         assert rec._last_audio_stats is None
 
     def test_stop_populates_last_audio_stats(self):
-        """After stop(), ``_last_audio_stats`` must be a (rms, peak,
-        silence_pct) tuple matching the computed values.
-        """
+        """After stop(), ``_last_audio_stats`` must be a (rms, peak,"""
         rec = _make_recorder()
         # Populate the buffer with a known signal.
         chunk = np.full((1024, 1), 0.5, dtype=np.float32)
@@ -783,9 +703,6 @@ class TestRecorderStoresAudioStats:
         rec._stream = MagicMock()
 
         # We can't easily call stop() without a real stream; instead
-        # we directly invoke the stats-computation block by calling
-        # the internal flow.  Easier: just verify the attribute exists
-        # and is settable.
         rec._last_audio_stats = (0.5, 0.5, 0.0)
         assert rec._last_audio_stats == (0.5, 0.5, 0.0)
 
@@ -794,10 +711,7 @@ class TestTranscriptionEngineAcceptsAudioStats:
     """NEW-PERF-010: TranscriptionEngine must accept audio_stats."""
 
     def test_transcribe_accepts_audio_stats_kwarg(self):
-        """``transcribe(audio, audio_stats=...)`` must be a valid call.
-        We don't actually run the model; we just verify the signature
-        accepts the kwarg without TypeError.
-        """
+        """``transcribe(audio, audio_stats=...)`` must be a valid call."""
         eng = TranscriptionEngine.__new__(TranscriptionEngine)
         eng._lock = threading.Lock()
         eng._model = None  # Force the early RuntimeError
@@ -808,9 +722,7 @@ class TestTranscriptionEngineAcceptsAudioStats:
             eng.transcribe(audio, audio_stats=(0.1, 0.5, 50.0))
 
     def test_transcribe_with_fallback_accepts_audio_stats_kwarg(self):
-        """``transcribe_with_fallback(audio, audio_stats=...)`` must be
-        a valid call.  We verify by inspecting the signature.
-        """
+        """``transcribe_with_fallback(audio, audio_stats=...)`` must be"""
         import inspect
 
         sig = inspect.signature(TranscriptionEngine.transcribe_with_fallback)
@@ -820,14 +732,11 @@ class TestTranscriptionEngineAcceptsAudioStats:
         assert param.default is None, f"audio_stats must default to None; got default={param.default}"
 
     def test_transcribe_skips_recomputation_when_stats_provided(self):
-        """When audio_stats is provided, the engine must NOT recompute
-        RMS/peak/silence_pct from the audio array.
-        """
+        """When audio_stats is provided, the engine must NOT recompute"""
         eng = TranscriptionEngine.__new__(TranscriptionEngine)
         eng._lock = threading.Lock()
         eng._model = MagicMock()
         # The mock model's transcribe returns an empty segments list
-        # and a mock info object.
         mock_segment = MagicMock()
         mock_segment.text = "hello"
         eng._model.transcribe.return_value = ([mock_segment], MagicMock())
@@ -841,7 +750,6 @@ class TestTranscriptionEngineAcceptsAudioStats:
         audio = np.full(16000, 0.5, dtype=np.float32)
 
         # Patch np.sqrt / np.mean / np.max to detect recomputation.
-        # Easier: patch the numpy functions used in the stats block.
         original_sqrt = np.sqrt
         sqrt_calls = []
 
@@ -850,27 +758,13 @@ class TestTranscriptionEngineAcceptsAudioStats:
             return original_sqrt(*args, **kwargs)
 
         with patch("voice_typer.server.transcription.np.sqrt", counting_sqrt), contextlib.suppress(Exception):
-            # With audio_stats provided, sqrt should NOT be called for
-            # the stats computation (it might still be called by the
-            # whisper model, but the stats block is skipped).
-            # We can't easily distinguish, so we just verify the call
-            # succeeds and the stats are used as-is.
             eng._transcribe_unlocked(audio, audio_stats=(0.123, 0.456, 25.0))
 
         # The stats block uses np.sqrt(np.mean(np.square(audio))).
-        # If audio_stats was provided, this exact pattern should NOT
-        # appear in the sqrt calls.  We check that no sqrt call
-        # received the mean-of-squares of our audio array.
-        # This is a heuristic check; the key point is that the code
-        # path with audio_stats doesn't hit the np.sqrt line.
-        # We verify by checking the source instead.
         import inspect
 
         from voice_typer.server.transcription_result import transcribe_unlocked as _canonical_body
 
-        # The body was extracted to ``transcription_result`` (the facade
-        # method is a thin delegate), pin the canonical home, where both
-        # substrings below live verbatim.
         source = inspect.getsource(_canonical_body)
         assert "if audio_stats is not None:" in source, "_transcribe_unlocked must check audio_stats before recomputing"
         assert "rms, peak, silence_pct = audio_stats" in source, (
@@ -882,10 +776,7 @@ class TestPipelinePassesStatsThrough:
     """NEW-PERF-010: DictationPipeline must pass audio_stats through."""
 
     def test_pipeline_captures_stats_from_recorder(self):
-        """DictationPipeline.run() must capture
-        ``recorder._last_audio_stats`` and store it on
-        ``self._audio_stats``.
-        """
+        """DictationPipeline.run() must capture"""
         from voice_typer.server.dictation_pipeline import DictationPipeline
 
         app = MagicMock()
@@ -893,9 +784,6 @@ class TestPipelinePassesStatsThrough:
         pipeline = DictationPipeline(app)
 
         # We can't call run() without the full setup, but we can
-        # verify the pipeline captures the stats by calling run() with
-        # mocked downstream.  Easier: just verify the attribute exists
-        # and is None initially.
         assert pipeline._audio_stats is None
 
         # Simulate the capture line.
@@ -903,9 +791,7 @@ class TestPipelinePassesStatsThrough:
         assert pipeline._audio_stats == (0.1, 0.5, 50.0)
 
     def test_pipeline_passes_stats_to_transcriber(self):
-        """DictationPipeline._transcribe() must call
-        ``transcribe_with_fallback(audio, audio_stats=self._audio_stats)``.
-        """
+        """DictationPipeline._transcribe() must call"""
         import inspect
 
         from voice_typer.server.dictation_pipeline import DictationPipeline
@@ -914,10 +800,6 @@ class TestPipelinePassesStatsThrough:
         assert "audio_stats=self._audio_stats" in source, (
             "DictationPipeline._transcribe must pass audio_stats to transcribe_with_fallback"
         )
-
-
-# ── Warm-up inference after model load (split from the former review-round
-# catch-all tests/test_remaining_fixes.py) ────────────────────────────
 
 
 class TestWarmUpInference:
@@ -977,11 +859,7 @@ class TestWarmUpInference:
 
 
 class TestVadParametersSharedConstant:
-    """Both whisper decode loops must pass ONE shared ``_VAD_PARAMETERS``
-    constant (previously an identical ``vad_parameters=dict(...)`` literal
-    was duplicated in ``transcribe_unlocked`` and
-    ``transcribe_words_unlocked``, a drift surface for the Silero VAD
-    tuning)."""
+    """Both whisper decode loops must pass ONE shared ``_VAD_PARAMETERS``"""
 
     @staticmethod
     def _module_source() -> str:
@@ -998,8 +876,6 @@ class TestVadParametersSharedConstant:
             "min_silence_duration_ms": 500,
             "speech_pad_ms": 200,
         }
-        # The tuning keys must not reappear as inline keyword literals in
-        # either decode loop, the constant is the single source.
         src = self._module_source()
         assert "min_silence_duration_ms=500" not in src, (
             "VAD tuning must come from the shared _VAD_PARAMETERS constant, not an inline literal"

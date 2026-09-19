@@ -1,12 +1,4 @@
-"""Unit tests for ``TemplatesHandlersMixin`` (CR-12).
-
-Covers the 2 templates IPC handlers defined in
-``voice_typer/server/handlers/templates_handlers.py``:
-
-- ``_handle_get_templates``, returns ``{type: templates, data: {templates: [...]}}``.
-- ``_handle_save_templates``, validates ``templates`` is a list, then
-  delegates to ``service.save_templates``.
-"""
+"""Unit tests for ``TemplatesHandlersMixin`` (CR-12)."""
 
 from __future__ import annotations
 
@@ -27,7 +19,6 @@ class TestGetTemplates:
         fake_service.get_templates.side_effect = RuntimeError("disk error")
         resp = ipc_server._handle_get_templates({}, {})
         assert resp["type"] == "error"
-        # generic WS-path envelope (no ``str(exc)`` leak).
         assert resp["data"]["code"] == "server.internal_error"
         assert resp["data"]["message"] == "internal error"
 
@@ -74,10 +65,7 @@ class TestSaveTemplates:
         fake_service.save_templates.assert_called_once_with([])
 
     def test_output_too_long_returns_invalid_field_error(self, ipc_server, fake_service):
-        """Output exceeding ``MAX_OUTPUT_LENGTH`` is rejected up front
-        (per-field length guard mirrors the templates module's caps so
-        the renderer gets a structured ``client.invalid_field`` error
-        instead of a generic internal error)."""
+        """Output exceeding ``MAX_OUTPUT_LENGTH`` is rejected up front"""
         from voice_typer.server.templates import MAX_OUTPUT_LENGTH
 
         templates = [
@@ -113,8 +101,7 @@ class TestSaveTemplates:
         fake_service.save_templates.assert_called_once_with(templates)
 
     def test_service_raises_returns_generic_internal_error(self, ipc_server, fake_service):
-        """The wrap catch-all must emit the generic WS-path envelope
-        (no ``str(exc)`` leak) when the on-disk save fails."""
+        """The wrap catch-all must emit the generic WS-path envelope"""
         fake_service.save_templates.side_effect = RuntimeError("disk full: /home/user/templates.json")
         resp = ipc_server._handle_save_templates({"templates": []}, {})
         assert resp["type"] == "error"

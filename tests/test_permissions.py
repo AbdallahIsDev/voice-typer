@@ -1,12 +1,4 @@
-"""Tests for voice_typer.server.permissions module (GAP-2, GAP-3).
-
-Covers:
-- permission_error_is_permission_denied() classifier
-- check_keyboard_permission() per-platform probing
-- request_keyboard_permission() macOS deep-link + Linux pkexec
-- schedule_permission_retry() / cancel_permission_retry() timer
-- show_permission_notification() tray notification helper
-"""
+"""Tests for voice_typer.server.permissions module (GAP-2, GAP-3)."""
 
 from __future__ import annotations
 
@@ -68,9 +60,6 @@ class TestPermissionErrorClassifier:
         assert permission_error_is_permission_denied(None) is False  # type: ignore[arg-type]
 
 
-# ─── check_keyboard_permission ─────────────────────────────────────────────
-
-
 class TestCheckKeyboardPermission:
     """Verify per-platform permission probing."""
 
@@ -113,9 +102,6 @@ class TestCheckKeyboardPermission:
         assert permissions.check_keyboard_permission() == permissions.PermissionState.UNKNOWN
 
 
-# ─── Linux _check_linux_input_access ───────────────────────────────────────
-
-
 class TestLinuxInputAccessCheck:
     """Verify the Linux input group + device readability check."""
 
@@ -155,9 +141,6 @@ class TestLinuxInputAccessCheck:
 
         result = _check_linux_input_access()
         assert result == PermissionState.GRANTED
-
-
-# ─── request_keyboard_permission ───────────────────────────────────────────
 
 
 class TestRequestKeyboardPermission:
@@ -211,9 +194,6 @@ class TestRequestKeyboardPermission:
         assert called == ["pkexec"]
 
 
-# ─── schedule_permission_retry / cancel_permission_retry ──────────────────
-
-
 class TestPermissionRetry:
     """Verify the retry timer."""
 
@@ -254,9 +234,6 @@ class TestPermissionRetry:
         permissions.cancel_permission_retry()
 
 
-# ─── show_permission_notification ──────────────────────────────────────────
-
-
 class TestShowPermissionNotification:
     """Verify the tray notification helper."""
 
@@ -282,9 +259,6 @@ class TestShowPermissionNotification:
         tray.notify.side_effect = RuntimeError("tray broken")
         # Should not raise
         show_permission_notification(tray, "Accessibility permission required")
-
-
-# ─── macOS deep-link ───────────────────────────────────────────────────────
 
 
 class TestMacOSAccessibilitySettings:
@@ -329,9 +303,6 @@ class TestMacOSAccessibilitySettings:
         assert len(called) >= 2
 
 
-# ─── Linux pkexec helper ───────────────────────────────────────────────────
-
-
 class TestLinuxPkexecHelper:
     """Verify the pkexec invocation for AppImage users."""
 
@@ -341,7 +312,6 @@ class TestLinuxPkexecHelper:
         # In dev mode, the script is at <project>/scripts/linux/install_permissions.py
         script = _find_linux_install_script()
         # If running from the source tree, this should find it.
-        # If running from an installed package, it may be None, that's OK.
         if script is not None:
             assert script.name == "install_permissions.py"
 
@@ -378,11 +348,6 @@ class TestLinuxPkexecHelper:
         assert "pkexec" in called[0]
 
 
-# ─── install_permissions.py (Linux) ────────────────────────────────────────
-
-# Resolve the scripts/linux/ directory relative to this test file so the
-# tests work on any machine (not just the original developer's).
-# tests/test_permissions.py → repo root → scripts/linux/
 _SCRIPTS_LINUX_DIR = __import__("pathlib").Path(__file__).resolve().parent.parent / "scripts" / "linux"
 _INSTALL_SCRIPT = _SCRIPTS_LINUX_DIR / "install_permissions.py"
 _UNINSTALL_SCRIPT = _SCRIPTS_LINUX_DIR / "uninstall_permissions.py"
@@ -433,52 +398,15 @@ class TestInstallPermissionsScript:
             ast.parse(f.read())
 
 
-# ==============================================================================
-# Merged from tests/test_permissions_group_fixes.py —
-#   microphone-permission regression pins (typed MicrophonePermissionDeniedError, verify_microphone_accessible
-#   pre-flight, PortAudio error re-classification, request-permission flows, macOS consent prompt, cancelled-flag
-#   race guards)
-# ==============================================================================
-# DE-2C: regression tests for ``voice_typer/server/permissions.py`` and
-# related DE-4 / DE-5 / DE-32 fixes.
-#
-# Coverage map
-# ------------
-# - **DE-4**: ``MicrophonePermissionDeniedError`` (asr_errors.py) +
-# ``verify_microphone_accessible()`` (permissions.py) +
-# ``recorder.start()`` pre-flight guard +
-# ``_classify_portaudio_open_error`` re-classification of PortAudio
-# OSErrors into the typed error when the OS reports DENIED/PROMPT.
-# - **DE-5**: ``request_microphone_permission()`` +
-# ``request_microphone_permission_result()`` +
-# ``_open_macos_microphone_settings()`` +
-# ``_trigger_macos_microphone_consent_prompt()``.
-# - **DE-32**: ``_cancelled`` flag guards in
-# ``schedule_permission_retry`` / ``cancel_permission_retry`` so an
-# in-flight ``_poll`` callback is skipped after a concurrent cancel.
-#
-# All tests are headless (no real OS / no real PortAudio). Platform
-# probes are mocked via ``monkeypatch.setattr(permissions, "is_macos",
-# ...)`` etc., matching the convention in ``tests/test_permissions.py``.
-#
-
-
 def _set_platform(monkeypatch, permissions, *, macos=False, windows=False, linux=False):
-    """Patch ``is_macos`` / ``is_windows`` / ``is_linux`` on the
-    permissions module so the test runs as if on the chosen platform."""
+    """Patch ``is_macos`` / ``is_windows`` / ``is_linux`` on the"""
     monkeypatch.setattr(permissions, "is_macos", lambda: macos)
     monkeypatch.setattr(permissions, "is_windows", lambda: windows)
     monkeypatch.setattr(permissions, "is_linux", lambda: linux)
 
 
-# ══════════════════════════════════════════════════════════════════════════
-# MicrophonePermissionDeniedError + verify_microphone_accessible
-# ══════════════════════════════════════════════════════════════════════════
-
-
 class TestMicrophonePermissionDeniedError:
-    """DE-4, typed exception lives in asr_errors.py and is
-    ``isinstance``-checkable by the IPC layer."""
+    """DE-4, typed exception lives in asr_errors.py and is"""
 
     def test_is_runtime_error_subclass(self):
         from voice_typer.server.asr_errors import (
@@ -507,21 +435,18 @@ class TestMicrophonePermissionDeniedError:
         assert "icrophone" in str(err)
 
     def test_isinstance_check_works(self):
-        """The IPC layer relies on isinstance(err, MicrophonePermissionDeniedError)
-        to route to the permission onboarding UI instead of a generic toast."""
+        """The IPC layer relies on isinstance(err, MicrophonePermissionDeniedError)"""
         from voice_typer.server.asr_errors import MicrophonePermissionDeniedError
 
         try:
             raise MicrophonePermissionDeniedError("denied", state="denied")
         except RuntimeError as exc:
             # Confirms isinstance-check works for the broad RuntimeError
-            # catch clause that production code uses.
             assert isinstance(exc, MicrophonePermissionDeniedError)
 
 
 class TestVerifyMicrophoneAccessible:
-    """DE-4, pre-flight guard raises MicrophonePermissionDeniedError
-    on DENIED, no-op on GRANTED/PROMPT/UNKNOWN."""
+    """DE-4, pre-flight guard raises MicrophonePermissionDeniedError"""
 
     def test_raises_on_denied(self, monkeypatch):
         from voice_typer.server import permissions
@@ -548,8 +473,7 @@ class TestVerifyMicrophoneAccessible:
         permissions.verify_microphone_accessible()
 
     def test_no_raise_on_prompt(self, monkeypatch):
-        """On macOS NotDetermined (PROMPT), the OS will surface the
-        consent dialog on first PortAudio open, we must NOT pre-empt."""
+        """On macOS NotDetermined (PROMPT), the OS will surface the"""
         from voice_typer.server import permissions
 
         monkeypatch.setattr(
@@ -560,9 +484,7 @@ class TestVerifyMicrophoneAccessible:
         permissions.verify_microphone_accessible()
 
     def test_no_raise_on_unknown(self, monkeypatch):
-        """UNKNOWN (pyobjc missing on macOS, or unsupported platform)
-        does NOT raise, the PortAudio-open re-classification path
-        in recorder.py handles the runtime case."""
+        """UNKNOWN (pyobjc missing on macOS, or unsupported platform)"""
         from voice_typer.server import permissions
 
         monkeypatch.setattr(
@@ -573,48 +495,25 @@ class TestVerifyMicrophoneAccessible:
         permissions.verify_microphone_accessible()
 
 
-# ══════════════════════════════════════════════════════════════════════════
-# recorder._classify_portaudio_open_error re-classification path
-# ══════════════════════════════════════════════════════════════════════════
-
-
 class _FakeRecorderForClassify:
-    """Minimal ``self`` for ``classify_portaudio_open_error``.
-
-    The method only reads ``self._recorder._PORTAUDIO_PERMISSION_DENIED_SUBSTRINGS``
-    (a class-level tuple on ``Recorder``), so we can avoid constructing
-    a full ``Recorder`` instance (which requires a config + PortAudio
-    mock) by binding the class attribute on a throwaway namespace.
-
-    STATE-OWNERSHIP: the classification body lives on
-    ``DevicePrewarm.classify_portaudio_open_error`` (the owning
-    collaborator, Phase 4.5 completion); ``Recorder._classify_portaudio_open_error``
-    is a documented 1-line delegator. The fake acts as the owner's
-    back-reference target (``owner._recorder = fake``).
-    """
+    """Minimal ``self`` for ``classify_portaudio_open_error``."""
 
     def __init__(self):
         from voice_typer.server.recording.recorder import Recorder
 
         self._PORTAUDIO_PERMISSION_DENIED_SUBSTRINGS = Recorder._PORTAUDIO_PERMISSION_DENIED_SUBSTRINGS
         # The DevicePrewarm owner reads the substring table via
-        # ``self._recorder.<attr>``, point the back-reference at this
-        # fake itself.
         self._recorder = self
 
     def _classify_portaudio_open_error(self, exc):  # type: ignore[no-untyped-def]
         # Late-bound owner resolution: pull the real implementation off
-        # ``DevicePrewarm`` so patches to
-        # ``permissions.check_microphone_permission`` /
-        # ``asr_errors.MicrophonePermissionDeniedError`` are observed.
         from voice_typer.server.recording.device_prewarm import DevicePrewarm
 
         return DevicePrewarm.classify_portaudio_open_error(self, exc)
 
 
 class TestClassifyPortAudioOpenError:
-    """DE-4, OSError-from-PortAudio re-classification into
-    MicrophonePermissionDeniedError when the OS reports DENIED/PROMPT."""
+    """DE-4, OSError-from-PortAudio re-classification into"""
 
     def test_no_op_when_not_oserror(self, monkeypatch):
         fake = _FakeRecorderForClassify()
@@ -630,7 +529,6 @@ class TestClassifyPortAudioOpenError:
             lambda: permissions.MicrophonePermissionState.DENIED,
         )
         fake = _FakeRecorderForClassify()
-        # Message doesn't match any of the PortAudio permission-denial
         # substrings, must NOT re-classify even though mic state is DENIED.
         fake._classify_portaudio_open_error(OSError("device unplugged"))
 
@@ -644,7 +542,6 @@ class TestClassifyPortAudioOpenError:
         )
         fake = _FakeRecorderForClassify()
         # Pattern matches but mic state is GRANTED, must NOT re-classify
-        # (the real fault is hardware, not permission).
         fake._classify_portaudio_open_error(OSError("No input devices available"))
 
     def test_no_op_when_state_is_unknown(self, monkeypatch):
@@ -672,13 +569,10 @@ class TestClassifyPortAudioOpenError:
         with pytest.raises(MicrophonePermissionDeniedError) as exc_info:
             fake._classify_portaudio_open_error(OSError("Unanticipated host error"))
         assert exc_info.value.state == "denied"
-        # __cause__ must chain the original OSError so debuggers see the
-        # real PortAudio message.
         assert isinstance(exc_info.value.__cause__, OSError)
 
     def test_raises_on_prompt_with_matching_pattern(self, monkeypatch):
-        """PROMPT (NotDetermined on macOS) is also re-classified —
-        the OS would have shown the dialog already if it could."""
+        """PROMPT (NotDetermined on macOS) is also re-classified —"""
         from voice_typer.server import permissions
         from voice_typer.server.asr_errors import MicrophonePermissionDeniedError
 
@@ -693,8 +587,7 @@ class TestClassifyPortAudioOpenError:
         assert exc_info.value.state == "prompt"
 
     def test_all_patterns_classify(self, monkeypatch):
-        """Each substring in _PORTAUDIO_PERMISSION_DENIED_SUBSTRINGS
-        triggers re-classification when state is DENIED."""
+        """Each substring in _PORTAUDIO_PERMISSION_DENIED_SUBSTRINGS"""
         from voice_typer.server import permissions
         from voice_typer.server.asr_errors import MicrophonePermissionDeniedError
         from voice_typer.server.recording.recorder import Recorder
@@ -710,20 +603,11 @@ class TestClassifyPortAudioOpenError:
                 fake._classify_portaudio_open_error(OSError(substr.title()))
 
 
-# ══════════════════════════════════════════════════════════════════════════
-# recorder.start() pre-flight guard integration
-# ══════════════════════════════════════════════════════════════════════════
-
-
 class TestRecorderStartPreflightGuard:
-    """DE-4, recorder.start() must call verify_microphone_accessible()
-    BEFORE opening any InputStream, and must re-raise
-    MicrophonePermissionDeniedError unchanged."""
+    """DE-4, recorder.start() must call verify_microphone_accessible()"""
 
     def test_start_raises_when_verify_raises(self, monkeypatch):
-        """When verify_microphone_accessible raises
-        MicrophonePermissionDeniedError, recorder.start() must propagate
-        it, NOT swallow it and proceed to PortAudio."""
+        """When verify_microphone_accessible raises"""
         import voice_typer.server.permissions as permissions_mod
         from voice_typer.server.asr_errors import MicrophonePermissionDeniedError
         from voice_typer.server.recording import Recorder
@@ -736,7 +620,6 @@ class TestRecorderStartPreflightGuard:
         monkeypatch.setattr(permissions_mod, "verify_microphone_accessible", _raise_denied)
 
         # Build a minimal recorder. ``_recording_event`` must be unset
-        # for start() to proceed past the early-return.
         config = MagicMock(
             sample_rate=16000,
             microphone=None,
@@ -752,12 +635,10 @@ class TestRecorderStartPreflightGuard:
             rec.start()
 
     def test_start_proceeds_when_verify_passes(self, monkeypatch):
-        """When verify_microphone_accessible is a no-op (state GRANTED),
-        recorder.start() must proceed to the PortAudio-open path."""
+        """When verify_microphone_accessible is a no-op (state GRANTED),"""
         import voice_typer.server.permissions as permissions_mod
         from voice_typer.server.recording import Recorder
 
-        # verify_microphone_accessible, no-op.
         monkeypatch.setattr(permissions_mod, "verify_microphone_accessible", lambda: None)
 
         config = MagicMock(
@@ -812,17 +693,7 @@ class TestRecorderStartPreflightGuard:
         monkeypatch.setattr(recording_pkg.sd, "query_devices", _query_devices)
         monkeypatch.setattr(recording_pkg.sd, "query_hostapis", lambda idx=None: {"name": "MME"})
 
-        # Should NOT raise from the permission guard. (It may raise later
-        # from buffer/state setup if our minimal mock is missing an attr —
-        # but the permission guard must not be the cause.)
-        #
-        # We explicitly catch ``MicrophonePermissionDeniedError`` and fail
-        # the test if it fires, the permission guard was monkeypatched to
         # a no-op above, so this typed error must NOT propagate out of
-        # ``start()``. Other exceptions (from the minimal mock missing
-        # PortAudio attrs) are acceptable and are logged so future drift
-        # in the mock surface surfaces in test output instead of being
-        # silently swallowed.
         from voice_typer.server.asr_errors import MicrophonePermissionDeniedError
 
         try:
@@ -831,9 +702,6 @@ class TestRecorderStartPreflightGuard:
             pytest.fail(f"start() raised MicrophonePermissionDeniedError despite verify being no-op: {exc}")
         except Exception as exc:  # noqa: BLE001, intentional broad catch
             # Other exceptions (incomplete mock) are acceptable for this
-            # test, we only care that the permission guard didn't fire.
-            # Log the swallowed exception so future mock drift surfaces
-            # instead of being silently lost.
             import warnings
 
             warnings.warn(
@@ -846,11 +714,6 @@ class TestRecorderStartPreflightGuard:
             # Clean up any state start() may have set.
             with __import__("contextlib").suppress(Exception):
                 rec.stop()
-
-
-# ══════════════════════════════════════════════════════════════════════════
-# request_microphone_permission + helpers
-# ══════════════════════════════════════════════════════════════════════════
 
 
 class TestRequestMicrophonePermission:
@@ -953,8 +816,7 @@ class TestRequestMicrophonePermission:
 
 
 class TestRequestMicrophonePermissionResult:
-    """DE-5, IPC-friendly wrapper returns the same dict shape as
-    request_keyboard_permission_result."""
+    """DE-5, IPC-friendly wrapper returns the same dict shape as"""
 
     def test_macos_returns_requested_true(self, monkeypatch):
         from voice_typer.server import permissions
@@ -1049,8 +911,6 @@ class TestOpenMacOSMicrophoneSettings:
             def __init__(self, cmd, **kw):
                 called.append(cmd)
                 # First call (URL scheme) fails; second (prefpane) succeeds.
-                # ``cmd`` is a list, check whether any element contains
-                # the deep-link marker (substring, not equality).
                 if any("Privacy_Microphone" in str(arg) for arg in cmd):
                     raise OSError("open failed")
 
@@ -1073,8 +933,7 @@ class TestTriggerMacOSMicrophoneConsentPrompt:
     """DE-5, actively trigger the OS consent dialog via pyobjc."""
 
     def test_no_op_when_pyobjc_missing(self, monkeypatch):
-        """On a dev machine without pyobjc, this must be a silent no-op
-        (the OS will prompt on first PortAudio device open instead)."""
+        """On a dev machine without pyobjc, this must be a silent no-op"""
         import sys as _sys
 
         # Simulate ImportError for AVFoundation.
@@ -1098,7 +957,6 @@ class TestTriggerMacOSMicrophoneConsentPrompt:
 
         fake_av.AVCaptureDevice.requestAccessForMediaType_completionHandler_ = _request
         # ``AVMediaTypeAudio`` is a callable that returns the media-type
-        # sentinel; the implementation calls ``AVMediaTypeAudio()``.
         media_type_sentinel = MagicMock(name="AVMediaTypeAudio-instance")
         fake_av.AVMediaTypeAudio = MagicMock(name="AVMediaTypeAudio-factory", return_value=media_type_sentinel)
 
@@ -1113,20 +971,13 @@ class TestTriggerMacOSMicrophoneConsentPrompt:
         permissions._trigger_macos_microphone_consent_prompt()
         assert len(called) == 1
         # The first arg is the result of calling ``AVMediaTypeAudio()``
-        # , i.e. the media-type sentinel, not the factory itself.
         assert called[0][0] is media_type_sentinel
         # And the factory was called exactly once.
         fake_av.AVMediaTypeAudio.assert_called_once()
 
 
-# ══════════════════════════════════════════════════════════════════════════
-# schedule_permission_retry / cancel_permission_retry race fix
-# ══════════════════════════════════════════════════════════════════════════
-
-
 class TestCancelledFlagBasics:
-    """DE-32: ``_cancelled`` is set under the lock by
-    ``cancel_permission_retry`` and reset by ``schedule_permission_retry``."""
+    """DE-32: ``_cancelled`` is set under the lock by"""
 
     def test_cancel_sets_cancelled_flag(self, monkeypatch):
         from voice_typer.server import permissions
@@ -1143,7 +994,6 @@ class TestCancelledFlagBasics:
         assert permissions._cancelled is True
 
         # Mock check_keyboard_permission so the timer doesn't fire
-        # during the test.
         monkeypatch.setattr(
             permissions,
             "check_keyboard_permission",
@@ -1157,29 +1007,17 @@ class TestCancelledFlagBasics:
 
 
 class TestPollSkipsCallbackAfterCancel:
-    """DE-32, the critical race: ``_poll`` fires in a Timer thread,
-    ``check_keyboard_permission()`` returns GRANTED, but
-    ``cancel_permission_retry`` runs concurrently BEFORE the callback
-    dispatch. ``_poll`` must observe ``_cancelled == True`` under the
-    lock and SKIP the callback."""
+    """DE-32, the critical race: ``_poll`` fires in a Timer thread,"""
 
     def test_callback_not_invoked_when_cancelled_concurrently(self, monkeypatch):
-        """Simulate the race: schedule a retry, let the timer fire,
-        but cancel JUST BEFORE the callback would be invoked. The
-        callback must NOT run."""
+        """Simulate the race: schedule a retry, let the timer fire,"""
         from voice_typer.server import permissions
 
         callback = MagicMock()
 
         # We instrument ``check_keyboard_permission`` to call
-        # ``cancel_permission_retry`` synchronously, this guarantees
-        # the cancel arrives AFTER the timer fires but BEFORE the
-        # callback dispatch (because ``_poll`` reads the state, THEN
-        # checks the cancelled flag, THEN invokes the callback).
         def _check_then_cancel():
             # Simulate the user granting permission.
-            # Then simulate a concurrent shutdown / cancel arriving
-            # between the probe and the callback dispatch.
             permissions.cancel_permission_retry()
             return permissions.PermissionState.GRANTED
 
@@ -1196,10 +1034,7 @@ class TestPollSkipsCallbackAfterCancel:
         permissions.cancel_permission_retry()
 
     def test_callback_invoked_when_not_cancelled(self, monkeypatch):
-        """Baseline: without a concurrent cancel, the callback MUST fire
-        when check_keyboard_permission returns GRANTED. This guards
-        against over-aggressive cancellation logic breaking the
-        legitimate flow."""
+        """Baseline: without a concurrent cancel, the callback MUST fire"""
         from voice_typer.server import permissions
 
         callback = MagicMock()
@@ -1215,9 +1050,7 @@ class TestPollSkipsCallbackAfterCancel:
         permissions.cancel_permission_retry()
 
     def test_no_next_poll_scheduled_after_cancel(self, monkeypatch):
-        """If cancel arrives while _poll is logging (after the GRANTED
-        branch but before scheduling the next poll), no next Timer
-        should be started. We verify by counting Timer instances."""
+        """If cancel arrives while _poll is logging (after the GRANTED"""
         from voice_typer.server import permissions
 
         original_timer = permissions.threading.Timer
@@ -1231,12 +1064,9 @@ class TestPollSkipsCallbackAfterCancel:
         monkeypatch.setattr(permissions.threading, "Timer", _CountingTimer)
 
         # DENIED so _poll doesn't take the GRANTED branch; instead it
-        # tries to schedule the next poll.
         cancel_called = {"v": False}
 
         def _check_then_cancel():
-            # First call: schedule_permission_retry created one Timer
-            # (count == 1). When _poll fires, we cancel, the next-poll
             # branch must NOT create another Timer.
             if not cancel_called["v"]:
                 cancel_called["v"] = True
@@ -1249,9 +1079,7 @@ class TestPollSkipsCallbackAfterCancel:
         permissions.schedule_permission_retry(callback, interval=0.01, max_attempts=5)
         time.sleep(0.10)
 
-        # Only the initial Timer from schedule_permission_retry should
         # have been created, the next-poll Timer must NOT have been
-        # scheduled because cancel arrived first.
         assert timer_count["n"] == 1, (
             f"expected 1 Timer (initial schedule), got {timer_count['n']} "
             "— _poll scheduled a next-poll Timer despite cancel"
@@ -1260,15 +1088,13 @@ class TestPollSkipsCallbackAfterCancel:
 
 
 class TestConcurrentCancelRace:
-    """DE-32, high-concurrency stress test: many threads call
-    schedule + cancel simultaneously. The callback should never fire
-    after a cancel completes."""
+    """DE-32, high-concurrency stress test: many threads call"""
 
     def test_callback_never_fires_after_final_cancel(self, monkeypatch):
-        """Schedule a retry, then concurrently: (1) one thread polls
-        the state (returns GRANTED), (2) another thread cancels.
+        """
+        Schedule a retry, then concurrently: (1) one thread polls
         After both threads complete, the callback must NOT have been
-        invoked from a stale poll that raced past the cancel."""
+        """
         from voice_typer.server import permissions
 
         callback = MagicMock()
@@ -1295,11 +1121,6 @@ class TestConcurrentCancelRace:
         time.sleep(0.05)
         permissions.cancel_permission_retry()
 
-        # The callback may or may not have been invoked depending on
-        # the exact interleaving, but if it WAS invoked, the cancel
-        # must have arrived AFTER the callback (not before). The
-        # critical invariant: once cancel_permission_retry() returns,
-        # no FUTURE callback invocations may happen.
         call_count_after_cancel = callback.call_count
         # Wait another interval to make sure no stale poll fires.
         time.sleep(0.03)

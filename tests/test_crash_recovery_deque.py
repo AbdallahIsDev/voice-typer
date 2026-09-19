@@ -1,19 +1,4 @@
-"""TY-32 regression test: ``CrashRecovery._entries`` is a bounded deque.
-
-Verifies that:
-  - ``_entries`` is a ``collections.deque`` with ``maxlen == MAX_RECOVERY_ENTRIES``.
-  - Appending past ``MAX_RECOVERY_ENTRIES`` auto-evicts the OLDEST entry
-    (identical semantics to the previous ``while len(...) > MAX: pop(0)`` loop).
-  - ``clear()``, ``len()``, indexing (``self._entries[-1]``, ``self._entries[i]``),
-    and iteration all still work on the deque.
-  - ``json.dumps`` round-trip via ``_save_sync`` / ``_load`` still produces
-    the same on-disk shape (``{"entries": [...]}``), the ``list(...)`` wrap
-    in ``_save_sync`` keeps the JSON shape unchanged.
-
-These tests are scoped to the data-structure change only, no behavior
-change to the public ``CrashRecovery`` API.  The original
-``tests/test_crash_recovery.py`` already covers the public API surface.
-"""
+"""TY-32 regression test: ``CrashRecovery._entries`` is a bounded deque."""
 
 import collections
 import json
@@ -98,8 +83,6 @@ class TestAutoEviction:
         for i in range(max_n):
             cr.add(f"junk-{i}", pasted=False)
         entries = cr.get_all()
-        # ``first`` and ``second`` should both be evicted (they were the
-        # first two in; the deque holds the last ``max_n`` appends).
         texts = [e["text"] for e in entries]
         assert "first" not in texts
         assert "second" not in texts
@@ -167,12 +150,7 @@ class TestDequeApiCompatibility:
 
 class TestJsonRoundTrip:
     def test_save_load_preserves_entries(self, recovery_dir):
-        """``_save_sync`` writes ``{"entries": [...]}`` and ``_load`` reads it back.
-
-        Regression: ``json.dumps`` does NOT natively serialize ``deque`` —
-        the ``list(self._entries)`` wrap in ``_save_sync`` is what keeps
-        the on-disk shape unchanged.  This test verifies that wrap.
-        """
+        """``_save_sync`` writes ``{\"entries\": [...]}`` and ``_load`` reads it back."""
         from voice_typer.server.crash_recovery import CrashRecovery
 
         cr1 = CrashRecovery(config_dir=recovery_dir)
@@ -202,16 +180,11 @@ class TestJsonRoundTrip:
         assert cr2._entries.maxlen == _max_entries()
 
     def test_load_trims_oversized_disk_state(self, recovery_dir):
-        """If the on-disk file has MORE than ``MAX_RECOVERY_ENTRIES`` (e.g. the
-        bound was lowered in a future version), ``_load`` trims to ``maxlen``
-        via the deque constructor (same behavior as the previous ``while``
-        loop did on the next ``add()``).
-        """
+        """bound was lowered in a future version), ``_load`` trims to ``maxlen``"""
         from voice_typer.server.crash_recovery import CrashRecovery
 
         max_n = _max_entries()
         # Write a file with 2x the max entries, simulates a stale file
-        # from an older version that had a higher bound.
         oversized = {
             "entries": [
                 {"text": f"old-{i}", "timestamp": "2026-01-01T00:00:00", "pasted": False} for i in range(max_n * 2)
@@ -223,7 +196,6 @@ class TestJsonRoundTrip:
 
         cr = CrashRecovery(config_dir=recovery_dir)
         # Trimmed to ``max_n``, the OLDEST entries are dropped (the deque
-        # constructor keeps the LAST ``maxlen`` items of the iterable).
         assert cr.count == max_n
         entries = cr.get_all()
         assert [e["text"] for e in entries] == [f"old-{i}" for i in range(max_n, max_n * 2)]

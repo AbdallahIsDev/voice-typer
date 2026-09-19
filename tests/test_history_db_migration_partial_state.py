@@ -1,31 +1,4 @@
-"""Regression test for partial-prior-state V2 migration reconciliation.
-
-Background: ``_MIGRATION_V2`` adds two columns (``favorite`` and
-``language``) via two ``ALTER TABLE ADD COLUMN`` statements. A previous
-run could add ONE of the columns but fail (process killed, disk full)
-before the schema version was persisted. On the next launch the verbatim
-re-run hit "duplicate column name" on the already-added column, and the
-old "duplicate column name" handler bumped the version unconditionally —
-leaving the NOT-yet-added column missing forever.
-
-The fix in :mod:`voice_typer.server.history_db_internals.schema`
-pre-filters ``ALTER TABLE ADD COLUMN`` statements whose column already
-exists, runs the remaining statements in a single transaction, and only
-bumps the version when all remaining statements succeed.
-
-These tests pin the reconciliation:
-
-1. ``test_partial_prior_state_favorite_exists_language_missing``, the
-   core scenario: ``favorite`` present, ``language`` missing, version=1.
-   After init, BOTH columns exist and the version is current.
-
-2. ``test_partial_prior_state_both_columns_exist_version_not_bumped`` —
-   both columns present but version=1 (prior run added both, crashed
-   before bumping). After init, version is current and no ALTERs re-run.
-
-3. ``test_clean_v1_db_migrates_both_columns``, sanity: a clean v1 DB
-   (no favorite/language) gets both columns and the current version.
-"""
+"""Regression test for partial-prior-state V2 migration reconciliation."""
 
 from __future__ import annotations
 
@@ -88,14 +61,7 @@ class TestPartialPriorStateMigration:
     """The V2 migration must reconcile a partial-prior state, not abort."""
 
     def test_partial_prior_state_favorite_exists_language_missing(self, tmp_path):
-        """favorite present, language missing, version=1 -> both present, version current.
-
-        Simulates a prior run that added ``favorite`` but crashed before
-        adding ``language`` and before persisting the version bump. The
-        old handler bumped the version on "duplicate column name" and
-        left ``language`` missing forever; the fix skips the already-
-        present ``favorite`` ALTER and runs only the ``language`` ALTER.
-        """
+        """favorite present, language missing, version=1 -> both present, version current."""
         db_path = tmp_path / "partial_state.db"
         _make_base_v1_db(db_path)
         # Simulate the partial-prior state: favorite added, language not.
@@ -123,12 +89,7 @@ class TestPartialPriorStateMigration:
         verify.close()
 
     def test_partial_prior_state_both_columns_exist_version_not_bumped(self, tmp_path):
-        """Both columns present, version=1 -> version bumped, no ALTERs re-run.
-
-        Simulates a prior run that added BOTH columns but crashed before
-        persisting the version bump. The fix detects both columns are
-        present, skips all ALTERs, and just bumps the version.
-        """
+        """Both columns present, version=1 -> version bumped, no ALTERs re-run."""
         db_path = tmp_path / "both_cols_no_version.db"
         _make_base_v1_db(db_path)
         seed_conn = sqlite3.connect(str(db_path))

@@ -36,8 +36,6 @@ def test_no_log_error_with_exc_arg(rel_path):
     repo_root = Path(__file__).parent.parent
     src = (repo_root / rel_path).read_text(encoding="utf-8")
     # The buggy pattern: log.error("...: %s", exc) or log.error("...", ..., exc)
-    # We can't easily parse Python; use a heuristic grep.
-    # Look for `log.error("` lines that end with `, exc)` (with optional whitespace).
     import re
 
     buggy_pattern = re.compile(r"log\.error\([^)]*,\s*exc(?:_info=\w+)?\)\s*$", re.MULTILINE)

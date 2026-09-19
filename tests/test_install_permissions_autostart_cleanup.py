@@ -1,21 +1,4 @@
-"""Tests for the autostart ``.desktop`` cleanup logic in
-``scripts/linux/install_permissions.py``.
-
-Covers S2-CR-69 (Linux): the uninstall flow now removes the per-user
-autostart ``.desktop`` file at
-``<XDG_CONFIG_HOME or ~/.config>/autostart/voice-typer.desktop`` so the
-desktop environment does not keep trying to launch the (now-deleted)
-binary on every login.
-
-The tests exercise:
-
-1. ``_unlink_autostart_desktop_at``, removes the ``.desktop`` file when
-   present, no-ops when absent, logs a warning on ``OSError``.
-2. ``_remove_autostart_desktop``, uses ``target_user``'s home dir from
-   ``pwd.getpwnam`` and scans ``/home/*`` as a defensive fallback.
-3. ``uninstall()``, invokes ``_remove_autostart_desktop`` with the
-   manifest's ``target_user``.
-"""
+"""``scripts/linux/install_permissions.py``."""
 
 from __future__ import annotations
 
@@ -47,9 +30,6 @@ def ip_module():
     return _load_install_permissions_module()
 
 
-# ─── _unlink_autostart_desktop_at ───────────────────────────────────────────
-
-
 class TestUnlinkAutostartDesktopAt:
     """Verify the per-home-dir ``.desktop`` removal helper."""
 
@@ -69,7 +49,6 @@ class TestUnlinkAutostartDesktopAt:
 
     def test_noop_when_desktop_absent(self, ip_module, tmp_path, capsys):
         """When the ``.desktop`` file is absent, the function is a silent no-op."""
-        # tmp_path exists but has no .config/autostart/voice-typer.desktop
         ip_module._unlink_autostart_desktop_at(tmp_path)
         out = capsys.readouterr().out
         # Nothing logged when there's nothing to remove.
@@ -95,17 +74,12 @@ class TestUnlinkAutostartDesktopAt:
         assert "permission denied (simulated)" in out
 
 
-# ─── _remove_autostart_desktop ──────────────────────────────────────────────
-
-
 class TestRemoveAutostartDesktop:
     """Verify the orchestrator that resolves the user's home dir."""
 
     def test_empty_target_user_skips_pwd_lookup(self, ip_module, tmp_path, monkeypatch):
         """When ``target_user`` is empty, ``pwd.getpwnam`` is never called."""
         # If pwd.getpwnam were called with "", it would raise KeyError.
-        # We assert no exception bubbles up, the function should skip the
-        # pwd path entirely when target_user is falsy.
         call_count = {"n": 0}
         original_getpwnam = ip_module.pwd.getpwnam
 
@@ -117,15 +91,11 @@ class TestRemoveAutostartDesktop:
         # Redirect /home to a non-existent path so the fallback scan is a no-op.
         monkeypatch.setattr(ip_module.Path, "__call__", lambda self, *a, **k: Path("/nonexistent_home_root_for_test"))
 
-        # We can't easily monkeypatch the module-level Path constant, so
-        # just verify the function returns None and doesn't raise.
         ip_module._remove_autostart_desktop("")
-        # pwd.getpwnam should not have been called.
         assert call_count["n"] == 0
 
     def test_root_target_user_skips_pwd_lookup(self, ip_module, monkeypatch):
-        """When ``target_user`` is 'root', ``pwd.getpwnam`` is not called
-        (the 'root' user doesn't have a per-user autostart entry)."""
+        """When ``target_user`` is 'root', ``pwd.getpwnam`` is not called"""
         monkeypatch.setattr(
             ip_module.pwd,
             "getpwnam",
@@ -134,8 +104,7 @@ class TestRemoveAutostartDesktop:
         ip_module._remove_autostart_desktop("root")
 
     def test_target_user_resolves_home_dir_via_pwd(self, ip_module, tmp_path, monkeypatch):
-        """When ``target_user`` is a real user, ``pwd.getpwnam`` resolves
-        the home directory and the ``.desktop`` file inside it is removed."""
+        """When ``target_user`` is a real user, ``pwd.getpwnam`` resolves"""
         autostart_dir = tmp_path / ".config" / "autostart"
         autostart_dir.mkdir(parents=True)
         desktop_path = autostart_dir / "voice-typer.desktop"
@@ -157,8 +126,7 @@ class TestRemoveAutostartDesktop:
         assert not desktop_path.exists()
 
     def test_unknown_target_user_logs_warning(self, ip_module, monkeypatch, capsys):
-        """When ``pwd.getpwnam`` raises ``KeyError``, a warning is logged
-        (non-fatal) and the function continues to the /home fallback scan."""
+        """When ``pwd.getpwnam`` raises ``KeyError``, a warning is logged"""
         monkeypatch.setattr(ip_module.pwd, "getpwnam", lambda u: (_ for _ in ()).throw(KeyError(u)))
         # /home doesn't exist on most CI runners, so the fallback scan is a no-op.
         ip_module._remove_autostart_desktop("nonexistent_user_xyz")
@@ -167,8 +135,7 @@ class TestRemoveAutostartDesktop:
         assert "nonexistent_user_xyz" in out
 
     def test_home_fallback_scan_removes_stray_desktops(self, ip_module, tmp_path, monkeypatch):
-        """The ``HOME_ROOT_SCAN/*`` fallback scan removes
-        ``voice-typer.desktop`` from every user home directory that has one."""
+        """The ``HOME_ROOT_SCAN/*`` fallback scan removes"""
         # Build two fake user homes under tmp_path/home.
         fake_home_root = tmp_path / "home"
         user1 = fake_home_root / "user1"
@@ -192,11 +159,8 @@ class TestRemoveAutostartDesktop:
         assert not desktop2.exists()
 
     def test_home_fallback_scan_handles_unreadable_entry(self, ip_module, tmp_path, monkeypatch):
-        """A single unreadable entry under ``HOME_ROOT_SCAN`` does not abort
-        the scan of the rest of the directory."""
+        """A single unreadable entry under ``HOME_ROOT_SCAN`` does not abort"""
         fake_home_root = tmp_path / "home"
-        # user_good has a real .desktop to remove; user_bad's iterdir/stat
-        # will be made to raise PermissionError.
         user_good = fake_home_root / "user_good"
         user_bad = fake_home_root / "user_bad"
         good_autostart = user_good / ".config" / "autostart"
@@ -207,8 +171,6 @@ class TestRemoveAutostartDesktop:
 
         monkeypatch.setattr(ip_module, "HOME_ROOT_SCAN", fake_home_root)
 
-        # Make user_bad's stat raise PermissionError (simulates a
-        # service-account home dir we can't read).
         original_is_dir = Path.is_dir
 
         def _guarded_is_dir(self):
@@ -224,16 +186,11 @@ class TestRemoveAutostartDesktop:
         assert not good_desktop.exists()
 
 
-# ─── uninstall() integration ────────────────────────────────────────────────
-
-
 class TestUninstallInvokesAutostartCleanup:
-    """Verify that ``uninstall()`` calls ``_remove_autostart_desktop`` with
-    the manifest's ``target_user``."""
+    """Verify that ``uninstall()`` calls ``_remove_autostart_desktop`` with"""
 
     def test_uninstall_passes_manifest_target_user_to_autostart_cleanup(self, ip_module, monkeypatch, tmp_path):
-        """``uninstall()`` reads ``target_user`` from the manifest and passes
-        it to ``_remove_autostart_desktop``."""
+        """``uninstall()`` reads ``target_user`` from the manifest and passes"""
         # Skip the root check.
         monkeypatch.setattr(ip_module, "is_root", lambda: True)
 
@@ -266,8 +223,7 @@ class TestUninstallInvokesAutostartCleanup:
         assert captured_args["target_user"] == "alice"
 
     def test_uninstall_passes_empty_string_when_manifest_missing(self, ip_module, monkeypatch, tmp_path):
-        """When the manifest is missing, ``uninstall()`` passes ``""`` to
-        ``_remove_autostart_desktop`` (which then relies on the /home scan)."""
+        """When the manifest is missing, ``uninstall()`` passes ``\"\"`` to"""
         monkeypatch.setattr(ip_module, "is_root", lambda: True)
 
         captured_args = {"target_user": "sentinel"}

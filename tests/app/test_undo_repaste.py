@@ -1,27 +1,13 @@
-"""split from tests/test_app.py.
-
-All heavy dependencies are mocked via the project-wide ``mock_heavy_imports``
-autouse fixture (in ``tests/conftest.py``), CR-60 hoisted the
-``force_pynput_hotkey_backend`` patch from the old local fixture into
-that project-wide fixture, so test modules no longer need a local
-override.
-"""
+"""All heavy dependencies are mocked via the project-wide ``mock_heavy_imports``"""
 
 from unittest.mock import MagicMock
 
 
 class TestAppUndoLastBatching:
-    """APP-6: ``undo_last`` must batch backspaces into chunks of ~10
-    with a 10ms sleep between chunks, so we don't flood the OS keyboard
-    event queue on long transcriptions (>200 chars). Without rate
-    limiting, pynput can drop keystrokes silently."""
+    """APP-6: ``undo_last`` must batch backspaces into chunks of ~10"""
 
     def test_undo_last_sleeps_between_chunks(self, app, monkeypatch):
-        """For a transcription of 25 chars, undo_last must call
-        ``time.sleep(0.01)`` exactly twice (after chunk 1 of 10 and
-        after chunk 2 of 10; the last partial chunk of 5 doesn't
-        trigger a sleep because it's the final chunk).
-        """
+        """For a transcription of 25 chars, undo_last must call"""
         app._last_transcription = "a" * 25
         sleep_calls = []
         monkeypatch.setattr(
@@ -40,8 +26,7 @@ class TestAppUndoLastBatching:
             assert s == 0.01, f"APP-6: undo_last sleep between chunks must be 0.01s (10ms); got {s}"
 
     def test_undo_last_no_sleep_for_short_text(self, app, monkeypatch):
-        """For text shorter than CHUNK_SIZE (10 chars), undo_last must
-        NOT sleep at all (single chunk, no inter-chunk pause needed)."""
+        """For text shorter than CHUNK_SIZE (10 chars), undo_last must"""
         app._last_transcription = "hello"  # 5 chars, 1 chunk
         sleep_calls = []
         monkeypatch.setattr(
@@ -57,8 +42,7 @@ class TestAppUndoLastBatching:
         )
 
     def test_undo_last_clears_last_transcription_after_undo(self, app, monkeypatch):
-        """Sanity: undo_last still clears ``_last_transcription`` after
-        sending backspaces (so a second undo is a no-op)."""
+        """Sanity: undo_last still clears ``_last_transcription`` after"""
         app._last_transcription = "hello world"
         monkeypatch.setattr(
             "time.sleep",
@@ -71,16 +55,10 @@ class TestAppUndoLastBatching:
 
 
 class TestAppUndoLastGraphemeCount:
-    """APP-7: ``undo_last`` must count grapheme clusters (NFC-normalized
-    code points) rather than raw UTF-16 code units. Combining-character
-    sequences like ``é`` written as ``U+0065 U+0301`` are TWO code units
-    but ONE user-perceived character, sending two backspaces would
-    leave the combining mark behind."""
+    """APP-7: ``undo_last`` must count grapheme clusters (NFC-normalized"""
 
     def test_undo_counts_nfc_graphemes_not_code_units(self, app, monkeypatch):
-        """For a 5-grapheme NFC string that decomposes to 7 code points
-        under NFD, undo_last must send exactly 5 backspace pairs
-        (press+release), not 7."""
+        """For a 5-grapheme NFC string that decomposes to 7 code points"""
         # 3 a-chars followed by 2 é (NFC) chars.
         text = "aaa" + "é" * 2  # NFC: 5 code points
         import unicodedata
@@ -96,9 +74,6 @@ class TestAppUndoLastGraphemeCount:
         )
 
         press_calls = []
-        # pynput.keyboard is already a MagicMock from the autouse
-        # fixture. Replace its Controller attribute with a callable
-        # that returns a tracked mock.
         import pynput.keyboard as pk  # type: ignore
 
         kb_instance = MagicMock()
@@ -119,8 +94,7 @@ class TestAppUndoLastGraphemeCount:
         )
 
     def test_undo_handles_empty_string_safely(self, app):
-        """When ``_last_transcription`` is empty, undo_last must notify
-        the user and return without sending any backspaces."""
+        """When ``_last_transcription`` is empty, undo_last must notify"""
         app._last_transcription = ""
         app.tray.notify = MagicMock()
 

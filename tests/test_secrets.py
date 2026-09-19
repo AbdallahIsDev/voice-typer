@@ -1,10 +1,4 @@
-"""Tests for voice_typer.server._secrets: RELIABILITY-004.
-
-Verifies:
-- API key redaction from arbitrary strings (log messages, URLs, exceptions)
-- URL userinfo redaction
-- Cloud URL allowlist (default hosts, runtime extension, assertion behavior)
-"""
+"""Tests for voice_typer.server._secrets: RELIABILITY-004."""
 
 import os
 
@@ -79,19 +73,10 @@ class TestRedactSecret:
         """Long non-key-like text should pass through (heuristic)."""
         s = "This is a perfectly normal error message about a network timeout."
         # Note: this string is > 20 chars but contains no 32+ char
-        # alphanumeric runs and no sk-/Bearer/Token patterns, so it
-        # should pass through unchanged.
         assert redact_secret(s) == s
 
     def test_yj48_short_bare_secret_not_redacted_by_default(self):
-        """YJ-48: a BARE short secret (no ``Bearer``/``Token``/``--token=``
-        prefix) shorter than ``_MIN_REDACT_LEN`` is NOT redacted by default.
-        This is the documented gap, the short-string guard exists to
-        avoid false-positives on ordinary words. Callers in
-        security-critical contexts where bare short secrets are plausible
-        should pass ``aggressive=True`` (see
-        ``test_yj48_aggressive_redacts_short_bare_secret``).
-        """
+        """YJ-48: a BARE short secret (no ``Bearer``/``Token``/``--token=``"""
         # 12-char bare API key, below the 20-char guard.
         bare_short_secret = "sk-abcd1234567"
         assert len(bare_short_secret) < _secrets._MIN_REDACT_LEN
@@ -99,30 +84,18 @@ class TestRedactSecret:
         assert redact_secret(bare_short_secret) == bare_short_secret
 
     def test_yj48_aggressive_redacts_short_bare_secret(self):
-        """YJ-48: ``aggressive=True`` bypasses the short-string guard so
-        a bare short secret IS redacted via :func:`redact_api_keys`. This
-        is the opt-in path for security-critical callers (crash
-        excepthook, env-var audit) where bare short secrets are plausible.
-        """
-        # 12-char bare API key with the OpenAI ``sk-`` prefix, below the
-        # 20-char guard but the ``sk-`` prefix is one of the canonical
-        # API-key patterns in ``_KEY_PATTERNS``.
+        """YJ-48: ``aggressive=True`` bypasses the short-string guard so"""
         bare_short_secret = "sk-abcd1234567"
         assert len(bare_short_secret) < _secrets._MIN_REDACT_LEN
         redacted = redact_secret(bare_short_secret, aggressive=True)
         # The secret portion MUST be replaced (the ``sk-`` pattern is
-        # matched by ``redact_api_keys`` regardless of length when the
-        # guard is bypassed).
         assert bare_short_secret not in redacted, (
             f"YJ-48: aggressive=True must redact short bare secrets; got {redacted!r}"
         )
         assert "***" in redacted
 
     def test_yj48_aggressive_does_not_break_long_secret_redaction(self):
-        """YJ-48: ``aggressive=True`` does NOT break redaction of long
-        secrets (those above ``_MIN_REDACT_LEN``). It only bypasses the
-        short-string early-exit guard.
-        """
+        """YJ-48: ``aggressive=True`` does NOT break redaction of long"""
         long_secret = "sk-abcdefghijklmnopqrstuvwxyz1234567890ABCDEF"
         assert len(long_secret) >= _secrets._MIN_REDACT_LEN
         # Both modes should redact long secrets.
@@ -134,47 +107,22 @@ class TestRedactSecret:
 
 
 class TestRedactApiKeys:
-    """Tests for the ``redact_api_keys`` helper (XV-121 DRY consolidation).
-
-    ``redact_api_keys`` is the canonical API-key redaction helper shared
-    by ``redact_secret`` (log-message redaction, default ``"***"``) and
-    ``credential_store._redact_sensitive`` (IPC-bound keyring-exception
-    redaction, ``"[redacted]"``). These tests pin its contract so a
-    future change to ``_KEY_PATTERNS`` can't silently break either
-    consumer.
-    """
+    """Tests for the ``redact_api_keys`` helper (XV-121 DRY consolidation)."""
 
     def test_default_replacement_is_triple_star(self):
-        """Without an explicit replacement, ``redact_api_keys`` uses ``"***"``.
-
-        This matches the historical behavior of ``redact_secret`` and
-        is what every log-message redaction call site expects.
-        """
+        """Without an explicit replacement, ``redact_api_keys`` uses ``\"***\"``."""
         s = "sk-abcdefghijklmnopqrstuvwxyz1234567890ABCDEF"
         assert redact_api_keys(s) == "***"
 
     def test_custom_replacement_redacts_sk_prefix(self):
-        """The ``replacement`` kwarg controls the substituted marker.
-
-        ``credential_store._redact_sensitive`` uses ``"[redacted]"`` to
-        match the convention used for filesystem paths (``"[path]"``)
-        in IPC-bound messages.
-        """
+        """The ``replacement`` kwarg controls the substituted marker."""
         s = "backend rejected: sk-abcdefghij1234567890XYZ"
         out = redact_api_keys(s, replacement="[redacted]")
         assert "sk-abcdefghij1234567890XYZ" not in out
         assert "[redacted]" in out
 
     def test_bearer_prefix_preserved_with_custom_replacement(self):
-        """``Bearer <token>`` → ``Bearer [redacted]`` (prefix kept).
-
-        The prefix-group capture in the Bearer pattern means the
-        ``Bearer `` label survives redaction, only the secret portion
-        is replaced. This is what ``test_rw6_api_key_redaction_bearer_token``
-        in ``test_pii_redaction.py`` relies on (with the default
-        ``"***"`` replacement); this test pins the same behavior for
-        the custom-replacement path used by ``credential_store``.
-        """
+        """``Bearer <token>`` → ``Bearer [redacted]`` (prefix kept)."""
         s = "Authorization: Bearer sk-abcdefghijklmnopqrstuvwxyz1234567890"
         out = redact_api_keys(s, replacement="[redacted]")
         assert out == "Authorization: Bearer [redacted]"
@@ -186,24 +134,14 @@ class TestRedactApiKeys:
         assert out == "Token [redacted]"
 
     def test_generic_20char_alphanumeric_run_redacted(self):
-        """A bare 20+ char alphanumeric run is redacted (G4-L-06).
-
-        This is the catch-all that catches bare hex/base64 keys without
-        a recognizable prefix (e.g. Groq ``gsk_...`` keys, GitLab PATs,
-        GitHub PATs). ``credential_store._redact_sensitive`` historically
-        required 32+ chars; the canonical helper uses 20+ (G4-L-06),
-        so a 20-31 char bare token is now also redacted.
-        """
+        """A bare 20+ char alphanumeric run is redacted (G4-L-06)."""
         # 20-char bare token (no prefix, no sk-/Bearer/Token).
         token = "0123456789abcdefghij"
         assert len(token) == 20
         assert redact_api_keys(token, replacement="[redacted]") == "[redacted]"
 
     def test_labeled_sha256_hash_survives(self):
-        """``sha256=<64 hex>`` (model-integrity audit log) is NOT a
-        secret: the log tells operators to copy these hashes into
-        ``model_hashes.json``, redacting them defeats the line. The
-        exemption needs the exact label + exactly 64 hex chars."""
+        """secret: the log tells operators to copy these hashes into"""
         h = "a" * 64
         s = f"config.json: sha256={h}"
         assert redact_api_keys(s) == s
@@ -212,87 +150,48 @@ class TestRedactApiKeys:
         assert redact_secret(s) == s
 
     def test_bare_64hex_still_redacted(self):
-        """Same 64 hex chars WITHOUT the label still redact (fail
-        closed, the label is the trust signal)."""
+        """Same 64 hex chars WITHOUT the label still redact (fail"""
         h = "b" * 64
         assert redact_api_keys(f"token {h}") == "token ***"
         assert "***" in redact_api_keys(h)
 
     def test_sha256_wrong_length_still_redacted(self):
-        """63- or 65-hex after ``sha256=`` is not a valid digest: a
-        partial match must not leak (65-hex would otherwise expose
-        its first 64 chars)."""
+        """partial match must not leak (65-hex would otherwise expose"""
         assert "***" in redact_api_keys(f"sha256={'c' * 63}x")
         out = redact_api_keys(f"sha256={'d' * 65}")
         assert "d" * 20 not in out
 
     def test_no_match_returns_input_unchanged(self):
-        """When no pattern matches, the input is returned verbatim.
-
-        This is the pass-through behavior that lets
-        ``credential_store._redact_sensitive`` use ``redact_api_keys``
-        on clean diagnostic strings (e.g. ``"no usable keyring backend
-        (fail backend selected)"``) without mangling them.
-        """
+        """When no pattern matches, the input is returned verbatim."""
         s = "no usable keyring backend (fail backend selected)"
         assert redact_api_keys(s) == s
         assert redact_api_keys(s, replacement="[redacted]") == s
 
     def test_does_not_apply_flag_patterns(self):
-        """``redact_api_keys`` must NOT apply the SEC-9 flag patterns.
-
-        ``--token=shortvalue`` (18 chars, no 20+ char alphanum run,
-        no ``sk-``/``Bearer``/``Token`` prefix) is left unchanged by
-        ``redact_api_keys``. The full ``redact_secret`` would redact
-        it via the SEC-9 flag pattern (producing ``--token=***``),
-        but ``redact_api_keys`` is the lower-level API-key-only
-        helper. This is the contract ``credential_store._redact_sensitive``
-        relies on: it never had the flag patterns, and adding them
-        would be a behavior change.
-        """
+        """``redact_api_keys`` must NOT apply the SEC-9 flag patterns."""
         s = "--token=shortvalue"
         # 'shortvalue' is 10 chars, well under the 20-char generic
-        # threshold. No sk-/Bearer/Token prefix. So unchanged.
         assert redact_api_keys(s) == s
         assert redact_api_keys(s, replacement="[redacted]") == s
 
     def test_redact_secret_delegates_to_redact_api_keys(self):
-        """XV-121: ``redact_secret`` delegates the API-key portion to
+        """
         ``redact_api_keys``.
-
         For a string with no SEC-9 flag forms (so the flag-pattern pass
-        is a no-op) and length >= 20 (so the short-string early-exit
-        doesn't fire), ``redact_secret(s)`` must equal
-        ``redact_api_keys(s)``. This locks in the DRY refactor: if
-        someone re-inlines the API-key patterns in ``redact_secret``,
-        this test catches the regression.
         """
         s = "Authorization: Bearer sk-abcdefghijklmnopqrstuvwxyz1234567890"
         assert redact_secret(s) == redact_api_keys(s)
 
 
 class TestPublicEnvVarNamesNotRedacted:
-    """T-1-PYTEST-ENV-REDACT-V2: env-var NAMES are public (documented
-    in docs / ADRs / source code) and must NOT be redacted. Only their
-    VALUES should be redacted. Redacting the name destroys operability
-    (operators can't tell which env var is misconfigured from a log
-    line like ``[ENV] Invalid value for ***=<redacted>``).
-
-    The generic 20+ char alphanumeric pattern in ``_KEY_PATTERNS`` was
-    matching env-var names like ``VOICE_TYPER_CONFIG_DIR`` (21 chars,
-    all caps + underscores) and replacing them with ``***``. The fix
-    adds a whitelist (``_PUBLIC_ENV_VAR_NAMES``) that skips redaction
-    for known names. Real API keys are still redacted.
-    """
+    """T-1-PYTEST-ENV-REDACT-V2: env-var NAMES are public (documented"""
 
     @pytest.mark.parametrize(
         "name",
         sorted(_secrets._PUBLIC_ENV_VAR_NAMES),
     )
     def test_whitelisted_env_var_name_survives_redact_secret(self, name):
-        """Every name in ``_PUBLIC_ENV_VAR_NAMES`` must survive
-        ``redact_secret`` unchanged, both bare and in a typical
-        ``[ENV] Invalid value for <NAME>=<redacted>`` log line."""
+        """Every name in ``_PUBLIC_ENV_VAR_NAMES`` must survive"""
         # Bare name.
         assert redact_secret(name) == name, (
             f"env var name {name!r} was redacted by redact_secret; got {redact_secret(name)!r}"
@@ -303,20 +202,13 @@ class TestPublicEnvVarNamesNotRedacted:
         assert name in out, f"env var name {name!r} was redacted inside a log line; got {out!r}"
 
     def test_whitelisted_env_var_name_survives_redact_api_keys(self):
-        """``redact_api_keys`` (the lower-level helper) also preserves
-        env-var names, the whitelist lives in the shared code path."""
+        """``redact_api_keys`` (the lower-level helper) also preserves"""
         for name in _secrets._PUBLIC_ENV_VAR_NAMES:
             assert redact_api_keys(name) == name
             assert redact_api_keys(name, replacement="[redacted]") == name
 
     def test_unlisted_env_var_shaped_token_is_redacted(self):
-        """SEC-003 REGRESSION GUARD: the defense-in-depth
-        ``_ENV_VAR_NAME_RE`` heuristic was REMOVED because it also
-        exempted real all-caps base64-style secret VALUES (e.g.
-        ``SECRET_TOKEN_LIKE_THING_0123456789``), silently downgrading
-        redaction. Only names in the explicit ``_PUBLIC_ENV_VAR_NAMES``
-        whitelist survive; any other 20+ char uppercase-with-underscore
-        token must be redacted."""
+        """SEC-003 REGRESSION GUARD: the defense-in-depth"""
         # 24-char all-caps-with-underscore token, NOT in the whitelist.
         unlisted = "UNLISTED_TOKEN_LIKE_THING_0123456789"
         assert redact_secret(unlisted) == "***"
@@ -330,10 +222,7 @@ class TestPublicEnvVarNamesNotRedacted:
         assert redact_secret(unlisted) == "***"
 
     def test_real_api_key_still_redacted(self):
-        """REGRESSION GUARD: real API keys (sk-…, Bearer …, Token …,
-        bare 20+ char alphanumerics) MUST still be redacted. The fix
-        narrows the generic pattern's scope; it does NOT disable
-        redaction."""
+        """REGRESSION GUARD: real API keys (sk-…, Bearer …, Token …,"""
         # OpenAI-style sk- key (mixed case + digits, has hyphen).
         assert redact_secret("sk-abc123def456ghi789jkl") == "***"
         # Bare 20+ char lowercase hex token.
@@ -341,7 +230,6 @@ class TestPublicEnvVarNamesNotRedacted:
         assert len(bare_hex) == 20
         assert redact_secret(bare_hex) == "***"
         # Bare 20+ char all-caps token WITHOUT underscore (not env-var-
-        # like), must still be redacted.
         bare_caps = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"  # 26 chars, no underscore
         assert len(bare_caps) == 26
         assert redact_secret(bare_caps) == "***"
@@ -351,11 +239,7 @@ class TestPublicEnvVarNamesNotRedacted:
         assert "Bearer" in out
 
     def test_env_validation_log_lines_preserve_names(self):
-        """End-to-end: the exact log lines emitted by
-        ``env_validation._validate_env_vars`` survive ``redact_secret``
-        with the env-var name intact. This is the regression that
-        broke the env_validation pytest suite when the PIIRedactionFilter
-        was attached during the full test run."""
+        """``env_validation._validate_env_vars`` survive ``redact_secret``"""
         cases = [
             (
                 "[ENV] Invalid value for VOICE_TYPER_CONFIG_DIR=<redacted> -- expected valid path. Resetting to empty.",
@@ -385,18 +269,10 @@ class TestPublicEnvVarNamesNotRedacted:
 
 
 class TestPublicConfigFieldNamesNotRedacted:
-    """Config field NAMES are public schema vocabulary (documented in
-    the schema, IPC allowlist, and Settings UI) and must NOT be
-    redacted. Only secret VALUES are redacted. Redacting the name
-    destroys operability (``voice_biometric_consent is False``
-    rendered as ``*** is False``). Mirrors the env-var-name
-    whitelist contract above; the set is derived live from the
-    schema so new long field names are covered without edits."""
+    """the schema, IPC allowlist, and Settings UI) and must NOT be"""
 
     def test_long_schema_fields_survive_redact_secret(self):
-        """Every schema field long enough to trip the catch-all
-        survives ``redact_secret`` (bare and inside the real log
-        line that reported this bug)."""
+        """Every schema field long enough to trip the catch-all"""
         from voice_typer.server.config import Config
 
         long_fields = sorted(name for name in Config.__dataclass_fields__ if len(name) >= 20)
@@ -410,29 +286,21 @@ class TestPublicConfigFieldNamesNotRedacted:
         assert redact_secret(line) == line
 
     def test_unlisted_snake_token_still_redacted(self):
-        """Fail-closed direction: a long snake_case token that is NOT
-        a schema field must still redact (the exemption is the live
-        schema set, not the snake_case shape)."""
+        """Fail-closed direction: a long snake_case token that is NOT"""
         token = "not_a_real_config_field_xyz"
         assert len(token) >= 20
         assert redact_secret(token) == "***"
         assert redact_api_keys(token) == "***"
 
     def test_secret_valued_field_still_redacts_value(self):
-        """Exempting the NAME never exempts the VALUE: ``*_api_key``
-        values still redact via the catch-all."""
+        """Exempting the NAME never exempts the VALUE: ``*_api_key``"""
         out = redact_secret("openai_api_key=" + "a" * 40)
         assert "openai_api_key=" in out
         assert "a" * 20 not in out
 
 
 class TestPublicIpcCommandNamesNotRedacted:
-    """IPC command NAMES are public protocol vocabulary
-    (parity-tested server registry / TS allowlist / docs) and must
-    NOT be redacted. Only payload VALUES redact. Redacting the name
-    destroys operability (``[IPC] pause_model_download called``
-    rendered as ``[IPC] *** called``). Derived live from the
-    registry so new long commands are covered without edits."""
+    """IPC command NAMES are public protocol vocabulary"""
 
     def test_long_command_names_survive_redact_secret(self):
         from voice_typer.server.ipc.registry import _COMMAND_REGISTRY
@@ -446,18 +314,14 @@ class TestPublicIpcCommandNamesNotRedacted:
         assert redact_secret(line) == line
 
     def test_command_like_noncommand_still_redacted(self):
-        """Fail-closed: a long token that is NOT a registered command
-        still redacts."""
+        """Fail-closed: a long token that is NOT a registered command"""
         token = "delete_model_extraTurbo"
         assert len(token) >= 20
         assert redact_secret(token) == "***"
 
 
 class TestThreadLabelShield:
-    """``thread=<name>`` lifecycle tracing (hotkey/dispatch threads)
-    carries code-defined thread names, never secrets. The labeled
-    shield preserves them; hash-shaped or overlong values still
-    redact (fail closed)."""
+    """``thread=<name>`` lifecycle tracing (hotkey/dispatch threads)"""
 
     def test_thread_name_survives(self):
         line = (
@@ -467,8 +331,7 @@ class TestThreadLabelShield:
         assert redact_secret(line) == line
 
     def test_dash_case_registry_names_survive_labeled(self):
-        """Long dash-case registry names (the shutdown_all line shape)
-        survive behind the ``thread=`` label; bare they would redact."""
+        """Long dash-case registry names (the shutdown_all line shape)"""
         names = (
             "startup-desktop-shortcut",
             "level-monitor-mic-level-worker",
@@ -483,8 +346,7 @@ class TestThreadLabelShield:
         assert redact_secret(line) == line
 
     def test_long_registry_name_bare_still_redacted(self):
-        """Fail-closed: the exemption is label-anchored, a bare long
-        thread-like token still redacts."""
+        """Fail-closed: the exemption is label-anchored, a bare long"""
         assert redact_secret("startup-desktop-shortcut") == "***"
 
     def test_thread_hash_shaped_value_still_redacted(self):
@@ -517,53 +379,34 @@ class TestRedactUrl:
         bad = "not a url at all"
         assert redact_url(bad) == bad
 
-    # query-string API keys must be redacted ──────────
-
     def test_ue5_f5_redacts_query_string_api_key(self):
-        """UE-5-F5: a ``?key=sk-…`` query-string secret is masked.
-
-        Pre-fix, ``redact_url`` only stripped the userinfo component
-        (``user:pass@host``), secrets in the query string survived
-        verbatim. Any caller logging the URL (e.g.
-        :class:`_http_safety._NoRedirectHandler` puts the redirect
-        target into ``HTTPError.url``) would leak the query-string
-        secret.
-        """
+        """UE-5-F5: a ``?key=sk-…`` query-string secret is masked."""
         url = "https://api.example.com/v1/chat?key=sk-abcdefghijklmnopqrstuvwxyz1234567890"
         out = redact_url(url)
         # The secret MUST NOT appear in the redacted URL.
         assert "sk-abcdefghijklmnopqrstuvwxyz1234567890" not in out
         # The ``key=`` prefix is preserved (so support can see a key
-        # WAS supplied); only the value is masked.
         assert "key=" in out
         # The host + path are preserved.
         assert "api.example.com" in out
         assert "/v1/chat" in out
 
     def test_ue5_f5_redacts_query_string_access_token(self):
-        """UE-5-F5: ``?access_token=…`` is also masked (the SEC-9
-        ``_BARE_KEY_VALUE_PATTERN`` keyword list includes
-        ``access_token``)."""
+        """UE-5-F5: ``?access_token=…`` is also masked (the SEC-9"""
         url = "https://api.example.com/v1/listen?access_token=abcdefghij1234567890XYZ"
         out = redact_url(url)
         assert "abcdefghij1234567890XYZ" not in out
         assert "access_token=" in out
 
     def test_ue5_f5_redacts_bare_bearer_in_url(self):
-        """UE-5-F5: a ``Bearer …`` substring in the URL is masked
-        (via the ``_KEY_PATTERNS`` Bearer pattern, not the query-
-        string flag pattern)."""
+        """UE-5-F5: a ``Bearer …`` substring in the URL is masked"""
         url = "https://api.example.com/auth?header=Bearer%20sk-abcdefghijklmnopqrstuvwxyz1234567890"
         out = redact_url(url)
         # The sk-… secret portion must not appear (whether percent-
-        # encoded or not, the ``sk-`` pattern matches the bare form).
         assert "sk-abcdefghijklmnopqrstuvwxyz1234567890" not in out
 
     def test_ue5_f5_userinfo_plus_query_string_secret_both_redacted(self):
-        """UE-5-F5: both the userinfo AND a query-string secret are
-        masked in a single call (defense in depth, the userinfo
-        strip runs first, then the ``redact_secret`` chained pass
-        catches the query-string form)."""
+        """UE-5-F5: both the userinfo AND a query-string secret are"""
         url = "https://user:pass@api.example.com/v1?key=sk-abcdefghijklmnopqrstuvwxyz1234567890"
         out = redact_url(url)
         # Userinfo gone.
@@ -574,8 +417,7 @@ class TestRedactUrl:
         assert "api.example.com" in out
 
     def test_ue5_f5_redact_url_does_not_mangle_benign_query_strings(self):
-        """UE-5-F5: a benign query string with no secret keywords
-        passes through unchanged (false-positive guard)."""
+        """UE-5-F5: a benign query string with no secret keywords"""
         url = "https://api.example.com/v1/listen?model=whisper&language=en"
         out = redact_url(url)
         assert out == url, f"benign query string was mangled: {out!r}"
@@ -585,26 +427,14 @@ class TestRedactUrl:
 
 
 class TestRedactHomePath:
-    """UE-5-F2: ``_redact_home_path`` replaces the user-home prefix
-    with ``~`` so filesystem paths embedded in the diagnostic bundle
-    (``sentinel_path``, ``pid_file_path``, ``bundle_path``) don't leak
-    the OS username via the home-directory prefix.
-    """
+    """UE-5-F2: ``_redact_home_path`` replaces the user-home prefix"""
 
     def _expect_home_prefix(self, *parts: str) -> str:
-        """Build the platform-correct expected output for a home-
-        redacted path.
-
-        ``_redact_home_path`` normalizes via ``os.path.normpath``, so
-        the emitted separator is ``os.sep`` (``/`` on POSIX, ``\\`` on
-        Windows). Expected values must be built with ``os.sep`` rather
-        than hard-coded forward slashes to stay green on both.
-        """
+        """Build the platform-correct expected output for a home-"""
         return "~" + os.sep + os.sep.join(parts)
 
     def test_replaces_posix_home_prefix(self, monkeypatch):
-        """A POSIX home path ``/home/alice/.voice-typer/...`` becomes
-        ``~/.voice-typer/...``."""
+        """A POSIX home path ``/home/alice/.voice-typer/...`` becomes"""
         monkeypatch.setattr("os.path.expanduser", lambda p: "/home/alice" if p == "~" else p)
         out = _redact_home_path("/home/alice/.voice-typer/.prewarm-sentinel")
         assert out == self._expect_home_prefix(".voice-typer", ".prewarm-sentinel"), out
@@ -616,22 +446,16 @@ class TestRedactHomePath:
         assert out == self._expect_home_prefix(".voice-typer", "diagnostics.zip"), out
 
     def test_replaces_windows_home_prefix(self, monkeypatch):
-        """A Windows home path ``C:\\Users\\alice\\...`` becomes
-        ``~\\...`` (case-insensitive comparison)."""
+        """A Windows home path ``C:\\Users\\alice\\...`` becomes"""
         monkeypatch.setattr("os.path.expanduser", lambda p: "C:\\Users\\alice" if p == "~" else p)
         monkeypatch.setattr("os.name", "nt", raising=False)
         # ``os.path.normpath`` on POSIX collapses backslashes inside
-        # the path string differently than on Windows; the helper
-        # uses ``os.sep`` semantics. We test with the platform-
-        # appropriate normalisation by mocking both ``expanduser``
-        # and ``os.name``.
         out = _redact_home_path("C:\\Users\\alice\\.voice-typer\\diagnostics.zip")
         assert out.startswith("~"), out
         assert "alice" not in out, f"username leaked: {out!r}"
 
     def test_path_outside_home_unchanged(self, monkeypatch):
-        """A path that does NOT start with the home prefix is
-        returned unchanged (no spurious ``~`` insertion)."""
+        """A path that does NOT start with the home prefix is"""
         monkeypatch.setattr("os.path.expanduser", lambda p: "/home/alice" if p == "~" else p)
         out = _redact_home_path("/etc/passwd")
         assert out == "/etc/passwd"
@@ -643,8 +467,7 @@ class TestRedactHomePath:
         assert out == "relative/path/to/file"
 
     def test_pathlike_input_accepted(self, monkeypatch):
-        """``PathLike`` inputs (e.g. ``pathlib.Path``) are stringified
-        and the home prefix is still redacted."""
+        """``PathLike`` inputs (e.g. ``pathlib.Path``) are stringified"""
         from pathlib import Path
 
         monkeypatch.setattr("os.path.expanduser", lambda p: "/home/alice" if p == "~" else p)
@@ -652,37 +475,20 @@ class TestRedactHomePath:
         assert out == self._expect_home_prefix(".voice-typer", ".prewarm-sentinel"), out
 
     def test_empty_home_returns_path_unchanged(self, monkeypatch):
-        """If ``os.path.expanduser('~')`` returns ``'~'`` (cannot
-        determine home), the path is returned unchanged (no infinite
-        recursion, no spurious ``~`` insertion)."""
+        """If ``os.path.expanduser('~')`` returns ``'~'`` (cannot"""
         monkeypatch.setattr("os.path.expanduser", lambda p: "~")
         out = _redact_home_path("/home/alice/.voice-typer")
         assert out == "/home/alice/.voice-typer"
 
     def test_trailing_slash_in_home_handled(self, monkeypatch):
-        """If the home dir has a trailing slash (some platforms add
-        one), the prefix comparison still works (via ``normpath``
-        normalization)."""
-        # expanduser normally returns without trailing slash; simulate
-        # the edge case where it does (or where the test path has a
-        # double slash).
+        """If the home dir has a trailing slash (some platforms add"""
         monkeypatch.setattr("os.path.expanduser", lambda p: "/home/alice/" if p == "~" else p)
         out = _redact_home_path("/home/alice/.voice-typer/.prewarm-sentinel")
         assert out == self._expect_home_prefix(".voice-typer", ".prewarm-sentinel"), out
 
 
-# redact_for_export unified pipeline ───────
-
-
 class TestRedactForExport:
-    """UE-5-F4: ``redact_for_export`` is the unified PII + secret
-    redaction pipeline for diagnostic exports. Live caller today:
-    ``ipc_diagnostics`` (startup-error traceback + startup
-    diagnostics file); the former server-side bundle pipeline was
-    also a caller before its removal. UE-5-F7: it passes
-    ``aggressive=True`` to :func:`redact_secret` so short bare
-    secrets are caught.
-    """
+    """UE-5-F4: ``redact_for_export`` is the unified PII + secret"""
 
     def test_redacts_bearer_token(self):
         """A Bearer token is masked, prefix preserved."""
@@ -704,63 +510,35 @@ class TestRedactForExport:
         assert "[PHONE]" in out
 
     def test_redacts_url_userinfo(self):
-        """URL-embedded ``user:pass@`` credentials are stripped.
-
-        Note: the ``pass@api.example.com`` substring looks like an
-        email to the PII pattern matcher, so ``redact_pii`` may
-        redact it as ``[EMAIL]`` rather than just stripping the
-        userinfo, either way, the credential is masked.
-        """
+        """URL-embedded ``user:pass@`` credentials are stripped."""
         out = redact_for_export("fetching https://aliceuser:secretpass@api.example.com/v1")
         # The credential MUST NOT appear in the redacted output.
         assert "secretpass" not in out
         assert "aliceuser:secretpass" not in out
         # The output should mention either the host (if userinfo strip
-        # ran first) or an ``[EMAIL]`` token (if the PII matcher fired
-        # first). Both are acceptable, the credential is masked
-        # either way.
         assert "api.example.com" in out or "[EMAIL]" in out, out
 
     def test_redacts_url_query_string_api_key(self):
-        """UE-5-F5 integration: a ``?key=sk-…`` query-string secret
-        in the URL is masked (because ``redact_for_export`` calls
-        ``redact_pii`` which calls ``redact_url`` which now chains
-        through ``redact_secret``)."""
+        """UE-5-F5 integration: a ``?key=sk-…`` query-string secret"""
         out = redact_for_export("GET https://api.example.com/?key=sk-abcdefghijklmnopqrstuvwxyz1234567890")
         assert "sk-abcdefghijklmnopqrstuvwxyz1234567890" not in out
         assert "api.example.com" in out
 
     def test_ue5_f7_aggressive_redacts_short_bare_secret(self):
-        """UE-5-F7: a BARE short secret (no ``Bearer``/``--token=``
-        prefix, under 20 chars) IS redacted by ``redact_for_export``
-        because the unified pipeline passes ``aggressive=True``.
-
-        Without ``aggressive=True``, the short-string guard from
-        :func:`redact_secret` would skip the generic 20+ char
-        alphanumeric pattern application on short inputs. The bare
-        ``sk-or-...`` prefix is matched by ``_KEY_PATTERNS[2]``
-        regardless of length, but a hypothetical 12-char bare token
-        with no prefix would be missed without aggressive.
-        """
-        # ``sk-`` prefix is matched by _KEY_PATTERNS regardless of
-        # length when aggressive=True; without aggressive, the
-        # short-string guard (< 20 chars) returns it unchanged.
+        """UE-5-F7: a BARE short secret (no ``Bearer``/``--token=``"""
         short_bare_secret = "sk-abcd1234567"  # 14 chars
         assert len(short_bare_secret) < _secrets._MIN_REDACT_LEN
         out = redact_for_export(f"key={short_bare_secret}")
         assert short_bare_secret not in out, f"UE-5-F7: aggressive=True must redact short bare secrets; got {out!r}"
 
     def test_idempotent_on_already_redacted_text(self):
-        """Running ``redact_for_export`` on already-redacted text
-        returns it unchanged (the ``***`` mask doesn't match the
-        secret patterns)."""
+        """Running ``redact_for_export`` on already-redacted text"""
         once = redact_for_export("Authorization: Bearer sk-abcdefghijklmnopqrstuvwxyz1234567890")
         twice = redact_for_export(once)
         assert once == twice
 
     def test_preserves_ordinary_long_text(self):
-        """A long non-secret-bearing log line passes through
-        unchanged (false-positive guard)."""
+        """A long non-secret-bearing log line passes through"""
         line = "This is a perfectly normal log line about a network timeout error."
         out = redact_for_export(line)
         assert out == line
@@ -830,8 +608,7 @@ class TestAssertUrlAllowed:
             assert_url_allowed("https:///path-only")
 
     def test_error_message_excludes_url(self):
-        """Error message should NOT include the URL itself (avoids
-        leaking a potentially-malicious URL into logs)."""
+        """Error message should NOT include the URL itself (avoids"""
         url = "https://evil.example.com/steal?token=secret"
         with pytest.raises(ValueError) as exc_info:
             assert_url_allowed(url)

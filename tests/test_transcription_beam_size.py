@@ -1,16 +1,4 @@
-"""Whisper beam-width configuration: automatic device/model-aware default.
-
-Covers the ``whisper_beam_size`` config surface end-to-end:
-
-- the engine resolves a wide accuracy-biased beam automatically on CUDA
-  for non-tiny models while keeping the snappy greedy default on tiny
-  models and every CPU path (including GPU→CPU fallbacks);
-- an explicitly configured width (legacy ``beam_size`` kwarg or the
-  preferred ``whisper_beam_size`` field) always wins and is never
-  downgraded by the automatic resolution;
-- the SEC-002 IPC allowlist accepts the field so the renderer can write
-  it, with the same range rules as the legacy field.
-"""
+"""Whisper beam-width configuration: automatic device/model-aware default."""
 
 import pytest
 from voice_typer.server.transcription import (
@@ -23,7 +11,6 @@ from voice_typer.server.transcription import (
 def _engine_with_device(model_size: str, device: str, **kwargs) -> TranscriptionEngine:
     engine = TranscriptionEngine(model_size=model_size, device=device, **kwargs)
     # Bypass the real (expensive) CUDA probe, tests pin the beam-width
-    # policy against an already-resolved device, not the probe itself.
     engine._requested_device = None
     engine._device = "cuda" if device == "cuda" else "cpu"
     return engine
@@ -105,8 +92,7 @@ class TestWhisperBeamSizeAllowlist:
         assert any("whisper_beam_size" in e for e in errors)
 
     def test_default_one_means_automatic(self):
-        """``1`` is the sentinel for the automatic default, so it must
-        validate cleanly (the engine resolves it per device/model)."""
+        """``1`` is the sentinel for the automatic default, so it must"""
         from voice_typer.server.config import validate_config_update
 
         validated, errors = validate_config_update({"whisper_beam_size": 1})

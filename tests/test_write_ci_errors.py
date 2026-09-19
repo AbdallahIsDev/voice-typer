@@ -1,10 +1,4 @@
-"""Tests for scripts/ci/write_ci_errors.py (the CI-errors.md generator).
-
-Covers the three silent-miss regressions: illegal XML characters must
-not nuke a whole file's parse, truncated files must degrade to
-partial extraction (never a lone "unparseable" pseudo-entry), and
-every leg's file must be parsed independently.
-"""
+"""Tests for scripts/ci/write_ci_errors.py (the CI-errors.md generator)."""
 
 from __future__ import annotations
 

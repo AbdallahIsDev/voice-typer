@@ -1,44 +1,4 @@
-"""XZ-R3-09: regression tests for :func:`voice_typer.server.env_validation._validate_sidecar_env`.
-
-Background
-----------
-``_validate_sidecar_env`` is called at the end of
-:func:`voice_typer.server.env_validation._validate_env_vars` and enforces
-the sidecar env-var contract set by the Rust host in
-``src-tauri/src/sidecar/spawn.rs``:
-
-    TAURI_SIDECAR            = "1"
-    VOICE_TYPER_IPC_TOKEN    = <non-empty alphanumeric token>
-    VOICE_TYPER_NATIVE_DIR   = <non-empty path under home>
-    VOICE_TYPER_PREWARM_EXE  = <non-empty path under home>
-
-XZ-R3-09: previously the function only *logged* warnings for unset /
-empty values, it did not pop, reset, or reject unsafe values. A
-same-user attacker (or a buggy Rust host) could plant e.g.
-``VOICE_TYPER_NATIVE_DIR=/etc`` and downstream consumers
-(``native_hotkeys.binary_path`` / ``prewarm_resolver``) would happily
-read from the attacker-chosen path.
-
-The fix:
-
-  * Pops empty values for ``<non-empty>`` / ``<non-empty path>`` contracts.
-  * Runs ``VOICE_TYPER_NATIVE_DIR`` and ``VOICE_TYPER_PREWARM_EXE`` through
-    ``_validate_path_safety(Path(val), Path.home())`` (mirroring the
-    ``HF_HOME`` / ``VOICE_TYPER_CONFIG_DIR`` pattern) and pops on failure.
-  * Validates ``VOICE_TYPER_IPC_TOKEN`` against the same alphanumeric
-    token pattern used at the top of ``_validate_env_vars`` and pops on
-    failure.
-
-Tests
------
-* No-op when ``TAURI_SIDECAR != "1"`` (standalone mode).
-* Empty token / path values are popped (previously only logged).
-* Unsafe path values (NUL byte, overlength, out-of-home traversal)
-  are popped via ``_validate_path_safety``.
-* Non-alphanumeric token values are popped.
-* Valid values are preserved end-to-end.
-* All log records pre-redact the value per GT-63.
-"""
+"""XZ-R3-09: regression tests for :func:`voice_typer.server.env_validation._validate_sidecar_env`."""
 
 from __future__ import annotations
 
@@ -57,7 +17,6 @@ _SIDECAR_VARS = (
     "VOICE_TYPER_PREWARM_EXE",
 )
 # Vars from the rest of _validate_env_vars, also cleaned so they don't
-# leak between tests / pollute the sidecar validation under test.
 _OTHER_VALIDATED_VARS = (
     "VOICE_TYPER_QUIET",
     "VOICE_TYPER_DEBUG",
@@ -85,12 +44,7 @@ def _set_valid_sidecar_env(
     native_dir: str | None = None,
     ipc_token: str = "tok_123ABC",
 ) -> None:
-    """Set every sidecar env var to a valid value under ``Path.home()``.
-
-    VOICE_TYPER_PREWARM_EXE is intentionally NOT set, the prewarm
-    binary was retired (plan-runtime-pack-split §6.2) and the var was
-    removed from ``_EXPECTED_SIDECAR_ENV`` (2026-08-30).
-    """
+    """Set every sidecar env var to a valid value under ``Path.home()``."""
     monkeypatch.setenv("TAURI_SIDECAR", "1")
     monkeypatch.setenv("VOICE_TYPER_IPC_TOKEN", ipc_token)
     if native_dir is None:
@@ -99,25 +53,18 @@ def _set_valid_sidecar_env(
 
 
 class TestNoOpWhenNotSidecar:
-    """When ``TAURI_SIDECAR != "1"``, sidecar validation is skipped entirely."""
+    """When ``TAURI_SIDECAR != \"1\"``, sidecar validation is skipped entirely."""
 
     def test_no_sidecar_flag_is_noop(self, monkeypatch):
         # TAURI_SIDECAR not set, must not log warnings or pop anything.
         _validate_env_vars()
         # Nothing was set in the first place, so nothing to assert —
-        # the test just verifies no exception is raised.
 
     def test_sidecar_flag_wrong_value_is_noop(self, monkeypatch):
         monkeypatch.setenv("TAURI_SIDECAR", "0")
         monkeypatch.setenv("VOICE_TYPER_IPC_TOKEN", "")  # would fail validation
         _validate_env_vars()
         # TAURI_SIDECAR != "1" → skip. Empty token must NOT be popped
-        # by the sidecar validator (it might be popped by the top-level
-        # token validator, that's tested elsewhere). The point of this
-        # test is that the sidecar-contract block does not run.
-        # (Note: the top-level VOICE_TYPER_IPC_TOKEN check at lines
-        # 145-153 WILL pop the empty token; that's expected behavior
-        # of the top-level check, not the sidecar block.)
 
 
 class TestEmptyValuesPopped:
@@ -132,10 +79,6 @@ class TestEmptyValuesPopped:
         _set_valid_sidecar_env(monkeypatch, native_dir="")
         _validate_env_vars()
         assert "VOICE_TYPER_NATIVE_DIR" not in os.environ
-
-    # NOTE: the VOICE_TYPER_PREWARM_EXE empty-value test was removed with
-    # the prewarm retirement (plan-runtime-pack-split §6.2), the var is
-    # no longer part of the sidecar env contract.
 
 
 class TestPathSafetyValidation:
@@ -155,23 +98,16 @@ class TestPathSafetyValidation:
 
     def test_path_outside_home_popped(self, monkeypatch):
         # /tmp is typically NOT under Path.home(), _validate_path_safety
-        # rejects it. Use a definitely-out-of-home path.
         bad = "/tmp/voice-typer-native"
         # Skip this test if /tmp happens to be under home (extremely
-        # unlikely but theoretically possible on weird sandboxes).
         if Path(bad).resolve() == Path(Path.home(), "tmp", "voice-typer-native").resolve():
             pytest.skip("/tmp is under home on this host")
         _set_valid_sidecar_env(monkeypatch, native_dir=bad)
         _validate_env_vars()
         assert "VOICE_TYPER_NATIVE_DIR" not in os.environ
 
-    # NOTE: the VOICE_TYPER_PREWARM_EXE path-safety test was removed with
-    # the prewarm retirement (plan-runtime-pack-split §6.2), the var is
-    # no longer part of the sidecar env contract.
-
     def test_path_traversal_with_dots_popped(self, monkeypatch):
         # ``..`` traversal that escapes home, rejected by
-        # _validate_path_safety.
         bad = str(Path.home() / ".." / ".." / "etc")
         _set_valid_sidecar_env(monkeypatch, native_dir=bad)
         _validate_env_vars()
@@ -212,7 +148,7 @@ class TestTokenPatternValidation:
 
 
 class TestGt63Redaction:
-    """GT-63: all SIDECAR-ENV log records must pre-redact the value."""
+    """all SIDECAR-ENV log records must pre-redact the value."""
 
     def test_unsafe_path_value_not_logged(self, monkeypatch, caplog):
         secret_path = "/tmp/some/secret/path/with/username"

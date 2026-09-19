@@ -1,47 +1,4 @@
-"""regression tests for findings #53, #108, #245.
-
-Scope
------
-
-This file pins three fixes performed by sub-agent SA-5 in the
-Fix-Existing mode session:
-
-- **Finding #53 (High)**, per-sample Python for-loops in 4
-  dynamics audio filters. The fix vectorized the equalizer, compressor,
-  limiter, and noise_gate via ``scipy.signal.lfilter`` /
-  ``np.maximum.accumulate``. These tests verify the vectorized path is
-  still in use by counting ``lfilter`` / ``maximum.accumulate``
-  invocations and asserting no per-sample ``abs()``/``log10()``/
-  ``power()`` calls happen inside the filter ``process()`` bodies.
-
-- **Finding #108 (Critical)**: ``noise_suppressor.py``
-  ``deepfilternet`` path was a silent passthrough: users selecting the
-  ``noisy_room`` preset got ZERO neural noise suppression with no UI
-  signal. The init-time contract (mark ``is_degraded=True`` AND fall
-  back to ``rnnoise`` at ``__init__``, not at ``process()``) now
-  guards the live GTCRN backend that replaced the retired
-  DeepFilterNet option: when the bundled ONNX model / onnxruntime is
-  unavailable the suppressor still degrades to RNNoise so the UI can
-  warn the user before the first audio chunk. These tests stub the
-  ``GtcrnBackend`` class and the ``pyrnnoise`` import to exercise the
-  success / failure combinations and assert the degraded flag, the
-  degraded reason, and the effective ``_method`` after construction.
-
-- **Finding #245 (H-22, High)**: ``audio_processor.py`` resample
-  fallback silently filtered at the wrong rate when ``scipy`` was
-  missing or ``resample_poly`` raised. The fix latches a
-  ``_resample_degraded`` flag and surfaces it via ``is_degraded`` /
-  ``degraded_reasons`` so the UI can warn the user. These tests force
-  the resample path to fail (by monkeypatching ``_get_resample_poly``
-  to raise) and assert the degraded flag is set, the reason mentions
-  both sample rates, and the flag is cleared by ``reset()`` /
-  ``set_sample_rate()`` (the corrective actions).
-
-All tests use mocked numpy arrays (no real audio devices, no real
-audio files). The ``df`` / ``pyrnnoise`` stubs are pure Python objects
-injected via ``sys.modules`` so the test environment doesn't need the
-real native libraries installed.
-"""
+"""regression tests for findings #53, #108, #245."""
 
 from __future__ import annotations
 
@@ -51,20 +8,9 @@ import types
 import numpy as np
 import pytest
 
-# ═══════════════════════════════════════════════════════════════════════════
-# Shared stubs / fixtures
-# ═══════════════════════════════════════════════════════════════════════════
-
 
 def _install_fake_gtcrn(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Swap ``GtcrnBackend`` for a lightweight fake (happy path).
-
-    The fake records nothing and returns each hop halved, enough for
-    the init-matrix tests to assert the suppressor kept the LIVE
-    method (``_method == "gtcrn"``, ``is_degraded == False``) without
-    loading the real ONNX model. The real-model end-to-end behavior is
-    covered by ``tests/test_noise_suppressor_gtcrn.py``.
-    """
+    """Swap ``GtcrnBackend`` for a lightweight fake (happy path)."""
 
     class _FakeGtcrnBackend:
         def process_hop(self, hop, caches=None):
@@ -79,12 +25,7 @@ def _install_fake_gtcrn(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def _install_failing_gtcrn(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Swap ``GtcrnBackend`` for one whose constructor always raises.
-
-    Simulates every init-time failure mode at once: onnxruntime
-    missing, the bundled ``gtcrn_simple.onnx`` missing/corrupt, or the
-    session failing its warmup.
-    """
+    """Swap ``GtcrnBackend`` for one whose constructor always raises."""
 
     class _FailingGtcrnBackend:
         def __init__(self) -> None:
@@ -96,12 +37,7 @@ def _install_failing_gtcrn(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def _install_fake_pyrnnoise(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Inject a stub ``pyrnnoise`` module so ``_init_rnnoise``'s import succeeds.
-
-    The stub ``RNNoise`` class's ``denoise_frame`` returns the input
-    frame unchanged (passthrough) so tests can assert the rnnoise path
-    was actually invoked without needing the real native library.
-    """
+    """Inject a stub ``pyrnnoise`` module so ``_init_rnnoise``'s import succeeds."""
     fake_pyrnnoise = types.ModuleType("pyrnnoise")
 
     class _FakeRNNoise:
@@ -118,32 +54,13 @@ def _install_fake_pyrnnoise(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def _remove_module(monkeypatch: pytest.MonkeyPatch, name: str) -> None:
-    """Simulate ``name`` not being installed by deleting it from ``sys.modules``.
-
-    Uses ``monkeypatch.setitem(sys.modules, name, None)`` rather than
-    ``del sys.modules[name]`` so the deletion is auto-undone after the
-    test (restoring the real module if it was previously imported).
-    """
+    """Simulate ``name`` not being installed by deleting it from ``sys.modules``."""
     # Save the current state so the auto-undo restores it.
     monkeypatch.setitem(sys.modules, name, None)
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# Finding #108 (Critical): deepfilternet init-time fallback
-# ═══════════════════════════════════════════════════════════════════════════
-
-
 class TestGtcrnInitFallback:
-    """A failed GTCRN init must fall back to rnnoise at __init__.
-
-    The ``noisy_room`` preset selects the bundled GTCRN ONNX streaming
-    model. When that backend cannot load (onnxruntime missing, the
-    bundled ``gtcrn_simple.onnx`` missing/corrupt, session warmup
-    failure), ``__init__`` must narrow the method to ``"rnnoise"``
-    (NOT leave it as ``"gtcrn"`` with a dead backend, the original
-    silent-passthrough bug) and mark ``is_degraded=True`` so the UI can
-    warn the user before the first audio chunk.
-    """
+    """A failed GTCRN init must fall back to rnnoise at __init__."""
 
     def test_gtcrn_available_not_degraded(self, monkeypatch: pytest.MonkeyPatch):
         """Backend loads → method stays gtcrn, NOT degraded, backend live."""
@@ -155,8 +72,6 @@ class TestGtcrnInitFallback:
         ns = NoiseSuppressor(method="gtcrn", sample_rate=16000)
 
         # Critical assertion: a healthy GTCRN init keeps the selected
-        # method, the noisy_room preset gets real GTCRN suppression,
-        # not a silent fallback.
         assert ns._method == "gtcrn", f"a successful GTCRN init must keep method='gtcrn'; got {ns._method!r}"
         assert ns._backend is not None, "the GTCRN backend instance must be kept"
         assert ns.is_degraded is False, (
@@ -176,9 +91,6 @@ class TestGtcrnInitFallback:
         ns = NoiseSuppressor(method="gtcrn", sample_rate=16000)
 
         # Critical assertion: method is narrowed to rnnoise at __init__
-        # (not at process() time). This means process() reaches the
-        # rnnoise branch directly and the user gets neural noise
-        # suppression instead of silent passthrough.
         assert ns._method == "rnnoise", (
             f"a failed GTCRN init must fall back to rnnoise at __init__; got _method={ns._method!r}"
         )
@@ -193,8 +105,7 @@ class TestGtcrnInitFallback:
         )
 
     def test_gtcrn_failure_rnnoise_missing_degrades_to_none(self, monkeypatch: pytest.MonkeyPatch):
-        """GTCRN fails AND rnnoise missing → method=none, degraded=True,
-        reason mentions BOTH the gtcrn fallback AND the rnnoise failure."""
+        """GTCRN fails AND rnnoise missing → method=none, degraded=True,"""
         _install_failing_gtcrn(monkeypatch)
         _remove_module(monkeypatch, "pyrnnoise")
 
@@ -206,9 +117,6 @@ class TestGtcrnInitFallback:
             "when both gtcrn (failed to load) and rnnoise (missing) are unavailable, method must degrade to 'none'"
         )
         assert ns.is_degraded is True
-        # The reason must preserve BOTH contexts: the gtcrn fallback AND
-        # the rnnoise failure. This is more actionable than silently
-        # overwriting with just the rnnoise message.
         reason = ns.degraded_reason.lower()
         assert "gtcrn" in reason, f"degraded_reason must mention gtcrn context; got {ns.degraded_reason!r}"
         assert "rnnoise" in reason, f"degraded_reason must mention rnnoise fallback failure; got {ns.degraded_reason!r}"
@@ -238,9 +146,7 @@ class TestGtcrnInitFallback:
         assert ns.degraded_reason == ""
 
     def test_gtcrn_failure_process_does_not_silently_passthrough(self, monkeypatch: pytest.MonkeyPatch):
-        """Critical regression: process() must NOT return the input unchanged
-        when the GTCRN init failed. The user must get rnnoise-processed
-        audio (or, if rnnoise is also missing, an explicit degraded signal)."""
+        """Critical regression: process() must NOT return the input unchanged"""
         _install_failing_gtcrn(monkeypatch)
         _install_fake_pyrnnoise(monkeypatch)
 
@@ -254,18 +160,10 @@ class TestGtcrnInitFallback:
         assert ns._method == "rnnoise"  # narrowed at __init__
 
         # Feed a full rnnoise frame at the native 48kHz rate so no
-        # resampling is needed and the frame is exactly one rnnoise
-        # frame (480 samples). Use a deterministic sine wave so the
-        # test is reproducible.
         t = np.linspace(0, 1.0, _RNNOISE_FRAME_SIZE, endpoint=False, dtype=np.float32)
         audio = (0.3 * np.sin(2 * np.pi * 440 * t)).astype(np.float32)
         result = ns.process(audio, RNNOISE_SAMPLE_RATE)
 
-        # The stub RNNoise returns the input frame unchanged, so the
-        # result equals the input, but the *path* went through
-        # _process_rnnoise (not silent passthrough). The key assertion
-        # is that ``_method`` stayed "rnnoise" and ``is_degraded`` is
-        # True (the GTCRN selection wasn't silently ignored).
         assert result is not None, "process() must return audio (not None)"
         assert result.shape == audio.shape
         assert ns._method == "rnnoise", (
@@ -277,10 +175,7 @@ class TestGtcrnInitFallback:
         )
 
     def test_noisy_room_preset_selects_gtcrn(self, monkeypatch: pytest.MonkeyPatch):
-        """End-to-end: the ``noisy_room`` preset picks the live GTCRN
-        backend; the constructed NoiseSuppressor is NOT degraded (the
-        model loads) so the preset's promise, real neural noise
-        suppression in the noisiest environments, actually holds."""
+        """End-to-end: the ``noisy_room`` preset picks the live GTCRN"""
         _install_fake_gtcrn(monkeypatch)
         _install_fake_pyrnnoise(monkeypatch)
 
@@ -301,14 +196,8 @@ class TestGtcrnInitFallback:
         assert ns._method == "gtcrn", "the noisy_room preset must actually run GTCRN (not a fallback)"
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# Finding #245 (High): resample fallback silent wrong-rate filtering
-# ═══════════════════════════════════════════════════════════════════════════
-
-
 class _FakeConfig:
-    """Minimal config object for AudioProcessor tests, mirrors the
-    FakeConfig in tests/test_audio_processor.py."""
+    """Minimal config object for AudioProcessor tests, mirrors the"""
 
     def __init__(self, **kwargs):
         self.audio_preset = "custom"
@@ -343,18 +232,7 @@ class _FakeConfig:
 
 
 class TestResampleFallbackDegraded:
-    """H-22 (High): resample fallback must surface ``is_degraded``.
-
-    Before the fix, when the input sample rate differed from the
-    chain's rate AND scipy was missing or ``resample_poly`` raised,
-    ``process_chunk`` silently filtered at the wrong rate (an 80 Hz
-    high-pass built at 16 kHz actually cuts at 240 Hz when fed 48 kHz
-    audio). The only signal was a log WARNING, invisible to the UI.
-
-    The fix latches ``self._resample_degraded`` and surfaces it via
-    ``is_degraded`` / ``degraded_reasons`` so the UI can warn the user
-    to call ``set_sample_rate`` or install scipy.
-    """
+    """H-22 (High): resample fallback must surface ``is_degraded``."""
 
     def test_no_resample_when_rates_match(self):
         """Sanity: when input_sr == chain_sr, is_degraded stays False."""
@@ -372,24 +250,16 @@ class TestResampleFallbackDegraded:
         from voice_typer.server.audio_processor import AudioProcessor
 
         p = AudioProcessor(_FakeConfig(), sample_rate=16000)
-        # 48000 -> 16000 (3:1 downsample). scipy is available in the
-        # test env, so resample_poly should succeed.
         audio = (np.random.randn(4800).astype(np.float32)) * 0.3
         result = p.process_chunk(audio, input_sample_rate=48000)
         assert result is not None
         assert p.is_degraded is False, "successful resample must NOT set the degraded flag"
 
     def test_resample_failure_sets_degraded(self, monkeypatch: pytest.MonkeyPatch):
-        """H-22: when resample_poly raises, is_degraded becomes True and
-        degraded_reasons mentions both sample rates."""
+        """H-22: when resample_poly raises, is_degraded becomes True and"""
         from voice_typer.server import audio_processor as ap_module
         from voice_typer.server.audio_processor import AudioProcessor
 
-        # Force the resample path to raise (simulates scipy missing or
-        # any other resample failure). ``audio_processor`` resolves the
-        # resampler via the lazy ``_get_resample_poly_fn()`` accessor
-        # (which imports from ``recording.resampling`` on first use), so
-        # the accessor is patched to return a raising callable.
         def _raise_runtime_error():
             raise RuntimeError("simulated scipy missing")
 
@@ -402,8 +272,6 @@ class TestResampleFallbackDegraded:
         audio = (np.random.randn(1024).astype(np.float32)) * 0.3
         result = p.process_chunk(audio, input_sample_rate=48000)
 
-        # The chunk is still processed (at the wrong rate), better to
-        # filter at the wrong rate than to drop the chunk entirely.
         assert result is not None, "process_chunk must return audio even on resample failure"
         assert result.shape == audio.shape
 
@@ -413,7 +281,6 @@ class TestResampleFallbackDegraded:
             "the user that filters are mistuned (wrong rate)"
         )
         # The degraded reason must mention both sample rates so the user
-        # knows exactly what went wrong.
         reasons = p.degraded_reasons
         assert len(reasons) >= 1, "degraded_reasons must include the resample reason"
         resample_reason = next(
@@ -425,8 +292,7 @@ class TestResampleFallbackDegraded:
         assert "16000" in resample_reason, f"reason must mention chain_sr=16000; got {resample_reason!r}"
 
     def test_resample_degraded_flag_is_latched(self, monkeypatch: pytest.MonkeyPatch):
-        """H-22: once set, the flag stays set across subsequent chunks
-        (latched), cleared only by reset() or set_sample_rate()."""
+        """H-22: once set, the flag stays set across subsequent chunks"""
         from voice_typer.server import audio_processor as ap_module
         from voice_typer.server.audio_processor import AudioProcessor
 
@@ -447,9 +313,6 @@ class TestResampleFallbackDegraded:
         assert p.is_degraded is True
 
         # Third chunk at the correct rate → STILL degraded (latched).
-        # The flag indicates "this processor has experienced a resample
-        # failure at some point", useful diagnostic info even after the
-        # input rate changes.
         p.process_chunk(audio, input_sample_rate=16000)
         assert p.is_degraded is True, (
             "resample-degraded flag is latched, stays set until reset() or set_sample_rate() (the corrective action)"
@@ -501,28 +364,8 @@ class TestResampleFallbackDegraded:
         assert p.degraded_reasons == []
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# vectorized dynamics filters, regression guard
-# ═══════════════════════════════════════════════════════════════════════════
-
-
 class TestVectorizedDynamicsFilters:
-    """the 4 dynamics filters (equalizer, compressor,
-    limiter, noise_gate) must NOT use per-sample Python loops with
-    transcendental calls (abs/log10/exp/power) on the RT thread.
-
-    The original OBS-ported code spent ~1ms per chunk on the RT thread
-    doing 32,768 Python iterations/sec with float()/abs()/
-    conditional/math.log10/exp. The vectorized version uses
-    ``scipy.signal.lfilter`` (C call) and ``np.maximum.accumulate`` —
-    the per-chunk cost drops to ~50µs.
-
-    These tests verify the vectorized path is still in use by counting
-    ``lfilter`` / ``maximum.accumulate`` invocations during ``process()``
-    and asserting that ``np.log10`` / ``np.power`` are called with
-    ARRAY arguments (not scalar, which would indicate a per-sample
-    loop). The tests use small mocked numpy arrays, no real audio.
-    """
+    """the 4 dynamics filters (equalizer, compressor,"""
 
     @pytest.fixture
     def small_audio(self) -> np.ndarray:
@@ -549,12 +392,6 @@ class TestVectorizedDynamicsFilters:
 
         monkeypatch.setattr(sig, "lfilter", counting_lfilter)
 
-        # `_get_lfilter` caches the resolved lfilter reference in
-        # `audio_filters.base._lfilter` after the first successful import,
-        # so a plain `scipy.signal.lfilter` patch is bypassed once any
-        # earlier test has warmed the cache. Reset the cache (monkeypatch
-        # restores it after the test) so the counting wrapper is captured
-        # by this process() call.
         from voice_typer.server.audio_filters import base as _af_base
 
         monkeypatch.setattr(_af_base, "_lfilter", None)
@@ -564,7 +401,6 @@ class TestVectorizedDynamicsFilters:
         assert result is not None
         assert result.shape == small_audio.shape
         # The vectorized EQ uses 2 lfilter calls (one for low band,
-        # one for high band, the mid band is computed by subtraction).
         assert call_count["n"] == 2, (
             f"vectorized EQ must use exactly 2 lfilter calls; got {call_count['n']} "
             "(if this drops to 0, the vectorization was reverted to a per-sample loop)"
@@ -595,8 +431,6 @@ class TestVectorizedDynamicsFilters:
 
         monkeypatch.setattr(sig, "lfilter", counting_lfilter)
 
-        # See test_equalizer_uses_lfilter_not_per_sample_loop, reset the
-        # `_get_lfilter` cache so the counting wrapper is captured.
         from voice_typer.server.audio_filters import base as _af_base
 
         monkeypatch.setattr(_af_base, "_lfilter", None)
@@ -606,7 +440,6 @@ class TestVectorizedDynamicsFilters:
         assert result is not None
         assert result.shape == small_audio.shape
         # The vectorized compressor uses 2 lfilter calls (attack env +
-        # release env, run in parallel then max'd).
         assert call_count["n"] == 2, f"vectorized Compressor must use exactly 2 lfilter calls; got {call_count['n']}"
 
     def test_limiter_uses_lfilter_not_per_sample_loop(self, small_audio, monkeypatch: pytest.MonkeyPatch):
@@ -628,8 +461,6 @@ class TestVectorizedDynamicsFilters:
 
         monkeypatch.setattr(sig, "lfilter", counting_lfilter)
 
-        # See test_equalizer_uses_lfilter_not_per_sample_loop, reset the
-        # `_get_lfilter` cache so the counting wrapper is captured.
         from voice_typer.server.audio_filters import base as _af_base
 
         monkeypatch.setattr(_af_base, "_lfilter", None)
@@ -639,27 +470,10 @@ class TestVectorizedDynamicsFilters:
         assert result is not None
         assert result.shape == small_audio.shape
         # The vectorized limiter uses 2 lfilter calls (attack env +
-        # release env).
         assert call_count["n"] == 2, f"vectorized Limiter must use exactly 2 lfilter calls; got {call_count['n']}"
 
     def test_noise_gate_uses_maximum_accumulate_for_peak_hold(self, small_audio):
-        """the noise gate's peak-hold level estimator must use
-        ``np.maximum.accumulate`` (vectorized running-maximum), not a
-        per-sample Python ``max()`` loop. The state-machine loop
-        (open/close + attack/hold/release) is allowed to remain a
-        Python loop because its state transitions are inherently
-        sequential, but the expensive per-sample ``abs()`` and
-        peak-hold bookkeeping must be vectorized.
-
-        ``numpy.ufunc.accumulate`` is a read-only C-level attribute that
-        cannot be monkeypatched at runtime, so this test uses source
-        inspection (``inspect.getsource``) to verify the vectorized
-        primitive is present and the per-sample ``abs()`` call is NOT
-        inside a Python loop body. This is a static regression guard —
-        if the vectorization is reverted to a per-sample loop, the
-        source will lose the ``np.maximum.accumulate`` call and the
-        test will fail.
-        """
+        """the noise gate's peak-hold level estimator must use"""
         import inspect
 
         from voice_typer.server.audio_filters import noise_gate as ng_module
@@ -680,8 +494,6 @@ class TestVectorizedDynamicsFilters:
         assert result.shape == small_audio.shape
 
         # Static check: the source of NoiseGate.process must contain
-        # the vectorized primitive. If the vectorization is reverted
-        # to a per-sample Python loop, this assertion fails.
         source = inspect.getsource(ng_module.NoiseGate.process)
         assert "np.maximum.accumulate" in source, (
             "NoiseGate.process must use np.maximum.accumulate for the "
@@ -689,9 +501,7 @@ class TestVectorizedDynamicsFilters:
             "fails, the vectorization was reverted to a per-sample max() "
             "loop, for the CPU-cost rationale."
         )
-        # The state-machine loop is allowed (inherently sequential), but
         # the loop body must NOT call np.abs(), abs must be pre-computed
-        # once outside the loop (vectorized).
         assert "abs_x = np.abs(samples)" in source, (
             "NoiseGate.process must pre-compute abs_x outside the state-machine "
             "loop (vectorized), the per-sample abs() call was the original "
@@ -699,12 +509,7 @@ class TestVectorizedDynamicsFilters:
         )
 
     def test_compressor_log10_receives_array_not_scalar(self, small_audio, monkeypatch: pytest.MonkeyPatch):
-        """``np.log10`` must be called with an ARRAY argument
-        (vectorized gain computation), not a scalar (per-sample loop).
-
-        If the original per-sample loop were restored, ``np.log10`` would
-        be called n times with scalar args (n=256 here). The vectorized
-        version calls it once with the full envelope array."""
+        """``np.log10`` must be called with an ARRAY argument"""
         pytest.importorskip("scipy.signal")
         from voice_typer.server.audio_filters.compressor import Compressor
 
@@ -722,10 +527,8 @@ class TestVectorizedDynamicsFilters:
         comp.process(small_audio, 16000)
 
         # The vectorized path calls np.log10 once with a 256-element
-        # array. A per-sample loop would call it 256 times with scalars.
         assert len(call_args) >= 1, "np.log10 must be called at least once"
         # Find the array call (the envelope array, not the scalar
-        # ``10.0 ** (gain_db / 20.0)`` which doesn't use log10).
         array_calls = [a for a in call_args if hasattr(a, "ndim") and a.ndim >= 1]
         assert len(array_calls) >= 1, (
             "np.log10 must be called with an array argument (vectorized); "
@@ -733,9 +536,7 @@ class TestVectorizedDynamicsFilters:
         )
 
     def test_all_four_filters_process_without_raising(self, small_audio):
-        """Sanity smoke test: all four vectorized filters must process
-        a small mocked audio array without raising. Catches import
-        errors, scipy API drift, and shape mismatches."""
+        """Sanity smoke test: all four vectorized filters must process"""
         pytest.importorskip("scipy.signal")
         from voice_typer.server.audio_filters import (
             Compressor,

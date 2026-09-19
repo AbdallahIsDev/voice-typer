@@ -1,28 +1,10 @@
-"""Tests for ``tray_menu.build_microphones_submenu``: pass-through rendering
-of the shared microphone enumeration.
-
-Contract under test: the tray submenu is a DUMB RENDERER of
-``tray._microphones``, one MenuItem per record, whatever the shared
-enumeration returns. Deduplication of per-host-API duplicates
-(MME/DirectSound/WASAPI/WDM-KS views of the same endpoint) lives
-UPSTREAM in ``server_platform.list_microphones`` (canonical host-API
-normalization); these tests pin the pass-through behavior so a future
-re-introduction of duplicates at the tray layer cannot happen silently,
-and so the upstream dedup heals the tray with zero tray-side changes.
-
-pystray semantics (verified against pystray/_base.py): ``MenuItem.__init__``
-runs ``self._checked = self._assert_callable(checked, lambda _: None)`` —
-a raw bool raises ValueError at construction, and the callable is invoked
-as ``checked(item)`` via the ``checked`` property at render time.
-"""
+"""Tests for ``tray_menu.build_microphones_submenu``: pass-through rendering"""
 
 import sys
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
-
-# ── Fake pystray (mirrors tests/test_tray.py::_FakeMenuItem/_FakeMenu) ──
 
 
 class _FakeMenuItem:
@@ -44,19 +26,10 @@ class _FakePystrayModule:
 @pytest.fixture(autouse=True)
 def fake_pystray(monkeypatch):
     mock = _FakePystrayModule()
-    # lazy_module("pystray") re-reads sys.modules on every access, and
-    # assigning tray_menu.pystray directly also works, do both like
-    # tests/test_tray.py does.
     monkeypatch.setitem(sys.modules, "pystray", mock)
     import voice_typer.server.tray_menu as tray_menu_mod
 
     monkeypatch.setattr(tray_menu_mod, "pystray", mock)
-
-
-# ── Fake tray object ─────────────────────────────────────────────────────
-#
-# build_microphones_submenu touches ONLY: tray._config.microphone,
-# tray._microphones, tray._controller.change_microphone, tray._open_page.
 
 
 def make_tray(microphones, config_microphone=None):
@@ -81,8 +54,7 @@ CANONICAL_THREE = [
 
 
 def _duplicated_twelve():
-    """Old broken shape: 3 endpoints × 4 host APIs (MME/DirectSound/
-    Windows WASAPI/WDM-KS), identical visible names across APIs."""
+    """Old broken shape: 3 endpoints × 4 host APIs (MME/DirectSound/"""
     apis = ("MME", "DirectSound", "Windows WASAPI", "WDM-KS")
     endpoints = (
         "AudioRelay (Virtual Mic for AudioRelay)",
@@ -104,9 +76,6 @@ def menu_items(items):
 
 def mic_items(items):
     return menu_items(items)[:-1]  # trailing item is always "More microphones..."
-
-
-# ── Tests ────────────────────────────────────────────────────────────────
 
 
 class TestCanonicalThreeDevices:
@@ -131,14 +100,7 @@ class TestCanonicalThreeDevices:
 
 class TestPassThroughWithDuplicatedInput:
     def test_builder_renders_duplicates_verbatim(self):
-        """Pins the pass-through contract: given the OLD duplicated 12-record
-        enumeration, the submenu renders 12 items with duplicate visible names.
-
-        The tray layer performs NO deduplication by design, the fix lives in
-        server_platform.list_microphones (canonical host-API normalization).
-        This test documents what the user WOULD have seen pre-fix, so if
-        duplicates ever reappear here the cause is upstream, not tray-side.
-        """
+        """enumeration, the submenu renders 12 items with duplicate visible names."""
         duplicated = _duplicated_twelve()
         assert len(duplicated) == 12
 

@@ -1,13 +1,4 @@
-"""Server-side localization pins for the ``recording_controller``
-notification surface and the public ``force_recover`` wrapper.
-
-Notification paths were split across the controller facade and its
-three helper modules; some carried hardcoded English strings while the
-i18n registry already held the canonical keys. These tests pin that
-every user-facing notification on the recording surface resolves
-through ``voice_typer.server.i18n.t`` so the renderer's locale push
-(``set_tray_locale``) applies.
-"""
+"""Server-side localization pins for the ``recording_controller``"""
 
 from __future__ import annotations
 
@@ -19,13 +10,9 @@ from voice_typer.server.i18n import _INITIAL_LABELS
 from voice_typer.server.recording_controller import RecordingController
 from voice_typer.server.recording_lifecycle import RecordingLifecycle
 
-# ── Keys exist in the server registry ────────────────────────────────
-
 
 class TestKeysRegisteredInServerRegistry:
-    """Every notification key used by the recording surface must exist
-    in ``_INITIAL_LABELS``, a typo'd key would silently render as the
-    key name in the tray."""
+    """Every notification key used by the recording surface must exist"""
 
     @pytest.mark.parametrize(
         "key",
@@ -41,8 +28,7 @@ class TestKeysRegisteredInServerRegistry:
         assert key in _INITIAL_LABELS, f"{key} must be registered in the server i18n registry"
 
     def test_xrun_placeholders_format(self) -> None:
-        """The xrun templates format with ``app`` + ``count`` without
-        raising (the same args the call site passes)."""
+        """The xrun templates format with ``app`` + ``count`` without"""
         from voice_typer.server import i18n
         from voice_typer.server.branding import APP_NAME
 
@@ -57,9 +43,6 @@ class TestKeysRegisteredInServerRegistry:
         text = i18n.t("notify.recording_controller.start_failed_with_reason", reason="microphone busy")
         assert "microphone busy" in text
         assert "{reason}" not in text
-
-
-# ── Call sites route through i18n.t (source pins) ────────────────────
 
 
 class _RecordingControllerAppStub:
@@ -77,7 +60,6 @@ class _RecordingControllerAppStub:
         self._cycle_id = "#1"
         self._AppState = AppState
         # Inverted busy semantics (is_set() == not busy), the watchdog's
-        # force-recover clears it after resetting the tray state.
         self._busy_event = threading.Event()
         self._busy_event.set()
 
@@ -89,8 +71,7 @@ class _RecordingControllerAppStub:
 
 
 class TestOnXrunThresholdUsesI18n:
-    """``on_xrun_threshold`` previously hardcoded the English title/body
-    f-strings; it must resolve the registered xrun keys instead."""
+    """``on_xrun_threshold`` previously hardcoded the English title/body"""
 
     def test_notification_uses_i18n_keys(self, monkeypatch: pytest.MonkeyPatch) -> None:
         from voice_typer.server import recording_controller as rc_mod
@@ -118,9 +99,7 @@ class TestOnXrunThresholdUsesI18n:
 
 
 class TestMicUnpluggedUsesI18n:
-    """``MicLifecycleHooks.on_active_mic_lost`` carried a hardcoded
-    English body; it must use the ``mic_unplugged`` key (the same key
-    its own registry entry documents for the fast-path unplug case)."""
+    """``MicLifecycleHooks.on_active_mic_lost`` carried a hardcoded"""
 
     def test_notification_uses_mic_unplugged_key(self, monkeypatch: pytest.MonkeyPatch) -> None:
         from voice_typer.server import mic_lifecycle_hooks as hooks_mod
@@ -143,8 +122,7 @@ class TestMicUnpluggedUsesI18n:
 
 
 class TestWatchdogStillRunningUsesI18n:
-    """The watchdog's second-firing "still running" notification carried
-    hardcoded English; it must use the ``still_running`` key."""
+    """The watchdog's second-firing \"still running\" notification carried"""
 
     def test_notification_uses_still_running_key(self, monkeypatch: pytest.MonkeyPatch) -> None:
         from voice_typer.server import transcription_watchdog as wd_mod
@@ -163,7 +141,6 @@ class TestWatchdogStillRunningUsesI18n:
         controller._app = app
         controller._watchdog_lock = __import__("threading").Lock()
         # The "still running" branch requires a LIVE transcription worker:
-        # block it on an event and release it after the call.
         worker_release = __import__("threading").Event()
         controller._transcription_thread = __import__("threading").Thread(
             target=worker_release.wait, name="stuck-worker", daemon=True
@@ -177,7 +154,6 @@ class TestWatchdogStillRunningUsesI18n:
         controller._cancelled_cycle_ids_lock = __import__("threading").Lock()
         controller._cancelled_cycle_ids = {}
         # Busy semantics are inverted: clear = busy. The watchdog's
-        # still-running branch only fires while the app is busy.
         app._busy_event.clear()
         try:
             controller._watchdog_helper.force_recover(controller, force=False)
@@ -189,14 +165,7 @@ class TestWatchdogStillRunningUsesI18n:
 
 
 class TestStartFailureReasonUsesI18n:
-    """Both start-failure branches (``_start_impl`` and the start
-    worker) must resolve the typed-reason notification through the
-    ``start_failed_with_reason`` key, never the hardcoded f-string.
-
-    The key lives in the shared ``_publish_start_failure_notification``
-    step (extracted from both branches); both call sites must route
-    through it.
-    """
+    """Both start-failure branches (``_start_impl`` and the start"""
 
     def test_start_impl_uses_key(self) -> None:
         src = inspect.getsource(RecordingLifecycle._publish_start_failure_notification)
@@ -211,14 +180,8 @@ class TestStartFailureReasonUsesI18n:
         assert "_publish_start_failure_notification" in caller
 
 
-# ── public force_recover surface ────────────────────────────────────────
-
-
 class TestPublicForceRecoverWrapper:
-    """``RecordingController.force_recover`` is the sanctioned public
-    surface for the service layer (ADR-0008 §3.1): it must delegate to
-    the watchdog with the ``force`` keyword, and the service layer must
-    call the PUBLIC method."""
+    """``RecordingController.force_recover`` is the sanctioned public"""
 
     def test_public_wrapper_delegates_with_force_kwarg(self) -> None:
         controller = RecordingController.__new__(RecordingController)

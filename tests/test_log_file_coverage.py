@@ -1,20 +1,4 @@
-"""Pin the cross-runtime log-file coverage contract (review.md MO-108).
-
-Four independent mechanisms must agree on "which log files exist", or a
-newly added log silently rots out of rotation / the support bundle:
-
-1. Python session-start sweep (`voice_typer/server/log/setup.py`).
-2. Rust host session-start sweep (`src-tauri/src/platform/logging/init.rs`).
-3. The diagnostics bundle collector (`scripts/diagnostics.py`).
-4. The "Open logs" target (`src-tauri/src/commands/system_cmds/dialogs.rs`).
-
-The audited, deliberate shape is DIRECTORY-SCOPED for all four: every
-regular file under ``<config_dir>/logs/`` (except the ``*.lock``
-truncation locks) is swept / collected / reachable. That is what makes a
-new log file (e.g. the ``sidecar.log`` child tee, MO-104) work without
-touching any list. These tests fail if a future change reintroduces a
-hardcoded name list in the bundle or flips the sweeps off the directory.
-"""
+"""Pin the cross-runtime log-file coverage contract (review.md MO-108)."""
 
 from __future__ import annotations
 
@@ -39,21 +23,14 @@ def _read(relative: str) -> str:
     return path.read_text(encoding="utf-8")
 
 
-# ── 1. Diagnostics bundle: directory-driven ──────────────────────────
-
-
 def test_diagnostics_collects_every_log_in_logs_dir(tmp_path: Path) -> None:
-    """Every regular file in ``logs/`` lands in the bundle under its
-    on-disk basename; ``*.lock`` is skipped; nested dirs are ignored."""
+    """Every regular file in ``logs/`` lands in the bundle under its"""
     module = _load_diagnostics_module()
     config_dir = tmp_path / "config"
     logs_dir = config_dir / "logs"
     logs_dir.mkdir(parents=True)
 
     # Ground truth on-disk set (no zip-side rename):
-    #   Python current: logs/voice-typer.log  (log/setup.py get_log_file_path)
-    #   Rust host:      logs/voice-typer-rust.log  (init.rs:149)
-    # plus the child tee, worker, native listener and crash-buffer logs.
     on_disk = [
         "voice-typer.log",
         "voice-typer.log.1",
@@ -74,8 +51,6 @@ def test_diagnostics_collects_every_log_in_logs_dir(tmp_path: Path) -> None:
     collected = module._collect_logs_into(config_dir, dest)
 
     # Every on-disk log ships under its exact on-disk basename (no
-    # rust- alias). Directory-driven: a hardcoded name list silently
-    # drops new logs.
     assert sorted(collected) == sorted(on_disk), (
         "the diagnostics bundle must collect EVERY log in logs/ under its "
         "on-disk basename; a hardcoded name list silently drops new logs"
@@ -87,12 +62,7 @@ def test_diagnostics_collects_every_log_in_logs_dir(tmp_path: Path) -> None:
 
 
 def test_diagnostics_legacy_root_and_current_python_do_not_collide(tmp_path: Path) -> None:
-    """Legacy root ``<config>/voice-typer.log`` and the current Python log
-    ``<config>/logs/voice-typer.log`` share a basename. The legacy file is
-    collected first as ``voice-typer.log``; the current log is deduped to
-    ``voice-typer.log-2`` via :func:`_unique_zip_name` (never overwritten).
-    This is the only reachable basename collision after the Rust rename
-    (``voice-typer-rust.log``)."""
+    """Legacy root ``<config>/voice-typer.log`` and the current Python log"""
     module = _load_diagnostics_module()
     config_dir = tmp_path / "config"
     (config_dir / "logs").mkdir(parents=True)
@@ -118,8 +88,7 @@ def test_diagnostics_legacy_root_and_current_python_do_not_collide(tmp_path: Pat
 def test_diagnostics_unexpected_name_collision_is_not_silently_overwritten(
     tmp_path: Path,
 ) -> None:
-    """A file that would collide with an already-collected zip name is
-    suffixed instead of overwriting it (the bundle must lose nothing)."""
+    """A file that would collide with an already-collected zip name is"""
     module = _load_diagnostics_module()
     # Direct unit: `_unique_zip_name` is the never-overwrite backstop.
     taken = {"voice-typer.log"}
@@ -129,9 +98,6 @@ def test_diagnostics_unexpected_name_collision_is_not_silently_overwritten(
     assert module._unique_zip_name("sidecar.log", taken) == "sidecar.log"
 
     # Integration: two same-basename logs cannot coexist on disk in one
-    # directory, so the only reachable collision is the legacy-root vs
-    # current-Python pair — covered by
-    # ``test_diagnostics_legacy_root_and_current_python_do_not_collide``.
     config_dir = tmp_path / "config"
     (config_dir / "logs").mkdir(parents=True)
     (config_dir / "logs" / "voice-typer.log").write_text("current\n", encoding="utf-8")
@@ -149,8 +115,7 @@ def test_diagnostics_unexpected_name_collision_is_not_silently_overwritten(
 
 
 def test_diagnostics_collects_legacy_root_log(tmp_path: Path) -> None:
-    """A pre-migration profile keeps ``<config_dir>/voice-typer.log`` at
-    the config-dir root; it must still be collected."""
+    """A pre-migration profile keeps ``<config_dir>/voice-typer.log`` at"""
     module = _load_diagnostics_module()
     config_dir = tmp_path / "config"
     config_dir.mkdir(parents=True)
@@ -165,15 +130,10 @@ def test_diagnostics_collects_legacy_root_log(tmp_path: Path) -> None:
 
 
 def test_diagnostics_collector_has_no_hardcoded_log_glob() -> None:
-    """The old implementation globbed ``voice-typer.log*`` and therefore
-    missed ``voice-typer-rust.log`` (the Rust host's log), ``sidecar.log``,
-    ``worker.log`` and the native logs. Guard against reintroducing it."""
+    """missed ``voice-typer-rust.log`` (the Rust host's log), ``sidecar.log``,"""
     source = _read("scripts/diagnostics.py")
     assert 'glob("voice-typer.log*")' not in source
     assert "_collect_logs_into" in source
-
-
-# ── 2/3. Sweeps stay directory-scoped ────────────────────────────────
 
 
 def test_python_sweep_is_directory_scoped() -> None:
@@ -192,9 +152,7 @@ def test_rust_sweep_is_directory_scoped() -> None:
 
 
 def test_rust_host_log_basename_matches_diagnostics_expectation() -> None:
-    """The Rust host writes ``voice-typer-rust`` — the name the bundle
-    collector now picks up by directory read (the old glob matched only
-    ``voice-typer.log*`` and never this file)."""
+    """The Rust host writes ``voice-typer-rust`` — the name the bundle"""
     init_source = _read("src-tauri/src/platform/logging/init.rs")
     assert 'RotatingFileWriter::new(logs_dir.clone(), "voice-typer-rust")' in init_source
 

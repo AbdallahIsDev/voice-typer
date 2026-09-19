@@ -1,31 +1,4 @@
-"""Canonical host-API normalization + cross-host-API id resolution.
-
-PortAudio enumerates every OS audio endpoint once PER HOST API. On the
-reference Windows machine (sounddevice 0.5.5) the three real input
-endpoints (AudioRelay virtual mic, WO Mic virtual mic, Realtek built-in)
-appear as duplicate records under MME / DirectSound / WASAPI / WDM-KS;
-WDM-KS additionally exposes disabled endpoints (Line In, Stereo Mix) the
-OS UI deliberately does not offer, and MME truncates names at 31 chars.
-
-These tests pin:
-
-1. ``list_microphones()`` collapses the duplicate views to the platform's
-   canonical host API (Windows → WASAPI, the view matching the Windows
-   Settings "Input" page, with full untruncated names), keeping virtual
-   microphones and degrading gracefully when the preferred API yields
-   nothing.
-2. The ``default`` flag comes from the canonical host API's own
-   ``default_input_device`` (the PortAudio *global* default can sit on a
-   non-canonical API, here an MME record).
-3. Persisted stable ids whose host API is no longer enumerated resolve
-   via unambiguous exact-name match; endpoint names that differ across
-   host APIs stay unresolved rather than guessing a wrong device.
-
-Fixture data mirrors a real captured dump (input devices only). The live
-machine reported 17 raw records; the two unlisted ones were additional
-placeholder entries already covered by the invalid-name filter, so the
-fixture carries the 15 itemized records verbatim.
-"""
+"""Canonical host-API normalization + cross-host-API id resolution."""
 
 from __future__ import annotations
 
@@ -150,11 +123,7 @@ def _canonical_names(mics) -> set[str]:
 class TestWindowsCanonicalization:
     @pytest.fixture(autouse=True)
     def _force_windows(self, monkeypatch):
-        """Force the Windows code path: these tests pin WASAPI
-        canonicalization of a real Windows PortAudio dump, but the suite
-        also runs on Linux/macOS where the production filter reads
-        ``sys.platform`` at call time (and would prefer PulseAudio/Core
-        Audio, neither present in the fixture)."""
+        """Force the Windows code path: these tests pin WASAPI"""
         monkeypatch.setattr(sys, "platform", "win32")
 
     def test_multi_api_dump_collapses_to_canonical_wasapi_records(self, monkeypatch):
@@ -167,8 +136,7 @@ class TestWindowsCanonicalization:
         assert _canonical_names(mics) == {_AUDIORELAY_FULL, _WO_MIC, _REALTEK}
 
     def test_virtual_microphones_survive_canonicalization(self, monkeypatch):
-        """AudioRelay / WO Mic are software microphones, not junk records —
-        dropping every non-hardware name would hide them from users."""
+        """AudioRelay / WO Mic are software microphones, not junk records —"""
         _install_fake_sounddevice(monkeypatch, _real_machine_devices(), _real_machine_hostapis())
         from voice_typer.server.server_platform import list_microphones
 
@@ -185,9 +153,7 @@ class TestWindowsCanonicalization:
         assert _AUDIORELAY_TRUNCATED not in names
 
     def test_default_flag_lands_on_wasapi_default_not_global_mme_record(self, monkeypatch):
-        """The PortAudio GLOBAL default input (kind='input') is the MME
-        record at index 1; the canonical default must instead come from
-        the WASAPI host API's own default_input_device (=27)."""
+        """The PortAudio GLOBAL default input (kind='input') is the MME"""
         _install_fake_sounddevice(monkeypatch, _real_machine_devices(), _real_machine_hostapis())
         from voice_typer.server.server_platform import list_microphones
 
@@ -226,10 +192,7 @@ class TestWindowsCanonicalization:
         assert flagged[0]["index"] == 27
 
     def test_disabled_wdmks_endpoints_absent_from_canonical_output(self, monkeypatch):
-        """Answers "did we hide a real mic?": Line In / Stereo Mix are
-        DISABLED endpoints the OS Input page never offers (and the
-        pre-existing non-mic filter already drops them); the WDM-KS
-        naming variant of the Realtek mic must not leak back in either."""
+        """Answers \"did we hide a real mic?\": Line In / Stereo Mix are"""
         _install_fake_sounddevice(monkeypatch, _real_machine_devices(), _real_machine_hostapis())
         from voice_typer.server.server_platform import list_microphones
 
@@ -241,8 +204,7 @@ class TestWindowsCanonicalization:
 
 class TestGracefulDegradation:
     def test_empty_preferred_api_returns_full_list(self, monkeypatch):
-        """A Windows install where WASAPI yields no input devices must get
-        the complete unfiltered enumeration, never an empty list."""
+        """A Windows install where WASAPI yields no input devices must get"""
         devices = [
             _sd_device(1, _REALTEK, _MME),
             _sd_device(3, _WO_MIC, _MME, 1),
@@ -348,9 +310,6 @@ class TestEnumerationStability:
             assert "Windows WASAPI|Microphone (Realtek(R) Audio)#2" not in ids
 
 
-# ─── Cross-host-API id resolution ─────────────────────────────────────
-
-
 _CANONICAL_MICS = [
     {
         "id": f"Windows WASAPI|{_AUDIORELAY_FULL}",
@@ -394,9 +353,7 @@ class TestCrossHostApiIdResolution:
         assert resolve_mic_id_to_device_index(f"MME|{_REALTEK}") == 27
 
     def test_wdmks_naming_variant_stays_unresolved_not_guessed(self, monkeypatch):
-        """The WDM-KS endpoint name differs from its WASAPI twin's name —
-        an exact-name match cannot identify it, so resolution must return
-        None (system default) rather than picking some other device."""
+        """The WDM-KS endpoint name differs from its WASAPI twin's name —"""
         _patch_canonical_mics(monkeypatch)
         wdmks_id = "Windows WDM-KS|Microphone (Realtek HD Audio Mic input)"
         assert find_microphone_by_id(wdmks_id) is None
@@ -416,8 +373,7 @@ class TestCrossHostApiIdResolution:
         assert find_microphone_by_id(f"Windows WASAPI|{_REALTEK}") is not None
 
     def test_disambiguator_stripped_before_name_match(self, monkeypatch):
-        """Persisted "MME|Mic#2" whose host API vanished: the "#N" suffix
-        is stripped so the NAME segment can match a canonical device."""
+        """Persisted \"MME|Mic#2\" whose host API vanished: the \"#N\" suffix"""
         mics = [{"id": "Core Audio|Mic", "index": 9, "name": "Mic"}]
         _patch_canonical_mics(monkeypatch, mics)
         mic = find_microphone_by_id("MME|Mic#2")
@@ -425,9 +381,7 @@ class TestCrossHostApiIdResolution:
         assert mic["index"] == 9
 
     def test_pipe_in_device_name_splits_once_not_per_segment(self, monkeypatch):
-        """A device name containing "|" must be recovered WHOLE, the name
-        is everything after the FIRST "|". Splitting per-segment would
-        resolve "WASAPI|A|B" against an unrelated device named "A"."""
+        """A device name containing \"|\" must be recovered WHOLE, the name"""
         mics = [
             {"id": "Core Audio|A", "index": 3, "name": "A"},
             {"id": "Core Audio|A|B", "index": 4, "name": "A|B"},
@@ -444,8 +398,7 @@ class TestCrossHostApiIdResolution:
         assert resolve_mic_id_to_device_index("5|AudioRelay") == 25
 
     def test_end_to_end_through_real_enumeration_pipeline(self, monkeypatch):
-        """Full pipeline against fake PortAudio data: enumerate (with
-        canonicalization active) → resolve a pre-normalization id."""
+        """Full pipeline against fake PortAudio data: enumerate (with"""
         monkeypatch.setattr(sys, "platform", "win32")
         _install_fake_sounddevice(monkeypatch, _real_machine_devices(), _real_machine_hostapis())
         mic = find_microphone_by_id(f"MME|{_REALTEK}")

@@ -1,27 +1,4 @@
-"""level_monitor RMS/peak numpy optimization tests.
-
-Verifies that the AUDIO-NP / PERF-pattern ported from
-``recorder.py:2740-2749`` into ``level_monitor._process_level_chunk``:
-
-1. **Numerical equivalence**: the new RMS (``np.sqrt(np.dot(x, x) / size)``)
-   and peak (``max(max(x), -min(x))``) match the OLD computations
-   (``np.sqrt(np.mean(x**2))`` and ``np.abs(x).max()``) to floating-point
-   tolerance on random inputs.
-
-2. **Fewer intermediate allocations**: the OLD path allocated 3-4
-   intermediate arrays per chunk (``x**2``, ``np.abs(x)``, optionally
-   ``x.astype(np.float32)``). The NEW path allocates ZERO intermediate
-   arrays for the RMS+peak computation (only scalar reductions). We
-   verify this by counting ``np.ndarray`` allocations via a wrapper
-   around the ndarray constructor.
-
-3. **No-op ``.astype(np.float32)`` dropped**: the OLD raw-quality RMS
-   path called ``flat.astype(np.float32)`` even though ``flat`` is
-   already float32 (sd.InputStream uses ``dtype=np.float32``). The NEW
-   path drops the astype. We verify by checking the dtype is preserved.
-
-All ``sounddevice`` calls are mocked so the tests run on any platform.
-"""
+"""level_monitor RMS/peak numpy optimization tests."""
 
 from __future__ import annotations
 
@@ -30,10 +7,6 @@ from unittest.mock import MagicMock
 
 import numpy as np
 import pytest
-
-# ═══════════════════════════════════════════════════════════════════════════
-# Numerical equivalence: NEW (np.dot / max-min) vs OLD (np.mean(x**2) / np.abs(x).max())
-# ═══════════════════════════════════════════════════════════════════════════
 
 
 def _old_rms(flat: np.ndarray) -> float:
@@ -67,40 +40,25 @@ class TestNumericalEquivalence:
     @pytest.mark.parametrize("seed", [0, 1, 42, 1337, 99999])
     @pytest.mark.parametrize("size", [128, 512, 1024, 4096])
     def test_rms_matches_old_pattern(self, seed, size):
-        """``sqrt(dot(x, x) / size)`` == ``sqrt(mean(x**2))``.
-
-        Mathematical identity: ``sum(x**2) == dot(x, x)`` and
-        ``mean(x**2) == sum(x**2) / size``.
-        """
+        """``sqrt(dot(x, x) / size)`` == ``sqrt(mean(x**2))``."""
         rng = np.random.default_rng(seed)
         flat = rng.standard_normal(size).astype(np.float32)
         old = _old_rms(flat)
         new = _new_rms(flat)
-        # np.dot uses a fused multiply-add (single-pass BLAS sdot)
-        # while x**2 + np.mean uses two passes; allow 1e-5 relative
-        # tolerance for accumulation-order differences.
         assert abs(old - new) <= 1e-5 * max(1.0, abs(old)), f"NEW RMS {new} != OLD RMS {old} (size={size}, seed={seed})"
 
     @pytest.mark.parametrize("seed", [0, 1, 42, 1337, 99999])
     @pytest.mark.parametrize("size", [128, 512, 1024, 4096])
     def test_peak_matches_old_pattern(self, seed, size):
-        """``max(max(x), -min(x))`` == ``abs(x).max()``.
-
-        Mathematical identity: ``max(|x|) == max(max(x), -min(x))``.
-        """
+        """``max(max(x), -min(x))`` == ``abs(x).max()``."""
         rng = np.random.default_rng(seed)
         flat = rng.standard_normal(size).astype(np.float32)
         old = _old_peak(flat)
         new = _new_peak(flat)
-        # max/min are exact reductions, match to bit-level (use ==).
         assert old == new, f"NEW peak {new} != OLD peak {old} (size={size}, seed={seed})"
 
     def test_peak_handles_mixed_signs(self):
-        """Peak is correct when min < 0 < max (the typical case).
-
-        Note: float32 representation of 0.8 is 0.800000011920929
-        (precision loss), so we compare with tolerance.
-        """
+        """Peak is correct when min < 0 < max (the typical case)."""
         flat = np.array([-0.5, 0.1, 0.3, -0.8, 0.2], dtype=np.float32)
         new_peak = _new_peak(flat)
         old_peak = _old_peak(flat)
@@ -122,21 +80,17 @@ class TestNumericalEquivalence:
         assert abs(_new_peak(flat) - 0.5) < 1e-7
 
     def test_peak_zero_chunk(self):
-        """Peak is 0.0 for an all-zero chunk (disconnect detector
-        relies on this exact behavior)."""
+        """Peak is 0.0 for an all-zero chunk (disconnect detector"""
         flat = np.zeros(512, dtype=np.float32)
         assert _new_peak(flat) == _old_peak(flat) == 0.0
 
     def test_rms_zero_chunk(self):
-        """RMS is 0.0 for an all-zero chunk (disconnect detector
-        relies on this exact behavior)."""
+        """RMS is 0.0 for an all-zero chunk (disconnect detector"""
         flat = np.zeros(512, dtype=np.float32)
         assert _new_rms(flat) == _old_rms(flat) == 0.0
 
     def test_raw_rms_matches_old_pattern_no_astype(self):
-        """The NEW raw-quality RMS path drops ``.astype(np.float32)``
-        because ``flat`` is ALREADY float32. Numerical result is
-        identical (astype on the same dtype is a no-op)."""
+        """The NEW raw-quality RMS path drops ``.astype(np.float32)``"""
         rng = np.random.default_rng(7)
         flat = rng.standard_normal(512).astype(np.float32)
         old = _old_raw_rms(flat)
@@ -145,26 +99,8 @@ class TestNumericalEquivalence:
         assert abs(old - new) <= 1e-5 * max(1.0, abs(old)), f"NEW raw RMS {new} (no astype) != OLD raw RMS {old}"
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# Allocation-count regression: NEW allocates FEWER ndarrays than OLD
-# ═══════════════════════════════════════════════════════════════════════════
-
-
 class TestAllocationCount:
-    """The NEW RMS+peak path calls ZERO allocation-inducing numpy
-    functions (``np.abs``, ``np.mean``); the OLD path calls them once
-    each per chunk.
-
-    We can't directly monkeypatch ``np.ndarray.__new__`` (it's an
-    immutable C type: ``TypeError: cannot set '__new__' attribute of
-    immutable type 'numpy.ndarray'``), so we spy on the high-level
-    numpy functions that allocate intermediate arrays. The OLD peak
-    path calls ``np.abs(flat)`` (allocates a new ndarray); the NEW
-    peak path uses ``max(flat.max(), -flat.min())`` (no allocation).
-    The OLD RMS path calls ``np.mean(flat**2)`` where ``flat**2``
-    allocates; the NEW RMS path uses ``np.dot(flat, flat)`` (returns a
-    scalar, no intermediate ndarray).
-    """
+    """The NEW RMS+peak path calls ZERO allocation-inducing numpy"""
 
     def test_new_rms_does_not_call_np_mean(self, monkeypatch):
         """``_new_rms`` uses ``np.dot``: ``np.mean`` is NOT called."""
@@ -217,9 +153,7 @@ class TestAllocationCount:
         assert new_abs_calls == 0, f"NEW peak path must NOT call np.abs (uses max/min); got {new_abs_calls} calls"
 
     def test_combined_rms_peak_new_calls_fewer_allocating_fns(self, monkeypatch):
-        """The combined RMS+peak computation (the actual code path used
-        per chunk) calls strictly fewer allocation-inducing numpy
-        functions in the NEW path than the OLD path."""
+        """The combined RMS+peak computation (the actual code path used"""
         alloc_calls = 0
         original_abs = np.abs
         original_mean = np.mean
@@ -259,22 +193,11 @@ class TestAllocationCount:
         )
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# End-to-end: _process_level_chunk produces same _monitor_level as OLD path
-# ═══════════════════════════════════════════════════════════════════════════
-
-
 class TestProcessLevelChunkEndToEnd:
-    """The end-to-end level computation in ``_process_level_chunk`` (NEW
-    path) produces the same ``_monitor_level`` / ``_monitor_peak`` as
-    the OLD path would have.
-    """
+    """The end-to-end level computation in ``_process_level_chunk`` (NEW"""
 
     def test_process_chunk_uses_optimized_path(self, monkeypatch):
-        """After processing a chunk, ``_monitor_level`` reflects the NEW
-        RMS (np.dot-based), verify by comparing against a manual
-        computation using the OLD pattern (which must match within
-        tolerance)."""
+        """After processing a chunk, ``_monitor_level`` reflects the NEW"""
         import voice_typer.server.level_monitor as lm
 
         # Mock sounddevice so start_monitoring doesn't touch real hardware.
@@ -303,7 +226,6 @@ class TestProcessLevelChunkEndToEnd:
             "hostapi": 0,
         }
         # Disable the live processor so we hit the no-processor branch
-        # (the simpler NEW path).
         lm._level_processor = None
 
         lm.start_monitoring(mic_id=None)
@@ -319,7 +241,6 @@ class TestProcessLevelChunkEndToEnd:
                     break
                 time.sleep(0.01)
 
-            # Expected: NEW RMS = sqrt(dot(x, x)/size) = 0.25.
             # EMA: level = 0 * 0.6 + 0.25 * 0.4 = 0.1.
             expected_rms = _new_rms(chunk.ravel())
             expected_level = 0.0 * 0.6 + expected_rms * 0.4
@@ -327,7 +248,6 @@ class TestProcessLevelChunkEndToEnd:
                 f"_monitor_level={lm._monitor_level} != expected "
                 f"{expected_level} (NEW RMS path; chunk RMS={expected_rms})"
             )
-            # Expected: NEW peak = max(max, -min) = 0.25.
             # EMA: peak = max(0 * 0.8, 0.25) = 0.25.
             expected_peak = _new_peak(chunk.ravel())
             assert abs(lm._monitor_peak - expected_peak) < 1e-6, (
@@ -337,19 +257,7 @@ class TestProcessLevelChunkEndToEnd:
             lm.stop_monitoring()
 
     def test_process_chunk_with_processor_uses_optimized_path(self, monkeypatch):
-        """The processor-active branch ALSO uses the NEW AUDIO-NP /
-        PERF-pattern. Verify by passing through a processor that
-        returns the input unchanged and comparing against the manual
-        OLD-pattern computation.
-
-        note: post the lightweight level-bar fix, the filter chain
-        is SKIPPED for the cosmetic bar (``_test_mode == False``) unless
-        ``_level_bar_filtered`` is True. This test sets
-        ``_level_bar_filtered = True`` so the processor branch is
-        exercised, without that opt-in, the worker would compute RMS
-        on raw audio (which gives the same numerical result for a
-        passthrough processor, but doesn't actually invoke the
-        processor)."""
+        """The processor-active branch ALSO uses the NEW AUDIO-NP /"""
         import voice_typer.server.level_monitor as lm
 
         holder = {"callback": None}
@@ -377,14 +285,9 @@ class TestProcessLevelChunkEndToEnd:
             "hostapi": 0,
         }
 
-        # Passthrough processor, returns the input chunk unchanged so
-        # flat_filtered == flat and we can compute the expected RMS/peak
-        # from the raw input.
         processor = MagicMock()
         processor.process_chunk.side_effect = lambda x: x
         lm._level_processor = processor
-        # opt IN to running the filter chain for the cosmetic bar
-        # so this test still exercises the processor branch.
         lm._level_bar_filtered = True
 
         lm.start_monitoring(mic_id=None)
@@ -403,7 +306,6 @@ class TestProcessLevelChunkEndToEnd:
             expected_rms = _new_rms(flat)
             expected_peak = _new_peak(flat)
             # Cross-check NEW vs OLD on the SAME flat (numerical
-            # equivalence inside the test, mirrors production code).
             assert abs(_old_rms(flat) - expected_rms) < 1e-6
             assert _old_peak(flat) == expected_peak
 

@@ -1,23 +1,4 @@
-"""§10.1: tests for the GitHub Releases publisher (``publish_pack_release.py``).
-
-Covers the CI-side publisher that uploads the slim-core installer + pack
-onefile + ``pack-manifest.json`` as GitHub Release assets.
-
-Two backends are tested:
-  * ``gh`` CLI backend, mocks ``subprocess.run`` to avoid spawning ``gh``.
-  * GitHub REST API backend, mocks ``urllib.request.urlopen`` to avoid
-    real HTTP.
-
-The tests verify:
-  * Asset validation (missing / empty / directory assets rejected).
-  * ``gh`` command construction (``gh release create`` + ``gh release upload``).
-  * Idempotency (re-running with the same tag uploads missing assets +
-    clobbers existing ones).
-  * Backend auto-selection (``gh`` when available, ``api`` when not).
-  * API backend token handling (``GH_TOKEN`` / ``GITHUB_TOKEN`` env vars).
-  * Asset-name builders (C-CI-13, the §11.9 naming derived from the
-    canonical ``scripts/build/artifact_names.py``).
-"""
+"""§10.1: tests for the GitHub Releases publisher (``publish_pack_release.py``)."""
 
 from __future__ import annotations
 
@@ -35,8 +16,6 @@ if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
 
 from release import publish_pack_release as pub  # type: ignore[import-not-found]  # noqa: E402
-
-# ── Fixtures ────────────────────────────────────────────────────────────
 
 
 @pytest.fixture
@@ -74,8 +53,6 @@ def fake_runner_success():
         # Distinguish create vs upload vs view.
         if "view" in cmd:
             # ``gh release view --json url --jq .url`` returns the URL
-            # as a plain string (``--jq`` extracts the field). Without
-            # ``--jq``, ``--json`` returns the full JSON object.
             if "--jq" in cmd:
                 return subprocess.CompletedProcess(
                     cmd, 0, stdout="https://github.com/owner/repo/releases/tag/v1.2.3", stderr=""
@@ -118,9 +95,6 @@ def fake_runner_release_exists():
     return runner, calls
 
 
-# ── Asset validation ───────────────────────────────────────────────────
-
-
 class TestValidateAssets:
     """``validate_assets``, rejects missing / empty / directory assets."""
 
@@ -151,9 +125,6 @@ class TestValidateAssets:
         empty.write_bytes(b"")
         errors = pub.validate_assets([missing, empty, tmp_path])
         assert len(errors) == 3
-
-
-# ── gh CLI command construction ────────────────────────────────────────
 
 
 class TestGhCommandConstruction:
@@ -246,9 +217,6 @@ class TestGhCommandConstruction:
         assert "--clobber" not in cmd
 
 
-# ── gh release existence check ─────────────────────────────────────────
-
-
 class TestGhReleaseExists:
     """``gh_release_exists`` + ``gh_release_url``."""
 
@@ -265,8 +233,7 @@ class TestGhReleaseExists:
         assert pub.gh_release_exists("v1.2.3", repo="owner/repo", runner=runner) is False
 
     def test_release_url_returns_url_on_success(self):
-        """``gh_release_url`` uses ``--jq '.url'`` so ``gh`` returns the URL
-        as a plain string (not JSON). The fake runner simulates that."""
+        """``gh_release_url`` uses ``--jq '.url'`` so ``gh`` returns the URL"""
 
         def runner(cmd, **kw):
             return subprocess.CompletedProcess(
@@ -292,9 +259,6 @@ class TestGhReleaseExists:
 
         url = pub.gh_release_url("v1.2.3", repo="owner/repo", runner=runner)
         assert url is None
-
-
-# ── publish_release (gh backend) ───────────────────────────────────────
 
 
 class TestPublishReleaseGhBackend:
@@ -395,9 +359,6 @@ class TestPublishReleaseGhBackend:
         assert any("upload failed" in e for e in result.errors)
 
 
-# ── publish_release (API backend) ──────────────────────────────────────
-
-
 class TestPublishReleaseApiBackend:
     """``publish_release`` with the GitHub REST API backend."""
 
@@ -463,9 +424,6 @@ class TestPublishReleaseApiBackend:
         assert len(result.uploaded) == 1
 
 
-# ── Backend auto-selection ─────────────────────────────────────────────
-
-
 class TestBackendAutoSelection:
     """When ``backend=None``, the backend is auto-selected."""
 
@@ -500,19 +458,8 @@ class TestBackendAutoSelection:
         mock_api.assert_called_once()
 
 
-# ── Asset-name builders (C-CI-13, §11.9 canonical) ──────────────────────
-
-
 class TestAssetNameBuilders:
-    """The publisher's asset-name reference is DERIVED from the canonical
-    §11.9 naming module (``scripts/build/artifact_names.py``).
-
-    The publisher does NOT enforce these names, it uploads whatever
-    paths the caller passes. The builders are re-exported so CI
-    workflows + the docs can construct the expected names consistently;
-    importing (rather than copying) the canonical functions means this
-    module cannot drift from ``artifact_names.py``.
-    """
+    """The publisher's asset-name reference is DERIVED from the canonical"""
 
     def test_slim_core_builder_matches_canonical_naming(self):
         builder = pub.ASSET_NAME_BUILDERS["slim_core"]
@@ -525,8 +472,7 @@ class TestAssetNameBuilders:
         assert builder("3", "aarch64-unknown-linux-gnu") == "voice-typer-runtime-pack-3-aarch64-unknown-linux-gnu.zip"
 
     def test_pack_manifest_builder_is_not_versioned(self):
-        """The manifest is NOT versioned: ``releases/latest/download/pack-manifest.json``
-        serves the latest release's manifest."""
+        """The manifest is NOT versioned: ``releases/latest/download/pack-manifest.json``"""
         assert pub.ASSET_NAME_BUILDERS["pack_manifest"]() == "pack-manifest.json"
 
     def test_full_offline_builder_matches_canonical_naming(self):
@@ -534,18 +480,13 @@ class TestAssetNameBuilders:
         assert builder("1.2.3", "x86_64-pc-windows-msvc") == "voice-typer-full-offline-1.2.3-x86_64-pc-windows-msvc.exe"
 
     def test_builders_are_imported_from_the_canonical_module(self):
-        """The builders must BE the canonical functions (imported, not
-        copied) so the publisher's naming reference can never drift from
-        ``scripts/build/artifact_names.py``."""
+        """The builders must BE the canonical functions (imported, not"""
         from scripts.build import artifact_names
 
         assert pub.ASSET_NAME_BUILDERS["slim_core"] is artifact_names.slim_core_installer_name
         assert pub.ASSET_NAME_BUILDERS["runtime_pack"] is artifact_names.runtime_pack_name
         assert pub.ASSET_NAME_BUILDERS["pack_manifest"] is artifact_names.pack_manifest_name
         assert pub.ASSET_NAME_BUILDERS["full_offline"] is artifact_names.full_offline_installer_name
-
-
-# ── Defaults ───────────────────────────────────────────────────────────
 
 
 class TestDefaults:
@@ -556,9 +497,6 @@ class TestDefaults:
 
     def test_default_gh_cli(self):
         assert pub.DEFAULT_GH_CLI == "gh"
-
-
-# ── CLI ────────────────────────────────────────────────────────────────
 
 
 class TestCli:
@@ -646,15 +584,11 @@ class TestCli:
         assert exit_code == 1
 
 
-# ── Idempotency ────────────────────────────────────────────────────────
-
-
 class TestIdempotency:
     """Re-running the publisher with the same tag is safe (idempotent)."""
 
     def test_clobber_flag_default_true(self, fake_assets: dict[str, Path]):
-        """The default upload command includes ``--clobber`` so re-runs replace
-        existing assets with the same name."""
+        """The default upload command includes ``--clobber`` so re-runs replace"""
         assets = list(fake_assets.values())
         cmd = pub.build_gh_upload_command("v1.2.3", assets, repo="owner/repo")
         assert "--clobber" in cmd, "default upload command must include --clobber for idempotent re-runs"
@@ -674,9 +608,6 @@ class TestIdempotency:
             runner=runner,
         )
         assert result.success is True
-
-
-# ── PublishResult dataclass ────────────────────────────────────────────
 
 
 class TestPublishResultDataclass:

@@ -1,34 +1,4 @@
-"""H1 + H2 tests: API.md config-table accuracy and Windows notepad behavior.
-
-H1 (d-review Finding 3)
------------------------
-``docs/API.md``'s "Key Configuration Keys" table previously documented
-5+ stale or fabricated field definitions (wrong defaults, removed
-fields, invented enum values).  This test parses the markdown table
-and asserts each row matches the actual ``Config`` dataclass default
-read from ``voice_typer/server/config.py``.
-
-If you change a default in ``Config``, update the table in
-``docs/API.md`` in the same commit, otherwise this test fails and CI
-blocks the PR.
-
-H2 (c-review XPLAT-01)
------------------------
-On Windows, ``VoiceTyperApp._open_config_file`` opens the user's
-``.json`` file association (e.g. VS Code, Notepad++, Sublime) via
-``ShellExecuteEx`` so it can still block until the editor exits and
-reload the config afterward, unlike ``os.startfile`` which returns
-immediately with no process handle.  When no ``.json`` handler is
-associated it falls back to the SystemRoot-validated Notepad path
-(never a bare PATH-resolved ``notepad``).  This preserves the
-XPLAT-01 UX win (respecting associations) while restoring the
-pre-XPLAT-01 SEC-audit-011 guarantees: the ``_config_mutation_lock`` is
-held for the editor session and the config is reloaded after the
-editor closes.
-
-These tests mock the ShellExecuteEx wrapper and ``subprocess.Popen`` to
-verify both branches without spawning real editors.
-"""
+"""H1 + H2 tests: API.md config-table accuracy and Windows notepad behavior."""
 
 from __future__ import annotations
 
@@ -40,38 +10,15 @@ import pytest
 
 from tests.fixtures.app_helpers import make_voice_typer_app
 
-# the previous Linux test-env shim that aliased
-# ``ctypes.WINFUNCTYPE = ctypes.CFUNCTYPE`` and inserted a ``MagicMock``
-# for ``voice_typer.server.crash_handler`` into ``sys.modules`` has been
-# removed. ``crash_handler.py`` now gates the ``@ctypes.WINFUNCTYPE(...)``
-# decorator behind ``sys.platform == "win32"``, so the module imports
-# cleanly on Linux/macOS without any test-infrastructure shim.
-# ─── H1: API.md config-table accuracy ─────────────────────────────────
-
 
 def _api_md_path() -> Path:
-    """Return the absolute path to ``docs/API.md``.
-
-    Resolved relative to this test file so the test works regardless of
-    the pytest ``rootdir`` (e.g. when run via ``pytest tests/`` from the
-    repo root vs ``pytest`` from a subdirectory).
-    """
+    """Return the absolute path to ``docs/API.md``."""
     return Path(__file__).resolve().parent.parent / "docs" / "API.md"
 
 
 def _parse_api_config_table(api_md_text: str) -> list[tuple[str, str, str, str]]:
-    """Parse the "Key Configuration Keys" markdown table from API.md.
-
-    Returns a list of ``(key, type_str, default_str, description)``
-    tuples, one per data row.  The header row and the separator row
-    (``|-----|------|---------|-------------|``) are skipped.
-
-    The parser is intentionally simple (regex + ``split("|")``) so it
-    has no third-party deps.  It does NOT try to handle GitHub-flavored
-    markdown extensions, only the pipe-table syntax used in API.md.
-    """
+    """Parse the \"Key Configuration Keys\" markdown table from API.md."""
     # Anchor on the heading + the table header row so we don't
-    # accidentally pick up unrelated tables elsewhere in the file.
     pattern = re.compile(
         r"### Key Configuration Keys\n"
         r".*?"  # optional prose between heading and table
@@ -92,25 +39,15 @@ def _parse_api_config_table(api_md_text: str) -> list[tuple[str, str, str, str]]
         if not line.startswith("|"):
             continue
         # ``strip("|")`` removes leading/trailing pipes; ``split("|")``
-        # then gives us the 4 cells.  We re-strip each cell to remove
-        # the surrounding spaces.
         cells = [cell.strip() for cell in line.strip("|").split("|")]
         if len(cells) != 4:
             continue
         key, type_str, default_str, description = cells
         # Skip the separator row (``-----|------|---------|-------------``)
-        # in case it slipped through, its "key" cell is all dashes.
         if not key or key.startswith("-"):
             continue
 
         # API.md wraps identifiers and literals in backticks for monospace
-        # rendering.  Strip a single layer of surrounding backticks so
-        # ``key`` is ``recording_mode`` (not `` `recording_mode` ``),
-        # ``type_str`` is ``str`` (not `` `str` ``), and ``default_str``
-        # is ``"toggle"`` (not `` `"toggle"` ``).  Only the outermost
-        # backtick layer is stripped, inline backticks inside the
-        # description (e.g. ``One of: `toggle`, `push_to_talk`.``) are
-        # preserved.
         def _strip_outer_backticks(s: str) -> str:
             if len(s) >= 2 and s[0] == "`" and s[-1] == "`":
                 return s[1:-1]
@@ -124,13 +61,7 @@ def _parse_api_config_table(api_md_text: str) -> list[tuple[str, str, str, str]]
 
 
 def _parse_default(default_str: str, type_str: str) -> object:
-    """Coerce a documented default string to the corresponding Python value.
-
-    The API.md table renders defaults as Python-literal-ish strings:
-    ``"toggle"``, ``True``, ``20.0``, ``150``, etc.  This helper parses
-    them back to their native types so we can ``==`` compare against the
-    actual ``Config()`` default.
-    """
+    """Coerce a documented default string to the corresponding Python value."""
     if type_str == "bool":
         if default_str == "True":
             return True
@@ -143,9 +74,6 @@ def _parse_default(default_str: str, type_str: str) -> object:
         return float(default_str)
     if type_str == "str":
         # Strip surrounding double quotes.  We don't allow single-quoted
-        # strings in the table, every str default in API.md uses
-        # double quotes, so a single-quoted value is a doc bug worth
-        # surfacing as a test failure.
         if len(default_str) >= 2 and default_str[0] == '"' and default_str[-1] == '"':
             return default_str[1:-1]
         raise AssertionError(f"str default {default_str!r} must be double-quoted in API.md")
@@ -166,15 +94,7 @@ class TestApiDocConfigTableAccuracy:
         assert len(rows) >= 1, "Config table has no data rows"
 
     def test_documented_fields_exist_on_config_with_documented_defaults(self):
-        """Every (key, default) in the table must match ``Config()``.
-
-        This is the core regression guard for d-review Finding 3.  If
-        you change a default in ``Config``, update API.md in the same
-        commit.  If you remove a field from ``Config``, remove it from
-        the table.  If you add a user-facing field, consider adding it
-        to the table too (and this test will catch typos in the default
-        value).
-        """
+        """Every (key, default) in the table must match ``Config()``."""
         from voice_typer.server.config import Config
 
         rows = _parse_api_config_table(_api_md_path().read_text(encoding="utf-8"))
@@ -209,13 +129,7 @@ class TestApiDocConfigTableAccuracy:
             )
 
     def test_no_removed_fields_leaked_back_into_table(self):
-        """Removed/renamed fields must NOT reappear in the table.
-
-        d-review Finding 3 specifically called out ``paste_enabled``,
-        ``clipboard_clear_delay_seconds``, ``check_updates``, and the
-        ``voice_activity`` recording mode as stale entries.  This test
-        pins that they stay removed.
-        """
+        """Removed/renamed fields must NOT reappear in the table."""
         rows = _parse_api_config_table(_api_md_path().read_text(encoding="utf-8"))
         documented_keys = {row[0] for row in rows}
         removed = {
@@ -231,13 +145,7 @@ class TestApiDocConfigTableAccuracy:
         )
 
     def test_recording_mode_enum_matches_validator(self):
-        """The recording_mode description must list the real enum values.
-
-        The validator in ``config_validators.py`` is
-        ``_make_enum_validator({"toggle", "push_to_talk"})``, there is
-        no ``voice_activity`` mode.  The description in API.md must not
-        advertise ``voice_activity`` as a valid value.
-        """
+        """The recording_mode description must list the real enum values."""
         rows = _parse_api_config_table(_api_md_path().read_text(encoding="utf-8"))
         recording_mode_row = next((r for r in rows if r[0] == "recording_mode"), None)
         assert recording_mode_row is not None, "recording_mode row missing from table"
@@ -257,15 +165,7 @@ class TestApiDocConfigTableAccuracy:
 
 
 class TestWindowsOpenConfigFile:
-    """XPLAT-01 + SEC-audit-011: Windows _open_config_file opens the user's
-    default editor (respecting .json associations) but still holds
-    _config_mutation_lock for the session and reloads config after the
-    editor closes. It does this via ShellExecuteEx (which yields a process
-    handle to wait on) rather than os.startfile (which returns immediately
-    with no handle). When no .json handler is associated it falls back to
-    the SystemRoot-validated Notepad path, never a bare PATH-resolved
-    "notepad".
-    """
+    """XPLAT-01 + SEC-audit-011: Windows _open_config_file opens the user's"""
 
     def test_opens_with_default_app_first_when_associated(self, tmp_config_dir, monkeypatch):
         """Primary path uses the default-app open (association-respecting)."""
@@ -286,29 +186,13 @@ class TestWindowsOpenConfigFile:
 
         def _record_popen(*a, **kw):
             # Filter out library-init noise (e.g. `ldconfig -p` spawned by
-            # ctypes.CDLL / dynamic-linker probing during import). These calls
-            # are Python stdlib internals, not SUT behavior, and would otherwise
-            # leak into the recorder and break assertions that expect ZERO
-            # Notepad-related Popen calls on the default-app path.
             cmd = a[0] if a else kw.get("args")
             if isinstance(cmd, list | tuple) and cmd and "ldconfig" in str(cmd[0]):
                 return MagicMock()
             # Filter out icacls (config file ACL hardening via
-            # config/__init__.py _restrict_config_file_acl), it's a
-            # security step that runs during config save, not an editor
-            # invocation. Without this filter the assertion below
-            # (popen_calls == []) fails because icacls leaks into the
-            # recorder even though no Notepad/editor Popen was issued.
             if isinstance(cmd, list | tuple) and cmd and "icacls" in str(cmd[0]):
                 return MagicMock()
             # Filter out lscpu (CPU inventory probe run by a library
-            # during config-dir setup / save), same benign-library
-            # class as ldconfig; test_config_wiring.py filters it the
-            # same way. Without this filter the assertion below
-            # (popen_calls == []) fails because lscpu leaks into the
-            # recorder even though no Notepad/editor Popen was issued.
-            # The library invokes it as a BARE STRING (``Popen("lscpu")``)
-            # rather than a list, so the guard must accept ``str`` too.
             if isinstance(cmd, list | tuple) and cmd and "lscpu" in str(cmd[0]):
                 return MagicMock()
             if isinstance(cmd, str) and "lscpu" in cmd:
@@ -355,25 +239,12 @@ class TestWindowsOpenConfigFile:
 
         def _fake_popen(args, *rest, **kw):
             # Filter out library-init noise (e.g. `ldconfig -p` spawned by
-            # ctypes.CDLL / dynamic-linker probing during import). These calls
-            # are Python stdlib internals, not SUT behavior; the only Popen
-            # the SUT should issue here is the SystemRoot-validated Notepad
-            # fallback (['C:\\Windows\\System32\\notepad.exe', config_file]).
             if isinstance(args, list | tuple) and args and "ldconfig" in str(args[0]):
                 return _FakeProc(args)
             # Filter out icacls (config file ACL hardening via
-            # config/__init__.py _restrict_config_file_acl), it's a
-            # security step that runs during config save, not an editor
-            # invocation. Without this filter the assertion below
-            # (len(popen_calls) == 1) fails because icacls leaks into
-            # the recorder alongside the Notepad fallback.
             if isinstance(args, list | tuple) and args and "icacls" in str(args[0]):
                 return _FakeProc(args)
             # Filter out lscpu (CPU inventory probe run by a library
-            # during config-dir setup / save), same benign-library
-            # class as ldconfig. See test_config_wiring.py for the
-            # equivalent filter. The library invokes it as a BARE
-            # STRING (``Popen("lscpu")``), so the guard accepts ``str``.
             if isinstance(args, list | tuple) and args and "lscpu" in str(args[0]):
                 return _FakeProc(args)
             if isinstance(args, str) and "lscpu" in args:
@@ -385,18 +256,7 @@ class TestWindowsOpenConfigFile:
         startfile_calls: list = []
         monkeypatch.setattr("os.startfile", lambda p: startfile_calls.append(p), raising=False)
 
-        # Isolate the launcher-fallback invariant from the config-save
-        # path (Phase 1 of ``ConfigEditorLauncher.launch``). The save is
-        # environment-dependent (ACL/icacls handling, keyring probing)
-        # and on windows-2022 CI it raised once, the launcher's
-        # suppress-non-timeout filter then swallowed the exception and
-        # the fallback never ran, failing this test with "Got: []" even
-        # though the SUT behaved per contract. This test pins the
         # SEC-audit-011 FALLBACK invariant (SystemRoot-validated
-        # Notepad, never a bare PATH-resolved ``notepad``), which the
-        # save path does not participate in; config-save behavior has
-        # its own dedicated suite. ``save`` is mocked so the fallback
-        # observation is deterministic on every platform.
         monkeypatch.setattr(app.config, "save", lambda: True)
 
         app._open_config_file()
@@ -413,12 +273,7 @@ class TestWindowsOpenConfigFile:
         assert startfile_calls == [], "os.startfile must only be a last resort."
 
     def test_no_bare_path_resolved_notepad_in_source(self):
-        """Source must not contain a bare PATH-resolved Popen(['notepad', ...]).
-
-        The insecure downgrade pattern (``subprocess.Popen(['notepad', ...])``
-        resolved via PATH/cwd) must be gone. The validated fallback builds the
-        Notepad path from %SYSTEMROOT% and passes it as a concrete file path.
-        """
+        """Source must not contain a bare PATH-resolved Popen(['notepad', ...])."""
         import ast
 
         app_py = Path(__file__).resolve().parent.parent / "voice_typer" / "server" / "app.py"

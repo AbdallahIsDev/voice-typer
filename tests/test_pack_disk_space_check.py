@@ -1,26 +1,4 @@
-"""§8.8: Disk space check before download.
-
-Spec (§8.8):
-
-  Reuse ``asr_utils._check_disk_space_for_download()`` with pack size
-  (180 MB compressed + 450 MB unpacked = 630 MB required). If
-  insufficient, show one tray notification + defer.
-
-Tested behaviors:
-
-  1. ``PACK_REQUIRED_MB == 630`` (180 + 450).
-  2. ``PACK_COMPRESSED_MB == 180``.
-  3. ``PACK_UNPACKED_MB == 450``.
-  4. ``check_pack_disk_space`` raises ``RuntimeError`` when free space
-     < 630 MB.
-  5. ``check_pack_disk_space`` returns None when free space >= 630 MB.
-  6. ``check_pack_disk_space`` swallows ``OSError`` from
-     ``shutil.disk_usage`` (best-effort, don't block the download
-     on a failed stat).
-  7. The error message mentions both the compressed and unpacked
-     sizes (so the user knows why 630 MB is needed for a "180 MB"
-     download).
-"""
+"""§8.8: Disk space check before download."""
 
 from __future__ import annotations
 

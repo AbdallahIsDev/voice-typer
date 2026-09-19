@@ -1,24 +1,4 @@
-"""Tests for the fast model-existence pre-check + tooltip model gating.
-
-2026-08-15 user request: on startup the app must check whether the
-configured model actually EXISTS before entering the "Loading model"
-state. When it is missing:
-
-- the tray tooltip must NOT advertise the stale ``[tiny]`` suffix
-  (the name comes from ``model_size`` in config, which survives the
-  model being deleted / never downloaded);
-- the tray state message and the Windows notification must be GENERIC
-  ("No speech model is selected. Open Models to choose one.") with NO
-  model/backend name;
-- ``load_background`` must refuse BEFORE the heavy engine import /
-  LOADING state (the load path would raise ``ModelNotDownloadedError``
-  anyway, the registry re-raises for a missing primary, no whisper
-  fallback).
-
-The canonical per-backend "downloaded" semantics live in
-``service/model.py::_compute_model_status``; the fast single-model
-probe ``tray_models.is_active_model_downloaded`` mirrors them.
-"""
+"""Tests for the fast model-existence pre-check + tooltip model gating."""
 
 from __future__ import annotations
 
@@ -57,9 +37,7 @@ class _MockController:
 
 @pytest.fixture(autouse=True)
 def _fresh_availability_cache():
-    """Clear the module-level HF availability TTL cache before/after each
-    test so a download marker created in one test doesn't leak into the
-    next (and vice versa)."""
+    """Clear the module-level HF availability TTL cache before/after each"""
     from voice_typer.server.tray_models import invalidate_model_availability_cache
 
     invalidate_model_availability_cache()
@@ -68,8 +46,7 @@ def _fresh_availability_cache():
 
 
 def _make_whisper_repo_dir(config_dir: Path, model_size: str) -> Path:
-    """Simulate a downloaded whisper model in the HF cache by writing the
-    ``refs/main`` marker file the availability probe checks."""
+    """Simulate a downloaded whisper model in the HF cache by writing the"""
     from voice_typer.server.model_registry import get_model_metadata
 
     meta = get_model_metadata(model_size)
@@ -81,12 +58,7 @@ def _make_whisper_repo_dir(config_dir: Path, model_size: str) -> Path:
 
 
 def _simulate_complete_snapshot(monkeypatch, config_dir) -> None:
-    """Patch the partial-download honesty probe at its owning module so the
-    fixture's ``models--<repo>`` directory counts as a FULLY downloaded
-    snapshot. The real probe needs a real ``huggingface_hub`` install plus a
-    complete snapshot layout; these are unit tests of the precheck / tooltip
-    layers, so a faithful "complete iff the repo dir exists" simulation keeps
-    the contracts deterministic on any machine."""
+    """fixture's ``models--<repo>`` directory counts as a FULLY downloaded"""
 
     def _probe_complete(repo_id):
         return (config_dir / "huggingface" / "hub" / f"models--{repo_id.replace('/', '--')}").is_dir()
@@ -101,8 +73,7 @@ class TestIsActiveModelDownloaded:
     """``tray_models.is_active_model_downloaded``, the fast probe."""
 
     def test_non_config_object_returns_true(self, tmp_config_dir):
-        """Test doubles (SimpleNamespace) must NOT probe the real user's
-        HF cache, return True so no pre-check / tooltip gate misfires."""
+        """Test doubles (SimpleNamespace) must NOT probe the real user's"""
         from voice_typer.server.tray_models import is_active_model_downloaded
 
         cfg = SimpleNamespace(asr_backend="whisper", model_size="tiny")
@@ -115,12 +86,7 @@ class TestIsActiveModelDownloaded:
         assert is_active_model_downloaded(cfg) is False
 
     def test_whisper_downloaded_true(self, tmp_config_dir, monkeypatch):
-        """The repo dir exists AND the completeness probe passes → the
-        tooltip/pre-check report the model as available. The probe is
-        stubbed here (its cache-layout mechanics are pinned in
-        tests/model_download/test_download_abort_gate.py); a bare
-        refs/main marker alone is NO LONGER sufficient, a partial
-        download must report False."""
+        """tooltip/pre-check report the model as available. The probe is"""
         _make_whisper_repo_dir(tmp_config_dir, "tiny")
         monkeypatch.setattr(
             "voice_typer.server.transcription_download.is_model_snapshot_complete",
@@ -138,8 +104,7 @@ class TestIsActiveModelDownloaded:
         assert is_active_model_downloaded(Config(asr_backend="groq", model_size="tiny")) is True
 
     def test_qwen_path_dir_true(self, tmp_config_dir):
-        """Configured qwen_model_path pointing at an existing dir counts
-        as downloaded (mirrors service/model.py)."""
+        """Configured qwen_model_path pointing at an existing dir counts"""
         from voice_typer.server.tray_models import is_active_model_downloaded
 
         model_dir = tmp_config_dir / "qwen-onnx"
@@ -198,8 +163,7 @@ class TestComputeTooltipModelSuffix:
 
 
 def _make_mm(config: Config) -> tuple[ModelManager, MagicMock]:
-    """ModelManager with a REAL Config (so the pre-check probe runs) but
-    every heavy dependency mocked."""
+    """ModelManager with a REAL Config (so the pre-check probe runs) but"""
     import threading
 
     app = MagicMock(name="app")
@@ -253,10 +217,7 @@ class TestLoadBackgroundPrecheck:
         assert app._pending_dictation is False
 
     def test_no_model_selected_refusal_uses_select_message(self, tmp_config_dir):
-        """Empty model_size (NO_MODEL_SIZE) → the "No model selected"
-        message, the SAME text the renderer's Home status pill hint
-        shows, NOT the "No speech model is selected" download message (the
-        tray tooltip must agree with the Home pill for this state)."""
+        """Empty model_size (NO_MODEL_SIZE) → the \"No model selected\""""
         mm, app = _make_mm(Config(asr_backend="whisper", model_size=""))
 
         mm.load_background()
@@ -284,8 +245,7 @@ class TestLoadBackgroundPrecheck:
 
 
 class TestGenericNotDownloadedMessages:
-    """The user-facing not-downloaded strings must not name the backend /
-    model (2026-08-15 user request)."""
+    """The user-facing not-downloaded strings must not name the backend /"""
 
     def test_state_message_generic(self):
         from voice_typer.server import i18n
@@ -304,9 +264,7 @@ class TestGenericNotDownloadedMessages:
         assert "No speech model is selected" in s
 
     def test_no_model_selected_state_matches_home_hint(self):
-        """The no-model-selected state message must read the SAME as the
-        renderer's ``home.noModelSelectedHint`` (en.json) so the tray
-        tooltip and the Home status pill agree verbatim."""
+        """renderer's ``home.noModelSelectedHint`` (en.json) so the tray"""
         from voice_typer.server import i18n
 
         s = i18n.t("state.model_manager.no_model_selected")

@@ -1,35 +1,4 @@
-"""— regression tests for ``CREATE_NO_WINDOW`` on Windows.
-
-Both ``_system_python_can_import_launcher`` (in
-:mod:`voice_typer.server.server_platform.autostart`) and
-``_unregister_all_voicetyper_tasks`` (in
-:mod:`voice_typer.server.server_platform.autostart_windows`) spawn a
-``python.exe`` / ``powershell.exe`` subprocess via ``subprocess.run``.
-Pre-fix , neither call set ``creationflags``, so on
-Windows the spawned child would briefly flash a console window:
-
-  * the system-python import probe flashes ``python.exe`` for
-    ~50 ms during ``_enable_autostart_macos`` / ``_enable_autostart_linux``
-    when running inside a venv (the probe is invoked from
-    ``_enable_autostart_*`` via
-    ``from voice_typer.server.server_platform.autostart import
-    _system_python_can_import_launcher``). On Windows the flashing
-    window is visible to the user.
-  * the PowerShell sweep at uninstall time flashes
-    ``powershell.exe`` for up to ~60 s while the sweep runs. The sweep
-    is launched from a UI-driven uninstall flow where a flashing
-    console looks broken.
-
-Post-fix: both calls pass ``creationflags=CREATE_NO_WINDOW``
-(``0x08000000``) on Windows so the subprocess runs without a console
-window. The flag is guarded by ``is_windows()``, on macOS /
-Linux ``creationflags`` is NOT a valid ``subprocess.run`` kwarg and
-``subprocess`` raises ``ValueError`` if it's set.
-
-These tests run on any platform, they mock ``sys.platform`` and
-``subprocess.run`` so the ``creationflags`` kwarg is asserted without
-needing a real Windows host. VALIDATE ON WINDOWS HOST.
-"""
+"""— regression tests for ``CREATE_NO_WINDOW`` on Windows."""
 
 from __future__ import annotations
 
@@ -40,24 +9,12 @@ from unittest.mock import MagicMock
 
 import pytest
 
-# ---------------------------------------------------------------------------
-# _system_python_can_import_launcher, CREATE_NO_WINDOW
-# ---------------------------------------------------------------------------
-
 
 class TestSystemPythonProbeCreateNoWindow:
-    """``_system_python_can_import_launcher`` passes
-    ``creationflags=CREATE_NO_WINDOW`` to ``subprocess.run`` on Windows
-    so the ``python.exe`` probe doesn't flash a console."""
+    """``_system_python_can_import_launcher`` passes"""
 
     def test_windows_passes_create_no_window(self, monkeypatch):
-        """On Windows, the probe must pass ``creationflags=0x08000000``
-        (CREATE_NO_WINDOW) to ``subprocess.run``."""
-        # Force is_windows() → True. The probe reads ``is_windows`` from
-        # ``voice_typer.server.platform_utils`` (imported at the top of
-        # ``autostart.py``), and ``is_windows`` reads ``sys.platform``
-        # from the same module, so patching ``sys.platform`` on the
-        # platform_utils module is the canonical way to flip the result.
+        """On Windows, the probe must pass ``creationflags=0x08000000``"""
         monkeypatch.setattr(
             "voice_typer.server.platform_utils.sys.platform",
             "win32",
@@ -89,9 +46,7 @@ class TestSystemPythonProbeCreateNoWindow:
         )
 
     def test_linux_omits_creationflags(self, monkeypatch):
-        """On Linux, the probe must NOT pass ``creationflags``, it's
-        not a valid ``subprocess.run`` kwarg on POSIX and raises
-        ``ValueError`` if set."""
+        """On Linux, the probe must NOT pass ``creationflags``, it's"""
         monkeypatch.setattr(
             "voice_typer.server.platform_utils.sys.platform",
             "linux",
@@ -118,8 +73,7 @@ class TestSystemPythonProbeCreateNoWindow:
         )
 
     def test_macos_omits_creationflags(self, monkeypatch):
-        """On macOS, the probe must NOT pass ``creationflags`` either —
-        same POSIX rule as Linux."""
+        """On macOS, the probe must NOT pass ``creationflags`` either —"""
         monkeypatch.setattr(
             "voice_typer.server.platform_utils.sys.platform",
             "darwin",
@@ -146,16 +100,9 @@ class TestSystemPythonProbeCreateNoWindow:
         )
 
 
-# ---------------------------------------------------------------------------
-# _unregister_all_voicetyper_tasks, CREATE_NO_WINDOW
-# ---------------------------------------------------------------------------
-
-
 @pytest.fixture
 def fake_winreg(monkeypatch):
-    """Install a fake ``winreg`` module so Windows code paths import
-    cleanly. Mirrors the fixture in ``tests/test_uninstall_windows.py``.
-    """
+    """Install a fake ``winreg`` module so Windows code paths import"""
     fake = types.ModuleType("winreg")
     fake.HKEY_CURRENT_USER = 0x80000001
     fake.KEY_SET_VALUE = 0x0002
@@ -184,40 +131,17 @@ def win32_platform(monkeypatch, fake_winreg):
 
 
 class TestUnregisterAllTasksCreateNoWindow:
-    """``_unregister_all_voicetyper_tasks`` passes
-    ``creationflags=CREATE_NO_WINDOW`` to ``subprocess.run`` so the
-    ``powershell.exe`` sweep doesn't flash a console during uninstall."""
+    """``_unregister_all_voicetyper_tasks`` passes"""
 
     def test_powershell_call_includes_create_no_window(self, monkeypatch, fake_winreg, win32_platform):
-        """The PowerShell subprocess.run call MUST pass
-        ``creationflags=0x08000000`` (CREATE_NO_WINDOW) so the uninstall
-        sweep doesn't flash a console window at the user."""
+        """The PowerShell subprocess.run call MUST pass"""
         from voice_typer.server.server_platform import autostart_windows
 
         # Stub task_scheduler.is_supported() → True so the function
-        # proceeds to the PowerShell call.
-        #
-        # We must patch BOTH ``sys.modules`` AND the attribute on the
-        # ``voice_typer.server`` package: production code does
-        # ``from voice_typer.server import task_scheduler`` which, per
-        # Python's import system, resolves ``task_scheduler`` as an
-        # attribute of the already-imported ``voice_typer.server`` package
-        # BEFORE consulting ``sys.modules["voice_typer.server.task_scheduler"]``.
-        # If a prior test (e.g. ``test_e2e_regression.py``) imported the
-        # real ``task_scheduler`` module, the attribute is already set on
-        # ``voice_typer.server`` and replacing only ``sys.modules`` leaves
-        # the production code reaching the real module, whose
-        # ``is_supported()`` returns False on Linux (no schtasks.exe),
-        # causing the function to early-return ``[]``.
         fake_task_scheduler = types.ModuleType("task_scheduler")
         fake_task_scheduler.is_supported = lambda: True
         monkeypatch.setitem(sys.modules, "voice_typer.server.task_scheduler", fake_task_scheduler)
         # ``raising=False`` so the patch succeeds whether or not a prior
-        # test has imported the real ``task_scheduler`` module (which
-        # would have set the attribute on the ``voice_typer.server``
-        # package). Without this, running this test in isolation
-        # (before any other test imports task_scheduler) raises
-        # ``AttributeError`` because the attribute doesn't exist yet.
         monkeypatch.setattr(
             "voice_typer.server.task_scheduler",
             fake_task_scheduler,
@@ -231,9 +155,6 @@ class TestUnregisterAllTasksCreateNoWindow:
             captured["cmd"] = list(cmd)
             r = MagicMock()
             r.returncode = 0
-            # Match the production-code parsing: lines starting with
-            # "VoiceTyper" or "com.voicetyper" (legacy + canonical
-            # reverse-DNS task names) are returned as deleted task names.
             r.stdout = "VoiceTyperAutostart_aaaaaaaa\ncom.voicetyper.prewarm\ncom.voicetyper.autostart_bbbbbbbb\n"
             r.stderr = ""
             return r
@@ -246,7 +167,6 @@ class TestUnregisterAllTasksCreateNoWindow:
             "com.voicetyper.autostart_bbbbbbbb",
             "com.voicetyper.prewarm",
         ], f"expected the stubbed task names in the deleted list; got {deleted}"
-        # the PowerShell call MUST set creationflags.
         assert "creationflags" in captured, (
             "_unregister_all_voicetyper_tasks must pass creationflags "
             "to subprocess.run so powershell.exe doesn't flash a console "
@@ -259,20 +179,11 @@ class TestUnregisterAllTasksCreateNoWindow:
         assert captured["cmd"][0] == "powershell.exe", f"expected powershell.exe as argv[0]; got {captured['cmd'][0]}"
 
 
-# ---------------------------------------------------------------------------
-# is_wayland_session restricted to Linux only
-# ---------------------------------------------------------------------------
-
-
 class TestIsWaylandSessionLinuxOnly:
-    """``is_wayland_session`` must return False on macOS, Wayland
-    is a Linux display-server protocol and macOS uses Quartz/Aqua."""
+    """``is_wayland_session`` must return False on macOS, Wayland"""
 
     def test_returns_false_on_macos_even_with_wayland_env(self, monkeypatch):
-        """Setting ``WAYLAND_DISPLAY`` on macOS must NOT cause
-        ``is_wayland_session`` to return True, macOS does not run
-        Wayland. Pre-, this returned True because the platform
-        guard accepted ``darwin`` as a Wayland-capable platform."""
+        """Setting ``WAYLAND_DISPLAY`` on macOS must NOT cause"""
         from voice_typer.server import platform_utils
 
         monkeypatch.setattr(platform_utils.sys, "platform", "darwin")
@@ -293,9 +204,7 @@ class TestIsWaylandSessionLinuxOnly:
         assert platform_utils.is_wayland_session() is False
 
     def test_returns_true_on_linux_with_wayland_env(self, monkeypatch):
-        """Sanity: on Linux with ``WAYLAND_DISPLAY`` set, the function
-        still returns True ( only restricts the platform guard,
-        not the env-var detection)."""
+        """Sanity: on Linux with ``WAYLAND_DISPLAY`` set, the function"""
         from voice_typer.server import platform_utils
 
         monkeypatch.setattr(platform_utils.sys, "platform", "linux")
@@ -303,8 +212,7 @@ class TestIsWaylandSessionLinuxOnly:
         assert platform_utils.is_wayland_session() is True
 
     def test_returns_true_on_linux_with_xdg_session_type(self, monkeypatch):
-        """Sanity: on Linux with ``XDG_SESSION_TYPE=wayland`` (and no
-        ``WAYLAND_DISPLAY``), the function still returns True."""
+        """Sanity: on Linux with ``XDG_SESSION_TYPE=wayland`` (and no"""
         from voice_typer.server import platform_utils
 
         monkeypatch.setattr(platform_utils.sys, "platform", "linux")

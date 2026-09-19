@@ -1,29 +1,6 @@
-"""Regression tests: paste() helper extraction.
-
-The original 542-LOC ``ClipboardManager.paste()`` was split into 16
-focused helpers with explicit error contracts (``(ok, reason)`` tuples
-or bool returns). These tests exercise each helper in isolation with
-mocked dependencies, plus three integration guarantees:
-
-1. **Ordering**: ``_register_pending_restore`` is called BEFORE
-   ``_dispatch_keystroke``, and the restore daemon is spawned AFTER
-   dispatch returns (the delay counts from the keystroke, not from
-   entry — scheduling first let a slow safety path push dispatch
-   past the delay so the restore wiped the clipboard before Ctrl+V
-   landed). On dispatch failure the entry is rolled back (no
-   restore): the dictated text stays in the clipboard for manual
-   paste instead of being silently wiped.
-2. **Short-circuit**: a ``_check_target_safety`` failure short-circuits
-   ``_dispatch_keystroke`` (no keystroke sent into an unsafe target).
-3. **Windows TOCTOU**: ``_recheck_toctou`` aborts the dispatch when
-   the foreground window handle changed between capture and send
-   (mocked ``ctypes.windll`` so the Win32 path runs on Linux CI).
-
+"""
+Regression tests: paste() helper extraction.
 These tests do NOT re-assert the full ``paste()`` behavior: that is
-the job of the 21 pre-existing ``tests/test_clipboard*.py`` files
-(397 tests, all green before and after the refactor). They assert the
-HELPER CONTRACT: each helper's signature, return shape, log line, and
-short-circuit semantics.
 """
 
 from __future__ import annotations
@@ -31,26 +8,15 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 import pytest
-
-# pynput / pynput.keyboard / pyperclip are mocked at collection time by
-# tests/clipboard/conftest.py (single source of truth, dedup).
 from voice_typer.server import clipboard as clip_mod  # noqa: E402
 from voice_typer.server.clipboard import (
     ClipboardManager,  # noqa: E402
 )
-
-# _MAX_PENDING_RESTORES lives in clipboard.restore and is re-exported by
-# clipboard.manager (NOT by the package __init__, it raises AttributeError
-# there). Import via the manager submodule.
 from voice_typer.server.clipboard.restore import (  # noqa: E402
     _MAX_PENDING_RESTORES,
 )
 
 from tests.fixtures.clipboard_helpers import make_clipboard_manager, make_clipboard_snapshot  # noqa: E402
-
-# ---------------------------------------------------------------------------
-# Display-env isolation (mirror test_clipboard_borrow_restore.py)
-# ---------------------------------------------------------------------------
 
 
 @pytest.fixture(autouse=True)
@@ -64,17 +30,6 @@ def _mock_display_env(monkeypatch):
     yield
     with clip_mod._pending_restores_lock:
         clip_mod._pending_restores.clear()
-
-
-# ---------------------------------------------------------------------------
-# Helper: build a ClipboardManager via __new__ so we control cached flags
-# without paying the pynput import cost. (Mirrors test_clipboard_borrow_restore.py.)
-# ---------------------------------------------------------------------------
-
-
-# ===========================================================================
-# _register_pending_restore
-# ===========================================================================
 
 
 class TestRegisterPendingRestore:
@@ -147,11 +102,6 @@ class TestRegisterPendingRestore:
         assert mock_log.exception.called
 
 
-# ===========================================================================
-# _spawn_restore_daemon
-# ===========================================================================
-
-
 class TestSpawnRestoreDaemon:
     def test_starts_daemon_thread(self):
         cm = make_clipboard_manager()
@@ -168,9 +118,7 @@ class TestSpawnRestoreDaemon:
             mock_thread_cls.return_value.start.assert_called_once()
 
     def test_rolls_back_orphan_entry_on_thread_start_failure(self):
-        """E13: no silent failure, OSError / RuntimeError on Thread.start
-        removes the orphaned entry from _pending_restores so the snapshot
-        doesn't leak for the process lifetime."""
+        """E13: no silent failure, OSError / RuntimeError on Thread.start"""
         cm = make_clipboard_manager()
         snap = make_clipboard_snapshot()
         entry = (cm, snap, "text", 0.1)
@@ -188,11 +136,6 @@ class TestSpawnRestoreDaemon:
         # A WARNING should have been logged.
         warning_calls = [c for c in mock_log.warning.call_args_list]
         assert any("failed to start clipboard-restore thread" in str(c) for c in warning_calls)
-
-
-# ===========================================================================
-# _check_pynput_available
-# ===========================================================================
 
 
 class TestCheckPynputAvailable:
@@ -234,11 +177,6 @@ class TestCheckPynputAvailable:
             mock_log.warning.assert_called_once_with("[CLIPBOARD] pynput unavailable, cannot paste")
 
 
-# ===========================================================================
-# _check_rate_limit
-# ===========================================================================
-
-
 class TestCheckRateLimit:
     def test_returns_true_when_outside_rate_window(self):
         cm = make_clipboard_manager()
@@ -266,11 +204,6 @@ class TestCheckRateLimit:
         assert args[0] == "[CLIPBOARD] Paste rate-limited (%.0f ms since last paste)"
 
 
-# ===========================================================================
-# _check_paste_enabled
-# ===========================================================================
-
-
 class TestCheckPasteEnabled:
     def test_returns_true_when_enabled(self):
         cm = make_clipboard_manager(paste_enabled=True)
@@ -291,11 +224,6 @@ class TestCheckPasteEnabled:
         ok, reason = cm._check_paste_enabled(force=True)
         assert ok is True
         assert reason is None
-
-
-# ===========================================================================
-# _recheck_seq_mismatch
-# ===========================================================================
 
 
 class TestRecheckSeqMismatch:
@@ -343,11 +271,6 @@ class TestRecheckSeqMismatch:
         assert "Failed to re-copy after seq mismatch" in args[0]
 
 
-# ===========================================================================
-# _compute_paste_delay
-# ===========================================================================
-
-
 class TestComputePasteDelay:
     def test_returns_zero_on_non_windows(self):
         cm = make_clipboard_manager()
@@ -365,9 +288,6 @@ class TestComputePasteDelay:
             ),
         ):
             # Import path inside _compute_paste_delay uses
-            # `from voice_typer.server.server_platform.remote_session import
-            # is_remote_session`. We swap the owning submodule in
-            # sys.modules so the lazy import resolves to the mock.
             import sys
 
             mock_mod = MagicMock()
@@ -393,11 +313,6 @@ class TestComputePasteDelay:
         assert "RDP session detected" in args[0]
 
 
-# ===========================================================================
-# _check_target_safety
-# ===========================================================================
-
-
 class TestCheckTargetSafety:
     def test_returns_true_none_when_safe(self):
         cm = make_clipboard_manager()
@@ -416,11 +331,6 @@ class TestCheckTargetSafety:
         assert is_safe is False
         assert hwnd is None
         mock_log.info.assert_called_once_with("[CLIPBOARD] Paste blocked: security-sensitive window in foreground")
-
-
-# ===========================================================================
-# _check_ime_composition
-# ===========================================================================
 
 
 class TestCheckImeComposition:
@@ -493,11 +403,6 @@ class TestCheckImeComposition:
         mock_log.debug.assert_called()
 
 
-# ===========================================================================
-# _post_delay_recheck
-# ===========================================================================
-
-
 class TestPostDelayRecheck:
     def test_returns_true_without_sleep_when_delay_is_zero(self):
         cm = make_clipboard_manager()
@@ -526,11 +431,6 @@ class TestPostDelayRecheck:
         mock_log.info.assert_called_once_with(
             "[CLIPBOARD] Paste blocked: foreground target became unsafe during paste delay"
         )
-
-
-# ===========================================================================
-# _capture_target_handle
-# ===========================================================================
 
 
 class TestCaptureTargetHandle:
@@ -569,11 +469,6 @@ class TestCaptureTargetHandle:
         assert safe_macos_pid is None
 
 
-# ===========================================================================
-# _log_rich_editor
-# ===========================================================================
-
-
 class TestLogRichEditor:
     @pytest.mark.skip(
         reason=(
@@ -609,11 +504,6 @@ class TestLogRichEditor:
         mock_log.info.assert_not_called()
 
 
-# ===========================================================================
-# _recheck_toctou (Windows-only)
-# ===========================================================================
-
-
 class TestRecheckToctou:
     def test_fails_open_when_no_hwnd_captured(self):
         """Non-Windows or ctypes probe failed → no hwnd to compare → fail open."""
@@ -631,7 +521,6 @@ class TestRecheckToctou:
         """Windows TOCTOU: user Alt+Tabbed between capture and send → abort."""
         cm = make_clipboard_manager()
         mock_windll = MagicMock()
-        # safe_hwnd captured at 0x12345; current hwnd (re-fetch) is 0xDEAD.
         mock_windll.user32.GetForegroundWindow.return_value = 0xDEAD
         with (
             patch("ctypes.windll", mock_windll, create=True),
@@ -665,13 +554,7 @@ class TestRecheckToctou:
     def test_fails_open_when_ctypes_re_fetch_raises(self):
         cm = make_clipboard_manager()
         with patch("ctypes.windll", MagicMock(side_effect=OSError("ctypes broken")), create=True):
-            # safe_hwnd != 0, but re-fetch raises → fail open (safety check already ran).
             assert cm._recheck_toctou(0x12345, "Ctrl+V") is True
-
-
-# ===========================================================================
-# _recheck_macos_toctou
-# ===========================================================================
 
 
 class TestRecheckMacosToctou:
@@ -701,18 +584,8 @@ class TestRecheckMacosToctou:
             assert cm._recheck_macos_toctou(12345) is True
 
 
-# ===========================================================================
-# _dispatch_keystroke (4 platform branches × terminal/non)
-# ===========================================================================
-
-
 class TestDispatchKeystroke:
-    """Tests for the 4 platform branches × terminal/non-terminal dispatch matrix.
-
-    Each test patches ``is_linux`` / ``_is_wayland_paste_session`` / ``_have_wtype``
-    inline because Python's ``with ( ... )`` syntax forbids tuple-unpacking of
-    context managers.
-    """
+    """Tests for the 4 platform branches × terminal/non-terminal dispatch matrix."""
 
     @pytest.mark.skip(
         reason=(
@@ -868,11 +741,6 @@ class TestDispatchKeystroke:
         mock_wtype.assert_called_once_with("wayland text", is_terminal=True)
 
 
-# ===========================================================================
-# _finalize_paste
-# ===========================================================================
-
-
 class TestFinalizePaste:
     def test_updates_last_paste_time_and_logs_audit(self):
         cm = make_clipboard_manager()
@@ -893,11 +761,6 @@ class TestFinalizePaste:
         assert args[1] is True
         assert args[2] == "winword.exe"
         assert args[3] is True  # snapshot is not None
-
-
-# ===========================================================================
-# Integration guarantees (spec §7)
-# ===========================================================================
 
 
 class TestPasteOrchestratorIntegration:
@@ -964,20 +827,10 @@ class TestPasteOrchestratorIntegration:
         mock_spawn.assert_called_once()
 
     def test_windows_toctou_recheck_path_via_paste_end_to_end(self):
-        """Spec §7: 'Test Windows TOCTOU re-check path (mock sys.platform == win32').'
-
-        Mocks ``ctypes.windll`` so the Win32 code path runs on Linux.
-        Drives the real ``paste()`` end-to-end, asserts that the TOCTOU
-        re-check aborts when the foreground window handle changes
-        between capture (in ``_capture_target_handle``) and the
-        pre-keystroke re-check (in ``_recheck_toctou``).
-        """
+        """Spec §7: 'Test Windows TOCTOU re-check path (mock sys.platform == win32').'"""
         cm = make_clipboard_manager()
         mock_windll = MagicMock()
         # IME guard no longer consumes GetForegroundWindow when clip_mod.is_windows
-        # is mocked alone (hotkeys.is_windows stays False on Linux). Mock
-        # is_ime_composing to return False so the TOCTOU path is isolated.
-        # Capture returns 0x12345, re-fetch returns 0xDEAD → mismatch → abort.
         mock_windll.user32.GetForegroundWindow.side_effect = [0x12345, 0xDEAD]
         with (
             patch.object(clip_mod, "_Controller", object()),
@@ -1002,11 +855,6 @@ class TestPasteOrchestratorIntegration:
             result = cm.paste(force=True)
         assert result is False  # TOCTOU abort
         mock_send_ctrl_v.assert_not_called()  # keystroke was NOT sent
-
-
-# ===========================================================================
-# Structural: paste() is now slim
-# ===========================================================================
 
 
 class TestPasteOrchestratorStructure:
@@ -1069,11 +917,6 @@ class TestPasteOrchestratorStructure:
             assert "except: pass" not in src, f"{name} contains 'except: pass' (E13 violation)"
             # 'except Exception: pass' (single-line) is also forbidden.
             assert "except Exception: pass" not in src, f"{name} contains 'except Exception: pass' (E13 violation)"
-
-
-# ===========================================================================
-# Restore-after-dispatch: daemon spawns post-keystroke; failure rolls back
-# ===========================================================================
 
 
 class TestRestoreAfterDispatch:

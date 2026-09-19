@@ -1,22 +1,4 @@
-"""CI sync test for the shared reserved-hotkey table.
-
-HOTKEY-SHARED-001 (Task 1.4): the canonical reserved-shortcut table lives
-in ``voice_typer/server/hotkey_reserved.json``.  The backend
-(``config_validators.py``) loads it via ``json.load`` at module init.  The
-frontend imports a COPY at
-``voice_typer/client/src/renderer/src/data/hotkey_reserved.json`` (the
-original @server Vite alias resolved outside the renderer root and crashed
-Vite's dev server during HMR on locale switch).
-
-This test verifies that:
-1. The canonical JSON file exists, is parseable, and has correct structure.
-2. The CLIENT COPY is byte-identical to the server original (a CI gate
-   that prevents the two from drifting apart).
-3. The TS frontend file imports from the client copy and re-exports all
-   four data fields.
-4. The backend Python module loads the JSON and its in-memory structures
-   match the file content.
-"""
+"""CI sync test for the shared reserved-hotkey table."""
 
 from __future__ import annotations
 
@@ -39,8 +21,6 @@ CLIENT_JSON_PATH = (
     / "hotkey_reserved.json"
 )
 # Path to the frontend TS file that imports the JSON.
-# After the 3c2b5d6 refactor, the file moved from components/hotkey-validation.ts
-# to components/hotkey/hotkey-validation.ts.
 TS_PATH = (
     Path(__file__).resolve().parent.parent
     / "voice_typer"
@@ -84,13 +64,7 @@ class TestClientCopyIsInSync:
     """Verify the client copy of the JSON is byte-identical to the server original."""
 
     def test_client_copy_matches_server_original(self) -> None:
-        """The client copy at data/hotkey_reserved.json must be
-        byte-identical to the server original.  If this fails, copy
-        with::
-
-            cp voice_typer/server/hotkey_reserved.json \\
-               voice_typer/client/src/renderer/src/data/hotkey_reserved.json
-        """
+        """The client copy at data/hotkey_reserved.json must be"""
         import hashlib
 
         server_bytes = JSON_PATH.read_bytes()
@@ -105,19 +79,10 @@ class TestClientCopyIsInSync:
 
 
 class TestFrontendImportsFromJson:
-    """Verify the frontend TS file imports from the client copy and
-    re-exports all required fields."""
+    """Verify the frontend TS file imports from the client copy and"""
 
     def test_ts_imports_from_client_copy(self, ts_content: str) -> None:
-        """The TS file must import from the client copy of hotkey_reserved.json.
-
-        The relative path depends on the file's location:
-        - components/hotkey-validation.ts  (pre-3c2b5d6) used ``../data/...``
-        - components/hotkey/hotkey-validation.ts  (post-3c2b5d6) uses ``../../data/...``
-        Both relative paths are accepted; both single and double quotes are
-        accepted because the project's Biome formatter has been inconsistent
-        about quote style across versions.
-        """
+        """The TS file must import from the client copy of hotkey_reserved.json."""
         assert (
             'import hotkeyReserved from "../data/hotkey_reserved.json"' in ts_content
             or "import hotkeyReserved from '../data/hotkey_reserved.json'" in ts_content
@@ -132,8 +97,6 @@ class TestFrontendImportsFromJson:
         """The TS file must re-export all four data fields from the JSON."""
         for field in _JSON_FIELDS:
             # Expect: export const UNIVERSAL_RESERVED_SHORTCUTS = hotkeyReserved.universal_reserved
-            # The TS variable name is the field name converted to SCREAMING_SNAKE_CASE.
-            # Map JSON field names to their TS constant names.
             _field_to_ts_var = {
                 "universal_reserved": "UNIVERSAL_RESERVED_SHORTCUTS",
                 "per_platform_reserved": "RESERVED_SHORTCUTS",
@@ -142,8 +105,6 @@ class TestFrontendImportsFromJson:
             }
             ts_var = _field_to_ts_var[field]
             # The TS file has a type annotation between the name and `=`
-            # (e.g. ``export const UNIVERSAL_RESERVED_SHORTCUTS: readonly string[] =``).
-            # Just check that `export const {ts_var}` appears.
             assert f"export const {ts_var}" in ts_content, (
                 f"hotkey-validation.ts must export const {ts_var} (for JSON field {field!r})"
             )
@@ -156,8 +117,7 @@ class TestBackendLoadsFromJson:
     """Verify the backend config_validators.py loads from the JSON file."""
 
     def test_backend_imports_match_json(self, json_data: dict) -> None:
-        """The backend _RESERVED_HOTKEYS, _UNIVERSAL_RESERVED_HOTKEYS,
-        _BLOCKED_CTRL_LETTERS, and _HOTKEY_MODIFIERS all match the JSON."""
+        """The backend _RESERVED_HOTKEYS, _UNIVERSAL_RESERVED_HOTKEYS,"""
         from voice_typer.server.config_validators import (
             _BLOCKED_CTRL_LETTERS,
             _HOTKEY_MODIFIERS,
@@ -209,10 +169,6 @@ class TestJsonStructure:
         assert "linux" in platforms
 
     def test_linux_does_not_reserve_super_space(self, json_data: dict) -> None:
-        # Invariant: <super>+<space> is intentionally NOT reserved on Linux.
-        # Most Linux DEs allow reassigning it. The existing test
-        # "still offers <super>+<space> on Linux" pins this in the
-        # frontend test suite.
         assert "<super>+<space>" not in json_data["per_platform_reserved"]["linux"]
 
     def test_all_entries_are_lowercase(self, json_data: dict) -> None:
@@ -246,16 +202,6 @@ class TestJsonStructure:
             "cmd_r",
         ):
             assert mod in modifiers, f"Modifier variant {mod!r} missing from JSON"
-
-
-# ──────────────────────────────────────────────────────────────────────
-# the ``TestNoiseFilterDefaultsSync`` class that previously lived
-# here was deleted along with the ``_DEFAULTS`` dict it pinned: see
-# ``voice_typer/server/audio_chain_builder.py`` for the  fix notes.
-# The classes above test the hotkey reserved-sync invariant (server JSON
-# ↔ client JSON copy ↔ frontend TS re-exports) and are unrelated to
-# ``_DEFAULTS``.
-# ──────────────────────────────────────────────────────────────────────
 
 
 if __name__ == "__main__":

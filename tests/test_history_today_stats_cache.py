@@ -1,29 +1,4 @@
-"""AB-26: regression tests for the ``get_today_stats`` short-TTL cache.
-
-Before AB-26, ``get_today_stats`` issued an uncached aggregating scan
-(``SELECT COUNT(*), SUM(char_count), SUM(word_count), SUM(duration)
-FROM transcriptions WHERE timestamp >= DATE('now') AND timestamp <
-DATE('now', '+1 day')``) on every call. The Dashboard refreshes on
-every ``transcription_final`` event; at the rate_limiter's 1
-call/sec/client cap, this was continuous background CPU on the reader
-thread during active dictation.
-
-The fix mirrors the existing ``get_history_count`` 60s cache pattern
-but with a 15s TTL and stricter invalidation, invalidated on EVERY
-mutation that could change today's stats (add/delete/clear/restore/
-retention), including fire-and-forget ``add_transcription``.
-
-These tests pin the new behavior:
-
-- ``test_cache_returns_same_value_within_ttl``, second call within
-  TTL serves from cache, no re-scan.
-- ``test_cache_invalidated_on_add_transcription``, add invalidates.
-- ``test_cache_invalidated_on_delete``, delete invalidates.
-- ``test_cache_invalidated_on_clear_all``, clear_all invalidates.
-- ``test_cache_invalidated_on_restore``, restore invalidates.
-- ``test_cache_invalidated_on_apply_retention``, retention invalidates.
-- ``test_cache_expires_after_ttl``, post-TTL call re-scans.
-"""
+"""AB-26: regression tests for the ``get_today_stats`` short-TTL cache."""
 
 from __future__ import annotations
 
@@ -47,16 +22,13 @@ class TestAb26TodayStatsCache:
     """AB-26: ``get_today_stats`` serves from a 15s TTL cache."""
 
     def test_cache_returns_same_value_within_ttl(self, db):
-        """Two consecutive calls within the TTL window return the same
-        value. The second call MUST NOT re-run the aggregating scan —
-        it serves from the cache."""
+        """Two consecutive calls within the TTL window return the same"""
         db.add_transcription("today's entry")
         db.flush()
         first = db.get_today_stats()
         assert first["count"] >= 1
 
         # Patch the read-conn getter so a second scan would raise.
-        # If the cache serves the value, the patch is never hit.
         original_get_read_conn = db._get_read_conn
 
         def _explode(*args, **kwargs):
@@ -68,9 +40,7 @@ class TestAb26TodayStatsCache:
         db._get_read_conn = original_get_read_conn
 
     def test_cache_invalidated_on_add_transcription(self, db):
-        """``add_transcription`` invalidates the today-stats cache so
-        the next call re-scans and reflects the new row.
-        """
+        """``add_transcription`` invalidates the today-stats cache so"""
         # Prime the cache with one entry.
         db.add_transcription("first")
         db.flush()
@@ -142,8 +112,6 @@ class TestAb26TodayStatsCache:
     def test_cache_invalidated_on_apply_retention(self, db):
         """``apply_retention`` invalidates the today-stats cache."""
         # Insert 10 rows with OLD timestamps so retention will delete them.
-        # We need to bypass add_transcription (which uses datetime.now())
-        # to insert old rows directly.
         from datetime import datetime, timedelta
 
         old_date = (datetime.now() - timedelta(days=30)).isoformat()
@@ -164,17 +132,14 @@ class TestAb26TodayStatsCache:
         stats1 = db.get_today_stats()
         assert stats1["count"] == 0
 
-        # apply_retention deletes 10 old rows, invalidates the cache.
         deleted = db.apply_retention(retention_days=1)
         assert deleted == 10
 
         # Today's stats are still 0 (the deleted rows were old, not today's),
-        # but the cache must have been invalidated and re-computed.
         stats2 = db.get_today_stats()
         assert stats2["count"] == 0
 
         # To verify the cache was actually invalidated (not just still
-        # valid), patch _get_read_conn and confirm a fresh scan runs.
         original_get_read_conn = db._get_read_conn
         scan_calls = {"count": 0}
         real_get_read_conn = db._get_read_conn
@@ -208,7 +173,6 @@ class TestAb26TodayStatsCache:
         db.add_transcription("two")
         db.flush()
         # (add_transcription invalidated the cache anyway, but force-expiry
-        # above is the explicit test for the TTL path.)
 
         # After TTL expiry, the next call recomputes from the DB.
         stats2 = db.get_today_stats()
@@ -217,12 +181,7 @@ class TestAb26TodayStatsCache:
         )
 
     def test_cache_returns_independent_dict_copy(self, db):
-        """The cached value returned to callers must not be mutated by
-        subsequent cache updates (callers may keep a reference to the
-        returned dict). Verify the cache stores/returns the same dict
-        instance within a TTL window but that mutating the returned
-        dict does NOT corrupt the cached value.
-        """
+        """returned dict). Verify the cache stores/returns the same dict"""
         db.add_transcription("first")
         db.flush()
         stats1 = db.get_today_stats()

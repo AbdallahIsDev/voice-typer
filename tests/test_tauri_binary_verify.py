@@ -1,25 +1,4 @@
-"""Behavioral tests for ``verify_tauri_binary_or_skip`` (EO-32).
-
-The Tauri autostart launcher spawns the ``voice-typer-tauri`` host
-binary at login. ``verify_tauri_binary_or_skip`` is the CR-002
-fail-closed integrity gate: the binary MUST verify against
-``tauri-binaries.json`` before it is spawned, otherwise a tampered or
-stale binary (or the ``VT_TAURI_BINARY`` env override, which is NOT a
-bypass) would launch unchecked.
-
-Contract (from ``tauri-binaries.json`` ``_manifest_loader_contract``):
-
-- Manifest missing / unreadable → FAIL CLOSED (False).
-- No manifest entry for ``Path(path).name`` → FAIL CLOSED.
-- Per-(platform, arch) sha256 sub-key missing or empty → FAIL CLOSED
-  (production builds populate every sub-key via
-  ``scripts/build/update_tauri_manifests.py``).
-- SHA-256 mismatch → FAIL CLOSED.
-- SHA-256 match → True.
-
-The platform/arch key mirrors ``_tauri_manifest_key``: ``darwin`` →
-``macos`` (single universal key); ``amd64`` → ``x86_64``.
-"""
+"""Behavioral tests for ``verify_tauri_binary_or_skip`` (EO-32)."""
 
 from __future__ import annotations
 
@@ -54,7 +33,7 @@ def _write_manifest(tmp_path, binary_name: str, key: str, sha: str) -> object:
 
 
 class TestVerifyTauriBinaryOrSkip:
-    """CR-002 fail-closed behavior for the Tauri binary integrity gate."""
+    """fail-closed behavior for the Tauri binary integrity gate."""
 
     def test_matching_sha256_returns_true(self, tmp_path, monkeypatch):
         """A binary whose SHA-256 matches the manifest entry passes."""
@@ -72,9 +51,6 @@ class TestVerifyTauriBinaryOrSkip:
         binary.write_bytes(b"bytes")
         monkeypatch.delenv("VT_TAURI_MANIFEST", raising=False)
         # Point the repo-root lookup at a dir with no manifest by
-        # overriding the module constant path resolution via env.
-        # Without VT_TAURI_MANIFEST the real repo-root manifest may
-        # exist, force a guaranteed-missing location instead.
         monkeypatch.setenv("VT_TAURI_MANIFEST", str(tmp_path / "nope.json"))
         assert verify_tauri_binary_or_skip(binary) is False
 
@@ -134,8 +110,6 @@ class TestVerifyTauriBinaryOrSkip:
             "VT_TAURI_MANIFEST",
             _write_manifest(tmp_path, "voice-typer-tauri", _tauri_manifest_key(), "b" * 64),
         )
-        # Tamper AFTER the manifest was written (the manifest pins the
-        # hash of the *original* bytes).
         binary.write_bytes(b"tampered bytes")
         assert verify_tauri_binary_or_skip(binary) is False
 

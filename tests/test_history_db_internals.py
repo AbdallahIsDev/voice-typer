@@ -1,10 +1,6 @@
-"""Tests for the ``history_db_internals.lifecycle`` extraction.
-
+"""
+Tests for the ``history_db_internals.lifecycle`` extraction.
 Pins the delegation contract of the lifecycle cluster: the facade
-methods must stay wired to the internals functions (same function
-objects, same module-attribute call path) so monkeypatching the
-internals module keeps working, and the ``__del__`` non-blocking sweep
-must preserve the writer-death semantics (no close(), no join).
 """
 
 import sqlite3
@@ -114,7 +110,6 @@ class TestGcCloseReadConnections:
         assert instance._connections_lock.acquire(blocking=False)
         try:
             lifecycle.gc_close_read_connections(instance)
-            # sweep skipped (lock held elsewhere), connection untouched
             tracked.execute("SELECT 1")
             assert instance._all_read_connections != []
         finally:

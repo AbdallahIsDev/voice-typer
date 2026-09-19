@@ -1,34 +1,4 @@
-"""Phase 4.5: focused unit tests for
-``AudioPipeline.process_audio_chunk``.
-
-These tests exercise the *orchestration body* of the former
-``Recorder._process_audio_chunk`` in isolation, with the six named
-helpers (``_detect_device_disconnect`` / ``_handle_xrun_status`` /
-``_apply_filter_chain`` / ``_append_to_buffer_locked`` /
-``_compute_rms_and_peak`` / ``_run_vad_state_machine``) and the
-clipping helper (``_detect_and_emit_clipping``) stubbed out on a
-mock ``Recorder`` so no real audio I/O, no real VAD model, and no
-real PortAudio is touched.
-
-The tests verify:
-
-- Early-return paths (device-disconnect, XRUN) skip downstream
-  helpers.
-- The happy-path orchestration calls every helper in the correct
-  order with the correct arguments.
-- ``_last_rms`` is updated under the lock with the post-filter
-  ``chunk_rms``.
-- ``_recent_rms_values`` is appended with ``chunk_rms``.
-- The RMS callback contract: fired with the 2-arg signature
-  ``(chunk_rms, chunk_peak)`` when set; not fired when ``None``.
-- NEW-CONC-004: callback-exception logging suppresses traceback
-  formatting after the first occurrence, re-formats on every 100th.
-
-These tests intentionally bypass the recorder-construction path
-(which would otherwise require patching ``sounddevice``,
-``scipy``, etc.) by instantiating ``AudioPipeline`` directly with a
-``MagicMock`` recorder stub.
-"""
+"""``AudioPipeline.process_audio_chunk``."""
 
 from __future__ import annotations
 
@@ -41,9 +11,6 @@ import numpy as np
 import pytest
 from voice_typer.server.recording.audio_pipeline import AudioPipeline
 
-# Canned return values used across the happy-path tests. Chosen to be
-# distinct primitives so test assertions can pin the exact value that
-# flows through the orchestration body.
 _FILTERED = np.array([0.1, -0.2, 0.3], dtype=np.float32)
 _CHUNK_COUNT = 7
 _BUFFER_LEN = 9
@@ -60,27 +27,9 @@ def _make_pipeline_stub(
     rms_callback: callable | None = None,
     recording_start: float = _RECORDING_START,
 ) -> AudioPipeline:
-    """Build a stub ``Recorder`` + ``AudioPipeline`` with the 6 named
-    helpers + clip helper mocked on the pipeline instance.
-
-    The stub recorder exposes exactly the attributes that
-    ``AudioPipeline.process_audio_chunk`` reads / writes. The 6 named
-    helpers are shadowed on the pipeline instance with ``MagicMock``
-    objects so the test can assert call counts and arguments (the
-    orchestration body now invokes its own methods directly, the
-    historical ``Recorder._<helper>`` delegators were removed). Real
-    ``threading.Lock`` and ``deque`` are installed for ``_lock`` and
-    ``_recent_rms_values`` so the orchestration body's
-    ``with self._recorder._lock:`` and
-    ``self._recorder._recent_rms_values.append(chunk_rms)`` lines work
-    with real semantics (a MagicMock auto-mock for either would NOT
-    support the with-statement / append contract the body relies on).
-    """
+    """Build a stub ``Recorder`` + ``AudioPipeline`` with the 6 named"""
     recorder = MagicMock(name="RecorderStub")
     pipeline = AudioPipeline(recorder)
-    # Helper mocks (return values tested by orchestration tests). The
-    # methods are shadowed on the pipeline INSTANCE with MagicMocks —
-    # bound methods don't accept attribute assignment.
     pipeline.detect_device_disconnect = MagicMock(return_value=detect_disconnect_returns)
     pipeline.handle_xrun_status = MagicMock(return_value=handle_xrun_returns)
     pipeline.apply_filter_chain = MagicMock(return_value=_FILTERED)
@@ -95,13 +44,10 @@ def _make_pipeline_stub(
     pipeline.run_vad_state_machine = MagicMock()
     pipeline.detect_and_emit_clipping = MagicMock()
     # ``run_vad_state_machine`` and ``detect_and_emit_clipping`` are
-    # no-op MagicMocks by default, the tests assert call counts / args.
-    # Real lock so ``with recorder._audio_pipeline._lock:`` is a real context manager.
     recorder._audio_pipeline._lock = threading.Lock()
     # Real deque so ``recorder._recent_rms_values.append(chunk_rms)`` works.
     recorder._recent_rms_values = collections.deque(maxlen=10)
     # Writable mutable state, these are assigned by the orchestration
-    # body and inspected by the tests.
     recorder._last_rms = None
     recorder._rms_callback_error_count = 0
     # Callbacks + recording-start, read outside the lock.
@@ -113,12 +59,8 @@ def _make_pipeline_stub(
     return pipeline
 
 
-# ── Orchestration: early-return paths ────────────────────────────────
-
-
 class TestProcessAudioChunkEarlyReturns:
-    """The two early-return paths (disconnect, XRUN) must short-circuit
-    all downstream helpers."""
+    """The two early-return paths (disconnect, XRUN) must short-circuit"""
 
     def test_detect_disconnect_true_skips_all_other_helpers(self) -> None:
         pipeline = _make_pipeline_stub(detect_disconnect_returns=True)
@@ -161,12 +103,8 @@ class TestProcessAudioChunkEarlyReturns:
         assert pipeline._recorder._last_rms is None
 
 
-# ── Orchestration: happy path ─────────────────────────────────────────
-
-
 class TestProcessAudioChunkHappyPath:
-    """The happy path calls every helper in the correct order, with the
-    correct arguments threaded through the orchestration body."""
+    """The happy path calls every helper in the correct order, with the"""
 
     def test_all_helpers_called_with_correct_args(self) -> None:
         rms_calls: list[tuple[float, float]] = []
@@ -186,20 +124,15 @@ class TestProcessAudioChunkHappyPath:
         pipeline.process_audio_chunk(indata, 3, None, 0, perf_ts)
 
         # The 6 named helpers + clipping helper are all called via
-        # ``self._recorder.X`` (preserves patch compatibility for
-        # ``monkeypatch.setattr(Recorder, "_detect_device_disconnect", fake)``).
         pipeline.detect_device_disconnect.assert_called_once_with(indata)
         pipeline.handle_xrun_status.assert_called_once_with(0)
         pipeline.apply_filter_chain.assert_called_once_with(indata)
         pipeline.append_to_buffer_locked.assert_called_once_with(_FILTERED)
         pipeline.compute_rms_and_peak.assert_called_once_with(_FILTERED)
         # ``_detect_and_emit_clipping`` receives the chunk_peak value
-        # returned by ``_compute_rms_and_peak`` (NOT a fixed 0.99
-        # threshold, the helper itself owns the threshold check).
         pipeline.detect_and_emit_clipping.assert_called_once_with(pipeline._recorder, _CHUNK_PEAK)
 
         # ``_run_vad_state_machine`` receives the threaded-through args
-        # in the exact positional order the body uses.
         pipeline.run_vad_state_machine.assert_called_once()
         args, _kwargs = pipeline.run_vad_state_machine.call_args
         assert args[0] is _FILTERED
@@ -221,10 +154,7 @@ class TestProcessAudioChunkHappyPath:
         assert rms_calls == [(_CHUNK_RMS, _CHUNK_PEAK)]
 
     def test_run_vad_state_machine_threads_callbacks_through(self) -> None:
-        """The callback refs (``on_silence_warning`` etc.) read outside
-        the lock are passed through verbatim to
-        ``_run_vad_state_machine``. A torn read just means we miss one
-        callback; this test pins the threading contract."""
+        """The callback refs (``on_silence_warning`` etc.) read outside"""
 
         def silence_warning_cb() -> None:
             pass
@@ -253,17 +183,8 @@ class TestProcessAudioChunkHappyPath:
         assert args[9] is max_duration_cb
 
 
-# ── RMS callback contract ────────────────────────────────────────────
-
-
 class TestProcessAudioChunkRmsCallbackContract:
-    """The RMS callback (``on_rms_level``) contract:
-
-    - Fired with the 2-arg signature ``(chunk_rms, chunk_peak)`` when set.
-    - Not fired when ``None``.
-    - Exceptions suppressed (NEW-CONC-004): traceback formatted only
-      on the 1st occurrence and every 100th subsequent occurrence.
-    """
+    """The RMS callback (``on_rms_level``) contract:"""
 
     def test_no_callback_fired_when_on_rms_level_is_none(self) -> None:
         pipeline = _make_pipeline_stub(rms_callback=None)
@@ -341,9 +262,7 @@ class TestProcessAudioChunkRmsCallbackContract:
         assert last.exc_info is not None
 
     def test_repeated_callback_exceptions_keep_incrementing_counter(self, caplog) -> None:
-        """5 successive chunks with a raising callback increment the
-        counter to 5 and emit exactly 2 exc_info-bearing records (1st
-        and … well, just the 1st since 5 < 100)."""
+        """counter to 5 and emit exactly 2 exc_info-bearing records (1st"""
 
         def bad_cb(rms: float, peak: float) -> None:
             raise RuntimeError("boom")
@@ -359,18 +278,13 @@ class TestProcessAudioChunkRmsCallbackContract:
         debug_records = [r for r in caplog.records if r.levelno == logging.DEBUG]
         with_exc_info = [r for r in debug_records if r.exc_info is not None]
         # Only the 1st occurrence (in this <100-occurrence run) carries
-        # exc_info, the others use the "traceback suppressed" branch.
         assert len(with_exc_info) == 1, (
             f"Expected exactly 1 exc_info-bearing record (the 1st occurrence); got {len(with_exc_info)}"
         )
 
 
-# ── Shared-state mutations ───────────────────────────────────────────
-
-
 class TestProcessAudioChunkSharedStateMutations:
-    """Verifies that the orchestration body writes to the expected
-    shared-state attributes on the recorder."""
+    """Verifies that the orchestration body writes to the expected"""
 
     def test_last_rms_updated_under_lock_with_chunk_rms(self) -> None:
         pipeline = _make_pipeline_stub(rms_callback=None)
@@ -379,7 +293,6 @@ class TestProcessAudioChunkSharedStateMutations:
         pipeline.process_audio_chunk(indata, 3, None, 0, 12345.0)
 
         # ``_last_rms`` is the post-filter RMS returned by
-        # ``_compute_rms_and_peak`` (the stub returns _CHUNK_RMS).
         assert pipeline._recorder._last_rms == _CHUNK_RMS
 
     def test_recent_rms_values_appended_with_chunk_rms(self) -> None:
@@ -394,8 +307,6 @@ class TestProcessAudioChunkSharedStateMutations:
 
     def test_recent_rms_values_respects_maxlen(self) -> None:
         pipeline = _make_pipeline_stub(rms_callback=None)
-        # Override the deque with a tighter maxlen to exercise the
-        # bounded-queue contract.
         pipeline._recorder._recent_rms_values = collections.deque(maxlen=2)
 
         indata = np.array([[0.1], [-0.2], [0.3]], dtype=np.float32)

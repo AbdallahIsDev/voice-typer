@@ -1,14 +1,4 @@
-"""Tests for ``scripts/build/update_tauri_manifests.py``.
-
-Covers the manifest-update script must (a) hash the cargo-built
-``voice-typer-tauri`` binary with
-``hashlib.sha256(path.read_bytes()).hexdigest()``, (b) write the hash
-into the per-arch ``sha256`` sub-key that belongs to the given target
-triple (leaving every other key untouched), (c) discover the binary per
-OS (linux/windows release dir, macOS ``.app`` bundle inner executable),
-(d) be idempotent, and (e) fail closed on the ``--check`` integrity
-gate (empty or malformed sub-keys).
-"""
+"""Tests for ``scripts/build/update_tauri_manifests.py``."""
 
 from __future__ import annotations
 
@@ -90,9 +80,6 @@ def _write_macos_app(target_dir: Path, triple: str, content: bytes) -> Path:
     exe.parent.mkdir(parents=True)
     exe.write_bytes(content)
     return exe
-
-
-# ─── record mode ───────────────────────────────────────────────────────────
 
 
 def test_record_linux_hashes_into_linux_x86_64_key(manifest_path: Path, tmp_path: Path) -> None:
@@ -202,14 +189,9 @@ def test_record_idempotent(manifest_path: Path, tmp_path: Path) -> None:
     assert manifest_path.read_text() == first
 
 
-# ─── check mode ────────────────────────────────────────────────────────────
-
-
 def test_check_scoped_to_triple_ignores_other_empty_keys(manifest_path: Path, tmp_path: Path) -> None:
     _write_binary(tmp_path / "target", "x86_64-unknown-linux-gnu", b"payload")
     utm.record_sha256(manifest_path, tmp_path / "target", "x86_64-unknown-linux-gnu")
-    # linux-aarch64 / windows-* / macos still empty, the x86_64 leg's
-    # enforce step must PASS anyway (other legs fill their own keys).
     assert utm.check_manifest(manifest_path, triple="x86_64-unknown-linux-gnu") == []
 
 
@@ -246,9 +228,6 @@ def test_check_rejects_malformed_hex(manifest_path: Path) -> None:
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
     violations = utm.check_manifest(manifest_path, triple="x86_64-unknown-linux-gnu")
     assert violations
-
-
-# ─── CLI main() ────────────────────────────────────────────────────────────
 
 
 def test_main_record_returns_zero(manifest_path: Path, tmp_path: Path) -> None:

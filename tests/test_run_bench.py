@@ -1,24 +1,4 @@
-"""Tests for ``scripts/run_bench.py`` (the ``make bench`` driver).
-
-The driver replaced a ~500-char inline Python heredoc in the Makefile
-whose hand-maintained script list duplicated the contents of ``bench/``.
-These tests pin the driver's output contract so the refactor cannot
-silently change what the CI perf ratchet (``.github/workflows/perf.yml``)
-consumes:
-
-  * glob discovery of ``bench_*.py`` (sorted, non-matching files ignored),
-  * per-script invocation ``<sys.executable> <script> --json``,
-  * success → the script's parsed JSON,
-  * non-zero exit → ``{"skipped": true, "error": <last stderr line>}``
-    (or ``"failed"`` when stderr is empty),
-  * missing script → ``{"skipped": true, "error": "missing"}``,
-  * the output document shape: ``version``/``generated_at``/``results``
-    with the UTC ISO-8601 seconds-precision ``Z`` timestamp,
-  * ``main()`` writes ``bench-current.json`` (indent=2 + trailing
-    newline) at the configured output path.
-
-The subprocess runner is injected/faked, no real bench script runs.
-"""
+"""Tests for ``scripts/run_bench.py`` (the ``make bench`` driver)."""
 
 from __future__ import annotations
 
@@ -35,8 +15,6 @@ import pytest
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 SCRIPTS_DIR = PROJECT_ROOT / "scripts"
 
-# Make the scripts/ directory importable so we can load run_bench as a
-# module (same pattern as tests/test_coverage_ratchet_strict.py).
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
@@ -63,8 +41,7 @@ def _fake_runner(
 
 class TestBuildBenchOutput:
     def test_runs_every_bench_script_sorted_and_passes_json_flag(self, tmp_path: Path):
-        """Glob discovery: every bench_*.py runs once, sorted, with --json;
-        non-matching files in the directory are ignored."""
+        """Glob discovery: every bench_*.py runs once, sorted, with --json;"""
         (tmp_path / "bench_zeta.py").touch()
         (tmp_path / "bench_alpha.py").touch()
         (tmp_path / "helper.py").touch()  # not a bench script, must be skipped
@@ -134,9 +111,7 @@ class TestMain:
     def test_writes_bench_current_json_with_contract_format(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ):
-        """main() delegates to build_bench_output with the module BENCH_DIR,
-        writes <out>/bench-current.json: indent=2 + trailing newline, and
-        prints the comparison pointer line."""
+        """main() delegates to build_bench_output with the module BENCH_DIR,"""
         output_path = tmp_path / "bench-current.json"
         canned = {
             "version": 1,
@@ -161,7 +136,6 @@ class TestMain:
         assert written.endswith("\n") and not written.endswith("\n\n")
         doc = json.loads(written)
         assert doc == canned
-        # indent=2 formatting (matches the pre-refactor heredoc output).
         assert '\n  "version": 1,' in written
         printed = capsys.readouterr().out
         assert "bench-current.json" in printed

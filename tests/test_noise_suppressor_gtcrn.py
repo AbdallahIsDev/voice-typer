@@ -1,43 +1,6 @@
-"""GTCRN noise-suppression backend + suppressor integration tests.
-
-Covers the three layers of the ``"gtcrn"`` noise-suppression method
-(the bundled ONNX streaming model that replaced the retired
-DeepFilterNet option):
-
-1. **Backend unit tests (fake ONNX session)**, a fake
-   ``onnxruntime.InferenceSession`` is injected so the tests do NOT
-   need the real model file or real inference. The fake implements an
-   identity enhancement (``enh = mix``), which, because the backend's
-   sqrt-Hann analysis/synthesis pair is perfectly reconstructing at
-   50 % overlap, makes the emitted stream exactly the input delayed
-   by ONE hop. That gives a precise, model-independent contract to
-   pin: hop assembly, first-hop zero padding, overlap-add, cache
-   threading, and ``reset()``.
-
-2. **Suppressor integration tests (fake backend class)**, the
-   ``GtcrnBackend`` symbol is swapped for a lightweight fake (mirroring
-   how the RNNoise tests inject a fake ``pyrnnoise`` module via
-   ``sys.modules``) to exercise ``NoiseSuppressor``'s hop buffering /
-   carry persistence / ``None``-on-underfill / reset plumbing, the
-   16 kHz-native no-resampling path, and the 48 kHz round-trip
-   resampling path without any ONNX dependency.
-
-3. **Degradation matrix**, a failing backend construction must fall
-   back to RNNoise at ``__init__`` (``is_degraded=True``, reason
-   mentioning GTCRN) and further to ``"none"`` when RNNoise is also
-   unavailable.
-
-4. **Loader legacy-value remap**, an on-disk
-   ``noise_suppression_method="deepfilternet"`` loads as ``"gtcrn"``
-   (and the never-implemented ``"speex"`` as ``"rnnoise"``) instead of
-   being reset to the default.
-
-5. **Real-model tests (skipped when the bundled model is absent)** —
-   loads the actual ``gtcrn_simple.onnx``, feeds 1 s of noisy sine
-   through the full suppressor path, asserts finite / same-length /
-   noise-energy-reduced output, and gates the per-hop latency at
-   20 ms (the audio-thread budget; measured ~2 ms on the reference
-   CPU).
+"""
+GTCRN noise-suppression backend + suppressor integration tests.
+``onnxruntime.InferenceSession`` is injected so the tests do NOT
 """
 
 from __future__ import annotations
@@ -70,10 +33,6 @@ from voice_typer.server.audio_filters.noise_suppressor import (  # noqa: E402
     NoiseSuppressor,
 )
 
-# ═══════════════════════════════════════════════════════════════════════════
-# Fake ONNX session (backend-level tests)
-# ═══════════════════════════════════════════════════════════════════════════
-
 
 class _FakeGraphInput:
     """Minimal stand-in for ``onnxruntime.NodeArg`` (just the name)."""
@@ -83,14 +42,7 @@ class _FakeGraphInput:
 
 
 class _FakeIdentitySession:
-    """Fake ``InferenceSession`` implementing identity enhancement.
-
-    ``run`` returns ``enh = mix`` unchanged (so the backend's ISTFT
-    must reconstruct the input exactly, delayed by one hop) and each
-    cache ``cache + 1``, a visible, monotonic marker proving the
-    backend threads the PREVIOUS call's cache outputs into the next
-    call's inputs.
-    """
+    """Fake ``InferenceSession`` implementing identity enhancement."""
 
     def __init__(self, path: str, providers=None, sess_options=None) -> None:
         self.path = path
@@ -109,14 +61,7 @@ class _FakeIdentitySession:
 
 @pytest.fixture
 def fake_identity_backend(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> GtcrnBackend:
-    """Construct a ``GtcrnBackend`` over the fake identity session.
-
-    ``onnxruntime.InferenceSession`` is monkeypatched on the REAL
-    onnxruntime module (the backend imports it inside ``__init__``, so
-    the patch is picked up at call time), and ``MODEL_PATH`` is pointed
-    at a scratch file so the existence check passes without the real
-    bundled model.
-    """
+    """Construct a ``GtcrnBackend`` over the fake identity session."""
     scratch_model = tmp_path / "fake_gtcrn.onnx"
     scratch_model.write_bytes(b"not-a-real-model")
     monkeypatch.setattr(ort, "InferenceSession", _FakeIdentitySession)
@@ -128,15 +73,7 @@ class TestGtcrnBackendFakeSession:
     """Backend streaming semantics with a fake identity ONNX session."""
 
     def test_identity_stream_is_input_delayed_by_one_hop(self, fake_identity_backend):
-        """Identity enhancement → emitted stream == input delayed by 1 hop.
-
-        The first emitted block is the zero-padded pre-roll (all zeros,
-        because the very first analysis frame's left half is zeros),
-        then each block equals the PREVIOUS hop exactly (sqrt-Hann
-        analysis × synthesis is perfectly reconstructing at 50 %
-        overlap). This pins hop assembly, the first-hop zero padding,
-        and the overlap-add bookkeeping in one assertion set.
-        """
+        """Identity enhancement → emitted stream == input delayed by 1 hop."""
         backend = fake_identity_backend
         rng = np.random.default_rng(11)
         hops = [rng.standard_normal(HOP).astype(np.float32) * 0.2 for _ in range(4)]
@@ -158,13 +95,7 @@ class TestGtcrnBackendFakeSession:
             )
 
     def test_caches_thread_across_hops_and_reset_clears(self, fake_identity_backend):
-        """The fake cache marker (input + 1) proves cache threading.
-
-        After construction the warmup hop runs then ``reset()`` zeroes
-        everything, so caches start at 0. Each processed hop adds 1 —
-        if the backend failed to feed the previous outputs back in,
-        the marker would stay at 1 forever.
-        """
+        """The fake cache marker (input + 1) proves cache threading."""
         backend = fake_identity_backend
         assert all(np.all(c == 0.0) for c in backend.caches), (
             "caches must be zero right after construction (warmup + reset)"
@@ -196,13 +127,7 @@ class TestGtcrnBackendFakeSession:
         assert out_long.shape == (HOP,)
 
     def test_explicit_caches_parameter_is_used(self, fake_identity_backend):
-        """Passing ``caches=`` explicitly overrides the internal state.
-
-        Feeding all-zero caches on every call keeps the marker at 1 —
-        proving the explicit argument (not the internal state) was
-        consumed. The returned new_caches still update the internal
-        state (production threading).
-        """
+        """Passing ``caches=`` explicitly overrides the internal state."""
         backend = fake_identity_backend
         zeros = tuple(np.zeros(shape, dtype=np.float32) for shape in CACHE_SHAPES)
         hop = np.ones(HOP, dtype=np.float32) * 0.1
@@ -213,8 +138,7 @@ class TestGtcrnBackendFakeSession:
             )
 
     def test_bad_graph_input_arity_raises_at_init(self, monkeypatch, tmp_path):
-        """A graph with the wrong input arity must fail AT CONSTRUCTION
-        (init-time warmup), never on the first real audio chunk."""
+        """A graph with the wrong input arity must fail AT CONSTRUCTION"""
 
         class _TwoInputSession(_FakeIdentitySession):
             def get_inputs(self):
@@ -228,28 +152,15 @@ class TestGtcrnBackendFakeSession:
             GtcrnBackend()
 
     def test_missing_model_file_raises(self, monkeypatch, tmp_path):
-        """A missing bundled model is an init-time error (the suppressor
-        catches it and degrades to RNNoise: see the matrix below)."""
+        """A missing bundled model is an init-time error (the suppressor"""
         monkeypatch.setattr(ort, "InferenceSession", _FakeIdentitySession)
         monkeypatch.setattr(gtcrn_module, "MODEL_PATH", tmp_path / "absent.onnx")
         with pytest.raises(RuntimeError, match="not found"):
             GtcrnBackend()
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# Fake backend class (suppressor-level tests)
-# ═══════════════════════════════════════════════════════════════════════════
-
-
 class _FakeGtcrnBackend:
-    """Minimal stand-in for ``GtcrnBackend`` at the suppressor layer.
-
-    Records every hop it receives and returns ``hop * 0.5`` (a
-    deterministic, detectable transform). Mirrors the fake-pyrnnoise
-    pattern used by the RNNoise tests: the class symbol is swapped on
-    the ``gtcrn_backend`` module namespace so ``_init_gtcrn``'s
-    call-time ``from ... import GtcrnBackend`` resolves to the fake.
-    """
+    """Minimal stand-in for ``GtcrnBackend`` at the suppressor layer."""
 
     last_instance: _FakeGtcrnBackend | None = None
 
@@ -307,11 +218,7 @@ class TestSuppressorGtcrnIntegration:
         assert ns.latency_ms == pytest.approx(16.0), "GTCRN latency is one 256-sample hop at 16 kHz (16 ms)"
 
     def test_hop_buffering_output_length_and_carry(self, fake_gtcrn_class):
-        """700 samples @16 kHz → 2 full hops processed, 188-sample carry.
-
-        Output length ALWAYS matches the input length (zero-padded
-        past the processed hops), mirroring the RNNoise contract.
-        """
+        """700 samples @16 kHz → 2 full hops processed, 188-sample carry."""
         ns = NoiseSuppressor(method="gtcrn", sample_rate=WHISPER_SAMPLE_RATE)
         rng = np.random.default_rng(5)
         audio = (rng.standard_normal(700) * 0.1).astype(np.float32)
@@ -329,16 +236,13 @@ class TestSuppressorGtcrnIntegration:
         # The two processed hops are the FIRST 512 samples of the input.
         assert np.array_equal(backend.hops[0], audio[:256])
         assert np.array_equal(backend.hops[1], audio[256:512])
-        # The processed region is halved by the fake (hop * 0.5); the
-        # tail beyond the last full hop is zero-padded.
         assert np.allclose(result[:512], audio[:512] * 0.5, atol=1e-7)
         assert np.all(result[512:] == 0.0)
         # 188 samples remain in the carry for the next call.
         assert ns._carry.size == 700 - 2 * _GTCRN_HOP_SIZE
 
     def test_carry_persists_across_process_calls(self, fake_gtcrn_class):
-        """A second call consumes the previous carry first, hop 3 spans
-        the carry tail plus the new chunk's head."""
+        """A second call consumes the previous carry first, hop 3 spans"""
         ns = NoiseSuppressor(method="gtcrn", sample_rate=WHISPER_SAMPLE_RATE)
         rng = np.random.default_rng(6)
         first = (rng.standard_normal(700) * 0.1).astype(np.float32)
@@ -380,12 +284,7 @@ class TestSuppressorGtcrnIntegration:
         assert ns.process(np.zeros(100, dtype=np.float32), WHISPER_SAMPLE_RATE) is None
 
     def test_non_native_rate_resamples_to_16k(self, fake_gtcrn_class):
-        """48 kHz input round-trips through the 16 kHz-native model.
-
-        1440 samples @48 kHz → 480 @16 kHz → 1 full hop + 224 carry.
-        The GTCRN resampler pair is separate from the RNNoise pair
-        (native-rate check keys on 16 kHz, not 48 kHz).
-        """
+        """48 kHz input round-trips through the 16 kHz-native model."""
         ns = NoiseSuppressor(method="gtcrn", sample_rate=RNNOISE_SAMPLE_RATE)
         rng = np.random.default_rng(8)
         audio = (rng.standard_normal(1440) * 0.1).astype(np.float32)
@@ -405,18 +304,11 @@ class TestSuppressorGtcrnIntegration:
         assert ns._gtcrn_resampler_rate == RNNOISE_SAMPLE_RATE
 
     def test_legacy_deepfilternet_alias_routes_to_gtcrn(self, fake_gtcrn_class):
-        """Direct construction with the retired value still gets the live
-        backend (config-file loads are remapped by ``Config.load``;
-        this covers embedders/tests passing the old name)."""
+        """Direct construction with the retired value still gets the live"""
         ns = NoiseSuppressor(method="deepfilternet", sample_rate=WHISPER_SAMPLE_RATE)
         assert ns._method == "gtcrn"
         assert ns.is_degraded is False
         assert ns._backend is not None
-
-
-# ═══════════════════════════════════════════════════════════════════════════
-# Degradation matrix (init failure → rnnoise → none)
-# ═══════════════════════════════════════════════════════════════════════════
 
 
 class TestGtcrnDegradationMatrix:
@@ -465,11 +357,6 @@ class TestGtcrnDegradationMatrix:
         )
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# Parity surfaces (allowlist ↔ schema Literal ↔ method routing)
-# ═══════════════════════════════════════════════════════════════════════════
-
-
 class TestNoiseSuppressionMethodParity:
     """The enum must agree across the IPC allowlist and the schema Literal."""
 
@@ -487,11 +374,6 @@ class TestNoiseSuppressionMethodParity:
         )
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# Loader legacy-value remap
-# ═══════════════════════════════════════════════════════════════════════════
-
-
 @pytest.fixture
 def isolated_config_dir(tmp_config_dir: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.delenv("VOICE_TYPER_CONFIG_DIR", raising=False)
@@ -499,19 +381,13 @@ def isolated_config_dir(tmp_config_dir: Path, monkeypatch: pytest.MonkeyPatch) -
 
 
 class TestLoaderLegacyValueRemap:
-    """On-disk legacy enum values load as their live successors.
-
-    A VALUE remap (deepfilternet → gtcrn) is better UX than the
-    reset-to-default the invalid-enum reset would apply: the user who
-    explicitly chose the premium denoiser keeps a premium denoiser.
-    """
+    """On-disk legacy enum values load as their live successors."""
 
     def test_deepfilternet_loads_as_gtcrn(self, isolated_config_dir: Path):
         from voice_typer.server.config import Config
 
         config_file = isolated_config_dir / "config.json"
         # ``audio_preset="custom"`` so apply_preset does not overwrite
-        # the method (a user who picked a method manually is on custom).
         config_file.write_text(
             json.dumps(
                 {
@@ -578,10 +454,6 @@ class TestLoaderLegacyValueRemap:
         )
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# Real-model tests (skipped when the bundled ONNX model is absent)
-# ═══════════════════════════════════════════════════════════════════════════
-
 _requires_real_model = pytest.mark.skipif(
     not MODEL_PATH.exists(),
     reason=f"bundled GTCRN model not found at {MODEL_PATH}",
@@ -593,14 +465,7 @@ class TestRealModel:
 
     @_requires_real_model
     def test_noisy_sine_suppressed_same_length_finite(self):
-        """1 s of 440 Hz sine + white noise through the full suppressor.
-
-        Assertions: finite output, EXACT input length (the
-        length-match pad/truncate contract), and the noise energy on
-        the noisy segment is reduced (output RMS strictly below input
-        RMS, GTCRN suppresses both the stationary tone and the white
-        noise; measured ~0.03× input RMS on the reference CPU).
-        """
+        """1 s of 440 Hz sine + white noise through the full suppressor."""
         ns = NoiseSuppressor(method="gtcrn", sample_rate=WHISPER_SAMPLE_RATE)
         assert ns.is_degraded is False, f"the bundled model must load cleanly; degraded_reason={ns.degraded_reason!r}"
 
@@ -625,12 +490,7 @@ class TestRealModel:
 
     @_requires_real_model
     def test_hop_latency_budget(self):
-        """PERF gate: mean per-hop inference time must stay ≤ 20 ms.
-
-        The hop is 16 ms of audio at 16 kHz; the audio worker thread
-        needs RTF < ~1 for the filter chain to keep up. Measured ~2 ms
-        mean on the reference CPU (upstream reports RTF 0.07).
-        """
+        """PERF gate: mean per-hop inference time must stay ≤ 20 ms."""
         backend = GtcrnBackend()
         rng = np.random.default_rng(1)
         hop = (rng.standard_normal(HOP) * 0.1).astype(np.float32)
@@ -649,8 +509,7 @@ class TestRealModel:
 
     @_requires_real_model
     def test_non_native_rate_end_to_end(self):
-        """The 48 kHz round-trip path with the real model stays finite,
-        length-matched, and noise-reducing."""
+        """The 48 kHz round-trip path with the real model stays finite,"""
         ns = NoiseSuppressor(method="gtcrn", sample_rate=RNNOISE_SAMPLE_RATE)
         assert ns.is_degraded is False
 

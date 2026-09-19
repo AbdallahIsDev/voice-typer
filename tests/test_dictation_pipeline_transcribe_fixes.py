@@ -1,44 +1,4 @@
-"""Regression tests for FIX-J (FR-14, FR-15, FR-18) in
-``voice_typer/server/dictation_pipeline.py``.
-
-FIX-J addresses three findings from the dictation-pipeline review:
-
-* **FR-14 (High)**: ``_transcribe`` called
-  ``active.transcribe_with_fallback(...)`` directly, bypassing
-  ``AsrBackendRegistry.transcribe_with_fallback`` (the wrapper at
-  ``asr_registry.py:951-997`` that sets/clears the per-backend busy
-  flag via ``busy_context``). The UE-48 busy flag was dead code in
-  production: ``ModelManager.ensure_active_engine_loaded`` reads
-  ``registry.is_busy(name)`` to reject new dictation requests when the
-  active backend is stuck in a C-level ctranslate2 call, but the flag
-  was never set. When a backend hung, the user's F2 started a new
-  dictation on top of the stuck one. The fix wraps the direct call
-  with ``registry.busy_context(registry.active_name)``, the same
-  primitive the wrapper uses internally, so the busy flag is
-  set/cleared atomically.
-
-* **FR-15 (Medium)**: ``_transcribe`` dereferenced ``active``
-  unconditionally on the batch path. When ``active_transcriber()``
-  returned ``None`` AND there was no streaming session, the code
-  raised ``AttributeError`` (``None.transcribe_with_fallback``)
-  instead of a friendly ``BackendNotLoadedError``. The fix adds an
-  explicit ``None`` check on the batch path (the streaming path is
-  intentionally NOT guarded: ``session.finalize()`` doesn't need
-  ``active``).
-
-* **FR-18 (Low)**: ``run()``'s generic ``except Exception`` block did
-  NOT save the partial transcription to crash recovery. If a stage
-  between ``_transcribe`` and ``_store_result`` raised, the text was
-  lost. The fix (a) hoists ``text = ""`` to before the ``try`` block
-  so the except block can reference it, and (b) adds a best-effort
-  ``crash_recovery.add(text, pasted=False)`` + ``flush(timeout=0.5)``
-  in the except block, gated on ``crash_recovery_enabled`` AND
-  ``text`` being non-empty.
-
-These tests are deliberately focused on the FIX-J changes, they
-don't re-test the existing UE-10 / UE-47 behavior (covered in
-``test_dictation_pipeline_backend_fixes.py``).
-"""
+"""``voice_typer/server/dictation_pipeline.py``."""
 
 from __future__ import annotations
 
@@ -52,25 +12,14 @@ from voice_typer.server.dictation_pipeline import (
     DictationPipeline,
 )
 
-# ─── Test helpers (mirror test_dictation_pipeline_backend_fixes.py) ──────────
-
 
 class _TestApp:
-    """Minimal non-magic test app for DictationPipeline tests.
-
-    Mirrors the pattern in ``test_dictation_pipeline_backend_fixes.py``
-    and ``tests/fixtures/dictation_pipeline_helpers.py`` (the canonical
-    shared ``_TestApp`` factory): a custom class (instead of
-    ``MagicMock``) so the notify-once flag attributes correctly default
-    to ``False`` via ``getattr(..., False)``, MagicMock would
-    auto-create truthy children for any attribute access.
-    """
+    """Minimal non-magic test app for DictationPipeline tests."""
 
     def __init__(self) -> None:
         self.tray = MagicMock()
         self.tray.notify = MagicMock()
         self.config = MagicMock()
-        # bubble_behavior is read in _handle_empty_transcription
         self.config.bubble_behavior = "show_on_record"
         self.config.crash_recovery_enabled = False
         self.config.templates_enabled = True
@@ -92,8 +41,6 @@ class _TestApp:
         self.models = MagicMock()
         self.recording = MagicMock()
         # ``recorder`` is read by the finally block in run(), make
-        # it a MagicMock with ``recording = False`` so the session
-        # cleanup branch is exercised by default.
         self.recorder = MagicMock()
         self.recorder.recording = False
         self._busy_event = MagicMock()
@@ -104,8 +51,6 @@ class _TestApp:
         self._lock.__exit__ = MagicMock(return_value=False)
 
     # Auto-mock unknown attributes (like MagicMock) but DO NOT
-    # auto-create the notify-once flag names, they must default to
-    # False via getattr-with-default.
     def __getattr__(self, name: str) -> MagicMock:
         if name in {
             "_vocab_fail_notified",
@@ -122,13 +67,7 @@ class _TestApp:
 
 
 def _new_pipeline(app: _TestApp) -> DictationPipeline:
-    """Build a fresh DictationPipeline tied to ``app``.
-
-    Mirrors how ``RecordingController._stop_impl`` constructs a new
-    pipeline per transcription cycle. Uses ``__new__`` to bypass
-    ``__init__`` (which expects a real VoiceTyperApp) and manually
-    sets the attributes the pipeline methods read.
-    """
+    """Build a fresh DictationPipeline tied to ``app``."""
     pipeline = DictationPipeline.__new__(DictationPipeline)
     pipeline._app = app
     pipeline._duration = 1.0
@@ -138,8 +77,6 @@ def _new_pipeline(app: _TestApp) -> DictationPipeline:
     pipeline._recorded_rms = 0.0
     pipeline._device_info = ""
     # ``_check_resources_throttled`` reads these, they're normally
-    # set by ``__init__``. Initialize them so ``run()`` doesn't crash
-    # on the resource-check fast-path.
     pipeline._last_resources_check_ts = 0.0
     pipeline._resources_check_interval = 60.0
     pipeline._templates_applied = False
@@ -147,12 +84,7 @@ def _new_pipeline(app: _TestApp) -> DictationPipeline:
 
 
 def _wire_run_finally_block(app: _TestApp) -> None:
-    """Set up the MagicMock attributes that ``run()``'s finally block
-    touches (so the cleanup doesn't raise during test teardown).
-
-    Mirrors the setup in
-    ``test_dictation_pipeline_backend_fixes.py::test_run_catches_backend_not_loaded_error_and_notifies``.
-    """
+    """Set up the MagicMock attributes that ``run()``'s finally block"""
     app.recording._cancelled_cycle_ids = set()
     app.recording._cancelled_cycle_ids_lock = threading.Lock()
     app.recording._reset_watchdog = MagicMock()
@@ -161,31 +93,13 @@ def _wire_run_finally_block(app: _TestApp) -> None:
     app.recording._transcription_thread = MagicMock(name="old-thread")
 
 
-# registry busy_context entered during _transcribe ────────────
-
-
 class TestBusyContextEntered:
-    """FR-14: ``_transcribe`` must enter the registry's ``busy_context``
-    so the per-backend busy flag is set/cleared atomically (UE-48).
-
-    Pre-fix, the pipeline called ``active.transcribe_with_fallback(...)``
-    directly, bypassing ``AsrBackendRegistry.transcribe_with_fallback``
-    (the wrapper at ``asr_registry.py:951-997``). The UE-48 busy flag
-    was dead code in production: ``ModelManager.ensure_active_engine_loaded``
-    reads ``registry.is_busy(name)`` to reject new dictation requests
-    when the active backend is stuck, but the flag was never set.
-    """
+    """FR-14: ``_transcribe`` must enter the registry's ``busy_context``"""
 
     def test_busy_flag_is_true_mid_call(self):
-        """``registry.is_busy(active_name)`` must return ``True`` while
-        ``active.transcribe_with_fallback`` is executing. Uses a real
-        ``AsrBackendRegistry`` (not a MagicMock) so the busy flag is
-        actually set/cleared by ``busy_context``.
-        """
+        """``registry.is_busy(active_name)`` must return ``True`` while"""
         app = _TestApp()
         # Use a real AsrBackendRegistry so the busy flag is real
-        # (MagicMock would just return a truthy MagicMock from
-        # ``is_busy`` without actually tracking set/clear state).
         config = MagicMock()
         config.asr_backend = "whisper"
         config.disabled_backends = []
@@ -197,8 +111,6 @@ class TestBusyContextEntered:
         active.device_info = "mock"
 
         # Coordinate: the transcribe thread signals when it's inside
-        # active.transcribe_with_fallback, then waits for the main
-        # thread to finish its busy-flag check before returning.
         inside_call = threading.Event()
         ok_to_proceed = threading.Event()
         busy_snapshot: list[bool] = []
@@ -260,11 +172,7 @@ class TestBusyContextEntered:
         )
 
     def test_busy_flag_cleared_on_exception(self):
-        """FR-14: the busy flag must be cleared even if
-        ``active.transcribe_with_fallback`` raises: ``busy_context``'s
-        ``finally`` block ensures the flag never gets stuck set (a
-        stuck busy flag would block all future dictation requests).
-        """
+        """FR-14: the busy flag must be cleared even if"""
         app = _TestApp()
         config = MagicMock()
         config.asr_backend = "whisper"
@@ -290,16 +198,7 @@ class TestBusyContextEntered:
         )
 
     def test_transcribe_still_calls_active_directly(self):
-        """FR-14 (compatibility guard): the busy_context wrapper must
-        still call ``active.transcribe_with_fallback`` directly (with
-        the same kwargs as before) so existing call-site assertions on
-        ``active.transcribe_with_fallback.call_args`` continue to hold.
-
-        This guards against a future refactor that swaps the direct
-        call for ``registry.transcribe_with_fallback(...)`` (which
-        would bypass ``active.transcribe_with_fallback`` entirely and
-        break the test coverage in this file).
-        """
+        """FR-14 (compatibility guard): the busy_context wrapper must"""
         app = _TestApp()
         app.recording.pop_streaming_session.return_value = None
         active = MagicMock()
@@ -312,8 +211,6 @@ class TestBusyContextEntered:
         result = pipeline._transcribe()
 
         assert result == "hello"
-        # active.transcribe_with_fallback must still be called exactly
-        # once (the busy_context wrapper doesn't add a second call).
         assert active.transcribe_with_fallback.call_count == 1, (
             "FR-14: the busy_context wrapper must still call "
             "active.transcribe_with_fallback exactly once, wrapping "
@@ -331,22 +228,10 @@ class TestBusyContextEntered:
 
 
 class TestNoneCheckOnBatchPath:
-    """FR-15: when ``active_transcriber()`` returns ``None`` AND there
-    is no streaming session, the batch path must raise
-    ``BackendNotLoadedError`` (not ``AttributeError``) so ``run()``'s
-    generic ``except Exception`` block surfaces a friendly "model not
-    loaded" message via ``_friendly_transcription_error``.
-
-    Pre-fix, ``active.transcribe_with_fallback`` dereferenced ``None``
-    and raised ``AttributeError``, which fell through to the generic
-    "Transcription failed (AttributeError)" message, masking the real
-    cause (no ASR backend registered).
-    """
+    """FR-15: when ``active_transcriber()`` returns ``None`` AND there"""
 
     def test_raises_backend_not_loaded_when_active_none_and_no_session(self):
-        """Batch path with ``active=None`` AND no streaming session must
-        raise ``BackendNotLoadedError`` (not ``AttributeError``).
-        """
+        """Batch path with ``active=None`` AND no streaming session must"""
         app = _TestApp()
         app.recording.pop_streaming_session.return_value = None
         app.models.active_transcriber.return_value = None
@@ -360,18 +245,14 @@ class TestNoneCheckOnBatchPath:
             "active_transcriber() returned None (no backend to name)."
         )
         # The message must mention "wait for the model to finish loading"
-        # so _friendly_transcription_error can identify it (the
-        # isinstance branch handles this, but the message is the
-        # user-facing text and must be actionable).
         assert "wait for the model" in str(exc_info.value).lower(), (
             "FR-15: BackendNotLoadedError message must tell the user to "
             "wait for the model to finish loading. Got: " + str(exc_info.value)
         )
 
     def test_does_not_raise_attribute_error_when_active_none(self):
-        """The pre-fix behavior raised ``AttributeError`` (from
+        """
         ``None.transcribe_with_fallback``). Post-fix, the explicit
-        None-check raises ``BackendNotLoadedError`` first —
         ``AttributeError`` must NOT propagate.
         """
         app = _TestApp()
@@ -384,17 +265,7 @@ class TestNoneCheckOnBatchPath:
             pipeline._transcribe()
 
     def test_streaming_path_still_works_when_active_none(self):
-        """FR-15 doesn't break the streaming path: when a streaming
-          session exists, ``active`` is not needed (``session.finalize()``
-          produces the text). The None-check is on the batch path only
-        , the streaming path must continue to work with ``active=None``.
-
-          This mirrors the existing
-          ``test_device_info_falls_back_to_parakeet_when_active_is_none``
-          in ``test_dictation_pipeline_backend_fixes.py``: the streaming
-          worker captured the audio before the backend was unloaded, so
-          ``session.finalize()`` can produce the text without ``active``.
-        """
+        """FR-15 doesn't break the streaming path: when a streaming"""
         app = _TestApp()
         app.models.active_transcriber.return_value = None
         fake_session = MagicMock()
@@ -408,30 +279,17 @@ class TestNoneCheckOnBatchPath:
             "the None-check is on the batch path only (session.finalize() "
             "doesn't need active)."
         )
-        # device_info must fall back to the literal "Parakeet ASR" string
-        # (mirrors  behavior for the active=None edge case).
         assert pipeline._device_info == "Parakeet ASR", (
             "FR-15: when active is None on the streaming path, _device_info "
             "must fall back to 'Parakeet ASR' (UE-10-F6)."
         )
 
 
-# partial text saved to crash recovery on exception ──────────
-
-
 class TestPartialSavedToCrashRecovery:
-    """FR-18: when ``run()``'s generic ``except Exception`` block fires,
-    the partial transcription (captured before the exception) must be
-    saved to crash recovery. Pre-fix, the exception path discarded the
-    text, a stage between ``_transcribe`` and ``_store_result``
-    raising would lose the transcription silently.
-    """
+    """FR-18: when ``run()``'s generic ``except Exception`` block fires,"""
 
     def test_partial_text_saved_when_post_transcribe_stage_raises(self):
-        """When a stage AFTER ``TranscribeStage`` raises, the partial
-        transcription must be saved to crash recovery before the
-        exception is re-surfaced as a tray notification.
-        """
+        """When a stage AFTER ``TranscribeStage`` raises, the partial"""
         app = _TestApp()
         app.config.crash_recovery_enabled = True
         app.recorder._last_audio_stats = None
@@ -447,8 +305,6 @@ class TestPartialSavedToCrashRecovery:
         pipeline = _new_pipeline(app)
 
         # Inject a stage between TranscribeStage and StoreResultStage
-        # that raises, simulating a stage failure after transcription
-        # but before the result is stored / pasted.
         from voice_typer.server.dictation_stages import build_default_stages
 
         class _BoomStage:
@@ -467,7 +323,6 @@ class TestPartialSavedToCrashRecovery:
         pipeline._stages = boom_stages
 
         # Run, the boom stage must trigger the generic except Exception
-        # block, which must save "partial transcription" to crash recovery.
         pipeline.run(
             audio=None,
             duration=0.0,
@@ -490,10 +345,7 @@ class TestPartialSavedToCrashRecovery:
         )
 
     def test_no_save_when_crash_recovery_disabled(self):
-        """When ``crash_recovery_enabled`` is ``False``, the except
-        block must NOT call ``crash_recovery.add``, the partial-text
-        save is gated on the user's crash-recovery opt-in.
-        """
+        """When ``crash_recovery_enabled`` is ``False``, the except"""
         app = _TestApp()
         app.config.crash_recovery_enabled = False
         app.recorder._last_audio_stats = None
@@ -542,17 +394,11 @@ class TestPartialSavedToCrashRecovery:
         )
 
     def test_no_save_when_text_empty(self):
-        """When the partial text is empty (e.g. transcription returned
-        empty AND a later stage raised), the except block must NOT call
-        ``crash_recovery.add``, saving an empty string would pollute
-        the recovery buffer with no useful content.
-        """
+        """When the partial text is empty (e.g. transcription returned"""
         app = _TestApp()
         app.config.crash_recovery_enabled = True
         app.recorder._last_audio_stats = None
         app.recording.pop_streaming_session.return_value = None
-        # active.is_loaded = True so BackendNotLoadedError is NOT raised
-        # (we want the boom stage to raise, not the empty-result path).
         active = MagicMock()
         active.is_loaded = True
         active.transcribe_with_fallback.return_value = ""  # empty!
@@ -564,8 +410,6 @@ class TestPartialSavedToCrashRecovery:
         pipeline = _new_pipeline(app)
 
         # Insert the boom stage BEFORE EmptyCheckStage so the empty-
-        # result path doesn't fire (we want the generic except path
-        # with text == "").
         from voice_typer.server.dictation_stages import build_default_stages
 
         class _BoomStage:
@@ -590,7 +434,6 @@ class TestPartialSavedToCrashRecovery:
             cycle_id="fix-j-cycle",
         )
 
-        # text was "" when the boom fired → no save (gated on `if text`).
         (
             app._crash_recovery.add.assert_not_called(),
             (
@@ -601,12 +444,7 @@ class TestPartialSavedToCrashRecovery:
         )
 
     def test_text_hoisted_outside_try_block(self):
-        """FR-18 (source-text guard): ``text = ""`` must be initialized
-        BEFORE the ``try:`` block in ``run()`` so the ``except
-        Exception`` block can reference it. Pre-fix, ``text`` was
-        initialized inside the try, an exception before the
-        assignment would leave ``text`` unbound in the except block.
-        """
+        """FR-18 (source-text guard): ``text = \"\"`` must be initialized"""
         import inspect
 
         src = inspect.getsource(DictationPipeline.run)

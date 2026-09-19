@@ -1,18 +1,4 @@
-"""Standalone-contract pins for ``scripts/build/update_native_manifests.py``.
-
-The updater's module docstring states it runs STANDALONE: none of the
-native build scripts (``compile_native.sh``, ``compile_native.ps1``,
-``build_native_listener_*.sh``) invokes it themselves. These
-source-text assertions (headless, same style as
-``tests/tauri/test_arm_validation_workflow.py``) pin that contract so
-the docstring and the wiring cannot silently drift apart in either
-direction:
-
-- If a build script starts invoking the updater, the docstring must be
-  updated alongside it (these tests fail until it is).
-- If the docstring regresses to claiming automatic invocation, these
-  tests fail until the wording is corrected.
-"""
+"""Standalone-contract pins for ``scripts/build/update_native_manifests.py``."""
 
 from __future__ import annotations
 

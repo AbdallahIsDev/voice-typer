@@ -1,29 +1,4 @@
-"""Win32 code-path coverage for ``voice_typer.server.clipboard``.
-
-These tests mock ``ctypes.windll`` (and friends) so the Windows-only
-branches of clipboard.py execute on Linux.  Brings clipboard.py from
-~40% to >=75% coverage.
-
-The strategy:
-
-1. Patch ``voice_typer.server.clipboard.is_windows`` to return ``True``
-   so the ``if not is_windows(): return ...`` early-exits are skipped.
-2. Patch ``ctypes.windll`` with a ``MagicMock`` exposing ``user32``,
-   ``kernel32``, and ``advapi32`` attributes.  Each Win32 API call
-   becomes a mock call whose return value we control.
-3. For functions that use ``ctypes.byref(dword)`` to receive an output
-   value (e.g. ``GetWindowThreadProcessId``), we install ``side_effect``
-   callbacks that mutate ``byref_obj._obj.value``, the underlying
-   ``c_ulong`` instance, to fake the kernel writing into the buffer.
-4. For ``_send_ctrl_v_win32``, we provide *real* ``ctypes.Structure``
-   subclasses (``INPUT``, ``KEYBDINPUT``, ``INPUT_union``) so the
-   ``(INPUT * 4)(...)`` array-construction syntax and
-   ``ctypes.sizeof(INPUT)`` work natively.  ``SendInput`` itself is a
-   ``MagicMock``.
-5. For ``_is_password_field`` and ``_is_content_editable``, we mock
-   ``comtypes`` / ``comtypes.client`` in ``sys.modules`` so the
-   ``import comtypes.client`` line resolves to our mock.
-"""
+"""Win32 code-path coverage for ``voice_typer.server.clipboard``."""
 
 from __future__ import annotations
 
@@ -34,12 +9,6 @@ from ctypes import wintypes
 from unittest.mock import MagicMock, patch
 
 import pytest
-
-# ---------------------------------------------------------------------------
-# pynput / pynput.keyboard / pyperclip are mocked at collection time by
-# tests/clipboard/conftest.py (single source of truth, dedup).
-# ---------------------------------------------------------------------------
-# UIA singleton moved to clipboard_target_safety; reset it there.
 from voice_typer.server import (
     clipboard as clip_mod,  # noqa: E402
     clipboard_target_safety as safety_mod,  # noqa: E402
@@ -53,13 +22,6 @@ from voice_typer.server.clipboard import (  # noqa: E402
 )
 
 
-# ---------------------------------------------------------------------------
-# Real ctypes structures for _send_ctrl_v_win32 testing.
-#
-# pynput._util.win32 exposes INPUT / KEYBDINPUT / INPUT_union / SendInput.
-# We define minimal ctypes-compatible versions so the array-construction
-# and sizeof() calls in _send_ctrl_v_win32 work on Linux.
-# ---------------------------------------------------------------------------
 class _KEYBDINPUT(ctypes.Structure):
     _fields_ = (
         ("wVk", wintypes.WORD),
@@ -85,11 +47,7 @@ class _INPUT(ctypes.Structure):
 
 
 def _make_pynput_win32_module(sendinput_return: int = 4) -> types.ModuleType:
-    """Build a fake ``pynput._util.win32`` module with real ctypes types.
-
-    ``SendInput`` is a MagicMock so the test can configure the return
-    value (4 = success, 0 = total failure, 1..3 = partial success).
-    """
+    """Build a fake ``pynput._util.win32`` module with real ctypes types."""
     mod = types.ModuleType("pynput._util.win32")
     mod.INPUT = _INPUT
     mod.KEYBDINPUT = _KEYBDINPUT
@@ -98,18 +56,9 @@ def _make_pynput_win32_module(sendinput_return: int = 4) -> types.ModuleType:
     return mod
 
 
-# ---------------------------------------------------------------------------
-# Fixtures
-# ---------------------------------------------------------------------------
-
-
 @pytest.fixture
 def fake_win32():
-    """Mock ``ctypes.windll`` so Windows-only code runs on Linux.
-
-    Yields a dict with ``user32``, ``kernel32``, and ``advapi32`` mocks
-    that tests can configure per-case.
-    """
+    """Mock ``ctypes.windll`` so Windows-only code runs on Linux."""
     mock_user32 = MagicMock()
     mock_kernel32 = MagicMock()
     mock_advapi32 = MagicMock()
@@ -135,9 +84,6 @@ def fake_win32():
     with (
         patch.object(clip_mod, "is_windows", return_value=True),
         # Pin is_macos() False too: the dispatch in manager.py checks
-        # is_macos() BEFORE is_windows(), so on a macOS host the real
-        # darwin predicate would otherwise hijack these simulated-
-        # Windows tests into the Cmd+V branch.
         patch.object(clip_mod, "is_macos", return_value=False),
         patch("ctypes.windll", mock_windll, create=True),
         patch("ctypes.create_unicode_buffer") as mock_buf,
@@ -156,23 +102,14 @@ def fake_win32():
 
 
 def _set_byref_value(byref_obj, value):
-    """Helper: mutate the c_ulong instance wrapped by ``ctypes.byref``.
-
-    ``ctypes.byref(obj)`` returns a ``CArgObject`` whose ``_obj``
-    attribute is the underlying object.  We use this to fake the kernel
-    writing an output value into a ``wintypes.DWORD`` passed by-ref.
-    """
+    """Helper: mutate the c_ulong instance wrapped by ``ctypes.byref``."""
     byref_obj._obj.value = value
 
 
 class TestIsElevatedTargetWindows:
     @pytest.fixture(autouse=True)
     def _reset_we_elevated(self):
-        """ARCH-11: clear the safety module's ``_WE_ELEVATED`` cache so
-        each test computes elevation fresh (``_get_we_elevated`` caches
-        at module level). Without this, an earlier test that caches
-        ``we_elevated=False`` would leak into a later test expecting
-        ``we_elevated=True``."""
+        """ARCH-11: clear the safety module's ``_WE_ELEVATED`` cache so"""
         safety_mod._WE_ELEVATED = None
         yield
         safety_mod._WE_ELEVATED = None
@@ -215,7 +152,6 @@ class TestIsElevatedTargetWindows:
 
         fake_win32["user32"].GetWindowThreadProcessId.side_effect = _set_pid
         # First GetTokenInformation (probe) returns 1 (success),
-        # second returns 0 (failure) → triggers `return False`.
         fake_win32["advapi32"].GetTokenInformation.side_effect = [1, 0]
         assert _is_elevated_target() is False
 
@@ -241,7 +177,6 @@ class TestIsElevatedTargetWindows:
         fake_win32["advapi32"].GetTokenInformation.return_value = 1
 
         # Patch ctypes.cast so the FIRST dereference (target) yields 1
-        # (elevated) and the SECOND (us) yields 0 (not elevated).
         fake_target_ptr = MagicMock()
         fake_target_ptr.__getitem__.return_value = 1  # target_elevated=True
         fake_our_ptr = MagicMock()
@@ -271,15 +206,7 @@ class TestIsElevatedTargetWindows:
         assert result is False
 
     def test_returns_true_when_our_open_process_token_fails(self, fake_win32):
-        """OpenProcessToken for our_token returning 0 → True (fail-closed).
-
-        EC-15 / CLIP-3: when OUR elevation cannot be determined
-        (OpenProcessToken fails), ``_get_we_elevated`` caches
-        ``we_elevated=False``. If the target IS elevated, we cannot
-        safely allow paste. UIPI may silently drop the SendInput.
-        Block paste (return True) rather than risk pasting into an
-        elevated target we couldn't verify ourselves against.
-        """
+        """OpenProcessToken for our_token returning 0 → True (fail-closed)."""
 
         def _set_pid(hwnd, byref_obj):
             _set_byref_value(byref_obj, 1234)
@@ -295,14 +222,7 @@ class TestIsElevatedTargetWindows:
         assert result is True
 
     def test_returns_true_when_our_get_token_info_fails(self, fake_win32):
-        """GetTokenInformation for our_token (real call) returning 0 → True.
-
-        EC-15 / CLIP-3: when OUR elevation cannot be determined
-        (GetTokenInformation fails), ``_get_we_elevated`` caches
-        ``we_elevated=False``. If the target IS elevated, block paste
-        (return True) rather than risk pasting into an elevated target
-        we couldn't verify ourselves against.
-        """
+        """GetTokenInformation for our_token (real call) returning 0 → True."""
 
         def _set_pid(hwnd, byref_obj):
             _set_byref_value(byref_obj, 1234)
@@ -310,10 +230,6 @@ class TestIsElevatedTargetWindows:
         fake_win32["user32"].GetWindowThreadProcessId.side_effect = _set_pid
         fake_win32["advapi32"].OpenProcessToken.return_value = 1
         # 4 GetTokenInformation calls:
-        #   1: target probe (success)
-        #   2: target real  (success)
-        #   3: our probe    (success)
-        #   4: our real     (FAIL → triggers we_elevated=False)
         fake_win32["advapi32"].GetTokenInformation.side_effect = [1, 1, 1, 0]
         fake_target_ptr = MagicMock()
         fake_target_ptr.__getitem__.return_value = 1
@@ -322,18 +238,9 @@ class TestIsElevatedTargetWindows:
         assert result is True
 
     def test_returns_true_on_exception(self, fake_win32):
-        """Any unexpected exception → True (fail-closed, EC-15).
-
-        If the elevation check itself raises, block paste rather than
-        risk pasting into an elevated target we couldn't verify.
-        """
+        """Any unexpected exception → True (fail-closed, EC-15)."""
         fake_win32["user32"].GetForegroundWindow.side_effect = RuntimeError("unexpected")
         assert _is_elevated_target() is True
-
-
-# ===========================================================================
-# _focused_window_is_credential_dialog
-# ===========================================================================
 
 
 class TestFocusedWindowIsCredentialDialog:
@@ -372,39 +279,18 @@ class TestFocusedWindowIsCredentialDialog:
         assert _focused_window_is_credential_dialog() is False
 
     def test_returns_true_on_exception(self, fake_win32):
-        """Any exception → True (fail-closed, EC-15).
-
-        If the credential-dialog check itself raises, block paste
-        rather than risk pasting into an undetected credential prompt.
-        """
+        """Any exception → True (fail-closed, EC-15)."""
         fake_win32["user32"].GetForegroundWindow.side_effect = OSError("nope")
         assert _focused_window_is_credential_dialog() is True
-
-
-# ===========================================================================
-# _is_password_field
-# ===========================================================================
 
 
 class TestIsPasswordFieldWindows:
     @pytest.fixture(autouse=True)
     def _reset_uia_singleton(self):
-        """Reset the module-level UIA singleton so each test's per-test
-        comtypes mock is consulted fresh.
-
-        PERF-FIX-001: the UIA COM object is now a module-level
-        singleton in clipboard.py (_UIA_SINGLETON, _UIA_MODULE,
-        _UIA_SINGLETON_INIT_ATTEMPTED). Without this reset, the first
-        test that triggers _get_uia_singleton() caches its fake_uia mock
-        in the singleton, and every subsequent test receives the stale
-        mock, causing false positives/negatives depending on test order.
-        """
+        """Reset the module-level UIA singleton so each test's per-test"""
         safety_mod._UIA_SINGLETON = None
         safety_mod._UIA_MODULE = None
         safety_mod._UIA_SINGLETON_INIT_ATTEMPTED = False
-        # _WE_ELEVATED is also a module-level cache in the
-        # safety module; reset it so elevated-target tests don't read a
-        # value cached by an earlier test in the session.
         safety_mod._WE_ELEVATED = None
         yield
         # Restore after test in case the test set them.
@@ -439,10 +325,6 @@ class TestIsPasswordFieldWindows:
         fake_uia.GetFocusedElement.return_value = fake_focused
         fake_comtypes = MagicMock(name="comtypes")
         fake_comtypes_client = MagicMock(name="comtypes.client")
-        # IMPORTANT: when Python imports comtypes.client, it sets the
-        # ``client`` attribute on the parent ``comtypes`` module.  We
-        # must pre-bind that attribute to our fake so subsequent
-        # ``comtypes.client.X`` access resolves correctly.
         fake_comtypes.client = fake_comtypes_client
         fake_comtypes_client.GetModule.return_value = fake_uia_mod
         fake_comtypes.CoCreateInstance.return_value = fake_uia
@@ -501,9 +383,6 @@ class TestIsPasswordFieldWindows:
     def test_returns_false_on_comtypes_import_error(self, fake_win32):
         """comtypes ImportError → fallback to window-class heuristic."""
         # Setting sys.modules entries to None makes Python raise
-        # ImportError on ``import comtypes.client``, no need to patch
-        # builtins.__import__ (which would break the outer ``import ctypes``
-        # and cause the function to bail out before reaching the heuristic).
         with (
             patch.dict(sys.modules, {"comtypes": None, "comtypes.client": None}),
             patch.object(clip_mod, "log"),
@@ -549,8 +428,6 @@ class TestIsPasswordFieldWindows:
 
     def test_returns_false_on_outer_exception(self, fake_win32):
         """Any unexpected exception in the outer try → False."""
-        # comtypes not installed so we hit the cred-dialog fallback,
-        # which itself raises → outer except catches.
         with (
             patch.dict(sys.modules, {"comtypes": None, "comtypes.client": None}),
             patch.object(clip_mod, "log"),
@@ -564,27 +441,7 @@ class TestIsPasswordFieldWindows:
         assert result is False
 
     def test_returns_false_when_wintypes_import_fails(self, fake_win32):
-        """If ``from ctypes import wintypes`` raises → outer except → False.
-
-        Covers lines 396-397 (the outer ``except Exception`` in
-        ``_is_password_field``).
-
-        Making ``from ctypes import wintypes`` fail is non-trivial:
-        once the real ``ctypes.wintypes`` submodule has been imported
-        anywhere in the process, the ``ctypes`` module object caches
-        the ``wintypes`` attribute, and ``from ctypes import wintypes``
-        will happily return that cached attribute (even if
-        ``sys.modules['ctypes.wintypes']`` is patched to ``None``).
-
-        The fix is two-pronged:
-
-        1. Delete the cached ``wintypes`` attribute from the ``ctypes``
-           module object (so the from-import has to look it up).
-        2. Set ``sys.modules['ctypes.wintypes'] = None`` so the lookup
-           raises ``ImportError``.
-
-        Both mutations are restored in the ``finally`` block.
-        """
+        """If ``from ctypes import wintypes`` raises → outer except → False."""
         saved_attr = getattr(ctypes, "wintypes", None)
         had_attr = hasattr(ctypes, "wintypes")
         if had_attr:
@@ -597,11 +454,6 @@ class TestIsPasswordFieldWindows:
             if had_attr:
                 # Restore the attribute so other tests aren't affected.
                 ctypes.wintypes = saved_attr
-
-
-# ===========================================================================
-# _is_content_editable
-# ===========================================================================
 
 
 class TestIsContentEditableWindows:
@@ -736,22 +588,9 @@ class TestIsContentEditableWindows:
         assert result is False
 
 
-# ===========================================================================
-# ClipboardManager._is_safe_paste_target (Windows branch)
-# ===========================================================================
-
-
 class TestIsSafePasteTargetWindows:
     def test_returns_true_for_generic_dialog_class(self, fake_win32):
-        """Class '#32770' (generic Win32 Dialog) → True.
-
-        ``#32770`` is the generic Win32 Dialog class used by
-        Open/Save As/Properties dialogs too, not just UAC/consent. Blocking
-        it prevented legitimate dictation into standard dialogs. Credential
-        prompts are still caught by the UIA ``IsPassword`` check and the
-        specific ``_CRED_DIALOG_CLASSES`` set (Credential Dialog Xaml Host,
-        CredDialog).
-        """
+        """Class '#32770' (generic Win32 Dialog) → True."""
         fake_win32["buf"].return_value.value = "#32770"
         with (
             patch("voice_typer.server.clipboard._is_elevated_target", return_value=False),
@@ -826,17 +665,7 @@ class TestIsSafePasteTargetWindows:
         assert ClipboardManager._is_safe_paste_target() is True
 
     def test_returns_false_on_outer_runtime_exception(self, fake_win32):
-        """unexpected RuntimeError → False (fail CLOSED).
-
-        Previously the outer ``except Exception`` returned ``True`` (fail
-        open), which meant any unexpected error in the safety-check
-        infrastructure (e.g. Win32 APIs raising during shutdown, broken
-        COM init) silently disabled credential-prompt blocking. The
-        tightened outer handler now only fails OPEN for
-        ``ImportError``/``AttributeError`` (ctypes missing); every
-        other exception fails CLOSED so we never paste into an
-        unverified target.
-        """
+        """unexpected RuntimeError → False (fail CLOSED)."""
         fake_win32["user32"].GetForegroundWindow.side_effect = RuntimeError("boom")
         assert ClipboardManager._is_safe_paste_target() is False
 
@@ -860,12 +689,7 @@ class TestIsSafePasteTargetWindows:
         assert result is True
 
     def test_returns_false_when_is_elevated_check_raises(self, fake_win32):
-        """If _is_elevated_target raises, fail-closed → False.
-
-        CLIP-3: when the elevation check itself raises, block paste
-        (return False) rather than risk pasting into an elevated target
-        with broken detection infrastructure.
-        """
+        """If _is_elevated_target raises, fail-closed → False."""
         fake_win32["buf"].return_value.value = "Edit"
         with (
             patch(
@@ -892,8 +716,3 @@ class TestIsSafePasteTargetWindows:
         ):
             result = ClipboardManager._is_safe_paste_target()
         assert result is True
-
-
-# ===========================================================================
-# ClipboardManager._is_terminal_process / _detect_focused_process
-# ===========================================================================

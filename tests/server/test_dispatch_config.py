@@ -1,14 +1,6 @@
-"""IPC dispatch tests for config commands (get_config / set_config).
-
-Classes:
-- TestDispatchGetConfig                , get_config dispatcher
-- TestDispatchSetConfig                , set_config dispatcher (basic)
-- TestDispatchEscCancelLive            , live ESC/repaste hotkey registration
+"""
+IPC dispatch tests for config commands (get_config / set_config).
 - TestDispatchSetConfigAllowlist       , SEC-002 set_config allowlist + types
-- TestGetConfigRedactsSecrets          , SEC-003 get_config redacts API keys
-- TestTrustedPathFieldsBlockedInSetConfig, SEC-006 trusted-path field rejection
-
-Split out from the original monolithic tests/test_server.py (DT-37, Phase 4.5).
 """
 
 from unittest.mock import MagicMock
@@ -48,9 +40,6 @@ class TestDispatchSetConfig:
         assert mock_app.config._saved is True
 
     def test_empty_data_acks_without_saving(self, server, mock_app):
-        # G4-L-20: an empty update is a no-op, apply_config's dirty-check
-        # skips save_strict() when nothing changed. The contract is
-        # "ack + no disk write", not "ack + always save".
         mock_app.config._saved = False
         result = server._dispatch(
             {
@@ -63,8 +52,7 @@ class TestDispatchSetConfig:
         assert mock_app.config._saved is False
 
     def test_no_data_returns_error(self, server, mock_app):
-        """NEW-IPC-005: set_config with no data field must return an error,
-        not silently succeed with {type: "ack"}."""
+        """NEW-IPC-005: set_config with no data field must return an error,"""
         mock_app.config._saved = False
         result = server._dispatch(
             {
@@ -87,12 +75,10 @@ class TestDispatchSetConfig:
         )
         assert result["type"] == "ack"  # may include data field
         # G4-L-20: unknown keys are dropped, leaving a no-op update —
-        # the dirty-check skips save_strict() when nothing changed.
         assert mock_app.config._saved is False
 
     def test_non_dict_data_returns_error(self, server, mock_app):
-        """NEW-IPC-005: set_config with non-dict data must return an error,
-        not silently succeed with {type: "ack"}."""
+        """NEW-IPC-005: set_config with non-dict data must return an error,"""
         mock_app.config._saved = False
         result = server._dispatch(
             {
@@ -147,16 +133,7 @@ class TestDispatchEscCancelLive:
         mock_app.hotkeys.register_esc.assert_not_called()
 
     def test_enable_repaste_hotkey_calls_register_repaste_hotkey(self, server, mock_app):
-        """set_config with repaste_hotkey should call _register_repaste_hotkey.
-
-        Round 0: changed the test input from ``<ctrl>+<v>`` to
-        ``<ctrl>+<alt>+v`` because the config_validators denylist
-        (SEC-CTRL-BLOCK) now blocks pure Ctrl+letter combos that clash
-        with reserved application shortcuts (Copy/Paste/Undo/Save/etc.).
-        ``<ctrl>+<alt>+v`` is the default repaste_hotkey (config.py:536)
-        and is also used by the passing sibling test
-        test_side_effect_repaste_fires_on_repaste_hotkey.
-        """
+        """set_config with repaste_hotkey should call _register_repaste_hotkey."""
         # Phase 2: service now calls `app.hotkeys.register_repaste()` directly.
         mock_app.hotkeys.register_repaste = MagicMock()
 
@@ -171,21 +148,12 @@ class TestDispatchEscCancelLive:
         mock_app.hotkeys.register_repaste.assert_called_once()
 
 
-# ── SEC-002: set_config allowlist + type/range validation ──────────────
-
-
 class TestDispatchSetConfigAllowlist:
-    """SEC-002: `set_config` must reject fields outside an explicit allowlist
-    and validate types/ranges for fields inside it.
-
-    These tests use the *real* `Config` dataclass (not MockConfig) so the
-    allowlist is exercised against the actual schema it protects.
-    """
+    """SEC-002: `set_config` must reject fields outside an explicit allowlist"""
 
     @pytest.fixture
     def real_config(self, tmp_path, monkeypatch):
-        """Real Config instance with save() patched to a no-op (we don't
-        want IPC tests touching the user's ~/.voice-typer directory)."""
+        """Real Config instance with save() patched to a no-op (we don't"""
         from voice_typer.server import config as config_module
 
         monkeypatch.setattr(config_module, "_config_dir", lambda: tmp_path)
@@ -199,13 +167,7 @@ class TestDispatchSetConfigAllowlist:
         app = MockApp()
         app.config = real_config
         # Pre-warm / autostart / hotkey side-effects: no-op by default.
-        # Phase 2/: service.apply_config_side_effects now calls
-        # `startup_tasks.sync_autostart(app)` directly (not
-        # `app._sync_autostart()`); the MockApp's `hotkeys` MagicMock
-        # already stubs `register_esc/unregister_esc/register_repaste`.
         return IPCServer(app)
-
-    # ── Allowlist boundary ───────────────────────────────────────────
 
     def test_rejects_schema_version_even_though_it_exists(self, real_server, real_config):
         """schema_version is on Config but must NOT be mutable via IPC."""
@@ -235,11 +197,7 @@ class TestDispatchSetConfigAllowlist:
         assert real_config.wayland_warned == original
 
     def test_accepts_onboarding_completed_via_set_config(self, real_server, real_config):
-        """onboarding_completed is renderer-writable via set_config so the
-        Settings "Re-run setup wizard" flow can flip it to false (the
-        App.tsx route guard then admits the wizard page and the value
-        persists across config refreshes). Completion still flows through
-        the dedicated complete_onboarding IPC command."""
+        """App.tsx route guard then admits the wizard page and the value"""
         real_config.onboarding_completed = True
         result = real_server._dispatch(
             {
@@ -252,9 +210,7 @@ class TestDispatchSetConfigAllowlist:
         assert real_config.onboarding_completed is False
 
     def test_rejects_non_bool_onboarding_completed(self, real_server, real_config):
-        """A non-bool onboarding_completed value is dropped by the
-        boolean validator (defense in depth against a malicious IPC
-        client writing garbage into the flag)."""
+        """boolean validator (defense in depth against a malicious IPC"""
         real_config.onboarding_completed = True
         result = real_server._dispatch(
             {
@@ -278,7 +234,6 @@ class TestDispatchSetConfigAllowlist:
             }
         )
         assert result["type"] == "ack"
-        # rejected keys are now echoed in data
         assert "qwen_model_path" in result.get("data", {}).get("rejected", [])
         assert real_config.qwen_model_path == original
 
@@ -310,10 +265,8 @@ class TestDispatchSetConfigAllowlist:
         assert "corrections_path" in result.get("data", {}).get("rejected", [])
         assert real_config.corrections_path == original
 
-    # ── Type validation ──────────────────────────────────────────────
-
     def test_rejects_bool_field_with_string_value(self, real_server, real_config):
-        """autostart is a bool; sending "true" must be rejected, not coerced."""
+        """autostart is a bool; sending \"true\" must be rejected, not coerced."""
         original = real_config.autostart
         result = real_server._dispatch(
             {
@@ -328,8 +281,7 @@ class TestDispatchSetConfigAllowlist:
         real_config.save.assert_not_called()  # no save on validation failure
 
     def test_rejects_bool_field_with_int_value(self, real_server, real_config):
-        """Python bool is a subclass of int, guard against 1/0 being silently
-        accepted as a bool."""
+        """Python bool is a subclass of int, guard against 1/0 being silently"""
         original = real_config.autostart
         result = real_server._dispatch(
             {
@@ -429,8 +381,6 @@ class TestDispatchSetConfigAllowlist:
         assert result["type"] == "ack"
         assert real_config.stop_on_silence_seconds == 120
 
-    # ── Range validation ─────────────────────────────────────────────
-
     def test_rejects_negative_silence_warning_seconds(self, real_server, real_config):
         result = real_server._dispatch(
             {
@@ -471,13 +421,9 @@ class TestDispatchSetConfigAllowlist:
         )
         assert result["type"] == "error"
 
-    # ── Enum validation ──────────────────────────────────────────────
-
     def test_rejects_invalid_model_size(self, real_server, real_config):
         """model_size must be in ALLOWED_USER_MODELS, a non-registry id is not."""
         # NOTE: 'large' IS in ALLOWED_USER_MODELS (the model registry now
-        # includes the generic model ids); use a value that is genuinely
-        # NOT in the registry.
         original = real_config.model_size
         result = real_server._dispatch(
             {
@@ -572,8 +518,6 @@ class TestDispatchSetConfigAllowlist:
         )
         assert result["type"] == "error"
 
-    # ── String length cap ────────────────────────────────────────────
-
     def test_rejects_oversized_string_field(self, real_server, real_config):
         """Defend against pathological inputs (e.g. 10 MB hotkey string)."""
         result = real_server._dispatch(
@@ -610,8 +554,7 @@ class TestDispatchSetConfigAllowlist:
     # ── URL scheme validation (defense against SEC-002 exfiltration) ─
 
     def test_rejects_llm_api_url_with_javascript_scheme(self, real_server, real_config):
-        """A javascript: URL would be a nonsense value but we reject any
-        non-https scheme to make the policy explicit."""
+        """A javascript: URL would be a nonsense value but we reject any"""
         result = real_server._dispatch(
             {
                 "id": 1,
@@ -642,8 +585,7 @@ class TestDispatchSetConfigAllowlist:
         assert result["type"] == "ack"  # may include data field
 
     def test_rejects_http_llm_api_url_non_loopback(self, real_server, real_config):
-        """NEW-SEC-003 defense-in-depth: a cleartext HTTP URL for a public
-        host must be rejected at set_config time, not only at call time."""
+        """NEW-SEC-003 defense-in-depth: a cleartext HTTP URL for a public"""
         result = real_server._dispatch(
             {
                 "id": 1,
@@ -674,8 +616,6 @@ class TestDispatchSetConfigAllowlist:
             }
         )
         assert result["type"] == "error"
-
-    # ── All-or-nothing on multi-field payloads ───────────────────────
 
     def test_multi_field_payload_rejects_all_if_any_invalid(self, real_server, real_config):
         """If one field is invalid, NO field should be applied (atomicity)."""
@@ -715,14 +655,8 @@ class TestDispatchSetConfigAllowlist:
         assert real_config.language == "fr"
         real_config.save.assert_called_once()
 
-    # ── Side-effects still fire when allowlisted fields change ────────
-
     def test_fast_startup_is_mutable_and_syncs_prewarm_task(self, real_server, real_config, monkeypatch):
-        """PW-3: ``fast_startup`` is now a real, mutable config field.
-        Sending it via ``set_config`` applies it to the config AND fires
-        the ``sync_prewarm_task`` side-effect so the OS scheduled task
-        is unregistered immediately (no restart needed).
-        """
+        """PW-3: ``fast_startup`` is now a real, mutable config field."""
         from voice_typer.server import startup_tasks
 
         sync_prewarm_mock = MagicMock()
@@ -738,7 +672,6 @@ class TestDispatchSetConfigAllowlist:
         # Config field should now be set.
         assert real_config.fast_startup is False
         # Side effect: sync_prewarm_task should fire so the OS task is
-        # unregistered immediately.
         sync_prewarm_mock.assert_called_once()
 
     def test_side_effect_autostart_fires_on_autostart_change(self, real_server, real_config, monkeypatch):
@@ -783,19 +716,8 @@ class TestDispatchSetConfigAllowlist:
         real_server.app.hotkeys.register_repaste.assert_called_once()
 
 
-# ── SEC-003: get_config must redact API keys ─────────────────────────────
-
-
 class TestGetConfigRedactsSecrets:
-    """SEC-003: ``get_config`` must NOT echo API keys back to the IPC
-    client.  Any local process can connect to the loopback TCP socket
-    and call ``get_config``; echoing keys in cleartext would let any
-    co-located process exfiltrate them.
-
-    The fix returns a sanitized view where secret fields are replaced
-    with the literal string ``"<redacted>"`` when set, or preserved
-    as the empty string when unset (so the renderer can distinguish
-    "no key configured" from "key hidden")."""
+    """SEC-003: ``get_config`` must NOT echo API keys back to the IPC"""
 
     def test_set_api_key_is_redacted_in_get_config(self, server, mock_app):
         """A configured cloud_api_key must come back as '<redacted>'."""
@@ -841,8 +763,7 @@ class TestGetConfigRedactsSecrets:
         assert result["data"]["language"] == "fr"
 
     def test_no_real_key_value_in_response(self, server, mock_app):
-        """Grep the full response: no real key value should appear
-        anywhere in the serialized data."""
+        """Grep the full response: no real key value should appear"""
         mock_app.config.cloud_api_key = "sk-unique-marker-12345"
         mock_app.config.openai_api_key = "sk-another-marker-67890"
         result = server._dispatch({"id": 1, "type": "get_config"})
@@ -851,8 +772,7 @@ class TestGetConfigRedactsSecrets:
         assert "sk-another-marker-67890" not in serialized
 
     def test_sanitizer_handles_missing_fields_gracefully(self):
-        """If a config object doesn't have one of the secret fields
-        (e.g. an older Config instance), the sanitizer must not crash."""
+        """If a config object doesn't have one of the secret fields"""
         from voice_typer.server.ipc_server import _sanitize_config_for_ipc
 
         class MinimalConfig:
@@ -867,14 +787,8 @@ class TestGetConfigRedactsSecrets:
         assert "cloud_api_key" not in result
 
 
-# ── SEC-006: trusted-path fields cannot be set via IPC ──────────────────
-
-
 class TestTrustedPathFieldsBlockedInSetConfig:
-    """SEC-006: standalone version of the trusted-path tests that
-    doesn't depend on the class-scoped ``real_server`` / ``real_config``
-    fixtures from TestDispatchSetConfigAllowlist.  Uses ``server`` and
-    ``mock_app`` (function-scoped) instead."""
+    """doesn't depend on the class-scoped ``real_server`` / ``real_config``"""
 
     def test_corrections_path_silently_dropped(self, server, mock_app):
         mock_app.config.corrections_path = None

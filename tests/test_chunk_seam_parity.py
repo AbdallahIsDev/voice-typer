@@ -1,17 +1,4 @@
-"""Cross-engine chunk-seam parity: QwenEngine vs ParakeetEngine.
-
-Both local engines split long recordings into overlapping chunks and
-must resolve the duplicated boundary words identically. ParakeetEngine
-merges via :func:`voice_typer.server.asr_utils.merge_chunks` (the
-canonical normalized dedup); QwenEngine previously shipped its own
-exact-case, punctuation-sensitive fork that silently disagreed
-whenever the two chunk transcriptions differed in casing or
-punctuation.
-
-These tests feed the same chunk-text fixtures to both engines and pin
-identical merged output, plus a case that documents the fork's old
-(mismatching) behaviour.
-"""
+"""Cross-engine chunk-seam parity: QwenEngine vs ParakeetEngine."""
 
 from unittest.mock import MagicMock
 
@@ -47,12 +34,7 @@ def _parakeet_merged(chunk_texts: list[str]) -> str:
 
 
 def _legacy_qwen_fork_merge(prev_text: str, curr_text: str, n: int = 3) -> str:
-    """The removed Qwen-only fork (exact-case, punctuation-sensitive).
-
-    Kept here ONLY as the historical reference for the divergence test
-    below: it compared raw whitespace tokens, so a seam differing in
-    casing or punctuation was never deduped.
-    """
+    """The removed Qwen-only fork (exact-case, punctuation-sensitive)."""
     prev_words = prev_text.split()
     curr_words = curr_text.split()
     if not prev_words or not curr_words:
@@ -66,17 +48,12 @@ def _legacy_qwen_fork_merge(prev_text: str, curr_text: str, n: int = 3) -> str:
 
 # Fixtures: (chunk texts as the mocked model decodes them).
 PARITY_FIXTURES = [
-    # exact overlap, plain words
     ("exact-overlap", ["the quick brown fox", "brown fox jumps over the lazy dog"]),
-    # casing + punctuation differ at the seam, the fork kept the duplicate
     ("mixed-case-punctuation", ["so this is The End.", "the end of the recording"]),
     # no overlap at all
     ("no-overlap", ["hello world", "foo bar baz"]),
-    # second chunk fully duplicates the first chunk's tail
     ("full-duplicate", ["the end of the story", "the story"]),
-    # three chunks with an empty (rejected / silent) middle chunk
     ("empty-middle-chunk", ["first part here", "", "part here continues"]),
-    # three chunks, cascading overlaps of different widths
     ("three-chunk-cascade", ["a b c d e", "d e f g h", "f g h i j"]),
 ]
 
@@ -92,13 +69,7 @@ def test_qwen_and_parakeet_produce_identical_seams(fixture_name, chunk_texts):
 
 
 def test_mixed_case_fixture_defeated_the_removed_fork():
-    """Document the divergence: the old fork kept the duplicated seam.
-
-    With the fork, "The End." vs "the end" never matched (raw token
-    comparison), so the mixed-case fixture kept the duplicated words —
-    exactly the inconsistency the shared-helper routing removes. The
-    canonical helper dedups it; the fork demonstrably does not.
-    """
+    """With the fork, \"The End.\" vs \"the end\" never matched (raw token"""
     prev, curr = "so this is The End.", "the end of the recording"
     fork_merged = prev + " " + _legacy_qwen_fork_merge(prev, curr)
 

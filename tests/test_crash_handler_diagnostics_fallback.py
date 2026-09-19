@@ -1,25 +1,4 @@
-"""FR-7: ``set_crash_handler_config_dir`` must not silently disable the
-SEH/VEH crash diagnostics when the archive dir cannot be created.
-
-Pre-fix, ``set_crash_handler_config_dir`` wrapped
-``archive_dir.mkdir(...)`` in ``contextlib.suppress(Exception)`` and
-ALWAYS set ``_crash_file_path`` to the archive-subdir path regardless
-of whether mkdir succeeded. On a read-only config_dir the mkdir fails
-silently, and the VEH callback's ``_write_to_file`` gets
-``CreateFileW`` -> ``INVALID_HANDLE_VALUE`` -> silent return, so the
-SEH crash handler was dead even though the Python excepthook (which
-writes to the config_dir root) kept working.
-
-Fix: after the mkdir attempt, verify the archive dir actually exists;
-if it does not, fall back to writing the crash file to the config_dir
-root (the same root the Python excepthook uses) so VEH diagnostics are
-never lost, and log a WARNING naming the failure + the fallback. The
-failure stays non-fatal (never raises from the config-dir setter).
-
-These tests cover:
-  - mkdir fails -> fallback path set + WARNING logged
-  - mkdir succeeds -> archive-subdir path used
-"""
+"""SEH/VEH crash diagnostics when the archive dir cannot be created."""
 
 from __future__ import annotations
 
@@ -34,8 +13,7 @@ _UNSET = object()
 
 @pytest.fixture(autouse=True)
 def _reset_crash_handler_module_state() -> None:
-    """Reset the facade module globals so the cached path doesn't leak
-    between tests (mirrors the autouse fixture in ``test_crash_handler.py``)."""
+    """Reset the facade module globals so the cached path doesn't leak"""
     keys = (
         "_crash_file_path",
         "_PID",
@@ -59,22 +37,14 @@ def _reset_crash_handler_module_state() -> None:
 
 
 def _failing_archive_mkdir(self: Path, *args, **kwargs):
-    """``Path.mkdir`` stub that fails ONLY for the crash_diagnostics dir.
-
-    ``set_crash_handler_config_dir`` creates the archive dir with
-    ``mkdir(parents=True, exist_ok=True)``. Raising for that exact path
-    simulates a read-only config_dir; every other ``Path.mkdir`` call
-    (e.g. by the memory-buffer install) passes through unchanged.
-    """
+    """``Path.mkdir`` stub that fails ONLY for the crash_diagnostics dir."""
     if self.name == "crash_diagnostics":
         raise PermissionError("read-only filesystem")
     return Path.mkdir(self, *args, **kwargs)
 
 
 def test_mkdir_failure_falls_back_to_config_root(tmp_path, monkeypatch, caplog) -> None:
-    """FR-7: when the archive-dir mkdir fails, ``_crash_file_path`` falls
-    back to the config_dir root (so VEH diagnostics are not lost) and a
-    WARNING names the failure + the fallback."""
+    """FR-7: when the archive-dir mkdir fails, ``_crash_file_path`` falls"""
     monkeypatch.setattr(Path, "mkdir", _failing_archive_mkdir)
 
     with caplog.at_level(logging.WARNING, logger="voice_typer.server.crash_handler._diagnostics_archive"):
@@ -106,8 +76,7 @@ def test_mkdir_failure_falls_back_to_config_root(tmp_path, monkeypatch, caplog) 
 
 
 def test_mkdir_success_uses_archive_path(tmp_path) -> None:
-    """FR-7: when mkdir succeeds, the archive-subdir path is used (no
-    fallback, no WARNING), preserving the existing behavior."""
+    """FR-7: when mkdir succeeds, the archive-subdir path is used (no"""
     crash_handler.set_crash_handler_config_dir(tmp_path)
 
     archive_dir = tmp_path / "crash_diagnostics"

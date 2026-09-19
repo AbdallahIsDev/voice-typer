@@ -1,11 +1,4 @@
-"""Server lifecycle and error-handling tests.
-
-Classes:
-- TestLifecycle  , start()/stop() daemon-thread management
-- TestErrorHandling, JSON-parse / unknown-command loop resilience
-
-Split out from the original monolithic tests/test_server.py (DT-37, Phase 4.5).
-"""
+"""Server lifecycle and error-handling tests."""
 
 import io
 import json
@@ -15,8 +8,6 @@ from tests.server.conftest import (  # noqa: F401
     server,
 )
 
-# ── Lifecycle ──────────────────────────────────────────────────────────
-
 
 class TestLifecycle:
     def test_start_launches_daemon_thread(self, server, monkeypatch):
@@ -25,8 +16,6 @@ class TestLifecycle:
         server.start()
         assert server._running is True
         # The thread may already have exited (empty StringIO exhausts
-        # immediately), but the important thing is that start() set
-        # _running and attempted to create the daemon thread.
         threads = [t for t in threading.enumerate() if t.name == "ipc-server"]
         assert len(threads) <= 1
         if threads:
@@ -39,9 +28,6 @@ class TestLifecycle:
         assert server._running is True
         server.stop()
         assert server._running is False
-
-
-# ── Error handling ─────────────────────────────────────────────────────
 
 
 class TestErrorHandling:

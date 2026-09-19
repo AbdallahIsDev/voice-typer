@@ -1,24 +1,4 @@
-"""YJ-18: PIIRedactionFilter should expose the redacted message via
-``record.redacted_msg`` so downstream structured consumers (metrics
-exporters, a future MemoryHandler ring buffer that re-emits to a
-structured backend) can read the redacted version WITHOUT having to
-re-format ``record.msg`` / ``record.args``.
-
-Backward compat: the legacy ``record.msg = msg`` / ``record.args = ()``
-mutation (SEC-009 behavior) is preserved so the existing text/JSON
-formatters and tests continue to work unchanged. The new
-``redacted_msg`` attribute is purely additive.
-
-Idempotence guard: the SAME ``PIIRedactionFilter`` instance is attached
-to BOTH the file handler and the stderr handler (SEC-003), and Python's
-logging fires handler filters once per handler on the SAME LogRecord.
-The guard at the top of ``filter`` accepts an already-redacted record
-(``redacted_msg`` set) WITHOUT re-running the scan, one full scan per
-record instead of one per handler. The ``TestFilterIdempotence`` class
-below pins that: the internal scan runs exactly once for a record
-passing through the filter twice, and the second pass is a no-op that
-still returns ``True``.
-"""
+"""YJ-18: PIIRedactionFilter should expose the redacted message via"""
 
 import logging
 
@@ -76,8 +56,6 @@ def test_redacted_msg_set_for_messages_with_args():
     from voice_typer.server.security import PIIRedactionFilter
 
     f = PIIRedactionFilter()
-    # The getMessage() call interpolates args BEFORE redaction, so the
-    # redacted_msg carries the interpolated + redacted text.
     record = _make_record("User %s logged in from %s", ("test@example.com", "+1-415-555-2671"))
     f.filter(record)
     assert "[EMAIL]" in record.redacted_msg
@@ -100,15 +78,7 @@ def test_redacted_msg_set_for_api_key_messages():
 
 
 class TestFilterIdempotence:
-    """A record passing through ``PIIRedactionFilter`` twice must be
-    scanned exactly once.
-
-    Regression guard for the double-handler attachment: the file and
-    stderr handlers share ONE filter instance, so every record hits
-    ``filter`` twice (once per handler). The idempotence guard at the
-    top of ``filter`` short-circuits the second pass on the
-    ``redacted_msg`` sentinel the first pass set.
-    """
+    """A record passing through ``PIIRedactionFilter`` twice must be"""
 
     def test_second_pass_does_not_rescan(self, monkeypatch):
         """The internal scan runs ONCE for a record filtered twice."""
@@ -150,10 +120,7 @@ class TestFilterIdempotence:
         assert "555-123-4567" not in record.msg
 
     def test_redacted_msg_none_still_gets_full_scan(self):
-        """A record without the sentinel attribute gets the full scan.
-
-        The guard checks ``is not None``, a fresh LogRecord (no
-        ``redacted_msg``) must always be scrubbed, never skipped."""
+        """A record without the sentinel attribute gets the full scan."""
         from voice_typer.server.security import PIIRedactionFilter
 
         f = PIIRedactionFilter()
@@ -163,8 +130,7 @@ class TestFilterIdempotence:
         assert "[EMAIL]" in record.msg
 
     def test_exc_text_redacted_once_across_two_passes(self):
-        """Traceback redaction happens on the first pass only; the
-        second pass must not double-process ``exc_text``."""
+        """Traceback redaction happens on the first pass only; the"""
         from voice_typer.server.security import PIIRedactionFilter
 
         f = PIIRedactionFilter()

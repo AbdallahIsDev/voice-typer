@@ -1,22 +1,4 @@
-"""Deduplicated config warnings + atomic log-file writes.
-
-Covers the startup-logging fixes:
-
-1. ``validate_config`` WARNING lines are emitted once per distinct
-   error per process. ``Config.load()`` runs several times per boot
-   (app init, crash-handler install, onboarding, prewarm, autostart
-   probe), and without dedupe one resting invalid value logged the
-   identical line on every load. Every load still populates
-   ``instance.last_load_warnings`` (the renderer reads the current
-   load's list); only the log emission is once per process.
-2. ``_SecureTruncatingFileHandler.emit`` serializes the
-   rollover-check + write through the inter-process lock file so two
-   processes sharing one log file (the autostart launcher and the
-   backend it spawns overlap on ``voice-typer.log``) cannot interleave
-   bytes mid-line. Lock contention and re-entrant logging degrade to
-   fail-open writes: the record is never lost and ``emit`` never
-   blocks or deadlocks.
-"""
+"""Deduplicated config warnings + atomic log-file writes."""
 
 from __future__ import annotations
 
@@ -131,8 +113,6 @@ class TestEmitInterProcessLock:
         content = log_file.read_text(encoding="utf-8")
         assert "[TEST] contended write probe" in content
         # Every line must carry the full C-LOG-1 template (timestamp +
-        # level + message): a bare fragment such as ``dinator`` with no
-        # template would fail this match.
         import re
 
         template = re.compile(r"^\d{4}-\d{2}-\d{2}  \d{2}:\d{2}:\d{2}  (DEBUG|INFO|WARN |ERROR) ")

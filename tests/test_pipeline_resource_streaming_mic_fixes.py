@@ -1,10 +1,4 @@
-"""Regression tests for three user-log findings.
-
-Covers the pre-flight resource-probe throttle sharing across pipeline
-instances, the streaming-empty batch retry on high-energy audio, and
-the microphone fallback log wording. Synthetic audio and mocks only,
-no microphone, hardware, or network access.
-"""
+"""Regression tests for three user-log findings."""
 
 from __future__ import annotations
 
@@ -64,13 +58,7 @@ class _PipelineTestApp:
 
 
 class TestSharedResourceThrottle:
-    """The 60s probe throttle must survive across pipeline instances.
-
-    Production builds a fresh ``DictationPipeline`` per dictation, so
-    instance-only state resets to ``0.0`` every cycle and the probe
-    logs on every utterance. Sharing the timestamp on the app object
-    makes the second cycle within the interval skip the probe.
-    """
+    """The 60s probe throttle must survive across pipeline instances."""
 
     def test_second_pipeline_within_interval_skips_probe(self, monkeypatch):
         calls = []
@@ -197,8 +185,7 @@ class TestStreamingEmptyBatchRetry:
         active.transcribe_with_fallback.assert_not_called()
 
     def test_empty_warning_survives_secret_redaction(self, caplog):
-        """The empty-result remediation hint must not contain a 20+ char
-        token: the secret redactor collapses such runs to ``***``."""
+        """The empty-result remediation hint must not contain a 20+ char"""
         import re
 
         from voice_typer.server._secrets import redact_secret

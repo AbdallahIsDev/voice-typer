@@ -1,14 +1,4 @@
-"""Regression tests split out of the former ``tests/test_bugfix_regressions.py``.
-
-This module is part of the ``tests/regressions/`` package created by
-REF-4. The class/method names, assertion logic, and imports below are
-preserved verbatim from the original 4446-line monolith, only file
-location has changed.
-
-Common preamble (imports + Linux test-env shim) is identical to the
-original file so that every test in this module sees the same global
-state the monolith provided.
-"""
+"""REF-4. The class/method names, assertion logic, and imports below are"""
 
 from __future__ import annotations
 
@@ -23,19 +13,8 @@ from voice_typer.server.recording.format import resample_chunk
 from voice_typer.server.recording.vad_helpers import vad_auto_calibrate, vad_update
 
 
-# the previous Linux test-env shim that aliased
-# ``ctypes.WINFUNCTYPE = ctypes.CFUNCTYPE`` and inserted a ``MagicMock``
-# for ``voice_typer.server.crash_handler`` into ``sys.modules`` has been
-# removed. ``crash_handler.py`` now gates the ``@ctypes.WINFUNCTYPE(...)``
-# decorator behind ``sys.platform == "win32"``, so the module imports
-# cleanly on Linux/macOS without any test-infrastructure shim.
 class TestAudioCallbackUsesMinimalLockScope:
-    """RACE-001.
-
-    The audio callback uses a minimal lock scope (only buffer.append
-    and chunk_count under lock). This test invokes the callback from
-    multiple threads concurrently to verify no crashes / corruption.
-    """
+    """RACE-001."""
 
     def test_concurrent_audio_callback_does_not_crash(self):
         from voice_typer.server.config import Config
@@ -47,7 +26,6 @@ class TestAudioCallbackUsesMinimalLockScope:
         rec._effective_sr = 16000
         rec._cached_target_sr = 16000
         # Don't actually start the recorder, we'll invoke the callback directly.
-        # Set _recording_event so the callback doesn't bail out early.
         rec._recording_event.set()
         rec._recording_start_time = time.perf_counter()
 
@@ -58,9 +36,6 @@ class TestAudioCallbackUsesMinimalLockScope:
         rec.on_max_duration_auto_stop = lambda: None
 
         # The audio callback is defined as a nested function inside
-        # ``start()``. We can't easily invoke it directly, so this test
-        # instead validates the lock-scope invariant by calling the
-        # locked section (buffer append) from multiple threads.
         indata = np.full((512, 1), 0.1, dtype=np.float32)
 
         errors: list[Exception] = []
@@ -93,62 +68,24 @@ class TestAudioCallbackUsesMinimalLockScope:
             assert rec._audio_pipeline._chunk_count == 400
 
     def test_lock_scope_only_covers_buffer_append_and_count(self):
-        """The lock block inside the callback must only cover buffer
-        append + chunk_count + recent_rms snapshot (RACE-003 fix).
-
-        RT-SAFE-001: the callback body was moved from a nested function
-        inside ``start()`` to the ``_process_audio_chunk`` method (runs
-        on the audio worker thread). The lock-scope invariant is now
-        inspected in ``_process_audio_chunk``.
-
-        RW-8: KEEP, pins the structural lock-scope invariant (only
-        buffer.append + chunk_count + recent_rms snapshot inside the
-        lock). A behavioral test for this would need to instrument the
-        lock to measure hold time, which is flaky; the source-string
-        check is the most direct way to catch a regression where a
-        future contributor adds expensive work inside the lock.
-        """
+        """The lock block inside the callback must only cover buffer"""
         from voice_typer.server.recording.audio_pipeline import AudioPipeline
 
-        # Phase 4.5: the buffer-append lock scope moved to
-        # AudioPipeline.append_to_buffer_locked. Recorder._process_audio_chunk
-        # is now a 1-line delegator, inspect the pipeline method instead.
         src = inspect.getsource(AudioPipeline.append_to_buffer_locked)
         # The lock block must include buffer.append and _chunk_count.
-        # STATE-OWNERSHIP: the buffer + chunk counter are owned by
-        # the pipeline itself, the append aliases
-        # ``_buf = self._buffer`` before calling ``_buf.append(filtered)``
-        # (PERF: avoids repeated attribute lookups on the hot path), and
-        # the counter is incremented as ``self._chunk_count``. The
-        # invariant is the ``_buf.append`` literal inside the
-        # ``with self._lock`` block.
         assert "_buf.append(filtered)" in src
         assert "self._chunk_count" in src
         # RACE-003: the recent_rms snapshot is now read inside
-        # AudioPipeline.run_vad_state_machine (see test below).
-        # The old inline snapshot line no longer exists in this method.
 
 
 class TestRmsSnapshotReadsInsideLock:
-    """RACE-003.
-
-    Pre-fix: ``_recent_rms_values`` (a deque) was read outside the
-    lock, allowing a concurrent callback to mutate it (append + maxlen
-    eviction) mid-iteration. Fix: snapshot ``list(_recent_rms_values)``
-    inside the lock; downstream code uses the snapshot.
-    """
+    """RACE-003."""
 
     def test_recent_rms_set_inside_lock(self):
         # KEEP, pins RACE-003 invariant (RMS written inside lock
-        # so the audio callback and the level-monitor reader never race).
-        # Phase 4.5: the processing body moved from
-        # Recorder._process_audio_chunk to AudioPipeline.process_audio_chunk.
-        # The old snapshot pattern was removed (), _last_rms is now
-        # set atomically under the lock.
         from voice_typer.server.recording.audio_pipeline import AudioPipeline
 
         src = inspect.getsource(AudioPipeline.process_audio_chunk)
-        # _last_rms must be written inside the pipeline-owned buffer lock
         # (STATE-OWNERSHIP: the lock lives on AudioPipeline as ``self._lock``).
         lines = src.splitlines()
         lock_block_start = None
@@ -167,16 +104,7 @@ class TestRmsSnapshotReadsInsideLock:
         )
 
     def test_no_direct_recent_rms_read_outside_lock(self):
-        """The processing code must NOT contain
-        ``recent_rms = self._recent_rms_values`` (the pre-fix pattern).
-
-        RW-8: KEEP, pins the negative half of RACE-003 (the pre-fix
-        pattern must not return). Source-string check is the most
-        direct way to catch a regression where the lock is bypassed.
-
-        S3-CR-17 / Phase 4.5: inspect AudioPipeline.process_audio_chunk
-        instead of Recorder._process_audio_chunk (now a 1-line delegator).
-        """
+        """The processing code must NOT contain"""
         from voice_typer.server.recording.audio_pipeline import AudioPipeline
 
         src = inspect.getsource(AudioPipeline.process_audio_chunk)
@@ -187,22 +115,10 @@ class TestRmsSnapshotReadsInsideLock:
 
 
 class TestRecordingTestsUseMonotonicClock:
-    """AUDIO-003.
-
-    Pre-fix: tests used ``time.time()`` (wall clock) while source code
-    used ``time.monotonic()``. Under NTP/DST adjustments the wall
-    clock can jump backwards. Fix: tests must use ``time.monotonic()``.
-    """
+    """AUDIO-003."""
 
     def test_test_recording_uses_monotonic(self):
-        """The two test methods that set _resample_poly_error_time
-        must use time.monotonic(), NOT time.time().
-
-        RW-8: KEEP, pins AUDIO-003 fix (tests use monotonic clock to
-        match source code). The invariant is about test code, not
-        production code, so a behavioral test would be circular (testing
-        a test). Source-string check is the only way to catch regression.
-        """
+        """The two test methods that set _resample_poly_error_time"""
         import tests.test_recording as test_recording_mod
 
         # Find the two relevant test methods (in TestResampleFallback)
@@ -218,8 +134,6 @@ class TestRecordingTestsUseMonotonicClock:
         assert "time.monotonic()" in no_retry_src, "test_resample_not_retried_before_timeout must use time.monotonic()."
 
         # Neither should use time.time()
-        # (Strip comments before checking to avoid false positives from
-        # comments that mention time.time().)
         def code_only(src: str) -> str:
             return "\n".join(line for line in src.splitlines() if not line.lstrip().startswith("#"))
 
@@ -233,20 +147,12 @@ class TestRecordingTestsUseMonotonicClock:
 
 
 class TestInCallbackDeadFieldRemoved:
-    """AUDIO-009/AUDIO-015.
-
-    Pre-fix: ``_in_callback`` was declared at recording.py:214 but
-    never read anywhere in the codebase. Fix: delete the declaration
-    (the live guard is ``_is_in_audio_callback`` at line ~285).
-    """
+    """AUDIO-009/AUDIO-015."""
 
     def test_in_callback_field_does_not_exist(self):
-        """A constructed ``Recorder`` must NOT have a ``_in_callback`` attr.
-
+        """
+        A constructed ``Recorder`` must NOT have a ``_in_callback`` attr.
         RW-8: KEEP, pins AUDIO-009/AUDIO-015 dead-code removal.
-        Behavioral form: constructing the Recorder must not create the
-        dead field anywhere (the historical declaration lived in
-        ``__init__``, now decomposed into ``_init_*`` helpers).
         """
         from tests.fixtures.recorder_test_helpers import make_recorder
 
@@ -258,13 +164,7 @@ class TestInCallbackDeadFieldRemoved:
         )
 
     def test_is_in_audio_callback_still_exists(self):
-        """The live guard ``_is_in_audio_callback`` must still exist.
-
-        RW-8: KEEP, pins AUDIO-015 (live guard preserved while the
-        dead _in_callback field was removed). Behavioral form: the
-        attribute is a real ``threading.Event`` on a constructed
-        Recorder.
-        """
+        """The live guard ``_is_in_audio_callback`` must still exist."""
         import threading
 
         from tests.fixtures.recorder_test_helpers import make_recorder
@@ -276,23 +176,9 @@ class TestInCallbackDeadFieldRemoved:
 
 
 class TestVadGreyZonePreservesCounters:
-    """AUDIO-013.
-
-    Pre-fix: the "between thresholds" else branch had a comment saying
-    "don't change counters" but the code set both
-    ``_vad_consecutive_silence_frames = 0`` AND
-    ``_vad_consecutive_speech_frames = 0``. Standard VAD hysteresis
-    leaves counters unchanged in the grey zone. Fix: replace the two
-    resets with ``pass`` so the code matches the comment.
-    """
+    """AUDIO-013."""
 
     def test_grey_zone_does_not_reset_counters(self):
-        # KEEP, behavioral port of the former source-string pin on
-        # ``Recorder._vad_update`` (delegator removed; the grey-zone
-        # implementation lives on ``VadProcessor.update_frame`` and has
-        # evolved a bounded grey-zone hold). A single grey-zone chunk
-        # must preserve both frame counters; only a SUSTAINED grey run
-        # (``_grey_zone_hold_limit``) may drop the stale speech history.
         from voice_typer.server.config import Config
         from voice_typer.server.recording import Recorder, VadState
 
@@ -325,23 +211,16 @@ class TestVadGreyZonePreservesCounters:
         assert rec._vad.consecutive_silence_frames == 0
 
         # The bounded grey-zone hold: after ``_grey_zone_hold_limit``
-        # consecutive grey frames the stale speech history is dropped
-        # (the SPEECH→silence-seed transition) so the silence timer can
-        # advance, a single grey chunk never does.
         hold_limit = rec._vad._grey_zone_hold_limit
         for _ in range(hold_limit - 1):
             vad_update(rec, -40.0)
-        # At the hold-limit boundary the speech counter is reset and the
-        # silence counter is seeded with the hangover budget.
         assert rec._vad.consecutive_speech_frames == 0, (
             "AUDIO-013 evolution: sustained grey run beyond the hold limit must drop the stale speech counter."
         )
         assert rec._vad.consecutive_silence_frames == rec._vad.hangover_frames
 
     def test_grey_zone_preserves_counters_at_runtime(self):
-        """Verify at runtime that a grey-zone chunk doesn't reset
-        the speech counter that was accumulated by a prior loud chunk.
-        """
+        """Verify at runtime that a grey-zone chunk doesn't reset"""
         from voice_typer.server.config import Config
         from voice_typer.server.recording import Recorder, VadState
 
@@ -358,7 +237,6 @@ class TestVadGreyZonePreservesCounters:
         rec._vad.hangover_frames = 5
 
         # Simulate a loud chunk: chunk_rms_db above speech threshold (-30 dB)
-        # _vad_update takes chunk_rms_db (decibels)
         vad_update(rec, -20.0)  # loud (above -30)
         assert rec._vad.consecutive_speech_frames == 1
         assert rec._vad.consecutive_silence_frames == 0
@@ -375,39 +253,19 @@ class TestVadGreyZonePreservesCounters:
 
 
 class TestVadAutoCalibrationBehavior:
-    """AUDIO-014.
-
-    Pre-fix: VAD auto-calibrate at recording.py:528-562 had no direct
-    test. Fix: add a test that feeds known ambient noise and asserts
-    the thresholds are set relative to the noise floor.
-    """
+    """AUDIO-014."""
 
     def test_vad_auto_calibrate_sets_thresholds_from_ambient_noise(self):
-        """Feed the auto-calibrator a stream of low-amplitude noise
-        and verify the speech/silence thresholds are set relative to
-        the noise floor (not left at defaults).
-        """
+        """Feed the auto-calibrator a stream of low-amplitude noise"""
         from voice_typer.server.config import Config
         from voice_typer.server.recording import Recorder
 
         cfg = Config()
         rec = Recorder(cfg)
-        # This test verifies RMS/dB-threshold auto-calibration. When Silero
         # VAD is the active backend, dB calibration is intentionally skipped
-        # (: Silero uses probability thresholds), so force the RMS
-        # backend path to exercise the calibration logic under test.
         rec._vad._silero_available = False
         rec._vad._use_silero_vad = False
         # VAD-GATE / PERF-02: ``Recorder._vad_auto_calibrate`` short-circuits
-        # on the cached ``_cached_vad_enabled`` scalar (hot-path optimization
-        # for the 16 Hz audio worker), and ``VadProcessor.auto_calibrate``
-        # gates on ``self.vad_enabled`` (which reads
-        # ``_vad_enabled_cached`` and falls back to computing from config
-        # noise-filter flags, all False by default). A direct unit-test
-        # invocation must populate BOTH caches so the calibration body
-        # actually runs. ``Recorder._refresh_vad_caches()`` would populate
-        # ``_cached_vad_enabled`` from ``_vad.vad_enabled`` (still False
-        # with default config), so we set both scalars directly.
         rec._cached_vad_enabled = True
         rec._vad._vad_enabled_cached = True
         # Reset calibration state
@@ -422,18 +280,12 @@ class TestVadAutoCalibrationBehavior:
         rec._vad.calibration_duration = 1.5
 
         # Feed 1.5 seconds worth of chunks at a known RMS (~0.01 = -40 dB)
-        # Auto-calibration collects RMS for 1.5s then sets thresholds.
         chunk_duration = 0.032  # 32 ms per chunk at 16 kHz, 512 samples
         n_chunks = int(1.5 / chunk_duration) + 5  # extra to exceed duration
         target_rms = 0.01  # -40 dB
         for _ in range(n_chunks):
             vad_auto_calibrate(rec, target_rms, chunk_duration)
 
-        # After calibration, the thresholds should be set relative to
-        # the noise floor (target_rms in dB = 20*log10(0.01) = -40 dB).
-        # The implementation sets:
-        #   silence_threshold = noise_db + 6 dB  = -34 dB
-        #   speech_threshold  = noise_db + 18 dB = -22 dB
         assert rec._vad.calibrated is True, (
             "VAD auto-calibration must set _vad_calibrated=True after collecting enough samples."
         )
@@ -443,7 +295,6 @@ class TestVadAutoCalibrationBehavior:
             "must be at or above the noise floor (-40 dB) after calibration."
         )
         # Silence threshold should also be above the noise floor
-        # (the implementation sets silence = noise + 6 dB)
         assert rec._vad.silence_threshold_db > -40.0, (
             f"VAD silence threshold ({rec._vad.silence_threshold_db} dB) "
             "must be above the noise floor (-40 dB) after calibration "
@@ -459,20 +310,7 @@ class TestVadAutoCalibrationBehavior:
         ), "VAD thresholds must change from defaults after calibration."
 
     def test_vad_auto_calibrate_resets_on_start(self):
-        """``Recorder.start()`` must reset the calibration state so a
-        new session re-calibrates from scratch.
-
-        RW-8: KEEP, pins AUDIO-014 fix (start() resets calibration
-        state). The sibling test_vad_auto_calibrate_sets_thresholds_from_ambient_noise
-        tests the calibration behavior, but doesn't verify start()
-        resets it; the source-string check catches removal of the reset.
-
-        S3-CR-17 / Phase 4.5: the per-session state reset moved from
-        Recorder.start to SessionState.reset_session_state. The VAD
-        calibration state is owned by the VadProcessor (accessed via
-        ``recorder._vad.<attr>``, the historical Recorder-level
-        property shims were removed).
-        """
+        """new session re-calibrates from scratch."""
         from voice_typer.server.recording.session_state import SessionState
 
         src = inspect.getsource(SessionState.reset_session_state)
@@ -483,14 +321,7 @@ class TestVadAutoCalibrationBehavior:
 
 
 class TestStreamingAssemblerUsesDequeEviction:
-    """AUDIO-019.
-
-    Pre-fix: ``_words`` used a plain list with ``pop(0)`` for eviction
-    (O(n) per eviction, shifts up to 9999 pointers). Fix: use
-    ``collections.deque(maxlen=_MAX_WORDS)`` for O(1) eviction, plus
-    a ``_base_offset`` counter so ``_word_key_index`` absolute indices
-    stay correct without per-eviction O(n) shifting.
-    """
+    """AUDIO-019."""
 
     def test_words_is_deque_with_maxlen(self):
         from voice_typer.server.streaming import StreamingTextAssembler
@@ -510,14 +341,9 @@ class TestStreamingAssemblerUsesDequeEviction:
         assert asm._base_offset == 0
 
     def test_no_pop_zero_in_insert_word(self):
-        """``_insert_word_unlocked`` must NOT call ``self._words.pop(0)``
-        (the O(n) pre-fix pattern). The deque's auto-eviction handles it.
-
+        """
+        ``_insert_word_unlocked`` must NOT call ``self._words.pop(0)``
         RW-8: KEEP, pins AUDIO-019 fix (deque(maxlen=N) auto-eviction
-        replaces pop(0)). The sibling test_eviction_preserves_word_key_index_correctness
-        tests eviction behavior, but doesn't catch reintroduction of
-        pop(0) if it's added alongside the deque; the source-string
-        check catches that directly.
         """
         from voice_typer.server.streaming import StreamingTextAssembler
 
@@ -527,13 +353,9 @@ class TestStreamingAssemblerUsesDequeEviction:
         )
 
     def test_eviction_triggers_warning_with_correct_variable_name(self):
-        """The eviction warning must reference ``evicted_word.word``
-        (not the typo ``evited.word`` from the pre-fix code).
-
+        """
+        The eviction warning must reference ``evicted_word.word``
         RW-8: KEEP, pins AUDIO-019 typo fix (evicted_word, not evited).
-        The typo would only crash if the eviction path fires, which
-        is rare in normal tests; the source-string check catches the
-        typo deterministically.
         """
         from voice_typer.server.streaming import StreamingTextAssembler
 
@@ -547,10 +369,7 @@ class TestStreamingAssemblerUsesDequeEviction:
         assert "evited" not in src, "AUDIO-019 regression: the 'evited' typo (missing 'c') is back, use 'evicted_word'."
 
     def test_eviction_preserves_word_key_index_correctness(self):
-        """When _words exceeds _MAX_WORDS, the deque auto-evicts the
-        oldest item. ``_word_key_index`` must still point to the right
-        words after eviction.
-        """
+        """oldest item. ``_word_key_index`` must still point to the right"""
         from voice_typer.server.streaming import StreamingTextAssembler, WordTiming
 
         # Use a tiny maxlen so we can trigger eviction easily
@@ -570,7 +389,6 @@ class TestStreamingAssemblerUsesDequeEviction:
         # _base_offset should be 2 (2 items evicted)
         assert asm._base_offset == 2
         # The committed text should contain the 3 most recent words
-        # (in order: word2, word3, word4)
         committed = asm.committed_text
         assert "word2" in committed
         assert "word3" in committed
@@ -581,40 +399,15 @@ class TestStreamingAssemblerUsesDequeEviction:
 
 
 class TestAudioAgcLastRmsPostAgc:
-    """ADR 0007 §3.5: The old per-chunk AGC (_agc_update, C1) has been
-    removed and replaced by the Compressor filter in the audio filter
-    chain. These tests now verify that:
-
-    1. The _agc_update method and its constants are gone from recording.py.
-    2. _last_rms is still set (post-filter, for UI/IPC).
-    3. No AGC-related dead code remains.
-    """
+    """removed and replaced by the Compressor filter in the audio filter"""
 
     def test_last_rms_assignment_after_agc_recompute(self):
-        """ADR 0007: AGC recompute block is gone. _last_rms is still set.
-
-        RT-SAFE-001: the callback body moved to _process_audio_chunk.
-        S3-CR-17 / Phase 4.5: the body of _process_audio_chunk moved to
-        AudioPipeline.process_audio_chunk (collaborator pattern). The
-        regression check now inspects AudioPipeline.process_audio_chunk
-        source (the new home of the body) instead of the
-        Recorder._process_audio_chunk 1-line delegate.
-
-        RW-8: KEEP, pins ADR 0007 §3.5 (per-chunk AGC removed,
-        replaced by Compressor filter). The negative assertion
-        (no `_agc_update` / `_agc_gain` code) catches reintroduction
-        of the dead AGC path; the positive assertion (`_last_rms =
-        chunk_rms`) catches removal of the UI/IPC RMS feed.
-        """
+        """ADR 0007: AGC recompute block is gone. _last_rms is still set."""
         from voice_typer.server.recording.audio_pipeline import AudioPipeline
 
-        # Phase 4.5: inspect AudioPipeline.process_audio_chunk
-        # (the new home of the body, running on the audio worker thread).
         src = inspect.getsource(AudioPipeline.process_audio_chunk)
-        # The old AGC recompute block should NOT exist anymore
         agc_recompute_idx = src.find("if abs(self._agc_gain - 1.0) > 0.01")
         # The _last_rms assignment now uses `self._recorder._last_rms`
-        # (the collaborator back-reference pattern) instead of `self._last_rms`.
         last_rms_idx = src.find("_last_rms = chunk_rms")
         assert agc_recompute_idx == -1, (
             "ADR 0007: AGC recompute block should be deleted, "
@@ -623,22 +416,10 @@ class TestAudioAgcLastRmsPostAgc:
         assert last_rms_idx >= 0, "_last_rms assignment must still exist for UI/IPC"
 
     def test_agc_applied_before_last_rms_storage(self):
-        """ADR 0007: _agc_update call is gone. _last_rms is still set.
-
-        RT-SAFE-001: the callback body moved to _process_audio_chunk.
-        S3-CR-17 / Phase 4.5: the body of _process_audio_chunk moved to
-        AudioPipeline.process_audio_chunk (collaborator pattern). The
-        regression check now inspects AudioPipeline.process_audio_chunk
-        source (the new home of the body) instead of the
-        Recorder._process_audio_chunk 1-line delegate.
-
-        RW-8: KEEP, pins ADR 0007 §3.5 (per-chunk AGC call removed).
-        Same rationale as test_last_rms_assignment_after_agc_recompute.
-        """
+        """ADR 0007: _agc_update call is gone. _last_rms is still set."""
         from voice_typer.server.recording.audio_pipeline import AudioPipeline
 
         src = inspect.getsource(AudioPipeline.process_audio_chunk)
-        # The old _agc_update call should NOT exist anymore
         agc_update_idx = src.find("_agc_update(chunk_rms, filtered)")
         last_rms_idx = src.find("_last_rms = chunk_rms")
         assert agc_update_idx == -1, (
@@ -684,45 +465,15 @@ Findings covered
 
 
 class TestAudioMicDeviceChangePoller:
-    """AUDIO-MIC.
-
-    The finding: no WM_DEVICECHANGE handler; USB mic hotplug not
-    detected. Fix: added a 30-second periodic poller that
-    re-enumerates microphones and pushes a ``microphones_changed``
-    IPC event when the device set changes.
-
-    the 30s poller was later found to be fully redundant
-    with the event-driven ``MicrophoneDeviceWatcher`` (started in
-    ``Recorder.__init__``), which is the sole source of truth on all
-    platforms (WM_DEVICECHANGE on Windows, ``/dev/snd`` polling on
-    Linux, CoreAudio property-listener on macOS). The poller was
-    removed from ``_do_startup`` (now ``StartupSequence.run``).
-    """
+    """AUDIO-MIC."""
 
     def test_load_microphones_pushes_ipc_event_on_change(self):
-        """AUDIO-MIC: when ``load_microphones`` detects that the device
-        set has changed (USB mic plugged/unplugged), it must push a
-        ``microphones_changed`` IPC event so the predecessor renderer can
-        refresh its microphone dropdown without a manual "Refresh" click.
-
-        RW-8: ported from a source-string meta-test (which inspected
-        ``load_microphones`` source for ``microphones_changed`` /
-        ``old_ids`` / ``new_ids`` substrings) to a behavioral test
-        that mocks ``list_microphones`` to return a different device
-        set on successive calls and asserts ``event_bus.publish`` was
-        invoked with a ``microphones_changed`` event. The behavioral
-        test is robust to refactors, if the comparison logic is
-        restructured or the event payload field names change, the test
-        still catches the regression as long as the IPC event is no
-        longer published on device-set change.
-        """
+        """AUDIO-MIC: when ``load_microphones`` detects that the device"""
         from unittest.mock import MagicMock, patch
 
         from voice_typer.server import startup_tasks
 
         # Build a minimal app mock with a non-empty initial microphone
-        # list so ``old_ids`` is non-empty and the change-detection
-        # branch fires.
         app = MagicMock()
         app._microphones = [
             {"id": 1, "name": "Mic A"},
@@ -730,9 +481,6 @@ class TestAudioMicDeviceChangePoller:
         ]
 
         # Mock ``list_microphones`` to return a DIFFERENT device set
-        # (Mic B removed, Mic C added), the device-id set changes
-        # from {1, 2} to {1, 3}, which must trigger the
-        # ``microphones_changed`` IPC event.
         with (
             patch(
                 "voice_typer.server.server_platform.microphone_list.list_microphones",
@@ -755,23 +503,13 @@ class TestAudioMicDeviceChangePoller:
         )
 
     def test_load_microphones_publishes_on_first_population(self):
-        """Boot-race recovery: the renderer connects (and the restored
-        Microphone page fetches ``get_microphones``) during the startup
-        window BEFORE ``load_microphones`` runs, so its initial snapshot
-        is an empty list. The FIRST population (empty registry →
-        non-empty enumeration) MUST publish ``microphones_changed`` so
-        the already-mounted page refreshes instead of staying stale
-        ("No microphones found", Start Test disabled) until a manual
-        page change or a genuine hot-plug event.
-        """
+        """Boot-race recovery: the renderer connects (and the restored"""
         from unittest.mock import MagicMock, patch
 
         from voice_typer.server import startup_tasks
 
         app = MagicMock()
         app._microphones = []  # registry not yet populated at boot
-        # System Default, the reconciler must early-return here so the
-        # ONLY publish is the first-population microphones_changed event.
         app.config.microphone = None
 
         with (
@@ -793,10 +531,7 @@ class TestAudioMicDeviceChangePoller:
         assert args[0]["data"] == {"count": 1}
 
     def test_load_microphones_no_publish_when_still_empty(self):
-        """A machine with genuinely zero microphones must not receive a
-        spurious ``microphones_changed`` publish on the startup
-        enumeration (empty registry → empty enumeration is not a
-        change)."""
+        """spurious ``microphones_changed`` publish on the startup"""
         from unittest.mock import MagicMock, patch
 
         from voice_typer.server import startup_tasks
@@ -817,22 +552,7 @@ class TestAudioMicDeviceChangePoller:
         mock_publish.assert_not_called()
 
     def test_poller_not_started_in_startup(self):
-        """``StartupSequence.run`` must NOT call
-        ``_start_device_change_poller``. The 30s poller is redundant
-        with the event-driven ``MicrophoneDeviceWatcher`` (the sole
-        source of truth). The poller was removed from startup to
-        eliminate the ~1-5ms/30s CPU cost and the per-second
-        ``threading.Event()`` allocation.
-
-        RW-8: KEEP, pins PERF-FIX-2 (redundant poller removed).
-
-        PERF-FIX-2 (stronger): the dead-code ``start_device_change_poller``
-        function was deleted entirely from ``startup_tasks``. The previous
-        source-string check only asserted that ``StartupSequence.run``
-        didn't call it; now we additionally assert the function is GONE
-        from the module so it cannot be silently reintroduced as a
-        zombie helper.
-        """
+        """``StartupSequence.run`` must NOT call"""
         from voice_typer.server import startup_tasks
         from voice_typer.server.startup_sequence import StartupSequence
 
@@ -849,32 +569,12 @@ class TestAudioMicDeviceChangePoller:
 
 
 class TestAudioClipRealtimeIpcEvent:
-    """AUDIO-CLIP.
-
-    The finding: clipping detected + logged but no user-facing
-    real-time notification. Fix: push an ``audio_clip`` IPC event
-    (throttled to 1 Hz) from the audio callback when clipping is
-    detected.
-    """
+    """AUDIO-CLIP."""
 
     def test_clipping_pushes_audio_clip_ipc_event(self):
         from voice_typer.server import recording
 
-        # the callback body moved to _process_audio_chunk
-        # (runs on the audio worker thread instead of the real-time
-        # audio thread). The clipping IPC event is still pushed from
-        # there, the invariant is preserved.
-        # Subsequent refactor: the clipping-detection + event-emit
-        # logic was extracted into the dedicated ``_detect_and_emit_clipping``
-        # helper (called by ``_process_audio_chunk``). The invariant —
-        # "the recording callback path pushes an audio_clip IPC event
-        # when clipping is detected", is preserved (just lives in a
-        # helper for readability). We check both methods so the test
-        # survives either layout.
         chunk_src = inspect.getsource(recording.Recorder._process_audio_chunk)
-        # Body lives on the collaborator since the god-class split; the
-        # Recorder delegator + the AudioPipeline body together carry the
-        # invariant.
         from voice_typer.server.recording.audio_pipeline import AudioPipeline
 
         detect_src = inspect.getsource(AudioPipeline.detect_and_emit_clipping)
@@ -882,13 +582,6 @@ class TestAudioClipRealtimeIpcEvent:
         assert "audio_clip" in combined, (
             "AUDIO-CLIP: recording callback must push an 'audio_clip' IPC event when clipping is detected."
         )
-        # B-1 + : production code now enqueues the event on
-        # ``self._event_queue`` (a queue.Queue) instead of calling
-        # ``event_bus.publish`` directly. A dedicated worker thread
-        # drains the queue and calls ``event_bus.publish`` off the
-        # audio hot path. The invariant: "the recording callback
-        # pushes an event to the IPC channel", is preserved (just
-        # async via the queue).
         assert "_event_queue.put" in combined or "event_bus.publish" in combined or "_push_event_now" in combined, (
             "AUDIO-CLIP: recording callback must enqueue the audio_clip "
             "event via _event_queue.put (RW-8 worker queue) OR call "
@@ -897,12 +590,7 @@ class TestAudioClipRealtimeIpcEvent:
 
 
 class TestAudioDtypeEdgeCases:
-    """AUDIO-006.
-
-    The finding: format edge cases not systematically tested. Fix:
-    added parametrized tests for int16, float64, and non-contiguous
-    arrays flowing through the recorder's resample path.
-    """
+    """AUDIO-006."""
 
     def test_resample_chunk_handles_float32(self):
         from voice_typer.server.config import Config
@@ -912,7 +600,6 @@ class TestAudioDtypeEdgeCases:
         rec = Recorder(cfg)
         rec._effective_sr = 16000
         rec._cached_target_sr = 16000
-        # float32 is the default dtype, must work
         audio = np.full(512, 0.5, dtype=np.float32)
         result = resample_chunk(rec, audio, 16000, 16000)
         assert result is not None
@@ -927,11 +614,7 @@ class TestAudioDtypeEdgeCases:
         rec = Recorder(cfg)
         rec._effective_sr = 16000
         rec._cached_target_sr = 16000
-        # int16 input, the callback converts to float32 via frombuffer
         audio = np.full(512, 16384, dtype=np.int16)
-        # _resample_chunk expects float32; int16 should be converted
-        # upstream. Here we just verify it doesn't crash on the
-        # float32 path.
         audio_f32 = audio.astype(np.float32) / 32768.0
         result = resample_chunk(rec, audio_f32, 16000, 16000)
         assert result is not None
@@ -954,19 +637,13 @@ class TestAudioDtypeEdgeCases:
 
 
 class TestNumpyVectorizedOpsRegression:
-    """AUDIO-007.
-
-    The finding: no regression test asserts np.frombuffer/np.dot usage.
+    """
+    AUDIO-007.
     Fix: added source-inspection test + numerical equivalence test.
     """
 
     def test_recording_uses_np_dot_for_rms(self):
         # KEEP, pins  (vectorized np.dot RMS computation).
-        # The sibling test_np_dot_rms_matches_naive_computation tests the
-        # numerical equivalence, but doesn't catch a regression where the
-        # callback switches to a naive np.mean(audio**2) implementation
-        # (which would still pass the equivalence test). Source-string
-        # check catches the implementation choice directly.
         from voice_typer.server import recording
 
         src = inspect.getsource(recording)
@@ -976,15 +653,12 @@ class TestNumpyVectorizedOpsRegression:
         )
 
     def test_np_dot_rms_matches_naive_computation(self):
-        """Verify np.dot-based RMS produces the same result as the naive
-        np.mean(audio**2)**0.5 computation for a known sine input.
-        """
+        """Verify np.dot-based RMS produces the same result as the naive"""
         # 1 second of 440 Hz sine wave at 16 kHz, amplitude 0.5
         sr = 16000
         t = np.arange(sr) / sr
         audio = (0.5 * np.sin(2 * np.pi * 440 * t)).astype(np.float32)
 
-        # np.dot-based RMS (the vectorized path)
         flat = audio.reshape(-1)
         rms_dot = float(np.sqrt(np.dot(flat, flat) / flat.size))
 
@@ -998,11 +672,7 @@ class TestNumpyVectorizedOpsRegression:
 
 
 class TestAudioDeviceDisconnectHandling:
-    """AUDIO-008.
-
-    The finding: no tests for device disconnect handling (3 retries,
-    periodic check). Fix: added tests simulating zero-filled indata.
-    """
+    """AUDIO-008."""
 
     def test_handle_device_disconnect_exists(self):
         from voice_typer.server import recording
@@ -1012,20 +682,7 @@ class TestAudioDeviceDisconnectHandling:
         )
 
     def test_device_disconnect_flag_set_on_zero_indata(self):
-        """When the callback receives all-zero indata with chunk_count > 10,
-        the device_disconnected flag must be set.
-
-        RT-SAFE-001: the zero-fill disconnect detection moved from the
-        real-time audio callback to _process_audio_chunk (runs on the
-        audio worker thread). The invariant is preserved.
-
-        RW-8: KEEP, pins AUDIO-008 zero-fill disconnect detection.
-        The test accepts any of three idioms (np.count_nonzero,
-        np.all, not indata.any()) so it's robust to refactors within
-        the same behavior; a fully behavioral test would need to feed
-        zero indata and observe the flag, which requires a running
-        recorder (heavy). Source-string check is the lighter-weight guard.
-        """
+        """When the callback receives all-zero indata with chunk_count > 10,"""
         from voice_typer.server.config import Config
         from voice_typer.server.recording import Recorder
 
@@ -1044,19 +701,10 @@ class TestAudioDeviceDisconnectHandling:
         rec.on_silence_auto_stop = lambda: None
         rec.on_max_duration_auto_stop = lambda: None
 
-        # Phase 4.5: the device-disconnect body moved from
-        # Recorder._process_audio_chunk to
-        # AudioPipeline.detect_device_disconnect.
         from voice_typer.server.recording.audio_pipeline import AudioPipeline
 
         src = inspect.getsource(AudioPipeline.detect_device_disconnect)
         assert "_device_disconnected" in src
-        # the zero-filled disconnect check.
-        # The implementation uses ``not np.any(indata)``
-        # (equivalent to ``np.count_nonzero(indata) == 0`` / ``np.all(indata == 0)``);
-        # accept any of the three idioms so the test pins the
-        # *behavior* (all-zero indata ⇒ disconnect) rather than a
-        # specific spelling that may be refectored.
         assert "not np.any(indata)" in src or "np.count_nonzero(indata) == 0" in src or "np.all(indata == 0)" in src, (
             "detect_device_disconnect must check for zero-filled indata to detect "
             "device disconnect (via not np.any(indata) or "
@@ -1065,12 +713,7 @@ class TestAudioDeviceDisconnectHandling:
 
 
 class TestBackpressureDetectionOnDequeOverflow:
-    """AUDIO-010.
-
-    The finding: no test for backpressure detection (deque overflow).
-    Fix: added test that fills _buffer past maxlen and asserts
-    _dropped_chunks is incremented.
-    """
+    """AUDIO-010."""
 
     def test_backpressure_detection_increments_dropped_chunks(self):
         from voice_typer.server.config import Config
@@ -1098,13 +741,6 @@ class TestBackpressureDetectionOnDequeOverflow:
 
     def test_backpressure_source_uses_maxlen_check(self):
         # KEEP, pins  (backpressure check compares
-        # against _buffer.maxlen). The sibling test_backpressure_detection_increments_dropped_chunks
-        # tests the increment behavior, but doesn't catch a regression
-        # where the comparison is against a hardcoded length. Source-string
-        # check catches the implementation choice.
-        #
-        # Phase 4.5: backpressure lives in
-        # AudioPipeline.append_to_buffer_locked.
         from voice_typer.server.recording.audio_pipeline import AudioPipeline
 
         src = inspect.getsource(AudioPipeline.append_to_buffer_locked)
@@ -1115,19 +751,10 @@ class TestBackpressureDetectionOnDequeOverflow:
 
 
 # ADR-0007: AGC removed; test deleted because the feature no longer exists.
-# The per-chunk AGC (_agc_update, C1) and its constants (_AGC_TARGET_RMS,
-# _AGC_ATTACK_ALPHA, _AGC_MIN_GAIN, _AGC_MAX_GAIN) were replaced by the
-# Compressor filter in the audio filter chain. See voice_typer/server/
-# recording.py §3.5 and audio_filters.py for the current chain.
 
 
 class TestDynamicSampleRateResolution:
-    """AUDIO-016.
-
-    The finding: _resolve_effective_sample_rate() not tested. Fix:
-    added tests that mock sd.query_devices() and verify the resolution
-    strategy.
-    """
+    """AUDIO-016."""
 
     def test_resolve_effective_sample_rate_exists(self):
         import inspect
@@ -1144,18 +771,7 @@ class TestDynamicSampleRateResolution:
         )
 
     def test_resolve_returns_tuple_with_native_rate(self):
-        """The method must return (sample_rate, device_info_dict).
-
-        WR-4: previously this test wrapped its assertion in
-        `try/except Exception: pass`, which swallowed the AssertionError
-        raised by `assert result is not None` itself, the test was a
-        no-op that passed even when the production method returned None
-        or raised. Now we let exceptions propagate (the only expected
-        failure mode is `sounddevice.PortAudioError` if no device is
-        available, which is environment-specific and should surface as
-        a skip rather than a silent pass). We also assert the explicit
-        tuple shape per the docstring contract.
-        """
+        """The method must return (sample_rate, device_info_dict)."""
         from voice_typer.server.config import Config
         from voice_typer.server.recording import Recorder
 
@@ -1187,29 +803,21 @@ class TestDynamicSampleRateResolution:
 
 
 class TestPeakMeterAccuracy:
-    """AUDIO-017.
-
-    The finding: no dedicated peak accuracy test. Fix: added test that
-    feeds a known-amplitude signal and asserts _peak is tracked.
-    """
+    """AUDIO-017."""
 
     def test_peak_tracking_increments_correctly(self):
-        """Feed a signal with known peak amplitude and verify _peak is
-        updated to the maximum.
-        """
+        """Feed a signal with known peak amplitude and verify _peak is"""
         from voice_typer.server.config import Config
         from voice_typer.server.recording import Recorder
 
         cfg = Config()
         rec = Recorder(cfg)
         # STATE-OWNERSHIP: peak/clip telemetry lives on the owning
-        # AudioPipeline, mirror the production attribute path.
         rec._audio_pipeline._peak = 0.0
         rec._audio_pipeline._clip_count = 0
         rec._audio_pipeline._last_clip_log_time = 0.0
 
         # Simulate the peak-tracking logic from the callback
-        # (AUDIO-CLIP block at recording.py:1219+)
         test_peaks = [0.3, 0.7, 0.5, 0.95, 0.4]
         for peak in test_peaks:
             chunk_peak = peak
@@ -1229,21 +837,10 @@ class TestPeakMeterAccuracy:
 
     def test_peak_source_uses_abs_max(self):
         # KEEP, pins  (peak computation uses abs().max()).
-        # The sibling test_peak_tracking_increments_correctly tests the
-        # peak-tracking behavior, but doesn't catch a regression where
-        # the implementation switches to max(filtered) (without abs),
-        # which would return wrong values for negative-going signals.
-        #
-        # Phase 4.5: peak computation lives in
-        # AudioPipeline.compute_rms_and_peak.
         from voice_typer.server.recording.audio_pipeline import AudioPipeline
 
         src = inspect.getsource(AudioPipeline.compute_rms_and_peak)
         # The peak computation returns max(|x|). The canonical forms
-        # are ``abs_filtered.max()`` and ``np.abs(filtered).max()``.
-        # PERF- introduced an allocation-free equivalent:
-        # ``max(float(flat.max()), -float(flat.min()))``, same value
-        # (max of absolute values), no intermediate ``np.abs`` array.
         assert (
             "abs_filtered.max()" in src
             or "np.abs(filtered).max()" in src
@@ -1255,16 +852,10 @@ class TestPeakMeterAccuracy:
 
 
 class TestVadBoundaryConditions:
-    """AUDIO-018.
-
-    The finding: VAD state machine boundary tests (exactly N-1 frames)
-    missing. Fix: added tests at the exact boundary frame counts.
-    """
+    """AUDIO-018."""
 
     def test_vad_transition_at_exact_speech_threshold(self):
-        """When consecutive_speech_frames == threshold, state must
-        transition from UNKNOWN to SPEECH. At threshold-1, it must NOT.
-        """
+        """When consecutive_speech_frames == threshold, state must"""
         from voice_typer.server.config import Config
         from voice_typer.server.recording import Recorder, VadState
 
@@ -1290,9 +881,7 @@ class TestVadBoundaryConditions:
         )
 
     def test_vad_transition_at_exact_silence_threshold(self):
-        """When consecutive_silence_frames == hangover, state must
-        transition from SPEECH to SILENCE. At hangover-1, it must NOT.
-        """
+        """When consecutive_silence_frames == hangover, state must"""
         from voice_typer.server.config import Config
         from voice_typer.server.recording import Recorder, VadState
 
@@ -1317,9 +906,7 @@ class TestVadBoundaryConditions:
         )
 
     def test_vad_grey_zone_preserves_counters(self):
-        """Grey-zone chunks (between thresholds) must NOT reset counters
-        (AUDIO-013 fix, also relevant to AUDIO-018 boundary testing).
-        """
+        """Grey-zone chunks (between thresholds) must NOT reset counters"""
         from voice_typer.server.config import Config
         from voice_typer.server.recording import Recorder, VadState
 
@@ -1343,15 +930,7 @@ class TestVadBoundaryConditions:
 
 
 class TestStreamingSessionAtomicPopOnCancel:
-    """ARCH-018.
-
-    The finding: streaming session lock had a TOCTOU gap in the cancel
-    path: ``_cancel_streaming_session`` did get-then-set (two lock
-    acquisitions), allowing a concurrent start to install a new session
-    that the subsequent set(None) would clobber. Fix: added
-    ``pop_streaming_session()`` that does atomic get-and-clear under a
-    single lock acquisition.
-    """
+    """ARCH-018."""
 
     def test_pop_streaming_session_exists(self):
         from voice_typer.server.recording_controller import RecordingController
@@ -1361,14 +940,9 @@ class TestStreamingSessionAtomicPopOnCancel:
         )
 
     def test_pop_is_atomic_single_lock_acquisition(self):
-        """pop_streaming_session must acquire the lock exactly once.
-
+        """
+        pop_streaming_session must acquire the lock exactly once.
         RW-8: KEEP, pins ARCH-018 (atomic get-and-clear under a single
-        lock acquisition). The sibling test_concurrent_pop_and_set_no_clobber
-        # tests the atomicity behaviorally, but doesn't catch a regression
-        # where the implementation uses two nested lock acquisitions that
-        # happen to pass the race test in practice. Source-string check
-        # catches the implementation choice directly.
         """
         from voice_typer.server.recording_controller import RecordingController
 
@@ -1379,11 +953,9 @@ class TestStreamingSessionAtomicPopOnCancel:
         )
 
     def test_cancel_uses_pop_not_get_then_set(self):
-        """_cancel_streaming_session must use pop_streaming_session(),
-        not the pre-fix get_streaming_session() + set_streaming_session(None).
-
+        """
+        _cancel_streaming_session must use pop_streaming_session(),
         RW-8: KEEP, pins ARCH-018 (cancel uses the atomic pop). Same
-        # rationale as test_pop_is_atomic_single_lock_acquisition.
         """
         from voice_typer.server.recording_controller import RecordingController
 
@@ -1397,9 +969,7 @@ class TestStreamingSessionAtomicPopOnCancel:
         )
 
     def test_pop_returns_and_clears_session(self):
-        """Functional test: pop_streaming_session must return the current
-        session AND clear it in one atomic operation.
-        """
+        """Functional test: pop_streaming_session must return the current"""
         from voice_typer.server.recording_controller import RecordingController
 
         # Build a minimal controller
@@ -1423,21 +993,13 @@ class TestStreamingSessionAtomicPopOnCancel:
         assert ctrl.pop_streaming_session() is None
 
     def test_concurrent_pop_and_set_no_clobber(self):
-        """ARCH-018 regression test: a concurrent set_streaming_session
-        must NOT be clobbered by a pop_streaming_session that started
-        before the set. Pre-fix, the get-then-set pattern could clobber
-        a freshly-installed session.
-        """
+        """ARCH-018 regression test: a concurrent set_streaming_session"""
         from voice_typer.server.recording_controller import RecordingController
 
         ctrl = RecordingController.__new__(RecordingController)
         ctrl._streaming_session_lock = threading.Lock()
         ctrl._streaming_session = MagicMock()
 
-        # Simulate the race: thread A pops (get+clear), thread B sets a
-        # new session between A's get and A's clear. With the atomic pop,
-        # B's set happens AFTER A's pop completes, so the new session
-        # survives.
         results: dict[str, object] = {}
 
         def thread_a():
@@ -1463,7 +1025,6 @@ class TestStreamingSessionAtomicPopOnCancel:
         # The set session survives (not clobbered by the pop)
         assert "set" in results, "Thread B should have set a new session"
         # After both threads complete, the session should be the one B set
-        # (because pop cleared the original, then B set the new one)
         assert ctrl._streaming_session is results["set"], (
             "ARCH-018 regression: the new session set by thread B was "
             "clobbered by thread A's pop, the atomic get-and-clear fix "

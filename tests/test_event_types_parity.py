@@ -1,61 +1,4 @@
-"""Master plan §7.4 / §9.4: IPC event-types parity test.
-
-This file is the regression guard for the **fourth allowlist** that was
-previously untested (master plan §9.4 / `PLAN_ONNX_INTEGRATION.md` §7.6):
-
-    4. ``ALLOWED_EVENT_TYPES`` (Rust) —
-       ``src-tauri/src/sidecar/ws/event_protocol.rs:49``
-       (the server-initiated event-type allowlist that the Tauri WS
-       reader consults on every inbound frame, a typo here silently
-       drops the frame with a ``[WS-READER] dropping unknown event
-       type:`` warning).
-
-The other two IPC allowlists (``_COMMAND_REGISTRY`` Python +
-``allowed_commands()`` Rust) are already
-pinned by ``tests/test_ipc_command_parity.py`` +
-``tests/test_security_doc_command_count.py``. This file adds the
-missing parity for the event-type allowlist.
-
-§7.4 introduces 13 new IPC events for the slim-core / runtime-pack
-split. The canonical Python-side source of truth is
-``voice_typer/server/service/pack.py::OFFLINE_PACK_EVENT_TYPES`` (a
-``frozenset[str]`` with all 13 names). The 13 events split into two
-kinds:
-
-* 1 REQUEST (renderer → slim core → worker): ``transcribe_offline``.
-  This MUST be in the two COMMAND allowlists (Python registry +
-  Rust allowed_commands()) AND in the TS
-  ``PythonRequest`` discriminated union. It is ALSO listed in
-  ``ALLOWED_EVENT_TYPES`` (the event allowlist) so the WS reader
-  doesn't drop any future server-initiated variant of the name.
-
-* 12 PUSH events (worker → slim core → renderer, published via
-  ``event_bus.publish``):
-  ``offline_pack_download_started`` / ``offline_pack_download_progress`` /
-  ``offline_pack_download_completed`` / ``offline_pack_download_failed`` /
-  ``offline_pack_verified`` / ``offline_pack_missing`` / ``offline_pack_corrupt`` /
-  ``offline_pack_ready`` / ``worker_started`` / ``worker_crashed`` /
-  ``worker_unloaded`` / ``transcribe_offline_result``.
-  These MUST be in:
-    - the Rust ``ALLOWED_EVENT_TYPES`` slice (so the WS reader lets
-      the frames through to the renderer);
-    - the TS ``PythonPushEvent`` discriminated union (so
-      ``usePythonEvent("offline_pack_download_started", ...)`` typechecks);
-    - the TS ``KNOWN_EVENT_TYPES`` runtime Set (so the dev-time
-      typo warning doesn't false-positive on the legitimate new
-      events, pinned by the TS-side
-      ``usePython-known-event-types-parity.test.ts``);
-    - the ``event_bus.py`` canonical catalogue docstring (the
-      source-of-truth anchor referenced by ADR-0020 §2).
-
-This test asserts all four allowlists agree on the 13 new events
-(per their kind) AND that the cross-layer event-side parity holds
-(Rust allowlist ↔ TS union ↔ TS runtime set).
-
-The tests are HEADLESS: they read the source files as TEXT (Python
-cannot import Rust or TS modules). They are safe to run in parallel
-with other fix sub-agents.
-"""
+"""This file is the regression guard for the **fourth allowlist** that was"""
 
 from __future__ import annotations
 
@@ -64,8 +7,6 @@ import re
 from pathlib import Path
 
 import pytest
-
-# ─── path helpers ─────────────────────────────────────────────────────────
 
 
 def _repo_root() -> Path:
@@ -85,30 +26,14 @@ ALLOWLIST_RS = REPO_ROOT / "src-tauri" / "src" / "commands" / "sidecar_cmds" / "
 EVENT_BUS_PY = REPO_ROOT / "voice_typer" / "server" / "event_bus.py"
 
 
-# ─── the 13 new events from §7.4 ──────────────────────────────────────────
-
-
-# Single source of truth: the canonical Python ``OFFLINE_PACK_EVENT_TYPES`` in
-# ``voice_typer/server/service/pack.py``. We import it rather than
-# hardcoding the list here so a future rename in ``pack.py`` flows
-# through to this test (the alternative, hardcoding the 13 strings
-# here, would silently drift if ``pack.py`` is updated and this test
-# isn't).
 def _pack_event_types() -> frozenset[str]:
-    """Return the canonical 13-event frozenset from ``service.offline_pack``.
-
-    ``OFFLINE_PACK_EVENT_TYPES`` is the schema anchor referenced by the
-    ``event_bus.py`` catalogue docstring + the Rust
-    ``ALLOWED_EVENT_TYPES`` slice + the TS ``PythonPushEvent`` union.
-    """
+    """Return the canonical 13-event frozenset from ``service.offline_pack``."""
     from voice_typer.server.service.offline_pack import OFFLINE_PACK_EVENT_TYPES
 
     return OFFLINE_PACK_EVENT_TYPES
 
 
 # The single request-type event (the other 12 are push events).
-# Used to verify the COMMAND allowlists (registry + Rust) contain
-# this one and ONLY this one of the 13 new events.
 REQUEST_EVENT_NAME = "transcribe_offline"
 
 
@@ -117,18 +42,8 @@ def _push_event_types() -> set[str]:
     return set(_pack_event_types()) - {REQUEST_EVENT_NAME}
 
 
-# ─── source-text parsers ──────────────────────────────────────────────────
-
-
 def _read_event_protocol_rs() -> str:
-    """Read the Rust event-protocol source as text.
-
-    Python cannot import Rust; we treat the file as a string and
-    regex-match the ``ALLOWED_EVENT_TYPES: &[&str] = &[ ... ];`` slice
-    literal. The slice was extracted from the former ``ws.rs``
-    monolith (FZ-24 / ZR-86 module split) and now lives in
-    ``event_protocol.rs``.
-    """
+    """Read the Rust event-protocol source as text."""
     assert EVENT_PROTOCOL_RS.is_file(), (
         f"expected Tauri WS reader at {EVENT_PROTOCOL_RS}, file not found. "
         "The ws/event_protocol.rs path is the canonical gate for "
@@ -138,17 +53,7 @@ def _read_event_protocol_rs() -> str:
 
 
 def _rust_allowed_event_types() -> set[str]:
-    """Parse the ``ALLOWED_EVENT_TYPES`` slice from event_protocol.rs.
-
-    Mirrors the parsing approach in
-    ``tests/test_tray_fallback_notification_allowlist.py``, same
-    slice-literal marker, same regex. The slice is declared as::
-
-        pub(super) const ALLOWED_EVENT_TYPES: &[&str] = &[ ... ];
-
-    We extract everything between ``&[`` and ``];`` and find all
-    quoted string literals.
-    """
+    """Parse the ``ALLOWED_EVENT_TYPES`` slice from event_protocol.rs."""
     src = _read_event_protocol_rs()
     start_marker = "const ALLOWED_EVENT_TYPES: &[&str] = &["
     idx = src.find(start_marker)
@@ -158,61 +63,23 @@ def _rust_allowed_event_types() -> set[str]:
         "update this parser to match."
     )
     slice_body = src[idx : src.find("];", idx)]
-    # Match quoted strings, the slice entries are `"name",` with
-    # optional trailing comments after `//`. The regex captures only
-    # the quoted string content. `[a-z0-9_]+` (not `[a-z_]+`) so
-    # digit-bearing names like `history_fts5_rebuild_failed` parse.
     return set(re.findall(r'"([a-z0-9_]+)"', slice_body))
 
 
 def _ts_python_push_event_types() -> set[str]:
-    """Parse the ``PythonPushEvent`` union for ``type: "<name>"`` literals.
-
-    The union is declared in ``push_events.ts`` as::
-
-        export type PythonPushEvent =
-            | StatusChangeEvent
-            | ErrorEvent
-            ...
-
-    Each member interface declares ``type: "<name>";``. We extract
-    every ``type: "..."`` literal declared BEFORE the ``export type
-    PythonPushEvent =`` line, this excludes the ``AuthFrame`` /
-    ``ProtocolVersionMismatchError`` interfaces that live AFTER the
-    union (they are NOT push events, they are auth/version-mismatch
-    frame shapes that happen to also use a ``type`` literal).
-    """
+    """Parse the ``PythonPushEvent`` union for ``type: \"<name>\"`` literals."""
     src = PUSH_EVENTS_TS.read_text(encoding="utf-8")
-    # Cut the source at the `export type PythonPushEvent =` line so
-    # we don't pick up `type:` literals from AuthFrame etc. below.
     cut = src.find("export type PythonPushEvent =")
     assert cut != -1, (
         "push_events.ts: `export type PythonPushEvent =` declaration not found, the union was renamed or moved."
     )
     head = src[:cut]
     # Match `type: "<name>";`, the trailing `;` distinguishes
-    # interface members from the union's `| MemberName` lines.
-    # `[a-z0-9_]+` so digit-bearing names parse (see the Rust parser).
     return set(re.findall(r'type:\s*"([a-z0-9_]+)"\s*;', head))
 
 
 def _ts_known_event_types() -> set[str]:
-    """Parse the ``KNOWN_EVENT_TYPES`` Set literal in
-    ``lib/python-bridge/known-event-types.ts``.
-
-    The ``hooks/usePython.ts`` monolith was split into focused modules
-    under ``lib/python-bridge/``; the runtime set now lives in
-    ``known-event-types.ts`` (the hook barrel re-exports it). The Set
-    is declared as::
-
-        export const KNOWN_EVENT_TYPES: ReadonlySet<string> = new Set([
-            "status_change",
-            ...
-        ]);
-
-    We extract everything between ``new Set([`` and ``]);`` and find
-    all quoted string literals.
-    """
+    """``lib/python-bridge/known-event-types.ts``."""
     src = USE_PYTHON_TS.read_text(encoding="utf-8")
     start = src.index("KNOWN_EVENT_TYPES: ReadonlySet<string> = new Set([")
     end = src.index("]);", start)
@@ -222,7 +89,7 @@ def _ts_known_event_types() -> set[str]:
 
 
 def _ts_python_request_types() -> set[str]:
-    """Parse the ``PythonRequest`` union for ``type: "<name>"`` literals."""
+    """Parse the ``PythonRequest`` union for ``type: \"<name>\"`` literals."""
     src = REQUESTS_TS.read_text(encoding="utf-8")
     return set(re.findall(r'type:\s*"([a-z_]+)"\s*;', src))
 
@@ -262,19 +129,8 @@ def _event_bus_docstring() -> str:
     return m.group(1)
 
 
-# ─── 1. the 13 new events are in the Rust ALLOWED_EVENT_TYPES slice ──────
-
-
 class TestRustAllowlistContainsAllNewEvents:
-    """The Rust ``ALLOWED_EVENT_TYPES`` slice MUST list every one of the
-    13 new §7.4 events.
-
-    Master plan §9.4: the ``ALLOWED_EVENT_TYPES`` slice is the
-    "fourth allowlist" that previously had NO parity test. Without
-    this assertion, adding a Python event without adding it here
-    silently drops the frame at the WS reader (logged at
-    ``[WS-READER] dropping unknown event type:``).
-    """
+    """13 new §7.4 events."""
 
     def test_all_13_pack_events_in_rust_allowlist(self) -> None:
         rust = _rust_allowed_event_types()
@@ -291,14 +147,9 @@ class TestRustAllowlistContainsAllNewEvents:
         )
 
     def test_rust_allowlist_count_increased_by_13(self) -> None:
-        """Sanity: the Rust allowlist should have AT LEAST 13 more
-        entries than the pre-§7.4 baseline (40 entries per §9.4 /
-        PLAN_ONNX_INTEGRATION.md §7.6). After §7.4 it should be ≥ 53.
-        """
+        """Sanity: the Rust allowlist should have AT LEAST 13 more"""
         rust = _rust_allowed_event_types()
         # Pre-§7.4 baseline was 40 (PLAN_ONNX_INTEGRATION.md §7.6
-        # cites "40 entries"). The 13 new events bump it to 53.
-        # Use >= so future unrelated additions don't break this test.
         assert len(rust) >= 53, (
             "§7.4 / §9.4: Rust ALLOWED_EVENT_TYPES slice has "
             f"{len(rust)} entries, expected at least 53 (40 pre-§7.4 "
@@ -307,15 +158,8 @@ class TestRustAllowlistContainsAllNewEvents:
         )
 
 
-# ─── 2. the 1 request event is in both COMMAND allowlists ─────────────────
-
-
 class TestRequestEventInCommandAllowlists:
-    """The 1 request-type event ``transcribe_offline`` MUST be in both
-    COMMAND allowlists (Python registry + Rust allowed_commands())
-    so the renderer's ``call('transcribe_offline', ...)`` dispatches
-    cleanly through every layer.
-    """
+    """The 1 request-type event ``transcribe_offline`` MUST be in both"""
 
     def test_in_python_command_registry(self) -> None:
         registry = _python_command_registry()
@@ -338,10 +182,7 @@ class TestRequestEventInCommandAllowlists:
         )
 
     def test_in_python_request_ts_union(self) -> None:
-        """The TS ``PythonRequest`` discriminated union MUST include
-        ``transcribe_offline`` so the renderer's
-        ``call('transcribe_offline', ...)`` typechecks (the typed
-        ``call<T>`` overload narrows on ``PythonRequest['type']``)."""
+        """The TS ``PythonRequest`` discriminated union MUST include"""
         requests = _ts_python_request_types()
         assert REQUEST_EVENT_NAME in requests, (
             f"§7.4: '{REQUEST_EVENT_NAME}' MUST be in the TS "
@@ -353,12 +194,7 @@ class TestRequestEventInCommandAllowlists:
         )
 
     def test_only_request_event_in_command_allowlists(self) -> None:
-        """The 12 PUSH events MUST NOT be in the command allowlists
-        (they are server→renderer push events, not renderer→python
-        commands). A push event leaking into the command allowlists
-        would create a phantom command the dispatcher would reject
-        with ``unknown_command``.
-        """
+        """The 12 PUSH events MUST NOT be in the command allowlists"""
         push_events = _push_event_types()
         registry = _python_command_registry()
         rust_cmds = _rust_allowed_commands()
@@ -376,16 +212,8 @@ class TestRequestEventInCommandAllowlists:
         )
 
 
-# ─── 3. the 12 push events are in the TS push-event allowlists ────────────
-
-
 class TestPushEventsInTsAllowlists:
-    """The 12 push events MUST be in:
-    - the TS ``PythonPushEvent`` discriminated union (so
-      ``usePythonEvent("offline_pack_download_started", ...)`` typechecks);
-    - the TS ``KNOWN_EVENT_TYPES`` runtime Set (so the dev-time typo
-      warning doesn't false-positive on the legitimate new events).
-    """
+    """The 12 push events MUST be in:"""
 
     def test_in_python_push_event_union(self) -> None:
         ts_union = _ts_python_push_event_types()
@@ -418,12 +246,10 @@ class TestPushEventsInTsAllowlists:
         )
 
     def test_transcribe_offline_result_in_both_ts_lists(self) -> None:
-        """The ``transcribe_offline_result`` push event (worker → slim
-        core → renderer) MUST be in both the TS union AND the runtime
+        """
+        The ``transcribe_offline_result`` push event (worker → slim
         Set. Pinned explicitly because it's the result counterpart
-        of the ``transcribe_offline`` REQUEST (and a contributor
-        adding the request might forget to add the result push event
-        to the renderer side)."""
+        """
         ts_union = _ts_python_push_event_types()
         known = _ts_known_event_types()
         assert "transcribe_offline_result" in ts_union, (
@@ -436,12 +262,7 @@ class TestPushEventsInTsAllowlists:
         )
 
     def test_transcribe_offline_not_in_push_event_union(self) -> None:
-        """The ``transcribe_offline`` REQUEST event MUST NOT be in the
-        ``PythonPushEvent`` union (it's a request, not a push event).
-        It lives in ``PythonRequest`` instead. A leak here would
-        create a phantom push event the renderer could subscribe to
-        but never receive.
-        """
+        """``PythonPushEvent`` union (it's a request, not a push event)."""
         ts_union = _ts_python_push_event_types()
         assert REQUEST_EVENT_NAME not in ts_union, (
             f"§7.4: '{REQUEST_EVENT_NAME}' is a REQUEST, not a push "
@@ -450,56 +271,18 @@ class TestPushEventsInTsAllowlists:
         )
 
 
-# ─── 4. cross-layer parity: Rust allowlist ↔ TS union ↔ TS runtime set ──
-
-
 # Host-bridge-synthesized events that BYPASS the Python sidecar's WS
-# reader path. These appear in the TS ``PythonPushEvent`` union (the
-# renderer subscribes to them via ``usePythonEvent``) AND in the TS
-# ``KNOWN_EVENT_TYPES`` runtime Set, but they are NOT published by the
-# Python sidecar, they are synthesized by the host bridge (Tauri
-# Rust ``src-tauri/src/sidecar/supervisor.rs`` or predecessor main) when
-# the transport layer detects a disconnect and enters the reconnect
-# loop. The Rust ``ALLOWED_EVENT_TYPES`` slice correctly EXCLUDES
-# them (the slice is the gate for Python-sidecar→renderer frames
-# only: see the docstring on the slice in
-# ``src-tauri/src/sidecar/ws/event_protocol.rs``). Without this
-# documented exception set, the cross-layer parity test below
-# false-positives on these host-bridge events.
-#
-# If a future host-bridge event is added to ``PythonPushEvent``, add
-# it here too, OR (preferred) emit it from the Python sidecar so it
-# flows through the standard event_bus.publish path and the Rust
-# allowlist gate applies.
 _HOST_BRIDGE_ONLY_EVENTS: frozenset[str] = frozenset({"reconnecting", "reconnected"})
 
 
 class TestEventAllowlistCrossLayerParity:
-    """The Rust ``ALLOWED_EVENT_TYPES`` slice is the WS-reader gate —
-    every push event the TS side knows about MUST be in the Rust
-    allowlist, or the WS reader silently drops the frame.
-
-    This is the regression guard that the §9.4 / §7.6 "fourth
-    allowlist has no parity test" gap was about. Before this test,
-    a Python event published via ``event_bus.publish`` would be
-    silently dropped if the Rust allowlist wasn't updated, no test
-    caught the drift.
-
-    Exception: host-bridge-synthesized events (``reconnecting`` /
-    ``reconnected``) are NOT published by the Python sidecar and
-    therefore correctly absent from the Rust allowlist. They are
-    documented in ``_HOST_BRIDGE_ONLY_EVENTS`` above.
-    """
+    """The Rust ``ALLOWED_EVENT_TYPES`` slice is the WS-reader gate —"""
 
     def test_rust_allowlist_is_superset_of_ts_push_event_union(self) -> None:
-        """Every TS ``PythonPushEvent`` type MUST be in the Rust
-        ``ALLOWED_EVENT_TYPES`` slice (modulo the host-bridge-only
-        exceptions). A push event the renderer subscribes to but the
-        Rust host drops is a silent UX bug."""
+        """Every TS ``PythonPushEvent`` type MUST be in the Rust"""
         rust = _rust_allowed_event_types()
         ts_union = _ts_python_push_event_types()
         # Exclude host-bridge-synthesized events from the cross-check
-        # , they bypass the WS reader by design.
         python_side_events = ts_union - _HOST_BRIDGE_ONLY_EVENTS
         missing = python_side_events - rust
         assert not missing, (
@@ -518,10 +301,7 @@ class TestEventAllowlistCrossLayerParity:
         )
 
     def test_rust_allowlist_is_superset_of_ts_known_event_types(self) -> None:
-        """Every TS ``KNOWN_EVENT_TYPES`` entry MUST be in the Rust
-        ``ALLOWED_EVENT_TYPES`` slice (modulo the host-bridge-only
-        exceptions). The runtime Set is a hand-maintained mirror of
-        the TS union; both must agree with the Rust slice."""
+        """Every TS ``KNOWN_EVENT_TYPES`` entry MUST be in the Rust"""
         rust = _rust_allowed_event_types()
         known = _ts_known_event_types()
         # Exclude host-bridge-synthesized events from the cross-check.
@@ -539,14 +319,9 @@ class TestEventAllowlistCrossLayerParity:
         )
 
     def test_ts_push_event_union_equals_ts_known_event_types(self) -> None:
-        """The TS ``PythonPushEvent`` union and the TS ``KNOWN_EVENT_TYPES``
-        runtime Set MUST agree exactly. The Set is a hand-maintained
-        mirror of the union (TS cannot enumerate union members at
-        runtime); the TS-side parity test
+        """
+        The TS ``PythonPushEvent`` union and the TS ``KNOWN_EVENT_TYPES``
         ``usePython-known-event-types-parity.test.ts`` pins this from
-        the TS side, and this Python test re-pins it from the
-        cross-layer side so a contributor who only edits the .ts
-        files but doesn't run vitest still gets caught by pytest.
         """
         ts_union = _ts_python_push_event_types()
         known = _ts_known_event_types()
@@ -566,11 +341,7 @@ class TestEventAllowlistCrossLayerParity:
         )
 
     def test_host_bridge_only_events_documented_in_ts_union(self) -> None:
-        """Sanity: every event in ``_HOST_BRIDGE_ONLY_EVENTS`` MUST
-        actually appear in the TS ``PythonPushEvent`` union. If a
-        future contributor removes ``reconnecting`` / ``reconnected``
-        from the union but leaves it in the exception set, the
-        exception set silently grows stale."""
+        """Sanity: every event in ``_HOST_BRIDGE_ONLY_EVENTS`` MUST"""
         ts_union = _ts_python_push_event_types()
         stale = _HOST_BRIDGE_ONLY_EVENTS - ts_union
         assert not stale, (
@@ -581,26 +352,12 @@ class TestEventAllowlistCrossLayerParity:
         )
 
 
-# ─── 5. event_bus.py canonical catalogue docstring lists all 13 events ──
-
-
 class TestEventBusCatalogueDocstring:
-    """The ``event_bus.py`` canonical catalogue docstring MUST mention
-    every one of the 13 new §7.4 events.
-
-    The docstring is the code-side anchor for ADR-0020 §2's
-    Sidecar→UI Event Table (per the docstring's own preamble).
-    A contributor reading the docstring should NOT have to flip to
-    ``service/pack.py`` to discover the new events.
-    """
+    """The ``event_bus.py`` canonical catalogue docstring MUST mention"""
 
     def test_all_13_events_in_catalogue(self) -> None:
         docstring = _event_bus_docstring()
         pack = _pack_event_types()
-        # Each event name should appear as a `` ``name`` `` token in
-        # the docstring (RST inline-literal form). We just check the
-        # raw name appears anywhere in the docstring text, that's
-        # sufficient to catch a missed entry.
         missing = {name for name in pack if name not in docstring}
         assert not missing, (
             "§7.4: event_bus.py canonical catalogue docstring is "
@@ -614,9 +371,7 @@ class TestEventBusCatalogueDocstring:
         )
 
     def test_catalogue_mentions_pack_section_header(self) -> None:
-        """The docstring MUST have a section header that mentions
-        ``§7.4`` so a contributor grepping for the master plan
-        reference can find the new events quickly."""
+        """The docstring MUST have a section header that mentions"""
         docstring = _event_bus_docstring()
         assert "§7.4" in docstring or "7.4" in docstring, (
             "§7.4: event_bus.py canonical catalogue docstring should "
@@ -626,17 +381,8 @@ class TestEventBusCatalogueDocstring:
         )
 
 
-# ─── 6. the canonical OFFLINE_PACK_EVENT_TYPES source of truth exists ────────────
-
-
 class TestPackEventTypesSourceOfTruth:
-    """``voice_typer/server/service/pack.py::OFFLINE_PACK_EVENT_TYPES`` is the
-    canonical frozenset that the parity tests above import. This
-    test pins its existence + size so a future refactor that moves
-    or renames ``OFFLINE_PACK_EVENT_TYPES`` fails HERE first (with a clear
-    message) instead of in the import-error traceback of every
-    other test class above.
-    """
+    """canonical frozenset that the parity tests above import. This"""
 
     def test_pack_event_types_exists_and_has_13_entries(self) -> None:
         pack = _pack_event_types()
@@ -659,11 +405,7 @@ class TestPackEventTypesSourceOfTruth:
         )
 
     def test_pack_event_types_is_frozenset(self) -> None:
-        """``OFFLINE_PACK_EVENT_TYPES`` MUST be a ``frozenset`` so it cannot
-        be accidentally mutated at runtime (a mutable set could be
-        silently extended by a stray ``.add()`` call, which would
-        then pass the parity tests above without the corresponding
-        allowlist updates)."""
+        """``OFFLINE_PACK_EVENT_TYPES`` MUST be a ``frozenset`` so it cannot"""
         from voice_typer.server.service.offline_pack import OFFLINE_PACK_EVENT_TYPES
 
         assert isinstance(OFFLINE_PACK_EVENT_TYPES, frozenset), (
@@ -673,36 +415,8 @@ class TestPackEventTypesSourceOfTruth:
         )
 
 
-# ─── 7. Python-published events ⊆ Rust allowlist + EVENT_TYPES registry ───
-
-
 def _python_published_event_types() -> set[str]:
-    """Return every event name literally published via ``event_bus.publish``.
-
-    AST-scans every ``.py`` file under ``voice_typer/server`` for a
-    ``<anything>.publish(...)`` call
-    whose FIRST positional argument is a dict literal containing a
-    constant ``"type": "<name>"`` pair. This is the emitting-direction
-    inventory: the set of event names the Python sidecar can actually
-    push onto the WS (the sidecar's ``_push_to_ws`` subscriber forwards
-    every event_bus publish verbatim, so the dispatch-vs-event split is
-    irrelevant here, an event frame is any no-id publish).
-
-    Receiver-name matching is deliberately loose (any ``X.publish``):
-    call sites alias the module (``event_bus`` /
-    ``_event_bus``) and a stricter ``func.value.id == "event_bus"`` match
-    would silently skip aliased sites. A non-event_bus receiver that
-    publishes a dict with a constant ``type`` key would be a false
-    positive, none exists today (the scan's receiver inventory was
-    verified: every hit resolves to the ``voice_typer.server.event_bus``
-    module).
-
-    Dynamic (non-literal) ``type`` values are invisible to this scan;
-    that is the accepted trade-off, a literal-name drift is the failure
-    class that bit (allowlist grown by consumer requests, not by emitter
-    inventory), and non-literal event names would be un-parity-able by
-    ANY static guard.
-    """
+    """Return every event name literally published via ``event_bus.publish``."""
     names: set[str] = set()
     server_dir = REPO_ROOT / "voice_typer" / "server"
     assert server_dir.is_dir(), f"server tree not found at {server_dir}"
@@ -738,33 +452,10 @@ def _python_event_types_registry() -> frozenset[str]:
 
 
 class TestPythonPublishedEventParity:
-    """The EMITTING direction of the four-way population diff.
-
-    The tests above guard the consumer direction (TS union / TS runtime
-    set ⊆ Rust allowlist). None of them asked: ``what does the Python
-    sidecar actually publish?``, which is how 10 published events
-    ended up dropped at the Rust WS-reader gate with only a warn.
-
-    Two assertions close that gap:
-
-    1. Published ⊆ Rust ``ALLOWED_EVENT_TYPES``, every name the Python
-       tree can publish must pass the host gate, or the frame is
-       silently dropped (``[WS-READER] dropping unknown event type:``).
-    2. Published ⊆ Python ``EVENT_TYPES``, the Python-side registry
-       is the dev-time assertion gate (``VOICE_TYPER_DEBUG_EVENTS=1``)
-       and the code-side catalogue anchor; a published-but-unregistered
-       name false-positives that gate and lies to catalogue readers.
-
-    Exceptions: none today. If a name is intentionally allowed to be
-    dropped (a diagnostics-only event consumed by NOTHING), the correct
-    move per the event-contract policy is to DELETE the emit, not to
-    add an exception here.
-    """
+    """The EMITTING direction of the four-way population diff."""
 
     def test_published_scanner_finds_a_meaningful_inventory(self) -> None:
-        """Sanity: the AST scan must not silently return an empty/tiny set
-        (a parser regression would make the two parity assertions below
-        vacuously green)."""
+        """Sanity: the AST scan must not silently return an empty/tiny set"""
         published = _python_published_event_types()
         assert len(published) >= 40, (
             "the published-event AST scan found only "
@@ -772,7 +463,6 @@ class TestPythonPublishedEventParity:
             "(expected the full ~50-name publish inventory under "
             "voice_typer/server)."
         )
-        # long-standing core events that must always be in the inventory
         for anchor in ("ready", "state_changed", "status_change", "error"):
             assert anchor in published, f"scanner no longer finds the core '{anchor}' publisher."
 

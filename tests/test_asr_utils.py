@@ -1,23 +1,4 @@
-"""Tests for :func:`voice_typer.server.asr_utils.split_audio`.
-
-The shared ``split_audio`` helper is the single source of truth for the
-overlapping-chunk loop previously duplicated verbatim across
-``ParakeetEngine._split_audio`` and ``QwenEngine._split_audio``. Both
-engine methods now delegate to it.
-
-Edge cases covered:
-- empty audio → empty list (no chunks, no infinite loop)
-- audio shorter than one chunk → single chunk == whole array
-- audio exactly chunk-sized → single chunk == whole array
-- audio longer than one chunk → multiple overlapping chunks with
-  ``overlap_duration`` of shared samples between successive chunks
-- the last chunk always reaches the end of the audio (no tail drop)
-- the default ``sample_rate`` matches :data:`WHISPER_SAMPLE_RATE`
-- a custom ``sample_rate`` is honoured independently of duration
-- ``_require_huggingface_consent`` raises the typed
-  ``HuggingFaceConsentRequiredError`` carrying ``provider`` / ``scope``
-  (the fields the IPC consent envelope reads off the exception)
-"""
+"""Tests for :func:`voice_typer.server.asr_utils.split_audio`."""
 
 from __future__ import annotations
 
@@ -73,10 +54,9 @@ class TestSplitAudio:
         )
 
     def test_last_chunk_reaches_end_of_audio(self):
-        """The final sample of ``audio`` must appear in the last chunk.
-
+        """
+        The final sample of ``audio`` must appear in the last chunk.
         Regression guard for the word-drop bug pinned by
-        ``tests/test_word_drop_regression.py::test_qwen_split_audio_covers_full_array``.
         """
         audio = np.arange(int(90 * SR), dtype=np.float32)
         chunks = split_audio(audio, chunk_duration=30.0, overlap_duration=3.0)
@@ -98,10 +78,7 @@ class TestSplitAudio:
             np.testing.assert_array_equal(a, b)
 
     def test_custom_sample_rate_scales_chunk_lengths(self):
-        """``sample_rate`` controls samples-per-chunk independently of duration.
-
-        At 100 Hz with 1s chunks, ``chunk_len`` is 100 samples, not 16000.
-        """
+        """``sample_rate`` controls samples-per-chunk independently of duration."""
         audio = np.arange(250, dtype=np.float32)  # 2.5s at 100 Hz
         chunks = split_audio(
             audio,
@@ -114,14 +91,7 @@ class TestSplitAudio:
             assert len(chunk) <= 100  # chunk_len = int(1.0 * 100)
 
     def test_chunks_are_views_not_copies(self):
-        """Slices of ``audio`` are numpy views; mutating ``audio`` reflects.
-
-        Documents the returned chunks share memory with the input —
-        callers must not mutate the source array after splitting if they
-        need the chunks to remain stable. This matches the original
-        behaviour of both ``ParakeetEngine._split_audio`` and
-        ``QwenEngine._split_audio`` (both did ``audio[start:end]``).
-        """
+        """Slices of ``audio`` are numpy views; mutating ``audio`` reflects."""
         audio = np.arange(int(50 * SR), dtype=np.float32)
         chunks = split_audio(audio, chunk_duration=25.0, overlap_duration=3.0)
         assert len(chunks) >= 1
@@ -134,21 +104,15 @@ class TestSplitAudio:
 
 
 class TestSplitAudioDelegationFromEngines:
-    """Engine ``_split_audio`` methods delegate to the shared helper.
-
+    """
+    Engine ``_split_audio`` methods delegate to the shared helper.
     These tests pin the delegation contract: the engine methods must
-    produce the SAME output as calling :func:`split_audio` directly with
-    the same parameters. If a future refactor inlines a different
-    chunking loop in either engine, the corresponding test below fails.
     """
 
     def test_parakeet_delegates_to_split_audio(self):
         from voice_typer.server.parakeet_engine import ParakeetEngine
 
         audio = np.arange(int(50 * SR), dtype=np.float32)
-        # ParakeetEngine._split_audio is an instance method, but the
-        # body does not use ``self``, pass ``None`` to verify the
-        # delegation does not depend on instance state.
         chunks_method = ParakeetEngine._split_audio(None, audio, 25.0, 3.0)
         chunks_helper = split_audio(
             audio,
@@ -177,20 +141,8 @@ class TestSplitAudioDelegationFromEngines:
             np.testing.assert_array_equal(a, b)
 
 
-# ── HuggingFace consent gate ─────────────────────────────────────────────
-
-
 class TestRequireHuggingFaceConsent:
-    """``_require_huggingface_consent`` raises the TYPED subclass.
-
-    The gate must raise
-    :class:`voice_typer.server.asr_errors.HuggingFaceConsentRequiredError`
-    (NOT the bare :class:`ConsentRequiredError`) so the raised exception
-    carries ``provider="huggingface"`` / ``scope="download"``, the IPC
-    dispatcher reads those fields via ``getattr(exc, ...)`` when building
-    the ``server.consent_required`` envelope, and the base class ships
-    them as empty strings.
-    """
+    """``_require_huggingface_consent`` raises the TYPED subclass."""
 
     def test_missing_consent_raises_typed_subclass_with_fields(self):
         from voice_typer.server.asr_errors import (
@@ -204,7 +156,6 @@ class TestRequireHuggingFaceConsent:
         with pytest.raises(ConsentRequiredError) as excinfo:
             _require_huggingface_consent(cfg, "tiny")
         # The typed subclass carries the wire fields the consent
-        # envelope needs; the base class would ship "" / "".
         assert isinstance(excinfo.value, HuggingFaceConsentRequiredError)
         assert excinfo.value.provider == "huggingface"
         assert excinfo.value.scope == "download"

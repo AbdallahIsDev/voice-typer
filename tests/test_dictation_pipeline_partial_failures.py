@@ -1,29 +1,4 @@
-"""XZ-R18-02 / XZ-R18-05: regression tests for partial-failure handling
-in the dictation pipeline.
-
-Background
-----------
-Two related findings from the XZ review:
-
-* **XZ-R18-02 (Medium)**: ``_clean_text()`` and ``_apply_punctuation()``
-  were the only two middle-pipeline steps NOT wrapped in try/except.
-  If either threw, the exception propagated to the outer ``run()``
-  ``except Exception`` block, the tray flipped to ERROR, the
-  dictation was aborted, and the transcription was NEVER saved to
-  crash recovery because ``_store_result()`` runs AFTER these steps.
-  Fix: wrap in try/except matching the ``_apply_vocabulary`` pattern
-  (``log.warning(...)`` + notify-once + return original text).
-
-* **XZ-R18-05 (Medium)**: ``_apply_llm_polish``'s except block only
-  logged a WARNING. The user paid for an LLM API call that never
-  produced output (or believed the feature was broken) with NO
-  diagnostic. Fix: add the notify-once pattern (tray notification on
-  the FIRST failure per session) AND publish a ``llm_polish_failed``
-  event to the in-process event bus so the renderer can surface a
-  one-time toast.
-
-The tests pin both fixes.
-"""
+"""XZ-R18-02 / XZ-R18-05: regression tests for partial-failure handling"""
 
 from __future__ import annotations
 
@@ -33,26 +8,15 @@ from unittest.mock import MagicMock
 import pytest
 from voice_typer.server.dictation_pipeline import DictationPipeline
 
-# ─── Helpers ────────────────────────────────────────────────────────────
-
 
 class _TestApp:
-    """Minimal non-magic test app for DictationPipeline tests.
-
-    Mirrors the ``_TestApp`` in
-    ``tests/fixtures/dictation_pipeline_helpers.py`` (the canonical
-    shared factory location for ``DictationPipeline`` tests).
-    The four (now six, post-XZ-R18-02/05) notify-once flags are
-    intentionally NOT pre-declared so ``getattr(app, "_flag", False)``
-    defaults to ``False`` (matching ``VoiceTyperApp``'s behavior).
-    """
+    """Minimal non-magic test app for DictationPipeline tests."""
 
     _NOTIFY_ONCE_FLAGS = {
         "_vocab_fail_notified",
         "_template_fail_notified",
         "_history_fail_notified",
         "_crash_recovery_fail_notified",
-        # three new session-scoped flags.
         "_clean_text_fail_notified",
         "_punct_fail_notified",
         "_llm_polish_fail_notified",
@@ -84,8 +48,6 @@ class _TestApp:
         self.recording = MagicMock()
 
     def __getattr__(self, name: str) -> MagicMock:
-        # Re-raise AttributeError for the notify-once flag names so
-        # getattr-with-default in the production code returns False.
         if name in self._NOTIFY_ONCE_FLAGS:
             raise AttributeError(name)
         mock = MagicMock()
@@ -114,11 +76,7 @@ def _new_pipeline(app: _TestApp) -> DictationPipeline:
 
 
 class TestCleanTextWrappedInTryExcept:
-    """XZ-R18-02: ``_clean_text`` must NOT propagate exceptions to the
-    outer ``run()`` block. On failure, log a WARNING, fire the
-    notify-once tray notification, and return the original text so the
-    dictation completes (the user sees their un-cleaned transcription
-    instead of a tray error)."""
+    """dictation completes (the user sees their un-cleaned transcription"""
 
     def test_returns_original_text_on_clean_failure(self, monkeypatch: pytest.MonkeyPatch) -> None:
         app = _make_app()
@@ -158,7 +116,6 @@ class TestCleanTextWrappedInTryExcept:
         pipeline1._clean_text("hello")
         pipeline2._clean_text("world")
         # The tray.notify call count for the cleanup-failed message
-        # must be exactly 1 (only the first cycle fires).
         notify_calls = [c for c in app.tray.notify.call_args_list if c.args and "Text cleanup failed" in str(c.args)]
         assert len(notify_calls) == 1, (
             "XZ-R18-02: tray.notify('Text cleanup failed') must fire EXACTLY "
@@ -186,9 +143,7 @@ class TestCleanTextWrappedInTryExcept:
 
 
 class TestApplyPunctuationWrappedInTryExcept:
-    """XZ-R18-02: ``_apply_punctuation`` must NOT propagate exceptions
-    to the outer ``run()`` block. On failure, log a WARNING, fire the
-    notify-once tray notification, and return the original text."""
+    """XZ-R18-02: ``_apply_punctuation`` must NOT propagate exceptions"""
 
     def test_returns_original_text_on_punctuation_failure(self, monkeypatch: pytest.MonkeyPatch) -> None:
         app = _make_app()
@@ -253,15 +208,10 @@ class TestApplyPunctuationWrappedInTryExcept:
 
 
 class TestApplyLlmPolishNotifyOnceAndEventPublish:
-    """XZ-R18-05: ``_apply_llm_polish``'s except block must (1) log a
-    WARNING with the redacted exception, (2) fire a notify-once tray
-    notification, and (3) publish a ``llm_polish_failed`` event to the
-    in-process event bus so the renderer can surface a one-time
-    toast. The transcription is still returned UN-polished."""
+    """WARNING with the redacted exception, (2) fire a notify-once tray"""
 
     def _make_llm_polish_pipeline(self, app: _TestApp) -> DictationPipeline:
-        """Build a pipeline whose config enables LLM polish and whose
-        ``_llm_polisher`` is a MagicMock that raises on ``polish()``."""
+        """Build a pipeline whose config enables LLM polish and whose"""
         app.config.llm_polish = True
         app.config.llm_api_key = "sk-" + "a" * 40
         app.config.openai_api_key = ""
@@ -300,8 +250,6 @@ class TestApplyLlmPolishNotifyOnceAndEventPublish:
             published_events.append(event)
 
         # The production code does ``from voice_typer.server import event_bus``
-        # then ``event_bus.publish({"type": "llm_polish_failed"})``. Patch
-        # the publish function on the event_bus module.
         import voice_typer.server.event_bus as event_bus_mod
 
         monkeypatch.setattr(event_bus_mod, "publish", _capture_publish)
@@ -324,11 +272,7 @@ class TestApplyLlmPolishNotifyOnceAndEventPublish:
         )
 
     def test_event_published_on_every_failure_not_just_first(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """The notify-once flag gates ONLY the tray notification (so the
-        user isn't spammed). The event-bus publish must fire on every
-        failure so the renderer can decide independently whether to
-        surface a toast (e.g. suppress its own toast after the first
-        one)."""
+        """user isn't spammed). The event-bus publish must fire on every"""
         app = _make_app()
         pipeline1 = self._make_llm_polish_pipeline(app)
         pipeline2 = self._make_llm_polish_pipeline(app)
@@ -347,15 +291,8 @@ class TestApplyLlmPolishNotifyOnceAndEventPublish:
         )
 
 
-# event publish failure is swallowed ─────────────────────
-
-
 class TestApplyLlmPolishEventBusFailureIsSwallowed:
-    """If ``event_bus.publish`` raises (e.g. the bus is shutting down
-    or the queue is full), the polish-failure path must NOT propagate
-    the exception, the original text is still returned to the user
-    and the tray notification (which has its own suppress(Exception)
-    guard) is the user-visible signal."""
+    """If ``event_bus.publish`` raises (e.g. the bus is shutting down"""
 
     def test_event_bus_publish_failure_does_not_propagate(self, monkeypatch: pytest.MonkeyPatch) -> None:
         app = _make_app()

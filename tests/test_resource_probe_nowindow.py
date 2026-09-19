@@ -1,16 +1,4 @@
-"""Windows console-flash regression tests for the ``nvidia-smi`` probe.
-
-Spawning the console-mode ``nvidia-smi.exe`` without
-``CREATE_NO_WINDOW`` flashes a visible terminal window on Windows. The
-probe runs on the transcription hot path
-(``DictationPipeline.run`` → ``_check_resources_throttled`` →
-``check_resources`` → ``_probe_gpu_memory_via_nvidia_smi``), so the
-flash appears right when the user stops a dictation recording.
-
-These tests pin the fix: ``subprocess.run`` must receive
-``creationflags=CREATE_NO_WINDOW`` on Windows and must receive no
-``creationflags`` kwarg at all on POSIX (no behavior change there).
-"""
+"""Windows console-flash regression tests for the ``nvidia-smi`` probe."""
 
 from __future__ import annotations
 
@@ -35,7 +23,6 @@ def _install_capturing_run(monkeypatch, *, stdout_text: str = "8192, 5120\n") ->
     captured: dict = {}
 
     # Built via type() (not a class statement) so the stdout payload
-    # resolves from the enclosing function scope.
     fake_completed_cls = type("_FakeCompleted", (), {"returncode": 0, "stdout": stdout_text})
 
     def _fake_run(cmd, **kwargs):

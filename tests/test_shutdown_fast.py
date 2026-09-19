@@ -1,44 +1,4 @@
-"""Regression tests: ``_do_fast_cleanup`` is the dispatch target for
-Windows logoff/shutdown signals AND ends with ``os._exit(0)``.
-
-Context
--------
-Windows fires ``CTRL_LOGOFF_EVENT`` (5) / ``CTRL_SHUTDOWN_EVENT`` (6)
-via ``SetConsoleCtrlHandler`` when the user logs off or the system is
-shutting down. The OS gives the process a hard ~5-second deadline
-before force-killing it. The full ``_do_cleanup`` body has a
-cumulative worst-case of ~25-85s; on Windows logoff the OS would
-force-kill the process mid-cleanup, silently losing unsaved
-transcriptions + history writes.
-
-``_do_fast_cleanup`` (XZ-R17-06) is the critical-only cleanup path
-(crash_recovery.flush, history_db.flush, recorder.stop,
-_clear_backend_pid_file, mutex release) with 1s timeouts each,
-targeting <3s total. These tests complete the XZ-R17-06 contract:
-
-  1. ``signal_handlers.win32_console_handler`` routes
-     CTRL_LOGOFF_EVENT / CTRL_SHUTDOWN_EVENT (the Win32 analogues of
-     WM_QUERYENDSESSION) to ``controller._do_fast_cleanup()``, NOT
-     ``controller.quit()`` (the slow path).
-  2. ``_do_fast_cleanup`` ends with ``os._exit(0)`` so the Win32
-     callback returns control to the OS via the async-signal-safe
-     exit primitive (bypassing atexit handlers, the OS is killing
-     us anyway, so orderly atexit cleanup would race the deadline).
-  3. ``os._exit(0)`` MUST fire even on a no-op second invocation
-     (when ``_cleanup_done`` was already True) so the Win32 callback
-     does not return ``True`` to the OS without exiting.
-
-POSIX SIGTERM is intentionally routed to ``controller.quit()`` (the
-slow path), NOT to ``_do_fast_cleanup``: POSIX does NOT impose a
-5-second OS deadline on SIGTERM (``systemd``'s
-``DefaultTimeoutStopSec`` defaults to 90s), so the slow path is
-correct there. Only Windows logoff/shutdown has the 5s constraint.
-
-This module pins both contracts via source-inspection and behavioral
-tests. Tests that invoke ``_do_fast_cleanup`` directly MUST monkey-
-patch ``os._exit`` so the test runner doesn't actually exit (the
-autouse ``_stub_os_exit`` fixture below handles this).
-"""
+"""Windows logoff/shutdown signals AND ends with ``os._exit(0)``."""
 
 from __future__ import annotations
 
@@ -49,11 +9,6 @@ from unittest.mock import MagicMock
 import pytest
 from voice_typer.server.shutdown_controller import ShutdownController
 
-# The pre-split ``shutdown_controller.py`` is now a package, and the
-# ``_do_fast_cleanup`` body has since been extracted into the sibling
-# ``shutdown/`` package (``shutdown/cleanup.py``, the mixin method on
-# ``shutdown_controller/_cleanup.py`` is a thin delegate that forwards
-# to ``do_fast_cleanup(controller)``).
 _FAST_CLEANUP_BODY_PATH = os.path.join(
     os.path.dirname(__file__),
     "..",
@@ -78,9 +33,7 @@ def _src(path: str) -> str:
 
 @pytest.fixture(autouse=True)
 def _stub_os_exit(monkeypatch):
-    """``_do_fast_cleanup()`` ends with ``os._exit(0)``. Stub it
-    so the test runner doesn't actually exit when tests invoke
-    ``_do_fast_cleanup()`` directly."""
+    """``_do_fast_cleanup()`` ends with ``os._exit(0)``. Stub it"""
     calls: list[int] = []
     monkeypatch.setattr(
         "voice_typer.server.shutdown_controller.os._exit",
@@ -104,16 +57,11 @@ def _make_controller_with_app():
     return controller, app
 
 
-# source-level contracts on _do_fast_cleanup ────────────────
-
-
 class TestFastCleanupOsExitSource:
-    """``_do_fast_cleanup`` source must end with ``os._exit(0)``,
-    and the ``_cleanup_done`` short-circuit must NOT skip it."""
+    """``_do_fast_cleanup`` source must end with ``os._exit(0)``,"""
 
     def test_do_fast_cleanup_calls_os_exit_zero(self, _stub_os_exit):
-        """``_do_fast_cleanup()`` must call ``os._exit(0)`` exactly once
-        at the end of the cleanup body."""
+        """``_do_fast_cleanup()`` must call ``os._exit(0)`` exactly once"""
         controller, _ = _make_controller_with_app()
         controller._do_fast_cleanup()
         assert _stub_os_exit == [0], (
@@ -121,26 +69,9 @@ class TestFastCleanupOsExitSource:
         )
 
     def test_do_fast_cleanup_calls_os_exit_even_when_cleanup_done_already(self, _stub_os_exit):
-        """When ``_cleanup_done`` is already True (prior cleanup ran),
-        ``_do_fast_cleanup`` still runs its critical flushes UNCONDITIONALLY
-        (the writes are idempotent, running them twice is safe) AND calls
-        ``os._exit(0)``, we're being invoked from the Windows
-        logoff/shutdown callback and must not return True (which would
-        let the OS re-evaluate us).
-
-        The previous ``if not already_done:`` gate created a false
-        positive: if a normal ``quit()`` was in flight (had set
-        ``_cleanup_done = True`` at the start of ``_do_cleanup``) when
-        Windows logoff fired ``_do_fast_cleanup``, the fast path skipped
-        its own critical flushes, losing pending history DB writes and
-        crash-recovery snapshots. Both cleanup paths skipped the
-        critical writes (the slow one was killed by ``os._exit(0)``
-        mid-flight; the fast one short-circuited). The fix: run the
-        critical flushes unconditionally on every invocation."""
+        """When ``_cleanup_done`` is already True (prior cleanup ran),"""
         controller, app = _make_controller_with_app()
         app._cleanup_done = True
-        # crash_recovery.flush MUST be called even though _cleanup_done
-        # is True (unconditional flush, running twice is safe).
         app._crash_recovery = MagicMock()
         controller._do_fast_cleanup()
         app._crash_recovery.flush.assert_called_once_with(timeout=1.0)
@@ -150,30 +81,17 @@ class TestFastCleanupOsExitSource:
         )
 
     def test_do_fast_cleanup_idempotent_second_call_still_exits(self, _stub_os_exit):
-        """Two sequential ``_do_fast_cleanup`` invocations: the second
-        STILL runs its critical flushes (the writes are idempotent —
-        running them twice is safe), AND BOTH invocations call
-        ``os._exit(0)``.
-
-        The previous ``if not already_done:`` gate skipped the second
-        invocation's flushes, which created a false positive under
-        quit-during-logoff: the slow ``_do_cleanup`` had set
-        ``_cleanup_done = True`` but not yet reached the parallel batch
-        when the fast path fired; the fast path's flushes were skipped,
-        and ``os._exit(0)`` killed the slow path mid-flight, both
-        paths skipped the critical writes. The fix removes the gate."""
+        """Two sequential ``_do_fast_cleanup`` invocations: the second"""
         controller, app = _make_controller_with_app()
         controller._do_fast_cleanup()
         # Second call: arm a spy on crash_recovery.flush, it MUST be
-        # called (unconditional flush), AND os._exit(0) MUST fire again.
         app._crash_recovery = MagicMock()
         controller._do_fast_cleanup()
         app._crash_recovery.flush.assert_called_once_with(timeout=1.0)
         assert _stub_os_exit == [0, 0], f"both _do_fast_cleanup invocations must call os._exit(0); got {_stub_os_exit}"
 
     def test_os_exit_runs_after_all_cleanup_steps(self, _stub_os_exit, monkeypatch):
-        """All critical cleanup steps must run BEFORE ``os._exit(0)``.
-        Verify by recording the call order."""
+        """All critical cleanup steps must run BEFORE ``os._exit(0)``."""
         controller, app = _make_controller_with_app()
         call_order: list[str] = []
 
@@ -207,31 +125,20 @@ class TestFastCleanupOsExitSource:
         assert history_idx < exit_idx, f"history_db.flush must run BEFORE os._exit; got order: {call_order}"
 
     def test_os_exit_runs_even_when_cleanup_step_raises(self, _stub_os_exit):
-        """If a cleanup step raises, ``_do_fast_cleanup`` must
-        still reach ``os._exit(0)`` (best-effort cleanup, the OS is
-        killing us and we must not return True without exiting)."""
+        """If a cleanup step raises, ``_do_fast_cleanup`` must"""
         controller, app = _make_controller_with_app()
         app._crash_recovery = MagicMock()
         app._crash_recovery.flush.side_effect = RuntimeError("simulated failure")
         # Must not raise.
         controller._do_fast_cleanup()
-        # os._exit(0) must still be called.
         assert _stub_os_exit == [0]
 
 
-# signal_handlers.win32_console_handler routing ─────────────
-
-
 class TestWin32RoutingFastCleanup:
-    """``win32_console_handler`` must route
-    CTRL_LOGOFF_EVENT (5) / CTRL_SHUTDOWN_EVENT (6), the Win32
-    analogues of WM_QUERYENDSESSION, to ``_do_fast_cleanup()``
-    (NOT ``controller.quit()``)."""
+    """``win32_console_handler`` must route"""
 
     def test_logoff_event_routes_to_fast_cleanup(self, _stub_os_exit):
-        """CTRL_LOGOFF_EVENT (5) must invoke ``_do_fast_cleanup``
-        synchronously (not on a daemon thread, the OS force-kills
-        after ~5s)."""
+        """CTRL_LOGOFF_EVENT (5) must invoke ``_do_fast_cleanup``"""
         from voice_typer.server.signal_handlers import win32_console_handler
 
         controller, _ = _make_controller_with_app()
@@ -276,10 +183,7 @@ class TestWin32RoutingFastCleanup:
         controller.quit.assert_not_called(), ("CTRL_SHUTDOWN_EVENT must NOT invoke controller.quit()")
 
     def test_logoff_event_calls_fast_cleanup_synchronously(self, _stub_os_exit):
-        """The fast-cleanup dispatch must be SYNCHRONOUS (not on a
-        daemon thread), the Win32 console-control callback runs on a
-        dedicated OS thread and returning True signals "handled".
-        Spawning a daemon thread would race the OS force-kill (~5s)."""
+        """dedicated OS thread and returning True signals \"handled\"."""
         from voice_typer.server.signal_handlers import win32_console_handler
 
         controller, _ = _make_controller_with_app()
@@ -299,10 +203,7 @@ class TestWin32RoutingFastCleanup:
         )
 
     def test_ctrl_c_still_routes_to_quit(self):
-        """Sanity: Ctrl+C (0) / Ctrl+Break (1) must STILL route to
-        ``controller.quit()``, only logoff/shutdown were changed to
-        ``_do_fast_cleanup()``. Ctrl+C is a user-initiated signal with
-        no OS-imposed deadline, so the slow path is correct."""
+        """no OS-imposed deadline, so the slow path is correct."""
         from voice_typer.server.signal_handlers import win32_console_handler
 
         controller, _ = _make_controller_with_app()
@@ -325,21 +226,10 @@ class TestWin32RoutingFastCleanup:
 
 
 class TestPosixSigtermUsesSlowPath:
-    """POSIX SIGTERM must still route to ``controller.quit()``
-    (the slow path). POSIX does NOT impose a 5-second OS deadline on
-    SIGTERM (``systemd``'s ``DefaultTimeoutStopSec`` defaults to 90s),
-    so the slow path with full cleanup is correct. Only Windows
-    logoff/shutdown has the 5s deadline that requires the fast path.
-
-    This is the negative-space assertion of the dispatch contract:
-    ``_do_fast_cleanup`` is the dispatch target for Windows
-    WM_QUERYENDSESSION-equivalent signals ONLY, not for POSIX SIGTERM.
-    """
+    """POSIX SIGTERM must still route to ``controller.quit()``"""
 
     def test_signal_watcher_loop_invokes_quit_not_fast_cleanup(self):
-        """``signal_watcher_loop`` (the POSIX signal watcher thread)
-        spawns ``threading.Thread(target=controller.quit)``, NOT
-        ``controller._do_fast_cleanup``."""
+        """``signal_watcher_loop`` (the POSIX signal watcher thread)"""
         src = _src(_SIGNAL_HANDLERS_PATH)
         # The watcher loop's dispatch line.
         assert "target=controller.quit" in src, (
@@ -348,10 +238,6 @@ class TestPosixSigtermUsesSlowPath:
             "POSIX SIGTERM has no OS-imposed deadline."
         )
         # And it must NOT mention _do_fast_cleanup anywhere in the
-        # POSIX signal-handler path (the function exists only for the
-        # Win32 console-control callback).
-        # Find the signal_watcher_loop body and assert _do_fast_cleanup
-        # is NOT referenced inside it.
         watcher_idx = src.find("def signal_watcher_loop(")
         assert watcher_idx > -1, "signal_watcher_loop must exist"
         # Slice to the next top-level ``def `` or ``__all__``.
@@ -364,9 +250,7 @@ class TestPosixSigtermUsesSlowPath:
         )
 
     def test_install_signal_handlers_does_not_reference_fast_cleanup(self):
-        """``install_signal_handlers`` (POSIX SIGINT/SIGTERM/SIGHUP
-        registration) must NOT reference ``_do_fast_cleanup``, only
-        the Win32 console-control handler routes to it."""
+        """``install_signal_handlers`` (POSIX SIGINT/SIGTERM/SIGHUP"""
         src = _src(_SIGNAL_HANDLERS_PATH)
         install_idx = src.find("def install_signal_handlers(")
         assert install_idx > -1
@@ -381,10 +265,10 @@ class TestPosixSigtermUsesSlowPath:
         )
 
     def test_win32_console_handler_references_fast_cleanup(self):
-        """``win32_console_handler`` (the Windows console-control
-        callback) MUST reference ``_do_fast_cleanup``, this is the
+        """
+        ``win32_console_handler`` (the Windows console-control
         Contract under test: Windows logoff/shutdown routes to the fast
-        path, NOT the slow path."""
+        """
         src = _src(_SIGNAL_HANDLERS_PATH)
         handler_idx = src.find("def win32_console_handler(")
         assert handler_idx > -1
@@ -406,15 +290,7 @@ class TestFastCleanupSource:
     """Source-level contract for ``_do_fast_cleanup``."""
 
     def test_do_fast_cleanup_ends_with_os_exit_zero(self):
-        """The LAST executable statement in ``_do_fast_cleanup`` must
-        be ``os._exit(0)`` (after the conditional cleanup body).
-
-        The body was extracted into
-        :func:`voice_typer.server.shutdown.cleanup.do_fast_cleanup`
-        (a module-level free function taking the controller), so the
-        anchor is the function def and the body bound is the next
-        top-level ``def``.
-        """
+        """The LAST executable statement in ``_do_fast_cleanup`` must"""
         src = _src(_FAST_CLEANUP_BODY_PATH)
         # Find the do_fast_cleanup body.
         idx = src.find("def do_fast_cleanup(controller) -> None:")
@@ -423,7 +299,6 @@ class TestFastCleanupSource:
         next_def = src.find("\ndef ", idx + 1)
         body = src[idx:next_def] if next_def > -1 else src[idx:]
         # The last non-comment, non-blank line in the body must be
-        # ``os._exit(0)``.
         code_lines = [line for line in body.splitlines() if line.strip() and not line.strip().startswith("#")]
         assert code_lines, "_do_fast_cleanup body must not be empty"
         last_line = code_lines[-1].strip()
@@ -432,34 +307,10 @@ class TestFastCleanupSource:
         )
 
     def test_os_exit_is_outside_cleanup_done_guard(self):
-        """The ``os._exit(0)`` call must fire UNCONDITIONALLY on every
+        """
+        The ``os._exit(0)`` call must fire UNCONDITIONALLY on every
         ``_do_fast_cleanup`` invocation, the Win32 callback must NOT
-        return True without exiting.
-
-        The previous ``if not already_done:`` gate around the critical
-        flushes was removed (the flushes now run unconditionally, they
-        are idempotent and bounded by 1s timeouts, so running them
-        twice under a concurrent ``_do_cleanup`` is safe). The
-        ``_cleanup_done`` flag is still SET (so a subsequent
-        ``_do_cleanup`` call short-circuits), but it no longer gates
-        the fast-cleanup body. This source-inspection test verifies:
-
-          1. The ``if not already_done:`` CODE STATEMENT has been
-             REMOVED (its presence would re-introduce the OI-5
-             false-positive quit-during-logoff data loss). The check
-             looks for the pattern as an indented code statement (8+
-             spaces of leading whitespace), the docstring MENTIONS
-             the phrase ``if not already_done:`` as part of the
-             rationale, but that's inline text inside a triple-quoted
-             string, not an indented code statement.
-          2. ``os._exit(0)`` is at the function-body indentation level
-             (4 spaces in the extracted module-level
-             ``do_fast_cleanup(controller)`` function) so it runs on
-             every invocation.
-          3. The critical flushes (``crash_recovery.flush`` +
-             ``history_db.flush``) appear AFTER the ``with
-             controller._quit_lock:`` block, they run
-             unconditionally, NOT gated by the flag."""
+        """
         import re
 
         src = _src(_FAST_CLEANUP_BODY_PATH)
@@ -467,10 +318,6 @@ class TestFastCleanupSource:
         next_def = src.find("\ndef ", idx + 1)
         body = src[idx:next_def] if next_def > -1 else src[idx:]
         # The ``if not already_done:`` CODE STATEMENT must NOT exist.
-        # We look for the pattern as an indented code statement (line
-        # starts with whitespace + ``if not already_done:``). The
-        # docstring mentions the phrase inline within a paragraph —
-        # that occurrence has no leading whitespace before ``if``.
         code_statement_pattern = re.compile(
             r"^[ \t]+if not already_done:[ \t]*$",
             re.MULTILINE,
@@ -488,11 +335,6 @@ class TestFastCleanupSource:
         exit_idx = body.rfind("os._exit(0)")
         assert exit_idx > -1, "os._exit(0) must appear in _do_fast_cleanup"
         # The line containing ``os._exit(0)`` must be at function-body
-        # indentation (4 spaces = module-level function body) so it runs
-        # on every invocation, NOT nested inside any ``if`` block.
-        # (Pre-extraction this was 8 spaces, method-body indentation;
-        # the body now lives in the module-level ``do_fast_cleanup``
-        # function in ``shutdown/cleanup.py``.)
         exit_line_start = body.rfind("\n", 0, exit_idx) + 1
         exit_line = body[exit_line_start : body.find("\n", exit_idx)]
         leading_spaces = len(exit_line) - len(exit_line.lstrip(" "))
@@ -501,12 +343,7 @@ class TestFastCleanupSource:
             f"(4 spaces) so it runs unconditionally; got {leading_spaces} "
             f"spaces (line: {exit_line!r})"
         )
-        # The critical flushes (``crash_recovery.flush`` +
         # ``history_db.flush``) must NOT be nested inside an
-        # ``if already_done:`` guard. They must appear AFTER the
-        # ``with controller._quit_lock:`` block (which sets
-        # ``_cleanup_done = True``), they run unconditionally, NOT
-        # gated by the flag.
         crash_flush_idx = body.find("app._crash_recovery.flush")
         assert crash_flush_idx > -1, "OI-5: _do_fast_cleanup must call app._crash_recovery.flush"
         history_flush_idx = body.find("app.history_db.flush")
@@ -526,19 +363,10 @@ class TestFastCleanupSource:
 
 
 class TestFastCleanupVolumeRestore:
-    """FR-4: ``_do_fast_cleanup`` must restore system volume (if it was
-    ducked during recording) AND clear the duck crash-recovery marker.
-
-    Without this, a quit-during-recording on Windows logoff/shutdown
-    left the system volume ducked at 25% because the fast path skipped
-    the ``_teardown_restore_volume`` step that the normal ``_do_cleanup``
-    path runs. The duck crash-recovery marker also persisted, so the
-    next instance started ducked.
-    """
+    """FR-4: ``_do_fast_cleanup`` must restore system volume (if it was"""
 
     def test_do_fast_cleanup_calls_restore_volume_with_fade_ms_zero(self, _stub_os_exit):
-        """``_do_fast_cleanup`` must call ``app._restore_volume(fade_ms=0)``
-        so the system volume is restored before the OS force-kills us."""
+        """``_do_fast_cleanup`` must call ``app._restore_volume(fade_ms=0)``"""
         controller, app = _make_controller_with_app()
         app._restore_volume = MagicMock()
         app._duck_crash_recovery = MagicMock()
@@ -546,8 +374,7 @@ class TestFastCleanupVolumeRestore:
         app._restore_volume.assert_called_once_with(fade_ms=0)
 
     def test_do_fast_cleanup_calls_duck_crash_recovery_clear(self, _stub_os_exit):
-        """``_do_fast_cleanup`` must call ``app._duck_crash_recovery.clear()``
-        so the duck crash-recovery marker does not persist across runs."""
+        """``_do_fast_cleanup`` must call ``app._duck_crash_recovery.clear()``"""
         controller, app = _make_controller_with_app()
         app._restore_volume = MagicMock()
         app._duck_crash_recovery = MagicMock()
@@ -555,8 +382,7 @@ class TestFastCleanupVolumeRestore:
         app._duck_crash_recovery.clear.assert_called_once_with()
 
     def test_do_fast_cleanup_restore_volume_runs_before_os_exit(self, _stub_os_exit, monkeypatch):
-        """FR-4: volume restore MUST run BEFORE ``os._exit(0)``, otherwise
-        the OS force-kills us with volume still ducked."""
+        """FR-4: volume restore MUST run BEFORE ``os._exit(0)``, otherwise"""
         controller, app = _make_controller_with_app()
         call_order: list[str] = []
 
@@ -591,10 +417,7 @@ class TestFastCleanupVolumeRestore:
         )
 
     def test_do_fast_cleanup_never_raises_when_restore_volume_raises(self, _stub_os_exit):
-        """FR-4: if ``_restore_volume`` raises, ``_do_fast_cleanup`` must
-        still reach ``os._exit(0)``, fast-cleanup must NEVER raise (the
-        Win32 console-control callback cannot survive a propagated
-        exception during the ~5s OS force-kill window)."""
+        """FR-4: if ``_restore_volume`` raises, ``_do_fast_cleanup`` must"""
         controller, app = _make_controller_with_app()
         app._restore_volume = MagicMock(side_effect=RuntimeError("simulated"))
         app._duck_crash_recovery = MagicMock()
@@ -605,8 +428,7 @@ class TestFastCleanupVolumeRestore:
         )
 
     def test_do_fast_cleanup_never_raises_when_duck_crash_recovery_clear_raises(self, _stub_os_exit):
-        """FR-4: if ``_duck_crash_recovery.clear()`` raises, ``_do_fast_cleanup``
-        must still reach ``os._exit(0)``."""
+        """FR-4: if ``_duck_crash_recovery.clear()`` raises, ``_do_fast_cleanup``"""
         controller, app = _make_controller_with_app()
         app._restore_volume = MagicMock()
         app._duck_crash_recovery = MagicMock()

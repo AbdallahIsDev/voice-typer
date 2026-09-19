@@ -1,34 +1,4 @@
-"""Tests for the polkit-stable path self-install logic in
-``scripts/linux/install_permissions.py``.
-
-Background: the polkit policy (``scripts/linux/voice-typer.polkit``)
-hard-codes ``/usr/share/voice-typer/scripts/install_permissions.py`` as
-the ``org.freedesktop.policykit.exec.path`` annotation. Polkit requires
-an absolute, stable path, it does not change across AppImage versions
-or .deb / .rpm upgrades.
-
-For Debian / RPM installs, the package's ``postinst`` creates a symlink
-at the polkit-stable path pointing to the actually-installed script.
-
-For AppImage installs, no ``postinst`` runs. Without the self-install
-logic in ``install_permissions.py``, the polkit-stable path would never
-exist on AppImage installs, and ``pkexec
-com.voicetyper.install-permissions`` would silently fail.
-
-These tests verify the self-install logic:
-
-1. ``setup_polkit_stable_path()`` is callable and idempotent.
-2. ``_is_running_from_appimage()`` correctly detects AppImage mount paths.
-3. ``_install_polkit_policy()`` is idempotent.
-4. The ``--setup-system-paths`` CLI flag refuses non-root.
-5. The script still refuses non-root for the default install path.
-6. The script is valid Python (AST parses).
-7. Constants point at the canonical polkit-stable + polkit policy paths.
-8. ``_install_polkit_policy()`` removes the legacy ``org.voice-typer.policy``
-   at install/upgrade time (upgrade convergence on ``com.voicetyper.*``).
-9. ``uninstall()`` removes the polkit-stable script path + its (now-empty)
-   dir.
-"""
+"""``scripts/linux/install_permissions.py``."""
 
 from __future__ import annotations
 
@@ -41,30 +11,15 @@ from pathlib import Path
 import pytest
 
 # Python 3.10/3.11 compatibility: ``pathlib.PurePath._parse_args`` looks up
-# ``cls._flavour``, an attribute that exists only on the CONCRETE flavour
-# classes (``WindowsPath`` / ``PosixPath``), not on ``Path`` itself. A
-# subclass defined directly as ``class FakePath(Path)`` therefore breaks
-# construction on 3.10/3.11 (``AttributeError: type object 'FakePath' has
-# no attribute '_flavour'``). Python 3.12+ rewrote pathlib (``PathBase``)
-# so direct subclasses work there. ``type(Path())`` yields the platform's
-# concrete Path class, so fake-path subclasses work on every supported
-# Python version.
 _CONCRETE_PATH = type(Path())
 
 # Resolve the canonical install_permissions.py path (tests/ → repo root →
-# scripts/linux/install_permissions.py).
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 _INSTALL_SCRIPT = _REPO_ROOT / "scripts" / "linux" / "install_permissions.py"
 
 
 def _load_install_permissions_module():
-    """Load ``scripts/linux/install_permissions.py`` as an isolated module.
-
-    The script lives outside the ``voice_typer`` package, so we load it
-    via ``importlib.util.spec_from_file_location`` instead of a regular
-    ``import``. The module is registered under a unique name to avoid
-    collisions with any future ``install_permissions`` package.
-    """
+    """Load ``scripts/linux/install_permissions.py`` as an isolated module."""
     spec = importlib.util.spec_from_file_location("install_permissions_under_test", _INSTALL_SCRIPT)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -77,9 +32,6 @@ def ip_module():
     if not _INSTALL_SCRIPT.is_file():
         pytest.skip("install_permissions.py not found (not a Linux build)")
     return _load_install_permissions_module()
-
-
-# ─── Smoke tests ───────────────────────────────────────────────────────────
 
 
 class TestScriptValidity:
@@ -131,34 +83,19 @@ class TestScriptValidity:
         assert "must run as root" in result.stdout.lower() or "must run as root" in result.stderr.lower()
 
 
-# ─── Constants ─────────────────────────────────────────────────────────────
-
-
 class TestConstants:
     """Polkit-stable path + polkit policy path constants are correct."""
 
     def test_polkit_stable_path_constant(self, ip_module):
         """``POLKIT_STABLE_PATH`` points at the canonical polkit-stable path."""
-        # as_posix() keeps the assertion path-separator agnostic: on
-        # Windows, str(Path('/usr/share/...')) renders with backslashes.
         assert ip_module.POLKIT_STABLE_PATH.as_posix() == ("/usr/share/voice-typer/scripts/install_permissions.py")
 
     def test_polkit_policy_dest_constant(self, ip_module):
-        """``POLKIT_POLICY_DEST`` points at the canonical polkit actions dir.
-
-        The policy filename uses the same ``com.voicetyper.*`` RDNN root
-        as the action ID (``com.voicetyper.install-permissions``) and the
-        ``com.voicetyper.desktop`` Tauri bundle identifier (finding #54).
-        """
+        """``POLKIT_POLICY_DEST`` points at the canonical polkit actions dir."""
         assert ip_module.POLKIT_POLICY_DEST.as_posix() == ("/usr/share/polkit-1/actions/com.voicetyper.policy")
 
     def test_polkit_policy_source_exists(self, ip_module):
-        """``POLKIT_POLICY_SOURCE`` (sibling voice-typer.polkit) exists.
-
-        The polkit policy file is bundled as a Tauri resource sibling of
-        install_permissions.py. If it's missing, the self-install logic
-        can't install the polkit policy.
-        """
+        """``POLKIT_POLICY_SOURCE`` (sibling voice-typer.polkit) exists."""
         assert ip_module.POLKIT_POLICY_SOURCE.is_file(), (
             f"voice-typer.polkit should exist alongside install_permissions.py at {ip_module.POLKIT_POLICY_SOURCE}"
         )
@@ -168,16 +105,12 @@ class TestConstants:
         assert ip_module._APPIMAGE_MOUNT_PREFIX == "/tmp/.mount_"
 
 
-# ─── AppImage detection ───────────────────────────────────────────────────
-
-
 class TestAppImageDetection:
     """``_is_running_from_appimage()`` correctly detects AppImage mounts."""
 
     def test_returns_false_for_repo_path(self, ip_module):
         """When run from the repo source tree, returns False."""
         # The module was loaded from scripts/linux/install_permissions.py
-        # (a real path in the repo, not an AppImage mount).
         assert ip_module._is_running_from_appimage() is False
 
     def test_returns_true_for_appimage_mount_path(self, ip_module, monkeypatch):
@@ -209,18 +142,8 @@ class TestAppImageDetection:
         assert ip_module._is_running_from_appimage() is False
 
 
-# ─── setup_polkit_stable_path ─────────────────────────────────────────────
-
-
 def _symlinks_supported() -> bool:
-    """Return True iff ``os.symlink`` works on this host.
-
-    Windows requires Developer Mode or an elevated shell to create
-    symlinks (WinError 1314 otherwise). The polkit-stable symlink is
-    a Linux-installer concern; on hosts without symlink privileges the
-    symlink-specific tests are skipped (the copy / no-clobber paths
-    are still exercised).
-    """
+    """Return True iff ``os.symlink`` works on this host."""
     import tempfile
 
     with tempfile.TemporaryDirectory() as td:
@@ -238,12 +161,7 @@ _skip_no_symlink = pytest.mark.skipif(
 
 
 def _strip_extended_prefix(p: str) -> str:
-    r"""Strip the Win32 extended-length path prefix (``\\?\``) from a path.
-
-    ``Path.resolve()`` emits the prefixed form on Windows, while
-    ``os.readlink`` returns the unprefixed target, comparing the two raw
-    strings fails on Windows CI even though the paths are identical.
-    No-op on POSIX."""
+    """Strip the Win32 extended-length path prefix (``\\\\?\\``) from a path."""
     if p.startswith("\\\\?\\"):
         return p[4:]
     return p
@@ -312,7 +230,6 @@ class TestSetupPolkitStablePath:
 
         assert stable_path.is_symlink(), f"Expected symlink at {stable_path}"
         # Normalize both sides: ``Path.resolve()`` yields a \\?\\-prefixed
-        # path on Windows while ``os.readlink`` returns the unprefixed form.
         assert _strip_extended_prefix(os.readlink(stable_path)) == _strip_extended_prefix(str(real_script))
 
     def test_copies_for_appimage(self, ip_module, monkeypatch, tmp_path):
@@ -403,13 +320,9 @@ class TestSetupPolkitStablePath:
         # Symlink should still point to the same target.
         assert stable_path.is_symlink()
         # Normalize both sides: ``Path.resolve()`` yields a \\?\\-prefixed
-        # path on Windows while ``os.readlink`` returns the unprefixed form.
         assert _strip_extended_prefix(os.readlink(stable_path)) == _strip_extended_prefix(str(real_script))
         # _install_polkit_policy should have been called (early return path).
         assert len(polkit_calls) == 1
-
-
-# ─── _install_polkit_policy ───────────────────────────────────────────────
 
 
 class TestInstallPolkitPolicy:
@@ -476,8 +389,7 @@ class TestInstallPolkitPolicy:
         assert dest.read_text() == source.read_text()
 
     def test_removes_legacy_policy_when_installing(self, ip_module, monkeypatch, tmp_path, capsys):
-        """Installing also removes the legacy org.voice-typer.policy
-        (upgrade convergence, the legacy file must not linger)."""
+        """Installing also removes the legacy org.voice-typer.policy"""
         source = tmp_path / "voice-typer.polkit"
         source.write_text("<policyconfig>test</policyconfig>")
         dest = tmp_path / "com.voicetyper.policy"
@@ -496,8 +408,7 @@ class TestInstallPolkitPolicy:
         assert "org.voice-typer.policy" in captured.out
 
     def test_removes_legacy_policy_even_on_noop_install(self, ip_module, monkeypatch, tmp_path):
-        """The legacy removal runs even when the current policy is already
-        up to date (the idempotent no-op still performs the cleanup)."""
+        """The legacy removal runs even when the current policy is already"""
         source = tmp_path / "voice-typer.polkit"
         source.write_text("<policyconfig>test</policyconfig>")
         dest = tmp_path / "com.voicetyper.policy"
@@ -526,9 +437,6 @@ class TestInstallPolkitPolicy:
         ip_module._install_polkit_policy()  # must not raise
 
         assert dest.is_file()
-
-
-# ─── _remove_polkit_policies ──────────────────────────────────────────────
 
 
 class TestRemovePolkitPolicies:
@@ -585,8 +493,7 @@ class TestRemovePolkitPolicies:
         assert "non-fatal" in captured.out
 
     def test_helper_removes_single_policy_file(self, ip_module, monkeypatch, tmp_path):
-        """``_remove_polkit_policy_file`` removes exactly one file (the
-        per-file helper factored out of ``_remove_polkit_policies``)."""
+        """``_remove_polkit_policy_file`` removes exactly one file (the"""
         current = tmp_path / "com.voicetyper.policy"
         legacy = tmp_path / "org.voice-typer.policy"
         current.write_text("x")
@@ -596,9 +503,6 @@ class TestRemovePolkitPolicies:
 
         assert not current.exists()
         assert legacy.exists(), "must only remove the requested file"
-
-
-# ─── main() CLI flag handling ─────────────────────────────────────────────
 
 
 class TestMainCliFlags:
@@ -658,12 +562,8 @@ class TestMainCliFlags:
         assert len(uninstall_calls) == 1
 
 
-# ─── uninstall() polkit cleanup ──────────────────────────────────────────
-
-
 class TestUninstallRemovesPolkitPolicies:
-    """``uninstall()`` removes the polkit policy files it (or a legacy
-    installer) placed in the polkit actions directory."""
+    """``uninstall()`` removes the polkit policy files it (or a legacy"""
 
     def test_uninstall_removes_current_and_legacy_policies(self, ip_module, monkeypatch, tmp_path):
         """``uninstall()`` unlinks both the current and legacy policy files."""
@@ -676,8 +576,6 @@ class TestUninstallRemovesPolkitPolicies:
         monkeypatch.setattr(ip_module, "POLKIT_POLICY_DEST", current)
         monkeypatch.setattr(ip_module, "LEGACY_POLKIT_POLICY_DEST", legacy)
 
-        # Stub the other uninstall side effects (paths under tmp_path so
-        # nothing touches the real system).
         monkeypatch.setattr(ip_module, "UDEV_RULE_PATH", tmp_path / "no-udev")
         monkeypatch.setattr(ip_module, "XKB_CONF_PATH", tmp_path / "no-xkb")
         monkeypatch.setattr(ip_module, "MANIFEST_PATH", tmp_path / "no-manifest.json")
@@ -689,8 +587,7 @@ class TestUninstallRemovesPolkitPolicies:
         assert not legacy.exists()
 
     def test_uninstall_removes_legacy_policy_even_without_manifest(self, ip_module, monkeypatch, tmp_path):
-        """The legacy policy is removed even when the manifest is missing
-        (upgraded system whose installer never wrote a manifest)."""
+        """The legacy policy is removed even when the manifest is missing"""
         monkeypatch.setattr(ip_module, "is_root", lambda: True)
 
         legacy = tmp_path / "org.voice-typer.policy"
@@ -708,8 +605,7 @@ class TestUninstallRemovesPolkitPolicies:
         assert not legacy.exists()
 
     def test_uninstall_removes_polkit_stable_path(self, ip_module, monkeypatch, tmp_path):
-        """``uninstall()`` removes the polkit-stable script (symlink or
-        copy) and its (now-empty) dir."""
+        """``uninstall()`` removes the polkit-stable script (symlink or"""
         monkeypatch.setattr(ip_module, "is_root", lambda: True)
 
         stable_dir = tmp_path / "polkit-stable"
@@ -732,8 +628,7 @@ class TestUninstallRemovesPolkitPolicies:
         assert not stable_dir.exists(), "now-empty polkit-stable dir must be removed"
 
     def test_uninstall_keeps_polkit_stable_dir_when_non_empty(self, ip_module, monkeypatch, tmp_path):
-        """A non-empty polkit-stable dir is left in place (never delete
-        foreign files that may share the directory)."""
+        """A non-empty polkit-stable dir is left in place (never delete"""
         monkeypatch.setattr(ip_module, "is_root", lambda: True)
 
         stable_dir = tmp_path / "polkit-stable"
@@ -758,17 +653,8 @@ class TestUninstallRemovesPolkitPolicies:
         assert (stable_dir / "unrelated.log").exists(), "foreign files must be kept"
 
 
-# ─── Bundled copy sync ────────────────────────────────────────────────────
-
-
 class TestBundledCopySync:
-    """The bundled copy at ``src-tauri/resources/linux-scripts/`` must
-    match the canonical source at ``scripts/linux/``.
-
-    The Tauri v2 bundle ships the bundled copy; if it diverges from the
-    canonical source, fixes to the canonical source don't ship in the
-    next Tauri build.
-    """
+    """The bundled copy at ``src-tauri/resources/linux-scripts/`` must"""
 
     def test_bundled_copy_matches_canonical_source(self):
         """The bundled install_permissions.py is byte-identical to the canonical source."""

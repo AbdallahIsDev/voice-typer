@@ -1,27 +1,4 @@
-"""Cursor (keyset) pagination wiring tests: service + handler layers.
-
-Verifies ``before_timestamp`` / ``before_id`` cursor pagination params
-are forwarded end-to-end from the IPC handler → service mixin →
-``HistoryDB`` keyset WHERE clause. The DB layer
-(``history_db.get_recent`` / ``search`` / ``get_favorites``) already
-implements the keyset WHERE clause; this test file verifies the service
-mixin and IPC handler layers forward the params correctly and fall back
-to the OFFSET path when the cursor is absent (backward-compat).
-
-Test layout:
-
-* :class:`TestServiceForwardsCursor`, service-level forwarding
-  (mocks ``history_db``, verifies ``before_timestamp`` / ``before_id``
-  are passed through to ``get_recent`` / ``search`` / ``get_favorites``).
-* :class:`TestHandlerExtractsCursor`, handler-level extraction
-  (mocks the service, verifies the handler parses the ``data`` payload
-  and passes the cursor kwargs to the service call).
-* :class:`TestHandlerOffsetFallback`, handler with no cursor params
-  falls back to OFFSET (verifies ``before_timestamp=None`` is effectively
-  forwarded via the service defaults, no cursor kwargs splatted).
-* :class:`TestHandlerCursorValidation`: ``before_id < 0`` and
-  ``before_id`` as a bool are rejected with ``client.invalid_field``.
-"""
+"""Cursor (keyset) pagination wiring tests: service + handler layers."""
 
 from __future__ import annotations
 
@@ -34,13 +11,6 @@ from tests.fixtures.ipc_test_helpers import (
     make_fake_app,
     make_fake_service,
 )
-
-# ── Shared fixtures ──────────────────────────────────────────────────
-#
-# These mirror the ``ipc_server`` / ``fake_service`` fixtures in
-# ``tests/handlers/conftest.py`` but are declared locally so this test
-# file is self-contained at the tests/ root (the handlers conftest is
-# only auto-loaded for tests under ``tests/handlers/``).
 
 
 @pytest.fixture
@@ -62,16 +32,8 @@ def ipc_server(fake_app: MagicMock, fake_service: MagicMock):
     return server
 
 
-# ── Service-layer forwarding ─────────────────────────────────────────
-
-
 def _make_history_mixin() -> tuple[HistoryMixin, MagicMock]:
-    """Build a bare ``HistoryMixin`` with ``self._app.history_db`` mocked.
-
-    ``ServiceMixinBase`` declares ``_app`` as a bare PEP 526 annotation
-    (NOT ``ClassVar``), so we can freely bind it on a vanilla instance
-    without going through ``VoiceTyperService.__init__``.
-    """
+    """Build a bare ``HistoryMixin`` with ``self._app.history_db`` mocked."""
     mixin = HistoryMixin()
     mock_app = MagicMock()
     mock_app.history_db = MagicMock()
@@ -83,8 +45,7 @@ class TestServiceForwardsCursor:
     """Service layer forwards cursor params to ``history_db``."""
 
     def test_get_history_with_cursor_forwards_to_get_recent(self) -> None:
-        """``HistoryMixin.get_history`` with both cursor params forwards
-        them verbatim to ``history_db.get_recent``."""
+        """``HistoryMixin.get_history`` with both cursor params forwards"""
         mixin, mock_app = _make_history_mixin()
         mock_app.history_db.get_recent.return_value = [{"id": 1, "text": "row"}]
 
@@ -104,17 +65,13 @@ class TestServiceForwardsCursor:
         )
 
     def test_get_history_without_cursor_forwards_none_to_get_recent(self) -> None:
-        """``HistoryMixin.get_history`` with no cursor params forwards
-        ``before_timestamp=None`` / ``before_id=None`` to ``get_recent``,
-        which triggers the OFFSET fallback path."""
+        """``HistoryMixin.get_history`` with no cursor params forwards"""
         mixin, mock_app = _make_history_mixin()
         mock_app.history_db.get_recent.return_value = []
 
         mixin.get_history(limit=50, offset=0)
 
         # The service forwards None for both cursor params, the DB layer
-        # then takes the OFFSET branch (backward-compat with pre-cursor
-        # callers).
         mock_app.history_db.get_recent.assert_called_once_with(
             50,
             0,
@@ -124,8 +81,7 @@ class TestServiceForwardsCursor:
         )
 
     def test_search_history_with_cursor_forwards_to_search(self) -> None:
-        """``HistoryMixin.search_history`` forwards cursor params to
-        ``history_db.search``."""
+        """``HistoryMixin.search_history`` forwards cursor params to"""
         mixin, mock_app = _make_history_mixin()
         mock_app.history_db.search.return_value = []
 
@@ -147,8 +103,7 @@ class TestServiceForwardsCursor:
         )
 
     def test_get_favorites_with_cursor_forwards_to_get_favorites(self) -> None:
-        """``HistoryMixin.get_favorites`` forwards cursor params to
-        ``history_db.get_favorites``."""
+        """``HistoryMixin.get_favorites`` forwards cursor params to"""
         mixin, mock_app = _make_history_mixin()
         mock_app.history_db.get_favorites.return_value = []
 
@@ -168,9 +123,6 @@ class TestServiceForwardsCursor:
         )
 
 
-# ── Handler-level extraction ─────────────────────────────────────────
-
-
 class TestHandlerExtractsCursor:
     """Handler extracts cursor params from the ``data`` payload."""
 
@@ -179,9 +131,7 @@ class TestHandlerExtractsCursor:
         ipc_server,
         fake_service,
     ) -> None:
-        """``_handle_get_history`` extracts ``before_timestamp`` /
-        ``before_id`` from the ``data`` dict and passes them as kwargs
-        to ``service.get_history``."""
+        """``_handle_get_history`` extracts ``before_timestamp`` /"""
         fake_service.get_history.return_value = []
         payload = {
             "limit": 25,
@@ -205,8 +155,7 @@ class TestHandlerExtractsCursor:
         ipc_server,
         fake_service,
     ) -> None:
-        """``_handle_search_history`` extracts cursor params and passes
-        them to ``service.search_history``."""
+        """``_handle_search_history`` extracts cursor params and passes"""
         fake_service.search_history.return_value = []
         payload = {
             "query": "term",
@@ -232,8 +181,7 @@ class TestHandlerExtractsCursor:
         ipc_server,
         fake_service,
     ) -> None:
-        """``_handle_get_favorites`` extracts cursor params and passes
-        them to ``service.get_favorites``."""
+        """``_handle_get_favorites`` extracts cursor params and passes"""
         fake_service.get_favorites.return_value = []
         payload = {
             "limit": 15,
@@ -253,18 +201,10 @@ class TestHandlerExtractsCursor:
         )
 
 
-# ── Handler OFFSET fallback ──────────────────────────────────────────
-
-
 class TestHandlerOffsetFallback:
-    """Handler falls back to OFFSET when cursor params are absent.
-
+    """
+    Handler falls back to OFFSET when cursor params are absent.
     The handler MUST NOT splat cursor kwargs into the service call when
-    either cursor value is ``None``, this preserves the exact pre-cursor
-    call shape (``service.get_history(limit, offset)``) so the service
-    defaults forward ``None`` to ``history_db``, which takes the OFFSET
-    branch (backward-compat). See :func:`_build_cursor_kwargs` in
-    ``history_handlers.py``.
     """
 
     def test_get_history_no_cursor_uses_offset_path(
@@ -272,15 +212,10 @@ class TestHandlerOffsetFallback:
         ipc_server,
         fake_service,
     ) -> None:
-        """Empty payload → service called with positional ``(limit, offset)``
-        only, no cursor kwargs splatted, so ``before_timestamp=None`` is
-        effectively forwarded via the service defaults (OFFSET path)."""
+        """Empty payload → service called with positional ``(limit, offset)``"""
         fake_service.get_history.return_value = []
         ipc_server._handle_get_history({}, {})
 
-        # No cursor kwargs splatted, the service defaults take over and
-        # forward ``before_timestamp=None`` to ``history_db.get_recent``,
-        # which takes the OFFSET branch.
         fake_service.get_history.assert_called_once_with(50, 0)
 
     def test_get_history_explicit_null_cursor_uses_offset_path(
@@ -288,8 +223,7 @@ class TestHandlerOffsetFallback:
         ipc_server,
         fake_service,
     ) -> None:
-        """Explicit ``null`` cursor values normalize to ``None`` via the
-        schema's ``default: None`` rule → OFFSET fallback."""
+        """Explicit ``null`` cursor values normalize to ``None`` via the"""
         fake_service.get_history.return_value = []
         payload = {"before_timestamp": None, "before_id": None}
         ipc_server._handle_get_history(payload, {})
@@ -302,10 +236,7 @@ class TestHandlerOffsetFallback:
         ipc_server,
         fake_service,
     ) -> None:
-        """Only ``before_timestamp`` supplied (no ``before_id``) →
-        OFFSET fallback. The DB layer requires BOTH cursor values to take
-        the keyset path; a partial cursor is silently downgraded to
-        OFFSET rather than erroring."""
+        """Only ``before_timestamp`` supplied (no ``before_id``) →"""
         fake_service.get_history.return_value = []
         payload = {"before_timestamp": "2026-01-01 12:00:00"}
         ipc_server._handle_get_history(payload, {})
@@ -336,9 +267,6 @@ class TestHandlerOffsetFallback:
         fake_service.search_history.assert_called_once_with("", 50, 0)
 
 
-# ── Handler cursor validation ────────────────────────────────────────
-
-
 class TestHandlerCursorValidation:
     """Handler validates cursor param types / ranges."""
 
@@ -364,8 +292,7 @@ class TestHandlerCursorValidation:
         ipc_server,
         fake_service,
     ) -> None:
-        """``before_id: true`` is rejected (bool subclasses int but is
-        semantically a toggle, not a cursor id)."""
+        """``before_id: true`` is rejected (bool subclasses int but is"""
         payload = {
             "before_timestamp": "2026-01-01 12:00:00",
             "before_id": True,
@@ -396,9 +323,7 @@ class TestHandlerCursorValidation:
         ipc_server,
         fake_service,
     ) -> None:
-        """``before_id=0`` is a valid cursor (id 0 doesn't exist, so
-        the keyset returns the first page in DESC order, equivalent to
-        OFFSET 0 but using the index)."""
+        """``before_id=0`` is a valid cursor (id 0 doesn't exist, so"""
         fake_service.get_history.return_value = []
         payload = {
             "limit": 10,

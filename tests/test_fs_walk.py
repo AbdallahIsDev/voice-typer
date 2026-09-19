@@ -1,20 +1,4 @@
-"""Direct unit tests for the shared filesystem-walk helper.
-
-``voice_typer/server/_fs_walk.find_symlink_in_tree`` is the single
-implementation of the symlink-poisoning directory scan behind BOTH the
-model-import path (``service/model/_delete_import.py`` via
-``service/_helpers.py``) and the legacy-config migration
-(``config_internals/paths.py``). Previously the check was duplicated
-verbatim across those two modules with no dedicated tests, behavior
-was only covered transitively. These tests pin the contract directly:
-
-1. A symlinked FILE anywhere in the tree is found.
-2. A symlinked DIRECTORY anywhere in the tree is found (``os.walk``
-   with ``followlinks=False`` still lists symlinks in ``dirnames``).
-3. A clean tree yields ``None``.
-4. Both consumers import the SAME function object (the single-source
-   contract that forbids the copies from forking again).
-"""
+"""Direct unit tests for the shared filesystem-walk helper."""
 
 from __future__ import annotations
 
@@ -25,8 +9,6 @@ import pytest
 from voice_typer.server._fs_walk import find_symlink_in_tree
 
 # Windows needs the SeCreateSymbolicLink privilege (admin or Developer
-# Mode) for ``os.symlink``, the same platform gate the retention tests
-# use.
 _posix_symlink = pytest.mark.skipif(os.name != "posix", reason="requires POSIX symlink semantics")
 
 
@@ -70,11 +52,7 @@ def test_empty_tree_returns_none(tmp_path: Path) -> None:
 
 
 def test_both_consumers_share_one_implementation() -> None:
-    """The two production consumers resolve to the SAME function object.
-
-    Guards the single-source contract: if either site ever forks a
-    local copy again, this fails immediately.
-    """
+    """The two production consumers resolve to the SAME function object."""
     from voice_typer.server import _fs_walk
     from voice_typer.server.config_internals import paths as config_paths
     from voice_typer.server.service import _helpers as service_helpers

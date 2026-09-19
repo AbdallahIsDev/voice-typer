@@ -1,9 +1,4 @@
-"""Tests for property-based testing using hypothesis.
-
-TEST-009: Property-based tests for corrections roundtrip, config serialization,
-audio buffer operations, and text cleanup with random strings.
-TEST-013: Fuzzing for corrections.json parser with random JSON structures.
-"""
+"""Tests for property-based testing using hypothesis."""
 
 from __future__ import annotations
 
@@ -222,7 +217,6 @@ class TestCorrectionsJsonFuzzing:
         except (TypeError, ValueError):
             assume(False)  # skip objects that can't be serialized
 
-        # configure_corrections should not crash
         result = text_cleanup.configure_corrections(config_dir=tmp_path)
         # Result is either None (no error) or an error message string
         assert result is None or isinstance(result, str)

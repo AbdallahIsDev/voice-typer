@@ -1,21 +1,4 @@
-"""IPC dispatch-layer regression tests.
-
-This file is the regression home for the request-id stamping fix:
-``_dispatch`` now stamps the inbound request ``id``
-onto the response envelope so clients using id-based request/response
-correlation (the standard JSON-RPC-like pattern in the renderer
-bridge) can match the response back to the originating request. Pre-fix,
-``_validate_dict_payload`` returned a FRESH error-envelope dict with
-no ``id`` field; every handler that did ``if error: return error``
-discarded the ``resp`` dict (which had ``id`` pre-populated), so
-validation rejections orphaned the pending request and the renderer
-would time out instead of resolving the rejection.
-
-Post-predecessor / post-TCP: the former ``_accept_tcp`` pool-race pins
-and the predecessor ``ALLOWED_COMMANDS`` coverage gate were deleted with
-the TS shell and TCP transport. Command parity lives in
-``tests/test_ipc_command_parity.py`` (Python registry ↔ Rust allowlist).
-"""
+"""IPC dispatch-layer regression tests."""
 
 from __future__ import annotations
 
@@ -31,15 +14,7 @@ if TYPE_CHECKING:
 
 
 def _make_server() -> IPCServer:
-    """Build a minimal IPCServer instance for _dispatch unit tests.
-
-    Uses the canonical bare ``__new__`` bypass (skips ``__init__``,
-    which would construct a real VoiceTyperService and try to wire
-    ``app.tray.set_state``): the factory supplies the fake app/service
-    and the ``_dispatch_lock``; the only local adjustment is the
-    explicit ``_shutting_down = False`` bool so any shutdown gate sees
-    a real ``False`` instead of a truthy child mock.
-    """
+    """Build a minimal IPCServer instance for _dispatch unit tests."""
     from tests.fixtures.ipc_test_helpers import make_bare_ipc_server
 
     server = make_bare_ipc_server()
@@ -48,27 +23,12 @@ def _make_server() -> IPCServer:
 
 
 class TestRequestIdPreservedOnValidationErrors:
-    """``_dispatch`` stamps the inbound request ``id`` on
-    every response, including validation-error responses that bypass
-    the ``resp`` dict pre-populated with ``id``.
-
-    Pre-fix, ``_validate_dict_payload`` returned a FRESH error-envelope
-    dict with no ``id`` field; every handler that did
-    ``if error: return error`` discarded the ``resp`` dict, so
-    validation rejections orphaned the pending request and the
-    renderer's request/response correlation would time out instead of
-    resolving the rejection.
-    """
+    """every response, including validation-error responses that bypass"""
 
     def test_validation_error_preserves_request_id(self) -> None:
-        """A handler that returns a validation-error dict (no id)
-        still has ``id`` stamped by ``_dispatch`` before the response
-        is sent."""
+        """A handler that returns a validation-error dict (no id)"""
         server = _make_server()
         # Pick a registered command whose handler uses
-        # ``_validate_dict_payload`` and returns the error directly.
-        # ``onboarding_set_microphone`` validates ``mic_id`` is a str
-        # or None, passing an int triggers the validation error path.
         msg = {
             "type": "onboarding_set_microphone",
             "id": 4242,
@@ -83,7 +43,6 @@ class TestRequestIdPreservedOnValidationErrors:
         )
         assert result.get("type") == "error"
         # The validation error code should be present (namespaced form
-        # primary, legacy alias retained for backward compat).
         data = result.get("data", {})
         assert data.get("code") == "client.invalid_field"
         assert data.get("field") == "mic_id"
@@ -101,8 +60,7 @@ class TestRequestIdPreservedOnValidationErrors:
         assert result.get("id") == "req-abc-001"
 
     def test_no_id_no_stamp(self) -> None:
-        """If the inbound message has no ``id``, the response has no
-        ``id`` either (push events / fire-and-forget notifications)."""
+        """If the inbound message has no ``id``, the response has no"""
         server = _make_server()
         msg = {
             "type": "onboarding_set_microphone",
@@ -114,12 +72,9 @@ class TestRequestIdPreservedOnValidationErrors:
         assert "id" not in result, ": when the inbound message has no id, the response must not synthesize one either."
 
     def test_successful_response_preserves_request_id(self) -> None:
-        """A handler that mutates ``resp`` directly (the normal path)
-        keeps the id that ``_dispatch`` pre-populated."""
+        """A handler that mutates ``resp`` directly (the normal path)"""
         server = _make_server()
         # ``service.onboarding_is_first_run`` returns a dict (no error
-        # key), handler returns ``resp`` after mutation. ``resp`` was
-        # pre-populated with id by ``_dispatch``.
         server.service.onboarding_is_first_run.return_value = {"is_first_run": True}
         msg = {"type": "onboarding_is_first_run", "id": 99}
         result = server._dispatch(msg)

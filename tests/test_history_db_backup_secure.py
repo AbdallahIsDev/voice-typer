@@ -1,23 +1,4 @@
-"""FR-8: regression tests for the secure pre-migration backup in
-``history_db._backup_before_migration``.
-
-The previous implementation used ``shutil.copy2`` which:
-  - follows symlinks on BOTH source and destination (a symlink-planting
-    attacker could redirect the backup to an arbitrary file or read an
-    arbitrary file's content into the backup location), and
-  - is non-atomic (a crash mid-copy leaves a partial .bak), and
-  - has no ``fsync`` of the destination.
-
-The fix introduces ``_secure_copy_db_file`` which uses
-``os.open(..., O_NOFOLLOW)`` + ``shutil.copyfileobj`` + ``fsync`` on
-POSIX, and reparse-point rejection + binary copy + ``fsync`` on Windows.
-
-These tests pin the new secure behaviour on Linux (the sandbox
-platform). The Windows ``O_NOFOLLOW``-not-supported branch is covered
-by the shared helper's structure; the platform-qualified note in
-``SUMMARY.md`` (P4-A4) records that the Windows branch was not
-exercised on a real Windows host in this sandbox run.
-"""
+"""``history_db._backup_before_migration``."""
 
 from __future__ import annotations
 
@@ -42,9 +23,6 @@ def db(tmp_path):
 
 def _is_linux() -> bool:
     return sys.platform.startswith("linux")
-
-
-# ── _secure_copy_db_file unit tests ────────────────────────────────────────
 
 
 class TestSecureCopyDbFile:
@@ -104,7 +82,6 @@ class TestSecureCopyDbFile:
         src = tmp_path / "src.bin"
         src.write_bytes(b"payload")
         # Plant a symlink where the backup would land, the secure copy
-        # must refuse to write through it to the symlink target.
         target = tmp_path / "exfil-target.bin"
         link = tmp_path / "out.bin"
         link.symlink_to(target)
@@ -122,8 +99,7 @@ class TestBackupBeforeMigrationSecure:
     """FR-8: ``_backup_before_migration`` uses the secure copy helper."""
 
     def test_backup_uses_secure_copy_helper(self, db, tmp_path, monkeypatch):
-        """The ``_backup_before_migration`` method must call the secure
-        ``_secure_copy_db_file`` helper instead of ``shutil.copy2``."""
+        """The ``_backup_before_migration`` method must call the secure"""
         from voice_typer.server import history_db
 
         calls: list[tuple[Path, Path]] = []
@@ -131,7 +107,6 @@ class TestBackupBeforeMigrationSecure:
         def spy(src, dst):
             calls.append((Path(src), Path(dst)))
             # Re-create the destination file so the caller's
-            # `log.info` does not see a missing file.
             Path(dst).write_bytes(Path(src).read_bytes())
 
         monkeypatch.setattr(history_db, "_secure_copy_db_file", spy)
@@ -139,8 +114,6 @@ class TestBackupBeforeMigrationSecure:
         db._backup_before_migration(current_version=2)
 
         # The main DB file must have been copied. Sidecars may or may
-        # not exist (WAL files are created lazily); the helper is only
-        # called for files that exist.
         assert calls, "expected _secure_copy_db_file to be called at least once"
         # The first call must be the main DB file → main .bak file.
         src0, dst0 = calls[0]
@@ -170,9 +143,6 @@ class TestBackupBeforeMigrationSecure:
     def test_backup_handles_missing_source_gracefully(self, db, tmp_path):
         """If the source DB file is missing, the backup is skipped (no crash)."""
         # The DB file exists (HistoryDB.__init__ created it). Remove
-        # it to simulate the missing-file case. On Windows an open
-        # SQLite handle locks the file, so close the DB first (the
-        # fixture re-closes after the test, close() is idempotent).
         db.close()
         db.db_path.unlink()
         # Should not raise.
@@ -189,8 +159,7 @@ class TestBackupBeforeMigrationSecure:
         assert mode == 0o600, f"expected 0o600, got {oct(mode)}"
 
     def test_backup_continues_on_helper_failure(self, db, monkeypatch, caplog):
-        """Best-effort contract: a helper OSError is logged but does NOT
-        propagate (the migration must still proceed)."""
+        """Best-effort contract: a helper OSError is logged but does NOT"""
         from voice_typer.server import history_db
 
         def boom(src, dst):
@@ -207,20 +176,8 @@ class TestBackupBeforeMigrationSecure:
         )
 
 
-# single definition ────────────────────────────────────────────
-
-
 class TestSecureCopyDbFileSingleDefinition:
-    """FR-29: ``_secure_copy_db_file`` must be defined exactly once in
-    ``history_db.py``.
-
-    Pre-fix, the module had two byte-for-byte identical definitions
-    (the second silently shadowed the first, 58 lines of dead code,
-    and a maintenance trap: edits to the first definition had no
-    runtime effect). This test pins the single-definition invariant
-    via ``inspect.getsource`` so future copy-paste regressions are
-    caught at test time.
-    """
+    """``history_db.py``."""
 
     def test_secure_copy_db_file_defined_exactly_once(self):
         import inspect
@@ -228,8 +185,6 @@ class TestSecureCopyDbFileSingleDefinition:
         from voice_typer.server import history_db
         from voice_typer.server.history_db_internals import corruption_recovery
 
-        # The single definition now lives in the internals module; the
-        # facade re-exports it (no duplicate definition anywhere).
         facade_source = inspect.getsource(history_db)
         impl_source = inspect.getsource(corruption_recovery)
         total = facade_source.count("def _secure_copy_db_file(") + impl_source.count("def _secure_copy_db_file(")
@@ -246,10 +201,7 @@ class TestSecureCopyDbFileSingleDefinition:
         )
 
     def test_secure_copy_db_file_call_sites_resolve_to_single_def(self):
-        """The two call sites (``_backup_before_migration``) must resolve
-        to the one-and-only definition. This is implicitly tested by the
-        integration tests above, but we also assert the attribute lookup
-        succeeds and is callable."""
+        """The two call sites (``_backup_before_migration``) must resolve"""
         from voice_typer.server import history_db
 
         assert callable(history_db._secure_copy_db_file)

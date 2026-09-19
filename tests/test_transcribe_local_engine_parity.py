@@ -1,15 +1,4 @@
-"""``local_engine`` kwarg parity across ASR backends.
-
-The streaming finalize path (``StreamingTranscriptionSession``) and the
-dictation batch path pass ``local_engine=`` unconditionally to
-``transcribe_with_fallback`` so the cloud-to-local fallback fires when
-the active backend is a cloud engine. The three local backends
-(Whisper/Parakeet/Qwen) previously did not accept that kwarg, so any
-finalize/batch transcription with a local engine raised ``TypeError:
-... got an unexpected keyword argument 'local_engine'``. These tests pin
-the parity: every backend accepts ``local_engine`` (default None,
-ignored by local engines which already ARE the local backend).
-"""
+"""``local_engine`` kwarg parity across ASR backends."""
 
 from __future__ import annotations
 
@@ -75,15 +64,7 @@ class TestLocalEnginesIgnoreLocalEngine:
 
 class TestStreamingFinalizeWithLocalEngine:
     def test_finalize_forwards_local_engine_to_whisper_backend(self) -> None:
-        """Reproduces the reported finalize crash chain.
-
-        ``_finalize_impl_inner`` calls
-        ``transcriber.transcribe_with_fallback(full_audio,
-        local_engine=...)``. With a real (unloaded) Whisper engine as the
-        transcriber the pre-fix code raised ``TypeError: unexpected
-        keyword argument 'local_engine'``; post-fix the kwarg binds and
-        the engine's own not-loaded error surfaces instead.
-        """
+        """Reproduces the reported finalize crash chain."""
         from voice_typer.server.transcription import TranscriptionEngine
 
         session = StreamingTranscriptionSession(

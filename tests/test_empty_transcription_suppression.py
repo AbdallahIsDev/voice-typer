@@ -1,35 +1,4 @@
-"""Tests for the empty-transcription / silent-suppression fix.
-
-The "finish dictation → nothing transcribed" symptom had two
-co-operating causes:
-
-1. ``DictationPipeline._handle_empty_transcription`` suppressed the
-   user-facing notification for EVERY recording shorter than the 15s
-   grace period, including ones with clear audio (high RMS) where the
-   engine was the real culprit (returned ``""`` silently). The user
-   saw no clipboard output, no error toast, no tray status beyond
-   "No speech detected".
-
-2. ``DictationPipeline._transcribe`` had no diagnostic log when the
-   engine returned an empty string, the silent-failure path was
-   invisible in the log file.
-
-3. ``AsrBackendRegistry.get_active`` would return an unloaded backend
-   as a last resort without warning, even though an unloaded backend
-   can return ``""`` from ``transcribe_with_fallback`` without
-   raising, making the empty-transcription path impossible to
-   trace from the registry side.
-
-The fix narrows the suppression to ONLY the case it was designed for
-(short recording AND near-silence), surfaces a distinct tray status
-for short recordings with real audio, surfaces a popup notification
-for long recordings with real audio, adds a consolidated warning log
-in ``_transcribe`` for every empty result, and adds a warning log in
-``get_active`` when an unloaded backend is returned.
-
-These tests verify each branch of the refined suppression logic and
-the new diagnostic logs.
-"""
+"""Tests for the empty-transcription / silent-suppression fix."""
 
 from __future__ import annotations
 
@@ -41,19 +10,12 @@ from voice_typer.server.dictation_pipeline import DictationPipeline
 
 
 class _TestApp:
-    """Minimal app stub for unit-testing DictationPipeline methods.
-
-    A custom class (instead of ``MagicMock``) so the four notify-once
-    flag attributes correctly default to ``False`` via
-    ``getattr(..., False)``, MagicMock would auto-create truthy
-    children for any attribute access.
-    """
+    """Minimal app stub for unit-testing DictationPipeline methods."""
 
     def __init__(self) -> None:
         self.tray = MagicMock()
         self.tray.notify = MagicMock()
         self.config = MagicMock()
-        # bubble_behavior is read in _handle_empty_transcription
         self.config.bubble_behavior = "show_on_record"
         self._waveform_bubble = MagicMock()
         self._busy_event = MagicMock()
@@ -68,8 +30,6 @@ class _TestApp:
         self._lock.__exit__ = MagicMock(return_value=False)
 
     # Auto-mock unknown attributes (like MagicMock) but DO NOT
-    # auto-create the notify-once flag names, they must default to
-    # False via getattr-with-default.
     def __getattr__(self, name: str) -> MagicMock:
         if name in {
             "_vocab_fail_notified",
@@ -84,11 +44,7 @@ class _TestApp:
 
 
 def _new_pipeline(app: _TestApp) -> DictationPipeline:
-    """Build a fresh DictationPipeline tied to ``app``.
-
-    Mirrors how ``RecordingController._stop_dictation`` constructs a
-    new pipeline per transcription cycle.
-    """
+    """Build a fresh DictationPipeline tied to ``app``."""
     pipeline = DictationPipeline.__new__(DictationPipeline)
     pipeline._app = app
     pipeline._duration = 1.0
@@ -100,23 +56,8 @@ def _new_pipeline(app: _TestApp) -> DictationPipeline:
     return pipeline
 
 
-# ─── _handle_empty_transcription: refined suppression logic ─────────────
-
-
 class TestHandleEmptyTranscriptionRefinedSuppression:
-    """The grace-period suppression must consider recorded_rms.
-
-    Pre-fix: any recording < 15s suppressed the notification entirely,
-    even when the audio clearly had signal (high RMS). That hid the
-    "engine returned empty" failure mode behind a "No speech detected"
-    tray status.
-
-    Post-fix: suppression only fires for short recordings with
-    near-silence (rms < 0.005). Short recordings with real audio get a
-    distinct "Transcription returned empty" tray status (no popup —
-    too ambiguous). Long recordings with real audio get a popup
-    notification.
-    """
+    """The grace-period suppression must consider recorded_rms."""
 
     def test_short_recording_with_near_silence_suppresses_notification(self):
         """Original UX-SILENCE-GRACE case: brief hotkey tap, no real audio."""
@@ -134,14 +75,7 @@ class TestHandleEmptyTranscriptionRefinedSuppression:
         assert "No speech detected" in statuses, "Short near-silent recording should set tray to 'No speech detected'"
 
     def test_short_recording_with_real_audio_shows_empty_status(self):
-        """HP-7 case: short recording, real audio, engine returned empty.
-
-        Pre-fix: this was silently suppressed, user saw "No speech
-        detected" with no indication that audio was captured but the
-        engine returned nothing. Post-fix: tray status reflects
-        "Transcription returned empty" so the user knows something
-        happened, but no popup (too ambiguous for a short clip).
-        """
+        """HP-7 case: short recording, real audio, engine returned empty."""
         app = _TestApp()
         pipeline = _new_pipeline(app)
         pipeline._duration = 5.0  # < 15s grace
@@ -175,12 +109,7 @@ class TestHandleEmptyTranscriptionRefinedSuppression:
         )
 
     def test_long_recording_with_real_audio_notifies_empty_transcription(self):
-        """Long recording with real audio but empty transcription → notify.
-
-        This is the unusual case: 15+ seconds of intelligible audio
-        should produce SOMETHING. If it doesn't, the user should be
-        notified so they know to retry or check the log file.
-        """
+        """Long recording with real audio but empty transcription → notify."""
         app = _TestApp()
         pipeline = _new_pipeline(app)
         pipeline._duration = 20.0  # >= 15s grace
@@ -200,32 +129,11 @@ class TestHandleEmptyTranscriptionRefinedSuppression:
         assert "Transcription returned empty" in statuses
 
 
-# ─── _transcribe: empty-result diagnostic log ───────────────────────────
-
-
 class TestTranscribeEmptyResultDiagnostic:
-    """``_transcribe`` must log a consolidated warning when the engine
-    returns an empty string. The warning includes every signal we have
-    (duration, RMS, audio stats, backend type, streaming vs batch path)
-    so the silent-failure path is traceable from the log file.
-    """
+    """``_transcribe`` must log a consolidated warning when the engine"""
 
     def test_empty_batch_result_logs_warning(self, caplog):
-        """When ``transcribe_with_fallback`` returns "" on the batch
-        path, a warning must be logged with the diagnostic context.
-
-        UE-10 sibling: ``_transcribe`` now pops the streaming
-        session via ``pop_streaming_session()`` (atomic) instead of
-        the racy get+set pair, so we mock the pop (not the get)
-        to force the batch path.
-
-        UE-47: the test's MagicMock ``active`` has a truthy
-        ``is_loaded`` attribute (MagicMock auto-mock), so
-        ``backend_was_loaded`` is True and the empty-warning path
-        runs WITHOUT raising ``BackendNotLoadedError``, the test
-        still asserts ``result == ""`` (the empty string propagates
-        unchanged when the backend WAS loaded).
-        """
+        """When ``transcribe_with_fallback`` returns \"\" on the batch"""
         app = _TestApp()
         # No streaming session → forces the batch path.
         app.recording.pop_streaming_session.return_value = None
@@ -257,12 +165,7 @@ class TestTranscribeEmptyResultDiagnostic:
         assert "path=batch" in msg, f"path missing from: {msg}"
 
     def test_nonempty_result_does_not_log_empty_warning(self, caplog):
-        """When transcription succeeds, no empty-result warning fires.
-
-        UE-10 sibling: ``_transcribe`` now pops the streaming session
-        via ``pop_streaming_session()`` (atomic), so we mock the pop
-        (not the get) to force the batch path.
-        """
+        """When transcription succeeds, no empty-result warning fires."""
         app = _TestApp()
         app.recording.pop_streaming_session.return_value = None
 
@@ -284,16 +187,8 @@ class TestTranscribeEmptyResultDiagnostic:
         assert not empty_warnings, "Non-empty transcription must NOT emit the empty-result warning"
 
 
-# ─── asr_registry.get_active: unloaded-backend diagnostic ──────────────
-
-
 class TestAsrRegistryUnloadedBackendDiagnostic:
-    """``AsrBackendRegistry.get_active`` must log a warning when it
-    returns an unloaded backend as a last resort. An unloaded backend
-    can return ``""`` from ``transcribe_with_fallback`` silently —
-    surfacing this state in the log makes the empty-transcription
-    failure mode traceable from the registry side.
-    """
+    """``AsrBackendRegistry.get_active`` must log a warning when it"""
 
     def test_unloaded_backend_warning_logged(self, caplog):
         from voice_typer.server.asr_registry import AsrBackendRegistry
@@ -303,7 +198,6 @@ class TestAsrRegistryUnloadedBackendDiagnostic:
 
         registry = AsrBackendRegistry(_Config())
         # Register a backend with is_loaded=False so get_active() falls
-        # through to the last-resort loop.
         unloaded_backend = MagicMock()
         unloaded_backend.is_loaded = False
         registry.register("whisper", unloaded_backend)
@@ -335,23 +229,12 @@ class TestAsrRegistryUnloadedBackendDiagnostic:
         assert not unload_warnings, "Loaded backend must NOT trigger the no-loaded-backend warning"
 
 
-# ─── ESC-cancelled cycles must not surface "No speech detected" ────
-
-
 class TestCancelledCycleEmptyHandling:
-    """An ESC-cancelled cycle that aborts before the first
-    segment flows into ``_handle_empty_transcription`` with an empty
-    result. Without the cancelled-cycle check it surfaces the
-    misleading "No speech detected, check your microphone" message
-    (the user pressed ESC deliberately; their mic is fine). Cancelled
-    cycles must end QUIETLY.
-    """
+    """An ESC-cancelled cycle that aborts before the first"""
 
     def _cancelled_app(self, cancelled: bool = True) -> _TestApp:
         app = _TestApp()
         # Simulate recording_lifecycle ESC path:
-        # ``_mark_cycle_cancelled`` added the cycle id to the bounded
-        # registry.
         if cancelled:
             app.recording._cancelled_cycle_ids = {"test-cycle"}
         else:
@@ -360,8 +243,7 @@ class TestCancelledCycleEmptyHandling:
         return app
 
     def test_cancelled_cycle_is_quiet(self):
-        """Long recording with real audio (the notify branch) + cancelled
-        → no tray status, no notification, no misleading message."""
+        """Long recording with real audio (the notify branch) + cancelled"""
         app = self._cancelled_app(cancelled=True)
         pipeline = _new_pipeline(app)
         pipeline._duration = 20.0  # past the 15s grace, would notify
@@ -374,8 +256,7 @@ class TestCancelledCycleEmptyHandling:
         app._schedule_timer.assert_not_called()
 
     def test_active_cycle_keeps_existing_behavior(self):
-        """A non-cancelled cycle with the same empty result keeps the
-        existing "check your microphone" notification."""
+        """A non-cancelled cycle with the same empty result keeps the"""
         app = self._cancelled_app(cancelled=False)
         pipeline = _new_pipeline(app)
         pipeline._duration = 20.0

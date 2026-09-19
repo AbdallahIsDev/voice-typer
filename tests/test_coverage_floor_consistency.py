@@ -1,31 +1,4 @@
-"""Coverage-floor drift guards (MO-89).
-
-The coverage floor is declared in three places that MUST agree:
-
-1. ``[tool.coverage.report].fail_under`` in ``pyproject.toml`` (what a
-   local ``coverage report`` enforces),
-2. the explicit ``--cov-fail-under`` in ``.github/workflows/build.yml``
-   (the CI gate, applied on every matrix leg),
-3. the ``make test-cov`` recipe.
-
-Before MO-89 those sites drifted from reality: the floor sat at 65 % while
-a real full-suite run measured 84.84 %, so the gate had ~19 points of
-slack. This module pins the three declarations to ONE value and pins the
-two properties that keep the number honest:
-
-* No production module may be excluded from measurement —
-  ``[tool.coverage.run].omit`` is for ``tests/*`` only. Excluding a
-  module raises the percentage without measuring more code.
-* The ratchet floor (``coverage-baseline.json``, enforced by
-  ``scripts/coverage_ratchet_check.py`` on the ubuntu × 3.12 leg) must sit
-  at or ABOVE ``fail_under``, so the two gates can never contradict each
-  other (a run the ratchet rejects must not be waved through by the
-  ``fail_under`` floor).
-
-The floor may only RISE: each raise must come from a measured total via
-the ratchet (``python scripts/coverage_ratchet_check.py --regenerate``),
-never from a blind bump and never downward to accommodate a drop.
-"""
+"""Coverage-floor drift guards (MO-89)."""
 
 from __future__ import annotations
 
@@ -53,9 +26,6 @@ CI_WORKFLOW_PATH = PROJECT_ROOT / ".github" / "workflows" / "build.yml"
 MAKEFILE_PATH = PROJECT_ROOT / "Makefile"
 BASELINE_PATH = PROJECT_ROOT / "coverage-baseline.json"
 
-# The lowest floor this repo will accept. Every raise is recorded here so a
-# silent downgrade fails loudly; a genuine, measured increase should bump
-# this constant AND the three declarations in the same change.
 MIN_FLOOR = 78
 
 _COV_FAIL_UNDER_RE = re.compile(r"--cov-fail-under=(\d+)")

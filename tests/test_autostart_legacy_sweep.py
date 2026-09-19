@@ -1,32 +1,4 @@
-"""AUTOSTART-LEGACY: one-time cleanup of legacy same-install autostart entries.
-
-PLAT-RUN renamed the Windows autostart entries from fixed strings (and
-later from a ``sys.executable``-derived hash) to a stable install-path
-hash. Upgraded installs can therefore carry legacy ``VoiceTyper*`` Run-key
-values, ``VoiceTyperAutostart*`` scheduled tasks, and ``VoiceTyper*.bat``
-Startup-folder files that ALL point at the same install and ALL fire at
-logon, duplicate autostart.
-
-``sweep_legacy_autostart_entries`` removes those once per install
-(marker-gated, so steady-state startup cost is a single ``Path.exists()``
-check) while preserving:
-
-  - the current install's own entry (``_run_key_name`` /
-    ``_APP_AUTOSTART_TASK_NAME`` / ``_startup_bat_name``), and
-  - other installs' entries (different launcher path → different
-    install → preserved. PLAT-RUN multi-install support).
-
-Tests use the ``fake_winreg`` fixture pattern (see
-``tests/test_autostart_windows_stale_entries.py``) so the Windows-only
-``winreg`` module is importable on non-Windows hosts. ``conftest.py``
-blocks the REAL ``winreg`` module globally, so run-key sweep tests inject
-the fake and additionally stub ``server_platform.is_windows`` to False —
-on a real Windows dev host ``is_windows()`` is True and
-``task_scheduler.is_supported()`` is True, which would otherwise spawn
-real PowerShell and touch the real Task Scheduler / Startup folder during
-pytest. The task/bat sweep unit tests stub their own subprocess /
-scheduler / startup-dir surfaces.
-"""
+"""AUTOSTART-LEGACY: one-time cleanup of legacy same-install autostart entries."""
 
 from __future__ import annotations
 
@@ -38,28 +10,13 @@ from unittest.mock import MagicMock
 import pytest
 
 # ``get_autostart_dir`` / ``is_autostart_enabled`` / the Task Scheduler
-# name constant are owned by the ``autostart`` facade module.
 from voice_typer.server.server_platform import autostart as _ast
-
-# ---------------------------------------------------------------------------
-# Fixtures: fake winreg
-# ---------------------------------------------------------------------------
 
 
 @pytest.fixture
 def fake_winreg(monkeypatch):
-    """Install a fake ``winreg`` module so Windows code paths import cleanly.
-
-    Mirrors the fixture in
-    ``tests/test_autostart_windows_stale_entries.py``. Returns the fake
-    module; tests can configure its ``EnumValue`` / ``DeleteValue``
-    behavior as needed.
-    """
+    """Install a fake ``winreg`` module so Windows code paths import cleanly."""
     fake = types.ModuleType("winreg")
-    # ``object.__setattr__`` (not plain assignment) so pyrefly, which
-    # rejects unknown attributes on ``ModuleType``, accepts the fake;
-    # ruff's B010 flags ``setattr`` with a constant value, so the
-    # ``object.__setattr__`` form is the one that satisfies both.
     object.__setattr__(fake, "HKEY_CURRENT_USER", 0x80000001)
     object.__setattr__(fake, "KEY_SET_VALUE", 0x0002)
     object.__setattr__(fake, "KEY_READ", 0x20019)
@@ -76,15 +33,8 @@ def fake_winreg(monkeypatch):
     return fake
 
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
 def _enum_value_side_effect(entries: list[tuple[str, str, int]]):
-    """Build a side_effect for ``winreg.EnumValue`` that yields each entry
-    in order, then raises ``OSError`` to signal end-of-enumeration.
-    """
+    """Build a side_effect for ``winreg.EnumValue`` that yields each entry"""
     iterator = iter(entries)
 
     def _side_effect(_key, _index):
@@ -97,10 +47,7 @@ def _enum_value_side_effect(entries: list[tuple[str, str, int]]):
 
 
 def _this_install_command(monkeypatch) -> tuple[str, str]:
-    """Return ``(launcher_path, command_line)`` where the command line is a
-    realistic legacy autostart command that targets THIS install (the
-    current repo's ``autostart_launcher.py`` embedded in the arguments).
-    """
+    """current repo's ``autostart_launcher.py`` embedded in the arguments)."""
     from voice_typer.server import server_platform as _pkg
 
     launcher = _pkg._install_identifier()
@@ -108,39 +55,19 @@ def _this_install_command(monkeypatch) -> tuple[str, str]:
     return launcher, cmd
 
 
-# ---------------------------------------------------------------------------
-# Run-key legacy sweep (orchestrator-level)
-# ---------------------------------------------------------------------------
-
-
 class TestRunKeyLegacySweep:
-    """``sweep_legacy_autostart_entries`` must remove legacy ``VoiceTyper*``
-    Run-key values that point at THIS install while preserving the current
-    entry and other installs' entries.
-    """
+    """``sweep_legacy_autostart_entries`` must remove legacy ``VoiceTyper*``"""
 
     @staticmethod
     def _make_sweep_inert(monkeypatch):
-        """Keep the task/bat sweeps out of run-key tests.
-
-        On a real Windows dev host ``autostart_windows.is_windows()`` is
-        True and ``task_scheduler.is_supported()`` is True, so the
-        orchestrator would spawn real PowerShell + enumerate the real
-        Startup folder during pytest. Stub them so only the (fake-winreg)
-        run-key sweep runs.
-        """
-        # Patch on the OWNING modules: ``is_windows`` is bound into the
-        # ``autostart_windows`` namespace; production reads
-        # ``_resolve_tauri_binary_for_autostart`` through the ``autostart``
-        # facade module (bound as ``_autostart_mod`` there).
+        """Keep the task/bat sweeps out of run-key tests."""
         from voice_typer.server.server_platform import autostart_windows as _awindows
 
         monkeypatch.setattr(_awindows, "is_windows", lambda: False)
         monkeypatch.setattr(_ast, "_resolve_tauri_binary_for_autostart", lambda: None)
 
     def test_removes_legacy_same_install_runkey(self, tmp_path, monkeypatch, fake_winreg):
-        """A legacy ``VoiceTyper_<oldhash>`` value whose command embeds this
-        install's launcher is removed (duplicate autostart cleanup)."""
+        """A legacy ``VoiceTyper_<oldhash>`` value whose command embeds this"""
         from voice_typer.server.server_platform import sweep_legacy_autostart_entries
 
         self._make_sweep_inert(monkeypatch)
@@ -157,9 +84,7 @@ class TestRunKeyLegacySweep:
         assert fake_winreg.DeleteValue.call_args.args[1] == legacy_name
 
     def test_preserves_other_install_runkey(self, tmp_path, monkeypatch, fake_winreg):
-        """A legacy-named value whose command points at a DIFFERENT install
-        (different launcher, different exe) must NOT be deleted, the sweep
-        is scoped to this install (multi-install support)."""
+        """A legacy-named value whose command points at a DIFFERENT install"""
         from voice_typer.server.server_platform import sweep_legacy_autostart_entries
 
         self._make_sweep_inert(monkeypatch)
@@ -177,8 +102,7 @@ class TestRunKeyLegacySweep:
         fake_winreg.DeleteValue.assert_not_called()
 
     def test_preserves_current_install_runkey(self, tmp_path, monkeypatch, fake_winreg):
-        """The current install's own entry (``_run_key_name()``) is never
-        deleted even though its command targets this install."""
+        """The current install's own entry (``_run_key_name()``) is never"""
         from voice_typer.server import server_platform as _pkg
         from voice_typer.server.server_platform import sweep_legacy_autostart_entries
 
@@ -193,9 +117,7 @@ class TestRunKeyLegacySweep:
         fake_winreg.DeleteValue.assert_not_called()
 
     def test_preserves_non_voicetyper_and_empty_values(self, tmp_path, monkeypatch, fake_winreg):
-        """Non-``VoiceTyper`` entries and empty/malformed values are never
-        deleted (the sweep is scoped to ``VoiceTyper*`` names and only acts
-        when it can positively identify the target install)."""
+        """Non-``VoiceTyper`` entries and empty/malformed values are never"""
         from voice_typer.server.server_platform import sweep_legacy_autostart_entries
 
         self._make_sweep_inert(monkeypatch)
@@ -213,9 +135,7 @@ class TestRunKeyLegacySweep:
         fake_winreg.DeleteValue.assert_not_called()
 
     def test_sweep_is_one_time_marker_gated(self, tmp_path, monkeypatch, fake_winreg):
-        """After the first sweep, a per-install marker file is written and a
-        second call is a no-op, the expensive task enumeration is paid
-        once, and steady-state startup cost is a single ``Path.exists()``."""
+        """second call is a no-op, the expensive task enumeration is paid"""
         from voice_typer.server import server_platform as _pkg
         from voice_typer.server.server_platform import sweep_legacy_autostart_entries
 
@@ -231,8 +151,6 @@ class TestRunKeyLegacySweep:
         marker = tmp_path / f"autostart-sweep-v2-{_pkg._install_hash()}.done"
         assert marker.exists(), "per-install sweep marker must be written after the sweep"
 
-        # Re-arm EnumValue so a buggy second sweep WOULD see entries, the
-        # marker must still short-circuit it.
         fake_winreg.DeleteValue.reset_mock()
         fake_winreg.EnumValue.side_effect = _enum_value_side_effect([(legacy_name, cmd, fake_winreg.REG_SZ)])
         second = sweep_legacy_autostart_entries(tmp_path)
@@ -240,22 +158,16 @@ class TestRunKeyLegacySweep:
         fake_winreg.DeleteValue.assert_not_called()
 
     def test_sweep_is_inert_when_winreg_unavailable(self, tmp_path, monkeypatch):
-        """Without winreg (non-Windows CI, or the conftest block), the sweep
-        is a no-op and does NOT write the marker, so a real Windows run
-        later still sweeps."""
+        """Without winreg (non-Windows CI, or the conftest block), the sweep"""
         from voice_typer.server.server_platform import sweep_legacy_autostart_entries
 
         # No fake_winreg injected → conftest's sys.modules["winreg"] = None
-        # makes the probe raise ImportError.
         result = sweep_legacy_autostart_entries(tmp_path)
         assert result["swept"] is False
         assert not list(tmp_path.glob("autostart-sweep-*.done"))
 
     def test_removes_v1_marker_files_even_when_v2_marker_exists(self, tmp_path, monkeypatch, fake_winreg):
-        """Leftover v1 sweep markers (``autostart-sweep-<hash>.done``) are
-        deleted on every call, even when the v2 marker already exists
-        (a pre-fix install where the sweep short-circuits), while the v2
-        marker itself and the winreg gate are untouched."""
+        """Leftover v1 sweep markers (``autostart-sweep-<hash>.done``) are"""
         from voice_typer.server import server_platform as _pkg
         from voice_typer.server.server_platform import sweep_legacy_autostart_entries
 
@@ -267,8 +179,6 @@ class TestRunKeyLegacySweep:
         v2_marker = tmp_path / f"autostart-sweep-v2-{_pkg._install_hash()}.done"
         v2_marker.write_text("", encoding="utf-8")
 
-        # v2 marker exists → the registry/task sweep short-circuits, but
-        # the v1-marker cleanup must still run (pure filesystem work).
         result = sweep_legacy_autostart_entries(tmp_path)
 
         assert result["swept"] is False
@@ -278,8 +188,7 @@ class TestRunKeyLegacySweep:
         assert list(tmp_path.glob("autostart-sweep-*.done")) == [v2_marker]
 
     def test_removes_v1_marker_files_without_winreg(self, tmp_path):
-        """The v1-marker cleanup is pure filesystem work, it runs even
-        when winreg is unavailable (non-Windows host / conftest block)."""
+        """The v1-marker cleanup is pure filesystem work, it runs even"""
         from voice_typer.server.server_platform import sweep_legacy_autostart_entries
 
         v1 = tmp_path / "autostart-sweep-e36cc7e3.done"
@@ -292,19 +201,11 @@ class TestRunKeyLegacySweep:
         assert not list(tmp_path.glob("autostart-sweep-*.done"))
 
 
-# ---------------------------------------------------------------------------
-# Task Scheduler legacy sweep (unit-level)
-# ---------------------------------------------------------------------------
-
-
 class TestTaskSweep:
-    """``_sweep_legacy_tasks`` must remove legacy ``VoiceTyperAutostart*``
-    tasks whose command targets this install, while preserving other
-    installs' tasks and the current task name."""
+    """``_sweep_legacy_tasks`` must remove legacy ``VoiceTyperAutostart*``"""
 
     def _install_task_fakes(self, monkeypatch, xml_for_task):
-        """Stub the platform + scheduler + PowerShell surfaces so the unit
-        test never touches the real Task Scheduler / subprocess."""
+        """Stub the platform + scheduler + PowerShell surfaces so the unit"""
         from voice_typer.server import task_scheduler as _ts
         from voice_typer.server.server_platform import autostart_windows as _awindows
 
@@ -338,8 +239,7 @@ class TestTaskSweep:
         )
 
     def test_removes_same_install_legacy_tasks(self, monkeypatch):
-        """Legacy tasks whose <Arguments> embed this install's launcher are
-        deleted; the CURRENT task name is never touched."""
+        """Legacy tasks whose <Arguments> embed this install's launcher are"""
         from voice_typer.server import server_platform as _pkg
         from voice_typer.server.server_platform.autostart_windows import _sweep_legacy_tasks
 
@@ -384,9 +284,7 @@ class TestTaskSweep:
         assert delete_calls == []
 
     def test_task_sweep_returns_none_when_powershell_fails(self, monkeypatch):
-        """If the PowerShell enumeration fails (non-zero rc), the sweep
-        returns ``None`` so the marker-gated orchestrator retries on the
-        next startup instead of permanently skipping the task portion."""
+        """If the PowerShell enumeration fails (non-zero rc), the sweep"""
         from voice_typer.server.server_platform.autostart_windows import _sweep_legacy_tasks
 
         delete_calls = self._install_task_fakes(monkeypatch, lambda _name: "")
@@ -399,14 +297,10 @@ class TestTaskSweep:
         assert delete_calls == []
 
     def test_sweep_skips_marker_when_task_enumeration_fails(self, tmp_path, monkeypatch, fake_winreg):
-        """The completion marker is NOT written when the task enumeration
-        fails, the sweep is retried on the next startup (a transient
-        PowerShell failure can't permanently skip the task cleanup)."""
+        """The completion marker is NOT written when the task enumeration"""
         from voice_typer.server import task_scheduler as _ts
         from voice_typer.server.server_platform import autostart_windows as _awindows, sweep_legacy_autostart_entries
 
-        # Fake winreg makes the orchestrator's probe pass; simulate a
-        # Windows host so the task sweep actually attempts to run.
         monkeypatch.setattr(_awindows, "is_windows", lambda: True)
         monkeypatch.setattr(_ast, "get_autostart_dir", lambda: tmp_path)
         monkeypatch.setattr(_ast, "_resolve_tauri_binary_for_autostart", lambda: None)
@@ -424,15 +318,8 @@ class TestTaskSweep:
         )
 
 
-# ---------------------------------------------------------------------------
-# Startup-folder .bat legacy sweep (unit-level)
-# ---------------------------------------------------------------------------
-
-
 class TestStartupBatSweep:
-    """``_sweep_legacy_startup_bats`` must remove legacy ``VoiceTyper*.bat``
-    files whose content targets this install, preserving the current file
-    and other installs' files."""
+    """``_sweep_legacy_startup_bats`` must remove legacy ``VoiceTyper*.bat``"""
 
     def _install_bat_fakes(self, monkeypatch, autostart_dir: Path):
         from voice_typer.server.server_platform import autostart_windows as _awindows
@@ -443,9 +330,7 @@ class TestStartupBatSweep:
         return _awindows
 
     def test_removes_same_install_legacy_bat(self, tmp_path, monkeypatch):
-        """A legacy ``VoiceTyper_<oldhash>.bat`` whose content embeds this
-        install's launcher is deleted; the current .bat and other installs'
-        .bat files survive."""
+        """A legacy ``VoiceTyper_<oldhash>.bat`` whose content embeds this"""
         from voice_typer.server.server_platform.autostart_windows import _sweep_legacy_startup_bats
 
         _awin = self._install_bat_fakes(monkeypatch, tmp_path)
@@ -476,11 +361,6 @@ class TestStartupBatSweep:
         assert other.exists(), "other install's .bat must be preserved"
 
 
-# ---------------------------------------------------------------------------
-# sync_autostart hook
-# ---------------------------------------------------------------------------
-
-
 class TestSyncAutostartHook:
     """``sync_autostart`` invokes the marker-gated sweep on every startup."""
 
@@ -504,5 +384,4 @@ class TestSyncAutostartHook:
         assert captured.get("config_dir") == str(tmp_config_dir), (
             "sync_autostart must pass the (test-isolated) config dir to the sweep"
         )
-        # autostart was already in sync (config True, OS True) → no re-enable.
         assert result["registered"] is True

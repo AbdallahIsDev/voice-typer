@@ -1,59 +1,19 @@
-"""``VoiceTyperService.get_model_status`` TTL cache tests.
-
-WR-3: this module was extracted from ``tests/handlers/test_status_handlers.py``
-(lines 305-503 of that file). The class tests ``VoiceTyperService`` TTL cache
-behaviour, a service-layer concern, not a handler concern. Moving it out of
-the handler test file keeps ``test_status_handlers.py`` focused on the
-``StatusHandlersMixin`` IPC dispatch surface and lets this file use the
-shared ``tmp_config_dir`` fixture without an implicit cross-file dependency.
-
-The three tests below are unchanged from their original implementations —
-they construct a REAL ``VoiceTyperService`` (not the ``fake_service``
-MagicMock from the handler conftest, which would not exercise the cache
-logic) backed by a ``MagicMock`` app and the shared ``tmp_config_dir``
-fixture so the filesystem scan is isolated to a per-test temp directory.
-"""
+"""``VoiceTyperService.get_model_status`` TTL cache tests."""
 
 from __future__ import annotations
 
 import os
 from unittest.mock import MagicMock
 
-# ── get_model_status TTL cache ───────────────────────────────
-
 
 class TestModelStatusCache:
-    """``VoiceTyperService.get_model_status`` caches result for 5 s.
-
-    The IPC renderer polls ``get_model_status`` every 2 s while the
-    Models page is open, and each call performs ~28
-    ``os.path.isdir()`` syscalls (one per model in MODEL_REGISTRY plus
-    qwen/parakeet).  A 5 s TTL cache cuts the syscall rate by ~60 %
-    without introducing user-visible staleness, the cache is
-    invalidated by ``delete_model`` and ``download_model`` after any
-    filesystem mutation.
-
-    These tests construct a REAL ``VoiceTyperService`` (not the
-    ``fake_service`` MagicMock from the conftest, which would not
-    exercise the cache logic) backed by a ``MagicMock`` app and the
-    shared ``tmp_config_dir`` fixture so the filesystem scan is
-    isolated to a per-test temp directory.
-    """
+    """``VoiceTyperService.get_model_status`` caches result for 5 s."""
 
     def test_cache_hits_within_ttl(self, tmp_config_dir, monkeypatch):
-        """Within TTL, second call returns cached result without re-querying FS.
-
-        We wrap ``os.path.isdir`` with a counting proxy so we can
-        assert that the first call touches the filesystem and the
-        second call (issued immediately afterwards, well within the
-        5-second TTL) does not.
-        """
+        """Within TTL, second call returns cached result without re-querying FS."""
         from voice_typer.server.service import VoiceTyperService
 
         # Build a mock app whose config doesn't claim a qwen/parakeet
-        # path (so those branches only consult the HF cache dir, not
-        # an arbitrary MagicMock that would be truthy and trigger an
-        # extra isdir call on a non-string path).
         app = MagicMock()
         app.config.qwen_model_path = None
         app.config.parakeet_model_path = None
@@ -61,7 +21,6 @@ class TestModelStatusCache:
         service = VoiceTyperService(app)
 
         # Counting proxy around os.path.isdir, the cache hit/miss
-        # signal we assert on.
         real_isdir = os.path.isdir
         isdir_calls = {"n": 0}
 
@@ -87,36 +46,21 @@ class TestModelStatusCache:
             f"(expected 0 os.path.isdir calls, got {isdir_calls['n']})"
         )
 
-        # The cached object must be returned verbatim (not a copy) so
-        # the renderer can rely on identity for shallow-comparison.
         assert second_status is first_status, (
             "Cached get_model_status() should return the same dict object identity, not a freshly-computed copy"
         )
 
     def test_cache_invalidated_after_delete(self, tmp_config_dir, monkeypatch):
-        """After ``delete_model``, the next ``get_model_status`` re-queries FS.
-
-        We populate the cache by calling ``get_model_status`` once,
-        then call ``delete_model`` (which must invalidate the cache),
-        then call ``get_model_status`` again and assert:
-
-        1. The filesystem was re-queried (cache miss).
-        2. The deleted model is now reported as ``downloaded: False``
-           (i.e. the new status reflects the mutation, not the stale
-           cache).
-        """
+        """After ``delete_model``, the next ``get_model_status`` re-queries FS."""
         from voice_typer.server.service import VoiceTyperService
 
         # Pre-create the HF cache directory with a "tiny" model
-        # (repo_id = Systran/faster-whisper-tiny → cache subdir
-        # models--Systran--faster-whisper-tiny).
         cache_dir = tmp_config_dir / "huggingface" / "hub"
         cache_dir.mkdir(parents=True, exist_ok=True)
         repo_dir = cache_dir / "models--Systran--faster-whisper-tiny"
         repo_dir.mkdir(parents=True, exist_ok=True)
 
         # Active model is set to large-v3-turbo (NOT tiny) so delete_model
-        # doesn't refuse on the "cannot delete active model" guard.
         app = MagicMock()
         app.config.qwen_model_path = None
         app.config.parakeet_model_path = None
@@ -126,11 +70,6 @@ class TestModelStatusCache:
         service = VoiceTyperService(app)
 
         # The status layer decides "downloaded" via the partial-download
-        # honesty probe (``is_model_snapshot_complete``, every snapshot
-        # file present), which needs a real ``huggingface_hub`` install.
-        # This is a unit test of the TTL-cache layer, so simulate the
-        # probe faithfully: complete iff the repo directory exists (the
-        # delete below removes it, flipping the simulated verdict).
         def _probe_complete(repo_id):
             return (cache_dir / f"models--{repo_id.replace('/', '--')}").is_dir()
 
@@ -140,12 +79,10 @@ class TestModelStatusCache:
         )
 
         # First call: populates the cache.  tiny should be reported
-        # as downloaded because we created the cache subdir above.
         first_status = service.get_model_status()
         assert first_status["tiny"]["downloaded"] is True, "Pre-condition: tiny should be downloaded before delete"
 
         # Now wrap os.path.isdir with a counting proxy so we can
-        # assert the next get_model_status actually re-queries.
         real_isdir = os.path.isdir
         isdir_calls = {"n": 0}
 
@@ -175,12 +112,7 @@ class TestModelStatusCache:
         )
 
     def test_cache_expires_after_ttl(self, tmp_config_dir, monkeypatch):
-        """After ``_MODEL_STATUS_CACHE_TTL_S`` elapses, the cache is bypassed.
-
-        We patch ``time.monotonic`` (which ``get_model_status`` calls
-        once at the top) to advance the clock past the TTL between
-        calls, then assert the third call re-queries the filesystem.
-        """
+        """After ``_MODEL_STATUS_CACHE_TTL_S`` elapses, the cache is bypassed."""
         from voice_typer.server.service import (
             _MODEL_STATUS_CACHE_TTL_S,
             VoiceTyperService,
@@ -192,10 +124,6 @@ class TestModelStatusCache:
 
         service = VoiceTyperService(app)
 
-        # Drive the cache clock manually.  ``get_model_status`` lives in
-        # the model mixin (``voice_typer.server.service.model``) and
-        # reads ``time.monotonic()`` from that module's ``time`` import,
-        # so patching that binding controls the cache's view of "now".
         fake_now = [0.0]
         monkeypatch.setattr(
             "voice_typer.server.service.model._status.time.monotonic",
@@ -212,11 +140,9 @@ class TestModelStatusCache:
 
         monkeypatch.setattr("os.path.isdir", _counting_isdir)
 
-        # t=0: first call populates the cache.
         service.get_model_status()
         assert isdir_calls["n"] > 0, "First call should query the filesystem"
 
-        # t=TTL-0.1: still within TTL, cache hit.
         isdir_calls["n"] = 0
         fake_now[0] = _MODEL_STATUS_CACHE_TTL_S - 0.1
         service.get_model_status()
@@ -225,7 +151,6 @@ class TestModelStatusCache:
             f"(expected 0 os.path.isdir calls, got {isdir_calls['n']})"
         )
 
-        # t=TTL+0.1: TTL expired, cache miss.
         isdir_calls["n"] = 0
         fake_now[0] = _MODEL_STATUS_CACHE_TTL_S + 0.1
         service.get_model_status()

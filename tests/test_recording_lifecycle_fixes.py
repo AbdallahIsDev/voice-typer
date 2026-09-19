@@ -1,49 +1,4 @@
-"""Tests for the recording-lifecycle fixes (the fix).
-
-These tests pin the post-fix contracts for four findings owned by the
-sub-agent:
-
-* **the fix**, every ``sd.InputStream(...)`` call in the recording
-  package passes ``latency="low"`` so PortAudio selects the host API's
-  smallest viable input buffer (≈10-20 ms end-to-end callback latency).
-  Three call sites: ``StreamLifecycle.open_stream_for_candidates``
-  (primary), ``StreamLifecycle.open_stream_fallback`` (last-resort),
-  ``DisconnectHandler.restart_stream`` (hot-restart).
-
-* **the fix**, the SPSC ring buffer capacity in
-  ``_recorder_split.start_recording`` is scaled to ~2 s of headroom at
-  the device's effective sample rate, floored at 64 chunks (so a 16 kHz
-  device still gets ~2 s, 64 × 512 / 16000 = 2.048 s). The pre-fix
-  capacity was 1.0 s with a floor of 16 (sized by
-  ``session_state._resize_buffers_for_sample_rate``); the override in
-  ``start_recording`` supersedes that.
-
-* **the fix**, the ``retune_audio_processor(...)`` call was REMOVED from
-  ``_recorder_split.start_recording`` and
-  ``DisconnectHandler.restart_stream``. The chain stays at
-  ``WHISPER_SAMPLE_RATE`` (16 kHz); the per-chunk resample inside
-  ``AudioProcessor.process_chunk`` handles the native-rate → 16 kHz
-  downsample on the worker thread. Filter-chain correctness is
-  preserved (filters built at 16 kHz are fed 16 kHz audio
-  post-resample). Pinned by ``TestAudioProcessorRetune`` in
-  ``test_recorder_split_start.py`` (updated as part of the fix).
-
-* **the fix**: ``StreamLifecycle.teardown_stream_body`` accepts a
-  ``force: bool = False`` keyword. When ``force=True`` (passed by
-  ``Recorder._handle_device_disconnect`` only), the teardown uses
-  ``stream.abort()`` instead of ``stream.stop()`` so a dead device
-  can't block the disconnect-recovery critical path indefinitely.
-  Failures from ``abort()`` / ``close()`` are suppressed on the force
-  path so the recovery always clears ``_stream`` and lets the next
-  ``start()`` open a fresh stream. The CLEAN path (``force=False``,
-  the default, used by ``stop()`` / ``discard()`` / ``__del__`` /
-  start-rollback) keeps ``stream.stop()`` + ``stream.close()`` with
-  exception propagation for graceful drain.
-
-These tests are unit tests, they mock ``sd.InputStream`` and use
-``MagicMock`` recorder stubs so they never touch real audio hardware
-or worker threads. Each test is deterministic and sub-second.
-"""
+"""Tests for the recording-lifecycle fixes (the fix)."""
 
 from __future__ import annotations
 
@@ -56,17 +11,9 @@ from voice_typer.server.recording import disconnect_handler as dh_module, stream
 from voice_typer.server.recording.disconnect_handler import DisconnectHandler
 from voice_typer.server.recording.stream_lifecycle import StreamLifecycle
 
-# ── Helpers ───────────────────────────────────────────────────────────
-
 
 def _make_stream_lifecycle_recorder_stub() -> MagicMock:
-    """Build a minimal mock Recorder for ``StreamLifecycle`` tests.
-
-    Mirrors ``_make_recorder_stub`` in ``test_stream_lifecycle_module.py``
-    but kept local so this test file is self-contained. ``_lock`` is a
-    real ``threading.Lock``; ``_is_in_audio_callback`` is a real
-    ``threading.Event``; everything else is a ``MagicMock``.
-    """
+    """Build a minimal mock Recorder for ``StreamLifecycle`` tests."""
     recorder = MagicMock(name="recorder")
     recorder._audio_pipeline._lock = threading.Lock()
     recorder._is_in_audio_callback = threading.Event()
@@ -81,12 +28,7 @@ def _make_stream_lifecycle_recorder_stub() -> MagicMock:
 
 
 def _install_fake_input_stream(module, monkeypatch, *, actual_samplerate=None):
-    """Install a fake ``sd.InputStream`` factory on a recording submodule.
-
-    Returns a list that accumulates each call's kwargs dict in
-    invocation order so tests can assert on which parameters were
-    passed (in particular, ``latency``).
-    """
+    """Install a fake ``sd.InputStream`` factory on a recording submodule."""
     attempts: list[dict] = []
 
     def fake_input_stream(**kwargs):
@@ -103,8 +45,6 @@ def _install_fake_input_stream(module, monkeypatch, *, actual_samplerate=None):
     fake_sd = MagicMock(name="fake_sd")
     fake_sd.InputStream = MagicMock(side_effect=fake_input_stream)
     # ``query_devices`` is consulted by the disconnect-handler restart
-    # path; return a plausible device dict so the channels-resolution
-    # branch doesn't raise.
     fake_sd.query_devices.return_value = {
         "max_input_channels": 1,
         "name": "fake input",
@@ -113,17 +53,11 @@ def _install_fake_input_stream(module, monkeypatch, *, actual_samplerate=None):
     return attempts
 
 
-# ── latency='low' on every sd.InputStream call ────────────────
-
-
 class TestLatencyLow:
-    """all three ``sd.InputStream(...)`` call sites pass
-    ``latency='low'``. PortAudio silently falls back to the default if
-    the requested latency is unavailable, no retry logic needed."""
+    """all three ``sd.InputStream(...)`` call sites pass"""
 
     def test_primary_open_stream_for_candidates_passes_latency_low(self, monkeypatch):
-        """``StreamLifecycle.open_stream_for_candidates`` must pass
-        ``latency='low'`` to ``sd.InputStream``."""
+        """``StreamLifecycle.open_stream_for_candidates`` must pass"""
         recorder = _make_stream_lifecycle_recorder_stub()
         attempts = _install_fake_input_stream(sl_module, monkeypatch)
         # Provide a dev_info_extra so the info-log branch fires.
@@ -147,26 +81,21 @@ class TestLatencyLow:
         assert last_err is None
         assert len(attempts) == 1, "exactly one InputStream attempt expected"
         kwargs = attempts[0]
-        # latency='low' is present.
         assert kwargs.get("latency") == "low", (
             f"open_stream_for_candidates must pass latency='low'; got kwargs={kwargs}"
         )
         # Sanity: the other essential kwargs are still wired up.
         assert kwargs["samplerate"] == 48000
         # VAD-001 (rate-scaled): ~32 ms blocks at the native rate —
-        # 1536 @ 48 kHz, not the legacy fixed 512.
         assert kwargs["blocksize"] == scaled_audio_blocksize(48000)
         assert kwargs["blocksize"] == 1536
         assert kwargs["callback"] is callback
 
     def test_fallback_open_stream_fallback_passes_latency_low(self, monkeypatch):
-        """``StreamLifecycle.open_stream_fallback`` must pass
-        ``latency='low'`` to ``sd.InputStream`` on the fallback path."""
+        """``StreamLifecycle.open_stream_fallback`` must pass"""
         recorder = _make_stream_lifecycle_recorder_stub()
         attempts = _install_fake_input_stream(sl_module, monkeypatch)
         # Fallback enumerates ALL input devices via
-        # ``DeviceManager._all_input_device_candidates``, return a single
-        # fallback candidate so exactly one InputStream attempt fires.
         recorder._devices._all_input_device_candidates.return_value = [11]
         recorder._devices._resolve_effective_sample_rate.return_value = (48000, None)
         callback = MagicMock(name="callback")
@@ -181,15 +110,11 @@ class TestLatencyLow:
         assert last_err is None
         assert len(attempts) == 1, "exactly one fallback InputStream attempt expected"
         kwargs = attempts[0]
-        # latency='low' on the fallback path too.
         assert kwargs.get("latency") == "low", f"open_stream_fallback must pass latency='low'; got kwargs={kwargs}"
 
     def test_disconnect_hot_restart_passes_latency_low(self, monkeypatch):
-        """``DisconnectHandler.restart_stream`` must pass
-        ``latency='low'`` to ``sd.InputStream`` on the hot-restart path."""
+        """``DisconnectHandler.restart_stream`` must pass"""
         # Build a real Recorder with a MagicMock config (no audio
-        # device). This is the same pattern as
-        # ``test_recorder_mono_and_disconnect_fixes.py``.
         from voice_typer.server.recording.recorder import Recorder
 
         config = MagicMock(
@@ -199,42 +124,26 @@ class TestLatencyLow:
         )
         r = Recorder(config)
 
-        # ``restart_stream`` resolves the device and rate through the
-        # real ``DeviceManager`` (``config.microphone=None`` → OS default).
         r._current_callback = MagicMock(name="_current_callback")
 
         attempts = _install_fake_input_stream(dh_module, monkeypatch)
 
         # ``restart_stream`` runs INSIDE ``_stream_lifecycle_lock`` —
-        # acquire it for realism (the production caller does this).
         with r._stream_lifecycle_lock:
             DisconnectHandler(r).restart_stream(_captured_generation=0)
 
         assert len(attempts) == 1, f"exactly one hot-restart InputStream attempt expected; got {len(attempts)}"
         kwargs = attempts[0]
-        # latency='low' on the hot-restart path too.
         assert kwargs.get("latency") == "low", (
             f"DisconnectHandler.restart_stream must pass latency='low'; got kwargs={kwargs}"
         )
 
 
-# ── ring buffer capacity scales with sample rate ──────────────
-
-
 class TestRingBufferScaling:
-    """``start_recording`` resizes the SPSC ring buffer to ~2 s
-    of headroom at the device's effective sample rate, floored at 64
-    chunks. The pre-fix capacity was 1.0 s with floor 16 (sized by
-    ``session_state._resize_buffers_for_sample_rate``); the override in
-    ``start_recording`` supersedes that."""
+    """``start_recording`` resizes the SPSC ring buffer to ~2 s"""
 
     def _build_recorder_for_start(self, *, effective_sr: int) -> MagicMock:
-        """Build a MagicMock recorder suitable for ``start_recording``.
-
-        Mirrors ``_build_mock_recorder`` in ``test_recorder_split_start.py``
-        but kept local. ``_ring_buffer`` is a real ``collections.deque``
-        so we can assert on ``maxlen`` after ``start_recording`` runs.
-        """
+        """Build a MagicMock recorder suitable for ``start_recording``."""
         import collections
 
         recorder = MagicMock(name="recorder")
@@ -250,15 +159,12 @@ class TestRingBufferScaling:
         recorder._stream_lifecycle.open_stream_for_candidates.return_value = (5, effective_sr, None)
         recorder._stream_lifecycle._stream = MagicMock(name="opened-stream")
         # Real ring buffer so we can assert on maxlen (pre-state sized
-        # with the rate-scaled chunk math the production resize uses).
         from voice_typer.server._audio_constants import scaled_audio_blocksize
 
         recorder._ring_buffer = collections.deque(
             maxlen=max(64, int(effective_sr / scaled_audio_blocksize(effective_sr) * 2.0))
         )
         # Real scalars: ``start_recording`` calls the module-level
-        # ``refresh_vad_caches(recorder)`` (vad_helpers) which compares
-        # these against SILERO_VAD_SAMPLE_RATES.
         recorder._audio_pipeline._buffer_sr = None
         recorder._effective_sr = effective_sr
         # ``_recording_event`` must be a real Event so ``is_set()`` works.
@@ -268,14 +174,7 @@ class TestRingBufferScaling:
         return recorder
 
     def test_48khz_ring_buffer_capacity_is_2s_with_floor_64(self):
-        """At 48 kHz the stream delivers rate-scaled ~32 ms chunks
-          (1536 samples each), so ``int(48000 / 1536 * 2.0) = 62`` chunks
-        , below the floor of 64, and the floor kicks in: 64 chunks ×
-          1536 / 48000 ≈ 2.048 s. The ~2 s DURATION contract holds at
-          every native rate; the chunk count is rate-invariant by design
-          of the scaled blocksize (a fixed-512 capacity computation would
-          over-allocate the chunk count ~3× at 48 kHz).
-        """
+        """At 48 kHz the stream delivers rate-scaled ~32 ms chunks"""
         from voice_typer.server.recording._recorder_split import start_recording
 
         recorder = self._build_recorder_for_start(effective_sr=48000)
@@ -296,15 +195,7 @@ class TestRingBufferScaling:
         assert actual_maxlen * scaled_audio_blocksize(48000) / 48000 >= 2.0
 
     def test_16khz_ring_buffer_capacity_floors_at_64(self):
-        """At 16 kHz / 512-sample blocks, ``int(16000 / 512 * 2.0) = 62``
-        which is BELOW the floor of 64. The floor must kick in so a
-        16 kHz device still gets ~2 s of headroom (64 × 512 / 16000 =
-        2.048 s).
-
-        Pre-fix: ``_resize_buffers_for_sample_rate`` (in
-        ``session_state.py``) sized the ring to 1.0 s = 31 chunks
-        (floored at 16). The override floors at 64 instead.
-        """
+        """At 16 kHz / 512-sample blocks, ``int(16000 / 512 * 2.0) = 62``"""
         from voice_typer.server.recording._recorder_split import start_recording
 
         recorder = self._build_recorder_for_start(effective_sr=16000)
@@ -318,8 +209,7 @@ class TestRingBufferScaling:
         )
 
     def test_8khz_ring_buffer_capacity_floors_at_64(self):
-        """At 8 kHz (Bluetooth HFP), ``int(8000 / 512 * 2.0) = 31``
-        which is well below the floor. The floor must still kick in."""
+        """At 8 kHz (Bluetooth HFP), ``int(8000 / 512 * 2.0) = 31``"""
         from voice_typer.server.recording._recorder_split import start_recording
 
         recorder = self._build_recorder_for_start(effective_sr=8000)
@@ -332,11 +222,7 @@ class TestRingBufferScaling:
         )
 
     def test_ring_buffer_reassignment_clears_stale_chunks(self):
-        """when ``start_recording`` reassigns the ring buffer,
-        any stale chunks from a prior session MUST be evicted (the new
-        deque is empty). The zeroing of the dropped
-        arrays happens before the reassignment (mirrors
-        ``disconnect_handler.py:329-333``)."""
+        """when ``start_recording`` reassigns the ring buffer,"""
         import collections
 
         import numpy as np
@@ -357,55 +243,36 @@ class TestRingBufferScaling:
         assert len(recorder._ring_buffer) == 0, (
             "stale ring buffer chunks must be cleared on start_recording reassignment."
         )
-        # the stale array was zeroed before the deque
-        # reference was dropped (so the user's voice data doesn't
-        # linger in process memory until GC).
         assert float(stale_arr.max()) == 0.0, "stale ring buffer chunk must be zeroed before reassignment."
 
 
-# ── teardown_stream_body force=True uses stream.abort() ────────
-
-
 class TestForceTeardownUsesAbort:
-    """``teardown_stream_body(force=True)`` (the disconnect-recovery
-    path) calls ``stream.abort()`` instead of ``stream.stop()`` so a
-    dead device can't block the recovery critical path indefinitely.
-    The CLEAN path (``force=False``, the default) keeps
-    ``stream.stop()`` for graceful drain."""
+    """``teardown_stream_body(force=True)`` (the disconnect-recovery"""
 
     def test_force_true_calls_abort_not_stop(self):
-        """``force=True`` must call ``stream.abort()`` and NOT
-        ``stream.stop()``. ``stream.close()`` is still called and
-        ``_stream`` is cleared."""
+        """``force=True`` must call ``stream.abort()`` and NOT"""
         recorder = _make_stream_lifecycle_recorder_stub()
         fake_stream = MagicMock(name="fake_stream")
         recorder._is_in_audio_callback.clear()
         lifecycle = StreamLifecycle(recorder)
         # STATE-OWNERSHIP: set the stream on the OWNING lifecycle
-        # (after construction, the stub's auto-mock ``_stream_lifecycle``
-        # is not the real collaborator).
         lifecycle._stream = fake_stream
 
         lifecycle.teardown_stream_body(recorder, force=True)
 
-        # abort() called, stop() NOT called.
         fake_stream.abort.assert_called_once_with()
         fake_stream.stop.assert_not_called()
-        # close() still called so PortAudio resources are freed.
         fake_stream.close.assert_called_once_with()
         # _stream cleared so the next start() opens a fresh stream.
         assert lifecycle._stream is None
 
     def test_force_false_default_calls_stop_not_abort(self):
-        """The default ``force=False`` path keeps ``stream.stop()``
-        for graceful drain. ``abort()`` is NOT called."""
+        """The default ``force=False`` path keeps ``stream.stop()``"""
         recorder = _make_stream_lifecycle_recorder_stub()
         fake_stream = MagicMock(name="fake_stream")
         recorder._is_in_audio_callback.clear()
         lifecycle = StreamLifecycle(recorder)
         # STATE-OWNERSHIP: set the stream on the OWNING lifecycle
-        # (after construction, the stub's auto-mock ``_stream_lifecycle``
-        # is not the real collaborator).
         lifecycle._stream = fake_stream
 
         # Default, force=False.
@@ -418,26 +285,19 @@ class TestForceTeardownUsesAbort:
         assert lifecycle._stream is None
 
     def test_force_true_suppresses_abort_exception(self):
-        """on the force path, an ``abort()`` failure (e.g. the
-        stream is already in a PortAudio error state) MUST be
-        suppressed so the recovery can still call ``close()`` and
-        clear ``_stream``. The device is already gone, propagating
-        the exception would block the disconnect-recovery critical path."""
+        """stream is already in a PortAudio error state) MUST be"""
         recorder = _make_stream_lifecycle_recorder_stub()
         fake_stream = MagicMock(name="fake_stream")
         fake_stream.abort.side_effect = OSError("PortAudio: stream not running")
         recorder._is_in_audio_callback.clear()
         lifecycle = StreamLifecycle(recorder)
         # STATE-OWNERSHIP: set the stream on the OWNING lifecycle
-        # (after construction, the stub's auto-mock ``_stream_lifecycle``
-        # is not the real collaborator).
         lifecycle._stream = fake_stream
 
         # Must NOT raise, the abort failure is suppressed.
         lifecycle.teardown_stream_body(recorder, force=True)
 
         fake_stream.abort.assert_called_once_with()
-        # close() still attempted (best-effort on the force path).
         fake_stream.close.assert_called_once_with()
         # _stream still cleared so the next start() opens a fresh stream.
         assert lifecycle._stream is None, (
@@ -445,16 +305,13 @@ class TestForceTeardownUsesAbort:
         )
 
     def test_force_true_suppresses_close_exception(self):
-        """on the force path, a ``close()`` failure is also
-        suppressed. ``_stream`` is always cleared."""
+        """on the force path, a ``close()`` failure is also"""
         recorder = _make_stream_lifecycle_recorder_stub()
         fake_stream = MagicMock(name="fake_stream")
         fake_stream.close.side_effect = OSError("close boom")
         recorder._is_in_audio_callback.clear()
         lifecycle = StreamLifecycle(recorder)
         # STATE-OWNERSHIP: set the stream on the OWNING lifecycle
-        # (after construction, the stub's auto-mock ``_stream_lifecycle``
-        # is not the real collaborator).
         lifecycle._stream = fake_stream
 
         # Must NOT raise, the close failure is suppressed on force path.
@@ -466,18 +323,13 @@ class TestForceTeardownUsesAbort:
         assert lifecycle._stream is None
 
     def test_force_false_close_exception_propagates(self):
-        """The CLEAN path (``force=False``) propagates ``close()``
-        exceptions, preserves the previously behavior pinned by
-        ``test_close_exception_propagates`` in
-        ``test_stream_lifecycle_module.py``."""
+        """The CLEAN path (``force=False``) propagates ``close()``"""
         recorder = _make_stream_lifecycle_recorder_stub()
         fake_stream = MagicMock(name="fake_stream")
         fake_stream.close.side_effect = OSError("close boom")
         recorder._is_in_audio_callback.clear()
         lifecycle = StreamLifecycle(recorder)
         # STATE-OWNERSHIP: set the stream on the OWNING lifecycle
-        # (after construction, the stub's auto-mock ``_stream_lifecycle``
-        # is not the real collaborator).
         lifecycle._stream = fake_stream
 
         with pytest.raises(OSError, match="close boom"):
@@ -486,8 +338,7 @@ class TestForceTeardownUsesAbort:
         fake_stream.stop.assert_called_once_with()
 
     def test_force_true_returns_immediately_when_stream_is_none(self):
-        """Idempotent: ``force=True`` with no stream is a no-op
-        (mirrors the ``force=False`` idempotency contract)."""
+        """Idempotent: ``force=True`` with no stream is a no-op"""
         recorder = _make_stream_lifecycle_recorder_stub()
         # ``_stream`` is None by default in the stub.
         lifecycle = StreamLifecycle(recorder)
@@ -498,15 +349,7 @@ class TestForceTeardownUsesAbort:
         assert lifecycle._stream is None
 
     def test_handle_device_disconnect_passes_force_true(self, monkeypatch):
-        """``Recorder._handle_device_disconnect`` must call
-        ``self._teardown_stream(force=True)`` so the dead device
-        doesn't block the recovery critical path on ``stream.stop()``.
-
-        Source-inspection: the ``force=True`` literal must appear in
-        ``_handle_device_disconnect`` source (otherwise a future
-        refactor could silently drop back to ``stop()`` and reintroduce
-        the indefinite-block).
-        """
+        """``Recorder._handle_device_disconnect`` must call"""
         import inspect
 
         from voice_typer.server.recording.recorder import Recorder
@@ -519,9 +362,7 @@ class TestForceTeardownUsesAbort:
         )
 
     def test_teardown_stream_body_signature_has_force_kwarg(self):
-        """``teardown_stream_body`` must accept a ``force``
-        keyword-only argument (default ``False``) so the
-        ``_handle_device_disconnect`` call site can opt in."""
+        """``teardown_stream_body`` must accept a ``force``"""
         import inspect
 
         sig = inspect.signature(StreamLifecycle.teardown_stream_body)
@@ -533,7 +374,6 @@ class TestForceTeardownUsesAbort:
             "keeps stream.stop()."
         )
         # Keyword-only (so callers can't accidentally pass it positionally
-        # and shadow the recorder arg).
         assert sig.parameters["force"].kind == inspect.Parameter.KEYWORD_ONLY, (
             "'force' must be keyword-only so the recorder arg stays positional."
         )

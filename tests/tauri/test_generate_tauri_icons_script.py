@@ -1,15 +1,4 @@
-"""Drift guards for the repeatable Tauri icon regeneration script.
-
-``scripts/build/generate_tauri_icons.py`` makes the committed icon set
-regenerable in one command: ``tauri icon`` → prune to the ``bundle.icon``
-set (read from ``tauri.conf.json``) → re-run the config ↔ git drift
-guard. Its ``--check`` mode is the CI drift gate (icons-drift job in
-build.yml): it regenerates into a temp dir and compares against the
-committed tree without touching it. These tests pin that wiring and
-unit-test the prune/validate/compare logic so a future refactor can't
-silently widen the shipped icon set (or drop a bundle icon) without
-failing here.
-"""
+"""Drift guards for the repeatable Tauri icon regeneration script."""
 
 from __future__ import annotations
 
@@ -20,16 +9,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = PROJECT_ROOT / "scripts" / "build" / "generate_tauri_icons.py"
 
-# ── Committed-state snapshots (read from the git object store) ──────────
-# The fixture builders below used to copy bytes from the LIVE working tree
-# (``src-tauri/icons/``, ``src-tauri/tauri.conf.json``). That raced with
-# ``test_gen_tauri_icons_stub.py``'s corrupt-writer tests, which
-# transiently overwrite the same committed files under their own module
-# lock (a lock this module does not hold), under ``pytest -n auto`` the
-# byte-compare fixtures then read half-written bytes and failed in
 # chunks (C-TEST-5 isolation). ``git show`` reads the object store, NOT
-# the working tree, so the snapshot is authoritative even when the tree
-# is dirty and immune to concurrent writers.
 
 
 def _git_show_bytes(repo_rel: str) -> bytes:
@@ -74,17 +54,7 @@ def _load_script():
 
 
 def _make_fake_icons_dir(tmp_path: Path, extras: list[str] | None = None) -> Path:
-    """A fake src-tauri/icons/ with the bundle icons + (optional) extras.
-
-    The bundle icons are COPIED from the committed real ``tauri icon``
-    output, read via ``git show`` (see the snapshot note at the top of
-    this module), NOT from the live working tree, so concurrent stub-
-    test corruption of ``src-tauri/icons/`` can never leak into these
-    fixtures. The prune/compare fixtures stay structurally identical to
-    production at the container level, not bare magic bytes. (The
-    compare tests byte-compare and mock the icns validator, so using
-    the real committed files keeps every assertion honest.)
-    """
+    """A fake src-tauri/icons/ with the bundle icons + (optional) extras."""
     icons = tmp_path / "icons"
     icons.mkdir()
     for name, data in _COMMITTED_ICON_BYTES.items():
@@ -116,14 +86,7 @@ def test_script_exists_and_documents_the_pipeline() -> None:
 
 
 def test_bundle_icon_paths_matches_committed_set(tmp_path) -> None:
-    """Reading tauri.conf.json yields exactly the 6 committed bundle icons.
-
-    The config is read from the committed snapshot (``git show``), not
-    the live working tree: ``test_gen_tauri_icons_stub.py`` temporarily
-    rewrites ``src-tauri/tauri.conf.json`` during its unsupported-
-    extension red-test, and reading the live file here would race with
-    that window under xdist.
-    """
+    """Reading tauri.conf.json yields exactly the 6 committed bundle icons."""
     mod = _load_script()
     conf = tmp_path / "tauri.conf.json"
     conf.write_bytes(_COMMITTED_TAURI_CONF_BYTES)
@@ -166,16 +129,8 @@ def test_prune_is_idempotent(tmp_path) -> None:
     assert sorted(p.name for p in icons.iterdir()) == before
 
 
-# ─── compare_icon_trees (the --check CI drift logic) ──────────────────────
-
-
 def test_compare_icon_trees_in_sync_returns_no_problems(tmp_path) -> None:
-    """Identical regenerated + committed trees report no drift.
-
-    ``icon.icns`` is byte-compared structurally (never byte-for-byte —
-    the generator emits non-deterministic icns bytes), and the preserved
-    ``tray/`` dir is excluded from the comparison.
-    """
+    """Identical regenerated + committed trees report no drift."""
     mod = _load_script()
     committed = _make_fake_icons_dir(tmp_path)
     regen_root = tmp_path / "regen"
@@ -212,8 +167,7 @@ def test_compare_icon_trees_reports_missing_and_extra(tmp_path) -> None:
 
 
 def test_compare_icon_trees_validates_icns_structurally_not_by_bytes(tmp_path) -> None:
-    """ICNS is compared structurally; different bytes are NOT drift, an
-    invalid container is."""
+    """ICNS is compared structurally; different bytes are NOT drift, an"""
     mod = _load_script()
     committed = _make_fake_icons_dir(tmp_path)
     regen_root = tmp_path / "regen"

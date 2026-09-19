@@ -1,31 +1,4 @@
-"""DJ-49: multi-process log race: prewarm + main must write different files.
-
-Python's :class:`logging.handlers.RotatingFileHandler` is NOT
-multi-process safe. When both the main backend and the detached
-prewarm scheduled task open the SAME ``voice-typer.log`` file,
-concurrent ``stream.write(msg + terminator)`` calls can interleave
-(lines split mid-write), and the rotation race is worse: both
-processes stat the file at >5 MiB, both call ``os.rename``, the
-second rename fails silently, and the second process then re-opens
-the original file in write mode, **truncating the log mid-session**.
-
-The fix in :func:`voice_typer.server.log.setup_logging` adds a
-``process_name`` parameter (default ``"main"``). When the prewarm
-process passes ``process_name="prewarm"`` the rotating file handler
-writes to ``<config_dir>/prewarm.log`` instead of the shared
-``<config_dir>/voice-typer.log``. This eliminates the race
-because the two processes never share a file descriptor on the same
-file.
-
-These tests assert:
-
-1. ``setup_logging(config_dir)`` (default ``process_name="main"``)
-   writes to ``<config_dir>/voice-typer.log``.
-2. ``setup_logging(config_dir, process_name="prewarm")`` writes to
-   ``<config_dir>/prewarm.log``, a DIFFERENT path.
-3. ``get_log_file_path`` mirrors the same disambiguation.
-4. The two paths are NOT equal (the core race-elimination invariant).
-"""
+"""DJ-49: multi-process log race: prewarm + main must write different files."""
 
 from __future__ import annotations
 
@@ -49,11 +22,7 @@ def _flush_handlers() -> None:
 
 
 def test_main_process_writes_to_voice_typer_log(tmp_path: Path) -> None:
-    """Default ``process_name="main"`` writes to ``voice-typer.log``.
-
-    This is the historical path, preserved so existing tests, log
-    viewers, and operators that grep ``voice-typer.log`` keep working.
-    """
+    """Default ``process_name=\"main\"`` writes to ``voice-typer.log``."""
     reset()
     config_dir = tmp_path / "cfg"
     config_dir.mkdir()
@@ -75,12 +44,7 @@ def test_main_process_writes_to_voice_typer_log(tmp_path: Path) -> None:
 
 
 def test_prewarm_process_writes_to_prewarm_log(tmp_path: Path) -> None:
-    """``process_name="prewarm"`` writes to ``prewarm.log``.
-
-    This is the DJ-49 fix, the prewarm process gets its own file so
-    the shared RotatingFileHandler is never opened by two processes
-    at once.
-    """
+    """``process_name=\"prewarm\"`` writes to ``prewarm.log``."""
     reset()
     config_dir = tmp_path / "cfg"
     config_dir.mkdir()
@@ -106,12 +70,7 @@ def test_prewarm_process_writes_to_prewarm_log(tmp_path: Path) -> None:
 
 
 def test_main_and_prewarm_paths_are_disjoint(tmp_path: Path) -> None:
-    """The two process_name values resolve to DIFFERENT file paths.
-
-    This is the invariant that eliminates the multi-process race —
-    if the two paths were ever equal, both processes would open the
-    same file descriptor and the race would re-emerge.
-    """
+    """The two process_name values resolve to DIFFERENT file paths."""
     config_dir = tmp_path / "cfg"
     config_dir.mkdir()
 
@@ -127,12 +86,7 @@ def test_main_and_prewarm_paths_are_disjoint(tmp_path: Path) -> None:
 
 
 def test_get_log_file_path_defaults_to_main(tmp_path: Path) -> None:
-    """``get_log_file_path(config_dir)`` defaults to ``voice-typer.log``.
-
-    Preserves the historical behaviour for the in-app log viewer
-    (G4-L-19) and any other caller that does not pass
-    ``process_name``.
-    """
+    """``get_log_file_path(config_dir)`` defaults to ``voice-typer.log``."""
     config_dir = tmp_path / "cfg"
     default_path = get_log_file_path(config_dir)
     explicit_main_path = get_log_file_path(config_dir, process_name="main")
@@ -144,14 +98,7 @@ def test_get_log_file_path_defaults_to_main(tmp_path: Path) -> None:
 def test_get_log_file_path_unknown_process_name_falls_back_to_main(
     tmp_path: Path,
 ) -> None:
-    """An unrecognised ``process_name`` falls back to the main log path.
-
-    This is defensive, the only two valid values today are ``"main"``
-    and ``"prewarm"``, but if a future caller passes a typo or an
-    unrecognised name, the safest fallback is the well-known main log
-    path (rather than crashing or silently writing to a strange
-    filename).
-    """
+    """An unrecognised ``process_name`` falls back to the main log path."""
     config_dir = tmp_path / "cfg"
     unknown_path = get_log_file_path(config_dir, process_name="renderer")
     main_path = get_log_file_path(config_dir, process_name="main")

@@ -1,31 +1,6 @@
-"""Regression tests for the recording-pipeline refactor (WAVE3-A00).
-
-Pins the REC-1 / REC-2 / REC-8 contracts that were lost when
-``Recorder.start`` / ``stop`` / ``discard`` were extracted into
-``voice_typer/server/recording/_recorder_split.py`` (Phase 4.5
-god-module split). The contracts are:
-
+"""
+Regression tests for the recording-pipeline refactor (WAVE3-A00).
 * REC-1: ``_stop_audio_worker`` must NOT clear the stop event or null
-  ``_worker_thread`` when the worker is still alive after the join
-  timeout (the stale worker would resume looping on the ring buffer,
-  and the next ``_start_audio_worker`` would spawn a duplicate).
-  ``_start_audio_worker`` must detect the stale-alive case and create
-  fresh stop/wake events (so the dying worker keeps its set stop event
-  and the new worker gets cleared events) plus start a fresh worker
-  thread (the stale one exits on its next iteration).
-
-* REC-2: ``Recorder.start`` must roll back (tear down the PortAudio
-  stream + stop the audio worker + clear ``_recording_event`` + bump
-  ``_stop_generation``) when ``_start_audio_worker`` or
-  ``_start_event_worker`` raises, so the stream does not leak.
-
-* REC-8: ``_buffer.clear()`` and the ``_buffer`` rebind
-  (``recorder._audio_pipeline._buffer = collections.deque(...)``) must be wrapped in
-  ``with recorder._audio_pipeline._lock:`` at every site that performs them
-  (``discard_recording``, ``stop_recording``).
-
-These tests run on every platform (the production code paths are
-platform-neutral; the PortAudio stream is mocked).
 """
 
 from __future__ import annotations
@@ -65,9 +40,7 @@ def _patch_ok_stream(monkeypatch, recording_mod):
 
 
 class TestRec1StaleWorkerGuardWrapper:
-    """REC-1 contract pinned at the ``Recorder._start_audio_worker`` /
-    ``_stop_audio_worker`` wrapper layer (the collaborator
-    ``capture.py`` does NOT enforce this, the wrapper restores it)."""
+    """REC-1 contract pinned at the ``Recorder._start_audio_worker`` /"""
 
     def test_stop_keeps_stop_event_and_thread_when_still_alive(self):
         from voice_typer.server.recording import Recorder
@@ -127,9 +100,7 @@ class TestRec1StaleWorkerGuardWrapper:
 
 
 class TestRec2RollbackOnWorkerStartFailure:
-    """REC-2 contract: ``Recorder.start`` must roll back the PortAudio
-    stream + audio worker when ``_start_audio_worker`` or
-    ``_start_event_worker`` raises, so the stream does not leak."""
+    """REC-2 contract: ``Recorder.start`` must roll back the PortAudio"""
 
     def test_start_rolls_back_stream_when_audio_worker_raises(self, monkeypatch):
         import voice_typer.server.recording as recording_mod
@@ -190,8 +161,6 @@ class TestRec2RollbackOnWorkerStartFailure:
             raise MemoryError("simulated OOM in event worker start")
 
         # ``start_recording`` starts the event worker via
-        # ``recorder._capture.start_event_worker_body(recorder)``; the
-        # REC-2 rollback path catches the raise there.
         monkeypatch.setattr(r._capture, "start_event_worker_body", raising_event_worker)
         gen_before = r._stop_generation
 
@@ -209,8 +178,7 @@ class TestRec2RollbackOnWorkerStartFailure:
 
 
 class TestRec8BufferOpsLockContract:
-    """REC-8: the buffer-clear / buffer-rebind operations must be wrapped
-    in ``with recorder._audio_pipeline._lock:`` at every site that performs them."""
+    """REC-8: the buffer-clear / buffer-rebind operations must be wrapped"""
 
     def test_discard_recording_locks_buffer_rebind(self):
         import inspect

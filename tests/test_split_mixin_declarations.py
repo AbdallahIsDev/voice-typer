@@ -1,20 +1,4 @@
-"""Structural pin: split-package mixins must declare their host-provided
-members.
-
-The pyrefly floor is a COUNT gate, a fresh error in a split-package
-mixin can hide under the floor (exactly the stale-headroom failure
-mode this session fixed: 84 native_hotkeys + 19 microphone_watcher
-errors rode silently under the stale floor). This test pins the
-source-level fix itself: every
-mixin that reads composed-class state must carry the annotation-only
-host-provided declarations (and, for cross-mixin methods, the
-TYPE_CHECKING-only stubs) that make those reads type-check. Deleting
-the declarations re-introduces the missing-attribute errors under the
-floor's headroom, this test catches that immediately, without
-running pyrefly.
-
-Runs on any platform (pure AST inspection, no pyrefly dependency).
-"""
+"""Structural pin: split-package mixins must declare their host-provided"""
 
 from __future__ import annotations
 
@@ -199,12 +183,9 @@ def test_mixin_type_checking_stubs_present() -> None:
 
 
 def test_linux_default_device_callback_none_guarded() -> None:
-    """_on_default_device_changed must be None-guarded before the call.
-
+    """
+    _on_default_device_changed must be None-guarded before the call.
     Pins the real bug fix from the wave-3 reconcile: the Linux mixin
-    called the optional callback unguarded, so an unregistered callback
-    raised TypeError (caught and logged at EXCEPTION level by the
-    surrounding handler) instead of being a clean no-op.
     """
     src = (REPO_ROOT / "voice_typer/server/microphone_watcher/_linux.py").read_text(encoding="utf-8")
     # The guarded shape: local binding + None check before the call.

@@ -1,28 +1,4 @@
-"""CR-8 regression tests: the predecessor-era event name renamed to ``notification``.
-
-The Python sidecar used to publish the toast/notification event under a
-predecessor-only name (a leftover from the retired host era). The
-Tauri Rust host then renamed it to ``notification`` via a single ``match``
-arm with no fallback. CR-8 fixes the naming inconsistency at the source:
-Python now publishes under the platform-agnostic ``notification`` name
-directly, and the Rust-side rename was removed (with a backward-compat
-alias for rolling upgrades: see ``src-tauri/src/main.rs`` +
-``docs/migration/tauri-sidecar-bridge.md``).
-
-These tests pin the new contract:
-- ``_handle_show_notification`` (system_handlers.py) MUST publish
-  with ``type == "notification"``.
-- ``StartupSequence.run()`` crash-recovery branch (startup_sequence.py)
-  MUST publish with ``type == "notification"`` when a crash summary exists.
-- The predecessor-era event name MUST NOT appear in the
-  published event payloads of either path.
-
-The tests are HEADLESS: they build a bare ``IPCServer`` via the
-``make_bare_ipc_server`` factory (``tests/fixtures/ipc_test_helpers.py``)
-and patch ``event_bus.publish`` to capture the published event without
-needing a real ``VoiceTyperApp`` or tray. ``StartupSequence`` is invoked
-with a mock app + mocked ``crash_handler.report_pending_crash``.
-"""
+"""regression tests: the predecessor-era event name renamed to ``notification``."""
 
 from __future__ import annotations
 
@@ -32,31 +8,12 @@ import pytest
 
 from tests.fixtures.ipc_test_helpers import make_bare_ipc_server
 
-# ─── system_handlers._handle_show_notification ───────────────────
-
 
 class TestShowNotificationEventName:
-    """``_handle_show_notification`` publishes ``notification``.
-
-    NOTE: ``show_notification`` was deliberately de-registered
-    from ``_COMMAND_REGISTRY`` (it is not in the TS / Rust renderer
-    allowlists), the Python-side handler is retained for direct tests
-    per the CHANGELOG convention ("The Python-side ``_handle_*`` methods
-    are retained (tests still call them directly)"). These tests
-    therefore invoke the handler directly rather than routing through
-    ``IPCServer._dispatch``, which would return an unknown-command
-    error.
-    """
+    """``_handle_show_notification`` publishes ``notification``."""
 
     def test_published_event_type_is_notification(self):
-        """A well-formed payload must publish ``type == "notification"``.
-
-        This is the core CR-8 assertion: the event name on the wire is
-        the platform-agnostic ``notification``, NOT the predecessor-era
-        name. The Tauri Rust host no longer renames
-        the event (see ``src-tauri/src/main.rs``), so this is the
-        canonical name that reaches the renderer.
-        """
+        """A well-formed payload must publish ``type == \"notification\"``."""
         server = make_bare_ipc_server()
         captured: dict = {}
         resp: dict = {}
@@ -79,10 +36,7 @@ class TestShowNotificationEventName:
         )
 
     def test_published_payload_carries_canonical_event_name(self):
-        """The published event payload uses the canonical name.
-
-        Belt-and-braces check: the ``type`` field is ``notification``.
-        """
+        """The published event payload uses the canonical name."""
         server = make_bare_ipc_server()
         captured: dict = {}
         resp: dict = {}
@@ -130,51 +84,27 @@ class TestShowNotificationEventName:
         assert captured["data"]["critical"] is False
 
 
-# ─── startup_sequence.StartupSequence.run() crash branch ──────────────────
-
-
 class TestStartupSequenceCrashNotificationEventName:
     """the crash-recovery startup branch publishes ``notification``."""
 
     def _make_app_with_crash_summary(self, crash_summary: str):
-        """Build a mock VoiceTyperApp sufficient for ``StartupSequence.run``
-        to reach the crash-notification publish branch.
-
-        The branch is gated on ``crash_summary`` being truthy (returned
-        by ``crash_handler.report_pending_crash``) AND the previous
-        session having ended abnormally (``session_state.
-        was_previous_session_abnormal``, pinned in ``session_state.py``).
-        We patch those so we don't depend on a real crash file or session
-        marker existing on disk. We also stub ``app.tray.notify_safety``
-        (best-effort tray toast) and ``app._shutting_down`` (so the
-        sequence aborts right after the crash branch, we don't need to
-        run the rest of startup).
-        """
+        """Build a mock VoiceTyperApp sufficient for ``StartupSequence.run``"""
         app = MagicMock()
         app._shutting_down = True  # abort run() right after the crash branch
-        # StartupSequence also checks _shutting_down_event (Event) in
-        # some phases; provide it so the abort is deterministic even if
-        # the implementation switches to the Event gate.
         mock_event = MagicMock()
         mock_event.is_set.return_value = True
         app._shutting_down_event = mock_event
         app.tray = MagicMock()
         app.tray.notify_safety = MagicMock()
         # Minimal config stub so later phases that read config don't
-        # explode before the abort check; not used in the crash branch.
         app.config = MagicMock()
         app.config.config_dir = MagicMock(return_value=MagicMock())
         return app
 
     def test_crash_branch_publishes_notification_event(self):
-        """When ``report_pending_crash`` returns a summary AND the previous
-        session ended abnormally (session marker survived),
-        ``StartupSequence.run()`` must publish ``type == "notification"``
-        with calm user-facing copy (no technical crash details).
-
+        """
+        When ``report_pending_crash`` returns a summary AND the previous
         This pins the rename in the second call site
-        (``startup_sequence.py``). The original code published the
-        predecessor-era name; CR-8 renamed it to ``notification``.
         """
         from voice_typer.server import startup_sequence
 
@@ -196,8 +126,6 @@ class TestStartupSequenceCrashNotificationEventName:
             patch("voice_typer.server.config._config_dir", return_value=MagicMock()),
         ):
             # Call only the crash-diagnostics phase directly to avoid
-            # the _shutting_down abort in later phases; this isolates the
-            # publish assertion from unrelated startup logic.
             seq = startup_sequence.StartupSequence(app)
             seq._phase_2_crash_diagnostics()
 
@@ -210,14 +138,12 @@ class TestStartupSequenceCrashNotificationEventName:
         assert evt["data"]["critical"] is True
         assert evt["data"]["duration_ms"] == 15000
         # CRASH-NOTIFY: the notification carries calm user-facing copy —
-        # never the raw crash summary / technical details.
         message = evt["data"]["message"]
         assert "didn't close properly" in message
         assert "Settings" in message
         assert "heap corruption" not in message
         assert "python scripts" not in message
         # Clicking the toast opens Settings (Diagnostics), the user's
-        # clear next action, no terminal required.
         assert evt["data"].get("click_path") == "/settings"
         # The tray toast gets the same calm copy (title = app name only).
         app.tray.notify_safety.assert_called_once()
@@ -226,11 +152,7 @@ class TestStartupSequenceCrashNotificationEventName:
         assert tray_body == message
 
     def test_crash_branch_suppresses_when_previous_session_clean(self):
-        """Crash files + a CLEAN previous shutdown (no session marker)
-        must NOT publish a notification, teardown-noise ``python_crash``
-        markers from a clean quit / backend restart are not crashes.
-        This is the core false-positive fix.
-        """
+        """Crash files + a CLEAN previous shutdown (no session marker)"""
         from voice_typer.server import startup_sequence
 
         app = self._make_app_with_crash_summary("should-not-reach")
@@ -259,10 +181,7 @@ class TestStartupSequenceCrashNotificationEventName:
         app.tray.notify_safety.assert_not_called()
 
     def test_crash_branch_does_not_publish_when_no_crash(self):
-        """Sanity: if ``report_pending_crash`` returns ``None`` (no prior
-        crash), the startup sequence must NOT publish any notification
-        event. Guards against accidentally always-publishing.
-        """
+        """Sanity: if ``report_pending_crash`` returns ``None`` (no prior"""
         from voice_typer.server import startup_sequence
 
         app = self._make_app_with_crash_summary("should-not-reach")
@@ -284,28 +203,8 @@ class TestStartupSequenceCrashNotificationEventName:
         assert captured == [], f"no notification event should be published when crash_summary is None, got {captured!r}"
 
 
-# ─── source-string guard (cheap refactor-resistance) ─────────────────────
-
-
 class TestNoLegacyEventNameInSource:
-    """Static-source guard: the literal ``"the legacy notification event name"``
-    string MUST NOT appear in the published-event-type position of
-    ``system_handlers.py`` or ``startup_sequence.py``.
-
-    This catches accidental reintroduction during a future refactor
-    (e.g. someone copies the old name from a stale diff). It's a
-    complement to the behavioral tests above, the behavioral tests
-    pin the runtime contract; this pins the source-level intent.
-
-    NOTE: the literal ``the legacy notification event name`` MAY still appear in:
-      - ``system_handlers.py`` docstrings/comments (referencing the
-        legacy name for historical context),
-      - ``ipc_server.py::_COMMAND_REGISTRY`` as the COMMAND name
-        ``show_notification`` (a different namespace, the
-        command the renderer invokes, NOT the event the server emits),
-      - ADR / docs / migration notes.
-    We only forbid it as a ``"type"`` value in the publish call.
-    """
+    """Static-source guard: the literal ``\"the legacy notification event name\"``"""
 
     def test_system_handlers_publishes_canonical_event_name(self):
         import inspect
@@ -320,9 +219,6 @@ class TestNoLegacyEventNameInSource:
 
         from voice_typer.server import startup_sequence
 
-        # startup_sequence is a package (split by concern); concatenate
-        # every submodule source so the pin covers all publish sites
-        # (mirrors _read_ux018's directory handling in test_notifications.py).
         pkg_dir = Path(startup_sequence.__file__).parent
         src = "".join(p.read_text(encoding="utf-8") for p in sorted(pkg_dir.glob("*.py")))
         assert '"type": "notification"' in src, "startup_sequence must publish with type='notification'"

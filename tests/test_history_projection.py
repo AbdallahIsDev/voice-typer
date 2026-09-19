@@ -1,24 +1,4 @@
-"""TY-8: tests for the text-projection + on-demand full-text accessors.
-
-Verifies that ``get_recent`` / ``search`` / ``get_favorites`` return a
-500-char ``text`` preview plus ``text_truncated`` / ``text_full_length``
-fields, and that ``get_transcription_text(id)`` returns the FULL text
-for a single row.
-
-The 500-char projection keeps list responses under the 1 MiB WS frame
-cap (``sidecar_ws._MAX_FRAME_BYTES``). Without it, ~50 long-form
-dictations with ~10KB text each exceeded the cap and the response was
-SILENTLY DROPPED by the Tauri WS layer, the Dashboard's "Total
-Dictations" stat never updated.
-
-Test plan (from the TY-FIX-G task spec):
-  (a) insert 10 dictations with 2KB text each,
-  (b) call ``get_recent(limit=10)``,
-  (c) verify each row has ``text_truncated=True``,
-      ``text_full_length=2048``, ``text`` is 500 chars,
-  (d) call ``get_transcription_text(id)`` for one row,
-      verify full 2KB text returned.
-"""
+"""TY-8: tests for the text-projection + on-demand full-text accessors."""
 
 from __future__ import annotations
 
@@ -36,11 +16,7 @@ def db(tmp_path):
 
 
 def _make_long_text(size: int = 2048) -> str:
-    """Build a deterministic ``size``-char string for projection tests.
-
-    Uses a repeating pattern so we can verify the SUBSTR projection
-    returns exactly the first 500 chars (not just *any* 500 chars).
-    """
+    """Build a deterministic ``size``-char string for projection tests."""
     base = "abcdefghijklmnopqrstuvwxyz0123456789"
     repeats = (size // len(base)) + 1
     return (base * repeats)[:size]
@@ -50,9 +26,7 @@ class TestTextProjection:
     """``get_recent`` / ``search`` / ``get_favorites`` return projected text."""
 
     def test_get_recent_truncates_long_text_to_500_chars(self, db):
-        """TY-8: 10 dictations with 2KB text each → all rows have
-        ``text_truncated=True``, ``text_full_length=2048``, and
-        ``text`` is exactly 500 chars (the SUBSTR preview)."""
+        """TY-8: 10 dictations with 2KB text each → all rows have"""
         long_text = _make_long_text(2048)
         for _ in range(10):
             db.add_transcription(long_text)
@@ -74,8 +48,7 @@ class TestTextProjection:
             assert row["text"] == long_text[:500]
 
     def test_get_recent_does_not_truncate_short_text(self, db):
-        """TY-8: rows with text <= 500 chars have ``text_truncated=False``
-        and ``text_full_length`` matches the actual length."""
+        """TY-8: rows with text <= 500 chars have ``text_truncated=False``"""
         db.add_transcription("short text")
         db.flush()
 
@@ -87,11 +60,7 @@ class TestTextProjection:
         assert row["text"] == "short text"
 
     def test_get_recent_text_field_preserved_for_backward_compat(self, db):
-        """TY-8: existing callers that read ``row["text"]`` must still work.
-
-        The ``text`` field is preserved (as the preview) so legacy
-        callers see a shorter string but don't break.
-        """
+        """TY-8: existing callers that read ``row[\"text\"]`` must still work."""
         long_text = _make_long_text(2048)
         db.add_transcription(long_text)
         db.flush()
@@ -154,8 +123,7 @@ class TestGetTranscriptionText:
     """``get_transcription_text(id)`` returns the FULL text for one row."""
 
     def test_returns_full_text_for_long_row(self, db):
-        """TY-8 (d): for a 2KB-text row, ``get_transcription_text(id)``
-        returns the full 2KB text (not the 500-char preview)."""
+        """TY-8 (d): for a 2KB-text row, ``get_transcription_text(id)``"""
         long_text = _make_long_text(2048)
         db.add_transcription(long_text)
         db.flush()
@@ -180,14 +148,12 @@ class TestGetTranscriptionText:
         assert result["text"] == "short text"
 
     def test_returns_empty_text_for_missing_id(self, db):
-        """TY-8: a non-existent id returns ``{"id": id, "text": ""}`` —
-        the sentinel preserves the success-shape contract from ERR-013."""
+        """TY-8: a non-existent id returns ``{\"id\": id, \"text\": \"\"}`` —"""
         result = db.get_transcription_text(99999)
         assert result == {"id": 99999, "text": ""}
 
     def test_full_text_matches_preview_prefix(self, db):
-        """TY-8: the first 500 chars of the full text equal the
-        preview returned by ``get_recent``, no data was lost."""
+        """TY-8: the first 500 chars of the full text equal the"""
         long_text = _make_long_text(2048)
         db.add_transcription(long_text)
         db.flush()

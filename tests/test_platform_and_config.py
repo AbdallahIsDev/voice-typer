@@ -1,5 +1,4 @@
-"""Tests for platform detection, config directory, autostart, desktop quoting,
-and cross-platform behavior."""
+"""Tests for platform detection, config directory, autostart, desktop quoting,"""
 
 from __future__ import annotations
 
@@ -52,11 +51,7 @@ class TestDesktopQuoteFollowsFreedesktopSpec:
         assert result == '"path with \\`backtick\\`"'
 
     def test_newline_rejected(self):
-        """XZ-R6-AS-04: args containing a newline/carriage-return are
-        rejected with ValueError, a literal newline inside a quoted
-        Exec field would still terminate the line and inject a new
-        .desktop field, so no amount of quoting can make it safe.
-        """
+        """XZ-R6-AS-04: args containing a newline/carriage-return are"""
         from voice_typer.server.server_platform import _desktop_quote
 
         with pytest.raises(ValueError):
@@ -149,42 +144,16 @@ class TestTrayThreadAttributeNaming:
         assert "_bg_work_thread" not in tray_py
 
     def test_bg_thread_used_in_all_three_paths(self):
-        """All start paths funnel through the ``_launch_bg_work`` helper,
-        which is the single place that assigns ``self._bg_thread``.
-
-        Phase 6 refactor extracted the 4 near-duplicate
-        ``if self._bg_work_fn: threading.Thread(...).start()`` blocks
-        into ``_launch_bg_work()`` (daemon thread + store on
-        ``self._bg_thread``). The test pins the canonical attribute
-        name and the shared-launch shape: exactly one assignment site
-        for ``self._bg_thread`` and at least 3 callers of the helper
-        (the ``VOICE_TYPER_NO_TRAY``, Wayland-without-SNI, pystray
-        ``OSError``, and normal start paths).
-        """
+        """All start paths funnel through the ``_launch_bg_work`` helper,"""
         tray_py = (REPO_ROOT / "voice_typer" / "server" / "tray.py").read_text(encoding="utf-8")
         # The canonical thread attribute is assigned in exactly ONE place
-        # (the shared launch helper), no drift between paths.
         assert tray_py.count("self._bg_thread = threading.Thread") == 1
         # All start paths call the shared helper.
         assert tray_py.count("_launch_bg_work()") >= 3
 
 
 class TestPlatformChecksUseExactMatchNotStartswith:
-    """All platform checks use exact match, not startswith.
-
-    (Wave 3, 2026-08-14): the previous ``TestLinuxUnitDirHandlesEmptyXdgConfigHome``
-    (4 tests) and ``TestIoprioSetUsesSyscallNotLibcSymbol`` (2 tests)
-    classes were DELETED, they pinned helpers in the deleted
-    ``voice_typer.server.prewarm_scheduler_posix`` module
-    (``_linux_unit_dir``) and the deleted ``prewarm._lower_io_priority``
-    function. Prewarm became a worker startup phase (master plan §6.2
-    P-1), so the POSIX prewarm scheduler module + the IO-priority
-    syscall helper were removed. The ``test_no_startswith_linux_in_prewarm_scheduler``
-    test was deleted in lockstep (it inspected the deleted module's
-    source). The surviving ``test_no_startswith_linux_in_task_scheduler``
-    + ``test_no_startswith_linux_in_prewarm`` tests below remain valid
-    (both modules still exist).
-    """
+    """All platform checks use exact match, not startswith."""
 
     def test_no_startswith_linux_in_task_scheduler(self):
         from voice_typer.server import task_scheduler
@@ -253,26 +222,6 @@ class TestConsoleHandlerPythonw:
     """_install_win32_console_handler skips pythonw.exe."""
 
     def test_skipped_on_pythonw(self, monkeypatch):
-        # Phase 7: the pythonw skip lives in
-        # signal_handlers.install_win32_console_handler (the module-level
-        # function the ShutdownController delegate calls). Test the real
-        # skip path with a fake controller carrying a bare _app.
-        #
-        # (Wave 3, 2026-08-14): added a non-Windows skip guard. The
-        # production code's pythonw detection uses
-        # ``Path(sys.executable).name.lower()``, on a non-Windows host,
-        # ``PurePosixPath("C:\\Python312\\pythonw.exe").name`` returns
-        # the whole string (backslash is a regular char on POSIX), so
-        # the ``exe_name == "pythonw.exe"`` check NEVER fires and the
-        # function proceeds into the ``ctypes.windll`` branch (which
-        # raises ``AttributeError`` on non-Windows). The test monkey-
-        # patches ``sys.platform = "win32"`` but cannot make ``Path`` parse
-        # backslash as a separator, the underlying pythonw-skip
-        # invariant is only testable on a Windows host. The pre-existing
-        # failure (predates the FG session, confirmed via ``git stash``)
-        # is documented here so a future fix to ``signal_handlers.py``
-        # (e.g. switching to ``os.path.basename`` or ``PureWindowsPath``)
-        # can drop this skipif.
         from voice_typer.server import signal_handlers
 
         class _FakeApp:
@@ -300,11 +249,7 @@ class TestConsoleHandlerPythonw:
 
 
 class TestConfigDirIsPlatformAware:
-    """_config_dir() uses platform-aware paths.
-
-    Opted out of per-test config-dir isolation: these tests inspect
-    the REAL resolver's source. They never write.
-    """
+    """_config_dir() uses platform-aware paths."""
 
     pytestmark = pytest.mark.real_config_dir
 
@@ -348,11 +293,6 @@ class TestResetToDefaultsPreservesOnboardingCompleted:
     """Reset to Defaults preserves onboarding_completed."""
 
     def test_reset_skips_onboarding(self):
-        # resetToDefaults skips onboarding_completed via the hoisted
-        # CONFIG_PROTECTED_KEYS blocklist (excluded from factory reset).
-        # The reset implementation lives in the extracted
-        # pages/settings/hooks/useSettingsReset.ts hook; the guard
-        # follows the logic to its real home.
         reset_hook = (
             REPO_ROOT
             / "voice_typer"

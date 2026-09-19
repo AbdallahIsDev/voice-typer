@@ -1,29 +1,4 @@
 # Regression tests for POSIX single-instance enforcement.
-#
-# These tests verify that ``_ensure_single_instance_posix`` (and the
-# ``_ensure_single_instance`` dispatcher) correctly enforce single-instance
-# on macOS/Linux via an ``O_CREAT | O_EXCL`` lockfile at
-# ``<config_dir>/run/backend.lock`` with PID-based stale-lock recovery.
-#
-# Scenarios covered:
-#   (a) First-instance success, lock acquired, fd returned, PID file written.
-#   (b) Second-instance rejection, lockfile exists with an ALIVE PID;
-#       ``sys.exit(1)`` is called, lockfile is NOT unlinked.
-#   (c) Stale-lock recovery, lockfile exists with a DEAD PID; lockfile is
-#       unlinked and reclaimed, fd returned.
-#   (d) Retry-race failure, after stale recovery, the retry ``O_EXCL`` create
-#       also fails with EEXIST (another process raced us); ``sys.exit(1)``.
-#   (e) Unexpected OSError: ``os.open`` raises a non-EEXIST OSError;
-#       ``sys.exit(1)``.
-#   (f) Garbage PID in lockfile, treated as stale, reclaimed.
-#   (g) Dispatcher routing: ``_ensure_single_instance`` calls
-#       ``_ensure_single_instance_posix`` on non-Windows.
-#
-# The Windows mutex path is NOT exercised here (sandbox is Linux). See
-# ``tests/regressions/test_security.py::TestMutexAcquisitionHasRetryAndTimeout``
-# for the Windows source-string invariants.
-#
-# Run: python -m pytest tests/test_single_instance_posix.py -q --no-cov
 
 from __future__ import annotations
 
@@ -34,9 +9,6 @@ import os
 import pytest
 from voice_typer.server import single_instance as si_mod
 
-# ``fcntl`` is POSIX-only; skip the entire module on
-# Windows (the Windows mutex path is exercised in regressions/
-# test_security.py instead).
 pytest.importorskip("fcntl")
 import fcntl  # noqa: E402
 
@@ -44,42 +16,20 @@ from voice_typer.server._paths import RUN_SUBDIR  # noqa: E402
 
 
 def _lock_file(config_dir):
-    """Canonical lockfile path: ``<config_dir>/run/backend.lock``.
-
-    Mirrors ``_ensure_single_instance_posix``, which keeps transient
-    runtime state under the ``run/`` subdir of the config dir. The
-    parent directory is created eagerly so tests that pre-seed a
-    stale lockfile (or plant a symlink) have somewhere to put it.
-    """
+    """Canonical lockfile path: ``<config_dir>/run/backend.lock``."""
     lock = config_dir / RUN_SUBDIR / "backend.lock"
     lock.parent.mkdir(parents=True, exist_ok=True)
     return lock
 
 
-# ── Fixtures ───────────────────────────────────────────────────────────
-
-
 @pytest.fixture
 def isolated_config_dir(monkeypatch, tmp_path):
-    """Redirect ``_config_dir()`` to a tmp path so tests don't clobber
-    the real config dir.
-
-    ``_ensure_single_instance_posix`` and ``_write_backend_pid_file`` resolve
-    ``_config_dir`` at call time through the owning ``config`` module, so
-    monkeypatching ``voice_typer.server.config._config_dir`` before the
-    call is sufficient.
-    """
+    """Redirect ``_config_dir()`` to a tmp path so tests don't clobber"""
     from voice_typer.server import app as app_mod, config as config_mod
 
     # Redirect the OWNING module's binding (C-ARCH-2 canonical contract):
-    # ``_ensure_single_instance_posix`` and ``_backend_pid_file`` resolve
-    # ``_config_dir`` at call time through ``voice_typer.server.config``
-    # (config-dir resolution was moved off the app module). The app-module patch
-    # is kept for any legacy consumer still reading that binding.
     monkeypatch.setattr(config_mod, "_config_dir", lambda: tmp_path)
     monkeypatch.setattr(app_mod, "_config_dir", lambda: tmp_path)
-    # Also patch single_instance module's view (it imports lazily, but
-    # some tests may patch at the module level).
     monkeypatch.setattr(
         "voice_typer.server.single_instance._backend_pid_file",
         lambda: tmp_path / "backend.pid",
@@ -88,16 +38,9 @@ def isolated_config_dir(monkeypatch, tmp_path):
 
 
 def _cleanup_lock_fd(fd: int | None) -> None:
-    """Close a lock fd if open (best-effort).
-
-    Works with both raw ``int`` fds and ``_PosixSingleInstanceHandle``
-    instances (which subclass ``int``). Calls ``release()`` if the
-    handle exposes it, then falls back to ``os.close`` for safety.
-    """
+    """Close a lock fd if open (best-effort)."""
     if fd is None:
         return
-    # prefer the handle's ``release()`` method (idempotent,
-    # also unlinks the lockfile best-effort).
     release = getattr(fd, "release", None)
     if callable(release):
         try:
@@ -111,17 +54,7 @@ def _cleanup_lock_fd(fd: int | None) -> None:
 
 @contextlib.contextmanager
 def _hold_flock(lock_path):
-    """GT-41: Open ``lock_path`` and hold ``flock(LOCK_EX)`` for the
-    duration of the ``with`` block.
-
-    Used by ``TestSecondInstanceRejected`` to simulate a LIVE process
-    holding the lockfile's flock, which is what the new GT-41 logic
-    checks FIRST (before any PID liveness check). Pre-writing a PID
-    string into the lockfile is no longer enough to trigger the
-    duplicate-launch rejection, because ``flock`` is the authoritative
-    crash-safe primitive (the old PID-check-first behavior was the
-    PID-recycling false positive that GT-41 fixes).
-    """
+    """duration of the ``with`` block."""
     fd = os.open(str(lock_path), os.O_RDWR | os.O_CREAT, 0o600)
     try:
         fcntl.flock(fd, fcntl.LOCK_EX)
@@ -131,9 +64,6 @@ def _hold_flock(lock_path):
             fcntl.flock(fd, fcntl.LOCK_UN)
         with contextlib.suppress(OSError):
             os.close(fd)
-
-
-# ── (a) First-instance success ─────────────────────────────────────────
 
 
 class TestFirstInstanceAcquiresLock:
@@ -171,10 +101,7 @@ class TestFirstInstanceAcquiresLock:
             _cleanup_lock_fd(fd)
 
     def test_writes_backend_pid_file(self, isolated_config_dir):
-        """``backend.pid`` is also written (previously POSIX-only skipped this).
-
-        The autostart launcher's "backend running?" check reads this file.
-        """
+        """The autostart launcher's \"backend running?\" check reads this file."""
         fd = None
         try:
             fd = si_mod._ensure_single_instance_posix(silent=True)
@@ -186,11 +113,7 @@ class TestFirstInstanceAcquiresLock:
             _cleanup_lock_fd(fd)
 
     def test_lockfile_permissions_are_restricted(self, isolated_config_dir):
-        """The lockfile is created with mode 0o600 (owner read/write only).
-
-        This prevents another user on the same machine from racing the
-        O_EXCL create (e.g., on a shared /tmp config dir).
-        """
+        """The lockfile is created with mode 0o600 (owner read/write only)."""
         fd = None
         try:
             fd = si_mod._ensure_single_instance_posix(silent=True)
@@ -202,30 +125,11 @@ class TestFirstInstanceAcquiresLock:
             _cleanup_lock_fd(fd)
 
 
-# ── (b) Second-instance rejection (alive PID) ──────────────────────────
-
-
 class TestSecondInstanceRejected:
-    """Scenario (b): lockfile exists AND another process holds the flock
-    → ``sys.exit(1)``.
-
-    GT-41: the previous tests pre-wrote our own PID into the lockfile
-    and relied on ``_is_pid_alive`` returning True to trigger the
-    rejection. That path is now the FALLBACK (only taken when
-    ``os.open(O_RDWR)`` on the existing lockfile fails). The PRIMARY
-    rejection signal is now ``flock(LOCK_EX | LOCK_NB)`` failing with
-    ``EWOULDBLOCK``, which we simulate here by holding the flock on
-    another fd for the duration of the call.
-    """
+    """Scenario (b): lockfile exists AND another process holds the flock"""
 
     def test_exits_when_flock_held_by_another_process(self, isolated_config_dir):
-        """A live flock holder → SystemExit(1).
-
-        GT-41: ``flock`` is the authoritative crash-safe primitive.
-        Even though the PID in the lockfile may be our own (or a
-        recycled unrelated PID), if another process holds the flock
-        we must exit.
-        """
+        """A live flock holder → SystemExit(1)."""
         lock_file = _lock_file(isolated_config_dir)
         lock_file.write_text(f"{os.getpid()}\n")
         assert lock_file.exists()
@@ -249,8 +153,8 @@ class TestSecondInstanceRejected:
         assert lock_file.read_text() == original_content
 
     def test_does_not_write_backend_pid_file_on_rejection(self, isolated_config_dir):
-        """On duplicate-launch rejection, ``backend.pid`` is NOT overwritten.
-
+        """
+        On duplicate-launch rejection, ``backend.pid`` is NOT overwritten.
         We must not clobber the running instance's PID file.
         """
         lock_file = _lock_file(isolated_config_dir)
@@ -288,9 +192,6 @@ class TestSecondInstanceRejected:
 
         captured = capsys.readouterr()
         assert "already running" in captured.err.lower() or "only one instance" in captured.err.lower()
-
-
-# ── (c) Stale-lock recovery (dead PID) ─────────────────────────────────
 
 
 class TestStaleLockRecovery:
@@ -373,28 +274,17 @@ class TestStaleLockRecovery:
             _cleanup_lock_fd(fd)
 
 
-# ── (d) Retry-race failure ─────────────────────────────────────────────
-
-
 class TestRetryRaceFailure:
-    """Scenario (d): after stale recovery, the retry O_EXCL create also
-    fails with EEXIST (another process raced us between unlink and retry).
-
-    This is the "thundering herd" edge case: two launches both detect a
-    stale lock, both unlink it, and one wins the O_EXCL race. The loser
-    must exit cleanly with a duplicate-launch error.
-    """
+    """Scenario (d): after stale recovery, the retry O_EXCL create also"""
 
     def test_retry_eexist_exits_with_duplicate(self, isolated_config_dir, monkeypatch):
         """Both the first and retry O_EXCL creates fail with EEXIST → SystemExit(1)."""
         # Pre-create the lockfile with a dead PID so the first os.open
-        # raises EEXIST and we enter the stale-recovery path.
         bogus_pid = 2_000_000
         lock_file = _lock_file(isolated_config_dir)
         lock_file.write_text(f"{bogus_pid}\n")
 
         # Mock os.open to ALWAYS raise EEXIST for backend.lock (simulating
-        # another process winning the O_EXCL race after our unlink).
         real_os_open = os.open
 
         def fake_os_open(path, flags, mode=0o777, *args, **kwargs):
@@ -408,9 +298,6 @@ class TestRetryRaceFailure:
         with pytest.raises(SystemExit) as exc_info:
             si_mod._ensure_single_instance_posix(silent=True)
         assert exc_info.value.code == 1
-
-
-# ── (e) Unexpected OSError ─────────────────────────────────────────────
 
 
 class TestUnexpectedOSError:
@@ -433,9 +320,6 @@ class TestUnexpectedOSError:
         assert exc_info.value.code == 1
 
 
-# ── (g) Dispatcher routing ─────────────────────────────────────────────
-
-
 class TestDispatcherRouting:
     """Verify ``_ensure_single_instance`` dispatches to the POSIX helper on Linux."""
 
@@ -453,7 +337,6 @@ class TestDispatcherRouting:
         monkeypatch.setattr(si_mod, "_ensure_single_instance_posix", fake_posix)
 
         # Force is_windows() to return False (it already does on Linux,
-        # but be explicit so the test is deterministic on any platform).
         monkeypatch.setattr(si_mod, "is_windows", lambda: False)
 
         result = si_mod._ensure_single_instance(silent=True)
@@ -461,14 +344,7 @@ class TestDispatcherRouting:
         assert result == 42
 
     def test_does_not_call_posix_helper_on_windows(self, isolated_config_dir, monkeypatch):
-        """On Windows, ``_ensure_single_instance`` does NOT call the POSIX helper.
-
-        This test forces ``is_windows()`` to return True and verifies the
-        POSIX helper is never invoked. The Windows mutex path itself
-        requires ctypes.windll which doesn't exist on Linux, so we expect
-        an AttributeError or similar, but the key assertion is that the
-        POSIX helper was NOT called before the Windows path errored out.
-        """
+        """On Windows, ``_ensure_single_instance`` does NOT call the POSIX helper."""
         monkeypatch.delenv("VOICE_TYPER_RESTART", raising=False)
 
         posix_called: list[bool] = []
@@ -481,8 +357,6 @@ class TestDispatcherRouting:
         monkeypatch.setattr(si_mod, "is_windows", lambda: True)
 
         # The Windows path will try to import ctypes.windll.kernel32,
-        # which fails on Linux. We don't care about the exact error —
-        # we just want to verify the POSIX helper was NOT called.
         with contextlib.suppress(SystemExit, AttributeError, Exception):
             si_mod._ensure_single_instance(silent=True)
 
@@ -505,24 +379,11 @@ class TestDispatcherRouting:
         assert result == 99
 
 
-# ── Source-level invariants ────────────────────────────────────────────
-
-
 class TestSourceInvariants:
-    """Source-string checks that pin the CR-16 fix in place.
-
-    These prevent a future refactor from accidentally re-introducing the
-    ``if not is_windows(): return None`` early-return that disabled
-    single-instance enforcement on POSIX.
-    """
+    """Source-string checks that pin the CR-16 fix in place."""
 
     def test_no_early_non_windows_return(self):
-        """``_ensure_single_instance`` must NOT have a code-level ``if not is_windows(): return None``.
-
-        this was the bug, the early return meant no single-instance
-        guard existed on macOS/Linux. We check the AST (not raw source) so
-        that docstring mentions of the buggy pattern don't false-positive.
-        """
+        """``_ensure_single_instance`` must NOT have a code-level ``if not is_windows(): return None``."""
         import ast
         import inspect
         import textwrap
@@ -533,7 +394,6 @@ class TestSourceInvariants:
         assert isinstance(func, ast.FunctionDef)
 
         # Walk ALL if-statements in the function and check none of them
-        # is `if not is_windows(): return None`.
         for node in ast.walk(func):
             if not isinstance(node, ast.If):
                 continue

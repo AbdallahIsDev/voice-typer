@@ -1,14 +1,4 @@
-"""History DB writer tests.
-
-Extracted from the original ``tests/test_history_and_models.py`` catch-all
-(Epic EC-25 / Entry #23 test-file split). This module pins the behavior of
-the write/restore path of :class:`voice_typer.server.history_db.HistoryDB`
-plus the service-level wrapper
-:meth:`voice_typer.server.service.VoiceTyperService.restore_history`.
-
-Test names + assertions are preserved verbatim from the original file;
-only the file boundary moved.
-"""
+"""History DB writer tests."""
 
 from __future__ import annotations
 

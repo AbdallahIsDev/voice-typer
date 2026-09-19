@@ -1,36 +1,4 @@
-"""Regression tests for the secure-clear path on
-``_cached_no_resample_segments`` (the no-resample-path segment list).
-
-Parallel to ``tests/test_secure_clear_array.py`` (XE-6-1), which pins
-the in-place zeroing of ``_cached_resampled_segments``, this module
-pins the same guarantee for ``_cached_no_resample_segments``.
-
-Pre-fix: ``secure_clear_caches`` (called from ``stop()`` /
-``discard()``) and ``_secure_clear_session_caches`` (called from
-``start()``) zeroed ``_cached_resampled``, ``_cached_no_resample_arr``,
-and each entry in ``_cached_resampled_segments``, but left
-``_cached_no_resample_segments`` untouched, the list reference was
-reassigned to ``[]`` *without* zeroing the underlying numpy buffers.
-The no-resample path is the COMMON path in production (AudioProcessor
-resamples to 16 kHz before appending, so ``_buffer_sr == target_sr``),
-so this list is the primary storage for the dictated prefix in a
-typical session. Up to ~115 MB of float32 audio (30 min @ 16 kHz)
-survived ``stop()``/``discard()``/``start()`` in process memory until
-the numpy allocator reused the blocks, defeating SEC-audit-008's
-intent for the no-resample-path segment cache.
-
-These tests pin the fix:
-
-1. Source-inspection: ``SessionState.secure_clear_caches`` contains a
-   loop over ``_cached_no_resample_segments`` calling
-   ``_secure_clear_array``.
-2. Source-inspection: ``Recorder._secure_clear_session_caches``
-   contains the same loop.
-3. Functional: ``secure_clear_caches`` zeros each segment in-place and
-   resets the list to ``[]``.
-4. Functional: ``_cached_no_resample_concat_dirty`` is set to ``False``
-   after clear.
-"""
+"""``_cached_no_resample_segments`` (the no-resample-path segment list)."""
 
 from __future__ import annotations
 
@@ -41,12 +9,9 @@ import numpy as np
 
 from tests.fixtures.ipc_test_helpers import make_fake_recorder
 
-# ── helpers ─────────────────────────────────────────────────────────────
-
 
 def _assert_array_memory_zeroed(arr: np.ndarray, *, ctx: str = "") -> None:
-    """Assert that the underlying numpy buffer is fully zeroed,
-    byte-for-byte (mirrors ``tests/test_secure_clear_array.py``)."""
+    """Assert that the underlying numpy buffer is fully zeroed,"""
     assert isinstance(arr, np.ndarray), f"{ctx}: expected ndarray, got {type(arr).__name__}"
     assert arr.dtype == np.float32, f"{ctx}: expected float32 dtype, got {arr.dtype}"
     if arr.size == 0:
@@ -62,21 +27,8 @@ def _assert_array_memory_zeroed(arr: np.ndarray, *, ctx: str = "") -> None:
     )
 
 
-# ── 1. Source-inspection: SessionState.secure_clear_caches ─────────────
-
-
 def test_secure_clear_caches_zeros_no_resample_segments_in_source():
-    """``SessionState.secure_clear_caches`` must contain a loop over
-    ``_cached_no_resample_segments`` that calls ``_secure_clear_array``
-    on each non-empty segment.
-
-    Source-string inspection is the most direct detection of the
-    regression (mirrors ``tests/test_secure_clear_array.py:266-267``
-    pattern). A future edit that drops the loop would otherwise go
-    unnoticed by behavioral tests unless they happened to populate
-    ``_cached_no_resample_segments`` with non-zero data, the
-    source-string check is the durable guardrail.
-    """
+    """``SessionState.secure_clear_caches`` must contain a loop over"""
     from voice_typer.server.recording.session_state import SessionState
 
     src = inspect.getsource(SessionState.secure_clear_caches)
@@ -98,28 +50,8 @@ def test_secure_clear_caches_zeros_no_resample_segments_in_source():
     )
 
 
-# ── 2. Source-inspection: SessionState.reset_session_state ────────────
-
-
 def test_secure_clear_session_caches_zeros_no_resample_segments_in_source():
-    """``SessionState.reset_session_state`` (the body of
-    ``Recorder._reset_session_state``, called from ``start()`` after
-    ``_secure_clear_session_caches``) must contain the same loop.
-
-    ``Recorder._secure_clear_session_caches`` itself is intentionally a
-    SMALLER helper that zeros only the two cached arrays
-    (``_cached_resampled`` / ``_cached_no_resample_arr``) plus the
-    resample-path segment list (see its docstring in ``recorder.py``).
-    The no-resample-path segment list is zeroed by the *bulk*
-    ``secure_clear_caches`` (called from ``stop()``/``discard()``) and
-    by ``reset_session_state`` (called from ``start()``). The two paths
-    are symmetric: a session that ends cleanly via ``stop()``/``discard()``
-    has its no-resample segments zeroed by ``secure_clear_caches``; a
-    session that starts after an unclean prior session has them zeroed
-    by ``reset_session_state`` (the belt-and-suspenders guard). Mirrors
-    ``tests/test_secure_clear_array.py`` which pins the resample-path
-    arrays via source-string inspection of ``_secure_clear_session_caches``.
-    """
+    """``Recorder._reset_session_state``, called from ``start()`` after"""
     from voice_typer.server.recording.session_state import SessionState
 
     src = inspect.getsource(SessionState.reset_session_state)
@@ -141,20 +73,8 @@ def test_secure_clear_session_caches_zeros_no_resample_segments_in_source():
     )
 
 
-# ── 3. Functional: secure_clear_caches zeros + resets ─────────────────
-
-
 def test_secure_clear_caches_zeros_no_resample_segments_in_place():
-    """``SessionState.secure_clear_caches`` must zero each segment in
-    ``_cached_no_resample_segments`` IN-PLACE before replacing the list
-    reference.
-
-    Uses a recorder mock whose ``_cached_no_resample_segments`` holds
-    two non-zero float32 arrays. After ``secure_clear_caches`` runs,
-    each array's underlying buffer must read all-zero (byte-for-byte),
-    the list reference must be ``[]``, and the dirty flag must be
-    ``False``.
-    """
+    """``_cached_no_resample_segments`` IN-PLACE before replacing the list"""
     from voice_typer.server.recording.session_state import SessionState
 
     rec = make_fake_recorder()
@@ -175,17 +95,8 @@ def test_secure_clear_caches_zeros_no_resample_segments_in_place():
     _assert_array_memory_zeroed(segment_b, ctx="segment_b after secure_clear_caches")
 
 
-# ── 4. Functional: dirty flag reset ───────────────────────────────────
-
-
 def test_secure_clear_caches_resets_no_resample_concat_dirty():
-    """``_cached_no_resample_concat_dirty`` must be ``False`` after
-    ``secure_clear_caches`` runs, regardless of its prior value.
-
-    Without this reset the next ``snapshot()`` would skip the
-    re-concatenation step (``_ensure_no_resample_concat`` short-circuits
-    when the dirty flag is ``False``) and serve a stale or empty cache.
-    """
+    """``_cached_no_resample_concat_dirty`` must be ``False`` after"""
     from voice_typer.server.recording.session_state import SessionState
 
     rec = make_fake_recorder()

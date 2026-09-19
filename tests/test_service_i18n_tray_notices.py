@@ -1,13 +1,4 @@
-"""Focused tests for MO-95..101 service-layer i18n + resume contract.
-
-Covers:
-* MO-95: resume_model_download forwards the real resumed bool
-* MO-96: hotkey_dispatcher tray notices go through i18n.t
-* MO-97: native_adapter tray notices go through i18n.t
-* MO-98: paste_failed event omits English message
-* MO-99: delete_model success omits message; failure uses i18n
-* MO-101: paste_deferred publishes reason only
-"""
+"""Focused tests for MO-95..101 service-layer i18n + resume contract."""
 
 from __future__ import annotations
 
@@ -200,9 +191,6 @@ class TestDeleteModelSuccessOmitsMessage:
             lambda: tmp_path,
         )
         service = VoiceTyperService(app)
-        # Use a model that is NOT the configured active selection so
-        # the "not downloaded, nothing to delete" path fires (active
-        # + missing goes through the stale-clear success path).
         app.config.model_size = "large-v3-turbo"
         result = service.delete_model("tiny")
         assert result["success"] is False

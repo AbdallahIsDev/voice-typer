@@ -1,36 +1,4 @@
-"""regression tests for the ``WaveformBubbleWiring`` extraction.
-
-The ``_wire_waveform_bubble`` method (and its associated bubble-level-pusher
-background worker) was extracted from ``VoiceTyperApp`` to
-``voice_typer/server/waveform_bubble_wiring.py``. ``VoiceTyperApp`` keeps
-a thin delegate method so existing callers (and tests that call
-``app._wire_waveform_bubble()``) keep working unchanged.
-
-These tests pin the contract of the extraction:
-
-1. ``WaveformBubbleWiring`` is constructable with a back-reference to
-   the app and exposes ``_wire_waveform_bubble`` / ``stop`` methods.
-2. ``_wire_waveform_bubble`` registers 4 callbacks on the
-   ``WaveformBubble`` (``on_show``, ``on_hide``, ``on_level``,
-   ``on_set_state``).
-3. Each callback publishes the correct event type to ``event_bus``.
-4. The bubble-level-pusher worker thread starts and is alive after
-   wiring.
-5. The worker stops cleanly via ``stop()``.
-6. ``stop()`` is idempotent and safe to call before wiring (defensive).
-7. The worker respects the bounded queue: when the queue is full,
-   ``_push_bubble_level`` drops the sample (``queue.Full`` is suppressed).
-8. The worker exits when a ``None`` sentinel is put on the queue.
-9. ``_wire_waveform_bubble`` is idempotent, calling it twice reuses the
-   existing queue / worker (doesn't spawn a second worker).
-10. ``_wire_waveform_bubble`` registers the worker on
-    ``app._thread_registry`` so it's tracked for shutdown.
-11. ``on_level`` publishes a ``bubble_level`` event (async, drained by
-    the worker).
-12. Integration point: ``stop()`` mirrors the inline shutdown block in
-    ``VoiceTyperApp._do_cleanup`` (app.py:1469-1480). The primary agent
-    will replace that block with ``self.waveform_wiring.stop()``.
-"""
+"""regression tests for the ``WaveformBubbleWiring`` extraction."""
 
 from __future__ import annotations
 
@@ -44,16 +12,10 @@ import pytest
 from voice_typer.server.waveform import WaveformBubble
 from voice_typer.server.waveform_bubble_wiring import WaveformBubbleWiring
 
-# ── Fixtures ────────────────────────────────────────────────────────────
-
 
 @pytest.fixture(autouse=True)
 def _reset_event_bus():
-    """Snapshot/restore the event_bus subscriber set between tests.
-
-    Mirrors the pattern in tests/test_waveform_bubble.py so a subscriber
-    registered in one test doesn't leak into the next.
-    """
+    """Snapshot/restore the event_bus subscriber set between tests."""
     from voice_typer.server import event_bus
 
     with event_bus._lock:
@@ -79,14 +41,7 @@ def thread_registry() -> MagicMock:
 
 @pytest.fixture
 def app(bubble, thread_registry) -> MagicMock:
-    """Minimal app mock with the two attributes the wiring touches.
-
-    - ``app._waveform_bubble``, the ``WaveformBubble`` coordinator
-    - ``app._thread_registry``, the central ``ThreadRegistry``
-
-    The real ``VoiceTyperApp.__init__`` creates both before calling
-    ``_wire_waveform_bubble``; the mock mirrors that setup.
-    """
+    """Minimal app mock with the two attributes the wiring touches."""
     app = MagicMock()
     app._waveform_bubble = bubble
     app._thread_registry = thread_registry
@@ -96,9 +51,6 @@ def app(bubble, thread_registry) -> MagicMock:
 @pytest.fixture
 def wiring(app) -> WaveformBubbleWiring:
     return WaveformBubbleWiring(app)
-
-
-# ─── Construction / API surface ────────────────────────────────────────
 
 
 class TestWaveformBubbleWiringConstruction:
@@ -113,15 +65,11 @@ class TestWaveformBubbleWiringConstruction:
         assert callable(wiring.stop)
 
     def test_state_starts_unwired(self, wiring):
-        """Before ``_wire_waveform_bubble`` is called, the worker / queue /
-        stop_event are all ``None`` (lazy creation)."""
+        """Before ``_wire_waveform_bubble`` is called, the worker / queue /"""
         assert wiring._bubble_level_queue is None
         assert wiring._bubble_level_worker_stop is None
         assert wiring._bubble_level_worker is None
         assert wiring._last_bubble_level_push_ts == 0.0
-
-
-# ─── Wiring registers 4 callbacks on the bubble ────────────────────────
 
 
 class TestWireRegistersCallbacks:
@@ -178,9 +126,6 @@ class TestWireRegistersCallbacks:
         assert matching[0]["data"] == {"state": "transcribing"}
 
 
-# ─── Worker lifecycle (start / stop / sentinel) ────────────────────────
-
-
 class TestWorkerLifecycle:
     """The bubble-level-pusher worker must start, stop, and exit on sentinel."""
 
@@ -206,11 +151,7 @@ class TestWorkerLifecycle:
         assert not worker.is_alive()
 
     def test_stop_is_noop_before_wiring(self, wiring):
-        """``stop()`` must be safe to call when the worker was never started.
-
-        Mirrors the defensive ``hasattr`` / ``is not None`` guards in
-        the original ``_do_cleanup`` block.
-        """
+        """``stop()`` must be safe to call when the worker was never started."""
         # Must not raise.
         wiring.stop()
         # And calling again after wiring still works.
@@ -229,12 +170,7 @@ class TestWorkerLifecycle:
         assert not worker.is_alive()
 
     def test_sentinel_shuts_down_worker(self, wiring):
-        """Putting ``None`` on the queue must cause the worker to exit.
-
-        This is the sentinel shutdown path documented in
-        ``_bubble_level_worker``, the worker breaks out of its drain
-        loop when it dequeues ``None``.
-        """
+        """Putting ``None`` on the queue must cause the worker to exit."""
         wiring._wire_waveform_bubble()
         worker = wiring._bubble_level_worker
         assert worker is not None and worker.is_alive()
@@ -248,20 +184,11 @@ class TestWorkerLifecycle:
         assert not worker.is_alive(), "worker did not exit within 2s after sentinel was enqueued"
 
 
-# ─── Bounded queue backpressure ────────────────────────────────────────
-
-
 class TestBoundedQueue:
     """The ``on_level`` callback must drop samples when the queue is full."""
 
     def test_on_level_drops_when_queue_full(self, wiring):
-        """Fill the queue to maxsize, then verify the next push is dropped.
-
-        The queue has ``maxsize=64``. We fill it with dummy items, then
-        call ``on_level`` once more. The drop is silent (``queue.Full``
-        is suppressed by ``contextlib.suppress``); we verify the drop
-        by asserting the queue size doesn't grow past 64.
-        """
+        """Fill the queue to maxsize, then verify the next push is dropped."""
         wiring._wire_waveform_bubble()
         q: queue.Queue = wiring._bubble_level_queue
         assert q.maxsize == 64
@@ -277,8 +204,6 @@ class TestBoundedQueue:
         while not q.empty():
             q.get_nowait()
 
-        # Reset the throttle so the first push isn't dropped by the
-        # 16 ms / ~60 Hz gate.
         wiring._last_bubble_level_push_ts = 0.0
 
         # Fill the queue to maxsize with sentinel-like dummy items.
@@ -286,8 +211,6 @@ class TestBoundedQueue:
             q.put_nowait({"type": "bubble_level", "data": {"rms": float(i), "peak": 0.0}})
         assert q.full()
 
-        # Now invoke the ``on_level`` callback directly. The queue is
-        # full, so ``put_nowait`` raises ``queue.Full``, which the
         # callback suppresses. The callback must NOT raise.
         on_level = wiring._app._waveform_bubble.on_level
         # Reset throttle so the push attempt isn't skipped by the gate.
@@ -296,9 +219,6 @@ class TestBoundedQueue:
 
         # The queue is still at maxsize, the new sample was dropped.
         assert q.qsize() == 64, f"queue should still be at maxsize=64 after a drop, got {q.qsize()}"
-
-
-# ─── Idempotent wiring (call twice → reuse existing worker) ────────────
 
 
 class TestIdempotentWiring:
@@ -324,9 +244,6 @@ class TestIdempotentWiring:
         wiring.stop()
 
 
-# ─── Thread-registry registration ──────────────────────────────────────
-
-
 class TestThreadRegistryRegistration:
     """The worker must be registered on ``app._thread_registry`` for shutdown."""
 
@@ -343,9 +260,6 @@ class TestThreadRegistryRegistration:
         wiring.stop()
 
 
-# ─── on_level publishes bubble_level event (async via worker) ──────────
-
-
 class TestOnLevelPublishes:
     """The ``on_level`` callback publishes ``bubble_level`` via the worker queue."""
 
@@ -360,9 +274,6 @@ class TestOnLevelPublishes:
         wiring._last_bubble_level_push_ts = 0.0
         bubble.update_level(0.05, 0.12)
 
-        # The push is async (drained by the worker). Wait briefly for
-        # the worker to drain, the queue has maxsize=64 so a single
-        # item drains in well under 100 ms.
         deadline = time.monotonic() + 2.0
         while time.monotonic() < deadline:
             if any(m.get("type") == "bubble_level" for m in sent):
@@ -379,30 +290,8 @@ class TestOnLevelPublishes:
         wiring.stop()
 
 
-# ─── Integration point: _do_cleanup delegates to stop() ────────────────
-
-
 class TestDoCleanupIntegration:
-    """Document the integration point with ``VoiceTyperApp._do_cleanup``.
-
-    The original ``_do_cleanup`` (app.py:1469-1480) contained an inline
-    bubble-worker-stop block:
-
-        if hasattr(self, "_bubble_level_worker_stop") and self._bubble_level_worker_stop is not None:
-            self._bubble_level_worker_stop.set()
-            if hasattr(self, "_bubble_level_queue") and self._bubble_level_queue is not None:
-                with contextlib.suppress(queue.Full):
-                    self._bubble_level_queue.put_nowait(None)  # sentinel
-            if hasattr(self, "_bubble_level_worker") and self._bubble_level_worker is not None:
-                self._bubble_level_worker.join(timeout=1.0)
-
-    After extraction, the attributes live on ``WaveformBubbleWiring`` (not
-    on the app), so that block would be a no-op. The primary agent should
-    replace it with a single call to ``self.waveform_wiring.stop()``.
-
-    These tests verify ``stop()`` reproduces the original semantics:
-    sets the stop event, enqueues the sentinel, joins with a 1.0s timeout.
-    """
+    """Document the integration point with ``VoiceTyperApp._do_cleanup``."""
 
     def test_stop_sets_stop_event(self, wiring):
         wiring._wire_waveform_bubble()
@@ -419,25 +308,15 @@ class TestDoCleanupIntegration:
         assert q is not None
 
         # Consume any items already in the queue (e.g. from worker startup)
-        # so we can cleanly observe the sentinel being enqueued by stop().
-        # Stop the worker first so it doesn't drain the sentinel before we
-        # see it; we use the stop_event directly so the worker stays alive
-        # long enough to read the sentinel and exit.
-        # Actually, simplest: call stop() and verify the worker exited
-        # (which can only happen if it dequeued the None sentinel).
         worker = wiring._bubble_level_worker
         assert worker is not None and worker.is_alive()
 
         wiring.stop()
 
-        # The worker exits only by breaking out of its drain loop on
-        # seeing ``None``. So a clean exit within the 1.0s join timeout
-        # is direct evidence the sentinel was enqueued AND processed.
         assert not worker.is_alive(), "worker should have exited after stop() enqueued the sentinel"
 
     def test_stop_joins_with_one_second_timeout(self, wiring, monkeypatch):
-        """``stop()`` must call ``worker.join(timeout=1.0)`` to mirror
-        the original ``_do_cleanup`` join timeout."""
+        """``stop()`` must call ``worker.join(timeout=1.0)`` to mirror"""
         wiring._wire_waveform_bubble()
         worker = wiring._bubble_level_worker
         assert worker is not None
@@ -457,34 +336,17 @@ class TestDoCleanupIntegration:
         assert join_calls[0] == 1.0, f"join timeout must be 1.0 (mirrors _do_cleanup), got {join_calls[0]}"
 
 
-# ─── PERF-3: worker coalesces stale bubble_level items ─────────────────
-
-
 class TestWorkerCoalescesStaleLevels:
-    """PERF-3: when ``event_bus.publish`` blocks (slow subscriber), the
-    worker must coalesce stale ``bubble_level`` items in its queue,
-    publishing only the LATEST one.
-
-    Without coalescing, a 0.1s slow publish × N queued items = N×0.1s
-    freeze (and N stale frames painted in sequence, e.g. 64 queued
-    items = ~6.4s freeze, RW-9 PERF-3 finding). With coalescing, only
-    the latest level is published, the visualizer jumps directly to
-    the current smoothed level.
-    """
+    """worker must coalesce stale ``bubble_level`` items in its queue,"""
 
     def test_coalesces_multiple_bubble_levels_to_one_publish(self, wiring, monkeypatch):
         from voice_typer.server import event_bus
 
         # Pre-create the queue + stop event so we can populate the queue
-        # BEFORE the worker starts. This eliminates the race where the
-        # worker drains the first item before the test enqueues the rest
-        # (which would result in 2 publishes instead of 1).
         wiring._bubble_level_queue = queue.Queue(maxsize=64)
         wiring._bubble_level_worker_stop = threading.Event()
 
         # Stub publish with a Mock-like callable that blocks briefly
-        # (simulating a slow subscriber like a stalled IPC send).
-        # Records each call so we can assert on count + payload.
         published_calls: list = []
 
         def slow_publish(event):
@@ -506,9 +368,6 @@ class TestWorkerCoalescesStaleLevels:
             wiring._bubble_level_queue.put_nowait(it)
         assert wiring._bubble_level_queue.qsize() == 5
 
-        # Now wire, this creates + starts the worker on the
-        # pre-populated queue. The worker's coalescing loop should
-        # drain items 2-5 and keep only item 5 (the latest).
         wiring._wire_waveform_bubble()
 
         # Wait for the worker to publish at least once.
@@ -519,16 +378,11 @@ class TestWorkerCoalescesStaleLevels:
             time.sleep(0.02)
 
         # Settle: one slow_publish cycle (0.1s) + slack. If a second
-        # publish were going to happen, it would land in this window.
         time.sleep(0.25)
 
         # Cleanup: stop the worker.
         wiring.stop()
 
-        # Assert: the coalesced LATEST item was published exactly once on
-        # the typed channel. No main-window mirror exists (the former
-        # ≤8 Hz `recording_level` mirror was removed with the Home
-        # level bar), so exactly 1 publish total.
         assert len(published_calls) == 1, (
             f"expected exactly 1 publish call (coalesced bubble_level only), "
             f"got {len(published_calls)}: {published_calls}"

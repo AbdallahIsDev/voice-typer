@@ -1,21 +1,4 @@
-"""Tests for the dictation confidence (quality summary) surface.
-
-Covers the three seams of the compact quality summary that reaches the
-renderer's last-text preview via the ``transcription_final`` push event:
-
-1. :func:`voice_typer.server.transcription.build_quality_summary`, the
-   pure helper that folds the per-segment ``avg_logprob`` /
-   ``no_speech_prob`` stats into a small float dict.
-2. :meth:`TranscriptionEngine._transcribe_unlocked`, populates
-   ``last_quality_summary`` from the stats it already collects and
-   resets it per run so a stale summary can't leak.
-3. The dictation pipeline, captures the summary off the active engine
-   after the transcribe call and attaches it to the
-   ``transcription_final`` event payload (omitting it when absent).
-
-All heavy imports (faster_whisper / ctranslate2 / torch) are mocked so
-the tests run headless on any platform.
-"""
+"""Tests for the dictation confidence (quality summary) surface."""
 
 from __future__ import annotations
 
@@ -35,9 +18,6 @@ def mock_heavy_imports(monkeypatch):
     mock_ct2 = MagicMock()
     mock_ct2.get_cuda_device_count.return_value = 0
     monkeypatch.setitem(sys.modules, "ctranslate2", mock_ct2)
-
-
-# ── build_quality_summary ────────────────────────────────────────────────
 
 
 class TestBuildQualitySummary:
@@ -60,8 +40,7 @@ class TestBuildQualitySummary:
         assert build_quality_summary([], []) is None
 
     def test_partial_stats_produce_partial_dict(self):
-        """An engine reporting only logprobs (no no_speech_prob) must not
-        fabricate a zero no_speech_prob_max."""
+        """An engine reporting only logprobs (no no_speech_prob) must not"""
         from voice_typer.server.transcription import build_quality_summary
 
         only_logprob = build_quality_summary([-0.3], [])
@@ -69,9 +48,6 @@ class TestBuildQualitySummary:
 
         only_no_speech = build_quality_summary([], [0.7])
         assert only_no_speech == {"no_speech_prob_max": 0.7}
-
-
-# ── TranscriptionEngine.last_quality_summary ─────────────────────────────
 
 
 def _make_loaded_engine(config=None):
@@ -122,8 +98,7 @@ class TestEngineQualitySummary:
         assert summary["segments"] == 1
 
     def test_summary_reset_between_runs(self, monkeypatch):
-        """A second transcription with NO numeric stats must not leak the
-        first run's summary (stale-confidence bug guard)."""
+        """A second transcription with NO numeric stats must not leak the"""
         engine = _make_loaded_engine()
         info = MagicMock()
         info.language = "en"
@@ -142,7 +117,6 @@ class TestEngineQualitySummary:
         assert engine.last_quality_summary is not None
 
         # Second run: segments carry no numeric probs (e.g. an abort cut
-        # the loop short before any numeric segment arrived).
         empty_seg = MagicMock()
         empty_seg.text = ""
         empty_seg.start = 0
@@ -157,9 +131,6 @@ class TestEngineQualitySummary:
     def test_init_starts_as_none(self):
         engine = _make_loaded_engine()
         assert engine.last_quality_summary is None
-
-
-# ── pipeline capture + transcription_final payload ───────────────────────
 
 
 def _make_pipeline(app):
@@ -202,9 +173,7 @@ class TestPipelineQualityPayload:
         assert data["quality"]["no_speech_prob_max"] == pytest.approx(0.65)
 
     def test_store_result_omits_quality_when_absent(self, monkeypatch):
-        """Engines without confidence stats (or streaming cycles) leave
-        the payload unchanged, no empty-object sentinel in the wire
-        format."""
+        """Engines without confidence stats (or streaming cycles) leave"""
         app = MagicMock()
         app.config.history_enabled = False
         app.config.crash_recovery_enabled = False
@@ -225,9 +194,7 @@ class TestPipelineQualityPayload:
 
 class TestTranscribeStepCapture:
     def test_captures_engine_summary_on_batch_path(self):
-        """``_transcribe`` reads ``last_quality_summary`` off the active
-        engine right after ``transcribe_with_fallback`` and stores it on
-        the pipeline for the storage step."""
+        """``_transcribe`` reads ``last_quality_summary`` off the active"""
         from voice_typer.server.dictation_pipeline import DictationPipeline
 
         pipeline = DictationPipeline.__new__(DictationPipeline)
@@ -256,9 +223,7 @@ class TestTranscribeStepCapture:
         assert pipeline._quality_summary == {"mean_logprob": -0.3}
 
     def test_missing_engine_attribute_leaves_none(self):
-        """A backend without ``last_quality_summary`` (Parakeet / Qwen /
-        cloud engines, or older test stubs) keeps the summary ``None``
-        instead of raising."""
+        """A backend without ``last_quality_summary`` (Parakeet / Qwen /"""
         from voice_typer.server.dictation_pipeline import DictationPipeline
 
         pipeline = DictationPipeline.__new__(DictationPipeline)

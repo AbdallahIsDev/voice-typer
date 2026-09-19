@@ -1,34 +1,4 @@
-"""Race-condition regression tests for ``QwenEngine.unload``.
-
-Pre-fix (OI-13): ``QwenEngine.unload`` nullified ``self._model`` under
-``self._lock`` WITHOUT waiting for an in-flight ``transcribe`` call.
-``transcribe`` already released ``self._lock`` for the multi-second GPU
-inference (RACE-032), so a concurrent ``unload`` (e.g. user-initiated
-model swap mid-dictation) freed the PyTorch module while the inference
-thread was still dereferencing it, a classic use-after-free that
-manifested as intermittent CUDA illegal-memory-access crashes.
-
-The fix ports the canonical pattern from ``ParakeetEngine``:
-``transcribe`` increments an ``_active_inference`` counter under a
-``Condition(self._lock)`` before releasing the lock for inference, and
-decrements it in a ``finally`` block; ``unload`` waits on the Condition
-for the counter to return to 0 before nulling ``self._model``. The dead
-``_inference_event`` attribute (set/cleared but never read) is removed.
-
-These tests pin the contract:
-
-1. ``unload`` calls ``_inference_cond.wait()`` when
-   ``_active_inference > 0`` (the race is closed).
-2. ``unload`` does NOT call ``wait()`` when ``_active_inference == 0``
-   (no spurious blocking on the idle path).
-3. ``transcribe`` increments ``_active_inference`` on entry and
-   decrements it on exit (the counter is balanced on the happy path).
-4. ``transcribe`` decrements ``_active_inference`` in the ``finally``
-   block EVEN IF inference raises (no stuck counter on failure).
-5. The dead ``_inference_event`` attribute is gone from ``__init__``
-   (set/cleared but never read, confirmed dead by the source-level
-   ``_inference_event`` reference audit).
-"""
+"""Race-condition regression tests for ``QwenEngine.unload``."""
 
 from __future__ import annotations
 
@@ -45,31 +15,16 @@ def _make_engine() -> QwenEngine:
     return QwenEngine(model_path="/fake/qwen/model", device="cpu", language="en")
 
 
-# ── OI-13: unload() must wait for active inference ────────────────────
-
-
 class TestQwenUnloadWaitsForActiveInference:
-    """``unload`` must block on ``_inference_cond`` while a transcription
-    is in flight, so the model is not freed mid-inference."""
+    """``unload`` must block on ``_inference_cond`` while a transcription"""
 
     def test_unload_calls_wait_when_active_inference_positive(self):
-        """When ``_active_inference > 0`` (a transcribe call is in
-        flight), ``unload`` must call ``_inference_cond.wait()`` instead
-        of immediately nulling ``self._model``.
-
-        Pre-fix, ``unload`` would null ``self._model`` while the
-        inference thread was still dereferencing it, use-after-free.
-        """
+        """flight), ``unload`` must call ``_inference_cond.wait()`` instead"""
         engine = _make_engine()
         engine._model = MagicMock()
-        # Simulate an in-flight transcribe() that has incremented the
-        # counter and released the lock for the GPU call.
         engine._active_inference = 1
 
         # ``wait()`` would block forever in a unit test (no real
-        # inference thread will decrement + notify). Side-effect: simulate
-        # the inference thread finishing by zeroing the counter, so the
-        # while-loop exits after one ``wait()`` call.
         def _fake_wait(*args, **kwargs):
             engine._active_inference = 0
             return True
@@ -89,8 +44,7 @@ class TestQwenUnloadWaitsForActiveInference:
         assert engine._model is None
 
     def test_unload_does_not_wait_when_no_active_inference(self):
-        """When ``_active_inference == 0`` (idle), ``unload`` must NOT
-        call ``wait()``, the idle path must remain non-blocking."""
+        """When ``_active_inference == 0`` (idle), ``unload`` must NOT"""
         engine = _make_engine()
         engine._model = MagicMock()
         assert engine._active_inference == 0
@@ -109,12 +63,9 @@ class TestQwenUnloadWaitsForActiveInference:
         assert engine._model is None
 
     def test_unload_wakes_when_inference_completes_on_other_thread(self):
-        """End-to-end: a real ``transcribe`` call on another thread must
-        release the inference slot (decrement + notify), allowing
-        ``unload`` to proceed.
-
+        """
+        End-to-end: a real ``transcribe`` call on another thread must
         This pins the notify_all() side of the contract, without it,
-        ``unload`` would wait forever even after inference finished.
         """
         engine = _make_engine()
         mock_transcription = MagicMock()
@@ -140,21 +91,17 @@ class TestQwenUnloadWaitsForActiveInference:
         t.start()
 
         # Give unload a moment to enter wait().
-        # (wait() releases the Condition's lock while parked, so we can
-        # re-acquire it here.)
         import time
 
         time.sleep(0.05)
         assert not unload_done.is_set(), "unload should be blocked on wait()"
 
         # Release the inference slot, transcribe's finally block does
-        # this in production.
         with engine._inference_cond:
             engine._active_inference -= 1
             engine._inference_cond.notify_all()
             unload_order.append("inference_done")
 
-        # unload() should now complete.
         assert unload_done.wait(timeout=2.0), (
             "OI-13: unload() must wake when _active_inference returns to 0 "
             "and notify_all() is called. A stuck wait() means the "
@@ -168,13 +115,8 @@ class TestQwenUnloadWaitsForActiveInference:
         assert engine._model is None
 
 
-# ── OI-13: transcribe() must balance the _active_inference counter ────
-
-
 class TestQwenTranscribeBalancesActiveInference:
-    """``transcribe`` must increment ``_active_inference`` on entry and
-    decrement it on exit (including the exception path), so ``unload``
-    doesn't wait forever on a stuck counter."""
+    """decrement it on exit (including the exception path), so ``unload``"""
 
     def test_transcribe_increments_and_decrements_on_success(self):
         engine = _make_engine()
@@ -193,9 +135,7 @@ class TestQwenTranscribeBalancesActiveInference:
         )
 
     def test_transcribe_decrements_on_exception(self):
-        """If ``model.transcribe`` raises, the ``finally`` block must
-        still decrement ``_active_inference`` so ``unload`` doesn't block
-        forever on a stuck counter."""
+        """If ``model.transcribe`` raises, the ``finally`` block must"""
         engine = _make_engine()
         engine._model = MagicMock()
         engine._model.transcribe.side_effect = RuntimeError("CUDA OOM")
@@ -210,8 +150,7 @@ class TestQwenTranscribeBalancesActiveInference:
         )
 
     def test_transcribe_increments_during_inference(self):
-        """While ``model.transcribe`` is running, ``_active_inference``
-        must be 1 (so a concurrent ``unload`` would correctly wait)."""
+        """While ``model.transcribe`` is running, ``_active_inference``"""
         engine = _make_engine()
         mock_transcription = MagicMock()
         mock_transcription.text = "hello"
@@ -221,7 +160,6 @@ class TestQwenTranscribeBalancesActiveInference:
 
         def _spy_transcribe(*args, **kwargs):
             # Observed from the inference thread while the lock is
-            # released (transcribe released _lock before calling us).
             observed.append(engine._active_inference)
             return [mock_transcription]
 
@@ -236,22 +174,11 @@ class TestQwenTranscribeBalancesActiveInference:
         )
 
 
-# ── OI-13: dead _inference_event must be gone ─────────────────────────
-
-
 class TestQwenInferenceEventRemoved:
-    """The dead ``_inference_event`` attribute (set/cleared but never
-    read) must be removed from ``__init__``. Pre-fix it coexisted with
-    the canonical ``_active_inference`` counter pattern as dead noise."""
+    """The dead ``_inference_event`` attribute (set/cleared but never"""
 
     def test_init_does_not_create_inference_event(self):
-        """``QwenEngine.__init__`` must NOT create ``_inference_event``.
-
-        Pre-fix it was created (line 103) and set/cleared in
-        ``transcribe`` (lines 394, 448) but NEVER read anywhere, pure
-        dead noise. The canonical pattern is ``_active_inference`` +
-        ``_inference_cond`` (mirroring ParakeetEngine).
-        """
+        """``QwenEngine.__init__`` must NOT create ``_inference_event``."""
         engine = _make_engine()
         assert not hasattr(engine, "_inference_event"), (
             "OI-13: the dead _inference_event attribute must be removed "

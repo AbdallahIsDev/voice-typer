@@ -1,14 +1,4 @@
-"""Tests for DictationPipeline._check_resources (RAM, disk, GPU health check).
-
-S2-CR-56 follow-up: _check_resources (160 LOC) had no dedicated test
-in isolation. This file covers all major code paths:
-
-- **RAM check**: psutil available (normal / low / moderate), psutil
-  unavailable (fallback to debug log)
-- **Disk check**: normal (> 1 GB free), critically low (< 1 GB)
-- **GPU check**: torch.cuda available (normal / low), torch unavailable
-- **Graceful degradation**: never raises, always logs the "complete" line
-"""
+"""Tests for DictationPipeline._check_resources (RAM, disk, GPU health check)."""
 
 from __future__ import annotations
 
@@ -18,46 +8,25 @@ import sys
 
 from voice_typer.server.dictation_pipeline import DictationPipeline
 
-# ── Helper ────────────────────────────────────────────────────────────────
-
 
 def _make_pipeline() -> DictationPipeline:
-    """Build a minimal DictationPipeline for testing _check_resources.
-
-    _check_resources does not use ``self._app``, only local imports
-    and logging.  Bypass ``__init__`` via ``__new__`` since ``__init__``
-    expects a real ``VoiceTyperApp``.
-    """
+    """Build a minimal DictationPipeline for testing _check_resources."""
     return DictationPipeline.__new__(DictationPipeline)
 
 
 def _fake_vm(available_bytes: int) -> object:
-    """Return a fake ``virtual_memory`` return value with the given
-    ``.available`` (in bytes).  Mimics ``psutil._pslinux.svmem`` /
-    ``psutil._pswindows.svmem`` namedtuple which has ``.available``."""
+    """Return a fake ``virtual_memory`` return value with the given"""
     return type("_FakeVM", (), {"available": available_bytes})()
 
 
 def _fake_disk_usage(free_bytes: int) -> object:
-    """Return a fake ``shutil.disk_usage`` return value with the given
-    ``.free`` (in bytes).  Mimics ``shutil._ntuple_diskusage`` namedtuple
-    which has ``.total``, ``.used``, ``.free``."""
+    """Return a fake ``shutil.disk_usage`` return value with the given"""
     return type("_FakeDiskUsage", (), {"free": free_bytes})()
 
 
 def _fake_statvfs(free_bytes: int) -> object:
-    """Return a fake ``os.statvfs`` result reporting the given free bytes.
-
-    ``resource_probe.check_resources`` uses ``os.statvfs`` on POSIX and
-    falls back to ``shutil.disk_usage`` on Windows. Tests that exercise
-    the disk-free branches must mock BOTH code paths so the test is
-    green on both platforms (the sandbox is Linux, CI runs both).
-    ``os.statvfs_result`` exposes ``f_bavail`` (free blocks for unpriv.
-    users) and ``f_frsize`` (fundamental block size); the implementation
-    computes ``free = f_bavail * f_frsize``.
-    """
+    """Return a fake ``os.statvfs`` result reporting the given free bytes."""
     # Use a 1-byte block size so f_bavail == free_bytes (keeps the math
-    # trivial and the test independent of any platform block size).
     return type(
         "_FakeStatVfs",
         (),
@@ -66,29 +35,17 @@ def _fake_statvfs(free_bytes: int) -> object:
 
 
 def _patch_disk_free(monkeypatch, free_bytes: int) -> None:
-    """Patch BOTH POSIX (``os.statvfs``) and Windows (``shutil.disk_usage``)
-    disk-free probes to report the given ``free_bytes``.
-
-    ``resource_probe.check_resources`` calls ``os.statvfs`` when
-    ``hasattr(os, "statvfs")`` is true (POSIX) and falls back to
-    ``shutil.disk_usage`` only on Windows. Patching both ensures the
-    test exercises the intended branch regardless of platform, a
-    shutil-only mock is a no-op on Linux/CI-POSIX runners.
-    """
+    """Patch BOTH POSIX (``os.statvfs``) and Windows (``shutil.disk_usage``)"""
     monkeypatch.setattr("shutil.disk_usage", lambda path: _fake_disk_usage(free_bytes))
     if hasattr(os, "statvfs"):
         monkeypatch.setattr(os, "statvfs", lambda path: _fake_statvfs(free_bytes))
-
-
-# ── RAM check ────────────────────────────────────────────────────────────
 
 
 class TestCheckResourcesRAM:
     """_check_resources: RAM health check paths."""
 
     def test_logs_ram_info_when_sufficient(self, caplog, monkeypatch):
-        """When psutil reports > 2048 MB available, an INFO line shows the
-        amount and no warnings are emitted."""
+        """When psutil reports > 2048 MB available, an INFO line shows the"""
         monkeypatch.setattr(
             "psutil.virtual_memory",
             lambda: _fake_vm(4 * 1024**3),  # 4 GB available
@@ -108,8 +65,7 @@ class TestCheckResourcesRAM:
         assert not moderate_lines, "Should NOT log moderate RAM when > 2048 MB is available"
 
     def test_warns_when_ram_below_1024_mb(self, caplog, monkeypatch):
-        """When available RAM < 1024 MB, a WARNING about heap corruption
-        is logged with the 0xC0000374 code."""
+        """When available RAM < 1024 MB, a WARNING about heap corruption"""
         monkeypatch.setattr(
             "psutil.virtual_memory",
             lambda: _fake_vm(512 * 1024**2),  # 512 MB available
@@ -124,9 +80,7 @@ class TestCheckResourcesRAM:
         assert "0xC0000374" in warnings[0].getMessage(), "Warning must mention heap corruption exit code (0xC0000374)"
 
     def test_infos_moderate_ram_between_1024_and_2048_mb(self, caplog, monkeypatch):
-        """When available RAM is 1024-2048 MB, an INFO line about moderate
-        RAM is logged (not an error, the user can still transcribe with
-        smaller models)."""
+        """When available RAM is 1024-2048 MB, an INFO line about moderate"""
         monkeypatch.setattr(
             "psutil.virtual_memory",
             lambda: _fake_vm(1500 * 1024**2),  # ~1.5 GB available
@@ -140,20 +94,12 @@ class TestCheckResourcesRAM:
         assert moderate_lines, "Should log INFO about moderate RAM when available is 1024-2048 MB"
 
 
-# ── Disk check ───────────────────────────────────────────────────────────
-
-
 class TestCheckResourcesDisk:
     """_check_resources: disk space check paths."""
 
     def test_logs_disk_info_when_sufficient(self, caplog, monkeypatch):
-        """When disk has > 1 GB free, an INFO line shows the free space
-        and no warning is emitted."""
+        """When disk has > 1 GB free, an INFO line shows the free space"""
         # Patch BOTH POSIX (os.statvfs) and Windows (shutil.disk_usage)
-        # probes, resource_probe.check_resources dispatches on
-        # hasattr(os, "statvfs"), so a shutil-only mock is a no-op on
-        # Linux/CI-POSIX runners (regression that surfaced after the
-        # _check_resources body was extracted to resource_probe.py).
         _patch_disk_free(monkeypatch, 50 * 1024**3)  # 50 GB free
 
         pipeline = _make_pipeline()
@@ -169,10 +115,8 @@ class TestCheckResourcesDisk:
         assert not disk_warnings, "Should NOT warn about low disk when > 1 GB is free"
 
     def test_warns_when_disk_below_1_gb(self, caplog, monkeypatch):
-        """When any monitored drive has < 1 GB free, a WARNING about heap
-        corruption risk is logged."""
+        """When any monitored drive has < 1 GB free, a WARNING about heap"""
         # Patch BOTH POSIX (os.statvfs) and Windows (shutil.disk_usage)
-        # probes: see test_logs_disk_info_when_sufficient for rationale.
         _patch_disk_free(monkeypatch, 500 * 1024**2)  # 500 MB free
 
         pipeline = _make_pipeline()
@@ -185,8 +129,7 @@ class TestCheckResourcesDisk:
         assert warnings, "Should log WARNING when a monitored drive has < 1 GB free"
 
     def test_handles_disk_usage_failure_gracefully(self, caplog, monkeypatch):
-        """When shutil.disk_usage / os.statvfs raises (e.g. a broken path),
-        the check skips that drive and continues without crashing."""
+        """When shutil.disk_usage / os.statvfs raises (e.g. a broken path),"""
 
         def _failing_disk_usage(path):
             raise PermissionError(f"Cannot access {path}")
@@ -203,35 +146,21 @@ class TestCheckResourcesDisk:
             pipeline._check_resources()
 
         # Even with disk failures, the method must complete without
-        # crashing and log the "complete" line.
         complete_lines = [r for r in caplog.records if "[RESOURCE] Pre-flight health check complete" in r.getMessage()]
         assert complete_lines, (
             "_check_resources must complete without crashing even when shutil.disk_usage raises on all drives"
         )
 
 
-# ── GPU check ────────────────────────────────────────────────────────────
-
-
 class TestCheckResourcesGPU:
-    """_check_resources: GPU memory check paths.
-
-    The ``mock_heavy_imports`` autouse fixture in tests/conftest.py
-    already installs a mock ``torch`` in ``sys.modules``.  These tests
-    set specific return values on that mock to exercise the GPU check
-    branches.
-    """
+    """_check_resources: GPU memory check paths."""
 
     def test_logs_gpu_info_when_sufficient(self, caplog, monkeypatch):
-        """When the nvidia-smi/pynvml probe reports sufficient GPU memory,
-        an INFO line shows used / free / total."""
+        """When the nvidia-smi/pynvml probe reports sufficient GPU memory,"""
         total_memory = 8 * 1024**3  # 8 GB total
         allocated = 2 * 1024**3  # 2 GB allocated  → 6144 MB free > 512 MB
 
         # Phase 1c (PLAN_ONNX_INTEGRATION.md §6.4): the GPU probe no
-        # longer uses torch.cuda, it queries ``pynvml`` / ``nvidia-smi``
-        # via ``_probe_gpu_memory_via_nvidia_smi`` (MB). Patch that so
-        # the test is deterministic on GPU-less CI hosts.
         monkeypatch.setattr(
             "voice_typer.server.resource_probe._probe_gpu_memory_via_nvidia_smi",
             lambda: (total_memory // 1024**2, (total_memory - allocated) // 1024**2),
@@ -250,15 +179,11 @@ class TestCheckResourcesGPU:
         assert not gpu_warnings, "Should NOT warn when GPU has > 512 MB free"
 
     def test_warns_when_gpu_memory_below_512_mb(self, caplog, monkeypatch):
-        """When the nvidia-smi/pynvml probe reports < 512 MB free GPU
-        memory, a WARNING about CUDA out-of-memory errors is logged."""
+        """When the nvidia-smi/pynvml probe reports < 512 MB free GPU"""
         total_memory = 1024**3  # 1 GB total
         allocated = 900 * 1024**2  # 900 MB allocated → 124 MB free < 512 MB
 
         # Phase 1c (PLAN_ONNX_INTEGRATION.md §6.4): the GPU probe no
-        # longer uses torch.cuda, it queries ``pynvml`` / ``nvidia-smi``
-        # via ``_probe_gpu_memory_via_nvidia_smi`` (MB). Patch that so
-        # the test is deterministic on GPU-less CI hosts.
         monkeypatch.setattr(
             "voice_typer.server.resource_probe._probe_gpu_memory_via_nvidia_smi",
             lambda: (total_memory // 1024**2, (total_memory - allocated) // 1024**2),
@@ -272,21 +197,11 @@ class TestCheckResourcesGPU:
         assert warnings, "Should log WARNING when free GPU memory < 512 MB"
 
 
-# ── Throttle wrapper ─────────────────────────────────────────────────────
-
-
 class TestCheckResourcesThrottled:
-    """_check_resources_throttled: the throttle wrapper that limits
-    _check_resources to once per 60 seconds.
-
-    Note: ``_new_pipeline`` bypasses ``__init__``, so
-    ``_resources_check_interval`` and ``_last_resources_check_ts`` must
-    be set manually.
-    """
+    """_check_resources_throttled: the throttle wrapper that limits"""
 
     def test_throttle_skips_check_when_recently_run(self, caplog, monkeypatch):
-        """When the last check was less than 60s ago, the throttle
-        returns early without calling _check_resources."""
+        """When the last check was less than 60s ago, the throttle"""
         monkeypatch.setattr(
             "psutil.virtual_memory",
             lambda: _fake_vm(4 * 1024**3),
@@ -294,7 +209,6 @@ class TestCheckResourcesThrottled:
 
         pipeline = _make_pipeline()
         # Set the interval and last-check-ts so that the throttle
-        # considers the check "recent" and returns early.
         pipeline._last_resources_check_ts = 9999999999.0  # far in the future
         pipeline._resources_check_interval = 60.0
 
@@ -308,8 +222,7 @@ class TestCheckResourcesThrottled:
         )
 
     def test_throttle_runs_check_when_interval_elapsed(self, caplog, monkeypatch):
-        """When the last check was long enough ago (> 60s), the throttle
-        calls _check_resources and updates the timestamp."""
+        """When the last check was long enough ago (> 60s), the throttle"""
         monkeypatch.setattr(
             "psutil.virtual_memory",
             lambda: _fake_vm(4 * 1024**3),
@@ -333,30 +246,11 @@ class TestCheckResourcesThrottled:
         )
 
 
-# ── Graceful degradation ─────────────────────────────────────────────────
-
-
 class TestCheckResourcesGracefulDegradation:
-    """_check_resources must never raise, every sub-check is wrapped in
-    try/except.  Even when all dependencies fail, the method completes
-    and logs a final "complete" line."""
+    """try/except.  Even when all dependencies fail, the method completes"""
 
     def _patch_psutil_unavailable(self, monkeypatch) -> None:
-        """Make psutil appear unimportable by removing it from
-        sys.modules and patching builtins.__import__ to raise
-        ImportError for ``psutil``.
-
-        Strategy:
-        1. Remove psutil from sys.modules so ``import psutil`` does not
-           find a cached import.
-        2. Save a reference to the REAL ``builtins.__import__``.
-        3. Replace ``builtins.__import__`` with a wrapper that raises
-           ``ImportError`` for ``psutil`` and delegates to the real
-           function for everything else.
-
-        We save the real function BEFORE patching so the wrapper doesn't
-        recurse when it needs to delegate a non-psutil import.
-        """
+        """sys.modules and patching builtins.__import__ to raise"""
         monkeypatch.delitem(sys.modules, "psutil", raising=False)
 
         import builtins as _builtins_mod
@@ -371,9 +265,7 @@ class TestCheckResourcesGracefulDegradation:
         monkeypatch.setattr(_builtins_mod, "__import__", _mock_import)
 
     def test_completes_without_crash_when_psutil_unavailable(self, caplog, monkeypatch):
-        """When psutil is not importable and the ctypes fallback also
-        doesn't apply (non-Windows), the RAM check logs DEBUG and
-        method continues to the disk check."""
+        """When psutil is not importable and the ctypes fallback also"""
         self._patch_psutil_unavailable(monkeypatch)
 
         pipeline = _make_pipeline()
@@ -385,8 +277,7 @@ class TestCheckResourcesGracefulDegradation:
         assert complete_lines, "_check_resources must complete without crashing even when psutil is unavailable"
 
     def test_completes_without_crash_when_all_checks_fail(self, caplog, monkeypatch):
-        """When every sub-check fails (psutil unavailable, disk_usage
-        raises, torch import fails), the method still completes."""
+        """When every sub-check fails (psutil unavailable, disk_usage"""
         self._patch_psutil_unavailable(monkeypatch)
 
         # Make disk_usage raise on every path
@@ -403,37 +294,11 @@ class TestCheckResourcesGracefulDegradation:
         assert complete_lines, "_check_resources must complete without crashing even when ALL sub-checks fail"
 
 
-# silent except:pass replaced with log.debug ──
-
-
 class TestCheckResourcesXZEH008SilentExcept:
-    """XZ-EH-008 / XZ-EH-022: the two ``except Exception: pass`` blocks
-    in ``_check_resources`` (RAM ctypes fallback at :578-579 and GPU
-    check at :713) were replaced with ``log.debug(..., exc_info=True)``.
-
-    The docstring at :545-557 promises "failures are logged at DEBUG
-    level", these tests pin that contract so a future revert that
-    re-introduces a silent ``pass`` is caught.
-
-    Note: the GPU branch's prior ``(ImportError, Exception)`` tuple was
-    also narrowed to bare ``Exception`` (ImportError is a subclass and
-    the redundant tuple just obscured intent); this test confirms the
-    narrowing too.
-    """
+    """XZ-EH-008 / XZ-EH-022: the two ``except Exception: pass`` blocks"""
 
     def test_ram_ctypes_fallback_failure_logs_debug(self, caplog, monkeypatch):
-        """When psutil is unavailable AND the ctypes fallback raises
-        (Windows-only code path), a DEBUG line is emitted (not silent
-        ``pass``).
-
-        We exercise the inner ``except Exception`` branch by patching
-        ``ctypes.Structure`` instantiation to raise, this avoids
-        patching ``os.name`` (which breaks pathlib's path-class
-        dispatch on non-Windows hosts). The test patches
-        ``ctypes.windll.kernel32.GlobalMemoryStatusEx`` to raise
-        directly so the Windows-only branch fires and the surrounding
-        ``except Exception`` block runs.
-        """
+        """When psutil is unavailable AND the ctypes fallback raises"""
         # Force psutil ImportError path so the ctypes fallback runs.
         monkeypatch.delitem(sys.modules, "psutil", raising=False)
 
@@ -448,31 +313,12 @@ class TestCheckResourcesXZEH008SilentExcept:
 
         monkeypatch.setattr(_builtins_mod, "__import__", _mock_import)
 
-        # Bypass the ``if _os.name == "nt":`` guard by patching the
-        # ``os`` module's name attribute on the module that
-        # ``_check_resources`` actually imports. The function does
-        # ``import os as _os`` and reads ``_os.name``, so patching
         # ``os.name`` directly affects the check. We must NOT patch
-        # ``os.name`` globally because pathlib consults it lazily to
-        # pick a Path subclass, instead we patch the dict lookup on
-        # the already-imported ``os`` module to "nt" for the duration
-        # of this test only, then restore via monkeypatch.setattr
-        # (which uses the default-restore behavior).
-        #
-        # The pathlib INTERNALERROR on non-Windows hosts comes from
-        # pathlib picking ``WindowsPath`` when ``os.name == "nt"``,
-        # then failing to instantiate. We avoid that by stubbing
-        # ``pathlib.Path`` to a no-op class for the duration of this
-        # test, since ``_check_resources`` itself does not use
-        # pathlib (only the inner ctypes fallback does).
         import os as _os_mod
 
         monkeypatch.setattr(_os_mod, "name", "nt")
 
         # Patch ctypes.windll to raise AttributeError when accessed —
-        # the production code does ``ctypes.windll.kernel32.GlobalMemoryStatusEx(...)``
-        # so an AttributeError on ``windll`` propagates into the
-        # ``except Exception`` block.
         import ctypes as _ctypes_mod
 
         class _RaisingWindll:
@@ -481,13 +327,6 @@ class TestCheckResourcesXZEH008SilentExcept:
 
         monkeypatch.setattr(_ctypes_mod, "windll", _RaisingWindll(), raising=False)
 
-        # Avoid pathlib INTERNALERROR on non-Windows hosts when
-        # ``os.name`` is patched to "nt" (pathlib picks WindowsPath
-        # lazily). ``_check_resources`` itself does not use pathlib
-        # for the RAM/ctypes branch, but the subsequent disk-check
-        # branch (which runs after the RAM check) calls
-        # ``_Path.home()``, so the stub needs a ``home()`` classmethod
-        # too.
         import pathlib as _pathlib_mod
 
         class _StubPath:
@@ -506,7 +345,6 @@ class TestCheckResourcesXZEH008SilentExcept:
 
         monkeypatch.setattr(_pathlib_mod, "Path", _StubPath)
         # Also patch ``pathlib.PosixPath`` / ``WindowsPath`` since
-        # some pathlib internals reference them directly.
         monkeypatch.setattr(_pathlib_mod, "PosixPath", _StubPath, raising=False)
         monkeypatch.setattr(_pathlib_mod, "WindowsPath", _StubPath, raising=False)
 
@@ -514,7 +352,6 @@ class TestCheckResourcesXZEH008SilentExcept:
         with caplog.at_level(logging.DEBUG, logger="voice_typer.server.dictation_pipeline"):
             pipeline._check_resources()
 
-        # the ctypes-fallback DEBUG line MUST be present.
         ctypes_debug_lines = [
             r
             for r in caplog.records
@@ -527,13 +364,9 @@ class TestCheckResourcesXZEH008SilentExcept:
         )
 
     def test_gpu_check_failure_logs_debug(self, caplog, monkeypatch):
-        """When torch import succeeds but ``cuda.is_available`` raises
-        (or any other GPU-check exception fires), a DEBUG line is
-        emitted (not silent ``pass``)."""
+        """When torch import succeeds but ``cuda.is_available`` raises"""
 
         # Make the nvidia-smi/pynvml probe raise, the production
-        # GPU-check try/except catches this and (post-) logs
-        # a DEBUG line.
         def _raising_probe():
             raise RuntimeError("CUDA driver mismatch")
 
@@ -556,15 +389,11 @@ class TestCheckResourcesXZEH008SilentExcept:
         )
 
     def test_no_silent_except_pass_in_check_resources_source(self):
-        """Static check: ``_check_resources`` source must not contain
-        a bare ``except Exception: pass`` (the XZ-EH-008 pattern)."""
+        """Static check: ``_check_resources`` source must not contain"""
         import inspect
 
         src = inspect.getsource(DictationPipeline._check_resources)
         # Look for the offending pattern with optional whitespace.
-        # The pattern is: ``except Exception:`` followed by ``pass``
-        # (possibly on the next line). We do a line-by-line scan so
-        # comments don't trip us up.
         lines = src.splitlines()
         for i, line in enumerate(lines):
             stripped = line.strip()
@@ -587,10 +416,7 @@ class TestCheckResourcesXZEH008SilentExcept:
                 )
 
     def test_check_resources_docstring_promises_debug_logging(self):
-        """XZ-EH-022: the docstring must still promise "DEBUG level"
-        logging for failures (this pins the docstring against future
-        drift, the prior drift was the docstring claiming DEBUG while
-        the code did ``pass``)."""
+        """XZ-EH-022: the docstring must still promise \"DEBUG level\""""
         doc = DictationPipeline._check_resources.__doc__ or ""
         assert "DEBUG" in doc, (
             "XZ-EH-022 regression: _check_resources docstring must mention "

@@ -1,19 +1,4 @@
-"""Focused tests for the transcription.py refactors.
-
-Covers:
-- ``_NvidiaDllPathManager`` singleton encapsulation (replaces the three
-  module-level mutable globals ``_nvidia_dll_path_handles``,
-  ``_nvidia_dll_paths_configured``, ``_nvidia_config_lock``).
-- ``_with_lock_and_deferred_gc`` context manager (extracts the 3-way
-  duplicated lock + deferred-gc wrapper from ``transcribe`` /
-  ``transcribe_with_fallback`` / ``transcribe_words``).
-- ``_with_gpu_fallback`` unified helper (replaces the two near-identical
-  ``_transcribe_with_fallback_unlocked`` and
-  ``_transcribe_words_with_fallback_unlocked`` 30-line methods).
-- ``_pre_download_model`` phase helpers (``_probe_cache``,
-  ``_require_consent``, ``_check_disk``, ``_download_and_verify``)
-  replacing the 188-line monolith with a thin orchestrator.
-"""
+"""Focused tests for the transcription.py refactors."""
 
 from __future__ import annotations
 
@@ -36,12 +21,8 @@ def _mock_faster_whisper(monkeypatch):
     monkeypatch.setitem(sys.modules, "ctranslate2", mock_ct2)
 
 
-# ─── _NvidiaDllPathManager ────────────────────────────────────
-
-
 class TestNvidiaDllPathManagerIsolation:
-    """The manager class lets tests construct a fresh instance with its
-    own state_dict instead of resetting module-level globals."""
+    """The manager class lets tests construct a fresh instance with its"""
 
     def test_fresh_instance_has_empty_state(self):
         from voice_typer.server.transcription import _NvidiaDllPathManager
@@ -74,9 +55,7 @@ class TestNvidiaDllPathManagerIsolation:
         fake_handle.close.assert_called_once()
 
     def test_module_singleton_reflects_module_global_writes(self):
-        """Production singleton reads/writes through ``globals()`` so
-        existing tests that poke ``mod._nvidia_dll_path_handles``
-        directly still work."""
+        """Production singleton reads/writes through ``globals()`` so"""
         import voice_typer.server.transcription as mod
 
         # Save and restore original state.
@@ -87,8 +66,6 @@ class TestNvidiaDllPathManagerIsolation:
             mod._nvidia_dll_paths_configured = True
             assert mod._nvidia_dll_paths.handles == mod._nvidia_dll_path_handles
             assert mod._nvidia_dll_paths.configured is True
-            # free_handles via the singleton should clear the module-level
-            # list (same backing dict).
             mod._nvidia_dll_paths.free_handles()
             assert mod._nvidia_dll_path_handles == []
         finally:
@@ -96,9 +73,7 @@ class TestNvidiaDllPathManagerIsolation:
             mod._nvidia_dll_paths_configured = orig_configured
 
     def test_module_level_functions_delegate_to_singleton(self):
-        """The public ``_free_nvidia_dll_path_handles`` and
-        ``_configure_nvidia_dll_paths`` functions delegate to the
-        singleton."""
+        """singleton."""
         import voice_typer.server.transcription as mod
 
         orig_handles = mod._nvidia_dll_path_handles
@@ -110,13 +85,8 @@ class TestNvidiaDllPathManagerIsolation:
             mod._nvidia_dll_path_handles = orig_handles
 
 
-# ─── _with_lock_and_deferred_gc ───────────────────────────────
-
-
 class TestWithLockAndDeferredGc:
-    """The context manager acquires ``self._lock`` for the body and
-    performs the deferred gc.collect() + release_gpu_memory() AFTER the
-    lock is released (RACE-023)."""
+    """lock is released (RACE-023)."""
 
     def _make_engine(self):
         from voice_typer.server.transcription import TranscriptionEngine
@@ -136,7 +106,6 @@ class TestWithLockAndDeferredGc:
         with patch.object(real_gc, "collect") as mock_gc:
             with engine._with_lock_and_deferred_gc():
                 # Inside the body, the flag is still set and gc has NOT
-                # been called yet (lock is still held).
                 assert engine._pending_gc_collect is True
                 gc_calls_before = mock_gc.call_count
             # After the with-block exits, the deferred gc should fire.
@@ -158,7 +127,6 @@ class TestWithLockAndDeferredGc:
     def test_lock_is_acquired_during_body(self):
         engine = self._make_engine()
         # If the lock is held during the body, a second acquire attempt
-        # would block. We test non-blocking acquire.
         with engine._with_lock_and_deferred_gc():
             assert not engine._lock.acquire(blocking=False)
         # After the body, the lock is released.
@@ -166,12 +134,8 @@ class TestWithLockAndDeferredGc:
         engine._lock.release()
 
 
-# ─── _with_gpu_fallback ───────────────────────────────────────
-
-
 class TestWithGpuFallback:
-    """The unified helper retries on GPU runtime errors and re-raises
-    non-GPU errors unchanged."""
+    """The unified helper retries on GPU runtime errors and re-raises"""
 
     def _make_engine(self, device="cuda"):
         from voice_typer.server.transcription import TranscriptionEngine
@@ -223,14 +187,12 @@ class TestWithGpuFallback:
         assert engine._device == "cpu"
         assert engine._compute_type == "int8"
         assert engine._model is None
-        # gc deferred via flag.
         assert engine._pending_gc_collect is True
         # Reload was called.
         engine._reload_under_lock.assert_called_once()
 
     def test_cpu_device_never_triggers_fallback(self):
-        """On a CPU device, even a CUDA-looking error must NOT trigger
-        the fallback (the classifier short-circuits at the top)."""
+        """On a CPU device, even a CUDA-looking error must NOT trigger"""
         engine = self._make_engine(device="cpu")
 
         def inner(audio, *args, **kwargs):
@@ -247,16 +209,7 @@ class TestWithGpuFallback:
 
 
 class TestLoadPathCacheGate:
-    """The load path NEVER downloads or deletes models automatically.
-
-    ``_probe_cache`` is a local-only probe (``local_files_only=True``):
-    hit+verified → path; hit+tampered → (None, True) with NO deletion;
-    miss → (None, False). ``_require_model_downloaded`` turns those
-    outcomes into typed errors (``ModelNotDownloadedError`` /
-    ``ModelIntegrityError``) so callers can point the user at the Models
-    page. The old auto-download phase helpers (``_require_consent`` /
-    ``_check_disk`` / ``_download_and_verify``) have been removed.
-    """
+    """The load path NEVER downloads or deletes models automatically."""
 
     def _make_engine(self):
         from voice_typer.server.transcription import TranscriptionEngine
@@ -265,8 +218,6 @@ class TestLoadPathCacheGate:
         engine.model_size = "small.en"
         engine.config = MagicMock()
         return engine
-
-    # ── _probe_cache ────────────────────────────────────────────
 
     def test_probe_cache_returns_path_on_hit_with_valid_integrity(self, monkeypatch):
         engine = self._make_engine()
@@ -299,8 +250,7 @@ class TestLoadPathCacheGate:
         assert integrity_failed is True
 
     def test_probe_cache_never_deletes_tampered_cache(self, monkeypatch):
-        """A tampered cache is NOT deleted by the probe, deletion is an
-        explicit user action (Models page Delete button)."""
+        """A tampered cache is NOT deleted by the probe, deletion is an"""
         engine = self._make_engine()
         fake_snapshot = MagicMock(return_value="/fake/cache/path")
         monkeypatch.setattr(
@@ -328,8 +278,6 @@ class TestLoadPathCacheGate:
         assert local_dir is None
         assert integrity_failed is False
         fake_verify.assert_not_called()
-
-    # ── _require_model_downloaded ───────────────────────────────
 
     def test_require_model_downloaded_raises_not_downloaded_on_miss(self, monkeypatch):
         engine = self._make_engine()

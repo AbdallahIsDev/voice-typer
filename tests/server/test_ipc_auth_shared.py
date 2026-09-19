@@ -1,19 +1,4 @@
-"""Shared WS auth-handshake helpers in ``ipc/auth.py``.
-
-The sidecar-WS auth handshake validates the first-frame contract and
-compares the token in constant time. The shared piece — frame-shape
-validation + constant-time token comparison — lives in
-``voice_typer/server/ipc/auth.py``:
-
-- :func:`extract_auth_token`, validates the
-  ``{"type": "auth", "token": ...}`` first-frame contract and returns
-  the token (or ``None``).
-- :func:`tokens_equal`, constant-time ``hmac.compare_digest`` wrapper.
-
-These tests cover the helper contract directly and pin that the WS
-transport routes its token handling through the shared module (so a
-future "fix in one file" can't silently drift into a second copy).
-"""
+"""Shared WS auth-handshake helpers in ``ipc/auth.py``."""
 
 from __future__ import annotations
 
@@ -25,8 +10,7 @@ from voice_typer.server.ipc.auth import extract_auth_token, tokens_equal
 
 
 class TestExtractAuthToken:
-    """The auth frame must be a dict with ``type == "auth"`` and a
-    non-empty str token; anything else yields ``None`` (no comparison)."""
+    """The auth frame must be a dict with ``type == \"auth\"`` and a"""
 
     def test_valid_frame_returns_token(self):
         assert extract_auth_token({"type": "auth", "token": "secret"}) == "secret"
@@ -72,22 +56,14 @@ class TestTokensEqual:
         assert tokens_equal("", "abc") is False
 
     def test_whitespace_padded_rejected(self):
-        # hmac.compare_digest is byte-exact: leading/trailing whitespace
         # must NOT match (a substring / ``in`` comparison would).
         assert tokens_equal(" abc ", "abc") is False
 
 
 class TestSharedHelperWiredIntoWsTransport:
-    """Anti-drift pin: the WS transport must route its token handling
-    through ``ipc/auth.py`` (a bug fix to the auth contract must land
-    in ONE module, not two copies)."""
+    """Anti-drift pin: the WS transport must route its token handling"""
 
     def test_ws_transport_uses_shared_helpers(self):
-        # The WS handshake (``_authenticate``) lives in the
-        # ``sidecar_ws_internals`` leaf since the sidecar_ws split; the
-        # canonical module re-exports it. Concatenate both module
-        # sources so the anti-drift pin keeps covering the WS auth
-        # body's actual home.
         src = inspect.getsource(importlib.import_module("voice_typer.server.sidecar_ws")) + inspect.getsource(
             importlib.import_module("voice_typer.server.sidecar_ws_internals.handshake")
         )

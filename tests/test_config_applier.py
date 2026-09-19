@@ -1,25 +1,4 @@
-"""regression guard: verify ``config_applier`` module extraction.
-
-Finding (Medium): ``VoiceTyperService.apply_config_side_effects``
-is a 215-line branching method that mixes autostart, prewarm, hotkey,
-tray, notifications, bubble, volume, audio-preset, and model-reload
-side effects in one body. Fix-D extracts it into a dedicated
-``voice_typer/server/config_applier.py`` module.
-
-After Fix-D:
-1. The module ``voice_typer.server.config_applier`` exists.
-2. It exposes a callable ``apply_config_side_effects(app, updates)``
-   (or a class ``ConfigApplier`` with an ``apply`` method).
-3. ``VoiceTyperService.apply_config_side_effects`` is a thin
-   delegator to the extracted module.
-4. The behavior is preserved: known setting keys still trigger
-   their side effects (autostart sync, prewarm sync, ESC hotkey
-   register/unregister, repaste register, hotkey restart, tray
-   invalidation, notifications toggle).
-
-This is a Fix-T test (coordinates with Fix-D). It is expected to
-FAIL until Fix-D lands the extraction.
-"""
+"""regression guard: verify ``config_applier`` module extraction."""
 
 from __future__ import annotations
 
@@ -39,9 +18,7 @@ def _has_module(name: str) -> bool:
 
 @pytest.fixture
 def fake_app() -> MagicMock:
-    """Build a fake VoiceTyperApp with the minimal attribute surface
-    that ``apply_config_side_effects`` reads (config, hotkeys, tray,
-    _waveform_bubble, _volume_controller, …)."""
+    """Build a fake VoiceTyperApp with the minimal attribute surface"""
     app = MagicMock()
     app.config.autostart = False
     app.config.hotkey = "<f2>"
@@ -90,10 +67,7 @@ def test_config_applier_exposes_callable(fake_app) -> None:
 
 
 def test_service_apply_config_delegates_to_module(fake_app) -> None:
-    """``VoiceTyperService.apply_config_side_effects`` delegates to the
-    extracted module, calling it should invoke the ``ConfigApplier``
-    instance method (or the module-level function) on the extracted
-    ``config_applier`` module."""
+    """extracted module, calling it should invoke the ``ConfigApplier``"""
     if not _has_module("voice_typer.server.config_applier"):
         pytest.skip("Fix-D not yet landed")
 
@@ -105,8 +79,6 @@ def test_service_apply_config_delegates_to_module(fake_app) -> None:
     captured: list = []
     if hasattr(mod, "ConfigApplier"):
         # Service delegates to ``self._config_applier.apply_config_side_effects``
-        # (instance method on the ConfigApplier class held by the service).
-        # Patch the bound method on the live instance to spy on the call.
         def _spy(*args, **kwargs):
             captured.append((args, kwargs))
             return {"autostart_status": None, "prewarm_status": None}
@@ -128,8 +100,7 @@ def test_service_apply_config_delegates_to_module(fake_app) -> None:
 
 
 def test_extraction_preserves_hotkey_restart_behavior(fake_app) -> None:
-    """After extraction, a hotkey change must still trigger
-    ``app.hotkeys.restart``, regression guard for behavior parity."""
+    """After extraction, a hotkey change must still trigger"""
     from voice_typer.server.service import VoiceTyperService
 
     svc = VoiceTyperService(fake_app)

@@ -1,31 +1,4 @@
-"""Cross-language parity test for the default model size.
-
-The default model is defined ONCE in the Python backend as
-``voice_typer.server.model_registry.DEFAULT_MODEL_SIZE`` (the single
-source of truth, changing the default is a one-line change there).
-The renderer's onboarding wizard has a TS-side copy at
-``voice_typer/client/src/renderer/src/pages/onboarding/lib/constants.ts::MODEL_DEFAULT``.
-
-The two are independent, the TS file ships in the client bundle and
-cannot import the Python constant at runtime. Drift between the two
-would make the onboarding wizard pre-select a different model than the
-backend's config default / load-time coercion reset target, so a user
-who accepts the default would see one model in the wizard and get
-another (or a config-reset warning) from the backend.
-
-This test reads the TS source text and asserts that the
-``MODEL_DEFAULT`` literal matches ``DEFAULT_MODEL_SIZE``. It is a
-static source-level check (no Vite/TS runtime needed) so it runs in
-the standard pytest collection. Mirrors the HOTKEY_DEFAULT parity test
-in ``tests/test_hotkey_default_parity.py``.
-
-The TS constant's canonical home is
-``voice_typer/client/src/renderer/src/lib/utils/models.ts``, the
-layering fix moved the definition out of the onboarding page tree
-(the onboarding ``constants.ts`` now re-exports it for compatibility
-with the ~20 existing importers), so the extraction reads the lib
-module and ALSO verifies the onboarding re-export keeps resolving.
-"""
+"""Cross-language parity test for the default model size."""
 
 from __future__ import annotations
 
@@ -63,13 +36,7 @@ CONSTANTS_TS_PATH = (
 
 
 def _extract_model_default(ts_source: str) -> str:
-    """Pull the ``MODEL_DEFAULT`` literal out of the TS source.
-
-    The constant is declared as ``export const MODEL_DEFAULT = "...";``
-    on a single line. The match is intentionally strict about the
-    leading ``export`` / ``const`` tokens so a renamed constant does
-    not silently pass.
-    """
+    """Pull the ``MODEL_DEFAULT`` literal out of the TS source."""
     m = re.search(
         r"""export\s+const\s+MODEL_DEFAULT\s*=\s*["']([^"']*)["']\s*;""",
         ts_source,
@@ -83,12 +50,7 @@ def _extract_model_default(ts_source: str) -> str:
 
 
 def test_constants_ts_model_default_matches_backend_default() -> None:
-    """The TS-side ``MODEL_DEFAULT`` must equal ``DEFAULT_MODEL_SIZE``.
-
-    Reads the constant from its canonical lib-layer home and verifies
-    the onboarding ``constants.ts`` compatibility re-export still
-    resolves the same name (so the ~20 legacy importers keep working).
-    """
+    """The TS-side ``MODEL_DEFAULT`` must equal ``DEFAULT_MODEL_SIZE``."""
     assert MODEL_DEFAULT_TS_PATH.exists(), (
         f"models.ts not found at {MODEL_DEFAULT_TS_PATH}, has the renderer's lib/utils directory moved?"
     )

@@ -1,19 +1,4 @@
-"""Focused tests for the audio-pipeline fixes:
-
-* scipy import is hoisted to module top (no per-call ``from
-  scipy.signal import upfirdn`` inside ``run_vad_state_machine``).
-* VAD auto-calibration receives the RAW (pre-filter) chunk RMS,
-  not the post-filter ``chunk_rms``.
-* ``audio_quality_controller`` imports numpy lazily under
-  ``TYPE_CHECKING`` (``np`` is NOT in the module's ``__dict__`` at
-  import time).
-
-These tests are designed to run without a working scipy installation
-(the sandbox venv has a numpy/scipy version mismatch that makes
-``scipy.signal`` unimportable). They verify source-level and
-behavioral contracts via ``inspect.getsource`` and ``MagicMock``
-stubs, no real scipy / Silero / PortAudio is touched.
-"""
+"""Focused tests for the audio-pipeline fixes:"""
 
 from __future__ import annotations
 
@@ -28,19 +13,11 @@ from voice_typer.server.recording import audio_pipeline as audio_pipeline_mod
 from voice_typer.server.recording.audio_pipeline import AudioPipeline
 from voice_typer.server.vad_processor import VadState
 
-# ── (a) scipy import hoisted to module top ──────────────────────────
-
 
 class TestScipyImportHoisted:
-    """The per-chunk ``from scipy.signal import upfirdn`` and
+    """
     ``from voice_typer.server.recording.resampling import
-    _get_resample_fir_taps`` statements have been hoisted to
-    module-top aliases (``_sp_signal`` / ``_resampling_mod``).
-
     ``run_vad_state_machine`` must NOT contain any ``from ... import``
-    statement for these names, the imports resolve through the
-    module aliases at call time, which keeps the path patchable in
-    tests (``patch("scipy.signal.upfirdn", ...)`` etc.).
     """
 
     def test_run_vad_state_machine_has_no_per_call_scipy_import(
@@ -62,10 +39,7 @@ class TestScipyImportHoisted:
         )
 
     def test_module_top_aliases_exist(self) -> None:
-        """The module-top aliases ``_sp_signal`` and ``_resampling_mod``
-        are bound at module import time. ``_sp_signal`` may be ``None``
-        if scipy is unavailable in the environment; ``_resampling_mod``
-        must always be the resampling submodule."""
+        """The module-top aliases ``_sp_signal`` and ``_resampling_mod``"""
         assert hasattr(audio_pipeline_mod, "_resampling_mod"), (
             "audio_pipeline module must bind '_resampling_mod' at module top."
         )
@@ -75,19 +49,13 @@ class TestScipyImportHoisted:
             "_resampling_mod must be the resampling submodule (so test "
             "patches of '...resampling._get_resample_fir_taps' take effect)."
         )
-        # _sp_signal may be None if scipy is broken in the env, but the
         # name must exist.
         assert hasattr(audio_pipeline_mod, "_sp_signal"), (
             "audio_pipeline module must bind '_sp_signal' at module top (may be None if scipy is unavailable)."
         )
 
     def test_call_site_uses_module_aliases(self) -> None:
-        """The VAD resample call site uses ``_sp_signal.upfirdn(...)``
-        and ``_resampling_mod._get_resample_fir_taps(...)`` (module
-        attribute access), NOT bare ``upfirdn(...)`` or
-        ``_get_resample_fir_taps(...)`` (local name binding). This
-        ensures test patches of the source module attributes take
-        effect."""
+        """The VAD resample call site uses ``_sp_signal.upfirdn(...)``"""
         src = inspect.getsource(AudioPipeline.run_vad_state_machine)
         assert "_sp_signal.upfirdn" in src, (
             "run_vad_state_machine must call '_sp_signal.upfirdn(...)' "
@@ -102,30 +70,18 @@ class TestScipyImportHoisted:
         )
 
 
-# ── (b) VAD auto_calibrate receives raw RMS ─────────────────────────
-
-
 def _make_vad_recorder_stub() -> MagicMock:
-    """Build a MagicMock ``Recorder`` with the cached VAD attributes
-    that ``AudioPipeline.run_vad_state_machine`` reads, configured so
-    the Silero VAD branch is SKIPPED (``_cached_vad_enabled = False``).
-    This avoids touching scipy / Silero entirely; the test only
-    exercises the auto-calibrate call at the top of the method.
-    """
+    """Build a MagicMock ``Recorder`` with the cached VAD attributes"""
     recorder = MagicMock(name="RecorderStub")
     # Disable Silero VAD branch, skip resample + compute_vad_prob.
     recorder._cached_vad_enabled = False
     recorder._cached_use_silero_vad = False
     recorder._cached_silero_available = False
     # State-machine downstream, return SPEECH to avoid silence-timer
-    # side effects.
-    # Silence-timer state, pre-initialised so the SPEECH branch's
-    # writes don't fail on MagicMock attribute access.
     recorder._silence_start_time = None
     recorder._silence_timer = 0.0
     recorder._silence_warning_count = 0
     # Cached silence / max-duration thresholds, large so callbacks
-    # don't fire.
     recorder._cached_silence_warning = 10_000.0
     recorder._cached_stop_on_silence = 10_000.0
     recorder._cached_max_recording_time = 10_000.0
@@ -135,26 +91,13 @@ def _make_vad_recorder_stub() -> MagicMock:
 
 
 def _make_process_chunk_pipeline_stub() -> AudioPipeline:
-    """Build a ``Recorder`` stub + ``AudioPipeline`` for
-    ``process_audio_chunk`` tests.
-
-    The six named helpers are shadowed on the pipeline INSTANCE with
-    MagicMock objects so the tests can assert call counts. A real
-    ``threading.Lock`` and ``deque`` are installed on the recorder so
-    the orchestration body's ``with self._recorder._lock:`` and
-    ``self._recorder._recent_rms_values.append(chunk_rms)`` lines work
-    with real semantics.
-    """
+    """``process_audio_chunk`` tests."""
     recorder = MagicMock(name="RecorderStub")
     pipeline = AudioPipeline(recorder)
     pipeline.detect_device_disconnect = MagicMock(return_value=False)
     pipeline.handle_xrun_status = MagicMock(return_value=False)
-    # apply_filter_chain returns a filtered array with a DIFFERENT RMS
-    # than the raw indata, so the test can distinguish raw vs filtered.
     pipeline.apply_filter_chain = MagicMock(return_value=np.array([0.5, -0.5, 0.5, -0.5], dtype=np.float32))
     pipeline.append_to_buffer_locked = MagicMock(return_value=(1, 1))
-    # compute_rms_and_peak returns the FILTERED RMS (0.5), distinct
-    # from the raw RMS of the test's indata.
     pipeline.compute_rms_and_peak = MagicMock(return_value=(0.5, 0.9, 0.032))
     pipeline.detect_and_emit_clipping = MagicMock()
     pipeline.run_vad_state_machine = MagicMock()
@@ -172,24 +115,13 @@ def _make_process_chunk_pipeline_stub() -> AudioPipeline:
 
 
 class TestVadAutoCalibrateReceivesRawRms:
-    """``vad_auto_calibrate`` (the module-level function
-    ``run_vad_state_machine`` invokes) must receive the RAW (pre-filter)
-    chunk RMS, not the post-filter ``chunk_rms``.
-
-    The raw RMS is threaded from ``process_audio_chunk`` (where it's
-    computed from ``indata`` before the filter chain) to
-    ``run_vad_state_machine`` (where it's passed to
-    ``vad_auto_calibrate``) via a transient instance attribute
-    ``self._pending_raw_chunk_rms``.
-    """
+    """``vad_auto_calibrate`` (the module-level function"""
 
     def test_auto_calibrate_receives_raw_rms_not_filtered(
         self,
         monkeypatch,
     ) -> None:
-        """When ``_pending_raw_chunk_rms`` is set (by
-        ``process_audio_chunk``), ``vad_auto_calibrate`` is called
-        with that value. NOT the filtered ``chunk_rms`` argument."""
+        """``process_audio_chunk``), ``vad_auto_calibrate`` is called"""
         import voice_typer.server.recording.audio_pipeline as ap_mod
 
         recorder = _make_vad_recorder_stub()
@@ -223,17 +155,12 @@ class TestVadAutoCalibrateReceivesRawRms:
         self,
         monkeypatch,
     ) -> None:
-        """Direct callers of ``run_vad_state_machine`` that did not
-        set ``_pending_raw_chunk_rms`` fall back to ``chunk_rms``.
-        This preserves backward compatibility for tests / callers that
-        invoke the method directly."""
+        """Direct callers of ``run_vad_state_machine`` that did not"""
         import voice_typer.server.recording.audio_pipeline as ap_mod
 
         recorder = _make_vad_recorder_stub()
         pipeline = AudioPipeline(recorder)
         # The stub disables the VAD branch (``_cached_vad_enabled=False``),
-        # so the real ``vad_auto_calibrate`` would short-circuit, patch
-        # it with a mock to observe the call arguments.
         calibrate_mock = MagicMock()
         monkeypatch.setattr(ap_mod, "vad_auto_calibrate", calibrate_mock)
         # Do NOT set _pending_raw_chunk_rms, simulate a direct caller.
@@ -257,15 +184,9 @@ class TestVadAutoCalibrateReceivesRawRms:
     def test_process_audio_chunk_sets_pending_raw_rms_from_indata(
         self,
     ) -> None:
-        """``process_audio_chunk`` computes the raw (pre-filter) RMS
-        from ``indata`` and stores it on ``self._pending_raw_chunk_rms``
-        BEFORE the filter chain runs. The stored value must match the
-        RMS of the raw ``indata``, NOT the filtered array returned by
-        ``_apply_filter_chain``."""
+        """``process_audio_chunk`` computes the raw (pre-filter) RMS"""
         pipeline = _make_process_chunk_pipeline_stub()
 
-        # indata with a known, computable RMS (distinct from the
-        # filtered array's RMS of 0.5).
         indata = np.array([0.1, -0.2, 0.3, -0.4], dtype=np.float32)
         expected_raw_rms = float(np.sqrt(np.mean(indata**2)))
 
@@ -281,7 +202,6 @@ class TestVadAutoCalibrateReceivesRawRms:
             f"{pipeline._pending_raw_chunk_rms}."
         )
         # And it must NOT be the filtered RMS (0.5) returned by
-        # _compute_rms_and_peak.
         assert pipeline._pending_raw_chunk_rms != pytest.approx(0.5), (
             "_pending_raw_chunk_rms must be the RAW (pre-filter) RMS, not the post-filter chunk_rms (0.5)."
         )
@@ -289,20 +209,14 @@ class TestVadAutoCalibrateReceivesRawRms:
     def test_process_audio_chunk_sets_raw_rms_before_filter_chain(
         self,
     ) -> None:
-        """The raw RMS is computed from ``indata`` BEFORE
-        ``_apply_filter_chain`` is called. This is verified by checking
-        that ``_apply_filter_chain`` receives the ORIGINAL ``indata``
-        (not a modified version), and ``_pending_raw_chunk_rms`` is
-        already set when the filter chain runs."""
+        """The raw RMS is computed from ``indata`` BEFORE"""
         pipeline = _make_process_chunk_pipeline_stub()
 
         # Capture whether _pending_raw_chunk_rms is set at the time
-        # apply_filter_chain is called.
         raw_rms_at_filter_time: list[float | None] = []
 
         def capture_filter_chain(indata: np.ndarray) -> np.ndarray:
             # Record the value of _pending_raw_chunk_rms on the pipeline
-            # at the moment apply_filter_chain is invoked.
             raw_rms_at_filter_time.append(getattr(pipeline, "_pending_raw_chunk_rms", None))
             return pipeline.apply_filter_chain.return_value
 
@@ -313,10 +227,8 @@ class TestVadAutoCalibrateReceivesRawRms:
 
         pipeline.process_audio_chunk(indata, 4, None, 0, 12345.0)
 
-        # apply_filter_chain was called exactly once with indata.
         pipeline.apply_filter_chain.assert_called_once_with(indata)
         # At the time _apply_filter_chain was called, _pending_raw_chunk_rms
-        # was ALREADY set to the correct raw RMS.
         assert len(raw_rms_at_filter_time) == 1
         assert raw_rms_at_filter_time[0] == pytest.approx(expected_raw_rms), (
             "_pending_raw_chunk_rms must be set BEFORE _apply_filter_chain "
@@ -325,21 +237,11 @@ class TestVadAutoCalibrateReceivesRawRms:
         )
 
 
-# ── (c) audio_quality_controller imports numpy lazily ───────────────
-
-
 class TestAudioQualityControllerLazyNumpy:
-    """``audio_quality_controller.py`` uses ``np.ndarray`` only as a
-    type annotation (with ``from __future__ import annotations``, the
-    annotation is a string and is NOT evaluated at runtime). The
-    ``import numpy as np`` must be under ``if TYPE_CHECKING:`` so the
-    module can be imported without eager-loading numpy.
-    """
+    """module can be imported without eager-loading numpy."""
 
     def test_np_not_in_module_dict_at_import_time(self) -> None:
-        """After importing ``audio_quality_controller``, ``np`` must
-        NOT be in the module's ``__dict__``, it's only imported under
-        ``TYPE_CHECKING`` (which is ``False`` at runtime)."""
+        """After importing ``audio_quality_controller``, ``np`` must"""
         import voice_typer.server.audio_quality_controller as aqc
 
         assert "np" not in aqc.__dict__, (
@@ -349,13 +251,11 @@ class TestAudioQualityControllerLazyNumpy:
         assert "numpy" not in aqc.__dict__, "'numpy' must not be in audio_quality_controller.__dict__ at runtime."
 
     def test_numpy_import_under_type_checking(self) -> None:
-        """The module source must contain ``if TYPE_CHECKING:`` with
-        ``import numpy as np`` inside it (not at module top level)."""
+        """The module source must contain ``if TYPE_CHECKING:`` with"""
         import voice_typer.server.audio_quality_controller as aqc
 
         src = inspect.getsource(aqc)
         # The top-level (un-indented) 'import numpy as np' must NOT
-        # appear, only the indented one under TYPE_CHECKING.
         lines = src.splitlines()
         for line in lines:
             stripped = line.lstrip()
@@ -368,18 +268,13 @@ class TestAudioQualityControllerLazyNumpy:
     def test_module_imports_without_numpy_being_used_at_runtime(
         self,
     ) -> None:
-        """The module can be imported and the class symbol accessed
-        without numpy being in the module namespace. The ``np.ndarray``
-        annotation on ``_finalize_audio_quality_report`` is a string
-        (due to ``from __future__ import annotations``) and is not
-        evaluated."""
+        """The module can be imported and the class symbol accessed"""
         import voice_typer.server.audio_quality_controller as aqc
 
         # The class is accessible.
         assert hasattr(aqc, "AudioQualityController")
         # The method exists and is callable.
         assert hasattr(aqc.AudioQualityController, "_finalize_audio_quality_report")
-        # np is not in the module dict (lazy import).
         assert "np" not in aqc.__dict__
 
 

@@ -21,9 +21,7 @@ from voice_typer.server.server_platform import (
 
 class TestAutostartCommand:
     def test_uses_autostart_launcher(self):
-        """The autostart command must run autostart_launcher.py, which
-        spawns npm run dev (predecessor dev mode) hidden, not the
-        standalone ``-m voice_typer`` tray app."""
+        """standalone ``-m voice_typer`` tray app."""
         cmd = _autostart_command()
         assert "autostart_launcher.py" in cmd
 
@@ -35,19 +33,6 @@ class TestAutostartCommand:
 
     @pytest.mark.skipif(sys.platform == "win32", reason="Non-Windows test")
     def test_unix_uses_quoted_executable(self):
-        # the autostart command now uses spec-compliant
-        # quoting, paths without reserved characters are NOT wrapped
-        # in quotes (per the freedesktop Desktop Entry Spec).  We just
-        # verify the executable appears in the command and the
-        # launcher is present.
-        #
-        # PLAT-VENV: when running inside a virtualenv, the production
-        # code (server_platform.autostart._autostart_command) may swap
-        # ``sys.executable`` for the system Python (found via
-        # ``shutil.which("python3")``) if the system Python can import
-        # the launcher.  So we cannot hard-assert ``sys.executable`` is
-        # in the command; instead we verify the first token is a real
-        # executable on disk and the launcher is referenced.
         cmd = _autostart_command()
         tokens = cmd.split()
         assert len(tokens) >= 2, f"expected at least 2 tokens (python + launcher), got: {cmd}"
@@ -57,9 +42,7 @@ class TestAutostartCommand:
 
 
 class TestLinuxDesktopExec:
-    """The Linux .desktop Exec= field must preserve the quoting produced
-    by _autostart_command().  A previous version stripped the outer
-    quotes, which corrupts the first argument."""
+    """The Linux .desktop Exec= field must preserve the quoting produced"""
 
     def test_exec_field_is_command_verbatim(self, monkeypatch, tmp_path):
         # Force the Linux path regardless of host platform.
@@ -74,9 +57,6 @@ class TestLinuxDesktopExec:
 
         desktop = (tmp_path / "voice-typer.desktop").read_text()
         # The Exec line must contain the FULL command with quotes intact.
-        # If strip('"') were applied, the line would read:
-        #   Exec=/usr/bin/python3" "/opt/voice_typer/launcher.py
-        # which is malformed per the Desktop Entry Spec.
         for line in desktop.splitlines():
             if line.startswith("Exec="):
                 exec_val = line[len("Exec=") :]
@@ -110,9 +90,7 @@ class TestLinuxDesktopExec:
 
 
 class TestMacOsAutostartUnload:
-    """disable_autostart on macOS must unload the running job via
-    launchctl (bootout/remove) BEFORE deleting the plist, otherwise the
-    job lingers until logout."""
+    """disable_autostart on macOS must unload the running job via"""
 
     def test_disable_calls_launchctl_bootout_then_remove(self, monkeypatch, tmp_path):
         import subprocess as _sp
@@ -308,19 +286,10 @@ class TestCreateLauncherShortcut:
         monkeypatch.setattr(flags_mod, "SYSTEM", "win32")
         assert create_launcher_shortcut() is None
 
-    # ── APP_NAME-composed filename + legacy-name fallback ────────────
-    #
     # The .lnk filename must be composed from APP_NAME (C-BRAND-1), not
-    # hardcoded. These tests monkeypatch APP_NAME to a distinct value so
-    # the composition is observable, and run on every platform (win32com
-    # is faked via sys.modules injection, the production code imports it
-    # lazily inside _create_lnk_shortcut).
 
     def _fake_windows_env(self, tmp_path, monkeypatch, app_name):
-        """Common Windows-faked environment for the naming tests.
-
-        Returns (desktop, start_menu, mock_shell, run_calls).
-        """
+        """Common Windows-faked environment for the naming tests."""
         import voice_typer.server.server_platform as mod
 
         ds = mod.desktop_shortcut
@@ -346,9 +315,6 @@ class TestCreateLauncherShortcut:
         monkeypatch.setitem(sys.modules, "win32com", mock_win32com)
         monkeypatch.setitem(sys.modules, "win32com.client", mock_win32com.client)
 
-        # The AUMID stamp falls back to a PowerShell subprocess when the
-        # .lnk bytes lack the property block, record those calls instead
-        # of spawning powershell (absent on non-Windows hosts).
         run_calls = []
 
         def fake_run(args, **kwargs):
@@ -359,12 +325,7 @@ class TestCreateLauncherShortcut:
         return desktop, start_menu, mock_shell, run_calls
 
     def test_creates_app_name_composed_lnk_filename(self, tmp_path, monkeypatch):
-        """The .lnk filename is composed from APP_NAME, not hardcoded.
-
-        With APP_NAME patched to a distinct value and no pre-existing
-        shortcut, both Desktop and Start Menu .lnk files must be created
-        under the APP_NAME-derived filename.
-        """
+        """The .lnk filename is composed from APP_NAME, not hardcoded."""
         desktop, _start_menu, _shell, _runs = self._fake_windows_env(tmp_path, monkeypatch, app_name="Renamed Product")
 
         result = create_launcher_shortcut()
@@ -374,14 +335,7 @@ class TestCreateLauncherShortcut:
         assert result == desktop / "Renamed Product.lnk"
 
     def test_reuses_legacy_named_lnk_instead_of_creating_a_duplicate(self, tmp_path, monkeypatch):
-        """A legacy-named existing shortcut is reused after a rename.
-
-        Builds predating the APP_NAME-derived naming created the shortcut
-        under a fixed legacy filename. When APP_NAME has changed and the
-        legacy file exists, the legacy shortcut is returned (and
-        AUMID-stamped), no second shortcut is created under the new
-        name, so the user never ends up with a stale duplicate.
-        """
+        """A legacy-named existing shortcut is reused after a rename."""
         desktop, start_menu, mock_shell, _runs = self._fake_windows_env(
             tmp_path, monkeypatch, app_name="Renamed Product"
         )
@@ -401,14 +355,7 @@ class TestCreateLauncherShortcut:
 
 
 class TestExistingLauncherLnk:
-    """``_existing_launcher_lnk``, APP_NAME-named shortcut with
-    legacy-filename fallback.
-
-    The primary name is ``{APP_NAME}.lnk``; the legacy fixed filename is
-    accepted as the existing shortcut when the APP_NAME-named file is
-    absent, so a product rename never orphans (or duplicates) the
-    pre-rename shortcut.
-    """
+    """legacy-filename fallback."""
 
     def test_returns_none_when_no_shortcut_exists(self, tmp_path, monkeypatch):
         from voice_typer.server.server_platform.desktop_shortcut import _existing_launcher_lnk
@@ -448,9 +395,7 @@ class TestExistingLauncherLnk:
         assert _existing_launcher_lnk(tmp_path) == legacy
 
     def test_current_app_name_matches_legacy_name_today(self, tmp_path):
-        """Today APP_NAME equals the legacy filename stem, so the primary
-        and legacy paths are the same file, the fallback is a no-op
-        until the product is actually renamed."""
+        """Today APP_NAME equals the legacy filename stem, so the primary"""
         from voice_typer.server.branding import APP_NAME
         from voice_typer.server.server_platform.desktop_shortcut import _existing_launcher_lnk
 
@@ -460,18 +405,9 @@ class TestExistingLauncherLnk:
 
 
 class TestSetLnkAppUserModelId:
-    """``_set_lnk_app_user_model_id``, toast-icon AUMID stamp on .lnk files.
-
-    The property is written into the .lnk as a ``1SPS`` serialized
-    property-store block (the same byte layout Windows installer tooling
-    produces and ``lnk-parser`` reads). The stamp is idempotent via a raw
-    byte fast-path so the PowerShell C# helper only runs when the
-    property is genuinely missing.
-    """
+    """``_set_lnk_app_user_model_id``, toast-icon AUMID stamp on .lnk files."""
 
     # PKEY_AppUserModel_ID fmtid 9F4C2855-9F79-4B39-A8D0-E1D42DE1D5F3
-    # (little-endian GUID field order) + UTF-16 value, as found in a
-    # stamped .lnk.
     _AUMID_GUID_BYTES = bytes.fromhex("55284c9f799f394ba8d0e1d42de1d5f3")
 
     def _stamped_lnk(self, tmp_path):
@@ -555,8 +491,7 @@ class TestSetLnkAppUserModelId:
         assert called == []
 
     def test_build_aumid_script_single_quotes_user_values(self, tmp_path):
-        """SEC-10: user-supplied values in the PowerShell script are
-        single-quoted; the script traps errors into a nonzero exit."""
+        """SEC-10: user-supplied values in the PowerShell script are"""
         import voice_typer.server.server_platform as mod
 
         lnk = tmp_path / "Voice Typer.lnk"
@@ -567,9 +502,7 @@ class TestSetLnkAppUserModelId:
         assert f"'{lnk}'" in script
         assert "'VoiceTyper'" in script
         # The generic property-store APIs (which DON'T persist) must NOT
-        # appear, only the IShellLink property-store pattern.
         assert "SHGetPropertyStoreFromParsingName" not in script
-        # try/catch → exit 1 on any failure, exit $hr on COM failure.
         assert "} catch {" in script
         assert "exit $hr" in script
         # The property key written is the AppUserModel.ID fmtid/pid.
@@ -590,9 +523,6 @@ class TestGenerateIconIco:
         assert result.parent.name == "voice-typer"
 
 
-# ─── Universal launcher path ────────────────────────────────────────────
-
-
 class TestUniversalLauncherPath:
     """_universal_launcher_path() must point at autostart_launcher.py."""
 
@@ -603,9 +533,6 @@ class TestUniversalLauncherPath:
         p = _universal_launcher_path()
         assert p.name == "autostart_launcher.py"
         assert p.exists()
-
-
-# ─── Start Menu Programs dir ────────────────────────────────────────────
 
 
 class TestStartMenuProgramsDir:
@@ -624,17 +551,7 @@ class TestStartMenuProgramsDir:
 
 
 class TestGetAutostartDirLinux:
-    """FR-9: get_autostart_dir() must treat XDG_CONFIG_HOME="" as unset.
-
-    Regression for the bug where ``os.environ.get("XDG_CONFIG_HOME",
-    default)`` returned the empty string when the env var was set but
-    empty, causing ``Path("") / "autostart"`` to produce a RELATIVE
-    ``PosixPath("autostart")``, the .desktop file would be written to
-    the process's CWD instead of ``~/.config/autostart/``, and the
-    desktop environment would never pick it up. Mirrors the
-    ``TestLinuxUnitDirHandlesEmptyXdgConfigHome`` suite already covering
-    ``prewarm_scheduler_posix._linux_unit_dir``.
-    """
+    """FR-9: get_autostart_dir() must treat XDG_CONFIG_HOME=\"\" as unset."""
 
     def test_empty_string_xdg_config_home_uses_fallback(self, monkeypatch, tmp_path):
         from voice_typer.server.server_platform import autostart as autostart_mod, get_autostart_dir
@@ -649,7 +566,6 @@ class TestGetAutostartDirLinux:
         result = get_autostart_dir()
 
         # Critical: must NOT be a relative path (the bug produced
-        # PosixPath("autostart") which is relative).
         assert result.is_absolute(), f"FR-9 regression: empty XDG_CONFIG_HOME produced relative path {result!r}"
         expected = fake_home / ".config" / "autostart"
         assert result == expected
@@ -679,12 +595,8 @@ class TestGetAutostartDirLinux:
         assert result == tmp_path / "autostart"
 
 
-# ─── Autostart command includes --hidden ───────────────────────────────
-
-
 class TestAutostartCommandIncludesHidden:
-    """The autostart command must include --hidden so predecessor starts
-    with the dashboard hidden at login."""
+    """The autostart command must include --hidden so predecessor starts"""
 
     def test_includes_hidden_flag(self):
         cmd = _autostart_command()
@@ -695,17 +607,11 @@ class TestAutostartCommandIncludesHidden:
         assert "autostart_launcher.py" in cmd
 
 
-# ─── Shortcut target verification ──────────────────────────────────────
-
-
 class TestShortcutTarget:
-    """Verify that the shortcut target points at the universal launcher,
-    not the legacy -m voice_typer backend-only path."""
+    """Verify that the shortcut target points at the universal launcher,"""
 
     def test_shortcut_arguments_reference_universal_launcher(self, monkeypatch):
-        """The shortcut's arguments must point at autostart_launcher.py
-        (not pythonw -m voice_typer, which starts backend-only without
-        predecessor, causing the bubble overlay to never appear)."""
+        """The shortcut's arguments must point at autostart_launcher.py"""
         from voice_typer.server.server_platform import _universal_launcher_path
 
         launcher = _universal_launcher_path()

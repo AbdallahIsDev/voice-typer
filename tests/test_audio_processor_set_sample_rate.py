@@ -1,42 +1,4 @@
-"""FA5-FIX / XV-31 (CRITICAL): ``AudioProcessor.set_sample_rate`` updates
-the internal sample rate AND rebuilds the filter chain at the new rate.
-
-Regression background
----------------------
-Before this fix, ``AudioQualityController._rebuild_audio_processor``'s
-AUDIO-6 / AUDIO-9 path did::
-
-    set_sr = getattr(self._app._audio_processor, "set_sample_rate", None)
-    if callable(set_sr):
-        set_sr(force_sr)
-    else:
-        log.debug("[APP] AudioProcessor lacks set_sample_rate, skipping AUDIO-6 rebuild")
-
-but ``AudioProcessor`` never defined ``set_sample_rate``. So ``getattr``
-always returned ``None`` and the controller fell through to the
-``else`` log line every time, the actual rate change was never
-propagated. All filter coefficients stayed tuned to the original
-``config.sample_rate`` (16 kHz), so a hot-plugged device running at
-48 kHz (or 44.1 kHz) silently mistuned the entire chain:
-
-  - 80 Hz Butterworth high-pass built at 16 kHz → actually cuts at 240 Hz
-    when fed 48 kHz audio (removes male speech fundamentals).
-  - Notch frequencies, EQ crossovers, and compressor attack/release
-    ballistics all drift in lockstep.
-
-This module pins the contract added by FA5-FIX:
-
-  1. ``set_sample_rate(new_sr)`` updates ``processor._sample_rate``.
-  2. ``set_sample_rate(new_sr)`` triggers a real rebuild, the chain's
-     filter instances are reconstructed at the new rate, evidenced by
-     the HighPass IIR ``b`` coefficients changing and the filter's
-     internal ``_sample_rate`` matching the new rate.
-  3. The filter SET (which filters are active) is preserved across the
-     rate change, only the coefficients change.
-  4. A subsequent ``rebuild_from_config`` uses the NEW rate (AUDIO-6 /
-     AUDIO-9 contract: controller calls ``set_sample_rate(force_sr)``
-     BEFORE ``rebuild_from_config(config)``).
-"""
+"""FA5-FIX / XV-31 (CRITICAL): ``AudioProcessor.set_sample_rate`` updates"""
 
 from __future__ import annotations
 
@@ -46,13 +8,6 @@ from voice_typer.server.audio_filters import HighPassFilter
 from voice_typer.server.audio_processor import AudioProcessor
 
 from tests.fixtures.config_helpers import FakeConfig
-
-# ═══════════════════════════════════════════════════════════════════════════
-# Test config, the shared minimal config stand-in from
-# tests/fixtures/config_helpers.py (previously a local copy of
-# test_audio_processor.py's FakeConfig; consolidated so the two files
-# cannot drift again).
-# ═══════════════════════════════════════════════════════════════════════════
 
 
 @pytest.fixture
@@ -68,11 +23,6 @@ def processor(config: FakeConfig) -> AudioProcessor:
 def _find_highpass(p: AudioProcessor) -> HighPassFilter:
     """Return the (single) HighPassFilter instance in the chain."""
     return next(f for f in p.chain.filters if isinstance(f, HighPassFilter))
-
-
-# ═══════════════════════════════════════════════════════════════════════════
-# _sample_rate must change
-# ═══════════════════════════════════════════════════════════════════════════
 
 
 class TestSetSampleRateUpdatesInternalRate:
@@ -100,27 +50,17 @@ class TestSetSampleRateUpdatesInternalRate:
         assert processor.sample_rate == processor._sample_rate == 48000
 
     def test_set_sample_rate_coerces_to_int(self, processor):
-        """Defensive: pass-through int() so a numpy int64 / float doesn't
-        leak into the IIR coefficient math (butter() requires int sr)."""
+        """Defensive: pass-through int() so a numpy int64 / float doesn't"""
         processor.set_sample_rate(np.int64(48000))
         assert processor._sample_rate == 48000
         assert isinstance(processor._sample_rate, int)
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# chain filters must reflect the new rate
-# ═══════════════════════════════════════════════════════════════════════════
-
-
 class TestSetSampleRateRebuildsFilters:
-    """XV-31: ``set_sample_rate(new_sr)`` must rebuild the chain's filters
-    at the new rate, not just update the bookkeeping field."""
+    """XV-31: ``set_sample_rate(new_sr)`` must rebuild the chain's filters"""
 
     def test_highpass_b_coefficients_change(self, processor):
-        """An order-4 Butterworth high-pass at 80 Hz produces different
-        ``b`` coefficients for 16 kHz vs 48 kHz. If the chain is NOT
-        rebuilt (the XV-31 bug), the coefficients stay tuned to the
-        original rate."""
+        """An order-4 Butterworth high-pass at 80 Hz produces different"""
         initial_hp = _find_highpass(processor)
         initial_b = initial_hp._state[0].copy()
 
@@ -135,18 +75,7 @@ class TestSetSampleRateRebuildsFilters:
         )
 
     def test_highpass_sos_state_layout_after_rebuild(self, processor):
-        """SOS-form witness that the chain was rebuilt at the new rate.
-
-          The high-pass state is ``(sos, zi)``: the section matrix folds
-          BOTH the numerator and the old denominator into one N×6 array
-          (columns 3:6 are the per-section denominators), and the IIR
-          memory is a per-section 2-tap vector. Pinning the layout after
-          ``set_sample_rate`` proves the filter was reconstructed with the
-          SOS design (the old separate ``b``/``a`` state no longer exists
-        , ``state[1]`` is the zi memory, not the denominator); the
-          rate-sensitivity of the coefficients themselves is pinned by
-          ``test_highpass_b_coefficients_change``.
-        """
+        """SOS-form witness that the chain was rebuilt at the new rate."""
         processor.set_sample_rate(48000)
 
         hp = _find_highpass(processor)
@@ -162,10 +91,7 @@ class TestSetSampleRateRebuildsFilters:
         )
 
     def test_highpass_internal_sample_rate_matches_new_rate(self, processor):
-        """The HighPass filter's own ``_sample_rate`` field must reflect
-        the new rate after ``set_sample_rate``, proves the chain was
-        rebuilt at the new rate, not just the processor's bookkeeping
-        field updated in isolation."""
+        """The HighPass filter's own ``_sample_rate`` field must reflect"""
         processor.set_sample_rate(48000)
         hp = _find_highpass(processor)
         assert hp._sample_rate == 48000
@@ -177,10 +103,7 @@ class TestSetSampleRateRebuildsFilters:
         assert _find_highpass(processor)._sample_rate == 16000
 
     def test_filter_set_preserved_across_rate_change(self, processor):
-        """XV-31: the filter configuration is preserved across the rate
-        change, only the coefficients change, not which filters are
-        active. (A regression that swapped in a wrong/different filter
-        set would still pass the coefficient-change tests above.)"""
+        """XV-31: the filter configuration is preserved across the rate"""
         initial_names = processor.filter_names
         processor.set_sample_rate(44100)
         assert processor.filter_names == initial_names, (
@@ -188,21 +111,10 @@ class TestSetSampleRateRebuildsFilters:
         )
 
     def test_chain_object_identity_preserved(self, processor):
-        """The :class:`FilterChain` object itself is preserved across
-        the rebuild (``rebuild_from_config`` swaps the internal filter
-        list in place via :meth:`FilterChain.swap` rather than replacing
-        the chain object), so callers holding a reference to
-        ``processor.chain`` keep working across the rate change."""
+        """The :class:`FilterChain` object itself is preserved across"""
         initial_chain = processor.chain
         processor.set_sample_rate(48000)
         assert processor.chain is initial_chain
-
-
-# ═══════════════════════════════════════════════════════════════════════════
-# subsequent rebuild_from_config uses the NEW rate (/
-# contract: controller calls set_sample_rate(force_sr) BEFORE
-# rebuild_from_config(config))
-# ═══════════════════════════════════════════════════════════════════════════
 
 
 class TestSetSampleRateThenRebuildFromConfig:
@@ -213,10 +125,7 @@ class TestSetSampleRateThenRebuildFromConfig:
         assert processor._sample_rate == 48000
 
     def test_rebuild_from_config_does_not_revert_rate(self, processor, config):
-        """Even though ``config.sample_rate == 16000``, a
-        ``rebuild_from_config`` after ``set_sample_rate(48000)`` must
-        NOT revert the chain to 16 kHz, the controller's intent
-        (``force_sr``) wins over the stale config value."""
+        """``rebuild_from_config`` after ``set_sample_rate(48000)`` must"""
         assert config.sample_rate == 16000
         processor.set_sample_rate(48000)
         processor.rebuild_from_config(config)
@@ -225,11 +134,6 @@ class TestSetSampleRateThenRebuildFromConfig:
             "self._sample_rate (48000 after set_sample_rate), NOT revert "
             "to config.sample_rate (16000)."
         )
-
-
-# ═══════════════════════════════════════════════════════════════════════════
-# smoke test, the rebuilt chain must be functional
-# ═══════════════════════════════════════════════════════════════════════════
 
 
 class TestSetSampleRateProcessChunk:

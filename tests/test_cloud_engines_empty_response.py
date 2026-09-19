@@ -1,20 +1,4 @@
-"""CloudEngine: HTTP 200 with an empty/blank body must raise a typed error.
-
-A provider returning 200 with an empty body (or ``{}`` / a missing
-transcript field) is an anomaly - the pipeline must not ship an empty
-transcript as if it were valid. These tests pin the contract:
-
-1. 200 empty / whitespace-only body raises ``CloudEmptyResponseError``
-   (OpenAI-compatible AND Deepgram paths).
-2. 200 with ``{}`` or a missing transcript field raises the same typed
-   error ("empty transcript" variant).
-3. 200 with a valid transcript is returned unchanged.
-4. The empty-response error is NOT retried (a provider-side anomaly,
-   not a transient network error).
-5. ``test_connection`` (SEC-011 probe) is unaffected - a 200 with an
-   empty body still reports success=True; the probe never parses a
-   transcript body.
-"""
+"""CloudEngine: HTTP 200 with an empty/blank body must raise a typed error."""
 
 from __future__ import annotations
 
@@ -27,13 +11,7 @@ from voice_typer.server.cloud_engines import CloudEngine
 
 
 def _make_fake_resp(body: bytes):
-    """Context-managed fake HTTP response.
-
-    ``_read_capped`` calls ``resp.read(64*1024)`` in a loop until it
-    returns an empty chunk, so ``read`` yields ``body`` once then EOF.
-    ``test_connection`` never reads the body - it only checks
-    ``resp.status``.
-    """
+    """Context-managed fake HTTP response."""
     calls = {"n": 0}
 
     class _FakeResp:
@@ -73,8 +51,7 @@ def _engine(provider: str = "openai") -> CloudEngine:
 
 
 class TestCloudEmptyResponseError:
-    """HTTP 200 with an empty body / empty transcript raises the typed
-    error instead of returning an empty string as valid text."""
+    """HTTP 200 with an empty body / empty transcript raises the typed"""
 
     def test_200_empty_body_raises(self):
         engine = _engine("openai")
@@ -113,7 +90,7 @@ class TestCloudEmptyResponseError:
         assert "deepgram" in str(exc_info.value)
 
     def test_200_empty_json_raises(self):
-        """``{}`` on a 200 is the "empty transcript" anomaly."""
+        """``{}`` on a 200 is the \"empty transcript\" anomaly."""
         engine = _engine("openai")
         with (
             patch(
@@ -137,8 +114,7 @@ class TestCloudEmptyResponseError:
             engine.transcribe(np.zeros(16000, dtype=np.float32))
 
     def test_200_valid_transcript_unchanged(self):
-        """A valid 200 response must return the text - no behavior
-        change on the success path."""
+        """A valid 200 response must return the text - no behavior"""
         engine = _engine("openai")
         with patch(
             "voice_typer.server.cloud_engines._opener.open",
@@ -158,8 +134,7 @@ class TestCloudEmptyResponseError:
         assert result == "hello from deepgram"
 
     def test_empty_body_is_not_retried(self):
-        """An empty body is a provider-side anomaly, not a transient
-        network error - the request must be issued exactly ONCE."""
+        """An empty body is a provider-side anomaly, not a transient"""
         engine = _engine("openai")
         with (
             patch(
@@ -175,9 +150,7 @@ class TestCloudEmptyResponseError:
 
 
 class TestCloudEmptyResponseTestConnectionUnaffected:
-    """The SEC-011 probe (``test_connection``) sends empty audio and
-    EXPECTS 400 or 200; a 200 with an empty body must report success,
-    not raise ``CloudEmptyResponseError``."""
+    """EXPECTS 400 or 200; a 200 with an empty body must report success,"""
 
     def test_test_connection_200_empty_body_success(self):
         engine = _engine("openai")

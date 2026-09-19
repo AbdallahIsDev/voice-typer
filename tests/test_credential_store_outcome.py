@@ -1,40 +1,4 @@
-"""Tests for :func:`voice_typer.server.credential_store.last_store_outcome`.
-
-CR-94: ``store_secret`` returns a plain ``bool`` and silently falls
-back to plaintext on keyring failure. The IPC handler (``set_config``
-— Fix-G's territory) needs to surface *why* the store fell back so
-the renderer can show a "your API key was stored in plaintext because
-<reason>" warning. ``last_store_outcome`` returns the outcome of the
-most recent ``store_secret`` call on the *current thread* (thread-local
-state).
-
-These tests verify:
-
-  - ``last_store_outcome`` returns ``{"stored_in": "unknown", "reason":
-    None, "provider": None}`` on a fresh thread that has never called
-    ``store_secret``.
-  - After a successful ``store_secret`` (keyring available), the
-    outcome is ``{"stored_in": "keyring", "reason": None, "provider":
-    "openai"}``.
-  - After a fallback ``store_secret`` (keyring unavailable / errored),
-    the outcome is ``{"stored_in": "plaintext", "reason": "...",
-    "provider": "openai"}`` with the keyring exception message
-    (redacted).
-  - After a delete ``store_secret`` (empty value), the outcome is
-    ``{"stored_in": "deleted", "reason": None, "provider": "openai"}``.
-  - The reason is passed through ``_redact_sensitive`` (paths and
-    API-key-like substrings are stripped) before being stored.
-  - The provider field reflects the most recent call (overwritten on
-    each new ``store_secret``).
-  - The outcome is thread-local: a ``store_secret`` on thread A does
-    not change the outcome seen by thread B.
-  - The returned dict is a copy, mutating it does not affect
-    subsequent ``last_store_outcome`` calls.
-
-The fixtures mirror those in ``tests/test_credential_store.py`` (mock
-keyring available / unavailable / raises-on-set) so the two test
-files share the same mocking convention (TEST-033).
-"""
+"""Tests for :func:`voice_typer.server.credential_store.last_store_outcome`."""
 
 from __future__ import annotations
 
@@ -45,21 +9,10 @@ from unittest.mock import MagicMock
 import pytest
 from voice_typer.server import credential_store
 
-# ── Fixtures ────────────────────────────────────────────────────────────
-
 
 @pytest.fixture(autouse=True)
 def _isolated_config_dir(tmp_config_dir):
-    """Point ``_config_dir`` at a tmp_path so each test gets a clean slate.
-
-    Also resets the keyring availability cache so each test re-probes
-    (the probe is cached at module level for the lifetime of the
-    process, which would leak state across tests), and clears the
-    orphan/wedge state owned by ``credential_store._backend``, the
-    wedge cooldown is global with a 60 s window, so a wedged backend
-    left behind by any other test file would short-circuit every
-    ``store_secret`` call here into a plaintext fallback.
-    """
+    """Point ``_config_dir`` at a tmp_path so each test gets a clean slate."""
     credential_store._reset_keyring_cache()
     with credential_store._keyring_state_lock:
         credential_store._backend._orphaned_thread_count = 0
@@ -75,15 +28,7 @@ def _isolated_config_dir(tmp_config_dir):
 
 @pytest.fixture(autouse=True)
 def _reset_last_store_outcome():
-    """Clear the thread-local ``last_store_outcome`` before & after each test.
-
-    Without this, the outcome from one test (e.g. a successful keyring
-    store) would leak into the next test running on the same pytest
-    worker thread and produce flaky "expected unknown, got keyring"
-    failures. We delete the ``outcome`` attribute on the thread-local
-    object so ``getattr(_last_store_outcome, "outcome", None)`` returns
-    None (the "no store on this thread yet" state).
-    """
+    """Clear the thread-local ``last_store_outcome`` before & after each test."""
     if hasattr(credential_store._last_store_outcome, "outcome"):
         del credential_store._last_store_outcome.outcome
     yield
@@ -93,11 +38,7 @@ def _reset_last_store_outcome():
 
 @pytest.fixture
 def mock_keyring_available(monkeypatch):
-    """Mock keyring as available with an in-memory store.
-
-    Mirrors the fixture of the same name in ``test_credential_store.py``
-    so the two test files share a consistent mocking convention.
-    """
+    """Mock keyring as available with an in-memory store."""
     store: dict[tuple[str, str], str] = {}
 
     class _FakeBackend:
@@ -136,10 +77,7 @@ def mock_keyring_available(monkeypatch):
 
 @pytest.fixture
 def mock_keyring_unavailable(monkeypatch):
-    """Mock keyring as unavailable (fail backend / D-Bus missing).
-
-    Mirrors the fixture of the same name in ``test_credential_store.py``.
-    """
+    """Mock keyring as unavailable (fail backend / D-Bus missing)."""
 
     class _FailKeyring:
         name = "fail"
@@ -174,12 +112,7 @@ def mock_keyring_unavailable(monkeypatch):
 
 @pytest.fixture
 def mock_keyring_raises_on_set(monkeypatch):
-    """Mock keyring as available for probing but raising on ``set_password``.
-
-    Simulates the case where the backend is selected but the actual
-    write fails (e.g. keychain locked, D-Bus dropped mid-call). The
-    store should fall back to plaintext in config.json.
-    """
+    """Mock keyring as available for probing but raising on ``set_password``."""
     fake_keyring = MagicMock()
 
     class _SelectableBackend:
@@ -211,9 +144,6 @@ def mock_keyring_raises_on_set(monkeypatch):
         lambda: (True, "BrokenKeyring", None),
     )
     return fake_keyring
-
-
-# ── Tests ───────────────────────────────────────────────────────────────
 
 
 class TestLastStoreOutcomeUnknown:
@@ -276,7 +206,6 @@ class TestLastStoreOutcomePlaintext:
         assert outcome["stored_in"] == "plaintext"
         assert outcome["provider"] == "openai"
         # The reason is the redacted exception message. The exact text
-        # depends on the mock, but it must be a non-empty string.
         assert isinstance(outcome["reason"], str)
         assert outcome["reason"]  # non-empty
 
@@ -288,25 +217,13 @@ class TestLastStoreOutcomePlaintext:
         assert outcome["stored_in"] == "plaintext"
         assert outcome["provider"] == "openai"
         # The mock raises RuntimeError("keychain locked"), the reason
-        # should include that text (after redaction, which doesn't
-        # strip the words "keychain" or "locked").
         assert isinstance(outcome["reason"], str)
         assert "keychain" in outcome["reason"]
         assert "locked" in outcome["reason"]
 
     def test_reason_is_redacted(self, mock_keyring_unavailable, monkeypatch):
-        """The reason string is run through ``_redact_sensitive``.
-
-        If a buggy backend embeds the secret value or a filesystem path
-        in its exception message, the stored reason must NOT contain
-        the secret or the path. We simulate this by making the keyring
-        backend raise an exception whose message contains an
-        API-key-like substring and a path.
-        """
+        """The reason string is run through ``_redact_sensitive``."""
         # Re-mock _probe_keyring to claim the backend works (so we
-        # reach the keyring.set_password call), but make set_password
-        # raise an exception whose message contains both a path and
-        # an API-key-like substring.
         secret_value = "sk-AbCdEfGhIjKlMnOpQrStUv"  # API-key-like
 
         leaky_exc = RuntimeError(f"failed to write to /home/user/.keyring (secret was {secret_value})")
@@ -325,12 +242,6 @@ class TestLastStoreOutcomePlaintext:
 
         fake_keyring = MagicMock()
         fake_keyring.get_keyring.return_value = _LeakyBackend()
-        # ``store_secret`` calls ``keyring.set_password(...)`` as a
-        # module-level function, the MagicMock's bound method, NOT the
-        # backend's ``set_password``. So we MUST set ``side_effect``
-        # on the module-level mock too, otherwise the call silently
-        # succeeds (MagicMock returns a MagicMock by default) and the
-        # store does not fall back to plaintext.
         fake_keyring.set_password.side_effect = leaky_exc
         monkeypatch.setitem(sys.modules, "keyring", fake_keyring)
         fail_module = MagicMock()
@@ -377,21 +288,11 @@ class TestLastStoreOutcomeThreadLocal:
     """``last_store_outcome`` is thread-local."""
 
     def test_outcome_is_thread_local(self, mock_keyring_available):
-        """A ``store_secret`` on thread A must not affect thread B's outcome.
-
-        This is the critical correctness property: the IPC server is
-        multi-threaded, and the IPC handler thread that called
-        ``store_secret`` is the one that should see the matching
-        outcome. A different handler thread serving an unrelated
-        request must see ``unknown`` (or its own most recent outcome),
-        NOT a stale outcome from thread A.
-        """
+        """A ``store_secret`` on thread A must not affect thread B's outcome."""
         # Sanity: on the main thread, before any store, outcome is unknown.
         assert credential_store.last_store_outcome()["stored_in"] == "unknown"
 
         # Spawn a worker thread that does a store and records its own
-        # outcome. The main thread waits for the worker to finish before
-        # re-checking its own outcome.
         worker_outcome: dict = {}
 
         def _worker():
@@ -409,7 +310,6 @@ class TestLastStoreOutcomeThreadLocal:
             "provider": "openai",
         }
         # The main thread STILL sees ``unknown``, the worker's store
-        # did not leak into the main thread's outcome.
         assert credential_store.last_store_outcome() == {
             "stored_in": "unknown",
             "reason": None,
@@ -421,13 +321,7 @@ class TestLastStoreOutcomeReturnCopy:
     """``last_store_outcome`` returns a copy, not the internal state."""
 
     def test_returned_dict_is_a_copy(self, mock_keyring_available):
-        """Mutating the returned dict does not affect future calls.
-
-        This is a defensive property, the IPC handler may want to
-        add fields to the ack payload without worrying about leaking
-        mutations back into the credential_store module's thread-local
-        state.
-        """
+        """Mutating the returned dict does not affect future calls."""
         credential_store.store_secret("openai", "sk-test-12345")
         outcome1 = credential_store.last_store_outcome()
         assert outcome1 == {
@@ -453,12 +347,7 @@ class TestLastStoreOutcomeReturnCopy:
 
 
 class TestSetLastStoreOutcomeInternal:
-    """Direct tests for the internal ``_set_last_store_outcome`` helper.
-
-    These verify the storage layer in isolation from the ``store_secret``
-    code paths, useful for diagnosing whether a bug is in the helper
-    itself or in the wiring inside ``store_secret``.
-    """
+    """Direct tests for the internal ``_set_last_store_outcome`` helper."""
 
     def test_set_then_get_roundtrip(self):
         """``_set_last_store_outcome`` then ``last_store_outcome`` round-trips."""
@@ -497,7 +386,7 @@ class TestSetLastStoreOutcomeInternal:
         assert "[redacted]" in outcome["reason"]
 
     def test_set_none_reason_normalized(self):
-        """A ``None`` reason is stored as ``None`` (not "None" string)."""
+        """A ``None`` reason is stored as ``None`` (not \"None\" string)."""
         credential_store._set_last_store_outcome("deleted", None, provider="groq")
         outcome = credential_store.last_store_outcome()
         assert outcome["reason"] is None

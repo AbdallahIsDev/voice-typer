@@ -1,12 +1,4 @@
-"""Tests for the FTS5-wired ``HistoryDB.search`` path.
-
-These tests pin the contract that ``search()`` actually reads the
-``transcriptions_fts`` virtual table (maintained by MIGRATION_V3's
-AFTER INSERT/UPDATE/DELETE triggers) instead of doing a linear
-``WHERE text LIKE ?`` table scan. They also pin the LIKE fallback for
-queries that the FTS5 ``unicode61`` tokenizer cannot serve (empty
-queries, separator-only queries like ``%`` / ``_``).
-"""
+"""Tests for the FTS5-wired ``HistoryDB.search`` path."""
 
 import pytest
 
@@ -53,21 +45,14 @@ class TestFts5SearchWiring:
         assert [r["text"] for r in results] == ["The quick brown fox"]
 
     def test_search_finds_token_in_multiline_text(self, db):
-        """FTS5 tokenizes on whitespace; a query for one token matches any
-        row whose tokenization includes that token."""
+        """FTS5 tokenizes on whitespace; a query for one token matches any"""
         results = db.search("world")
         assert [r["text"] for r in results] == ["Hello world"]
 
     def test_search_tokenizes_snake_case_as_three_tokens(self, db):
-        """The ``unicode61`` tokenizer treats ``_`` as a separator, so
-        ``snake_case_token`` tokenizes to ``snake``, ``case``, ``token``.
-        A phrase query for the literal ``snake_case_token`` (sanitized
-        to ``"snake_case_token"``) must still match because FTS5
-        re-tokenizes the phrase and matches the three-token sequence."""
+        """The ``unicode61`` tokenizer treats ``_`` as a separator, so"""
         results = db.search("snake_case_token")
         texts = [r["text"] for r in results]
-        # Both "snake_case_token" (3-token sequence) and
-        # "snake case token" (also 3-token sequence) match.
         assert "snake_case_token" in texts
         assert "snake case token" in texts
 
@@ -77,38 +62,27 @@ class TestFts5SearchWiring:
         assert [r["text"] for r in results] == ["Progress is 100% complete"]
 
     def test_search_multi_token_query_is_phrase_and(self, db):
-        """``_sanitize_fts_query`` splits on whitespace and quotes each
-        token, producing an implicit AND. A two-token query must match
-        only rows containing BOTH tokens."""
+        """``_sanitize_fts_query`` splits on whitespace and quotes each"""
         results = db.search("quick fox")
         assert [r["text"] for r in results] == ["The quick brown fox"]
 
     def test_search_no_match_returns_empty_list(self, db):
-        """A query that matches no tokens returns an empty list, the
-        sentinel for list-returning methods (ERR-013)."""
+        """A query that matches no tokens returns an empty list, the"""
         results = db.search("nonexistenttok")
         assert results == []
 
     def test_search_literal_wildcard_percent_via_like_fallback(self, db):
-        """A query consisting solely of ``%`` cannot be served by FTS5
-        (it produces zero tokens). The LIKE fallback must return only
-        rows containing a literal ``%`` character."""
+        """A query consisting solely of ``%`` cannot be served by FTS5"""
         results = db.search("%")
         assert [r["text"] for r in results] == ["Progress is 100% complete"]
 
     def test_search_literal_wildcard_underscore_via_like_fallback(self, db):
-        """A query consisting solely of ``_`` cannot be served by FTS5.
-        The LIKE fallback must return only rows containing a literal
-        ``_`` character."""
+        """A query consisting solely of ``_`` cannot be served by FTS5."""
         results = db.search("_")
         assert [r["text"] for r in results] == ["snake_case_token"]
 
     def test_search_separator_only_queries_take_like_fallback(self, db, monkeypatch):
-        """Every non-empty separator-only query (punctuation, wildcards)
-        keeps the LIKE fallback path, the pinned contract
-        (test_history_db.py, test_history_search_cjk.py). The fallback
-        MUST actually run; short-circuiting these queries to an empty
-        result regressed CJK punctuation search."""
+        """Every non-empty separator-only query (punctuation, wildcards)"""
         import voice_typer.server.history_db_internals.search as search_mod
 
         calls = []
@@ -124,20 +98,12 @@ class TestFts5SearchWiring:
         assert calls == ["%", "!!!"]
 
     def test_search_empty_query_returns_all_rows(self, db):
-        """An empty query falls back to LIKE with pattern ``%%`` which
-        matches every row."""
+        """An empty query falls back to LIKE with pattern ``%%`` which"""
         results = db.search("")
         assert len(results) == 6
 
     def test_search_preserves_order_by_timestamp_desc(self, db, tmp_path):
-        """Results must be ordered by ``timestamp DESC`` (newest first)
-        , the same ordering contract as the pre-FTS5 LIKE path.
-
-          We use explicit timestamps (via a writer closure) rather than
-          ``add_transcription`` + ``time.sleep`` because the latter only
-          has SECOND resolution: two rows added in the same second get
-          the same timestamp and the ORDER BY tie-break is
-          implementation-defined."""
+        """Results must be ordered by ``timestamp DESC`` (newest first)"""
         from datetime import datetime, timedelta
 
         from voice_typer.server.history_db import HistoryDB
@@ -155,8 +121,6 @@ class TestFts5SearchWiring:
             def _do_insert(conn):
                 cur = conn.cursor()
                 # Both lists have exactly 3 elements; strict=True guards
-                # against silent truncation if one is ever edited without
-                # the other (B905).
                 for ts, txt in zip(timestamps, texts, strict=True):
                     cur.execute(
                         "INSERT INTO transcriptions (text, timestamp) VALUES (?, ?)",
@@ -188,8 +152,7 @@ class TestFts5SearchWiring:
 
 
 class TestFts5HelpersAreUsed:
-    """``_is_fts_compatible_query`` and ``_sanitize_fts_query`` must
-    no longer be dead code, they are now wired into ``search()``."""
+    """``_is_fts_compatible_query`` and ``_sanitize_fts_query`` must"""
 
     def test_is_fts_compatible_query_returns_true_for_word(self):
         from voice_typer.server.history_db import _is_fts_compatible_query
@@ -220,34 +183,29 @@ class TestFts5HelpersAreUsed:
         from voice_typer.server.history_db import _sanitize_fts_query
 
         # Two whitespace-separated tokens become two quoted phrases,
-        # which FTS5 treats as an implicit AND.
         assert _sanitize_fts_query("hello world") == '"hello" "world"'
 
     def test_sanitize_fts_query_treats_star_as_literal(self):
-        """``foo*`` is wrapped as ``"foo*"``, the ``*`` is a literal
-        character inside the phrase, NOT an FTS5 prefix query."""
+        """``foo*`` is wrapped as ``\"foo*\"``, the ``*`` is a literal"""
         from voice_typer.server.history_db import _sanitize_fts_query
 
         assert _sanitize_fts_query("foo*") == '"foo*"'
 
     def test_sanitize_fts_query_empty_returns_empty_phrase(self):
-        """Edge case: an empty tokens list returns ``""`` (an empty
-        FTS5 phrase). The caller is responsible for checking
-        ``_is_fts_compatible_query`` first, but this guard prevents a
-        MATCH syntax error if the contract is violated."""
+        """
+        Edge case: an empty tokens list returns ``""`` (an empty
+        MATCH syntax error if the contract is violated.
+        """
         from voice_typer.server.history_db import _sanitize_fts_query
 
         assert _sanitize_fts_query("") == '""'
 
 
 class TestFts5SearchErrorHandling:
-    """``search()`` must continue to honor the ERR-013 sentinel contract
-    (return ``[]`` on failure, raise ``HistoryDBError`` when
-    ``raise_on_error=True``)."""
+    """``search()`` must continue to honor the ERR-013 sentinel contract"""
 
     def test_search_returns_empty_list_on_read_conn_failure(self, db, monkeypatch):
-        """A read-conn failure must return ``[]`` (the list-returning
-        sentinel) when ``raise_on_error=False``."""
+        """A read-conn failure must return ``[]`` (the list-returning"""
 
         def _boom():
             raise RuntimeError("disk I/O error")
@@ -256,9 +214,7 @@ class TestFts5SearchErrorHandling:
         assert db.search("quick") == []
 
     def test_search_raises_history_db_error_when_raise_on_error(self, db, monkeypatch):
-        """A read-conn failure must raise ``HistoryDBError`` when
-        ``raise_on_error=True`` so the IPC layer can distinguish
-        "empty result" from "operation failed"."""
+        """A read-conn failure must raise ``HistoryDBError`` when"""
         from voice_typer.server.history_db import HistoryDBError
 
         def _boom():
@@ -270,13 +226,10 @@ class TestFts5SearchErrorHandling:
 
 
 class TestFts5SearchTriggersSync:
-    """MIGRATION_V3's AFTER INSERT/UPDATE/DELETE triggers must keep the
-    FTS5 index in sync with the ``transcriptions`` table."""
+    """MIGRATION_V3's AFTER INSERT/UPDATE/DELETE triggers must keep the"""
 
     def test_delete_removes_row_from_fts_index(self, db, tmp_path):
-        """After ``delete(id)``, the FTS5 index must NOT contain the
-        deleted row's rowid, otherwise search() would return a
-        dangling JOIN result."""
+        """dangling JOIN result."""
         from voice_typer.server.history_db import HistoryDB
 
         db2 = HistoryDB(db_path=tmp_path / "delete_sync.db")
@@ -286,8 +239,6 @@ class TestFts5SearchTriggersSync:
             db2.flush()
 
             # Find the "findme before delete" row by text (don't rely
-            # on get_recent ordering, within the same timestamp
-            # second, the tie-break is implementation-defined).
             all_rows = db2.get_recent(limit=10)
             findme = next(r for r in all_rows if r["text"] == "findme before delete")
 
@@ -321,32 +272,11 @@ class TestFts5SearchTriggersSync:
         cur = conn.cursor()
         cur.execute("SELECT COUNT(*) FROM transcriptions_fts")
         assert cur.fetchone()[0] == 0
-        # search() must return [] for any query
         assert db.search("quick") == []
         assert db.search("") == []
 
     def test_delete_rebuilds_fts5_shadow_tables_xe_9_a(self, tmp_path):
-        """XE-9-A: ``delete(id)`` must rebuild FTS5 segments so the
-        deleted row's dictated text is zeroed from
-        ``transcriptions_fts_data`` (the FTS5 shadow segment table).
-
-        Before XE-9-A, ``delete(id)`` only ran ``DELETE FROM
-        transcriptions WHERE id = ?`` + commit. The FTS5 AFTER DELETE
-        trigger fired the ``'delete'`` command which only marks the
-        rowid as deleted in the delete-bitmap, the segment data in
-        ``transcriptions_fts_data`` (containing the dictated text) was
-        NOT zeroed and was recoverable via forensic tools until FTS5's
-        background compaction merged that segment (days/weeks later).
-        For a user who dictates a password / medical note and then
-        deletes that single transcription via the History UI, the text
-        was NOT gone, a direct GDPR Art. 17 violation.
-
-        The fix issues ``INSERT INTO transcriptions_fts(transcriptions_fts)
-        VALUES('rebuild')`` after the row DELETE, which drops all
-        segments and rebuilds them from the (now-reduced) content
-        table. This test asserts the dictated text is no longer
-        recoverable from the FTS5 shadow segment data after ``delete``.
-        """
+        """``transcriptions_fts_data`` (the FTS5 shadow segment table)."""
         from voice_typer.server.history_db import HistoryDB
 
         db2 = HistoryDB(db_path=tmp_path / "delete_rebuild_xe_9_a.db")
@@ -361,10 +291,6 @@ class TestFts5SearchTriggersSync:
             secret_row = next(r for r in all_rows if r["text"] == secret_text)
 
             # Verify the FTS5 shadow segment data contains the secret
-            # BEFORE delete (sanity check that the test setup is valid).
-            # FTS5 may segment/tokenize the text, so we dump the raw
-            # bytes of all shadow-segment blobs and confirm a known
-            # token appears at least once before delete.
             conn = db2._get_read_conn()
             cur = conn.cursor()
             cur.execute("SELECT block FROM transcriptions_fts_data")
@@ -378,10 +304,6 @@ class TestFts5SearchTriggersSync:
             # Delete the secret row.
             assert db2.delete(secret_row["id"]) is True
 
-            # after delete, the FTS5 shadow segment data must
-            # NOT contain the secret text, the rebuild should have
-            # dropped all segments and rebuilt from the content table
-            # (which no longer contains the secret row).
             cur.execute("SELECT block FROM transcriptions_fts_data")
             blocks_after = b"\n".join(b for (b,) in cur.fetchall())
             assert secret_text.encode() not in blocks_after, (

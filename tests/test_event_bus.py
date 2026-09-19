@@ -1,39 +1,4 @@
-"""Tests for ``voice_typer.server.event_bus``.
-
-B-1: extracted from ``ipc_server._push_event_now`` to break the tight
-coupling between 12+ domain modules and the IPC transport layer.
-
-These tests cover the public API (``publish`` / ``subscribe`` /
-``unsubscribe``) plus the regression properties preserved from the
-previous ``_push_event_now`` semantics:
-
-- publish with no subscribers is a no-op (returns False).
-- subscribe + publish → callback called with the event.
-- multiple subscribers → all called.
-- unsubscribe → callback no longer called.
-- thread safety: concurrent publish from multiple threads → no
-  corruption, all events delivered.
-- callback that raises → does NOT block other subscribers (log and
-  continue).
-- subscribe(None) / unsubscribe(None) are safe no-ops.
-- duplicate subscribe is deduplicated (set semantics).
-- unsubscribe with an unknown callable is a safe no-op.
-- subscriber snapshot is taken under the lock so a subscriber that
-  unsubscribes itself (or another) during publish does not raise
-  ``RuntimeError: Set changed size during iteration``.
-- re-entrant publish (a subscriber that itself calls publish) does
-  not deadlock (RLock).
-
-GT-3 additions (TestSubscriberExceptionLogLevel) pin the WARNING-on-first /
- DEBUG-on-repeat rate-limit policy for subscriber exceptions.
-
-GT-C1-7 additions (TestShutdownConsolidation) pin the deletion of the
-duplicate ``shutdown_executor()``.
-
-GT-53 additions (TestCanonicalCatalogue) pin the catalogue completeness
-(4 newly-listed events: tray_menu, tray_state, consent_required,
-parakeet_cpu_fallback).
-"""
+"""Tests for ``voice_typer.server.event_bus``."""
 
 from __future__ import annotations
 
@@ -44,23 +9,10 @@ import time
 import pytest
 from voice_typer.server import event_bus, log_rate_limit
 
-# ── Fixtures ───────────────────────────────────────────────────────────
-
 
 @pytest.fixture(autouse=True)
 def _clean_subscribers():
-    """Snapshot and clear the event_bus subscriber set for each test.
-
-    Without this, subscribers registered by one test would leak into
-    the next (the event_bus is a process-global singleton).  We
-    snapshot, clear, yield, then restore so concurrent test runs in
-    the same process don't see each other's state.
-
-    Also resets the ``log_rate_limit`` counters so each test starts
-    with a clean rate-limit slate, otherwise a subscriber that
-    raises in test N would be on occurrence 2+ by test N+1 and the
-    GT-3 WARNING-on-first-occurrence assertion would fail.
-    """
+    """Snapshot and clear the event_bus subscriber set for each test."""
     with event_bus._lock:
         original = set(event_bus._subscribers)
         event_bus._subscribers.clear()
@@ -69,9 +21,6 @@ def _clean_subscribers():
     with event_bus._lock:
         event_bus._subscribers.clear()
         event_bus._subscribers.update(original)
-
-
-# ── publish with no subscribers ────────────────────────────────────────
 
 
 class TestPublishNoSubscribers:
@@ -85,9 +34,6 @@ class TestPublishNoSubscribers:
         # Just verify it doesn't raise.
         event_bus.publish({"type": "test"})
         event_bus.publish({"type": "another", "data": {"foo": "bar"}})
-
-
-# ── subscribe + publish ────────────────────────────────────────────────
 
 
 class TestSubscribePublish:
@@ -119,9 +65,6 @@ class TestSubscribePublish:
         ]
 
 
-# ── multiple subscribers ───────────────────────────────────────────────
-
-
 class TestMultipleSubscribers:
     def test_all_subscribers_called_in_order(self):
         """All subscribers are called with the same event."""
@@ -144,9 +87,6 @@ class TestMultipleSubscribers:
         assert len(received_a) == 1
         assert len(received_b) == 1
         assert len(received_c) == 1
-
-
-# ── unsubscribe ────────────────────────────────────────────────────────
 
 
 class TestUnsubscribe:
@@ -180,13 +120,9 @@ class TestUnsubscribe:
         assert received_b == [{"type": "after"}]
 
 
-# ── thread safety ──────────────────────────────────────────────────────
-
-
 class TestThreadSafety:
     def test_concurrent_publish_no_corruption(self):
-        """Concurrent publish() calls from multiple threads must all
-        deliver their events without raising or losing any."""
+        """Concurrent publish() calls from multiple threads must all"""
         received: list[dict] = []
         lock = threading.Lock()
 
@@ -214,8 +150,6 @@ class TestThreadSafety:
 
     def test_concurrent_subscribe_unsubscribe(self):
         """Concurrent subscribe/unsubscribe must not corrupt the set."""
-        # We're verifying no exception is raised; the exact state of
-        # the set afterward depends on thread scheduling.
         n_threads = 4
         n_iter = 100
         barrier = threading.Barrier(n_threads)
@@ -236,7 +170,6 @@ class TestThreadSafety:
             t.join()
 
         # After all threads finish, the callable should not be registered
-        # (every subscribe was matched by an unsubscribe).
         assert cb not in event_bus._subscribers
 
     def test_concurrent_publish_and_subscribe(self):
@@ -269,13 +202,9 @@ class TestThreadSafety:
         # The test passes if no exception was raised during the run.
 
 
-# ── subscriber exception isolation ─────────────────────────────────────
-
-
 class TestSubscriberExceptionIsolation:
     def test_subscriber_that_raises_does_not_block_others(self):
-        """A subscriber that raises must not prevent other subscribers
-        from receiving the event."""
+        """A subscriber that raises must not prevent other subscribers"""
         received_good: list[dict] = []
 
         def bad_subscriber(_msg: dict) -> None:
@@ -291,8 +220,7 @@ class TestSubscriberExceptionIsolation:
         assert received_good == [{"type": "test"}]
 
     def test_publish_returns_false_when_all_subscribers_raise(self):
-        """If every subscriber raises, publish() returns False
-        (no successful delivery)."""
+        """If every subscriber raises, publish() returns False"""
 
         def always_raises(_msg: dict) -> None:
             raise RuntimeError("always fails")
@@ -302,8 +230,7 @@ class TestSubscriberExceptionIsolation:
         assert result is False
 
     def test_publish_returns_true_when_at_least_one_succeeds(self):
-        """If at least one subscriber accepts (doesn't raise), publish
-        returns True even if another subscriber raised."""
+        """If at least one subscriber accepts (doesn't raise), publish"""
 
         def bad(_msg: dict) -> None:
             raise RuntimeError("bad")
@@ -317,8 +244,7 @@ class TestSubscriberExceptionIsolation:
         assert result is True
 
     def test_exception_in_first_subscriber_does_not_skip_second(self, caplog):
-        """Order of registration does not affect delivery, even if
-        the first subscriber raises, the second still receives."""
+        """Order of registration does not affect delivery, even if"""
         first_called: list[bool] = []
         second_received: list[dict] = []
 
@@ -335,30 +261,17 @@ class TestSubscriberExceptionIsolation:
             event_bus.publish({"type": "test"})
         assert first_called == [True]
         assert second_received == [{"type": "test"}]
-        # the first exception from this subscriber must be logged
-        # (no longer silently dropped at DEBUG). The exact level is
-        # verified by ``TestSubscriberExceptionLogLevel`` below; here
-        # we only assert the message is captured.
         assert any("subscriber raised" in r.getMessage() for r in caplog.records)
 
 
-# subscriber exception log level ───────────────────────────────
-
-
 class TestSubscriberExceptionLogLevel:
-    """GT-3: subscriber exceptions must surface at WARNING (not DEBUG)
-    on the FIRST occurrence per subscriber so production file handlers
-    (INFO+) actually capture them.  Subsequent occurrences from the
-    SAME subscriber rate-limit back to DEBUG so a persistently-broken
-    subscriber doesn't spam the log.
-
+    """
+    subscriber exceptions must surface at WARNING (not DEBUG)
     These tests pin the rate-limit contract: WARNING on occurrence #1,
-    DEBUG on occurrence #2+.
     """
 
     def test_first_exception_logged_at_warning(self, caplog):
-        """GT-3: the first exception from a subscriber is logged at
-        WARNING level with the message body present."""
+        """the first exception from a subscriber is logged at"""
         log_rate_limit.reset()
 
         def bad(_msg: dict) -> None:
@@ -375,8 +288,7 @@ class TestSubscriberExceptionLogLevel:
         )
 
     def test_first_exception_includes_exc_info(self, caplog):
-        """GT-3: the first-occurrence WARNING record must carry the
-        exception traceback (``exc_info``) so operators can diagnose."""
+        """the first-occurrence WARNING record must carry the"""
         log_rate_limit.reset()
 
         def bad(_msg: dict) -> None:
@@ -390,14 +302,11 @@ class TestSubscriberExceptionLogLevel:
         record = matching[0]
         assert record.levelno == logging.WARNING
         assert record.exc_info is not None, "GT-3: first-occurrence WARNING must include exc_info"
-        # exc_info is (type, value, tb); the value should be our RuntimeError.
         assert record.exc_info[0] is RuntimeError
         assert "traceback please" in str(record.exc_info[1])
 
     def test_second_exception_logged_at_debug(self, caplog):
-        """GT-3: the SECOND exception from the SAME subscriber
-        rate-limits to DEBUG (no WARNING, no exc_info) so a
-        persistently-broken subscriber can't spam the log."""
+        """the SECOND exception from the SAME subscriber"""
         log_rate_limit.reset()
 
         def bad(_msg: dict) -> None:
@@ -418,13 +327,10 @@ class TestSubscriberExceptionLogLevel:
             f"GT-3: second occurrence must be DEBUG, got {logging.getLevelName(matching[1].levelno)}"
         )
         # The DEBUG record carries no exc_info (rate-limit suppresses
-        # the traceback on repeats: see log_rate_limit.log_rate_limited).
         assert matching[1].exc_info is None
 
     def test_distinct_subscribers_each_get_warning_on_first(self, caplog):
-        """GT-3: rate-limit counters are PER-SUBSCRIBER, the first
-        exception from subscriber B still logs at WARNING even if
-        subscriber A has already raised."""
+        """rate-limit counters are PER-SUBSCRIBER, the first"""
         log_rate_limit.reset()
 
         def a(_msg: dict) -> None:
@@ -446,9 +352,7 @@ class TestSubscriberExceptionLogLevel:
         )
 
     def test_subsequent_occurrence_message_visible_at_debug(self, caplog):
-        """GT-3: rate-limited (suppressed) occurrences are still
-        emitted at DEBUG so they're visible when debug logging is
-        enabled, they're just not promoted to WARNING."""
+        """rate-limited (suppressed) occurrences are still"""
         log_rate_limit.reset()
 
         def bad(_msg: dict) -> None:
@@ -463,9 +367,6 @@ class TestSubscriberExceptionLogLevel:
         assert len(matching) == 5
         assert matching[0].levelno == logging.WARNING
         assert all(r.levelno == logging.DEBUG for r in matching[1:])
-
-
-# ── None handling ──────────────────────────────────────────────────────
 
 
 class TestNoneHandling:
@@ -490,13 +391,9 @@ class TestNoneHandling:
         assert received == [{"type": "test"}]
 
 
-# ── duplicate subscribe ────────────────────────────────────────────────
-
-
 class TestDuplicateSubscribe:
     def test_duplicate_subscribe_deduplicated(self):
-        """Subscribing the same callable twice registers it once
-        (set semantics)."""
+        """Subscribing the same callable twice registers it once"""
         received: list[dict] = []
         cb = received.append
         event_bus.subscribe(cb)
@@ -507,8 +404,7 @@ class TestDuplicateSubscribe:
         assert received == [{"type": "test"}]
 
     def test_unsubscribe_after_duplicate_subscribe(self):
-        """One unsubscribe removes the callable regardless of how many
-        times subscribe was called."""
+        """One unsubscribe removes the callable regardless of how many"""
         cb = lambda _msg: None  # noqa: E731
         event_bus.subscribe(cb)
         event_bus.subscribe(cb)
@@ -518,17 +414,9 @@ class TestDuplicateSubscribe:
         assert len(event_bus._subscribers) == 0
 
 
-# ── subscriber mutation during publish ─────────────────────────────────
-
-
 class TestSubscriberMutationDuringPublish:
     def test_subscriber_unsubscribing_itself_does_not_raise(self):
-        """A subscriber that unsubscribes itself during publish must not
-        trigger ``Set changed size during iteration``.
-
-        The subscriber list is snapshotted under the lock before
-        iteration, so mutations during iteration are safe.
-        """
+        """A subscriber that unsubscribes itself during publish must not"""
         call_count = [0]
 
         def self_unsubscribing(_msg: dict) -> None:
@@ -539,13 +427,11 @@ class TestSubscriberMutationDuringPublish:
         # Should not raise.
         event_bus.publish({"type": "test"})
         assert call_count[0] == 1
-        # Second publish should be a no-op (subscriber was removed).
         event_bus.publish({"type": "test"})
         assert call_count[0] == 1
 
     def test_subscriber_unsubscribing_other_does_not_raise(self):
-        """A subscriber that unsubscribes a different subscriber during
-        publish must not raise."""
+        """A subscriber that unsubscribes a different subscriber during"""
         other_received: list[dict] = []
 
         def other(msg: dict) -> None:
@@ -560,23 +446,11 @@ class TestSubscriberMutationDuringPublish:
         # Should not raise.
         event_bus.publish({"type": "test"})
         # `other` may or may not have been called depending on whether
-        # it appeared before or after `first` in the snapshot; both are
-        # valid. The test only verifies no exception.
-
-
-# ── re-entrant publish ─────────────────────────────────────────────────
 
 
 class TestReentrantPublish:
     def test_subscriber_that_publishes_does_not_deadlock(self):
-        """A subscriber that calls publish() re-entrantly must not
-        deadlock.  The RLock allows the same thread to re-acquire.
-
-        The outer subscriber unsubscribes itself before re-publishing
-        to avoid infinite recursion (which would be a bug in the
-        subscriber, not the event bus).  The test verifies the RLock
-        permits re-entrant acquisition, a plain Lock would deadlock.
-        """
+        """A subscriber that calls publish() re-entrantly must not"""
         outer_received: list[dict] = []
         inner_received: list[dict] = []
 
@@ -586,9 +460,6 @@ class TestReentrantPublish:
         def outer_listener(_msg: dict) -> None:
             outer_received.append({"triggered": True})
             # Unsubscribe self BEFORE re-publishing so we don't recurse
-            # infinitely.  The point of the test is that the re-entrant
-            # publish call below acquires the RLock in the same thread
-            # , a plain Lock would deadlock here.
             event_bus.unsubscribe(outer_listener)
             event_bus.publish({"type": "inner"})
 
@@ -599,35 +470,15 @@ class TestReentrantPublish:
         event_bus.publish({"type": "outer"})
 
         # The outer listener was called exactly once (it unsubscribed
-        # itself before re-publishing).
         assert outer_received == [{"triggered": True}]
 
         # The inner listener received BOTH events: the original
-        # "outer" event (delivered as part of the snapshot iteration
-        # in the outer publish) and the "inner" event (delivered by
-        # the re-entrant publish call from inside outer_listener).
-        # The order depends on set iteration order (which is not
-        # guaranteed for ``set`` in Python); we assert set-equality
-        # instead of list-equality.
         assert len(inner_received) == 2
         assert sorted(e["type"] for e in inner_received) == ["inner", "outer"]
 
 
-# ── back-compat shim verification ──────────────────────────────────────
-
-
 class TestBackwardCompatShim:
-    """Behavior preserved after the ipc_server ↔ event_bus shim was removed.
-
-    the ``_push_event_registry`` / ``_push_event_registry_lock``
-    aliases and the ``_set_push_event`` / ``_clear_push_event`` shims were
-    deleted from ``ipc_server.py``.  Domain code (and tests) now call
-    ``event_bus.subscribe`` / ``event_bus.unsubscribe`` directly.  These
-    tests verify the remaining public surface (``_push_event_now`` delegates
-    to ``event_bus.publish``) and that subscribe/unsubscribe work the same
-    way the old shims did, without reaching into ipc_server's removed
-    internals.
-    """
+    """the ``_push_event_registry`` / ``_push_event_registry_lock``"""
 
     def test_push_event_now_delegates_to_event_bus_publish(self):
         """ipc_server._push_event_now calls event_bus.publish."""
@@ -643,8 +494,7 @@ class TestBackwardCompatShim:
             event_bus.unsubscribe(received.append)
 
     def test_subscribe_unsubscribe_roundtrip(self):
-        """Direct event_bus subscribe/unsubscribe (replaces the old
-        _set_push_event / _clear_push_event shims)."""
+        """Direct event_bus subscribe/unsubscribe (replaces the old"""
         received: list[dict] = []
 
         event_bus.subscribe(received.append)
@@ -656,14 +506,10 @@ class TestBackwardCompatShim:
         assert received == [{"type": "shim_subscribe"}]
 
     def test_unsubscribe_unknown_is_noop(self):
-        """unsubscribe of a callable that was never subscribed must not
-        raise, preserves the old _set_push_event(None) no-op semantics."""
+        """unsubscribe of a callable that was never subscribed must not"""
         before = len(event_bus._subscribers)
         event_bus.unsubscribe(lambda _msg: None)
         assert len(event_bus._subscribers) == before
-
-
-# ── type / signature sanity ────────────────────────────────────────────
 
 
 class TestSignatureSanity:
@@ -692,23 +538,8 @@ class TestSignatureSanity:
         event_bus.subscribe(_CallableSubscriber())
 
 
-# ── PERF-2: real-time thread guard ─────────────────────────────────────
-
-
 class TestRTThreadGuard:
-    """PERF-2: publish() must refuse to run on real-time audio threads.
-
-    PortAudio (used by sounddevice) names its callback threads
-    ``PortAudio…``.  Calling publish() from such a thread is forbidden
-    because a slow subscriber would block the audio capture loop and
-    glitch the recording.  The guard returns ``False`` and logs an
-    error so callers fail loudly instead of silently degrading audio.
-
-    These tests spawn worker threads with the relevant names and
-    assert publish() short-circuits.  Two companion tests verify that
-    publish() on a normal worker thread and on the main thread still
-    works (the guard must not regress the common path).
-    """
+    """PERF-2: publish() must refuse to run on real-time audio threads."""
 
     def test_publish_returns_false_on_portaudio_thread(self):
         """Publishing from a thread named 'PortAudio-...' returns False."""
@@ -735,11 +566,7 @@ class TestRTThreadGuard:
         assert result["value"] is False
 
     def test_publish_defers_dispatch_off_rt_thread(self):
-        """PERF-2: publishing from an RT (PortAudio) thread must NOT invoke
-        the subscriber synchronously in the RT thread, fan-out is deferred
-        to the single-worker executor so the audio callback returns in
-        microseconds. The subscriber is still eventually delivered, but on
-        the deferred executor thread, never blocking the RT loop."""
+        """PERF-2: publishing from an RT (PortAudio) thread must NOT invoke"""
         received: list[dict] = []
         received_thread: list[str] = []
         event_bus.subscribe(lambda m: (received.append(m), received_thread.append(threading.current_thread().name)))
@@ -756,7 +583,6 @@ class TestRTThreadGuard:
         # The RT thread itself must not have run the subscriber.
         assert rt_thread_name == ["PortAudio-stream"]
         # Delivery is deferred: give the executor a moment, then assert it
-        # happened off the RT thread.
         deadline = time.monotonic() + 2.0
         while not received and time.monotonic() < deadline:
             time.sleep(0.01)
@@ -798,17 +624,10 @@ class TestRTThreadGuard:
             event_bus.unsubscribe(cb)
 
 
-# shutdown function consolidation ───────────────────────────
-
-
 class TestShutdownConsolidation:
-    """GT-C1-7: ``shutdown_executor()`` was a dead-code duplicate of
-    ``shutdown()`` (only ``shutdown()`` is called from
+    """
     ``shutdown_controller._do_cleanup``). The duplicate is deleted;
-    ``shutdown()`` remains the single public lifecycle hook.
-
     These tests pin the consolidation so a future "refactor" doesn't
-    silently reintroduce the duplicate.
     """
 
     def test_shutdown_executor_is_deleted(self):
@@ -824,30 +643,21 @@ class TestShutdownConsolidation:
         assert callable(event_bus.shutdown)
 
     def test_shutdown_is_idempotent(self):
-        """GT-C1-7: ``shutdown()`` is idempotent, calling it twice
-        (or with no executor ever created) must not raise."""
+        """GT-C1-7: ``shutdown()`` is idempotent, calling it twice"""
         # No executor was created in this test (no RT-thread publish).
         event_bus.shutdown()  # no-op
         event_bus.shutdown()  # still no-op
         # And after shutdown, a fresh publish still works (lazy
-        # executor re-creation if an RT thread later publishes).
         received: list[dict] = []
         event_bus.subscribe(received.append)
         assert event_bus.publish({"type": "post_shutdown"}) is True
         assert received == [{"type": "post_shutdown"}]
         # Cleanup: shut down any executor the publish may have created
-        # (it didn't, because we're on a non-RT thread, but be tidy).
         event_bus.shutdown()
 
 
-# canonical catalogue completeness ────────────────────────────
-
-
 class TestCanonicalCatalogue:
-    """GT-53: the docstring catalogue must list every event actually
-    emitted by the Python sidecar. The four events below were
-    previously missing (tray_menu, tray_state, consent_required,
-    parakeet_cpu_fallback)."""
+    """the docstring catalogue must list every event actually"""
 
     def test_catalogue_lists_tray_menu_event(self):
         assert "``tray_menu``" in event_bus.__doc__
@@ -862,10 +672,7 @@ class TestCanonicalCatalogue:
         assert "``parakeet_cpu_fallback``" in event_bus.__doc__
 
     def test_catalogue_total_count_updated(self):
-        """The 'Total: N events' docstring line must stay in lockstep
-        with the live ``EVENT_TYPES`` count (self-maintaining guard:
-        adding an event without updating the catalogue docstring fails
-        here, with the required number computed from the code)."""
+        """The 'Total: N events' docstring line must stay in lockstep"""
         total = len(event_bus.EVENT_TYPES)
         assert f"Total: {total} events" in event_bus.__doc__, (
             f"event_bus.__doc__ must say 'Total: {total} events', "
@@ -873,37 +680,11 @@ class TestCanonicalCatalogue:
         )
 
 
-# async dispatch option ───────────────────────────────────────
-
-
 class TestAsyncDispatch:
-    """ZR-20: ``publish(event, async_dispatch=True)`` defers fan-out to
-    the single-worker executor so non-RT publisher threads are not
-    blocked by slow subscribers (e.g. ``IPCServer.push`` →
-    ``socket.sendall`` to a stalled predecessor renderer).
-
-    These tests pin:
-    1. ``async_dispatch=True`` queues the event and returns immediately
-       (subscriber is NOT invoked synchronously in the publisher's
-       thread).
-    2. The subscriber is eventually delivered the event on the
-       deferred-executor thread.
-    3. The default ``publish(event)`` (no flag) preserves the existing
-       synchronous semantics (back-compat for the 30+ call sites).
-    """
+    """the single-worker executor so non-RT publisher threads are not"""
 
     def test_async_dispatch_returns_true_and_defers(self):
-        """``async_dispatch=True`` returns True immediately and the
-        subscriber is delivered on the deferred-executor thread (NOT
-        the publisher's thread).
-
-        We don't assert that ``received == []`` immediately after
-        ``publish`` returns, the single-worker executor may have
-        already drained the queue by the time the assertion runs
-        (especially on a fast machine). Instead we wait for delivery
-        and then assert the subscriber ran on the executor thread
-        (``event-bus-publisher-N``), not the publisher's thread
-        (``MainThread`` in this test)."""
+        """subscriber is delivered on the deferred-executor thread (NOT"""
         received: list[dict] = []
         received_thread: list[str] = []
         cb = lambda m: (received.append(m), received_thread.append(threading.current_thread().name))  # noqa: E731
@@ -914,9 +695,6 @@ class TestAsyncDispatch:
             # Returns True (queued for delivery).
             assert result is True
             # Wait for deferred delivery (executor may drain instantly
-            # on a fast machine, so we cannot assert ``received == []``
-            # at this point, race-free assertion is the thread name
-            # check below).
             deadline = time.monotonic() + 2.0
             while not received and time.monotonic() < deadline:
                 time.sleep(0.01)
@@ -933,10 +711,7 @@ class TestAsyncDispatch:
             event_bus.unsubscribe(cb)
 
     def test_default_publish_is_synchronous_backcompat(self):
-        """The default ``publish(event)`` (no flag) preserves the
-        existing synchronous semantics, subscriber is invoked before
-        the call returns. This protects the 30+ existing call sites
-        that rely on synchronous delivery."""
+        """existing synchronous semantics, subscriber is invoked before"""
         received: list[dict] = []
         cb = received.append
         event_bus.subscribe(cb)
@@ -949,10 +724,7 @@ class TestAsyncDispatch:
             event_bus.unsubscribe(cb)
 
     def test_async_dispatch_with_no_subscribers_returns_false(self):
-        """``async_dispatch=True`` with no subscribers returns False
-        (same as the sync path, no one to deliver to)."""
+        """``async_dispatch=True`` with no subscribers returns False"""
         # Make sure no subscribers are registered (the autouse
-        # _reset_event_bus fixture in conftest handles this between
-        # tests; we assert here defensively).
         result = event_bus.publish({"type": "test_no_subs"}, async_dispatch=True)
         assert result is False

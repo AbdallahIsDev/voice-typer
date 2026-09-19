@@ -1,18 +1,4 @@
-"""Export payload size-cap enforcement (AP-3).
-
-The 1 MiB IPC frame cap (``_TCP_MAX_OUTBOUND_BYTES`` in
-``ipc/sender.py`` / ``_MAX_FRAME_BYTES`` in ``sidecar_ws.py``) silently
-DROPS an oversized outbound frame, the client sees no response and
-eventually times out. Bulk-data handlers must therefore fail fast with
-a clear structured error instead of producing a frame that gets
-dropped.
-
-These tests pin:
-- ``_enforce_payload_size_cap`` (the shared helper + its exported cap)
-- ``_handle_get_vocabulary`` / ``_handle_get_templates`` oversized paths
-- ``_enforce_history_frame_cap`` residual-oversize path (rows whose
-  non-text columns are too large to shrink below the frame cap)
-"""
+"""Export payload size-cap enforcement (AP-3)."""
 
 from __future__ import annotations
 
@@ -99,8 +85,6 @@ class TestHistoryFrameCapFallback:
     def test_residual_oversize_returns_error_envelope(self) -> None:
         server, _app, _service = make_ipc_server_with_fakes()
         # Rows whose text is already at the 50-char floor but whose
-        # non-text columns are huge, text truncation can't shrink them
-        # below the frame cap. ~1.5 MB serialized.
         rows = [
             {
                 "id": i,
@@ -110,16 +94,12 @@ class TestHistoryFrameCapFallback:
             for i in range(500)
         ]
         result = server._enforce_history_frame_cap(rows, command="get_history")
-        # A clear error envelope, NOT an oversized rows list that the
-        # WS/TCP layer would silently drop.
         assert isinstance(result, dict)
         assert result["type"] == "error"
         assert result["data"]["code"] == "client.payload_too_large"
 
     def test_truncatable_rows_still_trimmed_not_dropped(self) -> None:
         server, _app, _service = make_ipc_server_with_fakes()
-        # 500 rows with ~10 KB text each, ~5 MB serialized, so the
-        # truncation loop halves the text previews until it fits.
         rows = [{"id": i, "text": "x" * 10000} for i in range(500)]
         result = server._enforce_history_frame_cap(rows, command="get_history")
         assert isinstance(result, list), "truncatable rows must come back as a list, not an error"

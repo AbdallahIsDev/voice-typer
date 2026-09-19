@@ -1,31 +1,6 @@
-"""Focused tests for the ``AppConstruction`` mixin
-(``voice_typer/server/app_construction.py``), the eager
-subsystem-builder slice extracted from ``VoiceTyperApp``.
-
-Covers the mixin's public API on a minimal host class (external
-dependencies stubbed at their OWNING submodule seams, the canonical
+"""
+Focused tests for the ``AppConstruction`` mixin
 C-ARCH-2 patch targets for the new module), mirroring how
-``tests/app/test_recording_init.py`` exercises the
-``AppRecordingInit`` mixin surface:
-
-- ``_register_startup_i18n_fallbacks`` registers the three English
-  startup keys (idempotently), the module-level helper re-exported
-  from ``voice_typer.server.app``.
-- ``_init_config`` happy path (Config.load() result stored, failure
-  flag False) and corrupt-file path (load raises → fallback defaults,
-  failure flag True, best-effort rename attempt against the tmp config
-  dir).
-- ``_init_threading_and_crash`` installs both excepthooks through the
-  crash-handler module object, and an install failure is best-effort
-  (logged at DEBUG on the shared app logger, construction continues).
-- ``_log_startup_banner`` emits the ``APP_NAME starting -- model=...``
-  line at the ``voice_typer.server.app`` logger (the sibling-module
-  convention), honours the no-model honest "none" description, and
-  ends with the ``[STARTUP]`` banner call.
-- ``_init_audio`` / ``_init_models`` / ``_init_tray`` /
-  ``_init_controllers`` / ``_init_history_crash_volume`` /
-  ``_init_misc_backings`` construct their subsystem through the
-  deferred seams and declare their lazy backings.
 """
 
 from __future__ import annotations
@@ -53,11 +28,7 @@ class _Host(AppConstruction):
 
 
 class _FakeController:
-    """Stand-in for the controller classes constructed by the builders.
-
-    Records positional + keyword construction args so the tests can
-    assert the app passes itself / its config / its registry through.
-    """
+    """Stand-in for the controller classes constructed by the builders."""
 
     def __init__(self, *args, **kwargs) -> None:
         self.args = args
@@ -126,9 +97,7 @@ class TestInitConfig:
         assert host._config_load_failed is False
 
     def test_load_failure_falls_back_and_flags(self, monkeypatch, tmp_config_dir):
-        """Config.load() raising falls back to defaults, flags the
-        failure for the tray toast, and attempts the best-effort
-        corrupt-file rename against the (tmp) canonical config dir."""
+        """failure for the tray toast, and attempts the best-effort"""
         fallback = MagicMock(name="fallback_config")
 
         class _FakeConfig:
@@ -363,7 +332,6 @@ class TestInitControllers:
         assert isinstance(host._config_editor_launcher, _FakeController)
         assert host._config_editor_launcher.args == (host,)
         assert host._shutdown_watchdog_timeout_s == 42.0
-        # lazy-controller backing declarations
         assert host._undo_backing is None
         assert host._undo_failed_at is None
         assert host._audio_quality_backing is None
@@ -382,7 +350,6 @@ class TestInitHistoryCrashVolume:
         assert host._crash_recovery.kwargs["thread_registry"] is host._thread_registry
         assert isinstance(host.volume, _FakeController)
         assert host.volume.args == (host,)
-        # lazy backings + failure timestamps
         assert host._history_db_backing is None
         assert host._history_db_failed_at is None
         assert host._duck_crash_recovery_backing is None

@@ -1,17 +1,4 @@
-"""Focused tests for config-path security hardening.
-
-Covers:
-- Path-traversal WARNING logs redact the raw env-var value (matches
-  ``env_validation.py``'s ``<redacted>`` convention).
-- ``apply_config`` raises ``ValueError`` on non-allowlisted keys
-  (SEC-002 defense-in-depth; fixtures that passed deprecated
-  runtime-only fields were migrated to allowlisted substitutes).
-- Crash-recovery writes + quarantine apply the Windows owner-only ACL
-  helper on Windows (best-effort).
-- ``_enforce_windows_owner_only_acl`` records failures so
-  ``apply_config`` can surface a one-time tray warning; save is never
-  refused (restricted corporate hosts must keep working).
-"""
+"""Focused tests for config-path security hardening."""
 
 from __future__ import annotations
 
@@ -21,17 +8,10 @@ from unittest.mock import MagicMock
 
 import pytest
 
-# ── Path-traversal WARNING redaction ────────────────────────────────
-
 
 @contextlib.contextmanager
 def _capture_config_warnings():
-    """Attach a direct handler to the config logger.
-
-    ``caplog`` does not reliably capture records from
-    ``voice_typer.server.config`` (the app installs its own handlers /
-    filters at import time). A direct handler is deterministic.
-    """
+    """Attach a direct handler to the config logger."""
     logger = logging.getLogger("voice_typer.server.config")
     records: list[str] = []
 
@@ -51,17 +31,7 @@ def _capture_config_warnings():
 
 
 class TestPathTraversalLogsRedactEnvValues:
-    """The three ``_config_dir`` traversal warnings must not log the
-    raw env-var value (username / path disclosure in support logs).
-
-    ``_validate_path_safety`` is stubbed to raise so the test targets
-    the LOG REDACTION only (the containment logic itself is covered by
-    ``test_config_path_safety.py``).
-
-    Marked ``real_config_dir`` so the suite-wide isolation fixture does
-    not replace ``paths._config_dir`` with a lambda (which would bypass
-    the code under test).
-    """
+    """raw env-var value (username / path disclosure in support logs)."""
 
     pytestmark = pytest.mark.real_config_dir
 
@@ -85,7 +55,6 @@ class TestPathTraversalLogsRedactEnvValues:
         try:
             with _capture_config_warnings() as messages:
                 # Call the module-level function directly (the real
-                # lru_cached resolver, not a patched package binding).
                 paths_mod._config_dir()
             traversal = [m for m in messages if "traversal" in m.lower()]
             assert traversal, f"expected a path-traversal WARNING, got {messages}"
@@ -151,9 +120,6 @@ class TestPathTraversalLogsRedactEnvValues:
             self._reset_config_dir()
 
 
-# ── apply_config SEC-002 hard fail ──────────────────────────────────
-
-
 class _ReusableFakeLock:
     """Reusable no-op stand-in for ``app._config_mutation_lock``."""
 
@@ -194,8 +160,7 @@ def _make_service_and_app(tmp_config_dir, monkeypatch):
 
 
 class TestApplyConfigRejectsNonAllowlistedKeys:
-    """SEC-002 defense-in-depth: non-allowlisted keys raise, they never
-    reach ``setattr``."""
+    """SEC-002 defense-in-depth: non-allowlisted keys raise, they never"""
 
     def test_raises_value_error_on_non_allowlisted_key(self, tmp_config_dir, monkeypatch):
         service, app = _make_service_and_app(tmp_config_dir, monkeypatch)
@@ -215,9 +180,6 @@ class TestApplyConfigRejectsNonAllowlistedKeys:
         # Must not raise.
         service.apply_config({"vad_filter_enabled": False})
         assert app.config.vad_filter_enabled is False
-
-
-# ── ACL enforcement failure tracking + user-visible warning ─────────
 
 
 class TestAclEnforcementFailureSurfacing:
@@ -305,9 +267,6 @@ class TestAclEnforcementFailureSurfacing:
             app.tray.notify.assert_not_called()
         finally:
             applier_mod._acl_enforcement_failure_notified = False
-
-
-# ── Crash-recovery Windows ACL ──────────────────────────────────────
 
 
 class TestCrashRecoveryWindowsAcl:

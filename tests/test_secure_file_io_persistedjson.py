@@ -1,69 +1,4 @@
-"""regression tests for ``PersistedJSON`` symlink-
-following and Windows-rename bugs.
-
-(High):
-    Pre-fix, ``PersistedJSON.save`` used ``Path.read_bytes()`` and
-    ``Path.write_bytes()`` for the ``.bak`` comparison + write, both
-    follow symlinks.  An attacker who planted symlinks at BOTH
-    ``self._path`` and ``self._bak_path`` got a read-from-arbitrary-
-    file + write-to-arbitrary-file primitive: the previous config
-    (containing API keys for ``credential_store``) was read THROUGH
-    the ``self._path`` symlink and written THROUGH the
-    ``self._bak_path`` symlink to an attacker-chosen location.
-
-    The fix:
-      * Explicitly check ``is_symlink()`` on BOTH paths and SKIP the
-        backup if either is a symlink (the main save via
-        ``_secure_atomic_write`` is unaffected, it uses
-        ``os.replace`` which does NOT follow the destination symlink,
-        it replaces it).
-      * Use ``_secure_read_text`` (POSIX ``O_NOFOLLOW`` + inode
-        re-verification) for the existing-file read.
-      * Use ``_secure_atomic_write`` for the ``.bak`` write (its
-        ``os.replace`` semantics ensure we never write THROUGH a
-        symlink).
-
-(Low):
-    Pre-fix, ``_quarantine_corrupt`` used ``Path.rename`` (a.k.a.
-    ``os.rename``) which FAILS on Windows if the destination exists.
-    Even though the ``while corrupt_path.exists()`` loop tries to
-    find a non-existing destination, there's a TOCTOU race window
-    where another process (or thread) can create the destination
-    file in between the ``exists()`` check and the rename, causing
-    the rename to fail on Windows and the corrupt file to be left
-    in place (silent corruption-recovery failure).
-
-    The fix uses ``os.replace`` which is atomic AND overwrites an
-    existing destination on BOTH POSIX and Windows, closing the
-    race.
-
-Test approach (FR-7):
-    1. Plant a regular file at ``self._path`` (legit content with
-       API-key-like data) and a symlink at ``self._bak_path``
-       pointing to an "attacker target" file.  Call ``save()`` with
-       new content.  Assert the attacker target file was NOT
-       overwritten with the exfiltrated config bytes (the backup is
-       skipped because ``self._bak_path`` is a symlink).
-    2. Plant a symlink at ``self._path`` pointing to a "sensitive"
-       file (e.g. ``/tmp/.../sensitive``) and a regular file at
-       ``self._bak_path``.  Call ``save()``.  Assert the sensitive
-       file's bytes were NOT exfiltrated into the ``.bak`` (the
-       backup is skipped because ``self._path`` is a symlink).
-    3. Verify the main save still succeeds (the symlink at
-       ``self._path`` is REPLACED by ``os.replace`` with a fresh
-       regular file, the attacker's symlink is destroyed).
-
-Test approach (FR-51):
-    1. Monkeypatch ``os.rename`` to raise ``OSError`` (simulating
-       Windows behaviour where dst exists).  Call
-       ``_quarantine_corrupt`` and verify it does NOT raise (because
-       the fix uses ``os.replace``, not ``os.rename``).
-    2. Track ``os.replace`` calls and verify the fix invokes it.
-    3. Pre-create the dst ``.corrupt-<ts>`` file (simulating a
-       previous quarantine at the same timestamp) and verify the
-       fix overwrites it (proving ``os.replace`` semantics, not
-       ``os.rename``).
-"""
+"""regression tests for ``PersistedJSON`` symlink-"""
 
 from __future__ import annotations
 
@@ -80,37 +15,12 @@ _POSIX_ONLY = pytest.mark.skipif(
 )
 
 
-# ---------------------------------------------------------------------------
-# PersistedJSON.save refuses to follow symlinks on .bak read/write
-# ---------------------------------------------------------------------------
-
-
 @_POSIX_ONLY
 class TestPersistedJSONSaveSymlinkDefense:
-    """``PersistedJSON.save`` must refuse to follow symlinks on
-    EITHER ``self._path`` (read side) or ``self._bak_path`` (write
-    side).  Pre-fix, both used ``Path.read_bytes`` / ``write_bytes``
-    which follow symlinks, a read-from-arbitrary-file + write-to-
-    arbitrary-file primitive."""
+    """EITHER ``self._path`` (read side) or ``self._bak_path`` (write"""
 
     def test_bak_path_symlink_not_followed_on_write(self, tmp_path):
-        """If ``self._bak_path`` is a symlink pointing to an attacker-
-        chosen target file, the ``.bak`` write must NOT write through
-        the symlink to the target.
-
-        Scenario:
-          * ``self._path`` is a regular file with previous-config
-            content (containing API-key-like data).
-          * ``self._bak_path`` is a symlink → ``attacker_target.json``.
-          * ``save()`` is called with new content.
-
-        Pre-fix: ``self._bak_path.write_bytes(existing_bytes)`` would
-        follow the symlink and write the previous-config bytes to
-        ``attacker_target.json``, exfiltrating the API key.
-
-        Post-fix: the ``is_symlink()`` check on ``self._bak_path``
-        skips the backup; ``attacker_target.json`` is untouched.
-        """
+        """If ``self._bak_path`` is a symlink pointing to an attacker-"""
         from voice_typer.server.secure_file_io import PersistedJSON
 
         config_path = tmp_path / "config.json"
@@ -128,8 +38,6 @@ class TestPersistedJSONSaveSymlinkDefense:
         pj.save({"openai_api_key": "sk-new-key"})
 
         # the attacker_target file must NOT contain the
-        # previous-config bytes (the .bak write was skipped because
-        # the .bak path is a symlink).
         assert attacker_target.read_text() == "attacker-controlled content", (
             "regression: attacker_target.json was OVERWRITTEN with "
             "the previous config bytes via the .bak symlink. Pre-fix "
@@ -138,31 +46,13 @@ class TestPersistedJSONSaveSymlinkDefense:
             "attacker-chosen location."
         )
         # The .bak symlink itself must still exist (we didn't touch
-        # it, the backup was skipped).
         assert bak_path.is_symlink()
 
     def test_path_symlink_not_followed_on_read(self, tmp_path):
-        """If ``self._path`` is a symlink pointing to a sensitive file,
-        the ``.bak`` read must NOT follow the symlink to read the
-        sensitive file's bytes.
-
-        Scenario:
-          * ``self._path`` is a symlink → ``sensitive.json`` (which
-            contains secret data NOT intended for the config).
-          * ``self._bak_path`` is a regular file (or doesn't exist).
-          * ``save()`` is called.
-
-        Pre-fix: ``self._path.read_bytes()`` would follow the symlink
-        and read ``sensitive.json``'s bytes, exfiltrating them into
-        the ``.bak``.
-
-        Post-fix: the ``is_symlink()`` check on ``self._path`` skips
-        the backup; ``sensitive.json`` is NOT read.
-        """
+        """If ``self._path`` is a symlink pointing to a sensitive file,"""
         from voice_typer.server.secure_file_io import PersistedJSON
 
         # Sensitive file outside the "config", not intended to be
-        # read by PersistedJSON.
         sensitive = tmp_path / "sensitive.json"
         sensitive.write_text(json.dumps({"secret": "do-not-exfiltrate"}), encoding="utf-8")
 
@@ -178,8 +68,6 @@ class TestPersistedJSONSaveSymlinkDefense:
         pj.save({"hotkey": "<f5>"})
 
         # the .bak file must NOT contain the sensitive file's
-        # bytes (the backup was skipped because self._path is a
-        # symlink).
         assert bak_path.read_text() == "previous bak content", (
             "regression: the .bak file was OVERWRITTEN with the "
             "sensitive file's bytes (read through the self._path "
@@ -188,12 +76,7 @@ class TestPersistedJSONSaveSymlinkDefense:
         )
 
     def test_save_still_proceeds_when_path_is_symlink(self, tmp_path):
-        """Even when ``self._path`` is a symlink, the main save (via
-        ``_secure_atomic_write`` → ``os.replace``) must still proceed.
-        ``os.replace`` does NOT follow the destination symlink, it
-        REPLACES the symlink itself with a fresh regular file.  So
-        the attacker's symlink is destroyed and a real config file
-        is written."""
+        """Even when ``self._path`` is a symlink, the main save (via"""
         from voice_typer.server.secure_file_io import PersistedJSON
 
         sensitive = tmp_path / "sensitive.json"
@@ -205,9 +88,6 @@ class TestPersistedJSONSaveSymlinkDefense:
         pj = PersistedJSON(config_path, default=None)
         pj.save({"hotkey": "<f5>"})
 
-        # The symlink at config_path must have been REPLACED by a
-        # regular file (os.replace does not follow the destination
-        # symlink, it replaces the symlink itself).
         assert not config_path.is_symlink(), (
             "the symlink at self._path should have been replaced "
             "by a regular file via os.replace (which does NOT follow "
@@ -226,9 +106,7 @@ class TestPersistedJSONSaveSymlinkDefense:
         )
 
     def test_normal_save_creates_bak(self, tmp_path):
-        """Sanity check: when neither path is a symlink, the ``.bak``
-        must be created with the previous content (no regression in
-        the normal backup behaviour)."""
+        """Sanity check: when neither path is a symlink, the ``.bak``"""
         from voice_typer.server.secure_file_io import PersistedJSON
 
         config_path = tmp_path / "config.json"
@@ -247,20 +125,11 @@ class TestPersistedJSONSaveSymlinkDefense:
         assert data == {"v": 2}
 
     def test_identical_content_no_bak_churn(self, tmp_path):
-        """Sanity check: saving identical content must NOT churn the
-        ``.bak`` (a re-save of the same content is a no-op for the
-        backup slot).
-
-        Note: the comparison is BYTE-for-byte.  ``save()`` writes
-        ``json.dumps(data, indent=2, ensure_ascii=False)``, so the
-        pre-existing file must be in the SAME format for the bytes
-        to match."""
+        """backup slot)."""
         from voice_typer.server.secure_file_io import PersistedJSON
 
         config_path = tmp_path / "config.json"
         # Write the config in the EXACT format save() would produce
-        # (json.dumps with indent=2, ensure_ascii=False) so the
-        # byte-for-byte comparison detects identical content.
         canonical_content = json.dumps({"v": 1}, indent=2, ensure_ascii=False)
         config_path.write_text(canonical_content, encoding="utf-8")
 
@@ -272,7 +141,6 @@ class TestPersistedJSONSaveSymlinkDefense:
         pj.save({"v": 1})  # identical to existing content
 
         # The .bak must NOT have been overwritten (identical content
-        # is a no-op for the backup slot).
         assert bak_path.read_text() == "sentinel-bak-content", (
             "regression: the .bak was overwritten even though "
             "the save content was byte-identical to the existing "
@@ -281,39 +149,11 @@ class TestPersistedJSONSaveSymlinkDefense:
         )
 
 
-# ---------------------------------------------------------------------------
-# PersistedJSON.save uses _secure_read_text + _secure_atomic_write
-# ---------------------------------------------------------------------------
-
-
 class TestPersistedJSONSaveUsesSecureHelpers:
-    """source-level check that ``PersistedJSON.save`` uses
-    ``_secure_read_text`` (not ``read_bytes``) and
-    ``_secure_atomic_write`` (not ``write_bytes``) for the .bak
-    path.  Pins the fix against a regression that reintroduces the
-    symlink-following helpers.
-
-    The check uses the AST (not a regex on the raw source) so that
-    docstring mentions of ``Path.read_bytes`` / ``Path.write_bytes``
-    (which explain the pre-fix bug) don't false-positive.
-    """
+    """source-level check that ``PersistedJSON.save`` uses"""
 
     def _method_calls_in_save(self) -> set[str]:
-        """Return the set of function/method names called in
-        ``PersistedJSON.save``'s AST, EXCLUDING docstrings.
-
-        Uses ``ast.walk`` on the parsed function body to collect
-        every ``ast.Call`` whose ``func`` is either:
-
-        * an ``ast.Attribute``, i.e. anything of the form
-          ``obj.method(...)`` (e.g. ``self._path.exists()``,
-          ``json.dumps(...)``, ``log.debug(...)``).  The returned
-          name is the attribute name (``exists``, ``dumps``, ``debug``).
-        * an ``ast.Name``, i.e. a bare function call
-          ``func(...)`` (e.g. ``_secure_read_text(...)``,
-          ``_secure_atomic_write(...)``).  The returned name is the
-          ``id`` (``_secure_read_text``, ``_secure_atomic_write``).
-        """
+        """``PersistedJSON.save``'s AST, EXCLUDING docstrings."""
         import ast
         import inspect
         import textwrap
@@ -321,8 +161,6 @@ class TestPersistedJSONSaveUsesSecureHelpers:
         from voice_typer.server.secure_file_io import PersistedJSON
 
         src = inspect.getsource(PersistedJSON.save)
-        # Dedent so the source parses as a standalone function (the
-        # method is indented inside a class).
         src = textwrap.dedent(src)
         tree = ast.parse(src)
         calls: set[str] = set()
@@ -374,37 +212,11 @@ class TestPersistedJSONSaveUsesSecureHelpers:
         )
 
 
-# ---------------------------------------------------------------------------
-# _quarantine_corrupt uses os.replace (not os.rename)
-# ---------------------------------------------------------------------------
-
-
 class TestQuarantineCorruptUsesOsReplace:
-    """FR-51: ``_quarantine_corrupt`` must use ``os.replace`` (atomic,
-    overwrites on both POSIX and Windows) rather than ``os.rename`` /
-    ``Path.rename`` (fails on Windows if dst exists).
-
-    The ``while corrupt_path.exists()`` loop tries to find a non-
-    existing destination, but there's a TOCTOU race window where
-    another process can create the destination file in between the
-    ``exists()`` check and the rename.  On Windows, ``os.rename``
-    fails with ``OSError`` (winerror 183) in that case, leaving the
-    corrupt file in place and silently breaking the corruption-
-    recovery path.  ``os.replace`` is atomic AND overwrites an
-    existing destination on both POSIX and Windows, closing the race.
-    """
+    """FR-51: ``_quarantine_corrupt`` must use ``os.replace`` (atomic,"""
 
     def test_quarantine_survives_os_rename_failure(self, tmp_path, monkeypatch):
-        """If ``os.rename`` raises ``OSError`` (simulating Windows
-        behaviour where dst exists), ``_quarantine_corrupt`` must
-        still succeed, because the fix uses ``os.replace``, not
-        ``os.rename``.
-
-        We monkeypatch ``os.rename`` to ALWAYS raise.  Path.rename
-        calls os.rename internally, so this also breaks Path.rename.
-        The fix uses os.replace, which is NOT affected by this
-        monkeypatch.
-        """
+        """If ``os.rename`` raises ``OSError`` (simulating Windows"""
         from voice_typer.server.secure_file_io import PersistedJSON
 
         config_path = tmp_path / "config.json"
@@ -431,9 +243,7 @@ class TestQuarantineCorruptUsesOsReplace:
         assert quarantine_files[0].read_text() == "corrupt content"
 
     def test_quarantine_calls_os_replace(self, tmp_path, monkeypatch):
-        """``_quarantine_corrupt`` must call ``os.replace`` (not
-        ``os.rename``).  We track ``os.replace`` calls and verify
-        the fix invokes it."""
+        """``_quarantine_corrupt`` must call ``os.replace`` (not"""
         from voice_typer.server.secure_file_io import PersistedJSON
 
         config_path = tmp_path / "config.json"
@@ -462,38 +272,13 @@ class TestQuarantineCorruptUsesOsReplace:
         assert "config.json.corrupt-" in dst
 
     def test_quarantine_overwrites_existing_dst(self, tmp_path, monkeypatch):
-        """FR-51 (updated): the new ``_quarantine_corrupt`` implementation
-        embeds PID + sub-second nanoseconds in the filename so two
-        concurrent quarantine events produce DISTINCT filenames (no
-        clobber).  This is STRICTLY BETTER than the previous
-        ``os.replace``-overwrites-existing-dst behaviour (which lost
-        forensic history when two processes corrupted the same file
-        in the same second).
-
-        The test pre-creates a stale ``.corrupt-<ts>-<pid>-<ns>`` file
-        matching the EXACT filename the new implementation would
-        produce (we mock ``time.time``, ``time.time_ns`` and ``os.getpid``
-        to fixed values).  With the new PID+ns suffix, the implementation
-        does NOT probe for an existing dst, so the pre-created file IS
-        overwritten by ``os.replace`` (which is still the safety net for
-        the essentially-impossible case where two calls pick the same
-        PID+ns).  This test pins that ``os.replace`` safety-net
-        behaviour, but note that the realistic common case is now
-        distinct filenames (covered by
-        ``test_quarantine_disambiguates_same_ts_dst_exists``).
-        """
+        """FR-51 (updated): the new ``_quarantine_corrupt`` implementation"""
         from voice_typer.server.secure_file_io import PersistedJSON
 
         config_path = tmp_path / "config.json"
         config_path.write_text("new corrupt content", encoding="utf-8")
 
         # Mock time.time, time.time_ns and os.getpid to fixed values
-        # so we can predict the EXACT dst filename the new
-        # implementation will produce. The module-level
-        # ``_QUARANTINE_SUFFIX_SEQ`` counter must be reset to a fresh
-        # ``itertools.count()`` so this test's first call consumes
-        # seq=0 (other tests in this module may already have advanced
-        # the real module counter).
         import itertools
 
         from voice_typer.server import secure_file_io as _sfio
@@ -507,10 +292,6 @@ class TestQuarantineCorruptUsesOsReplace:
         monkeypatch.setattr(os, "getpid", lambda: fixed_pid)
 
         # Pre-create the dst file at the EXACT filename the new
-        # implementation will produce (ts-pid-ns pattern).  This
-        # simulates the essentially-impossible case where two calls
-        # pick the same PID+ns, the os.replace safety-net must
-        # overwrite it.
         dst = tmp_path / f"config.json.corrupt-{fixed_ts}-{fixed_pid}-{fixed_ns}"
         dst.write_text("previous quarantine content", encoding="utf-8")
 
@@ -519,8 +300,6 @@ class TestQuarantineCorruptUsesOsReplace:
         pj._quarantine_corrupt()
 
         # The dst file must have been OVERWRITTEN with the new
-        # corrupt content (os.replace semantics, not os.rename which
-        # would fail on Windows).
         assert dst.read_text() == "new corrupt content", (
             "FR-51 regression: the dst file was NOT overwritten. "
             "Pre-fix Path.rename would fail on Windows (dst exists); "
@@ -531,21 +310,7 @@ class TestQuarantineCorruptUsesOsReplace:
         assert not config_path.exists()
 
     def test_quarantine_disambiguates_same_ts_dst_exists(self, tmp_path, monkeypatch):
-        """Sanity check (updated): the new ``_quarantine_corrupt``
-        implementation embeds PID + sub-second nanoseconds in the
-        filename, so even when ``time.time`` returns a fixed timestamp,
-        two back-to-back quarantine calls produce DISTINCT filenames
-        (the previous counter-loop ``.corrupt-<ts>.<N>`` pattern is
-        gone, the PID+ns suffix makes collision essentially impossible
-        without an ``exists()`` probe loop, closing the TOCTOU race).
-
-        We mock ``time.time`` to a fixed timestamp, mock ``os.getpid``
-        to a fixed PID, and use TWO distinct ``time.time_ns`` values to
-        simulate two back-to-back quarantine calls (the second call's
-        ``time.time_ns()`` reading will naturally differ from the
-        first's).  Both calls produce distinct ``.corrupt-<ts>-<pid>-<ns>``
-        filenames, neither is clobbered.
-        """
+        """Sanity check (updated): the new ``_quarantine_corrupt``"""
         from voice_typer.server.secure_file_io import PersistedJSON
 
         config_path = tmp_path / "config.json"
@@ -555,21 +320,12 @@ class TestQuarantineCorruptUsesOsReplace:
         ns_values = iter([111111, 222222])  # distinct ns for each call
 
         # Reset the module-level suffix counter so this test's first
-        # call consumes seq=0 (a fresh ``itertools.count()`` starts at
-        # 0); the second call then consumes seq=1.
         import itertools
 
         from voice_typer.server import secure_file_io as _sfio
 
         monkeypatch.setattr(_sfio, "_QUARANTINE_SUFFIX_SEQ", itertools.count())
         # Patch secure_file_io's module-level ``time`` binding (a shim
-        # exposing only the two attrs ``_quarantine_corrupt`` reads) instead
-        # of the GLOBAL time module: Python 3.13's ``logging.LogRecord``
-        # calls ``time.time_ns()`` internally, so patching the global would
-        # let logging consume the iterator and exhaust ``ns_values`` mid-
-        # test (the quarantine's own ``log.warning`` would eat the second
-        # value). ``_quarantine_corrupt`` resolves ``time`` from the module
-        # globals, while logging keeps using the real time module.
         import types as _types
 
         monkeypatch.setattr(
@@ -592,18 +348,13 @@ class TestQuarantineCorruptUsesOsReplace:
         assert not config_path.exists()
 
         # Second quarantine with a DIFFERENT corrupt file at the same
-        # path (e.g. the user kept using the app and it corrupted
-        # again).  With the new PID+ns suffix, this produces a DISTINCT
-        # filename, no clobber, no overwrite.
         config_path.write_text("second corrupt content", encoding="utf-8")
         pj._quarantine_corrupt()
         # Second call consumes seq=1, so the suffix is ns+1 (222223),
-        # keeping the two filenames DISTINCT.
         dst2 = tmp_path / f"config.json.corrupt-{fixed_ts}-{fixed_pid}-222223"
         assert dst2.exists()
         assert dst2.read_text() == "second corrupt content"
 
-        # dst1 must be untouched (no clobber).
         assert dst1.read_text() == "first corrupt content"
         assert not config_path.exists()
 
@@ -616,10 +367,7 @@ class TestQuarantineCorruptUsesOsReplace:
             )
 
     def test_quarantine_handles_missing_file_gracefully(self, tmp_path):
-        """Sanity check: if the file disappeared between the
-        ``exists()`` check and the rename, ``_quarantine_corrupt``
-        must NOT raise (best-effort, the file is gone, nothing to
-        quarantine)."""
+        """``exists()`` check and the rename, ``_quarantine_corrupt``"""
         from voice_typer.server.secure_file_io import PersistedJSON
 
         config_path = tmp_path / "config.json"
@@ -629,13 +377,7 @@ class TestQuarantineCorruptUsesOsReplace:
         assert not config_path.exists()
 
     def test_quarantine_source_is_symlink_handles_gracefully(self, tmp_path):
-        """FR-51 + interaction: if the source file is a symlink,
-        ``_quarantine_corrupt`` must still move it aside (via
-        ``os.replace`` which does NOT follow the source symlink —
-        it moves the symlink itself).  This is the correct behaviour:
-        the symlink is quarantined, the attacker's symlink is removed
-        from the config path, and the next save can write a fresh
-        regular file."""
+        """FR-51 + interaction: if the source file is a symlink,"""
         from voice_typer.server.secure_file_io import PersistedJSON
 
         # Only run on POSIX (symlink creation).
@@ -652,46 +394,25 @@ class TestQuarantineCorruptUsesOsReplace:
         pj._quarantine_corrupt()  # must NOT raise
 
         # The symlink must have been moved aside (os.replace moves
-        # the symlink itself, NOT the symlink target).
         assert not config_path.exists(), (
             "FR-51 regression: the symlink at config_path was NOT "
             "moved aside. os.replace should move the symlink itself."
         )
         quarantine_files = list(tmp_path.glob("config.json.corrupt-*"))
         assert len(quarantine_files) == 1
-        # The quarantined file is the SYMLINK (not the target).  On
-        # POSIX, renaming a symlink moves the symlink itself.
         assert quarantine_files[0].is_symlink()
         # The sensitive target must be untouched.
         assert sensitive.read_text() == "sensitive"
 
 
-# ---------------------------------------------------------------------------
-# PersistedJSON.save: chmod 0o600 exactly once per write (no redundant
-# re-chmod after _secure_atomic_write already did it)
-# ---------------------------------------------------------------------------
-
-
 class TestSaveChmodSingleSource:
-    """``_secure_atomic_write`` already chmods its target to 0o600 on
+    """
     EVERY success branch (see its body: ``_chmod_owner_only(target)``
-    runs unconditionally after ``os.replace``; on failure it raises, so
-    the caller never reaches a trailing chmod on that path).
     ``PersistedJSON.save`` must NOT re-chmod the same paths a second
-    time, a redundant chmod is dead code that suggests the write path
-    is insecure when it is not (documented-layer confusion), and it is
-    an extra syscall per save on hot paths (vocabulary/templates).
-
-    The guarantee itself (0o600 owner-only perms on the saved file and
-    its ``.bak``) is pinned separately by the state-based test below —
-    the redundant call added nothing observable.
     """
 
     def test_chmod_owner_only_invoked_exactly_once_per_write(self, tmp_path, monkeypatch):
-        """A save that churns BOTH the ``.bak`` and the main file must
-        trigger exactly ONE ``_chmod_owner_only`` call per
-        ``_secure_atomic_write`` call (2 total), not one inside the
-        helper plus a redundant second one from ``save`` itself."""
+        """A save that churns BOTH the ``.bak`` and the main file must"""
         import voice_typer.server.security.file_io as _fio
         from voice_typer.server.secure_file_io import PersistedJSON
 
@@ -709,8 +430,6 @@ class TestSaveChmodSingleSource:
         pj: PersistedJSON = PersistedJSON(config_path, default={})
 
         # New content differs from the on-disk content → the .bak is
-        # written (one _secure_atomic_write) AND the main file is
-        # written (a second _secure_atomic_write).
         pj.save({"new": "content"})
 
         assert len(calls) == 2, (
@@ -726,11 +445,10 @@ class TestSaveChmodSingleSource:
 
     @_POSIX_ONLY
     def test_saved_files_have_owner_only_permissions(self, tmp_path):
-        """End-to-end permission guarantee (state-based): after a save
-        that writes both the main file and the ``.bak``, BOTH files are
-        0o600 owner-only. The chmod is performed inside
+        """
+        End-to-end permission guarantee (state-based): after a save
         ``_secure_atomic_write``, this test pins the guarantee, not
-        the call count."""
+        """
         import stat as _stat
 
         from voice_typer.server.secure_file_io import PersistedJSON

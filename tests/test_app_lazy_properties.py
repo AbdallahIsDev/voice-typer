@@ -1,33 +1,4 @@
-"""regression tests: lazy ``history_db`` and ``_audio_processor``
-properties on ``VoiceTyperApp``.
-
-Pins the lazy-construction contract for the two heaviest cold-start
-subsystems deferred by 1. ``history_db`` ``HistoryDB()`` construction was
-   eagerly called in ``__init__``, blocking up to 30s on the writer
-   thread's schema-init. The lazy ``@property`` defers construction to
-   first access. A ``_shutting_down_event`` guard prevents the shutdown
-   teardown path (``shutdown/teardowns/history_db.py``) from triggering
-   lazy construction via its ``if app.history_db is not None:`` check.
-
-2. ``_audio_processor`` ``AudioProcessor(...)`` construction
-   was eagerly called in ``__init__``, pulling in the full
-   ``audio_filters`` package + ``scipy.signal.butter`` (via
-   ``build_chain``) on every cold start. The lazy ``@property`` returns
-   a ``_LazyAudioProcessorProxy`` that defers the real construction
-   (and the transitive ``audio_filters`` import chain) to first
-   attribute access.
-
-Both properties expose a setter so existing tests that inject mocks
-via ``app.history_db = MagicMock()`` / ``app._audio_processor =
-MagicMock()`` use the setter, which bypasses lazy construction.
-
-These tests run on the Linux sandbox. ``scipy`` is mocked at module
-level (via ``sys.modules``) because the test environment has a
-numpy/scipy version mismatch (numpy 1.26.4 vs scipy 1.18.0) that
-breaks the real ``scipy.signal`` import, mocking scipy lets the
-test construct a real ``VoiceTyperApp`` without paying the
-``audio_filters`` import cost (which is the whole point of the fix).
-"""
+"""regression tests: lazy ``history_db`` and ``_audio_processor``"""
 
 from __future__ import annotations
 
@@ -38,18 +9,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
-# ─── Shared fixtures ────────────────────────────────────────────────────
-
 
 def _patch_app_platform_helpers(monkeypatch):
-    """Patch the platform helpers that ``VoiceTyperApp.__init__`` touches.
-
-    Mirrors the helper in ``tests/test_lazy_subsystem_construction.py``.
-    The helpers are resolved at call time from their canonical home
-    ``voice_typer.server.server_platform`` (deferred imports inside
-    ``startup_tasks.sync_autostart`` / ``load_microphones``), so that is
-    the module to patch.
-    """
+    """Patch the platform helpers that ``VoiceTyperApp.__init__`` touches."""
     from voice_typer.server.server_platform import autostart as autostart_mod
 
     monkeypatch.setattr(autostart_mod, "is_autostart_enabled", lambda: False)
@@ -60,12 +22,7 @@ def _patch_app_platform_helpers(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def _mock_scipy(monkeypatch):
-    """Mock scipy so ``audio_filters.highpass`` / ``audio_pipeline``
-    don't crash on the numpy/scipy version mismatch in this env.
-
-    The mock is a per-test ``sys.modules`` injection (auto-undone by
-    ``monkeypatch``) so it doesn't leak across tests.
-    """
+    """Mock scipy so ``audio_filters.highpass`` / ``audio_pipeline``"""
     mock_scipy = MagicMock(name="mock_scipy")
     mock_scipy_signal = MagicMock(name="mock_scipy.signal")
     mock_scipy.signal = mock_scipy_signal
@@ -73,21 +30,11 @@ def _mock_scipy(monkeypatch):
     monkeypatch.setitem(sys.modules, "scipy.signal", mock_scipy_signal)
 
 
-# ─── lazy history_db ─────────────────────────────────────────────
-
-
 class TestHistoryDbLazyConstruction:
-    """``HistoryDB()`` must NOT be constructed in ``__init__``.
-
-    The lazy ``@property`` defers construction to first access. A
-    ``_shutting_down_event`` guard prevents the shutdown teardown path
-    from triggering construction.
-    """
+    """``HistoryDB()`` must NOT be constructed in ``__init__``."""
 
     def test_history_db_backing_is_none_after_init(self, tmp_config_dir, monkeypatch):
-        """``_history_db_backing`` must be ``None`` after ``__init__`` —
-        ``HistoryDB()`` is NOT eagerly constructed.
-        """
+        """``_history_db_backing`` must be ``None`` after ``__init__`` —"""
         _patch_app_platform_helpers(monkeypatch)
         from voice_typer.server.app import VoiceTyperApp
 
@@ -97,17 +44,9 @@ class TestHistoryDbLazyConstruction:
         )
 
     def test_history_db_not_constructed_at_init_via_mock(self, tmp_config_dir, monkeypatch):
-        """(a): ``HistoryDB()`` is NOT called during
-        ``VoiceTyperApp.__init__``. Verified by spying on the
-        ``HistoryDB`` class constructor.
-        """
+        """(a): ``HistoryDB()`` is NOT called during"""
         _patch_app_platform_helpers(monkeypatch)
         # Patch HistoryDB on the app module BEFORE constructing
-        # VoiceTyperApp. The lazy property's getter does
-        # ``HistoryDB()`` (an unqualified lookup that resolves via the
-        # module's globals), so monkeypatching
-        # ``voice_typer.server.app.HistoryDB`` is the correct patch
-        # target.
         from voice_typer.server import app as _app_mod
 
         mock_history_db_cls = MagicMock(name="MockHistoryDB")
@@ -122,9 +61,7 @@ class TestHistoryDbLazyConstruction:
         assert instance._history_db_backing is None
 
     def test_history_db_constructed_on_first_access(self, tmp_config_dir, monkeypatch):
-        """(b): first access of ``app.history_db`` constructs a
-        ``HistoryDB`` and caches it in ``_history_db_backing``.
-        """
+        """``HistoryDB`` and caches it in ``_history_db_backing``."""
         _patch_app_platform_helpers(monkeypatch)
         from voice_typer.server import app as _app_mod
         from voice_typer.server.history_db import HistoryDB
@@ -142,12 +79,7 @@ class TestHistoryDbLazyConstruction:
         )
 
     def test_history_db_setter_bypasses_construction(self, tmp_config_dir, monkeypatch):
-        """(c): assigning via the setter stores directly into the
-        backing, a subsequent getter call returns the assigned value
-        without invoking the lazy constructor. This is the contract
-        tests rely on when they inject mocks via
-        ``app.history_db = MagicMock()``.
-        """
+        """backing, a subsequent getter call returns the assigned value"""
         _patch_app_platform_helpers(monkeypatch)
         from voice_typer.server import app as _app_mod
 
@@ -159,28 +91,19 @@ class TestHistoryDbLazyConstruction:
         sentinel = MagicMock(name="fake_history_db")
         instance.history_db = sentinel
 
-        # Setter must store into backing; getter must return the
-        # sentinel (no construction).
         assert instance.history_db is sentinel, (
             "Setter for history_db must store into the backing; getter "
             "must return the assigned sentinel (no construction)."
         )
         assert instance._history_db_backing is sentinel
         # HistoryDB() must NOT have been called (the setter bypasses
-        # lazy construction).
         assert mock_history_db_cls.call_count == 0, (
             "Setter must bypass lazy construction, HistoryDB() was "
             "called even though a sentinel was assigned via the setter."
         )
 
     def test_history_db_returns_none_during_shutdown(self, tmp_config_dir, monkeypatch):
-        """when ``_shutting_down_event`` is set, the lazy getter
-        returns ``None`` instead of constructing a ``HistoryDB``. This
-        prevents the shutdown teardown path
-        (``shutdown/teardowns/history_db.py``) from triggering lazy
-        construction via its ``if app.history_db is not None:`` check
-        on a never-dictated session.
-        """
+        """when ``_shutting_down_event`` is set, the lazy getter"""
         _patch_app_platform_helpers(monkeypatch)
         from voice_typer.server import app as _app_mod
 
@@ -189,11 +112,9 @@ class TestHistoryDbLazyConstruction:
 
         instance = _app_mod.VoiceTyperApp()
         # Simulate shutdown, quit() / restart_app() sets this before
-        # the teardown path runs.
         instance._shutting_down_event.set()
 
         # Accessing history_db during shutdown must return None
-        # (no construction).
         assert instance.history_db is None, (
             "history_db getter must return None when _shutting_down_event "
             "is set, prevents lazy construction during shutdown teardown."
@@ -201,36 +122,19 @@ class TestHistoryDbLazyConstruction:
         assert mock_history_db_cls.call_count == 0, "HistoryDB() must NOT be called when _shutting_down_event is set."
 
 
-# ─── lazy _audio_processor ───────────────────────────────────────
-
-
 class TestAudioProcessorLazyConstruction:
-    """``AudioProcessor(...)`` must NOT be constructed in
-    ``__init__``. The lazy ``@property`` returns a
-    ``_LazyAudioProcessorProxy`` that defers the real construction to
-    first attribute access.
-    """
+    """first attribute access."""
 
     def test_audio_processor_backing_is_proxy_after_init(self, tmp_config_dir, monkeypatch):
-        """After ``__init__``, ``_audio_processor_backing`` is a
-        ``_LazyAudioProcessorProxy`` (NOT a real ``AudioProcessor``).
-        The proxy defers construction to first attribute access.
-        """
+        """``_LazyAudioProcessorProxy`` (NOT a real ``AudioProcessor``)."""
         _patch_app_platform_helpers(monkeypatch)
         from voice_typer.server.app import VoiceTyperApp, _LazyAudioProcessorProxy
 
         instance = VoiceTyperApp()
         # STARTUP-9: ``Recorder(...)`` (whose ``audio_processor=`` argument
-        # access materializes the proxy) is constructed on a background
-        # thread. Wait for that build to finish before asserting —
-        # otherwise the assertion races the thread and intermittently
-        # sees ``None`` (observed under full-suite parallel load).
         assert instance._recorder_build_ready.wait(10.0), "recorder background build did not finish within 10s"
         if instance._recorder_build_error is not None:
             raise instance._recorder_build_error
-        # The backing is the proxy (created lazily by the getter when
-        # __init__ passed audio_processor=self._audio_processor to
-        # Recorder).
         backing = instance._audio_processor_backing
         assert backing is not None, (
             "_audio_processor_backing should be a _LazyAudioProcessorProxy "
@@ -246,18 +150,9 @@ class TestAudioProcessorLazyConstruction:
         )
 
     def test_audio_processor_not_constructed_at_init_via_mock(self, tmp_config_dir, monkeypatch):
-        """(a): ``AudioProcessor(...)`` is NOT called during
-        ``VoiceTyperApp.__init__``. Verified by spying on the
-        ``AudioProcessor`` class constructor inside the proxy's
-        ``_resolve`` method (which is the only call site that should
-        construct a real ``AudioProcessor``).
-        """
+        """(a): ``AudioProcessor(...)`` is NOT called during"""
         _patch_app_platform_helpers(monkeypatch)
         # Patch AudioProcessor inside the proxy's _resolve method.
-        # The proxy does ``from voice_typer.server.audio_processor
-        # import AudioProcessor`` inside _resolve, so patching
-        # ``voice_typer.server.audio_processor.AudioProcessor`` is the
-        # correct target.
         from voice_typer.server import app as _app_mod, audio_processor as _ap_mod
 
         mock_ap_cls = MagicMock(name="MockAudioProcessor")
@@ -273,10 +168,7 @@ class TestAudioProcessorLazyConstruction:
         )
 
     def test_audio_processor_constructed_on_first_attribute_access(self, tmp_config_dir, monkeypatch):
-        """(b): first attribute access on the proxy triggers
-        construction of the real ``AudioProcessor`` and wires
-        ``set_quality_callback``.
-        """
+        """(b): first attribute access on the proxy triggers"""
         _patch_app_platform_helpers(monkeypatch)
         from voice_typer.server import app as _app_mod, audio_processor as _ap_mod
 
@@ -296,16 +188,10 @@ class TestAudioProcessorLazyConstruction:
         assert mock_ap_cls.call_count == 1, (
             "First attribute access on the _LazyAudioProcessorProxy must construct a real AudioProcessor."
         )
-        # set_quality_callback was wired on the constructed instance.
         mock_ap_instance.set_quality_callback.assert_called_once_with(instance._on_audio_quality_chunk)
 
     def test_audio_processor_setter_bypasses_proxy(self, tmp_config_dir, monkeypatch):
-        """(c): assigning via the setter stores directly into the
-        backing, a subsequent getter call returns the assigned value
-        without invoking the proxy. This is the contract tests rely on
-        when they inject mocks via ``app._audio_processor =
-        MagicMock()``.
-        """
+        """backing, a subsequent getter call returns the assigned value"""
         _patch_app_platform_helpers(monkeypatch)
         from voice_typer.server import app as _app_mod, audio_processor as _ap_mod
 
@@ -317,25 +203,19 @@ class TestAudioProcessorLazyConstruction:
         sentinel = MagicMock(name="fake_audio_processor")
         instance._audio_processor = sentinel
 
-        # Setter must store into backing; getter must return the
-        # sentinel (no proxy, no construction).
         assert instance._audio_processor is sentinel, (
             "Setter for _audio_processor must store into the backing; "
             "getter must return the assigned sentinel (no proxy)."
         )
         assert instance._audio_processor_backing is sentinel
         # AudioProcessor() must NOT have been called (the setter
-        # bypasses the proxy entirely).
         assert mock_ap_cls.call_count == 0, (
             "Setter must bypass the proxy, AudioProcessor() was called "
             "even though a sentinel was assigned via the setter."
         )
 
     def test_audio_processor_proxy_caches_real_instance(self, tmp_config_dir, monkeypatch):
-        """The proxy caches the real ``AudioProcessor`` after first
-        construction, subsequent attribute accesses reuse the cached
-        instance (no re-construction).
-        """
+        """The proxy caches the real ``AudioProcessor`` after first"""
         _patch_app_platform_helpers(monkeypatch)
         from voice_typer.server import app as _app_mod, audio_processor as _ap_mod
 
@@ -356,9 +236,7 @@ class TestAudioProcessorLazyConstruction:
         )
 
     def test_audio_processor_proxy_forwards_attribute_access(self, tmp_config_dir, monkeypatch):
-        """Attribute access on the proxy is forwarded to the real
-        ``AudioProcessor``.
-        """
+        """Attribute access on the proxy is forwarded to the real"""
         _patch_app_platform_helpers(monkeypatch)
         from voice_typer.server import app as _app_mod, audio_processor as _ap_mod
 
@@ -379,23 +257,11 @@ class TestAudioProcessorLazyConstruction:
         mock_ap_instance.reset.assert_called_once_with()
 
 
-# ─── deferred imports inside lazy getters ──────────────────────
-
-
 class TestDeferredImportsInLazyGetters:
-    """the module-top imports for ``AudioProcessor``,
-    ``DuckCrashRecovery``, ``VolumeDucker``, and ``WaveformBubble``
-    were moved INTO the lazy getters (or the proxy's ``_resolve``
-    method). Verified by checking that the symbols are NOT attributes
-    of the ``voice_typer.server.app`` module (they were removed from
-    the module-top imports).
-    """
+    """the module-top imports for ``AudioProcessor``,"""
 
     def test_audio_processor_not_at_module_top(self):
-        """``AudioProcessor`` is NOT a module-top attribute of
-        ``voice_typer.server.app``, it's imported inside the
-        ``_LazyAudioProcessorProxy._resolve`` method.
-        """
+        """``_LazyAudioProcessorProxy._resolve`` method."""
         from voice_typer.server import app as _app_mod
 
         assert not hasattr(_app_mod, "AudioProcessor"), (
@@ -405,10 +271,7 @@ class TestDeferredImportsInLazyGetters:
         )
 
     def test_duck_crash_recovery_not_at_module_top(self):
-        """``DuckCrashRecovery`` is NOT a module-top attribute of
-        ``voice_typer.server.app``, it's imported inside the
-        ``_duck_crash_recovery`` getter.
-        """
+        """``_duck_crash_recovery`` getter."""
         from voice_typer.server import app as _app_mod
 
         assert not hasattr(_app_mod, "DuckCrashRecovery"), (
@@ -417,10 +280,7 @@ class TestDeferredImportsInLazyGetters:
         )
 
     def test_volume_ducker_not_at_module_top(self):
-        """``VolumeDucker`` is NOT a module-top attribute of
-        ``voice_typer.server.app``, it's imported inside the
-        ``_volume_ducker`` getter.
-        """
+        """``_volume_ducker`` getter."""
         from voice_typer.server import app as _app_mod
 
         assert not hasattr(_app_mod, "VolumeDucker"), (
@@ -428,10 +288,7 @@ class TestDeferredImportsInLazyGetters:
         )
 
     def test_waveform_bubble_not_at_module_top(self):
-        """``WaveformBubble`` is NOT a module-top attribute of
-        ``voice_typer.server.app``, it's imported inside the
-        ``_waveform_bubble`` getter.
-        """
+        """``_waveform_bubble`` getter."""
         from voice_typer.server import app as _app_mod
 
         assert not hasattr(_app_mod, "WaveformBubble"), (
@@ -440,43 +297,14 @@ class TestDeferredImportsInLazyGetters:
         )
 
 
-# ─── deferred recorder / recording construction (STARTUP-9) ──────
-
-
 class TestRecorderDeferredConstruction:
-    """``Recorder`` + ``RecordingController`` must NOT be constructed
-    synchronously in ``VoiceTyperApp.__init__``.
-
-    STARTUP-9: the ``voice_typer.server.recording`` import + ``Recorder()``
-    build eagerly loads numpy/scipy/sounddevice (PortAudio) and can take
-    1-8s on the main thread (measured ~5x slower under the system Python
-    the packaged app runs on). Construction is deferred to a background
-    thread registered with the ThreadRegistry; ``app.recorder`` /
-    ``app.recording`` are lazy properties that block only briefly on
-    first access.
-
-    These tests pin the contract deterministically by installing FAKE
-    ``voice_typer.server.recording`` / ``recording_controller`` modules
-    into ``sys.modules`` (hermetic, no numpy/audio imports at all). The
-    fake ``Recorder.__init__`` is gated on a ``threading.Event``, so the
-    test can observe the sentinel state while the build is provably
-    still in flight on a background thread.
-    """
+    """``Recorder`` + ``RecordingController`` must NOT be constructed"""
 
     @staticmethod
     def _install_fake_recording_modules(monkeypatch, recorder_cls, controller_cls):
-        """Install fake ``voice_typer.server.recording`` /
-        ``recording_controller`` modules into ``sys.modules`` so the
-        background build thread's deferred imports (``from
-        voice_typer.server.recording import Recorder`` / ``from
-        voice_typer.server.recording_controller import
-        RecordingController``) resolve to the fakes, the test never
-        imports numpy/audio and never constructs real subsystems.
-        """
+        """Install fake ``voice_typer.server.recording`` /"""
         fake_recording = types.ModuleType("voice_typer.server.recording")
         fake_controller = types.ModuleType("voice_typer.server.recording_controller")
-        # ``setattr`` instead of attribute assignment so pyrefly (which
-        # rejects unknown attributes on ``ModuleType``) accepts the fakes.
         fake_recording.Recorder = recorder_cls
         fake_controller.RecordingController = controller_cls
         monkeypatch.setitem(sys.modules, "voice_typer.server.recording", fake_recording)
@@ -487,14 +315,7 @@ class TestRecorderDeferredConstruction:
         )
 
     def test_recorder_backing_is_sentinel_after_init_and_accessible_after_build(self, tmp_config_dir, monkeypatch):
-        """Right after ``__init__``, ``_recorder_backing`` is still the
-        ``_RECORDER_MISSING`` sentinel and ``_recorder_build_ready`` is
-        NOT set, the recorder was NOT built synchronously. The fake
-        ``Recorder.__init__`` blocks on an event, so the test can prove
-        the construction is proceeding on a background thread while the
-        sentinel state is observable; once released, ``app.recorder`` /
-        ``app.recording`` return the built instances.
-        """
+        """``_RECORDER_MISSING`` sentinel and ``_recorder_build_ready`` is"""
         _patch_app_platform_helpers(monkeypatch)
         from voice_typer.server import app as _app_mod
 
@@ -546,11 +367,7 @@ class TestRecorderDeferredConstruction:
             release.set()
 
     def test_recorder_setter_short_circuits_background_build(self, tmp_config_dir, monkeypatch):
-        """If a test (or caller) injects ``app.recorder = MagicMock()``
-        via the setter while the background build is in flight, the build
-        must NOT clobber the injected value, and ``app.recording`` still
-        works (falling back to an on-demand ``RecordingController``).
-        """
+        """If a test (or caller) injects ``app.recorder = MagicMock()``"""
         _patch_app_platform_helpers(monkeypatch)
         from voice_typer.server import app as _app_mod
 
@@ -582,7 +399,6 @@ class TestRecorderDeferredConstruction:
             assert instance.recorder is injected, (
                 "the background build must not clobber a recorder injected via the setter"
             )
-            # app.recording still works (on-demand controller fallback).
             assert instance.recording is controller_instance, (
                 "app.recording must fall back to an on-demand RecordingController "
                 "when the background build was short-circuited"
