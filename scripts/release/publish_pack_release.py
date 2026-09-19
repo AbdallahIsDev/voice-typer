@@ -1,77 +1,10 @@
 #!/usr/bin/env python3
-"""Auto-update. GitHub Releases publisher (plan-runtime-pack-split.md §10.1).
+"""GitHub Releases publisher for runtime-pack assets (C-CI-13 / C-CI-11).
 
-Publishes the slim-core installer + runtime-pack zip + ``pack-manifest.json``
-as GitHub Release assets. Uses the ``gh`` CLI (preferred) or the GitHub
-REST API as a fallback (when ``gh`` is unavailable / in CI without
-``gh`` installed).
-
-This script is the CI-side counterpart to the client-side
-:mod:`voice_typer.server.service.update_check` module. The publisher
-uploads the assets; the checker fetches ``pack-manifest.json`` from the
-same release to decide whether a newer pack is available.
-
-Asset naming (C-CI-13, canonical source: ``scripts/build/artifact_names.py``,
-plan-runtime-pack-split.md §11.9; re-exported here as
-``ASSET_NAME_BUILDERS`` so callers of this module can construct the
-expected names without a second copy of the scheme):
-
-  * Slim-core installer:
-      - Windows: ``voice-typer-slim-core-<version>-<triple>.exe`` (NSIS)
-      - macOS:   ``voice-typer-slim-core-<version>-<triple>``
-      - Linux:   ``voice-typer-slim-core-<version>-<triple>``
-  * Runtime-pack zip:  ``voice-typer-runtime-pack-<pack-version>-<triple>.zip``
-  * Full-offline:      ``voice-typer-full-offline-<version>-<triple>[.exe]``
-  * Pack manifest:    ``pack-manifest.json`` (NOT versioned, the
-    ``releases/latest/download/pack-manifest.json`` URL serves the
-    latest release's manifest).
-
-The publisher does NOT enforce these names, it uploads whatever paths
-the caller passes; ``artifact_names.py`` is the naming reference. The
-pack manifest is platform-independent; the slim-core installer and the
-runtime-pack zip are per-target-triple. Publish one per platform.
-
-Usage (CI):
-
-  python scripts/release/publish_pack_release.py \\
-      --tag v1.2.3 \\
-      --repo AbdallahIsDev/voice-typer \\
-      --slim-core-windows dist/voice-typer-slim-core-1.2.3-x86_64-pc-windows-msvc.exe \\
-      --slim-core-macos dist/voice-typer-slim-core-1.2.3-aarch64-apple-darwin \\
-      --slim-core-linux dist/voice-typer-slim-core-1.2.3-x86_64-unknown-linux-gnu \\
-      --pack-onefile dist/voice-typer-runtime-pack-3-x86_64-pc-windows-msvc.zip \\
-      --pack-manifest dist/pack-manifest.json \\
-      --notes "Release notes for 1.2.3"
-
-Or programmatically:
-
-  from scripts.release.publish_pack_release import publish_release
-  result = publish_release(
-      tag="v1.2.3",
-      assets=[
-          Path("dist/voice-typer-runtime-pack-3-x86_64-pc-windows-msvc.zip"),
-          Path("dist/pack-manifest.json"),
-      ],
-      repo="AbdallahIsDev/voice-typer",
-      notes="Release notes for 1.2.3",
-  )
-
-The script is idempotent: re-running with the same tag uploads any
-missing assets and skips already-uploaded ones (``gh release upload
---clobber`` replaces existing assets with the same name). This lets CI
-retry a partially-failed publish without manual cleanup.
-
-SECURITY: this script does NOT sign the assets. Code signing is a
-separate CI step (C-CI-11, the existing 4 signing steps + the new
-worker-exe signing). The publisher only uploads already-signed
-artifacts. The pack's integrity is verified client-side via the
-SHA-256 in ``pack-manifest.json`` (see
-:func:`voice_typer.server.service.offline_pack.verify_offline_pack_or_skip`).
-
-Exit codes:
-  0: success (all assets uploaded).
-  1: failure (``gh`` / API error, missing asset, etc.).
-  2: usage error (missing required args).
+Uploads slim-core installer + runtime-pack zip + pack-manifest.json via
+``gh`` (fallback: REST). Naming reference: scripts/build/artifact_names.py
+(re-exported as ASSET_NAME_BUILDERS). Idempotent upload (--clobber).
+Does NOT sign assets — signing stays in CI (C-CI-11). Exit 0/1/2.
 """
 
 from __future__ import annotations

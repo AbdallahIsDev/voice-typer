@@ -1,12 +1,7 @@
-# =============================================================================
 # PINNED ACTION VERSIONS — DO NOT DOWNGRADE (verified 2026-07-24):
-#   actions/checkout@v5             — Node 24 runtime (v4 = Node 20, deprecated)
-#   actions/setup-python@v7         — Node 24 runtime; removed `pip-install` input (v5/v6 = Node 20)
-#   astral-sh/setup-uv@v7            — Node 24 runtime (v6 = Node 20, deprecated)
-# See build.yml header for the full rationale + breaking-change analysis.
 # C-CI-1: ALL actions in this file are pinned to specific Node-24-runtime
 # versions. Do NOT unpin — supply-chain risk via tag re-pointing.
-# =============================================================================
+# See docs/code-notes/ci-workflows.md
 
 name: Perf regression
 
@@ -40,10 +35,6 @@ permissions:
 
 jobs:
   bench:
-    # Pin to ubuntu-22.04 (NOT ubuntu-latest) so the runner image
-    # is deterministic. Perf benchmarks are sensitive to CPU model, OS
-    # kernel version, and page-cache state — `ubuntu-latest` flips
-    # images mid-quarter and would silently shift the baseline. This
     # matches the client-ci.yml runner pin (XS-69).
     runs-on: ubuntu-22.04
     timeout-minutes: 20
@@ -71,27 +62,14 @@ jobs:
 
       - name: Run all benches (`make bench`)
         # Produces bench-current.json with one entry per bench script.
-        # Skipped benches (e.g. transcription without a downloaded model)
-        # are recorded as {"skipped": true, "error": "..."} and excluded
-        # from the ratchet comparison below.
         run: make bench
 
       - name: Run cold-start import gate (profile_imports.py --max-self-us)
         # Wire scripts/profile_imports.py --runs 3 --max-self-us 50000
-        # as a hard CI gate. Exits 2 if ANY module's max self_us exceeds
-        # 50ms — catches cold-start regressions introduced by a new heavy
-        # import in the tray module's dependency graph.
         run: python scripts/profile_imports.py --runs 3 --max-self-us 50000 voice_typer.server.tray
 
       - name: Compare bench-current.json against bench/bench-baseline.json
         # Ratchet comparison mirroring scripts/ruff_ratchet_check.py.
-        # For each metric in bench/bench-baseline.json:
-        #   - Look up the current value in bench-current.json (dotted path).
-        #   - For direction="lower" (latency, memory): FAIL if current > baseline * (1 + tol/100).
-        #   - For direction="higher" (throughput, WPS): FAIL if current < baseline * (1 - tol/100).
-        #   - Skip metrics whose current value is missing (e.g. transcription
-        #     bench skipped because the model isn't downloaded on this runner).
-        # Exit 1 if any metric regressed.
         run: |
           python - <<'PYEOF'
           import json, sys, os
@@ -134,10 +112,6 @@ jobs:
               return True, cur
 
           # The bench-current.json top level is:
-          #   {"version": 1, "generated_at": "...", "results": {<bench_name>: <bench_output>}}
-          # The baseline metric keys are of the form:
-          #   "<bench_name>.<dotted_path_inside_bench_output>"
-          # So we look up against current["results"] as the root.
           results_root = current.get("results", {})
 
           regressions = []
@@ -212,8 +186,6 @@ jobs:
 
       - name: Upload bench-current.json
         # Always upload the current bench output (even on regression) so
-        # contributors can inspect the exact numbers that triggered the
-        # failure. Retained for 14 days (the default for non-release runs).
         if: always()
         uses: actions/upload-artifact@v6
         with:

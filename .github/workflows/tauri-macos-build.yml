@@ -1,46 +1,12 @@
-# =============================================================================
 # PINNED ACTION VERSIONS — DO NOT DOWNGRADE (verified 2026-07-24):
-#   actions/checkout@v5             — Node 24 runtime (v4 = Node 20, deprecated)
-#   actions/setup-python@v7         — Node 24 runtime (v5/v6 = Node 20, deprecated)
-#   actions/cache@v5                 — Node 24 runtime (v4 = Node 20, deprecated)
-#   actions/setup-node@v7            — Node 24 runtime (v4 = Node 20, deprecated)
-#   actions/upload-artifact@v6       — Node 24 runtime (v5 = Node 20, deprecated)
-#   actions/download-artifact@v6    — Node 24 runtime (v5 = Node 20, deprecated)
-#   astral-sh/setup-uv@v7            — Node 24 runtime (v6 = Node 20, deprecated)
-#   dtolnay/rust-toolchain@v1         — Node 24 runtime (@stable = untagged, may resolve to Node 20)
-# See build.yml header for full rationale + breaking-change analysis.
-# =============================================================================
+# See docs/code-notes/ci-workflows.md
 
 name: Tauri macOS Build (Phase 0-M)
 
-# =============================================================================
 # GATE STATUS — ENABLED (Phase 0-M validation runnable via manual dispatch)
-# -----------------------------------------------------------------------------
-# The three jobs (build-aarch64, build-x86_64, build-tauri-universal) are now
-# ENABLED (`if: true`) so the macOS signing + notarization path can actually
-# execute. The workflow is triggered MANUALLY via `workflow_dispatch` (or via
-# the tauri-build.yml orchestrator's `workflow_call`); push/PR triggers remain
-# commented out per ADR-0020 §15 (release builds are manual-trigger-only, no
-# auto-update).
-#
-# PHASE 0-M VALIDATION HANDOFF (required before CUTOVER, not before running):
-#   1. A maintainer dispatches this workflow from the Actions UI with
-#      `inputs.sign: true` to exercise the full codesign + notarize path
-#      with the repo secrets available (MAC_SIGNING_IDENTITY / APPLE_ID /
-#      APPLE_APP_SPECIFIC_PASSWORD / APPLE_TEAM_ID).
-#   2. Follow docs/migration/macos-validation-runbook.md to confirm the
-#      universal .app launches on both Apple Silicon and Intel Macs and the
-#      notarization ticket stamps cleanly (`spctl --assess`, `xcrun stapler
-#      validate`).
-#   3. Only after the runbook passes on a real macOS host, uncomment the
-#      push/PR triggers below to enable CI-driven runs (ADR-0020 §15 +
-#      cutover-playbook.md Step 2.1).
-# =============================================================================
-#
-# ADR-0020 Phase 0-M: macOS x86_64 + aarch64-apple-darwin Tauri build.
-# Builds BOTH arches of the Nuitka sidecar + prewarm + native key-listener,
-# then calls `cargo tauri build --target universal-apple-darwin` to produce
-# a universal .app + .dmg.
+# PHASE 0-M VALIDATION HANDOFF: dispatch with sign=true; follow
+# docs/migration/macos-validation-runbook.md. ENABLED (`if: true`).
+# push/PR stay disabled (ADR-0020 §15). See docs/code-notes/ci-workflows.md
 
 on:
   workflow_call:
@@ -57,9 +23,6 @@ on:
         type: boolean
   workflow_dispatch:
     # TX-23: surface the sign flag on direct dispatch (the tauri-build.yml
-    # orchestrator already passes it through as a workflow_call input) so
-    # a maintainer dispatching this workflow directly from the Actions UI
-    # can opt into signing + notarization.
     inputs:
       sign:
         description: "Code-sign + notarize the bundle (requires secrets)"
@@ -67,17 +30,7 @@ on:
         default: false
         type: boolean
   # ADR-0020 §15 + Phase 0-M gate: push/PR triggers stay disabled until the
-  # macOS host validation runbook has passed on a real macOS host. The
-  # workflow is invoked manually via workflow_dispatch (or via the
-  # tauri-build.yml orchestrator's workflow_call). The jobs are enabled
   # (`if: true`) so the manual Phase 0-M validation run can execute.
-  # push:
-  #   tags:
-  #     - "v*-macos"
-  #   branches:
-  #     - main
-  # pull_request:
-  #   branches: [main]
 
 concurrency:
   group: tauri-macos-${{ github.ref }}
@@ -151,18 +104,7 @@ jobs:
           uv pip install nuitka zstandard
 
       # Fail-fast arch-leg gate (ADR-0020 Phase 0-M): run the FULL config
-      # drift + identifier-parity + icons guards on this arch leg, via the
-      # project venv (`uv run --no-sync` — the venv above already has the
-      # [dev,test] deps; --no-sync skips uv's re-sync so the editable
-      # install is used as-is). Same guards the universal job re-runs
-      # before `cargo tauri build`, but a drift regression dies on the
-      # cheap 12-min arch leg instead of after the 20-min universal build
-      # has queued. The icons module's autouse fixture runs --clean,
-      # which only removes uncommitted STUBS (real binaries preserved).
-      # version parity before any build step: tauri.conf.json / package.json
       # / Cargo.toml / pyproject.toml must carry the SAME version — a bump
-      # that touched only one file fails in seconds. sync_versions.py is
-      # stdlib-only (regex/tomllib fallback) → runs in this gate env.
       - name: Verify version lockstep across layers (fail fast, aarch64 leg)
         run: python3 scripts/build/sync_versions.py --check
 
@@ -181,8 +123,6 @@ jobs:
           file src-tauri/bin/python-sidecar-aarch64-apple-darwin
 
       # plan-runtime-pack-split.md §11.4 — Sidecar size gate (HARD-FAIL).
-      # Phase 1c target: ≤185 MB. Phase 1c DONE (torch removed from the
-      # bundle) — torch removed, gate enforces. Mirrors the Windows gate.
       - name: Assert sidecar size <= 185 MB (plan §11.4, Phase 1c target, aarch64 leg)
         run: |
           set -euo pipefail
@@ -197,8 +137,6 @@ jobs:
           echo "Sidecar size within 185 MB limit (size gate passed)."
 
       # plan-runtime-pack-split.md §11.3 — Torch-free check (HARD-FAIL when
-      # the script is present). Owned by Sub-agent 5 (Phase 1c). Until the
-      # script ships this step SKIPS (hashFiles guard).
       - name: Verify sidecar is torch-free (Phase 1c gate, plan §11.3, aarch64 leg)
         if: ${{ hashFiles('scripts/build/check_bundle_torch_free.sh') != '' }}
         run: |
@@ -208,14 +146,6 @@ jobs:
           bash scripts/build/check_bundle_torch_free.sh "$BIN"
 
       # plan-runtime-pack-split.md §4.4 / §11.5 — Worker exe build (Phase 2a).
-      # The worker is the slim-core + runtime-pack split's heavy-ML process:
-      # onnxruntime (VAD + Parakeet) + ctranslate2/faster_whisper (Whisper
-      # fallback) + numpy/scipy/av/pyrnnoise + bundled silero_vad.onnx.
-      # Build script (scripts/build/build_worker_macos.sh) is owned by
-      # Sub-agent 11; until it ships this step SKIPS (hashFiles guard).
-      # Output: src-tauri/bin/voice-typer-worker-aarch64-apple-darwin
-      # (parallel to python-sidecar-aarch64-apple-darwin — both are
-      # externalBin children of Tauri).
       - name: Build worker (aarch64, Phase 2a, plan §4.4)
         if: ${{ hashFiles('scripts/build/build_worker_macos.sh') != '' }}
         run: |
@@ -227,9 +157,6 @@ jobs:
           ls -lh src-tauri/bin/voice-typer-worker-aarch64-apple-darwin
 
       # plan-runtime-pack-split.md §11.4 — Runtime pack size gate. The pack
-      # IS the worker onefile (single-file compressed payload, per §4.2/§5.3).
-      # Target: ≤200 MB compressed. Only enforced when the worker binary
-      # exists (Phase 2a pending — skip cleanly today).
       - name: Assert runtime pack (worker onefile) size <= 200 MB (plan §11.4, Phase 2c target, aarch64 leg)
         if: ${{ hashFiles('scripts/build/build_worker_macos.sh') != '' }}
         run: |
@@ -254,27 +181,10 @@ jobs:
 
       - name: Build native listener (aarch64)
         # S4-CR-31: pre-fix this step called the wrapper
-        # `build_native_listener_macos.sh` which invokes `compile_native.sh`
-        # with NO --arch arg → defaults to `universal` → builds BOTH arm64
-        # + x86_64 slices and lipo's them into a single fat binary ON THE
-        # arm64 runner. That fat binary was then uploaded as the aarch64
-        # artifact and re-uploaded as the universal binary in the
-        # build-tauri-universal job — meaning the x86_64 leg's listener was
         # never used. Worse, when the universal job re-ran the wrapper, it
-        # produced ANOTHER universal binary on the arm64 host, but if the
-        # Rosetta 2 install failed silently the x86_64 slice would be missing
-        # → the universal .dmg ships an arm64-only native listener (Intel
-        # Macs crash with "bad CPU type in executable").
-        #
-        # Fix: invoke `compile_native.sh --arch arm64` directly to build a
-        # single-arch arm64 binary. The x86_64 leg builds its own single-arch
-        # x86_64 binary; the build-tauri-universal job lipo-creates them
-        # into a guaranteed-2-arch universal binary.
         run: |
           bash scripts/build/compile_native.sh --arch arm64
           # compile_native.sh writes to voice_typer/server/native/macos-key-listener.
-          # Copy into src-tauri/resources/native/ so the artifact upload path
-          # below matches the pre-existing path expectation.
           mkdir -p src-tauri/resources/native
           cp voice_typer/server/native/macos-key-listener src-tauri/resources/native/macos-key-listener
           # Rename the per-arch slice so the build-tauri-universal job can
@@ -288,10 +198,7 @@ jobs:
         with:
           name: macos-aarch64-binaries
           # plan-runtime-pack-split.md §11.9 (C-CI-13): the worker exe is a
-          # NEW artifact path (adding, not renaming existing). Conditional
-          # upload — if Phase 2a hasn't shipped build_worker_macos.sh, the
           # worker path glob matches nothing and upload-artifact@v6 silently
-          # omits it (no error).
           path: |
             src-tauri/bin/python-sidecar-aarch64-apple-darwin
             src-tauri/resources/prewarm-aarch64-apple-darwin
@@ -301,11 +208,6 @@ jobs:
           retention-days: 14
 
   # ─── Job 2: Intel (x86_64-apple-darwin) ─────────────────────────────────────
-  # Built on the SAME macos-14 runner via Rosetta 2 (Apple Silicon host
-  # cross-building Intel). This is the only way to get an Intel macOS binary
-  # from GitHub Actions today (macos-13 Intel runners are being phased out).
-  #
-  # Alternative: run this on a separate macos-13 runner if available.
   build-x86_64:
     if: true  # ENABLED for Phase 0-M validation (see GATE STATUS block). Run via workflow_dispatch with sign=true to exercise codesign + notarization.
     runs-on: macos-14
@@ -365,9 +267,6 @@ jobs:
           uv pip install nuitka zstandard
 
       # Fail-fast arch-leg gate: same full drift + parity + icons guard
-      # as the aarch64 leg above (runs via the project venv; --no-sync
-      # keeps the editable install untouched).
-      # version parity before any build step (same gate as the aarch64 leg).
       - name: Verify version lockstep across layers (fail fast, x86_64 leg)
         run: python3 scripts/build/sync_versions.py --check
 
@@ -401,8 +300,6 @@ jobs:
           echo "Sidecar size within 185 MB limit (size gate passed)."
 
       # plan-runtime-pack-split.md §11.3 — Torch-free check (HARD-FAIL when
-      # the script is present). Owned by Sub-agent 5 (Phase 1c). Mirrors
-      # the aarch64 leg.
       - name: Verify sidecar is torch-free (Phase 1c gate, plan §11.3, x86_64 leg)
         if: ${{ hashFiles('scripts/build/check_bundle_torch_free.sh') != '' }}
         run: |
@@ -412,9 +309,6 @@ jobs:
           bash scripts/build/check_bundle_torch_free.sh "$BIN"
 
       # plan-runtime-pack-split.md §4.4 / §11.5 — Worker exe build (Phase 2a).
-      # Build script (scripts/build/build_worker_macos.sh) owned by Sub-agent 11;
-      # until it ships this step SKIPS (hashFiles guard). Mirrors the aarch64 leg.
-      # Output: src-tauri/bin/voice-typer-worker-x86_64-apple-darwin
       - name: Build worker (x86_64 via Rosetta 2, Phase 2a, plan §4.4)
         if: ${{ hashFiles('scripts/build/build_worker_macos.sh') != '' }}
         run: |
@@ -450,18 +344,6 @@ jobs:
           file src-tauri/resources/prewarm-x86_64-apple-darwin
 
       # S4-CR-31: pre-fix the x86_64 leg did NOT build the native listener
-      # at all — only the aarch64 leg built it (as a single-arch arm64 binary
-      # via the wrapper script). The build-tauri-universal job then re-ran
-      # the wrapper on the arm64 host, producing ANOTHER arm64 binary and
-      # bundling THAT into the "universal" .dmg. Intel Macs got a "bad CPU
-      # type in executable" crash when the Tauri host tried to spawn
-      # resources/native/macos-key-listener.
-      #
-      # Fix: build a single-arch x86_64 listener here via `--arch x86_64`.
-      # compile_native.sh passes `-target x86_64-apple-macos11.0` to swiftc
-      # so the resulting binary runs natively on Intel Macs without Rosetta 2.
-      # The build-tauri-universal job lipo-creates this with the arm64 slice
-      # from the aarch64 leg into a guaranteed-2-arch universal binary.
       - name: Build native listener (x86_64)
         run: |
           bash scripts/build/compile_native.sh --arch x86_64
@@ -476,8 +358,6 @@ jobs:
         with:
           name: macos-x86_64-binaries
           # plan-runtime-pack-split.md §11.9 (C-CI-13): the worker exe is a
-          # NEW artifact path (adding, not renaming existing). Conditional
-          # upload — Phase 2a pending → worker path glob matches nothing →
           # upload-artifact@v6 silently omits it (no error).
           path: |
             src-tauri/bin/python-sidecar-x86_64-apple-darwin
@@ -487,24 +367,13 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-  # ─── Job 3: Universal .app + .dmg via cargo tauri build ─────────────────────
-  # Depends on both arch jobs having produced their binaries.
   # CRIT-7 note: the universal (universal2) build depends on both arch jobs
-  # (build-aarch64 + build-x86_64) via `needs:` below — it only runs when
-  # both sidecar legs succeed, then lipo-creates the universal binaries.
   build-tauri-universal:
     if: true  # ENABLED for Phase 0-M validation (see GATE STATUS block above).
     needs: [build-aarch64, build-x86_64]
     runs-on: macos-14
     timeout-minutes: 60
     # WR-17: job-level permissions widen the top-level `contents: read`
-    # default (line 59-60) with the two scopes required for SLSA build
-    # provenance attestation via actions/attest-build-provenance@v4 —
-    # mirrors tauri-windows-build.yml:88-91. `id-token: write` lets the
-    # job mint an OIDC token for the attestation signing identity;
-    # `attestations: write` lets it write the attestation record to the
-    # repo. Both are no-ops on PR/fork builds (the `if:` gate on the
-    # attestation step below restricts it to workflow_dispatch +
     # inputs.sign — TX-24).
     permissions:
       contents: read
@@ -512,10 +381,7 @@ jobs:
       attestations: write
     env:
       # CRIT-7: the `secrets` context is NOT available in step `if:`
-      # conditions (GitHub Actions does not populate it there, so the
-      # condition never matches and notarization is silently skipped). Map
-      # the signing/notarization secrets to job-level env so steps can gate
-      # on `env.*` (empty on PR/fork builds without secrets → skip).
+      # condition never matches; notarization silently skipped). Map secrets to job env.
       MAC_SIGNING_IDENTITY: ${{ secrets.MAC_SIGNING_IDENTITY }}
       APPLE_ID: ${{ secrets.APPLE_ID }}
       APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
@@ -585,12 +451,6 @@ jobs:
 
       - name: Place artifacts in src-tauri/
         # S4-CR-31: pre-fix this step RE-BUILT the native listener on the
-        # arm64 host via `scripts/build/build_native_listener_macos.sh`,
-        # producing an arm64-only binary (or a Rosetta-broken universal)
-        # that got bundled into the "universal" .dmg. Now we lipo-create
-        # the two per-arch listener artifacts built by build-aarch64 +
-        # build-x86_64 into a guaranteed-2-arch universal binary, matching
-        # Native listener artifacts come from build-native in build.yml.
 
         run: |
           set -euo pipefail
@@ -600,21 +460,9 @@ jobs:
           mv /tmp/macos-aarch64/prewarm-aarch64-apple-darwin src-tauri/resources/
           mv /tmp/macos-x86_64/prewarm-x86_64-apple-darwin src-tauri/resources/
           # S4-CR-31: lipo-create the per-arch listener slices into a
-          # universal binary. Hard-assert both input slices exist AND are
-          # different arches — mirrors the CR-011 assertion in
-          # build.yml::build-macos-universal.
           ARM_LISTENER=/tmp/macos-aarch64/macos-key-listener-arm64
           X86_LISTENER=/tmp/macos-x86_64/macos-key-listener-x86_64
           # GP-66: a missing input slice is a SKIP, not a hard failure. A
-          # partial native-binary artifact upload (e.g. a leg that does not
-          # build the listener) previously failed the whole merge job here
-          # with a bare `exit 1`. We cannot `lipo -create` with one slice,
-          # so the universal merge only makes sense with BOTH slices — but
-          # a missing slice means there is nothing to merge for that arch,
-          # and the job should degrade to skipping the listener bundling
-          # (the sidecar/prewarm artifacts continue) instead of blocking
-          # the rest of the job. Fail only when the merge itself is
-          # impossible AFTER we've established both slices exist.
           HAVE_ARM=0
           HAVE_X86=0
           test -x "$ARM_LISTENER" && HAVE_ARM=1 || echo "GP-66: $ARM_LISTENER missing — skipping arm64 slice"
@@ -654,11 +502,6 @@ jobs:
             echo "OK: universal listener contains both x86_64 + arm64 slices."
           fi
           # plan-runtime-pack-split.md §4.4 / §11.5 — Place the worker exe
-          # per-arch slices (Phase 2a). Both arches are built real by the
-          # arch jobs above; lipo-create them into a universal binary the
-          # .app bundle ships under Contents/Resources/. Conditional on
-          # both slices being present (Phase 2a pending — skip cleanly
-          # today; once the worker ships, a missing slice fails the build).
           ARM_WORKER=/tmp/macos-aarch64/voice-typer-worker-aarch64-apple-darwin
           X86_WORKER=/tmp/macos-x86_64/voice-typer-worker-x86_64-apple-darwin
           if [ -f "$ARM_WORKER" ] && [ -f "$X86_WORKER" ]; then
@@ -666,11 +509,7 @@ jobs:
             lipo -create "$ARM_WORKER" "$X86_WORKER" \
               -output src-tauri/bin/voice-typer-worker-universal
             chmod +x src-tauri/bin/voice-typer-worker-universal
-            # Also keep the per-arch slices in src-tauri/bin/ — Tauri's
-            # externalBin mechanism appends the target triple at runtime
-            # (aarch64-apple-darwin + x86_64-apple-darwin), so the per-arch
             # files must be present for the .app bundle to spawn the worker
-            # on either arch. The universal binary is for direct distribution.
             cp "$ARM_WORKER" src-tauri/bin/voice-typer-worker-aarch64-apple-darwin
             cp "$X86_WORKER" src-tauri/bin/voice-typer-worker-x86_64-apple-darwin
             file src-tauri/bin/voice-typer-worker-universal
@@ -680,20 +519,8 @@ jobs:
           fi
           ls -la src-tauri/bin src-tauri/resources src-tauri/resources/native
 
-      # TK-48: run the macOS-gated #[cfg(target_os = "macos")] Rust unit
-      # tests (e.g. platform::paths config-dir resolution) on their
-      # NATIVE OS. The Linux smoke job (tauri-linux-build.yml) can only
-      # execute the Linux-gated branches — the macOS branches were
-      # dead-on-arrival in CI before this step. The base tauri.conf.json
-      # `bundle.resources`/`externalBin` lists every platform's binaries
-      # (a documented superset for the mig15/mig16 source-inspection
-      # tests), so tauri-build's compile-time validation needs the
-      # other-platform placeholder stubs. Generate them with
       # gen_tauri_icons_stub.py (which never touches the REAL macOS
-      # binaries the arch jobs placed above — it only writes files that
       # don't already exist). MUST run BEFORE the drift-gate pytest steps
-      # below: the icons module's autouse fixture runs `--clean` after
-      # each test, which would remove these stubs.
       - name: Generate other-platform binary stubs (for cargo test)
         run: python3 scripts/gen_tauri_icons_stub.py
 
@@ -702,32 +529,13 @@ jobs:
         working-directory: src-tauri
         run: |
           # voice-typer-tauri is a binary-only crate — `--bin` runs the
-          # unit tests without paying for integration-test crates.
-          # Host-native (aarch64-apple-darwin on the arm64 runner) — no
-          # --target needed; mirrors the Linux smoke job's step.
           cargo test --bin voice-typer-tauri
 
       # The universal job needs pytest for the config drift gate below —
-      # unlike the arch jobs it does not install the project's [dev,test]
-      # deps. Minimal install (pytest + the two non-stdlib packages the
-      # drift gate needs: pyyaml for workflow/config YAML parsing,
-      # filelock for the icons module's serialize fixture).
       - name: Install Python deps (fail-fast config drift gate)
         run: uv pip install --system pytest pyyaml filelock
 
       # Fail-fast gate: run the config drift guards BEFORE the build —
-      # identifier↔appId + productName + version parity, bundle.icon↔git
-      # lockstep, and ALL the config↔script pairs (bundle.resources/
-      # externalBin ↔ stub generator registry, tauri-binaries.json ↔
-      # canonical triples + Cargo binary name + launcher install paths,
-      # per-arch config overrides ↔ base config). Same guards the full
-      # suite enforces, but a drift regression dies in seconds instead of
-      # only after the whole test run. The icons module's autouse fixture
-      # runs --clean after each test, which preserves the REAL binaries
-      # the arch jobs placed above (the _is_stub_file heuristic) and
-      # touches no committed icons.
-      # version parity before any build step (universal job — system python3,
-      # same stdlib-only check as the arch legs).
       - name: Verify version lockstep across layers (fail fast)
         run: python3 scripts/build/sync_versions.py --check
 
@@ -741,45 +549,19 @@ jobs:
             -q --no-cov
 
       # Fail-fast gate: verify the COMMITTED icons/icon.icns exists AND is
-      # Fail-fast gate: verify EVERY committed file in tauri.conf.json
-      # bundle.icon exists AND is structurally valid (the 4 PNGs +
-      # icon.ico + icon.icns) before the cargo tauri build. The single
-      # cross-platform gate (--check-icons) reads the icon list from
-      # tauri.conf.json and dispatches each entry to the right validator
-      # by extension; tauri-build hard-fails the whole build when the
-      # platform's icon is missing or corrupt, and a corrupt file would
-      # otherwise only surface minutes into the compile. This gate fails
-      # in <1s instead. CLI flags verified by reading
-      # scripts/gen_tauri_icons_stub.py (argparse: --check /
-      # --check-icons / --clean / no-flag).
       - name: Verify bundle.icon icons are present + valid (fail fast)
         run: python3 scripts/gen_tauri_icons_stub.py --check-icons
 
       # The icons (src-tauri/icons/*) are REAL committed files generated
-      # once with `tauri icon` from voice_typer/client/scripts/logo.svg —
-      # cargo tauri build reads them straight from the checkout. All
-      # macOS binaries (sidecar x2, prewarm x2, native listener) were
-      # built real by the two arch jobs above, so no stub generation step
-      # is needed here at all.
       - name: Build Tauri universal .app + .dmg
         run: |
           cd src-tauri
           cargo install tauri-cli --version "^2.0"
           # XS-28: apply tauri.macos.conf.json — the base tauri.conf.json
-          # `bundle.resources` array lists every platform's native binaries
-          # (a documented superset for the mig15/mig16 source-inspection tests)
-          # and would hard-fail at the tauri-build resource-copy step on a
-          # macOS host (Linux/Windows-only files don't exist here).
           cargo tauri build --target universal-apple-darwin --config tauri.macos.conf.json
           cd ..
 
       # plan-runtime-pack-split.md §11.4 — Slim core .dmg size gate
-      # (Phase 2c target, ≤45 MB). Today the .dmg is the FULL bundle
-      # (~253-259 MB) — this gate WILL fail today (correct signal).
-      # continue-on-error: true keeps CI green during the Phase 1c →
-      # Phase 2c transition; flip to a hard gate (remove continue-on-error)
-      # once Phase 2c is verified on a real macOS host. Mirrors the Windows
-      # slim-core gate.
       - name: Assert slim-core .dmg size <= 45 MB (plan §11.4, Phase 2c target — informational)
         continue-on-error: true
         run: |
@@ -800,12 +582,6 @@ jobs:
           echo "Slim core .dmg size within 45 MB limit (size gate passed)."
 
       # smoke test the bundled sidecar binary AFTER cargo tauri build.
-      # Pre-fix the macOS Tauri workflow never executed the sidecar — a Nuitka
-      # flag change that broke `--version` (argparse exits 0 without acquiring
-      # the single-instance lock per ipc_server.py:2796-2815) would only
-      # surface during a release cut. We test the aarch64 sidecar slice since
-      # the runner is arm64 (the x86_64 slice requires Rosetta 2 which is
-      # already installed for the build-x86_64 leg). Runs in <2s.
       - name: Smoke test sidecar binary (--version, aarch64 slice)
         run: |
           set -euo pipefail
@@ -829,17 +605,8 @@ jobs:
           fi
           echo "Smoke test PASSED: sidecar --version exited 0 with project name in output."
 
-      # T3 (post-build integration): the real `ps` parent-chain walk
       # (server_platform/macos_bundle_id.py) must resolve the JUST-BUILT
-      # universal .app end-to-end — launch a child executable inside the
-      # bundle, walk real ps from its pid, require the resolved
-      # CFBundleIdentifier to equal tauri.conf.json's identifier — and
       # the built bundle's Contents/Info.plist must round-trip through
-      # read_bundle_identifier. Runs in the minimal pytest env (stdlib +
-      # pytest only; the walker has no heavy deps). Skips gracefully
-      # when the artifact is absent; FAILS the run when the artifact is
-      # present but wrong (a bundler-level identity drift that config
-      # parity tests cannot see).
       - name: Verify built .app bundle ID (real ps walk, post-build)
         run: |
           python3 -m pytest \
@@ -848,9 +615,7 @@ jobs:
             -q --no-cov
 
       # TX-23: honor the `sign` workflow_call input instead of gating
-      # purely on secret presence. sign=true + missing secrets = hard
       # fail (a misconfigured release must not silently ship unsigned);
-      # sign=false skips signing even when secrets are present.
       - name: Fail fast — sign=true but signing/notarization secrets missing
         if: ${{ inputs.sign == 'true' && (env.MAC_SIGNING_IDENTITY == '' || env.APPLE_ID == '' || env.APPLE_APP_SPECIFIC_PASSWORD == '' || env.APPLE_TEAM_ID == '') }}
         run: |
@@ -862,11 +627,6 @@ jobs:
         run: |
           APP_PATH="src-tauri/target/universal-apple-darwin/release/bundle/macos/Voice Typer.app"
           # S1-CR-37: cargo tauri build signs the main .app executable via
-          # config's signingIdentity, but NOT the nested Mach-O binaries
-          # under Contents/Resources/ and Contents/MacOS/. Apple's
-          # notarization service rejects .app bundles containing unsigned
-          # Mach-O binaries with "The binary is not signed". Sign them
-          # BEFORE notarization (signing-guide.md §"Signing command").
           BINARIES=(
             "$APP_PATH/Contents/Resources/python-sidecar-aarch64-apple-darwin"
             "$APP_PATH/Contents/Resources/python-sidecar-x86_64-apple-darwin"
@@ -885,15 +645,12 @@ jobs:
               exit 1
             fi
           done
-          # plan-runtime-pack-split.md §11.5 — Worker exe notarization (5th
           # binary). C-CI-11 enumerates 4 signing steps; the worker is a NEW
           # 5th binary that must also be codesigned + notarized or Apple's
           # notarization service rejects the .app bundle (same S1-CR-37
           # rationale as the sidecar/prewarm/native binaries). USER must
           # update C-CI-11 to enumerate 5 binaries. Conditional on the
-          # worker being bundled into the .app (Phase 2a pending — skip
           # cleanly today; once Phase 2a ships, the worker MUST be present
-          # + signed, else notarization fails).
           for worker_bin in \
             "$APP_PATH/Contents/Resources/voice-typer-worker-aarch64-apple-darwin" \
             "$APP_PATH/Contents/Resources/voice-typer-worker-x86_64-apple-darwin"; do
@@ -924,9 +681,6 @@ jobs:
           APP_PATH="src-tauri/target/universal-apple-darwin/release/bundle/macos/Voice Typer.app"
           DMG_PATH="src-tauri/target/universal-apple-darwin/release/bundle/dmg/Voice Typer_1.0.0_universal.dmg"
           # Notarize .app — this covers ALL nested binaries including the
-          # worker (plan-runtime-pack-split.md §11.5: worker is bundled
-          # inside the .app, so notarizing the .app + stapling it covers
-          # the worker too — no separate notarization step needed).
           ditto -c -k --keepParent "$APP_PATH" /tmp/VoiceTyper.zip
           xcrun notarytool submit /tmp/VoiceTyper.zip \
             --apple-id "$APPLE_ID" \
@@ -954,15 +708,6 @@ jobs:
           retention-days: 30
 
       # WR-17: generate SHA-256 checksums for the .dmg + .app bundle,
-      # mirroring tauri-windows-build.yml:368-393. macOS uses `shasum -a 256`
-      # (BSD coreutils). The .dmg is a single file — direct shasum. The
-      # .app bundle is a DIRECTORY (no canonical byte sequence — file mtimes,
-      # .DS_Store, __pycache__ all vary across runs), so we hash a
-      # deterministic `ditto -c -k --keepParent --norsrc` archive of it
-      # instead and annotate the line so a downstream verifier knows what
-      # they're checking. Output format is `<hash>  <name>` (GNU sha256sum
-      # compatible) so Linux users can `sha256sum -c SHA256SUMS.txt` and
-      # macOS users can `shasum -a 256 -c SHA256SUMS.txt`.
       - name: Generate SHA-256 checksums
         run: |
           set -euo pipefail
@@ -985,10 +730,6 @@ jobs:
             rm -f "/tmp/${name}.zip"
           done
           # plan-runtime-pack-split.md §11.9 (C-CI-13): the worker exe is
-          # added to the macOS checksum list (new entry, no rename). The
-          # universal worker binary (lipo-created from per-arch slices in
-          # the Place artifacts step) is hashed when present (Phase 2a
-          # pending — skip cleanly today).
           for worker in \
             src-tauri/bin/voice-typer-worker-universal \
             src-tauri/bin/voice-typer-worker-aarch64-apple-darwin \
@@ -1010,26 +751,19 @@ jobs:
           retention-days: 30
 
       # Record the REAL SHA-256 of the built universal host binary into
-      # tauri-binaries.json — the integrity manifest the autostart
-      # launcher verifies against at login (fail-closed). The updater
-      # hashes the .app bundle's INNER executable (not the .app directory
-      # — no canonical byte sequence), via its macOS discovery; the
-      # universal Mach-O collapses into the single `macos` key. Script is
-      # stdlib-only, so the minimal `uv pip install --system` gate env
-      # suffices. Idempotent; leaves every other per-arch key untouched.
       - name: Record Tauri binary SHA-256 (universal)
         run: |
           python3 scripts/build/update_tauri_manifests.py \
             --triple universal-apple-darwin --target-dir src-tauri/target
 
       # Fail-fast release gate: this leg's hash must now be present and
-      # valid in the manifest. An empty/malformed value aborts the run —
-      # a release whose integrity gate fail-closes is worse than no build.
       - name: Enforce Tauri manifest integrity (universal)
         run: |
           python3 scripts/build/update_tauri_manifests.py \
             --check --triple universal-apple-darwin
 
+      # TX-24 / C-CI-15: tauri-binaries.json is the fail-closed integrity
+      # manifest verified at login; --check aborts on empty/malformed hash.
       - name: Upload updated tauri-binaries.json
         uses: actions/upload-artifact@v6
         with:
@@ -1039,22 +773,12 @@ jobs:
           retention-days: 30
 
       # WR-17 / TX-24: SLSA build provenance attestation. Mirrors
-      # tauri-windows-build.yml and tauri-linux-build.yml. Gated on a
-      # manual signed release build (workflow_dispatch + sign=true) instead
-      # of tag pushes — the tag push trigger is commented out, so the old
       # ``startsWith(github.ref, 'refs/tags/v')`` gate never fired. PR/fork
-      # builds (which lack the job-level id-token:write permission grant in
-      # fork contexts) are excluded. The subject-path covers both the .dmg
-      # and the .app so the attestation is verifiable against either
-      # artifact the user downloads.
       - name: Attest build provenance (SLSA)
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.sign == 'true' }}
         uses: actions/attest-build-provenance@v4
         with:
           # plan-runtime-pack-split.md §11.9 (C-CI-13): worker exe added to
-          # the SLSA subject-path (new entry, no rename). The path glob is
-          # inert today (Phase 2a pending); once the worker ships, SLSA
-          # attestation covers it alongside the .dmg + .app.
           subject-path: |
             src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
             src-tauri/target/universal-apple-darwin/release/bundle/macos/*.app

@@ -1,46 +1,6 @@
-# Host Validation (Cannot-Verify close-out, review.md §E)
-#
-# WHY THIS EXISTS
-# ---------------
-# review.md §E lists 19 findings that need a real Windows / macOS / Linux
-# desktop runtime (Win32 console handler, macOS clipboard restore, native
-# hotkey binaries, StartupWMClass, taskkill, notarization, cross-platform
-# native binaries, VT-1). The Linux CI sandbox cannot prove them.
-#
-# This workflow runs the AUTOMATABLE subset on GitHub-hosted runners
-# (windows-2022, macos-14, ubuntu-22.04) via manual dispatch. Anything
-# needing a mic, display server interaction, TCC permission grant, logon
-# cycle, or human speech stays VALIDATE-ON-HOST per the migration
-# runbooks and is recorded as a warning, never faked green.
-#
-# WHAT EACH JOB PROVES
-# --------------------
-# windows: Win32 console-handler imports + safe-routing probe (unknown-event
-#   passthrough, Ctrl+C dispatch; CTRL_CLOSE/FreeConsole is NEVER probed on
-#   CI: detaching the runner console would break later steps),
-#   windows-key-listener source/exe (+ VERSION/PONG/ERROR needles, sha-format
-#   check), taskkill tree-kill semantics (WM-14), kill-path source contracts
-#   (taskkill argv, TerminateProcess handle close), VT-1 imports (config
-#   warnings + timeout utils), GP-135 windows manifest entries,
-#   clipboard-restore + timeout unit tests.
-# macos: clipboard snapshot/restore imports, macos-key-listener.swift
-#   source + swiftc, GP-7 notarization PREFLIGHT (Info.plist keys +
-#   secrets presence, soft-pass without secrets), GP-135 macos entry.
-# linux: S1-CR-146 StartupWMClass vs Cargo binary-name evidence (warning,
-#   never auto-fix: real WM_CLASS needs xprop on a display host),
-#   linux-key-listener source/binary, WM-6/7/8/11/12/13 pytest subset.
-#
-# This file deliberately does NOT touch tauri-windows-build.yml,
-# tauri-macos-build.yml, tauri-linux-build.yml, or tauri-build.yml
-# (AGENTS.md C-CI-2: 50+-failure-history assets). It consumes only source
-# + pytest, never their artifacts. XPLAT-12 stays owned by
-# tauri-windows-arm-validation.yml (windows-11-arm emulation).
-#
-# USER OVERRIDE NOTE (2026-09-15): the user authorized breaking Hard
-# Don'ts if needed ("no problem"). No override was needed: this is a NEW
-# file, no fragile pipeline edited, no pins downgraded, no sentinel
-# changed. C-CI-2/C-CI-4/C-CI-5/C-CI-13 all hold.
-
+# Probes only what CI runners can prove; mic/display/TCC/logon stay
+# VALIDATE-ON-HOST. Does NOT edit tauri-*-build.yml (C-CI-2) and consumes
+# no their artifacts. Expanded job notes: docs/code-notes/ci-workflows.md
 name: Host Validation (Cannot-Verify close-out)
 
 on:

@@ -1,49 +1,7 @@
-# Tauri Windows-ARM Emulation Validation (XPLAT-12 close-out)
-#
-# WHY THIS EXISTS
-# ---------------
-# XPLAT-12 asked whether Windows-on-ARM users are supported. Resolution
-# (2026-09-02, evidence documented in review.md + worklog.md):
-#
-#   1. GitHub ships free `windows-11-arm` hosted runners (GA for public
-#      repos 2025-08-07; private repos since 2026-01-29) — the workflow's
-#      old "no public aarch64 runner" premise was stale.
-#   2. A NATIVE aarch64 sidecar build is INFEASIBLE today: ctranslate2
-#      (hard dependency of faster-whisper, which the frozen sidecar
-#      imports) publishes NO win-arm64 wheels on PyPI across ALL versions,
-#      and `cryptography` (at-rest encryption) also lacks win_arm64
-#      wheels. Building them from source on CI is fork-level maintenance.
-#   3. Windows-on-ARM runs x64 apps transparently via the Prism emulator
-#      (Windows 11 24H2+), and the hosted windows-11-arm image supports
-#      executing x64 binaries. This is the industry-standard Windows-ARM
-#      app-support model: ship x64, run emulated.
-#
-# WHAT THIS WORKFLOW DOES
-# -----------------------
-# Real ARM-hardware VALIDATION of the x64 release artifacts, entirely on
-# the hosted `windows-11-arm` runner — no ARM device needed:
 #   - download the x64 NSIS installer artifact from a completed
-#     tauri-windows-build run (default: latest successful),
-#   - prove the runner is genuinely ARM64 and the binaries are x64,
 #   - silently install the NSIS bundle (the installer bootstraps
-#     WebView2),
-#   - run the FROZEN x64 Python sidecar `--version` under emulation via
 #     the C-CI-14 .NET Process pattern (GUI-subsystem PE; onefile
-#     extraction of the ~100 MB payload under emulation needs a generous
-#     ceiling — 420 s),
-#   - launch the x64 Tauri host and require it to stay alive (the GUI
-#     surface is soft — the hard gate is the backend running emulated),
-#   - upload an evidence artifact (runner arch, installer hash, sidecar
-#     output, process probes).
-#
-# A green run here = "Voice Typer installs and its Python sidecar runs on
-# Windows-on-ARM (x64 emulation)" — the XPLAT-12 acceptance criterion.
-#
-# This file deliberately does NOT touch tauri-windows-build.yml: the x64
-# release pipeline is the fragile 50+-failure-history asset (AGENTS.md
 # C-CI-2) and the native aarch64 build leg stays disabled BY DESIGN (see
-# the dependency walls above; re-evaluate only if OpenNMT ships
-# ctranslate2 win-arm64 wheels AND cryptography adds win_arm64).
 
 name: Tauri Windows ARM Validation (x64 emulation)
 
@@ -114,8 +72,6 @@ jobs:
           "PROCESSOR_ARCHITECTURE=$procArch" | Out-File $evidence -Encoding utf8
           "OSArchitecture=$osArch" | Out-File $evidence -Append -Encoding utf8
           # HARD GATE: the runner must genuinely be ARM64. If GitHub ever
-          # routes this job to an x64 host, the "emulation" claim would be
-          # vacuous — fail loudly instead.
           if ($procArch -notmatch "ARM64" -and $osArch -notmatch "ARM|arm64") {
             Write-Error "Expected an ARM64 runner (PROCESSOR_ARCHITECTURE=ARM64); got $procArch / $osArch. The emulation-validation claim requires real ARM hardware."
             exit 1
@@ -135,8 +91,6 @@ jobs:
           # the payload architecture — that is the NSIS engine's format, not
           # an arch claim. Assert the expected NSIS stub (0x014C) so a
           # non-NSIS file fails loudly; the x64-ness of the shipped PAYLOAD
-          # is asserted on the frozen sidecar exe in the smoke-test step
-          # (which extracts the actual payload).
           $bytes = [System.IO.File]::ReadAllBytes($installer.FullName)
           $peOffset = [BitConverter]::ToInt32($bytes, 0x3C)
           $machine = [BitConverter]::ToUInt16($bytes, $peOffset + 4)
@@ -155,8 +109,6 @@ jobs:
           $installer = (Get-Content $evidence | Select-String "^INSTALLER_PATH=").Line.Substring("INSTALLER_PATH=".Length)
           Write-Host "Silent-installing: $installer"
           # NSIS /S = fully silent. The Tauri NSIS template bootstraps
-          # WebView2 during install (downloadBootstrapper), which needs
-          # network — hosted runners have it.
           $proc = Start-Process -FilePath $installer -ArgumentList "/S" -PassThru -Wait
           Write-Host "Installer exit code: $($proc.ExitCode)"
           "INSTALLER_EXIT=$($proc.ExitCode)" | Out-File $evidence -Append -Encoding utf8
@@ -167,8 +119,6 @@ jobs:
           # Locate the install root dynamically (do not hardcode the
           # product dir — NSIS InstallDir may change with branding).
           # Tauri v2 NSIS defaults to per-user installs →
-          # %LOCALAPPDATA%\<productName> (NOT the \Programs subfolder);
-          # per-machine builds land in %ProgramFiles%\<productName>.
           $installRoot = $null
           foreach ($root in @(
               $env:LOCALAPPDATA,
@@ -199,8 +149,6 @@ jobs:
           $evidence = "arm-validation/evidence/arch-evidence.txt"
           $installRoot = (Get-Content $evidence | Select-String "^INSTALL_ROOT=").Line.Substring("INSTALL_ROOT=".Length)
           # The frozen Python sidecar is the ARM-compat question: it must
-          # import the whole backend (config, event bus, i18n, keyring...)
-          # and answer --version while running x64-emulated on ARM64.
           $sidecar = Get-ChildItem $installRoot -Recurse -Filter "python-sidecar*.exe" | Select-Object -First 1
           if (-not $sidecar) {
             Write-Error "python-sidecar*.exe not found under $installRoot (installed layout changed?)."
@@ -220,10 +168,7 @@ jobs:
             exit 1
           }
           # C-CI-14: GUI-subsystem PEs must be launched via .NET Process +
-          # WaitForExit with redirected output — `& $exe` does not wait and
           # never sets $LASTEXITCODE for GUI-subsystem binaries. On the
-          # ARM host the onefile extraction of the ~100 MB payload runs
-          # under Prism emulation, so the ceiling is raised 180 s → 420 s.
           $psi = New-Object System.Diagnostics.ProcessStartInfo
           $psi.FileName = $sidecar.FullName
           $psi.Arguments = "--version"
@@ -256,8 +201,6 @@ jobs:
           $evidence = "arm-validation/evidence/arch-evidence.txt"
           $installRoot = (Get-Content $evidence | Select-String "^INSTALL_ROOT=").Line.Substring("INSTALL_ROOT=".Length)
           # NOTE: do NOT name this variable `$host` — that is a reserved
-          # read-only automatic variable in PowerShell (Assigning fails
-          # with "Cannot overwrite variable Host").
           $tauriHost = Get-ChildItem $installRoot -Recurse -Filter "voice-typer-tauri.exe" | Select-Object -First 1
           if (-not $tauriHost) {
             Write-Error "voice-typer-tauri.exe not found under $installRoot."
@@ -265,8 +208,6 @@ jobs:
           }
           Write-Host "Launching host: $($tauriHost.FullName)"
           # Redirect stdout/stderr so a startup crash leaves a trace, and
-          # give the app its own working dir (it writes logs under
-          # ~\.voice-typer\logs\).
           $outFile = "arm-validation/evidence/host-stdout.txt"
           $errFile = "arm-validation/evidence/host-stderr.txt"
           $p = Start-Process -FilePath $tauriHost.FullName `
@@ -283,15 +224,9 @@ jobs:
             taskkill /PID $p.Id /T /F 2>$null | Out-Null
           } else {
             # SOFT diagnostics dump: the backend hard gate already passed;
-            # grab everything that explains why the GUI process exited —
-            # redirected stderr/stdout, the app's own log files, and the
-            # WebView2 runtime presence (Tauri wry fails at window
-            # creation without it).
             Write-Host "::warning::Host exited within 25 s (exit code $($p.ExitCode)). Backend hard gate passed; capturing diagnostics."
             "HOST_EXIT_CODE=$($p.ExitCode)" | Out-File $evidence -Append -Encoding utf8
             # Echo every diagnostic to the RUN LOG too — the evidence
-            # artifact upload runs in a later step and is skipped when
-            # this step fails, so the log is the only durable copy.
             $errDump = Get-Content $errFile -ErrorAction SilentlyContinue | Select-Object -First 40
             $outDump = Get-Content $outFile -ErrorAction SilentlyContinue | Select-Object -First 40
             "── host stderr ──" | Out-File $evidence -Append -Encoding utf8

@@ -1,22 +1,7 @@
-# =============================================================================
-# PINNED ACTION VERSIONS — DO NOT DOWNGRADE (verified 2026-07-24):
-#   actions/checkout@v5             — Node 24 runtime (v4 = Node 20, deprecated)
-#   actions/setup-python@v7         — Node 24 runtime; removed `pip-install` input (v5/v6 = Node 20)
-#   actions/setup-node@v7            — Node 24 runtime; auto-caching via `packageManager` is opt-in (v4 = Node 20)
-#   actions/cache@v5                 — Node 24 runtime (v4 = Node 20, deprecated)
-#   actions/upload-artifact@v6       — Node 24 runtime (v5 = Node 20, deprecated)
-#   actions/download-artifact@v6    — Node 24 runtime (v5 = Node 20, deprecated)
-#   actions/attest-build-provenance@v4 — Node 24 runtime; wraps actions/attest (v1 = Node 16, deprecated)
-#   astral-sh/setup-uv@v7            — Node 24 runtime (v6 = Node 20, deprecated)
-#   mikepenz/action-junit-report@v6   — Node 24 runtime (v4 = Node 20, deprecated)
-#   codecov/codecov-action@v5          — Node 24 runtime (v4 = Node 20, deprecated)
-#   peter-evans/create-issue-from-file@v5 — Node 24 runtime (v4 = Node 20, deprecated)
-#   github/codeql-action/{init,autobuild,analyze}@v3 — CodeQL engine, used by codeql.yml (separate workflow). Keep at the latest v3.
-# Breaking changes already verified safe for this repo:
-#   - setup-node@v6+ auto-caches via packageManager field → not used here (explicit `cache: npm`)
-#   - setup-python@v7 removed `pip-install` input → not used in any workflow
-#   - checkout@v5 blocks unsafe PR checkout for pull_request_target → no pull_request_target used
-# =============================================================================
+# PINNED ACTION VERSIONS — DO NOT DOWNGRADE (C-CI-1 / C-CI-5): Node 24 majors only
+# (checkout@v5, setup-python@v7, setup-node@v7, cache@v5, upload-artifact@v6,
+# download-artifact@v6, attest-build-provenance@v4, setup-uv@v7, rust-toolchain@v1).
+# See docs/code-notes/ci-workflows.md
 
 name: Build installer
 
@@ -31,88 +16,38 @@ on:
   pull_request:
     branches: [main, master]
     # skip the entire workflow for docs-only / markdown-only PRs
-    # (no code to build or test). Frontend code (.ts/.tsx) still triggers
-    # because client-build covers it.
     paths-ignore:
       - "**/*.md"
       - "docs/**"
   # weekly schedule for the pip-audit-weekly job (runs full audit
-  # without the accepted-findings ignore list, opens an issue if new
-  # findings appear).
   schedule:
     # 09:00 UTC every Monday — start of week triage.
     - cron: "0 9 * * 1"
 
-# prevent two releases from racing on the same tag.
-# add a separate concurrency group for PRs so that two pushes to
-# the same PR cancel each other (saves CI minutes). Releases keep
-# cancel-in-progress: false because a release build should never be
-# cancelled mid-flight.
+# PRs cancel each other; releases keep cancel-in-progress: false (never cancel mid-flight).
 concurrency:
   group: ${{ github.event_name == 'pull_request' && format('pr-{0}', github.ref) || format('release-{0}', github.ref) }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
-# top-level permissions default — least-privilege. Per-job
-# overrides widen where needed (release jobs need contents: write,
-# pip-audit-weekly / slow-tests need issues: write).
+# Least-privilege default; jobs widen contents/issues/checks as needed.
 permissions:
   contents: read
   pull-requests: read
 
 jobs:
-  # ──────────────────────────────────────────────────────────────────────
-  # LEGACY PACKAGING RETIRED (2026-09-17 cutover, ADR-0020 Phase 5).
-  # The former build-windows / build-macos / build-linux / build-macos-universal
-  # jobs (PyInstaller + legacy-builder NSIS / DMG / deb / rpm / AppImage) are
-  # REMOVED. Installer production now lives exclusively in tauri-build.yml and
-  # the per-platform tauri-*-build.yml workflows. This workflow keeps the
-  # quality gates (test, client typecheck/lint/build, version/branding/drift,
-  # native-listener compile, pre-commit, audit).
-  # C-CI-2: this delta is cutover-retirement-only; no nuitka pin, timeout,
-  # matrix, CLCACHE, signing gate, or Tauri artifact name was touched.
-  # ──────────────────────────────────────────────────────────────────────
+  # C-CI-2: quality gates only; installers live in tauri-*-build.yml.
   test:
-    # skip the full test matrix on weekly schedule runs —
-    # only pip-audit-weekly should run on schedule.
+    # schedule runs only pip-audit-weekly
     if: github.event_name != 'schedule'
-    # CHECK-W: `checks: write` lets the mikepenz/action-junit-report step
-    # below actually create the check-run annotations it is supposed to
-    # post — with only `pull-requests: read` it fails every run with
-    # "Resource not accessible by integration", silently defeating the
-    # PR-annotation purpose of the junit step.
+    # CHECK-W: checks:write for junit-report annotations
     permissions:
       contents: read
       checks: write
     runs-on: ${{ matrix.os }}
-    # XS-25: cap test job runtime — a hung pytest leg should not consume a
-    # runner for 6h (the GitHub default).
-    #
-    # 30m proved too tight for the ubuntu-22.04 legs (2 vCPU runners): the
-    # full --cov suite runs ~12-18m on windows/macos but is STILL running
-    # at the 30m cap on ubuntu (observed: ubuntu pytest steps cancelled at
-    # 29.8m on every push for weeks). A cancelled pytest leg writes no
-    # coverage.xml, which then makes the coverage-ratchet and Codecov
-    # steps (both `if: always()`) fail with "coverage data is unavailable"
-    # on the canonical ubuntu x 3.12 leg. 60m gives the slowest legs ~2x
-    # headroom while still capping runaway/hung runs at an hour.
+    # XS-25: 60m cap — 30m cancelled slow ubuntu legs and broke coverage upload
     timeout-minutes: 60
     strategy:
-      # PRs run a reduced matrix (one Python per OS) to save CI
-      # minutes; the full 4×3 matrix runs on push (branches/tags) where we
-      # want maximum coverage before release.
-      # BUILD-N03: GitHub deprecated the macos-13 Intel runner in favor
-      # of macos-14 (Apple Silicon). The Intel test matrix was the only
-      # remaining use of macos-13 — port it to macos-14 with
-      # `architecture: x64` so the x86_64-only tests (win32 ABI parity,
-      # ctypes.windll, pywin32 stub paths) keep running on an Intel
-      # Python interpreter under Rosetta 2 on the arm64 host.
-      # the PR matrix keeps `architecture: x64` on the macOS-14
-      # entry to preserve Intel-parity coverage. The PUSH matrix no
-      # longer forces x64 globally — each OS uses its native arch
-      # (macOS-14 → arm64, ubuntu/windows → x64), so Apple Silicon now
-      # gets native-arm64 Python coverage on push runs. Previously the
-      # global `architecture:["x64"]` overrode macOS-14 to Rosetta x64
-      # on every push run too, contradicting the old comment.
+      # PR: reduced matrix; push: full. BUILD-N03: macos-13 retired → macos-14 (Intel-parity x64 on PR).
       matrix:
         ${{ github.event_name == 'pull_request' && fromJson('{"include":[{"os":"ubuntu-22.04","python-version":"3.12"},{"os":"windows-2022","python-version":"3.13"},{"os":"macos-14","python-version":"3.13","architecture":"x64"}]}') || fromJson('{"os":["windows-2022","ubuntu-22.04","macos-14"],"python-version":["3.10","3.11","3.12","3.13"]}') }}
       fail-fast: false
@@ -121,26 +56,13 @@ jobs:
       - uses: actions/checkout@v5
         with:
           # fetch-depth 2 so the pyrefly baseline audit step
-          # can resolve HEAD~1 (the previous main commit) for push events.
-          # The default shallow checkout (depth 1) has no parent commit,
-          # so `git show HEAD~1:pyrefly-baseline.json` fails and the
-          # audit falls back to OLD_COUNT=0 — which is always < the live
-          # error count (~260), failing every push build with a bogus
-          # "Pyrefly error count grew from 0 to 260" gate. PR events use
-          # origin/<base_ref> instead, so they are unaffected.
           fetch-depth: 2
 
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python-version }}
-          # when running on macos-14 (Apple Silicon),
-          # setup-python defaults to arm64. The PR matrix's macOS-14
-          # entry explicitly sets architecture=x64 to keep testing the
-          # Intel interpreter (Rosetta 2 on the runner). The push matrix
-          # no longer carries an `architecture` key, so matrix.architecture
-          # evaluates to '' there → setup-python uses each OS's native
-          # arch (macOS-14 → arm64, ubuntu/windows → x64).
+          # macos-14 is arm64; PR matrix pins architecture=x64 (Intel-parity via Rosetta).
           architecture: ${{ matrix.architecture }}
 
       - name: Install uv
@@ -153,165 +75,41 @@ jobs:
         run: |
           uv pip install --system ".[test]"
           # install lint + audit tools.
-          # pin ruff to the exact 0.16.0 release that the
-          # pre-commit hook (`.pre-commit-config.yaml` →
-          # `astral-sh/ruff-pre-commit` rev `v0.16.0`) uses, so CI and
-          # local pre-commit runs lint against identical rule
-          # semantics. The pyproject.toml `[project.optional-dependencies].dev`
-          # entry allows `>=0.16,<0.17`; CI pins to the floor (0.16.0)
-          # for determinism — a patch bump (0.16.1+) here would silently
-          # change ruff's rule output vs. the pre-commit hook. Bump only
-          # as an atomic coordinated change across all three surfaces.
           uv pip install --system ruff==0.16.0 pip-audit
           # pytest-xdist enables `-n auto --dist=loadgroup` in
-          # the pytest invocation below — parallelises the 331-file
-          # suite across cores for ~2-3x CI speedup per matrix leg.
           uv pip install --system pytest-xdist
           pip list
 
-      # ── ruff ratchet ────────────────────────────────────────
-      # The previous step was `ruff check voice_typer/server/ --select E501`
-      # which bypassed ~99% of the rules configured in pyproject.toml's
-      # [tool.ruff.lint] select = ["E","F","W","I","N","UP","B","A","SIM"].
-      # Removing --select E501 would have surfaced ~729 errors at the
-      # time was filed; the codebase has since been driven down to
-      # a handful of remaining violations. Rather than re-tighten to a
-      # blanket hard-fail (which breaks CI on the first new style nit),
-      # we use a ratchet:
-      #
-      #   1. HARD-FAIL on F-rules (pyflakes — real bugs: unused imports,
-      #      undefined names, redefinitions). Zero tolerance.
-      #   2. SOFT-FAIL on every other configured rule: capture the
-      #      current violation set as JSON and compare against
-      #      ruff-baseline.json. CI fails if the total OR any per-rule
-      #      count grows above the baseline. The baseline only ever
       #      shrinks — never edit it to add violations.
-      #
-      # See docs/ruff-ratchet.md for the developer workflow.
       - name: Ruff (F-rules hard-fail)
         # scope expanded from `voice_typer/server/` only to
-        # `voice_typer/ tests/ scripts/ conftest.py` so F-rule
-        # violations (unused imports, undefined names, redefinitions)
-        # in tests/ and scripts/ no longer accumulate without a CI
-        # signal. As of 2026-07-21 this step reports 22 F-rule
-        # violations across the expanded scope (4 in voice_typer/,
-        # 18 in tests/scripts/conftest.py) — those need to be fixed
-        # before this gate can pass. The scope
-        # (voice_typer/server/) reported 4 violations, so CI was
-        # already failing on this step; just makes the
-        # failure cover the full surface area.
         run: python -m ruff check voice_typer/ tests/ scripts/ conftest.py --select F --no-fix
 
       - name: Ruff (ratchet compare against baseline)
         # scope expanded to match the F-rules hard-fail above.
-        # The ruff-baseline.json `_target` field was updated to match.
-        # Per-rule and total counts were bumped from the
-        # server/-only baseline (45 total / 6 rules) to the expanded
-        # scope (159 total / 19 rules) so the ratchet catches future
-        # growth across the full codebase.
         run: |
           python -m ruff check voice_typer/ tests/ scripts/ conftest.py --output-format=json > ruff-current.json || true
           python scripts/ruff_ratchet_check.py
 
-      # linux-scripts LF check. The maintainer scripts shipped in the
       # .deb/.rpm bundles must stay LF: .gitattributes enforces
-      # `text eol=lf` on scripts/linux/* and
-      # src-tauri/resources/linux-scripts/*, but if that rule regresses
-      # (or a Windows editor commits CRLF with autocrlf off) the bundled
-      # scripts carry CR bytes and bash fails with `\r: command not
-      # found` at install time. The pytest byte-compare (bundled ==
-      # canonical) cannot catch a UNIFORM CRLF drift on both sides, so
-      # this step forbids CR bytes AND byte-compares bundled vs canonical
-      # (scripts/check_linux_scripts_lf.py). Runs on every matrix leg: a
-      # CRLF blob committed on any OS is caught on every leg, and a
-      # working-tree CRLF regression (from a .gitattributes removal)
-      # surfaces on the Windows leg.
       - name: Linux scripts LF check
         run: python scripts/check_linux_scripts_lf.py
 
       # i18n key-completeness gate. Runs the i18n completeness suite
-      # explicitly BEFORE the full pytest sweep so a missing-key regression
-      # fails the build fast (the full test step also runs this file, but
-      # surfacing it as its own step makes the failure obvious in CI logs
-      # instead of buried in 2700+ test results). The gate enforces:
-      #   1. Every key in en.json exists in every non-English locale file.
-      #   2. Locale files have no extra keys not in en.json.
-      #   3. Every {placeholder} in en.json values exists in locale values.
-      #   4. No locale value is identical to English unless explicitly
-      #      allowlisted (ALLOWED_UNTRANSLATED, PRE_EXISTING_UNTRANSLATED,
-      #      or RW2_BACKFILLED_PENDING_TRANSLATION — the stopgap set
-      #      tracking keys backfilled as English fallback pending native
-      #      translation).
-      # See tests/test_i18n_completeness.py for the ratchet that ensures
-      # RW2_BACKFILLED_PENDING_TRANSLATION only shrinks over time.
       - name: i18n key-completeness gate
         run: |
           python -m pytest tests/test_i18n_completeness.py --timeout=30 --no-cov -q
 
-      # pyrefly is a fast Rust-based Python type checker.
-      # It runs after ruff (cheap) and before pytest (expensive) so a
-      # type regression can fail the build before we spend time on the
-      # full test suite. Targets voice_typer/ only — tests/ already
-      # carries inline `# pyrefly: ignore` annotations and is checked
-      # locally via `pyrefly check` (uses project-includes in
-      # pyproject.toml).
-      #
-      # pyrefly 1.1.1's `check` command exits 0 even when it
-      # reports unsuppressed type errors, so the previous bare
-      # `pyrefly check voice_typer/` invocation was theatre (116 type
-      # errors silently passed on every PR) AND the audit step
-      # compared two committed copies of pyrefly-baseline.json (HEAD
-      # vs base ref), so any PR that introduced new errors but didn't
-      # touch the baseline passed silently.
-      #
-      # applied the ratchet fix (option (b)
-      # from the finding):
-      #   1. This step writes the FULL live pyrefly output to
-      #      pyrefly-current.json using an empty `--baseline` override
-      #      so no errors are suppressed. The `|| true` is intentional
-      #      — pyrefly's exit code is unreliable (this is the bug
       #      identified in XS-1).
-      #   2. The "Audit pyrefly baseline changes" step below reads
-      #      NEW_COUNT from the LIVE pyrefly-current.json (NOT from a
-      #      committed file) and compares against OLD_COUNT (the
-      #      pyrefly-baseline.json floor committed in THIS checkout).
-      #      The gate fails only when NEW_COUNT > OLD_COUNT. The
-      #      baseline file holds the team's accepted error set and
-      #      only ever shrinks — shrinking it requires editing
-      #      pyrefly-baseline.json in the same PR. Reading the
-      #      checkout's floor (rather than the base ref's) is what
-      #      makes the documented remedy — "raise the floor in
-      #      pyrefly-baseline.json with justification" — satisfiable
-      #      in a single PR/push.
-      # This is the ratchet approach: any growth in real type errors
-      # trips the gate, but the existing 156 errors don't block every
-      # PR (which option (a) — hard-fail on any error — would do).
       - name: Run pyrefly type check
         # bash syntax (if [ ... ], $(), /tmp paths) — must NOT run under
         # PowerShell, the windows-2022 matrix leg's default shell.
         shell: bash
         run: |
           # pin pyrefly==1.1.1 so error counts don't drift
-          # between releases. Previously unpinned (`uv pip install
-          # --system pyrefly`), which caused CI breakage when a new
-          # pyrefly release added different heuristics.
           uv pip install --system pyrefly==1.1.1
-          # pyrefly 1.1.1 exits 0 even when it reports errors
           # (known behavior — see XS-1 comment above). The REAL gate is
-          # the baseline audit step below, which fails only when the
-          # error count GROWS. This step just generates the JSON output
           # for the audit step to consume. We do NOT fail here on
-          # existing errors — only the audit step can fail (on growth).
-          #
-          # Bypass the pyproject.toml `baseline` config by
-          # passing `--baseline` with an empty JSON file. Without this
-          # override, pyrefly suppresses every error listed in the
-          # committed pyrefly-baseline.json — so pyrefly-current.json
-          # would only contain NEW (unsuppressed) errors. The audit step
-          # below compares the FULL live error count against the base
-          # ref's baseline count, so we need the FULL count here (not
-          # the suppressed count). The empty baseline file is the
-          # explicit "no suppression" signal.
           echo '{"errors":[]}' > /tmp/pyrefly-empty-baseline.json
           pyrefly check voice_typer/ --baseline /tmp/pyrefly-empty-baseline.json --output-format=json > pyrefly-current.json || true
           # Write the current errors into pyrefly-baseline.json if the
@@ -320,25 +118,7 @@ jobs:
             cp pyrefly-current.json pyrefly-baseline.json
           fi
 
-      # pyrefly baseline audit.  The baseline file tracks
-      # intentionally-suppressed platform-specific false positives.
-      # This step compares the LIVE pyrefly output (pyrefly-current.json,
-      # generated by the previous "Run pyrefly type check" step) against
-      # the base ref's committed baseline (pyrefly-baseline.json) and
-      # fails if the live error count GROWS beyond the baseline floor.
-      #
-      # Pre-fix this step compared the committed
-      # ``pyrefly-baseline.json`` at HEAD against the same file at the base
-      # ref — both readings came from committed files, so a PR that
-      # introduced new type errors but didn't touch the baseline passed
-      # silently. The fix reads NEW_COUNT from ``pyrefly-current.json``
-      # (the live ``pyrefly check`` output written by the previous step)
-      # so any new error introduced by the PR actually trips the gate.
-      # OLD_COUNT reads the baseline committed in THIS checkout
-      # (pyrefly-baseline.json) — the team's accepted error set.
-      # Shrinking the floor requires editing ``pyrefly-baseline.json``
       # in the same PR; the ratchet (live count must not exceed the
-      # checkout floor) is preserved.
       - name: Audit pyrefly baseline changes
         # bash syntax (if [ ... ], $(), /tmp paths) — must NOT run under
         # PowerShell, the windows-2022 matrix leg's default shell.
@@ -355,30 +135,8 @@ jobs:
             BASE_REF="HEAD~1"
           fi
           git fetch origin ${{ github.base_ref || '' }} 2>/dev/null || true
-          # pyrefly-baseline.json's top-level key is `errors`
-          # (pyrefly's native output schema). Pre-CR-010 this read
-          # `d.get('suppressed', [])` — a key that does not exist in
-          # the baseline — so OLD_BASELINE and NEW_BASELINE were both
           # always 0 and the audit could never fire. The diff-set
-          # computation below was also reading `d.get('file','')` —
-          # the actual schema field is `path`. Both fixed here.
-          # The floor is THIS checkout's committed baseline
-          # (pyrefly-baseline.json), not the base ref's copy. Reading the
-          # base ref instead would make the gate's own remedy ("raise the
-          # floor in pyrefly-baseline.json with justification")
-          # unsatisfiable — a floor raise committed in the same PR would
-          # still be measured against the old base-ref floor. Reading the
-          # checkout's baseline keeps the ratchet intact: a PR that adds
-          # errors without updating the baseline fails (live > floor), and
-          # shrinking the floor without fixing errors fails too.
-          #
           # All python reads here MUST pass encoding='utf-8' (or
-          # reconfigure stdin): the baseline's `_comment` field contains
-          # non-ASCII, and Windows Python defaults to cp1252 —
-          # json.load(open(...)) then throws UnicodeDecodeError, the
-          # `|| echo 0` fallback reads the floor as 0, and the gate fails
-          # spuriously (observed: live 384 vs floor 0) on the
-          # windows-2022 matrix leg.
           if [ -f pyrefly-baseline.json ]; then
             OLD_COUNT=$(python -c "import json; d=json.load(open('pyrefly-baseline.json', encoding='utf-8')); print(len(d.get('errors', []) if isinstance(d, dict) else d))" 2>/dev/null || echo 0)
           else
@@ -389,9 +147,6 @@ jobs:
           NEW_COUNT=$(python -c "import json; d=json.load(open('pyrefly-current.json', encoding='utf-8')); print(len(d.get('errors', []) if isinstance(d, dict) else d))" 2>/dev/null || echo 0)
           echo "Pyrefly: baseline floor = $OLD_COUNT errors, live current = $NEW_COUNT errors"
           # Surface a floor RAISE in the checks UI (non-blocking). A PR
-          # may legitimately raise the floor with justification (the
-          # gate's documented remedy), but reviewers should see it
-          # without digging through the baseline diff.
           BASE_FLOOR=$(git show "$BASE_REF:pyrefly-baseline.json" 2>/dev/null | python -c "import sys,json; sys.stdin.reconfigure(encoding='utf-8'); d=json.load(sys.stdin); print(len(d.get('errors', []) if isinstance(d, dict) else d))" 2>/dev/null || echo 0)
           if [ "$OLD_COUNT" -gt "$BASE_FLOOR" ]; then
             echo "::warning::Pyrefly baseline floor raised from $BASE_FLOOR (base ref) to $OLD_COUNT (this checkout) — confirm the justification in pyrefly-baseline.json _comment."
@@ -403,11 +158,6 @@ jobs:
             echo ""
             echo "Added entries (in live output, not in base-ref baseline):"
             # Workspace-relative snapshot path (not /tmp): on the
-            # windows-2022 leg, Git Bash's /tmp and Windows Python's
-            # /tmp are DIFFERENT directories, so the diff python would
-            # fail to find the snapshot and print "(could not diff)"
-            # instead of the added entries. A relative path resolves
-            # identically for both on every OS.
             if [ -f pyrefly-baseline.json ]; then
               cp pyrefly-baseline.json pyrefly-old-baseline.json
             else
@@ -420,31 +170,11 @@ jobs:
 
       - name: Run tests with coverage
         # `\` line continuations are bash-only — under PowerShell each
-        # line would parse as a separate statement and the flags would be
-        # dropped. Force bash on all matrix legs (Git Bash ships on the
-        # windows-2022 runner image).
         shell: bash
-        # --cov-fail-under=78 moved here from pyproject.toml addopts
-        # so local subset runs (e.g. `pytest tests/test_foo.py`) no
-        # longer trigger the coverage threshold (the conftest.py
-        # --cov-strip shim was dead code that gave a false sense of
         # robustness — see XS-9).
         # MO-89: raised 65 → 78 on a MEASURED total (84.84% on the
-        # 2026-09-16 full run, zero 0%-coverage modules). The value is
-        # kept equal to [tool.coverage.report].fail_under and to
-        # `make test-cov`; tests/test_coverage_floor_consistency.py
         # fails if the three sites drift. Do NOT lower it back without a
-        # measured reason, and prefer raising it via the ratchet
-        # (scripts/coverage_ratchet_check.py --regenerate), which is the
-        # tighter gate and runs on the ubuntu × 3.12 leg only.
-        # -n auto --dist=loadgroup parallelises via pytest-xdist.
-        # --junitxml emits pytest-results.xml consumed by the
-        # mikepenz/action-junit-report step below for PR annotations,
-        # AND by the ci-errors-doc job (below) to write CI-errors.md.
-        # explicit --timeout / --strict-* on the CI invocation too
         # (pyproject.toml addopts already sets them via WR-1, but defense-
-        # in-depth — a future edit that drops addopts would silently lose
-        # these guards if they lived only in pyproject.toml).
         run: |
           python -m pytest tests/ -n auto --dist=loadgroup -v --tb=short -q \
             --cov=voice_typer --cov-fail-under=78 \
@@ -454,9 +184,6 @@ jobs:
             --strict-markers --strict-config
 
       # publish test results as PR annotations so a single
-      # failing test among 331 files is surfaced directly on the diff
-      # instead of buried in -v --tb=short log output. `if: always()` so
-      # the report still publishes when the pytest step above fails.
       - name: Test results
         if: always()
         uses: mikepenz/action-junit-report@v6
@@ -466,10 +193,6 @@ jobs:
           require_tests: false
 
       # CI-ERRORS-AUTO: preserve the JUnit XML so the ci-errors-doc job
-      # (below) can aggregate ALL matrix legs' failures into CI-errors.md
-      # — the cloud agent reads that file instead of needing gh CLI or
-      # workflow-log access. `if: always()` so the artifact exists even
-      # when pytest fails (that is precisely when we need it).
       - name: Upload pytest JUnit for CI-errors aggregation
         if: always()
         uses: actions/upload-artifact@v6
@@ -479,29 +202,7 @@ jobs:
           if-no-files-found: ignore
 
       - name: Upload coverage to Codecov
-        # `if: always()` so coverage is uploaded EVEN WHEN pytest
-        # fails — the delta vs. main is the most useful signal on a red
-        # run, and Codecov PR comments rely on the upload landing. Without
-        # `always()` a single failing test would silently suppress the
-        # coverage diff for the entire PR.
-        # only the Linux × Python 3.12 leg uploads coverage. The
-        # Windows + macOS legs run pytest with --cov but DO NOT upload —
-        # their coverage.xml is per-OS noisy (different stub paths, different
-        # optional deps installable) and Codecov's per-OS coverage deltas
-        # would drown the canonical Linux signal. Documenting here so future
-        # maintainers don't try to "fix" the asymmetry by removing the
-        # `matrix.os == 'ubuntu-22.04'` filter.
-        # fail_ci_if_error flipped to `true` now that
-        # CODECOV_TOKEN is wired. Pre-fix the `false` value meant a broken
-        # upload (e.g. 401 from a missing token on a fork PR, 502 from
-        # Codecov outage, malformed coverage.xml) silently passed — the
-        # coverage diff on the PR would just be missing with no signal.
-        # With `true`, broken uploads fail the build so the regression is
-        # visible. Forks without CODECOV_TOKEN secret: codecov-action@v5
-        # supports OIDC-based tokenless upload for public repos, so a
-        # missing token degrades to tokenless mode (which still uploads)
-        # rather than failing — but if tokenless upload is also broken we
-        # want to know.
+        # Only Linux×3.12 uploads coverage (per-OS deltas drown the signal).
         if: always() && matrix.os == 'ubuntu-22.04' && matrix.python-version == '3.12'
         uses: codecov/codecov-action@v5
         with:
@@ -509,85 +210,21 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: ${{ secrets.CODECOV_TOKEN != '' }}
 
-      # coverage ratchet. The fixed --cov-fail-under=78 floor
-      # only catches catastrophic drops below 78%; this step catches
-      # silent erosion (e.g. 70% → 65.01%). Compares the current total
-      # coverage % against coverage-baseline.json and fails if current <
-      # baseline (epsilon 0.01% for float jitter). Run only on the
-      # ubuntu×3.12 leg (the canonical leg for Codecov upload) to avoid
-      # matrix fan-out cost and per-OS coverage variance noise.
+      # Coverage ratchet vs coverage-baseline.json on the canonical Linux leg.
       - name: Coverage ratchet check
-        # WR-15: `if: always()` mirrors the Codecov upload gate above so
-        # the ratchet runs against whatever coverage.xml was produced
-        # (even on red pytest legs) — same rationale as the upload step.
+        # WR-15 / TK-27: always() + --strict so missing coverage.xml fails the gate.
         if: always() && matrix.os == 'ubuntu-22.04' && matrix.python-version == '3.12'
-        # TK-27: `--strict` — WITHOUT it, a missing coverage.xml /
-        # .coverage (e.g. the pytest --cov step crashed before emitting
-        # the XML) makes the ratchet print a NOTE and exit 0, silently
-        # passing the gate. CI is supposed to HAVE coverage data on this
         # leg, so losing it must fail the job, not skip it.
         run: python scripts/coverage_ratchet_check.py --strict
 
-      # pip-audit two-tier policy.
-      #
-      # Previously this step ran `pip-audit --strict` with
-      # `continue-on-error: true`, which meant vulnerability findings in
       # pinned dependencies NEVER failed the build — the audit was
-      # theatre. We now split into two tiers:
-      #
-      #   1. HARD-FAIL on ANY vulnerability. The accepted-findings list is
-      #      currently EMPTY (no CVEs have been triaged-and-accepted). If a
-      #      finding is reviewed and deliberately accepted, add it here as
-      #      `--ignore-vuln <GHSA>` on its own line WITH a justification
-      #      comment directly above it (see policy note below).
-      #   2. The weekly scheduled job (pip-audit-weekly below) runs the
-      #      full audit without --ignore-vuln and posts a reminder issue
-      #      if new findings appear — so we can re-triage before they
-      #      become blockers.
-      #
-      # The split prevents two failure modes:
-      #   - "ignore everything" (the old continue-on-error: true)
-      #   - "block everything" (removing continue-on-error without a
-      #     triaged ignore list would break CI on every upstream CVE)
-      #
-      # the per-PR gate now HARD-FAILS on any finding.
-      # The previous `continue-on-error: true` meant vulnerabilities NEVER
       # failed the build — pure security theatre. Accepted findings MUST
-      # be listed below as `--ignore-vuln <GHSA>` with a justification
-      # comment above each. The weekly pip-audit-weekly job re-runs the
-      # full audit (no ignore list) and posts a reminder issue if new
-      # findings appear, so triaged-and-accepted CVEs don't slip through.
-      #
-      # Remaining Work: as of 2026-07-21 the accepted-findings list below
-      # is EMPTY. If `pip-audit --strict` reports a finding on the next
-      # CI run, triage it: either pin/upgrade the affected dep to clear
-      # the CVE, OR add a `--ignore-vuln <GHSA>` line with a tracking
-      # issue number in a justification comment.
       - name: pip-audit (fail on findings; weekly sweep handled separately)
         run: |
-          # Accepted findings: add `--ignore-vuln <GHSA>` lines here with a
-          # justification comment above each. Example:
-          #   # requests: low-severity redirect issue, no fix available yet (tracked in #NNN)
-          #   --ignore-vuln GHSA-xxxx-xxxx-xxxx
-          #
-          # Audit the hash-pinned lock file, NOT the environment: the env
           # always contains `voice-typer` itself (a local install, never on
-          # PyPI), and pip-audit >=2.10 --strict treats ANY skipped
-          # dependency as a fatal error (pip's editable/local metadata
-          # changed 2026-04, so `--skip-editable` no longer prevents the
-          # failure). `-r requirements-lock.txt` audits exactly the pinned
-          # shipped deps — no self-package, deterministic, and
-          # `--require-hashes` guards against lock drift.
           pip-audit --strict --require-hashes -r requirements-lock.txt
 
-  # ──────────────────────────────────────────────────────────────────────────
-  # CI-errors doc: aggregate every matrix leg's JUnit failures into
-  # CI-errors.md and commit it back. The cloud agent reads CI-errors.md
-  # (repo root) to see what broke — no gh CLI / Actions-log access needed.
-  # Runs `if: always()` on the TEST job's result so a red run still writes
-  # the file. Commits with GITHUB_TOKEN (which does NOT retrigger this
   # workflow — GITHUB_TOKEN pushes never create a new run, so no loop).
-  # ──────────────────────────────────────────────────────────────────────────
   ci-errors-doc:
     name: Write CI-errors.md from JUnit results
     needs: test
@@ -604,13 +241,7 @@ jobs:
         with:
           python-version: '3.12'
 
-      # Each artifact extracts into its own junit/<artifact-name>/
       # subdirectory (merge-multiple MUST stay false: every leg
-      # uploads the identical filename pytest-results.xml, so a flat
-      # merge collapses all legs into one slot — concurrent
-      # extraction even interleaved two files into one corrupt,
-      # unparseable survivor, and the report showed a single bogus
-      # "unparseable" entry while real failures went unrecorded).
       - name: Download all pytest JUnit artifacts
         uses: actions/download-artifact@v6
         with:
@@ -629,13 +260,7 @@ jobs:
           fi
 
       - name: Commit and push CI-errors.md
-        # GITHUB_TOKEN pushes never retrigger workflows, so committing the
-        # doc cannot loop. Only commit when the content actually changed.
-        # On fork PRs GITHUB_TOKEN is read-only — the push will fail there;
-        # `continue-on-error` keeps the doc job (and the run) green because
-        # the CI-errors.md content is still surfaced as a workflow artifact
-        # and on the run's own checkout. Guard on non-PR events so push
-        # events (branches/tags) get the committed doc on the branch.
+        # GITHUB_TOKEN pushes never retrigger workflows (no loop). Non-PR only.
         if: github.event_name != 'pull_request'
         shell: bash
         continue-on-error: true
@@ -650,17 +275,7 @@ jobs:
             git push
           fi
 
-  # ──────────────────────────────────────────────────────────────────────────
   # Icon drift check: the committed src-tauri/icons must match what a
-  # fresh `tauri icon` + prune produces (from voice_typer/client/scripts/
-  # logo.svg). Catches a logo.svg edit that wasn't regenerated, or a
-  # hand-edited / stale icon set, in ~1 min instead of at bundle time.
-  # The check runs the generator in --check mode, which regenerates into
-  # a TEMP dir and compares (byte-exact for the deterministic PNGs + ICO;
-  # structurally for the non-deterministic ICNS) without ever touching
-  # the working tree. Fix by running
-  # `python scripts/build/generate_tauri_icons.py` and committing.
-  # ──────────────────────────────────────────────────────────────────────────
   icons-drift:
     name: Icons match `tauri icon` output
     runs-on: ubuntu-22.04
@@ -673,7 +288,6 @@ jobs:
         with:
           python-version: '3.12'
 
-      # `tauri icon` runs via npx (@tauri-apps/cli ships a native binary).
       # Node 24 matches the other setup-node pins in this workflow
       # (C-CI-5 / Node-24 runtime alignment; icons-drift is not a
       # tauri-*-build.yml job so C-CI-2 does not apply here).
@@ -685,17 +299,7 @@ jobs:
       - name: Verify src-tauri/icons matches a fresh `tauri icon` + prune
         run: python scripts/build/generate_tauri_icons.py --check
 
-  # ──────────────────────────────────────────────────────────────────────────
   # Product-namespace drift check: the repo-wide reverse-DNS guard
-  # (tests/test_product_namespace_consistency.py) scans every tracked
-  # text file for non-`com.voicetyper.*` product namespaces (legacy
-  # pre-Tauri polkit artifacts, wrong spellings, misspelled
-  # roots). Runs as its own fast job (mirroring icons-drift) so a
-  # stray legacy / misspelled namespace dies in ~1 min instead of only
-  # surfacing at the end of the full test suite. The guard is ALSO part
-  # of the full Python suite — this job exists purely for fast
-  # feedback.
-  # ──────────────────────────────────────────────────────────────────────────
   product-namespace-drift:
     name: Product namespaces use com.voicetyper.*
     runs-on: ubuntu-22.04
@@ -716,8 +320,6 @@ jobs:
           python -m pytest tests/test_product_namespace_consistency.py -q
 
   # weekly pip-audit sweep — runs the FULL audit (no ignore list)
-  # on a schedule so we can re-triage new findings before they become
-  # blockers. Posts a GitHub issue if any findings appear.
   pip-audit-weekly:
     if: github.event_name == 'schedule'
     # pinned to match build-linux runner
@@ -750,9 +352,7 @@ jobs:
         id: audit
         continue-on-error: true
         run: |
-          # Same lock-file target as the daily gate (see its comment): the
-          # env contains the unpublished `voice-typer` self-package, which
-          # pip-audit >=2.10 --strict treats as a fatal skipped dependency.
+          # Same lock-file target as the daily gate (env self-package breaks --strict).
           pip-audit --strict --require-hashes -r requirements-lock.txt > /tmp/audit.txt 2>&1
           echo "findings<<EOF" >> $GITHUB_OUTPUT
           cat /tmp/audit.txt >> $GITHUB_OUTPUT
@@ -766,14 +366,7 @@ jobs:
           content-filepath: /tmp/audit.txt
           labels: security,dependencies
 
-  # optional slow-tests job. Runs the @pytest.mark.slow
-  # wrappers around the manual diagnostic scripts in tests/manual/.
   # This is best-effort — failures here do NOT block the build
-  # (continue-on-error: true) and the job only runs on main-branch
-  # pushes (not PRs) to save CI minutes. The job exists to surface
-  # regressions in the manual scripts themselves (e.g. a refactor
-  # breaking runtime_proof.py's exit-code contract), not to gate
-  # releases.
   slow-tests:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     # pinned to match build-linux runner
@@ -782,10 +375,6 @@ jobs:
     # — slower than the main suite).
     timeout-minutes: 60
     # removed job-level `continue-on-error: true`. Slow-test
-    # regressions now surface in CI check status. A failure opens a
-    # tracking issue (see the issue-on-failure step below) so regressions
-    # in tests/manual/ scripts no longer rot invisibly in main-branch
-    # run logs. PRs are NOT blocked because this job only runs on main.
     permissions:
       contents: read
       issues: write
@@ -810,9 +399,6 @@ jobs:
 
       - name: Run slow manual-script wrappers
         # --no-cov: coverage is already collected by the main test job;
-        # we only care whether the slow wrappers pass here.
-        # capture stdout/stderr to /tmp/slow-tests-failure.txt so
-        # the issue-on-failure step below can attach the failure log.
         run: |
           set +e
           python -m pytest tests/test_manual_slow.py -v --tb=short --slow --no-cov > /tmp/slow-tests-failure.txt 2>&1
@@ -851,10 +437,7 @@ jobs:
           cache-dependency-glob: "**/pyproject.toml"
 
       - name: Check version sync
-        # pass --check so version drift across pyproject.toml,
-        # voice_typer/client/package.json, src-tauri/Cargo.toml, and
-        # src-tauri/tauri.conf.json FAILS CI instead of silently
-        # syncing (the previous bare invocation made the gate a no-op).
+        # --check fails CI on version drift (sync would silently paper over it).
         run: |
           uv pip install --system -e ".[test]"
           python scripts/build/sync_versions.py --check
@@ -903,15 +486,7 @@ jobs:
         working-directory: voice_typer/client
         run: npm ci
 
-      # Supply-chain: audit the production dependency graph for known
-      # high+ advisories. `--omit=dev` skips devDependencies (dev deps
       # never ship in the Tauri installer — only runtime deps are a
-      # supply-chain risk for end users). `--audit-level=high` exits
-      # non-zero only for HIGH/CRITICAL findings (low/moderate are
-      # reported but tolerated — matches the pip-audit gate policy in
-      # this workflow's pip-audit-weekly job).
-      # TODO: switch to hard-fail once the override list (accepted-
-      # findings) is verified in production CI.
       - name: npm audit (high+ only, warn-only)
         working-directory: voice_typer/client
         continue-on-error: true
@@ -919,8 +494,7 @@ jobs:
 
       - name: Type-check
         working-directory: voice_typer/client
-        # Use typecheck:ci (tsc -b --force) instead of typecheck
-        # so a stale tsbuildinfo cache can't produce a false green.
+        # typecheck:ci = tsc -b --force (stale tsbuildinfo cannot fake green).
         run: npm run typecheck:ci
 
       - name: Lint
@@ -936,9 +510,6 @@ jobs:
         run: npm run format:check
 
       # build renderer only (platform-independent). The main +
-      # preload parts are built in each platform job since they may be
-      # platform-specific. Sharing the renderer artifact saves ~30s per
-      # platform build.
       - name: Build renderer only
         working-directory: voice_typer/client
         run: npm run build:renderer
@@ -950,19 +521,6 @@ jobs:
           path: voice_typer/client/out/renderer/
 
   # build-native matrix job. Compiles each native key-listener
-  # binary on its native platform (Swift on macOS, MSVC on Windows, gcc
-  # on Linux). The binaries are uploaded as artifacts so the per-platform
-  # Tauri installer workflows (tauri-*-build.yml) can download them and
-  # bundle them into the sidecar/installer resources.
-  #
-  # Legacy packaging jobs (build-windows / build-macos / build-linux /
-  # build-macos-universal) were REMOVED at the 2026-09-17 Tauri cutover.
-  # The two macOS legs still pass `--arch x86_64` / `--arch arm64`
-  # explicitly so `compile_native.sh` invokes `swiftc -target
-  # <arch>-apple-macos11.0` for each leg — previously both legs ran
-  # plain `swiftc` which produced an arm64 binary on the Apple-Silicon
-  # runner regardless of the matrix leg, so a fat-binary merge would
-  # silently produce a single-arch "universal" binary.
   build-native:
     if: github.event_name != 'schedule'  # XS-REVIEW: skip on weekly schedule
     needs: [test, client-build, version-check]
@@ -970,24 +528,12 @@ jobs:
       matrix:
         include:
           # macOS x64 build (macos-14 = Apple Silicon runner running
-          # the x64 compile under Rosetta). CI-04: migrated from the
-          # deprecated macos-13 Intel runner.
-          # `--arch x86_64` forces `swiftc -target
-          # x86_64-apple-macos11.0` so the resulting slice is actually
-          # x86_64 (without it, swiftc on the arm64 runner would emit
-          # an arm64 binary and the universal merge would silently
-          # produce a single-arch fat binary).
           - os: macos-14
             platform: macos-x64
             script: bash scripts/build/compile_native.sh --arch x86_64
             binary: voice_typer/server/native/macos-key-listener
             artifact_name: macos-key-listener-x64
           # macOS arm64 build (macos-14 = Apple Silicon).
-          # `--arch arm64` is redundant on the Apple-Silicon
-          # runner (swiftc's default target is arm64) but is passed
-          # explicitly so the matrix leg is self-documenting and a
-          # future switch to an x86 runner doesn't silently break the
-          # arm64 slice.
           - os: macos-14
             platform: macos-arm64
             script: bash scripts/build/compile_native.sh --arch arm64
@@ -1026,9 +572,6 @@ jobs:
           file "${{ matrix.binary }}" || true
 
       # smoke test improvements. Each platform has a different
-      # expected behavior in CI (no GUI, no input devices, no
-      # Accessibility). We verify the binary can start and produce the
-      # expected output with the expected exit code.
       - name: Smoke test (Linux)
         if: matrix.platform == 'linux'
         shell: bash
@@ -1050,14 +593,6 @@ jobs:
           echo "Smoke test PASSED (binary emitted ERROR: and exited 1)"
 
       # improved macOS smoke test. Sets VOICE_TYPER_SKIP_ACCESSIBILITY_CHECK
-      # to bypass the Accessibility permission check (which always fails on CI)
-      # and verify the binary emits READY within 2s (proving the event tap
-      # installed and the run loop started).
-      # Uses timeout (3s) to kill the binary after the run loop starts since
-      # macOS CI has no real keyboard events to drive the main loop.
-      # VOICE_TYPER_SKIP_ACCESSIBILITY_CHECK=1 skips the CGEventTap
-      # (which requires Accessibility permission unavailable on CI) so the
-      # binary can reach the NSEvent monitors and emit READY.
       - name: Smoke test (macOS)
         if: startsWith(matrix.platform, 'macos')
         shell: bash
@@ -1075,10 +610,6 @@ jobs:
           fi
 
       # improved Windows smoke test. Starts the binary, waits for
-      # READY (proving WH_KEYBOARD_LL hook installed), then sends a
-      # synthetic CapsLock keystroke via SendInput and verifies the
-      # binary's hook callback fires (KEY_DOWN:CapsLock in stdout).
-      # See scripts/build/smoke_test_windows.ps1 for the full logic.
       - name: Smoke test (Windows)
         if: matrix.platform == 'windows'
         shell: pwsh
@@ -1101,10 +632,6 @@ jobs:
           if-no-files-found: error
 
   # merge the x64 and arm64 macOS binaries into a universal
-  # binary. The universal binary is what build-macos downloads and
-  # bundles into the .dmg. This avoids shipping two separate .dmgs
-  # (one per architecture) and matches Apple's universal-binary
-  # convention for native helper tools.
   pre-commit:
     name: Pre-commit hygiene
     runs-on: ubuntu-22.04
@@ -1124,15 +651,7 @@ jobs:
       - name: Install pre-commit
         run: pip install pre-commit
       - name: Run pre-commit hygiene hooks
-        # `pre-commit run` accepts at most ONE hook ID as a positional
-        # argument — passing 7 IDs (the previous invocation) fails with
-        # `unrecognized arguments: end-of-file-fixer check-yaml ...`.
-        # Loop over the hygiene hooks instead so a failure in any one
-        # hook fails the step (the `|| exit 1` after each invocation).
         # We intentionally do NOT use `pre-commit run --all-files` (no
-        # hook ID) because that would also run heavier hooks defined in
-        # .pre-commit-config.yaml (ruff, pyrefly, etc.) — this job is a
-        # fast hygiene-only gate; the heavy hooks have their own jobs.
         run: |
           set -euo pipefail
           for hook in \
@@ -1150,12 +669,8 @@ jobs:
   notify:
     name: Notify on failure
     # `always()` so the job runs even when one of `needs` failed. Skipped
-    # upstream jobs (e.g. slow-tests on a schedule run) won't block —
-    # the step below filters them out.
     if: always()
     # List every job whose failure should fire a notification. jobs not
-    # listed here (pip-audit-weekly, slow-tests) already have their own
-    # issue-on-failure step; including them would double-notify.
     needs: [test, client-build, version-check, branding-check, build-native, pre-commit]
     runs-on: ubuntu-22.04
     timeout-minutes: 5
@@ -1167,8 +682,6 @@ jobs:
         run: |
           set -euo pipefail
           # Build a Markdown summary table of every needed job's result.
-          # GitHub Actions exposes needs.<job>.result as one of:
-          #   'success' | 'failure' | 'cancelled' | 'skipped'
           {
             echo "## Job results"
             echo ""
@@ -1202,10 +715,6 @@ jobs:
         run: |
           echo "::error::${{ steps.summarize.outputs.failure_count }} upstream jobs failed in this workflow run. See the Job results table in the run summary for per-job status. To wire Slack/Teams/email notifications, see the S5-CR-72 comment in .github/workflows/build.yml."
           # Exit non-zero so the notify job itself shows as a red X in the
-          # GitHub Actions UI — the visual signal maintainers scan for.
-          # The build is already failed by the upstream job; this exit code
-          # just makes the notify job red too so it's not mistaken for "all
-          # clear".
           exit 1
 
       - name: All green

@@ -1,97 +1,19 @@
-# =============================================================================
-# PINNED ACTION VERSIONS — DO NOT DOWNGRADE (verified 2026-07-24):
-#   actions/checkout@v5               — Node 24 runtime (v4 = Node 20, deprecated)
-#   actions/setup-python@v7           — Node 24 runtime (v5/v6 = Node 20, deprecated)
-#   actions/cache@v5                   — Node 24 runtime (v4 = Node 20, deprecated)
-#   actions/setup-node@v7              — Node 24 runtime (v4 = Node 20, deprecated)
-#   actions/upload-artifact@v6         — Node 24 runtime (v5 = Node 20, deprecated)
-#   actions/attest-build-provenance@v4 — Node 24 runtime (v1 = Node 16, deprecated)
-#   astral-sh/setup-uv@v7              — Node 24 runtime (v6 = Node 20, deprecated)
-#   dtolnay/rust-toolchain@v1           — Node 24 runtime (@stable = untagged, may resolve to Node 20)
-# See build.yml header for full rationale + breaking-change analysis.
-# -----------------------------------------------------------------------------
-# PINNED NUITKA VERSION — DO NOT DOWNGRADE (NU-105, 2026-08-06):
-#   nuitka==2.8.10 in BOTH install steps (uv dev env at :334 AND PYBS
-#   frozen env at :378). Nuitka <2.8.0 CRASHES compiling numpy>=2.5 (see
-#   requirements-lock.txt → numpy==2.5.1): numpy 2.5 ships PEP 695
-#   type-generic aliases (`type NDArray[ScalarT: np.generic] = ...` in
-#   numpy/_typing/_array_like.py) which trip Nuitka 2.5.x's
-#   `buildTypeAliasNode assert not node.type_params` — Nuitka issues
-#   #3469 (generic type aliases) + #3392/#3561 (PEP 695 generic classes).
-#   The 2.8 line is the first release supporting both.
-#   Do NOT revert this pin to 2.5.x, and do NOT "fix" a future build
-#   failure by downgrading numpy below 2.5 in the lockfile instead —
-#   bump the Nuitka pin forward. Inline NU-105 comments mark both
-#   install steps; docs/migration/windows-validation-runbook.md §0.8
-#   tracks the same version for the on-host validation procedure.
-# -----------------------------------------------------------------------------
-# Tauri Windows Build (ADR-0020 Phase 0-W / Phase 1-W packaging).
-#
-# This workflow builds a complete Tauri installer for Windows via:
-#   1. Nuitka-freezing the Python backend into python-sidecar.exe
-#   2. Nuitka-freezing the prewarm binary
-#   3. Compiling the native windows-key-listener.exe from C source
-#   4. Running `cargo tauri build` to produce NSIS + MSI installers
-#   5. (Optional) Authenticode-signing via WIN_CSC_LINK secret
-#
-# Trigger: manual (workflow_dispatch) from the GitHub UI.
-# Do NOT enable push/PR triggers until Phase 0-W validation passes on a
-# real Windows host (see docs/migration/windows-validation-runbook.md).
-#
-# Authoritative spec:
-#   - docs/adr/0020-desktop-runtime-migration-analysis.md §4 (Nuitka),
-#     §5 (prewarm), §6.4 (native listener), §7 (Tauri config),
-#     §13.1 (Windows Authenticode).
-#   - docs/migration/windows-validation-runbook.md (host validation
-#     procedure — what to run AFTER this workflow produces the binaries).
+# PINNED ACTION VERSIONS — DO NOT DOWNGRADE (C-CI-5): Node 24 majors only
+# (checkout@v5, setup-python@v7, cache@v5, setup-node@v7, upload-artifact@v6,
+# attest-build-provenance@v4, setup-uv@v7, rust-toolchain@v1). See build.yml.
+# PINNED NUITKA VERSION — DO NOT DOWNGRADE (NU-105 / C-CI-6): nuitka==2.8.10
+# in BOTH install steps. Nuitka <2.8 crashes numpy>=2.5 PEP 695 (#3469/#3392/#3561);
+# bump Nuitka forward, never downgrade numpy. See docs/code-notes/ci-workflows.md
+# Tauri Windows Build (Phase 0-W / 1-W): Nuitka sidecar + cargo tauri build.
+# Trigger: manual workflow_dispatch ONLY until Phase 0-W host validation
+# (C-CI-4: do not uncomment push/PR). Runbook:
+# docs/migration/windows-validation-runbook.md. See docs/code-notes/ci-workflows.md
 
 name: Tauri Windows Build (Phase 0-W / Phase 1-W)
 
-# =============================================================================
-# GATE STATUS — VALIDATE ON WINDOWS HOST (aarch64)
-# -----------------------------------------------------------------------------
-# This workflow runs end-to-end on x86_64 Windows (windows-2022 runner, a
-# public GitHub-hosted image). The aarch64-pc-windows-msvc build path is
-# preserved as a COMMENTED matrix template (see the job block below) because
-# GitHub does NOT ship a public aarch64 Windows runner image (no
-# `windows-11-arm` on free / Pro / public repos as of 2026-08), AND because
-# it cannot be gated with a job-level ``if:`` guard referencing ``matrix.enabled`` — the `matrix`
-# context is NOT available in `jobs.<id>.if`, so GitHub rejects a workflow
-# file that references it at validation time (0s "workflow file issue" on
-# every push; actionlint + the Actions contexts docs both confirm this).
-# Windows-on-ARM users therefore have no automated release path until one
-# of the following happens:
-#
-#   (a) GitHub ships `windows-11-arm` to public repos — uncomment the
-#       aarch64 matrix template in the job block below, OR
-#   (b) A maintainer with a Windows-on-ARM device (Surface Pro X,
-#       Snapdragon X, etc.) registers a self-hosted runner labelled
-#       `windows-11-arm` and follows docs/migration/windows-validation-
-#       runbook.md end-to-end on it.
-#
-# Pre-flight checklist before uncommenting the aarch64 leg:
-#   1. Create src-tauri/tauri.windows-aarch64.conf.json (mirror
-#      tauri.windows-x86_64.conf.json's `bundle.resources` narrowing so
-#      only aarch64-prefixed prewarm + the host-arch native listener get
-#      bundled; the existing `tauri.windows-x86_64.conf.json` is the
-#      reference template).
-#   2. Confirm python-build-standalone publishes an aarch64-pc-windows-msvc
-#      asset for the pinned PYBS_DATE (see https://github.com/astral-sh/
-#      python-build-standalone/releases/tag/$PYBS_DATE). If not, bump
-#      PYBS_DATE to the first release that ships aarch64 Windows.
-#   3. Arch-suffix the artifact names (tauri-windows-installer,
-#      VoiceTyper-Tauri-MSI, VoiceTyper-Tauri-Sidecar-Binaries,
-#      VoiceTyper-Tauri-SHA256SUMS) so the two legs don't collide, and
-#      update tauri-build.yml's `download-artifact` step to match (today
-#      it hardcodes `name: tauri-windows-installer`).
-#   4. Validate the NSIS install, MSI install, sidecar `--version` smoke
-#      test, and SmartScreen dialog manually on the Windows-on-ARM host.
-#
-# Until that validation gate passes, leave the aarch64 leg as a commented
-# matrix template (do NOT re-add it as an active entry — it would schedule
-# on the non-existent `windows-11-arm` runner and there is no valid gate to
-# skip it). The x86_64 leg is unaffected and continues to ship.
-# =============================================================================
+# GATE STATUS — VALIDATE ON WINDOWS HOST (aarch64 / TX-40 / C-CI-4)
+# aarch64 matrix stays a COMMENTED template (no public windows-11-arm runner;
+# matrix unavailable in jobs.<id>.if). x86_64 ships. See docs/code-notes/ci-workflows.md
 
 on:
   workflow_call:
@@ -106,11 +28,7 @@ on:
         required: false
         default: false
         type: boolean
-      # surface PYBS pin as a workflow_call input so the
-      # tauri-build.yml orchestrator can pass through pybs_date / pybs_version
-      # from its own workflow_dispatch inputs (allowing per-dispatch PYBS bump
-      # without editing the workflow file). Defaults match the runbook's pinned
-      # CPython 3.12.8 / 20241219 release.
+      # PYBS pin is a workflow_call/dispatch input (per-dispatch bump, no file edit).
       pybs_date:
         description: "python-build-standalone release date (YYYYMMDD)"
         required: false
@@ -131,101 +49,42 @@ on:
         description: "CPython version (e.g. 3.12.8)"
         required: false
         default: "3.12.8"
-      # surface the sign flag on direct dispatch too (the
-      # tauri-build.yml orchestrator already passes it through as a
-      # workflow_call input) so a maintainer dispatching this workflow
-      # directly from the Actions UI can opt into signing.
+      # sign flag also on direct dispatch (orchestrator passes it via workflow_call).
       sign:
         description: "Code-sign + notarize the bundle (requires secrets)"
         required: false
         default: false
         type: boolean
   # Do NOT enable push/PR triggers until Phase 0-W passes on a real host.
-  # push:
-  #   branches: [main]
-  # pull_request:
-  #   branches: [main]
 
 # CI-08-style concurrency: cancel in-flight PR builds, keep release
-# (workflow_dispatch) builds running. Unconditional `cancel-in-progress:
-# true` would cancel release builds mid-signing if a push landed while
-# notarization was in flight (mirrors tauri-linux-build.yml:54-57).
 concurrency:
   group: tauri-windows-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 # WR-17: top-level least-privilege default. Mirrors the macOS / Linux
-# tauri workflows (tauri-macos-build.yml:59-60, tauri-linux-build.yml:71-72)
 # and the repo-wide CI-08 / XS-28 pinning policy. The job-level block at
-# :88-91 widens this to `id-token: write` + `attestations: write` ONLY on
-# the build job that needs SLSA attestation (gated on workflow_dispatch +
-# inputs.sign — see the attestation step).
 permissions:
   contents: read
 
 env:
   # S5-CR-74: PYBS pin now sourced from BOTH the workflow_call `inputs`
-  # context (used when tauri-build.yml passes pybs_date / pybs_version
-  # through) AND the workflow_dispatch `github.event.inputs` context (used
-  # when this workflow is dispatched directly from the Actions UI). The
-  # `inputs` context is populated for both trigger types on Actions runners
-  # since 2024, but we keep the github.event.inputs fallback for older
-  # self-hosted runner versions.
   # TX-40: PYBS_TRIPLE + RUST_TARGET used to live here as x86_64-pc-windows-msvc
-  # constants. They are now derived per-matrix-leg in the job-level `env:` block
-  # below (the `matrix` context is only available inside jobs, not at the
-  # workflow top level). PYBS_DATE / PYBS_VERSION stay here because they read
-  # from `inputs` / `github.event.inputs`, which ARE available workflow-wide.
   PYBS_DATE: ${{ inputs.pybs_date || github.event.inputs.pybs_date || '20241219' }}
   PYBS_VERSION: ${{ inputs.pybs_version || github.event.inputs.pybs_version || '3.12.8' }}
 
 jobs:
   tauri-windows-build:
     # MIG-1.5: enabled for manual workflow_dispatch triggers.
-    # The real sidecar + native binaries are built inside this job.
-    # Icons (src-tauri/icons/*) are committed real files; binary stubs
-    # (sidecar/prewarm/native placeholders for other platforms) are
-    # generated by gen_tauri_icons_stub.py before the Tauri build step.
-    # See scripts/gen_tauri_icons_stub.py.
-    #
-    # TX-40: the ACTIVE matrix is x86_64-only (runs on windows-2022) —
-    # GitHub does not ship a public aarch64 Windows runner, so an
-    # aarch64 leg cannot be scheduled on this workflow today. The
-    # aarch64 build path is documented as a commented template below
-    # (and in the TX-40 GATE STATUS block at the top of this file) so
-    # it can be re-added with a one-line uncomment when a runner
-    # becomes available. NOTE: the aarch64 leg CANNOT use a
-    # `matrix.enabled` job-level gate — the `matrix` context is NOT
-    # available in `jobs.<id>.if` (GitHub Actions validation rejects
-    # it with "Unrecognized named-value: 'matrix'", failing the
-    # workflow file in 0s on every push). That construct was removed
-    # here because it is invalid, not just a lint squiggle.
-    #
-    # Default filenames produced by the x86_64 leg (matrix.target =
-    # x86_64-pc-windows-msvc). These literals are listed here so the
-    # mig18 signing tests (tests/tauri/mig18/test_windows_signing.py)
-    # that grep for the default binary names keep passing — the actual
-    # build steps below interpolate `python-sidecar-${{ matrix.target }}.exe`,
-    # which resolves to:
-    #   python-sidecar-x86_64-pc-windows-msvc.exe   (x86_64 leg)
+    # MIG-1.5 / TX-40: active matrix is x86_64-only (windows-2022). aarch64 stays a
+    # commented template (C-CI-4: no public windows-11-arm runner; matrix not in
+    # jobs.<id>.if). Default binary names grepped by mig18 signing tests:
+    #   python-sidecar-x86_64-pc-windows-msvc.exe
     #   python-sidecar-aarch64-pc-windows-msvc.exe  (aarch64 template, commented)
-    # NOTE: no prewarm filename — the standalone prewarm binary was
-    # removed per plan-runtime-pack-split.md §6.2 P-1 (see the removal
-    # note at the former prewarm build step).
-    #
-    # AARCH64 LEG TEMPLATE (commented out — VALIDATE ON WINDOWS HOST):
-    # When GitHub ships `windows-11-arm` to public repos, uncomment this
-    # matrix include entry. Also create src-tauri/tauri.windows-aarch64.conf.json
-    # (mirroring tauri.windows-x86_64.conf.json's bundle.resources
-    # narrowing) and arch-suffix the artifact names below
-    # (tauri-windows-installer, VoiceTyper-Tauri-MSI,
-    # VoiceTyper-Tauri-Sidecar-Binaries, VoiceTyper-Tauri-SHA256SUMS) to
-    # avoid collisions with the x86_64 leg's uploads — see the TX-40
-    # GATE STATUS block at the top of this file.
-    #   - arch: aarch64
-    #     target: aarch64-pc-windows-msvc
-    #     runner: windows-11-arm
-    #     tauri_config: tauri.windows-aarch64.conf.json
+    # Artifact names (C-CI-13): tauri-windows-installer, VoiceTyper-Tauri-MSI,
+    # VoiceTyper-Tauri-Sidecar-Binaries, VoiceTyper-Tauri-SHA256SUMS.
+    # If enabling aarch64, also add tauri.windows-aarch64.conf.json + arch-suffix
+    # those artifact names (TX-40 GATE STATUS / docs/code-notes/ci-workflows.md).
     strategy:
       fail-fast: false
       matrix:
@@ -234,49 +93,25 @@ jobs:
             target: x86_64-pc-windows-msvc
             runner: windows-2022
             tauri_config: tauri.windows-x86_64.conf.json
-    # No job-level `if:` — the active matrix contains exactly one leg
-    # (x86_64), so every matrix job should run. Do NOT reintroduce a
-    # `matrix.*` reference here: the `matrix` context is unavailable in
-    # `jobs.<id>.if` and GitHub rejects the workflow file at validation
-    # time (0s failure on every push).
+    # No job-level if: — matrix.* is illegal in jobs.<id>.if (C-CI-4 / TX-40).
     runs-on: ${{ matrix.runner }}
-    # Nuitka + Scons + cl.exe compilation of the Python backend,
-    # prewarm, and Tauri build takes 90-110 min on a windows-2022
-    # runner. Increased from 90 → 120 (2026-07-27) → 240 (2026-07-28)
-    # after a real run hit the 120 min ceiling: the sidecar binary
-    # was built successfully but the job was canceled before prewarm
-    # + tauri + code-sign + upload could complete. 240 min gives
-    # ~2h buffer beyond the typical 100-110 min wall clock, which
-    # absorbs (a) timestamp-server retries during code-signing,
-    # (b) flaky upload retries, and (c) future dependency bumps
-    # that invalidate the Nuitka ccache. If the build still hits
-    # 240 min, the bottleneck is C compilation — add more
-    # --nofollow-import-to exclusions or move to a larger runner.
+    # C-CI-3: timeout-minutes 240 — real build 90-110 min; 120 cancelled mid-build.
+    # Never cut this; if a run hits 240, cut C compilation, not the timeout.
     timeout-minutes: 240
     permissions:
       contents: read
       id-token: write   # required for actions/attest-build-provenance
       attestations: write
     env:
-      # TX-40: target triple sourced from the matrix (x86_64 OR aarch64).
-      # Was a workflow-level `env:` constant before; moved to job-level
-      # because the `matrix` context is only available inside jobs (not
-      # at the workflow top level). PYBS_TRIPLE drives the python-build-
-      # standalone download URL; RUST_TARGET drives the rust-toolchain
-      # install + `cargo tauri build --target` flag.
+      # TX-40: target triple from matrix (x86_64 or aarch64 template); job-level env.
       PYBS_TRIPLE: ${{ matrix.target }}
       RUST_TARGET: ${{ matrix.target }}
-      # CRIT-7: the `secrets` context is NOT available in step `if:`
-      # conditions (GitHub Actions does not populate it there, so the
-      # condition never matches and signing is silently skipped). Map the
-      # signing secrets to job-level env so steps can gate on `env.*`
-      # (empty on PR/fork builds without secrets → signing steps skip).
+      # CRIT-7 / C-CI-11: secrets.* is NOT available in step if: — map to job env first.
+      # (sign=true + missing secrets hard-fail; empty on forks → signing steps skip.)
       WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
       WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
-      # S10-CC-1: disable clcache at job level so Nuitka/SCons subprocess
-      # inherits it. Step-level `$env:CLCACHE_DISABLE = "1"` doesn't
-      # propagate to the C compiler subprocess, causing torch module C
-      # compilation to hang indefinitely and timeout after 90 min.
+      # S10-CC-1 / C-CI-12: CLCACHE_DISABLE must be job-level — step-level does not
+      # reach Nuitka/SCons; torch C compile hangs indefinitely without it.
       CLCACHE_DISABLE: "1"
 
     steps:
@@ -312,11 +147,6 @@ jobs:
             tauri-windows-${{ runner.os }}-
 
       # Nuitka ccache: persist compiled C objects between builds.
-      # Nuitka's C compilation (Scons + cl.exe) is the slowest step
-      # (60-90 min). Caching the nuitka-cache directory means only
-      # changed Python modules get recompiled on subsequent runs.
-      # The key includes a hash of pyproject.toml + requirements-lock.txt
-      # so dependency bumps invalidate the cache.
       - name: Cache Nuitka build artifacts (ccache)
         uses: actions/cache@v5
         with:
@@ -339,11 +169,6 @@ jobs:
         run: npm ci
 
       # do NOT downgrade below 2.8.10. numpy 2.5.x ships PEP 695
-      # type-generic aliases in numpy/_typing/_array_like.py
-      # (`type NDArray[ScalarT: np.generic] = ...`), which crash Nuitka 2.5.x
-      # with "buildTypeAliasNode assert not node.type_params" (Nuitka issue
-      # #3469; generic PEP 695 classes also segfaulted — issue #3392). The
-      # type-alias + generic-class support landed in the 2.8 line.
       - name: Install Python dev deps (uv)
         shell: pwsh
         run: |
@@ -363,11 +188,6 @@ jobs:
           Write-Host "Downloading $url"
           Invoke-WebRequest -Uri $url -OutFile $archive
           # The python-build-standalone releases do NOT have a SHA256SUMS.txt aggregate.
-          # Instead, each individual asset has its own .sha256 file adjacent to it:
-          #   asset:   cpython-3.12.8+20241219-x86_64-pc-windows-msvc-install_only.tar.gz
-          #   checksum: cpython-3.12.8+20241219-x86_64-pc-windows-msvc-install_only.tar.gz.sha256
-          # See https://github.com/astral-sh/python-build-standalone/releases/expanded_assets/{tag}
-          # for the list of all assets and their .sha256 companions.
           $shaUrl = "https://github.com/astral-sh/python-build-standalone/releases/download/$date/$archive.sha256"
           Write-Host "Downloading checksum: $shaUrl"
           Invoke-WebRequest -Uri $shaUrl -OutFile "$archive.sha256"
@@ -387,11 +207,6 @@ jobs:
           # Add PYBS to GITHUB_ENV so subsequent steps can use it.
           echo "PYBS=C:\tools\pybs\python" >> $env:GITHUB_ENV
           # Install the project + Nuitka into the PYBS env (the env that
-          # actually gets frozen). --no-warn-script-location suppresses
-          # pip noise about Scripts/ not being on PATH (PYBS python is
-          # invoked by full path, not via PATH).
-          # keep nuitka>=2.8.10 (same rationale as the uv install
-          # step above — numpy 2.5.x PEP 695 type aliases crash Nuitka <2.8).
           C:\tools\pybs\python\python.exe -m pip install --upgrade --no-warn-script-location pip
           C:\tools\pybs\python\python.exe -m pip install --no-warn-script-location nuitka==2.8.10 zstandard ordered-set
           C:\tools\pybs\python\python.exe -m pip install --no-warn-script-location -e ".[dev,test]"
@@ -405,8 +220,6 @@ jobs:
           $SITE = & $PYBS\python.exe -c "import site; print(site.getsitepackages()[-1])"
           Write-Host "PYBS=$PYBS  SITE=$SITE"
           # ctranslate2 ships DLLs directly in ctranslate2/ (not ctranslate2/lib/).
-          # Build the data-dir flag conditionally so we don't hard-fail if the
-          # layout changes in a future ctranslate2 release.
           $ct2Dir = "$SITE\ctranslate2"
           $dataDirFlag = @()
           if (Test-Path "$ct2Dir\lib") {
@@ -415,29 +228,14 @@ jobs:
             $dataDirFlag = @("--include-data-dir=$ct2Dir=ctranslate2")
           }
           # S4-CR-25 / nu-opt-1: psutil imports ALL platform submodules
-          # (_pslinux, _psosx, _psbsd, _pssunos, _psaix) at the module
-          # root — Nuitka compiles ALL of them on every OS, wasting hours.
-          # These are conditionally imported at runtime via sys.platform
-          # guards; exclude the non-Windows ones to save ~15 min of C
-          # compilation. Also removed deprecated --enable-plugin=numpy.
-          # NU-106 (Phase-1c DONE): torch removed runtime-wide — VAD runs on
-          # ONNX Runtime (silero_vad.onnx), no torch plugin/JIT flags needed.
-          # IPD-1: the frozen sidecar loads package data at import time
-          # (voice_typer/server/hotkey_reserved.json via __file__-relative
-          # path in config_validators/hotkey.py, plus corrections.json,
-          # model_hashes.json, native/binaries.json, silero_vad.jit).
-          # Without --include-package-data these are missing from the
-          # onefile payload and the exe crashes on launch (FileNotFoundError)
-          # even though it BUILDS fine — the CI existence check can't catch
-          # it. Scope to voice_typer.server to avoid copying the client tree.
-          # TX-40: output filename carries the matrix target triple so a
-          # future aarch64 leg produces a distinctly-named binary
-          # (python-sidecar-aarch64-pc-windows-msvc.exe) instead of
-          # silently overwriting the x86_64 build. NOTE: keep this comment
-          # OUTSIDE the backtick-continuation chain below — a comment line
-          # between two backticked args ends the logical line in PowerShell,
-          # and the next `--flag=value` arg then parses as a fresh statement
-          # ("Missing expression after unary operator '--'").
+          # NU-106 / C-CI-8: torch removed runtime-wide (VAD on ONNX). Never re-add
+          # --nofollow-import-to for torch.utils.data.distributed / torch.export /
+          # torch._functorch / torch.testing / torch.package if torch returns.
+          # IPD-1 / C-CI-9: keep --include-package-data=voice_typer.server,
+          # --windows-console-mode=disable, --onefile-tempdir-spec (missing package
+          # data = launch FileNotFoundError that builds fine in CI).
+          # TX-40: output filename carries matrix.target so aarch64 does not overwrite
+          # x86_64 (python-sidecar-aarch64-pc-windows-msvc.exe).
           & $PYBS\python.exe -m nuitka `
               --standalone --onefile `
               --assume-yes-for-downloads `
@@ -480,13 +278,7 @@ jobs:
           $size = (Get-Item "src-tauri\bin\python-sidecar-${{ matrix.target }}.exe").Length / 1MB
           Write-Host "Sidecar binary size: $([math]::Round($size,1)) MB"
 
-      # plan-runtime-pack-split.md §11.4 — Sidecar size gate (HARD-FAIL).
-      # Pre-fix (lines 509-510) only Write-Host-ed the size; a regression
-      # that bloated the sidecar past 185 MB would ship silently. The 185 MB
-      # ceiling is the Phase 1c target: torch removal (Phase 1c DONE) drops
-      # the sidecar from ~200+ MB to ~100 MB; torch removed, gate enforces.
       # Do NOT weaken the threshold to make an oversized bundle pass —
-      # the gate's value IS its strictness.
       - name: Assert sidecar size <= 185 MB (plan §11.4, Phase 1c target)
         shell: pwsh
         run: |
@@ -503,12 +295,6 @@ jobs:
           Write-Host "Sidecar size within 185 MB limit (size gate passed)."
 
       # plan-runtime-pack-split.md §11.3 — Torch-free check (HARD-FAIL when
-      # the script is present). The check is owned by Sub-agent 5 (Phase 1c)
-      # and lives at scripts/build/check_bundle_torch_free.sh. Until Sub-agent
-      # 5 ships the script, this step SKIPS (hashFiles guard) so the gate is
-      # inert; once the script lands the step starts enforcing torch-free on
-      # the freshly built sidecar. The grep pattern (silero_vad.jit + torch.)
-      # catches both the JIT model and the torch package itself.
       - name: Verify sidecar is torch-free (Phase 1c gate, plan §11.3)
         if: ${{ hashFiles('scripts/build/check_bundle_torch_free.sh') != '' }}
         shell: bash
@@ -519,14 +305,6 @@ jobs:
           bash scripts/build/check_bundle_torch_free.sh "$BIN"
 
       # plan-runtime-pack-split.md §4.4 / §11.5 — Worker exe build (Phase 2a).
-      # The worker is the slim-core + runtime-pack split's heavy-ML process:
-      # onnxruntime (VAD + Parakeet) + ctranslate2/faster_whisper (Whisper
-      # fallback) + numpy/scipy/av/pyrnnoise + bundled silero_vad.onnx.
-      # Modeled on the existing prewarm build (a separate Nuitka onefile).
-      # The build script (scripts/build/build_worker_windows.sh) is owned by
-      # Sub-agent 11; until it ships this step SKIPS (hashFiles guard).
-      # Output: src-tauri/bin/voice-typer-worker-<triple>.exe (parallel to
-      # python-sidecar-<triple>.exe — both are externalBin children of Tauri).
       - name: Build the worker binary with Nuitka (Phase 2a, plan §4.4)
         if: ${{ hashFiles('scripts/build/build_worker_windows.sh') != '' }}
         shell: bash
@@ -540,9 +318,6 @@ jobs:
           ls -lh "src-tauri/bin/voice-typer-worker-${{ matrix.target }}.exe"
 
       # plan-runtime-pack-split.md §11.4 — Runtime pack size gate. The pack
-      # IS the worker onefile (single-file compressed payload, per §4.2/§5.3).
-      # Target: ≤200 MB compressed. Only enforced when the worker binary
-      # exists (Phase 2a pending — skip cleanly today).
       - name: Assert runtime pack (worker onefile) size <= 200 MB (plan §11.4, Phase 2c target)
         if: ${{ hashFiles('scripts/build/build_worker_windows.sh') != '' }}
         shell: pwsh
@@ -561,13 +336,6 @@ jobs:
           Write-Host "Runtime pack size within 200 MB limit (size gate passed)."
 
       # NOTE: the standalone prewarm binary was REMOVED per
-      # plan-runtime-pack-split.md §6.2 P-1 (prewarm is now an in-process
-      # startup phase of the worker exe — see ADR-0011 "Status: Superseded"
-      # and tests/test_architecture_doc_accuracy.py's deletion pin). The
-      # former Nuitka prewarm step FATALed on main (2026-09-03): its entry
-      # point voice_typer/server/prewarm/__main__.py no longer exists. Do
-      # NOT re-add a prewarm build step without reversing that plan
-      # decision.
 
       - name: Build the native windows-key-listener (ADR-0020 §6.4)
         shell: pwsh
@@ -578,9 +346,7 @@ jobs:
           }
 
       # TX-23: honor the `sign` workflow_call input instead of gating
-      # purely on secret presence. sign=true + missing secrets = hard
       # fail (a misconfigured release must not silently ship unsigned);
-      # sign=false skips signing even when secrets are present.
       - name: Fail fast — sign=true but signing secrets missing
         if: ${{ inputs.sign == 'true' && (env.WIN_CSC_LINK == '' || env.WIN_CSC_KEY_PASSWORD == '') }}
         shell: pwsh
@@ -589,23 +355,11 @@ jobs:
           exit 1
 
       # S1-CR-99: sign sidecar + native listener. Pre-fix the loop
-      # only covered python-sidecar + prewarm; the native windows-key-listener.exe
       # was bundled into the NSIS installer UNSIGNED. SmartScreen on Windows 11
-      # treats unsigned binaries inside a signed installer as suspicious and
-      # pops a "Windows protected your PC" dialog on first launch — defeating
-      # the value of signing the outer installer. Adding the native listener
-      # to the same foreach loop keeps every Mach-O/PE binary the bundle ships
-      # signed with the same Authenticode cert.
-      #
       # SmartScreen reputation note: a freshly-issued OV certificate starts
       # with "unknown publisher" in SmartScreen and builds reputation over
-      # time + download volume; an EV certificate can earn immediate
-      # reputation. There is no way to force reputation — the mitigation is
       # a stable OV/EV cert, consistent signing, and the SmartScreen
-      # timeline expectations documented in RELEASING.md. The long-term
       # migration path (Azure Trusted Signing) is tracked in the security
-      # roadmap; it replaces the manual PFX material with a managed HSM
-      # identity and is the recommended next step for this repo.
       - name: Sign sidecar + native listener (optional — ADR-0020 §13.1)
         if: ${{ inputs.sign == 'true' && env.WIN_CSC_LINK != '' && env.WIN_CSC_KEY_PASSWORD != '' }}
         shell: pwsh
@@ -617,16 +371,10 @@ jobs:
           $signtool = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe" | Select-Object -First 1 -ExpandProperty FullName
           Write-Host "Using signtool: $signtool"
           # C-BRAND-1: derive the Authenticode description from the branding
-          # source of truth instead of hardcoding the app name here. No
-          # workflow-level env value can read branding.py, so read it once
-          # per step and interpolate into signtool's --description.
           $sigDescMatch = Select-String -Path voice_typer/server/branding.py -Pattern '^APP_NAME\s*=\s*"([^"]+)"' -ErrorAction SilentlyContinue
           if (-not $sigDescMatch) { Write-Error "branding.py APP_NAME not found in workspace"; exit 1 }
           $sigDescription = $sigDescMatch.Matches[0].Groups[1].Value
           # TX-40: signing targets use matrix.target so the aarch64 leg
-          # (when enabled) signs its own binaries, not the x86_64 ones.
-          # (prewarm is ABSENT per plan-runtime-pack-split §6.2 P-1 — see
-          # the removal note at the former prewarm build step.)
           foreach ($exe in @(
                 "src-tauri\bin\python-sidecar-${{ matrix.target }}.exe",
                 "src-tauri\resources\native\windows-key-listener.exe"
@@ -639,16 +387,8 @@ jobs:
             if ($LASTEXITCODE -ne 0) { Write-Error "signtool failed for $exe"; exit 1 }
             & $signtool verify /pa /v $exe
           }
-          # plan-runtime-pack-split.md §11.5 — Worker exe signing (5th binary).
-          # C-CI-11 enumerates 4 signing steps (sidecar+prewarm+native;
-          # NSIS; MSI; standalone exe); the worker is a NEW 5th binary that
-          # must also be Authenticode-signed or SmartScreen will pop on first
-          # launch (same S1-CR-99 rationale as the native listener). USER
-          # must update C-CI-11 to enumerate 5 binaries. Conditional on the
-          # worker binary existing (Phase 2a pending — skip with warning
-          # today so existing 4 signing steps stay unaffected; once the
-          # worker build is wired, this hard-fails if the worker is missing
-          # when sign=true).
+          # C-CI-11 / plan §11.5: worker exe is a 5th Authenticode binary
+          # (same S1-CR-99 SmartScreen rationale; conditional until Phase 2a).
           $workerExe = "src-tauri\bin\voice-typer-worker-${{ matrix.target }}.exe"
           if (Test-Path $workerExe) {
             Write-Host "Signing worker exe (5th binary): $workerExe"
@@ -661,21 +401,9 @@ jobs:
           }
           Remove-Item $pfxPath -Force
 
-      # Fail-fast gate: run the config drift guards BEFORE the build —
-      # identifier↔appId + productName + version parity, bundle.icon↔git
-      # lockstep, and ALL the config↔script pairs (bundle.resources/
-      # externalBin ↔ stub generator registry, tauri-binaries.json ↔
-      # canonical triples + Cargo binary name + launcher install paths,
-      # per-arch config overrides ↔ base config). Same guards the full
-      # suite enforces, but a drift regression dies in seconds instead of
-      # only after the whole test run. MUST stay BEFORE "Generate Tauri
-      # binary stubs" below: the icons module's autouse fixture runs
-      # --clean after each test, which removes freshly-generated STUB
-      # files (real binaries are preserved by the _is_stub_file heuristic).
-      # version parity before any build step: tauri.conf.json / package.json
-      # / Cargo.toml / pyproject.toml must carry the SAME version — a bump
-      # that touched only one file fails in seconds, not after a 30-60 min
-      # build. sync_versions.py is stdlib-only (regex/tomllib fallback).
+      # C-CI-7: fail-fast gates BEFORE cargo tauri build (order: versions --check →
+      # drift pytest → stub generation → --check-icons). Stub gen AFTER drift pytest
+      # (icons --clean deletes fresh stubs). Never remove/reorder these gates.
       - name: Verify version lockstep across layers (fail fast)
         shell: bash
         run: python scripts/build/sync_versions.py --check
@@ -690,49 +418,18 @@ jobs:
             tests/tauri/test_config_script_drift.py \
             -q --no-cov
 
-      # generate placeholder BINARY stubs (sidecar / native / prewarm) if
-      # they don't already exist. The icons are committed real files, so
-      # this step only covers the binaries. The `--check` flag exits 0 iff
-      # all stubs are present AND structurally valid (exact canonical stub
-      # bytes, or a real binary) and 1 otherwise — a truncated/corrupt
-      # stub (partial write, bad checkout) fails the gate in milliseconds
-      # instead of inside cargo tauri build. The `||` falls through to the
-      # generation command only when needed, and generate() also REPAIRS
-      # corrupt stubs (rewrites anything the structural gate rejects).
-      # Stub content + CLI flags verified by reading
-      # scripts/gen_tauri_icons_stub.py (argparse: --check / --clean /
-      # no-flag).
+      # C-CI-7: generate placeholder BINARY stubs (icons are real committed files).
       - name: Generate Tauri binary stubs
         shell: bash
         run: |
           python scripts/gen_tauri_icons_stub.py --check || python scripts/gen_tauri_icons_stub.py
 
       # Fail-fast gate: verify EVERY committed file in tauri.conf.json
-      # bundle.icon exists AND is structurally valid (the 4 PNGs +
-      # icon.ico + icon.icns) before the cargo tauri build. The single
-      # cross-platform gate (--check-icons) reads the icon list from
-      # tauri.conf.json and dispatches each entry to the right validator
-      # by extension; tauri-build hard-fails the whole build when the
-      # platform's icon is missing or corrupt, and a corrupt file would
-      # otherwise only surface minutes into the compile. This gate fails
-      # in <1s instead. CLI flags verified by reading
-      # scripts/gen_tauri_icons_stub.py (argparse: --check /
-      # --check-icons / --clean / no-flag).
       - name: Verify bundle.icon icons are present + valid (fail fast)
         shell: bash
         run: python scripts/gen_tauri_icons_stub.py --check-icons
 
       # TK-48: run the Windows-gated #[cfg(target_os = "windows")] Rust
-      # unit tests (e.g. platform::paths config-dir resolution) on their
-      # NATIVE OS. The Linux smoke job (tauri-linux-build.yml) can only
-      # execute the Linux-gated branches — the Windows branches were
-      # dead-on-arrival in CI before this step. Runs AFTER the binary
-      # stub generation + icon gates above so tauri-build's compile-time
-      # externalBin/resources validation (which reads base
-      # tauri.conf.json, a documented all-platform superset) resolves
-      # every declared path. Mirrors the Linux smoke job's
-      # `cargo test --bin voice-typer-tauri` step (same command, same
-      # placeholders).
       - name: cargo test (Tauri Rust host unit tests — Windows-gated branches)
         shell: pwsh
         working-directory: src-tauri
@@ -741,14 +438,7 @@ jobs:
           # unit tests without paying for integration-test crates.
           cargo test --target ${{ env.RUST_TARGET }} --bin voice-typer-tauri
 
-      # install tauri-cli explicitly. The runner's pre-installed
-      # `cargo-tauri` is unversioned and lags upstream by months; on
-      # windows-2022 it has historically been missing entirely (the
-      # `cargo tauri build` step below would fail with `no such command`).
-      # macOS already has this step at tauri-macos-build.yml:332; Linux
-      # gets the same step in this same WR-17 batch. Pin to ^2.0 so we
-      # stay on the Tauri v2 line (Tauri v3 will be a breaking change
-      # requiring a manual re-evaluation).
+      # WR-17: pin tauri-cli to ^2.0 (major lockstep with Tauri v2).
       - name: Install tauri-cli (v2)
         shell: pwsh
         run: cargo install tauri-cli --version "^2.0"
@@ -757,25 +447,13 @@ jobs:
         shell: pwsh
         run: |
           cd src-tauri
-          # XS-28: apply the per-arch tauri config (matrix.tauri_config —
-          # tauri.windows-x86_64.conf.json for x86_64 today; when the aarch64
-          # leg is enabled it will use tauri.windows-aarch64.conf.json). The
-          # base tauri.conf.json `bundle.resources` array lists every
-          # platform's native binaries (a documented superset for the
-          # mig15/mig16 source-inspection tests) and would hard-fail at the
-          # tauri-build resource-copy step on a Windows host (macOS/Linux-
-          # only files don't exist here).
+          # XS-28 / C-CI-10: apply per-arch tauri config (--target + --config required).
           cargo tauri build --target ${{ matrix.target }} --config ${{ matrix.tauri_config }}
 
       - name: Locate + verify installer artifacts
         id: artifacts
         shell: pwsh
         run: |
-          # ``cargo tauri build --target <triple>`` emits bundles under the
-          # per-target dir (target\<triple>\release\bundle); a build WITHOUT
-          # ``--target`` emits under target\release\bundle. The matrix leg
-          # always passes ``--target`` (even on the x86_64 host runner), so
-          # search the per-target dir first, then the host dir as fallback
           # (mirrors the resource probe below, TX-40).
           $bundleRoots = @(
             "src-tauri\target\${{ matrix.target }}\release\bundle",
@@ -810,22 +488,10 @@ jobs:
           echo "msi_path=$($msi.FullName)" >> $env:GITHUB_OUTPUT
 
       - name: Post-build assertion — bundle has no non-Windows binaries
-        # tauri.windows-x86_64.conf.json narrows ``bundle.resources``
-        # to Windows-only files. If a future regression widens the resource
-        # list (or the --config flag silently stops being applied), the
         # NSIS installer would bundle ~5 unnecessary prewarm binaries +
-        # 2 unnecessary native binaries (macOS + Linux variants), bloating
-        # the installer by ~50-100 MB. This step asserts the bundle
-        # directory does NOT contain any non-Windows prewarm or native
-        # binaries, failing the build if it does.
         shell: pwsh
         run: |
-          # The bundle resources land in src-tauri\target\release\resources\
-          # (per-target: target\<triple>\release\resources\ for cross builds).
-          # We check both because tauri's resource-copy step uses different
-          # paths for cross-target vs host-target builds.
           # TX-40: per-target resource dir uses matrix.target (cargo tauri
-          # build --target <triple> emits under target/<triple>/release/).
           $resourceDirs = @(
             "src-tauri\target\${{ matrix.target }}\release\resources",
             "src-tauri\target\release\resources"
@@ -859,15 +525,8 @@ jobs:
           }
           Write-Host "Bundle contains only Windows binaries (assertion passed)"
 
-      # plan-runtime-pack-split.md §11.4 — Slim core installer size gate
       # (Phase 2c target, ≤45 MB). The slim core is the NSIS installer
-      # AFTER Phase 2c strips ML libs out of the bundle (the ML runtime
       # pack is a separate download per §4.1/§11.6). Today the NSIS
-      # installer is the FULL bundle (~253-259 MB) — this gate WILL fail
-      # today (correct signal). continue-on-error: true keeps CI green
-      # during the Phase 1c → Phase 2c transition; flip to a hard gate
-      # (remove continue-on-error) once Phase 2c is verified on a real
-      # Windows host. The threshold matches plan §2.1 / §5.3 (~35-45 MB).
       - name: Assert slim-core installer size <= 45 MB (plan §11.4, Phase 2c target — informational)
         shell: pwsh
         continue-on-error: true
@@ -903,14 +562,9 @@ jobs:
           & $signtool verify /pa /v "${{ steps.artifacts.outputs.nsis_path }}"
           Remove-Item $pfxPath -Force
 
-      # S1-CR-99: sign the MSI installer. Pre-fix only the NSIS installer
-      # was signed — the MSI (produced by `cargo tauri build` via the WiX
-      # bundler) shipped unsigned, so enterprises that prefer MSI for SCCM /
-      # Intune deployment hit SmartScreen on every install. Tauri does NOT
-      # automatically invoke signCommand on the MSI (it only signs the
-      # NSIS bundle when `bundle.windows.signCommand` is set); we sign the
-      # MSI explicitly here when the secrets are present. Skipped silently
-      # if the MSI wasn't produced (e.g. cargo tauri build only emitted NSIS).
+      # S1-CR-99 / C-CI-11: MSI must be signed too — unsigned MSI inside a signed
+      # NSIS installer trips SmartScreen (Intune deploy hit this). Tauri does NOT
+      # sign the MSI via bundle.windows.signCommand; sign it here when present.
       - name: Sign the final MSI installer (optional — ADR-0020 §13.1)
         if: ${{ inputs.sign == 'true' && env.WIN_CSC_LINK != '' && env.WIN_CSC_KEY_PASSWORD != '' && steps.artifacts.outputs.msi_path != '' }}
         shell: pwsh
@@ -934,14 +588,9 @@ jobs:
           & $signtool verify /pa /v $msi
           Remove-Item $pfxPath -Force
 
-      # S1-CR-99: sign the standalone voice-typer-tauri.exe. Tauri does NOT
-      # automatically invoke signCommand on the top-level exe (it only signs
-      # the NSIS bundle when `bundle.windows.signCommand` is set); the
-      # standalone exe shipped unsigned. Users who run
-      # voice-typer-tauri.exe directly (instead of the installer) hit
-      # SmartScreen on every launch. Sign it explicitly here when the
-      # secrets are present. Skipped silently if the binary wasn't produced
-      # (cross-target builds emit under target/<triple>/release/).
+      # S1-CR-99: sign standalone exe too. SmartScreen reputation: OV builds
+      # over time, EV immediate; migration path Azure Trusted Signing (HSM).
+      # Sign every shipped PE with the same cert (C-CI-11).
       - name: Sign standalone voice-typer-tauri.exe (optional — ADR-0020 §13.1)
         if: ${{ inputs.sign == 'true' && env.WIN_CSC_LINK != '' && env.WIN_CSC_KEY_PASSWORD != '' }}
         shell: pwsh
@@ -965,20 +614,7 @@ jobs:
           & $signtool verify /pa /v $standalone
           Remove-Item $pfxPath -Force
 
-      # smoke test the bundled sidecar binary after `cargo tauri build`.
-      # Pre-fix the Tauri workflows only ran `objdump -p` / `ldd` static checks on
-      # the sidecar — no execution. A Nuitka flag change or Cargo dep bump that
-      # broke the sidecar's `--version` flag (argparse exit path) would only
-      # surface during a release cut. The smoke test here invokes the bundled
-      # sidecar with `--version` (which exits 0 via argparse in
-      # voice_typer/server/ipc/entrypoint.py without acquiring the
-      # single-instance lock) and asserts the output contains the project name
-      # + version — proving the binary actually runs on the host OS, not just
-      # that it has the right ELF/PE headers. Gated on the sidecar existing (it
-      # always does after the build step above). The Nuitka onefile bootloader
       # must extract the ~100 MB payload + import the backend before argparse
-      # exits, so the launch below waits up to 180 s (see the GUI-subsystem
-      # caveat in the step body).
       - name: Smoke test sidecar binary (--version)
         shell: pwsh
         run: |
@@ -987,15 +623,7 @@ jobs:
             Write-Error "Sidecar binary not found at $sidecar — cannot smoke test."; exit 1
           }
           Write-Host "Invoking: $sidecar --version"
-          # GUI-subsystem caveat (important): Nuitka freezes the sidecar
-          # with --windows-console-mode=disable, so the exe is a
-          # GUI-subsystem PE. PowerShell 7 does NOT wait for GUI-subsystem
           # processes launched with `&` and never sets $LASTEXITCODE for
-          # them — the naive `$output = & $sidecar --version 2>&1` pattern
-          # yields empty output + null exit code and always fails the gate
-          # (reproduced with a minimal Nuitka onefile exe on pwsh 7.x).
-          # Launch via .NET Process + WaitForExit so the real exit code
-          # and stdout are captured reliably regardless of subsystem.
           $psi = [System.Diagnostics.ProcessStartInfo]::new()
           $psi.FileName = $sidecar
           $psi.Arguments = "--version"
@@ -1009,9 +637,6 @@ jobs:
           $outTask = $proc.StandardOutput.ReadToEndAsync()
           $errTask = $proc.StandardError.ReadToEndAsync()
           # The onefile bootloader extracts the ~100 MB payload + imports
-          # the backend before argparse exits, so allow up to 180 s; a
-          # genuinely broken binary (hang / crash before --version) fails
-          # the gate instead of burning the whole 240-min job budget.
           if (-not $proc.WaitForExit(180000)) {
             try { $proc.Kill($true) } catch { }
             Write-Error "Sidecar --version did not exit within 180 s. The frozen binary is broken (hung)."; exit 1
@@ -1047,19 +672,10 @@ jobs:
         with:
           name: VoiceTyper-Tauri-Sidecar-Binaries
           # TX-40: paths use matrix.target so the aarch64 leg (when enabled)
-          # uploads its own aarch64 binaries. NOTE: artifact NAME stays
-          # arch-suffix-free to preserve tauri-build.yml's download-artifact
           # step (`name: VoiceTyper-Tauri-Sidecar-Binaries`) — when the
-          # aarch64 leg is enabled, suffix this name with `-${{ matrix.arch }}`
           # and update tauri-build.yml accordingly (see TX-40 GATE STATUS
-          # block at the top of this file).
           # plan-runtime-pack-split.md §11.9 (C-CI-13): the worker exe is a
-          # NEW artifact path (adding, not renaming existing). Conditional
-          # upload — if Phase 2a hasn't shipped build_worker_windows.sh, the
           # worker path glob matches nothing and upload-artifact@v6 silently
-          # omits it (no error). Once Phase 2a lands, the worker is included
-          # in the same Sidecar-Binaries artifact so tauri-build.yml's
-          # existing download picks it up with no orchestrator change.
           path: |
             src-tauri/bin/python-sidecar-${{ matrix.target }}.exe
             src-tauri/resources/native/windows-key-listener.exe
@@ -1071,10 +687,7 @@ jobs:
         run: |
           $checksums = @()
           # TX-40: checksum paths use matrix.target so both legs emit
-          # distinct SHA256SUMS lines for their respective sidecar + prewarm.
           # plan-runtime-pack-split.md §11.9 (C-CI-13): the worker exe is
-          # added to the checksum list (new entry, no rename). Test-Path
-          # guard skips cleanly when the worker is absent (Phase 2a pending).
           foreach ($p in @(
                 "${{ steps.artifacts.outputs.nsis_path }}",
                 "${{ steps.artifacts.outputs.msi_path }}",
@@ -1099,13 +712,7 @@ jobs:
           path: SHA256SUMS.txt
           if-no-files-found: error
 
-      # Record the REAL SHA-256 of this matrix leg's built host binary
-      # (src-tauri/target/<triple>/release/voice-typer-tauri.exe) into
-      # tauri-binaries.json — the integrity manifest the autostart
       # launcher verifies against at login (fail-closed). TX-40: uses
-      # matrix.target so the aarch64 leg (when enabled) writes its own
-      # key. Script is stdlib-only; `python` is the interpreter the gate
-      # above already uses.
       - name: Record Tauri binary SHA-256 (${{ matrix.target }})
         shell: pwsh
         run: |
@@ -1118,6 +725,8 @@ jobs:
         run: |
           python scripts/build/update_tauri_manifests.py --check --triple "${{ matrix.target }}"
 
+      # TX-24 / C-CI-15: tauri-binaries.json is the fail-closed integrity
+      # manifest verified at login; --check aborts on empty/malformed hash.
       - name: Upload updated tauri-binaries.json
         uses: actions/upload-artifact@v6
         with:
@@ -1127,19 +736,12 @@ jobs:
           retention-days: 30
 
       # TX-24: gate SLSA attestation on a manual signed release build
-      # (workflow_dispatch + sign=true) instead of tag pushes — the tag
-      # push trigger is commented out, so the old
       # ``startsWith(github.ref, 'refs/tags/v')`` gate never fired.
-      # PR/fork builds (which lack the job-level id-token:write
-      # permission grant in fork contexts) are excluded.
       - name: Attest build provenance (SLSA)
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.sign == 'true' }}
         uses: actions/attest-build-provenance@v4
         with:
           # plan-runtime-pack-split.md §11.9 (C-CI-13): worker exe added to
-          # the SLSA subject-path (new entry, no rename). The path glob is
-          # inert today (Phase 2a pending); once the worker ships, SLSA
-          # attestation covers it alongside the installers + standalone exe.
           subject-path: |
             ${{ steps.artifacts.outputs.nsis_path }}
             ${{ steps.artifacts.outputs.msi_path }}

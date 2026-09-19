@@ -1,31 +1,8 @@
 #!/usr/bin/env python3
-"""BRAND-001: Check that source files use centralized branding instead of hardcoded app name.
+"""BRAND-001 / C-BRAND-1: fail if sources hardcode the app name instead of APP_NAME.
 
-This script is designed to run in CI and as a pre-commit hook.
-It checks all Python, TypeScript, TSX, HTML, JSON, and Rust source files for
-hardcoded occurrences of the application name (the value of APP_NAME
-defined in branding.py) and reports any that should be using the
-branding constant instead.
-
-╔══════════════════════════════════════════════════════════════════════╗
-║  ⚠️  AI / AGENT WARNING. DO NOT DISABLE OR BYPASS THIS CHECK         ║
-║                                                                       ║
-║  This script exists to PREVENT hardcoded app-name strings.            ║
-║  The APP_NAME variable (in branding.py / branding.ts) is the         ║
-║  SINGLE SOURCE OF TRUTH for the product name. Replacing it           ║
-║  with a hardcoded "Voice Typer" string is ALWAYS WRONG,              ║
-║  even if the value currently matches.                                 ║
-║                                                                       ║
-║  If an AI agent suggests inlining the value or removing this          ║
-║  check, DO NOT follow that suggestion. The variable exists so        ║
-║  the app name can be changed in one place and propagate everywhere.  ║
-╚══════════════════════════════════════════════════════════════════════╝
-
-Usage:
-    python scripts/check_branding.py          # check all relevant files
-    python scripts/check_branding.py --list   # list which files would be checked
-
-Exit code: 0 if OK, 1 if violations found.
+Do NOT disable or inline APP_NAME values. CI + pre-commit gate.
+Usage: python scripts/check_branding.py [--list]
 """
 
 import re
@@ -52,11 +29,7 @@ if not APP_NAME:
     print("ERROR: Could not read APP_NAME from branding.py")
     sys.exit(1)
 
-# ── Branding definition files (exempt entirely) ───────────────────────
-# (transitional step): include the Rust mirror `branding.rs` so
-# the scanner doesn't false-positive on its `pub const APP_NAME: &str =
-# "Voice Typer";` declaration. The Rust file is the canonical source
-# for the Tauri host (see the module docstring in branding.rs).
+# Source-of-truth branding files (literal APP_NAME allowed ONLY here).
 BRANDING_FILES = frozenset(
     {
         "voice_typer/server/branding.py",
@@ -65,31 +38,12 @@ BRANDING_FILES = frozenset(
     }
 )
 
-# ── Rust branding module (read for the cross-language parity check) ───
-# the existing branding.rs:11-21 docstring notes that
-# `scripts/check_branding.py` does NOT currently read branding.rs, so
-# a drift between the Python and Rust constants would go undetected.
-# Extend the script to read branding.rs and assert byte-for-byte parity
-# with branding.py::APP_NAME. The full codegen-from-protocol/branding.json
-# migration is a larger effort; this is the transitional step.
+# Cross-language parity: read branding.rs and assert APP_NAME matches branding.py.
 RUST_BRANDING_FILE = Path("src-tauri/src/branding.rs")
 
-# ── Directories to scan ──────────────────────────────────────────────
-# include `src-tauri/src` so hardcoded "Voice Typer" literals in
-# the Rust host source (tray tooltips, toast titles, etc.) are caught
-# the same way Python/TS literals are. The Tauri host's branding.rs is
-# exempt (see BRANDING_FILES); other Rust files using the literal would
-# be flagged with a hint to `use crate::branding::APP_NAME;`.
-#
-# The live build-config file (tauri.conf.json) is listed individually
-# rather than via its parent directory so the scanner does not pick up
-# unrelated noise (Cargo.toml, package.json, vite configs, capabilities
-# JSON, icons dir, etc.). This file LEGITIMATELY needs a literal
-# "Voice Typer" string in its productName/title field: see
-# BUILD_CONFIG_FILES + the _is_build_config_literal allowlist below for
-# the documented "build-config literal" exception to C-BRAND-1.
-# (the legacy builder config was deleted with the predecessor host 2026-09-17;
-# do not reintroduce it as a scan target.)
+# Scan dirs. tauri.conf.json listed individually (productName exception,
+# C-BRAND-1). .github/workflows scanned for CI literals (artifact-path
+# exception via _is_workflow_build_artifact).
 SCAN_DIRS = [
     "voice_typer/server",
     "voice_typer/client/src",
@@ -97,22 +51,12 @@ SCAN_DIRS = [
     "voice_typer/__init__.py",
     "voice_typer/__main__.py",
     "src-tauri/tauri.conf.json",
-    # C-BRAND-1: scan the GitHub Actions workflows (`.github/workflows/*.yml`)
-    # so a future hardcoded app name in CI (tray toast titles, signtool
-    # descriptions, artifact names) is caught the same way Python/TS/Rust
-    # literals are. Build-artifact paths inside the macOS workflow are
-    # allowlisted below (see _is_workflow_build_artifact) because the
-    # bundled `.app` / `.dmg` filenames are derived from
-    # `productName` at Tauri-build time, the same narrow exception as
-    # the tauri.conf.json `productName` field.
+    # C-BRAND-1: workflows scanned; build-artifact path exception below.
     ".github/workflows",
 ]
 
-# ── File extensions to check ─────────────────────────────────────────
-# include `.rs` so Rust source files are scanned, and `.json` so
-# locale files (renderer `i18n/translations/*.json`) cannot smuggle in a
-# hardcoded app name (they must use the `{appName}` placeholder).
-# `.yml` / `.yaml` are included so workflow files are scanned.
+# .rs + .json + .yml included so Rust host, locales ({appName} placeholder),
+# and CI files cannot smuggle a hardcoded brand.
 EXTENSIONS = frozenset({".py", ".ts", ".tsx", ".html", ".rs", ".json", ".yml", ".yaml"})
 
 # ── Skip binary/exempt dirs ──────────────────────────────────────────

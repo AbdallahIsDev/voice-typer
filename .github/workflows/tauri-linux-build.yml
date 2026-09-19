@@ -1,81 +1,28 @@
-# =============================================================================
-# PINNED ACTION VERSIONS — DO NOT DOWNGRADE (verified 2026-07-24):
-#   actions/checkout@v5       — Node 24 runtime (v4 = Node 20, deprecated)
-#   actions/setup-python@v7   — Node 24 runtime (v5/v6 = Node 20, deprecated)
-#   actions/cache@v5           — Node 24 runtime (v4 = Node 20, deprecated)
-#   actions/setup-node@v7      — Node 24 runtime (v4 = Node 20, deprecated)
-#   actions/upload-artifact@v6 — Node 24 runtime (v5 = Node 20, deprecated)
-#   astral-sh/setup-uv@v7     — Node 24 runtime (v6 = Node 20, deprecated)
-#   dtolnay/rust-toolchain@v1  — Node 24 runtime (@stable = untagged, may resolve to Node 20)
-# See build.yml header for full rationale + breaking-change analysis.
-# =============================================================================
+# PINNED ACTION VERSIONS — DO NOT DOWNGRADE (C-CI-1 / C-CI-5): Node 24 majors only
+# (checkout@v5, cache@v5, setup-node@v7, upload-artifact@v6, setup-uv@v7).
+# See docs/code-notes/ci-workflows.md
 
-# =============================================================================
-# GATE STATUS — ENABLED (Phase 0-L validation runnable via manual dispatch)
-# -----------------------------------------------------------------------------
-# The bundle `build` job (matrix x86_64 + aarch64, fail-fast: false) is
-# ENABLED for Phase 0-L validation: it runs on `workflow_dispatch` (or the
-# tauri-build.yml orchestrator's `workflow_call`) ONLY — never on push/PR,
-# where only the lightweight smoke-cargo-check job runs (see the trigger
-# comment above). The display-dependent smoke tests are documented in
-# docs/migration/linux-validation-runbook.md and must pass on a real Linux
-# display host (X11 + Wayland) before a release cut (Phase 0-L handoff).
-#
-# PHASE 0-L VALIDATION HANDOFF (required before CUTOVER, not before running):
-#   1. A maintainer dispatches this workflow (or the tauri-build.yml
-#      orchestrator with `platform: linux`) — `sign` must stay false
-#      (Linux is unsigned by design, ADR-0020 §13.3; sign=true fails fast).
-#   2. Follow docs/migration/linux-validation-runbook.md — the 9-point
-#      Phase 0-L gate below — on a real Linux display host (X11 + Wayland,
-#      both x86_64 and aarch64).
-#   3. Only after all 9 checks pass on a real host, consider enabling CI
-#      bundle runs on push/PR (ADR-0020 §15 + cutover-playbook.md Step 2).
-#
-# PHASE 0-L 9-POINT GATE STATUS
-# (docs/migration/linux-validation-runbook.md §"9-Point Validation Gate
-# Summary" — all 9 must pass on BOTH X11 AND Wayland, on BOTH arches):
+# GATE STATUS — ENABLED (Phase 0-L validation via workflow_dispatch / workflow_call ONLY)
+# PHASE 0-L 9-POINT GATE STATUS (all 9 must pass on BOTH X11 AND Wayland, both arches):
 #   [ ] 1. externalBin sidecar spawns via Tauri on X11 + Wayland
-#            (sidecar.log shows [SIDECAR] server_started port=N)
 #   [ ] 2. WS + bearer-token handshake works on X11 + Wayland
-#            (log shows WS connected + auth ok)
 #   [ ] 3. faster-whisper transcribes inside the Nuitka exe
-#            (text in focused field within 5s of releasing the hotkey)
-#   [ ] 4. enigo types on X11; clipboard + Ctrl+V fallback (wl-copy) on
-#            Wayland
+#   [ ] 4. enigo types on X11; clipboard + Ctrl+V fallback (wl-copy) on Wayland
 #   [ ] 5. tauri-plugin-notification posts via libnotify on X11 + Wayland
 #   [ ] 6. Cooperative {"type":"shutdown"} exits; kill_children cleans
-#            (no python-sidecar within 2s of window close)
 #   [ ] 7. Prewarm exe registered as systemd user timer
-#            (systemctl --user list-timers voice-typer-prewarm.timer)
-#   [ ] 8. Native linux-key-listener toggles dictation on X11 (XRecord) +
-#            Wayland (libinput/evdev) — F8 starts/stops recording
-#   [ ] 9. Single-instance (lockfile) — second launch focuses first, no
-#            zombie sidecar
-# All 9 pending — host validation has not run yet; tick each off in the
-# runbook as it passes on a real Linux display host. Tauri is the sole
-# Tauri-only production host (cutover 2026-09-17, ADR-0020 Phase 5).
-# =============================================================================
+#   [ ] 8. Native linux-key-listener toggles dictation on X11 (XRecord) + Wayland
+#   [ ] 9. Single-instance (lockfile) — second launch focuses first
+# Display smoke is NOT run in CI (no display server); runbook:
+# docs/migration/linux-validation-runbook.md (X11 + Wayland host, Phase 0-L handoff).
 
 name: Tauri Linux build (Phase 0-L)
 
-# ADR-0020 Phase 0-L: Linux Nuitka sidecar + prewarm + native listener + Tauri bundle.
-# ENABLED for Phase 0-L validation — the bundle `build` job runs on
-# `workflow_dispatch` or the tauri-build.yml orchestrator's `workflow_call`
-# ONLY (never on push/PR — see the push/PR comment below). The build takes
-# 30-60 min per arch and the display-dependent smoke tests are NOT run in CI
-# (no display server); they are documented in
-# (docs/migration/linux-validation-runbook.md) and must pass on a real Linux
-# display host (X11 + Wayland) before a release cut (Phase 0-L handoff).
-#
-# Matrix: builds BOTH x86_64-unknown-linux-gnu AND aarch64-unknown-linux-gnu in
-# parallel. The aarch64 job cross-compiles via qemu-user-static on the x86_64
-# runner (binfmt_misc registers qemu-aarch64-static as the ELF handler for
-# aarch64 binaries so Nuitka can execute the aarch64 python-build-standalone
-# interpreter during compilation). ADR-0020 §4.4 mandates a separate Nuitka
-# build per target triple (Nuitka does NOT cross-compile natively).
-#
-# To dispatch: trigger via workflow_dispatch (arch: x86_64 / aarch64 / both,
-# sign must be false — Linux is unsigned by design, ADR-0020 §13.3).
+# Phase 0-L: Nuitka sidecar + prewarm + native listener + Tauri bundle.
+# ENABLED for Phase 0-L validation — workflow_dispatch / workflow_call ONLY
+# (never push/PR). aarch64 cross-compiles via qemu-user-static (binfmt_misc
+# registers qemu-aarch64-static on the x86_64 runner). sign stays false —
+# Linux unsigned by design (ADR-0020 §13.3). See docs/code-notes/ci-workflows.md
 on:
   workflow_call:
     inputs:
@@ -100,25 +47,13 @@ on:
           - x86_64
           - aarch64
           - both
-      # TX-23: surface the sign flag on direct dispatch (the tauri-build.yml
-      # orchestrator already passes it through as a workflow_call input).
-      # Linux bundles are unsigned by design (ADR-0020 §13.3), so sign=true
-      # fails fast in the build job rather than silently skipping.
+      # TX-23: sign flag on direct dispatch too (orchestrator passes via workflow_call).
       sign:
         description: "Code-sign + notarize the bundle (Linux: always unsigned — sign=true fails fast)"
         required: false
         default: false
         type: boolean
-  # enable push/PR triggers ONLY for the smoke-cargo-check
-  # job below (gated by `if:` on that job). The full bundle `build` job is
-  # gated to `workflow_dispatch` / the orchestrator's `workflow_call` and is
-  # NEVER triggered by push/PR (a plain `if: true` would fire the 30-60 min
-  # x2-arch bundle build on every push touching src-tauri/** — ADR-0020 §15).
-  # This gives us continuous CI verification that the Tauri Rust host still
-  # compiles on every push to main + every PR — catching Cargo dep bumps, Rust
-  # toolchain regressions, and tauri.conf.json edits that would break the
-  # bundle build BEFORE a maintainer dispatches it. Without this, the entire
-  # Tauri migration target (ADR-0020) had ZERO CI coverage.
+  # C-CI-4: NEVER enable push/PR triggers (if: true would fire 30-60 min builds).
   push:
     branches: [main]
     paths:
@@ -144,22 +79,10 @@ permissions:
 
 jobs:
   # lightweight smoke job that runs `cargo check` on the
-  # Tauri Rust host for x86_64-unknown-linux-gnu. Runs on EVERY push to main +
-  # every PR (gated by the push/PR triggers above with path filters). The full
-  # bundle `build` job (`build` below) runs on workflow_dispatch / workflow_call
-  # only — this smoke job gives us early signal that the Rust host still
-  # compiles, tauri.conf.json is still valid, and Cargo deps still resolve,
-  # without paying the 30-60 min Nuitka+Tauri bundle cost. Runs in ~2-3 min on
-  # a warm runner.
   smoke-cargo-check:
     if: github.event_name == 'push' || github.event_name == 'pull_request'
     runs-on: ubuntu-22.04
     # 15m was too tight once cargo test was added. The first run on a
-    # cold cache (no prior successful run ever saved the actions/cache blob)
-    # compiles the full Tauri dep tree for BOTH `cargo check --all-targets`
-    # and the `cargo test` build — that alone can exceed 15 minutes. Bumped
-    # to 60m so cold-cache runs (and slow ubuntu-22.04 runners) complete;
-    # warm-cache runs still finish in ~2-3 min as the step comments state.
     timeout-minutes: 60
     permissions:
       contents: read
@@ -188,11 +111,7 @@ jobs:
             tauri-linux-smoke-${{ env.RUST_TARGET }}-
             tauri-linux-x86_64-
 
-      # Install ONLY the system headers `cargo check` needs to resolve the
       # Tauri webkit2gtk / glib / gtk sys crates. We do NOT install
-      # nuitka / python-build-standalone / pyinstaller — those are only
-      # needed by the full bundle job. This keeps the smoke job fast (~2 min
-      # for apt + ~1 min for cargo check on a warm cache).
       - name: Install system deps (apt — headers only)
         run: |
           sudo apt-get update
@@ -203,22 +122,7 @@ jobs:
             librsvg2-dev \
             pkg-config libssl-dev
 
-      # tauri_build::build() validates externalBin AND
-      # resources paths exist at compile time. Neither the sidecar binary
-      # (needs Nuitka + python-build-standalone) nor the per-OS native
-      # key-listeners / prewarm binaries (need MSVC / clang / the host OS)
-      # are built in the smoke job. We create dummy placeholder files for
-      # EVERY path declared in tauri.conf.json's `bundle.externalBin` +
-      # `bundle.resources` so cargo check can resolve the build script
-      # validation regardless of which OS the smoke job runs on.
-      #
-      # NOTE: `cargo check` reads `tauri.conf.json` directly (NOT the
-      # per-platform override like `tauri.linux-x86_64.conf.json` — that
-      # merge only happens at `tauri build` time via the Tauri CLI). So
       # the placeholders below MUST cover Windows + macOS + Linux
-      # resources, not just Linux ones. Without this, the build script
-      # fails with: `resource path 'resources/native/windows-key-listener.exe'
-      # doesn't exist`.
       - name: Create dummy sidecar + resource placeholders (for cargo check)
         working-directory: src-tauri
         run: |
@@ -229,9 +133,6 @@ jobs:
           echo '#!/bin/sh' > "bin/python-sidecar-${TRIPLE}"
           chmod +x "bin/python-sidecar-${TRIPLE}"
           # Also stub the other 6 triples — tauri.conf.json's externalBin
-          # entry is `bin/python-sidecar` and Tauri appends the host triple
-          # at bundle time, but cargo check only validates the host triple.
-          # Stub them anyway for safety (cost is zero).
           for t in \
             x86_64-pc-windows-msvc \
             aarch64-pc-windows-msvc \
@@ -243,11 +144,6 @@ jobs:
             chmod +x "bin/python-sidecar-${t}"
           done
           # 1b. Runtime-pack ML worker binary (externalBin entry
-          # `bin/voice-typer-worker`, same triple-appending rule — added
-          # by the runtime-pack split, plan-runtime-pack-split §6.2).
-          # Without this stub the tauri-build build script fails cargo
-          # check with: `resource path bin/voice-typer-worker-<triple>
-          # doesn't exist`.
           echo '#!/bin/sh' > "bin/voice-typer-worker-${TRIPLE}"
           chmod +x "bin/voice-typer-worker-${TRIPLE}"
           for t in \
@@ -285,10 +181,6 @@ jobs:
             [ -f "resources/linux-scripts/${f}" ] || echo 'placeholder' > "resources/linux-scripts/${f}"
           done
           # 5. Tauri icon files (not tracked in git — tauri.conf.json
-          # bundles icons at build time). cargo check invokes
-          # tauri_build::build() which validates EVERY icon declared in
-          # tauri.conf.json exists at compile time. Without these stubs,
-          # the smoke job fails with "failed to open icon icons/32x32.png".
           mkdir -p icons
           for icon in 32x32.png 128x128.png 128x128@2x.png icon.png; do
             [ -f "icons/${icon}" ] || python3 -c "
@@ -319,14 +211,9 @@ jobs:
         working-directory: src-tauri
         run: |
           # Use the per-platform config so cargo parses the same
-          # tauri.linux-x86_64.conf.json the bundle build will use — catches
-          # drift in the config file before it surfaces at bundle time.
           cargo check --target ${{ env.RUST_TARGET }} --all-targets
 
       # rustfmt gate: the Rust host must stay uniformly formatted.
-      # The rustfmt component is installed by the dtolnay step above
-      # (and by the repo's src-tauri/rust-toolchain.toml); the locked
-      # style lives in src-tauri/rustfmt.toml. Any drift fails here.
       - name: cargo fmt --check (Tauri Rust host formatting gate)
         working-directory: src-tauri
         run: |
@@ -334,51 +221,27 @@ jobs:
 
       # TX-22: run the Rust unit tests — 331 tests across 16 source
       # files previously NEVER executed in CI (cargo check only compiled
-      # them, so Rust-side bugs went undetected). `--lib` covers the
-      # unit tests in src-tauri/src/*.rs without paying the cost of any
-      # integration-test crates. The placeholder stubs above satisfy the
-      # tauri-build resource/icon validation at compile time, so the
-      # same stub set works for the test build.
       - name: cargo test (Tauri Rust host unit tests)
         working-directory: src-tauri
         run: |
           # voice-typer-tauri is a binary-only crate (no lib target), so
-          # `--lib` fails with "no library targets found". `--bin` runs
-          # the unit tests in src-tauri/src/*.rs without paying the cost
-          # of any integration-test crates.
           cargo test --target ${{ env.RUST_TARGET }} --bin voice-typer-tauri
 
       - name: Validate tauri.conf.json (parse-only)
         working-directory: src-tauri
         run: |
           # cargo check above does NOT validate the tauri.conf.json schema;
-          # tauri-build (the build script) validates it at bundle time.
-          # Use Python's json module for a cheap parse-only check that
-          # catches malformed JSON (a typo in a recent edit broke the
-          # bundle build for 3 days before someone noticed). Schema
-          # validation remains deferred to the bundle job.
           python3 -c "import json; json.load(open('tauri.conf.json')); json.load(open('tauri.linux-x86_64.conf.json')); print('tauri.conf.json + tauri.linux-x86_64.conf.json parse OK')"
 
   build:
     # ENABLED for Phase 0-L validation — runs on workflow_dispatch or the
-    # tauri-build.yml orchestrator's workflow_call ONLY, NOT on push/PR.
     # Plain `if: true` would also fire this 30-60 min x2-arch bundle build on
-    # every push/PR touching src-tauri/** (the workflow has live push/PR
-    # triggers for the smoke-cargo-check job), contradicting ADR-0020 §15.
     # The gate mirrors tauri-macos-build.yml's enablement; the Phase 0-L
     # display-host validation (docs/migration/linux-validation-runbook.md,
     # X11 + Wayland) remains a manual precondition before a release cut.
     if: github.event_name == 'workflow_dispatch' || github.event_name == 'workflow_call'
     runs-on: ubuntu-22.04
     timeout-minutes: 90
-    # job-level permissions widen the top-level `contents: read`
-    # default (:71-72) with the two scopes required for SLSA build
-    # provenance attestation via actions/attest-build-provenance@v4 —
-    # mirrors tauri-windows-build.yml:88-91 and tauri-macos-build.yml:254-257.
-    # `id-token: write` lets the job mint an OIDC token for the attestation
-    # signing identity; `attestations: write` lets it write the attestation
-    # record to the repo. Both are no-ops on PR/fork builds (the `if:` gate
-    # on the attestation step below restricts it to workflow_dispatch +
     # inputs.sign — TX-24).
     permissions:
       contents: read
@@ -386,8 +249,6 @@ jobs:
       attestations: write
     strategy:
       # Fail fast = false so an aarch64 build failure doesn't hide an x86_64
-      # success (and vice versa). ADR-0020 §"Reversibility": each platform's
-      # cutover is independent.
       fail-fast: false
       matrix:
         arch:
@@ -404,10 +265,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
 
-      # honor the `sign` workflow_call input. Linux bundles are
-      # unsigned by design (ADR-0020 §13.3 — no Linux signing secrets
       # exist), so sign=true is a misconfiguration and must fail fast
-      # rather than silently producing an unsigned "release" build.
       - name: Fail fast — sign=true is not supported on Linux
         if: ${{ inputs.sign == 'true' }}
         run: |
@@ -423,8 +281,6 @@ jobs:
         uses: astral-sh/setup-uv@v7
         with:
           # enable uv's own dependency cache so a warm
-          # runner re-uses the wheel cache across runs (saves ~2-3 min
-          # on the Nuitka-free install step).
           enable-cache: true
           cache-dependency-glob: "**/pyproject.toml"
 
@@ -435,9 +291,6 @@ jobs:
           targets: ${{ env.BUILD_ARCH == 'aarch64' && 'aarch64-unknown-linux-gnu' || 'x86_64-unknown-linux-gnu' }}
 
       # cache the cargo registry + src-tauri/target
-      # tree so a warm runner skips re-fetching crates and re-compiling
-      # unchanged dependencies. Keyed on arch + Cargo.lock hash so any
-      # dep bump cleanly invalidates the cache.
       - name: Cache cargo registry + target
         uses: actions/cache@v5
         with:
@@ -459,20 +312,11 @@ jobs:
           cache-dependency-path: voice_typer/client/package-lock.json
 
       - name: Install system deps (apt)
-        # ADR-0020 §4.4 + §13.3 system deps:
-        #   - libwebkit2gtk-4.1-dev: build-time headers for cargo tauri build
-        #     (the runtime webkit2gtk-4.1-0 is pulled in transitively).
-        #   - libnotify4: runtime toast notification (libnotify).
         #   - libxtst6: XTest extension for pynput/enigo X11 keystroke injection.
         #   - wl-clipboard: provides wl-copy/wl-paste for ADR-0020 §6.6 Wayland
-        #     clipboard fallback (voice_typer/server/clipboard.py::_linux_copy).
         #   - xclip: X11 clipboard fallback (pyperclip backend).
-        #   - libgtk-3-dev / libayatana-appindicator3-dev / librsvg2-dev: Tauri
-        #     tray + appindicator + icon rendering.
-        #   - patchelf: required by Nuitka --standalone on Linux.
         #   - qemu-user-static + binfmt-support: cross-arch aarch64 builds.
         #   - gcc-aarch64-linux-gnu: S2-CR-67 cross-compiler for the native
-        #     linux-key-listener on aarch64 (so aarch64 users get native
         #     hotkeys instead of falling back to X11 global-shortcut only).
         run: |
           sudo apt-get update
@@ -488,8 +332,6 @@ jobs:
         if: env.BUILD_ARCH == 'aarch64'
         run: |
           # Register qemu-aarch64-static as the binfmt_misc handler for aarch64 ELF.
-          # This lets Nuitka execute the aarch64 python-build-standalone interpreter
-          # during compilation on the x86_64 CI runner.
           sudo update-binfmts --enable qemu-aarch64 || true
           # Verify the handler is registered.
           cat /proc/sys/fs/binfmt_misc/qemu-aarch64 || true
@@ -507,11 +349,6 @@ jobs:
           PYBS_DIR="$PWD/.python-build-standalone"
           mkdir -p "$PYBS_DIR"
           # Fetch the latest cpython-3.12.x release for the target triple.
-          # The astral-sh/python-build-standalone releases tag is "20240415" etc.
-          # We use the GitHub API to find the latest release that has a matching asset.
-          # BUILD-N05: the canonical upstream is now astral-sh/python-build-standalone
-          # (the project was donated by indygreg to astral-sh in 2024; the indygreg
-          # org still serves a redirect but new releases are published under astral-sh).
           API_URL="https://api.github.com/repos/astral-sh/python-build-standalone/releases/latest"
           ASSET_PATTERN="cpython-3.12.*+${TRIPLE}-install_only.tar.gz"
           echo "Querying $API_URL for asset matching $ASSET_PATTERN"
@@ -539,8 +376,6 @@ jobs:
 
       - name: Install faster-whisper + ctranslate2 + websockets into pybs env
         # ADR-0020 §4.4: Nuitka needs faster_whisper + ctranslate2 + websockets
-        # installed in the python-build-standalone env so --include-package picks
-        # them up. numpy is pulled in transitively by faster-whisper.
         run: |
           set -euo pipefail
           PYBS_PY="$PWD/.python-build-standalone/python/bin/python3"
@@ -553,10 +388,6 @@ jobs:
         run: bash scripts/build/build_native_listener_linux.sh
 
       - name: Cross-compile native key-listener (Linux, aarch64)
-        # aarch64 linux-key-listener is now cross-compiled on the
-        # x86_64 runner using gcc-aarch64-linux-gnu (installed above). This
-        # gives aarch64 users native evdev-based hotkeys (modifier-only
-        # hotkeys like bare Caps Lock) instead of falling back to the
         # X11-only Tauri global-shortcut plugin.
         if: env.BUILD_ARCH == 'aarch64'
         run: |
@@ -578,8 +409,6 @@ jobs:
           VOICE_TYPER_PYBS_DIR: ${{ github.workspace }}/.python-build-standalone
 
       # plan-runtime-pack-split.md §11.4 — Sidecar size gate (HARD-FAIL).
-      # Phase 1c target: ≤185 MB. Phase 1c DONE (torch removed from the
-      # bundle) — torch removed, gate enforces. Mirrors the Windows/macOS gates.
       - name: Assert sidecar size <= 185 MB (plan §11.4, Phase 1c target, ${{ env.BUILD_ARCH }} leg)
         run: |
           set -euo pipefail
@@ -595,8 +424,6 @@ jobs:
           echo "Sidecar size within 185 MB limit (size gate passed)."
 
       # plan-runtime-pack-split.md §11.3 — Torch-free check (HARD-FAIL when
-      # the script is present). Owned by Sub-agent 5 (Phase 1c). Until the
-      # script ships this step SKIPS (hashFiles guard).
       - name: Verify sidecar is torch-free (Phase 1c gate, plan §11.3, ${{ env.BUILD_ARCH }} leg)
         if: ${{ hashFiles('scripts/build/check_bundle_torch_free.sh') != '' }}
         run: |
@@ -607,15 +434,6 @@ jobs:
           bash scripts/build/check_bundle_torch_free.sh "$BIN"
 
       # plan-runtime-pack-split.md §4.4 / §11.5 — Worker exe build (Phase 2a).
-      # The worker is the slim-core + runtime-pack split's heavy-ML process:
-      # onnxruntime (VAD + Parakeet) + ctranslate2/faster_whisper (Whisper
-      # fallback) + numpy/scipy/av/pyrnnoise + bundled silero_vad.onnx.
-      # Build script (scripts/build/build_worker_linux.sh) is owned by
-      # Sub-agent 11; until it ships this step SKIPS (hashFiles guard).
-      # Output: src-tauri/bin/voice-typer-worker-<triple> (parallel to
-      # python-sidecar-<triple> — both are externalBin children of Tauri).
-      # Linux worker is UNSIGNED by design (ADR-0020 §13.3 — no Linux
-      # signing secrets exist; sign=true fails fast at lines 393-397).
       - name: Build worker (${{ env.BUILD_ARCH }}, Phase 2a, plan §4.4)
         if: ${{ hashFiles('scripts/build/build_worker_linux.sh') != '' }}
         run: bash scripts/build/build_worker_linux.sh "$BUILD_ARCH"
@@ -623,9 +441,6 @@ jobs:
           VOICE_TYPER_PYBS_DIR: ${{ github.workspace }}/.python-build-standalone
 
       # plan-runtime-pack-split.md §11.4 — Runtime pack size gate. The pack
-      # IS the worker onefile (single-file compressed payload, per §4.2/§5.3).
-      # Target: ≤200 MB compressed. Only enforced when the worker binary
-      # exists (Phase 2a pending — skip cleanly today).
       - name: Assert runtime pack (worker onefile) size <= 200 MB (plan §11.4, Phase 2c target, ${{ env.BUILD_ARCH }} leg)
         if: ${{ hashFiles('scripts/build/build_worker_linux.sh') != '' }}
         run: |
@@ -659,8 +474,6 @@ jobs:
           test -x "$BIN"      || { echo "MISSING: $BIN";      exit 1; }
           test -x "$PREWARM"  || { echo "MISSING: $PREWARM";  exit 1; }
           # S2-CR-67: native listener is now built for BOTH arches (x86_64
-          # via build_native_listener_linux.sh, aarch64 via cross-compile
-          # with aarch64-linux-gnu-gcc). Require it for both.
           test -x "$LISTENER" || { echo "MISSING: $LISTENER"; exit 1; }
           # Use objdump -p for cross binaries (ldd can't run aarch64 ELF on
           # x86_64 without qemu running in the right mode); ldd for native.
@@ -687,15 +500,9 @@ jobs:
             fi
           done
 
-      # smoke test the bundled sidecar binary AFTER the static
-      # `ldd` / `objdump` checks above. Pre-fix the Tauri Linux workflow
       # never executed the sidecar — a Nuitka flag change that broke the
-      # `--version` exit path (argparse exits 0 without acquiring the
-      # single-instance lock per ipc_server.py:2796-2815) would only
-      # surface during a release cut. The aarch64 binary is executable on
       # the x86_64 runner because qemu-user-static is registered as the
       # binfmt_misc handler (see the "Enable qemu binfmt" step above),
-      # so this smoke test covers BOTH arches. Runs in <2s.
       - name: Smoke test sidecar binary (--version)
         run: |
           set -euo pipefail
@@ -726,21 +533,8 @@ jobs:
           npm ci
           npm run build:renderer
 
-      # Fail-fast gate: run the config drift guards BEFORE the build —
-      # identifier↔appId + productName + version parity, bundle.icon↔git
-      # lockstep, and ALL the config↔script pairs (bundle.resources/
-      # externalBin ↔ stub generator registry, tauri-binaries.json ↔
-      # canonical triples + Cargo binary name + launcher install paths,
-      # per-arch config overrides ↔ base config). Same guards the full
-      # suite enforces, but a drift regression dies in seconds instead of
       # only after the whole test run. MUST stay BEFORE "Generate Tauri
-      # binary stubs" below: the icons module's autouse fixture runs
-      # --clean after each test, which removes freshly-generated STUB
-      # files (real binaries are preserved by the _is_stub_file heuristic).
-      # version parity before any build step: tauri.conf.json / package.json
       # / Cargo.toml / pyproject.toml must carry the SAME version — a bump
-      # that touched only one file fails in seconds, not after a 30-60 min
-      # build. sync_versions.py is stdlib-only (regex/tomllib fallback).
       - name: Verify version lockstep across layers (fail fast)
         run: python3 scripts/build/sync_versions.py --check
 
@@ -754,81 +548,30 @@ jobs:
             -q --no-cov
 
       # generate placeholder BINARY stubs (sidecar / native / prewarm) if
-      # they don't already exist. The icons are committed real files, so
-      # this step only covers the binaries. The `--check` flag exits 0 iff
-      # all stubs are present AND structurally valid (exact canonical stub
-      # bytes, or a real binary) and 1 otherwise — a truncated/corrupt
-      # stub fails the gate in milliseconds instead of inside cargo tauri
-      # build. The `||` falls through to the generation command only when
-      # needed, and generate() also REPAIRS corrupt stubs. CLI flags
-      # verified by reading scripts/gen_tauri_icons_stub.py (argparse:
-      # --check / --clean / no-flag = generate).
       - name: Generate Tauri binary stubs
         run: |
           python3 scripts/gen_tauri_icons_stub.py --check || python3 scripts/gen_tauri_icons_stub.py
 
       # Fail-fast gate: verify the COMMITTED bundle.icon PNGs (32x32.png,
-      # 128x128.png, 128x128@2x.png, icon.png — read from tauri.conf.json)
-      # exist AND are structurally valid before the cargo tauri build.
-      # Fail-fast gate: verify EVERY committed file in tauri.conf.json
-      # bundle.icon exists AND is structurally valid (the 4 PNGs +
-      # icon.ico + icon.icns) before the cargo tauri build. The single
-      # cross-platform gate (--check-icons) reads the icon list from
-      # tauri.conf.json and dispatches each entry to the right validator
-      # by extension; tauri-build hard-fails the whole build when the
-      # platform's icon is missing or corrupt, and a corrupt file would
-      # otherwise only surface minutes into the compile. This gate fails
-      # in <1s instead. CLI flags verified by reading
-      # scripts/gen_tauri_icons_stub.py (argparse: --check /
-      # --check-icons / --clean / no-flag).
       - name: Verify bundle.icon icons are present + valid (fail fast)
         run: python3 scripts/gen_tauri_icons_stub.py --check-icons
 
-      # install tauri-cli explicitly. The runner's pre-installed
-      # `cargo-tauri` is unversioned and lags upstream by months; on
-      # ubuntu-22.04 it has historically been missing entirely (the
-      # `cargo tauri build` step below would fail with `no such command`).
-      # macOS already has this step at tauri-macos-build.yml:356; Windows
       # gets the same step in this same WR-17 batch. Pin to ^2.0 so we
-      # stay on the Tauri v2 line.
       - name: Install tauri-cli (v2)
         run: cargo install tauri-cli --version "^2.0"
 
       - name: Build Tauri app (${{ env.BUILD_ARCH }})
         # ADR-0020 Phase 0-L gate: cargo tauri build needs webkit2gtk-4.1-dev +
-        # libgtk-3-dev, which we installed above. The build runs headless because
-        # the Tauri host doesn't open a window during `cargo tauri build`.
         # Smoke tests that need a display are documented in the runbook
-        # (docs/migration/linux-validation-runbook.md) and run manually.
-        #
-        # fix: the base `tauri.conf.json` `bundle.resources` lists every
-        # platform's native binaries PLUS both prewarm arches (a documented
-        # superset — required so the Windows/macOS source-inspection tests under
-        # tests/tauri/mig15 + mig16 keep passing). On a Linux runner those
         # cross-OS / other-arch files do NOT exist, so `cargo tauri build` would
-        # fail at the tauri-build resource-copy step (it canonicalizes each
-        # declared resource and hard-fails on any missing file — tauri-build
-        # lib.rs copy_resources). We override `resources` PER-ARCH with a
-        # `--config` file whose `bundle.resources` array REPLACES the base's
-        # (Tauri deep-merges objects but overwrites conflicting values,
-        # including arrays — verified against tauri-cli 2.11.4). Both x86_64
-        # and aarch64 ship linux-key-listener (x86_64 built natively via
-        # compile_native.sh; aarch64 cross-compiled via aarch64-linux-gnu-gcc
-        # in the compile step above). Both arches include linux-key-listener
-        # in tauri.linux-<arch>.conf.json bundle.resources.
         run: |
           TRIPLE="${BUILD_ARCH}-unknown-linux-gnu"
           cd src-tauri
           cargo tauri build --target "$TRIPLE" --config "tauri.linux-${BUILD_ARCH}.conf.json"
 
-      # T4 (post-build integration): the real /proc parent-chain walker
       # (server_platform/linux_proc_walk.py) must terminate cleanly (never
       # raise, never loop) against the runner's LIVE /proc tree, and the
       # fixture-free public resolver must agree with an independent read of
-      # the current chain. Linux has no `*.app` bundles, so the walker's
-      # return value is a documented `None` — the walk itself is the
-      # contract, and a regression in the /proc parsing dies here on the
-      # real Linux runner instead of on a user machine.
       - name: Verify Linux /proc chain walk (real /proc, post-build)
         run: |
           python3 -m pytest \
@@ -842,10 +585,6 @@ jobs:
           find "src-tauri/target/release/bundle" -type f 2>/dev/null | sort
 
       # the orchestrator (tauri-build.yml::aggregate) downloads the
-      # artifact named `tauri-linux-installer`. The .deb is the primary
-      # installer for Debian/Ubuntu (the largest Linux install base); we
-      # also upload .AppImage and .rpm as separate artifacts for users on
-      # other distros (CI-3 — previously .rpm was not uploaded at all).
       - name: Upload .deb artifact
         uses: actions/upload-artifact@v6
         with:
@@ -865,9 +604,6 @@ jobs:
           if-no-files-found: warn
 
       # previously only .deb + .AppImage were uploaded; .rpm was
-      # silently dropped. Fedora/RHEL/openSUSE users couldn't download a
-      # native package. Upload it as its own artifact so the Fedora
-      # subgraph of Linux users can grab the .rpm without rebuilding.
       - name: Upload .rpm artifact
         uses: actions/upload-artifact@v6
         with:
@@ -877,15 +613,7 @@ jobs:
             src-tauri/target/release/bundle/rpm/*.rpm
           if-no-files-found: warn
 
-      # plan-runtime-pack-split.md §11.6 — Worker (runtime pack) is a
-      # SEPARATE DOWNLOAD on Linux, NOT bundled in the .deb/.rpm/AppImage.
-      # The slim-core .deb ships without the heavy ML deps; the worker
-      # onefile (the runtime pack) is uploaded as its own artifact so the
-      # silent background downloader (§4.8) can fetch it post-install.
-      # Linux worker is UNSIGNED by design (ADR-0020 §13.3 — no Linux
-      # signing secrets exist; sign=true fails fast at lines 393-397).
       # C-CI-13: NEW artifact name (adding, not renaming existing). The
-      # worker binary path glob is inert today (Phase 2a pending); once
       # the worker ships, upload-artifact@v6 picks it up automatically.
       - name: Upload worker (runtime pack) artifact — Linux separate download
         uses: actions/upload-artifact@v6
@@ -898,12 +626,6 @@ jobs:
           retention-days: 30
 
       # plan-runtime-pack-split.md §11.4 — Slim core .deb size gate
-      # (Phase 2c target, ≤45 MB). Today the .deb is the FULL bundle
-      # (~250+ MB) — this gate WILL fail today (correct signal).
-      # continue-on-error: true keeps CI green during the Phase 1c →
-      # Phase 2c transition; flip to a hard gate (remove continue-on-error)
-      # once Phase 2c is verified on a real Linux host. Mirrors the
-      # Windows slim-core gate.
       - name: Assert slim-core .deb size <= 45 MB (plan §11.4, Phase 2c target — informational)
         continue-on-error: true
         run: |
@@ -936,12 +658,6 @@ jobs:
           if-no-files-found: warn
 
       # generate SHA-256 checksums for the .deb + .AppImage + .rpm
-      # installers, mirroring tauri-windows-build.yml:368-393. Linux uses
-      # GNU `sha256sum`. The matrix fans out per arch (x86_64, aarch64)
-      # so each arch leg produces its own SHA256SUMS.txt — the artifact
-      # name is parameterized on BUILD_ARCH to avoid clobbering. Output
-      # format is `<hash>  <basename>` so users can verify with
-      # `sha256sum -c SHA256SUMS.txt` on any Linux distro.
       - name: Generate SHA-256 checksums
         run: |
           set -euo pipefail
@@ -959,10 +675,6 @@ jobs:
             echo "$hash  $name" >> SHA256SUMS.txt
           done
           # plan-runtime-pack-split.md §11.9 (C-CI-13): the worker exe is
-          # added to the Linux checksum list (new entry, no rename). The
-          # worker is a separate download on Linux (§11.6) so its checksum
-          # is critical for the silent background downloader's verify-
-          # before-use gate. Conditional — Phase 2a pending today.
           for f in \
               src-tauri/bin/voice-typer-worker-x86_64-unknown-linux-gnu \
               src-tauri/bin/voice-typer-worker-aarch64-unknown-linux-gnu; do
@@ -974,9 +686,6 @@ jobs:
           echo "Generated SHA256SUMS.txt for $BUILD_ARCH:"
           cat SHA256SUMS.txt
           # Fail loudly if no installers were found (mirrors the Windows
-          # workflow's if-no-files-found: error policy on its checksums
-          # upload — a silent empty checksums file would give a false
-          # sense of verification coverage).
           if [ ! -s SHA256SUMS.txt ]; then
             echo "::error::No .deb/.AppImage/.rpm installers found for $BUILD_ARCH — SHA256SUMS.txt is empty."
             exit 1
@@ -991,12 +700,6 @@ jobs:
           retention-days: 30
 
       # Record the REAL SHA-256 of this arch leg's built host binary into
-      # tauri-binaries.json — the integrity manifest the autostart
-      # launcher verifies against at login (fail-closed). Each matrix leg
-      # hashes ONLY its own key (x86_64 leg → linux-x86_64, aarch64 leg →
-      # linux-aarch64), leaving the other leg's key untouched; the
-      # tauri-build.yml aggregate job merges the two manifests. Script is
-      # stdlib-only, so it runs with the plain `python3` the gate uses.
       - name: Record Tauri binary SHA-256 (${{ env.BUILD_ARCH }})
         run: |
           TRIPLE="${BUILD_ARCH}-unknown-linux-gnu"
@@ -1010,6 +713,8 @@ jobs:
           TRIPLE="${BUILD_ARCH}-unknown-linux-gnu"
           python3 scripts/build/update_tauri_manifests.py --check --triple "$TRIPLE"
 
+      # TX-24 / C-CI-15: tauri-binaries.json is the fail-closed integrity
+      # manifest verified at login; --check aborts on empty/malformed hash.
       - name: Upload updated tauri-binaries.json
         uses: actions/upload-artifact@v6
         with:
@@ -1018,24 +723,12 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-      # gate SLSA attestation on a manual signed release build
-      # (workflow_dispatch + sign=true) instead of tag pushes — the tag
-      # push trigger is commented out, so the old
       # ``startsWith(github.ref, 'refs/tags/v')`` gate never fired.
-      # PR/fork builds (which lack the job-level id-token:write
-      # permission grant in fork contexts) are excluded.
       - name: Attest build provenance (SLSA)
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.sign == 'true' }}
         uses: actions/attest-build-provenance@v4
         with:
           # plan-runtime-pack-split.md §11.9 (C-CI-13): worker exe added to
-          # the SLSA subject-path (new entry, no rename). The path glob is
-          # inert today (Phase 2a pending); once the worker ships, SLSA
-          # attestation covers it alongside the installers. NOTE: the SLSA
-          # attestation step is gated on sign=true, which fails fast on
-          # Linux (ADR-0020 §13.3 — Linux is unsigned by design). The step
-          # is therefore unreachable today but the subject-path is kept in
-          # lockstep with Windows/macOS for the day Linux signing is added.
           subject-path: |
             src-tauri/target/*/release/bundle/deb/*.deb
             src-tauri/target/release/bundle/deb/*.deb

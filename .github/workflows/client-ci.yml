@@ -1,9 +1,6 @@
-# =============================================================================
 # PINNED ACTION VERSIONS — DO NOT DOWNGRADE (verified 2026-07-24):
 #   actions/checkout@v5    — Node 24 runtime (v4 = Node 20, deprecated)
 #   actions/setup-node@v7  — Node 24 runtime (v4 = Node 20, deprecated)
-# See build.yml header for full rationale + breaking-change analysis.
-# =============================================================================
 
 name: Client CI
 
@@ -32,9 +29,6 @@ jobs:
   client:
     name: Typecheck + Lint + Test
     # XS-69: pin to ubuntu-22.04 instead of ubuntu-latest so runner image
-    # is deterministic (ubuntu-latest flips to 24.04 mid-2025 and broke
-    # libasound2 dependency resolution for our playwright sound-cue
-    # check in adjacent workflows).
     runs-on: ubuntu-22.04
     timeout-minutes: 30
     defaults:
@@ -56,22 +50,12 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      # Supply-chain: audit the production dependency graph for known
-      # high+ advisories. `--omit=dev` skips devDependencies (dev deps
       # never ship in the Tauri installer — only runtime deps are a
-      # supply-chain risk for end users). `--audit-level=high` exits
-      # non-zero only for HIGH/CRITICAL findings (low/moderate are
-      # reported but tolerated — matches the pip-audit gate policy in
-      # build.yml).
-      # TODO: switch to hard-fail once the override list (accepted-
-      # findings) is verified in production CI.
       - name: npm audit (high+ only, warn-only)
         continue-on-error: true
         run: npm audit --audit-level=high --omit=dev
 
       # CI-05 / cache-trap guard: `typecheck:ci` runs `tsc -b --force`,
-      # a FULL cache-busting build. A plain `tsc --noEmit` can reuse a
-      # stale tsbuildinfo/out and report a false green (see DX-013 fix).
       - name: Typecheck (cache-busting)
         run: npm run typecheck:ci
 
@@ -79,27 +63,13 @@ jobs:
         run: npm run lint
 
       # WR-16: build the renderer before tests so a broken build config /
-      # dead import surfaces here instead of only in the much slower
-      # tauri-* workflows. package.json `build` is `vite build --config
-      # vite.tauri.config.ts` (predecessor vite build retired with
-      # the 2026-09-17 cutover). Previously this workflow only
-      # ran typecheck + lint + test — a build-time error in the vite
-      # config would land on the Tauri release workflow and block a
-      # release instead of being caught at PR time.
       - name: Build (vite / Tauri renderer)
         run: npm run build
 
       # F2 regression guard: ensure the start/stop sound cues are NOT
-      # byte-identical. If someone later copies one constant into both
-      # (the original Finding-2 bug), this fails the build.
       - name: Sound cue distinctness check
         run: python ../../scripts/build/generate_beeps.py --check
 
       # XS-69: run with --coverage so the vitest.config.ts thresholds
-      # (lines/functions/statements 70%, branches 60%) are actually
-      # enforced. The `test:coverage` script runs
-      # `vitest run --coverage` and requires @vitest/coverage-istanbul (also
-      # Without --coverage the thresholds are dead
-      # config — coverage can regress silently.
       - name: Test (Vitest + coverage)
         run: npm run test:coverage

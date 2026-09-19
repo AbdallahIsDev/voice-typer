@@ -1,13 +1,7 @@
-# =============================================================================
 # PINNED ACTION VERSIONS — DO NOT DOWNGRADE (verified 2026-07-24,
-# bumped codeql v3→v4 2026-09-16: v3 runs Node 20, deprecated 2025-09-19,
-# action itself deprecated Dec 2026):
 #   actions/checkout@v5 — Node 24 runtime (v4 = Node 20, deprecated)
-#   github/codeql-action/init@v4 / autobuild@v4 / analyze@v4 — CodeQL
 #   analysis engine (v4 = Node 24). Keep at the latest v4 release; the
 #   components must stay in lockstep (same @v4 tag).
-# See build.yml header for full rationale + breaking-change analysis.
-# =============================================================================
 
 name: "CodeQL"
 
@@ -27,12 +21,8 @@ on:
   schedule:
     - cron: '0 6 * * *'  # WR-16: daily 06:00 UTC (was weekly Mon). CodeQL
                           # suite + query packs update ~weekly upstream; a
-                          # daily run surfaces new alerts within 24h of a
-                          # query-pack release instead of up to 7 days late.
 
 # cancel superseded CodeQL runs on the same ref. CodeQL is
-# the longest single workflow in the repo (matrix of 3 languages, each
-# runs autobuild + analyze) so the savings are the largest here.
 concurrency:
   group: codeql-${{ github.ref }}
   cancel-in-progress: true
@@ -42,9 +32,6 @@ jobs:
     name: Analyze
     runs-on: ubuntu-22.04
     # hard ceiling — if autobuild hangs on a broken language
-    # matrix entry (Python autobuild has done this before when a
-    # pyproject.toml was malformed), cancel the job after 60 minutes
-    # instead of running for the full 6h Actions limit.
     timeout-minutes: 60
     permissions:
       actions: read
@@ -55,11 +42,6 @@ jobs:
       fail-fast: false
       matrix:
         # L-35 (IMPROVE-2026-07-19): added 'actions' to scan GitHub
-        # Actions workflow YAML files for known-action vulnerabilities
-        # (insecure actions/checkout versions, typosquatted action
-        # names, pull_request_target misuse, ${{ github.event.* }}
-        # injection patterns). Without this, the 8 workflow files in
-        # .github/workflows/ are unaudited for Actions-specific CVEs.
         language: ['python', 'javascript-typescript', 'actions']
 
     steps:
@@ -71,50 +53,9 @@ jobs:
         with:
           languages: ${{ matrix.language }}
           # WR-16: opt into the extended query suites. Default behavior is
-          # the `security-extended` pack for C/C++ but ONLY `security-and-quality`
-          # is NOT included by default for python/javascript-typescript/actions,
-          # so a broad class of maintainability + correctness queries (e.g.
-          # unused imports, dangerous globals, suspicious string concat) was
-          # skipped. Explicitly requesting both suites ensures every language
-          # runs the deepest available pack set. Cost: ~15-25% longer analyze
-          # step — acceptable given the daily-cadence change above already
-          # accepts a 7x schedule increase.
           queries: security-extended, security-and-quality
 
       # ── S5-CR-75 (b): explicit build step for Python ─────────────────
-      #
-      # The default ``github/codeql-action/autobuild@v4`` step runs a
-      # heuristic that pip-installs the project WITHOUT extras. That
-      # means CodeQL's Python extractor cannot resolve heavy optional
-      # imports (``sounddevice``, ``numpy``, ``pystray``, ``webrtcvad``,
-      # ``onnxruntime``, ``ctranslate2``) — they appear as unresolved symbols
-      # in the CodeQL database, suppressing queries that depend on
-      # import-graph resolution (e.g. "unused import", "dangerous
-      # global", "unreachable code after return").
-      #
-      # Replacing autobuild with an explicit ``pip install .[test]``
-      # step (per the finding's proposed fix) ensures CodeQL sees the
-      # real import graph. The ``test`` extra pulls in pytest +
-      # hypothesis + pytest-asyncio + pytest-cov + pytest-timeout +
-      # pytest-benchmark (~30 MB), which is acceptable on the
-      # ubuntu-22.04 runner.
-      #
-      # Note: the HEAVY production deps (``onnxruntime``, ``ctranslate2``,
-      # ``sounddevice``, ``webrtcvad``, ``pystray``) are NOT in any
-      # optional extra (they're declared in ``requirements-lock.txt``
-      # for the PyInstaller build only) — installing them on every
-      # CodeQL run would add ~2 GB + 5+ minutes to the job. CodeQL's
-      # Python extractor falls back to ``ast`` parsing for unresolved
-      # imports, so the queries that don't depend on import resolution
-      # still run; the queries that DO need resolution (a minority)
-      # remain suppressed. This is the documented trade-off in the
-      # finding: "this requires a Linux runner with the heavy optional
-      # deps installable" — we install the ``test`` extra but defer the
-      # heavy audio/ML deps to a future dedicated job.
-      #
-      # JS/TS and Actions languages: keep autobuild (it correctly
-      # resolves ``npm install`` + ``tsc`` for the renderer, and
-      # Actions YAML needs no build step at all).
       - name: Build Python (explicit pip install .[test])
         if: matrix.language == 'python'
         run: |

@@ -138,16 +138,7 @@ def validate_tray_files(tray_dir: Path = TRAY_DIR) -> None:
 
 
 def config_paths(root: Path = PROJECT_ROOT) -> list[Path]:
-    """The base config + every per-arch config (sorted, deterministic).
-
-    ``tauri.dev.conf.json`` (the dev-mode override, C-TDEV-1) is
-    intentionally excluded: it is a minimal ``tauri dev`` overlay with
-    no ``bundle`` section, dev builds reuse the base config's bundle —
-    and is never merged by a CI ``--config`` per-arch build. This
-    mirrors the same exclusion in ``tests/tauri/test_tray_icons.py``
-    (``_all_tauri_configs``) so the script's wiring check and the
-    drift-guard test agree.
-    """
+    """Base + per-arch tauri configs (sorted). Excludes tauri.dev.conf.json (C-TDEV-1)."""
     per_arch = sorted(p for p in SRC_TAURI.glob("tauri.*.conf.json") if p.name != "tauri.dev.conf.json")
     return [SRC_TAURI / "tauri.conf.json", *per_arch]
 
