@@ -1,75 +1,15 @@
-//! JSON `config.json` merge logic for the predecessor → Tauri migration.
-//!
-//! Extracted from the original `migrate.rs` monolith as part of the
-//! Phase 4.5 split. Pure file move, no behavior change
-//! EXCEPT for the micro-fix that consumes `old_val` (move) in
-//! the merge loop instead of borrowing + cloning. See `mod.rs` for
-//! the gating caller (`migrate_inner`).
 
 use std::path::Path;
 
-// bring the `util` module into scope so the atomic-fs helpers
-// (`util::atomic_copy`, `util::atomic_write_bytes`) resolve without
-// per-call-site `crate::util::` qualification.
 use crate::util;
 
 #[derive(Debug)]
 pub(crate) enum MergeOutcome {
     /// Whole file copied (target was absent).
     Copied,
-    /// Key-by-key merge completed; the payload is the number of keys
-    /// taken from `old`. When the payload is 0, nothing was taken AND
-    /// the target was a valid object, the target file is NOT
-    /// rewritten (no byte/mtime churn for identical content).
     Merged(usize),
 }
 
-/// Merge `old` config.json into `new` config.json.
-///
-/// - If `new` does not exist, copy the whole file (Copied).
-/// - If `new` exists: merge key-by-key. The entire newer file's values
-///   win for overlapping keys (single whole-file mtime comparison —
-///   NOT per-key mtime). Keys present only in `old` are always taken.
-///   Returns Merged(keys_from_old_written). When 0 keys are taken and
-///   the target parsed as a valid object, the merged content is
-///   exactly the target's parsed content, the file is left untouched
-///   (no rewrite, no mtime churn). Pathological targets (corrupt or
-///   non-object) keep the pre-fix write so the repair path (overwrite
-///   with the merge result) is unchanged.
-///
-//the previous docstring promised "newest-mtime-wins per
-/// key" which suggested per-key mtime resolution. The implementation
-/// uses a single whole-file mtime comparison (the file written later
-/// is treated as authoritative for ALL its overlapping keys, not just
-/// per-key). The docstring now matches the implementation.
-///
-/// All writes are now ATOMIC (temp-file +
-/// `rename`). Previously `std::fs::copy` and `std::fs::write` truncated
-/// the target before writing: a crash mid-write (power loss, SIGKILL,
-/// OOM) would leave `config.json` truncated/corrupt. Since `migrate.rs`
-/// runs BEFORE the Python sidecar spawns, the sidecar would boot against
-/// a corrupt config and fall back to defaults, permanently losing the
-/// user's migrated predecessor config. The atomic write ensures the target
-/// is either fully-old or fully-new, never partial.
-///
-/// The merge loop CONSUMES `old_val` (moves the owned
-/// `Map<String, Value>` out of the `Value::Object` variant) instead of
-/// borrowing `old_val.as_object()` and cloning every key+value pair on
-/// insertion. The move is sound because `old_val` is owned by this
-/// function and is never read again after the loop. The SAME move is
-/// applied to `new_val`: `base` takes ownership of the target's map
-/// instead of borrowing `as_object()` and deep-cloning every entry —
-/// `new_val` is equally owned here and equally never read after the
-/// base map is extracted. For users with multi-MB predecessor configs
-/// this drops 2×N deep-clone allocations per migration (first-launch-
-/// only cost, but the pattern is also more idiomatic, future
-/// copy-paste won't replicate the clone).
-///
-/// No-op short-circuit: when the loop takes ZERO keys from `old` and
-/// the target parsed as a valid object, re-serializing and rewriting
-/// `new` would only re-sort the BTreeMap and bump the mtime for
-/// semantically identical content: so the write is skipped entirely
-/// (`Merged(0)` is returned without touching the file).
 pub(crate) fn merge_config(old: &Path, new: &Path) -> Result<MergeOutcome, String> {
     if !new.exists() {
         // M-65: atomic copy so an interrupted migration never leaves
@@ -81,20 +21,6 @@ pub(crate) fn merge_config(old: &Path, new: &Path) -> Result<MergeOutcome, Strin
     let old_txt = std::fs::read_to_string(old).map_err(|e| e.to_string())?;
     let new_txt = std::fs::read_to_string(new).map_err(|e| e.to_string())?;
 
-    // T3-05: previously used `unwrap_or(Value::Null)` which silently
-    // swallowed parse errors. A corrupt source or target config.json
-    // would silently be treated as `null` (an empty object on merge),
-    // potentially losing the user's settings on the next migration
-    // pass. Log a warning so the failure is observable in user logs
-    // (the merge itself still proceeds fail-open, we prefer to keep
-    // whatever parses rather than abort the whole migration).
-    //
-    //before treating a corrupt source/target as Null,
-    // back up the corrupt file to `<path>.corrupt-pre-migration.<ts>.bak`
-    // so the user can recover their settings manually. Without the
-    // backup, a corrupt `config.json` would be silently dropped on
-    // the next migration pass: the user's old predecessor settings
-    // vanish with no recovery path.
     let old_val: serde_json::Value = match serde_json::from_str(&old_txt) {
         Ok(v) => v,
         Err(e) => {
@@ -118,29 +44,13 @@ pub(crate) fn merge_config(old: &Path, new: &Path) -> Result<MergeOutcome, Strin
         }
     };
 
-    // Consume `old_val` (owned) by matching on the `Value` enum
-    // and moving the inner `Map<String, Value>` out. Pre-fix the code
-    // borrowed `old_val.as_object()` and cloned every key+value pair
-    // when inserting into `base`. The owned form lets the loop body
-    // MOVE both `k` and `v` into `base` (no clone). If `old_val` is
-    // not an object, there's nothing useful to merge, keep target.
     let old_obj: serde_json::Map<String, serde_json::Value> = match old_val {
         serde_json::Value::Object(o) => o,
         _ => return Ok(MergeOutcome::Merged(0)),
     };
 
-    // Newest-mtime-wins: compare the two files' mtimes; the file written
-    // later is treated as authoritative for its keys. Per-key we pick the
-    // source (old vs new) that wins for that key.
     let old_newer = file_newer_than(old, new);
 
-    // Consume `new_val` (owned) exactly like `old_val` above: move the
-    // inner `Map<String, Value>` out of the variant instead of
-    // borrowing `as_object()` and deep-cloning every entry. `new_val`
-    // is never read again after this point, so the move is sound.
-    // The boolean remembers whether the target was a VALID object —
-    // the no-op skip below only applies then (corrupt / non-object
-    // targets keep the pre-fix rewrite, which repairs the file).
     let new_was_object = matches!(new_val, serde_json::Value::Object(_));
     let mut base = match new_val {
         serde_json::Value::Object(o) => o,
@@ -148,10 +58,6 @@ pub(crate) fn merge_config(old: &Path, new: &Path) -> Result<MergeOutcome, Strin
     };
 
     let mut written = 0usize;
-    // Iterate OWNED entries of `old_obj` (consumes the Map).
-    // `base.get(&k)` borrows `k` for the lookup; once the borrow ends
-    // we move `k` (and `v`) into `base` via `insert`. No `.clone()`
-    // on either key or value.
     for (k, v) in old_obj {
         let take_old = match base.get(&k) {
             // Key present in target: winner determined by file mtime.
@@ -165,37 +71,16 @@ pub(crate) fn merge_config(old: &Path, new: &Path) -> Result<MergeOutcome, Strin
         }
     }
 
-    // Nothing taken from old + a valid-object target means the merged
-    // content is EXACTLY the target's parsed content: rewriting would
-    // only re-sort the BTreeMap and bump the mtime for identical
-    // semantics. Skip the write: `Merged(0)` already tells the caller
-    // nothing was taken, and the target's original bytes (even its
-    // formatting) are preserved.
     if written == 0 && new_was_object {
         return Ok(MergeOutcome::Merged(0));
     }
 
     let merged = serde_json::Value::Object(base);
     let out = serde_json::to_string_pretty(&merged).map_err(|e| e.to_string())?;
-    // M-65: write atomically (temp + fsync + rename in the same dir)
-    // so an interrupted migration never leaves a partially-written
-    // config.json that would fail to parse on next launch and cause
-    // the user's merged settings to be lost.
     util::atomic_write_bytes(new, out.as_bytes())?;
     Ok(MergeOutcome::Merged(written))
 }
 
-//back up a corrupt config.json before the migration
-/// treats it as `Value::Null`. The backup is written next to the
-/// original as `<filename>.corrupt-pre-migration.<unix_ts>.bak` so
-/// the user can recover their settings manually. The timestamp
-/// ensures we never overwrite a prior backup (two corrupt migrations
-/// at different times produce two distinct .bak files).
-///
-/// Best-effort: if the backup fails (e.g. disk full, permissions),
-/// we log a warning and continue. The migration's fail-open behavior
-/// (treat as Null) proceeds either way; this function only adds a
-/// recovery path, it doesn't change the merge logic.
 fn backup_corrupt_config(path: &Path) {
     let ts = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

@@ -68,9 +68,6 @@ pub(crate) enum PowerEvent {
     OnBattery,
 }
 
-/// Outcome of applying a [`PowerEvent`]. Callers (the OS thread) use
-/// this to decide whether to touch the sidecar; tests assert on it
-/// without any real OS interaction.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum PowerAction {
     /// Suspend while running: stop/finalize the sidecar.
@@ -97,10 +94,6 @@ impl PowerMonitor {
         PowerState::from_u8(self.state.load(Ordering::SeqCst))
     }
 
-    /// Apply an OS event and return the sidecar action to take.
-    ///
-    /// Pure state-machine: no I/O, no logging, no Tauri handle. The
-    /// platform thread (or a test) performs the action.
     pub(crate) fn apply(&self, event: PowerEvent) -> PowerAction {
         match event {
             PowerEvent::Suspend => {
@@ -162,9 +155,6 @@ fn spawn_platform_watch(
             log::info!("[POWER] platform power-monitor thread spawned");
         }
         Err(e) => {
-            // Best-effort: a failed subscribe costs only the
-            // suspend-finalize path; the supervisor still recovers a
-            // dead sidecar after wake.
             log::warn!(
                 "[POWER] failed to spawn power-monitor thread: {}; \
                  suspend/resume sidecar actions unavailable (supervisor respawn still covers wake)",
@@ -180,22 +170,12 @@ fn spawn_platform_watch(
     _state: Arc<SidecarState>,
     _monitor: Arc<PowerMonitor>,
 ) {
-    // macOS: NSWorkspaceWillSleepNotification / DidWakeNotification.
-    // Linux: org.login1.Manager PrepareForSleep via D-Bus.
-    // Neither is wired yet; the supervisor's respawn loop recovers a
-    // dead sidecar after wake. VALIDATE-ON-HOST / future work.
     log::info!(
         "[POWER] platform subscription not implemented on this OS; \
          relying on supervisor respawn after wake (MO-126 stub)"
     );
 }
 
-/// Map a Windows `wParam` power event id to a [`PowerEvent`].
-///
-/// Constants from WinUser.h (verified against
-/// https://learn.microsoft.com/en-us/windows/win32/power/wm-powerbroadcast):
-/// `PBT_APMSUSPEND = 4`, `PBT_APMRESUMESUSPEND = 7`,
-/// `PBT_APMRESUMEAUTOMATIC = 18`, `PBT_APMPOWERSTATUSCHANGE = 10`.
 pub(crate) fn map_windows_power_wparam(wparam: u32) -> Option<PowerEvent> {
     match wparam {
         4 => Some(PowerEvent::Suspend),
@@ -205,9 +185,6 @@ pub(crate) fn map_windows_power_wparam(wparam: u32) -> Option<PowerEvent> {
     }
 }
 
-/// Mirror the suspend flag onto `SidecarState` so the supervisor's
-/// `respawn` gate can stand down while the OS is suspending. Pure
-/// flag work, no I/O — unit-testable without a Tauri handle.
 pub(crate) fn mirror_power_flag(state: &Arc<SidecarState>, action: PowerAction) {
     match action {
         PowerAction::StopSidecar => {
@@ -248,9 +225,6 @@ pub(crate) fn dispatch_power_action(
     }
 }
 
-/// Apply a power event: update the state machine, log, mirror the
-/// suspend flag onto `SidecarState`, and dispatch the sidecar action.
-/// Best-effort, never panics.
 pub(crate) fn handle_power_event(
     app: &tauri::AppHandle,
     state: &Arc<SidecarState>,
@@ -301,9 +275,6 @@ fn windows_power_loop(
         if msg == WM_POWERBROADCAST {
             let _ = lparam;
             let _ = wparam;
-            // Mapping + action happen in the GetMessage loop below
-            // (the loop owns the monitor/AppHandle). Returning TRUE
-            // acknowledges the message.
             return LRESULT(1);
         }
         DefWindowProcW(hwnd, msg, wparam, lparam)
@@ -344,9 +315,6 @@ fn windows_power_loop(
             if msg.message == WM_POWERBROADCAST {
                 let wparam = msg.wParam.0 as u32;
                 if let Some(event) = map_windows_power_wparam(wparam) {
-                    // Synchronous + non-blocking: handle_power_event
-                    // only updates the state machine and spawns the
-                    // supervisor task on the host runtime.
                     handle_power_event(&app, &state, &monitor, event);
                 }
             }

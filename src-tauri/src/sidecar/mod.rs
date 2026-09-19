@@ -1,12 +1,9 @@
 //! Sidecar lifecycle modules (ADR-0020 §1 + §10 + §14).
+//! Layout: docs/code-notes/tauri-host.md#module-layout-orchestrator-files
 
-// `bubble_coalesce` extracted from `supervisor.rs`: pure UI-
-// rate-limiting predicate with nothing to do with sidecar supervision.
-// The supervisor module now owns ONLY respawn/backoff logic.
+// Pure UI-rate-limiting predicate (not sidecar supervision).
 pub(crate) mod bubble_coalesce;
-// Durable tee for the child's raw stdout/stderr (ADR-0020 §11): keeps
-// early-startup tracebacks observable in a release install, where the
-// host pipes the streams and there is no terminal to inherit.
+// Durable tee for the child's raw stdout/stderr (release has no terminal).
 pub(crate) mod child_log;
 pub(crate) mod handle;
 pub(crate) mod lifecycle;
@@ -15,29 +12,13 @@ pub(crate) mod spawn;
 pub(crate) mod supervisor;
 pub(crate) mod ws;
 
-// Process-management + shutdown-machinery split:
-// `SidecarHandle` (child-process enum + Drop safety net) and the
-// shutdown / fire-and-forget-frame helpers moved out of `state.rs`
-// into the sidecar module so the shared-state module stays focused on
-// `SidecarState` / `WorkerState` data. `state.rs` re-exports these
-// names so existing `crate::state::SidecarHandle` /
-// `crate::state::shutdown_sidecar_for_exit` /
-// `crate::state::send_fire_and_forget_frame` imports keep resolving
-// (create-first split: see AGENTS.md E1).
+// Re-exports so historical `crate::state::*` paths keep resolving
+// (create-first split, AGENTS.md E1).
 pub(crate) use handle::SidecarHandle;
 pub(crate) use shutdown::{send_fire_and_forget_frame, shutdown_sidecar_for_exit};
 
-// C-TEST-5: inline `#[cfg(test)] mod tests` blocks moved to sibling
-// `<module>_tests.rs` files. The declarations below wire them in as
-// test-only submodules of `sidecar`, mirroring the existing pattern at
-// `commands/bubble/mod.rs` and `migrate/mod.rs`.
-//
-// NOTE: `spawn_tests` is NOT declared here, `spawn.rs` wires its own
-// sibling test file via `#[cfg(test)] #[path = "spawn_tests.rs"]` so
-// `use super::*` inside it resolves to `spawn` (its tests reference
-// `spawn`'s internal items). Declaring it here too would compile the
-// file twice, once as a child of `sidecar`, breaking every `super::*`
-// lookup.
+// C-TEST-5: sibling test modules. `spawn_tests` is declared inside
+// `spawn.rs` (not here) so `use super::*` resolves to `spawn`.
 #[cfg(test)]
 mod lifecycle_tests;
 #[cfg(test)]

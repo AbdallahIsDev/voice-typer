@@ -1,62 +1,27 @@
-//! Theme-reactive main-window icon (TR-4 dynamic follow-up).
-//!
-//! Windows has no per-theme window-class icon: the .exe-embedded icon
-//! (`icons/icon.ico`) is static. It cannot flip with the OS theme, so
-//! pinned shortcuts and the closed-app taskbar tile always show it.
-//! While the app RUNS, the host instead tracks the OS theme and swaps
-//! the main window's icon at runtime between the LIGHT and DARK
-//! variants: what the running taskbar button and the Alt-Tab tile
-//! render.
-//!
-//! Both variants today carry the SAME mark, the #1a1b1e chip + white
-//! glyph + brand-red dot (user decision 2026-09: the chip is the dark
-//! #1a1b1e in light AND dark OS themes). They stay two separate assets
-//! (and the theme swap stays live) so the light/dark chrome can be
-//! diverged later by editing the LIGHT_CHIP / DARK_CHIP constants in
-//! `voice_typer/client/scripts/generate-icons.mjs`: no mode must be
-//! re-added from scratch.
-//!
-//! Wiring (both in `main.rs`, which stays wiring-only):
-//!   - `.setup` → [`apply_startup`] once for the initial OS theme.
-//!   - `.on_window_event` → `WindowEvent::ThemeChanged` arm → [`apply_to_window`].
-//! (There is deliberately NO `RunEvent` arm: `ThemeChanged` is a
-//! per-window event in Tauri v2. It has no `RunEvent` counterpart.)
-//! The bubble window is excluded on purpose: it is `skipTaskbar` +
-//! transparent, so it never appears on the taskbar or in Alt-Tab.
-//!
-//! Assets: the LIGHT variant is `icons/icon.png` itself (the committed
-//! brand mark: no duplication); the DARK variant is
-//! `theme-icons/icon-dark-512.png`. Both are 512×512 RGBA and both
-//! carry the same #1a1b1e chip + white glyph + brand-red dot (NOT an
-//! RGB-inverse pair: the red dot must stay red). Both are emitted by
-//! `voice_typer/client/scripts/generate-icons.mjs`. The
-//! theme-icons dir lives OUTSIDE `icons/` on purpose:
-//! `scripts/build/generate_tauri_icons.py::prune` deletes everything
-//! under `icons/` except the `bundle.icon` keep-set.
+//! Theme-reactive main-window icon. Windows has no per-theme window-class
+//! icon; while the app runs the host swaps the main window's icon with the
+//! OS theme (taskbar / Alt-Tab). Both variants currently share the same
+//! mark (dark chip + white glyph + brand-red dot) so light/dark chrome can
+//! diverge later via `generate-icons.mjs` without re-adding the mode.
+//! Bubble window is excluded (skipTaskbar + transparent).
 
 use tauri::{image::Image, Theme};
 
-/// Label of the window whose icon follows the OS theme (`tauri.conf.json`).
+/// Window label whose icon follows the OS theme (`tauri.conf.json`).
 pub(crate) const MAIN_WINDOW_LABEL: &str = "main";
 
-/// Light-variant PNG bytes (#1a1b1e chip + white glyph, == the
-/// committed `icons/icon.png`, the static default).
+/// Light-variant PNG (same mark as the committed `icons/icon.png`).
 const ICON_LIGHT_PNG: &[u8] = include_bytes!("../icons/icon.png");
 
-/// Dark-variant PNG bytes (#1a1b1e chip + white glyph, identical to
-/// the light variant today; separate asset so the chrome looks can
-/// diverge later).
+/// Dark-variant PNG (`theme-icons/`; outside `icons/` so the prune script
+/// that clears `icons/` cannot delete it).
 const ICON_DARK_PNG: &[u8] = include_bytes!("../theme-icons/icon-dark-512.png");
 
-/// PNG bytes for `theme`: dark OS → the DARK variant, light OS → the
-/// LIGHT variant (visually identical today, #1a1b1e chip + white glyph).
-///
-/// Pure mapping (no I/O, no window handle) so it stays unit-testable.
+/// Pure theme→PNG mapping (unit-testable, no I/O).
 pub(crate) fn png_for_theme(theme: &Theme) -> &'static [u8] {
     match theme {
         Theme::Dark => ICON_DARK_PNG,
-        // `Theme` is `#[non_exhaustive]`. A future variant must fall back
-        // to *a* mark, and the light variant is the legacy default.
+        // `Theme` is non_exhaustive; light is the legacy default fallback.
         _ => ICON_LIGHT_PNG,
     }
 }
@@ -66,14 +31,13 @@ pub(crate) fn image_for_theme(theme: &Theme) -> tauri::Result<Image<'static>> {
     Image::from_bytes(png_for_theme(theme))
 }
 
-/// Apply the OS-theme icon to `window`. Never panics: a rejected icon
-/// is a warn log: the window keeps its embedded default icon.
+/// Apply the OS-theme icon to `window`. Never panics: rejected icon logs
+/// a warning; the window keeps its embedded default.
 pub(crate) fn apply_to_window(window: &tauri::Window, theme: &Theme) {
     apply_theme_icon(theme, |img| window.set_icon(img))
 }
 
-/// Read the main window's current OS theme and apply the matching icon.
-/// `.setup`-time entry point; same never-panics contract as above.
+/// `.setup`-time entry: read the main window's current OS theme and apply.
 pub(crate) fn apply_startup(window: &tauri::WebviewWindow) {
     match window.theme() {
         Ok(theme) => apply_theme_icon(&theme, |img| window.set_icon(img)),
@@ -81,16 +45,9 @@ pub(crate) fn apply_startup(window: &tauri::WebviewWindow) {
     }
 }
 
-/// Shared body of [`apply_to_window`] and [`apply_startup`]: decode the
-/// theme-variant icon and set it on the window, mapping every failure
-/// to a warn log (never panics. A rejected icon leaves the window's
-/// embedded default in place).
-///
-/// `set_icon` is injected because the two entry points receive
-/// different window types (`Window` from the `ThemeChanged` event arm,
-/// `WebviewWindow` from the `.setup` bootstrap) that expose no common
-/// `set_icon` interface: the closure lets both delegate to this one
-/// body instead of duplicating the decode/set/log match.
+/// Shared body: decode + set, mapping every failure to a warn log.
+/// `set_icon` is injected because `Window` and `WebviewWindow` expose no
+/// common set_icon interface.
 fn apply_theme_icon(theme: &Theme, set_icon: impl FnOnce(Image<'static>) -> tauri::Result<()>) {
     match image_for_theme(theme) {
         Ok(img) => {

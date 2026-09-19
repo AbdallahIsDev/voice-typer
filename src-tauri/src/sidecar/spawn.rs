@@ -1,80 +1,25 @@
 //! Sidecar spawn + stdout handshake (ADR-0020 §1 + §4.1 + §14).
-//!
-//! Module layout (split out of the former single-file module):
-//!
-//! - `self`: orchestration: the public spawn entry points
-//!   (`spawn_sidecar_and_get_port[_with_shutdown]`), the dev-vs-release
-//!   dispatch (`spawn_sidecar_and_get_port_inner`), the cold-start
-//!   wiring (`initialize_sidecar`), and the panic-captured background
-//!   task body (`initialize_sidecar_guarded`) that `main.rs`'s
-//!   `.setup` spawns.
-//! - [`dev_mode`]: `VOICE_TYPER_SIDECAR_DEV=1` dev-mode spawn
-//!   (`spawn_sidecar_dev_mode` + the `is_dev_mode` predicates).
-//! - [`release_mode`]: release-build `externalBin` spawn
-//!   (`spawn_sidecar_release`).
-//! - [`handshake`]: `server_started` stdout parsing
-//!   (`parse_server_started`) + the shutting-down loop short-circuit
-//!   (`is_shutting_down`).
-//! - [`handshake_loop`]: the shared stdout-handshake read loops used by
-//!   all four spawn paths (`spawn_sidecar_release` /
-//!   `spawn_sidecar_dev_mode` / `spawn_worker_release` /
-//!   `spawn_worker_dev_mode`): one loop body for the shell-plugin
-//!   `CommandEvent` pair, one for the tokio `read_line` pair, plus the
-//!   off-thread kill-tree + best-effort kill-on-parent-exit leaves.
-//! - [`env_allowlist`]: the OS-required env-var passthrough allowlist
-//!   (`passthrough_env_allowlist`).
-//! - [`target_triple`]: the pure `target_triple_for` table +
-//!   `current_target_triple` runtime wrapper.
-//!
-//! Both spawn paths call `.env_clear()` before
-//! adding specific env vars, then re-add only an explicit OS-required
-//! allowlist via `passthrough_env_allowlist()`. This prevents the
-//! sidecar from inheriting arbitrary host env vars (e.g. `HF_TOKEN`,
-//! `OPENAI_API_KEY`, `http_proxy`) exported from the user's shell.
-//!
-//! Prewarm binary removal (Phase 2a, plan-runtime-pack-split §6.2):
-//! the former `prewarm` submodule (which resolved the prewarm exe path
-//! passed to Python via a dedicated env var) was
-//! deleted when prewarm became a startup phase of the worker exe.
-//! See `platform::worker_path` for the worker exe path resolution
-//! that supersedes the prewarm exe path.
+//! Submodules own the actual process spawn; this file is orchestration.
+//! Both spawn paths `.env_clear()` then re-add only the OS-required allowlist.
+//! C-TOKIO-1: panic capture is `AssertUnwindSafe(fut).catch_unwind().await`,
+//! never `block_on` on a runtime worker.
+//! Layout: docs/code-notes/tauri-host.md#module-layout
 
-// `pub(crate)` so `sidecar::lifecycle::on_relaunch_app` can consult
-// `is_dev_mode()` for the tray-Restart dev guard (dev → respawn the
-// sidecar via the supervisor instead of restarting the host process).
+// `pub(crate)` so lifecycle can consult `is_dev_mode()` for tray-Restart.
 pub(crate) mod dev_mode;
 mod env_allowlist;
 mod handshake;
 mod handshake_loop;
-// Permanent child-event drain for release-mode children: keeps the
-// tauri-plugin-shell event channel (bounded, backpressured) drained
-// after the handshake so post-handshake stderr beyond the pipe buffer
-// can never block the child's writer threads, and forwards the
-// Terminated exit event to the receiver handed to the exit wait.
+// Permanent child-event drain: keeps the bounded shell event channel
+// drained post-handshake so child stderr can never block its writers.
 mod event_drain;
 mod release_mode;
-// Worker exe spawn logic (Phase 2b, plan-runtime-pack-split §7):
-// `spawn_worker_release` + `spawn_worker_dev_mode` live in `worker.rs`
-// so `spawn.rs` itself stays orchestration-only (E3). The worker is
-// the SECOND spawned child (after the slim-core sidecar); its spawn
-// mirrors the sidecar's dev/release split but with the worker's own
-// env contract (VOICE_TYPER_IPC_TOKEN) + `worker_started` handshake.
-// `pub(crate)` (not `mod`): the WS reader calls
-// `worker::on_pack_verified` on the `offline_pack_verified` event and
-// the exit path calls `worker::stop_worker_child` (BP-33, Phase 2c).
+// Worker exe spawn (runtime-pack split). Sidecar is the worker's WS client.
 pub(crate) mod worker;
-// `pub(crate)` (not `mod`) so the worker-path resolver in
-// `platform::worker_path` can reach `current_target_triple()` to build
-// the per-platform worker exe name (`voice-typer-worker-<triple>[.exe]`).
-// The pre-existing `#[cfg(test)] pub(crate) use target_triple::*`
-// re-export below stays for backwards-compat with the spawn tests
-// that import via `use super::*`.
+// `pub(crate)` so platform::worker_path can resolve the per-platform worker name.
 pub(crate) mod target_triple;
 
-// The unit-tested helpers live in the submodules above; the sibling
-// test file (`spawn_tests.rs`) resolves them via `use super::*`, so
-// re-export them here (test-only: production callers reach the
-// submodules directly).
+// Test-only re-exports for spawn_tests.rs (`use super::*`).
 #[cfg(test)]
 pub(crate) use dev_mode::is_dev_mode_for;
 #[cfg(test)]
@@ -96,42 +41,14 @@ use tauri::Manager;
 use tauri_plugin_shell::process::CommandEvent;
 use tokio::sync::mpsc;
 
-// `FutureExt::catch_unwind` + `AssertUnwindSafe`: panic capture for
-// the cold-start `initialize_sidecar` task WITHOUT bridging through
-// `block_on` (calling block_on inside a runtime worker panics with
-// "Cannot start a runtime from within a runtime", see the C-TOKIO-1
-// guard comment on `initialize_sidecar_guarded`).
+// C-TOKIO-1: catch_unwind on the future, never block_on inside a runtime worker.
 use futures_util::future::FutureExt;
 
 // ─── Sidecar spawn + stdout handshake (ADR-0020 §1) ───────────────────
 
-/// MO-110 (predecessor parity, P1-1.2): adopted-backend mode. When the
-/// host was launched BY an already-running Python backend (the
-/// standalone `VoiceTyper` CLI flow), the backend exports
-/// `VT_PYTHON_PORT` + `VT_IPC_TOKEN` into the host's env. In that case
-/// the host must NOT spawn a second backend: it connects to the
-/// existing one on that port with that token, and the spawn/kill
-/// paths become safe no-ops (the backend is our parent; killing it
-/// takes the app down).
-///
-/// predecessor implements the same contract at `start-python.ts`
-/// (P1-1.2: skip spawn, connect directly) with `restart-backend.ts`
-/// (adopted mode → refuse) and `stop-python.ts` (null
-/// `pythonProcess` → no-op) completing the no-kill/no-restart
-/// guarantees.
-///
-/// Returns `(port, token)` to attach with, or `None` for a normal
-/// launch (spawn a fresh sidecar). A malformed port (non-numeric / 0)
-/// logs + falls through to the normal spawn rather than aborting: a
-/// bad adopt env is a misconfigured CLI session, not a reason to
-/// break every launch.
-/// Pure parser for the adopted-backend env pair (MO-110).
-///
-/// No I/O, no logging, no process-global state: unit-testable without
-/// an env mutex. `None` on any of: missing port, missing token,
-/// non-numeric port, or port `0`. A malformed adopt env is a
-/// misconfigured CLI session — the caller falls through to the normal
-/// spawn rather than aborting.
+/// Pure parser for adopted-backend env pair (MO-110).
+/// `None` on missing/invalid port or missing token; caller falls through
+/// to normal spawn.
 pub(crate) fn parse_adopted_backend_env(
     port_raw: Option<&str>,
     token: Option<&str>,
@@ -145,11 +62,8 @@ pub(crate) fn parse_adopted_backend_env(
     Some((port, token.to_string()))
 }
 
-/// Thin env reader over [`parse_adopted_backend_env`]: reads
-/// `VT_PYTHON_PORT` + `VT_IPC_TOKEN` from the process environment and
-/// logs the attach / ignore decision. Returns `(port, token)` to
-/// attach with, or `None` for a normal launch (spawn a fresh
-/// sidecar).
+/// Env reader over `parse_adopted_backend_env` (VT_PYTHON_PORT + VT_IPC_TOKEN).
+/// Host must NOT spawn a second backend when attaching to a parent CLI flow.
 pub(crate) fn adopted_backend_env() -> Option<(u16, String)> {
     let port_raw = std::env::var("VT_PYTHON_PORT").ok()?;
     let token = std::env::var("VT_IPC_TOKEN").ok()?;
@@ -171,25 +85,9 @@ pub(crate) fn adopted_backend_env() -> Option<(u16, String)> {
     }
 }
 
-/// Spawn the Python sidecar via Tauri's `externalBin` mechanism and
-/// read the `server_started` JSON from stdout.
-///
-/// Returns the bound port + the child handle on success.
-///
-/// Both the cold-start path (`initialize_sidecar`) and the supervisor's
-/// respawn path (`respawn_inner`) call the
-/// `spawn_sidecar_and_get_port_with_shutdown` variant below, passing
-/// `&state.shutting_down` so the stdout-read loop can short-circuit
-/// mid-handshake if the user quits the app during a spawn.
-///
-/// When the shutdown flag flips to `true` (e.g. the user quit the app
-/// while a respawn was in flight), the loop kills the freshly-spawned
-/// child and returns `Err("shutdown")` instead of waiting up to
-/// `SERVER_STARTED_TIMEOUT_MS` (30s) for a `server_started` line that
-/// will never arrive.
-///
-/// Used by `crate::sidecar::supervisor::respawn_inner` and by the
-/// cold-start path (`sidecar::spawn::initialize_sidecar`).
+/// Spawn sidecar via Tauri externalBin / dev source, read `server_started`
+/// from stdout. `shutting_down` lets the handshake loop abort mid-wait.
+/// NOTE: see docs/code-notes/tauri-host.md#sidecar-spawn
 pub(crate) async fn spawn_sidecar_and_get_port_with_shutdown(
     app: &tauri::AppHandle,
     token: &str,
@@ -198,11 +96,7 @@ pub(crate) async fn spawn_sidecar_and_get_port_with_shutdown(
     spawn_sidecar_and_get_port_inner(app, token, Some(shutting_down)).await
 }
 
-/// Internal helper behind `spawn_sidecar_and_get_port_with_shutdown`.
-/// The `shutting_down` parameter is `Option<&AtomicBool>`: `None` for a
-/// no-flag caller (— `is_shutting_down` returns `false` unconditionally),
-/// `Some(&flag)` for the supervisor-respawn path (polled between
-/// stdout-read iterations).
+/// `shutting_down` is `Option<&AtomicBool>`: None = no-flag caller.
 async fn spawn_sidecar_and_get_port_inner(
     app: &tauri::AppHandle,
     token: &str,
@@ -216,60 +110,19 @@ async fn spawn_sidecar_and_get_port_inner(
     Ok((port, child, Some(rx)))
 }
 
-/// Cold-start sidecar initialization: spawn the sidecar, install the
-/// child handle + exit receiver into shared state, and kick off the
-/// initial WebSocket reconnect. On spawn failure or initial WS
-/// connect failure, fall back to the supervisor's respawn path.
-///
-/// Extracted from `main.rs`'s `.setup` closure so the host
-/// entrypoint stays wiring-only (C-ARCH-1). The orchestration here
-/// is implementation logic: not wiring, and was previously
-/// inlined as a 44-LOC `tauri::async_runtime::spawn(async move {
-/// ... })` block in main.rs that did `state.child` mutation, exit-rx
-/// installation, and respawn-fallback dispatch.
-///
-/// # Sequence
-///
-/// 1. Generate the per-launch bearer token via `util::generate_token`.
-/// 2. Spawn the sidecar via `spawn_sidecar_and_get_port_with_shutdown`
-///    (which
-///    dispatches to dev-mode or release-mode spawn based on the
-///    `VOICE_TYPER_SIDECAR_DEV` env var).
-/// 3. Re-check `state.shutting_down` AFTER spawn returns, if the
-///    user quit the app while we were waiting for `server_started`
-///    (up to 30s on a cold start), the `RunEvent::Exit` handler
-///    already set the flag but found no child to kill. Kill the
-///    freshly-spawned sidecar here so it doesn't outlive the host,
-///    then bail before installing it into state.
-/// 4. Install the child handle + exit receiver into shared state.
-/// 5. Kick off `reconnect_ws` to perform the WS auth handshake. On
-///    failure, fall back to the supervisor's `respawn` (which will
-///    retry with backoff per `SUPERVISOR_BACKOFF_MS`).
-///
-/// The caller ([`initialize_sidecar_guarded`], which `main.rs::setup`
-/// spawns via `tauri::async_runtime::spawn`) runs this in
-/// the background: the `.setup` closure must return `Ok(())`
-/// quickly so the Tauri event loop starts.
+/// Cold-start sidecar init (C-ARCH-1: logic lives here, not in main.rs).
+/// Spawn → install state → reconnect_ws; fall back to supervisor on failure.
+/// Adopted-backend mode: connect only; no child; no respawn.
 pub(crate) async fn initialize_sidecar(
     app_handle: &tauri::AppHandle,
     state: Arc<crate::state::SidecarState>,
 ) {
-    // MO-110: adopted-backend mode. When the backend launched us
-    // (VT_PYTHON_PORT + VT_IPC_TOKEN in the host env), connect to IT
-    // instead of spawning a second backend. No child handle is
-    // installed (state.child stays None) so every kill/stop/respawn
-    // path is a safe no-op, exactly like the predecessor's null
-    // `pythonProcess` in the same mode. The supervisor must also stay
-    // out of the way: a respawn would spawn a SECOND backend next to
-    // our parent, hence the `adopted` flag below guards the fallback.
+    // MO-110: parent backend owns the process; kill/stop/respawn are no-ops.
     if let Some((port, token)) = adopted_backend_env() {
         *state.adopted_backend.lock().await = true;
         if let Err(e) = crate::sidecar::ws::reconnect_ws(app_handle, &state, port, &token).await {
             log::error!("[SETUP] initial WS connect to adopted backend failed: {}", e);
-            // NO respawn fallback in adopted mode: the backend is our
-            // parent, respawning would double-spawn. Surface the
-            // failure and let the renderer's connection-loss UI
-            // handle it (the WS retry loop keeps trying).
+            // NO respawn fallback in adopted mode (would double-spawn parent).
         }
         return;
     }
@@ -278,14 +131,7 @@ pub(crate) async fn initialize_sidecar(
 
     match spawn_sidecar_and_get_port_with_shutdown(app_handle, &token, &state.shutting_down).await {
         Ok((port, child, exit_rx)) => {
-            //re-check shutting_down AFTER spawn
-            // returns: if the user quit the app while we
-            // were waiting for server_started (up to 30s on
-            // a cold start), the `RunEvent::Exit` handler
-            // already set the flag but found no child to
-            // kill. Kill the freshly-spawned sidecar here
-            // so it doesn't outlive the host, then bail
-            // before installing it into state.
+            // Post-spawn shutting_down re-check: kill child that outlived the host.
             if state.shutting_down.load(Ordering::SeqCst) {
                 log::info!(
                     "[SETUP] shutting_down set during sidecar spawn: \
@@ -300,8 +146,6 @@ pub(crate) async fn initialize_sidecar(
                 return;
             }
             *crate::state::lock(&state.child) = Some(child);
-            //store the sidecar's event receiver so
-            // shutdown_sidecar can poll for graceful exit.
             *state.child_exit_rx.lock().await = exit_rx;
             if let Err(e) = crate::sidecar::ws::reconnect_ws(app_handle, &state, port, &token).await
             {
@@ -316,44 +160,16 @@ pub(crate) async fn initialize_sidecar(
     }
 }
 
-/// Cold-start sidecar initialization with panic capture, the body of
-/// the background task `main.rs`'s `.setup` spawns via
-/// `tauri::async_runtime::spawn`.
-///
-/// Extracted verbatim from `main.rs` (pure move, no behavior change)
-/// so the host entrypoint stays wiring-only (C-ARCH-1). Sequence:
-///
-/// 1. Run the one-time predecessor→Tauri migration
-///    (`migrate::migrate_legacy_userdata_async`) on the async
-///    runtime's blocking pool: fs-heavy, 5-30s on first launch, so
-///    this task is not stalled, and so `initialize_sidecar` boots the
-///    sidecar against already-migrated data (ADR-0020 §8).
-/// 2. Capture panics from `initialize_sidecar` (e.g. a future
-///    invariant violation) via `FutureExt::catch_unwind` so they are
-///    logged with the actual message instead of being silently lost
-///    (Tauri's runtime does not surface spawned-task panics).
-///
-/// # C-TOKIO-1 guard
-///
-/// This task ALREADY runs on the tokio runtime (the
-/// `tauri::async_runtime::spawn` call in `main.rs`), a future
-/// awaited inside a runtime worker must NEVER call `block_on`. The
-/// previous `std::panic::catch_unwind(|| ... block_on ...)` wrapper
-/// panicked at every startup with "Cannot start a runtime from within
-/// a runtime" until it was replaced with the
-/// `AssertUnwindSafe(fut).catch_unwind().await` shape below. DO NOT
-/// bridge this back through `tauri::async_runtime::block_on` /
-/// std::thread + block_on, see AGENTS.md C-TOKIO-1.
+/// Panic-captured cold-start body for main.rs's background spawn.
+/// C-ARCH-1 + C-TOKIO-1: AssertUnwindSafe(...).catch_unwind().await —
+/// NEVER block_on (panics with "Cannot start a runtime from within a runtime").
+/// Migration runs first so the sidecar boots against migrated data.
 pub(crate) async fn initialize_sidecar_guarded(app_handle: tauri::AppHandle) {
-    // ADR-0020 §8: run the one-time predecessor→Tauri migration on the
-    // blocking pool (fs-heavy, 5-30s on first launch) so this async
-    // task is not stalled. MUST run before initialize_sidecar so the
-    // sidecar boots against already-migrated data.
+    // ADR-0020 §8: one-time predecessor→Tauri migration on the blocking pool.
     crate::migrate::migrate_legacy_userdata_async(&app_handle).await;
     let state: tauri::State<'_, Arc<crate::state::SidecarState>> = app_handle.state();
     let state = state.inner().clone();
-    // See the C-TOKIO-1 guard on this function: `catch_unwind` on the
-    // AssertUnwindSafe-wrapped future: NEVER a `block_on` bridge.
+    // C-TOKIO-1: catch_unwind on the AssertUnwindSafe-wrapped future.
     let result = AssertUnwindSafe(initialize_sidecar(&app_handle, state))
         .catch_unwind()
         .await;
@@ -367,103 +183,24 @@ pub(crate) async fn initialize_sidecar_guarded(app_handle: tauri::AppHandle) {
     }
 }
 
-// Sibling test module: tests live in `spawn_tests.rs` (per C-TEST-5:
-// no inline `#[cfg(test)] mod tests` blocks in production source).
+// C-TEST-5: sibling test file.
 #[cfg(test)]
 #[path = "spawn_tests.rs"]
 mod spawn_tests;
 
-// ─── Worker spawn (Phase 2b, runtime-pack split, §7) ────────────────
-//
-// The worker spawn entry points below are IMPLEMENTED (Phase 2b). The
-// actual process spawn lives in the `worker` submodule
-// (`spawn_worker_release` / `spawn_worker_dev_mode`), which mirrors
-// the sidecar's release/dev split but with the worker's own contract:
-//
-//   - Spawn: `app.shell().sidecar("voice-typer-worker")` (release,
-//     externalBin) or `python -m voice_typer.worker` (dev mode).
-//   - Env: `VOICE_TYPER_IPC_TOKEN` (the worker refuses to start
-//     without it: EXIT_NO_TOKEN), `VOICE_TYPER_CONFIG_DIR`,
-//     `VOICE_TYPER_SESSION_ID` (log correlation).
-//   - Handshake: `{"event":"worker_started","port":N,"protocol":1}`
-//     on stdout: a DISTINCT event name from the sidecar's
-//     `server_started` (see `parse_worker_started` in handshake.rs).
-//
-// Not yet delivered (next phases, per plan §7.2/§7.3): the worker's
-// WS CLIENT connection is owned by the slim-core sidecar (NOT the
-// Tauri host: the 1-host↔2-processes pattern §7.1), so the host's
-// `reconnect_worker_ws` proxy + the worker respawn supervisor + the
-// port handoff to the sidecar are still TBD.
-// Delivered (BP-33, Phase 2c): `WorkerState` is `app.manage()`d in
-// main.rs and `initialize_worker` runs on the `offline_pack_verified`
-// event (stop-first, then spawn; see `worker::on_pack_verified`).
+// ─── Worker spawn (runtime-pack split) ────────────────
+// Worker is a SECOND child with its own circuit breaker.
+// Sidecar (not the host) owns the worker WS client connection.
+// NOTE: see docs/code-notes/tauri-host.md#workerstate-runtime-pack-split
 
-/// Spawn the ML worker exe via Tauri's `externalBin` mechanism
-/// (release) or `python -m voice_typer.worker` (dev mode), reading the
-/// `worker_started` JSON from stdout.
-///
-/// Returns the bound port + the child handle on success, the same
-/// shape as `spawn_sidecar_and_get_port_with_shutdown` so the caller
-/// (`initialize_worker`) can install them into `WorkerState` via the
-/// same pattern.
-///
-/// # Contract (for the future implementer)
-///
-/// 1. Resolve the worker exe path via
-///    `crate::platform::worker_path::worker_exe_path()` (per-platform,
-///    cached). For dev mode, fall back to a source-tree-relative path
-///    (parallel to `dev_prewarm_exe`'s pattern: deleted with the
-///    prewarm binary in this Phase 2a slice).
-/// 2. Generate the per-launch bearer token via `util::generate_token()`
-///    ONCE (store in `state.auth_token: OnceLock<String>`, the worker
-///    inherits the host's token across respawns so the slim-core
-///    sidecar can re-authenticate without re-negotiating).
-/// 3. Spawn via `app.shell().sidecar("voice-typer-worker")` (release)
-///    or `tokio::process::Command::new(python_bin)` (dev mode, parallel
-///    to `spawn_sidecar_dev_mode`). Pass `VOICE_TYPER_WORKER_TOKEN`
-///    + `VOICE_TYPER_CONFIG_DIR` + `VOICE_TYPER_PACK_DIR` env vars
-///    (the worker reads the pack dir to find its bundled engines).
-/// 4. Read `server_started` JSON from stdout (parallel to
-///    `parse_server_started`: the worker emits the same handshake).
-/// 5. Install the child handle + exit receiver into `WorkerState`.
-/// 6. The slim-core sidecar (NOT the Tauri host) connects to the
-///    worker's WS port as a CLIENT. The host proxies frames through
-///    `WorkerState::ws_tx` so the worker lifecycle stays under host
-///    control (§7.2: respawn scheduler, shutdown).
-///
-/// # Worker lifecycle (§7.3)
-///
-/// - Worker starts ONCE after pack download + verification, stays
-///   running for app lifetime. Holds ~450 MB RAM (unpacked pack +
-///   loaded models).
-/// - If RAM pressure is high, the slim-core sidecar sends a
-///   `worker_unload` RPC (the worker exits; restart on next
-///   transcription).
-/// - Worker's prewarm phase runs once at startup (Option P-1).
-/// - Worker shutdown: graceful via WS close, or forceful via
-///   SIGTERM/taskkill (parallel to `shutdown_sidecar_for_exit`).
-/// - Single-instance: worker takes `state.lock_file_path` lock file
-///   (parallel to `VoiceTyperSingleInstance`).
-/// - Respawn scheduler (§7.2): if the worker crashes, the slim-core
-///   sidecar restarts it. Must NOT trip the sidecar's circuit breaker
-///   (separate `respawn_in_progress` flag in `WorkerState`).
-///
-/// # Returns
-///
-/// `Ok((port, child, exit_rx))` on success, same shape as
-/// `spawn_sidecar_and_get_port_with_shutdown` so the caller
-/// (`initialize_worker`) can install them into `WorkerState` via the
-/// same pattern. Called by `initialize_worker`, which the WS reader
-/// triggers on `offline_pack_verified` (BP-33, Phase 2c).
+/// Spawn ML worker (release externalBin / dev python -m), read
+/// `worker_started` from stdout. Returns same shape as sidecar spawn.
 pub(crate) async fn spawn_worker_and_get_port_with_shutdown(
     app: &tauri::AppHandle,
     state: Arc<crate::state::WorkerState>,
     shutting_down: &AtomicBool,
 ) -> Result<(u16, SidecarHandle, Option<mpsc::Receiver<CommandEvent>>), String> {
-    // The per-launch bearer token comes from `state.auth_token`, set
-    // ONCE by `initialize_worker` (OnceLock) so a respawned worker
-    // inherits the host's token and the slim-core sidecar can
-    // re-authenticate without re-negotiating (§7.3).
+    // Token set once by initialize_worker (OnceLock); respawn reuses it.
     let token = state
         .auth_token
         .get()
@@ -477,49 +214,16 @@ pub(crate) async fn spawn_worker_and_get_port_with_shutdown(
     Ok((port, child, Some(rx)))
 }
 
-/// Cold-start worker initialization: spawn the worker, install the
-/// child handle + exit receiver into shared state.
-///
-/// Mirrors `initialize_sidecar`'s sequence (§7.3 lifecycle: starts
-/// once after pack download + verification, stays running for app
-/// lifetime). Unlike the sidecar, the host does NOT open a WS client
-/// to the worker: the slim-core sidecar owns that connection
-/// (1-host↔2-processes §7.1).
-///
-/// # Sequence (for the future implementer)
-///
-/// 1. Generate the per-launch bearer token via `util::generate_token`
-///    and store in `state.auth_token` (`OnceLock::set`, fails
-///    gracefully if already set, e.g. by a prior call).
-/// 2. Resolve the worker lock file path via
-///    `worker_path::worker_exe_path().with_file_name("worker.lock")`
-///    and store in `state.lock_file_path`.
-/// 3. Call `spawn_worker_and_get_port_with_shutdown`.
-/// 4. Re-check `state.shutting_down` AFTER spawn returns, if the user
-///    quit the app while we were waiting for `server_started`, kill
-///    the freshly-spawned worker (parallel to `initialize_sidecar`).
-/// 5. Install the child handle + exit receiver into `WorkerState`.
-/// 6. Kick off `reconnect_worker_ws` (TBD, parallel to
-///    `sidecar::ws::reconnect_ws`). On failure, fall back to the
-///    worker supervisor's `respawn` (TBD, parallel to
-///    `sidecar::supervisor::respawn`).
-/// Called by `worker::on_pack_verified` (BP-33, Phase 2c) after pack
-/// verification: see the module-level comment.
+/// Cold-start worker init: spawn + install WorkerState. No host WS client
+/// (slim-core sidecar owns that connection).
 pub(crate) async fn initialize_worker(
     app_handle: &tauri::AppHandle,
     state: Arc<crate::state::WorkerState>,
 ) {
-    // Per-launch token: generate ONCE per host launch and store in
-    // `state.auth_token` (OnceLock). A second call (e.g. a worker
-    // respawn) reuses the stored token, the worker inherits the
-    // host's token so the slim-core sidecar can authenticate to a
-    // respawned worker without re-negotiating (§7.3).
+    // OnceLock: second call (respawn) reuses the host's token.
     state.auth_token.get_or_init(crate::util::generate_token);
 
-    // Single-instance lock file path (parallel to
-    // `VoiceTyperSingleInstance`): the worker takes this lock at spawn
-    // time + releases it on exit; a stale lock is detected via PID
-    // check. Resolved once per host launch (OnceLock).
+    // Single-instance lock path for the worker process.
     state.lock_file_path.get_or_init(|| {
         crate::platform::worker_path::worker_exe_path().with_file_name("worker.lock")
     });
@@ -528,11 +232,7 @@ pub(crate) async fn initialize_worker(
         .await
     {
         Ok((port, child, exit_rx)) => {
-            // Re-check `state.shutting_down` AFTER spawn returns, if
-            // the user quit the app while we were waiting for
-            // `worker_started` (up to 30s on a cold start), kill the
-            // freshly-spawned worker so it doesn't outlive the host
-            // (parallel to `initialize_sidecar`).
+            // Post-spawn shutting_down re-check (mirror initialize_sidecar).
             if state.shutting_down.load(Ordering::SeqCst) {
                 log::info!(
                     "[WORKER-INIT] shutting_down set during worker spawn: \
@@ -548,23 +248,12 @@ pub(crate) async fn initialize_worker(
                 return;
             }
             *crate::state::lock(&state.child) = Some(child);
-            // Store the worker's event receiver so the future
-            // `shutdown_worker_for_exit` can poll for graceful exit.
-            // The receiver is the FORWARDED view of the real event
-            // channel: the permanent child-event drain (same module as
-            // the sidecar's: see release_mode.rs) owns the real
-            // receiver and keeps it drained for the worker's whole
-            // lifetime, so the worker's stderr (onnxruntime /
-            // ctranslate2 startup banners are the largest single
-            // producer) can never block its writer threads on a full
-            // bounded channel. NOTE for the future worker-respawn
-            // path: wrap the freshly spawned receiver the same way.
+            // Drain wraps the real event channel so worker stderr cannot
+            // block its writers. Future worker-respawn path must do the same.
             let exit_rx = exit_rx.map(|rx| event_drain::spawn_child_event_drain("[WORKER]", rx));
             *state.child_exit_rx.lock().await = exit_rx;
-            // NOTE: never include the bearer token (or the word
-            // "token") in any log line here, ADR-0020 §3 "never
-            // logged" is enforced by
-            // test_externalbin_spawn_windows.py::test_spawn_rs_server_started_log_line_format.
+            // Never log the bearer token (ADR-0020 §3; pinned by
+            // test_externalbin_spawn_windows.py).
             log::info!(
                 "[WORKER-INIT] worker spawned (port={}): WS client + \
                  respawn supervisor are the next phase (plan §7.2/§7.3; \
@@ -574,10 +263,6 @@ pub(crate) async fn initialize_worker(
         }
         Err(e) => {
             log::error!("[WORKER-INIT] worker spawn failed: {}", e);
-            // Worker respawn supervisor (plan §7.2) is the next phase —
-            // a failed spawn currently just logs; the supervisor will
-            // retry with backoff without tripping the sidecar's circuit
-            // breaker.
         }
     }
 }

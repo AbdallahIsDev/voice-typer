@@ -1,57 +1,9 @@
-//! Renderer / webview liveness watchdog (review.md MO-113).
-//!
-//! predecessor logged every child-process abnormal exit
-//! (`child-process-gone`: GPU process crash, utility process crash,
-//! renderer OOM) from `bootstrap/runtime.ts` into the host log, which is
-//! the ONLY signal available when a window renders blank. After the
-//! predecessor→Tauri cutover the Rust host had just a panic hook, so a
-//! WebView2 renderer freeze / GPU crash left `voice-typer-rust.log`
-//! completely clean while the user stared at a blank or frozen window.
-//!
-//! # Why a heartbeat instead of a process event
-//!
-//! Wry/Tauri v2 expose NO cross-platform renderer-crash event: WebView2's
-//! `ProcessFailed` is not surfaced by wry, WKWebView has no crash
-//! notification at all, and webkit2gtk's `web-process-crashed` signal is
-//! likewise not surfaced. So the renderer process cannot be watched from
-//! the host directly.
-//!
-//! What CAN be observed is whether the renderer's JavaScript is still
-//! RUNNING: the renderer posts a lightweight heartbeat (a bare
-//! `renderer_heartbeat` invoke) on an interval, and this watchdog
-//! compares the newest heartbeat against a stall threshold. A frozen
-//! webview stops executing timers, so the heartbeat stops with it, that
-//! is the blank-window signal.
-//!
-//! # False-positive guards
-//!
-//! - The watchdog only evaluates while the MAIN window is visible AND not
-//!   minimized: background/occluded windows legitimately have their
-//!   timers throttled by every engine (WebView2 background throttling,
-//!   macOS App Nap, `webkit2gtk` occlusion detection), so a hidden
-//!   window must never be reported as stalled.
-//! - The renderer only sends heartbeats while
-//!   `document.visibilityState === "visible"` (same reason).
-//! - One ERROR per stall episode (the `stalled` flag), plus a single INFO
-//!   when heartbeats resume, so a long freeze cannot flood the log.
-//!
-//! This is telemetry only: nothing is killed, restarted, or spawned from
-//! here. It mirrors the predecessor's shape (log the abnormal condition, let the
-//! user decide) without inventing process control that the platform
-//! cannot back.
 
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-/// How often the renderer posts a heartbeat while its window is visible.
-/// The renderer-side interval is the same value; the watchdog uses it to
-/// derive the stall threshold below.
 pub(crate) const HEARTBEAT_INTERVAL_SECS: u64 = 10;
 
-/// A visible, un-minimized window that has not beaten for this long is
-/// reported as stalled. 3x [`HEARTBEAT_INTERVAL_SECS`] tolerates a
-/// dropped/queued frame (e.g. a long React render or a GC pause) without
-/// crying wolf, while still surfacing a real freeze within ~30 s.
 pub(crate) const STALL_THRESHOLD_SECS: u64 = 30;
 
 /// How often the watchdog evaluates the heartbeat.
@@ -112,12 +64,6 @@ pub(crate) enum WatchdogAction {
     ReportRecovery,
 }
 
-/// Decide what to log on this tick (pure policy).
-///
-/// `eligible` is "the main window exists, is visible, and is not
-/// minimized": the caller resolves it from the live window, and a
-/// non-eligible window can never be reported (see the module docs on
-/// engine throttling of background windows).
 pub(crate) fn watchdog_decision(
     last: Option<Instant>,
     already_stalled: bool,
@@ -132,9 +78,6 @@ pub(crate) fn watchdog_decision(
     };
     let stale = now.duration_since(last);
     if !eligible {
-        // Not visible / minimized: throttling is expected. Clear the
-        // episode flag so a later eligible tick re-reports cleanly, but
-        // do NOT log the transition (noise).
         return WatchdogAction::Idle;
     }
     if stale > threshold {
@@ -152,10 +95,6 @@ pub(crate) fn watchdog_decision(
     }
 }
 
-/// Spawn the watchdog loop. Called once from `main.rs` setup.
-///
-/// Runs on the async runtime, off the event loop. Never blocks: each
-/// tick is an atomic-ish state read plus a window-state query.
 pub(crate) fn spawn_watchdog(app: &tauri::AppHandle) {
     use tauri::Manager;
 
@@ -179,9 +118,6 @@ pub(crate) fn spawn_watchdog(app: &tauri::AppHandle) {
                 WatchdogAction::Idle => {}
                 WatchdogAction::ReportStall { stale_secs } => {
                     state.mark_stalled();
-                    // The redaction pass runs on the `log` sink itself (the
-                    // host logger redacts every record), so the line carries
-                    // no user content: only timings.
                     log::error!(
                         "[RENDERER-WATCHDOG] webview unresponsive: no heartbeat for {}s \
                          while the main window is visible (interval={}s, threshold={}s) \

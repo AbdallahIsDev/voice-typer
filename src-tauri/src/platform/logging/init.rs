@@ -1,5 +1,6 @@
 //! Init orchestration: startup sweep, rotating-file logger init, and the
 //! host-entrypoint stderr-fallback wrapper.
+//! C-LOG-1: docs/code-notes/tauri-host.md#logging-format-c-log-1
 
 use super::combined::{is_debug_env_truthy, is_truthy_env_var, CombinedLogger};
 use super::early::EarlyLogger;
@@ -7,30 +8,14 @@ use super::rotating::RotatingFileWriter;
 use crate::util::{LOG_AGE_RETENTION_SECS, LOG_SIZE_FALLBACK_BYTES};
 use std::sync::atomic::AtomicBool;
 
-// POSIX-only `Permissions::from_mode` trait import. On Windows this is
-// a no-op (the OS uses ACLs, not mode bits), the `#[cfg(unix)]` blocks
-// below gate every call site.
+// POSIX-only; Windows uses ACLs (cfg(unix) gates every call site).
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 
-/// Startup sweep: Tiers 1 (age) + 2 (size fallback) of the three-tier
-/// log-cleanup design. Deletes any regular file in `logs_dir` that is
-/// EITHER older than [`crate::util::LOG_AGE_RETENTION_SECS`] (7 days)
-/// OR larger than [`crate::util::LOG_SIZE_FALLBACK_BYTES`] (25 MB).
-///
-/// Mirrors the Python `_sweep_stale_logs`
-/// (`voice_typer/server/log/__init__.py`) and the predecessor
-/// `sweepStaleLogs` (`client/src/main/logging/rotation.ts`).
-///
-/// Scope: every regular file in the directory EXCEPT `*.lock` files —
-/// the inter-process truncation locks must persist across sessions.
-/// Files locked by another live process (e.g. `voice-typer.log` held
-/// open by an already-running Python backend in host-first launch
-/// order) fail the remove and are skipped silently, their owner
-/// sweeps them at its own startup.
-///
-/// Best-effort: every error is swallowed, a sweep failure must never
-/// block logger init or app startup.
+/// Startup sweep: delete log files older than LOG_AGE_RETENTION_SECS
+/// or larger than LOG_SIZE_FALLBACK_BYTES. Skips `*.lock` (truncation
+/// locks persist across sessions). Best-effort; never blocks logger init.
+/// NOTE: see docs/code-notes/tauri-host.md#logging-rotation-tiers-adr-0020-11
 pub(crate) fn sweep_stale_logs(logs_dir: &std::path::Path) {
     let entries = match std::fs::read_dir(logs_dir) {
         Ok(entries) => entries,
@@ -45,8 +30,7 @@ pub(crate) fn sweep_stale_logs(logs_dir: &std::path::Path) {
         if !path.is_file() {
             continue;
         }
-        // NEVER delete the inter-process truncation lock files —
-        // they must persist across sessions.
+        // NEVER delete inter-process truncation lock files.
         if entry
             .file_name()
             .to_str()
@@ -67,98 +51,29 @@ pub(crate) fn sweep_stale_logs(logs_dir: &std::path::Path) {
         if age <= LOG_AGE_RETENTION_SECS && meta.len() <= LOG_SIZE_FALLBACK_BYTES {
             continue;
         }
-        // Best-effort remove: a locked file (another live process)
-        // fails here and is skipped; its owner sweeps it.
+        // Locked files skip silently; their owner sweeps them.
         let _ = std::fs::remove_file(&path);
     }
 }
 
-/// ADR-0020 §11: initialize a rotating file logger writing to
+/// ADR-0020 §11: rotating file logger at
 /// `<config_dir>/logs/voice-typer-rust.log`.
-///
-/// **Excludes `bubble_level` events** from the file log: at ~60 Hz
-/// they would fill disk fast even with rotation. The Rust WS-reader
-/// already coalesces them to ≤30 Hz for the UI (§9); the file path
-/// drops them entirely so file logs capture events/errors, not the
-/// level stream.
-///
-/// **Emits the session banner**: the FIRST line written to the file
-/// for the session is `[STARTUP] logging initialized: file=...,
-/// file_level=..., stderr_level=..., session=...`: mirroring the
-/// Python side's banner (`voice_typer/server/logging_setup.py`) and
-/// carrying the ONLY sanctioned per-session id occurrence (the
-/// trailing `session=` field; every other file line is clean
-/// `ts  LEVEL  msg`). The banner is written straight to the file
-/// writer, so it is never filtered by the WARN-default file level.
-///
-/// **Level contract (2026-09-16, MO-114):** the FILE sink defaults to
-/// WARN/ERROR (predecessor production parity, where WARN+ went to the host
-/// file and INFO to stdout); `VOICE_TYPER_RUST_INFO_LOG=1` opts the file
-/// back up to INFO. The STDERR sink keeps INFO. An explicit `RUST_LOG`
-/// (or truthy `VOICE_TYPER_DEBUG` → Debug) overrides both.
-///
-/// Replaces the prior `env_logger::Builder::init()` call, this
-/// logger writes to BOTH stderr (matching the prior env_logger
-/// output) AND the rotating file. If file init fails, the caller
-/// should fall back to `env_logger` for stderr-only output.
-///
-/// # Implementation choice: hand-rolled, not `log4rs`
-///
-/// `log4rs` is a heavy dep (~30 transitive crates) for a feature
-/// that just needs "rotate at N bytes, keep N files". This
-/// hand-rolled `RotatingFileWriter` is ~80 lines and has no deps
-/// beyond `log` (already required) + `std::fs`. The rotation is
-/// triggered lazily on the write that crosses the size threshold
-/// (not on a timer), which is fine for our write volume.
+/// Excludes bubble_level (~60 Hz) from the file sink. Session banner is
+/// the ONLY sanctioned `session=` line (C-LOG-1). File default WARN+;
+/// VOICE_TYPER_RUST_INFO_LOG=1 opts INFO. Hand-rolled writer (not log4rs).
 pub(crate) fn init_file_logger(config_dir: &std::path::Path) -> Result<(), String> {
     let logs_dir = config_dir.join("logs");
     std::fs::create_dir_all(&logs_dir).map_err(|e| format!("create logs dir failed: {e}"))?;
-    // Startup sweep: Tiers 1 (age, 7 days) + 2 (size fallback, 25 MB)
-    // of the three-tier cleanup design. Runs BEFORE the writer opens
-    // `voice-typer-rust.log` so a stale/oversized active file is removed
-    // and a fresh one created for this session. Mirrors the Python
-    // `_sweep_stale_logs` and the predecessor `sweepStaleLogs`. Best-effort:
-    // every error is swallowed: a sweep failure must never block logger
-    // init.
+    // Sweep BEFORE opening the active file so a stale/oversized one is replaced.
     sweep_stale_logs(&logs_dir);
-    // Tighten the parent `<config_dir>/logs/` dir to
-    // `0o700` on POSIX (owner rwx only, no group/other access). Mirrors
-    // the Python side's `os.chmod(config_dir, 0o700)` at
-    // `voice_typer/server/log.py:891-893`. Best-effort: a `chmod` failure
-    // is logged but does NOT block logger init (a too-permissive dir is
-    // a softening of the security posture, not a hard failure, the
-    // individual log files inside still get `0o600` via `OpenOptionsExt`).
+    // POSIX: logs dir 0o700 (best-effort; soft security, not a hard fail).
     #[cfg(unix)]
     {
         let _ = std::fs::set_permissions(&logs_dir, std::fs::Permissions::from_mode(0o700));
     }
-    // rename Rust's log basename to `voice-typer-rust` so the
-    // final path is `<config_dir>/logs/voice-typer-rust.log`. Pre-fix
-    // the basename was `voice-typer`, producing
-    // `<config_dir>/logs/voice-typer.log`: the SAME basename as the
-    // Python sidecar's `<config_dir>/voice-typer.log`. The two paths
-    // were different (Python wrote to the config_dir root, Rust to
-    // `logs/`) so they didn't actually collide, BUT the basename
-    // parity was a fragile contract: a future Python change moving
-    // its log into `logs/` (a reasonable cleanup) would silently
-    // cause both layers to append to the same file → rotation races
-    // + interleaved lines with different timestamp formats. Renaming
-    // Rust's file makes the contract explicit and survives a Python
-    // layout change. Mirrors the Python side's
-    // `RotatingFileHandler(filename=...)` at log.py:891-893.
+    // Basename `voice-typer-rust` (not `voice-typer`) so a future Python
+    // move into logs/ cannot collide on the same file.
     let writer = RotatingFileWriter::new(logs_dir.clone(), "voice-typer-rust");
-    // ── Level resolution (two sinks, two defaults) ────────────────
-    //
-    // explicit_level: an EXPLICIT user override, honored for BOTH sinks
-    // (an operator who sets `RUST_LOG=info` means "be verbose", and one
-    // who sets `RUST_LOG=off` means "be quiet").
-    //   - `RUST_LOG` (the standard Rust convention) wins; parsed as a
-    //     `log::LevelFilter`. An UNPARSEABLE value (e.g. `RUST_LOG=debog`)
-    //     is treated as absent so a typo doesn't silently disable all
-    //     logging.
-    //   - else `VOICE_TYPER_DEBUG` truthy ("1"/"true"/"yes", the same
-    //     matcher the Python side's `env_validation.py` uses) → Debug.
-    //   - else none → the per-sink defaults below apply.
     let explicit_level = std::env::var("RUST_LOG")
         .ok()
         .and_then(|s| s.parse::<log::LevelFilter>().ok())
@@ -169,12 +84,6 @@ pub(crate) fn init_file_logger(config_dir: &std::path::Path) -> Result<(), Strin
                 None
             }
         });
-    // FILE sink default: WARN/ERROR only, mirroring the predecessor
-    // production contract (its host file was WARN+ with INFO on stdout
-    // unless `VOICE_TYPER_LEGACY_INFO_LOG=1`). INFO is opt-in through
-    // `VOICE_TYPER_RUST_INFO_LOG=1` (a separate 1 MiB lifecycle file was
-    // deliberately NOT mirrored: one file keeps rotation + support
-    // bundling single-source, see MO-108/MO-114 in review.md).
     let file_level = explicit_level.unwrap_or_else(|| {
         if is_truthy_env_var("VOICE_TYPER_RUST_INFO_LOG") {
             log::LevelFilter::Info
@@ -185,52 +94,12 @@ pub(crate) fn init_file_logger(config_dir: &std::path::Path) -> Result<(), Strin
     // TERMINAL sink default: INFO, so a developer tailing stderr still
     // sees the lifecycle lines even though the file (above) is WARN-only.
     let stderr_level = explicit_level.unwrap_or(log::LevelFilter::Info);
-    // The `log` crate orders `LevelFilter` by verbosity (`Off` < `Error`
-    // < `Warn` < `Info` < `Debug` < `Trace`), so `max` is the MOST
-    // VERBOSE of the two: the global gate must let through anything
-    // either sink may want, the per-sink gates then decide.
     let max_level = if file_level > stderr_level {
         file_level
     } else {
         stderr_level
     };
-    // gate stderr output on debug builds OR `RUST_LOG_STDERR=1`.
-    // Release builds with no env var skip the per-line `eprintln!`
-    // syscall (saves 1 `write(2)` per log line). The env var is the
-    // release-build escape hatch for operators who want stderr tailing
-    // (`journalctl -u voice-typer` etc.).
-    //
-    // use the shared `is_truthy_env_var` helper so the truthy
-    // contract ("1" / "true" / "yes", case-insensitive, trimmed) is
-    // defined in exactly one place. The same helper is used by
-    // `install_early_logger` and `is_debug_env_truthy`.
     let stderr_verbose_init = cfg!(debug_assertions) || is_truthy_env_var("RUST_LOG_STDERR");
-    // ── Session banner (BEFORE the writer is moved into the logger) ──
-    //
-    // Session banner: the FIRST line written to the log file for this
-    // session. Mirrors the Python side's startup banner
-    // (`voice_typer/server/logging_setup.py` logs
-    // `[STARTUP] logging initialized: file=..., level=..., json=...,
-    // debug=..., quiet=..., session=...`), adapted to the fields the
-    // Rust logger knows: the logs dir, the two resolved levels, and the
-    // 8-char hex session id. The session id is the ONLY sanctioned id
-    // occurrence in the file, every other line is clean
-    // `ts  LEVEL  msg`. Cross-process correlation with the Python
-    // sidecar is preserved: the SAME id is passed to the sidecar via
-    // `VOICE_TYPER_SESSION_ID`, and the sidecar stamps it into its own
-    // banner.
-    //
-    // WRITTEN DIRECTLY to the writer rather than through `log::info!`:
-    // the file sink now defaults to WARN/ERROR, so an INFO-level banner
-    // would be filtered out of the very file it marks the start of.
-    // The session marker is a boundary record, not a diagnostic record,
-    // so it bypasses the level gate by design (and is written before any
-    // other line can reach the file: the sweep/chmod/writer-open code
-    // above emits nothing, so it is guaranteed to stay line #1).
-    //
-    // The resolved levels are both reported so an operator reading the
-    // banner knows whether INFO was filtered out of this file and why
-    // (`VOICE_TYPER_RUST_INFO_LOG=1` opts the file back in).
     {
         let (file_ts, _) = crate::util::now_timestamps();
         let banner = format!(
@@ -249,35 +118,9 @@ pub(crate) fn init_file_logger(config_dir: &std::path::Path) -> Result<(), Strin
         file_writer: Some(writer),
         level_filter: max_level,
         file_level,
-        // `AtomicBool` so future code (e.g. a Tauri command)
-        // can toggle stderr verbosity at runtime. The per-line cost
-        // is a single `AtomicBool::load(Relaxed)`, same as a `bool`
-        // load on x86/ARM (Relaxed loads compile to a plain MOV).
         stderr_verbose: AtomicBool::new(stderr_verbose_init),
     };
 
-    // prefer the swap pattern when an `EarlyLogger` is already
-    // installed as the process-global `log` sink (the standard path —
-    // `install_early_logger` runs as the first line of `main()`).
-    // `log::set_logger` can only be called ONCE per process, so we
-    // can't replace the global logger; instead, we swap the
-    // `CombinedLogger` into the `EarlyLogger`'s `OnceLock` so all
-    // subsequent `log::*!` records delegate to the combined file+stderr
-    // sink. `OnceLock::get` is a single atomic load on the hot path —
-    // no mutex acquisition per log call.
-    //
-    // The `None` arm is the fallback for when the EarlyLogger was
-    // NOT installed (e.g. tests, or a host entrypoint that skipped
-    // `install_early_logger`): install the `CombinedLogger` directly
-    // via `log::set_logger`. This path preserves the behavior so
-    // existing tests that depend on `init_file_logger` calling
-    // `set_logger` continue to compile and run.
-    //
-    // Both arms MOVE `combined` (into the swap slot or the leaked
-    // global), and both error paths bail out BEFORE the banner below
-    //: the two success paths converge at a SINGLE banner emission
-    // site, so the banner fires exactly once per process regardless
-    // of which path installed the sink.
     match EarlyLogger::instance() {
         Some(early) => {
             if early.inner.set(combined).is_err() {
@@ -292,42 +135,16 @@ pub(crate) fn init_file_logger(config_dir: &std::path::Path) -> Result<(), Strin
                 .map_err(|_| "failed to set logger (already set?)".to_string())?;
         }
     }
-    // Bump the global max-level to the resolved value (the
-    // EarlyLogger was installed with `Info` as a safe default; the
-    // file-logger init may have parsed `RUST_LOG=debug` etc.).
-    // `set_max_level` can be called multiple times safely. The session
-    // banner was already written directly to the file above (it must
-    // survive the WARN-default file gate).
     log::set_max_level(max_level);
     Ok(())
 }
 
-/// Host entrypoint convenience wrapper: try the rotating file logger
-/// first, and if that fails (e.g. config-dir not writable), fall back
-/// to a stderr-only `env_logger` sink so early startup diagnostics
-/// still land somewhere visible. Both failures are surfaced to stderr
-/// via `eprintln!` (the global `log` sink may not be installed yet).
-///
-/// Extracted from `main.rs` so the host entrypoint stays wiring-only
-//(C-): no `env_logger::Builder` plumbing inline.
-///
-/// # Error handling
-///
-/// This function NEVER panics:
-/// - `init_file_logger` failure -> log to stderr, try env_logger.
-/// - env_logger `try_init` failure (e.g. another logger already
-///   installed) -> log to stderr, return. The host continues with NO
-///   logger; all `log::*!` calls become no-ops (the `log` crate's
-///   default sink is a no-op until `set_logger` is called).
 pub(crate) fn init_file_logger_or_stderr_fallback(config_dir: &std::path::Path) {
     if let Err(e) = init_file_logger(config_dir) {
         eprintln!(
             "[MAIN] file logger init failed (falling back to stderr-only env_logger): {}",
             e
         );
-        // Best-effort: env_logger for stderr only (no file sink).
-        // `try_init` avoids panic if `log::set_logger` was already
-        // called (e.g. by the EarlyLogger swap path above).
         if let Err(e2) =
             env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
                 .format_timestamp_millis()

@@ -1,8 +1,5 @@
 #![allow(clippy::unreachable)] // tauri command macro expansion emits `unreachable!()` fallbacks
 
-//! `shutdown_sidecar` cooperative-shutdown Tauri command (ADR-0020
-//! §10): extracted from the former single-file
-//! `commands/sidecar_cmds.rs`.
 
 use crate::commands::require_main_window;
 use crate::error::VoiceTyperError;
@@ -24,61 +21,18 @@ pub async fn shutdown_sidecar(
     state: tauri::State<'_, Arc<SidecarState>>,
     window: tauri::Window,
 ) -> Result<(), VoiceTyperError> {
-    // Only the main window may drive the cooperative-shutdown
-    // path. A compromised bubble renderer must NOT be able to invoke
-    // `invoke('shutdown_sidecar')` to DoS the sidecar.
-    //
-    // Note: there is also a programmatic (non-IPC) caller in
-    // `main.rs`'s `on_window_event` handler that invokes
-    // `shutdown_sidecar` directly when the main window is closed —
-    // that caller passes `window.clone()` from the `"main"` arm of the
-    // `window.label()` match, so this check passes for it too.
     require_main_window(&window)?;
     let _ = app;
     shutdown_sidecar_inner(state.inner()).await
 }
 
-/// Cooperative-shutdown body: (was the inline body of the
-/// `shutdown_sidecar` Tauri command).
-///
-/// `state` is taken as `&Arc<SidecarState>` (not `tauri::State`), the
-/// same convention as `dispatch_inner` in `dispatch.rs`, so the body
-/// is callable from contexts that aren't Tauri command invocations,
-/// and the sibling test module (`sidecar_cmds_tests.rs`, a descendant
-/// of `sidecar_cmds`) can pin the entry contract (canonical
-/// `begin_shutdown` routing + duplicate-call short-circuit) directly:
-/// a `#[tauri::command]` wrapper taking `tauri::AppHandle` /
-/// `tauri::State` / `tauri::Window` cannot be constructed in a unit
-/// test without a live Tauri app. The command wrapper above is a
-/// thin delegate: window guard, then this body.
 pub(super) async fn shutdown_sidecar_inner(
     state: &Arc<SidecarState>,
 ) -> Result<(), VoiceTyperError> {
-    // Early-return guard. If a previous `shutdown_sidecar`
-    // invocation already flipped `shutting_down` to true, the sidecar
-    // is already being torn down (or has been). Re-entering here would
-    // re-send the (idempotent) shutdown frame AND block on
-    // `state.child_exit_rx` for the full `SHUTDOWN_ACK_TIMEOUT_MS`
-    // (2s): a duplicate `invoke('shutdown_sidecar')` (renderer-
-    // invocable via `generate_handler!`) thus freezes the UI for 2s.
-    // `begin_shutdown` is the canonical swap + `notify_one` pair (in
-    // that order: see `state.rs`). Using it here (instead of a raw
-    // `shutting_down.swap`) also wakes a supervisor coroutine parked
-    // in `shutdown_notify.notified()` inside its backoff sleep, so
-    // the shutdown is noticed sub-ms instead of after the current
-    // backoff step (up to 8s). It returns the previous flag value:
-    // if it was already `true`, short-circuit immediately.
     if state.begin_shutdown() {
         log::info!("[SHUTDOWN] already in progress, duplicate call short-circuited");
         return Ok(());
     }
-    // Abort the in-flight heartbeat task so it doesn't keep dispatching
-    // `heartbeat` frames into the dead WS for up to HEARTBEAT_MAX_MISSES
-    // (~30s) after shutdown. Mirrors `shutdown_sidecar_for_exit` in
-    // state.rs: both shutdown paths must abort the heartbeat so the
-    // task doesn't outlive the WS connection.
-    // `state` here is already `&Arc<SidecarState>` (the command wrapper
-    // unwrapped the Tauri State), so it passes directly.
     crate::sidecar::ws::abort_heartbeat(state).await;
     // Send the shutdown frame.
     let frame = json!({"type": "shutdown"});
@@ -90,27 +44,8 @@ pub(super) async fn shutdown_sidecar_inner(
             );
         }
     }
-    // Wait up to SHUTDOWN_ACK_TIMEOUT_MS for the sidecar to exit.
-    // Use the `CommandEvent` receiver captured at spawn time to detect
-    // `Terminated` and return immediately (typical sidecar acks+exits in
-    // ~50ms), instead of sleeping the full deadline unconditionally.
-    // Falls back to a single bounded sleep for the dev-mode path (which
-    // has no event receiver).
     let deadline_dur = Duration::from_millis(SHUTDOWN_ACK_TIMEOUT_MS);
     let mut graceful = false;
-    // Take the receiver out of the lock and drop the guard BEFORE awaiting
-    // `rx.recv()`. Previously the `AsyncMutex` guard was held across the
-    // up-to-2s `tokio::time::timeout` await, blocking `respawn_inner`
-    // (supervisor.rs) under a tight shutdown race where the supervisor
-    // tried to install a new receiver (via `*rx_guard = exit_rx;`) while
-    // `shutdown_sidecar` was still holding the lock waiting for the old
-    // sidecar to exit.
-    //
-    // `take()` leaves `None` in the slot. The supervisor's install path is
-    // a full assignment (`*rx_guard = exit_rx;`), it does not read the
-    // current value: so overwriting a `None` slot is well-defined: the
-    // next respawn stores the new receiver and the next `shutdown_sidecar`
-    // call (if any; normally the app exits before that) sees `Some(new_rx)`.
     let rx_opt = {
         let mut rx_guard = state.child_exit_rx.lock().await;
         rx_guard.take()
@@ -142,23 +77,12 @@ pub(super) async fn shutdown_sidecar_inner(
             }
         }
     } else {
-        // Dev-mode path (tokio::process::Child), no CommandEvent
-        // receiver. Sleep once for the full deadline window before
-        // falling through to the force-kill backstop.
         log::info!(
             "[SHUTDOWN] dev-mode sidecar: sleeping {}ms before force-kill",
             SHUTDOWN_ACK_TIMEOUT_MS
         );
         tokio::time::sleep(deadline_dur).await;
     }
-    // Force-kill backstop. Gate on `!graceful`, if the sidecar exited
-    // cooperatively, the grandchildren (native hotkey binary, model
-    // subprocesses) were already reaped by the sidecar itself; we still
-    // `take()` the child handle (dropping it cleanly) but skip the
-    // recursive `kill_tree`. If `graceful` is false (timeout /
-    // unexpected exit), `kill_tree` is the force-kill backstop that
-    // also walks the process tree to reap grandchildren the sidecar
-    // didn't clean up. ADR-0020 §10.
     let child_opt = mutex_lock(&state.child).take();
     if let Some(child) = child_opt {
         if !graceful {

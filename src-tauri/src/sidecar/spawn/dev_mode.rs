@@ -1,5 +1,3 @@
-//! Dev-mode sidecar spawn (ADR-0020 §14), extracted from the former
-//! single-file `sidecar/spawn.rs`.
 
 use crate::state::SidecarHandle;
 use crate::util::SERVER_STARTED_TIMEOUT_MS;
@@ -9,16 +7,6 @@ use super::env_allowlist::passthrough_env_allowlist;
 use super::handshake::parse_server_started;
 use super::handshake_loop::{read_handshake_from_stdout_lines, HandshakeLabels};
 
-/// ADR-0020 §14: returns true when the sidecar should run from SOURCE
-/// (`python -m voice_typer.server.ipc_server --ws`) instead of the
-/// frozen `externalBin`. Two ways to be in dev mode:
-///   1. `VOICE_TYPER_SIDECAR_DEV=1`: explicit (the original contract),
-///   2. UNSET + a DEBUG build (`cfg!(debug_assertions)`), a debug
-///      host binary is a developer artifact, so defaulting it to the
-///      source sidecar makes `npm run tauri:dev` work with zero env
-///      setup (2026-08-30 one-command dev environment). An explicit
-///      non-`1` value (e.g. `0`) is an escape hatch that forces the
-///      release/externalBin path even in a debug build.
 pub(crate) fn is_dev_mode() -> bool {
     match std::env::var("VOICE_TYPER_SIDECAR_DEV").ok().as_deref() {
         // Explicit value → the pure predicate decides ("1" = dev, any
@@ -35,21 +23,6 @@ pub(crate) fn is_dev_mode_for(value: Option<&str>) -> bool {
     value == Some("1")
 }
 
-/// ADR-0020 §14: dev-mode spawn, runs the Python sidecar as a plain
-/// `python -m voice_typer.server.ipc_server --ws` process (no Nuitka
-/// freeze, no `externalBin`). The developer must have `voice_typer`
-/// importable in their Python environment.
-///
-/// Per-platform Python binary name:
-/// - Windows: `python.exe` (spec §14 says `pythonw.exe` would suppress
-///   the console window, but we use `python.exe` to surface logs).
-/// - macOS / Linux: `python3`.
-///
-/// The stdout-handshake read loop (shutting-down short-circuit,
-/// read_line arms, kill/drain ordering, deadline) lives in
-/// `super::handshake_loop::read_handshake_from_stdout_lines`: shared
-/// with the worker dev path. The labels below pin this path's exact
-/// log/error wording.
 pub(crate) async fn spawn_sidecar_dev_mode(
     token: &str,
     shutting_down: Option<&AtomicBool>,
@@ -60,90 +33,30 @@ pub(crate) async fn spawn_sidecar_dev_mode(
         "python3"
     };
 
-    // ADR-0020 §14: `VOICE_TYPER_NATIVE_DIR` points to the source-tree
-    // native binary dir so the sidecar finds the dev-mode native
-    // binaries (windows-key-listener / macos-key-listener / linux-key-listener).
-    // We resolve relative to the current working directory (which is the
-    // project root under `cargo tauri dev`).
     let native_dir = std::env::current_dir()
         .map(|p| p.join("voice_typer").join("server").join("native"))
         .map_err(|e| format!("cwd failed: {e}"))?;
 
     let mut cmd = tokio::process::Command::new(python_bin);
-    // Clear inherited host env BEFORE adding the
-    // voice-typer-specific vars (mirrors the release path above).
-    // Dev mode also adds `VOICE_TYPER_DEBUG=1` + (when unset)
-    // `RUST_LOG=debug` for verbose native-child logging during
-    // `cargo tauri dev`.
     cmd.args(["-m", "voice_typer.server.ipc_server", "--ws"])
         .env_clear()
         .envs(passthrough_env_allowlist())
-        // Forward the host's hidden-start launch flag (set by the
-        // autostart launcher when a hidden autostart launches the app)
-        // so the sidecar's hidden-start privacy gates see the same
-        // launch state as the host window. No-op (empty iterator) on
-        // normal visible launches.
         .envs(super::env_allowlist::vt_start_hidden_env())
         .env("TAURI_SIDECAR", "1")
         .env("VOICE_TYPER_IPC_TOKEN", token)
-        // MO-111: same OpenMP dual-runtime workaround as the release
-        // path (see `release_mode.rs` for the full rationale). Set here
-        // too so a dev-mode sidecar on the same machine cannot stall at
-        // `import torch` while the release child works, or vice versa.
         .env("KMP_DUPLICATE_LIB_OK", "TRUE")
-        // Share the host's per-process session ID so the
-        // Python sidecar's log lines carry the same join key as the
-        // Rust host's (cross-process log correlation). The Python
-        // `log/__init__.py` prefers this env var when set, falling
-        // back to generating its own.
         .env("VOICE_TYPER_SESSION_ID", crate::util::session_id())
         .env(
             "VOICE_TYPER_NATIVE_DIR",
             native_dir.to_string_lossy().to_string(),
         )
-        // mirror the release-path env-var set so dev mode
-        // doesn't silently diverge. Previously dev mode was missing
-        // the prewarm exe env var (so the prewarm scheduled-task
-        // integration couldn't be exercised under `cargo tauri dev`).
-        //
-        // Prewarm binary removal (Phase 2a, plan-runtime-pack-split
-        // 6.2): the prewarm exe env var is no longer
-        // set in either release or dev mode - the prewarm binary is
-        // deleted (Sub-agent 6), the Rust-side `dev_prewarm_exe` /
-        // `prewarm_resource_path` helpers are deleted, and the
-        // prewarm phase moved INTO the worker exe (Option P-1).
-        // `VOICE_TYPER_CONFIG_DIR` still propagates so the dev-mode
-        // Python sidecar reads the same config dir as the release
-        // sidecar.
         .env(
             "VOICE_TYPER_CONFIG_DIR",
             crate::platform::paths::config_dir()
                 .to_string_lossy()
                 .to_string(),
         )
-        // set VOICE_TYPER_DEBUG=1 so the Python sidecar enables
-        // verbose debug logging (its `log.py` checks this env var).
-        // Previously this set only `RUST_LOG=debug`, which is
-        // meaningless for a Python child (Python doesn't read
-        // `RUST_LOG`): it only affected native Rust binaries the
-        // sidecar might spawn. Keep `RUST_LOG=debug` too so those
-        // native children stay verbose in dev mode.
-        //
-        // only set `RUST_LOG=debug` when the env var is
-        // unset, so a developer who exports `RUST_LOG=warn` (or any
-        // other level) from their shell to silence a noisy crate
-        // doesn't have their preference clobbered by the dev spawn
-        // path. The release path doesn't set `RUST_LOG` at all (it's
-        // not in the explicit env list at line 241-244 above), so
-        // this dev-only default is the only place the override could
-        // previously fire.
         .env("VOICE_TYPER_DEBUG", "1")
-        // Launch-timeline markers for the sidecar's startup log
-        // (startup_timeline.py): host boot epoch (recorded once at
-        // host start) + THIS spawn's epoch, read at call time,
-        // immediately before the spawn below, so the measured
-        // "backend init" phase stays honest. Mirrors the release
-        // path's marker set.
         .envs(crate::startup_timeline::sidecar_timeline_envs());
     if std::env::var_os("RUST_LOG").is_none() {
         cmd.env("RUST_LOG", "debug");
@@ -152,9 +65,6 @@ pub(crate) async fn spawn_sidecar_dev_mode(
         // Dev mode: inherit stderr so the developer sees Python
         // tracebacks in the `cargo tauri dev` console.
         .stderr(std::process::Stdio::inherit())
-        // Ensure the dev sidecar dies with the host (no zombie python).
-        // dev-mode equivalent of the release-mode kill-on-drop
-        // requirement (see the note on `spawn_sidecar_release`).
         .kill_on_drop(true);
 
     let mut child = cmd
@@ -167,10 +77,6 @@ pub(crate) async fn spawn_sidecar_dev_mode(
         .ok_or_else(|| "dev sidecar stdout not captured".to_string())?;
     let mut reader = tokio::io::BufReader::new(stdout);
 
-    // The dev-mode sidecar is typically faster to emit `server_started`
-    // (no Nuitka unpack), but a cold Python import on the first run can
-    // take 5-10s: the loop's shutting-down short-circuit covers the
-    // quit-during-handshake race (see `handshake_loop`).
     let port = read_handshake_from_stdout_lines(
         &HandshakeLabels {
             log_tag: "[SIDECAR-DEV]",

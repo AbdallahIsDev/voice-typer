@@ -1,50 +1,12 @@
-//! Server-initiated event protocol: allowlist + event-name
-//! translation (ADR-0020 §9).
-//!
-//! Extracted from the original 2534-line `ws.rs` monolith. Holds:
-//! - `ALLOWED_EVENT_TYPES`: the source-of-truth slice of every
-//!   event name the Python sidecar is known to publish today.
-//! - `ALLOWED_EVENT_TYPES_SET`: O(1) lookup set derived from the
-//!   slice (lazily initialized, lives for the process lifetime).
-//! - `is_allowed_event_type`: gate used by the WS reader's inbound
-//!   frame path (`bubble_level` arrives at ~60 Hz, so a linear
-//!   `.contains()` scan over the ~40-entry slice would be ~2,400
-//!   string comparisons/sec on the hot path).
-//! - `translate_event_name`: snake→kebab bubble-lifecycle renames
-//!   (kept `pub(crate)` and re-exported from `ws.rs` so external
-//!   callers: if any, keep working through `crate::sidecar::ws::
-//!   translate_event_name`).
-//!
-//! Visibility contract:
-//! - `ALLOWED_EVENT_TYPES` + `is_allowed_event_type` + `translate
-//!   _event_name` are `pub(super)`: visible to the parent `ws`
-//!   module (call sites in `spawn_reader_task`) and to this
-//!   module's `#[cfg(test)] mod tests`. `translate_event_name` is
-//!   `pub(crate)` (re-exported from ws.rs for external callers).
-//! - `ALLOWED_EVENT_TYPES_SET` is private (only used by
-//!   `is_allowed_event_type`).
+//! Event protocol: ALLOWED_EVENT_TYPES + name translation + envelope.
+//! Source-inspection tests pin the slice literal — do not reformat it.
 
 use serde_json::{json, Value};
 use std::collections::HashSet;
 use std::sync::OnceLock;
 
-// server-initiated event-type allowlist ──────────────────────
-//
-// ADR-0020 §9: only known server-initiated event types may be emitted
-// to the renderer as Tauri events. An unknown `type` field on an
-// inbound WS frame is dropped with a `[WS-READER]` warning, this is
-// defense-in-depth against a compromised sidecar process (or a
-// protocol regression) trying to inject arbitrary event names that
-// the renderer's `usePythonEvent(type, ...)` listeners might be
-// tricked into handling.
-//
-// The first block below is the spec list (verbatim). The
-// second block is the set of additional events the Python sidecar
-// ACTUALLY publishes today (`rg '"type":\s*"<name>"' voice_typer/server`)
-//: without these, the host would silently drop `ready`, `bubble_show`,
-// `history_changed`, etc. and break startup / bubble UI / history UI.
-// Keep both blocks in sync with the server's `event_bus.publish`
-// call sites.
+// Server-initiated event-type allowlist. Dispatch responses take the
+// pending-id branch and never reach here.
 pub(super) const ALLOWED_EVENT_TYPES: &[&str] = &[
     // spec list (verbatim) ──
     "status_change",
@@ -75,9 +37,6 @@ pub(super) const ALLOWED_EVENT_TYPES: &[&str] = &[
     "bubble_hide",
     "bubble_config",
     "bubble_set_state",
-    // Recording (server emits *_started/*_stopped; `recording_state` in
-    // the spec list above is the umbrella name some future server may
-    // adopt: keep both):
     "recording_started",
     "recording_stopped",
     // Settings / config / history:
@@ -97,67 +56,9 @@ pub(super) const ALLOWED_EVENT_TYPES: &[&str] = &[
     "gpu_cpu_fallback",
     // Paste error:
     "paste_failed",
-    // ── Additional server-published events not in the original spec
-    // list above. Each is published via `event_bus.publish(...)` in the
-    // Python sidecar; keep this slice in sync with the server's publish
-    // call sites (see `voice_typer/server/*.py`).
-    // - `state_changed`: emitted on every authenticated WS connection
-    // (sidecar_ws.py): the renderer hydrates connection state from
-    // it on startup.
-    // - `error`: server-initiated error notification (e.g. recording-
-    // start failure in recording_controller.py). NOTE: dispatch
-    // *responses* with `type:"error"` AND an `id` field take a
-    // different branch earlier in the reader (fulfilled via the
-    // pending-id map) and never reach this allowlist; this entry
-    // covers only the no-id server-event variant.
-    // - `mic_level`: continuously published by level_monitor.py while
-    // level monitoring is active; drives the Microphone page's live
-    // level meter.
-    // - `llm_polish_failed`: emitted by dictation_pipeline.py when the
-    // LLM polish step fails (typed in TS push_events.ts; surfaced by
-    // the renderer's `useLlmPolishFailedToast`).
-    // - `text_enhancement_failed`: emitted by
-    // dictation_pipeline/enhancement_steps.py when the RULE-BASED
-    // AI-enhancement step (Step 7b) fails. Distinct from
-    // `llm_polish_failed` (the LLM-polish path); the transcription is
-    // still delivered un-enhanced (typed in TS push_events.ts;
-    // surfaced by the renderer's `useTextEnhancementFailedToast`).
-    // - `device_lost`: emitted by level_monitor.py when the audio
-    // input device disappears (typed in TS; latent subscriber).
-    // - `asr_backend_disabled`: emitted by asr_registry.py when an ASR
-    // backend is disabled at runtime (typed in TS; latent).
-    // - `asr_last_resort_unloaded`: emitted by asr_registry.py when the
-    // last-resort ASR backend unloads (typed in TS; latent).
-    // - `audio_clip`: registered in `event_bus._KNOWN_EVENTS` (typed in
-    // TS push_events.ts; latent subscriber today).
-    // - `dictation_lost`: emitted by crash_recovery.py on startup when
-    // it detects the previous process crashed mid-dictation (the
-    // `.dictation-in-flight` sentinel was left behind). The renderer
-    // shows a notification so the user knows their dictation was lost.
-    // - `tray_fallback_notification`: emitted by tray.py when the
-    // native system-tray icon is unavailable (headless build,
-    // Linux without a systray compositor, sandboxed mac App Store
-    // build, etc.) and the renderer should surface a fallback
-    // in-app notification banner instead. this was
-    // published by the Python sidecar but missing from the
-    // allowlist, so the WS reader was silently dropping the frame
-    // (logged at `[WS-READER] dropping unknown event type:`) and
-    // the renderer's fallback listener never fired, users on
-    // tray-less systems had NO indication that tray features were
-    // degraded. Adding it here lets the frame through to the
-    // renderer's `usePythonEvent("tray_fallback_notification", ...)`
-    // handler. PAYLOAD: the Python emitter nests title/message under
-    // `data` (tray.py `_drain_pending`: fixed; the old predecessor-era
-    // root-level shape was stripped by the reader's `data`
-    // extraction), so the renderer consumer receives the real
-    // title/message and only falls back to the generic
-    // tray-unavailable banner when both are absent. Note the Tauri
-    // runtime never hits this path (its tray notifications route
-    // through the `notification` event via
-    // tray_notifications.do_notify); only the predecessor/headless path
-    // emits it.
+    // Additional server-published events (sync with Python event_bus + TS).
     "state_changed",
-    "error",
+    "error", // no-id server-event variant (id responses use the pending map)
     "mic_level",
     "llm_polish_failed",
     "text_enhancement_failed",
@@ -167,208 +68,77 @@ pub(super) const ALLOWED_EVENT_TYPES: &[&str] = &[
     "audio_clip",
     "dictation_lost",
     "tray_fallback_notification",
-    // ── Backend model-load lifecycle (published by
-    // `model_manager/_change.py` after the background load thread
-    // finishes; the set_config ack's `model_loading` envelope tells the
-    // renderer a load is in flight, and this pair tells it how the load
-    // ended):
-    // - `asr_backend_ready`: the background load SUCCEEDED, the
-    //   renderer clears any model-loading/failure surface (consumed by
-    //   the renderer's `useAsrBackendLoadToast`).
-    // - `asr_backend_load_failed`: the background load FAILED after the
-    //   set_config ack already returned: the renderer surfaces the
-    //   failure (payload: backend, model_size, failure_reason).
+    // Backend model-load lifecycle (background load ended).
     "asr_backend_ready",
     "asr_backend_load_failed",
-    // ── Mid-recording device/permission events (published by
-    // recording_controller.py / mic_lifecycle_hooks.py on the recorder
-    // stream's device-health paths: distinct from `device_lost`,
-    // which covers the level-monitor stream's loss detection):
-    // - `microphone_permission_revoked`: OS revoked mic permission
-    //   mid-recording; the renderer shows the dedicated banner (NOT the
-    //   generic silence-auto-stop toast).
-    // - `microphone_disconnected`: the active mic vanished from the
-    //   device list / the disconnect retries were exhausted; the
-    //   renderer routes it to the same recovery surface as
-    //   `device_lost`.
+    // Mid-recording device/permission events (distinct from level-monitor
+    // `device_lost`).
     "microphone_permission_revoked",
     "microphone_disconnected",
-    // ── Engine / pipeline degradation observability:
-    // - `cloud_fallback_used`: a cloud ASR provider failed and the
-    //   local engine took over (cloud/_engine.py).
-    // - `dictation_suppressed`: a short near-silent recording was
-    //   suppressed without a notification (transcribe_step.py).
+    // Engine / pipeline degradation.
     "cloud_fallback_used",
     "dictation_suppressed",
-    // ── History-store integrity events (history_db_internals/):
-    // - `history_corrupted`: the DB was corrupted, backed up, and
-    //   rebuilt from the iterdump.
-    // - `history_fts5_rebuild_failed`: the FTS5 index rebuild failed
-    //   after a delete/clear: the privacy guarantee (deleted text is
-    //   unrecoverable) is broken and the renderer should tell the
-    //   user.
+    // History-store integrity.
     "history_corrupted",
     "history_fts5_rebuild_failed",
-    // ── Clipboard paste safety (clipboard_target_safety/validation.py
-    // + clipboard/manager/_paste.py): the synthesized paste keystroke
-    // was dropped (e.g. macOS Secure Input was active).
+    // Clipboard paste safety (paste keystroke dropped / deferred).
     "paste_deferred",
-    // ── Pack + worker IPC events (master plan §7.4, 13 new event
-    // types introduced by the slim-core / runtime-pack split). These
-    // cover the pack download lifecycle, the pack integrity state, the
-    // worker process lifecycle, and the offline-transcription request
-    // + result that flow through the new worker IPC hop. Each is
-    // published by `event_bus.publish(...)` in the Python sidecar
-    // (eventually: the worker IPC architecture is being added in
-    // parallel; these names are pre-registered here so the WS reader
-    // does not silently drop the frames once the worker comes online).
-    // The 13 events are mirrored in the Python `event_bus.EVENT_TYPES`
-    // catalogue docstring + the TS `PythonPushEvent` union + the TS
-    // `KNOWN_EVENT_TYPES` runtime set + the new
-    // `tests/test_event_types_parity.py` regression guard. See master
-    // plan §7.4 for the per-event rationale + payload shapes.
-    //
-    // Pack download lifecycle (push):
-    "offline_pack_download_started",  // user-visible download started
-    "offline_pack_download_progress", // silent: no UI; logged for diagnostics
-    "offline_pack_download_completed", // download finished, verification pending
-    "offline_pack_download_failed",   // download failed (network / disk / etc.)
-    // Pack integrity (push):
-    "offline_pack_verified", // SHA256 + signature verified OK
-    "offline_pack_missing",  // pack file absent at expected path
-    "offline_pack_corrupt",  // SHA256 mismatch / signature failure
-    "offline_pack_ready",    // worker started AND prewarmed: ready to transcribe
-    // Worker process lifecycle (push):
-    "worker_started",  // worker process spawned + WS handshake done
-    "worker_crashed",  // worker process crashed (exit code in payload)
-    "worker_unloaded", // worker process unloaded (idle timeout / explicit)
-    // Offline transcription (request + result push):
-    // `transcribe_offline` is a REQUEST the slim core forwards to the
-    // worker over its dedicated WS hop; it is also registered in the
-    // Python `_COMMAND_REGISTRY` + the TS `ALLOWED_COMMANDS` Set + the
-    // Rust `allowed_commands()` literal (the three command allowlists)
-    // so the renderer can invoke it via `python.call('transcribe_offline',
-    // ...)`. `transcribe_offline_result` is the push event the worker
-    // emits back to the slim core (which the slim core forwards to the
-    // renderer via the standard event bus). Both names are listed here
-    // so the WS reader doesn't drop the result frame (and so a future
-    // server-initiated variant of the request name, if any, also
-    // passes through).
-    "transcribe_offline", // request: slim core → worker (also in command allowlists)
-    "transcribe_offline_result", // push: worker → slim core → renderer
+    // Pack + worker IPC events (runtime-pack split). Parity pinned by
+    // `tests/test_event_types_parity.py`.
+    "offline_pack_download_started",
+    "offline_pack_download_progress",
+    "offline_pack_download_completed",
+    "offline_pack_download_failed",
+    "offline_pack_verified",
+    "offline_pack_missing",
+    "offline_pack_corrupt",
+    "offline_pack_ready",
+    "worker_started",
+    "worker_crashed",
+    "worker_unloaded",
+    // Also a command-allowlist name (`transcribe_offline`); the result
+    // is a push event.
+    "transcribe_offline",
+    "transcribe_offline_result",
 ];
 
-// O(1) lookup set for the inbound-frame hot path. `bubble_level`
-// arrives at ~60 Hz, so a linear `.contains()` scan over the ~40-entry
-// slice above would mean ~2,400 string comparisons/sec on the WS reader
-// task. This `OnceLock<HashSet>` is initialized lazily from
-// `ALLOWED_EVENT_TYPES` on the first inbound frame and stays live for
-// the process lifetime; `ALLOWED_EVENT_TYPES` remains the single
-// source-of-truth list above (the set is derived from it, not the other
-// way around) so the visible, commented list stays the canonical one.
+// O(1) lookup set derived from `ALLOWED_EVENT_TYPES` (source of truth).
+// `bubble_level` arrives at ~60 Hz — a linear scan would be hot-path cost.
 static ALLOWED_EVENT_TYPES_SET: OnceLock<HashSet<&'static str>> = OnceLock::new();
 
-/// Returns `true` iff `event_type` is in the server-initiated event
-/// allowlist. O(1) after the first call (the `HashSet` is built once
-/// from `ALLOWED_EVENT_TYPES` and cached in a `OnceLock`).
-///
-/// `pub(crate)` so the parent `ws` module can re-export it to the
-/// sibling `sidecar/ws_tests.rs` module (which cannot see this private
-/// submodule) for contract-pinning tests.
+/// True iff `event_type` is in the allowlist. `pub(crate)` for the ws.rs
+/// test re-export.
 pub(crate) fn is_allowed_event_type(event_type: &str) -> bool {
     ALLOWED_EVENT_TYPES_SET
         .get_or_init(|| ALLOWED_EVENT_TYPES.iter().copied().collect())
         .contains(event_type)
 }
 
-/// High-rate server event types: the WS reader skips the generic
-/// `python-event` catch-all duplicate for these, keeping only the typed
-/// emit. Exactly ONE entry, and the evidence is asymmetric by design:
-///
-/// - `bubble_level` is emitted TYPED-ONLY because its sole consumer (the
-///   bubble window's `onLevel`) listens on the TYPED channel
-///   (`tauri-bridge/bubble-namespace.ts` →
-///   `tauri.event.listen("bubble_level")`) and a grep across
-///   `voice_typer/client/src/renderer` confirms ZERO
-///   `usePythonEvent("bubble_level")` subscribers: the per-frame
-///   `json!({...})` envelope allocation would be pure waste at the ~30 Hz
-///   coalesced emit rate (~30 Map allocs/sec saved).
-/// - `mic_level` deliberately stays OUT of this list (dual-emitted): its
-///   only consumer, `pages/microphone/hooks/useMicrophoneLevelMonitor.ts`,
-///   subscribes via `usePythonEvent("mic_level")` → `api.onEvent` → the
-///   GENERIC `tauri.event.listen("python-event")` envelope: dropping the
-///   envelope would silently kill the Microphone page's live level meter.
-///   An earlier version of this list wrongly cited
-///   `usePythonEvent("mic_level")` as a typed-channel subscription; no
-///   typed listener for `mic_level` exists anywhere in the renderer.
 const HIGH_RATE_EVENT_TYPES: &[&str] = &["bubble_level"];
 
-/// Returns `true` iff `event_type` is high-rate enough that the generic
-/// catch-all re-emission is skipped (see `HIGH_RATE_EVENT_TYPES`).
-///
-/// `pub(crate)` for the ws.rs test re-export (same reason as
-/// `is_allowed_event_type` above).
+/// True iff the generic catch-all re-emit is skipped for this event type.
 pub(crate) fn is_high_rate_event_type(event_type: &str) -> bool {
     HIGH_RATE_EVENT_TYPES.contains(&event_type)
 }
 
-/// Build the generic `python-event` catch-all envelope the WS reader
-/// emits alongside every LOW-RATE typed event: exactly
-/// `{"type": <translated event name>, "data": <payload>}`. Extracted so
-/// the wire shape is pinned by unit tests against the same function
-/// production calls: both the `ready` re-emit in `wait_for_auth_ok` and
-/// the reader's generic branch share this builder.
-///
-/// `pub(crate)` for the ws.rs test re-export (same reason as
-/// `is_allowed_event_type` above).
+/// Generic `python-event` envelope: `{"type": <name>, "data": <payload>}`.
+/// Shared by the `ready` re-emit and the reader's low-rate branch.
 pub(crate) fn python_event_envelope(emit_name: &str, payload: Value) -> Value {
     json!({"type": emit_name, "data": payload})
 }
 
-// translate Python-sidecar event names to the renderer's
-/// canonical event names. The Python sidecar publishes some events
-/// under snake_case names (e.g.
-/// `bubble_set_state`) that the renderer expects as kebab-case
-/// `bubble:*` (matching the `bubble:show`, `bubble:hide` events
-/// already documented in ADR-0020 §6.3). Unknown event names pass
-/// through unchanged so this function is forward-compatible with new
-/// sidecar events without requiring a host-side code change.
-///
-/// Extracted from the WS reader's inline `match event_type { ... }`
-/// so the translation table is unit-testable without a Tauri runtime
-/// and so future renames are localized to one place.
-///
-/// `pub(crate)` + re-exported from `ws.rs` so external callers using
-/// `crate::sidecar::ws::translate_event_name` keep working after the
-/// module split.
 pub(crate) fn translate_event_name(event_type: &str) -> &str {
     match event_type {
-        // The Python sidecar publishes the event under the canonical
-        // `relaunch_app` passes through unchanged. `main.rs::setup`
-        // registers `app.listen("relaunch_app", ...)` which calls
-        // `app.restart()`. The renderer-side parity tests in
-        // `tests/tauri/mig19/test_wire_swap_recovery.py`
-        // (`test_ws_reader_forwards_event_names_unchanged`) pin this.
-        //
-        // bubble lifecycle events. The Python sidecar
-        // publishes these under snake_case names; the Tauri renderer's `bubble.ts`
-        // preload + `bubble-runtime.json` capability file use the
-        // kebab-case `bubble:*` names. Without this translation the
-        // events would be emitted under names the renderer never
-        // listens for, silently dropping the bubble state changes.
+        // Bubble lifecycle: Python snake_case → renderer kebab-case.
         "bubble_set_state" => "bubble:set-state",
         "bubble_show" => "bubble:show",
         "bubble_hide" => "bubble:hide",
         "bubble_config" => "bubble:config",
-        // Forward-compatible: unknown events pass through unchanged
-        // so new sidecar events don't require a host-side release.
         other => other,
     }
 }
 
-// Sibling test module: tests live in `event_protocol_tests.rs` (per
-// C-TEST-5: no inline `#[cfg(test)] mod tests` blocks in production
-// source).
+// C-TEST-5: sibling test file.
 #[cfg(test)]
 #[path = "event_protocol_tests.rs"]
 mod event_protocol_tests;
