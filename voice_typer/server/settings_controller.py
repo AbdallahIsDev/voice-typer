@@ -25,6 +25,7 @@ from typing import Any
 
 from voice_typer.server import i18n
 from voice_typer.server.branding import APP_NAME
+from voice_typer.server.recording import Recorder
 
 log = logging.getLogger(__name__)
 
@@ -104,5 +105,10 @@ class SettingsController:
                 return
 
             # Re-create with new mic. NOTE: this intentionally does NOT pass
+            # thread_registry (mirrors pre-refactor VoiceTyperApp._select_microphone).
+            try:
+                app.recorder = Recorder(app.config, audio_processor=app._audio_processor)
+            except Exception:
+                log.exception("[CONFIG] Failed to recreate recorder for microphone %s", label)
             log.info("[CONFIG] Microphone changed to: %s", label)
             app.tray.notify(APP_NAME, i18n.t("notify.settings_controller.mic_changed", label=label))
