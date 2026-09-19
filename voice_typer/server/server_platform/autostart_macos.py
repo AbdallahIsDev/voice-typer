@@ -66,7 +66,20 @@ def _enable_autostart_macos() -> bool:
     plist_dir = _autostart_mod.get_autostart_dir()
     plist_dir.mkdir(parents=True, exist_ok=True)
     plist_path = plist_dir / "com.voicetyper.plist"
-    launcher = Path(__file__).resolve().parent.parent / "autostart_launcher.py"
+
+    # Packaged (frozen, no-Python) installs: register the app binary
+    # directly with --hidden --delay (the host honors both flags).
+    # The python-launcher shape below bakes a phantom launcher.py path
+    # that can never fire when no source ships.
+    try:
+        packaged = _autostart_mod._packaged_tauri_target()
+    except Exception:
+        packaged = None
+    if packaged is not None:
+        tauri_bin, tauri_args = packaged
+        program_args = [tauri_bin, *tauri_args]
+    else:
+        launcher = Path(__file__).resolve().parent.parent / "autostart_launcher.py"
 
     # previously the plist's ``WorkingDirectory`` was
     # set to the literal string ``~``.  launchd does NOT expand ``~``
@@ -78,40 +91,43 @@ def _enable_autostart_macos() -> bool:
     # autostart_launcher.py resolve to the wrong place.
     working_dir = str(Path.home())
 
-    # macOS-VENV-AUTOSTART: for parity with Linux + Windows,
-    # probe whether a system Python (if we're in a venv) can import
-    # ``voice_typer.server.autostart_launcher`` before swapping. macOS
-    # users typically run from a Homebrew Python or a system Python —
-    # not a venv, so the swap is usually skipped. But dev-mode users
-    # who ``uv venv && source .venv/bin/activate`` would otherwise
-    # have their LaunchAgent point at the venv Python, which breaks
-    # if the venv is deleted. The probe is the same as Linux/Windows
-    # (``_system_python_can_import_launcher``), imported lazily to
-    # avoid a circular import.
-    python_exe = sys.executable
-    if sys.prefix != sys.base_prefix:
-        from voice_typer.server.server_platform.autostart import (
-            _probe_system_python,
-        )
-
-        system_python = _probe_system_python("python3")
-        if system_python:
-            log.info(
-                "[AUTOSTART] Running inside venv (%s); using system Python for macOS plist: %s",
-                python_exe,
-                system_python,
-            )
-            python_exe = system_python
-        else:
-            log.warning(
-                "[AUTOSTART] Running inside venv (%s) but system Python "
-                "cannot import voice_typer.server.autostart_launcher "
-                "(probe failed). Keeping venv Python for the macOS "
-                "LaunchAgent, autostart will break if the venv is "
-                "deleted, but works for the current user.",
-                python_exe,
+    if packaged is None:
+        # macOS-VENV-AUTOSTART: for parity with Linux + Windows,
+        # probe whether a system Python (if we're in a venv) can import
+        # ``voice_typer.server.autostart_launcher`` before swapping. macOS
+        # users typically run from a Homebrew Python or a system Python —
+        # not a venv, so the swap is usually skipped. But dev-mode users
+        # who ``uv venv && source .venv/bin/activate`` would otherwise
+        # have their LaunchAgent point at the venv Python, which breaks
+        # if the venv is deleted. The probe is the same as Linux/Windows
+        # (``_system_python_can_import_launcher``), imported lazily to
+        # avoid a circular import.
+        python_exe = sys.executable
+        if sys.prefix != sys.base_prefix:
+            from voice_typer.server.server_platform.autostart import (
+                _probe_system_python,
             )
 
+            system_python = _probe_system_python("python3")
+            if system_python:
+                log.info(
+                    "[AUTOSTART] Running inside venv (%s); using system Python for macOS plist: %s",
+                    python_exe,
+                    system_python,
+                )
+                python_exe = system_python
+            else:
+                log.warning(
+                    "[AUTOSTART] Running inside venv (%s) but system Python "
+                    "cannot import voice_typer.server.autostart_launcher "
+                    "(probe failed). Keeping venv Python for the macOS "
+                    "LaunchAgent, autostart will break if the venv is "
+                    "deleted, but works for the current user.",
+                    python_exe,
+                )
+        program_args = [python_exe, str(launcher)]
+
+    program_args_xml = "\n".join(f"        <string>{escape(arg)}</string>" for arg in program_args)
     plist_content = f"""<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -120,8 +136,7 @@ def _enable_autostart_macos() -> bool:
     <string>com.voicetyper</string>
     <key>ProgramArguments</key>
     <array>
-        <string>{escape(python_exe)}</string>
-        <string>{escape(str(launcher))}</string>
+{program_args_xml}
     </array>
     <key>RunAtLoad</key>
     <true/>
@@ -352,13 +367,48 @@ def _plist_program_arguments_exist(plist_path: Path) -> bool:
         # Also accept the legacy ``Program`` key (a single string).
         program = data.get("Program") if isinstance(data, dict) else None
         if isinstance(program, str) and program:
+            try:
+                if _autostart_mod._is_legacy_stale_autostart_reference(program):
+                    return False
+            except Exception:
+                pass
             return Path(program).exists()
         log.debug("[AUTOSTART] macOS plist has no parseable program args, treating as valid: %s", plist_path)
         return True
-    # Check the python interpreter (first arg) and launcher (second
-    # arg, when present). Conservatively skip non-string entries.
-    for entry in program_args[:2]:
-        if isinstance(entry, str) and entry and not Path(entry).exists():
+    # Stale-migration: Electron / pip-era shapes are certain-stale even
+    # when their paths happen to exist. Check the joined args first so
+    # sync re-registers via the fixed builder.
+    try:
+        joined = " ".join(entry for entry in program_args if isinstance(entry, str))
+        if _autostart_mod._is_legacy_stale_autostart_reference(joined):
+            log.warning(
+                "[AUTOSTART] macOS plist references legacy runtime, treating autostart as disabled: %s",
+                plist_path,
+            )
+            return False
+        if _autostart_mod._references_missing_launcher_script(joined):
+            log.warning(
+                "[AUTOSTART] macOS plist references missing launcher script, treating autostart as disabled: %s",
+                plist_path,
+            )
+            return False
+    except Exception:
+        pass
+    # Check program paths, skipping CLI flags and bare values. The
+    # python shape is [interpreter, launcher.py]; the packaged shape
+    # is [binary, --hidden, --delay, N]. Flags ("--hidden") and the
+    # delay value ("3") are not paths and must not fail existence.
+    for entry in program_args:
+        if not isinstance(entry, str) or not entry:
+            continue
+        if entry.startswith("-"):
+            continue
+        try:
+            float(entry)
+            continue
+        except (TypeError, ValueError):
+            pass
+        if not Path(entry).exists():
             log.warning(
                 "[AUTOSTART] macOS plist references missing program path: %s, treating autostart as disabled",
                 entry,

@@ -236,6 +236,21 @@ def _app_autostart_command_and_args() -> tuple[str, str]:
 
     delay_str = str(_APP_AUTOSTART_DELAY_SECONDS)
 
+    # Packaged (frozen, no-Python) installs: Task Scheduler splits
+    # Command/Arguments, so register the app binary directly with the
+    # hidden + delay flags (the host honors both).
+    try:
+        from voice_typer.server.server_platform.autostart import _packaged_tauri_target
+
+        packaged = _packaged_tauri_target()
+    except Exception:
+        packaged = None
+    if packaged is not None:
+        tauri_bin, tauri_args = packaged
+        args = " ".join(tauri_args)
+        log.info("[AUTOSTART] Resolved packaged Task Scheduler command: %s %s", tauri_bin, args)
+        return tauri_bin, args
+
     launcher = Path(__file__).resolve().parent.parent / "autostart_launcher.py"
     from voice_typer.server.server_platform.autostart import _prefer_pythonw
 
@@ -465,7 +480,27 @@ def _is_app_autostart_task_registered() -> bool:
         # <Command> path exists. If the command points at a deleted
         # pythonw.exe (venv removed), the task is stale, report False
         # so the Settings toggle reflects the actual state.
+        # Stale-migration: Electron / pip-era / phantom-launcher shapes
+        # in <Command> or <Arguments> are certain-stale, report False
+        # so sync re-registers via the fixed builder.
         command_path = _extract_command_from_task_xml(output)
+        arguments_text = _extract_arguments_from_task_xml(output) or ""
+        try:
+            combined = f"{command_path or ''} {arguments_text}"
+            if _autostart_mod._is_legacy_stale_autostart_reference(combined):
+                log.warning(
+                    "[AUTOSTART] Task Scheduler task references legacy runtime, "
+                    "reporting as NOT registered (stale task)",
+                )
+                return False
+            if _autostart_mod._references_missing_launcher_script(combined):
+                log.warning(
+                    "[AUTOSTART] Task Scheduler task references missing launcher, "
+                    "reporting as NOT registered (stale task)",
+                )
+                return False
+        except Exception:
+            pass
         if command_path is None:
             # Could not parse the XML, conservatively report True
             # (the task exists; we just can't validate the command).
@@ -546,6 +581,16 @@ def _validate_runkey_command(value: str) -> bool:
     """
     if not value or not isinstance(value, str):
         return True  # empty/None, don't claim stale (caller checks truthy)
+    # Stale-migration: Electron-era and pip-era shapes can never work
+    # in a Tauri install. Flag them stale so sync re-registers via the
+    # fixed builder (conservative: only certain-stale patterns).
+    try:
+        if _autostart_mod._is_legacy_stale_autostart_reference(value):
+            return False
+        if _autostart_mod._references_missing_launcher_script(value):
+            return False
+    except Exception:
+        pass
     tokens = shlex.split(value, posix=False)
     if not tokens:
         return True  # malformed, don't claim stale

@@ -69,6 +69,7 @@ Comment=Background voice-to-text utility
 Exec={exec_field}
 Icon=voice-typer
 Hidden=false
+Terminal=false
 NoDisplay=true
 """
     # Atomic write (temp + os.replace) so a crash mid-write cannot
@@ -130,6 +131,23 @@ def _desktop_exec_path_exists(desktop_path: Path) -> bool:
     if not exec_line:
         log.debug("[AUTOSTART] Linux .desktop has no Exec= line, treating as valid: %s", desktop_path)
         return True
+    # Stale-migration: Electron / pip-era / phantom-launcher shapes are
+    # certain-stale so sync re-registers via the fixed builder.
+    try:
+        if _autostart_mod._is_legacy_stale_autostart_reference(exec_line):
+            log.warning(
+                "[AUTOSTART] Linux .desktop references legacy runtime, treating autostart as disabled: %s",
+                desktop_path,
+            )
+            return False
+        if _autostart_mod._references_missing_launcher_script(exec_line):
+            log.warning(
+                "[AUTOSTART] Linux .desktop references missing launcher script, treating autostart as disabled: %s",
+                desktop_path,
+            )
+            return False
+    except Exception:
+        pass
     # Extract the leading program token per the freedesktop Exec
     # quoting rules: the program is everything up to the first
     # UNQUOTED whitespace. Per the Desktop Entry Spec the FIRST token

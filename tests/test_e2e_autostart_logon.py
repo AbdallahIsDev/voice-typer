@@ -1,0 +1,262 @@
+"""End-to-end logon simulation for packaged autostart (no real reboot).
+
+Drives the full login chain with fakes, mirroring the conventions of
+``tests/test_e2e_regression.py`` (patch the owning module, split
+Command/Arguments for the Task path) and
+``tests/test_autostart_launcher_tauri.py`` (fake ``Popen`` capture,
+``backend_pid`` owning-module patch, integrity-gate bypass):
+
+- stale previous-generation entry -> validators report disabled ->
+  ``sync_autostart`` re-registers, and the re-registered command
+  points at the desktop binary;
+- launcher ``main()`` in desktop-binary mode spawns hidden
+  (``VT_START_HIDDEN=1`` in the child env) and leaves a single
+  greppable ``[AUTOSTART] RESULT success`` outcome line with the
+  canonical duration suffix (C-LOG-2) on the dotted logger (C-CROSS-3);
+- the binary integrity gate fails closed on an empty manifest hash
+  and passes on a populated one;
+- backend already running -> focus path, no second spawn (idempotent
+  re-login).
+
+No real ``schtasks`` / ``launchctl`` / filesystem writes outside
+``tmp_path``; the heavy-import mocks in ``tests/conftest.py`` apply.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import logging
+import re
+import subprocess
+import sys
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import MagicMock
+
+import pytest
+from voice_typer.server.server_platform import (
+    autostart as autostart_mod,
+    platform_flags,
+)
+
+RESULT_OK_RE = re.compile(r"RESULT success exit=0 \d+(m \d+)?\.\ds$")
+
+
+def _app(autostart: bool):
+    return SimpleNamespace(config=SimpleNamespace(autostart=autostart))
+
+
+def _fake_binary(tmp_path: Path, name: str) -> Path:
+    import os as _os
+
+    binary = tmp_path / name
+    binary.write_bytes(b"fake desktop binary")
+    _os.chmod(binary, 0o755)
+    return binary
+
+
+@pytest.fixture
+def win32_platform(monkeypatch):
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setattr(platform_flags, "SYSTEM", "win32")
+
+
+@pytest.fixture
+def _launcher_noops(monkeypatch):
+    """Neutralize launcher side effects (logging setup, pid file)."""
+    import voice_typer.server.autostart_launcher as launcher
+
+    monkeypatch.setattr(launcher, "_setup_logging", lambda: None)
+    monkeypatch.setattr(launcher, "_write_pid_file", lambda *a: None)
+
+
+@pytest.fixture
+def _no_backend_pid(monkeypatch):
+    """The backend PID-file probe sees no live backend."""
+    from voice_typer.server import backend_pid as backend_pid_mod
+
+    class _Missing:
+        def exists(self):
+            return False
+
+    monkeypatch.setattr(backend_pid_mod, "_backend_pid_file", lambda: _Missing())
+
+
+# ---------------------------------------------------------------------------
+# (a) stale entry -> re-register -> entry points at the desktop binary
+# ---------------------------------------------------------------------------
+
+
+class TestStaleEntryMigratesOnLogon:
+    """A stale previous-generation entry reports disabled, so the startup
+    sync re-registers; the fresh command targets the desktop binary."""
+
+    def test_stale_command_validates_disabled(self, monkeypatch):
+        from voice_typer.server.server_platform.autostart_windows import (
+            _validate_runkey_command,
+        )
+
+        monkeypatch.setattr(Path, "exists", lambda self: False)
+        stale = r'"C:\Deleted\host.exe" "C:\Deleted\launcher.py" --hidden --delay 3'
+        assert _validate_runkey_command(stale) is False
+
+    def test_sync_reregisters_and_entry_targets_binary(self, win32_platform, monkeypatch, tmp_path):
+        import voice_typer.server.autostart_launcher as launcher
+        from voice_typer.server import startup_tasks
+
+        binary = _fake_binary(tmp_path, "voice-typer-tauri.exe")
+        # Packaged conditions: no usable interpreter, binary resolvable.
+        monkeypatch.setattr(autostart_mod, "_prefer_pythonw", lambda p: str(tmp_path / "missing-pythonw.exe"))
+        monkeypatch.setattr(autostart_mod, "_probe_system_python", lambda name: None)
+        monkeypatch.setattr(autostart_mod, "_resolve_tauri_binary_for_autostart", lambda: str(binary))
+        monkeypatch.setattr(launcher, "_tauri_binary", lambda: str(binary))
+
+        # The stale entry reads as disabled...
+        monkeypatch.setattr(autostart_mod, "is_autostart_enabled", lambda: False)
+        # ...so sync enables, and the "written entry" captures the real
+        # fallback command the registrar would persist.
+        written = {}
+
+        def _fake_enable():
+            written["entry"] = autostart_mod._autostart_command()
+            return True
+
+        monkeypatch.setattr(autostart_mod, "enable_autostart", _fake_enable)
+        monkeypatch.setattr(autostart_mod, "disable_autostart", lambda: True)
+
+        result = startup_tasks.sync_autostart(_app(True))
+
+        assert result["registered"] is True
+        assert result["actual_post_sync"] is True
+        assert str(binary) in written["entry"]
+        assert "\\\\" not in written["entry"]
+
+
+# ---------------------------------------------------------------------------
+# (b) launcher main(): hidden spawn + RESULT success line
+# ---------------------------------------------------------------------------
+
+
+class TestLauncherLogonHiddenSpawn:
+    """``main()`` with ``--hidden`` spawns the desktop binary hidden and
+    records the greppable outcome line (C-CROSS-5, C-LOG-2, C-CROSS-3)."""
+
+    def test_hidden_env_and_result_success_line(self, _launcher_noops, _no_backend_pid, monkeypatch, tmp_path, caplog):
+        import voice_typer.server.autostart_launcher as launcher
+
+        binary = _fake_binary(tmp_path, "voice-typer-tauri")
+        monkeypatch.setattr(launcher, "_is_tauri_mode", lambda: True)
+        monkeypatch.setattr(launcher, "_tauri_binary", lambda: str(binary))
+        monkeypatch.setattr(launcher, "verify_tauri_binary_or_skip", lambda path: True)
+        monkeypatch.setattr(launcher, "_is_port_open", lambda h, p: False)
+        monkeypatch.setattr(launcher, "_read_ipc_port_from_pid_file", lambda: None)
+        monkeypatch.setattr(launcher, "_wait_for_ipc_ready", lambda *a, **k: True)
+
+        captured = {}
+
+        def fake_popen(cmd, env=None, **kwargs):
+            captured["cmd"] = cmd
+            captured["env"] = dict(env or {})
+            proc = MagicMock()
+            proc.pid = 4242
+            return proc
+
+        monkeypatch.setattr(subprocess, "Popen", fake_popen)
+        monkeypatch.setattr(sys, "argv", ["autostart_launcher.py", "--hidden"])
+
+        with caplog.at_level(logging.INFO, logger="voice_typer.server.autostart_launcher"):
+            rc = launcher.main()
+
+        assert rc == 0
+        assert captured["cmd"] == [str(binary)]
+        assert captured["env"].get("VT_START_HIDDEN") == "1"
+        messages = [r.getMessage() for r in caplog.records]
+        assert any("[AUTOSTART] launcher starting (pid=" in m for m in messages)
+        assert any(RESULT_OK_RE.search(m) for m in messages), messages
+
+    def test_logger_uses_dotted_name(self):
+        import voice_typer.server.autostart_launcher as launcher
+
+        assert launcher.log.name == "voice_typer.server.autostart_launcher"
+
+    def test_unhandled_exception_records_failure_line(self, _launcher_noops, monkeypatch, caplog):
+        import voice_typer.server.autostart_launcher as launcher
+
+        def _boom():
+            raise RuntimeError("logon storm")
+
+        monkeypatch.setattr(launcher, "launch", _boom)
+        with caplog.at_level(logging.INFO, logger="voice_typer.server.autostart_launcher"):
+            rc = launcher.main()
+        assert rc == 1
+        messages = [r.getMessage() for r in caplog.records]
+        assert any("RESULT failure unhandled-exception" in m for m in messages)
+
+
+# ---------------------------------------------------------------------------
+# (c) manifest fail-closed vs populated hash
+# ---------------------------------------------------------------------------
+
+
+class TestManifestGateEndToEnd:
+    """The integrity gate refuses an empty per-arch hash and passes a
+    populated one (fail-closed contract survives the logon path)."""
+
+    def _manifest(self, tmp_path, binary_name, sha):
+        from voice_typer.server.autostart_launcher import _tauri_manifest_key
+
+        manifest = {
+            "version": 1,
+            "binaries": {
+                binary_name: {
+                    "sha256": {_tauri_manifest_key(): sha},
+                    "_platforms": [],
+                    "_install_paths": [],
+                }
+            },
+        }
+        path = tmp_path / "tauri-binaries.json"
+        path.write_text(json.dumps(manifest), encoding="utf-8")
+        return str(path)
+
+    def test_empty_hash_refuses(self, monkeypatch, tmp_path):
+        from voice_typer.server.autostart_launcher import verify_tauri_binary_or_skip
+
+        binary = _fake_binary(tmp_path, "voice-typer-tauri")
+        monkeypatch.setenv("VT_TAURI_MANIFEST", self._manifest(tmp_path, "voice-typer-tauri", ""))
+        assert verify_tauri_binary_or_skip(binary) is False
+
+    def test_populated_hash_passes(self, monkeypatch, tmp_path):
+        from voice_typer.server.autostart_launcher import verify_tauri_binary_or_skip
+
+        binary = _fake_binary(tmp_path, "voice-typer-tauri")
+        sha = hashlib.sha256(binary.read_bytes()).hexdigest()
+        monkeypatch.setenv("VT_TAURI_MANIFEST", self._manifest(tmp_path, "voice-typer-tauri", sha))
+        assert verify_tauri_binary_or_skip(binary) is True
+
+
+# ---------------------------------------------------------------------------
+# (d) idempotency: backend running -> focus, no second spawn
+# ---------------------------------------------------------------------------
+
+
+class TestLogonIdempotentWhenBackendRunning:
+    """A second logon while the backend lives focuses it; nothing is
+    spawned twice."""
+
+    def test_focus_path_spawns_nothing(self, _launcher_noops, _no_backend_pid, monkeypatch):
+        import voice_typer.server.autostart_launcher as launcher
+
+        monkeypatch.setattr(launcher, "_is_port_open", lambda h, p: True)
+        focused = []
+        monkeypatch.setattr(launcher, "_focus_running_app", lambda: focused.append(1) or True)
+
+        def _must_not_spawn(*a, **k):
+            raise AssertionError("no spawn expected on the focus path")
+
+        monkeypatch.setattr(launcher, "_spawn_tauri_host", _must_not_spawn)
+        monkeypatch.setattr(sys, "argv", ["autostart_launcher.py", "--hidden"])
+
+        assert launcher.launch() == 0
+        assert focused == [1]

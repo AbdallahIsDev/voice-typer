@@ -61,7 +61,13 @@ def _entry_targets_this_install(value: str) -> bool:
         ``_tauri_binary()`` fallback used when no Python interpreter is
         available, a bare binary with no launcher in the arguments).
 
-    Conservative by design: if neither check matches, the entry is
+    Certain-stale legacy shapes (Electron runtime, ``-m voice_typer``)
+    are treated as targeting this install when they carry a legacy
+    VoiceTyper name: the Electron era predates multi-install support
+    and no current registrar emits those shapes, so a legacy-named
+    entry referencing them can never belong to a live install.
+
+    Conservative by design: if none of the checks match, the entry is
     treated as NOT belonging to this install and is left alone.
     """
     if not value:
@@ -69,6 +75,11 @@ def _entry_targets_this_install(value: str) -> bool:
     launcher = _autostart_mod._install_identifier()
     if launcher and os.path.normcase(launcher) in os.path.normcase(value):
         return True
+    try:
+        if _autostart_mod._is_legacy_stale_autostart_reference(value):
+            return True
+    except Exception:
+        pass
     try:
         tokens = shlex.split(value, posix=False)
     except ValueError:

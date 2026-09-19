@@ -447,6 +447,8 @@ Enable or disable from **Settings → General → Launch at Login** (app → Set
 - **macOS**: installs a `LaunchAgents` plist in `~/Library/LaunchAgents/`.
 - **Linux**: drops a `.desktop` file in `~/.config/autostart/`.
 
+Packaged installs register the desktop binary directly (no Python launcher hop): entries point at the installed app binary with `--hidden`/`--delay` flags. After upgrading from an older install, run the app once (or toggle Settings → General → Launch at Login off and on) to re-register, then reboot to verify. Stale entries from previous installs are migrated automatically.
+
 Global hotkey detection on every platform uses the out-of-process native binary (see [Hotkey Architecture](#hotkey-architecture)); the legacy `RegisterHotKey`/`GetAsyncKeyState` polling and `pynput` paths remain as fallbacks when the native binary is absent. The package must be installed (`pip install .`) for autostart to work.
 
 ## Auto-Paste Behavior

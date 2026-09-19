@@ -138,6 +138,159 @@ def _resolve_tauri_binary_for_autostart() -> str | None:
         return None
 
 
+def _launcher_script_path() -> Path:
+    """Return the source-tree path of the OS-facing launcher script.
+
+    Single source for the ``autostart_launcher.py`` location so the
+    packaged-install probe and the command builders agree on one path.
+    """
+    return Path(__file__).resolve().parent.parent / "autostart_launcher.py"
+
+
+def _is_frozen_autostart_context() -> bool:
+    """True when running inside a packaged (frozen, no-Python) sidecar.
+
+    Packaged Tauri installs ship no Python interpreter and no
+    ``autostart_launcher.py`` source on disk (Nuitka onefile has no
+    source; ``__file__`` is a build-time/temp phantom). In the frozen
+    sidecar ``sys.executable`` EXISTS (it is the app binary itself) so
+    the old python-missing fallback never fires. Detect the frozen
+    context directly: ``sys.frozen``, a Nuitka marker, or an executable
+    basename that is the app/sidecar binary rather than a Python
+    interpreter.
+    """
+    if getattr(sys, "frozen", False):
+        return True
+    exe_name = os.path.basename(sys.executable or "").lower()
+    if exe_name.startswith("voice-typer-tauri") or exe_name.startswith("python-sidecar"):
+        return True
+    if getattr(sys, "_nuitka_version", None) is not None:
+        return True
+    if getattr(sys, "_nuitka_binary", None) is not None:
+        return True
+    try:
+        import builtins
+
+        if getattr(builtins, "__compiled__", None) is not None:
+            return True
+    except Exception:
+        pass
+    return False
+
+
+def _is_launcher_script_missing() -> bool:
+    """True when ``autostart_launcher.py`` is missing or unimportable.
+
+    Dev checkouts have the real file on disk and an importable
+    ``voice_typer.server.autostart_launcher`` module. Packaged installs
+    have neither (no ``.py`` in bundle.resources, Nuitka onefile has no
+    source, ``__file__`` is a phantom). Either condition means the
+    python-launcher command shape cannot work at logon.
+    """
+    try:
+        if not _launcher_script_path().is_file():
+            return True
+    except OSError:
+        return True
+    try:
+        import importlib.util
+
+        spec = importlib.util.find_spec("voice_typer.server.autostart_launcher")
+        if spec is None or spec.origin is None:
+            return True
+        if spec.origin in ("built-in", "frozen"):
+            return True
+        try:
+            if not Path(spec.origin).is_file():
+                return True
+        except OSError:
+            return True
+    except Exception:
+        return True
+    return False
+
+
+def _packaged_tauri_target() -> tuple[str, list[str]] | None:
+    """Return the direct-binary autostart target for packaged installs.
+
+    Returns ``(binary, ["--hidden", "--delay", N])`` when EITHER the
+    process runs frozen (see :func:`_is_frozen_autostart_context`) OR
+    the launcher script is missing/unimportable (see
+    :func:`_is_launcher_script_missing`), and a Tauri binary resolves.
+    Dev checkouts (real launcher on disk, importable, not frozen)
+    return ``None`` so callers keep the existing python-launcher path
+    byte-identical. The delay default comes from
+    ``task_scheduler._APP_AUTOSTART_DELAY_SECONDS``.
+    """
+    try:
+        packaged = _is_frozen_autostart_context() or _is_launcher_script_missing()
+    except Exception:
+        return None
+    if not packaged:
+        return None
+    tauri_bin = _resolve_tauri_binary_for_autostart()
+    if not tauri_bin:
+        return None
+    try:
+        from voice_typer.server.task_scheduler import _APP_AUTOSTART_DELAY_SECONDS
+
+        delay_str = str(_APP_AUTOSTART_DELAY_SECONDS)
+    except Exception:
+        delay_str = "3"
+    return (tauri_bin, ["--hidden", "--delay", delay_str])
+
+
+def _is_legacy_stale_autostart_reference(value: str) -> bool:
+    """True when an autostart command is CERTAIN-stale legacy shape.
+
+    Certain-stale means the entry can never work in a Tauri install,
+    independent of file existence: it references the Electron runtime
+    (case-insensitive) or the old pip-installed ``-m voice_typer``
+    module invocation. Both predate the Tauri cutover; no current
+    registrar emits them. Conservative by design: returns False for
+    anything else (callers combine this with existence checks).
+    """
+    if not value or not isinstance(value, str):
+        return False
+    if "electron" in value.lower():
+        return True
+    import re
+
+    return re.search(r"(?:^|\s)-m\s+voice_typer", value) is not None
+
+
+def _references_missing_launcher_script(value: str) -> bool:
+    """True when *value* embeds an ``autostart_launcher.py`` path missing on disk.
+
+    Packaged installs have no launcher source (phantom ``__file__`` /
+    build-time temp path); a command line pointing at such a path can
+    never fire at logon. Only tokens ending in
+    ``autostart_launcher.py`` are inspected so generic ``launcher.py``
+    test fixtures and bare-binary Tauri commands are untouched.
+    Returns False when no launcher token is present or every launcher
+    token exists.
+    """
+    if not value or not isinstance(value, str):
+        return False
+    if "autostart_launcher.py" not in value.lower():
+        return False
+    import shlex
+
+    try:
+        tokens = shlex.split(value, posix=False)
+    except ValueError:
+        tokens = value.split()
+    for token in tokens:
+        stripped = token.strip("\"'")
+        if stripped.lower().endswith("autostart_launcher.py"):
+            try:
+                if not Path(stripped).exists():
+                    return True
+            except OSError:
+                return True
+    return False
+
+
 def _autostart_command() -> str:
     """Build the command that the OS autostart entry should run.
 
@@ -187,6 +340,20 @@ def _autostart_command() -> str:
     from voice_typer.server.task_scheduler import _APP_AUTOSTART_DELAY_SECONDS
 
     delay_str = str(_APP_AUTOSTART_DELAY_SECONDS)
+
+    # Packaged (frozen, no-Python) Tauri installs: register the app
+    # binary directly with --hidden --delay (the host honors both
+    # flags). The python-launcher shape below bakes a phantom
+    # launcher.py path that can never fire when no source ships.
+    packaged = _packaged_tauri_target()
+    if packaged is not None:
+        tauri_bin, tauri_args = packaged
+        if is_windows():
+            cmd = subprocess.list2cmdline([tauri_bin, *tauri_args])
+        else:
+            cmd = " ".join(_desktop_quote(arg) for arg in [tauri_bin, *tauri_args])
+        log.info("[AUTOSTART] Resolved packaged autostart command: %s", cmd)
+        return cmd
 
     # The launcher lives next to this module (voice_typer/server/).
     launcher = Path(__file__).resolve().parent.parent / "autostart_launcher.py"

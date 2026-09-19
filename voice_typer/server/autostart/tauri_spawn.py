@@ -179,21 +179,27 @@ def _is_tauri_mode() -> bool:
 
 
 def _tauri_manifest_path() -> Path | None:
-    """Locate ``tauri-binaries.json`` at the repo/install root.
+    """Locate ``tauri-binaries.json`` for installed/frozen layouts.
 
-    The manifest ships with the installed app (it is written by
+    The manifest is written by
     ``scripts/build/update_tauri_manifests.py`` during CI and read
-    back into the repo so the launcher can find it at runtime). The
-    launcher looks in two places, in order:
+    back at runtime. The launcher looks in order (first hit wins):
 
     1. An explicit ``VT_TAURI_MANIFEST`` env override (used by
        installers that place the manifest at a non-standard path, and
        by tests).
-    2. ``<repo-root>/tauri-binaries.json``: the canonical committed
-       location (mirrors ``tests/test_tauri_binaries_manifest.py``
-       which resolves the same relative path from the repo root).
+    2. Exe-adjacent candidates for frozen/installed layouts (the
+       ``__file__``-relative repo root is garbage inside a Nuitka
+       onefile temp extraction, so the frozen sidecar dir is checked
+       first): ``Path(sys.executable).parent``,
+       ``<exe-dir>/resources/``, then the parent chain up 3 levels.
+    3. ``Path(__file__)`` parents chain (dev checkout: the canonical
+       committed ``<repo-root>/tauri-binaries.json``, mirrors
+       ``tests/test_tauri_binaries_manifest.py``).
+    4. ``~/.voice-typer/tauri-binaries.json`` installed copy, if ever
+       shipped.
 
-    Returns ``None`` when the manifest cannot be found; the caller
+    Returns ``None`` only after all miss; the caller
     (``verify_tauri_binary_or_skip``) then fails closed.
     """
     override = os.environ.get("VT_TAURI_MANIFEST")
@@ -202,14 +208,57 @@ def _tauri_manifest_path() -> Path | None:
         if p.is_file():
             return p
         log.warning("[AUTOSTART] VT_TAURI_MANIFEST set but not a file: %s", override)
-    # Repo root = four parents up from
-    # voice_typer/server/autostart/tauri_spawn.py (the pre-split single
-    # file used three parents from voice_typer/server/autostart_launcher.py
-    # , same directory, one package level deeper now).
-    repo_root = Path(__file__).resolve().parents[3]
-    candidate = repo_root / "tauri-binaries.json"
-    if candidate.is_file():
-        return candidate
+    # (2) Exe-adjacent: frozen sidecar dir + resources subdir + parent
+    # chain up 3 levels. Guarded: sys.executable may be unset/odd in
+    # embedded interpreters, never let probing raise.
+    try:
+        exe_dir = Path(sys.executable).resolve().parent
+    except (OSError, RuntimeError):
+        exe_dir = None
+    if exe_dir is not None:
+        for candidate in (
+            exe_dir / "tauri-binaries.json",
+            exe_dir / "resources" / "tauri-binaries.json",
+        ):
+            try:
+                if candidate.is_file():
+                    log.debug("[AUTOSTART] _tauri_manifest_path: found exe-adjacent manifest: %s", candidate)
+                    return candidate
+            except OSError:
+                continue
+        try:
+            exe_parents = list(exe_dir.parents)[:3]
+        except (OSError, RuntimeError):
+            exe_parents = []
+        for parent in exe_parents:
+            candidate = parent / "tauri-binaries.json"
+            try:
+                if candidate.is_file():
+                    log.debug("[AUTOSTART] _tauri_manifest_path: found exe-parent manifest: %s", candidate)
+                    return candidate
+            except OSError:
+                continue
+    # (3) Dev checkout: walk the __file__ parents chain (superset of
+    # the historic parents[3] repo-root lookup).
+    try:
+        file_parents = Path(__file__).resolve().parents
+    except (OSError, RuntimeError):
+        file_parents = ()
+    for parent in file_parents:
+        candidate = parent / "tauri-binaries.json"
+        try:
+            if candidate.is_file():
+                return candidate
+        except OSError:
+            continue
+    # (4) Installed copy in the user config dir, if ever shipped.
+    try:
+        home_candidate = Path.home() / ".voice-typer" / "tauri-binaries.json"
+        if home_candidate.is_file():
+            log.debug("[AUTOSTART] _tauri_manifest_path: found config-dir manifest: %s", home_candidate)
+            return home_candidate
+    except (OSError, RuntimeError):
+        pass
     return None
 
 

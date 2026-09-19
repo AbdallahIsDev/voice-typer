@@ -25,9 +25,13 @@ from __future__ import annotations
 
 import hashlib
 import json
+import sys
+from pathlib import Path
 
+from voice_typer.server.autostart import tauri_spawn as _tauri_spawn_mod
 from voice_typer.server.autostart_launcher import (
     _tauri_manifest_key,
+    _tauri_manifest_path,
     verify_tauri_binary_or_skip,
 )
 
@@ -162,3 +166,67 @@ class TestTauriManifestKey:
     def test_returns_string(self):
         assert isinstance(_tauri_manifest_key(), str)
         assert _tauri_manifest_key()
+
+
+class TestTauriManifestPathExeAdjacent:
+    """Frozen/installed layouts resolve via the exe-adjacent candidates."""
+
+    def _write_manifest_at(self, path: Path, binary_name: str, sha: str) -> None:
+        manifest = {
+            "version": 1,
+            "binaries": {
+                binary_name: {
+                    "sha256": {_tauri_manifest_key(): sha},
+                    "_platforms": [],
+                    "_install_paths": [],
+                }
+            },
+        }
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    def _isolate_home(self, tmp_path, monkeypatch):
+        empty_home = tmp_path / "home_empty"
+        empty_home.mkdir(exist_ok=True)
+        monkeypatch.setattr(Path, "home", classmethod(lambda cls: empty_home))
+
+    def test_manifest_found_exe_adjacent_when_repo_root_missing(self, tmp_path, monkeypatch):
+        """Exe-dir manifest wins when the __file__ tree has no manifest."""
+        monkeypatch.delenv("VT_TAURI_MANIFEST", raising=False)
+        self._isolate_home(tmp_path, monkeypatch)
+        # Fake __file__ tree with no manifest anywhere above it.
+        fake_file = tmp_path / "repo_fake" / "voice_typer" / "server" / "autostart" / "tauri_spawn.py"
+        fake_file.parent.mkdir(parents=True)
+        fake_file.write_text("# fake", encoding="utf-8")
+        monkeypatch.setattr(_tauri_spawn_mod, "__file__", str(fake_file))
+        # Exe-adjacent manifest with a matching hash.
+        exe_dir = tmp_path / "exe_dir"
+        exe_dir.mkdir()
+        binary = exe_dir / "voice-typer-tauri"
+        binary.write_bytes(b"exe-adjacent binary bytes")
+        sha = hashlib.sha256(binary.read_bytes()).hexdigest()
+        self._write_manifest_at(exe_dir / "tauri-binaries.json", "voice-typer-tauri", sha)
+        monkeypatch.setattr(sys, "executable", str(exe_dir / "python-sidecar.exe"))
+        assert _tauri_manifest_path() == exe_dir / "tauri-binaries.json"
+        assert verify_tauri_binary_or_skip(binary) is True
+
+    def test_frozen_file_tmp_still_resolves_via_exe_resources_dir(self, tmp_path, monkeypatch):
+        """Nuitka onefile temp __file__ still resolves via exe resources/."""
+        monkeypatch.delenv("VT_TAURI_MANIFEST", raising=False)
+        self._isolate_home(tmp_path, monkeypatch)
+        # Simulated Nuitka onefile temp extraction path (garbage root).
+        fake_file = tmp_path / "_MEI12345" / "voice_typer" / "server" / "autostart" / "tauri_spawn.py"
+        fake_file.parent.mkdir(parents=True)
+        fake_file.write_text("# fake frozen", encoding="utf-8")
+        monkeypatch.setattr(_tauri_spawn_mod, "__file__", str(fake_file))
+        # Manifest lives in <exe-dir>/resources/ (installed layout).
+        exe_dir = tmp_path / "install"
+        resources_dir = exe_dir / "resources"
+        resources_dir.mkdir(parents=True)
+        binary = exe_dir / "voice-typer-tauri"
+        binary.write_bytes(b"frozen layout binary bytes")
+        sha = hashlib.sha256(binary.read_bytes()).hexdigest()
+        self._write_manifest_at(resources_dir / "tauri-binaries.json", "voice-typer-tauri", sha)
+        monkeypatch.setattr(sys, "executable", str(exe_dir / "voice-typer-sidecar.exe"))
+        assert _tauri_manifest_path() == resources_dir / "tauri-binaries.json"
+        assert verify_tauri_binary_or_skip(binary) is True

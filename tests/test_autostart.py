@@ -158,7 +158,10 @@ class TestValidateRunkeyCommand:
         Windows (AUTOSTART-QUOTING-FIX)."""
         from voice_typer.server.server_platform.autostart_windows import _validate_runkey_command
 
-        existing = {r"C:\Users\11\.voice-typer\venv\Scripts\pythonw.exe"}
+        existing = {
+            r"C:\Users\11\.voice-typer\venv\Scripts\pythonw.exe",
+            r"C:\Users\11\voice-typer\server\autostart_launcher.py",
+        }
         monkeypatch.setattr(Path, "exists", lambda self: str(self) in existing)
         value = (
             r'"C:\Users\11\.voice-typer\venv\Scripts\pythonw.exe" '
